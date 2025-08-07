@@ -24,18 +24,19 @@ jobs:
         with:
           node-version: 20
           cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
 
-     # - name: Install dependencies
-      #  run: npm ci
+      - name: Install dependencies
+        run: npm ci
 
-     # - name: Type check
-      #  run: npx tsc --noEmit
+      - name: Type check
+        run: npx tsc --noEmit
 
-     # - name: Validate Prisma schema
-      #  run: npx prisma validate
+      - name: Validate Prisma schema
+        run: npx prisma validate
 
-     # - name: Lint
-      #  run: npx eslint src --ext .ts
+      - name: Lint
+        run: npx eslint src --ext .ts
 
       # TODO: Unit tests
       # - name: 🧪 Run Tests
