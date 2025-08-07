@@ -5,7 +5,7 @@ const prisma = new PrismaClient();
 export const resolvers = {
   Query: {
     users: () => prisma.user.findMany({ include: { rides: true } }),
-    user: (_: any, args: { id: string }) =>
+    user: (args: { id: string }) =>
       prisma.user.findUnique({
         where: { id: args.id },
         include: { rides: true },
