@@ -1,0 +1,109 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id             String    @id @default(uuid())
+  email          String    @unique
+  garminUserId   String?   @unique
+  accessToken    String?
+  refreshToken   String?
+  tokenExpiresAt DateTime?
+
+  rides Ride[]
+  bikes Bike[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Ride {
+  id     String @id @default(uuid())
+  user   User   @relation(fields: [userId], references: [id])
+  userId String
+
+  garminActivityId    String   @unique
+  startTime           DateTime
+  durationSeconds     Int
+  distanceMeters      Float
+  elevationGainMeters Float
+  averageHr           Int?
+
+  rideType RideType
+  bike     Bike?    @relation(fields: [bikeId], references: [id])
+  bikeId   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Bike {
+  id     String @id @default(uuid())
+  user   User   @relation(fields: [userId], references: [id])
+  userId String
+
+  nickname      String
+  manufacturer  String
+  model         String
+  travelForkMm  Int?
+  travelShockMm Int?
+  notes         String?
+
+  components Component[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  Ride      Ride[]
+}
+
+model Component {
+  id     String @id @default(uuid())
+  bike   Bike   @relation(fields: [bikeId], references: [id])
+  bikeId String
+
+  type              ComponentType
+  brand             String
+  model             String
+  installedAt       DateTime
+  hoursUsed         Float         @default(0)
+  serviceDueAtHours Float?
+  notes             String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+enum RideType {
+  TRAIL_RIDE
+  ENDURO
+  CROSS_COUNTRY
+  DIRT_JUMP
+  SHUTTLE
+  DOWNHILL
+}
+
+enum ComponentType {
+  FORK
+  SHOCK
+  BRAKES
+  DRIVETRAIN
+  TIRES
+  WHEELS
+  DROPPER
+  PEDALS
+  CHAIN
+  CASSETTE
+  OTHER
+}
