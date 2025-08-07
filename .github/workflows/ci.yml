@@ -1,0 +1,47 @@
+name: LoamLogger CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+
+jobs:
+  backend-ci:
+    name: Backend CI
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: ./backend
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Validate Prisma schema
+        run: npx prisma validate
+
+      - name: Lint
+        run: npx eslint src --ext .ts
+
+      # TODO: Unit tests
+      # - name: 🧪 Run Tests
+      #   run: npm test
+
+  # TODO: frontend-ci:
+  #   name: Frontend CI
+  #   runs-on: ubuntu-latest
+  #   ... (add later for React app)
