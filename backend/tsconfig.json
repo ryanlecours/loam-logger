@@ -7,6 +7,7 @@
 
     // Environment Settings
     // See also https://aka.ms/tsconfig/module
+    "allowImportingTsExtensions": true,
     "module": "nodenext",
     "target": "ES2020",
     // For nodejs:
@@ -18,6 +19,7 @@
     "sourceMap": true,
     "declaration": true,
     "declarationMap": true,
+    "noEmit": true,
 
     // Stricter Typechecking Options
     "noUncheckedIndexedAccess": true,
@@ -29,7 +31,6 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
-
     "strict": true,
     "verbatimModuleSyntax": true,
     "isolatedModules": true,
