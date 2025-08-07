@@ -37,8 +37,8 @@ model Ride {
   garminActivityId    String   @unique
   startTime           DateTime
   durationSeconds     Int
-  distanceMeters      Float
-  elevationGainMeters Float
+  distanceMiles      Float
+  elevationGainFeet Float
   averageHr           Int?
 
   rideType RideType
