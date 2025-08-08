@@ -7,8 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview",
-    "postinstall": "npx tailwindcss init -p"
+    "preview": "vite preview"
   },
   "dependencies": {
     "@apollo/client": "^3.13.9",
