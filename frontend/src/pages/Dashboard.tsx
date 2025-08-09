@@ -6,10 +6,10 @@ import RideStatsCard from "../components/RideStatsCard.tsx";
 
 export default function Dashboard() {
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
+    <div className="min-h-screen bg-app p-6">
       {/* Header */}
       <header className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold text-gray-800">
+        <h1 className="text-3xl font-bold">
           LoamLogger Dashboard
         </h1>
         <Link
@@ -22,7 +22,7 @@ export default function Dashboard() {
 
       {/* Welcome */}
       <section className="mb-6">
-        <p className="text-lg text-gray-700">
+        <p className="text-lg text-accent-contrast">
           Welcome back! Here's a quick look at your mountain biking activity and
           gear status.
         </p>
@@ -31,7 +31,7 @@ export default function Dashboard() {
       {/* Placeholder Grid */}
       <section className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* Ride Summary */}
-        <div className="bg-white rounded-md shadow p-4">
+        <div className="bg-surface border rounded-md shadow p-4">
           <h2 className="text-xl font-semibold mb-2">Recent Rides</h2>
           <div className="space-y-4">
             {mockRides.map((ride) => (
@@ -54,12 +54,12 @@ export default function Dashboard() {
           </div>
         </div>
         { /* Ride Stats */}
-        <div className="bg-white rounded-md shadow p-4 w-full">
+        <div className="bg-surface border rounded-md shadow p-4 w-full">
       <RideStatsCard />
       {/* Other dashboard components like BikeCards, RideCards, etc. */}
     </div>
         {/* Gear Summary */}
-        <div className="bg-white rounded-md shadow p-4 w-full">
+        <div className="bg-surface border rounded-md shadow p-4 w-full">
           <h2 className="text-xl font-semibold mb-2">Bike / Gear Tracker</h2>
           <div className="p-4 space-y-6">
       {bikes.map(bike => (
