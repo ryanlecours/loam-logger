@@ -11,14 +11,13 @@ export default function Navbar() {
   ];
 
   return (
-    <nav className="bg-white shadow-sm sticky top-0 z-50">
+    <nav className="bg-surface-2 shadow-sm sticky top-0 z-50">
       <div className="mx-auto px-4">
         <div className="flex justify-between items-center h-16">
           {/* App name */}
-          <Link to="/" className="text-xl font-bold text-gray-800">
+          <Link to="/" className="text-xl font-bold">
             LoamLogger
           </Link>
-
           {/* Links */}
           <div className="flex gap-6">
             {navLinks.map(({ label, path }) => (
@@ -26,7 +25,7 @@ export default function Navbar() {
                 key={label}
                 to={path}
                 className={`text-sm font-medium hover:text-black ${
-                  pathname === path ? 'text-black' : 'text-gray-500'
+                  pathname === path ? 'text-accent' : 'text-accent-contrast'
                 }`}
               >
                 {label}
