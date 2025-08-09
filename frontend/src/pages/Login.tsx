@@ -16,18 +16,18 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-gray-100 p-6">
-      <div className="max-w-md w-full bg-white shadow-md rounded-md p-8 text-center">
-        <h2 className="text-2xl font-bold mb-4 text-gray-800">Log In to LoamLogger</h2>
-        <p className="text-gray-600 mb-6">Authenticate to access your rides and gear.</p>
+    <div className="min-h-screen flex flex-col items-center justify-center p-6">
+      <div className="max-w-md w-full shadow-md rounded-md p-8 text-center">
+        <h2 className="text-2xl font-bold mb-4">Log In to LoamLogger</h2>
+        <p className="m-2">Authenticate to access your rides and gear.</p>
 
         <button
           onClick={handleLogin}
           disabled={loading}
-          className={`flex items-center justify-center gap-3 w-full py-3 rounded-md font-medium transition ${
+          className={`flex items-center justify-center gap-3 w-full py-3 rounded-md font-medium transition button-primary ${
             loading
-              ? 'bg-gray-400 cursor-not-allowed'
-              : 'bg-black text-white hover:bg-gray-800'
+              ? ' btn-disabled'
+              : 'btn-primary'
           }`}
         >
              {loading ? (
@@ -53,7 +53,7 @@ export default function Login() {
             </svg>
           ) : (
             <>
-        <FaMountain size={18} />
+        <FaMountain size={18} className='text-primary' />
           Continue with Garmin
         </>
 
