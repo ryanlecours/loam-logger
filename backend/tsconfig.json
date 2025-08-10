@@ -8,12 +8,12 @@
     // Environment Settings
     // See also https://aka.ms/tsconfig/module
     "allowImportingTsExtensions": true,
-    "module": "nodenext",
+    "module": "NodeNext",
     "target": "ES2020",
     // For nodejs:
     "lib": ["ES2020"],
     "types": ["node"],
-    "moduleResolution": "nodenext",
+    "moduleResolution": "NodeNext",
 
     // Other Outputs
     "sourceMap": true,

@@ -3,6 +3,7 @@
   --bg:                243 239 231; /* Pale Clay */
   --surface:           235 227 215; /* Weathered Limestone */
   --surface-2:         224 210 187; /* Sandstone */
+  --surface-accent:    224 140 90;
   --text:              44 34 24;    /* Rich Soil */
   --text-muted:        109 87 63;   /* Dried Earth */
 
@@ -30,6 +31,7 @@
   --bg:                35 50 45;     /* #23322D  deep forest */
   --surface:           46 75 71;     /* #2E4B47  forest */
   --surface-2:         136 107 85;   /* #886B55  loamy panel/accent surface */
+  --surface-accent:    186 84 39;
   --text:              253 216 167;  /* #FDD8A7  warm sand */
   --text-muted:        150 128 108;  /* #96806C  clay */
 
@@ -61,6 +63,7 @@
 .bg-app           { background: rgb(var(--bg)); color: rgb(var(--text)); }
 .bg-surface       { background: rgb(var(--surface)); }
 .bg-surface-2     { background: rgb(var(--surface-2)); }
+.bg-accent        { background: rgb(var(--surface-accent)); }
 .text-muted       { color: rgb(var(--text-muted)); }
 .border-app       { border-color: rgb(var(--border)); }
 .bg-loam-gradient { background-image: var(--loam-gradient); }
@@ -92,6 +95,16 @@
   border-radius: 0.5rem;
   padding: 0.5rem 1rem;
   font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s ease, opacity 0.2s ease;
+}
+.btn-accent {
+  background-color: rgb(var(--bg));
+  color: rgb(var(--primary-foreground));
+  border: 1px solid transparent;
+  border-radius: 0.5rem; /* rounded-lg */
+  padding: 0.5rem 1rem;  /* py-2 px-4 */
+  font-weight: 600;
   cursor: pointer;
   transition: background-color 0.2s ease, opacity 0.2s ease;
 }

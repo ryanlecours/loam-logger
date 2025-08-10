@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { FaMountain } from 'react-icons/fa';
 import { useNavigate } from 'react-router-dom';
+import ConnectGarminLink from '../components/ConnectGarminLink';
 
 export default function Login() {
   const navigate = useNavigate();
@@ -17,17 +18,17 @@ export default function Login() {
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-6">
-      <div className="max-w-md w-full shadow-md rounded-md p-8 text-center">
+      <div className="bg-surface max-w-md w-full shadow-xl rounded-md p-8 text-center">
         <h2 className="text-2xl font-bold mb-4">Log In to LoamLogger</h2>
         <p className="m-2">Authenticate to access your rides and gear.</p>
 
         <button
           onClick={handleLogin}
           disabled={loading}
-          className={`flex items-center justify-center gap-3 w-full py-3 rounded-md font-medium transition button-primary ${
+          className={`flex items-center justify-center gap-3 w-full py-3 rounded-md font-medium transition ${
             loading
               ? ' btn-disabled'
-              : 'btn-primary'
+              : 'btn-accent'
           }`}
         >
              {loading ? (
@@ -55,11 +56,13 @@ export default function Login() {
             <>
         <FaMountain size={18} className='text-primary' />
           Continue with Garmin
-        </>
 
+        </>
         /* TODO: Google or Email later */
         /* <button className="mt-4 w-full bg-blue-600 text-white py-3 rounded-md">Login with Google</button> */
           )}
+          
+        <ConnectGarminLink></ConnectGarminLink>
           </button>
       </div>
     </div>

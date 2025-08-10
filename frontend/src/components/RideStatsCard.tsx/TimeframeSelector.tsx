@@ -13,7 +13,7 @@ export default function TimeframeSelector({ selected, onSelect }: Props) {
         <button
           key={tf}
           onClick={() => onSelect(tf)}
-          className={`px-3 py-1 rounded border ${selected === tf ? 'bg-blue-500 text-white' : 'bg-white border-gray-300'}`}
+          className={`px-3 py-1 rounded border ${selected === tf ? 'bg-accent' : 'border'}`}
         >
           {tf}
         </button>
