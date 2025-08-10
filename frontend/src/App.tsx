@@ -10,6 +10,7 @@ import Settings from './pages/Settings';
 import NavBar from './components/NavBar';
 
 import './App.css';
+import AuthComplete from './pages/AuthComplete';
 
 function Page({ children }: { children: React.ReactNode }) {
   const reduce = useReducedMotion();
@@ -43,6 +44,7 @@ function AppRoutes() {
           <Route path="/dashboard" element={<Page><Dashboard /></Page>} />
           <Route path="/rides" element={<Page><Rides /></Page>} />
           <Route path="/settings" element={<Page><Settings /></Page>} />
+          <Route path="/auth/complete" element={<AuthComplete />} />
           <Route path="*" element={<Page><NotFound /></Page>} />
         </Routes>
       </AnimatePresence>
