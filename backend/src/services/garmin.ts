@@ -1,31 +1,18 @@
 // src/services/garmin.ts
 import { prisma } from '../lib/prisma.ts'
 
-/**
- * Environment
- * GARMIN_API_BASE      e.g. "https://apis.garmin.com/..." (base URL without trailing slash)
- * GARMIN_TOKEN_URL     OAuth token endpoint
- * GARMIN_CLIENT_ID
- * GARMIN_CLIENT_SECRET (if required by your Garmin app type)
- */
 const API_BASE = (process.env.GARMIN_API_BASE || '').replace(/\/$/, '')
 const TOKEN_URL = process.env.GARMIN_TOKEN_URL || ''
 const CLIENT_ID = process.env.GARMIN_CLIENT_ID || ''
-const CLIENT_SECRET = process.env.GARMIN_CLIENT_SECRET // optional depending on app type
+const CLIENT_SECRET = process.env.GARMIN_CLIENT_SECRET // optional
 
-if (!API_BASE || !TOKEN_URL || !CLIENT_ID) {
-  // Fail fast on boot if desired; or remove this and handle at call sites.
-  // console.warn('GARMIN env not fully set (GARMIN_API_BASE, GARMIN_TOKEN_URL, GARMIN_CLIENT_ID).')
-}
-
-/** Stored token shape (matches your Prisma model) */
+// Stored token shape
 type TokenRecord = {
   accessToken: string
-  refreshToken?: string | null
+  refreshToken?: string | null // note: can be undefined, null, or string
   expiresAt: Date
 }
 
-/** Fetch the current token record for the user/provider=garmin */
 async function getToken(userId: string): Promise<TokenRecord | null> {
   const t = await prisma.oauthToken.findUnique({
     where: { userId_provider: { userId, provider: 'garmin' } },
@@ -34,24 +21,26 @@ async function getToken(userId: string): Promise<TokenRecord | null> {
   return t ?? null
 }
 
-/** Save/overwrite the token after refresh */
-async function saveToken(userId: string, tok: TokenRecord): Promise<void> {
-  await prisma.oauthToken.update({
-    where: { userId_provider: { userId, provider: 'garmin' } },
-    data: {
-      accessToken: tok.accessToken,
-      refreshToken: tok.refreshToken ?? undefined,
-      expiresAt: tok.expiresAt,
-    },
-  })
-}
-
-/** True if token is expiring within N seconds */
 function isExpiringSoon(expiresAt: Date, skewSeconds = 60): boolean {
   return Date.now() + skewSeconds * 1000 >= new Date(expiresAt).getTime()
 }
 
-/** Refresh access token via refresh_token grant */
+/** Update token row; never pass `undefined` for refreshToken */
+async function saveToken(userId: string, tok: TokenRecord): Promise<void> {
+  const data: Parameters<typeof prisma.oauthToken.update>[0]['data'] = {
+    accessToken: tok.accessToken,
+    expiresAt: tok.expiresAt,
+    // only include the field if you actually want to change it
+    ...(tok.refreshToken !== undefined ? { refreshToken: tok.refreshToken } : {}),
+  }
+
+  await prisma.oauthToken.update({
+    where: { userId_provider: { userId, provider: 'garmin' } },
+    data,
+  })
+}
+
+/** Refresh access token via refresh_token grant (with proper null handling) */
 async function refreshAccessToken(userId: string, current: TokenRecord): Promise<TokenRecord> {
   if (!current.refreshToken) {
     throw new Error('No refresh token available')
@@ -77,25 +66,27 @@ async function refreshAccessToken(userId: string, current: TokenRecord): Promise
 
   type RefreshResp = {
     access_token: string
-    refresh_token?: string
+    refresh_token?: string // may be omitted
     expires_in?: number
-    token_type?: string
-    scope?: string
   }
   const j = (await res.json()) as RefreshResp
+
+  // If provider omitted refresh_token, keep the existing one; otherwise use provided (or null).
+  const nextRefresh: string | null | undefined =
+    j.refresh_token !== undefined ? (j.refresh_token ?? null) : undefined
+
   const next: TokenRecord = {
     accessToken: j.access_token,
-    refreshToken: j.refresh_token ?? current.refreshToken ?? null,
+    refreshToken: nextRefresh ?? current.refreshToken ?? null,
     expiresAt: new Date(Date.now() + (j.expires_in ?? 3600) * 1000),
   }
-  await saveToken(userId, next)
+
+  // Persist without ever sending `undefined`
+  await saveToken(userId, { ...next, refreshToken: nextRefresh ?? current.refreshToken ?? null })
   return next
 }
 
-/**
- * Get a valid access token, refreshing if needed.
- * Throws if user has no token stored yet.
- */
+/** Get a valid access token, refreshing if needed */
 export async function getAccessToken(userId: string): Promise<string> {
   const rec = await getToken(userId)
   if (!rec) throw new Error('No Garmin token for user')
@@ -107,19 +98,15 @@ export async function getAccessToken(userId: string): Promise<string> {
   return rec.accessToken
 }
 
-/** Join API base + path + query safely */
+/** Build URL safely */
 function buildUrl(path: string, query?: Record<string, string>): string {
   const p = path.startsWith('/') ? path : `/${path}`
   const url = new URL(API_BASE + p)
-  if (query) {
-    for (const [k, v] of Object.entries(query)) {
-      if (v != null) url.searchParams.set(k, String(v))
-    }
-  }
+  if (query) for (const [k, v] of Object.entries(query)) url.searchParams.set(k, v)
   return url.toString()
 }
 
-/** Low-level GET with auto-refresh-on-401 retry */
+/** GET with one-time 401/403 refresh retry */
 export async function apiGet<T>(
   userId: string,
   path: string,
@@ -130,7 +117,6 @@ export async function apiGet<T>(
     headers: { authorization: `Bearer ${token}`, accept: 'application/json' },
   })
 
-  // If unauthorized, try one refresh and retry once
   if (res.status === 401 || res.status === 403) {
     const rec = await getToken(userId)
     if (rec) {
@@ -149,21 +135,18 @@ export async function apiGet<T>(
   return (await res.json()) as T
 }
 
-/** Example response shape (adjust once you know Garmin’s fields) */
 export type GarminActivity = {
   id: string | number
   startTime?: string
   duration?: number
   distance?: number
   elevationGain?: number
-  // ...add more as needed
 }
 
-/** High-level helper used by your test route */
 export async function garminGetActivities(
   userId: string,
   params?: Record<string, string>
 ): Promise<GarminActivity[]> {
-  // Update the path to whatever Garmin’s activities endpoint is for your app scope
+  // adjust path to the real endpoint when you have it
   return apiGet<GarminActivity[]>(userId, '/activities', params)
 }
