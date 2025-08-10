@@ -6,7 +6,6 @@
 
 generator client {
   provider = "prisma-client-js"
-  output   = "../src/generated/prisma"
 }
 
 datasource db {
@@ -17,6 +16,7 @@ datasource db {
 model User {
   id             String    @id @default(uuid())
   email          String    @unique
+  name           String
   garminUserId   String?   @unique
   accessToken    String?
   refreshToken   String?
@@ -25,8 +25,23 @@ model User {
   rides Ride[]
   bikes Bike[]
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  tokens    OauthToken[]
+}
+
+model OauthToken {
+  id           String   @id @default(cuid())
+  userId       String
+  provider     String // 'garmin'
+  accessToken  String
+  refreshToken String?
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  User         User     @relation(fields: [userId], references: [id])
+
+  @@unique([userId, provider])
 }
 
 model Ride {
@@ -34,12 +49,12 @@ model Ride {
   user   User   @relation(fields: [userId], references: [id])
   userId String
 
-  garminActivityId    String   @unique
-  startTime           DateTime
-  durationSeconds     Int
-  distanceMiles      Float
+  garminActivityId  String   @unique
+  startTime         DateTime
+  durationSeconds   Int
+  distanceMiles     Float
   elevationGainFeet Float
-  averageHr           Int?
+  averageHr         Int?
 
   rideType RideType
   bike     Bike?    @relation(fields: [bikeId], references: [id])
