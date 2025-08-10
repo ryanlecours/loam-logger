@@ -5,25 +5,19 @@ import {
   type Response,
   type RequestHandler,
 } from 'express'
-import { garminGetActivities } from '../services/garmin.ts' // adjust if you use path aliases
+import { garminGetActivities } from '../services/garmin.ts'
 
 const r: Router = createRouter()
 
-// Minimal auth guard for this route (uses your req.user augmentation)
+// ✅ Always return void: send response, then `return;`
 const requireUser: RequestHandler = (req, res, next) => {
-  if (!req.user?.id) return res.status(401).json({ ok: false, error: 'unauthorized' })
+  if (!req.user?.id) {
+    res.status(401).json({ ok: false, error: 'unauthorized' })
+    return
+  }
   next()
 }
 
-/**
- * GET /me/garmin/activities
- * Query params:
- *  - limit?: number (1..100, default 5)
- *  - from?: ISO8601 string
- *  - to?:   ISO8601 string
- *
- * Returns: { ok: true, data: unknown[] } or { ok: false, error: string }
- */
 type Params = Record<string, never>
 type Query = { limit?: string; from?: string; to?: string }
 type SuccessBody = { ok: true; data: unknown[] }
@@ -37,9 +31,7 @@ r.get<Params, SuccessBody | ErrorBody, never, Query>(
     res: Response<SuccessBody | ErrorBody>
   ) => {
     try {
-      const userId = req.user!.id // safe due to requireUser
-
-      // Parse & clamp query
+      const userId = req.user!.id // safe after requireUser
       const parsedLimit = Number.isFinite(Number(req.query.limit))
         ? Math.min(100, Math.max(1, Number(req.query.limit)))
         : 5
@@ -49,10 +41,11 @@ r.get<Params, SuccessBody | ErrorBody, never, Query>(
       if (req.query.to) params.to = req.query.to
 
       const data = await garminGetActivities(userId, params)
-      return res.status(200).json({ ok: true, data })
+      res.status(200).json({ ok: true, data })
+      return
     } catch (e: any) {
-      const msg = e?.message ?? 'failed'
-      return res.status(502).json({ ok: false, error: msg })
+      res.status(502).json({ ok: false, error: e?.message ?? 'failed' })
+      return
     }
   }
 )
