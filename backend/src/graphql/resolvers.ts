@@ -1,19 +1,23 @@
-import { PrismaClient } from '@prisma/client';
+import type { GraphQLContext } from '../server.ts';
+import { prisma } from '../lib/prisma.ts';
 
-const prisma = new PrismaClient();
+type UserArgs = { id: string };
 
 export const resolvers = {
   Query: {
-    user: (args: { id: string }) =>
+    user: (args: UserArgs) =>
       prisma.user.findUnique({
         where: { id: args.id },
         include: { rides: true },
       }),
-    rides: () => prisma.ride.findMany(),
-    me: async (_: unknown, __: unknown, { req }: any) => {
-      const id = req.user?.id;
+
+    rides: () =>
+      prisma.ride.findMany(),
+
+    me: async (ctx: GraphQLContext) => {
+      const id = ctx.user?.id;
       return id ? prisma.user.findUnique({ where: { id } }) : null;
     },
   },
-  //TODO: unit formatting logic could go here later
+  // TODO: unit formatting logic could go here later
 };
