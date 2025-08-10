@@ -5,7 +5,7 @@ export function randomString(len = 64) {
 }
 
 export function base64url(input: ArrayBuffer) {
-  let str = Buffer.from(input).toString('base64')
+  const str = Buffer.from(input).toString('base64')
   return str.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 }
 

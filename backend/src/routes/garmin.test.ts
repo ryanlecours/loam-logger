@@ -9,7 +9,6 @@ import { garminGetActivities } from '../services/garmin.ts'
 
 const r: Router = createRouter()
 
-// ✅ Always return void: send response, then `return;`
 const requireUser: RequestHandler = (req, res, next) => {
   if (!req.user?.id) {
     res.status(401).json({ ok: false, error: 'unauthorized' })
@@ -43,8 +42,9 @@ r.get<Params, SuccessBody | ErrorBody, never, Query>(
       const data = await garminGetActivities(userId, params)
       res.status(200).json({ ok: true, data })
       return
-    } catch (e: any) {
-      res.status(502).json({ ok: false, error: e?.message ?? 'failed' })
+    } catch (err) {
+        const msg = err instanceof Error ? err.message : 'failed'
+      res.status(502).json({ ok: false, error: msg })
       return
     }
   }
