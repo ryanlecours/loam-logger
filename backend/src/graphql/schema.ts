@@ -14,10 +14,11 @@ export const typeDefs = gql`
     id: ID!
     email: String!
     rides: [Ride!]!
+    name: String
   }
 
   type Query {
-    users: [User!]!
+    me: User
     user(id: ID!): User
     rides: [Ride!]!
   }
