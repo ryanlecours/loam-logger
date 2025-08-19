@@ -49,16 +49,20 @@ model Ride {
   user   User   @relation(fields: [userId], references: [id])
   userId String
 
-  garminActivityId  String   @unique
+  garminActivityId  String?   @unique
   startTime         DateTime
   durationSeconds   Int
   distanceMiles     Float
   elevationGainFeet Float
   averageHr         Int?
 
-  rideType RideType
+  rideType          String      @db.Text
   bike     Bike?    @relation(fields: [bikeId], references: [id])
   bikeId   String?
+
+  notes    String?
+  trailSystem  String?
+  location     String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -98,15 +102,6 @@ model Component {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-}
-
-enum RideType {
-  TRAIL_RIDE
-  ENDURO
-  CROSS_COUNTRY
-  DIRT_JUMP
-  SHUTTLE
-  DOWNHILL
 }
 
 enum ComponentType {
