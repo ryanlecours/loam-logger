@@ -1,13 +1,52 @@
 import { gql } from 'graphql-tag';
 
 export const typeDefs = gql`
+
+  enum RideType {
+    TRAIL
+    ENDURO
+    COMMUTE
+    ROAD
+    GRAVEL
+    TRAINER
+  }
+
   type Ride {
     id: ID!
-    date: String!
+    userId: ID!
+    garminActivityId: String
+    startTime: String!
+    durationSeconds: Int!
     distanceMiles: Float!
-    durationMin: Float!
-    elevationFeet: Float!
+    elevationGainFeet: Float!
+    averageHr: Int
+    rideType: String!
+    bikeId: ID
     notes: String
+    trailSystem: String
+    location: String
+    createdAt: String!
+    updatedAt: String!
+  }
+
+  input AddRideInput {
+    startTime: String!
+    durationSeconds: Int!
+    distanceMiles: Float!
+    elevationGainFeet: Float!
+    averageHr: Int
+    rideType: String!
+    bikeId: ID
+    notes: String
+    trailSystem: String
+    location: String
+  }
+
+  type DeleteRideResult { ok: Boolean!, id: ID! }
+
+  type Mutation {
+    addRide(input: AddRideInput!): Ride!
+    deleteRide(id: ID!): DeleteRideResult!
   }
 
   type User {
@@ -20,6 +59,7 @@ export const typeDefs = gql`
   type Query {
     me: User
     user(id: ID!): User
-    rides: [Ride!]!
+    rides(take: Int = 20, after: ID): [Ride!]!
+    rideTypes: [RideType!]!
   }
 `;
