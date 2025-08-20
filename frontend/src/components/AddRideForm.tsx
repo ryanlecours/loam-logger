@@ -1,106 +1,49 @@
 // src/components/AddRideForm.tsx
-import { useEffect, useMemo, useState } from "react";
-import { useMutation, useQuery } from "@apollo/client";
-import { ADD_RIDE } from "../graphql/addRide";
-import { BIKES } from "../graphql/bikes";
-import { RIDE_TYPES } from "../graphql/rideTypes";
+import { useEffect, useMemo, useState } from 'react';
+import { useMutation } from '@apollo/client';
+import { ADD_RIDE } from '../graphql/addRide';
 
-type Bike = { id: string; name: string };
-
-const FALLBACK_RIDE_TYPES = [
-  "TRAIL",
-  "ENDURO",
-  "COMMUTE",
-  "ROAD",
-  "GRAVEL",
-  "TRAINER",
-] as const;
-const MAX_NOTES_LEN = 2000;
+const SUGGESTED_TYPES = ['trail', 'enduro', 'commute', 'road', 'gravel', 'trainer'];
 
 export default function AddRideForm({ onAdded }: { onAdded?: () => void }) {
-  // --- queries must be INSIDE the component
-  const { data: bikesData, loading: bikesLoading } = useQuery<{
-    bikes: Bike[];
-  }>(BIKES);
-  const { data: rtData } = useQuery<{ rideTypes: string[] }>(RIDE_TYPES);
-  const rideTypes: string[] = rtData?.rideTypes ?? [...FALLBACK_RIDE_TYPES];
-  const bikes = bikesData?.bikes ?? [];
-
-  // Start time (local)
-  const [startLocal, setStartLocal] = useState<string>(() =>
-    new Date().toISOString().slice(0, 16)
-  );
-  // Duration inputs
+  // --- existing state (same as your working form) ---
+  const [startLocal, setStartLocal] = useState<string>(() => new Date().toISOString().slice(0, 16));
   const [hours, setHours] = useState<number>(1);
   const [minutes, setMinutes] = useState<number>(0);
-  // Distance / Elevation (miles/feet)
   const [distanceMiles, setDistanceMiles] = useState<number>(10);
   const [elevationGainFeet, setElevationGainFeet] = useState<number>(500);
-  // HR (optional)
-  const [averageHr, setAverageHr] = useState<number | "">("");
-  // Ride type & bike
-  const [rideType, setRideType] = useState<string>(rideTypes[0] ?? "TRAIL");
-  const [bikeId, setBikeId] = useState<string | "">("");
-  // Notes
-  const [notes, setNotes] = useState<string>("");
-  const [trailSystem, setTrailSystem] = useState<string>("");
-  const [location, setLocation] = useState<string>("");
+  const [averageHr, setAverageHr] = useState<number | ''>('');
+  const [rideType, setRideType] = useState<string>('trail'); // free text since backend stores string
+  const [bikeId, setBikeId] = useState<string | ''>('');     // keep if you’re using bikes
+  const [notes, setNotes] = useState<string>('');
+  const [trailSystem, setTrailSystem] = useState<string>('');
+  const [location, setLocation] = useState<string>('');
+  const MAX_NOTES_LEN = 2000;
 
-  // Derived seconds
   const durationSeconds = useMemo(
-    () =>
-      Math.max(
-        0,
-        Math.floor((Number(hours) || 0) * 3600 + (Number(minutes) || 0) * 60)
-      ),
+    () => Math.max(0, Math.floor((Number(hours) || 0) * 3600 + (Number(minutes) || 0) * 60)),
     [hours, minutes]
   );
 
-  // Mutation
-  const [addRide, { loading: saving, error: saveError }] = useMutation(
-    ADD_RIDE,
-    {
-      onCompleted: () => onAdded?.(),
-    }
-  );
+  const [addRide, { loading, error }] = useMutation(ADD_RIDE, {
+    onCompleted: () => onAdded?.(),
+  });
 
-  // Validation
   const [formError, setFormError] = useState<string | null>(null);
-  useEffect(
-    () => setFormError(null),
-    [
-      startLocal,
-      hours,
-      minutes,
-      distanceMiles,
-      elevationGainFeet,
-      averageHr,
-      rideType,
-      bikeId,
-      notes,
-    ]
-  );
+  useEffect(() => setFormError(null), [
+    startLocal, hours, minutes, distanceMiles, elevationGainFeet, averageHr, rideType, bikeId, notes, trailSystem, location,
+  ]);
 
   function validate(): string | null {
-    if (!startLocal) return "Start time is required.";
-    if (!Number.isFinite(durationSeconds) || durationSeconds <= 0)
-      return "Duration must be greater than 0.";
-    if (!Number.isFinite(distanceMiles) || distanceMiles < 0)
-      return "Distance (miles) must be ≥ 0.";
-    if (!Number.isFinite(elevationGainFeet) || elevationGainFeet < 0)
-      return "Elevation gain (feet) must be ≥ 0.";
-    if (
-      averageHr !== "" &&
-      (!Number.isFinite(Number(averageHr)) ||
-        Number(averageHr) < 0 ||
-        Number(averageHr) > 250)
-    )
-      return "Average HR should be between 0 and 250.";
-    if (!rideType) return "Ride type is required.";
-    if (notes.length > MAX_NOTES_LEN)
-      return `Notes must be ≤ ${MAX_NOTES_LEN} characters.`;
-    if (bikeId && !bikes.some((b) => b.id === bikeId))
-      return "Selected bike is not valid.";
+    if (!startLocal) return 'Start time is required.';
+    if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) return 'Duration must be greater than 0.';
+    if (!Number.isFinite(distanceMiles) || distanceMiles < 0) return 'Distance must be ≥ 0.';
+    if (!Number.isFinite(elevationGainFeet) || elevationGainFeet < 0) return 'Elevation gain must be ≥ 0.';
+    if (averageHr !== '' && (!Number.isFinite(Number(averageHr)) || Number(averageHr) < 0 || Number(averageHr) > 250)) {
+      return 'Average HR should be between 0 and 250.';
+    }
+    if (!rideType.trim()) return 'Ride type is required.';
+    if (notes.length > MAX_NOTES_LEN) return `Notes must be ≤ ${MAX_NOTES_LEN} characters.`;
     return null;
   }
 
@@ -108,8 +51,8 @@ export default function AddRideForm({ onAdded }: { onAdded?: () => void }) {
     e.preventDefault();
     const err = validate();
     if (err) return setFormError(err);
-    const isoStart = new Date(startLocal).toISOString();
 
+    const isoStart = new Date(startLocal).toISOString();
     await addRide({
       variables: {
         input: {
@@ -117,223 +60,215 @@ export default function AddRideForm({ onAdded }: { onAdded?: () => void }) {
           durationSeconds,
           distanceMiles: Number(distanceMiles),
           elevationGainFeet: Number(elevationGainFeet),
-          averageHr: averageHr === "" ? null : Math.floor(Number(averageHr)),
-          rideType,
+          averageHr: averageHr === '' ? null : Math.floor(Number(averageHr)),
+          rideType: rideType.trim(),
           bikeId: bikeId || null,
           notes: notes.trim() || null,
           trailSystem: trailSystem.trim() || null,
           location: location.trim() || null,
         },
       },
-      refetchQueries: ["Rides"],
+      refetchQueries: ['Rides'],
     }).catch(() => {});
   }
 
   function resetForm() {
     setStartLocal(new Date().toISOString().slice(0, 16));
-    setHours(1);
-    setMinutes(0);
-    setDistanceMiles(10);
-    setElevationGainFeet(500);
-    setAverageHr("");
-    setRideType(rideTypes[0] ?? "TRAIL");
-    setBikeId("");
-    setNotes("");
+    setHours(1); setMinutes(0);
+    setDistanceMiles(10); setElevationGainFeet(500);
+    setAverageHr('');
+    setRideType('trail');
+    setBikeId('');
+    setNotes('');
+    setTrailSystem('');
+    setLocation('');
     setFormError(null);
   }
 
+  // Common input class (uses your theme tokens + Tailwind utilities)
+  const inputCls =
+    'w-full bg-app border border-app rounded-lg px-3 py-2 text-sm ' +
+    'focus:outline-none focus:ring-2 focus:ring-[rgb(var(--ring))]';
+
+  const labelCls = 'block text-sm text-muted';
+
   return (
-    <form onSubmit={onSubmit} className="grid gap-4 p-4 border rounded-xl">
-      {/* Start */}
-      <label className="grid gap-1">
-        <span className="text-sm">Start (local)</span>
+    <form
+      onSubmit={onSubmit}
+      className="bg-surface border border-app rounded-xl shadow p-6 space-y-4"
+    >
+      <h2 className="text-heading text-xl">Log a New Ride</h2>
+
+      {/* Start time */}
+      <div className="space-y-1">
+        <label className={labelCls}>Start (local)</label>
         <input
           type="datetime-local"
           value={startLocal}
-          onChange={(e) => setStartLocal(e.target.value)}
-          className="border rounded px-2 py-1"
+          onChange={e => setStartLocal(e.target.value)}
+          className={inputCls}
           required
         />
-      </label>
+      </div>
 
       {/* Duration */}
-      <div className="grid grid-cols-2 gap-3">
-        <label className="grid gap-1">
-          <span className="text-sm">Hours</span>
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-1">
+          <label className={labelCls}>Hours</label>
           <input
             type="number"
             min={0}
             value={hours}
-            onChange={(e) => setHours(Number(e.target.value))}
-            className="border rounded px-2 py-1"
+            onChange={e => setHours(Number(e.target.value))}
+            className={inputCls}
           />
-        </label>
-        <label className="grid gap-1">
-          <span className="text-sm">Minutes</span>
+        </div>
+        <div className="space-y-1">
+          <label className={labelCls}>Minutes</label>
           <input
             type="number"
             min={0}
             max={59}
             value={minutes}
-            onChange={(e) => setMinutes(Number(e.target.value))}
-            className="border rounded px-2 py-1"
+            onChange={e => setMinutes(Number(e.target.value))}
+            className={inputCls}
           />
-        </label>
+        </div>
       </div>
-      <div className="text-xs opacity-75">
-        Total duration: {Math.floor(durationSeconds / 60)} min
-      </div>
+      <div className="text-xs text-muted">Total duration: {Math.floor(durationSeconds / 60)} min</div>
 
-      {/* Distance & Elevation */}
-      <div className="grid grid-cols-2 gap-3">
-        <label className="grid gap-1">
-          <span className="text-sm">Distance (miles)</span>
+      {/* Distance / Elevation */}
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-1">
+          <label className={labelCls}>Distance (miles)</label>
           <input
             type="number"
             min={0}
             step={0.1}
             value={distanceMiles}
-            onChange={(e) => setDistanceMiles(Number(e.target.value))}
-            className="border rounded px-2 py-1"
+            onChange={e => setDistanceMiles(Number(e.target.value))}
+            className={inputCls}
           />
-        </label>
-        <label className="grid gap-1">
-          <span className="text-sm">Elevation Gain (feet)</span>
+        </div>
+        <div className="space-y-1">
+          <label className={labelCls}>Elevation Gain (feet)</label>
           <input
             type="number"
             min={0}
             step={1}
             value={elevationGainFeet}
-            onChange={(e) => setElevationGainFeet(Number(e.target.value))}
-            className="border rounded px-2 py-1"
+            onChange={e => setElevationGainFeet(Number(e.target.value))}
+            className={inputCls}
           />
-        </label>
+        </div>
       </div>
 
       {/* Avg HR */}
-      <label className="grid gap-1">
-        <span className="text-sm">Average HR (optional)</span>
+      <div className="space-y-1">
+        <label className={labelCls}>Average HR (optional)</label>
         <input
           type="number"
           min={0}
           max={250}
           step={1}
           value={averageHr}
-          onChange={(e) =>
-            setAverageHr(e.target.value === "" ? "" : Number(e.target.value))
-          }
-          className="border rounded px-2 py-1"
+          onChange={e => setAverageHr(e.target.value === '' ? '' : Number(e.target.value))}
+          className={inputCls}
           placeholder="e.g., 145"
         />
-      </label>
+      </div>
 
-      {/* Ride Type */}
-      <label className="grid gap-1">
-        <span className="text-sm">Ride Type</span>
-        <select
-          value={rideType}
-          onChange={(e) => setRideType(e.target.value)}
-          className="border rounded px-2 py-1"
-        >
-          {rideTypes.map((rt) => (
-            <option key={rt} value={rt}>
-              {rt}
-            </option>
-          ))}
-        </select>
-      </label>
+      {/* Ride type + Bike (optional id) */}
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-1">
+          <label className={labelCls}>Ride Type</label>
+          <input
+            type="text"
+            list="ride-type-suggest"
+            value={rideType}
+            onChange={e => setRideType(e.target.value)}
+            className={inputCls}
+            maxLength={32}
+            placeholder="trail / road / …"
+          />
+          <datalist id="ride-type-suggest">
+            {SUGGESTED_TYPES.map(t => <option key={t} value={t} />)}
+          </datalist>
+        </div>
+        <div className="space-y-1">
+          <label className={labelCls}>Bike (optional id)</label>
+          <input
+            type="text"
+            value={bikeId}
+            onChange={e => setBikeId(e.target.value)}
+            className={inputCls}
+            placeholder="Leave blank if none"
+          />
+        </div>
+      </div>
 
-      {/* Bike */}
-      <label className="grid gap-1">
-        <span className="text-sm">Bike (optional)</span>
-        <select
-          value={bikeId}
-          onChange={(e) => setBikeId(e.target.value)}
-          className="border rounded px-2 py-1"
-          disabled={bikesLoading}
-        >
-          <option value="">No bike</option>
-          {bikes.map((b) => (
-            <option key={b.id} value={b.id}>
-              {b.name}
-            </option>
-          ))}
-        </select>
-        {bikesLoading && (
-          <span className="text-xs opacity-60">Loading bikes…</span>
-        )}
-      </label>
+      {/* Trail system / Location */}
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-1">
+          <label className={labelCls}>Trail system (optional)</label>
+          <input
+            type="text"
+            value={trailSystem}
+            onChange={e => setTrailSystem(e.target.value)}
+            className={inputCls}
+            maxLength={120}
+            placeholder="e.g., Copper Harbor"
+          />
+        </div>
+        <div className="space-y-1">
+          <label className={labelCls}>Location (optional)</label>
+          <input
+            type="text"
+            value={location}
+            onChange={e => setLocation(e.target.value)}
+            className={inputCls}
+            maxLength={120}
+            placeholder="e.g., MI, USA"
+          />
+        </div>
+      </div>
 
       {/* Notes */}
-      <label className="grid gap-1">
-        <span className="text-sm">Notes (optional)</span>
+      <div className="space-y-1">
+        <label className={labelCls}>Notes (optional)</label>
         <textarea
           value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          maxLength={MAX_NOTES_LEN}
+          onChange={e => setNotes(e.target.value)}
           rows={3}
-          className="border rounded px-2 py-1"
+          maxLength={MAX_NOTES_LEN}
+          className={inputCls + ' resize-y'}
           placeholder="Conditions, trails, workout details…"
         />
-        <span className="text-xs opacity-60">
-          {notes.length}/{MAX_NOTES_LEN}
-        </span>
-      </label>
+        <div className="text-xs text-muted">{notes.length}/{MAX_NOTES_LEN}</div>
+      </div>
 
-      <label className="grid gap-1">
-        <span className="text-sm">Trail system (optional)</span>
-        <input
-          type="text"
-          value={trailSystem}
-          onChange={(e) => setTrailSystem(e.target.value)}
-          maxLength={120}
-          className="border rounded px-2 py-1"
-          placeholder="e.g., Fruita 18 Road"
-        />
-      </label>
-
-      <label className="grid gap-1">
-        <span className="text-sm">Location (optional)</span>
-        <input
-          type="text"
-          value={location}
-          onChange={(e) => setLocation(e.target.value)}
-          maxLength={120}
-          className="border rounded px-2 py-1"
-          placeholder="e.g., Fruita, CO"
-        />
-      </label>
-
-      {(formError || saveError) && (
-        <div className="text-sm text-red-600">
-          {formError || saveError?.message}
+      {(formError || error) && (
+        <div className="text-sm" style={{ color: 'rgb(var(--danger))' }}>
+          {formError || error?.message}
         </div>
       )}
 
-      <div className="flex items-center gap-3">
-        <button
-          type="submit"
-          className="border rounded px-3 py-2"
-          disabled={saving}
-        >
-          {saving ? "Saving…" : "Add Ride"}
-        </button>
+      {/* Actions */}
+      <div className="flex justify-end gap-3 pt-2">
         <button
           type="button"
-          className="border rounded px-3 py-2"
           onClick={resetForm}
-          disabled={saving}
+          className="btn-secondary"
+          title="Reset form"
         >
           Reset
         </button>
         <button
-          type="button"
-          className="border rounded px-3 py-2"
-          onClick={() => setStartLocal(new Date().toISOString().slice(0, 16))}
-          disabled={saving}
-          title="Set start time to now"
+          type="submit"
+          className="btn-accent"
+          disabled={loading}
         >
-          Now
+          {loading ? 'Saving…' : 'Save Ride'}
         </button>
       </div>
     </form>

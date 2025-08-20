@@ -16,13 +16,32 @@ type AddRideInput = {
   location?: string | null;
 };
 
+type UpdateRideInput = {
+  startTime?: string | null;
+  durationSeconds?: number | null;
+  distanceMiles?: number | null;
+  elevationGainFeet?: number | null;
+  averageHr?: number | null;
+  rideType?: string | null;
+  bikeId?: string | null;
+  notes?: string | null;
+  trailSystem?: string | null;
+  location?: string | null;
+};
+
 function parseIso(value: string): Date {
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) throw new Error('Invalid startTime; must be ISO 8601');
   return d;
 }
 
-
+function parseIsoOptional(v: string | null | undefined): Date | null | undefined {
+  if (v === undefined) return undefined;
+  if (v === null) return null;
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime())) throw new Error('Invalid startTime; must be ISO 8601');
+  return d;
+}
 
 const MAX_NOTES_LEN = 2000;
 
@@ -119,6 +138,65 @@ export const resolvers = {
 
       await prisma.ride.delete({ where: { id } });
       return { ok: true, id };
+    },
+    updateRide: async (
+      _p: unknown,
+      { id, input }: { id: string; input: UpdateRideInput },
+      ctx: GraphQLContext
+    ) => {
+      if (!ctx.user?.id) throw new Error('Unauthorized');
+
+      // ownership check (and existence)
+      const owned = await prisma.ride.findUnique({
+        where: { id },
+        select: { userId: true },
+      });
+      if (!owned || owned.userId !== ctx.user.id) throw new Error('Ride not found');
+
+      const data: Record<string, any> = {};
+
+      const start = parseIsoOptional(input.startTime);
+      if (start !== undefined) data.startTime = start;
+
+      if (input.durationSeconds !== undefined)
+        data.durationSeconds = Math.max(0, Math.floor(input.durationSeconds ?? 0));
+
+      if (input.distanceMiles !== undefined)
+        data.distanceMiles = Math.max(0, Number(input.distanceMiles ?? 0));
+
+      if (input.elevationGainFeet !== undefined)
+        data.elevationGainFeet = Math.max(0, Number(input.elevationGainFeet ?? 0));
+
+      if (input.averageHr !== undefined)
+        data.averageHr =
+          input.averageHr == null ? null : Math.max(0, Math.floor(input.averageHr));
+
+      if (input.rideType !== undefined) {
+        const rt = cleanText(input.rideType, 32);
+        data.rideType = rt ?? null;
+      }
+
+      if (input.bikeId !== undefined) data.bikeId = input.bikeId ?? null;
+
+      if ('notes' in input) {
+        const n = cleanText(input.notes, MAX_NOTES_LEN);
+        data.notes = n ?? null;
+      }
+      if ('trailSystem' in input) {
+        const ts = cleanText(input.trailSystem, MAX_LABEL_LEN);
+        data.trailSystem = ts ?? null;
+      }
+      if ('location' in input) {
+        const loc = cleanText(input.location, MAX_LABEL_LEN);
+        data.location = loc ?? null;
+      }
+
+      const updated = await prisma.ride.update({
+        where: { id },
+        data,
+      });
+
+      return updated;
     },
   },
 };
