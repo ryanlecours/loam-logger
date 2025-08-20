@@ -17,3 +17,15 @@ export const RIDES = gql`
     }
   }
 `;
+
+export const BIKES_FOR_SELECT = gql`
+  query BikesForSelect {
+    bikes {
+      id
+      manufacturer
+      model
+      nickname
+    }
+  }
+`;
+

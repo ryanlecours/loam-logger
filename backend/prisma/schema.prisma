@@ -44,28 +44,54 @@ model OauthToken {
   @@unique([userId, provider])
 }
 
+enum BikeComponentType {
+  FORK
+  SHOCK
+  WHEELSET
+  DROPPERPOST
+}
+
 model Ride {
   id     String @id @default(uuid())
   user   User   @relation(fields: [userId], references: [id])
   userId String
 
-  garminActivityId  String?   @unique
+  garminActivityId  String?  @unique
   startTime         DateTime
   durationSeconds   Int
   distanceMiles     Float
   elevationGainFeet Float
   averageHr         Int?
 
-  rideType          String      @db.Text
-  bike     Bike?    @relation(fields: [bikeId], references: [id])
+  rideType String  @db.Text
+  bike     Bike?   @relation(fields: [bikeId], references: [id])
   bikeId   String?
 
-  notes    String?
-  trailSystem  String?
-  location     String?
+  notes       String?
+  trailSystem String?
+  location    String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model BikeComponent {
+  id           String            @id @default(uuid())
+  bike         Bike              @relation(fields: [bikeId], references: [id], onDelete: Cascade)
+  bikeId       String
+  type         BikeComponentType
+  manufacturer String
+  model        String
+  year         Int?
+
+  hoursSinceService Float     @default(0)
+  lastServicedAt    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Each bike may only have one of each component type
+  @@unique([bikeId, type])
 }
 
 model Bike {
@@ -73,18 +99,20 @@ model Bike {
   user   User   @relation(fields: [userId], references: [id])
   userId String
 
-  nickname      String
-  manufacturer  String
-  model         String
-  travelForkMm  Int?
-  travelShockMm Int?
-  notes         String?
+  manufacturer String
+  model        String
+  nickname     String?
+
+  pivotHoursSinceService Float     @default(0)
+  pivotLastServicedAt    DateTime?
 
   components Component[]
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  Ride      Ride[]
+  rides Ride[]
+
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  BikeComponent BikeComponent[]
 }
 
 model Component {

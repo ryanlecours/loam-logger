@@ -3,6 +3,12 @@ import { useEffect, useMemo, useState } from 'react';
 import { useMutation } from '@apollo/client';
 import { ADD_RIDE } from '../graphql/addRide';
 
+// inside AddRideForm.tsx
+import { useQuery } from '@apollo/client';
+import { BIKES_FOR_SELECT } from '../graphql/rides';
+
+type BikeOpt = { id: string; manufacturer: string; model: string; nickname?: string | null };
+
 const SUGGESTED_TYPES = ['trail', 'enduro', 'commute', 'road', 'gravel', 'trainer'];
 
 export default function AddRideForm({ onAdded }: { onAdded?: () => void }) {
@@ -19,6 +25,13 @@ export default function AddRideForm({ onAdded }: { onAdded?: () => void }) {
   const [trailSystem, setTrailSystem] = useState<string>('');
   const [location, setLocation] = useState<string>('');
   const MAX_NOTES_LEN = 2000;
+
+  const { data: bikeData, loading: bikesLoading, error: bikesError } =
+  useQuery<{ bikes: BikeOpt[] }>(BIKES_FOR_SELECT);
+
+const bikeOptions = bikeData?.bikes ?? [];
+const bikeLabel = (b: BikeOpt) => (b.nickname?.trim() ? b.nickname.trim() : `${b.manufacturer} ${b.model}`);
+
 
   const durationSeconds = useMemo(
     () => Math.max(0, Math.floor((Number(hours) || 0) * 3600 + (Number(minutes) || 0) * 60)),
@@ -196,15 +209,32 @@ export default function AddRideForm({ onAdded }: { onAdded?: () => void }) {
           </datalist>
         </div>
         <div className="space-y-1">
-          <label className={labelCls}>Bike (optional id)</label>
-          <input
-            type="text"
-            value={bikeId}
-            onChange={e => setBikeId(e.target.value)}
-            className={inputCls}
-            placeholder="Leave blank if none"
-          />
-        </div>
+  <label className={labelCls}>Bike (optional)</label>
+
+  <select
+    name="bikeId"
+    value={bikeId}
+    onChange={(e) => setBikeId(e.target.value)}
+    className={inputCls}
+  >
+    <option value="">— No bike —</option>
+    {bikeOptions.map((b) => (
+      <option key={b.id} value={b.id}>
+        {bikeLabel(b)}
+      </option>
+    ))}
+  </select>
+
+  {bikesLoading && <div className="text-xs text-muted">Loading bikes…</div>}
+  {bikesError && (
+    <div className="text-xs" style={{ color: 'rgb(var(--danger))' }}>
+      Failed to load bikes
+    </div>
+  )}
+  {!bikesLoading && !bikesError && bikeOptions.length === 0 && (
+    <div className="text-xs text-muted">No bikes yet — add one in Bike Garage.</div>
+  )}
+</div>
       </div>
 
       {/* Trail system / Location */}

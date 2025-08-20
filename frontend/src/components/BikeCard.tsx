@@ -1,58 +1,123 @@
-import type { Bike } from "../models/BikeComponents";
-import { getBgColor, getBorderColor, getHealthStatus } from "../utils/getHealthStatus";
-import {
-  FaCheckCircle,
-  FaExclamationCircle,
-  FaExclamationTriangle,
-} from "react-icons/fa";
+// src/components/BikeCard.tsx
+import { useState } from 'react';
+import AddComponentModal from '../components/AddComponentModal';
+import ServiceModal from '../components/ServiceModal';
 
-const statusIcons = {
-  ok: <FaCheckCircle className="text-green-600 inline ml-1" />,
-  warning: <FaExclamationTriangle className="text-yellow-500 inline ml-1" />,
-  danger: <FaExclamationCircle className="text-red-600 inline ml-1" />,
+type Component = {
+  id: string;
+  type: 'FORK' | 'SHOCK' | 'WHEELSET' | 'DROPPERPOST';
+  manufacturer: string;
+  model: string;
+  year?: number | null;
+  hoursSinceService: number;
 };
 
-export default function BikeCard({ bike }: { bike: Bike }) {
-  return (
-    <div className="border rounded-md p-4 shadow-sm mb-4">
-      <h2 className="text-xl font-bold">{bike.name}</h2>
-      <p className={`flex justify-between px-2 py1 my-1 border-2 rounded-md ${getBgColor(bike.fork.hoursSinceLastService)} ${getBorderColor(bike.fork.hoursSinceLastService)}`}>
-        <span className="text-accent">
-          <strong>Fork:</strong> {bike.fork.brand} {bike.fork.model}
-        </span>
-        <span className="text-sm text-gray-600 flex items-center gap-1">
-          {bike.fork.hoursSinceLastService}h{" "}
-          {statusIcons[getHealthStatus(bike.fork.hoursSinceLastService)]}
-        </span>
-      </p>
+type Bike = {
+  id: string;
+  manufacturer: string;
+  model: string;
+  nickname?: string | null;
+  pivotHoursSinceService?: number;       // may be missing in some responses
+  isComplete?: boolean;                  // may be missing in some responses
+  components?: Component[] | null;       // <-- make optional
+};
 
-      <p className={`flex justify-between px-2 py1 my-1 border-2 rounded-md ${getBgColor(bike.shock.hoursSinceLastService)} ${getBorderColor(bike.shock.hoursSinceLastService)}`}>
-        <span className="text-accent">
-          <strong>Shock:</strong> {bike.shock.brand} {bike.shock.model}
+const ORDERED: Component['type'][] = ['FORK', 'SHOCK', 'WHEELSET', 'DROPPERPOST'];
+
+export default function BikeCard({ bike }: { bike: Bike }) {
+  const title = bike.nickname || `${bike.manufacturer} ${bike.model}`;
+
+  // Guard for undefined/null
+  const components: Component[] = Array.isArray(bike.components) ? bike.components : [];
+  const byType = Object.fromEntries(components.map(c => [c.type, c] as const));
+
+  const isComplete = !!bike.isComplete; // default false if undefined
+  const pivotHours = typeof bike.pivotHoursSinceService === 'number' ? bike.pivotHoursSinceService : 0;
+
+  const [addingForType, setAddingForType] = useState<Component['type'] | null>(null);
+  const [servicing, setServicing] = useState<
+    | { pivot: true }
+    | { pivot?: false; component: Component }
+    | null
+  >(null);
+
+  return (
+    <div className="border border-app bg-surface rounded-lg p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="text-heading">{title}</div>
+        <span className={`text-xs px-2 py-1 rounded ${isComplete ? 'bg-accent text-accent-contrast' : 'bg-app border border-app'}`}>
+          {isComplete ? 'Complete' : 'Incomplete'}
         </span>
-        <span className="text-sm text-gray-600 flex items-center gap-1">
-          {bike.shock.hoursSinceLastService}h{" "}
-          {statusIcons[getHealthStatus(bike.shock.hoursSinceLastService)]}
-        </span>
-      </p>
-      <p className={`flex justify-between px-2 py1 my-1 border-2 rounded-md ${getBgColor(bike.drivetrain.hoursSinceLastService)} ${getBorderColor(bike.drivetrain.hoursSinceLastService)}`}>
-        <span className="text-accent">
-          <strong>Drivetrain:</strong> {bike.drivetrain.brand} {bike.drivetrain.cassetteRange}
-        </span>
-        <span className="text-sm text-gray-600 flex items-center gap-1">
-          {bike.drivetrain.hoursSinceLastService}h{" "}
-          {statusIcons[getHealthStatus(bike.drivetrain.hoursSinceLastService)]}
-        </span>
-      </p>
-      <p className={`flex justify-between px-2 py1 my-1 border-2 rounded-md ${getBgColor(bike.hoursSinceLastService)} ${getBorderColor(bike.hoursSinceLastService)}`}>
-        <span className="text-accent">
-          <strong>Pivot Bearings:</strong>
-        </span>
-        <span className="text-sm text-gray-600 flex items-center gap-1">
-          {bike.hoursSinceLastService}h{" "}
-          {statusIcons[getHealthStatus(bike.hoursSinceLastService)]}
-        </span>
-      </p>
+      </div>
+
+      {/* Pivot */}
+      <div className="flex items-center justify-between text-sm">
+        <div><b>Pivot Bearings:</b> {pivotHours.toFixed(1)} h</div>
+        <button className="btn-outline" onClick={() => setServicing({ pivot: true })}>
+          Service
+        </button>
+      </div>
+
+      {/* Components */}
+      <ul className="text-sm space-y-1 pt-1">
+        {ORDERED.map((t) => {
+          const c = byType[t] as Component | undefined;
+          return (
+            <li key={t} className="flex items-center justify-between gap-2">
+              <div className="text-muted w-28">{t}</div>
+
+              <div className="flex-1 min-w-0">
+                {c ? (
+                  <div className="truncate">
+                    {c.manufacturer} {c.model}{c.year ? ` (${c.year})` : ''}
+                  </div>
+                ) : (
+                  <em className="text-muted">— not installed —</em>
+                )}
+              </div>
+
+              <div className="w-32 text-right">
+                {c ? `${c.hoursSinceService.toFixed(1)} h` : ''}
+              </div>
+
+              <div className="flex gap-2">
+                {c ? (
+                  <>
+                    <button className="btn-secondary" onClick={() => setAddingForType(t)}>Replace</button>
+                    <button className="btn-primary" onClick={() => setServicing({ component: c })}>Service</button>
+                  </>
+                ) : (
+                  <button className="btn-primary" onClick={() => setAddingForType(t)}>Add</button>
+                )}
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+
+      {/* Modals */}
+      {addingForType && (
+        <AddComponentModal
+          bikeId={bike.id}
+          presetType={addingForType}
+          onClose={() => setAddingForType(null)}
+          existingForType={byType[addingForType] as Component | undefined}
+        />
+      )}
+
+      {servicing && servicing.pivot ? (
+        <ServiceModal
+          onClose={() => setServicing(null)}
+          bikeId={bike.id}
+          pivot={{ currentHours: pivotHours }}
+        />
+      ) : servicing && 'component' in servicing ? (
+        <ServiceModal
+          onClose={() => setServicing(null)}
+          bikeId={bike.id}
+          component={servicing.component}
+        />
+      ) : null}
     </div>
   );
 }
