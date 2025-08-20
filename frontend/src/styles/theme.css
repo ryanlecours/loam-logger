@@ -89,8 +89,8 @@
 
 /* Secondary button — surface bg, forest text */
 .btn-secondary {
-  background-color: rgb(var(--surface));
-  color: rgb(var(--primary));
+  background-color: rgb(var(--bg));
+  color: rgb(var(--primary-foreground));
   border: 1px solid rgb(var(--border));
   border-radius: 0.5rem;
   padding: 0.5rem 1rem;
@@ -99,8 +99,8 @@
   transition: background-color 0.2s ease, opacity 0.2s ease;
 }
 .btn-accent {
-  background-color: rgb(var(--bg));
-  color: rgb(var(--primary-foreground));
+  background-color: rgb(var(--text));
+  color: rgb(var(--primary));
   border: 1px solid transparent;
   border-radius: 0.5rem; /* rounded-lg */
   padding: 0.5rem 1rem;  /* py-2 px-4 */
@@ -109,6 +109,10 @@
   transition: background-color 0.2s ease, opacity 0.2s ease;
 }
 .btn-secondary:hover {
+  background-color: rgb(var(--surface-2));
+}
+
+.btn-accent:hover {
   background-color: rgb(var(--surface-2));
 }
 

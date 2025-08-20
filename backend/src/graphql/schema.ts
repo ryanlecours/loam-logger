@@ -29,6 +29,19 @@ export const typeDefs = gql`
     updatedAt: String!
   }
 
+  input UpdateRideInput {
+    startTime: String
+    durationSeconds: Int
+    distanceMiles: Float
+    elevationGainFeet: Float
+    averageHr: Int
+    rideType: String
+    bikeId: ID
+    notes: String
+    trailSystem: String
+    location: String
+  }
+
   input AddRideInput {
     startTime: String!
     durationSeconds: Int!
@@ -46,6 +59,7 @@ export const typeDefs = gql`
 
   type Mutation {
     addRide(input: AddRideInput!): Ride!
+    updateRide(id: ID!, input: UpdateRideInput!): Ride!
     deleteRide(id: ID!): DeleteRideResult!
   }
 
