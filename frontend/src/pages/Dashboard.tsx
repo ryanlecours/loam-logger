@@ -32,7 +32,7 @@ export default function Dashboard() {
   return (
     <div className="min-h-screen bg-app p-6">
       {/* Header */}
-      <header className="flex justify-between items-center mb-6">
+      <header className="flex justify-between items-center mb-12">
         <h1 className="text-3xl font-bold">LoamLogger Dashboard</h1>
         <Link to="/" className="text-sm text-gray-500 hover:text-gray-700 underline">
           Log out
@@ -52,7 +52,7 @@ export default function Dashboard() {
         <div className="bg-surface border rounded-md shadow p-4">
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-xl font-semibold">Recent Rides</h2>
-            <Link to="/rides" className="text-sm underline text-gray-600 hover:text-gray-800">
+            <Link to="/rides" className="link-accent-contrast link-accent:hover">
               View all
             </Link>
           </div>
