@@ -28,7 +28,7 @@ export default function Login() {
           className={`flex items-center justify-center gap-3 w-full py-3 rounded-md font-medium transition ${
             loading
               ? ' btn-disabled'
-              : 'btn-accent'
+              : 'btn-primary hover:btn-primary-dark focus:btn-primary-dark'
           }`}
         >
              {loading ? (

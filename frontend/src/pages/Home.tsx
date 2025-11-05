@@ -10,7 +10,7 @@ export default function Home() {
         </p>
         <Link
           to="/login"
-          className="inline-block bg-black text-white px-6 py-3 rounded-md text-lg font-semibold hover:bg-gray-800 transition"
+          className="btn-primary"
         >
           Log In
         </Link>

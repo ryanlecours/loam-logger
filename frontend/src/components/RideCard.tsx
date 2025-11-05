@@ -51,7 +51,7 @@ export default function RideCard({ ride }: { ride: Ride }) {
           <button
             type="button"
             onClick={() => setEditing(true)}
-            className="inline-flex items-center p-1 rounded hover:bg-gray-50 border border-transparent hover:border-gray-200"
+            className="btn-accent .btn-accent-hover"
             title="Edit ride"
             aria-label="Edit ride"
           >
