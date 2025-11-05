@@ -1,0 +1,161 @@
+/* =========================
+   LOAM LOGGER THEME
+   ========================= */
+
+:root {
+  /* Light — layered off-whites + forest accent */
+  --bg:                250 248 245; /* off-white base */
+  --surface:           244 240 234; /* step up */
+  --surface-2:         236 230 220; /* deeper card/panel */
+  --surface-accent:    226 218 206; /* subtle accent surface */
+
+  --text:              34 39 36;    /* near-black forest */
+  --text-muted:        112 120 114; /* cool gray-green */
+
+  /* CTA / brand (forest green) */
+  --primary:           34 75 63;    /* forest green (≈ #224B3F) */
+  --primary-foreground:250 248 245; /* off-white on forest */
+
+  /* Secondary accent (slightly brighter forest) */
+  --accent:            42 96 80;    /* spruce */
+
+  /* UI chrome */
+  --border:            214 206 196; /* warm thin border */
+  --ring:              34 75 63;    /* match primary */
+
+  /* Status */
+  --success:           56 122 84;   /* deep green */
+  --warning:           191 140 64;  /* ochre */
+  --danger:            160 72 56;   /* brick */
+}
+
+:root.dark, html.dark {
+  /* Dark — layered near-blacks + loam/dirt accent */
+  --bg:                14 14 14;    /* ≈ 0.055 */
+  --surface:           24 24 24;    /* ≈ 0.09 */
+  --surface-2:         38 38 38;    /* ≈ 0.15 */
+  --surface-accent:    54 54 54;    /* ≈ 0.21 */
+
+  --text:              234 234 230; /* warm near-white */
+  --text-muted:        168 168 160; /* muted sand */
+
+  /* CTA / brand (loam/dirt) */
+  --primary:           156 105 68;  /* loam/dirt (≈ #9C6944) */
+  --primary-foreground:250 245 236; /* sand on loam */
+
+  /* Secondary accent (richer loam) */
+  --accent:            183 130 86;  /* clay-loam */
+
+  --border:            64 64 64;    /* low-contrast divider */
+  --ring:              156 105 68;  /* match primary */
+
+  --success:           96 160 120;  /* softer green */
+  --warning:           196 150 84;  /* warm ochre */
+  --danger:            192 88 72;   /* ember */
+}
+
+/* =========================
+   BASE UTILITIES
+   ========================= */
+.bg-app       { background: rgb(var(--bg)); color: rgb(var(--text)); }
+.bg-surface   { background: rgb(var(--surface)); }
+.bg-surface-2 { background: rgb(var(--surface-2)); }
+.bg-accent    { background: rgb(var(--surface-accent)); }
+.text-muted   { color: rgb(var(--text-muted)); }
+.border-app   { border-color: rgb(var(--border)); }
+
+
+/* Make the whole page use it */
+html, body, #root {
+  min-height: 100%;
+  background-color: rgb(var(--bg));
+  color: rgb(var(--text));
+}
+
+/* =========================
+   TYPOGRAPHY
+   ========================= */
+.text-heading {
+  color: rgb(var(--text));
+  font-weight: 700;
+  line-height: 1.2;
+}
+.text-accent           { color: rgb(var(--primary)); }
+.text-accent-contrast  { color: rgb(var(--primary-foreground)); }
+
+.link-accent           { color: rgb(var(--primary)); }
+.link-accent:hover     { text-decoration: underline; }
+.link-accent-contrast  { color: rgb(var(--primary-foreground)); }
+.link-accent-contrast:hover { text-decoration: underline; color: rgb(var(--primary));  transition: color 0.1s ease;} 
+
+/* =========================
+   BUTTONS
+   ========================= */
+
+/* Primary (CTA) */
+.btn-primary {
+  background-color: rgb(var(--primary));
+  color: rgb(var(--primary-foreground));
+  border: 1px solid transparent;
+  border-radius: 0.5rem; /* rounded-lg */
+  padding: 0.5rem 1rem;  /* py-2 px-4 */
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s ease, opacity 0.2s ease, filter 0.2s ease;
+}
+.btn-primary:hover { filter: brightness(1.05); }
+
+/* Secondary (neutral) */
+.btn-secondary {
+  background-color: rgb(var(--bg));
+  color: rgb(var(--text));
+  border: 1px solid rgb(var(--border));
+  border-radius: 0.5rem;
+  padding: 0.5rem 1rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s ease, opacity 0.2s ease;
+}
+.btn-secondary:hover { background-color: rgb(var(--surface-2)); }
+
+/* Accent */
+.btn-accent {
+  background-color: rgb(var(--text));
+  color: rgb(var(--primary));
+  border: 1px solid transparent;
+  border-radius: 0.5rem;
+  padding: 0.5rem 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s ease, opacity 0.2s ease;
+}
+.btn-accent:hover { opacity: 0.5; }
+
+/* Outline */
+.btn-outline {
+  background-color: transparent;
+  color: rgb(var(--primary));
+  border: 1px solid rgb(var(--primary));
+  border-radius: 0.5rem;
+  padding: 0.5rem 1rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease, filter 0.2s ease;
+}
+.btn-outline:hover {
+  background-color: rgb(var(--primary));
+  color: rgb(var(--primary-foreground));
+}
+
+/* Disabled */
+.btn-disabled {
+  background-color: rgb(var(--surface));
+  color: rgb(var(--text-muted));
+  border: 1px solid rgb(var(--border));
+  border-radius: 0.5rem;
+  padding: 0.5rem 1rem;
+  font-weight: 500;
+  cursor: not-allowed;
+  opacity: 0.7;
+  pointer-events: none;
+}
