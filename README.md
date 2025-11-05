@@ -3,7 +3,7 @@
 A **mountain bike–focused ride tracker** built with **React + Vite + GraphQL + Prisma**.  
 Loam Logger lets riders log, analyze, and visualize their rides while tracking bike components and wear over time.
 
-Built by **Ryan LeCours** to combine data-driven performance tracking with the MTB lifestyle.
+Built by [**Ryan LeCours**](https://www.ryanlecours.dev) to combine data-driven performance tracking with the MTB lifestyle.
 
 ---
 
@@ -58,7 +58,7 @@ loam-logger/
 
 ### 1. Clone & install
 ```bash
-git clone https://github.com/yourusername/loam-logger.git
+git clone https://github.com/ryanlecours/loam-logger.git
 cd loam-logger
 npm install
 ```
@@ -71,7 +71,7 @@ NODE_ENV=development
 PORT=4000
 
 DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/DBNAME?sslmode=require"
-JWT_SECRET="dev-super-secret"
+JWT_SECRET="dev-super-secret" # Temp JWT Token placeholder until Garmin API Access is granted.
 CORS_ORIGIN="http://localhost:5173"
 ```
 
