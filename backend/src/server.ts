@@ -20,6 +20,8 @@ export type GraphQLContext = {
 const startServer = async () => {
   const app = express();
 
+  app.get('/health', (_req, res) => res.status(200).send('ok'));
+
   app.use(
     cors({
       origin: process.env.APP_ORIGIN || 'http://localhost:5173',
@@ -52,8 +54,6 @@ const startServer = async () => {
       }),
     })
   );
-
-  app.get('/health', (_req, res) => res.status(200).send('ok'));
 
   const PORT = Number(process.env.PORT) || 4000;
   const HOST = '0.0.0.0'; // ✅ bind to all interfaces for Railway
