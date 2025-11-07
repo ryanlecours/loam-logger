@@ -1,4 +1,3 @@
-// server.ts
 import 'dotenv/config';
 import express, { type Request, type Response } from 'express';
 import cors from 'cors';
@@ -54,7 +53,6 @@ const startServer = async () => {
     })
   );
 
-  // ✅ Railway health check (set Railway to /health OR keep this path)
   app.get('/health', (_req, res) => res.status(200).send('ok'));
 
   const PORT = Number(process.env.PORT) || 4000;
@@ -64,7 +62,6 @@ const startServer = async () => {
     console.log(`🚴 LoamLogger backend running on :${PORT} (GraphQL at /graphql)`);
   });
 
-  // (Optional) graceful shutdown
   process.on('SIGTERM', async () => {
     await server.stop();
     process.exit(0);
