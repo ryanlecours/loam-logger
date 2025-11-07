@@ -1,4 +1,3 @@
-// src/lib/apolloClient.ts
 import { ApolloClient, InMemoryCache, HttpLink, from } from '@apollo/client';
 import { onError } from '@apollo/client/link/error';
 
@@ -15,7 +14,7 @@ const errorLink = onError(({ graphQLErrors, networkError }) => {
 
 const httpLink = new HttpLink({
   uri: graphqlUrl,
-  credentials: 'include', // <-- send/receive cookies
+  credentials: 'include',
 });
 
 const client = new ApolloClient({
