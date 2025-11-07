@@ -48,7 +48,7 @@ const startServer = async () => {
       context: async ({ req, res }: ExpressContextFunctionArgument): Promise<GraphQLContext> => ({
         req,
         res,
-        user: (req as any).user ?? null,
+        user: req.user ?? null,
       }),
     })
   );
