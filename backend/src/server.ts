@@ -1,4 +1,3 @@
-// src/server.ts
 import 'dotenv/config';
 import express, { type Request, type Response } from 'express';
 import cors from 'cors';
@@ -43,23 +42,29 @@ const startServer = async () => {
   // Apollo
   const server = new ApolloServer<GraphQLContext>({ typeDefs, resolvers });
   await server.start();
-
   app.use(
     '/graphql',
     expressMiddleware(server, {
       context: async ({ req, res }: ExpressContextFunctionArgument): Promise<GraphQLContext> => ({
         req,
         res,
-        user: req.user ?? null, // typed via your global augmentation
+        user: req.user ?? null,
       }),
     })
   );
 
-  app.get('/healthz', (_req, res) => res.send('ok'));
+  app.get('/health', (_req, res) => res.status(200).send('ok'));
 
   const PORT = Number(process.env.PORT) || 4000;
-  app.listen(PORT, () => {
-    console.log(`🚴 LoamLogger backend running at http://localhost:${PORT}/graphql`);
+  const HOST = '0.0.0.0'; // ✅ bind to all interfaces for Railway
+
+  app.listen(PORT, HOST, () => {
+    console.log(`🚴 LoamLogger backend running on :${PORT} (GraphQL at /graphql)`);
+  });
+
+  process.on('SIGTERM', async () => {
+    await server.stop();
+    process.exit(0);
   });
 };
 
