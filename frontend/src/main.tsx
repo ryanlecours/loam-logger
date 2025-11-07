@@ -6,6 +6,7 @@ import App from './App';
 import { ApolloProvider } from '@apollo/client';
 import client from './lib/apolloClient';
 import { ThemeProvider } from './providers/ThemeProvider';
+import { inject } from '@vercel/analytics';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
@@ -15,4 +16,5 @@ createRoot(document.getElementById('root')!).render(
       </ThemeProvider>
     </ApolloProvider>
   </StrictMode>,
-)
+);
+inject();
