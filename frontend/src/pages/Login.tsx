@@ -55,8 +55,7 @@ export default function Login() {
           ) : (
             <>
         <FaMountain size={18} className='text-primary' />
-          Continue with Garmin
-
+          
         </>
         /* TODO: Google or Email later */
         /* <button className="mt-4 w-full bg-blue-600 text-white py-3 rounded-md">Login with Google</button> */
