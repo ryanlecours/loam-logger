@@ -25,7 +25,7 @@ export default function Navbar() {
                 key={label}
                 to={path}
                 className={`text-sm font-medium hover:text-black ${
-                  pathname === path ? 'text-accent' : 'text-accent-contrast'
+                  pathname === path ? '' : 'text-accent-contrast'
                 }`}
               >
                 {label}
