@@ -8,6 +8,7 @@
     "build": "vite build",
     "dev": "vite-node src/server.ts",
     "lint": "npx eslint src --ext .ts",
+    "lint-fix": "npx eslint src --ext .ts --fix",
     "prisma:fmt": "prisma format",
     "prisma:generate": "prisma generate --schema=./prisma/schema.prisma",
     "prisma:mig": "prisma migrate dev --name",

@@ -1,32 +1,32 @@
-import { Prisma, PrismaClient } from '@prisma/client'
-import { normalizeEmail, computeExpiry } from './utils'
-import type { GoogleClaims, GoogleTokens } from './types'
+import { Prisma, PrismaClient } from '@prisma/client';
+import { normalizeEmail, computeExpiry } from './utils';
+import type { GoogleClaims, GoogleTokens } from './types';
 
-const prisma = new PrismaClient()
+const prisma = new PrismaClient();
 
 export async function ensureUserFromGoogle(
   claims: GoogleClaims,
   tokens?: GoogleTokens
 ) {
-  const sub = claims.sub
-  if (!sub) throw new Error('Google sub is required')
+  const sub = claims.sub;
+  if (!sub) throw new Error('Google sub is required');
 
-  const email = normalizeEmail(claims.email)
-  if (!email) throw new Error('Google login did not provide an email')
+  const email = normalizeEmail(claims.email);
+  if (!email) throw new Error('Google login did not provide an email');
 
   return prisma.$transaction(async (tx) => {
     // If Google identity already linked, refresh profile + tokens
     const existingAccount = await tx.userAccount.findUnique({
       where: { provider_providerUserId: { provider: 'google', providerUserId: sub } },
       include: { user: true },
-    })
+    });
     if (existingAccount) {
-      await refresh(tx, existingAccount.user.id, claims, tokens)
-      return existingAccount.user
+      await refresh(tx, existingAccount.user.id, claims, tokens);
+      return existingAccount.user;
     }
 
     // Link by email if present, or create user
-    let user = await tx.user.findUnique({ where: { email } })
+    let user = await tx.user.findUnique({ where: { email } });
     if (!user) {
       try {
         user = await tx.user.create({
@@ -36,12 +36,12 @@ export async function ensureUserFromGoogle(
             avatarUrl: claims.picture ?? null,
             emailVerified: claims.email_verified ? new Date() : null,
           },
-        })
+        });
       } catch (e) {
         if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
-          user = await tx.user.findUniqueOrThrow({ where: { email } })
+          user = await tx.user.findUniqueOrThrow({ where: { email } });
         } else {
-          throw e
+          throw e;
         }
       }
     } else {
@@ -52,16 +52,16 @@ export async function ensureUserFromGoogle(
           avatarUrl: claims.picture ?? undefined,
           emailVerified: claims.email_verified ? new Date() : undefined,
         },
-      })
+      });
     }
 
     // Create the external identity link
     try {
       await tx.userAccount.create({
         data: { userId: user.id, provider: 'google', providerUserId: sub },
-      })
+      });
     } catch (e) {
-      if (!(e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002')) throw e
+      if (!(e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002')) throw e;
     }
 
     // Optional: store tokens (only if you plan to call Google APIs later)
@@ -80,11 +80,11 @@ export async function ensureUserFromGoogle(
           refreshToken: tokens.refresh_token ?? null,
           expiresAt: computeExpiry(tokens.expires_in) ?? new Date(Date.now() + 3600 * 1000),
         },
-      })
+      });
     }
 
-    return user
-  })
+    return user;
+  });
 }
 
 async function refresh(
@@ -100,7 +100,7 @@ async function refresh(
       avatarUrl: claims.picture ?? undefined,
       emailVerified: claims.email_verified ? new Date() : undefined,
     },
-  })
+  });
   if (tokens?.access_token || tokens?.refresh_token) {
     await tx.oauthToken.upsert({
       where: { userId_provider: { userId, provider: 'google' } },
@@ -116,6 +116,6 @@ async function refresh(
         refreshToken: tokens.refresh_token ?? null,
         expiresAt: computeExpiry(tokens.expires_in) ?? new Date(Date.now() + 3600 * 1000),
       },
-    })
+    });
   }
 }
