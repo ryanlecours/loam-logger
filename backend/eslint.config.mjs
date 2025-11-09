@@ -27,6 +27,9 @@ export default [
     rules: {
       '@typescript-eslint/no-unused-vars': ['warn'],
       '@typescript-eslint/explicit-module-boundary-types': 'off',
+      semi: ["error", "always"],
+      "semi-spacing": ["error", { before: false, after: true }],
+      "semi-style": ["error", "last"],
     },
   },
 ];

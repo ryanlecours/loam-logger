@@ -1,16 +1,17 @@
 import { useState } from 'react'
-import { useNavigate, useLocation } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { useApolloClient } from '@apollo/client'
 import { useGoogleLogin } from '@react-oauth/google'
 import ConnectGarminLink from '../components/ConnectGarminLink'
+import { useRedirectFrom } from '../utils/loginUtils'
+
 
 export default function Login() {
-  const navigate = useNavigate()
-  const location = useLocation()
-  const apollo = useApolloClient()
+  const navigate = useNavigate();
+  const apollo = useApolloClient();
 
-  const [loading, setLoading] = useState(false)
-  const from = (location.state as any)?.from?.pathname || '/dashboard'
+  const [loading, setLoading] = useState(false);
+  const from = useRedirectFrom();
 
   const googleLogin = useGoogleLogin({
     flow: 'auth-code',
@@ -36,10 +37,9 @@ export default function Login() {
         setLoading(false)
       }
     },
-    onError: (err) => {
-      console.error('Google OAuth error', err)
-      alert('Google sign-in failed. Try again.')
-    },
+    onError: (errorResponse) => {
+    console.error('Google login error', errorResponse)
+  },
   })
 
   return (
