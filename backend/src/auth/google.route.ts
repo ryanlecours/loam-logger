@@ -19,16 +19,16 @@ const client = new OAuth2Client({
 
 router.post('/google/code', express.json(), async (req, res) => {
   try {
-    const { credential } = req.body as { credential?: string }
-    if (!credential) return res.status(400).send('Missing credential')
+    const { credential } = req.body as { credential?: string };
+    if (!credential) return res.status(400).send('Missing credential');
 
     // Verify the ID token directly
     const ticket = await client.verifyIdToken({
       idToken: credential,
       audience: GOOGLE_CLIENT_ID,
-    })
-    const p = ticket.getPayload()
-    if (!p?.sub) return res.status(401).send('Invalid Google token')
+    });
+    const p = ticket.getPayload();
+    if (!p?.sub) return res.status(401).send('Invalid Google token');
 
     const user = await ensureUserFromGoogle(
       {
@@ -38,15 +38,15 @@ router.post('/google/code', express.json(), async (req, res) => {
         name: p.name,
         picture: p.picture,
       },
-    )
+    );
 
-    setSessionCookie(res, { uid: user.id, email: user.email })
-    res.status(200).json({ ok: true })
+    setSessionCookie(res, { uid: user.id, email: user.email });
+    res.status(200).json({ ok: true });
   } catch (e) {
-    console.error('[GoogleAuth] ID-token login failed', e)
-    res.status(500).send('Auth failed')
+    console.error('[GoogleAuth] ID-token login failed', e);
+    res.status(500).send('Auth failed');
   }
-})
+});
 
 router.post('/logout', (_req, res) => {
   console.log('[GoogleAuth] Logout request');
