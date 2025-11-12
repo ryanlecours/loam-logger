@@ -85,7 +85,11 @@ export const resolvers = {
 
     rideTypes: () => ALLOWED_RIDE_TYPES,
 
-    me: async (ctx: GraphQLContext) => {
+     me: async (
+      _parent: unknown,
+      _args: unknown,
+      ctx: GraphQLContext
+    ) => {
       const id = ctx.user?.id;
       return id ? prisma.user.findUnique({ where: { id } }) : null;
     },
