@@ -64,8 +64,15 @@ const startServer = async () => {
   app.use(express.json());
   app.use(express.urlencoded({ extended: false }));
   app.use(cookieParser(process.env.COOKIE_SECRET || 'dev-secret'));
+  app.use((req, res, next) => {
+  if (req.path === '/graphql' || req.path.startsWith('/auth')) {
+    console.log(`[REQ] ${req.method} ${req.path} origin=${req.headers.origin || 'n/a'}`);
+  }
+  next();
+});
   app.use(attachUser);
 
+  
   app.use('/auth', googleRouter); // POST /auth/google/code, /auth/logout
   app.use('/auth', authGarmin);   // Garmin OAuth
   app.use(garminTest);            // test route
