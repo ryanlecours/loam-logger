@@ -72,6 +72,9 @@ const startServer = async () => {
 });
   app.use(attachUser);
 
+  app.get('/whoami', (req, res) => {
+  res.json({ sessionUser: req.sessionUser ?? null });
+});
   
   app.use('/auth', googleRouter); // POST /auth/google/code, /auth/logout
   app.use('/auth', authGarmin);   // Garmin OAuth
@@ -80,6 +83,13 @@ const startServer = async () => {
 
   const server = new ApolloServer<GraphQLContext>({ typeDefs, resolvers });
   await server.start();
+
+  app.use((req, _res, next) => {
+  if (req.path === '/graphql' && req.method === 'POST') {
+    console.log('[GraphQL] sessionUser:', req.sessionUser ?? null);
+  }
+  next();
+});
 
   app.use(
     '/graphql',
