@@ -31,9 +31,29 @@ const startServer = async () => {
     .map(s => s.trim())
     .filter(Boolean);
 
+
+  const allowOrigin = (origin?: string | undefined) => {
+    if (!origin) return true // SSR/tools/no Origin header
+    try {
+      const u = new URL(origin)
+      const host = u.hostname
+      return (
+        origin === FRONTEND_URL ||
+        origin === 'http://localhost:5173' ||
+        EXTRA_ORIGINS.includes(origin) ||
+        host.endsWith('.vercel.app')
+      )
+    } catch {
+      return false
+    }
+  }
+
   app.use(
     cors({
-      origin: [FRONTEND_URL, 'http://localhost:5173', ...EXTRA_ORIGINS],
+      origin(origin, cb) {
+        if (allowOrigin(origin)) return cb(null, true)
+        return cb(new Error(`CORS blocked for origin: ${origin}`))
+      },
       credentials: true,
     })
   );
