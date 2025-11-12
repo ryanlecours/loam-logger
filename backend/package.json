@@ -8,6 +8,7 @@
     "build": "vite build",
     "dev": "vite-node src/server.ts",
     "lint": "npx eslint src --ext .ts",
+    "lint-fix": "npx eslint src --ext .ts --fix",
     "prisma:fmt": "prisma format",
     "prisma:generate": "prisma generate --schema=./prisma/schema.prisma",
     "prisma:mig": "prisma migrate dev --name",
@@ -26,11 +27,14 @@
     "@apollo/server": "^5.0.0",
     "@as-integrations/express4": "^1.1.2",
     "@prisma/client": "^6.14.0",
+    "cookie": "^1.0.2",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "express": "^4.21.2",
+    "google-auth-library": "^10.5.0",
     "graphql": "^16.11.0",
-    "graphql-tag": "^2.12.6"
+    "graphql-tag": "^2.12.6",
+    "jsonwebtoken": "^9.0.2"
   },
   "devDependencies": {
     "@eslint/js": "^9.32.0",
@@ -39,6 +43,7 @@
     "@types/cors": "^2.8.19",
     "@types/express": "^4.17.23",
     "@types/express-serve-static-core": "^4.19.6",
+    "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^24.10.0",
     "@typescript-eslint/eslint-plugin": "^8.39.0",
     "@typescript-eslint/parser": "^8.39.0",

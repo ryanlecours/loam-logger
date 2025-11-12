@@ -4,18 +4,18 @@ import {
   type Request,
   type Response,
   type RequestHandler,
-} from 'express'
-import { garminGetActivities } from '../services/garmin.ts'
+} from 'express';
+import { garminGetActivities } from '../services/garmin.ts';
 
-const r: Router = createRouter()
+const r: Router = createRouter();
 
 const requireUser: RequestHandler = (req, res, next) => {
   if (!req.user?.id) {
-    res.status(401).json({ ok: false, error: 'unauthorized' })
-    return
+    res.status(401).json({ ok: false, error: 'unauthorized' });
+    return;
   }
-  next()
-}
+  next();
+};
 
 type Params = Record<string, never>
 type Query = { limit?: string; from?: string; to?: string }
@@ -30,24 +30,24 @@ r.get<Params, SuccessBody | ErrorBody, never, Query>(
     res: Response<SuccessBody | ErrorBody>
   ) => {
     try {
-      const userId = req.user!.id // safe after requireUser
+      const userId = req.user!.id; // safe after requireUser
       const parsedLimit = Number.isFinite(Number(req.query.limit))
         ? Math.min(100, Math.max(1, Number(req.query.limit)))
-        : 5
+        : 5;
 
-      const params: Record<string, string> = { limit: String(parsedLimit) }
-      if (req.query.from) params.from = req.query.from
-      if (req.query.to) params.to = req.query.to
+      const params: Record<string, string> = { limit: String(parsedLimit) };
+      if (req.query.from) params.from = req.query.from;
+      if (req.query.to) params.to = req.query.to;
 
-      const data = await garminGetActivities(userId, params)
-      res.status(200).json({ ok: true, data })
-      return
+      const data = await garminGetActivities(userId, params);
+      res.status(200).json({ ok: true, data });
+      return;
     } catch (err) {
-        const msg = err instanceof Error ? err.message : 'failed'
-      res.status(502).json({ ok: false, error: msg })
-      return
+        const msg = err instanceof Error ? err.message : 'failed';
+      res.status(502).json({ ok: false, error: msg });
+      return;
     }
   }
-)
+);
 
-export default r
+export default r;

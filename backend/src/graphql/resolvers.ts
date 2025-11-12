@@ -1,5 +1,5 @@
 import type { GraphQLContext } from '../server.ts';
-import { prisma } from '../lib/prisma.ts'
+import { prisma } from '../lib/prisma.ts';
 import type { Prisma } from '@prisma/client';
 
 type UserArgs = { id: string };
@@ -59,7 +59,7 @@ const ALLOWED_RIDE_TYPES = [
   'ROAD',
   'GRAVEL',
   'TRAINER',
-] as const
+] as const;
 
 type RidesArgs = { take?: number; after?: string | null };
 
