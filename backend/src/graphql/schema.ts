@@ -68,6 +68,7 @@ export const typeDefs = gql`
     email: String!
     rides: [Ride!]!
     name: String
+    avatarUrl: String
   }
 
   type Query {
