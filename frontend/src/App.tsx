@@ -8,9 +8,11 @@ import NotFound from './pages/NotFound';
 import Rides from './pages/Rides';
 import Settings from './pages/Settings';
 import NavBar from './components/NavBar';
+import AuthComplete from './pages/AuthComplete';
+
+import AuthGate from './components/AuthGate'; // ⬅️ new
 
 import './App.css';
-import AuthComplete from './pages/AuthComplete';
 
 function Page({ children }: { children: React.ReactNode }) {
   const reduce = useReducedMotion();
@@ -35,16 +37,40 @@ function AppRoutes() {
     <>
       {!isAuthPage && <NavBar />}
 
-      {/* AnimatePresence handles exit animations on route change */}
       <AnimatePresence mode="wait" initial={false}>
-        {/* Key by pathname so each page gets its own animation cycle */}
         <Routes location={location} key={location.pathname}>
+          {/* Public */}
           <Route path="/" element={<Page><Home /></Page>} />
           <Route path="/login" element={<Page><Login /></Page>} />
-          <Route path="/dashboard" element={<Page><Dashboard /></Page>} />
-          <Route path="/rides" element={<Page><Rides /></Page>} />
-          <Route path="/settings" element={<Page><Settings /></Page>} />
           <Route path="/auth/complete" element={<AuthComplete />} />
+
+          {/* Protected */}
+          <Route
+            path="/dashboard"
+            element={
+              <AuthGate>
+                <Page><Dashboard /></Page>
+              </AuthGate>
+            }
+          />
+          <Route
+            path="/rides"
+            element={
+              <AuthGate>
+                <Page><Rides /></Page>
+              </AuthGate>
+            }
+          />
+          <Route
+            path="/settings"
+            element={
+              <AuthGate>
+                <Page><Settings /></Page>
+              </AuthGate>
+            }
+          />
+
+          {/* 404 */}
           <Route path="*" element={<Page><NotFound /></Page>} />
         </Routes>
       </AnimatePresence>

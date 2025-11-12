@@ -34,9 +34,6 @@ export default function Dashboard() {
       {/* Header */}
       <header className="flex justify-between items-center mb-12">
         <h1 className="text-3xl font-bold">LoamLogger Dashboard</h1>
-        <Link to="/" className="text-sm text-gray-500 hover:text-gray-700 underline">
-          Log out
-        </Link>
       </header>
 
       {/* Welcome */}
