@@ -10,7 +10,7 @@ export function setSessionCookie(res: Response, payload: SessionUser) {
   res.cookie('ll_session', token, {
     httpOnly: true,
     secure: process.env.APP_ENV === 'production',
-    sameSite: 'lax',
+    sameSite: process.env.APP_ENV === 'production' ? 'none' : 'lax',
     maxAge: 7 * 24 * 60 * 60 * 1000,
   });
 }
