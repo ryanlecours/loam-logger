@@ -41,9 +41,9 @@ export default function Login() {
           width="200"
         />
 
-        {/* Optional Garmin connect link below */}
+        {/* Garmin link will go here once API access is granted. */}
         <div className="mt-6">
-          <ConnectGarminLink isLoading={false}/>
+          <ConnectGarminLink />
         </div>
         </div>
       </div>
