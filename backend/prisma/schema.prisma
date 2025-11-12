@@ -13,17 +13,25 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum AuthProvider {
+  garmin
+  google
+}
+
 model User {
   id             String    @id @default(uuid())
   email          String    @unique
-  name           String
+  name           String?
   garminUserId   String?   @unique
   accessToken    String?
   refreshToken   String?
   tokenExpiresAt DateTime?
+  avatarUrl      String?
+  emailVerified  DateTime?
 
   rides Ride[]
   bikes Bike[]
+  accounts       UserAccount[]
 
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
@@ -33,7 +41,7 @@ model User {
 model OauthToken {
   id           String   @id @default(cuid())
   userId       String
-  provider     String // 'garmin'
+  provider     AuthProvider
   accessToken  String
   refreshToken String?
   expiresAt    DateTime
@@ -42,6 +50,19 @@ model OauthToken {
   User         User     @relation(fields: [userId], references: [id])
 
   @@unique([userId, provider])
+}
+
+model UserAccount {
+  id              String        @id @default(cuid())
+  userId          String
+  provider        AuthProvider
+  providerUserId  String        // e.g., Google "sub" claim
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerUserId])  // a given external identity maps to exactly one user
+  @@index([userId])
 }
 
 model Ride {
