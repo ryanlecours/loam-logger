@@ -4,6 +4,8 @@ import { useApolloClient } from '@apollo/client'
 import { useGoogleLogin } from '@react-oauth/google'
 import ConnectGarminLink from '../components/ConnectGarminLink'
 import { useRedirectFrom } from '../utils/loginUtils'
+import { ME_QUERY } from '../graphql/me'
+
 
 
 export default function Login() {
@@ -27,7 +29,7 @@ export default function Login() {
 
         if (!res.ok) throw new Error('Google login failed')
 
-        await apollo.refetchQueries({ include: ['Me'] })
+        await apollo.refetchQueries({ include: [ME_QUERY] })
 
         navigate(from, { replace: true })
       } catch (err) {
