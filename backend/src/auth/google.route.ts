@@ -18,57 +18,33 @@ const client = new OAuth2Client({
 });
 
 router.post('/google/code', express.json(), async (req, res) => {
-  console.log('[GoogleAuth] Received login code exchange request');
-
   try {
-    const { code } = req.body as { code: string };
-    if (!code) {
-      console.warn('[GoogleAuth] Missing auth code');
-      return res.status(400).send('Missing code');
-    }
+    const { credential } = req.body as { credential?: string };
+    if (!credential) return res.status(400).send('Missing credential');
 
-    const { tokens } = await client.getToken({ code, redirect_uri: 'postmessage' });
-    console.log('[GoogleAuth] Tokens received');
-
+    // Verify the ID token directly
     const ticket = await client.verifyIdToken({
-      idToken: tokens.id_token!,
+      idToken: credential,
       audience: GOOGLE_CLIENT_ID,
     });
-    const payload = ticket.getPayload();
-    if (!payload?.sub) {
-      console.warn('[GoogleAuth] Invalid Google token payload');
-      return res.status(401).send('Invalid Google token');
-    }
+    const p = ticket.getPayload();
+    if (!p?.sub) return res.status(401).send('Invalid Google token');
 
     const user = await ensureUserFromGoogle(
       {
-        sub: payload.sub,
-        email: payload.email ?? undefined,
-        email_verified: payload.email_verified,
-        name: payload.name,
-        picture: payload.picture,
+        sub: p.sub,
+        email: p.email ?? undefined,
+        email_verified: p.email_verified,
+        name: p.name,
+        picture: p.picture,
       },
-      {
-        id_token: tokens.id_token!,
-        access_token: tokens.access_token ?? undefined,
-        refresh_token: tokens.refresh_token ?? undefined,
-        expires_in: tokens.expiry_date
-          ? Math.max(1, Math.floor((tokens.expiry_date - Date.now()) / 1000))
-          : undefined,
-      }
     );
 
     setSessionCookie(res, { uid: user.id, email: user.email });
-    console.log('[GoogleAuth] Login successful for', user.email);
-
     res.status(200).json({ ok: true });
-  } catch (err: unknown) {
-    if (err instanceof Error) {
-        console.error('[GoogleAuth] Login failed:', err.message);
-      } else {
-        console.error('[GoogleAuth] Unknown login error:', err);
-      }
-      res.status(500).send('Auth failed');
+  } catch (e) {
+    console.error('[GoogleAuth] ID-token login failed', e);
+    res.status(500).send('Auth failed');
   }
 });
 
