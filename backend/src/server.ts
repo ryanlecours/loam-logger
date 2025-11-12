@@ -50,16 +50,16 @@ const startServer = async () => {
 
   const corsMw = cors({
     origin(origin, cb) {
-      if (allowOrigin(origin)) return cb(null, true)
-      return cb(new Error(`CORS blocked for origin: ${origin}`))
+      if (allowOrigin(origin)) return cb(null, true);
+      return cb(new Error(`CORS blocked for origin: ${origin}`));
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
-  })
+  });
 
-  app.use(corsMw)
-  app.options('*', corsMw)
+  app.use(corsMw);
+  app.options('*', corsMw);
 
   app.use(express.json());
   app.use(express.urlencoded({ extended: false }));
