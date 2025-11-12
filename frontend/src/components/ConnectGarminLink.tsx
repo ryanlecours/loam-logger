@@ -1,15 +1,12 @@
 import { useState } from "react"
 import { FaMountain } from "react-icons/fa"
 
-type ConnectGarminLinkProps = {
-  isLoading: boolean
-}
 
 const apiBase =
   (import.meta.env.VITE_API_URL ?? "").replace(/\/$/, "") ||
   (import.meta.env.DEV ? "http://localhost:4000" : "")
 
-export default function ConnectGarminLink({ }: ConnectGarminLinkProps) {
+export default function ConnectGarminLink() {
   const [showTooltip, setShowTooltip] = useState(false)
 
   return (
