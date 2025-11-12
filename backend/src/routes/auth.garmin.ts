@@ -1,4 +1,3 @@
-// src/routes/auth.garmin.ts
 import { Router as createRouter, type Router, type Request, type Response } from 'express';
 import { prisma } from '../lib/prisma.ts';
 import { sha256, randomString } from '../lib/pcke.ts'; 
