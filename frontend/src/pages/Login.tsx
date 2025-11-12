@@ -1,12 +1,16 @@
 import { useApolloClient } from '@apollo/client'
 import { GoogleLogin, type CredentialResponse } from '@react-oauth/google'
+import { useNavigate } from 'react-router-dom'
 import ConnectGarminLink from '../components/ConnectGarminLink'
 import { ME_QUERY } from '../graphql/me'
+import { useRedirectFrom } from '../utils/loginUtils'
 
 
 
 export default function Login() {
   const apollo = useApolloClient()
+   const navigate = useNavigate()
+  const from = useRedirectFrom()
 
   async function handleLoginSuccess(resp: CredentialResponse) {
     const credential = resp.credential
@@ -35,6 +39,7 @@ export default function Login() {
       console.log('[GoogleLogin] Backend verified credential successfully')
 
       await apollo.query({ query: ME_QUERY, fetchPolicy: 'network-only' })
+      navigate(from, { replace: true })
     } catch (err) {
       console.error('[GoogleLogin] Network or unexpected error', err)
       alert('A network error occurred during login. Please try again.')
