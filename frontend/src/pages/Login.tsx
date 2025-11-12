@@ -34,7 +34,7 @@ export default function Login() {
 
       console.log('[GoogleLogin] Backend verified credential successfully')
 
-      await apollo.refetchQueries({ include: [ME_QUERY] })
+      await apollo.query({ query: ME_QUERY, fetchPolicy: 'network-only' })
     } catch (err) {
       console.error('[GoogleLogin] Network or unexpected error', err)
       alert('A network error occurred during login. Please try again.')
