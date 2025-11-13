@@ -75,6 +75,13 @@ export default function Login() {
             <ConnectGarminLink />
           </div>
         </div>
+        {/* Back button */}
+      <button
+        onClick={() => navigate("/")}
+        className="mt-6 cursor-pointer inline-flex items-center gap-2 rounded-xl transition border border-black/10 px-3 py-2 text-sm font-medium text-black/80 shadow-sm hover:bg-black/5 dark:border-white/10 dark:text-white/80 dark:hover:bg-white/10"
+      >
+        ← Back
+      </button>
       </div>
     </div>
   )
