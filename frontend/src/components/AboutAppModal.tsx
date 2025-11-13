@@ -22,6 +22,8 @@ type AboutAppModalProps = {
   roadmap?: RoadmapItem[];
 };
 
+type Tab = "about" | "new" | "roadmap";
+
 /** ---------- Component ---------- */
 export default function AboutAppModal({
   triggerLabel = "About this app",
@@ -66,7 +68,7 @@ export default function AboutAppModal({
   ],
 }: AboutAppModalProps) {
   const [open, setOpen] = useState(false);
-  const [tab, setTab] = useState<"about" | "new" | "roadmap">("about");
+  const [tab, setTab] = useState<Tab>("about");
   const dialogRef = useRef<HTMLDivElement>(null);
   const firstFocusable = useRef<HTMLButtonElement>(null);
 
@@ -190,7 +192,7 @@ export default function AboutAppModal({
                     role="tab"
                     aria-selected={tab === id}
                     aria-controls={`panel-${id}`}
-                    onClick={() => setTab(id as any)}
+                    onClick={() => setTab(id as Tab)}
                     className={`flex-1 rounded-xl px-3 py-2 text-sm font-medium transition ${
                       tab === id
                         ? "bg-white shadow dark:bg-neutral-700"
