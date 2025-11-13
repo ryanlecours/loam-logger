@@ -13,6 +13,7 @@ import AuthComplete from './pages/AuthComplete';
 import AuthGate from './components/AuthGate'; // ⬅️ new
 
 import './App.css';
+import PrivacyPolicy from './pages/PrivacyPolicy';
 
 function Page({ children }: { children: React.ReactNode }) {
   const reduce = useReducedMotion();
@@ -31,7 +32,7 @@ function Page({ children }: { children: React.ReactNode }) {
 
 function AppRoutes() {
   const location = useLocation();
-  const isAuthPage = location.pathname === '/' || location.pathname === '/login';
+  const isAuthPage = location.pathname === '/' || location.pathname === '/login' || location.pathname === '/privacy';
 
   return (
     <>
@@ -41,6 +42,7 @@ function AppRoutes() {
         <Routes location={location} key={location.pathname}>
           {/* Public */}
           <Route path="/" element={<Page><Home /></Page>} />
+          <Route path="/privacy" element={<PrivacyPolicy />} />
           <Route path="/login" element={<Page><Login /></Page>} />
           <Route path="/auth/complete" element={<AuthComplete />} />
 
