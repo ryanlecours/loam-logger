@@ -1,7 +1,5 @@
-@import url('https://fonts.googleapis.com/css2?family=Work+Sans:wght@400;500;600;700&display=swap');
-
 /* =========================
-   LOAM LOGGER THEME (Palette-driven)
+   LOAM LOGGER THEME
    ========================= */
 
 :root {
@@ -16,7 +14,7 @@
 
   /* CTA / brand (Cal Poly Green as primary on light) */
   --primary:           69 115 76;   /* cal_poly_green-600 #45734c */
-  --primary-foreground:251 250 248; /* seasalt-500 #fbfaf8 */
+  --primary-foreground: 30 45 40; /* ≈ #1E2D28 */
 
   /* Secondary accent (warm Raw Umber) */
   --accent:            180 125 85;  /* raw_umber-600 #b47d55 */
@@ -129,7 +127,7 @@ html, body, #root {
 /* Accent */
 .btn-accent {
   background-color: rgb(var(--text));
-  color: rgb(var(--primary));
+  color: rgb(var(--surface-accent));
   border: 1px solid transparent;
   border-radius: 0.5rem;
   padding: 0.5rem 1rem;
@@ -167,3 +165,4 @@ html, body, #root {
   opacity: 0.7;
   pointer-events: none;
 }
+
