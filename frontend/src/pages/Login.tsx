@@ -4,6 +4,8 @@ import { useNavigate } from 'react-router-dom'
 import ConnectGarminLink from '../components/ConnectGarminLink'
 import { ME_QUERY } from '../graphql/me'
 import { useRedirectFrom } from '../utils/loginUtils'
+import { Button } from "@/components/ui";
+
 
 
 
@@ -38,7 +40,8 @@ export default function Login() {
 
       console.log('[GoogleLogin] Backend verified credential successfully')
 
-      await apollo.query({ query: ME_QUERY, fetchPolicy: 'network-only' })
+      const { data } = await apollo.query({ query: ME_QUERY, fetchPolicy: 'network-only' })
+      apollo.writeQuery({ query: ME_QUERY, data })
       navigate(from, { replace: true })
     } catch (err) {
       console.error('[GoogleLogin] Network or unexpected error', err)
@@ -76,12 +79,13 @@ export default function Login() {
           </div>
         </div>
         {/* Back button */}
-      <button
+        <Button
+        variant="secondary"
         onClick={() => navigate("/")}
-        className="mt-6 cursor-pointer inline-flex items-center gap-2 rounded-xl transition border border-black/10 px-3 py-2 text-sm font-medium text-black/80 shadow-sm hover:bg-black/5 dark:border-white/10 dark:text-white/80 dark:hover:bg-white/10"
-      >
+        className="mt-6 text-sm"
+        >
         ← Back
-      </button>
+        </Button>
       </div>
     </div>
   )
