@@ -1,5 +1,5 @@
-import { motion } from "motion/react";
 import React, { useEffect, useRef, useState } from "react";
+import { Button } from "./ui";
 
 /** ---------- Types ---------- */
 type ChangelogItem = {
@@ -29,6 +29,17 @@ export default function AboutAppModal({
   triggerLabel = "About this app",
   description = `Loam Logger is a mountain-bike focused ride tracker for analyzing time on each bike, tracking component maintenance and service needs, and trail ride tendencies.`,
   changelog = [
+    {
+      date: "2025-11-14",
+      version: "0.1.0-alpha.5",
+      highlights: ["UI", "Theme"],
+      changes: [
+        "Added common motion button component",
+        "Refined button styles and hover states throughout app",
+        "Centralized color variables for primary and accent colors",
+        "Updated NavBar link styles for consistency",
+      ],
+    },
     {
       date: "2025-11-12",
       version: "0.1.0-alpha.4",
@@ -135,24 +146,12 @@ export default function AboutAppModal({
 
   return (
     <>
-    <div className="max-w-fit mx-auto">
-    <motion.div
-          whileHover={{
-            scale: 1.1,
-            transition: { duration: 0.1 }
-          }}
-          whileTap={{ scale: 0.9 }}
-          transition={{ duration: 0.5 }}
-          className="max-w-fit mt-6">
-      <button
-        type="button"
-        onClick={() => { setTab("about"); setOpen(true); }}
-        className="btn-secondary inline-flex items-center rounded-2xl border-black/10 px-4 py-2 text-sm font-medium shadow-sm hover:bg-white/5 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-black/30"
-      >
-        {triggerLabel}
-      </button>
-      </motion.div>
-      </div>
+    <Button
+    onClick={() => { setTab("about"); setOpen(true);}}
+    variant="secondary"
+    children={triggerLabel}
+    className="mt-6" />
+    
 
       {open && (
         <div
@@ -271,12 +270,11 @@ export default function AboutAppModal({
 
             {/* Footer */}
             <div className="mt-6 flex items-center justify-end">
-              <button
+                <Button 
                 onClick={() => setOpen(false)}
-                className="rounded-2xl bg-black px-4 py-2 text-sm font-medium text-white shadow-sm hover:opacity-90 cursor-pointer dark:bg-white dark:text-black focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-black/30"
-              >
-                Close
-              </button>
+                variant="secondary"
+                children={"Close"}
+                className="rounded-2xl text-sm"/>
             </div>
           </div>
         </div>

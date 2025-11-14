@@ -6,6 +6,8 @@ import RideCard from '../components/RideCard';
 import BikeCard from '../components/BikeCard';
 import RideStatsCard from '../components/RideStatsCard.tsx';
 import { bikes } from '../mockData/garage';
+import { useCurrentUser } from '../hooks/useCurrentUser.ts';
+
 
 type Ride = {
   id: string;
@@ -22,6 +24,7 @@ type Ride = {
 const RECENT_COUNT = 5;
 
 export default function Dashboard() {
+  const user = useCurrentUser().user;
   const { data, loading, error } = useQuery<{ rides: Ride[] }>(RIDES, {
     variables: { take: RECENT_COUNT },
     fetchPolicy: 'cache-first',
@@ -39,7 +42,7 @@ export default function Dashboard() {
       {/* Welcome */}
       <section className="mb-6">
         <p className="text-lg text-accent-contrast">
-          Welcome back! Here's a quick look at your mountain biking activity and gear status.
+          Welcome back {user.name.split(" ").slice(0, -1).join(" ")}! Here's a quick look at your mountain biking activity and gear status.
         </p>
       </section>
 
