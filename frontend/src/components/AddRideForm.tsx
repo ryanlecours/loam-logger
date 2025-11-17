@@ -1,9 +1,21 @@
 // src/components/AddRideForm.tsx
 import { useEffect, useMemo, useState } from 'react';
-import { useMutation } from '@apollo/client';
+import { Link } from 'react-router-dom';
+import { useMutation, useQuery } from '@apollo/client';
 import { ADD_RIDE } from '../graphql/addRide';
+import { BIKES } from '../graphql/bikes';
 
 const SUGGESTED_TYPES = ['trail', 'enduro', 'commute', 'road', 'gravel', 'trainer'];
+
+type BikeSummary = {
+  id: string;
+  nickname?: string | null;
+  manufacturer: string;
+  model: string;
+};
+
+const formatBikeName = (bike: BikeSummary) =>
+  (bike.nickname?.trim() || `${bike.manufacturer} ${bike.model}`.trim() || 'Bike').trim();
 
 export default function AddRideForm({ onAdded }: { onAdded?: () => void }) {
   // --- existing state (same as your working form) ---
@@ -19,6 +31,12 @@ export default function AddRideForm({ onAdded }: { onAdded?: () => void }) {
   const [trailSystem, setTrailSystem] = useState<string>('');
   const [location, setLocation] = useState<string>('');
   const MAX_NOTES_LEN = 2000;
+  const {
+    data: bikesData,
+    loading: bikesLoading,
+    error: bikesError,
+  } = useQuery<{ bikes: BikeSummary[] }>(BIKES, { fetchPolicy: 'cache-and-network' });
+  const userBikes = useMemo(() => bikesData?.bikes ?? [], [bikesData]);
 
   const durationSeconds = useMemo(
     () => Math.max(0, Math.floor((Number(hours) || 0) * 3600 + (Number(minutes) || 0) * 60)),
@@ -30,6 +48,15 @@ export default function AddRideForm({ onAdded }: { onAdded?: () => void }) {
   });
 
   const [formError, setFormError] = useState<string | null>(null);
+  useEffect(() => {
+    if (userBikes.length === 1) {
+      setBikeId((current) => current || userBikes[0].id);
+    } else if (userBikes.length === 0) {
+      setBikeId('');
+    } else {
+      setBikeId((current) => (userBikes.some((bike) => bike.id === current) ? current : ''));
+    }
+  }, [userBikes]);
   useEffect(() => setFormError(null), [
     startLocal, hours, minutes, distanceMiles, elevationGainFeet, averageHr, rideType, bikeId, notes, trailSystem, location,
   ]);
@@ -37,13 +64,15 @@ export default function AddRideForm({ onAdded }: { onAdded?: () => void }) {
   function validate(): string | null {
     if (!startLocal) return 'Start time is required.';
     if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) return 'Duration must be greater than 0.';
-    if (!Number.isFinite(distanceMiles) || distanceMiles < 0) return 'Distance must be ≥ 0.';
-    if (!Number.isFinite(elevationGainFeet) || elevationGainFeet < 0) return 'Elevation gain must be ≥ 0.';
+    if (!Number.isFinite(distanceMiles) || distanceMiles < 0) return 'Distance must be >= 0.';
+    if (!Number.isFinite(elevationGainFeet) || elevationGainFeet < 0) return 'Elevation gain must be >= 0.';
     if (averageHr !== '' && (!Number.isFinite(Number(averageHr)) || Number(averageHr) < 0 || Number(averageHr) > 250)) {
       return 'Average HR should be between 0 and 250.';
     }
     if (!rideType.trim()) return 'Ride type is required.';
-    if (notes.length > MAX_NOTES_LEN) return `Notes must be ≤ ${MAX_NOTES_LEN} characters.`;
+    if (userBikes.length === 0) return 'Add a bike in Gear before logging a ride.';
+    if (userBikes.length > 0 && !bikeId) return 'Please select which bike you rode.';
+    if (notes.length > MAX_NOTES_LEN) return `Notes must be <= ${MAX_NOTES_LEN} characters.`;
     return null;
   }
 
@@ -78,7 +107,7 @@ export default function AddRideForm({ onAdded }: { onAdded?: () => void }) {
     setDistanceMiles(10); setElevationGainFeet(500);
     setAverageHr('');
     setRideType('trail');
-    setBikeId('');
+    setBikeId(userBikes.length === 1 ? userBikes[0].id : '');
     setNotes('');
     setTrailSystem('');
     setLocation('');
@@ -91,6 +120,8 @@ export default function AddRideForm({ onAdded }: { onAdded?: () => void }) {
     'focus:outline-none focus:ring-2 focus:ring-[rgb(var(--ring))]';
 
   const labelCls = 'block text-sm text-muted';
+  const submitDisabled = loading || bikesLoading || userBikes.length === 0 || !bikeId;
+  const submitLabel = userBikes.length === 0 ? 'Add a bike to log rides' : loading ? 'Saving...' : 'Save Ride';
 
   return (
     <form
@@ -178,7 +209,7 @@ export default function AddRideForm({ onAdded }: { onAdded?: () => void }) {
         />
       </div>
 
-      {/* Ride type + Bike (optional id) */}
+      {/* Ride type + Bike */}
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-1">
           <label className={labelCls}>Ride Type</label>
@@ -189,21 +220,41 @@ export default function AddRideForm({ onAdded }: { onAdded?: () => void }) {
             onChange={e => setRideType(e.target.value)}
             className={inputCls}
             maxLength={32}
-            placeholder="trail / road / …"
+            placeholder="trail / road / etc"
           />
           <datalist id="ride-type-suggest">
             {SUGGESTED_TYPES.map(t => <option key={t} value={t} />)}
           </datalist>
         </div>
         <div className="space-y-1">
-          <label className={labelCls}>Bike (optional id)</label>
-          <input
-            type="text"
-            value={bikeId}
-            onChange={e => setBikeId(e.target.value)}
-            className={inputCls}
-            placeholder="Leave blank if none"
-          />
+          <label className={labelCls}>Bike</label>
+          {bikesLoading ? (
+            <div className="text-sm text-muted">Loading bikes...</div>
+          ) : userBikes.length > 0 ? (
+            <select
+              value={bikeId}
+              onChange={(e) => setBikeId(e.target.value)}
+              className={inputCls}
+              required
+            >
+              <option value="" disabled>
+                {userBikes.length > 1 ? 'Select a bike' : 'Bike'}
+              </option>
+              {userBikes.map((bike) => (
+                <option key={bike.id} value={bike.id}>
+                  {formatBikeName(bike)}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <div className="text-sm text-muted">
+              No bikes yet.{' '}
+              <Link to="/gear" className="underline text-accent">
+                Add a bike
+              </Link>{' '}
+              to log rides.
+            </div>
+          )}
         </div>
       </div>
 
@@ -242,14 +293,14 @@ export default function AddRideForm({ onAdded }: { onAdded?: () => void }) {
           rows={3}
           maxLength={MAX_NOTES_LEN}
           className={inputCls + ' resize-y'}
-          placeholder="Conditions, trails, workout details…"
+          placeholder="Conditions, trails, workout details..."
         />
         <div className="text-xs text-muted">{notes.length}/{MAX_NOTES_LEN}</div>
       </div>
 
-      {(formError || error) && (
+      {(formError || error || bikesError) && (
         <div className="text-sm" style={{ color: 'rgb(var(--danger))' }}>
-          {formError || error?.message}
+          {formError || error?.message || bikesError?.message}
         </div>
       )}
 
@@ -266,11 +317,18 @@ export default function AddRideForm({ onAdded }: { onAdded?: () => void }) {
         <button
           type="submit"
           className="btn-accent"
-          disabled={loading}
+          disabled={submitDisabled}
         >
-          {loading ? 'Saving…' : 'Save Ride'}
+          {submitLabel}
         </button>
       </div>
     </form>
   );
 }
+
+
+
+
+
+
+

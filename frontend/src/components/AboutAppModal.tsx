@@ -30,6 +30,18 @@ export default function AboutAppModal({
   description = `Loam Logger is a mountain-bike focused ride tracker for analyzing time on each bike, tracking component maintenance and service needs, and trail ride tendencies.`,
   changelog = [
     {
+      date: "2025-11-17",
+      version: "0.1.0-alpha.6",
+      highlights: ["UX", "Ride Stats, Gear"],
+      changes: [
+        "Created Add Edit Gear Page and Bike Form component",
+        "Added ability to add or edit gear or spare components",
+        "Rides now use gear associated with the user",
+        "New rides add hours used to gear",
+        "RideStatsCard on dashboard leverages real data",
+      ],
+    },
+    {
       date: "2025-11-14",
       version: "0.1.0-alpha.5",
       highlights: ["UI", "Theme"],
