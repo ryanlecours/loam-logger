@@ -352,34 +352,56 @@ export const resolvers = {
     addRide: async (_p: unknown, { input }: { input: AddRideInput }, ctx: GraphQLContext) => {
       if (!ctx.user?.id) throw new Error('Unauthorized');
 
+      const userId = ctx.user.id;
       const start = parseIso(input.startTime);
       const durationSeconds = Math.max(0, Math.floor(input.durationSeconds));
       const distanceMiles = Math.max(0, Number(input.distanceMiles));
       const elevationGainFeet = Math.max(0, Number(input.elevationGainFeet));
       const averageHr =
         typeof input.averageHr === 'number' ? Math.max(0, Math.floor(input.averageHr)) : null;
-
       const notes = cleanText(input.notes, MAX_NOTES_LEN);
       const trailSystem = cleanText(input.trailSystem, MAX_LABEL_LEN);
       const location = cleanText(input.location, MAX_LABEL_LEN);
       const rideType = cleanText(input.rideType, 32); // required; validated below
+      const requestedBikeId = input.bikeId ?? null;
 
       if (!rideType) throw new Error('rideType is required');
 
-      return prisma.ride.create({
-        data: {
-          userId: ctx.user.id,
-          startTime: start,
-          durationSeconds,
-          distanceMiles,
-          elevationGainFeet,
-          averageHr,
-          rideType,
-          ...(input.bikeId ? { bikeId: input.bikeId } : {}),
-          ...(notes ? { notes } : {}),
-          ...(trailSystem ? { trailSystem } : {}),
-          ...(location ? { location } : {}),
-        },
+      let bikeId: string | null = null;
+      if (requestedBikeId) {
+        const ownedBike = await prisma.bike.findUnique({
+          where: { id: requestedBikeId },
+          select: { userId: true },
+        });
+        if (!ownedBike || ownedBike.userId !== userId) throw new Error('Bike not found');
+        bikeId = requestedBikeId;
+      }
+
+      const rideData: Prisma.RideCreateInput = {
+        userId,
+        startTime: start,
+        durationSeconds,
+        distanceMiles,
+        elevationGainFeet,
+        averageHr,
+        rideType,
+        ...(bikeId ? { bikeId } : {}),
+        ...(notes ? { notes } : {}),
+        ...(trailSystem ? { trailSystem } : {}),
+        ...(location ? { location } : {}),
+      };
+
+      const hoursDelta = durationSeconds / 3600;
+
+      return prisma.$transaction(async (tx) => {
+        const ride = await tx.ride.create({ data: rideData });
+        if (bikeId && hoursDelta > 0) {
+          await tx.component.updateMany({
+            where: { bikeId, userId },
+            data: { hoursUsed: { increment: hoursDelta } },
+          });
+        }
+        return ride;
       });
     },
     deleteRide: async (_: unknown, { id }: { id: string }, ctx: GraphQLContext) => {

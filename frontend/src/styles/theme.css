@@ -242,28 +242,5 @@ html, body, #root {
   transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
 }
 
-.gear-form-field::placeholder,
-.gear-textarea-field::placeholder {
-  color: rgba(var(--input-placeholder), 0.95);
-}
 
-.gear-form-field:focus,
-.gear-textarea-field:focus {
-  border-color: rgb(var(--ring));
-  box-shadow: 0 0 0 3px rgba(var(--ring), 0.25);
-  outline: none;
-}
-
-.gear-textarea-field {
-  resize: vertical;
-}
-
-.gear-card-shell {
-  border-radius: 1rem;
-  background-color: rgba(var(--panel-bg), 0.98);
-  border: 1px solid rgba(var(--panel-border), 0.9);
-  color: rgb(var(--text));
-  box-shadow: 0 25px 70px rgba(var(--panel-shadow), 0.38);
-  backdrop-filter: blur(10px);
-}
 
