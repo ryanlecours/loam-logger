@@ -525,6 +525,9 @@ export const resolvers = {
 
       const hoursBefore = Math.max(0, existing.durationSeconds ?? 0) / 3600;
       const hoursAfter = Math.max(0, nextDurationSeconds ?? 0) / 3600;
+      const hoursDiff = hoursAfter - hoursBefore;
+      const durationChanged = durationUpdate !== undefined;
+      const bikeChanged = bikeUpdate !== undefined && nextBikeId !== existing.bikeId;
 
       return prisma.$transaction(async (tx) => {
         const updated = await tx.ride.update({
@@ -532,22 +535,43 @@ export const resolvers = {
           data,
         });
 
-        if (existing.bikeId && hoursBefore > 0) {
-          await tx.component.updateMany({
-            where: { userId, bikeId: existing.bikeId },
-            data: { hoursUsed: { decrement: hoursBefore } },
-          });
-          await tx.component.updateMany({
-            where: { userId, bikeId: existing.bikeId, hoursUsed: { lt: 0 } },
-            data: { hoursUsed: 0 },
-          });
-        }
+        if (bikeChanged || durationChanged) {
+          // Remove hours from the old bike when it loses the ride or when hours shrink
+          if (existing.bikeId) {
+            if (bikeChanged && hoursBefore > 0) {
+              await tx.component.updateMany({
+                where: { userId, bikeId: existing.bikeId },
+                data: { hoursUsed: { decrement: hoursBefore } },
+              });
+            } else if (!bikeChanged && durationChanged && hoursDiff < 0) {
+              await tx.component.updateMany({
+                where: { userId, bikeId: existing.bikeId },
+                data: { hoursUsed: { decrement: Math.abs(hoursDiff) } },
+              });
+            }
 
-        if (nextBikeId && hoursAfter > 0) {
-          await tx.component.updateMany({
-            where: { userId, bikeId: nextBikeId },
-            data: { hoursUsed: { increment: hoursAfter } },
-          });
+            if (bikeChanged || (durationChanged && hoursDiff < 0)) {
+              await tx.component.updateMany({
+                where: { userId, bikeId: existing.bikeId, hoursUsed: { lt: 0 } },
+                data: { hoursUsed: 0 },
+              });
+            }
+          }
+
+          // Add hours to the new/current bike when appropriate
+          if (nextBikeId) {
+            if (bikeChanged && hoursAfter > 0) {
+              await tx.component.updateMany({
+                where: { userId, bikeId: nextBikeId },
+                data: { hoursUsed: { increment: hoursAfter } },
+              });
+            } else if (!bikeChanged && durationChanged && hoursDiff > 0) {
+              await tx.component.updateMany({
+                where: { userId, bikeId: nextBikeId },
+                data: { hoursUsed: { increment: hoursDiff } },
+              });
+            }
+          }
         }
 
         return updated;
