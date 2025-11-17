@@ -31,6 +31,7 @@ model User {
 
   rides Ride[]
   bikes Bike[]
+  components Component[]
   accounts       UserAccount[]
 
   createdAt DateTime     @default(now())
@@ -94,9 +95,10 @@ model Bike {
   user   User   @relation(fields: [userId], references: [id])
   userId String
 
-  nickname      String
+  nickname      String?
   manufacturer  String
   model         String
+  year          Int?
   travelForkMm  Int?
   travelShockMm Int?
   notes         String?
@@ -110,19 +112,25 @@ model Bike {
 
 model Component {
   id     String @id @default(uuid())
-  bike   Bike   @relation(fields: [bikeId], references: [id])
-  bikeId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+  bike   Bike?  @relation(fields: [bikeId], references: [id], onDelete: SetNull)
+  bikeId String?
 
   type              ComponentType
   brand             String
   model             String
-  installedAt       DateTime
+  installedAt       DateTime?
   hoursUsed         Float         @default(0)
   serviceDueAtHours Float?
   notes             String?
+  isStock           Boolean       @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([bikeId])
 }
 
 enum ComponentType {
@@ -137,4 +145,5 @@ enum ComponentType {
   CHAIN
   CASSETTE
   OTHER
+  PIVOT_BEARINGS
 }
