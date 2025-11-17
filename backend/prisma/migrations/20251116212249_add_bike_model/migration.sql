@@ -16,9 +16,18 @@ ALTER COLUMN "nickname" DROP NOT NULL;
 
 -- AlterTable
 ALTER TABLE "public"."Component" ADD COLUMN     "isStock" BOOLEAN NOT NULL DEFAULT false,
-ADD COLUMN     "userId" TEXT NOT NULL,
+ADD COLUMN     "userId" TEXT,
 ALTER COLUMN "bikeId" DROP NOT NULL,
 ALTER COLUMN "installedAt" DROP NOT NULL;
+
+-- Backfill new Component.userId from the owning bike
+UPDATE "public"."Component" c
+SET "userId" = b."userId"
+FROM "public"."Bike" b
+WHERE c."bikeId" = b."id" AND c."userId" IS NULL;
+
+-- Enforce NOT NULL now that data is populated
+ALTER TABLE "public"."Component" ALTER COLUMN "userId" SET NOT NULL;
 
 -- CreateIndex
 CREATE INDEX "Component_userId_idx" ON "public"."Component"("userId");
