@@ -405,19 +405,33 @@ export const resolvers = {
       });
     },
     deleteRide: async (_: unknown, { id }: { id: string }, ctx: GraphQLContext) => {
-      if (!ctx.user?.id) throw new Error('Unauthorized');
+      const userId = requireUserId(ctx);
 
-      // Ensure the ride belongs to the current user
-      const owned = await prisma.ride.findUnique({
+      const ride = await prisma.ride.findUnique({
         where: { id },
-        select: { userId: true },
+        select: { userId: true, durationSeconds: true, bikeId: true },
       });
-      if (!owned || owned.userId !== ctx.user.id) {
-        // Hide whether it exists
+      if (!ride || ride.userId !== userId) {
         throw new Error('Ride not found');
       }
 
-      await prisma.ride.delete({ where: { id } });
+      const hoursDelta = Math.max(0, ride.durationSeconds ?? 0) / 3600;
+
+      await prisma.$transaction(async (tx) => {
+        if (ride.bikeId && hoursDelta > 0) {
+          await tx.component.updateMany({
+            where: { userId, bikeId: ride.bikeId },
+            data: { hoursUsed: { decrement: hoursDelta } },
+          });
+          await tx.component.updateMany({
+            where: { userId, bikeId: ride.bikeId, hoursUsed: { lt: 0 } },
+            data: { hoursUsed: 0 },
+          });
+        }
+
+        await tx.ride.delete({ where: { id } });
+      });
+
       return { ok: true, id };
     },
     updateRide: async (
@@ -425,14 +439,13 @@ export const resolvers = {
       { id, input }: { id: string; input: UpdateRideInput },
       ctx: GraphQLContext
     ) => {
-      if (!ctx.user?.id) throw new Error('Unauthorized');
+      const userId = requireUserId(ctx);
 
-      // Ensure ownership
-      const owned = await prisma.ride.findUnique({
+      const existing = await prisma.ride.findUnique({
         where: { id },
-        select: { userId: true },
+        select: { userId: true, durationSeconds: true, bikeId: true },
       });
-      if (!owned || owned.userId !== ctx.user.id) throw new Error('Ride not found');
+      if (!existing || existing.userId !== userId) throw new Error('Ride not found');
 
       // --- Build a strongly-typed update object (no `any`) ---
       const start = parseIsoOptionalStrict(input.startTime);
@@ -465,10 +478,34 @@ export const resolvers = {
             : null
           : undefined;
 
+      let nextDurationSeconds = existing.durationSeconds;
+      let durationUpdate: number | undefined;
+      if (input.durationSeconds !== undefined) {
+        durationUpdate = Math.max(0, Math.floor(input.durationSeconds ?? 0));
+        nextDurationSeconds = durationUpdate;
+      }
+
+      let nextBikeId: string | null = existing.bikeId ?? null;
+      let bikeUpdate: string | null | undefined = undefined;
+      if (input.bikeId !== undefined) {
+        if (input.bikeId) {
+          const ownedBike = await prisma.bike.findUnique({
+            where: { id: input.bikeId },
+            select: { userId: true },
+          });
+          if (!ownedBike || ownedBike.userId !== userId) throw new Error('Bike not found');
+          bikeUpdate = input.bikeId;
+          nextBikeId = input.bikeId;
+        } else {
+          bikeUpdate = null;
+          nextBikeId = null;
+        }
+      }
+
       const data: Prisma.RideUpdateInput = {
         ...(start !== undefined && { startTime: start }), // Date (no null)
-        ...(input.durationSeconds !== undefined && {
-          durationSeconds: Math.max(0, Math.floor(input.durationSeconds ?? 0)), // number (no null)
+        ...(durationUpdate !== undefined && {
+          durationSeconds: durationUpdate, // number (no null)
         }),
         ...(input.distanceMiles !== undefined && {
           distanceMiles: Math.max(0, Number(input.distanceMiles ?? 0)), // number (no null)
@@ -480,18 +517,41 @@ export const resolvers = {
           averageHr: input.averageHr == null ? null : Math.max(0, Math.floor(input.averageHr)),
         }),
         ...(rideType !== undefined && { rideType }), // string only; omit if empty/undefined
-        ...(input.bikeId !== undefined && { bikeId: input.bikeId ?? null }), // nullable
+        ...(bikeUpdate !== undefined && { bikeId: bikeUpdate }), // nullable
         ...(notes !== undefined ? { notes: notes as string | null } : {}),
         ...(trailSystem !== undefined ? { trailSystem: trailSystem as string | null } : {}),
         ...(location !== undefined ? { location: location as string | null } : {}),
       };
 
-      const updated = await prisma.ride.update({
-        where: { id },
-        data,
-      });
+      const hoursBefore = Math.max(0, existing.durationSeconds ?? 0) / 3600;
+      const hoursAfter = Math.max(0, nextDurationSeconds ?? 0) / 3600;
 
-      return updated;
+      return prisma.$transaction(async (tx) => {
+        const updated = await tx.ride.update({
+          where: { id },
+          data,
+        });
+
+        if (existing.bikeId && hoursBefore > 0) {
+          await tx.component.updateMany({
+            where: { userId, bikeId: existing.bikeId },
+            data: { hoursUsed: { decrement: hoursBefore } },
+          });
+          await tx.component.updateMany({
+            where: { userId, bikeId: existing.bikeId, hoursUsed: { lt: 0 } },
+            data: { hoursUsed: 0 },
+          });
+        }
+
+        if (nextBikeId && hoursAfter > 0) {
+          await tx.component.updateMany({
+            where: { userId, bikeId: nextBikeId },
+            data: { hoursUsed: { increment: hoursAfter } },
+          });
+        }
+
+        return updated;
+      });
     },
 
     addBike: async (_: unknown, { input }: { input: AddBikeInputGQL }, ctx: GraphQLContext) => {
