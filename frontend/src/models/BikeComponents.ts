@@ -69,3 +69,25 @@ export interface SpareFormState {
   serviceDueAtHours: string;
 };
 
+export const BIKE_COMPONENT_SECTIONS: ReadonlyArray<{
+  key: BikeComponentKey;
+  label: string;
+  type: string;
+}> = [
+  { key: 'fork', label: 'Fork', type: 'FORK' },
+  { key: 'shock', label: 'Shock', type: 'SHOCK' },
+  { key: 'dropper', label: 'Dropper Post', type: 'DROPPER' },
+  { key: 'wheels', label: 'Wheels', type: 'WHEELS' },
+  { key: 'pivotBearings', label: 'Pivot Bearings', type: 'PIVOT_BEARINGS' },
+];
+
+export type BikeComponentSection = (typeof BIKE_COMPONENT_SECTIONS)[number];
+
+export type BikeFormProps = {
+  mode: 'create' | 'edit';
+  initial: BikeFormValues;
+  submitting: boolean;
+  error: string | null;
+  onSubmit: (form: BikeFormValues) => void;
+  onClose: () => void;
+};

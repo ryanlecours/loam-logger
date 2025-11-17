@@ -15,7 +15,6 @@ export function SpareComponentForm({ initial, submitting, error, onSubmit, onClo
 
   const spareTypeOptions: SpareFormState['type'][] = ['FORK', 'SHOCK', 'DROPPER', 'WHEELS'];
 
-const inputFieldClass = 'gear-form-field';
 
   useEffect(() => {
     setForm(initial);

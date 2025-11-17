@@ -1,10 +1,9 @@
-﻿import { useEffect, useMemo, useState } from 'react';
+﻿import { useMemo, useState } from 'react';
 import { useMutation, useQuery } from '@apollo/client';
 import { motion } from 'motion/react';
 import { Button } from '@/components/ui/Button';
-import { BikeForm, BIKE_COMPONENT_SECTIONS } from '@/components/BikeForm';
-import type { BikeComponentSection } from '@/components/BikeForm';
-import type { BikeFormValues, GearComponentState, SpareFormState } from '@/models/BikeComponents';
+import { BikeForm } from '@/components/BikeForm';
+import { BIKE_COMPONENT_SECTIONS, type BikeComponentSection, type BikeFormValues, type GearComponentState, type SpareFormState } from '@/models/BikeComponents';
 import {
   ADD_BIKE,
   UPDATE_BIKE,
