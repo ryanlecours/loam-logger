@@ -28,6 +28,14 @@
   --warning:           199 157 127; /* raw_umber-700 */
   --danger:            113 76 50;   /* raw_umber-400 */
 
+  --panel-bg:          255 253 248;
+  --panel-border:      205 194 173;
+  --input-bg:          255 255 255;
+  --input-border:      210 200 176;
+  --input-text:        39 45 45;
+  --input-placeholder: 118 135 135;
+  --panel-shadow:      22 26 24;
+
   --font-sans: 'Work Sans', system-ui, sans-serif;
 }
 
@@ -54,6 +62,14 @@
   --success:           102 163 111; /* cal_poly_green-700 #66a36f */
   --warning:           180 125 85;  /* raw_umber-600 #b47d55 */
   --danger:            113 76 50;   /* raw_umber-400 #714c32 */
+
+  --panel-bg:          60 64 65;
+  --panel-border:      122 132 134;
+  --input-bg:          110 114 116;
+  --input-border:      178 189 191;
+  --input-text:        254 254 254;
+  --input-placeholder: 203 210 211;
+  --panel-shadow:      8 8 8;
 }
 
 /* =========================
@@ -164,5 +180,90 @@ html, body, #root {
   cursor: not-allowed;
   opacity: 0.7;
   pointer-events: none;
+}
+
+/* =========================
+   Gear / Form helpers
+   ========================= */
+.panel-soft {
+  background-color: rgba(var(--panel-bg), 0.98);
+  border: 1px solid rgba(var(--panel-border), 0.9);
+  color: rgb(var(--text));
+  backdrop-filter: blur(10px);
+}
+
+.shadow-soft {
+  box-shadow: 0 25px 70px rgba(var(--panel-shadow), 0.38);
+}
+
+.modal-surface {
+  background-color: rgba(var(--panel-bg), 1);
+  border: 1px solid rgba(var(--panel-border), 1);
+  box-shadow:
+    0 40px 90px rgba(var(--panel-shadow), 0.55),
+    0 0 0 1px rgba(var(--ring), 0.15);
+}
+
+.input-soft {
+  background-color: rgba(var(--input-bg), 0.98);
+  border: 1px solid rgba(var(--input-border), 0.9);
+  color: rgb(var(--input-text));
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+}
+
+.input-soft::placeholder {
+  color: rgba(var(--input-placeholder), 0.95);
+}
+
+.input-soft:focus {
+  border-color: rgb(var(--ring));
+  box-shadow: 0 0 0 3px rgba(var(--ring), 0.25);
+  outline: none;
+}
+
+.label-muted {
+  color: rgba(var(--text-muted), 0.95);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 0.7rem;
+}
+
+.gear-form-field,
+.gear-textarea-field {
+  width: 100%;
+  border-radius: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  background-color: rgba(var(--input-bg), 0.98);
+  border: 1px solid rgba(var(--input-border), 0.9);
+  color: rgb(var(--input-text));
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+}
+
+.gear-form-field::placeholder,
+.gear-textarea-field::placeholder {
+  color: rgba(var(--input-placeholder), 0.95);
+}
+
+.gear-form-field:focus,
+.gear-textarea-field:focus {
+  border-color: rgb(var(--ring));
+  box-shadow: 0 0 0 3px rgba(var(--ring), 0.25);
+  outline: none;
+}
+
+.gear-textarea-field {
+  resize: vertical;
+}
+
+.gear-card-shell {
+  border-radius: 1rem;
+  background-color: rgba(var(--panel-bg), 0.98);
+  border: 1px solid rgba(var(--panel-border), 0.9);
+  color: rgb(var(--text));
+  box-shadow: 0 25px 70px rgba(var(--panel-shadow), 0.38);
+  backdrop-filter: blur(10px);
 }
 
