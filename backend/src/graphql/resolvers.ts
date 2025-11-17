@@ -377,7 +377,7 @@ export const resolvers = {
         bikeId = requestedBikeId;
       }
 
-      const rideData: Prisma.RideCreateInput = {
+      const rideData: Prisma.RideUncheckedCreateInput = {
         userId,
         startTime: start,
         durationSeconds,
