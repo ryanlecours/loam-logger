@@ -58,3 +58,14 @@ export interface BikeFormValues {
   components: Record<BikeComponentKey, GearComponentState>;
 }
 
+export interface SpareFormState {
+  id?: string;
+  type: 'FORK' | 'SHOCK' | 'DROPPER' | 'WHEELS';
+  brand: string;
+  model: string;
+  notes: string;
+  isStock: boolean;
+  hoursUsed: string;
+  serviceDueAtHours: string;
+};
+

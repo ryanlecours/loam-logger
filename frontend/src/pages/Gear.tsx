@@ -4,7 +4,7 @@ import { motion } from 'motion/react';
 import { Button } from '@/components/ui/Button';
 import { BikeForm, BIKE_COMPONENT_SECTIONS } from '@/components/BikeForm';
 import type { BikeComponentSection } from '@/components/BikeForm';
-import type { BikeFormValues, GearComponentState } from '@/models/BikeComponents';
+import type { BikeFormValues, GearComponentState, SpareFormState } from '@/models/BikeComponents';
 import {
   ADD_BIKE,
   UPDATE_BIKE,
@@ -13,17 +13,9 @@ import {
   UPDATE_COMPONENT,
   DELETE_COMPONENT,
 } from '@/graphql/gear';
+import { SpareComponentForm } from '@/components/SpareComponentForm';
 
-type SpareFormState = {
-  id?: string;
-  type: 'FORK' | 'SHOCK' | 'DROPPER' | 'WHEELS';
-  brand: string;
-  model: string;
-  notes: string;
-  isStock: boolean;
-  hoursUsed: string;
-  serviceDueAtHours: string;
-};
+
 
 type ComponentDto = {
   id: string;
@@ -83,11 +75,6 @@ const createBikeFormState = (bike?: BikeDto): BikeFormValues => ({
     {} as BikeFormValues['components']
   ),
 });
-
-const spareTypeOptions: SpareFormState['type'][] = ['FORK', 'SHOCK', 'DROPPER', 'WHEELS'];
-
-const inputFieldClass = 'gear-form-field';
-const textareaFieldClass = 'gear-textarea-field';
 
 type ModalState =
   | { mode: 'create'; bike?: undefined }
@@ -327,7 +314,7 @@ export default function Gear() {
             </div>
           )}
           {!loading && bikes.length === 0 && (
-            <div className="gear-card-shell border border-dashed border-app/80 p-8 text-center">
+            <div className="bg-surface-2 border shadow-xl backdrop-blur-2xl border-dashed border-app/80 p-8 text-center">
               <p className="text-lg font-medium">No bikes on file yet</p>
               <p className="text-sm text-muted">
                 Add your first bike to start tracking service intervals and upgrade paths.
@@ -340,7 +327,7 @@ export default function Gear() {
                 key={bike.id}
                 layout
                 whileHover={{ y: -3 }}
-                className="gear-card-shell px-5 py-4"
+                className="bg-surface-2 border shadow-xl backdrop-blur-2xl rounded-2xl px-5 py-4"
               >
                 <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
                   <div>
@@ -412,7 +399,7 @@ export default function Gear() {
           </div>
         </section>
 
-        <section className="gear-card-shell} lg:col-span-4 p-5">
+        <section className="bg-surface-2 border shadow-xl backdrop-blur-2xl rounded-2xl lg:col-span-4 p-5">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-xl font-semibold">Spare Components</h2>
             <span className="text-sm text-muted">{spareComponents.length}</span>
@@ -431,7 +418,7 @@ export default function Gear() {
           )}
           <div className="space-y-3">
             {spareComponents.map((component) => (
-              <div key={component.id} className="gear-card-shell px-4 py-3">
+              <div key={component.id} className="bg-surface-2 border shadow-xl backdrop-blur-2xl px-4 py-3">
                 <div className="flex items-start justify-between gap-2">
                   <div>
                     <p className="text-xs uppercase tracking-wide text-muted">{component.type}</p>
@@ -545,119 +532,7 @@ function Modal({ open, title, children, onClose }: ModalProps) {
   );
 }
 
-type SpareFormProps = {
-  initial: SpareFormState;
-  submitting: boolean;
-  error: string | null;
-  onSubmit: (form: SpareFormState) => void;
-  onClose: () => void;
-};
 
-function SpareComponentForm({ initial, submitting, error, onSubmit, onClose }: SpareFormProps) {
-  const [form, setForm] = useState<SpareFormState>(initial);
-
-  useEffect(() => {
-    setForm(initial);
-  }, [initial]);
-
-  const setField = <K extends keyof SpareFormState>(key: K, value: SpareFormState[K]) => {
-    setForm((prev) => ({ ...prev, [key]: value }));
-  };
-
-  const handleSubmit = (evt: React.FormEvent) => {
-    evt.preventDefault();
-    onSubmit(form);
-  };
-
-  return (
-    <form className="space-y-4" onSubmit={handleSubmit}>
-      <label className="flex flex-col gap-2 text-sm">
-        <span className="label-muted">Component Type</span>
-        <select
-          className={inputFieldClass}
-          value={form.type}
-          onChange={(e) => setField('type', e.target.value as SpareFormState['type'])}
-          disabled={!!form.id}
-        >
-          {spareTypeOptions.map((type) => (
-            <option value={type} key={type}>
-              {type}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label className="flex items-center gap-2 text-xs label-muted">
-        <input
-          type="checkbox"
-          checked={form.isStock}
-          onChange={(e) => setField('isStock', e.target.checked)}
-        />
-        Stock/OEM spec
-      </label>
-      <div className="grid gap-3 md:grid-cols-2">
-        <input
-          className={inputFieldClass}
-          placeholder="Brand"
-          value={form.brand}
-          disabled={form.isStock}
-          onChange={(e) => setField('brand', e.target.value)}
-        />
-        <input
-          className={inputFieldClass}
-          placeholder="Model"
-          value={form.model}
-          disabled={form.isStock}
-          onChange={(e) => setField('model', e.target.value)}
-        />
-      </div>
-      <label className="flex flex-col gap-2 text-sm">
-        <span className="label-muted">Notes</span>
-        <textarea
-          className={textareaFieldClass}
-          rows={3}
-          value={form.notes}
-          onChange={(e) => setField('notes', e.target.value)}
-          placeholder="Condition, travel, offset..."
-        />
-      </label>
-      <div className="grid gap-3 md:grid-cols-2">
-        <label className="flex flex-col gap-2 text-sm">
-          <span className="label-muted">Hours Used</span>
-          <input
-            type="number"
-            className={inputFieldClass}
-            value={form.hoursUsed}
-            onChange={(e) => setField('hoursUsed', e.target.value)}
-            min={0}
-          />
-        </label>
-        <label className="flex flex-col gap-2 text-sm">
-          <span className="label-muted">Service Due @ (hours)</span>
-          <input
-            type="number"
-            className={inputFieldClass}
-            value={form.serviceDueAtHours}
-            onChange={(e) => setField('serviceDueAtHours', e.target.value)}
-            min={0}
-          />
-        </label>
-      </div>
-      {error && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-600">
-          {error}
-        </div>
-      )}
-      <div className="flex flex-col gap-3 border-t border-app pt-4 md:flex-row md:justify-end">
-        <Button type="button" variant="outline" onClick={onClose}>
-          Cancel
-        </Button>
-        <Button type="submit" disabled={submitting}>
-          {submitting ? 'Saving...' : form.id ? 'Update Spare' : 'Add Spare'}
-        </Button>
-      </div>
-    </form>
-  );
-}
 
 
 
