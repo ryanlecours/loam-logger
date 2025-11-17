@@ -7,6 +7,7 @@ import Dashboard from './pages/Dashboard';
 import NotFound from './pages/NotFound';
 import Rides from './pages/Rides';
 import Settings from './pages/Settings';
+import Gear from './pages/Gear';
 import NavBar from './components/NavBar';
 import AuthComplete from './pages/AuthComplete';
 
@@ -60,6 +61,14 @@ function AppRoutes() {
             element={
               <AuthGate>
                 <Page><Rides /></Page>
+              </AuthGate>
+            }
+          />
+          <Route
+            path="/gear"
+            element={
+              <AuthGate>
+                <Page><Gear /></Page>
               </AuthGate>
             }
           />

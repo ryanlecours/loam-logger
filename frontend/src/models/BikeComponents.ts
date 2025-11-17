@@ -37,3 +37,24 @@ export interface Bike {
   hoursSinceLastService: number;
   notes?: string;
 }
+
+export type BikeComponentKey = 'fork' | 'shock' | 'dropper' | 'wheels' | 'pivotBearings';
+
+export interface GearComponentState {
+  brand: string;
+  model: string;
+  notes: string;
+  isStock: boolean;
+}
+
+export interface BikeFormValues {
+  nickname: string;
+  manufacturer: string;
+  model: string;
+  year: string;
+  travelForkMm: string;
+  travelShockMm: string;
+  notes: string;
+  components: Record<BikeComponentKey, GearComponentState>;
+}
+
