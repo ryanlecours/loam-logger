@@ -1,8 +1,7 @@
-import { Prisma, PrismaClient } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { normalizeEmail, computeExpiry } from './utils';
 import type { GoogleClaims, GoogleTokens } from './types';
-
-const prisma = new PrismaClient();
+import { prisma } from '../lib/prisma';
 
 export async function ensureUserFromGoogle(
   claims: GoogleClaims,
