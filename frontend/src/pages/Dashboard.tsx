@@ -112,10 +112,10 @@ export default function Dashboard() {
   });
 
   const rides = ridesData?.rides ?? [];
-  const bikesRaw = bikesData?.bikes ?? [];
+  const bikesRaw = useMemo(() => bikesData?.bikes ?? [], [bikesData]);
   const userBikes = useMemo(
-    () => (bikesData?.bikes ?? []).map((bike) => toBikeCardModel(bike)),
-    [bikesData]
+    () => bikesRaw.map((bike) => toBikeCardModel(bike)),
+    [bikesRaw]
   );
   const [gpxModalOpen, setGpxModalOpen] = useState(false);
   const [gpxBikeId, setGpxBikeId] = useState<string>('');
