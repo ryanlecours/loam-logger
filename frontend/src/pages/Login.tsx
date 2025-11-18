@@ -1,5 +1,4 @@
 ﻿import { useState } from 'react';
-import { AnimatePresence, motion } from 'motion/react';
 import { useApolloClient } from '@apollo/client';
 import { GoogleLogin, type CredentialResponse } from '@react-oauth/google';
 import { useNavigate } from 'react-router-dom';
