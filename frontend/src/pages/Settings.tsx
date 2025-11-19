@@ -35,7 +35,7 @@ export default function Settings() {
         window.location.href = "/login";
       }, 1500);
     } catch (error) {
-      throw error;
+      console.error(error);
     }
   };
 
