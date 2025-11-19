@@ -1,17 +1,25 @@
-import express from 'express';
+import express, { type Request } from 'express';
 import { prisma } from '../lib/prisma';
-import { clearSessionCookie } from './session';
+import { clearSessionCookie, type SessionUser } from './session';
 
 const router = express.Router();
+
+declare global {
+  namespace Express {
+    interface Request {
+      sessionUser?: SessionUser;
+    }
+  }
+}
 
 /**
  * DELETE /auth/delete-account
  * Deletes the current user's account and all associated data
  * Requires authenticated session
  */
-router.delete('/delete-account', async (req, res) => {
+router.delete('/delete-account', async (req: Request, res) => {
   try {
-    const sessionUser = (req as any).sessionUser;
+    const sessionUser = req.sessionUser;
 
     // Verify user is authenticated
     if (!sessionUser?.uid) {
