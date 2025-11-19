@@ -43,7 +43,14 @@ router.post('/google/code', express.json(), async (req, res) => {
     setSessionCookie(res, { uid: user.id, email: user.email });
     res.status(200).json({ ok: true });
   } catch (e) {
+    const errorMessage = e instanceof Error ? e.message : String(e);
     console.error('[GoogleAuth] ID-token login failed', e);
+
+    // Handle beta tester access denial
+    if (errorMessage === 'NOT_BETA_TESTER') {
+      return res.status(403).send('NOT_BETA_TESTER');
+    }
+
     res.status(500).send('Auth failed');
   }
 });

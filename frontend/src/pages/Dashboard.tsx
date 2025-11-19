@@ -1,5 +1,5 @@
-// src/pages/Dashboard.tsx
-import { useMemo } from 'react';
+﻿// src/pages/Dashboard.tsx
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@apollo/client';
 import { RIDES } from '../graphql/rides';
@@ -94,6 +94,7 @@ const RECENT_COUNT = 5;
 
 export default function Dashboard() {
   const user = useCurrentUser().user;
+  const firstName = user?.name?.split(' ')?.[0] ?? 'Rider';
   const {
     data: ridesData,
     loading: ridesLoading,
@@ -111,89 +112,152 @@ export default function Dashboard() {
   });
 
   const rides = ridesData?.rides ?? [];
+  const bikesRaw = useMemo(() => bikesData?.bikes ?? [], [bikesData]);
   const userBikes = useMemo(
-    () => (bikesData?.bikes ?? []).map((bike) => toBikeCardModel(bike)),
-    [bikesData]
+    () => bikesRaw.map((bike) => toBikeCardModel(bike)),
+    [bikesRaw]
   );
+  const [gpxModalOpen, setGpxModalOpen] = useState(false);
+  const [gpxBikeId, setGpxBikeId] = useState<string>('');
+  const [gpxFileName, setGpxFileName] = useState<string>('');
+
+  useEffect(() => {
+    if (!gpxBikeId && bikesRaw.length > 0) {
+      setGpxBikeId(bikesRaw[0].id);
+    }
+  }, [bikesRaw, gpxBikeId]);
+
+  const closeGpxModal = () => {
+    setGpxModalOpen(false);
+    setGpxFileName('');
+  };
+
+  const handleGpxFile = (file?: File) => {
+    setGpxFileName(file?.name ?? '');
+  };
+
+  const handleGpxSubmit = () => {
+    if (!gpxBikeId || !gpxFileName) return;
+    alert('GPX upload coming soon.');
+    closeGpxModal();
+  };
 
   return (
-    <div className="min-h-screen bg-app p-6">
-      {/* Header */}
-      <header className="flex justify-between items-center mb-12">
-        <h1 className="text-3xl font-bold">LoamLogger Dashboard</h1>
-      </header>
-
-      {/* Welcome */}
-      <section className="mb-6">
-        <p className="text-lg text-accent-contrast">
-          Welcome back {user.name.split(' ').slice(0, -1).join(' ')}! Here's a quick look at your mountain biking activity and gear status.
-        </p>
+    <div className="space-y-8">
+      <section className="panel-soft shadow-soft border border-app rounded-3xl p-6">
+        <div className="flex flex-wrap items-start justify-between gap-6">
+          <div className="space-y-2">
+            <p className="text-xs uppercase tracking-[0.3em] text-muted">Ride overview</p>
+            <h2 className="text-3xl font-semibold text-white">
+              Dialed in, {firstName}. Keep the streak going.
+            </h2>
+            <p className="text-muted text-base max-w-xl">
+              Your latest rides, service hours, and equipment health are all synced below.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <Link to="/rides" className="btn-primary text-sm px-5 py-2">
+              Log Ride
+            </Link>
+            <button
+              type="button"
+              className="btn-secondary text-sm px-5 py-2"
+              onClick={() => setGpxModalOpen(true)}
+            >
+              Upload GPX
+            </button>
+            <Link to="/gear" className="btn-secondary text-sm px-5 py-2">
+              Manage Bikes
+            </Link>
+          </div>
+        </div>
       </section>
 
-      {/* Grid */}
-      <section className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {/* Recent Rides */}
-        <div className="bg-surface border rounded-md shadow p-4">
-          <div className="flex items-center justify-between mb-2">
-            <h2 className="text-xl font-semibold">Recent Rides</h2>
-            <Link to="/rides" className="link-accent-contrast link-accent:hover">
-              View all
+      <section className="grid gap-6 xl:grid-cols-[2fr,1fr]">
+        <div className="space-y-6">
+          <div className="panel-soft shadow-soft border border-app rounded-3xl p-6">
+            <div className="mb-5 flex items-center justify-between">
+              <div>
+                <p className="text-xs uppercase tracking-[0.3em] text-muted">Ride statistics</p>
+                <h3 className="text-2xl font-semibold text-white">How you're trending</h3>
+              </div>
+            </div>
+            <RideStatsCard showHeading={false} />
+          </div>
+
+          <div className="panel-soft shadow-soft border border-app rounded-3xl p-6">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-xs uppercase tracking-[0.3em] text-muted">Recent rides</p>
+                <h3 className="text-2xl font-semibold text-white">Trail log</h3>
+              </div>
+              <Link to="/rides" className="btn-outline text-sm px-4 py-2">
+                View all
+              </Link>
+            </div>
+
+            {ridesLoading && (
+              <div className="space-y-3">
+                {Array.from({ length: 3 }).map((_, idx) => (
+                  <div key={idx} className="h-20 rounded-2xl bg-surface-2/80 animate-pulse" />
+                ))}
+              </div>
+            )}
+
+            {ridesError && (
+              <div className="text-sm text-danger">
+                Couldn't load rides. {ridesError.message}
+              </div>
+            )}
+
+            {!ridesLoading && !ridesError && rides.length === 0 && (
+              <div className="rounded-xl border border-dashed border-app/50 px-4 py-6 text-sm text-muted text-center">
+                No rides yet.{' '}
+                <Link to="/rides" className="link-accent underline">
+                  Add your first ride
+                </Link>
+                .
+              </div>
+            )}
+
+            {!ridesLoading && !ridesError && rides.length > 0 && (
+              <ul className="space-y-3">
+                {rides.map((ride) => (
+                  <RideCard key={ride.id} ride={ride} />
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+
+        <div className="panel-soft shadow-soft border border-app rounded-3xl p-6 h-fit">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-xs uppercase tracking-[0.3em] text-muted">Bike / Gear</p>
+              <h3 className="text-2xl font-semibold text-white">Service radar</h3>
+            </div>
+            <Link to="/gear" className="btn-outline text-sm px-4 py-2">
+              Garage
             </Link>
           </div>
 
-          {ridesLoading && (
-            <div className="space-y-3">
-              <div className="h-16 rounded-md bg-gray-100 animate-pulse" />
-              <div className="h-16 rounded-md bg-gray-100 animate-pulse" />
-              <div className="h-16 rounded-md bg-gray-100 animate-pulse" />
-            </div>
-          )}
-
-          {ridesError && (
-            <div className="text-sm text-red-600">
-              Couldn't load rides. {ridesError.message}
-            </div>
-          )}
-
-          {!ridesLoading && !ridesError && rides.length === 0 && (
-            <div className="text-sm text-gray-600">
-              No rides yet. <Link to="/rides" className="underline">Add your first ride</Link>.
-            </div>
-          )}
-
-          {!ridesLoading && !ridesError && rides.length > 0 && (
-            <ul className="space-y-3">
-              {rides.map((ride) => (
-                <RideCard key={ride.id} ride={ride} />
-              ))}
-            </ul>
-          )}
-        </div>
-
-        {/* Ride Stats */}
-        <div className="bg-surface border rounded-md shadow p-4 w-full">
-          <RideStatsCard />
-        </div>
-
-        {/* Gear Summary */}
-        <div className="bg-surface border rounded-md shadow p-4 w-full">
-          <h2 className="text-xl font-semibold mb-2">Bike / Gear Tracker</h2>
-          <div className="p-4 space-y-6">
+          <div className="space-y-5">
             {bikesLoading && (
               <div className="space-y-3">
-                <div className="h-32 rounded-md bg-gray-100 animate-pulse" />
-                <div className="h-32 rounded-md bg-gray-100 animate-pulse" />
+                {Array.from({ length: 2 }).map((_, idx) => (
+                  <div key={idx} className="h-28 rounded-2xl bg-surface-2/80 animate-pulse" />
+                ))}
               </div>
             )}
             {bikesError && (
-              <div className="text-sm text-red-600">
+              <div className="text-sm text-danger">
                 Couldn't load bikes. {bikesError.message}
               </div>
             )}
             {!bikesLoading && !bikesError && userBikes.length === 0 && (
-              <div className="text-sm text-gray-600">
+              <div className="rounded-xl border border-dashed border-app/50 px-4 py-6 text-sm text-muted text-center">
                 No bikes yet.{' '}
-                <Link to="/gear" className="underline">
+                <Link to="/gear" className="link-accent underline">
                   Manage your garage
                 </Link>
                 .
@@ -205,6 +269,90 @@ export default function Dashboard() {
           </div>
         </div>
       </section>
+
+      {gpxModalOpen && (
+        <div
+          className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4 py-6"
+          onClick={closeGpxModal}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="w-full max-w-lg rounded-3xl panel-soft modal-surface shadow-soft p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <h3 className="text-2xl font-semibold">Upload GPX File</h3>
+                <p className="text-sm text-muted">
+                  Import ride data from Strava, Garmin, or Suunto and align it to a bike.
+                </p>
+              </div>
+              <button className="text-2xl text-muted" onClick={closeGpxModal} aria-label="Close">
+                ×
+              </button>
+            </div>
+
+            <label className="block rounded-2xl border border-dashed border-app/60 bg-surface-2/70 px-4 py-12 text-center text-sm text-muted cursor-pointer">
+              <input
+                type="file"
+                accept=".gpx"
+                className="hidden"
+                onChange={(e) => handleGpxFile(e.target.files?.[0])}
+              />
+              <div className="flex flex-col items-center gap-2">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none">
+                  <path
+                    d="M12 5v14m0-14 4 4m-4-4-4 4"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                  <path
+                    d="M6 13v5h12v-5"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+                <span className="font-semibold">{gpxFileName || 'Drop GPX file here'}</span>
+                <span className="text-xs text-muted">or click to browse</span>
+              </div>
+            </label>
+
+            <div className="mt-4">
+              <label className="text-xs uppercase tracking-[0.3em] text-muted">Assign to Bike</label>
+              <select
+                className="mt-2 w-full rounded-2xl border border-app/60 bg-surface-2/70 px-3 py-2 text-sm"
+                value={gpxBikeId}
+                onChange={(e) => setGpxBikeId(e.target.value)}
+              >
+                {bikesRaw.map((bike) => (
+                  <option key={bike.id} value={bike.id}>
+                    {bike.nickname || `${bike.manufacturer} ${bike.model}`}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="mt-6 flex justify-end gap-3">
+              <button className="btn-secondary" type="button" onClick={closeGpxModal}>
+                Cancel
+              </button>
+              <button
+                className="btn-primary"
+                type="button"
+                onClick={handleGpxSubmit}
+                disabled={!gpxFileName || !gpxBikeId}
+              >
+                Upload & Import
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
