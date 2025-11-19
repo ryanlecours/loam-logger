@@ -1,5 +1,6 @@
 import { useState } from "react";
 import ThemeToggle from "../components/ThemeToggleButton";
+import DeleteAccountModal from "../components/DeleteAccountModal";
 import { useCurrentUser } from "../hooks/useCurrentUser";
 
 const accountProviders = [
@@ -11,6 +12,32 @@ const accountProviders = [
 export default function Settings() {
   const { user } = useCurrentUser();
   const [hoursDisplay, setHoursDisplay] = useState<"total" | "remaining">("total");
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  const handleDeleteAccount = async () => {
+    try {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/auth/delete-account`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || "Failed to delete account");
+      }
+
+      setDeleteModalOpen(false);
+      setSuccessMessage("Account deleted successfully. Redirecting to login...");
+
+      // Clear session and redirect after a short delay
+      setTimeout(() => {
+        window.location.href = "/login";
+      }, 1500);
+    } catch (error) {
+      throw error;
+    }
+  };
 
   return (
     <div className="space-y-8">
@@ -115,6 +142,42 @@ export default function Settings() {
           Total hours are always stored. This preference only affects how we display service intervals.
         </p>
       </section>
+
+      {successMessage && (
+        <section className="panel-soft shadow-soft border border-green-600/50 rounded-3xl p-6 bg-green-950/30 space-y-4">
+          <div className="flex items-start gap-3">
+            <div className="text-green-400">✓</div>
+            <div>
+              <h3 className="font-semibold text-green-100">{successMessage}</h3>
+            </div>
+          </div>
+        </section>
+      )}
+
+      <section className="panel-soft shadow-soft border border-red-600/50 rounded-3xl p-6 bg-red-950/30 space-y-4">
+        <div>
+          <p className="text-xs uppercase tracking-[0.3em] text-red-400">Danger Zone</p>
+          <h2 className="text-xl font-semibold text-white">Delete Account</h2>
+        </div>
+        <p className="text-sm text-red-200">
+          Permanently delete your account and all associated data. This action cannot be undone.
+        </p>
+        <button
+          onClick={() => setDeleteModalOpen(true)}
+          className="rounded-2xl px-4 py-2 text-sm font-medium text-white transition
+            bg-red-600 hover:bg-red-700 active:bg-red-800
+            focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500
+            dark:bg-red-700 dark:hover:bg-red-800"
+        >
+          Delete Account
+        </button>
+      </section>
+
+      <DeleteAccountModal
+        open={deleteModalOpen}
+        onClose={() => setDeleteModalOpen(false)}
+        onConfirm={handleDeleteAccount}
+      />
     </div>
   );
 }

@@ -9,7 +9,7 @@ import { resolvers } from './graphql/resolvers.ts';
 import authGarmin from './routes/auth.garmin.ts';
 import garminTest from './routes/garmin.test.ts';
 import mockGarmin from './routes/mock.garmin.ts';
-import { googleRouter, attachUser } from './auth/index.ts';
+import { googleRouter, emailRouter, deleteAccountRouter, attachUser } from './auth/index.ts';
 
 export type GraphQLContext = {
   req: Request
@@ -76,8 +76,10 @@ const startServer = async () => {
   res.json({ sessionUser: req.sessionUser ?? null });
 });
   
-  app.use('/auth', googleRouter); // POST /auth/google/code, /auth/logout
-  app.use('/auth', authGarmin);   // Garmin OAuth
+  app.use('/auth', googleRouter);       // POST /auth/google/code, /auth/logout
+  app.use('/auth', emailRouter);        // POST /auth/signup, /auth/login
+  app.use('/auth', deleteAccountRouter); // DELETE /auth/delete-account
+  app.use('/auth', authGarmin);         // Garmin OAuth
   app.use(garminTest);            // test route
   app.use(mockGarmin);            // mock route
 

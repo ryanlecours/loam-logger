@@ -14,6 +14,8 @@ export default function Login() {
   const [mode, setMode] = useState<'login' | 'signup'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
 
   async function handleLoginSuccess(resp: CredentialResponse) {
     const credential = resp.credential;
@@ -58,9 +60,60 @@ export default function Login() {
     alert('Google login failed. Please try again.');
   }
 
-  function handleManualSubmit(event: React.FormEvent) {
+  async function handleManualSubmit(event: React.FormEvent) {
     event.preventDefault();
-    alert('Manual authentication will be available soon.');
+    setError(null);
+    setIsLoading(true);
+
+    try {
+      const endpoint = mode === 'login' ? 'login' : 'signup';
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/auth/${endpoint}`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+
+      const text = await res.text();
+
+      if (!res.ok) {
+        console.error(`[${mode}] Backend responded with error`, res.status, text);
+
+        // Handle specific errors
+        if (text.trim() === 'NOT_BETA_TESTER') {
+          navigate('/beta-waitlist', { replace: true });
+          return;
+        }
+
+        // Map backend error messages to user-friendly messages
+        const errorMap: Record<string, string> = {
+          'Email already in use': 'This email is already registered. Try logging in instead.',
+          'Invalid email or password': mode === 'signup' ? 'Invalid email format.' : 'Invalid email or password.',
+          'Invalid email format': 'Please enter a valid email address.',
+          'Password must be at least 8 characters': 'Password must be at least 8 characters.',
+          'Password must contain at least one uppercase letter': 'Password must contain an uppercase letter.',
+          'Password must contain at least one lowercase letter': 'Password must contain a lowercase letter.',
+          'Password must contain at least one number': 'Password must contain a number.',
+          'Password must contain at least one special character (!@#$%^&*)':
+            'Password must contain a special character (!@#$%^&*).',
+          'This account uses OAuth login only': 'This email is registered with OAuth. Log in with Google instead.',
+        };
+
+        const userMessage = errorMap[text.trim()] || text || `${mode === 'signup' ? 'Signup' : 'Login'} failed`;
+        setError(userMessage);
+        return;
+      }
+
+      // Success - refetch user and navigate
+      const { data } = await apollo.query({ query: ME_QUERY, fetchPolicy: 'network-only' });
+      apollo.writeQuery({ query: ME_QUERY, data });
+      navigate(from, { replace: true });
+    } catch (err) {
+      console.error(`[${mode}] Network or unexpected error`, err);
+      setError('A network error occurred. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
   }
 
   return (
@@ -94,6 +147,11 @@ export default function Login() {
         </div>
 
         <form className="space-y-4 bg-surface p-4 rounded-xl" onSubmit={handleManualSubmit}>
+          {error && (
+            <div className="rounded-lg bg-red-500/10 border border-red-500/30 p-3">
+              <p className="text-sm text-red-400">{error}</p>
+            </div>
+          )}
           <label className="block text-xs uppercase tracking-[0.3em] text-muted">
             Email
             <input
@@ -102,6 +160,7 @@ export default function Login() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@example.com"
+              disabled={isLoading}
               required
             />
           </label>
@@ -113,11 +172,17 @@ export default function Login() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••"
+              disabled={isLoading}
               required
             />
           </label>
-          <Button type="submit" variant="primary" className="w-full justify-center text-base">
-            {mode === 'login' ? 'Login' : 'Create Account'}
+          <Button
+            type="submit"
+            variant="primary"
+            className="w-full justify-center text-base"
+            disabled={isLoading}
+          >
+            {isLoading ? 'Loading...' : mode === 'login' ? 'Login' : 'Create Account'}
           </Button>
         </form>
 
