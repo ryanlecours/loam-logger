@@ -1,5 +1,5 @@
 import { Prisma } from '@prisma/client';
-import { normalizeEmail, computeExpiry } from './utils';
+import { normalizeEmail, computeExpiry, isBetaTester } from './utils';
 import type { GoogleClaims, GoogleTokens } from './types';
 import { prisma } from '../lib/prisma';
 
@@ -12,6 +12,13 @@ export async function ensureUserFromGoogle(
 
   const email = normalizeEmail(claims.email);
   if (!email) throw new Error('Google login did not provide an email');
+
+  // Check if beta tester access is enabled and if user is in the beta tester list
+  if (process.env.BETA_TESTER_EMAILS) {
+    if (!isBetaTester(email)) {
+      throw new Error('NOT_BETA_TESTER');
+    }
+  }
 
   return prisma.$transaction(async (tx) => {
     // If Google identity already linked, refresh profile + tokens

@@ -34,6 +34,12 @@ export default function Login() {
       if (!res.ok) {
         const text = await res.text();
         console.error('[GoogleLogin] Backend responded with error', res.status, text);
+
+        if (text.trim() === 'NOT_BETA_TESTER') {
+          navigate('/beta-waitlist', { replace: true });
+          return;
+        }
+
         alert(`Login failed: ${res.statusText}`);
         return;
       }
