@@ -120,7 +120,11 @@ const computeRideStats = (
   };
 };
 
-export default function RideStatsCard() {
+type RideStatsCardProps = {
+  showHeading?: boolean;
+};
+
+export default function RideStatsCard({ showHeading = true }: RideStatsCardProps) {
   const [selectedTf, setSelectedTf] = useState<Timeframe>('1w');
   const {
     data: ridesData,
@@ -147,7 +151,7 @@ export default function RideStatsCard() {
 
   return (
     <>
-      <h2 className="text-xl font-bold mb-2">Ride Stats</h2>
+      {showHeading && <h2 className="text-xl font-bold mb-2">Ride Stats</h2>}
       {ridesError && (
         <div className="text-sm text-red-600 mb-2">
           Couldn't load ride stats. {ridesError.message}

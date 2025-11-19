@@ -1,80 +1,73 @@
-/* =========================
-   LOAM LOGGER THEME
-   ========================= */
+/* ============================================
+   LOAM LOGGER DARK TRAIL THEME
+   ============================================ */
 
 :root {
-  /* Light — Seasalt/Cosmic Latte surfaces, Gunmetal text */
-  --bg:                251 250 248; /* seasalt-500 #fbfaf8 */
-  --surface:           247 243 227; /* cosmic_latte-500 #f7f3e3 */
-  --surface-2:         215 205 185; /* seasalt-400 #d7cdb9 */
-  --surface-accent:    226 212 153; /* cosmic_latte-400 #e2d499 */
+  --bg: 6 8 6;
+  --surface: 16 19 17;
+  --surface-2: 22 26 23;
+  --surface-accent: 34 40 35;
 
-  --text:              39 45 45;    /* gunmetal-500 #272d2d */
-  --text-muted:        118 135 135; /* gunmetal-700 #768787 */
+  --text: 235 238 232;
+  --text-muted: 149 164 151;
 
-  /* CTA / brand (Cal Poly Green as primary on light) */
-  --primary:           69 115 76;   /* cal_poly_green-600 #45734c */
-  --primary-foreground: 30 45 40; /* ≈ #1E2D28 */
+  --primary: 73 160 109;
+  --primary-foreground: 9 17 12;
+  --accent: 216 149 88;
 
-  /* Secondary accent (warm Raw Umber) */
-  --accent:            180 125 85;  /* raw_umber-600 #b47d55 */
+  --border: 42 50 45;
+  --ring: 88 193 135;
 
-  /* UI chrome */
-  --border:            215 205 185; /* seasalt-400 #d7cdb9 */
-  --ring:              69 115 76;   /* cal_poly_green-600 */
+  --success: 118 200 143;
+  --warning: 236 177 84;
+  --danger: 214 101 82;
 
-  /* Status */
-  --success:           69 115 76;   /* cal_poly_green-600 */
-  --warning:           199 157 127; /* raw_umber-700 */
-  --danger:            113 76 50;   /* raw_umber-400 */
+  --panel-bg: 18 21 19;
+  --panel-border: 52 60 55;
+  --input-bg: 24 28 25;
+  --input-border: 70 82 74;
+  --input-text: 235 238 232;
+  --input-placeholder: 149 164 151;
+  --panel-shadow: 3 10 5;
 
-  --panel-bg:          255 253 248;
-  --panel-border:      205 194 173;
-  --input-bg:          255 255 255;
-  --input-border:      210 200 176;
-  --input-text:        39 45 45;
-  --input-placeholder: 118 135 135;
-  --panel-shadow:      22 26 24;
+  --header-gradient-start: #02140a;
+  --header-gradient-mid: #0b3a25;
+  --header-gradient-end: #0e2414;
 
-  --font-sans: 'Work Sans', system-ui, sans-serif;
+  --font-sans: 'Inter', 'Work Sans', 'Segoe UI', system-ui, sans-serif;
 }
 
-:root.dark, html.dark {
-  /* Dark — Gunmetal layers, Seasalt text, Raw Umber CTA */
-  --bg:                39 45 45;    /* gunmetal-500 #272d2d */
-  --surface:           30 35 35;    /* gunmetal-400 #1e2323 */
-  --surface-2:         23 26 26;    /* gunmetal-300 #171a1a */
-  --surface-accent:    78 89 89;    /* gunmetal-600 #4e5959 */
-
-  --text:              254 254 254; /* seasalt-900 #fefefe */
-  --text-muted:        163 175 175; /* gunmetal-800 #a3afaf */
-
-  /* CTA / brand (Raw Umber feels great on dark) */
-  --primary:           142 95 62;   /* raw_umber-500 #8e5f3e */
-  --primary-foreground:251 250 248; /* seasalt-500 #fbfaf8 */
-
-  /* Secondary accent (Cal Poly Green pop) */
-  --accent:            69 115 76;   /* cal_poly_green-600 #45734c */
-
-  --border:            78 89 89;    /* gunmetal-600 #4e5959 */
-  --ring:              142 95 62;   /* raw_umber-500 */
-
-  --success:           102 163 111; /* cal_poly_green-700 #66a36f */
-  --warning:           180 125 85;  /* raw_umber-600 #b47d55 */
-  --danger:            113 76 50;   /* raw_umber-400 #714c32 */
-
-  --panel-bg:          60 64 65;
-  --panel-border:      122 132 134;
-  --input-bg:          110 114 116;
-  --input-border:      178 189 191;
-  --input-text:        254 254 254;
-  --input-placeholder: 203 210 211;
-  --panel-shadow:      8 8 8;
+:root.dark,
+html.dark {
+  --bg: 6 8 6;
+  --surface: 16 19 17;
+  --surface-2: 22 26 23;
+  --surface-accent: 34 40 35;
+  --text: 235 238 232;
+  --text-muted: 149 164 151;
+  --primary: 73 160 109;
+  --primary-foreground: 9 17 12;
+  --accent: 216 149 88;
+  --border: 42 50 45;
+  --ring: 88 193 135;
+  --success: 118 200 143;
+  --warning: 236 177 84;
+  --danger: 214 101 82;
+  --panel-bg: 18 21 19;
+  --panel-border: 52 60 55;
+  --input-bg: 24 28 25;
+  --input-border: 70 82 74;
+  --input-text: 235 238 232;
+  --input-placeholder: 149 164 151;
+  --panel-shadow: 3 10 5;
+  --header-gradient-start: #02140a;
+  --header-gradient-mid: #0b3a25;
+  --header-gradient-end: #0e2414;
 }
 
-/* =========================
+/* ============================================
    BASE UTILITIES
-   ========================= */
+   ============================================ */
 .bg-app       { background: rgb(var(--bg)); color: rgb(var(--text)); }
 .bg-surface   { background: rgb(var(--surface)); }
 .bg-surface-2 { background: rgb(var(--surface-2)); }
@@ -82,151 +75,157 @@
 .text-muted   { color: rgb(var(--text-muted)); }
 .border-app   { border-color: rgb(var(--border)); }
 
-/* Make the whole page use it */
-html, body, #root {
+html,
+body,
+#root {
   min-height: 100%;
-  background-color: rgb(var(--bg));
-  color: rgb(var(--text));
   font-family: var(--font-sans);
+  background:
+    radial-gradient(120% 120% at 10% 10%, rgba(25, 65, 43, 0.45), transparent),
+    radial-gradient(70% 120% at 90% 0%, rgba(8, 27, 15, 0.6), transparent),
+    rgb(var(--bg));
+  color: rgb(var(--text));
 }
 
-/* =========================
+/* ============================================
    TYPOGRAPHY
-   ========================= */
+   ============================================ */
 .text-heading {
   color: rgb(var(--text));
   font-weight: 700;
-  line-height: 1.2;
+  line-height: 1.1;
 }
 .text-accent           { color: rgb(var(--primary)); }
 .text-accent-contrast  { color: rgb(var(--primary-foreground)); }
 
-.link-accent           { color: rgb(var(--primary)); }
-.link-accent:hover     { text-decoration: underline; }
-.link-accent-contrast  { color: rgb(var(--primary-foreground)); }
+.link-accent           { color: rgb(var(--primary)); transition: color 0.15s ease; }
+.link-accent:hover     { color: rgb(var(--accent)); }
+.link-accent-contrast  { color: rgb(var(--accent)); }
 .link-accent-contrast:hover {
-  text-decoration: underline;
   color: rgb(var(--primary));
-  transition: color 0.1s ease;
 }
 
-/* =========================
+/* ============================================
    BUTTONS
-   ========================= */
-
-/* Primary (CTA) */
+   ============================================ */
 .btn-primary {
-  background-color: rgb(var(--primary));
-  color: rgb(var(--primary-foreground));
-  border: 1px solid transparent;
-  border-radius: 0.5rem; /* rounded-lg */
-  padding: 0.5rem 1rem;  /* py-2 px-4 */
+  background: linear-gradient(115deg, rgba(90, 205, 140, 0.95) 0%, rgba(58, 143, 92, 0.95) 100%);
+  color: rgb(248 253 249);
+  border: 1px solid rgba(var(--ring), 0.6);
+  border-radius: 0.7rem;
+  padding: 0.55rem 1.4rem;
   font-weight: 600;
+  letter-spacing: 0.02em;
   cursor: pointer;
-  transition: background-color 0.2s ease, opacity 0.2s ease, filter 0.2s ease;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
 }
-.btn-primary:hover { filter: brightness(1.05); }
+.btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 25px rgba(0, 0, 0, 0.28);
+}
 
-/* Secondary (neutral) */
 .btn-secondary {
-  background-color: rgb(var(--bg));
+  background: rgba(var(--surface-2), 0.9);
   color: rgb(var(--text));
-  border: 1px solid rgb(var(--border));
-  border-radius: 0.5rem;
-  padding: 0.5rem 1rem;
+  border: 1px solid rgba(var(--border), 0.8);
+  border-radius: 0.65rem;
+  padding: 0.5rem 1.25rem;
   font-weight: 500;
   cursor: pointer;
-  transition: background-color 0.2s ease, opacity 0.2s ease;
+  transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
 }
-.btn-secondary:hover { background-color: rgb(var(--surface-2)); }
+.btn-secondary:hover {
+  background: rgba(var(--surface-accent), 0.9);
+  color: rgb(var(--primary));
+}
 
-/* Accent */
 .btn-accent {
-  background-color: rgb(var(--text));
-  color: rgb(var(--surface-accent));
-  border: 1px solid transparent;
-  border-radius: 0.5rem;
-  padding: 0.5rem 1rem;
+  background: linear-gradient(120deg, rgba(var(--accent), 0.9), rgba(var(--accent), 0.7));
+  color: rgb(var(--primary-foreground));
+  border: 1px solid rgba(var(--accent), 0.4);
+  border-radius: 0.65rem;
+  padding: 0.5rem 1.2rem;
   font-weight: 600;
   cursor: pointer;
-  transition: background-color 0.2s ease, opacity 0.2s ease;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
-.btn-accent:hover { opacity: 0.5; }
+.btn-accent:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.35);
+}
 
-/* Outline */
 .btn-outline {
   background-color: transparent;
   color: rgb(var(--primary));
-  border: 1px solid rgb(var(--primary));
-  border-radius: 0.5rem;
-  padding: 0.5rem 1rem;
+  border: 1px solid rgba(var(--primary), 0.5);
+  border-radius: 0.65rem;
+  padding: 0.45rem 1.15rem;
   font-weight: 500;
   cursor: pointer;
-  transition: background-color 0.2s ease, color 0.2s ease, filter 0.2s ease;
+  transition: background 0.2s ease, color 0.2s ease;
 }
 .btn-outline:hover {
-  background-color: rgb(var(--primary));
-  color: rgb(var(--primary-foreground));
+  background: rgba(var(--primary), 0.15);
+  color: rgb(var(--text));
 }
 
-/* Disabled */
 .btn-disabled {
-  background-color: rgb(var(--surface));
-  color: rgb(var(--text-muted));
-  border: 1px solid rgb(var(--border));
-  border-radius: 0.5rem;
-  padding: 0.5rem 1rem;
+  background-color: rgba(var(--surface), 0.85);
+  color: rgba(var(--text-muted), 0.75);
+  border: 1px solid rgba(var(--border), 0.4);
+  border-radius: 0.6rem;
+  padding: 0.45rem 1.1rem;
   font-weight: 500;
   cursor: not-allowed;
-  opacity: 0.7;
-  pointer-events: none;
 }
 
-/* =========================
-   Gear / Form helpers
-   ========================= */
+/* ============================================
+   FORMS & PANELS
+   ============================================ */
 .panel-soft {
-  background-color: rgba(var(--panel-bg), 0.98);
-  border: 1px solid rgba(var(--panel-border), 0.9);
+  background-color: rgba(var(--panel-bg), 0.96);
+  border: 1px solid rgba(var(--panel-border), 0.7);
   color: rgb(var(--text));
-  backdrop-filter: blur(10px);
+  backdrop-filter: blur(14px);
+  border-radius: 1rem;
 }
 
 .shadow-soft {
-  box-shadow: 0 25px 70px rgba(var(--panel-shadow), 0.38);
+  box-shadow: 0 20px 60px rgba(var(--panel-shadow), 0.45);
 }
 
 .modal-surface {
-  background-color: rgba(var(--panel-bg), 1);
-  border: 1px solid rgba(var(--panel-border), 1);
+  background-color: rgba(var(--panel-bg), 0.98);
+  border: 1px solid rgba(var(--panel-border), 0.85);
+  border-radius: 1rem;
   box-shadow:
-    0 40px 90px rgba(var(--panel-shadow), 0.55),
-    0 0 0 1px rgba(var(--ring), 0.15);
+    0 45px 120px rgba(var(--panel-shadow), 0.55),
+    0 0 0 1px rgba(var(--ring), 0.2);
 }
 
 .input-soft {
   background-color: rgba(var(--input-bg), 0.98);
-  border: 1px solid rgba(var(--input-border), 0.9);
+  border: 1px solid rgba(var(--input-border), 0.7);
   color: rgb(var(--input-text));
-  transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+  border-radius: 0.65rem;
+  padding: 0.45rem 0.75rem;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
-
 .input-soft::placeholder {
-  color: rgba(var(--input-placeholder), 0.95);
+  color: rgba(var(--input-placeholder), 0.85);
 }
-
 .input-soft:focus {
-  border-color: rgb(var(--ring));
+  border-color: rgba(var(--ring), 0.9);
   box-shadow: 0 0 0 3px rgba(var(--ring), 0.25);
   outline: none;
 }
 
 .label-muted {
-  color: rgba(var(--text-muted), 0.95);
+  color: rgba(var(--text-muted), 0.9);
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  font-size: 0.68rem;
 }
 
 .gear-form-field,
@@ -234,13 +233,10 @@ html, body, #root {
   width: 100%;
   border-radius: 0.75rem;
   padding: 0.5rem 0.75rem;
-  font-size: 0.875rem;
+  font-size: 0.9rem;
   line-height: 1.25rem;
   background-color: rgba(var(--input-bg), 0.98);
-  border: 1px solid rgba(var(--input-border), 0.9);
+  border: 1px solid rgba(var(--input-border), 0.8);
   color: rgb(var(--input-text));
-  transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
-
-
-
