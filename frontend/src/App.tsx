@@ -10,6 +10,7 @@ import Rides from './pages/Rides';
 import Settings from './pages/Settings';
 import Gear from './pages/Gear';
 import AuthComplete from './pages/AuthComplete';
+import BetaTesterWaitlist from './pages/BetaTesterWaitlist';
 
 import AuthGate from './components/AuthGate';
 import AppShell from './components/layout/AppShell';
@@ -52,6 +53,7 @@ function AppRoutes() {
           <Route path="/" element={<Page><Home /></Page>} />
           <Route path="/privacy" element={<PrivacyPolicy />} />
           <Route path="/login" element={<Page><Login /></Page>} />
+          <Route path="/beta-waitlist" element={<Page><BetaTesterWaitlist /></Page>} />
           <Route path="/auth/complete" element={<AuthComplete />} />
 
           {/* Protected */}
