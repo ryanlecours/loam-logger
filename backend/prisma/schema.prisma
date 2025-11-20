@@ -22,6 +22,7 @@ model User {
   id             String    @id @default(uuid())
   email          String    @unique
   name           String?
+  passwordHash   String?   // null for OAuth-only accounts
   garminUserId   String?   @unique
   accessToken    String?
   refreshToken   String?
