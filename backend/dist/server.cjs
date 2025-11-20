@@ -6,8 +6,11 @@ const cookieParser = require("cookie-parser");
 const server = require("@apollo/server");
 const express4 = require("@as-integrations/express4");
 const graphqlTag = require("graphql-tag");
-const client = require("@prisma/client");
+const client$1 = require("@prisma/client");
 const dateFns = require("date-fns");
+const googleAuthLibrary = require("google-auth-library");
+const jwt = require("jsonwebtoken");
+const bcryptjs = require("bcryptjs");
 const typeDefs = graphqlTag.gql`
 
   enum RideType {
@@ -17,6 +20,21 @@ const typeDefs = graphqlTag.gql`
     ROAD
     GRAVEL
     TRAINER
+  }
+
+  enum ComponentType {
+    FORK
+    SHOCK
+    BRAKES
+    DRIVETRAIN
+    TIRES
+    WHEELS
+    DROPPER
+    PEDALS
+    CHAIN
+    CASSETTE
+    OTHER
+    PIVOT_BEARINGS
   }
 
   type Ride {
@@ -33,6 +51,41 @@ const typeDefs = graphqlTag.gql`
     notes: String
     trailSystem: String
     location: String
+    createdAt: String!
+    updatedAt: String!
+  }
+
+  type Component {
+    id: ID!
+    type: ComponentType!
+    brand: String!
+    model: String!
+    installedAt: String
+    hoursUsed: Float!
+    serviceDueAtHours: Float
+    notes: String
+    isStock: Boolean!
+    bikeId: ID
+    isSpare: Boolean!
+    createdAt: String!
+    updatedAt: String!
+  }
+
+  type Bike {
+    id: ID!
+    nickname: String
+    manufacturer: String!
+    model: String!
+    year: Int
+    travelForkMm: Int
+    travelShockMm: Int
+    notes: String
+    fork: Component
+    shock: Component
+    dropper: Component
+    wheels: Component
+    pivotBearings: Component
+    components: [Component!]!
     createdAt: String!
     updatedAt: String!
   }
@@ -65,10 +118,82 @@ const typeDefs = graphqlTag.gql`
 
   type DeleteRideResult { ok: Boolean!, id: ID! }
 
+  input BikeComponentInput {
+    brand: String
+    model: String
+    notes: String
+    isStock: Boolean
+  }
+
+  input AddBikeInput {
+    nickname: String
+    manufacturer: String!
+    model: String!
+    year: Int!
+    travelForkMm: Int
+    travelShockMm: Int
+    notes: String
+    fork: BikeComponentInput
+    shock: BikeComponentInput
+    dropper: BikeComponentInput
+    wheels: BikeComponentInput
+    pivotBearings: BikeComponentInput
+  }
+
+  input UpdateBikeInput {
+    nickname: String
+    manufacturer: String
+    model: String
+    year: Int
+    travelForkMm: Int
+    travelShockMm: Int
+    notes: String
+    fork: BikeComponentInput
+    shock: BikeComponentInput
+    dropper: BikeComponentInput
+    wheels: BikeComponentInput
+    pivotBearings: BikeComponentInput
+  }
+
+  input AddComponentInput {
+    type: ComponentType!
+    brand: String
+    model: String
+    notes: String
+    isStock: Boolean
+    hoursUsed: Float
+    serviceDueAtHours: Float
+  }
+
+  input UpdateComponentInput {
+    brand: String
+    model: String
+    notes: String
+    isStock: Boolean
+    hoursUsed: Float
+    serviceDueAtHours: Float
+  }
+
+  input ComponentFilterInput {
+    bikeId: ID
+    onlySpare: Boolean
+    types: [ComponentType!]
+  }
+
+  type DeleteResult {
+    ok: Boolean!
+    id: ID!
+  }
+
   type Mutation {
     addRide(input: AddRideInput!): Ride!
     updateRide(id: ID!, input: UpdateRideInput!): Ride!
     deleteRide(id: ID!): DeleteRideResult!
+    addBike(input: AddBikeInput!): Bike!
+    updateBike(id: ID!, input: UpdateBikeInput!): Bike!
+    addComponent(input: AddComponentInput!, bikeId: ID): Component!
+    updateComponent(id: ID!, input: UpdateComponentInput!): Component!
+    deleteComponent(id: ID!): DeleteResult!
   }
 
   type User {
@@ -76,6 +201,7 @@ const typeDefs = graphqlTag.gql`
     email: String!
     rides: [Ride!]!
     name: String
+    avatarUrl: String
   }
 
   type Query {
@@ -83,9 +209,11 @@ const typeDefs = graphqlTag.gql`
     user(id: ID!): User
     rides(take: Int = 20, after: ID): [Ride!]!
     rideTypes: [RideType!]!
+    bikes: [Bike!]!
+    components(filter: ComponentFilterInput): [Component!]!
   }
 `;
-const prisma = global.__prisma__ ?? new client.PrismaClient();
+const prisma = global.__prisma__ ?? new client$1.PrismaClient();
 if (process.env.NODE_ENV !== "production") global.__prisma__ = prisma;
 function parseIso(value) {
   const d = new Date(value);
@@ -101,6 +229,107 @@ function parseIsoOptionalStrict(v) {
 const MAX_NOTES_LEN = 2e3;
 const MAX_LABEL_LEN = 120;
 const cleanText = (v, max = MAX_LABEL_LEN) => typeof v === "string" ? v.trim().slice(0, max) || null : null;
+const componentLabelMap = {
+  FORK: "Fork",
+  SHOCK: "Shock",
+  DROPPER: "Dropper Post",
+  WHEELS: "Wheelset",
+  PIVOT_BEARINGS: "Pivot Bearings"
+};
+const REQUIRED_BIKE_COMPONENTS = [
+  ["fork", client$1.ComponentType.FORK],
+  ["shock", client$1.ComponentType.SHOCK],
+  ["dropper", client$1.ComponentType.DROPPER],
+  ["wheels", client$1.ComponentType.WHEELS],
+  ["pivotBearings", client$1.ComponentType.PIVOT_BEARINGS]
+];
+const nowIsoYear = () => (/* @__PURE__ */ new Date()).getFullYear();
+const clampYear = (value) => {
+  if (value == null || Number.isNaN(value)) return nowIsoYear();
+  const yr = Math.floor(value);
+  return Math.min(nowIsoYear() + 1, Math.max(1980, yr));
+};
+const parseTravel = (value) => value == null || Number.isNaN(value) ? void 0 : Math.max(0, Math.floor(value));
+const componentLabel = (type) => componentLabelMap[type] ?? type.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+const requireUserId = (ctx) => {
+  const id = ctx.user?.id;
+  if (!id) throw new Error("Unauthorized");
+  return id;
+};
+const normalizeBikeComponentInput = (type, input) => {
+  const fallback = componentLabel(type);
+  const brand = input && input.brand !== void 0 ? cleanText(input.brand, MAX_LABEL_LEN) : void 0;
+  const model = input && input.model !== void 0 ? cleanText(input.model, MAX_LABEL_LEN) : void 0;
+  const notes = input && input.notes !== void 0 ? cleanText(input.notes, MAX_NOTES_LEN) : null;
+  const inferredStock = !brand && !model;
+  const isStock = input?.isStock ?? inferredStock ?? false;
+  return {
+    brand: brand ?? (isStock ? "Stock" : fallback),
+    model: model ?? (isStock ? "Stock" : fallback),
+    notes,
+    isStock
+  };
+};
+async function syncBikeComponents(tx, opts) {
+  for (const [key, type] of REQUIRED_BIKE_COMPONENTS) {
+    const incoming = opts.components?.[key];
+    if (!incoming && !opts.createMissing) continue;
+    const normalized = normalizeBikeComponentInput(type, incoming);
+    const existing = await tx.component.findFirst({
+      where: { bikeId: opts.bikeId, type }
+    });
+    if (existing) {
+      if (!incoming && !opts.createMissing) continue;
+      await tx.component.update({
+        where: { id: existing.id },
+        data: {
+          brand: normalized.brand,
+          model: normalized.model,
+          notes: normalized.notes,
+          isStock: normalized.isStock
+        }
+      });
+    } else if (opts.createMissing || incoming) {
+      await tx.component.create({
+        data: {
+          type,
+          bikeId: opts.bikeId,
+          userId: opts.userId,
+          brand: normalized.brand,
+          model: normalized.model,
+          notes: normalized.notes,
+          isStock: normalized.isStock,
+          installedAt: /* @__PURE__ */ new Date()
+        }
+      });
+    }
+  }
+}
+const normalizeLooseComponentInput = (type, input, base) => {
+  const fallback = componentLabel(type);
+  const defaults = base ?? {
+    brand: fallback,
+    model: fallback,
+    notes: null,
+    isStock: Boolean(input.isStock ?? true),
+    hoursUsed: 0,
+    serviceDueAtHours: null
+  };
+  const brand = input.brand !== void 0 ? cleanText(input.brand, MAX_LABEL_LEN) ?? "Stock" : void 0;
+  const model = input.model !== void 0 ? cleanText(input.model, MAX_LABEL_LEN) ?? "Stock" : void 0;
+  const notes = input.notes !== void 0 ? cleanText(input.notes, MAX_NOTES_LEN) : void 0;
+  const isStock = input.isStock !== void 0 ? Boolean(input.isStock) : defaults.isStock ?? false;
+  const hoursUsed = input.hoursUsed !== void 0 ? Math.max(0, Number(input.hoursUsed ?? 0)) : defaults.hoursUsed ?? 0;
+  const serviceDueAtHours = input.serviceDueAtHours !== void 0 ? input.serviceDueAtHours == null ? null : Math.max(0, Number(input.serviceDueAtHours)) : defaults.serviceDueAtHours ?? null;
+  return {
+    brand: brand ?? defaults.brand ?? fallback,
+    model: model ?? defaults.model ?? fallback,
+    notes: notes !== void 0 ? notes : defaults.notes ?? null,
+    isStock,
+    hoursUsed,
+    serviceDueAtHours
+  };
+};
 const ALLOWED_RIDE_TYPES = [
   "TRAIL",
   "ENDURO",
@@ -109,6 +338,10 @@ const ALLOWED_RIDE_TYPES = [
   "GRAVEL",
   "TRAINER"
 ];
+const pickComponent = (bike, type) => {
+  if (bike.components) return bike.components.find((c) => c.type === type) ?? null;
+  return prisma.component.findFirst({ where: { bikeId: bike.id, type } });
+};
 const resolvers = {
   Query: {
     user: (args) => prisma.user.findUnique({
@@ -126,14 +359,40 @@ const resolvers = {
       });
     },
     rideTypes: () => ALLOWED_RIDE_TYPES,
-    me: async (ctx) => {
+    me: async (_, _args, ctx) => {
       const id = ctx.user?.id;
       return id ? prisma.user.findUnique({ where: { id } }) : null;
+    },
+    bikes: async (_, __, ctx) => {
+      const userId = requireUserId(ctx);
+      return prisma.bike.findMany({
+        where: { userId },
+        orderBy: { createdAt: "desc" },
+        include: { components: true }
+      });
+    },
+    components: async (_, args, ctx) => {
+      const userId = requireUserId(ctx);
+      const filter = args.filter ?? {};
+      const where = { userId };
+      if (filter.bikeId) {
+        where.bikeId = filter.bikeId;
+      } else if (filter.onlySpare) {
+        where.bikeId = null;
+      }
+      if (filter.types?.length) {
+        where.type = { in: filter.types };
+      }
+      return prisma.component.findMany({
+        where,
+        orderBy: { createdAt: "desc" }
+      });
     }
   },
   Mutation: {
     addRide: async (_p, { input }, ctx) => {
       if (!ctx.user?.id) throw new Error("Unauthorized");
+      const userId = ctx.user.id;
       const start = parseIso(input.startTime);
       const durationSeconds = Math.max(0, Math.floor(input.durationSeconds));
       const distanceMiles = Math.max(0, Number(input.distanceMiles));
@@ -143,52 +402,106 @@ const resolvers = {
       const trailSystem = cleanText(input.trailSystem, MAX_LABEL_LEN);
       const location = cleanText(input.location, MAX_LABEL_LEN);
       const rideType = cleanText(input.rideType, 32);
+      const requestedBikeId = input.bikeId ?? null;
       if (!rideType) throw new Error("rideType is required");
-      return prisma.ride.create({
-        data: {
-          userId: ctx.user.id,
-          startTime: start,
-          durationSeconds,
-          distanceMiles,
-          elevationGainFeet,
-          averageHr,
-          rideType,
-          ...input.bikeId ? { bikeId: input.bikeId } : {},
-          ...notes ? { notes } : {},
-          ...trailSystem ? { trailSystem } : {},
-          ...location ? { location } : {}
+      let bikeId = null;
+      if (requestedBikeId) {
+        const ownedBike = await prisma.bike.findUnique({
+          where: { id: requestedBikeId },
+          select: { userId: true }
+        });
+        if (!ownedBike || ownedBike.userId !== userId) throw new Error("Bike not found");
+        bikeId = requestedBikeId;
+      }
+      const rideData = {
+        userId,
+        startTime: start,
+        durationSeconds,
+        distanceMiles,
+        elevationGainFeet,
+        averageHr,
+        rideType,
+        ...bikeId ? { bikeId } : {},
+        ...notes ? { notes } : {},
+        ...trailSystem ? { trailSystem } : {},
+        ...location ? { location } : {}
+      };
+      const hoursDelta = durationSeconds / 3600;
+      return prisma.$transaction(async (tx) => {
+        const ride = await tx.ride.create({ data: rideData });
+        if (bikeId && hoursDelta > 0) {
+          await tx.component.updateMany({
+            where: { bikeId, userId },
+            data: { hoursUsed: { increment: hoursDelta } }
+          });
         }
+        return ride;
       });
     },
     deleteRide: async (_, { id }, ctx) => {
-      if (!ctx.user?.id) throw new Error("Unauthorized");
-      const owned = await prisma.ride.findUnique({
+      const userId = requireUserId(ctx);
+      const ride = await prisma.ride.findUnique({
         where: { id },
-        select: { userId: true }
+        select: { userId: true, durationSeconds: true, bikeId: true }
       });
-      if (!owned || owned.userId !== ctx.user.id) {
+      if (!ride || ride.userId !== userId) {
         throw new Error("Ride not found");
       }
-      await prisma.ride.delete({ where: { id } });
+      const hoursDelta = Math.max(0, ride.durationSeconds ?? 0) / 3600;
+      await prisma.$transaction(async (tx) => {
+        if (ride.bikeId && hoursDelta > 0) {
+          await tx.component.updateMany({
+            where: { userId, bikeId: ride.bikeId },
+            data: { hoursUsed: { decrement: hoursDelta } }
+          });
+          await tx.component.updateMany({
+            where: { userId, bikeId: ride.bikeId, hoursUsed: { lt: 0 } },
+            data: { hoursUsed: 0 }
+          });
+        }
+        await tx.ride.delete({ where: { id } });
+      });
       return { ok: true, id };
     },
     updateRide: async (_parent, { id, input }, ctx) => {
-      if (!ctx.user?.id) throw new Error("Unauthorized");
-      const owned = await prisma.ride.findUnique({
+      const userId = requireUserId(ctx);
+      const existing = await prisma.ride.findUnique({
         where: { id },
-        select: { userId: true }
+        select: { userId: true, durationSeconds: true, bikeId: true }
       });
-      if (!owned || owned.userId !== ctx.user.id) throw new Error("Ride not found");
+      if (!existing || existing.userId !== userId) throw new Error("Ride not found");
       const start = parseIsoOptionalStrict(input.startTime);
       const rideType = input.rideType === void 0 ? void 0 : cleanText(input.rideType, 32) || void 0;
-      const notes = "notes" in input ? typeof input.notes === "string" ? cleanText(input.notes, MAX_NOTES_LEN) : null : void 0;
-      const trailSystem = "trailSystem" in input ? typeof input.trailSystem === "string" ? cleanText(input.trailSystem, MAX_LABEL_LEN) : null : void 0;
-      const location = "location" in input ? typeof input.location === "string" ? cleanText(input.location, MAX_LABEL_LEN) : null : void 0;
+      const notes = input.notes !== void 0 ? typeof input.notes === "string" ? cleanText(input.notes, MAX_NOTES_LEN) : null : void 0;
+      const trailSystem = input.trailSystem !== void 0 ? typeof input.trailSystem === "string" ? cleanText(input.trailSystem, MAX_LABEL_LEN) : null : void 0;
+      const location = input.location !== void 0 ? typeof input.location === "string" ? cleanText(input.location, MAX_LABEL_LEN) : null : void 0;
+      let nextDurationSeconds = existing.durationSeconds;
+      let durationUpdate;
+      if (input.durationSeconds !== void 0) {
+        durationUpdate = Math.max(0, Math.floor(input.durationSeconds ?? 0));
+        nextDurationSeconds = durationUpdate;
+      }
+      let nextBikeId = existing.bikeId ?? null;
+      let bikeUpdate = void 0;
+      if (input.bikeId !== void 0) {
+        if (input.bikeId) {
+          const ownedBike = await prisma.bike.findUnique({
+            where: { id: input.bikeId },
+            select: { userId: true }
+          });
+          if (!ownedBike || ownedBike.userId !== userId) throw new Error("Bike not found");
+          bikeUpdate = input.bikeId;
+          nextBikeId = input.bikeId;
+        } else {
+          bikeUpdate = null;
+          nextBikeId = null;
+        }
+      }
       const data = {
         ...start !== void 0 && { startTime: start },
         // Date (no null)
-        ...input.durationSeconds !== void 0 && {
-          durationSeconds: Math.max(0, Math.floor(input.durationSeconds ?? 0))
+        ...durationUpdate !== void 0 && {
+          durationSeconds: durationUpdate
           // number (no null)
         },
         ...input.distanceMiles !== void 0 && {
@@ -204,18 +517,204 @@ const resolvers = {
         },
         ...rideType !== void 0 && { rideType },
         // string only; omit if empty/undefined
-        ...input.bikeId !== void 0 && { bikeId: input.bikeId ?? null },
+        ...bikeUpdate !== void 0 && { bikeId: bikeUpdate },
         // nullable
-        ..."notes" in input ? { notes } : {},
-        ..."trailSystem" in input ? { trailSystem } : {},
-        ..."location" in input ? { location } : {}
+        ...notes !== void 0 ? { notes } : {},
+        ...trailSystem !== void 0 ? { trailSystem } : {},
+        ...location !== void 0 ? { location } : {}
       };
-      const updated = await prisma.ride.update({
-        where: { id },
-        data
+      const hoursBefore = Math.max(0, existing.durationSeconds ?? 0) / 3600;
+      const hoursAfter = Math.max(0, nextDurationSeconds ?? 0) / 3600;
+      const hoursDiff = hoursAfter - hoursBefore;
+      const durationChanged = durationUpdate !== void 0;
+      const bikeChanged = bikeUpdate !== void 0 && nextBikeId !== existing.bikeId;
+      return prisma.$transaction(async (tx) => {
+        const updated = await tx.ride.update({
+          where: { id },
+          data
+        });
+        if (bikeChanged || durationChanged) {
+          if (existing.bikeId) {
+            if (bikeChanged && hoursBefore > 0) {
+              await tx.component.updateMany({
+                where: { userId, bikeId: existing.bikeId },
+                data: { hoursUsed: { decrement: hoursBefore } }
+              });
+            } else if (!bikeChanged && durationChanged && hoursDiff < 0) {
+              await tx.component.updateMany({
+                where: { userId, bikeId: existing.bikeId },
+                data: { hoursUsed: { decrement: Math.abs(hoursDiff) } }
+              });
+            }
+            if (bikeChanged || durationChanged && hoursDiff < 0) {
+              await tx.component.updateMany({
+                where: { userId, bikeId: existing.bikeId, hoursUsed: { lt: 0 } },
+                data: { hoursUsed: 0 }
+              });
+            }
+          }
+          if (nextBikeId) {
+            if (bikeChanged && hoursAfter > 0) {
+              await tx.component.updateMany({
+                where: { userId, bikeId: nextBikeId },
+                data: { hoursUsed: { increment: hoursAfter } }
+              });
+            } else if (!bikeChanged && durationChanged && hoursDiff > 0) {
+              await tx.component.updateMany({
+                where: { userId, bikeId: nextBikeId },
+                data: { hoursUsed: { increment: hoursDiff } }
+              });
+            }
+          }
+        }
+        return updated;
       });
-      return updated;
+    },
+    addBike: async (_, { input }, ctx) => {
+      const userId = requireUserId(ctx);
+      const manufacturer = cleanText(input.manufacturer, MAX_LABEL_LEN);
+      const model = cleanText(input.model, MAX_LABEL_LEN);
+      if (!manufacturer) throw new Error("manufacturer is required");
+      if (!model) throw new Error("model is required");
+      const nickname = cleanText(input.nickname, MAX_LABEL_LEN);
+      const year = clampYear(input.year);
+      const travelForkMm = parseTravel(input.travelForkMm);
+      const travelShockMm = parseTravel(input.travelShockMm);
+      const notes = cleanText(input.notes, MAX_NOTES_LEN);
+      return prisma.$transaction(async (tx) => {
+        const bike = await tx.bike.create({
+          data: {
+            nickname: nickname ?? null,
+            manufacturer,
+            model,
+            year,
+            travelForkMm,
+            travelShockMm,
+            notes: notes ?? null,
+            userId
+          }
+        });
+        await syncBikeComponents(tx, {
+          bikeId: bike.id,
+          userId,
+          components: {
+            fork: input.fork,
+            shock: input.shock,
+            dropper: input.dropper,
+            wheels: input.wheels,
+            pivotBearings: input.pivotBearings
+          },
+          createMissing: true
+        });
+        return tx.bike.findUnique({
+          where: { id: bike.id },
+          include: { components: true }
+        });
+      });
+    },
+    updateBike: async (_, { id, input }, ctx) => {
+      const userId = requireUserId(ctx);
+      const existing = await prisma.bike.findUnique({
+        where: { id },
+        select: { userId: true }
+      });
+      if (!existing || existing.userId !== userId) throw new Error("Bike not found");
+      const data = {};
+      if (input.nickname !== void 0) data.nickname = cleanText(input.nickname, MAX_LABEL_LEN);
+      if (input.manufacturer !== void 0) {
+        const manufacturer = cleanText(input.manufacturer, MAX_LABEL_LEN);
+        if (!manufacturer) throw new Error("manufacturer is required");
+        data.manufacturer = manufacturer;
+      }
+      if (input.model !== void 0) {
+        const updatedModel = cleanText(input.model, MAX_LABEL_LEN);
+        if (!updatedModel) throw new Error("model is required");
+        data.model = updatedModel;
+      }
+      if (input.year !== void 0) data.year = input.year == null ? null : clampYear(input.year);
+      if (input.travelForkMm !== void 0) data.travelForkMm = parseTravel(input.travelForkMm) ?? null;
+      if (input.travelShockMm !== void 0)
+        data.travelShockMm = parseTravel(input.travelShockMm) ?? null;
+      if (input.notes !== void 0) data.notes = cleanText(input.notes, MAX_NOTES_LEN);
+      return prisma.$transaction(async (tx) => {
+        if (Object.keys(data).length > 0) {
+          await tx.bike.update({ where: { id }, data });
+        }
+        await syncBikeComponents(tx, {
+          bikeId: id,
+          userId,
+          components: {
+            fork: input.fork,
+            shock: input.shock,
+            dropper: input.dropper,
+            wheels: input.wheels,
+            pivotBearings: input.pivotBearings
+          },
+          createMissing: false
+        });
+        return tx.bike.findUnique({ where: { id }, include: { components: true } });
+      });
+    },
+    addComponent: async (_, { input, bikeId }, ctx) => {
+      const userId = requireUserId(ctx);
+      const type = input.type;
+      if (bikeId) {
+        const bike = await prisma.bike.findUnique({
+          where: { id: bikeId },
+          select: { userId: true }
+        });
+        if (!bike || bike.userId !== userId) throw new Error("Bike not found");
+      } else if (type === client$1.ComponentType.PIVOT_BEARINGS) {
+        throw new Error("Pivot bearings must be attached to a bike");
+      }
+      return prisma.component.create({
+        data: {
+          ...normalizeLooseComponentInput(type, input),
+          type,
+          bikeId: bikeId ?? null,
+          userId,
+          installedAt: /* @__PURE__ */ new Date()
+        }
+      });
+    },
+    updateComponent: async (_, { id, input }, ctx) => {
+      const userId = requireUserId(ctx);
+      const existing = await prisma.component.findUnique({ where: { id } });
+      if (!existing || existing.userId !== userId) throw new Error("Component not found");
+      const normalized = normalizeLooseComponentInput(existing.type, input, {
+        brand: existing.brand,
+        model: existing.model,
+        notes: existing.notes,
+        isStock: existing.isStock,
+        hoursUsed: existing.hoursUsed,
+        serviceDueAtHours: existing.serviceDueAtHours
+      });
+      return prisma.component.update({
+        where: { id },
+        data: normalized
+      });
+    },
+    deleteComponent: async (_, { id }, ctx) => {
+      const userId = requireUserId(ctx);
+      const existing = await prisma.component.findUnique({ where: { id }, select: { userId: true } });
+      if (!existing || existing.userId !== userId) throw new Error("Component not found");
+      await prisma.component.delete({ where: { id } });
+      return { ok: true, id };
     }
+  },
+  Bike: {
+    components: (bike) => {
+      if (bike.components) return bike.components;
+      return prisma.component.findMany({ where: { bikeId: bike.id } });
+    },
+    fork: (bike) => pickComponent(bike, client$1.ComponentType.FORK),
+    shock: (bike) => pickComponent(bike, client$1.ComponentType.SHOCK),
+    dropper: (bike) => pickComponent(bike, client$1.ComponentType.DROPPER),
+    wheels: (bike) => pickComponent(bike, client$1.ComponentType.WHEELS),
+    pivotBearings: (bike) => pickComponent(bike, client$1.ComponentType.PIVOT_BEARINGS)
+  },
+  Component: {
+    isSpare: (component) => component.bikeId == null
   }
 };
 function randomString(len = 64) {
@@ -461,39 +960,6 @@ r$1.get(
     }
   }
 );
-const attachUser = async (req, res, next) => {
-  try {
-    const cookieId = req.signedCookies?.ll_uid;
-    if (cookieId) {
-      const u = await prisma.user.findUnique({
-        where: { id: cookieId },
-        select: { id: true, email: true, name: true }
-      });
-      if (u) {
-        req.user = u;
-        return next();
-      }
-    }
-    const dev = await prisma.user.upsert({
-      where: { email: "dev@example.com" },
-      update: {},
-      create: { email: "dev@example.com", name: "Dev User" },
-      select: { id: true, email: true, name: true }
-    });
-    res.cookie("ll_uid", dev.id, {
-      httpOnly: true,
-      sameSite: "lax",
-      secure: process.env.NODE_ENV !== "development",
-      signed: true,
-      path: "/",
-      maxAge: 7 * 24 * 60 * 60 * 1e3
-    });
-    req.user = dev;
-    next();
-  } catch (e) {
-    next(e);
-  }
-};
 const r = express.Router();
 const consentHtml = (redirectUrl) => `
 <!doctype html><meta charset="utf-8">
@@ -550,38 +1016,390 @@ r.get("/mock/garmin/api/activities", (req, res) => {
   const data = Array.from({ length: limit }, (_, i) => mk(i + 1));
   return res.json(data);
 });
+const normalizeEmail = (email) => (email ?? "").trim().toLowerCase() || null;
+const isBetaTester = (email) => {
+  const betaTesterEmails = (process.env.BETA_TESTER_EMAILS ?? "").split(",").map((e) => normalizeEmail(e)).filter((e) => e !== null);
+  const normalizedEmail = normalizeEmail(email);
+  return normalizedEmail ? betaTesterEmails.includes(normalizedEmail) : false;
+};
+async function ensureUserFromGoogle(claims, tokens) {
+  const sub = claims.sub;
+  if (!sub) throw new Error("Google sub is required");
+  const email = normalizeEmail(claims.email);
+  if (!email) throw new Error("Google login did not provide an email");
+  if (process.env.BETA_TESTER_EMAILS) {
+    if (!isBetaTester(email)) {
+      throw new Error("NOT_BETA_TESTER");
+    }
+  }
+  return prisma.$transaction(async (tx) => {
+    const existingAccount = await tx.userAccount.findUnique({
+      where: { provider_providerUserId: { provider: "google", providerUserId: sub } },
+      include: { user: true }
+    });
+    if (existingAccount) {
+      await refresh(tx, existingAccount.user.id, claims);
+      return existingAccount.user;
+    }
+    let user = await tx.user.findUnique({ where: { email } });
+    if (!user) {
+      try {
+        user = await tx.user.create({
+          data: {
+            email,
+            name: claims.name ?? "",
+            avatarUrl: claims.picture ?? null,
+            emailVerified: claims.email_verified ? /* @__PURE__ */ new Date() : null
+          }
+        });
+      } catch (e) {
+        if (e instanceof client$1.Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+          user = await tx.user.findUniqueOrThrow({ where: { email } });
+        } else {
+          throw e;
+        }
+      }
+    } else {
+      await tx.user.update({
+        where: { id: user.id },
+        data: {
+          name: claims.name ?? void 0,
+          avatarUrl: claims.picture ?? void 0,
+          emailVerified: claims.email_verified ? /* @__PURE__ */ new Date() : void 0
+        }
+      });
+    }
+    try {
+      await tx.userAccount.create({
+        data: { userId: user.id, provider: "google", providerUserId: sub }
+      });
+    } catch (e) {
+      if (!(e instanceof client$1.Prisma.PrismaClientKnownRequestError && e.code === "P2002")) throw e;
+    }
+    return user;
+  });
+}
+async function refresh(tx, userId, claims, tokens) {
+  await tx.user.update({
+    where: { id: userId },
+    data: {
+      name: claims.name ?? void 0,
+      avatarUrl: claims.picture ?? void 0,
+      emailVerified: claims.email_verified ? /* @__PURE__ */ new Date() : void 0
+    }
+  });
+}
+const { SESSION_SECRET } = process.env;
+function setSessionCookie(res, payload) {
+  const token = jwt.sign(payload, SESSION_SECRET, { expiresIn: "7d" });
+  res.cookie("ll_session", token, {
+    httpOnly: true,
+    secure: process.env.APP_ENV === "production",
+    sameSite: process.env.APP_ENV === "production" ? "none" : "lax",
+    maxAge: 7 * 24 * 60 * 60 * 1e3
+  });
+}
+function clearSessionCookie(res) {
+  res.clearCookie("ll_session", {
+    httpOnly: true,
+    secure: process.env.APP_ENV === "production",
+    sameSite: "lax"
+  });
+}
+function attachUser(req, _res, next) {
+  const token = req.cookies?.ll_session;
+  if (!token) return next();
+  try {
+    const user = jwt.verify(token, SESSION_SECRET);
+    req.sessionUser = user;
+  } catch {
+  }
+  next();
+}
+const router$2 = express.Router();
+const { GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET } = process.env;
+if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
+  console.error("[GoogleAuth] Missing GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET");
+}
+const client = new googleAuthLibrary.OAuth2Client({
+  clientId: GOOGLE_CLIENT_ID,
+  clientSecret: GOOGLE_CLIENT_SECRET,
+  redirectUri: "postmessage"
+});
+router$2.post("/google/code", express.json(), async (req, res) => {
+  try {
+    const { credential } = req.body;
+    if (!credential) return res.status(400).send("Missing credential");
+    const ticket = await client.verifyIdToken({
+      idToken: credential,
+      audience: GOOGLE_CLIENT_ID
+    });
+    const p = ticket.getPayload();
+    if (!p?.sub) return res.status(401).send("Invalid Google token");
+    const user = await ensureUserFromGoogle(
+      {
+        sub: p.sub,
+        email: p.email ?? void 0,
+        email_verified: p.email_verified,
+        name: p.name,
+        picture: p.picture
+      }
+    );
+    setSessionCookie(res, { uid: user.id, email: user.email });
+    res.status(200).json({ ok: true });
+  } catch (e) {
+    const errorMessage = e instanceof Error ? e.message : String(e);
+    console.error("[GoogleAuth] ID-token login failed", e);
+    if (errorMessage === "NOT_BETA_TESTER") {
+      return res.status(403).send("NOT_BETA_TESTER");
+    }
+    res.status(500).send("Auth failed");
+  }
+});
+router$2.post("/logout", (_req, res) => {
+  console.log("[GoogleAuth] Logout request");
+  clearSessionCookie(res);
+  res.status(200).json({ ok: true });
+});
+const SALT_ROUNDS = 12;
+async function hashPassword(password) {
+  return bcryptjs.hash(password, SALT_ROUNDS);
+}
+async function verifyPassword(password, hash) {
+  return bcryptjs.compare(password, hash);
+}
+function validatePassword(password) {
+  if (password.length < 8) {
+    return { isValid: false, error: "Password must be at least 8 characters" };
+  }
+  if (!/[A-Z]/.test(password)) {
+    return {
+      isValid: false,
+      error: "Password must contain at least one uppercase letter"
+    };
+  }
+  if (!/[a-z]/.test(password)) {
+    return {
+      isValid: false,
+      error: "Password must contain at least one lowercase letter"
+    };
+  }
+  if (!/[0-9]/.test(password)) {
+    return { isValid: false, error: "Password must contain at least one number" };
+  }
+  if (!/[!@#$%^&*]/.test(password)) {
+    return {
+      isValid: false,
+      error: "Password must contain at least one special character (!@#$%^&*)"
+    };
+  }
+  return { isValid: true };
+}
+function validateEmailFormat(email) {
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  return emailRegex.test(email);
+}
+const router$1 = express.Router();
+router$1.post("/signup", express.json(), async (req, res) => {
+  try {
+    const { email: rawEmail, password } = req.body;
+    if (!rawEmail || !password) {
+      return res.status(400).send("Email and password are required");
+    }
+    const email = normalizeEmail(rawEmail);
+    if (!email) {
+      return res.status(400).send("Invalid email");
+    }
+    if (!validateEmailFormat(email)) {
+      return res.status(400).send("Invalid email format");
+    }
+    const passwordValidation = validatePassword(password);
+    if (!passwordValidation.isValid) {
+      return res.status(400).send(passwordValidation.error);
+    }
+    if (process.env.BETA_TESTER_EMAILS) {
+      if (!isBetaTester(email)) {
+        return res.status(403).send("NOT_BETA_TESTER");
+      }
+    }
+    const passwordHash = await hashPassword(password);
+    const user = await prisma.user.create({
+      data: {
+        email,
+        passwordHash,
+        name: ""
+      }
+    });
+    setSessionCookie(res, { uid: user.id, email: user.email });
+    res.status(200).json({ ok: true });
+  } catch (e) {
+    const error = e instanceof Error ? e.message : String(e);
+    console.error("[EmailAuth] Signup failed", e);
+    if (error.includes("Unique constraint failed")) {
+      return res.status(409).send("Email already in use");
+    }
+    res.status(500).send("Signup failed");
+  }
+});
+router$1.post("/login", express.json(), async (req, res) => {
+  try {
+    const { email: rawEmail, password } = req.body;
+    if (!rawEmail || !password) {
+      return res.status(400).send("Email and password are required");
+    }
+    const email = normalizeEmail(rawEmail);
+    if (!email) {
+      return res.status(400).send("Invalid email");
+    }
+    const user = await prisma.user.findUnique({
+      where: { email }
+    });
+    if (!user) {
+      return res.status(401).send("Invalid email or password");
+    }
+    if (!user.passwordHash) {
+      return res.status(401).send("This account uses OAuth login only");
+    }
+    const isValid = await verifyPassword(password, user.passwordHash);
+    if (!isValid) {
+      return res.status(401).send("Invalid email or password");
+    }
+    if (process.env.BETA_TESTER_EMAILS) {
+      if (!isBetaTester(email)) {
+        return res.status(403).send("NOT_BETA_TESTER");
+      }
+    }
+    setSessionCookie(res, { uid: user.id, email: user.email });
+    res.status(200).json({ ok: true });
+  } catch (e) {
+    console.error("[EmailAuth] Login failed", e);
+    res.status(500).send("Login failed");
+  }
+});
+const router = express.Router();
+router.delete("/delete-account", async (req, res) => {
+  try {
+    const sessionUser = req.sessionUser;
+    if (!sessionUser?.uid) {
+      return res.status(401).json({ message: "Unauthorized: No active session" });
+    }
+    const userId = sessionUser.uid;
+    console.log(`[DeleteAccount] Deleting account and data for user: ${userId}`);
+    await prisma.ride.deleteMany({
+      where: { userId }
+    });
+    console.log(`[DeleteAccount] Deleted rides for user: ${userId}`);
+    await prisma.component.deleteMany({
+      where: { userId }
+    });
+    console.log(`[DeleteAccount] Deleted components for user: ${userId}`);
+    await prisma.bike.deleteMany({
+      where: { userId }
+    });
+    console.log(`[DeleteAccount] Deleted bikes for user: ${userId}`);
+    await prisma.oauthToken.deleteMany({
+      where: { userId }
+    });
+    console.log(`[DeleteAccount] Deleted OAuth tokens for user: ${userId}`);
+    await prisma.userAccount.deleteMany({
+      where: { userId }
+    });
+    console.log(`[DeleteAccount] Deleted user accounts for user: ${userId}`);
+    const deletedUser = await prisma.user.delete({
+      where: { id: userId }
+    });
+    console.log(`[DeleteAccount] Successfully deleted user: ${deletedUser.email}`);
+    clearSessionCookie(res);
+    res.status(200).json({
+      ok: true,
+      message: "Account successfully deleted"
+    });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("[DeleteAccount] Error deleting account:", error);
+    if (errorMessage.includes("An operation failed because it depends on one or more records")) {
+      return res.status(400).json({
+        message: "Failed to delete account: Some data could not be removed"
+      });
+    }
+    res.status(500).json({
+      message: "An error occurred while deleting your account. Please try again."
+    });
+  }
+});
 const startServer = async () => {
   const app = express();
-  app.use(
-    cors({
-      origin: process.env.APP_ORIGIN || "http://localhost:5173",
-      credentials: true
-    })
-  );
+  app.set("trust proxy", 1);
+  app.get("/health", (_req, res) => res.status(200).send("ok"));
+  const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
+  const EXTRA_ORIGINS = (process.env.CORS_EXTRA_ORIGINS || "").split(",").map((s) => s.trim()).filter(Boolean);
+  const allowOrigin = (origin) => {
+    if (!origin) return true;
+    try {
+      const u = new URL(origin);
+      const host = u.hostname;
+      return origin === FRONTEND_URL || origin === "http://localhost:5173" || EXTRA_ORIGINS.includes(origin) || host.endsWith(".vercel.app");
+    } catch {
+      return false;
+    }
+  };
+  const corsMw = cors({
+    origin(origin, cb) {
+      if (allowOrigin(origin)) return cb(null, true);
+      return cb(new Error(`CORS blocked for origin: ${origin}`));
+    },
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"]
+  });
+  app.use(corsMw);
+  app.options("*", corsMw);
   app.use(express.json());
   app.use(express.urlencoded({ extended: false }));
   app.use(cookieParser(process.env.COOKIE_SECRET || "dev-secret"));
+  app.use((req, res, next) => {
+    if (req.path === "/graphql" || req.path.startsWith("/auth")) {
+      console.log(`[REQ] ${req.method} ${req.path} origin=${req.headers.origin || "n/a"}`);
+    }
+    next();
+  });
   app.use(attachUser);
-  app.use(r$2);
+  app.get("/whoami", (req, res) => {
+    res.json({ sessionUser: req.sessionUser ?? null });
+  });
+  app.use("/auth", router$2);
+  app.use("/auth", router$1);
+  app.use("/auth", router);
+  app.use("/auth", r$2);
   app.use(r$1);
   app.use(r);
   const server$1 = new server.ApolloServer({ typeDefs, resolvers });
   await server$1.start();
+  app.use((req, _res, next) => {
+    if (req.path === "/graphql" && req.method === "POST") {
+      console.log("[GraphQL] sessionUser:", req.sessionUser ?? null);
+    }
+    next();
+  });
   app.use(
     "/graphql",
     express4.expressMiddleware(server$1, {
-      context: async ({ req, res }) => ({
-        req,
-        res,
-        user: req.user ?? null
-        // typed via your global augmentation
-      })
+      context: async ({ req, res }) => {
+        const legacy = req.user;
+        const sess = req.sessionUser;
+        const user = legacy ?? (sess ? { id: sess.uid, email: sess.email } : null);
+        return { req, res, user: user ?? null };
+      }
     })
   );
-  app.get("/healthz", (_req, res) => res.send("ok"));
   const PORT = Number(process.env.PORT) || 4e3;
-  app.listen(PORT, () => {
-    console.log(`🚴 LoamLogger backend running at http://localhost:${PORT}/graphql`);
+  const HOST = "0.0.0.0";
+  app.listen(PORT, HOST, () => {
+    console.log(`🚴 LoamLogger backend running on :${PORT} (GraphQL at /graphql)`);
+  });
+  process.on("SIGTERM", async () => {
+    await server$1.stop();
+    process.exit(0);
   });
 };
 startServer();
