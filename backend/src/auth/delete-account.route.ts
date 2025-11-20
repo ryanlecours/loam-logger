@@ -2,15 +2,16 @@ import express, { type Request } from 'express';
 import { prisma } from '../lib/prisma';
 import { clearSessionCookie, type SessionUser } from './session';
 
-const router = express.Router();
-
 declare global {
+  // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace Express {
     interface Request {
       sessionUser?: SessionUser;
     }
   }
 }
+
+const router = express.Router();
 
 /**
  * DELETE /auth/delete-account
