@@ -53,82 +53,87 @@ router.post('/complete', express.json(), async (req: Request, res) => {
 
     const userId = sessionUser.uid;
 
-    // Update user with onboarding data
-    await prisma.user.update({
-      where: { id: userId },
-      data: {
-        age: age || null,
-        location: location || null,
-        onboardingCompleted: true,
-      },
-    });
+    // Use transaction to ensure atomicity: all writes succeed or all fail
+    const result = await prisma.$transaction(async (tx) => {
+      // Update user with onboarding data
+      const user = await tx.user.update({
+        where: { id: userId },
+        data: {
+          age: age || null,
+          location: location || null,
+          onboardingCompleted: true,
+        },
+      });
 
-    console.log(`[Onboarding] Updated user profile for: ${userId}`);
+      console.log(`[Onboarding] Updated user profile for: ${userId}`);
 
-    // Create bike
-    const bike = await prisma.bike.create({
-      data: {
-        userId,
-        manufacturer: bikeMake,
-        model: bikeModel,
-        year: bikeYear || null,
-      },
-    });
+      // Create bike
+      const bike = await tx.bike.create({
+        data: {
+          userId,
+          manufacturer: bikeMake,
+          model: bikeModel,
+          year: bikeYear || null,
+        },
+      });
 
-    console.log(`[Onboarding] Created bike for user: ${userId}`);
+      console.log(`[Onboarding] Created bike for user: ${userId}`);
 
-    // Create components if provided
-    const componentTypeMap: Record<string, ComponentType> = {
-      fork: 'FORK',
-      rearShock: 'SHOCK',
-      wheels: 'WHEELS',
-      dropperPost: 'DROPPER',
-    };
+      // Create components if provided
+      const componentTypeMap: Record<string, ComponentType> = {
+        fork: 'FORK',
+        rearShock: 'SHOCK',
+        wheels: 'WHEELS',
+        dropperPost: 'DROPPER',
+      };
 
-    if (components) {
-      for (const [key, value] of Object.entries(components)) {
-        if (value && value.trim().length > 0) {
-          const componentType = componentTypeMap[key];
-          if (componentType) {
-            const [brand, ...modelParts] = value.trim().split(' ');
-            const model = modelParts.join(' ') || brand;
+      if (components) {
+        for (const [key, value] of Object.entries(components)) {
+          if (value && value.trim().length > 0) {
+            const componentType = componentTypeMap[key];
+            if (componentType) {
+              const [brand, ...modelParts] = value.trim().split(' ');
+              const model = modelParts.join(' ') || brand;
 
-            await prisma.component.create({
-              data: {
-                userId,
-                bikeId: bike.id,
-                type: componentType,
-                brand: brand,
-                model: model,
-                hoursUsed: 0,
-              },
-            });
+              await tx.component.create({
+                data: {
+                  userId,
+                  bikeId: bike.id,
+                  type: componentType,
+                  brand: brand,
+                  model: model,
+                  hoursUsed: 0,
+                },
+              });
 
-            console.log(`[Onboarding] Created ${componentType} component for bike: ${bike.id}`);
+              console.log(`[Onboarding] Created ${componentType} component for bike: ${bike.id}`);
+            }
           }
         }
       }
-    }
 
-    // Always create stock Pivot Bearings component for new bikes
-    await prisma.component.create({
-      data: {
-        userId,
-        bikeId: bike.id,
-        type: 'PIVOT_BEARINGS',
-        brand: 'Stock',
-        model: 'Stock',
-        hoursUsed: 0,
-        isStock: true,
-      },
+      // Always create stock Pivot Bearings component for new bikes
+      await tx.component.create({
+        data: {
+          userId,
+          bikeId: bike.id,
+          type: 'PIVOT_BEARINGS',
+          brand: 'Stock',
+          model: 'Stock',
+          hoursUsed: 0,
+          isStock: true,
+        },
+      });
+
+      console.log(`[Onboarding] Created stock Pivot Bearings component for bike: ${bike.id}`);
+
+      return { user, bike };
     });
-
-    console.log(`[Onboarding] Created stock Pivot Bearings component for bike: ${bike.id}`);
 
     res.status(200).json({
       ok: true,
       message: 'Onboarding completed successfully',
-      bikeId: bike.id,
+      bikeId: result.bike.id,
     });
   } catch (error) {
     console.error('[Onboarding] Error completing onboarding:', error);
