@@ -191,6 +191,9 @@ export const typeDefs = gql`
     rides: [Ride!]!
     name: String
     avatarUrl: String
+    onboardingCompleted: Boolean!
+    location: String
+    age: Int
   }
 
   type Query {

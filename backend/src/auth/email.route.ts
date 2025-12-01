@@ -13,14 +13,19 @@ const router = express.Router();
  */
 router.post('/signup', express.json(), async (req, res) => {
   try {
-    const { email: rawEmail, password } = req.body as {
+    const { email: rawEmail, password, name } = req.body as {
       email?: string;
       password?: string;
+      name?: string;
     };
 
     // Validate input
     if (!rawEmail || !password) {
       return res.status(400).send('Email and password are required');
+    }
+
+    if (!name || name.trim().length === 0) {
+      return res.status(400).send('Name is required');
     }
 
     const email = normalizeEmail(rawEmail);
@@ -53,7 +58,8 @@ router.post('/signup', express.json(), async (req, res) => {
       data: {
         email,
         passwordHash,
-        name: '',
+        name: name.trim(),
+        onboardingCompleted: false,
       },
     });
 
