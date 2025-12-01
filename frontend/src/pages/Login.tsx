@@ -15,6 +15,7 @@ export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [name, setName] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -75,11 +76,15 @@ export default function Login() {
 
     try {
       const endpoint = mode === 'login' ? 'login' : 'signup';
+      const body = mode === 'signup'
+        ? { email, password, name }
+        : { email, password };
+
       const res = await fetch(`${import.meta.env.VITE_API_URL}/auth/${endpoint}`, {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify(body),
       });
 
       const text = await res.text();
@@ -98,6 +103,7 @@ export default function Login() {
           'Email already in use': 'This email is already registered. Try logging in instead.',
           'Invalid email or password': mode === 'signup' ? 'Invalid email format.' : 'Invalid email or password.',
           'Invalid email format': 'Please enter a valid email address.',
+          'Name is required': 'Please enter your name.',
           'Password must be at least 8 characters': 'Password must be at least 8 characters.',
           'Password must contain at least one uppercase letter': 'Password must contain an uppercase letter.',
           'Password must contain at least one lowercase letter': 'Password must contain a lowercase letter.',
@@ -142,6 +148,7 @@ export default function Login() {
             onClick={() => {
               setMode('login');
               setConfirmPassword('');
+              setName('');
               setError(null);
             }}
           >
@@ -155,6 +162,7 @@ export default function Login() {
             onClick={() => {
               setMode('signup');
               setConfirmPassword('');
+              setName('');
               setError(null);
             }}
           >
@@ -167,6 +175,20 @@ export default function Login() {
             <div className="rounded-lg bg-red-500/10 border border-red-500/30 p-3">
               <p className="text-sm text-red-400">{error}</p>
             </div>
+          )}
+          {mode === 'signup' && (
+            <label className="block text-xs uppercase tracking-[0.3em] text-muted">
+              Name
+              <input
+                type="text"
+                className="mt-1 w-full input-soft"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Your Name"
+                disabled={isLoading}
+                required
+              />
+            </label>
           )}
           <label className="block text-xs uppercase tracking-[0.3em] text-muted">
             Email
@@ -187,7 +209,7 @@ export default function Login() {
               className="mt-1 w-full input-soft"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
+              placeholder="********"
               disabled={isLoading}
               required
             />

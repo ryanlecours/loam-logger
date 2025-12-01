@@ -14,6 +14,8 @@ import BetaTesterWaitlist from './pages/BetaTesterWaitlist';
 
 import AuthGate from './components/AuthGate';
 import AppShell from './components/layout/AppShell';
+import OnboardingGate from './components/OnboardingGate';
+import Onboarding from './pages/Onboarding';
 
 import './App.css';
 import PrivacyPolicy from './pages/PrivacyPolicy';
@@ -37,7 +39,9 @@ function Page({ children, className }: { children: React.ReactNode; className?: 
 function ProtectedRoute({ children }: { children: ReactNode }) {
   return (
     <AuthGate>
-      <AppShell>{children}</AppShell>
+      <OnboardingGate>
+        <AppShell>{children}</AppShell>
+      </OnboardingGate>
     </AuthGate>
   );
 }
@@ -55,6 +59,9 @@ function AppRoutes() {
           <Route path="/login" element={<Page><Login /></Page>} />
           <Route path="/beta-waitlist" element={<Page><BetaTesterWaitlist /></Page>} />
           <Route path="/auth/complete" element={<AuthComplete />} />
+
+          {/* Onboarding */}
+          <Route path="/onboarding" element={<AuthGate><Page><Onboarding /></Page></AuthGate>} />
 
           {/* Protected */}
           <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
