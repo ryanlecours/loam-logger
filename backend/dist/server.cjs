@@ -202,6 +202,9 @@ const typeDefs = graphqlTag.gql`
     rides: [Ride!]!
     name: String
     avatarUrl: String
+    onboardingCompleted: Boolean!
+    location: String
+    age: Int
   }
 
   type Query {
@@ -1016,6 +1019,92 @@ r.get("/mock/garmin/api/activities", (req, res) => {
   const data = Array.from({ length: limit }, (_, i) => mk(i + 1));
   return res.json(data);
 });
+const router$3 = express.Router();
+router$3.post("/complete", express.json(), async (req, res) => {
+  try {
+    const sessionUser = req.sessionUser;
+    if (!sessionUser?.uid) {
+      return res.status(401).json({ message: "Unauthorized: No active session" });
+    }
+    const { age, location, bikeYear, bikeMake, bikeModel, components } = req.body;
+    if (!bikeMake || !bikeModel) {
+      return res.status(400).json({ message: "Bike make and model are required" });
+    }
+    if (age && (age < 16 || age > 150)) {
+      return res.status(400).json({ message: "Please enter a valid age" });
+    }
+    const userId = sessionUser.uid;
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        age: age || null,
+        location: location || null,
+        onboardingCompleted: true
+      }
+    });
+    console.log(`[Onboarding] Updated user profile for: ${userId}`);
+    const bike = await prisma.bike.create({
+      data: {
+        userId,
+        manufacturer: bikeMake,
+        model: bikeModel,
+        year: bikeYear || null
+      }
+    });
+    console.log(`[Onboarding] Created bike for user: ${userId}`);
+    const componentTypeMap = {
+      fork: "FORK",
+      rearShock: "SHOCK",
+      wheels: "WHEELS",
+      dropperPost: "DROPPER"
+    };
+    if (components) {
+      for (const [key, value] of Object.entries(components)) {
+        if (value && value.trim().length > 0) {
+          const componentType = componentTypeMap[key];
+          if (componentType) {
+            const [brand, ...modelParts] = value.trim().split(" ");
+            const model = modelParts.join(" ") || brand;
+            await prisma.component.create({
+              data: {
+                userId,
+                bikeId: bike.id,
+                type: componentType,
+                // Prisma will validate this
+                brand,
+                model,
+                hoursUsed: 0
+              }
+            });
+            console.log(`[Onboarding] Created ${componentType} component for bike: ${bike.id}`);
+          }
+        }
+      }
+    }
+    await prisma.component.create({
+      data: {
+        userId,
+        bikeId: bike.id,
+        type: "PIVOT_BEARINGS",
+        brand: "Stock",
+        model: "Stock",
+        hoursUsed: 0,
+        isStock: true
+      }
+    });
+    console.log(`[Onboarding] Created stock Pivot Bearings component for bike: ${bike.id}`);
+    res.status(200).json({
+      ok: true,
+      message: "Onboarding completed successfully",
+      bikeId: bike.id
+    });
+  } catch (error) {
+    console.error("[Onboarding] Error completing onboarding:", error);
+    res.status(500).json({
+      message: "An error occurred while completing onboarding. Please try again."
+    });
+  }
+});
 const normalizeEmail = (email) => (email ?? "").trim().toLowerCase() || null;
 const isBetaTester = (email) => {
   const betaTesterEmails = (process.env.BETA_TESTER_EMAILS ?? "").split(",").map((e) => normalizeEmail(e)).filter((e) => e !== null);
@@ -1202,9 +1291,12 @@ function validateEmailFormat(email) {
 const router$1 = express.Router();
 router$1.post("/signup", express.json(), async (req, res) => {
   try {
-    const { email: rawEmail, password } = req.body;
+    const { email: rawEmail, password, name } = req.body;
     if (!rawEmail || !password) {
       return res.status(400).send("Email and password are required");
+    }
+    if (!name || name.trim().length === 0) {
+      return res.status(400).send("Name is required");
     }
     const email = normalizeEmail(rawEmail);
     if (!email) {
@@ -1227,7 +1319,8 @@ router$1.post("/signup", express.json(), async (req, res) => {
       data: {
         email,
         passwordHash,
-        name: ""
+        name: name.trim(),
+        onboardingCompleted: false
       }
     });
     setSessionCookie(res, { uid: user.id, email: user.email });
@@ -1371,6 +1464,7 @@ const startServer = async () => {
   app.use("/auth", router$1);
   app.use("/auth", router);
   app.use("/auth", r$2);
+  app.use("/onboarding", router$3);
   app.use(r$1);
   app.use(r);
   const server$1 = new server.ApolloServer({ typeDefs, resolvers });
