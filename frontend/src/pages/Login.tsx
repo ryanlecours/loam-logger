@@ -14,6 +14,8 @@ export default function Login() {
   const [mode, setMode] = useState<'login' | 'signup'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [name, setName] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -65,13 +67,24 @@ export default function Login() {
     setError(null);
     setIsLoading(true);
 
+    // Validate password confirmation for signup
+    if (mode === 'signup' && password !== confirmPassword) {
+      setError('Passwords do not match. Please try again.');
+      setIsLoading(false);
+      return;
+    }
+
     try {
       const endpoint = mode === 'login' ? 'login' : 'signup';
+      const body = mode === 'signup'
+        ? { email, password, name }
+        : { email, password };
+
       const res = await fetch(`${import.meta.env.VITE_API_URL}/auth/${endpoint}`, {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify(body),
       });
 
       const text = await res.text();
@@ -90,6 +103,7 @@ export default function Login() {
           'Email already in use': 'This email is already registered. Try logging in instead.',
           'Invalid email or password': mode === 'signup' ? 'Invalid email format.' : 'Invalid email or password.',
           'Invalid email format': 'Please enter a valid email address.',
+          'Name is required': 'Please enter your name.',
           'Password must be at least 8 characters': 'Password must be at least 8 characters.',
           'Password must contain at least one uppercase letter': 'Password must contain an uppercase letter.',
           'Password must contain at least one lowercase letter': 'Password must contain a lowercase letter.',
@@ -131,7 +145,12 @@ export default function Login() {
             className={`flex-1 rounded-full px-4 cursor-pointer py-2 text-sm font-semibold transition ${
               mode === 'login' ? 'btn-primary' : 'btn-outline text-accent-contrast hover:text-white hover:ring-1 hover:ring-primary/40 hover:ring-offset-1 hover:ring-offset-surface-1'
             }`}
-            onClick={() => setMode('login')}
+            onClick={() => {
+              setMode('login');
+              setConfirmPassword('');
+              setName('');
+              setError(null);
+            }}
           >
             Login
           </button>
@@ -140,7 +159,12 @@ export default function Login() {
             className={`flex-1 rounded-full px-4 py-2 cursor-pointer text-sm font-semibold transition ${
               mode === 'signup' ? 'btn-primary' : 'btn-outline hover:text-white hover:ring-1 hover:ring-primary/40 hover:ring-offset-1 hover:ring-offset-surface-1'
             }`}
-            onClick={() => setMode('signup')}
+            onClick={() => {
+              setMode('signup');
+              setConfirmPassword('');
+              setName('');
+              setError(null);
+            }}
           >
             Sign Up
           </button>
@@ -151,6 +175,20 @@ export default function Login() {
             <div className="rounded-lg bg-red-500/10 border border-red-500/30 p-3">
               <p className="text-sm text-red-400">{error}</p>
             </div>
+          )}
+          {mode === 'signup' && (
+            <label className="block text-xs uppercase tracking-[0.3em] text-muted">
+              Name
+              <input
+                type="text"
+                className="mt-1 w-full input-soft"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Your Name"
+                disabled={isLoading}
+                required
+              />
+            </label>
           )}
           <label className="block text-xs uppercase tracking-[0.3em] text-muted">
             Email
@@ -171,11 +209,25 @@ export default function Login() {
               className="mt-1 w-full input-soft"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
+              placeholder="********"
               disabled={isLoading}
               required
             />
           </label>
+          {mode === 'signup' && (
+            <label className="block text-xs uppercase tracking-[0.3em] text-muted">
+              Confirm Password
+              <input
+                type="password"
+                className="mt-1 w-full input-soft"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder="••••••••"
+                disabled={isLoading}
+                required
+              />
+            </label>
+          )}
           <Button
             type="submit"
             variant="primary"

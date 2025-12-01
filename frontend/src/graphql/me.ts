@@ -7,6 +7,9 @@ export const ME_QUERY = gql`
    	  email
       name
       avatarUrl
+      onboardingCompleted
+      location
+      age
     }
   }
 `
