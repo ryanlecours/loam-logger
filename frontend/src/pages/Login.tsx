@@ -14,6 +14,7 @@ export default function Login() {
   const [mode, setMode] = useState<'login' | 'signup'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -64,6 +65,13 @@ export default function Login() {
     event.preventDefault();
     setError(null);
     setIsLoading(true);
+
+    // Validate password confirmation for signup
+    if (mode === 'signup' && password !== confirmPassword) {
+      setError('Passwords do not match. Please try again.');
+      setIsLoading(false);
+      return;
+    }
 
     try {
       const endpoint = mode === 'login' ? 'login' : 'signup';
@@ -131,7 +139,11 @@ export default function Login() {
             className={`flex-1 rounded-full px-4 cursor-pointer py-2 text-sm font-semibold transition ${
               mode === 'login' ? 'btn-primary' : 'btn-outline text-accent-contrast hover:text-white hover:ring-1 hover:ring-primary/40 hover:ring-offset-1 hover:ring-offset-surface-1'
             }`}
-            onClick={() => setMode('login')}
+            onClick={() => {
+              setMode('login');
+              setConfirmPassword('');
+              setError(null);
+            }}
           >
             Login
           </button>
@@ -140,7 +152,11 @@ export default function Login() {
             className={`flex-1 rounded-full px-4 py-2 cursor-pointer text-sm font-semibold transition ${
               mode === 'signup' ? 'btn-primary' : 'btn-outline hover:text-white hover:ring-1 hover:ring-primary/40 hover:ring-offset-1 hover:ring-offset-surface-1'
             }`}
-            onClick={() => setMode('signup')}
+            onClick={() => {
+              setMode('signup');
+              setConfirmPassword('');
+              setError(null);
+            }}
           >
             Sign Up
           </button>
@@ -176,6 +192,20 @@ export default function Login() {
               required
             />
           </label>
+          {mode === 'signup' && (
+            <label className="block text-xs uppercase tracking-[0.3em] text-muted">
+              Confirm Password
+              <input
+                type="password"
+                className="mt-1 w-full input-soft"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder="••••••••"
+                disabled={isLoading}
+                required
+              />
+            </label>
+          )}
           <Button
             type="submit"
             variant="primary"
