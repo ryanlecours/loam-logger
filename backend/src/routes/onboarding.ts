@@ -1,6 +1,7 @@
 import express, { type Request } from 'express';
 import { prisma } from '../lib/prisma';
 import { type SessionUser } from '../auth/session';
+import { type ComponentType } from '@prisma/client';
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
@@ -77,7 +78,7 @@ router.post('/complete', express.json(), async (req: Request, res) => {
     console.log(`[Onboarding] Created bike for user: ${userId}`);
 
     // Create components if provided
-    const componentTypeMap: Record<string, string> = {
+    const componentTypeMap: Record<string, ComponentType> = {
       fork: 'FORK',
       rearShock: 'SHOCK',
       wheels: 'WHEELS',
@@ -96,7 +97,7 @@ router.post('/complete', express.json(), async (req: Request, res) => {
               data: {
                 userId,
                 bikeId: bike.id,
-                type: componentType as any, // Prisma will validate this
+                type: componentType,
                 brand: brand,
                 model: model,
                 hoursUsed: 0,
