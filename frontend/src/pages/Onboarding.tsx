@@ -198,7 +198,9 @@ export default function Onboarding() {
                     value={data.bikeYear}
                     onChange={(e) => {
                       const parsed = parseInt(e.target.value);
-                      setData({ ...data, bikeYear: Number.isNaN(parsed) ? new Date().getFullYear() : parsed });
+                      if (!Number.isNaN(parsed)) {
+                        setData({ ...data, bikeYear: parsed });
+                      }
                     }}
                   />
                 </label>
