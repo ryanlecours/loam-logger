@@ -26,7 +26,12 @@ export function BikeForm({
   }, [initial]);
 
   const setField = (key: keyof BikeFormValues, value: string) => {
-    setForm((prev) => ({ ...prev, [key]: value }));
+    // Reset model when manufacturer changes to ensure consistency
+    if (key === 'manufacturer') {
+      setForm((prev) => ({ ...prev, [key]: value, model: '' }));
+    } else {
+      setForm((prev) => ({ ...prev, [key]: value }));
+    }
   };
 
   const setComponentField = (
