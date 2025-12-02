@@ -155,6 +155,7 @@ export function BikeForm({
                     value={component.brand}
                     disabled={component.isStock}
                     onChange={(e) => setComponentField(section.key, 'brand', e.target.value)}
+                    required={!component.isStock}
                   />
                   <input
                     className={inputClass}
@@ -162,6 +163,7 @@ export function BikeForm({
                     value={component.model}
                     disabled={component.isStock}
                     onChange={(e) => setComponentField(section.key, 'model', e.target.value)}
+                    required={!component.isStock}
                   />
                   <textarea
                     className={`${inputClass} resize-y`}
@@ -196,7 +198,7 @@ export function BikeForm({
           className="btn-accent"
           disabled={submitting}
         >
-          {submitting ? 'Saving...' : mode === 'edit' ? 'Update Bike' : 'Add Bike'}
+          {submitting ? 'Saving...' : mode === 'edit' ? 'Update Bike' : 'Create Bike'}
         </button>
       </div>
     </form>

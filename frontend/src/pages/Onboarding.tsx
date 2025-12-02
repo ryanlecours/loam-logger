@@ -30,7 +30,7 @@ export default function Onboarding() {
   const [error, setError] = useState<string | null>(null);
 
   const [data, setData] = useState<OnboardingData>({
-    age: 25,
+    age: 16,
     location: '',
     bikeYear: new Date().getFullYear(),
     bikeMake: '',
@@ -41,6 +41,14 @@ export default function Onboarding() {
   const firstName = user?.name?.split(' ')?.[0] || 'Rider';
 
   const handleNext = () => {
+    // Validate age on step 1
+    if (currentStep === 1) {
+      if (!Number.isInteger(data.age) || data.age < 16 || data.age > 115) {
+        setError('Age must be between 16 and 115');
+        return;
+      }
+    }
+
     if (currentStep < 4) {
       setCurrentStep(currentStep + 1);
       setError(null);
@@ -129,8 +137,10 @@ export default function Onboarding() {
                     type="number"
                     className="mt-2 w-full input-soft"
                     value={data.age}
-                    onChange={(e) => setData({ ...data, age: parseInt(e.target.value) || 0 })}
-                    min="16"
+                    onChange={(e) => {
+                      const parsed = parseInt(e.target.value);
+                      setData({ ...data, age: Number.isNaN(parsed) ? 16 : parsed });
+                    }}
                   />
                 </label>
               </div>
@@ -186,7 +196,12 @@ export default function Onboarding() {
                     type="number"
                     className="mt-2 w-full input-soft"
                     value={data.bikeYear}
-                    onChange={(e) => setData({ ...data, bikeYear: parseInt(e.target.value) || 0 })}
+                    onChange={(e) => {
+                      const parsed = parseInt(e.target.value);
+                      if (!Number.isNaN(parsed)) {
+                        setData({ ...data, bikeYear: parsed });
+                      }
+                    }}
                   />
                 </label>
                 <label className="col-span-1 text-xs uppercase tracking-[0.3em] text-muted">
@@ -233,7 +248,7 @@ export default function Onboarding() {
                     type="text"
                     className="mt-2 w-full input-soft"
                     placeholder="RockShox Lyrik Ultimate"
-                    value={data.components.fork || ''}
+                    value={data.components.fork}
                     onChange={(e) => setData({ ...data, components: { ...data.components, fork: e.target.value } })}
                   />
                 </label>
@@ -243,7 +258,7 @@ export default function Onboarding() {
                     type="text"
                     className="mt-2 w-full input-soft"
                     placeholder="Fox Float X2"
-                    value={data.components.rearShock || ''}
+                    value={data.components.rearShock}
                     onChange={(e) => setData({ ...data, components: { ...data.components, rearShock: e.target.value } })}
                   />
                 </label>
@@ -253,7 +268,7 @@ export default function Onboarding() {
                     type="text"
                     className="mt-2 w-full input-soft"
                     placeholder="Industry Nine Enduro 305"
-                    value={data.components.wheels || ''}
+                    value={data.components.wheels}
                     onChange={(e) => setData({ ...data, components: { ...data.components, wheels: e.target.value } })}
                   />
                 </label>
@@ -263,7 +278,7 @@ export default function Onboarding() {
                     type="text"
                     className="mt-2 w-full input-soft"
                     placeholder="PNW Loam"
-                    value={data.components.dropperPost || ''}
+                    value={data.components.dropperPost}
                     onChange={(e) => setData({ ...data, components: { ...data.components, dropperPost: e.target.value } })}
                   />
                 </label>

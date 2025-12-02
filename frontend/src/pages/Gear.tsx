@@ -512,7 +512,7 @@ function Modal({ open, title, children, onClose }: ModalProps) {
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-3xl panel-soft modal-surface shadow-soft p-6"
+        className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-3xl panel-soft modal-surface shadow-soft p-6 pointer-events-auto"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-4 flex items-center justify-between">
