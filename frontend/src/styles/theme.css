@@ -259,3 +259,9 @@ textarea::-moz-placeholder {
   color: rgba(var(--text-muted), 0.6);
   opacity: 1;
 }
+
+/* Hide placeholder when input has focus or value */
+input:focus::placeholder,
+textarea:focus::placeholder {
+  color: transparent;
+}
