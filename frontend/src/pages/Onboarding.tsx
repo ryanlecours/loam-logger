@@ -35,8 +35,8 @@ export default function Onboarding() {
     age: 16,
     location: 'Bellingham, WA',
     bikeYear: new Date().getFullYear(),
-    bikeMake: 'Propain',
-    bikeModel: 'Tyee',
+    bikeMake: '',
+    bikeModel: '',
     components: {},
   });
 
