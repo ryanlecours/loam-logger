@@ -204,20 +204,22 @@ body,
 }
 
 .input-soft {
-  background-color: rgba(var(--input-bg), 0.98);
-  border: 1px solid rgba(var(--input-border), 0.7);
+  width: 100%;
+  background-color: rgb(var(--input-bg));
+  border: 1px solid rgb(var(--input-border));
   color: rgb(var(--input-text));
-  border-radius: 0.65rem;
-  padding: 0.45rem 0.75rem;
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.9rem;
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 .input-soft::placeholder {
-  color: rgba(var(--input-placeholder), 0.85);
+  color: rgba(var(--input-placeholder), 0.6);
 }
 .input-soft:focus {
-  border-color: rgba(var(--ring), 0.9);
-  box-shadow: 0 0 0 3px rgba(var(--ring), 0.25);
   outline: none;
+  border-color: rgb(var(--ring));
+  box-shadow: 0 0 0 3px rgba(var(--ring), 0.25);
 }
 
 .label-muted {
@@ -239,4 +241,21 @@ body,
   border: 1px solid rgba(var(--input-border), 0.8);
   color: rgb(var(--input-text));
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+/* ============================================
+   PLACEHOLDER STYLING
+   ============================================ */
+input::placeholder,
+textarea::placeholder {
+  color: rgba(var(--text-muted), 0.6);
+}
+input::-webkit-input-placeholder,
+textarea::-webkit-input-placeholder {
+  color: rgba(var(--text-muted), 0.6);
+}
+input::-moz-placeholder,
+textarea::-moz-placeholder {
+  color: rgba(var(--text-muted), 0.6);
+  opacity: 1;
 }
