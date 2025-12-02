@@ -195,7 +195,7 @@ export function BikeForm({
         </button>
         <button
           type="submit"
-          className="btn-accent"
+          className="btn-primary"
           disabled={submitting}
         >
           {submitting ? 'Saving...' : mode === 'edit' ? 'Update Bike' : 'Create Bike'}
