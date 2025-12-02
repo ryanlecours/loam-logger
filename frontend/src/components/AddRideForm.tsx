@@ -316,7 +316,7 @@ export default function AddRideForm({ onAdded }: { onAdded?: () => void }) {
         </button>
         <button
           type="submit"
-          className="btn-accent"
+          className="btn-primary"
           disabled={submitDisabled}
         >
           {submitLabel}
