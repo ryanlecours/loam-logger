@@ -1,84 +1,26 @@
-name: LoamLogger CI
-
-on:
-  push:
-    branches: [main, dev]
-    paths:
-      - 'frontend/**'
-      - 'backend/**'
-  pull_request:
-    branches: [main, dev]
-    paths:
-      - 'frontend/**'
-      - 'backend/**'
-
-jobs:
-  backend-ci:
-    name: Backend CI
+  claude-pr-review:
+    name: Claude PR Review
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
-    defaults:
-      run:
-        working-directory: ./backend
+    needs: [backend-ci, frontend-ci]
+    if: ${{ github.event_name == 'pull_request' }}
+
+    permissions:
+      contents: read
+      pull-requests: write
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - name: Claude Code Action Official
+        uses: anthropics/claude-code-action@v1
         with:
-          node-version: 20
-          cache: 'npm'
-          cache-dependency-path: backend/package-lock.json
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Type check
-        run: npx tsc --noEmit
-
-      - name: Validate Prisma schema
-        run: npx prisma validate
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-
-      - name: Lint
-        run: npx eslint src --ext .ts
-
-    # Only run when files in the backend directory change
-    outputs:
-      triggered: ${{ steps.filter.outputs.backend }}
-
-  frontend-ci:
-    name: Frontend CI
-    runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
-    defaults:
-      run:
-        working-directory: ./frontend
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Lint
-        run: npm run lint
-
-      - name: Type check
-        run: npm run type-check
-
-      - name: Build
-        run: npm run build
-
-    # Only run when files in the frontend directory change
-    outputs:
-      triggered: ${{ steps.filter.outputs.frontend }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          prompt: |
+            You are a senior engineer reviewing this pull request.
+            - Review only the diff introduced in this PR.
+            - Identify logic issues, edge cases, and performance concerns.
+            - Suggest improved naming, code clarity, and test coverage.
+            - Add inline comments when possible.
+            - Finish with a short summary and a recommended next step.
