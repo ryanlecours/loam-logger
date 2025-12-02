@@ -43,7 +43,7 @@ export default function Onboarding() {
   const handleNext = () => {
     // Validate age on step 1
     if (currentStep === 1) {
-      if (data.age < 16 || data.age > 115) {
+      if (!Number.isInteger(data.age) || data.age < 16 || data.age > 115) {
         setError('Age must be between 16 and 115');
         return;
       }
@@ -137,7 +137,10 @@ export default function Onboarding() {
                     type="number"
                     className="mt-2 w-full input-soft"
                     value={data.age}
-                    onChange={(e) => setData({ ...data, age: parseInt(e.target.value) })}
+                    onChange={(e) => {
+                      const parsed = parseInt(e.target.value);
+                      setData({ ...data, age: Number.isNaN(parsed) ? 16 : parsed });
+                    }}
                   />
                 </label>
               </div>
@@ -193,7 +196,10 @@ export default function Onboarding() {
                     type="number"
                     className="mt-2 w-full input-soft"
                     value={data.bikeYear}
-                    onChange={(e) => setData({ ...data, bikeYear: parseInt(e.target.value)})}
+                    onChange={(e) => {
+                      const parsed = parseInt(e.target.value);
+                      setData({ ...data, bikeYear: Number.isNaN(parsed) ? new Date().getFullYear() : parsed });
+                    }}
                   />
                 </label>
                 <label className="col-span-1 text-xs uppercase tracking-[0.3em] text-muted">
