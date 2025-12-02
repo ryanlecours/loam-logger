@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { useApolloClient } from '@apollo/client';
 import { ME_QUERY } from '../graphql/me';
 import { useCurrentUser } from '../hooks/useCurrentUser';
+import { MOUNTAIN_BIKE_BRANDS } from '../constants/bikeBrands';
+import { BIKE_MODELS } from '../constants/bikeModels';
 import { Button } from '@/components/ui';
 
 type OnboardingData = {
@@ -31,20 +33,37 @@ export default function Onboarding() {
 
   const [data, setData] = useState<OnboardingData>({
     age: 16,
-    location: '',
+    location: 'Bellingham, WA',
     bikeYear: new Date().getFullYear(),
-    bikeMake: '',
-    bikeModel: '',
+    bikeMake: 'Propain',
+    bikeModel: 'Tyee',
     components: {},
   });
 
   const firstName = user?.name?.split(' ')?.[0] || 'Rider';
+
+  const isBikeDataValid = () => {
+    return data.bikeYear > 0 && data.bikeMake !== '' && data.bikeModel !== '' && data.bikeModel !== 'Select a model';
+  };
 
   const handleNext = () => {
     // Validate age on step 1
     if (currentStep === 1) {
       if (!Number.isInteger(data.age) || data.age < 16 || data.age > 115) {
         setError('Age must be between 16 and 115');
+        return;
+      }
+    }
+
+    // Validate bike details on step 3
+    if (currentStep === 3) {
+      const errors = [];
+      if (!data.bikeYear) errors.push('bike year');
+      if (!data.bikeMake) errors.push('bike make');
+      if (!data.bikeModel) errors.push('bike model');
+
+      if (errors.length > 0) {
+        setError(`Please enter a valid ${errors.join(', ')}`);
         return;
       }
     }
@@ -134,12 +153,16 @@ export default function Onboarding() {
                 <label className="block text-xs uppercase tracking-[0.3em] text-muted">
                   Age
                   <input
-                    type="number"
+                    type="text"
+                    inputMode="numeric"
                     className="mt-2 w-full input-soft"
                     value={data.age}
                     onChange={(e) => {
-                      const parsed = parseInt(e.target.value);
-                      setData({ ...data, age: Number.isNaN(parsed) ? 16 : parsed });
+                      const value = e.target.value;
+                      const parsed = parseInt(value);
+                      if (value === '' || !Number.isNaN(parsed)) {
+                        setData({ ...data, age: value === '' ? 0 : parsed });
+                      }
                     }}
                   />
                 </label>
@@ -206,25 +229,44 @@ export default function Onboarding() {
                 </label>
                 <label className="col-span-1 text-xs uppercase tracking-[0.3em] text-muted">
                   Make
-                  <input
-                    type="text"
+                  <select
                     className="mt-2 w-full input-soft"
-                    placeholder="Propain"
                     value={data.bikeMake}
                     onChange={(e) => setData({ ...data, bikeMake: e.target.value })}
-                  />
+                  >
+                    <option value="">Select a brand</option>
+                    {MOUNTAIN_BIKE_BRANDS.map((brand) => (
+                      <option key={brand} value={brand}>
+                        {brand}
+                      </option>
+                    ))}
+                  </select>
                 </label>
                 <label className="col-span-2 text-xs uppercase tracking-[0.3em] text-muted">
                   Model
-                  <input
-                    type="text"
+                  <select
                     className="mt-2 w-full input-soft"
-                    placeholder="Tyee"
                     value={data.bikeModel}
-                    onChange={(e) => setData({ ...data, bikeModel: e.target.value })}
-                  />
+                    onChange={(e) => setData({ ...data, bikeModel: (e.target.value === 'Select a model' ? '' : e.target.value )})}
+                    disabled={!data.bikeMake}
+                  >
+                    <option value="">
+                      {data.bikeMake ? 'Select a model' : 'Select a make first'}
+                    </option>
+                    {data.bikeMake && BIKE_MODELS[data.bikeMake]?.map((model) => (
+                      <option key={model} value={model}>
+                        {model}
+                      </option>
+                    ))}
+                  </select>
                 </label>
               </div>
+
+              {!isBikeDataValid() && (
+                <div className="rounded-lg bg-yellow-500/10 border border-yellow-500/30 p-3">
+                  <p className="text-sm text-yellow-400">Please enter a valid bike year, make, and model to continue</p>
+                </div>
+              )}
             </div>
           )}
 
@@ -303,7 +345,7 @@ export default function Onboarding() {
                 onClick={handleNext}
                 variant="primary"
                 className="flex-1"
-                disabled={isLoading}
+                disabled={isLoading || (currentStep === 3 && !isBikeDataValid())}
               >
                 Continue
               </Button>

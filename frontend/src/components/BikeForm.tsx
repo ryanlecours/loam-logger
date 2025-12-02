@@ -6,6 +6,8 @@ import {
   type BikeFormValues,
   type GearComponentState,
 } from '@/models/BikeComponents';
+import { MOUNTAIN_BIKE_BRANDS } from '@/constants/bikeBrands';
+import { BIKE_MODELS } from '@/constants/bikeModels';
 
 
 
@@ -56,23 +58,38 @@ export function BikeForm({
       <div className="grid gap-4 md:grid-cols-2">
         <label className="flex flex-col gap-1">
           <span className={labelClass}>Manufacturer</span>
-          <input
+          <select
             className={inputClass}
             value={form.manufacturer}
             onChange={(e) => setField('manufacturer', e.target.value)}
-            placeholder="e.g. Transition"
             required
-          />
+          >
+            <option value="">Select a brand</option>
+            {MOUNTAIN_BIKE_BRANDS.map((brand) => (
+              <option key={brand} value={brand}>
+                {brand}
+              </option>
+            ))}
+          </select>
         </label>
         <label className="flex flex-col gap-1">
           <span className={labelClass}>Model</span>
-          <input
+          <select
             className={inputClass}
             value={form.model}
             onChange={(e) => setField('model', e.target.value)}
-            placeholder="Smuggler"
+            disabled={!form.manufacturer}
             required
-          />
+          >
+            <option value="">
+              {form.manufacturer ? 'Select a model' : 'Select a manufacturer first'}
+            </option>
+            {form.manufacturer && BIKE_MODELS[form.manufacturer]?.map((model) => (
+              <option key={model} value={model}>
+                {model}
+              </option>
+            ))}
+          </select>
         </label>
         <label className="flex flex-col gap-1">
           <span className={labelClass}>Year</span>
