@@ -505,7 +505,7 @@ function Modal({ open, title, children, onClose }: ModalProps) {
   if (!open) return null;
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm px-4 py-6 pointer-events-none"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm px-4 py-6"
       onClick={onClose}
     >
       <div
