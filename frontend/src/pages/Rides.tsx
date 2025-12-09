@@ -7,6 +7,7 @@ import { RIDES } from '../graphql/rides';
 
 type Ride = {
   id: string;
+  garminActivityId?: string | null;
   startTime: string | number;
   durationSeconds: number;
   distanceMiles: number;
