@@ -50,7 +50,7 @@ export default function Onboarding() {
   const [error, setError] = useState<string | null>(null);
 
   const accounts = accountsData?.me?.accounts || [];
-  const hasConnectedDevice = accounts.some((acc: any) => acc.provider === 'garmin');
+  const hasConnectedDevice = accounts.some((acc: { provider: string }) => acc.provider === 'garmin');
 
   // Load initial data from sessionStorage if available (for OAuth redirects)
   const loadSavedData = (): OnboardingData => {
@@ -408,7 +408,7 @@ export default function Onboarding() {
 
               <div className="space-y-3 max-w-md mx-auto">
                 {/* Garmin Connection */}
-                {accounts.find((acc: any) => acc.provider === 'garmin') ? (
+                {accounts.find((acc: { provider: string }) => acc.provider === 'garmin') ? (
                   <div className="w-full rounded-2xl border border-app/70 bg-surface-2 px-4 py-4">
                     <div className="flex items-center justify-between gap-4">
                       <div className="flex items-center gap-3">

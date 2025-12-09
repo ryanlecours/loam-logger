@@ -763,7 +763,7 @@ export const resolvers = {
   },
 
   User: {
-    accounts: async (parent: any, _args: any, _context: GraphQLContext) => {
+    accounts: async (parent: { id: string }) => {
       const accounts = await prisma.userAccount.findMany({
         where: { userId: parent.id },
         select: { provider: true, createdAt: true },

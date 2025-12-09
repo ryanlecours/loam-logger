@@ -27,7 +27,7 @@ export default function Settings() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const accounts = accountsData?.me?.accounts || [];
-  const garminAccount = accounts.find((acc: any) => acc.provider === "garmin");
+  const garminAccount = accounts.find((acc: { provider: string; connectedAt: string }) => acc.provider === "garmin");
   const isGarminConnected = !!garminAccount;
 
   const handleDisconnectGarmin = async () => {

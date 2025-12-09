@@ -245,10 +245,10 @@ async function processActivityPush(activity: GarminActivityPush): Promise<void> 
     activityId,
     activityType,
     startTimeInSeconds,
-    durationInSeconds,
+    _durationInSeconds,
     distanceInMeters,
     totalElevationGainInMeters,
-    averageHeartRateInBeatsPerMinute,
+    _averageHeartRateInBeatsPerMinute,
   } = activity;
 
   console.log(`[Garmin Activities PUSH] Processing activity ${activityId} (${activityType})`);
@@ -267,10 +267,10 @@ async function processActivityPush(activity: GarminActivityPush): Promise<void> 
   // Option 2: Store a mapping of summaryId -> userId from backfill
   // Option 3: Use Activity Details endpoint to fetch userId
 
-  // Convert activity to Ride format
-  const distanceMiles = distanceInMeters ? distanceInMeters * 0.000621371 : 0;
-  const elevationGainFeet = totalElevationGainInMeters ? totalElevationGainInMeters * 3.28084 : 0;
-  const startTime = new Date(startTimeInSeconds * 1000);
+  // Convert activity to Ride format (these will be used when TODO is implemented)
+  const _distanceMiles = distanceInMeters ? distanceInMeters * 0.000621371 : 0;
+  const _elevationGainFeet = totalElevationGainInMeters ? totalElevationGainInMeters * 3.28084 : 0;
+  const _startTime = new Date(startTimeInSeconds * 1000);
 
   // TODO: Once userId identification is resolved, uncomment and update:
   /*
