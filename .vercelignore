@@ -1,7 +1,0 @@
-# Ignore root package.json for Vercel builds
-# Vercel should build from the frontend directory only
-package.json
-package-lock.json
-node_modules
-backend
-.husky
