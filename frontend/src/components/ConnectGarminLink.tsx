@@ -1,38 +1,36 @@
 import { useState } from "react"
 import { FaMountain } from "react-icons/fa"
 
-
 const apiBase =
   (import.meta.env.VITE_API_URL ?? "").replace(/\/$/, "") ||
   (import.meta.env.DEV ? "http://localhost:4000" : "")
 
 export default function ConnectGarminLink() {
-  const [showTooltip, setShowTooltip] = useState(false)
+  const [isConnecting, setIsConnecting] = useState(false)
+
+  const handleConnect = () => {
+    try {
+      setIsConnecting(true)
+      window.location.href = `${apiBase}/auth/garmin/start`
+    } catch (err) {
+      console.error('Failed to initiate Garmin OAuth:', err)
+      alert('Failed to connect to Garmin. Please try again.')
+      setIsConnecting(false)
+    }
+  }
 
   return (
-    <div
-      className="relative w-full"
-      onMouseEnter={() => setShowTooltip(true)}
-      onMouseLeave={() => setShowTooltip(false)}
+    <button
+      onClick={handleConnect}
+      disabled={isConnecting}
+      className={`flex items-center justify-center gap-3 w-full py-3 rounded-md font-medium transition
+        ${isConnecting
+          ? 'bg-gray-700 text-gray-400 cursor-wait'
+          : 'bg-red-600 hover:bg-red-700 text-white'
+        }`}
     >
-      <button
-        disabled
-        className={`flex items-center justify-center gap-3 w-full py-3 rounded-md font-medium transition cursor-not-allowed btn-disabled
-        `}
-      >
-        <FaMountain size={18} className="text-primary" />
-        <a href={`${apiBase}/auth/garmin/start`}>Connect Garmin</a>
-      </button>
-
-      {/* Tooltip */}
-      {showTooltip && (
-        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-20">
-          <div className="bg-black text-white text-sm px-3 py-1 rounded-lg shadow-md whitespace-nowrap">
-            Coming Soon — Awaiting Garmin API Access
-          </div>
-          <div className="absolute left-1/2 -translate-x-1/2 top-full border-4 border-transparent border-t-black" />
-        </div>
-      )}
-    </div>
+      <FaMountain size={18} />
+      <span>{isConnecting ? 'Connecting...' : 'Connect Garmin'}</span>
+    </button>
   )
 }

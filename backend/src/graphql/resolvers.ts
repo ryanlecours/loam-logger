@@ -761,4 +761,18 @@ export const resolvers = {
   Component: {
     isSpare: (component: ComponentModel) => component.bikeId == null,
   },
+
+  User: {
+    accounts: async (parent: any, _args: any, _context: GraphQLContext) => {
+      const accounts = await prisma.userAccount.findMany({
+        where: { userId: parent.id },
+        select: { provider: true, createdAt: true },
+      });
+
+      return accounts.map(acc => ({
+        provider: acc.provider,
+        connectedAt: acc.createdAt.toISOString(),
+      }));
+    },
+  },
 };

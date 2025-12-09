@@ -1,11 +1,13 @@
 // src/components/RideCard.tsx
 import { useState } from 'react';
+import { FaMountain } from 'react-icons/fa';
 import DeleteRideButton from './DeleteRideButton';
 import EditRideModal from './EditRideModal';
 import { fmtDateTime, fmtDuration, fmtMiles, fmtFeet } from '../lib/format';
 
 type Ride = {
   id: string;
+  garminActivityId?: string | null;
   startTime: string | number | Date;
   durationSeconds: number;
   distanceMiles: number;
@@ -28,8 +30,16 @@ export default function RideCard({ ride }: { ride: Ride }) {
   return (
     <>
       <li className="border rounded-lg p-3 flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="font-medium truncate">{title}</div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="font-medium truncate">{title}</div>
+            {ride.garminActivityId && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-red-900/30 text-red-400 border border-red-800/50">
+                <FaMountain className="text-xs" />
+                Garmin
+              </span>
+            )}
+          </div>
           <div className="text-sm opacity-80 flex flex-wrap gap-3">
             <span>{fmtDateTime(Number(ride.startTime))}</span>
             <span>{fmtDuration(ride.durationSeconds)}</span>
