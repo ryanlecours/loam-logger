@@ -185,6 +185,11 @@ export const typeDefs = gql`
     deleteComponent(id: ID!): DeleteResult!
   }
 
+  type ConnectedAccount {
+    provider: String!
+    connectedAt: String!
+  }
+
   type User {
     id: ID!
     email: String!
@@ -194,6 +199,7 @@ export const typeDefs = gql`
     onboardingCompleted: Boolean!
     location: String
     age: Int
+    accounts: [ConnectedAccount!]!
   }
 
   type Query {

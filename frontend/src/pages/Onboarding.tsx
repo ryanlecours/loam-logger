@@ -1,11 +1,24 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useApolloClient } from '@apollo/client';
+import { useState, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useApolloClient, useQuery, gql } from '@apollo/client';
+import { FaMountain } from 'react-icons/fa';
 import { ME_QUERY } from '../graphql/me';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { MOUNTAIN_BIKE_BRANDS } from '../constants/bikeBrands';
 import { BIKE_MODELS } from '../constants/bikeModels';
 import { Button } from '@/components/ui';
+
+const CONNECTED_ACCOUNTS_QUERY = gql`
+  query ConnectedAccounts {
+    me {
+      id
+      accounts {
+        provider
+        connectedAt
+      }
+    }
+  }
+`;
 
 type OnboardingData = {
   age: number;
@@ -27,18 +40,55 @@ export default function Onboarding() {
   const navigate = useNavigate();
   const apollo = useApolloClient();
   const { user } = useCurrentUser();
-  const [currentStep, setCurrentStep] = useState(1);
+  const [searchParams] = useSearchParams();
+  const { data: accountsData, refetch: refetchAccounts } = useQuery(CONNECTED_ACCOUNTS_QUERY);
+
+  // Read step from URL query parameter, default to 1
+  const initialStep = parseInt(searchParams.get('step') || '1', 10);
+  const [currentStep, setCurrentStep] = useState(initialStep);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [data, setData] = useState<OnboardingData>({
-    age: 16,
-    location: 'Bellingham, WA',
-    bikeYear: new Date().getFullYear(),
-    bikeMake: '',
-    bikeModel: '',
-    components: {},
-  });
+  const accounts = accountsData?.me?.accounts || [];
+  const hasConnectedDevice = accounts.some((acc: any) => acc.provider === 'garmin');
+
+  // Load initial data from sessionStorage if available (for OAuth redirects)
+  const loadSavedData = (): OnboardingData => {
+    try {
+      const saved = sessionStorage.getItem('onboarding_data');
+      if (saved) {
+        return JSON.parse(saved);
+      }
+    } catch (err) {
+      console.error('Failed to load saved onboarding data:', err);
+    }
+    return {
+      age: 16,
+      location: 'Bellingham, WA',
+      bikeYear: new Date().getFullYear(),
+      bikeMake: '',
+      bikeModel: '',
+      components: {},
+    };
+  };
+
+  const [data, setData] = useState<OnboardingData>(loadSavedData);
+
+  // Save data to sessionStorage whenever it changes
+  useEffect(() => {
+    try {
+      sessionStorage.setItem('onboarding_data', JSON.stringify(data));
+    } catch (err) {
+      console.error('Failed to save onboarding data:', err);
+    }
+  }, [data]);
+
+  // Refetch accounts when returning from OAuth redirect on step 5
+  useEffect(() => {
+    if (initialStep === 5) {
+      refetchAccounts();
+    }
+  }, [initialStep, refetchAccounts]);
 
   const firstName = user?.name?.split(' ')?.[0] || 'Rider';
 
@@ -68,7 +118,7 @@ export default function Onboarding() {
       }
     }
 
-    if (currentStep < 4) {
+    if (currentStep < 5) {
       setCurrentStep(currentStep + 1);
       setError(null);
     }
@@ -102,6 +152,9 @@ export default function Onboarding() {
       const { data: userData } = await apollo.query({ query: ME_QUERY, fetchPolicy: 'network-only' });
       apollo.writeQuery({ query: ME_QUERY, data: userData });
 
+      // Clear saved onboarding data from sessionStorage
+      sessionStorage.removeItem('onboarding_data');
+
       navigate('/dashboard', { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
@@ -109,7 +162,17 @@ export default function Onboarding() {
     }
   };
 
-  const progressPercentage = (currentStep / 4) * 100;
+  const handleConnectGarmin = () => {
+    const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+    window.location.href = `${apiBase}/auth/garmin/start`;
+  };
+
+  const handleSkipDevices = async () => {
+    // Skip device connections and complete onboarding
+    await handleComplete();
+  };
+
+  const progressPercentage = (currentStep / 5) * 100;
 
   return (
     <div className="min-h-screen w-full bg-[radial-gradient(circle_at_top,_rgba(0,60,30,0.6),_transparent),radial-gradient(circle_at_bottom,_rgba(0,20,10,0.8),_rgb(6,8,6))] flex items-center justify-center px-4 py-10">
@@ -117,7 +180,7 @@ export default function Onboarding() {
         {/* Progress Bar */}
         <div className="mb-8">
           <div className="flex justify-between items-center mb-2">
-            <span className="text-sm text-muted">Step {currentStep} of 4</span>
+            <span className="text-sm text-muted">Step {currentStep} of 5</span>
             <span className="text-sm text-primary">{Math.round(progressPercentage)}%</span>
           </div>
           <div className="w-full h-2 bg-surface rounded-full overflow-hidden">
@@ -328,9 +391,71 @@ export default function Onboarding() {
             </div>
           )}
 
+          {/* Step 5: Device Connections */}
+          {currentStep === 5 && (
+            <div className="space-y-6 text-center">
+              <div className="space-y-2">
+                <div className="flex justify-center mb-4">
+                  <div className="w-16 h-16 rounded-full border-2 border-primary/30 flex items-center justify-center">
+                    <span className="text-2xl">📱</span>
+                  </div>
+                </div>
+                <h2 className="text-3xl font-semibold text-white">Connect Your Devices</h2>
+                <p className="text-muted max-w-lg mx-auto">
+                  Connect your fitness devices to automatically sync your rides. You can always add more devices later in Settings.
+                </p>
+              </div>
+
+              <div className="space-y-3 max-w-md mx-auto">
+                {/* Garmin Connection */}
+                {accounts.find((acc: any) => acc.provider === 'garmin') ? (
+                  <div className="w-full rounded-2xl border border-app/70 bg-surface-2 px-4 py-4">
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="flex items-center gap-3">
+                        <FaMountain className="text-lg text-red-500" />
+                        <div className="text-left">
+                          <p className="font-semibold">Garmin Connect</p>
+                          <p className="text-xs text-green-400">Connected ✓</p>
+                        </div>
+                      </div>
+                      <span className="text-xs text-green-400">Ready</span>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={handleConnectGarmin}
+                    className="w-full rounded-2xl border border-app/70 bg-surface-2 hover:bg-surface-3 px-4 py-4 transition text-left"
+                  >
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="flex items-center gap-3">
+                        <FaMountain className="text-lg text-red-500" />
+                        <div>
+                          <p className="font-semibold">Garmin Connect</p>
+                          <p className="text-xs text-muted">Import activities automatically</p>
+                        </div>
+                      </div>
+                      <span className="text-xs text-primary">Connect</span>
+                    </div>
+                  </button>
+                )}
+
+                {/* Placeholder for future integrations */}
+                <div className="w-full rounded-2xl border border-app/70 bg-surface-2/50 px-4 py-4 opacity-50">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="text-left">
+                      <p className="font-semibold">Strava, Suunto, Whoop</p>
+                      <p className="text-xs text-muted">Coming soon</p>
+                    </div>
+                    <span className="text-xs text-muted">Not available</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Navigation Buttons */}
           <div className="flex gap-4 pt-6">
-            {currentStep > 1 && (
+            {currentStep > 1 && currentStep !== 5 && (
               <Button
                 onClick={handleBack}
                 variant="secondary"
@@ -340,7 +465,7 @@ export default function Onboarding() {
                 Back
               </Button>
             )}
-            {currentStep < 4 ? (
+            {currentStep < 5 ? (
               <Button
                 onClick={handleNext}
                 variant="primary"
@@ -350,14 +475,24 @@ export default function Onboarding() {
                 Continue
               </Button>
             ) : (
-              <Button
-                onClick={handleComplete}
-                variant="primary"
-                className="flex-1"
-                disabled={isLoading}
-              >
-                {isLoading ? 'Completing Setup...' : 'Complete Setup'}
-              </Button>
+              <div className="flex gap-4 w-full">
+                <Button
+                  onClick={handleSkipDevices}
+                  variant="secondary"
+                  className="flex-1"
+                  disabled={isLoading}
+                >
+                  {hasConnectedDevice ? 'Back' : 'Skip for now'}
+                </Button>
+                <Button
+                  onClick={handleComplete}
+                  variant="primary"
+                  className="flex-1"
+                  disabled={isLoading}
+                >
+                  {isLoading ? 'Completing...' : 'Continue'}
+                </Button>
+              </div>
             )}
           </div>
         </div>

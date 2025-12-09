@@ -1,19 +1,56 @@
 import { useState } from "react";
+import { useQuery, gql } from "@apollo/client";
+import { FaMountain, FaGoogle } from "react-icons/fa";
+import { formatDistanceToNow } from "date-fns";
 import ThemeToggle from "../components/ThemeToggleButton";
 import DeleteAccountModal from "../components/DeleteAccountModal";
+import ConnectGarminLink from "../components/ConnectGarminLink";
 import { useCurrentUser } from "../hooks/useCurrentUser";
 
-const accountProviders = [
-  { name: "Google", description: "Sync rides from your Google-connected services" },
-  { name: "Garmin", description: "Import Garmin Connect activities automatically" },
-  { name: "Suunto", description: "Bring in data from Suunto wearables" },
-];
+const CONNECTED_ACCOUNTS_QUERY = gql`
+  query ConnectedAccounts {
+    me {
+      id
+      accounts {
+        provider
+        connectedAt
+      }
+    }
+  }
+`;
 
 export default function Settings() {
   const { user } = useCurrentUser();
+  const { data: accountsData, refetch: refetchAccounts } = useQuery(CONNECTED_ACCOUNTS_QUERY);
   const [hoursDisplay, setHoursDisplay] = useState<"total" | "remaining">("total");
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  const accounts = accountsData?.me?.accounts || [];
+  const garminAccount = accounts.find((acc: any) => acc.provider === "garmin");
+  const isGarminConnected = !!garminAccount;
+
+  const handleDisconnectGarmin = async () => {
+    if (!confirm('Disconnect Garmin? Your synced rides will remain, but new activities will not sync.')) {
+      return;
+    }
+
+    try {
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/auth/garmin/disconnect`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+
+      if (!res.ok) throw new Error('Failed to disconnect');
+
+      await refetchAccounts();
+      setSuccessMessage('Garmin disconnected successfully');
+      setTimeout(() => setSuccessMessage(null), 3000);
+    } catch (err) {
+      console.error('Failed to disconnect Garmin:', err);
+      alert('Failed to disconnect Garmin. Please try again.');
+    }
+  };
 
   const handleDeleteAccount = async () => {
     try {
@@ -58,24 +95,58 @@ export default function Settings() {
         <div className="panel-soft shadow-soft border border-app rounded-3xl p-6 space-y-4">
           <div>
             <p className="text-xs uppercase tracking-[0.3em] text-muted">Account Linking</p>
-            <h2 className="text-xl font-semibold text-white">Connect services</h2>
+            <h2 className="text-xl font-semibold text-white">Connected Services</h2>
           </div>
           <div className="space-y-3">
-            {accountProviders.map((provider) => (
-              <button
-                key={provider.name}
-                className="w-full rounded-2xl border border-app/70 bg-surface-2 px-4 py-3 text-left transition hover:border-primary/60"
-                type="button"
-              >
-                <div className="flex items-center justify-between gap-4">
+            {/* Google - always connected via login */}
+            <div className="w-full rounded-2xl border border-app/70 bg-surface-2 px-4 py-3">
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <FaGoogle className="text-lg text-blue-400" />
                   <div>
-                    <p className="font-semibold">{`Link ${provider.name} Account`}</p>
-                    <p className="text-sm text-muted">{provider.description}</p>
+                    <p className="font-semibold">Google</p>
+                    <p className="text-sm text-muted">Used for login</p>
                   </div>
-                  <span className="text-sm text-primary">Connect</span>
                 </div>
-              </button>
-            ))}
+                <span className="text-xs text-green-400">Connected</span>
+              </div>
+            </div>
+
+            {/* Garmin */}
+            {isGarminConnected ? (
+              <div className="w-full rounded-2xl border border-app/70 bg-surface-2 px-4 py-3">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <FaMountain className="text-lg text-red-500" />
+                    <div>
+                      <p className="font-semibold">Garmin Connect</p>
+                      <p className="text-xs text-muted">
+                        Connected {formatDistanceToNow(new Date(garminAccount.connectedAt))} ago
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={handleDisconnectGarmin}
+                    className="text-xs text-red-400 hover:text-red-300 transition"
+                  >
+                    Disconnect
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <ConnectGarminLink />
+            )}
+
+            {/* Suunto - Coming Soon */}
+            <div className="w-full rounded-2xl border border-app/70 bg-surface-2/50 px-4 py-3 opacity-50">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="font-semibold">Suunto</p>
+                  <p className="text-sm text-muted">Coming soon</p>
+                </div>
+                <span className="text-xs text-muted">Not available</span>
+              </div>
+            </div>
           </div>
         </div>
 

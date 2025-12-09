@@ -7,9 +7,9 @@ type Empty = Record<string, never>
 const r: Router = createRouter();
 
 /**
- * 1) Start OAuth — redirect user to Garmin’s consent page with PKCE + state
+ * 1) Start OAuth — redirect user to Garmin's consent page with PKCE + state
  */
-r.get<Empty, void, Empty>('/auth/garmin/start', async (_req: Request, res: Response) => {
+r.get<Empty, void, Empty>('/garmin/start', async (_req: Request, res: Response) => {
   const AUTH_URL = process.env.GARMIN_AUTH_URL;
   const CLIENT_ID = process.env.GARMIN_CLIENT_ID;
   const REDIRECT_URI = process.env.GARMIN_REDIRECT_URI;
@@ -54,7 +54,7 @@ r.get<Empty, void, Empty>('/auth/garmin/start', async (_req: Request, res: Respo
  * 2) Callback — exchange code for tokens, store in DB, done.
  */
 r.get<Empty, void, Empty, { code?: string; state?: string }>(
-  '/auth/garmin/callback',
+  '/garmin/callback',
   async (req: Request<Empty, void, Empty, { code?: string; state?: string }>, res: Response) => {
     const TOKEN_URL = process.env.GARMIN_TOKEN_URL;
     const REDIRECT_URI = process.env.GARMIN_REDIRECT_URI;
@@ -75,7 +75,12 @@ r.get<Empty, void, Empty, { code?: string; state?: string }>(
     if (!code || !state || !cookieState || state !== cookieState || !verifier) {
       return res.status(400).send('Invalid OAuth state/PKCE');
     }
-    if (!req.user?.id) return res.status(401).send('No user');
+
+    // Check for authenticated user (supports both old req.user and new req.sessionUser)
+    const userId = req.user?.id || req.sessionUser?.uid;
+    if (!userId) {
+      return res.status(401).send('No user - please log in first');
+    }
 
     // Token exchange (OAuth2 Authorization Code + PKCE)
     const body = new URLSearchParams({
@@ -114,20 +119,58 @@ r.get<Empty, void, Empty, { code?: string; state?: string }>(
     const refreshTokenNorm: string | null =
       t.refresh_token !== undefined ? (t.refresh_token ?? null) : null;
 
+    // Fetch Garmin User ID using the access token
+    // This is the persistent identifier required by Garmin API (see Garmin Developer Guide Section 3.2)
+    const GARMIN_API_BASE = process.env.GARMIN_API_BASE || 'https://apis.garmin.com/wellness-api';
+    const userIdRes = await fetch(`${GARMIN_API_BASE}/rest/user/id`, {
+      headers: {
+        'Authorization': `Bearer ${t.access_token}`,
+        'Accept': 'application/json'
+      },
+    });
+
+    if (!userIdRes.ok) {
+      const text = await userIdRes.text();
+      console.error(`Failed to fetch Garmin User ID: ${userIdRes.status} ${text}`);
+      return res.status(502).send(`Failed to fetch Garmin User ID: ${text}`);
+    }
+
+    type GarminUserIdResp = { userId: string };
+    const garminUser = (await userIdRes.json()) as GarminUserIdResp;
+    const garminUserId = garminUser.userId;
+
+    // Store OAuth token
     await prisma.oauthToken.upsert({
-      where: { userId_provider: { userId: req.user.id, provider: 'garmin' } },
+      where: { userId_provider: { userId, provider: 'garmin' } },
       create: {
-        userId: req.user.id,
+        userId,
         provider: 'garmin',
         accessToken: t.access_token,
-        refreshToken: refreshTokenNorm, // OK with exactOptionalPropertyTypes
+        refreshToken: refreshTokenNorm,
         expiresAt,
       },
       update: {
         accessToken: t.access_token,
         expiresAt,
-        // Only touch refreshToken if the field was present in the response
         ...(t.refresh_token !== undefined ? { refreshToken: t.refresh_token ?? null } : {}),
+      },
+    });
+
+    // Store Garmin User ID in UserAccount for webhook identification
+    await prisma.userAccount.upsert({
+      where: {
+        provider_providerUserId: {
+          provider: 'garmin',
+          providerUserId: garminUserId
+        }
+      },
+      create: {
+        userId,
+        provider: 'garmin',
+        providerUserId: garminUserId,
+      },
+      update: {
+        userId, // in case user reconnects to different account
       },
     });
 
@@ -136,8 +179,48 @@ r.get<Empty, void, Empty, { code?: string; state?: string }>(
     res.clearCookie('ll_pkce_verifier', { path: '/' });
 
     const appBase = process.env.APP_BASE_URL ?? 'http://localhost:5173';
-    return res.redirect(`${appBase.replace(/\/$/, '')}/auth/complete`);
+
+    // Check if user is in onboarding (hasn't completed it yet)
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    const redirectPath = !user?.onboardingCompleted ? '/onboarding?step=5' : '/auth/complete';
+
+    return res.redirect(`${appBase.replace(/\/$/, '')}${redirectPath}`);
   }
 );
+
+/**
+ * 3) Disconnect Garmin account
+ * Removes OAuth tokens and UserAccount record
+ */
+r.delete<Empty, void, Empty>('/garmin/disconnect', async (req: Request, res: Response) => {
+  const userId = req.user?.id || req.sessionUser?.uid;
+  if (!userId) {
+    return res.status(401).json({ error: 'Not authenticated' });
+  }
+
+  try {
+    // Delete tokens and account record
+    await prisma.$transaction([
+      prisma.oauthToken.deleteMany({
+        where: {
+          userId,
+          provider: 'garmin',
+        },
+      }),
+      prisma.userAccount.deleteMany({
+        where: {
+          userId,
+          provider: 'garmin',
+        },
+      }),
+    ]);
+
+    console.log(`[Garmin Disconnect] User ${userId} disconnected Garmin`);
+    return res.status(200).json({ success: true });
+  } catch (error) {
+    console.error('[Garmin Disconnect] Error:', error);
+    return res.status(500).json({ error: 'Failed to disconnect' });
+  }
+});
 
 export default r;
