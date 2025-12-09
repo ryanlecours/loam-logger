@@ -7,7 +7,7 @@
     "lint": "npm run lint:frontend && npm run lint:backend",
     "lint:frontend": "cd frontend && npm run lint",
     "lint:backend": "cd backend && npm run lint",
-    "prepare": "husky"
+    "postinstall": "husky || true"
   },
   "workspaces": [
     "frontend",
