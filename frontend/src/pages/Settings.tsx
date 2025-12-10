@@ -130,7 +130,7 @@ export default function Settings() {
               <div className="w-full rounded-2xl border border-app/70 bg-surface-2 px-4 py-3">
                 <div className="flex items-center justify-between gap-4">
                   <div className="flex items-center gap-3">
-                    <FaMountain className="text-lg text-red-500" />
+                    <FaMountain className="text-lg" style={{ color: '#11A9ED' }} />
                     <div>
                       <p className="font-semibold">Garmin Connect</p>
                       <p className="text-xs text-muted">
@@ -140,7 +140,7 @@ export default function Settings() {
                   </div>
                   <button
                     onClick={handleDisconnectGarmin}
-                    className="text-xs text-red-400 hover:text-red-300 transition"
+                    className="rounded-xl px-3 py-1.5 text-xs font-medium text-red-400/80 bg-surface-2/50 border border-red-400/30 hover:bg-surface-2 hover:text-red-400 hover:border-red-400/50 hover:cursor-pointer transition"
                   >
                     Disconnect
                   </button>

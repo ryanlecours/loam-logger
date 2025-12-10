@@ -375,6 +375,15 @@ export const resolvers = {
         });
         if (!ownedBike || ownedBike.userId !== userId) throw new Error('Bike not found');
         bikeId = requestedBikeId;
+      } else {
+        // If no bike specified, auto-assign if user has exactly one bike
+        const userBikes = await prisma.bike.findMany({
+          where: { userId },
+          select: { id: true },
+        });
+        if (userBikes.length === 1) {
+          bikeId = userBikes[0].id;
+        }
       }
 
       const rideData: Prisma.RideUncheckedCreateInput = {
@@ -738,6 +747,17 @@ export const resolvers = {
       if (!existing || existing.userId !== userId) throw new Error('Component not found');
       await prisma.component.delete({ where: { id } });
       return { ok: true, id };
+    },
+
+    logComponentService: async (_: unknown, { id }: { id: string }, ctx: GraphQLContext) => {
+      const userId = requireUserId(ctx);
+      const existing = await prisma.component.findUnique({ where: { id }, select: { userId: true } });
+      if (!existing || existing.userId !== userId) throw new Error('Component not found');
+
+      return prisma.component.update({
+        where: { id },
+        data: { hoursUsed: 0 },
+      });
     },
   },
 

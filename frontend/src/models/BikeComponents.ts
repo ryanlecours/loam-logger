@@ -1,4 +1,5 @@
 export interface Fork {
+  id?: string;
   brand: string;
   model: string;
   travelMm: number;
@@ -8,6 +9,7 @@ export interface Fork {
 }
 
 export interface Shock {
+  id?: string;
   brand: string;
   model: string;
   strokeMm: number;
@@ -17,6 +19,7 @@ export interface Shock {
 }
 
 export interface Drivetrain {
+  id?: string;
   brand: string;
   speed: number;
   cassetteRange: string; // e.g. "10-52T"
@@ -24,6 +27,21 @@ export interface Drivetrain {
   shifter: string;
   hoursSinceLastService: number;
 }
+
+export interface WheelBearings {
+  id?: string;
+  brand: string;
+  model: string;
+  hoursSinceLastService: number;
+}
+
+export interface DropperPost {
+  id?: string;
+  brand: string;
+  model: string;
+  hoursSinceLastService: number;
+}
+
 export interface Bike {
   id: string;
   name: string;
@@ -34,7 +52,10 @@ export interface Bike {
   fork: Fork;
   shock: Shock;
   drivetrain: Drivetrain;
+  wheelBearings: WheelBearings;
+  dropperPost: DropperPost;
   hoursSinceLastService: number;
+  pivotBearingsId?: string;
   notes?: string;
 }
 
