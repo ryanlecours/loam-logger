@@ -85,7 +85,7 @@ jobs:
     outputs:
       triggered: ${{ steps.filter.outputs.frontend }}
 
-    claude-pr-review:
+  claude-pr-review:
     name: Claude PR Review (Haiku, manual on @claude review)
     runs-on: ubuntu-latest
 
