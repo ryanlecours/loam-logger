@@ -56,17 +56,27 @@ r.get<Empty, void, Empty>('/garmin/start', async (_req: Request, res: Response) 
 r.get<Empty, void, Empty, { code?: string; state?: string }>(
   '/garmin/callback',
   async (req: Request<Empty, void, Empty, { code?: string; state?: string }>, res: Response) => {
-    const TOKEN_URL = process.env.GARMIN_TOKEN_URL;
-    const REDIRECT_URI = process.env.GARMIN_REDIRECT_URI;
-    const CLIENT_ID = process.env.GARMIN_CLIENT_ID;
-    if (!TOKEN_URL || !REDIRECT_URI || !CLIENT_ID) {
-      const missing = [
-        !TOKEN_URL && 'GARMIN_TOKEN_URL',
-        !REDIRECT_URI && 'GARMIN_REDIRECT_URI',
-        !CLIENT_ID && 'GARMIN_CLIENT_ID',
-      ].filter(Boolean).join(', ');
-      return res.status(500).send(`Missing env vars: ${missing}`);
-    }
+    try {
+      const TOKEN_URL = process.env.GARMIN_TOKEN_URL;
+      const REDIRECT_URI = process.env.GARMIN_REDIRECT_URI;
+      const CLIENT_ID = process.env.GARMIN_CLIENT_ID;
+
+      console.log('[Garmin Callback] Environment check:', {
+        hasTokenUrl: !!TOKEN_URL,
+        hasRedirectUri: !!REDIRECT_URI,
+        hasClientId: !!CLIENT_ID,
+        tokenUrl: TOKEN_URL || 'MISSING',
+      });
+
+      if (!TOKEN_URL || !REDIRECT_URI || !CLIENT_ID) {
+        const missing = [
+          !TOKEN_URL && 'GARMIN_TOKEN_URL',
+          !REDIRECT_URI && 'GARMIN_REDIRECT_URI',
+          !CLIENT_ID && 'GARMIN_CLIENT_ID',
+        ].filter(Boolean).join(', ');
+        console.error('[Garmin Callback] Missing env vars:', missing);
+        return res.status(500).send(`Missing env vars: ${missing}`);
+      }
 
     const { code, state } = req.query;
     const cookieState = req.cookies['ll_oauth_state'];
@@ -174,17 +184,23 @@ r.get<Empty, void, Empty, { code?: string; state?: string }>(
       },
     });
 
-    // Clear PKCE cookies and redirect back to app
-    res.clearCookie('ll_oauth_state', { path: '/' });
-    res.clearCookie('ll_pkce_verifier', { path: '/' });
+      // Clear PKCE cookies and redirect back to app
+      res.clearCookie('ll_oauth_state', { path: '/' });
+      res.clearCookie('ll_pkce_verifier', { path: '/' });
 
-    const appBase = process.env.APP_BASE_URL ?? 'http://localhost:5173';
+      const appBase = process.env.APP_BASE_URL ?? 'http://localhost:5173';
 
-    // Check if user is in onboarding (hasn't completed it yet)
-    const user = await prisma.user.findUnique({ where: { id: userId } });
-    const redirectPath = !user?.onboardingCompleted ? '/onboarding?step=5' : '/auth/complete';
+      // Check if user is in onboarding (hasn't completed it yet)
+      const user = await prisma.user.findUnique({ where: { id: userId } });
+      const redirectPath = !user?.onboardingCompleted ? '/onboarding?step=5' : '/auth/complete';
 
-    return res.redirect(`${appBase.replace(/\/$/, '')}${redirectPath}`);
+      console.log('[Garmin Callback] Success! Redirecting to:', redirectPath);
+      return res.redirect(`${appBase.replace(/\/$/, '')}${redirectPath}`);
+    } catch (error) {
+      console.error('[Garmin Callback] Error:', error);
+      const appBase = process.env.APP_BASE_URL ?? 'http://localhost:5173';
+      return res.redirect(`${appBase}/auth/error?message=${encodeURIComponent('Garmin connection failed. Please try again.')}`);
+    }
   }
 );
 
