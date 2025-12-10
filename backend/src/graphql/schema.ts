@@ -183,6 +183,7 @@ export const typeDefs = gql`
     addComponent(input: AddComponentInput!, bikeId: ID): Component!
     updateComponent(id: ID!, input: UpdateComponentInput!): Component!
     deleteComponent(id: ID!): DeleteResult!
+    logComponentService(id: ID!): Component!
   }
 
   type ConnectedAccount {

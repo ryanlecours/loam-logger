@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import AddRideForm from "../components/AddRideForm";
 import RideCard from "../components/RideCard";
 import { RIDES } from '../graphql/rides';
+import { BIKES } from '../graphql/bikes';
 
 type Ride = {
   id: string;
@@ -20,11 +21,22 @@ type Ride = {
   location?: string | null;
 };
 
+type Bike = {
+  id: string;
+  nickname?: string | null;
+  manufacturer: string;
+  model: string;
+};
+
 export default function RidesPage() {
   const { data, refetch, loading, error } = useQuery<{ rides: Ride[] }>(RIDES, {
     fetchPolicy: 'cache-and-network',
   });
+  const { data: bikesData } = useQuery<{ bikes: Bike[] }>(BIKES, {
+    fetchPolicy: 'cache-and-network',
+  });
   const rides = data?.rides ?? [];
+  const bikes = bikesData?.bikes ?? [];
 
   return (
     <div className="space-y-6">
@@ -79,7 +91,7 @@ export default function RidesPage() {
         {!loading && !error && rides.length > 0 && (
           <ul className="grid gap-3">
             {rides.map((ride: Ride) => (
-              <RideCard key={ride.id} ride={ride} />
+              <RideCard key={ride.id} ride={ride} bikes={bikes} />
             ))}
           </ul>
         )}

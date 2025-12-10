@@ -30,6 +30,23 @@ export default function AboutAppModal({
   description = `Loam Logger is a mountain-bike focused ride tracker for analyzing time on each bike, tracking component maintenance and service needs, and trail ride tendencies.`,
   changelog = [
     {
+      date: "2025-12-10",
+      version: "0.1.0-alpha.7",
+      highlights: ["Dashboard", "UX", "UI"],
+      changes: [
+        "Redesigned dashboard with three-column layout (Service Radar, Ride Statistics, Recent Rides)",
+        "Increased page width to 100vw for better screen space utilization",
+        "Added component service tracking with 'Log Service' buttons to reset component hours",
+        "Implemented GraphQL mutation for logging component service",
+        "Improved component card design with hours floated to bottom above Log Service button",
+        "Enhanced ride card edit and delete buttons with visible borders and hover states",
+        "Added global cursor pointer for all buttons across the frontend",
+        "Fixed delete ride functionality to update bike component hours and refresh recent rides list",
+        "Improved component card health status indicators with color-coded borders",
+        "Added test simulation buttons for normal and long (50+ hour) Garmin rides",
+      ],
+    },
+    {
       date: "2025-11-17",
       version: "0.1.0-alpha.6",
       highlights: ["UX", "Ride Stats, Gear"],
@@ -175,7 +192,7 @@ export default function AboutAppModal({
         >
           <div
             ref={dialogRef}
-            className="w-full max-w-3xl rounded-3xl bg-white p-6 text-neutral-900 shadow-2xl dark:bg-neutral-900 dark:text-neutral-100"
+            className="w-full max-w-3xl max-h-[80vh] overflow-y-auto rounded-3xl bg-white p-6 text-neutral-900 shadow-2xl dark:bg-neutral-900 dark:text-neutral-100"
           >
             {/* Header */}
             <div className="flex items-start justify-between gap-4">

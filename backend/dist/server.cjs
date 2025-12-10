@@ -194,6 +194,12 @@ const typeDefs = graphqlTag.gql`
     addComponent(input: AddComponentInput!, bikeId: ID): Component!
     updateComponent(id: ID!, input: UpdateComponentInput!): Component!
     deleteComponent(id: ID!): DeleteResult!
+    logComponentService(id: ID!): Component!
+  }
+
+  type ConnectedAccount {
+    provider: String!
+    connectedAt: String!
   }
 
   type User {
@@ -205,6 +211,7 @@ const typeDefs = graphqlTag.gql`
     onboardingCompleted: Boolean!
     location: String
     age: Int
+    accounts: [ConnectedAccount!]!
   }
 
   type Query {
@@ -415,6 +422,14 @@ const resolvers = {
         });
         if (!ownedBike || ownedBike.userId !== userId) throw new Error("Bike not found");
         bikeId = requestedBikeId;
+      } else {
+        const userBikes = await prisma.bike.findMany({
+          where: { userId },
+          select: { id: true }
+        });
+        if (userBikes.length === 1) {
+          bikeId = userBikes[0].id;
+        }
       }
       const rideData = {
         userId,
@@ -703,6 +718,15 @@ const resolvers = {
       if (!existing || existing.userId !== userId) throw new Error("Component not found");
       await prisma.component.delete({ where: { id } });
       return { ok: true, id };
+    },
+    logComponentService: async (_, { id }, ctx) => {
+      const userId = requireUserId(ctx);
+      const existing = await prisma.component.findUnique({ where: { id }, select: { userId: true } });
+      if (!existing || existing.userId !== userId) throw new Error("Component not found");
+      return prisma.component.update({
+        where: { id },
+        data: { hoursUsed: 0 }
+      });
     }
   },
   Bike: {
@@ -718,6 +742,18 @@ const resolvers = {
   },
   Component: {
     isSpare: (component) => component.bikeId == null
+  },
+  User: {
+    accounts: async (parent) => {
+      const accounts = await prisma.userAccount.findMany({
+        where: { userId: parent.id },
+        select: { provider: true, createdAt: true }
+      });
+      return accounts.map((acc) => ({
+        provider: acc.provider,
+        connectedAt: acc.createdAt.toISOString()
+      }));
+    }
   }
 };
 function randomString(len = 64) {
@@ -734,8 +770,8 @@ async function sha256(input) {
   const digest = await crypto.subtle.digest("SHA-256", data);
   return base64url(digest);
 }
-const r$2 = express.Router();
-r$2.get("/auth/garmin/start", async (_req, res) => {
+const r$3 = express.Router();
+r$3.get("/garmin/start", async (_req, res) => {
   const AUTH_URL = process.env.GARMIN_AUTH_URL;
   const CLIENT_ID2 = process.env.GARMIN_CLIENT_ID;
   const REDIRECT_URI = process.env.GARMIN_REDIRECT_URI;
@@ -775,72 +811,369 @@ r$2.get("/auth/garmin/start", async (_req, res) => {
   url.searchParams.set("code_challenge_method", "S256");
   return res.redirect(url.toString());
 });
-r$2.get(
-  "/auth/garmin/callback",
+r$3.get(
+  "/garmin/callback",
   async (req, res) => {
-    const TOKEN_URL2 = process.env.GARMIN_TOKEN_URL;
-    const REDIRECT_URI = process.env.GARMIN_REDIRECT_URI;
-    const CLIENT_ID2 = process.env.GARMIN_CLIENT_ID;
-    if (!TOKEN_URL2 || !REDIRECT_URI || !CLIENT_ID2) {
-      const missing = [
-        !TOKEN_URL2 && "GARMIN_TOKEN_URL",
-        !REDIRECT_URI && "GARMIN_REDIRECT_URI",
-        !CLIENT_ID2 && "GARMIN_CLIENT_ID"
-      ].filter(Boolean).join(", ");
-      return res.status(500).send(`Missing env vars: ${missing}`);
-    }
-    const { code, state } = req.query;
-    const cookieState = req.cookies["ll_oauth_state"];
-    const verifier = req.cookies["ll_pkce_verifier"];
-    if (!code || !state || !cookieState || state !== cookieState || !verifier) {
-      return res.status(400).send("Invalid OAuth state/PKCE");
-    }
-    if (!req.user?.id) return res.status(401).send("No user");
-    const body = new URLSearchParams({
-      grant_type: "authorization_code",
-      code,
-      redirect_uri: REDIRECT_URI,
-      client_id: CLIENT_ID2,
-      code_verifier: verifier
-    });
-    if (process.env.GARMIN_CLIENT_SECRET) {
-      body.set("client_secret", process.env.GARMIN_CLIENT_SECRET);
-    }
-    const tokenRes = await fetch(TOKEN_URL2, {
-      method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      body
-    });
-    if (!tokenRes.ok) {
-      const text = await tokenRes.text();
-      return res.status(502).send(`Token exchange failed: ${text}`);
-    }
-    const t = await tokenRes.json();
-    const expiresAt = dateFns.addSeconds(/* @__PURE__ */ new Date(), t.expires_in ?? 3600);
-    const refreshTokenNorm = t.refresh_token !== void 0 ? t.refresh_token ?? null : null;
-    await prisma.oauthToken.upsert({
-      where: { userId_provider: { userId: req.user.id, provider: "garmin" } },
-      create: {
-        userId: req.user.id,
-        provider: "garmin",
-        accessToken: t.access_token,
-        refreshToken: refreshTokenNorm,
-        // OK with exactOptionalPropertyTypes
-        expiresAt
-      },
-      update: {
-        accessToken: t.access_token,
-        expiresAt,
-        // Only touch refreshToken if the field was present in the response
-        ...t.refresh_token !== void 0 ? { refreshToken: t.refresh_token ?? null } : {}
+    try {
+      const TOKEN_URL2 = process.env.GARMIN_TOKEN_URL;
+      const REDIRECT_URI = process.env.GARMIN_REDIRECT_URI;
+      const CLIENT_ID2 = process.env.GARMIN_CLIENT_ID;
+      console.log("[Garmin Callback] Environment check:", {
+        hasTokenUrl: !!TOKEN_URL2,
+        hasRedirectUri: !!REDIRECT_URI,
+        hasClientId: !!CLIENT_ID2,
+        tokenUrl: TOKEN_URL2 || "MISSING"
+      });
+      if (!TOKEN_URL2 || !REDIRECT_URI || !CLIENT_ID2) {
+        const missing = [
+          !TOKEN_URL2 && "GARMIN_TOKEN_URL",
+          !REDIRECT_URI && "GARMIN_REDIRECT_URI",
+          !CLIENT_ID2 && "GARMIN_CLIENT_ID"
+        ].filter(Boolean).join(", ");
+        console.error("[Garmin Callback] Missing env vars:", missing);
+        return res.status(500).send(`Missing env vars: ${missing}`);
       }
-    });
-    res.clearCookie("ll_oauth_state", { path: "/" });
-    res.clearCookie("ll_pkce_verifier", { path: "/" });
-    const appBase = process.env.APP_BASE_URL ?? "http://localhost:5173";
-    return res.redirect(`${appBase.replace(/\/$/, "")}/auth/complete`);
+      const { code, state } = req.query;
+      const cookieState = req.cookies["ll_oauth_state"];
+      const verifier = req.cookies["ll_pkce_verifier"];
+      if (!code || !state || !cookieState || state !== cookieState || !verifier) {
+        return res.status(400).send("Invalid OAuth state/PKCE");
+      }
+      const userId = req.user?.id || req.sessionUser?.uid;
+      if (!userId) {
+        return res.status(401).send("No user - please log in first");
+      }
+      const body = new URLSearchParams({
+        grant_type: "authorization_code",
+        code,
+        redirect_uri: REDIRECT_URI,
+        client_id: CLIENT_ID2,
+        code_verifier: verifier
+      });
+      if (process.env.GARMIN_CLIENT_SECRET) {
+        body.set("client_secret", process.env.GARMIN_CLIENT_SECRET);
+      }
+      const tokenRes = await fetch(TOKEN_URL2, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body
+      });
+      if (!tokenRes.ok) {
+        const text = await tokenRes.text();
+        return res.status(502).send(`Token exchange failed: ${text}`);
+      }
+      const t = await tokenRes.json();
+      const expiresAt = dateFns.addSeconds(/* @__PURE__ */ new Date(), t.expires_in ?? 3600);
+      const refreshTokenNorm = t.refresh_token !== void 0 ? t.refresh_token ?? null : null;
+      const GARMIN_API_BASE = process.env.GARMIN_API_BASE || "https://apis.garmin.com/wellness-api";
+      const userIdRes = await fetch(`${GARMIN_API_BASE}/rest/user/id`, {
+        headers: {
+          "Authorization": `Bearer ${t.access_token}`,
+          "Accept": "application/json"
+        }
+      });
+      if (!userIdRes.ok) {
+        const text = await userIdRes.text();
+        console.error(`Failed to fetch Garmin User ID: ${userIdRes.status} ${text}`);
+        return res.status(502).send(`Failed to fetch Garmin User ID: ${text}`);
+      }
+      const garminUser = await userIdRes.json();
+      const garminUserId = garminUser.userId;
+      await prisma.oauthToken.upsert({
+        where: { userId_provider: { userId, provider: "garmin" } },
+        create: {
+          userId,
+          provider: "garmin",
+          accessToken: t.access_token,
+          refreshToken: refreshTokenNorm,
+          expiresAt
+        },
+        update: {
+          accessToken: t.access_token,
+          expiresAt,
+          ...t.refresh_token !== void 0 ? { refreshToken: t.refresh_token ?? null } : {}
+        }
+      });
+      await prisma.userAccount.upsert({
+        where: {
+          provider_providerUserId: {
+            provider: "garmin",
+            providerUserId: garminUserId
+          }
+        },
+        create: {
+          userId,
+          provider: "garmin",
+          providerUserId: garminUserId
+        },
+        update: {
+          userId
+          // in case user reconnects to different account
+        }
+      });
+      res.clearCookie("ll_oauth_state", { path: "/" });
+      res.clearCookie("ll_pkce_verifier", { path: "/" });
+      const appBase = process.env.APP_BASE_URL ?? "http://localhost:5173";
+      const user = await prisma.user.findUnique({ where: { id: userId } });
+      const redirectPath = !user?.onboardingCompleted ? "/onboarding?step=5" : "/settings?garmin=connected";
+      console.log("[Garmin Callback] Success! Redirecting to:", redirectPath);
+      return res.redirect(`${appBase.replace(/\/$/, "")}${redirectPath}`);
+    } catch (error) {
+      console.error("[Garmin Callback] Error:", error);
+      const appBase = process.env.APP_BASE_URL ?? "http://localhost:5173";
+      return res.redirect(`${appBase}/auth/error?message=${encodeURIComponent("Garmin connection failed. Please try again.")}`);
+    }
   }
 );
+r$3.delete("/garmin/disconnect", async (req, res) => {
+  const userId = req.user?.id || req.sessionUser?.uid;
+  if (!userId) {
+    return res.status(401).json({ error: "Not authenticated" });
+  }
+  try {
+    await prisma.$transaction([
+      prisma.oauthToken.deleteMany({
+        where: {
+          userId,
+          provider: "garmin"
+        }
+      }),
+      prisma.userAccount.deleteMany({
+        where: {
+          userId,
+          provider: "garmin"
+        }
+      })
+    ]);
+    console.log(`[Garmin Disconnect] User ${userId} disconnected Garmin`);
+    return res.status(200).json({ success: true });
+  } catch (error) {
+    console.error("[Garmin Disconnect] Error:", error);
+    return res.status(500).json({ error: "Failed to disconnect" });
+  }
+});
+const r$2 = express.Router();
+r$2.post(
+  "/webhooks/garmin/deregistration",
+  async (req, res) => {
+    try {
+      const { deregistrations } = req.body;
+      if (!deregistrations || !Array.isArray(deregistrations)) {
+        console.warn("[Garmin Deregistration] Invalid payload:", req.body);
+        return res.status(400).json({ error: "Invalid deregistration payload" });
+      }
+      console.log(`[Garmin Deregistration] Received ${deregistrations.length} deregistration(s)`);
+      for (const { userId: garminUserId } of deregistrations) {
+        const userAccount = await prisma.userAccount.findUnique({
+          where: {
+            provider_providerUserId: {
+              provider: "garmin",
+              providerUserId: garminUserId
+            }
+          }
+        });
+        if (!userAccount) {
+          console.warn(`[Garmin Deregistration] Unknown Garmin userId: ${garminUserId}`);
+          continue;
+        }
+        await prisma.$transaction([
+          prisma.oauthToken.deleteMany({
+            where: {
+              userId: userAccount.userId,
+              provider: "garmin"
+            }
+          }),
+          prisma.userAccount.delete({
+            where: {
+              provider_providerUserId: {
+                provider: "garmin",
+                providerUserId: garminUserId
+              }
+            }
+          })
+        ]);
+        console.log(`[Garmin Deregistration] Removed Garmin connection for userId: ${userAccount.userId}`);
+      }
+      return res.status(200).send("OK");
+    } catch (error) {
+      console.error("[Garmin Deregistration] Error:", error);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  }
+);
+r$2.post(
+  "/webhooks/garmin/permissions",
+  async (req, res) => {
+    try {
+      const { userPermissionsChange } = req.body;
+      if (!userPermissionsChange || !Array.isArray(userPermissionsChange)) {
+        console.warn("[Garmin Permissions] Invalid payload:", req.body);
+        return res.status(400).json({ error: "Invalid permissions payload" });
+      }
+      console.log(`[Garmin Permissions] Received ${userPermissionsChange.length} permission change(s)`);
+      for (const change of userPermissionsChange) {
+        const { userId: garminUserId, permissions } = change;
+        const userAccount = await prisma.userAccount.findUnique({
+          where: {
+            provider_providerUserId: {
+              provider: "garmin",
+              providerUserId: garminUserId
+            }
+          }
+        });
+        if (!userAccount) {
+          console.warn(`[Garmin Permissions] Unknown Garmin userId: ${garminUserId}`);
+          continue;
+        }
+        console.log(`[Garmin Permissions] User ${userAccount.userId} permissions:`, permissions);
+        if (!permissions.includes("ACTIVITY_EXPORT")) {
+          console.warn(`[Garmin Permissions] User ${userAccount.userId} revoked ACTIVITY_EXPORT permission`);
+        }
+      }
+      return res.status(200).send("OK");
+    } catch (error) {
+      console.error("[Garmin Permissions] Error:", error);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  }
+);
+r$2.post(
+  "/webhooks/garmin/activities",
+  async (req, res) => {
+    try {
+      const { activities } = req.body;
+      if (!activities || !Array.isArray(activities)) {
+        console.warn("[Garmin Activities PUSH] Invalid payload:", req.body);
+        return res.status(400).json({ error: "Invalid activities payload" });
+      }
+      console.log(`[Garmin Activities PUSH] Received ${activities.length} activity(ies)`);
+      res.status(200).send("OK");
+      for (const activity of activities) {
+        try {
+          await processActivityPush(activity);
+        } catch (error) {
+          console.error(`[Garmin Activities PUSH] Failed to process activity ${activity.summaryId}:`, error);
+        }
+      }
+    } catch (error) {
+      console.error("[Garmin Activities PUSH] Error:", error);
+    }
+  }
+);
+r$2.post(
+  "/webhooks/garmin/activities-ping",
+  async (req, res) => {
+    try {
+      const { activityDetails } = req.body;
+      if (!activityDetails || !Array.isArray(activityDetails)) {
+        console.warn("[Garmin Activities PING] Invalid payload:", req.body);
+        return res.status(400).json({ error: "Invalid activities payload" });
+      }
+      console.log(`[Garmin Activities PING] Received ${activityDetails.length} notification(s)`);
+      res.status(200).send("OK");
+      for (const notification of activityDetails) {
+        try {
+          await processActivityPing(notification);
+        } catch (error) {
+          console.error(`[Garmin Activities PING] Failed to process notification ${notification.summaryId}:`, error);
+        }
+      }
+    } catch (error) {
+      console.error("[Garmin Activities PING] Error:", error);
+    }
+  }
+);
+async function processActivityPush(activity) {
+  const {
+    activityId,
+    activityType,
+    startTimeInSeconds,
+    _durationInSeconds,
+    distanceInMeters,
+    totalElevationGainInMeters,
+    _averageHeartRateInBeatsPerMinute
+  } = activity;
+  console.log(`[Garmin Activities PUSH] Processing activity ${activityId} (${activityType})`);
+  console.warn("[Garmin Activities PUSH] PUSH notification does not include userId - cannot identify user");
+  console.warn("[Garmin Activities PUSH] Consider using PING mode instead (/webhooks/garmin/activities-ping)");
+}
+async function processActivityPing(notification) {
+  const { userId: garminUserId, summaryId } = notification;
+  console.log(`[Garmin Activities PING] Processing notification for summaryId: ${summaryId}`);
+  const userAccount = await prisma.userAccount.findUnique({
+    where: {
+      provider_providerUserId: {
+        provider: "garmin",
+        providerUserId: garminUserId
+      }
+    }
+  });
+  if (!userAccount) {
+    console.warn(`[Garmin Activities PING] Unknown Garmin userId: ${garminUserId}`);
+    return;
+  }
+  console.log(`[Garmin Activities PING] Found user: ${userAccount.userId}`);
+  const API_BASE2 = process.env.GARMIN_API_BASE || "https://apis.garmin.com/wellness-api";
+  const token = await prisma.oauthToken.findUnique({
+    where: {
+      userId_provider: {
+        userId: userAccount.userId,
+        provider: "garmin"
+      }
+    }
+  });
+  if (!token) {
+    console.error(`[Garmin Activities PING] No OAuth token found for user ${userAccount.userId}`);
+    return;
+  }
+  const activityUrl = `${API_BASE2}/rest/activityFile/${summaryId}`;
+  try {
+    const activityRes = await fetch(activityUrl, {
+      headers: {
+        "Authorization": `Bearer ${token.accessToken}`,
+        "Accept": "application/json"
+      }
+    });
+    if (!activityRes.ok) {
+      const text = await activityRes.text();
+      console.error(`[Garmin Activities PING] Failed to fetch activity ${summaryId}: ${activityRes.status} ${text}`);
+      return;
+    }
+    const activityDetail = await activityRes.json();
+    const distanceMiles = activityDetail.distanceInMeters ? activityDetail.distanceInMeters * 621371e-9 : 0;
+    const elevationGainFeet = activityDetail.totalElevationGainInMeters ?? activityDetail.elevationGainInMeters ? (activityDetail.totalElevationGainInMeters ?? activityDetail.elevationGainInMeters) * 3.28084 : 0;
+    const startTime = new Date(activityDetail.startTimeInSeconds * 1e3);
+    await prisma.ride.upsert({
+      where: {
+        garminActivityId: summaryId
+      },
+      create: {
+        userId: userAccount.userId,
+        garminActivityId: summaryId,
+        startTime,
+        durationSeconds: activityDetail.durationInSeconds,
+        distanceMiles,
+        elevationGainFeet,
+        averageHr: activityDetail.averageHeartRateInBeatsPerMinute ?? null,
+        rideType: activityDetail.activityType,
+        notes: activityDetail.activityName ?? null
+      },
+      update: {
+        startTime,
+        durationSeconds: activityDetail.durationInSeconds,
+        distanceMiles,
+        elevationGainFeet,
+        averageHr: activityDetail.averageHeartRateInBeatsPerMinute ?? null,
+        rideType: activityDetail.activityType,
+        notes: activityDetail.activityName ?? null
+      }
+    });
+    console.log(`[Garmin Activities PING] Successfully stored ride for activity ${summaryId}`);
+  } catch (error) {
+    console.error(`[Garmin Activities PING] Error fetching/storing activity ${summaryId}:`, error);
+    throw error;
+  }
+}
 const API_BASE = (process.env.GARMIN_API_BASE || "").replace(/\/$/, "");
 const TOKEN_URL = process.env.GARMIN_TOKEN_URL || "";
 const CLIENT_ID = process.env.GARMIN_CLIENT_ID || "";
@@ -1034,69 +1367,71 @@ router$3.post("/complete", express.json(), async (req, res) => {
       return res.status(400).json({ message: "Please enter a valid age" });
     }
     const userId = sessionUser.uid;
-    await prisma.user.update({
-      where: { id: userId },
-      data: {
-        age: age || null,
-        location: location || null,
-        onboardingCompleted: true
-      }
-    });
-    console.log(`[Onboarding] Updated user profile for: ${userId}`);
-    const bike = await prisma.bike.create({
-      data: {
-        userId,
-        manufacturer: bikeMake,
-        model: bikeModel,
-        year: bikeYear || null
-      }
-    });
-    console.log(`[Onboarding] Created bike for user: ${userId}`);
-    const componentTypeMap = {
-      fork: "FORK",
-      rearShock: "SHOCK",
-      wheels: "WHEELS",
-      dropperPost: "DROPPER"
-    };
-    if (components) {
-      for (const [key, value] of Object.entries(components)) {
-        if (value && value.trim().length > 0) {
-          const componentType = componentTypeMap[key];
-          if (componentType) {
-            const [brand, ...modelParts] = value.trim().split(" ");
-            const model = modelParts.join(" ") || brand;
-            await prisma.component.create({
-              data: {
-                userId,
-                bikeId: bike.id,
-                type: componentType,
-                // Prisma will validate this
-                brand,
-                model,
-                hoursUsed: 0
-              }
-            });
-            console.log(`[Onboarding] Created ${componentType} component for bike: ${bike.id}`);
+    const result = await prisma.$transaction(async (tx) => {
+      const user = await tx.user.update({
+        where: { id: userId },
+        data: {
+          age: age || null,
+          location: location || null,
+          onboardingCompleted: true
+        }
+      });
+      console.log(`[Onboarding] Updated user profile for: ${userId}`);
+      const bike = await tx.bike.create({
+        data: {
+          userId,
+          manufacturer: bikeMake,
+          model: bikeModel,
+          year: bikeYear || null
+        }
+      });
+      console.log(`[Onboarding] Created bike for user: ${userId}`);
+      const componentTypeMap = {
+        fork: "FORK",
+        rearShock: "SHOCK",
+        wheels: "WHEELS",
+        dropperPost: "DROPPER"
+      };
+      if (components) {
+        for (const [key, value] of Object.entries(components)) {
+          if (value && value.trim().length > 0) {
+            const componentType = componentTypeMap[key];
+            if (componentType) {
+              const [brand, ...modelParts] = value.trim().split(" ");
+              const model = modelParts.join(" ") || brand;
+              await tx.component.create({
+                data: {
+                  userId,
+                  bikeId: bike.id,
+                  type: componentType,
+                  brand,
+                  model,
+                  hoursUsed: 0
+                }
+              });
+              console.log(`[Onboarding] Created ${componentType} component for bike: ${bike.id}`);
+            }
           }
         }
       }
-    }
-    await prisma.component.create({
-      data: {
-        userId,
-        bikeId: bike.id,
-        type: "PIVOT_BEARINGS",
-        brand: "Stock",
-        model: "Stock",
-        hoursUsed: 0,
-        isStock: true
-      }
+      await tx.component.create({
+        data: {
+          userId,
+          bikeId: bike.id,
+          type: "PIVOT_BEARINGS",
+          brand: "Stock",
+          model: "Stock",
+          hoursUsed: 0,
+          isStock: true
+        }
+      });
+      console.log(`[Onboarding] Created stock Pivot Bearings component for bike: ${bike.id}`);
+      return { user, bike };
     });
-    console.log(`[Onboarding] Created stock Pivot Bearings component for bike: ${bike.id}`);
     res.status(200).json({
       ok: true,
       message: "Onboarding completed successfully",
-      bikeId: bike.id
+      bikeId: result.bike.id
     });
   } catch (error) {
     console.error("[Onboarding] Error completing onboarding:", error);
@@ -1463,7 +1798,8 @@ const startServer = async () => {
   app.use("/auth", router$2);
   app.use("/auth", router$1);
   app.use("/auth", router);
-  app.use("/auth", r$2);
+  app.use("/auth", r$3);
+  app.use(r$2);
   app.use("/onboarding", router$3);
   app.use(r$1);
   app.use(r);

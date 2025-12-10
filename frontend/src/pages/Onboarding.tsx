@@ -412,7 +412,7 @@ export default function Onboarding() {
                   <div className="w-full rounded-2xl border border-app/70 bg-surface-2 px-4 py-4">
                     <div className="flex items-center justify-between gap-4">
                       <div className="flex items-center gap-3">
-                        <FaMountain className="text-lg text-red-500" />
+                        <FaMountain className="text-lg" style={{ color: '#11A9ED' }} />
                         <div className="text-left">
                           <p className="font-semibold">Garmin Connect</p>
                           <p className="text-xs text-green-400">Connected ✓</p>
@@ -428,7 +428,7 @@ export default function Onboarding() {
                   >
                     <div className="flex items-center justify-between gap-4">
                       <div className="flex items-center gap-3">
-                        <FaMountain className="text-lg text-red-500" />
+                        <FaMountain className="text-lg" style={{ color: '#11A9ED' }} />
                         <div>
                           <p className="font-semibold">Garmin Connect</p>
                           <p className="text-xs text-muted">Import activities automatically</p>
