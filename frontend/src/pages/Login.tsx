@@ -2,7 +2,6 @@
 import { useApolloClient } from '@apollo/client';
 import { GoogleLogin, type CredentialResponse } from '@react-oauth/google';
 import { useNavigate } from 'react-router-dom';
-import ConnectGarminLink from '../components/ConnectGarminLink';
 import { ME_QUERY } from '../graphql/me';
 import { useRedirectFrom } from '../utils/loginUtils';
 import { Button } from '@/components/ui';
@@ -26,6 +25,9 @@ export default function Login() {
       alert('Google login did not return a valid credential.');
       return;
     }
+
+    setIsLoading(true);
+    setError(null);
 
     try {
       const res = await fetch(`${import.meta.env.VITE_API_URL}/auth/google/code`, {
@@ -54,6 +56,8 @@ export default function Login() {
     } catch (err) {
       console.error('[GoogleLogin] Network or unexpected error', err);
       alert('A network error occurred during login. Please try again.');
+    } finally {
+      setIsLoading(false);
     }
   }
 
@@ -142,9 +146,10 @@ export default function Login() {
         <div className="flex rounded-full border border-app p-1">
           <button
             type="button"
-            className={`flex-1 rounded-full px-4 cursor-pointer py-2 text-sm font-semibold transition ${
+            disabled={isLoading}
+            className={`flex-1 rounded-full px-4 py-2 text-sm font-semibold transition ${
               mode === 'login' ? 'btn-primary' : 'btn-outline text-accent-contrast hover:text-white hover:ring-1 hover:ring-primary/40 hover:ring-offset-1 hover:ring-offset-surface-1'
-            }`}
+            } ${isLoading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
             onClick={() => {
               setMode('login');
               setConfirmPassword('');
@@ -156,9 +161,10 @@ export default function Login() {
           </button>
           <button
             type="button"
-            className={`flex-1 rounded-full px-4 py-2 cursor-pointer text-sm font-semibold transition ${
+            disabled={isLoading}
+            className={`flex-1 rounded-full px-4 py-2 text-sm font-semibold transition ${
               mode === 'signup' ? 'btn-primary' : 'btn-outline hover:text-white hover:ring-1 hover:ring-primary/40 hover:ring-offset-1 hover:ring-offset-surface-1'
-            }`}
+            } ${isLoading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
             onClick={() => {
               setMode('signup');
               setConfirmPassword('');
@@ -228,6 +234,11 @@ export default function Login() {
               />
             </label>
           )}
+          {isLoading && (
+            <div className="flex justify-center">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+            </div>
+          )}
           <Button
             type="submit"
             variant="primary"
@@ -238,7 +249,7 @@ export default function Login() {
           </Button>
         </form>
 
-        <div className="space-y-3 bg-surface p-4 rounded-xl">
+        <div className={`space-y-3 bg-surface p-4 rounded-xl ${isLoading ? 'opacity-50 pointer-events-none' : ''}`}>
           <div className="text-center text-xs uppercase tracking-[0.3em] text-muted">Or continue with</div>
           <div className="flex flex-col gap-3">
             <div className="flex justify-center">
@@ -251,9 +262,6 @@ export default function Login() {
                 size="large"
                 width="260"
               />
-            </div>
-            <div className="rounded-2xl border border-app/60 bg-surface-2/70 px-4 py-3">
-              <ConnectGarminLink />
             </div>
           </div>
         </div>

@@ -23,10 +23,10 @@ export default function ConnectGarminLink() {
     <button
       onClick={handleConnect}
       disabled={isConnecting}
-      className={`flex items-center justify-center gap-3 w-full py-3 rounded-md font-medium transition
+      className={`flex items-center justify-center gap-3 w-full rounded-2xl border px-4 py-3 font-medium transition
         ${isConnecting
-          ? 'bg-gray-700 text-gray-400 cursor-wait'
-          : 'bg-red-600 hover:bg-red-700 text-white'
+          ? 'border-app/70 bg-surface-2/50 text-muted cursor-wait opacity-50'
+          : 'border-[#11A9ED]/50 bg-[#11A9ED]/20 text-[#11A9ED] hover:bg-[#11A9ED]/30 hover:border-[#11A9ED]/70 hover:cursor-pointer'
         }`}
     >
       <FaMountain size={18} />
