@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, gql } from "@apollo/client";
+import { useSearchParams } from "react-router-dom";
 import { FaMountain, FaGoogle } from "react-icons/fa";
 import { formatDistanceToNow } from "date-fns";
 import ThemeToggle from "../components/ThemeToggleButton";
@@ -21,10 +22,22 @@ const CONNECTED_ACCOUNTS_QUERY = gql`
 
 export default function Settings() {
   const { user } = useCurrentUser();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { data: accountsData, refetch: refetchAccounts } = useQuery(CONNECTED_ACCOUNTS_QUERY);
   const [hoursDisplay, setHoursDisplay] = useState<"total" | "remaining">("total");
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  // Check for Garmin connection success from OAuth redirect
+  useEffect(() => {
+    if (searchParams.get('garmin') === 'connected') {
+      refetchAccounts();
+      setSuccessMessage('Garmin connected successfully!');
+      setTimeout(() => setSuccessMessage(null), 5000);
+      // Clean up URL
+      setSearchParams({});
+    }
+  }, [searchParams, setSearchParams, refetchAccounts]);
 
   const accounts = accountsData?.me?.accounts || [];
   const garminAccount = accounts.find((acc: { provider: string; connectedAt: string }) => acc.provider === "garmin");
