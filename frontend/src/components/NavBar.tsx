@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useApolloClient } from "@apollo/client";
 import { motion, AnimatePresence } from "motion/react";
@@ -5,6 +6,7 @@ import { motion, AnimatePresence } from "motion/react";
 export default function Navbar() {
   const navigate = useNavigate();
   const apollo = useApolloClient();
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const navLinks = [
     { label: "Dashboard", path: "/dashboard" },
@@ -26,6 +28,10 @@ export default function Navbar() {
     }
   };
 
+  const closeMobileMenu = () => {
+    setIsMobileMenuOpen(false);
+  };
+
   return (
     <nav className="bg-surface-2 shadow-sm sticky top-0 z-50">
       <div className="mx-auto px-4">
@@ -34,8 +40,8 @@ export default function Navbar() {
             LoamLogger
           </NavLink>
 
-          {/* Links + Logout */}
-          <div className="flex items-center gap-2">
+          {/* Desktop Links + Logout - Hidden on mobile, visible on md+ */}
+          <div className="hidden md:flex items-center gap-2">
             {navLinks.map(({ label, path }) => (
               <NavLink
                 key={label}
@@ -43,9 +49,7 @@ export default function Navbar() {
                 className={({ isActive }) =>
                   [
                     "relative group rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-                    // base text color
                     isActive ? "text-accent" : "text-accent-contrast hover:text-black",
-                    // hover outline for non-active links
                     "hover:ring-1 hover:ring-primary/40 hover:ring-offset-1 hover:ring-offset-surface-1",
                   ].join(" ")
                 }
@@ -53,7 +57,6 @@ export default function Navbar() {
               >
                 {({ isActive }) => (
                   <>
-                    {/* Animated active pill */}
                     <AnimatePresence>
                       {isActive && (
                         <motion.span
@@ -66,15 +69,12 @@ export default function Navbar() {
                         />
                       )}
                     </AnimatePresence>
-
-                    {/* Label sits above the pill */}
                     <span className="relative z-10">{label}</span>
                   </>
                 )}
               </NavLink>
             ))}
 
-            {/* Logout button */}
             <button
               onClick={handleLogout}
               className="ml-2 cursor-pointer rounded-lg px-3 py-2 text-sm font-medium text-accent-contrast hover:text-black transition hover:ring-1 hover:ring-primary/40 hover:ring-offset-1 hover:ring-offset-surface-1"
@@ -82,7 +82,82 @@ export default function Navbar() {
               Logout
             </button>
           </div>
+
+          {/* Mobile Hamburger - Visible on mobile, hidden on md+ */}
+          <button
+            className="flex md:hidden p-2 rounded-lg hover:bg-surface-accent transition text-white"
+            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+            aria-label="Toggle menu"
+          >
+            <svg
+              className="w-6 h-6"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              {isMobileMenuOpen ? (
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M6 18L18 6M6 6l12 12"
+                />
+              ) : (
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M4 6h16M4 12h16M4 18h16"
+                />
+              )}
+            </svg>
+          </button>
         </div>
+
+        {/* Mobile Menu Dropdown */}
+        <AnimatePresence>
+          {isMobileMenuOpen && (
+            <motion.div
+              className="md:hidden pb-4"
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.2 }}
+            >
+              <div className="flex flex-col space-y-2">
+                {navLinks.map(({ label, path }) => (
+                  <NavLink
+                    key={label}
+                    to={path}
+                    onClick={closeMobileMenu}
+                    className={({ isActive }) =>
+                      [
+                        "rounded-lg px-4 py-3 text-sm font-medium transition-colors",
+                        isActive
+                          ? "bg-primary/10 text-accent"
+                          : "text-accent-contrast hover:bg-surface-accent",
+                      ].join(" ")
+                    }
+                    end
+                  >
+                    {label}
+                  </NavLink>
+                ))}
+
+                <button
+                  onClick={() => {
+                    closeMobileMenu();
+                    handleLogout();
+                  }}
+                  className="rounded-lg px-4 py-3 text-sm font-medium text-accent-contrast hover:bg-surface-accent transition text-left"
+                >
+                  Logout
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </nav>
   );
