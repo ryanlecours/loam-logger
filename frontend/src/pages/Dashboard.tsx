@@ -296,10 +296,10 @@ export default function Dashboard() {
         </div>
       </section>
 
-      {/* Three Column Layout: Service Radar, Ride Statistics, Recent Rides */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Column: Service Radar */}
-        <section className="panel-soft shadow-soft border border-app rounded-3xl p-6 lg:col-span-1">
+      {/* Single Column Layout: Service Radar, Ride Statistics, Recent Rides */}
+      <div className="space-y-6">
+        {/* Service Radar */}
+        <section className="panel-soft shadow-soft border border-app rounded-3xl p-6">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="text-xs uppercase tracking-[0.3em] text-muted">Bike / Gear</p>
@@ -338,8 +338,8 @@ export default function Dashboard() {
           </div>
         </section>
 
-        {/* Middle Column: Ride Statistics */}
-        <section className="panel-soft shadow-soft border border-app rounded-3xl p-6 lg:col-span-1">
+        {/* Ride Statistics */}
+        <section className="panel-soft shadow-soft border border-app rounded-3xl p-6">
           <div className="mb-5 flex items-center justify-between">
             <div>
               <p className="text-xs uppercase tracking-[0.3em] text-muted">Ride statistics</p>
@@ -349,8 +349,8 @@ export default function Dashboard() {
           <RideStatsCard showHeading={false} />
         </section>
 
-        {/* Right Column: Trail Log */}
-        <section className="panel-soft shadow-soft border border-app rounded-3xl p-6 lg:col-span-1">
+        {/* Trail Log */}
+        <section className="panel-soft shadow-soft border border-app rounded-3xl p-6">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="text-xs uppercase tracking-[0.3em] text-muted">Recent rides</p>
