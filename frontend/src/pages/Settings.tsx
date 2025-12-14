@@ -1,18 +1,23 @@
 import { useState, useEffect } from "react";
 import { useQuery, gql } from "@apollo/client";
 import { useSearchParams } from "react-router-dom";
-import { FaMountain, FaGoogle } from "react-icons/fa";
+import { FaMountain, FaGoogle, FaStrava } from "react-icons/fa";
 import { formatDistanceToNow } from "date-fns";
 import ThemeToggle from "../components/ThemeToggleButton";
 import DeleteAccountModal from "../components/DeleteAccountModal";
 import ConnectGarminLink from "../components/ConnectGarminLink";
+import ConnectStravaLink from "../components/ConnectStravaLink";
 import GarminImportModal from "../components/GarminImportModal";
+import StravaImportModal from "../components/StravaImportModal";
+import DataSourceSelector from "../components/DataSourceSelector";
+import DuplicateRidesModal from "../components/DuplicateRidesModal";
 import { useCurrentUser } from "../hooks/useCurrentUser";
 
 const CONNECTED_ACCOUNTS_QUERY = gql`
   query ConnectedAccounts {
     me {
       id
+      activeDataSource
       accounts {
         provider
         connectedAt
@@ -28,22 +33,44 @@ export default function Settings() {
   const [hoursDisplay, setHoursDisplay] = useState<"total" | "remaining">("total");
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
+  const [stravaImportModalOpen, setStravaImportModalOpen] = useState(false);
+  const [duplicatesModalOpen, setDuplicatesModalOpen] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [activeDataSource, setActiveDataSource] = useState<'garmin' | 'strava' | null>(null);
 
-  // Check for Garmin connection success from OAuth redirect
+  // Check for OAuth connection callbacks
   useEffect(() => {
     if (searchParams.get('garmin') === 'connected') {
       refetchAccounts();
       setSuccessMessage('Garmin connected successfully!');
       setTimeout(() => setSuccessMessage(null), 5000);
-      // Clean up URL
+      setSearchParams({});
+    }
+
+    if (searchParams.get('strava') === 'connected') {
+      refetchAccounts();
+      if (searchParams.get('prompt') === 'choose-source') {
+        setSuccessMessage('Strava connected! Choose your active data source below.');
+      } else {
+        setSuccessMessage('Strava connected successfully!');
+      }
+      setTimeout(() => setSuccessMessage(null), 8000);
       setSearchParams({});
     }
   }, [searchParams, setSearchParams, refetchAccounts]);
 
+  // Sync activeDataSource from GraphQL data
+  useEffect(() => {
+    if (accountsData?.me?.activeDataSource) {
+      setActiveDataSource(accountsData.me.activeDataSource);
+    }
+  }, [accountsData]);
+
   const accounts = accountsData?.me?.accounts || [];
   const garminAccount = accounts.find((acc: { provider: string; connectedAt: string }) => acc.provider === "garmin");
+  const stravaAccount = accounts.find((acc: { provider: string; connectedAt: string }) => acc.provider === "strava");
   const isGarminConnected = !!garminAccount;
+  const isStravaConnected = !!stravaAccount;
 
   const handleDisconnectGarmin = async () => {
     if (!confirm('Disconnect Garmin? Your synced rides will remain, but new activities will not sync.')) {
@@ -64,6 +91,49 @@ export default function Settings() {
     } catch (err) {
       console.error('Failed to disconnect Garmin:', err);
       alert('Failed to disconnect Garmin. Please try again.');
+    }
+  };
+
+  const handleDisconnectStrava = async () => {
+    if (!confirm('Disconnect Strava? Your synced rides will remain, but new activities will not sync.')) {
+      return;
+    }
+
+    try {
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/auth/strava/disconnect`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+
+      if (!res.ok) throw new Error('Failed to disconnect');
+
+      await refetchAccounts();
+      setSuccessMessage('Strava disconnected successfully');
+      setTimeout(() => setSuccessMessage(null), 3000);
+    } catch (err) {
+      console.error('Failed to disconnect Strava:', err);
+      alert('Failed to disconnect Strava. Please try again.');
+    }
+  };
+
+  const handleDataSourceSelect = async (provider: 'garmin' | 'strava') => {
+    try {
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/data-source/preference`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider }),
+      });
+
+      if (!res.ok) throw new Error('Failed to set data source');
+
+      const data = await res.json();
+      setActiveDataSource(data.activeDataSource);
+      setSuccessMessage(`Active data source set to ${provider.charAt(0).toUpperCase() + provider.slice(1)}`);
+      setTimeout(() => setSuccessMessage(null), 3000);
+    } catch (err) {
+      console.error('Failed to set data source:', err);
+      alert('Failed to set data source. Please try again.');
     }
   };
 
@@ -160,6 +230,39 @@ export default function Settings() {
               <ConnectGarminLink />
             )}
 
+            {/* Strava */}
+            {isStravaConnected ? (
+              <div className="w-full rounded-2xl border border-app/70 bg-surface-2 px-4 py-3">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <FaStrava className="text-lg" style={{ color: '#FC4C02' }} />
+                    <div>
+                      <p className="font-semibold">Strava</p>
+                      <p className="text-xs text-muted">
+                        Connected {formatDistanceToNow(new Date(stravaAccount.connectedAt))} ago
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setStravaImportModalOpen(true)}
+                      className="rounded-xl px-3 py-1.5 text-xs font-medium text-[#FC4C02]/80 bg-surface-2/50 border border-[#FC4C02]/30 hover:bg-surface-2 hover:text-[#FC4C02] hover:border-[#FC4C02]/50 hover:cursor-pointer transition"
+                    >
+                      Import Rides
+                    </button>
+                    <button
+                      onClick={handleDisconnectStrava}
+                      className="rounded-xl px-3 py-1.5 text-xs font-medium text-red-400/80 bg-surface-2/50 border border-red-400/30 hover:bg-surface-2 hover:text-red-400 hover:border-red-400/50 hover:cursor-pointer transition"
+                    >
+                      Disconnect
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <ConnectStravaLink />
+            )}
+
             {/* Suunto - Coming Soon */}
             <div className="w-full rounded-2xl border border-app/70 bg-surface-2/50 px-4 py-3 opacity-50">
               <div className="flex items-center justify-between gap-4">
@@ -172,6 +275,37 @@ export default function Settings() {
             </div>
           </div>
         </div>
+
+        {/* Data Source Selector - only show when both Garmin and Strava are connected */}
+        {(isGarminConnected && isStravaConnected) && (
+          <div className="panel-soft shadow-soft border border-app rounded-3xl p-6">
+            <DataSourceSelector
+              currentSource={activeDataSource}
+              hasGarmin={isGarminConnected}
+              hasStrava={isStravaConnected}
+              onSelect={handleDataSourceSelect}
+            />
+          </div>
+        )}
+
+        {/* Duplicate Rides Management */}
+        {(isGarminConnected || isStravaConnected) && (
+          <div className="panel-soft shadow-soft border border-app rounded-3xl p-6 space-y-4">
+            <div>
+              <p className="text-xs uppercase tracking-[0.3em] text-muted">Data Management</p>
+              <h2 className="text-xl font-semibold text-white">Duplicate Rides</h2>
+              <p className="text-sm text-muted mt-1">
+                Manage duplicate rides that exist in both Garmin and Strava.
+              </p>
+            </div>
+            <button
+              onClick={() => setDuplicatesModalOpen(true)}
+              className="btn-secondary"
+            >
+              Review Duplicates
+            </button>
+          </div>
+        )}
 
         <div className="panel-soft shadow-soft border border-app rounded-3xl p-6 space-y-4">
           <div>
@@ -280,6 +414,20 @@ export default function Settings() {
           setSuccessMessage('Backfill triggered! Your rides will sync automatically via Garmin webhooks.');
           setTimeout(() => setSuccessMessage(null), 8000);
         }}
+      />
+
+      <StravaImportModal
+        open={stravaImportModalOpen}
+        onClose={() => setStravaImportModalOpen(false)}
+        onSuccess={() => {
+          setSuccessMessage('Rides imported from Strava successfully!');
+          setTimeout(() => setSuccessMessage(null), 8000);
+        }}
+      />
+
+      <DuplicateRidesModal
+        open={duplicatesModalOpen}
+        onClose={() => setDuplicatesModalOpen(false)}
       />
     </div>
   );

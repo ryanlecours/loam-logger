@@ -783,6 +783,7 @@ export const resolvers = {
   },
 
   User: {
+    activeDataSource: (parent: { activeDataSource: string | null }) => parent.activeDataSource,
     accounts: async (parent: { id: string }) => {
       const accounts = await prisma.userAccount.findMany({
         where: { userId: parent.id },

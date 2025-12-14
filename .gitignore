@@ -1,6 +1,9 @@
 # Claude internal documentation
 claude.internal.md
 
+# Claude settings
+.claude/
+
 # Dependencies
 node_modules/
 
