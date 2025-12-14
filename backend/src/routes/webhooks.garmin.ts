@@ -1,5 +1,6 @@
 import { Router as createRouter, type Router, type Request, type Response } from 'express';
 import { prisma } from '../lib/prisma.ts';
+import { getValidGarminToken } from '../lib/garmin-token.ts';
 
 type Empty = Record<string, never>;
 const r: Router = createRouter();
@@ -334,18 +335,11 @@ async function processActivityPing(notification: GarminActivityPing): Promise<vo
   // The summaryId is the activityId we need to fetch
   const API_BASE = process.env.GARMIN_API_BASE || 'https://apis.garmin.com/wellness-api';
 
-  // Get user's access token
-  const token = await prisma.oauthToken.findUnique({
-    where: {
-      userId_provider: {
-        userId: userAccount.userId,
-        provider: 'garmin',
-      },
-    },
-  });
+  // Get valid access token (auto-refreshes if expired)
+  const accessToken = await getValidGarminToken(userAccount.userId);
 
-  if (!token) {
-    console.error(`[Garmin Activities PING] No OAuth token found for user ${userAccount.userId}`);
+  if (!accessToken) {
+    console.error(`[Garmin Activities PING] No valid OAuth token for user ${userAccount.userId}`);
     return;
   }
 
@@ -356,7 +350,7 @@ async function processActivityPing(notification: GarminActivityPing): Promise<vo
   try {
     const activityRes = await fetch(activityUrl, {
       headers: {
-        'Authorization': `Bearer ${token.accessToken}`,
+        'Authorization': `Bearer ${accessToken}`,
         'Accept': 'application/json',
       },
     });
@@ -393,12 +387,22 @@ async function processActivityPing(notification: GarminActivityPing): Promise<vo
     // Filter: Only process cycling/mountain biking activities
     const CYCLING_ACTIVITY_TYPES = [
       'cycling',
-      'mountain_biking',
-      'gravel_cycling',
-      'road_cycling',
+      'bmx',
       'cyclocross',
-      'e_bike_mountain',
+      'downhill_biking',
       'e_bike_fitness',
+      'e_bike_mountain',
+      'e_enduro_mtb',
+      'enduro_mtb',
+      'gravel_cycling',
+      'indoor_cycling',
+      'mountain_biking',
+      'recumbent_cycling',
+      'road_biking',
+      'track_cycling',
+      'virtual_ride',
+      'handcycling',
+      'indoor_handcycling',
     ];
 
     const activityTypeLower = activityDetail.activityType.toLowerCase().replace(/\s+/g, '_');
