@@ -390,6 +390,25 @@ async function processActivityPing(notification: GarminActivityPing): Promise<vo
 
     const activityDetail = (await activityRes.json()) as GarminActivityDetail;
 
+    // Filter: Only process cycling/mountain biking activities
+    const CYCLING_ACTIVITY_TYPES = [
+      'cycling',
+      'mountain_biking',
+      'gravel_cycling',
+      'road_cycling',
+      'cyclocross',
+      'e_bike_mountain',
+      'e_bike_fitness',
+    ];
+
+    const activityTypeLower = activityDetail.activityType.toLowerCase().replace(/\s+/g, '_');
+    if (!CYCLING_ACTIVITY_TYPES.includes(activityTypeLower)) {
+      console.log(`[Garmin Activities PING] Skipping non-cycling activity: ${activityDetail.activityType} (${summaryId})`);
+      return;
+    }
+
+    console.log(`[Garmin Activities PING] Processing cycling activity: ${activityDetail.activityType}`);
+
     // Convert activity to Ride format
     const distanceMiles = activityDetail.distanceInMeters
       ? activityDetail.distanceInMeters * 0.000621371
