@@ -6,6 +6,7 @@ import { formatDistanceToNow } from "date-fns";
 import ThemeToggle from "../components/ThemeToggleButton";
 import DeleteAccountModal from "../components/DeleteAccountModal";
 import ConnectGarminLink from "../components/ConnectGarminLink";
+import GarminImportModal from "../components/GarminImportModal";
 import { useCurrentUser } from "../hooks/useCurrentUser";
 
 const CONNECTED_ACCOUNTS_QUERY = gql`
@@ -26,6 +27,7 @@ export default function Settings() {
   const { data: accountsData, refetch: refetchAccounts } = useQuery(CONNECTED_ACCOUNTS_QUERY);
   const [hoursDisplay, setHoursDisplay] = useState<"total" | "remaining">("total");
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [importModalOpen, setImportModalOpen] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   // Check for Garmin connection success from OAuth redirect
@@ -138,12 +140,20 @@ export default function Settings() {
                       </p>
                     </div>
                   </div>
-                  <button
-                    onClick={handleDisconnectGarmin}
-                    className="rounded-xl px-3 py-1.5 text-xs font-medium text-red-400/80 bg-surface-2/50 border border-red-400/30 hover:bg-surface-2 hover:text-red-400 hover:border-red-400/50 hover:cursor-pointer transition"
-                  >
-                    Disconnect
-                  </button>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setImportModalOpen(true)}
+                      className="rounded-xl px-3 py-1.5 text-xs font-medium text-blue-400/80 bg-surface-2/50 border border-blue-400/30 hover:bg-surface-2 hover:text-blue-400 hover:border-blue-400/50 hover:cursor-pointer transition"
+                    >
+                      Import Rides
+                    </button>
+                    <button
+                      onClick={handleDisconnectGarmin}
+                      className="rounded-xl px-3 py-1.5 text-xs font-medium text-red-400/80 bg-surface-2/50 border border-red-400/30 hover:bg-surface-2 hover:text-red-400 hover:border-red-400/50 hover:cursor-pointer transition"
+                    >
+                      Disconnect
+                    </button>
+                  </div>
                 </div>
               </div>
             ) : (
@@ -261,6 +271,15 @@ export default function Settings() {
         open={deleteModalOpen}
         onClose={() => setDeleteModalOpen(false)}
         onConfirm={handleDeleteAccount}
+      />
+
+      <GarminImportModal
+        open={importModalOpen}
+        onClose={() => setImportModalOpen(false)}
+        onSuccess={() => {
+          setSuccessMessage('Backfill triggered! Your rides will sync automatically via Garmin webhooks.');
+          setTimeout(() => setSuccessMessage(null), 8000);
+        }}
       />
     </div>
   );
