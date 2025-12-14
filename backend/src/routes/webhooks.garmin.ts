@@ -208,6 +208,11 @@ type GarminActivityPing = {
 r.post<Empty, void, { activityDetails?: GarminActivityPing[] }>(
   '/webhooks/garmin/activities-ping',
   async (req: Request, res: Response) => {
+    // Log incoming webhook request IMMEDIATELY to verify Garmin is hitting this endpoint
+    console.log(`[Garmin PING Webhook] Incoming request at ${new Date().toISOString()}`);
+    console.log(`[Garmin PING Webhook] Headers:`, JSON.stringify(req.headers, null, 2));
+    console.log(`[Garmin PING Webhook] Body:`, JSON.stringify(req.body, null, 2));
+
     try {
       const { activityDetails } = req.body;
 
