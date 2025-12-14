@@ -16,6 +16,7 @@ datasource db {
 enum AuthProvider {
   garmin
   google
+  strava
 }
 
 model User {
@@ -24,6 +25,8 @@ model User {
   name           String?
   passwordHash   String?   // null for OAuth-only accounts
   garminUserId   String?   @unique
+  stravaUserId   String?   @unique  // For webhook identification
+  activeDataSource AuthProvider?  // Preferred data source (garmin or strava)
   accessToken    String?
   refreshToken   String?
   tokenExpiresAt DateTime?
@@ -76,6 +79,7 @@ model Ride {
   userId String
 
   garminActivityId  String?   @unique
+  stravaActivityId  String?   @unique  // Strava activity ID
   startTime         DateTime
   durationSeconds   Int
   distanceMiles     Float
@@ -89,6 +93,12 @@ model Ride {
   notes    String?
   trailSystem  String?
   location     String?
+
+  // Duplicate detection
+  duplicateOfId String?  // Points to the "primary" ride if this is a duplicate
+  isDuplicate   Boolean @default(false)  // Flag for quick filtering
+  duplicateOf   Ride?   @relation("DuplicateRides", fields: [duplicateOfId], references: [id], onDelete: SetNull)
+  duplicates    Ride[]  @relation("DuplicateRides")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

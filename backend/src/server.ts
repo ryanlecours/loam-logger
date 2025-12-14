@@ -7,8 +7,13 @@ import { expressMiddleware, type ExpressContextFunctionArgument } from '@as-inte
 import { typeDefs } from './graphql/schema.ts';
 import { resolvers } from './graphql/resolvers.ts';
 import authGarmin from './routes/auth.garmin.ts';
+import authStrava from './routes/auth.strava.ts';
 import webhooksGarmin from './routes/webhooks.garmin.ts';
+import webhooksStrava from './routes/webhooks.strava.ts';
 import garminBackfill from './routes/garmin.backfill.ts';
+import stravaBackfill from './routes/strava.backfill.ts';
+import dataSourceRouter from './routes/data-source.ts';
+import duplicatesRouter from './routes/duplicates.ts';
 import garminTest from './routes/garmin.test.ts';
 import mockGarmin from './routes/mock.garmin.ts';
 import onboardingRouter from './routes/onboarding.ts';
@@ -83,8 +88,13 @@ const startServer = async () => {
   app.use('/auth', emailRouter);        // POST /auth/signup, /auth/login
   app.use('/auth', deleteAccountRouter); // DELETE /auth/delete-account
   app.use('/auth', authGarmin);         // Garmin OAuth
+  app.use('/auth', authStrava);         // Strava OAuth
   app.use('/api', garminBackfill);      // Garmin backfill (import historical rides)
+  app.use('/api', stravaBackfill);      // Strava backfill (import historical rides)
+  app.use('/api', dataSourceRouter);    // Data source preference API
+  app.use('/api', duplicatesRouter);    // Duplicate rides management
   app.use(webhooksGarmin);              // Garmin webhooks (deregistration, permissions, activities)
+  app.use(webhooksStrava);              // Strava webhooks (verification, events)
   app.use('/onboarding', onboardingRouter); // POST /onboarding/complete
   app.use(garminTest);            // test route
   app.use(mockGarmin);            // mock route
