@@ -1,6 +1,7 @@
 import { Router as createRouter, type Router, type Request, type Response } from 'express';
 import { getValidGarminToken } from '../lib/garmin-token.ts';
 import { subDays } from 'date-fns';
+import { prisma } from '../lib/prisma.ts';
 
 type Empty = Record<string, never>;
 const r: Router = createRouter();
@@ -126,6 +127,97 @@ r.get<Empty, void, Empty, { days?: string }>(
     } catch (error) {
       console.error('[Garmin Backfill] Error:', error);
       return res.status(500).json({ error: 'Failed to fetch activities' });
+    }
+  }
+);
+
+/**
+ * Get the user's Garmin User ID for use in Garmin Developer Dashboard
+ */
+r.get<Empty, void, Empty, Empty>(
+  '/garmin/backfill/garmin-user-id',
+  async (req: Request<Empty, void, Empty, Empty>, res: Response) => {
+    const userId = req.user?.id || req.sessionUser?.uid;
+    if (!userId) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    try {
+      const userAccount = await prisma.userAccount.findFirst({
+        where: {
+          userId,
+          provider: 'garmin',
+        },
+        select: {
+          providerUserId: true,
+        },
+      });
+
+      if (!userAccount) {
+        return res.status(404).json({ error: 'Garmin account not connected' });
+      }
+
+      return res.json({
+        garminUserId: userAccount.providerUserId,
+        message: 'Use this ID in the Garmin Developer Dashboard Backfill tool',
+      });
+    } catch (error) {
+      console.error('[Garmin User ID] Error:', error);
+      return res.status(500).json({ error: 'Failed to fetch Garmin user ID' });
+    }
+  }
+);
+
+/**
+ * Check recent Garmin webhook activity and ride imports
+ * Useful for debugging backfill issues
+ */
+r.get<Empty, void, Empty, Empty>(
+  '/garmin/backfill/status',
+  async (req: Request<Empty, void, Empty, Empty>, res: Response) => {
+    const userId = req.user?.id || req.sessionUser?.uid;
+    if (!userId) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    try {
+      // Get recent rides imported from Garmin (last 30 days)
+      const thirtyDaysAgo = subDays(new Date(), 30);
+      const recentGarminRides = await prisma.ride.findMany({
+        where: {
+          userId,
+          garminActivityId: { not: null },
+          startTime: { gte: thirtyDaysAgo },
+        },
+        orderBy: { startTime: 'desc' },
+        take: 50,
+        select: {
+          id: true,
+          garminActivityId: true,
+          startTime: true,
+          rideType: true,
+          distanceMiles: true,
+          createdAt: true,
+        },
+      });
+
+      // Get total Garmin rides for this user
+      const totalGarminRides = await prisma.ride.count({
+        where: {
+          userId,
+          garminActivityId: { not: null },
+        },
+      });
+
+      return res.json({
+        success: true,
+        recentRides: recentGarminRides,
+        totalGarminRides,
+        message: `Found ${recentGarminRides.length} recent Garmin rides (last 30 days), ${totalGarminRides} total`,
+      });
+    } catch (error) {
+      console.error('[Garmin Backfill Status] Error:', error);
+      return res.status(500).json({ error: 'Failed to fetch backfill status' });
     }
   }
 );
