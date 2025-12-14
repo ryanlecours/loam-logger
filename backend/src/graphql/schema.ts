@@ -200,6 +200,7 @@ export const typeDefs = gql`
     onboardingCompleted: Boolean!
     location: String
     age: Int
+    activeDataSource: String
     accounts: [ConnectedAccount!]!
   }
 
