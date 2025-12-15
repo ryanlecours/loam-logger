@@ -281,7 +281,16 @@ const ALLOWED_RIDE_TYPES = [
   'TRAINER',
 ] as const;
 
-type RidesArgs = { take?: number; after?: string | null };
+type RidesFilterInput = {
+  startDate?: string | null;
+  endDate?: string | null;
+};
+
+type RidesArgs = {
+  take?: number;
+  after?: string | null;
+  filter?: RidesFilterInput | null;
+};
 
 const pickComponent = (
   bike: Bike & { components?: ComponentModel[] },
@@ -299,12 +308,27 @@ export const resolvers = {
         include: { rides: true },
       }),
 
-    rides: async (_: unknown, { take = 20, after }: RidesArgs, ctx: GraphQLContext) => {
+    rides: async (_: unknown, { take = 1000, after, filter }: RidesArgs, ctx: GraphQLContext) => {
       if (!ctx.user?.id) throw new Error('Unauthorized');
-      const limit = Math.min(100, Math.max(1, take));
+      const limit = Math.min(10000, Math.max(1, take));
+
+      const whereClause: Prisma.RideWhereInput = {
+        userId: ctx.user.id,
+      };
+
+      // Apply date filters if provided
+      if (filter?.startDate || filter?.endDate) {
+        whereClause.startTime = {};
+        if (filter.startDate) {
+          whereClause.startTime.gte = new Date(filter.startDate);
+        }
+        if (filter.endDate) {
+          whereClause.startTime.lte = new Date(filter.endDate);
+        }
+      }
 
       return prisma.ride.findMany({
-        where: { userId: ctx.user.id },
+        where: whereClause,
         orderBy: { startTime: 'desc' },
         take: limit,
         ...(after ? { skip: 1, cursor: { id: after } } : {}),
