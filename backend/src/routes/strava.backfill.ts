@@ -134,6 +134,17 @@ r.get<Empty, void, Empty, { days?: string }>(
           bikeId = mapping?.bikeId ?? null;
         }
 
+        // If no bike assigned yet, check if user has exactly one bike (auto-assign)
+        if (!bikeId) {
+          const userBikes = await prisma.bike.findMany({
+            where: { userId },
+            select: { id: true },
+          });
+          if (userBikes.length === 1) {
+            bikeId = userBikes[0].id;
+          }
+        }
+
         // Convert activity to Ride format
         const distanceMiles = activity.distance * 0.000621371; // meters to miles
         const elevationGainFeet = activity.total_elevation_gain * 3.28084; // meters to feet
