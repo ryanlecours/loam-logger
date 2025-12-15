@@ -15,7 +15,7 @@ type UnmappedGear = {
 
 export default function StravaImportModal({ open, onClose, onSuccess }: Props) {
   const [step, setStep] = useState<'period' | 'processing' | 'complete'>('period');
-  const [days, setDays] = useState(30);
+  const [year, setYear] = useState<string>('ytd');
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [importStats, setImportStats] = useState<{
@@ -30,7 +30,7 @@ export default function StravaImportModal({ open, onClose, onSuccess }: Props) {
     if (!open) {
       // Reset state when modal closes
       setStep('period');
-      setDays(30);
+      setYear('ytd');
       setError(null);
       setSuccessMessage(null);
       setImportStats(null);
@@ -45,7 +45,7 @@ export default function StravaImportModal({ open, onClose, onSuccess }: Props) {
 
     try {
       const res = await fetch(
-        `${import.meta.env.VITE_API_URL}/api/strava/backfill/fetch?days=${days}`,
+        `${import.meta.env.VITE_API_URL}/api/strava/backfill/fetch?year=${year}`,
         {
           credentials: 'include',
         }
@@ -99,31 +99,37 @@ export default function StravaImportModal({ open, onClose, onSuccess }: Props) {
 
             <h2 className="text-2xl font-bold mb-4">Import Strava Rides</h2>
 
-            {/* Step 1: Select Time Period */}
+            {/* Step 1: Select Year */}
             {step === 'period' && (
               <div className="space-y-6">
                 <div>
                   <p className="text-sm text-muted mb-4">
-                    Import your historical Strava cycling activities.
+                    Import your historical Strava cycling activities by year.
                     Activities will be fetched and imported immediately.
                   </p>
 
                   <label className="block text-sm font-medium mb-2">
-                    Import rides from the last:
+                    Select Year
                   </label>
                   <select
-                    value={days}
-                    onChange={(e) => setDays(parseInt(e.target.value))}
+                    value={year}
+                    onChange={(e) => setYear(e.target.value)}
                     className="w-full px-4 py-2 bg-surface-2 border border-app rounded-xl"
                   >
-                    <option value={7}>7 days</option>
-                    <option value={14}>14 days</option>
-                    <option value={30}>30 days</option>
-                    <option value={60}>60 days</option>
-                    <option value={90}>90 days</option>
-                    <option value={180}>6 months</option>
-                    <option value={365}>1 year</option>
+                    <option value="ytd">Year to Date ({new Date().getFullYear()})</option>
+                    <option value={new Date().getFullYear()}>{new Date().getFullYear()}</option>
+                    <option value={new Date().getFullYear() - 1}>{new Date().getFullYear() - 1}</option>
+                    <option value={new Date().getFullYear() - 2}>{new Date().getFullYear() - 2}</option>
+                    <option value={new Date().getFullYear() - 3}>{new Date().getFullYear() - 3}</option>
+                    <option value={new Date().getFullYear() - 4}>{new Date().getFullYear() - 4}</option>
+                    <option value={new Date().getFullYear() - 5}>{new Date().getFullYear() - 5}</option>
                   </select>
+                  <p className="text-xs text-muted mt-2">
+                    {year === 'ytd'
+                      ? `Import all rides from January 1, ${new Date().getFullYear()} to today`
+                      : `Import all rides from ${year}`
+                    }
+                  </p>
                 </div>
 
                 {error && (
@@ -162,9 +168,13 @@ export default function StravaImportModal({ open, onClose, onSuccess }: Props) {
                   </p>
                   {importStats && (
                     <div className="text-sm mt-3 text-green-200 space-y-1">
+                      <p className="font-medium">Import completed for {year === 'ytd' ? 'Year to Date' : year}</p>
                       <p>• Imported: {importStats.imported} rides</p>
                       <p>• Skipped (already exist): {importStats.skipped} rides</p>
                       <p>• Total cycling activities found: {importStats.total}</p>
+                      {unmappedGears.length > 0 && (
+                        <p className="text-yellow-300">• {unmappedGears.length} unmapped bike(s) - visit Gear page to map</p>
+                      )}
                     </div>
                   )}
                 </div>
