@@ -370,6 +370,76 @@ r.get<{ gearId: string }, void, Empty, Empty>(
   }
 );
 
+/**
+ * Testing/utility endpoint: Delete all Strava-imported rides for the current user.
+ * Also removes the recorded hours from associated bikes/components.
+ */
+r.delete<Empty, void, Empty>(
+  '/strava/testing/delete-imported-rides',
+  async (req: Request, res: Response) => {
+    const userId = req.user?.id || req.sessionUser?.uid;
+    if (!userId) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    try {
+      const rides = await prisma.ride.findMany({
+        where: {
+          userId,
+          stravaActivityId: { not: null },
+        },
+        select: { id: true, durationSeconds: true, bikeId: true },
+      });
+
+      if (rides.length === 0) {
+        return res.json({
+          success: true,
+          deletedRides: 0,
+          message: 'No Strava rides to delete',
+        });
+      }
+
+      const hoursByBike = rides.reduce<Map<string, number>>((map, ride) => {
+        if (ride.bikeId) {
+          const hours = Math.max(0, ride.durationSeconds ?? 0) / 3600;
+          map.set(ride.bikeId, (map.get(ride.bikeId) ?? 0) + hours);
+        }
+        return map;
+      }, new Map());
+
+      await prisma.$transaction(async (tx) => {
+        for (const [bikeId, hours] of hoursByBike.entries()) {
+          if (hours <= 0) continue;
+          await tx.component.updateMany({
+            where: { userId, bikeId },
+            data: { hoursUsed: { decrement: hours } },
+          });
+          await tx.component.updateMany({
+            where: { userId, bikeId, hoursUsed: { lt: 0 } },
+            data: { hoursUsed: 0 },
+          });
+        }
+
+        await tx.ride.deleteMany({
+          where: {
+            userId,
+            stravaActivityId: { not: null },
+          },
+        });
+      });
+
+      return res.json({
+        success: true,
+        deletedRides: rides.length,
+        adjustedBikes: hoursByBike.size,
+      });
+    } catch (error) {
+      console.error('[Strava Delete Rides] Error:', error);
+      return res.status(500).json({ error: 'Failed to delete Strava rides' });
+    }
+  }
+);
+
 // Type definitions for Strava API responses
 type StravaActivity = {
   id: number;
