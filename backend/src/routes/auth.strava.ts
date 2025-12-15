@@ -25,14 +25,22 @@ r.get<Empty, void, Empty>('/strava/start', async (_req: Request, res: Response) 
 
   const state = randomString(24);
 
-  // short-lived, httpOnly cookie for CSRF state
-  res.cookie('ll_strava_state', state, {
+  const cookieOptions = {
     httpOnly: true,
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+    sameSite: (process.env.NODE_ENV === 'production' ? 'none' : 'lax') as 'none' | 'lax',
     secure: process.env.NODE_ENV !== 'development',
     maxAge: 10 * 60 * 1000,
     path: '/',
+  };
+
+  console.log('[Strava Start] Setting state cookie:', {
+    state,
+    cookieOptions,
+    nodeEnv: process.env.NODE_ENV,
   });
+
+  // short-lived, httpOnly cookie for CSRF state
+  res.cookie('ll_strava_state', state, cookieOptions);
 
   const url = new URL(AUTH_URL);
   url.searchParams.set('client_id', CLIENT_ID);
@@ -74,6 +82,14 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string }>(
 
       const { code, state } = req.query;
       const cookieState = req.cookies['ll_strava_state'];
+
+      console.log('[Strava Callback] OAuth state check:', {
+        hasCode: !!code,
+        queryState: state,
+        cookieState: cookieState,
+        statesMatch: state === cookieState,
+        allCookies: Object.keys(req.cookies),
+      });
 
       if (!code || !state || !cookieState || state !== cookieState) {
         return res.status(400).send('Invalid OAuth state');
