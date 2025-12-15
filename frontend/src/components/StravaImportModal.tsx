@@ -1,10 +1,16 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import StravaGearMappingModal from './StravaGearMappingModal';
 
 type Props = {
   open: boolean;
   onClose: () => void;
   onSuccess: () => void;
+};
+
+type UnmappedGear = {
+  gearId: string;
+  rideCount: number;
 };
 
 export default function StravaImportModal({ open, onClose, onSuccess }: Props) {
@@ -17,6 +23,8 @@ export default function StravaImportModal({ open, onClose, onSuccess }: Props) {
     skipped: number;
     total: number;
   } | null>(null);
+  const [unmappedGears, setUnmappedGears] = useState<UnmappedGear[]>([]);
+  const [showGearMapping, setShowGearMapping] = useState(false);
 
   useEffect(() => {
     if (!open) {
@@ -26,6 +34,8 @@ export default function StravaImportModal({ open, onClose, onSuccess }: Props) {
       setError(null);
       setSuccessMessage(null);
       setImportStats(null);
+      setUnmappedGears([]);
+      setShowGearMapping(false);
     }
   }, [open]);
 
@@ -54,6 +64,12 @@ export default function StravaImportModal({ open, onClose, onSuccess }: Props) {
         total: data.cyclingActivities || 0,
       });
       setStep('complete');
+
+      // Check for unmapped gears
+      if (data.unmappedGears && data.unmappedGears.length > 0) {
+        setUnmappedGears(data.unmappedGears);
+        setShowGearMapping(true);
+      }
 
       // Call onSuccess to trigger parent refresh
       onSuccess();
@@ -162,6 +178,18 @@ export default function StravaImportModal({ open, onClose, onSuccess }: Props) {
             )}
           </motion.div>
         </div>
+      )}
+      {showGearMapping && unmappedGears.length > 0 && (
+        <StravaGearMappingModal
+          open={showGearMapping}
+          onClose={() => setShowGearMapping(false)}
+          onSuccess={() => {
+            onSuccess();
+            setUnmappedGears([]);
+          }}
+          unmappedGears={unmappedGears}
+          trigger="import"
+        />
       )}
     </AnimatePresence>
   );

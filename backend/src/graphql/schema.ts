@@ -30,6 +30,8 @@ export const typeDefs = gql`
     id: ID!
     userId: ID!
     garminActivityId: String
+    stravaActivityId: String
+    stravaGearId: String
     startTime: String!
     durationSeconds: Int!
     distanceMiles: Float!
@@ -77,6 +79,28 @@ export const typeDefs = gql`
     components: [Component!]!
     createdAt: String!
     updatedAt: String!
+  }
+
+  type StravaGearMapping {
+    id: ID!
+    stravaGearId: String!
+    stravaGearName: String
+    bikeId: ID!
+    bike: Bike!
+    createdAt: String!
+  }
+
+  type StravaGearInfo {
+    gearId: String!
+    gearName: String
+    rideCount: Int!
+    isMapped: Boolean!
+  }
+
+  input CreateStravaGearMappingInput {
+    stravaGearId: String!
+    stravaGearName: String
+    bikeId: ID!
   }
 
   input UpdateRideInput {
@@ -184,6 +208,8 @@ export const typeDefs = gql`
     updateComponent(id: ID!, input: UpdateComponentInput!): Component!
     deleteComponent(id: ID!): DeleteResult!
     logComponentService(id: ID!): Component!
+    createStravaGearMapping(input: CreateStravaGearMappingInput!): StravaGearMapping!
+    deleteStravaGearMapping(id: ID!): DeleteResult!
   }
 
   type ConnectedAccount {
@@ -211,5 +237,7 @@ export const typeDefs = gql`
     rideTypes: [RideType!]!
     bikes: [Bike!]!
     components(filter: ComponentFilterInput): [Component!]!
+    stravaGearMappings: [StravaGearMapping!]!
+    unmappedStravaGears: [StravaGearInfo!]!
   }
 `;
