@@ -246,7 +246,7 @@ function extractMinStartDate(errorText: string): Date | null {
     const parsed = JSON.parse(errorText);
     const message =
       typeof parsed?.errorMessage === 'string' ? parsed.errorMessage : String(parsed ?? '');
-    const match = message.match(/min start time of ([0-9T:\.\-]+Z)/i);
+    const match = message.match(/min start time of ([0-9T:.-]+Z)/i);
     if (match && match[1]) {
       const dt = new Date(match[1]);
       if (!Number.isNaN(dt.getTime())) {
