@@ -230,10 +230,15 @@ export const typeDefs = gql`
     accounts: [ConnectedAccount!]!
   }
 
+  input RidesFilterInput {
+    startDate: String
+    endDate: String
+  }
+
   type Query {
     me: User
     user(id: ID!): User
-    rides(take: Int = 20, after: ID): [Ride!]!
+    rides(take: Int = 1000, after: ID, filter: RidesFilterInput): [Ride!]!
     rideTypes: [RideType!]!
     bikes: [Bike!]!
     components(filter: ComponentFilterInput): [Component!]!
