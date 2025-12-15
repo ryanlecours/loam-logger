@@ -11,18 +11,35 @@ const r: Router = createRouter();
  * Fetch historical activities from Strava for a given time period
  * Returns activities that have been imported
  */
-r.get<Empty, void, Empty, { days?: string }>(
+r.get<Empty, void, Empty, { year?: string }>(
   '/strava/backfill/fetch',
-  async (req: Request<Empty, void, Empty, { days?: string }>, res: Response) => {
+  async (req: Request<Empty, void, Empty, { year?: string }>, res: Response) => {
     const userId = req.user?.id || req.sessionUser?.uid;
     if (!userId) {
       return res.status(401).json({ error: 'Not authenticated' });
     }
 
     try {
-      const days = parseInt(req.query.days || '30', 10);
-      if (isNaN(days) || days < 1 || days > 365) {
-        return res.status(400).json({ error: 'Days must be between 1 and 365' });
+      const currentYear = new Date().getFullYear();
+      const yearParam = req.query.year;
+
+      let startDate: Date;
+      let endDate: Date;
+
+      if (yearParam === 'ytd') {
+        // Year-to-date: Jan 1 of current year to now
+        startDate = new Date(currentYear, 0, 1); // Jan 1
+        endDate = new Date(); // Now
+      } else {
+        // Specific year: Jan 1 to Dec 31
+        const year = parseInt(yearParam || String(currentYear), 10);
+        if (isNaN(year) || year < 2000 || year > currentYear) {
+          return res.status(400).json({
+            error: `Year must be between 2000 and ${currentYear}, or 'ytd'`
+          });
+        }
+        startDate = new Date(year, 0, 1); // Jan 1
+        endDate = new Date(year, 11, 31, 23, 59, 59); // Dec 31 end of day
       }
 
       // Get valid OAuth token
@@ -34,13 +51,11 @@ r.get<Empty, void, Empty, { days?: string }>(
         });
       }
 
-      // Calculate date range (Unix timestamps)
-      const endDate = new Date();
-      const startDate = subDays(endDate, days);
+      // Calculate Unix timestamps
       const afterTimestamp = Math.floor(startDate.getTime() / 1000);
       const beforeTimestamp = Math.floor(endDate.getTime() / 1000);
 
-      console.log(`[Strava Backfill] Fetching activities from ${startDate.toISOString()} to ${endDate.toISOString()}`);
+      console.log(`[Strava Backfill] Fetching ${yearParam || currentYear} activities from ${startDate.toISOString()} to ${endDate.toISOString()}`);
 
       // Fetch activities from Strava API
       // https://developers.strava.com/docs/reference/#api-Activities-getLoggedInAthleteActivities
@@ -80,9 +95,9 @@ r.get<Empty, void, Empty, { days?: string }>(
           page++;
         }
 
-        // Safety: Limit to 10 pages (500 activities max)
-        if (page > 10) {
-          console.warn('[Strava Backfill] Reached page limit (10), stopping pagination');
+        // Safety: Limit to 50 pages (2500 activities max)
+        if (page > 50) {
+          console.warn('[Strava Backfill] Reached page limit (50), stopping pagination');
           hasMore = false;
         }
       }
