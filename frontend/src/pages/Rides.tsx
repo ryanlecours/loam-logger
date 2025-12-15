@@ -1,6 +1,7 @@
 // src/pages/Rides.tsx
 import { useQuery } from "@apollo/client";
 import { Link } from "react-router-dom";
+import { useState } from "react";
 import AddRideForm from "../components/AddRideForm";
 import RideCard from "../components/RideCard";
 import { RIDES } from '../graphql/rides';
@@ -28,9 +29,43 @@ type Bike = {
   model: string;
 };
 
+type DateRange = 'all' | '30days' | '3months' | '6months' | '1year';
+
+const getDateRangeFilter = (range: DateRange) => {
+  if (range === 'all') return null;
+
+  const endDate = new Date();
+  const startDate = new Date();
+
+  switch (range) {
+    case '30days':
+      startDate.setDate(endDate.getDate() - 30);
+      break;
+    case '3months':
+      startDate.setMonth(endDate.getMonth() - 3);
+      break;
+    case '6months':
+      startDate.setMonth(endDate.getMonth() - 6);
+      break;
+    case '1year':
+      startDate.setFullYear(endDate.getFullYear() - 1);
+      break;
+  }
+
+  return {
+    startDate: startDate.toISOString(),
+    endDate: endDate.toISOString(),
+  };
+};
+
 export default function RidesPage() {
+  const [dateRange, setDateRange] = useState<DateRange>('all');
+
   const { data, refetch, loading, error } = useQuery<{ rides: Ride[] }>(RIDES, {
     fetchPolicy: 'cache-and-network',
+    variables: {
+      filter: getDateRangeFilter(dateRange),
+    },
   });
   const { data: bikesData } = useQuery<{ bikes: Bike[] }>(BIKES, {
     fetchPolicy: 'cache-and-network',
@@ -69,6 +104,62 @@ export default function RidesPage() {
           <Link to="/gear" className="text-sm text-muted underline hover:text-primary">
             Assign bikes
           </Link>
+        </div>
+
+        <div className="mb-4 p-4 rounded-2xl bg-surface-2/50 border border-app/50">
+          <p className="text-xs uppercase tracking-[0.3em] text-muted mb-3">Filter by date</p>
+          <div className="flex flex-wrap gap-4">
+            <label className="flex items-center gap-2 cursor-pointer text-sm text-white hover:text-primary transition-colors">
+              <input
+                type="checkbox"
+                checked={dateRange === 'all'}
+                onChange={() => setDateRange('all')}
+                className="w-4 h-4 rounded border-app/50 bg-surface-2 text-primary focus:ring-primary focus:ring-offset-0"
+              />
+              <span>All time</span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer text-sm text-white hover:text-primary transition-colors">
+              <input
+                type="checkbox"
+                checked={dateRange === '30days'}
+                onChange={() => setDateRange('30days')}
+                className="w-4 h-4 rounded border-app/50 bg-surface-2 text-primary focus:ring-primary focus:ring-offset-0"
+              />
+              <span>Last 30 days</span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer text-sm text-white hover:text-primary transition-colors">
+              <input
+                type="checkbox"
+                checked={dateRange === '3months'}
+                onChange={() => setDateRange('3months')}
+                className="w-4 h-4 rounded border-app/50 bg-surface-2 text-primary focus:ring-primary focus:ring-offset-0"
+              />
+              <span>Last 3 months</span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer text-sm text-white hover:text-primary transition-colors">
+              <input
+                type="checkbox"
+                checked={dateRange === '6months'}
+                onChange={() => setDateRange('6months')}
+                className="w-4 h-4 rounded border-app/50 bg-surface-2 text-primary focus:ring-primary focus:ring-offset-0"
+              />
+              <span>Last 6 months</span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer text-sm text-white hover:text-primary transition-colors">
+              <input
+                type="checkbox"
+                checked={dateRange === '1year'}
+                onChange={() => setDateRange('1year')}
+                className="w-4 h-4 rounded border-app/50 bg-surface-2 text-primary focus:ring-primary focus:ring-offset-0"
+              />
+              <span>Last year</span>
+            </label>
+          </div>
+          {dateRange !== 'all' && (
+            <p className="mt-3 text-xs text-muted">
+              Showing {rides.length} ride{rides.length !== 1 ? 's' : ''} in selected range
+            </p>
+          )}
         </div>
 
         {loading && (
