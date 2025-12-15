@@ -81,6 +81,23 @@ r.get<Empty, void, Empty, { days?: string }>(
             // 409 Conflict - duplicate request (already requested this time period)
             console.log(`[Garmin Backfill] Backfill already in progress for this time period`);
             errors.push(`Duplicate request for period ${currentStartDate.toISOString().split('T')[0]}`);
+          } else if (backfillRes.status === 400) {
+            const text = await backfillRes.text();
+            const minStartDate = extractMinStartDate(text);
+            if (minStartDate && minStartDate > currentStartDate) {
+              console.warn(
+                `[Garmin Backfill] Chunk ${currentStartDate.toISOString()} rejected. Adjusting start to Garmin min ${minStartDate.toISOString()}`
+              );
+              errors.push(
+                `Adjusted start date to ${minStartDate.toISOString()} due to Garmin min start restriction`
+              );
+              currentStartDate = minStartDate;
+              continue;
+            }
+            console.error(`[Garmin Backfill] Failed to trigger backfill chunk: ${backfillRes.status} ${text}`);
+            errors.push(
+              `Failed for period ${currentStartDate.toISOString().split('T')[0]}: ${backfillRes.status}`
+            );
           } else {
             const text = await backfillRes.text();
             console.error(`[Garmin Backfill] Failed to trigger backfill chunk: ${backfillRes.status} ${text}`);
@@ -223,3 +240,21 @@ r.get<Empty, void, Empty, Empty>(
 );
 
 export default r;
+
+function extractMinStartDate(errorText: string): Date | null {
+  try {
+    const parsed = JSON.parse(errorText);
+    const message =
+      typeof parsed?.errorMessage === 'string' ? parsed.errorMessage : String(parsed ?? '');
+    const match = message.match(/min start time of ([0-9T:\.\-]+Z)/i);
+    if (match && match[1]) {
+      const dt = new Date(match[1]);
+      if (!Number.isNaN(dt.getTime())) {
+        return dt;
+      }
+    }
+  } catch (err) {
+    // ignore JSON parse errors and fall through
+  }
+  return null;
+}
