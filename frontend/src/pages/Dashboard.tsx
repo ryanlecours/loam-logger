@@ -5,9 +5,11 @@ import { useQuery, useMutation } from '@apollo/client';
 import { RIDES } from '../graphql/rides';
 import { BIKES } from '../graphql/bikes';
 import { ADD_RIDE } from '../graphql/addRide';
+import { UNMAPPED_STRAVA_GEARS } from '../graphql/stravaGear';
 import RideCard from '../components/RideCard';
 import BikeCard from '../components/BikeCard';
 import RideStatsCard from '../components/RideStatsCard.tsx';
+import StravaGearMappingModal from '../components/StravaGearMappingModal';
 import { useCurrentUser } from '../hooks/useCurrentUser.ts';
 import type { Bike } from '../models/BikeComponents';
 
@@ -135,6 +137,21 @@ export default function Dashboard() {
 
   const [addRide] = useMutation(ADD_RIDE);
   const [isSimulatingRide, setIsSimulatingRide] = useState(false);
+
+  const [showGearMapping, setShowGearMapping] = useState(false);
+  const [unmappedGears, setUnmappedGears] = useState<Array<{ gearId: string; rideCount: number }>>([]);
+
+  const { data: unmappedData } = useQuery(UNMAPPED_STRAVA_GEARS, {
+    pollInterval: 60000, // Check every minute
+    skip: !user,
+  });
+
+  useEffect(() => {
+    if (unmappedData?.unmappedStravaGears?.length > 0) {
+      setUnmappedGears(unmappedData.unmappedStravaGears);
+      setShowGearMapping(true);
+    }
+  }, [unmappedData]);
 
   const rides = ridesData?.rides ?? [];
   const bikesRaw = useMemo(() => bikesData?.bikes ?? [], [bikesData]);
@@ -477,6 +494,19 @@ export default function Dashboard() {
             </div>
           </div>
         </div>
+      )}
+
+      {showGearMapping && unmappedGears.length > 0 && (
+        <StravaGearMappingModal
+          open={showGearMapping}
+          onClose={() => setShowGearMapping(false)}
+          onSuccess={() => {
+            refetchRides();
+            setUnmappedGears([]);
+          }}
+          unmappedGears={unmappedGears}
+          trigger="webhook"
+        />
       )}
     </div>
   );

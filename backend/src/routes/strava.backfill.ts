@@ -120,6 +120,20 @@ r.get<Empty, void, Empty, { days?: string }>(
           continue;
         }
 
+        // Look up bike mapping if gear_id exists
+        let bikeId: string | null = null;
+        if (activity.gear_id) {
+          const mapping = await prisma.stravaGearMapping.findUnique({
+            where: {
+              userId_stravaGearId: {
+                userId,
+                stravaGearId: activity.gear_id,
+              },
+            },
+          });
+          bikeId = mapping?.bikeId ?? null;
+        }
+
         // Convert activity to Ride format
         const distanceMiles = activity.distance * 0.000621371; // meters to miles
         const elevationGainFeet = activity.total_elevation_gain * 3.28084; // meters to feet
@@ -129,13 +143,15 @@ r.get<Empty, void, Empty, { days?: string }>(
           data: {
             userId,
             stravaActivityId: activity.id.toString(),
+            stravaGearId: activity.gear_id ?? null,
             startTime,
-            durationSeconds: activity.elapsed_time,
+            durationSeconds: activity.moving_time,
             distanceMiles,
             elevationGainFeet,
             averageHr: activity.average_heartrate ? Math.round(activity.average_heartrate) : null,
             rideType: activity.sport_type,
             notes: activity.name || null,
+            bikeId,
           },
         });
 
@@ -144,6 +160,27 @@ r.get<Empty, void, Empty, { days?: string }>(
 
       console.log(`[Strava Backfill] Imported: ${importedCount}, Skipped (existing): ${skippedCount}`);
 
+      // Detect unmapped gears
+      const unmappedGearIds = cyclingActivities
+        .filter((a) => a.gear_id)
+        .map((a) => a.gear_id!)
+        .filter((id, idx, arr) => arr.indexOf(id) === idx);
+
+      const unmappedGears: Array<{ gearId: string; rideCount: number }> = [];
+      for (const gearId of unmappedGearIds) {
+        const mapping = await prisma.stravaGearMapping.findUnique({
+          where: {
+            userId_stravaGearId: { userId, stravaGearId: gearId },
+          },
+        });
+        if (!mapping) {
+          const rideCount = cyclingActivities.filter((a) => a.gear_id === gearId).length;
+          unmappedGears.push({ gearId, rideCount });
+        }
+      }
+
+      console.log(`[Strava Backfill] Unmapped gears: ${unmappedGears.length}`);
+
       return res.json({
         success: true,
         message: `Successfully imported ${importedCount} rides from Strava.`,
@@ -151,6 +188,7 @@ r.get<Empty, void, Empty, { days?: string }>(
         cyclingActivities: cyclingActivities.length,
         imported: importedCount,
         skipped: skippedCount,
+        unmappedGears,
       });
     } catch (error) {
       console.error('[Strava Backfill] Error:', error);
@@ -250,6 +288,57 @@ r.get<Empty, void, Empty, Empty>(
   }
 );
 
+/**
+ * Fetch Strava gear details
+ */
+r.get<{ gearId: string }, void, Empty, Empty>(
+  '/strava/gear/:gearId',
+  async (req: Request<{ gearId: string }, void, Empty, Empty>, res: Response) => {
+    const userId = req.user?.id || req.sessionUser?.uid;
+    if (!userId) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    try {
+      const { gearId } = req.params;
+      const accessToken = await getValidStravaToken(userId);
+
+      if (!accessToken) {
+        return res.status(400).json({ error: 'Strava not connected' });
+      }
+
+      const gearUrl = `https://www.strava.com/api/v3/gear/${gearId}`;
+      const gearRes = await fetch(gearUrl, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: 'application/json',
+        },
+      });
+
+      if (!gearRes.ok) {
+        return res.status(404).json({ error: 'Gear not found' });
+      }
+
+      const gear = (await gearRes.json()) as {
+        id: string;
+        name: string;
+        brand_name?: string;
+        model_name?: string;
+      };
+
+      return res.json({
+        id: gear.id,
+        name: gear.name,
+        brand: gear.brand_name,
+        model: gear.model_name,
+      });
+    } catch (error) {
+      console.error('[Strava Gear] Error:', error);
+      return res.status(500).json({ error: 'Failed to fetch gear' });
+    }
+  }
+);
+
 // Type definitions for Strava API responses
 type StravaActivity = {
   id: number;
@@ -260,6 +349,7 @@ type StravaActivity = {
   moving_time: number; // seconds
   distance: number; // meters
   total_elevation_gain: number; // meters
+  gear_id?: string | null; // Strava bike/gear ID
   average_heartrate?: number;
   max_heartrate?: number;
   average_speed?: number; // m/s
