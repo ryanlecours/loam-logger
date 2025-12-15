@@ -1,6 +1,7 @@
 import { Router as createRouter, type Router, type Request, type Response } from 'express';
 import { prisma } from '../lib/prisma.ts';
 import { getValidGarminToken } from '../lib/garmin-token.ts';
+import { deriveLocation, shouldApplyAutoLocation } from '../lib/location.ts';
 
 type Empty = Record<string, never>;
 const r: Router = createRouter();
@@ -366,26 +367,31 @@ async function processActivityPing(notification: GarminActivityPing): Promise<vo
       return;
     }
 
-    type GarminActivityDetail = {
-      summaryId: string;
-      activityId?: number;
-      activityType: string;
-      activityName?: string;
-      startTimeInSeconds: number;
-      startTimeOffsetInSeconds?: number;
-      durationInSeconds: number;
-      distanceInMeters?: number;
-      elevationGainInMeters?: number;
-      totalElevationGainInMeters?: number;
-      averageHeartRateInBeatsPerMinute?: number;
-      maxHeartRateInBeatsPerMinute?: number;
-      averageSpeedInMetersPerSecond?: number;
-      maxSpeedInMetersPerSecond?: number;
-      activeKilocalories?: number;
-      deviceName?: string;
-      manual?: boolean;
-      [key: string]: unknown;
-    };
+type GarminActivityDetail = {
+  summaryId: string;
+  activityId?: number;
+  activityType: string;
+  activityName?: string;
+  startTimeInSeconds: number;
+  startTimeOffsetInSeconds?: number;
+  durationInSeconds: number;
+  distanceInMeters?: number;
+  elevationGainInMeters?: number;
+  totalElevationGainInMeters?: number;
+  averageHeartRateInBeatsPerMinute?: number;
+  maxHeartRateInBeatsPerMinute?: number;
+  averageSpeedInMetersPerSecond?: number;
+  maxSpeedInMetersPerSecond?: number;
+  activeKilocalories?: number;
+  deviceName?: string;
+  manual?: boolean;
+  locationName?: string;
+  startLatitudeInDegrees?: number;
+  startLongitudeInDegrees?: number;
+  beginLatitude?: number;
+  beginLongitude?: number;
+  [key: string]: unknown;
+};
 
     const activityDetail = (await activityRes.json()) as GarminActivityDetail;
 
@@ -429,6 +435,30 @@ async function processActivityPing(notification: GarminActivityPing): Promise<vo
 
     const startTime = new Date(activityDetail.startTimeInSeconds * 1000);
 
+    const autoLocation = deriveLocation({
+      city: activityDetail.locationName ?? null,
+      state: null,
+      country: null,
+      lat:
+        activityDetail.startLatitudeInDegrees ??
+        activityDetail.beginLatitude ??
+        null,
+      lon:
+        activityDetail.startLongitudeInDegrees ??
+        activityDetail.beginLongitude ??
+        null,
+    });
+
+    const existingRide = await prisma.ride.findUnique({
+      where: { garminActivityId: summaryId },
+      select: { location: true },
+    });
+
+    const locationUpdate = shouldApplyAutoLocation(
+      existingRide?.location ?? null,
+      autoLocation
+    );
+
     // Upsert the ride (create or update if it already exists)
     await prisma.ride.upsert({
       where: {
@@ -444,6 +474,7 @@ async function processActivityPing(notification: GarminActivityPing): Promise<vo
         averageHr: activityDetail.averageHeartRateInBeatsPerMinute ?? null,
         rideType: activityDetail.activityType,
         notes: activityDetail.activityName ?? null,
+        location: autoLocation,
       },
       update: {
         startTime,
@@ -453,6 +484,7 @@ async function processActivityPing(notification: GarminActivityPing): Promise<vo
         averageHr: activityDetail.averageHeartRateInBeatsPerMinute ?? null,
         rideType: activityDetail.activityType,
         notes: activityDetail.activityName ?? null,
+        ...(locationUpdate !== undefined ? { location: locationUpdate } : {}),
       },
     });
 
