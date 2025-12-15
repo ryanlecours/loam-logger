@@ -28,7 +28,7 @@ r.get<Empty, void, Empty>('/strava/start', async (_req: Request, res: Response) 
   // short-lived, httpOnly cookie for CSRF state
   res.cookie('ll_strava_state', state, {
     httpOnly: true,
-    sameSite: 'lax',
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
     secure: process.env.NODE_ENV !== 'development',
     maxAge: 10 * 60 * 1000,
     path: '/',
