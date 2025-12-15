@@ -2,6 +2,7 @@ import { Router as createRouter, type Router, type Request, type Response } from
 import { getValidStravaToken } from '../lib/strava-token.ts';
 import { subDays } from 'date-fns';
 import { prisma } from '../lib/prisma.ts';
+import { deriveLocation } from '../lib/location.ts';
 
 type Empty = Record<string, never>;
 const r: Router = createRouter();
@@ -150,20 +151,39 @@ r.get<Empty, void, Empty, { days?: string }>(
         const elevationGainFeet = activity.total_elevation_gain * 3.28084; // meters to feet
         const startTime = new Date(activity.start_date);
 
-        await prisma.ride.create({
-          data: {
-            userId,
-            stravaActivityId: activity.id.toString(),
-            stravaGearId: activity.gear_id ?? null,
-            startTime,
-            durationSeconds: activity.moving_time,
-            distanceMiles,
-            elevationGainFeet,
-            averageHr: activity.average_heartrate ? Math.round(activity.average_heartrate) : null,
-            rideType: activity.sport_type,
-            notes: activity.name || null,
-            bikeId,
-          },
+        const durationHours = Math.max(0, activity.moving_time) / 3600;
+        const autoLocation = deriveLocation({
+          city: activity.location_city ?? null,
+          state: activity.location_state ?? null,
+          country: activity.location_country ?? null,
+          lat: activity.start_latlng?.[0] ?? null,
+          lon: activity.start_latlng?.[1] ?? null,
+        });
+
+        await prisma.$transaction(async (tx) => {
+          await tx.ride.create({
+            data: {
+              userId,
+              stravaActivityId: activity.id.toString(),
+              stravaGearId: activity.gear_id ?? null,
+              startTime,
+              durationSeconds: activity.moving_time,
+              distanceMiles,
+              elevationGainFeet,
+              averageHr: activity.average_heartrate ? Math.round(activity.average_heartrate) : null,
+              rideType: activity.sport_type,
+              notes: activity.name || null,
+              bikeId,
+              location: autoLocation,
+            },
+          });
+
+          if (bikeId && durationHours > 0) {
+            await tx.component.updateMany({
+              where: { userId, bikeId },
+              data: { hoursUsed: { increment: durationHours } },
+            });
+          }
         });
 
         importedCount++;
@@ -366,6 +386,10 @@ type StravaActivity = {
   average_speed?: number; // m/s
   max_speed?: number; // m/s
   [key: string]: unknown;
+  location_city?: string | null;
+  location_state?: string | null;
+  location_country?: string | null;
+  start_latlng?: [number, number] | null;
 };
 
 export default r;

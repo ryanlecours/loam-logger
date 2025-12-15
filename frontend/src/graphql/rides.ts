@@ -5,6 +5,7 @@ export const RIDES = gql`
     rides(take: $take, after: $after) {
       id
       garminActivityId
+      stravaActivityId
       startTime
       durationSeconds
       distanceMiles
