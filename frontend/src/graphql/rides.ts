@@ -1,8 +1,8 @@
 import { gql } from '@apollo/client';
 
 export const RIDES = gql`
-  query Rides($take: Int, $after: ID) {
-    rides(take: $take, after: $after) {
+  query Rides($take: Int, $after: ID, $filter: RidesFilterInput) {
+    rides(take: $take, after: $after, filter: $filter) {
       id
       garminActivityId
       stravaActivityId

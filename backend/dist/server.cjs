@@ -41,6 +41,8 @@ const typeDefs = graphqlTag.gql`
     id: ID!
     userId: ID!
     garminActivityId: String
+    stravaActivityId: String
+    stravaGearId: String
     startTime: String!
     durationSeconds: Int!
     distanceMiles: Float!
@@ -88,6 +90,28 @@ const typeDefs = graphqlTag.gql`
     components: [Component!]!
     createdAt: String!
     updatedAt: String!
+  }
+
+  type StravaGearMapping {
+    id: ID!
+    stravaGearId: String!
+    stravaGearName: String
+    bikeId: ID!
+    bike: Bike!
+    createdAt: String!
+  }
+
+  type StravaGearInfo {
+    gearId: String!
+    gearName: String
+    rideCount: Int!
+    isMapped: Boolean!
+  }
+
+  input CreateStravaGearMappingInput {
+    stravaGearId: String!
+    stravaGearName: String
+    bikeId: ID!
   }
 
   input UpdateRideInput {
@@ -195,6 +219,8 @@ const typeDefs = graphqlTag.gql`
     updateComponent(id: ID!, input: UpdateComponentInput!): Component!
     deleteComponent(id: ID!): DeleteResult!
     logComponentService(id: ID!): Component!
+    createStravaGearMapping(input: CreateStravaGearMappingInput!): StravaGearMapping!
+    deleteStravaGearMapping(id: ID!): DeleteResult!
   }
 
   type ConnectedAccount {
@@ -211,16 +237,24 @@ const typeDefs = graphqlTag.gql`
     onboardingCompleted: Boolean!
     location: String
     age: Int
+    activeDataSource: String
     accounts: [ConnectedAccount!]!
+  }
+
+  input RidesFilterInput {
+    startDate: String
+    endDate: String
   }
 
   type Query {
     me: User
     user(id: ID!): User
-    rides(take: Int = 20, after: ID): [Ride!]!
+    rides(take: Int = 1000, after: ID, filter: RidesFilterInput): [Ride!]!
     rideTypes: [RideType!]!
     bikes: [Bike!]!
     components(filter: ComponentFilterInput): [Component!]!
+    stravaGearMappings: [StravaGearMapping!]!
+    unmappedStravaGears: [StravaGearInfo!]!
   }
 `;
 const prisma = global.__prisma__ ?? new client$1.PrismaClient();
@@ -358,11 +392,23 @@ const resolvers = {
       where: { id: args.id },
       include: { rides: true }
     }),
-    rides: async (_, { take = 20, after }, ctx) => {
+    rides: async (_, { take = 1e3, after, filter }, ctx) => {
       if (!ctx.user?.id) throw new Error("Unauthorized");
-      const limit = Math.min(100, Math.max(1, take));
+      const limit = Math.min(1e4, Math.max(1, take));
+      const whereClause = {
+        userId: ctx.user.id
+      };
+      if (filter?.startDate || filter?.endDate) {
+        whereClause.startTime = {};
+        if (filter.startDate) {
+          whereClause.startTime.gte = new Date(filter.startDate);
+        }
+        if (filter.endDate) {
+          whereClause.startTime.lte = new Date(filter.endDate);
+        }
+      }
       return prisma.ride.findMany({
-        where: { userId: ctx.user.id },
+        where: whereClause,
         orderBy: { startTime: "desc" },
         take: limit,
         ...after ? { skip: 1, cursor: { id: after } } : {}
@@ -397,6 +443,42 @@ const resolvers = {
         where,
         orderBy: { createdAt: "desc" }
       });
+    },
+    stravaGearMappings: async (_, __, ctx) => {
+      const userId = requireUserId(ctx);
+      return prisma.stravaGearMapping.findMany({
+        where: { userId },
+        include: { bike: true },
+        orderBy: { createdAt: "desc" }
+      });
+    },
+    unmappedStravaGears: async (_, __, ctx) => {
+      const userId = requireUserId(ctx);
+      const rides = await prisma.ride.findMany({
+        where: { userId, stravaGearId: { not: null } },
+        select: { stravaGearId: true }
+      });
+      const gearCounts = /* @__PURE__ */ new Map();
+      rides.forEach((ride) => {
+        if (ride.stravaGearId) {
+          gearCounts.set(ride.stravaGearId, (gearCounts.get(ride.stravaGearId) || 0) + 1);
+        }
+      });
+      const mappings = await prisma.stravaGearMapping.findMany({
+        where: { userId },
+        select: { stravaGearId: true }
+      });
+      const mappedGearIds = new Set(mappings.map((m) => m.stravaGearId));
+      const result = [];
+      gearCounts.forEach((count, gearId) => {
+        result.push({
+          gearId,
+          gearName: null,
+          rideCount: count,
+          isMapped: mappedGearIds.has(gearId)
+        });
+      });
+      return result.filter((g) => !g.isMapped);
     }
   },
   Mutation: {
@@ -727,6 +809,88 @@ const resolvers = {
         where: { id },
         data: { hoursUsed: 0 }
       });
+    },
+    createStravaGearMapping: async (_, { input }, ctx) => {
+      const userId = requireUserId(ctx);
+      const bike = await prisma.bike.findUnique({
+        where: { id: input.bikeId },
+        select: { userId: true }
+      });
+      if (!bike || bike.userId !== userId) {
+        throw new Error("Bike not found");
+      }
+      const existing = await prisma.stravaGearMapping.findUnique({
+        where: {
+          userId_stravaGearId: { userId, stravaGearId: input.stravaGearId }
+        }
+      });
+      if (existing) {
+        throw new Error("This Strava bike is already mapped");
+      }
+      return prisma.$transaction(async (tx) => {
+        const mapping = await tx.stravaGearMapping.create({
+          data: {
+            userId,
+            stravaGearId: input.stravaGearId,
+            stravaGearName: input.stravaGearName ?? null,
+            bikeId: input.bikeId
+          },
+          include: { bike: true }
+        });
+        const ridesToUpdate = await tx.ride.findMany({
+          where: { userId, stravaGearId: input.stravaGearId, bikeId: null },
+          select: { id: true, durationSeconds: true }
+        });
+        if (ridesToUpdate.length > 0) {
+          await tx.ride.updateMany({
+            where: { userId, stravaGearId: input.stravaGearId },
+            data: { bikeId: input.bikeId }
+          });
+          const totalSeconds = ridesToUpdate.reduce((sum, r2) => sum + r2.durationSeconds, 0);
+          const totalHours = totalSeconds / 3600;
+          if (totalHours > 0) {
+            await tx.component.updateMany({
+              where: { userId, bikeId: input.bikeId },
+              data: { hoursUsed: { increment: totalHours } }
+            });
+          }
+        }
+        return mapping;
+      });
+    },
+    deleteStravaGearMapping: async (_, { id }, ctx) => {
+      const userId = requireUserId(ctx);
+      const mapping = await prisma.stravaGearMapping.findUnique({
+        where: { id },
+        select: { userId: true, stravaGearId: true, bikeId: true }
+      });
+      if (!mapping || mapping.userId !== userId) {
+        throw new Error("Mapping not found");
+      }
+      await prisma.$transaction(async (tx) => {
+        const rides = await tx.ride.findMany({
+          where: { userId, stravaGearId: mapping.stravaGearId, bikeId: mapping.bikeId },
+          select: { durationSeconds: true }
+        });
+        const totalSeconds = rides.reduce((sum, r2) => sum + r2.durationSeconds, 0);
+        const totalHours = totalSeconds / 3600;
+        await tx.ride.updateMany({
+          where: { userId, stravaGearId: mapping.stravaGearId },
+          data: { bikeId: null }
+        });
+        if (totalHours > 0) {
+          await tx.component.updateMany({
+            where: { userId, bikeId: mapping.bikeId },
+            data: { hoursUsed: { decrement: totalHours } }
+          });
+          await tx.component.updateMany({
+            where: { userId, bikeId: mapping.bikeId, hoursUsed: { lt: 0 } },
+            data: { hoursUsed: 0 }
+          });
+        }
+        await tx.stravaGearMapping.delete({ where: { id } });
+      });
+      return { ok: true, id };
     }
   },
   Bike: {
@@ -744,6 +908,7 @@ const resolvers = {
     isSpare: (component) => component.bikeId == null
   },
   User: {
+    activeDataSource: (parent) => parent.activeDataSource,
     accounts: async (parent) => {
       const accounts = await prisma.userAccount.findMany({
         where: { userId: parent.id },
@@ -770,8 +935,8 @@ async function sha256(input) {
   const digest = await crypto.subtle.digest("SHA-256", data);
   return base64url(digest);
 }
-const r$3 = express.Router();
-r$3.get("/garmin/start", async (_req, res) => {
+const r$9 = express.Router();
+r$9.get("/garmin/start", async (_req, res) => {
   const AUTH_URL = process.env.GARMIN_AUTH_URL;
   const CLIENT_ID2 = process.env.GARMIN_CLIENT_ID;
   const REDIRECT_URI = process.env.GARMIN_REDIRECT_URI;
@@ -811,7 +976,7 @@ r$3.get("/garmin/start", async (_req, res) => {
   url.searchParams.set("code_challenge_method", "S256");
   return res.redirect(url.toString());
 });
-r$3.get(
+r$9.get(
   "/garmin/callback",
   async (req, res) => {
     try {
@@ -925,7 +1090,7 @@ r$3.get(
     }
   }
 );
-r$3.delete("/garmin/disconnect", async (req, res) => {
+r$9.delete("/garmin/disconnect", async (req, res) => {
   const userId = req.user?.id || req.sessionUser?.uid;
   if (!userId) {
     return res.status(401).json({ error: "Not authenticated" });
@@ -952,8 +1117,296 @@ r$3.delete("/garmin/disconnect", async (req, res) => {
     return res.status(500).json({ error: "Failed to disconnect" });
   }
 });
-const r$2 = express.Router();
-r$2.post(
+const r$8 = express.Router();
+r$8.get("/strava/start", async (_req, res) => {
+  const AUTH_URL = "https://www.strava.com/oauth/authorize";
+  const CLIENT_ID2 = process.env.STRAVA_CLIENT_ID;
+  const REDIRECT_URI = process.env.STRAVA_REDIRECT_URI;
+  const SCOPE = "activity:read_all";
+  if (!CLIENT_ID2 || !REDIRECT_URI) {
+    const missing = [
+      !CLIENT_ID2 && "STRAVA_CLIENT_ID",
+      !REDIRECT_URI && "STRAVA_REDIRECT_URI"
+    ].filter(Boolean).join(", ");
+    return res.status(500).send(`Missing env vars: ${missing}`);
+  }
+  const state = randomString(24);
+  const cookieOptions = {
+    httpOnly: true,
+    sameSite: "lax",
+    // 'lax' allows cookies to be sent on top-level navigations (OAuth redirects)
+    secure: process.env.NODE_ENV !== "development",
+    maxAge: 10 * 60 * 1e3,
+    path: "/"
+  };
+  console.log("[Strava Start] Setting state cookie:", {
+    state,
+    cookieOptions,
+    nodeEnv: process.env.NODE_ENV
+  });
+  res.cookie("ll_strava_state", state, cookieOptions);
+  const url = new URL(AUTH_URL);
+  url.searchParams.set("client_id", CLIENT_ID2);
+  url.searchParams.set("redirect_uri", REDIRECT_URI);
+  url.searchParams.set("response_type", "code");
+  url.searchParams.set("scope", SCOPE);
+  url.searchParams.set("state", state);
+  return res.redirect(url.toString());
+});
+r$8.get(
+  "/strava/callback",
+  async (req, res) => {
+    try {
+      const TOKEN_URL2 = "https://www.strava.com/oauth/token";
+      const REDIRECT_URI = process.env.STRAVA_REDIRECT_URI;
+      const CLIENT_ID2 = process.env.STRAVA_CLIENT_ID;
+      const CLIENT_SECRET2 = process.env.STRAVA_CLIENT_SECRET;
+      console.log("[Strava Callback] Environment check:", {
+        hasRedirectUri: !!REDIRECT_URI,
+        hasClientId: !!CLIENT_ID2,
+        hasClientSecret: !!CLIENT_SECRET2
+      });
+      if (!REDIRECT_URI || !CLIENT_ID2 || !CLIENT_SECRET2) {
+        const missing = [
+          !REDIRECT_URI && "STRAVA_REDIRECT_URI",
+          !CLIENT_ID2 && "STRAVA_CLIENT_ID",
+          !CLIENT_SECRET2 && "STRAVA_CLIENT_SECRET"
+        ].filter(Boolean).join(", ");
+        console.error("[Strava Callback] Missing env vars:", missing);
+        return res.status(500).send(`Missing env vars: ${missing}`);
+      }
+      const { code, state } = req.query;
+      const cookieState = req.cookies["ll_strava_state"];
+      console.log("[Strava Callback] OAuth state check:", {
+        hasCode: !!code,
+        queryState: state,
+        cookieState,
+        statesMatch: state === cookieState,
+        allCookies: Object.keys(req.cookies)
+      });
+      if (!code || !state || !cookieState || state !== cookieState) {
+        return res.status(400).send("Invalid OAuth state");
+      }
+      const userId = req.user?.id || req.sessionUser?.uid;
+      if (!userId) {
+        return res.status(401).send("No user - please log in first");
+      }
+      const body = new URLSearchParams({
+        client_id: CLIENT_ID2,
+        client_secret: CLIENT_SECRET2,
+        code,
+        grant_type: "authorization_code"
+      });
+      const tokenRes = await fetch(TOKEN_URL2, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body
+      });
+      if (!tokenRes.ok) {
+        const text = await tokenRes.text();
+        console.error("[Strava Callback] Token exchange failed:", text);
+        return res.status(502).send(`Token exchange failed: ${text}`);
+      }
+      const t = await tokenRes.json();
+      const stravaUserId = t.athlete.id.toString();
+      const expiresAt = new Date(t.expires_at * 1e3);
+      console.log("[Strava Callback] Token received, expires at:", expiresAt);
+      console.log("[Strava Callback] Strava athlete ID:", stravaUserId);
+      await prisma.oauthToken.upsert({
+        where: { userId_provider: { userId, provider: "strava" } },
+        create: {
+          userId,
+          provider: "strava",
+          accessToken: t.access_token,
+          refreshToken: t.refresh_token,
+          expiresAt
+        },
+        update: {
+          accessToken: t.access_token,
+          refreshToken: t.refresh_token,
+          expiresAt
+        }
+      });
+      await prisma.userAccount.upsert({
+        where: {
+          provider_providerUserId: {
+            provider: "strava",
+            providerUserId: stravaUserId
+          }
+        },
+        create: {
+          userId,
+          provider: "strava",
+          providerUserId: stravaUserId
+        },
+        update: {
+          userId
+          // in case user reconnects to different account
+        }
+      });
+      await prisma.user.update({
+        where: { id: userId },
+        data: { stravaUserId }
+      });
+      const userAccounts = await prisma.userAccount.findMany({
+        where: { userId },
+        select: { provider: true }
+      });
+      const hasGarmin = userAccounts.some((acc) => acc.provider === "garmin");
+      const hasStrava = userAccounts.some((acc) => acc.provider === "strava");
+      const bothConnected = hasGarmin && hasStrava;
+      res.clearCookie("ll_strava_state", { path: "/" });
+      const appBase = process.env.APP_BASE_URL ?? "http://localhost:5173";
+      const user = await prisma.user.findUnique({ where: { id: userId } });
+      let redirectPath;
+      if (!user?.onboardingCompleted) {
+        redirectPath = "/onboarding?step=5";
+      } else if (bothConnected) {
+        redirectPath = "/settings?strava=connected&prompt=choose-source";
+      } else {
+        redirectPath = "/settings?strava=connected";
+      }
+      console.log("[Strava Callback] Success! Redirecting to:", redirectPath);
+      return res.redirect(`${appBase.replace(/\/$/, "")}${redirectPath}`);
+    } catch (error) {
+      console.error("[Strava Callback] Error:", error);
+      const appBase = process.env.APP_BASE_URL ?? "http://localhost:5173";
+      return res.redirect(
+        `${appBase}/auth/error?message=${encodeURIComponent("Strava connection failed. Please try again.")}`
+      );
+    }
+  }
+);
+r$8.delete("/strava/disconnect", async (req, res) => {
+  const userId = req.user?.id || req.sessionUser?.uid;
+  if (!userId) {
+    return res.status(401).json({ error: "Not authenticated" });
+  }
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { activeDataSource: true }
+    });
+    await prisma.$transaction([
+      prisma.oauthToken.deleteMany({
+        where: {
+          userId,
+          provider: "strava"
+        }
+      }),
+      prisma.userAccount.deleteMany({
+        where: {
+          userId,
+          provider: "strava"
+        }
+      }),
+      prisma.user.update({
+        where: { id: userId },
+        data: {
+          stravaUserId: null,
+          ...user?.activeDataSource === "strava" ? { activeDataSource: null } : {}
+        }
+      })
+    ]);
+    console.log(`[Strava Disconnect] User ${userId} disconnected Strava`);
+    return res.status(200).json({ success: true });
+  } catch (error) {
+    console.error("[Strava Disconnect] Error:", error);
+    return res.status(500).json({ error: "Failed to disconnect" });
+  }
+});
+async function getValidGarminToken(userId) {
+  const token = await prisma.oauthToken.findUnique({
+    where: {
+      userId_provider: {
+        userId,
+        provider: "garmin"
+      }
+    }
+  });
+  if (!token) {
+    return null;
+  }
+  const now = /* @__PURE__ */ new Date();
+  const expiryBuffer = new Date(token.expiresAt.getTime() - 5 * 60 * 1e3);
+  if (now < expiryBuffer) {
+    return token.accessToken;
+  }
+  if (!token.refreshToken) {
+    console.error("[Garmin Token] No refresh token available");
+    return null;
+  }
+  try {
+    const TOKEN_URL2 = process.env.GARMIN_TOKEN_URL;
+    const CLIENT_ID2 = process.env.GARMIN_CLIENT_ID;
+    if (!TOKEN_URL2 || !CLIENT_ID2) {
+      console.error("[Garmin Token] Missing GARMIN_TOKEN_URL or GARMIN_CLIENT_ID");
+      return null;
+    }
+    console.log("[Garmin Token] Refreshing expired token for user:", userId);
+    const body = new URLSearchParams({
+      grant_type: "refresh_token",
+      refresh_token: token.refreshToken,
+      client_id: CLIENT_ID2
+    });
+    if (process.env.GARMIN_CLIENT_SECRET) {
+      body.set("client_secret", process.env.GARMIN_CLIENT_SECRET);
+    }
+    const refreshRes = await fetch(TOKEN_URL2, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body
+    });
+    if (!refreshRes.ok) {
+      const text = await refreshRes.text();
+      console.error(`[Garmin Token] Refresh failed: ${refreshRes.status} ${text}`);
+      return null;
+    }
+    const newTokens = await refreshRes.json();
+    const newExpiresAt = dateFns.addSeconds(/* @__PURE__ */ new Date(), newTokens.expires_in ?? 3600);
+    await prisma.oauthToken.update({
+      where: {
+        userId_provider: {
+          userId,
+          provider: "garmin"
+        }
+      },
+      data: {
+        accessToken: newTokens.access_token,
+        expiresAt: newExpiresAt,
+        ...newTokens.refresh_token ? { refreshToken: newTokens.refresh_token } : {}
+      }
+    });
+    console.log("[Garmin Token] Token refreshed successfully");
+    return newTokens.access_token;
+  } catch (error) {
+    console.error("[Garmin Token] Error refreshing token:", error);
+    return null;
+  }
+}
+const buildLocationString = (parts) => {
+  const cleaned = parts.map((part) => typeof part === "string" ? part.trim() : part).filter((part) => Boolean(part && part.length > 0));
+  return cleaned.length ? cleaned.join(", ") : null;
+};
+const formatLatLon = (lat, lon) => {
+  if (!Number.isFinite(lat ?? NaN) || !Number.isFinite(lon ?? NaN)) {
+    return null;
+  }
+  const latStr = lat.toFixed(3);
+  const lonStr = lon.toFixed(3);
+  return `Lat ${latStr}, Lon ${lonStr}`;
+};
+const deriveLocation = (opts) => {
+  const singleValue = opts.city ?? opts.state ?? opts.country ?? opts.fallback ?? null;
+  return buildLocationString([opts.city, opts.state]) ?? buildLocationString([opts.city, opts.country]) ?? buildLocationString([opts.state, opts.country]) ?? (singleValue?.trim() || null) ?? formatLatLon(opts.lat, opts.lon);
+};
+const shouldApplyAutoLocation = (existing, incoming) => {
+  if (!incoming) return void 0;
+  if (existing && existing.trim().length > 0) return void 0;
+  return incoming;
+};
+const r$7 = express.Router();
+r$7.post(
   "/webhooks/garmin/deregistration",
   async (req, res) => {
     try {
@@ -1001,7 +1454,7 @@ r$2.post(
     }
   }
 );
-r$2.post(
+r$7.post(
   "/webhooks/garmin/permissions",
   async (req, res) => {
     try {
@@ -1037,7 +1490,7 @@ r$2.post(
     }
   }
 );
-r$2.post(
+r$7.post(
   "/webhooks/garmin/activities",
   async (req, res) => {
     try {
@@ -1060,9 +1513,12 @@ r$2.post(
     }
   }
 );
-r$2.post(
+r$7.post(
   "/webhooks/garmin/activities-ping",
   async (req, res) => {
+    console.log(`[Garmin PING Webhook] Incoming request at ${(/* @__PURE__ */ new Date()).toISOString()}`);
+    console.log(`[Garmin PING Webhook] Headers:`, JSON.stringify(req.headers, null, 2));
+    console.log(`[Garmin PING Webhook] Body:`, JSON.stringify(req.body, null, 2));
     try {
       const { activityDetails } = req.body;
       if (!activityDetails || !Array.isArray(activityDetails)) {
@@ -1114,23 +1570,16 @@ async function processActivityPing(notification) {
   }
   console.log(`[Garmin Activities PING] Found user: ${userAccount.userId}`);
   const API_BASE2 = process.env.GARMIN_API_BASE || "https://apis.garmin.com/wellness-api";
-  const token = await prisma.oauthToken.findUnique({
-    where: {
-      userId_provider: {
-        userId: userAccount.userId,
-        provider: "garmin"
-      }
-    }
-  });
-  if (!token) {
-    console.error(`[Garmin Activities PING] No OAuth token found for user ${userAccount.userId}`);
+  const accessToken = await getValidGarminToken(userAccount.userId);
+  if (!accessToken) {
+    console.error(`[Garmin Activities PING] No valid OAuth token for user ${userAccount.userId}`);
     return;
   }
   const activityUrl = `${API_BASE2}/rest/activityFile/${summaryId}`;
   try {
     const activityRes = await fetch(activityUrl, {
       headers: {
-        "Authorization": `Bearer ${token.accessToken}`,
+        "Authorization": `Bearer ${accessToken}`,
         "Accept": "application/json"
       }
     });
@@ -1140,9 +1589,49 @@ async function processActivityPing(notification) {
       return;
     }
     const activityDetail = await activityRes.json();
+    const CYCLING_ACTIVITY_TYPES = [
+      "cycling",
+      "bmx",
+      "cyclocross",
+      "downhill_biking",
+      "e_bike_fitness",
+      "e_bike_mountain",
+      "e_enduro_mtb",
+      "enduro_mtb",
+      "gravel_cycling",
+      "indoor_cycling",
+      "mountain_biking",
+      "recumbent_cycling",
+      "road_biking",
+      "track_cycling",
+      "virtual_ride",
+      "handcycling",
+      "indoor_handcycling"
+    ];
+    const activityTypeLower = activityDetail.activityType.toLowerCase().replace(/\s+/g, "_");
+    if (!CYCLING_ACTIVITY_TYPES.includes(activityTypeLower)) {
+      console.log(`[Garmin Activities PING] Skipping non-cycling activity: ${activityDetail.activityType} (${summaryId})`);
+      return;
+    }
+    console.log(`[Garmin Activities PING] Processing cycling activity: ${activityDetail.activityType}`);
     const distanceMiles = activityDetail.distanceInMeters ? activityDetail.distanceInMeters * 621371e-9 : 0;
     const elevationGainFeet = activityDetail.totalElevationGainInMeters ?? activityDetail.elevationGainInMeters ? (activityDetail.totalElevationGainInMeters ?? activityDetail.elevationGainInMeters) * 3.28084 : 0;
     const startTime = new Date(activityDetail.startTimeInSeconds * 1e3);
+    const autoLocation = deriveLocation({
+      city: activityDetail.locationName ?? null,
+      state: null,
+      country: null,
+      lat: activityDetail.startLatitudeInDegrees ?? activityDetail.beginLatitude ?? null,
+      lon: activityDetail.startLongitudeInDegrees ?? activityDetail.beginLongitude ?? null
+    });
+    const existingRide = await prisma.ride.findUnique({
+      where: { garminActivityId: summaryId },
+      select: { location: true }
+    });
+    const locationUpdate = shouldApplyAutoLocation(
+      existingRide?.location ?? null,
+      autoLocation
+    );
     await prisma.ride.upsert({
       where: {
         garminActivityId: summaryId
@@ -1156,7 +1645,8 @@ async function processActivityPing(notification) {
         elevationGainFeet,
         averageHr: activityDetail.averageHeartRateInBeatsPerMinute ?? null,
         rideType: activityDetail.activityType,
-        notes: activityDetail.activityName ?? null
+        notes: activityDetail.activityName ?? null,
+        location: autoLocation
       },
       update: {
         startTime,
@@ -1165,7 +1655,8 @@ async function processActivityPing(notification) {
         elevationGainFeet,
         averageHr: activityDetail.averageHeartRateInBeatsPerMinute ?? null,
         rideType: activityDetail.activityType,
-        notes: activityDetail.activityName ?? null
+        notes: activityDetail.activityName ?? null,
+        ...locationUpdate !== void 0 ? { location: locationUpdate } : {}
       }
     });
     console.log(`[Garmin Activities PING] Successfully stored ride for activity ${summaryId}`);
@@ -1174,6 +1665,1099 @@ async function processActivityPing(notification) {
     throw error;
   }
 }
+async function getValidStravaToken(userId) {
+  const token = await prisma.oauthToken.findUnique({
+    where: {
+      userId_provider: {
+        userId,
+        provider: "strava"
+      }
+    }
+  });
+  if (!token) {
+    return null;
+  }
+  const now = /* @__PURE__ */ new Date();
+  const expiryBuffer = new Date(token.expiresAt.getTime() - 5 * 60 * 1e3);
+  if (now < expiryBuffer) {
+    return token.accessToken;
+  }
+  if (!token.refreshToken) {
+    console.error("[Strava Token] No refresh token available");
+    return null;
+  }
+  try {
+    const TOKEN_URL2 = "https://www.strava.com/oauth/token";
+    const CLIENT_ID2 = process.env.STRAVA_CLIENT_ID;
+    const CLIENT_SECRET2 = process.env.STRAVA_CLIENT_SECRET;
+    if (!CLIENT_ID2 || !CLIENT_SECRET2) {
+      console.error("[Strava Token] Missing STRAVA_CLIENT_ID or STRAVA_CLIENT_SECRET");
+      return null;
+    }
+    console.log("[Strava Token] Refreshing expired token for user:", userId);
+    const body = new URLSearchParams({
+      client_id: CLIENT_ID2,
+      client_secret: CLIENT_SECRET2,
+      grant_type: "refresh_token",
+      refresh_token: token.refreshToken
+    });
+    const refreshRes = await fetch(TOKEN_URL2, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body
+    });
+    if (!refreshRes.ok) {
+      const text = await refreshRes.text();
+      console.error(`[Strava Token] Refresh failed: ${refreshRes.status} ${text}`);
+      return null;
+    }
+    const newTokens = await refreshRes.json();
+    const newExpiresAt = new Date(newTokens.expires_at * 1e3);
+    await prisma.oauthToken.update({
+      where: {
+        userId_provider: {
+          userId,
+          provider: "strava"
+        }
+      },
+      data: {
+        accessToken: newTokens.access_token,
+        refreshToken: newTokens.refresh_token,
+        // MUST update this
+        expiresAt: newExpiresAt
+      }
+    });
+    console.log("[Strava Token] Token refreshed successfully, expires at:", newExpiresAt);
+    return newTokens.access_token;
+  } catch (error) {
+    console.error("[Strava Token] Error refreshing token:", error);
+    return null;
+  }
+}
+const r$6 = express.Router();
+r$6.get(
+  "/webhooks/strava",
+  async (req, res) => {
+    const { "hub.mode": mode, "hub.challenge": challenge, "hub.verify_token": verifyToken } = req.query;
+    console.log("[Strava Webhook Verification] Received verification request:", {
+      mode,
+      challenge,
+      verifyToken: verifyToken ? "present" : "missing"
+    });
+    const VERIFY_TOKEN = process.env.STRAVA_WEBHOOK_VERIFY_TOKEN;
+    if (!VERIFY_TOKEN) {
+      console.error("[Strava Webhook Verification] STRAVA_WEBHOOK_VERIFY_TOKEN not set");
+      return res.status(500).json({ error: "Server configuration error" });
+    }
+    if (mode === "subscribe" && verifyToken === VERIFY_TOKEN && challenge) {
+      console.log("[Strava Webhook Verification] Verification successful");
+      return res.json({ "hub.challenge": challenge });
+    }
+    console.warn("[Strava Webhook Verification] Verification failed");
+    return res.status(403).json({ error: "Forbidden" });
+  }
+);
+const extractStravaLocation = (activity) => deriveLocation({
+  city: activity.location_city ?? null,
+  state: activity.location_state ?? null,
+  country: activity.location_country ?? null,
+  lat: activity.start_latlng?.[0] ?? null,
+  lon: activity.start_latlng?.[1] ?? null
+});
+r$6.post(
+  "/webhooks/strava",
+  async (req, res) => {
+    console.log(`[Strava Webhook] Incoming event at ${(/* @__PURE__ */ new Date()).toISOString()}`);
+    console.log(`[Strava Webhook] Payload:`, JSON.stringify(req.body, null, 2));
+    try {
+      const event = req.body;
+      res.status(200).send("EVENT_RECEIVED");
+      if (event.object_type === "activity") {
+        await processActivityEvent(event);
+      } else if (event.object_type === "athlete") {
+        console.log(`[Strava Webhook] Athlete event ${event.aspect_type} for athlete ${event.owner_id}`);
+      }
+    } catch (error) {
+      console.error("[Strava Webhook] Error processing event:", error);
+    }
+  }
+);
+r$6.post(
+  "/webhooks/strava/deauthorization",
+  async (req, res) => {
+    try {
+      const { athlete_id } = req.body;
+      console.log(`[Strava Deauthorization] Athlete ${athlete_id} revoked access`);
+      const userAccount = await prisma.userAccount.findUnique({
+        where: {
+          provider_providerUserId: {
+            provider: "strava",
+            providerUserId: athlete_id.toString()
+          }
+        }
+      });
+      if (!userAccount) {
+        console.warn(`[Strava Deauthorization] Unknown Strava athlete ID: ${athlete_id}`);
+        return res.status(200).send("OK");
+      }
+      const user = await prisma.user.findUnique({
+        where: { id: userAccount.userId },
+        select: { activeDataSource: true }
+      });
+      await prisma.$transaction([
+        prisma.oauthToken.deleteMany({
+          where: {
+            userId: userAccount.userId,
+            provider: "strava"
+          }
+        }),
+        prisma.userAccount.delete({
+          where: {
+            provider_providerUserId: {
+              provider: "strava",
+              providerUserId: athlete_id.toString()
+            }
+          }
+        }),
+        prisma.user.update({
+          where: { id: userAccount.userId },
+          data: {
+            stravaUserId: null,
+            ...user?.activeDataSource === "strava" ? { activeDataSource: null } : {}
+          }
+        })
+      ]);
+      console.log(`[Strava Deauthorization] Removed Strava connection for userId: ${userAccount.userId}`);
+      return res.status(200).send("OK");
+    } catch (error) {
+      console.error("[Strava Deauthorization] Error:", error);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  }
+);
+const secondsToHours = (seconds) => Math.max(0, seconds ?? 0) / 3600;
+async function syncBikeComponentHours(tx, userId, previous, next) {
+  const prevBikeId = previous.bikeId;
+  const nextBikeId = next.bikeId;
+  const prevHours = secondsToHours(previous.durationSeconds);
+  const nextHours = secondsToHours(next.durationSeconds);
+  const bikeChanged = prevBikeId !== nextBikeId;
+  const hoursDiff = nextHours - prevHours;
+  if (prevBikeId) {
+    if (bikeChanged && prevHours > 0) {
+      await tx.component.updateMany({
+        where: { userId, bikeId: prevBikeId },
+        data: { hoursUsed: { decrement: prevHours } }
+      });
+    } else if (!bikeChanged && hoursDiff < 0) {
+      await tx.component.updateMany({
+        where: { userId, bikeId: prevBikeId },
+        data: { hoursUsed: { decrement: Math.abs(hoursDiff) } }
+      });
+    }
+    if (bikeChanged || hoursDiff < 0) {
+      await tx.component.updateMany({
+        where: { userId, bikeId: prevBikeId, hoursUsed: { lt: 0 } },
+        data: { hoursUsed: 0 }
+      });
+    }
+  }
+  if (nextBikeId) {
+    if (bikeChanged && nextHours > 0) {
+      await tx.component.updateMany({
+        where: { userId, bikeId: nextBikeId },
+        data: { hoursUsed: { increment: nextHours } }
+      });
+    } else if (!bikeChanged && hoursDiff > 0) {
+      await tx.component.updateMany({
+        where: { userId, bikeId: nextBikeId },
+        data: { hoursUsed: { increment: hoursDiff } }
+      });
+    }
+  }
+}
+async function processActivityEvent(event) {
+  const { object_id: activityId, aspect_type, owner_id: athleteId } = event;
+  console.log(`[Strava Activity Event] ${aspect_type} for activity ${activityId}, athlete ${athleteId}`);
+  const userAccount = await prisma.userAccount.findUnique({
+    where: {
+      provider_providerUserId: {
+        provider: "strava",
+        providerUserId: athleteId.toString()
+      }
+    }
+  });
+  if (!userAccount) {
+    console.warn(`[Strava Activity Event] Unknown Strava athlete ID: ${athleteId}`);
+    return;
+  }
+  console.log(`[Strava Activity Event] Found user: ${userAccount.userId}`);
+  const user = await prisma.user.findUnique({
+    where: { id: userAccount.userId },
+    select: { activeDataSource: true }
+  });
+  if (user?.activeDataSource && user.activeDataSource !== "strava") {
+    console.log(`[Strava Activity Event] User's active source is ${user.activeDataSource}, skipping Strava activity`);
+    return;
+  }
+  if (aspect_type === "delete") {
+    await prisma.$transaction(async (tx) => {
+      const existing = await tx.ride.findUnique({
+        where: { stravaActivityId: activityId.toString() },
+        select: { id: true, userId: true, durationSeconds: true, bikeId: true }
+      });
+      if (!existing || existing.userId !== userAccount.userId) {
+        console.log(`[Strava Activity Event] No ride to delete for activity ${activityId}`);
+        return;
+      }
+      await syncBikeComponentHours(
+        tx,
+        userAccount.userId,
+        { bikeId: existing.bikeId ?? null, durationSeconds: existing.durationSeconds },
+        { bikeId: null, durationSeconds: 0 }
+      );
+      await tx.ride.delete({ where: { id: existing.id } });
+    });
+    console.log(`[Strava Activity Event] Deleted ride for activity ${activityId}`);
+    return;
+  }
+  if (aspect_type === "create" || aspect_type === "update") {
+    const accessToken = await getValidStravaToken(userAccount.userId);
+    if (!accessToken) {
+      console.error(`[Strava Activity Event] No valid access token for user ${userAccount.userId}`);
+      return;
+    }
+    const activityUrl = `https://www.strava.com/api/v3/activities/${activityId}`;
+    try {
+      const activityRes = await fetch(activityUrl, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: "application/json"
+        }
+      });
+      if (!activityRes.ok) {
+        const text = await activityRes.text();
+        console.error(`[Strava Activity Event] Failed to fetch activity ${activityId}: ${activityRes.status} ${text}`);
+        return;
+      }
+      const activity = await activityRes.json();
+      const CYCLING_SPORT_TYPES = [
+        "Ride",
+        "MountainBikeRide",
+        "GravelRide",
+        "VirtualRide",
+        "EBikeRide",
+        "EMountainBikeRide",
+        "Handcycle"
+      ];
+      if (!CYCLING_SPORT_TYPES.includes(activity.sport_type)) {
+        console.log(`[Strava Activity Event] Skipping non-cycling activity: ${activity.sport_type}`);
+        return;
+      }
+      console.log(`[Strava Activity Event] Processing cycling activity: ${activity.sport_type}`);
+      const distanceMiles = activity.distance * 621371e-9;
+      const elevationGainFeet = activity.total_elevation_gain * 3.28084;
+      const startTime = new Date(activity.start_date);
+      let bikeId = null;
+      if (activity.gear_id) {
+        const mapping = await prisma.stravaGearMapping.findUnique({
+          where: {
+            userId_stravaGearId: {
+              userId: userAccount.userId,
+              stravaGearId: activity.gear_id
+            }
+          }
+        });
+        bikeId = mapping?.bikeId ?? null;
+      }
+      if (!bikeId) {
+        const userBikes = await prisma.bike.findMany({
+          where: { userId: userAccount.userId },
+          select: { id: true }
+        });
+        if (userBikes.length === 1) {
+          bikeId = userBikes[0].id;
+        }
+      }
+      const autoLocation = extractStravaLocation(activity);
+      await prisma.$transaction(async (tx) => {
+        const existing = await tx.ride.findUnique({
+          where: { stravaActivityId: activityId.toString() },
+          select: { durationSeconds: true, bikeId: true, location: true }
+        });
+        const locationUpdate = shouldApplyAutoLocation(existing?.location ?? null, autoLocation);
+        const ride = await tx.ride.upsert({
+          where: {
+            stravaActivityId: activityId.toString()
+          },
+          create: {
+            userId: userAccount.userId,
+            stravaActivityId: activityId.toString(),
+            stravaGearId: activity.gear_id ?? null,
+            startTime,
+            durationSeconds: activity.moving_time,
+            distanceMiles,
+            elevationGainFeet,
+            averageHr: activity.average_heartrate ? Math.round(activity.average_heartrate) : null,
+            rideType: activity.sport_type,
+            notes: activity.name || null,
+            bikeId,
+            location: autoLocation
+          },
+          update: {
+            startTime,
+            stravaGearId: activity.gear_id ?? null,
+            durationSeconds: activity.moving_time,
+            distanceMiles,
+            elevationGainFeet,
+            averageHr: activity.average_heartrate ? Math.round(activity.average_heartrate) : null,
+            rideType: activity.sport_type,
+            notes: activity.name || null,
+            bikeId,
+            ...locationUpdate !== void 0 ? { location: locationUpdate } : {}
+          }
+        });
+        await syncBikeComponentHours(
+          tx,
+          userAccount.userId,
+          {
+            bikeId: existing?.bikeId ?? null,
+            durationSeconds: existing?.durationSeconds ?? null
+          },
+          {
+            bikeId: ride.bikeId ?? null,
+            durationSeconds: ride.durationSeconds
+          }
+        );
+      });
+      console.log(`[Strava Activity Event] Successfully stored ride for activity ${activityId}`);
+    } catch (error) {
+      console.error(`[Strava Activity Event] Error fetching/storing activity ${activityId}:`, error);
+      throw error;
+    }
+  }
+}
+const r$5 = express.Router();
+r$5.get(
+  "/garmin/backfill/fetch",
+  async (req, res) => {
+    const userId = req.user?.id || req.sessionUser?.uid;
+    if (!userId) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+    try {
+      const days = parseInt(req.query.days || "30", 10);
+      if (isNaN(days) || days < 1 || days > 365) {
+        return res.status(400).json({ error: "Days must be between 1 and 365" });
+      }
+      const accessToken = await getValidGarminToken(userId);
+      if (!accessToken) {
+        return res.status(400).json({ error: "Garmin not connected or token expired. Please reconnect your Garmin account." });
+      }
+      const endDate = /* @__PURE__ */ new Date();
+      const startDate = dateFns.subDays(endDate, days);
+      const startDateStr = startDate.toISOString().split("T")[0];
+      const endDateStr = endDate.toISOString().split("T")[0];
+      console.log(`[Garmin Backfill] Triggering backfill for ${startDateStr} to ${endDateStr}`);
+      const API_BASE2 = process.env.GARMIN_API_BASE || "https://apis.garmin.com/wellness-api";
+      const CHUNK_DAYS = 30;
+      let currentStartDate = new Date(startDate);
+      let totalChunks = 0;
+      const errors = [];
+      console.log(`[Garmin Backfill] Triggering async backfill requests`);
+      while (currentStartDate < endDate) {
+        const chunkEndDate = new Date(currentStartDate);
+        chunkEndDate.setDate(chunkEndDate.getDate() + CHUNK_DAYS);
+        const actualChunkEndDate = chunkEndDate > endDate ? endDate : chunkEndDate;
+        const chunkStartSeconds = Math.floor(currentStartDate.getTime() / 1e3);
+        const chunkEndSeconds = Math.floor(actualChunkEndDate.getTime() / 1e3);
+        console.log(`[Garmin Backfill] Triggering backfill chunk: ${currentStartDate.toISOString()} to ${actualChunkEndDate.toISOString()}`);
+        const url = `${API_BASE2}/rest/backfill/activities?summaryStartTimeInSeconds=${chunkStartSeconds}&summaryEndTimeInSeconds=${chunkEndSeconds}`;
+        try {
+          const backfillRes = await fetch(url, {
+            headers: {
+              "Authorization": `Bearer ${accessToken}`,
+              "Accept": "application/json"
+            }
+          });
+          if (backfillRes.status === 202) {
+            console.log(`[Garmin Backfill] Backfill request accepted for chunk ${totalChunks + 1}`);
+            totalChunks++;
+          } else if (backfillRes.status === 409) {
+            console.log(`[Garmin Backfill] Backfill already in progress for this time period`);
+            errors.push(`Duplicate request for period ${currentStartDate.toISOString().split("T")[0]}`);
+          } else if (backfillRes.status === 400) {
+            const text = await backfillRes.text();
+            const minStartDate = extractMinStartDate(text);
+            if (minStartDate && minStartDate > currentStartDate) {
+              console.warn(
+                `[Garmin Backfill] Chunk ${currentStartDate.toISOString()} rejected. Adjusting start to Garmin min ${minStartDate.toISOString()}`
+              );
+              errors.push(
+                `Adjusted start date to ${minStartDate.toISOString()} due to Garmin min start restriction`
+              );
+              const alignedMinStart = new Date(Math.ceil(minStartDate.getTime() / 1e3) * 1e3);
+              currentStartDate = alignedMinStart;
+              continue;
+            }
+            console.error(`[Garmin Backfill] Failed to trigger backfill chunk: ${backfillRes.status} ${text}`);
+            errors.push(
+              `Failed for period ${currentStartDate.toISOString().split("T")[0]}: ${backfillRes.status}`
+            );
+          } else {
+            const text = await backfillRes.text();
+            console.error(`[Garmin Backfill] Failed to trigger backfill chunk: ${backfillRes.status} ${text}`);
+            errors.push(`Failed for period ${currentStartDate.toISOString().split("T")[0]}: ${backfillRes.status}`);
+          }
+        } catch (error) {
+          console.error(`[Garmin Backfill] Error triggering backfill chunk:`, error);
+          errors.push(`Error for period ${currentStartDate.toISOString().split("T")[0]}`);
+        }
+        currentStartDate = new Date(actualChunkEndDate);
+        currentStartDate.setDate(currentStartDate.getDate() + 1);
+      }
+      console.log(`[Garmin Backfill] Triggered ${totalChunks} backfill request(s)`);
+      const duplicateErrors = errors.filter((e) => e.includes("Duplicate request"));
+      const allDuplicates = duplicateErrors.length === errors.length && errors.length > 0;
+      if (totalChunks === 0 && allDuplicates) {
+        return res.status(409).json({
+          error: "Backfill already in progress",
+          message: `A backfill for this time period is already in progress. Your rides will sync automatically when it completes.`,
+          details: errors
+        });
+      }
+      if (totalChunks === 0) {
+        return res.status(400).json({
+          error: "Failed to trigger any backfill requests",
+          details: errors
+        });
+      }
+      return res.json({
+        success: true,
+        message: `Backfill triggered for ${days} days. Your rides will sync automatically via webhooks.`,
+        chunksRequested: totalChunks,
+        warnings: errors.length > 0 ? errors : void 0
+      });
+    } catch (error) {
+      console.error("[Garmin Backfill] Error:", error);
+      return res.status(500).json({ error: "Failed to fetch activities" });
+    }
+  }
+);
+r$5.get(
+  "/garmin/backfill/garmin-user-id",
+  async (req, res) => {
+    const userId = req.user?.id || req.sessionUser?.uid;
+    if (!userId) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+    try {
+      const userAccount = await prisma.userAccount.findFirst({
+        where: {
+          userId,
+          provider: "garmin"
+        },
+        select: {
+          providerUserId: true
+        }
+      });
+      if (!userAccount) {
+        return res.status(404).json({ error: "Garmin account not connected" });
+      }
+      return res.json({
+        garminUserId: userAccount.providerUserId,
+        message: "Use this ID in the Garmin Developer Dashboard Backfill tool"
+      });
+    } catch (error) {
+      console.error("[Garmin User ID] Error:", error);
+      return res.status(500).json({ error: "Failed to fetch Garmin user ID" });
+    }
+  }
+);
+r$5.get(
+  "/garmin/backfill/status",
+  async (req, res) => {
+    const userId = req.user?.id || req.sessionUser?.uid;
+    if (!userId) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+    try {
+      const thirtyDaysAgo = dateFns.subDays(/* @__PURE__ */ new Date(), 30);
+      const recentGarminRides = await prisma.ride.findMany({
+        where: {
+          userId,
+          garminActivityId: { not: null },
+          startTime: { gte: thirtyDaysAgo }
+        },
+        orderBy: { startTime: "desc" },
+        take: 50,
+        select: {
+          id: true,
+          garminActivityId: true,
+          startTime: true,
+          rideType: true,
+          distanceMiles: true,
+          createdAt: true
+        }
+      });
+      const totalGarminRides = await prisma.ride.count({
+        where: {
+          userId,
+          garminActivityId: { not: null }
+        }
+      });
+      return res.json({
+        success: true,
+        recentRides: recentGarminRides,
+        totalGarminRides,
+        message: `Found ${recentGarminRides.length} recent Garmin rides (last 30 days), ${totalGarminRides} total`
+      });
+    } catch (error) {
+      console.error("[Garmin Backfill Status] Error:", error);
+      return res.status(500).json({ error: "Failed to fetch backfill status" });
+    }
+  }
+);
+function extractMinStartDate(errorText) {
+  try {
+    const parsed = JSON.parse(errorText);
+    const message = typeof parsed?.errorMessage === "string" ? parsed.errorMessage : String(parsed ?? "");
+    const match = message.match(/min start time of ([0-9T:.-]+Z)/i);
+    if (match && match[1]) {
+      const dt = new Date(match[1]);
+      if (!Number.isNaN(dt.getTime())) {
+        return dt;
+      }
+    }
+  } catch (err) {
+  }
+  return null;
+}
+const r$4 = express.Router();
+r$4.get(
+  "/strava/backfill/fetch",
+  async (req, res) => {
+    const userId = req.user?.id || req.sessionUser?.uid;
+    if (!userId) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+    try {
+      const days = parseInt(req.query.days || "30", 10);
+      if (isNaN(days) || days < 1 || days > 365) {
+        return res.status(400).json({ error: "Days must be between 1 and 365" });
+      }
+      const accessToken = await getValidStravaToken(userId);
+      if (!accessToken) {
+        return res.status(400).json({
+          error: "Strava not connected or token expired. Please reconnect your Strava account."
+        });
+      }
+      const endDate = /* @__PURE__ */ new Date();
+      const startDate = dateFns.subDays(endDate, days);
+      const afterTimestamp = Math.floor(startDate.getTime() / 1e3);
+      const beforeTimestamp = Math.floor(endDate.getTime() / 1e3);
+      console.log(`[Strava Backfill] Fetching activities from ${startDate.toISOString()} to ${endDate.toISOString()}`);
+      const activities = [];
+      let page = 1;
+      const perPage = 50;
+      let hasMore = true;
+      while (hasMore) {
+        const url = new URL("https://www.strava.com/api/v3/athlete/activities");
+        url.searchParams.set("after", afterTimestamp.toString());
+        url.searchParams.set("before", beforeTimestamp.toString());
+        url.searchParams.set("page", page.toString());
+        url.searchParams.set("per_page", perPage.toString());
+        const activitiesRes = await fetch(url.toString(), {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            Accept: "application/json"
+          }
+        });
+        if (!activitiesRes.ok) {
+          const text = await activitiesRes.text();
+          console.error(`[Strava Backfill] Failed to fetch activities: ${activitiesRes.status} ${text}`);
+          throw new Error(`Failed to fetch activities: ${activitiesRes.status}`);
+        }
+        const pageActivities = await activitiesRes.json();
+        activities.push(...pageActivities);
+        console.log(`[Strava Backfill] Fetched page ${page}: ${pageActivities.length} activities`);
+        if (pageActivities.length < perPage) {
+          hasMore = false;
+        } else {
+          page++;
+        }
+        if (page > 10) {
+          console.warn("[Strava Backfill] Reached page limit (10), stopping pagination");
+          hasMore = false;
+        }
+      }
+      console.log(`[Strava Backfill] Total activities fetched: ${activities.length}`);
+      const CYCLING_SPORT_TYPES = [
+        "Ride",
+        "MountainBikeRide",
+        "GravelRide",
+        "VirtualRide",
+        "EBikeRide",
+        "EMountainBikeRide",
+        "Handcycle"
+      ];
+      const cyclingActivities = activities.filter(
+        (a) => CYCLING_SPORT_TYPES.includes(a.sport_type)
+      );
+      console.log(`[Strava Backfill] Cycling activities: ${cyclingActivities.length}`);
+      let importedCount = 0;
+      let skippedCount = 0;
+      for (const activity of cyclingActivities) {
+        const existing = await prisma.ride.findUnique({
+          where: { stravaActivityId: activity.id.toString() }
+        });
+        if (existing) {
+          skippedCount++;
+          continue;
+        }
+        let bikeId = null;
+        if (activity.gear_id) {
+          const mapping = await prisma.stravaGearMapping.findUnique({
+            where: {
+              userId_stravaGearId: {
+                userId,
+                stravaGearId: activity.gear_id
+              }
+            }
+          });
+          bikeId = mapping?.bikeId ?? null;
+        }
+        if (!bikeId) {
+          const userBikes = await prisma.bike.findMany({
+            where: { userId },
+            select: { id: true }
+          });
+          if (userBikes.length === 1) {
+            bikeId = userBikes[0].id;
+          }
+        }
+        const distanceMiles = activity.distance * 621371e-9;
+        const elevationGainFeet = activity.total_elevation_gain * 3.28084;
+        const startTime = new Date(activity.start_date);
+        const durationHours = Math.max(0, activity.moving_time) / 3600;
+        const autoLocation = deriveLocation({
+          city: activity.location_city ?? null,
+          state: activity.location_state ?? null,
+          country: activity.location_country ?? null,
+          lat: activity.start_latlng?.[0] ?? null,
+          lon: activity.start_latlng?.[1] ?? null
+        });
+        await prisma.$transaction(async (tx) => {
+          await tx.ride.create({
+            data: {
+              userId,
+              stravaActivityId: activity.id.toString(),
+              stravaGearId: activity.gear_id ?? null,
+              startTime,
+              durationSeconds: activity.moving_time,
+              distanceMiles,
+              elevationGainFeet,
+              averageHr: activity.average_heartrate ? Math.round(activity.average_heartrate) : null,
+              rideType: activity.sport_type,
+              notes: activity.name || null,
+              bikeId,
+              location: autoLocation
+            }
+          });
+          if (bikeId && durationHours > 0) {
+            await tx.component.updateMany({
+              where: { userId, bikeId },
+              data: { hoursUsed: { increment: durationHours } }
+            });
+          }
+        });
+        importedCount++;
+      }
+      console.log(`[Strava Backfill] Imported: ${importedCount}, Skipped (existing): ${skippedCount}`);
+      const unmappedGearIds = cyclingActivities.filter((a) => a.gear_id).map((a) => a.gear_id).filter((id, idx, arr) => arr.indexOf(id) === idx);
+      const unmappedGears = [];
+      for (const gearId of unmappedGearIds) {
+        const mapping = await prisma.stravaGearMapping.findUnique({
+          where: {
+            userId_stravaGearId: { userId, stravaGearId: gearId }
+          }
+        });
+        if (!mapping) {
+          const rideCount = cyclingActivities.filter((a) => a.gear_id === gearId).length;
+          unmappedGears.push({ gearId, rideCount });
+        }
+      }
+      console.log(`[Strava Backfill] Unmapped gears: ${unmappedGears.length}`);
+      return res.json({
+        success: true,
+        message: `Successfully imported ${importedCount} rides from Strava.`,
+        totalActivities: activities.length,
+        cyclingActivities: cyclingActivities.length,
+        imported: importedCount,
+        skipped: skippedCount,
+        unmappedGears
+      });
+    } catch (error) {
+      console.error("[Strava Backfill] Error:", error);
+      return res.status(500).json({ error: "Failed to fetch activities" });
+    }
+  }
+);
+r$4.get(
+  "/strava/backfill/strava-athlete-id",
+  async (req, res) => {
+    const userId = req.user?.id || req.sessionUser?.uid;
+    if (!userId) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+    try {
+      const userAccount = await prisma.userAccount.findFirst({
+        where: {
+          userId,
+          provider: "strava"
+        },
+        select: {
+          providerUserId: true
+        }
+      });
+      if (!userAccount) {
+        return res.status(404).json({ error: "Strava account not connected" });
+      }
+      return res.json({
+        stravaAthleteId: userAccount.providerUserId,
+        message: "Your Strava athlete ID"
+      });
+    } catch (error) {
+      console.error("[Strava Athlete ID] Error:", error);
+      return res.status(500).json({ error: "Failed to fetch Strava athlete ID" });
+    }
+  }
+);
+r$4.get(
+  "/strava/backfill/status",
+  async (req, res) => {
+    const userId = req.user?.id || req.sessionUser?.uid;
+    if (!userId) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+    try {
+      const thirtyDaysAgo = dateFns.subDays(/* @__PURE__ */ new Date(), 30);
+      const recentStravaRides = await prisma.ride.findMany({
+        where: {
+          userId,
+          stravaActivityId: { not: null },
+          startTime: { gte: thirtyDaysAgo }
+        },
+        orderBy: { startTime: "desc" },
+        take: 50,
+        select: {
+          id: true,
+          stravaActivityId: true,
+          startTime: true,
+          rideType: true,
+          distanceMiles: true,
+          createdAt: true
+        }
+      });
+      const totalStravaRides = await prisma.ride.count({
+        where: {
+          userId,
+          stravaActivityId: { not: null }
+        }
+      });
+      return res.json({
+        success: true,
+        recentRides: recentStravaRides,
+        totalStravaRides,
+        message: `Found ${recentStravaRides.length} recent Strava rides (last 30 days), ${totalStravaRides} total`
+      });
+    } catch (error) {
+      console.error("[Strava Backfill Status] Error:", error);
+      return res.status(500).json({ error: "Failed to fetch backfill status" });
+    }
+  }
+);
+r$4.get(
+  "/strava/gear/:gearId",
+  async (req, res) => {
+    const userId = req.user?.id || req.sessionUser?.uid;
+    if (!userId) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+    try {
+      const { gearId } = req.params;
+      const accessToken = await getValidStravaToken(userId);
+      if (!accessToken) {
+        return res.status(400).json({ error: "Strava not connected" });
+      }
+      const gearUrl = `https://www.strava.com/api/v3/gear/${gearId}`;
+      const gearRes = await fetch(gearUrl, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: "application/json"
+        }
+      });
+      if (!gearRes.ok) {
+        return res.status(404).json({ error: "Gear not found" });
+      }
+      const gear = await gearRes.json();
+      return res.json({
+        id: gear.id,
+        name: gear.name,
+        brand: gear.brand_name,
+        model: gear.model_name
+      });
+    } catch (error) {
+      console.error("[Strava Gear] Error:", error);
+      return res.status(500).json({ error: "Failed to fetch gear" });
+    }
+  }
+);
+r$4.delete(
+  "/strava/testing/delete-imported-rides",
+  async (req, res) => {
+    const userId = req.user?.id || req.sessionUser?.uid;
+    if (!userId) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+    try {
+      const rides = await prisma.ride.findMany({
+        where: {
+          userId,
+          stravaActivityId: { not: null }
+        },
+        select: { id: true, durationSeconds: true, bikeId: true }
+      });
+      if (rides.length === 0) {
+        return res.json({
+          success: true,
+          deletedRides: 0,
+          message: "No Strava rides to delete"
+        });
+      }
+      const hoursByBike = rides.reduce((map, ride) => {
+        if (ride.bikeId) {
+          const hours = Math.max(0, ride.durationSeconds ?? 0) / 3600;
+          map.set(ride.bikeId, (map.get(ride.bikeId) ?? 0) + hours);
+        }
+        return map;
+      }, /* @__PURE__ */ new Map());
+      await prisma.$transaction(async (tx) => {
+        for (const [bikeId, hours] of hoursByBike.entries()) {
+          if (hours <= 0) continue;
+          await tx.component.updateMany({
+            where: { userId, bikeId },
+            data: { hoursUsed: { decrement: hours } }
+          });
+          await tx.component.updateMany({
+            where: { userId, bikeId, hoursUsed: { lt: 0 } },
+            data: { hoursUsed: 0 }
+          });
+        }
+        await tx.ride.deleteMany({
+          where: {
+            userId,
+            stravaActivityId: { not: null }
+          }
+        });
+      });
+      return res.json({
+        success: true,
+        deletedRides: rides.length,
+        adjustedBikes: hoursByBike.size
+      });
+    } catch (error) {
+      console.error("[Strava Delete Rides] Error:", error);
+      return res.status(500).json({ error: "Failed to delete Strava rides" });
+    }
+  }
+);
+const r$3 = express.Router();
+r$3.get(
+  "/data-source/preference",
+  async (req, res) => {
+    const userId = req.user?.id || req.sessionUser?.uid;
+    if (!userId) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+    try {
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { activeDataSource: true }
+      });
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      return res.json({
+        success: true,
+        activeDataSource: user.activeDataSource
+      });
+    } catch (error) {
+      console.error("[Data Source] Error fetching preference:", error);
+      return res.status(500).json({ error: "Failed to fetch data source preference" });
+    }
+  }
+);
+r$3.post(
+  "/data-source/preference",
+  async (req, res) => {
+    const userId = req.user?.id || req.sessionUser?.uid;
+    if (!userId) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+    const { provider } = req.body;
+    if (!provider || provider !== "garmin" && provider !== "strava") {
+      return res.status(400).json({ error: 'Invalid provider. Must be "garmin" or "strava"' });
+    }
+    try {
+      const userAccount = await prisma.userAccount.findFirst({
+        where: {
+          userId,
+          provider
+        }
+      });
+      if (!userAccount) {
+        return res.status(400).json({
+          error: `${provider.charAt(0).toUpperCase() + provider.slice(1)} account not connected`
+        });
+      }
+      await prisma.user.update({
+        where: { id: userId },
+        data: { activeDataSource: provider }
+      });
+      console.log(`[Data Source] User ${userId} set active source to ${provider}`);
+      return res.json({
+        success: true,
+        activeDataSource: provider,
+        message: `Active data source set to ${provider.charAt(0).toUpperCase() + provider.slice(1)}`
+      });
+    } catch (error) {
+      console.error("[Data Source] Error setting preference:", error);
+      return res.status(500).json({ error: "Failed to set data source preference" });
+    }
+  }
+);
+const r$2 = express.Router();
+r$2.get("/duplicates", async (req, res) => {
+  const userId = req.user?.id || req.sessionUser?.uid;
+  if (!userId) {
+    return res.status(401).json({ error: "Not authenticated" });
+  }
+  try {
+    const ridesWithDuplicates = await prisma.ride.findMany({
+      where: {
+        userId,
+        duplicates: {
+          some: {}
+        }
+      },
+      include: {
+        duplicates: {
+          select: {
+            id: true,
+            startTime: true,
+            durationSeconds: true,
+            distanceMiles: true,
+            elevationGainFeet: true,
+            garminActivityId: true,
+            stravaActivityId: true,
+            rideType: true,
+            notes: true,
+            createdAt: true
+          }
+        }
+      },
+      orderBy: { startTime: "desc" }
+    });
+    return res.json({
+      success: true,
+      duplicates: ridesWithDuplicates
+    });
+  } catch (error) {
+    console.error("[Duplicates] Error fetching:", error);
+    return res.status(500).json({ error: "Failed to fetch duplicates" });
+  }
+});
+r$2.post(
+  "/duplicates/merge",
+  async (req, res) => {
+    const userId = req.user?.id || req.sessionUser?.uid;
+    if (!userId) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+    const { keepRideId, deleteRideId } = req.body;
+    if (!keepRideId || !deleteRideId) {
+      return res.status(400).json({ error: "Missing keepRideId or deleteRideId" });
+    }
+    try {
+      const [keepRide, deleteRide] = await Promise.all([
+        prisma.ride.findUnique({ where: { id: keepRideId }, select: { userId: true } }),
+        prisma.ride.findUnique({ where: { id: deleteRideId }, select: { userId: true } })
+      ]);
+      if (!keepRide || !deleteRide) {
+        return res.status(404).json({ error: "One or both rides not found" });
+      }
+      if (keepRide.userId !== userId || deleteRide.userId !== userId) {
+        return res.status(403).json({ error: "Unauthorized" });
+      }
+      await prisma.ride.delete({
+        where: { id: deleteRideId }
+      });
+      await prisma.ride.update({
+        where: { id: keepRideId },
+        data: {
+          isDuplicate: false,
+          duplicateOfId: null
+        }
+      });
+      console.log(`[Duplicates] Merged: kept ${keepRideId}, deleted ${deleteRideId}`);
+      return res.json({
+        success: true,
+        message: "Rides merged successfully",
+        keptRideId: keepRideId
+      });
+    } catch (error) {
+      console.error("[Duplicates] Error merging:", error);
+      return res.status(500).json({ error: "Failed to merge rides" });
+    }
+  }
+);
+r$2.post(
+  "/duplicates/mark-not-duplicate",
+  async (req, res) => {
+    const userId = req.user?.id || req.sessionUser?.uid;
+    if (!userId) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+    const { rideId } = req.body;
+    try {
+      const ride = await prisma.ride.findUnique({
+        where: { id: rideId },
+        select: { userId: true, duplicateOfId: true }
+      });
+      if (!ride) {
+        return res.status(404).json({ error: "Ride not found" });
+      }
+      if (ride.userId !== userId) {
+        return res.status(403).json({ error: "Unauthorized" });
+      }
+      await prisma.ride.update({
+        where: { id: rideId },
+        data: {
+          isDuplicate: false,
+          duplicateOfId: null
+        }
+      });
+      return res.json({
+        success: true,
+        message: "Ride marked as not duplicate"
+      });
+    } catch (error) {
+      console.error("[Duplicates] Error marking:", error);
+      return res.status(500).json({ error: "Failed to update ride" });
+    }
+  }
+);
 const API_BASE = (process.env.GARMIN_API_BASE || "").replace(/\/$/, "");
 const TOKEN_URL = process.env.GARMIN_TOKEN_URL || "";
 const CLIENT_ID = process.env.GARMIN_CLIENT_ID || "";
@@ -1798,8 +3382,14 @@ const startServer = async () => {
   app.use("/auth", router$2);
   app.use("/auth", router$1);
   app.use("/auth", router);
-  app.use("/auth", r$3);
-  app.use(r$2);
+  app.use("/auth", r$9);
+  app.use("/auth", r$8);
+  app.use("/api", r$5);
+  app.use("/api", r$4);
+  app.use("/api", r$3);
+  app.use("/api", r$2);
+  app.use(r$7);
+  app.use(r$6);
   app.use("/onboarding", router$3);
   app.use(r$1);
   app.use(r);
