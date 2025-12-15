@@ -347,6 +347,55 @@ export const resolvers = {
         orderBy: { createdAt: 'desc' },
       });
     },
+
+    stravaGearMappings: async (_: unknown, __: unknown, ctx: GraphQLContext) => {
+      const userId = requireUserId(ctx);
+      return prisma.stravaGearMapping.findMany({
+        where: { userId },
+        include: { bike: true },
+        orderBy: { createdAt: 'desc' },
+      });
+    },
+
+    unmappedStravaGears: async (_: unknown, __: unknown, ctx: GraphQLContext) => {
+      const userId = requireUserId(ctx);
+
+      const rides = await prisma.ride.findMany({
+        where: { userId, stravaGearId: { not: null } },
+        select: { stravaGearId: true },
+      });
+
+      const gearCounts = new Map<string, number>();
+      rides.forEach((ride) => {
+        if (ride.stravaGearId) {
+          gearCounts.set(ride.stravaGearId, (gearCounts.get(ride.stravaGearId) || 0) + 1);
+        }
+      });
+
+      const mappings = await prisma.stravaGearMapping.findMany({
+        where: { userId },
+        select: { stravaGearId: true },
+      });
+      const mappedGearIds = new Set(mappings.map((m) => m.stravaGearId));
+
+      const result: Array<{
+        gearId: string;
+        gearName: string | null;
+        rideCount: number;
+        isMapped: boolean;
+      }> = [];
+
+      gearCounts.forEach((count, gearId) => {
+        result.push({
+          gearId,
+          gearName: null,
+          rideCount: count,
+          isMapped: mappedGearIds.has(gearId),
+        });
+      });
+
+      return result.filter((g) => !g.isMapped);
+    },
   },
   Mutation: {
     addRide: async (_p: unknown, { input }: { input: AddRideInput }, ctx: GraphQLContext) => {
@@ -758,6 +807,109 @@ export const resolvers = {
         where: { id },
         data: { hoursUsed: 0 },
       });
+    },
+
+    createStravaGearMapping: async (
+      _: unknown,
+      { input }: { input: { stravaGearId: string; stravaGearName?: string | null; bikeId: string } },
+      ctx: GraphQLContext
+    ) => {
+      const userId = requireUserId(ctx);
+
+      const bike = await prisma.bike.findUnique({
+        where: { id: input.bikeId },
+        select: { userId: true },
+      });
+      if (!bike || bike.userId !== userId) {
+        throw new Error('Bike not found');
+      }
+
+      const existing = await prisma.stravaGearMapping.findUnique({
+        where: {
+          userId_stravaGearId: { userId, stravaGearId: input.stravaGearId },
+        },
+      });
+      if (existing) {
+        throw new Error('This Strava bike is already mapped');
+      }
+
+      return prisma.$transaction(async (tx) => {
+        const mapping = await tx.stravaGearMapping.create({
+          data: {
+            userId,
+            stravaGearId: input.stravaGearId,
+            stravaGearName: input.stravaGearName ?? null,
+            bikeId: input.bikeId,
+          },
+          include: { bike: true },
+        });
+
+        const ridesToUpdate = await tx.ride.findMany({
+          where: { userId, stravaGearId: input.stravaGearId, bikeId: null },
+          select: { id: true, durationSeconds: true },
+        });
+
+        if (ridesToUpdate.length > 0) {
+          await tx.ride.updateMany({
+            where: { userId, stravaGearId: input.stravaGearId },
+            data: { bikeId: input.bikeId },
+          });
+
+          const totalSeconds = ridesToUpdate.reduce((sum, r) => sum + r.durationSeconds, 0);
+          const totalHours = totalSeconds / 3600;
+
+          if (totalHours > 0) {
+            await tx.component.updateMany({
+              where: { userId, bikeId: input.bikeId },
+              data: { hoursUsed: { increment: totalHours } },
+            });
+          }
+        }
+
+        return mapping;
+      });
+    },
+
+    deleteStravaGearMapping: async (_: unknown, { id }: { id: string }, ctx: GraphQLContext) => {
+      const userId = requireUserId(ctx);
+      const mapping = await prisma.stravaGearMapping.findUnique({
+        where: { id },
+        select: { userId: true, stravaGearId: true, bikeId: true },
+      });
+      if (!mapping || mapping.userId !== userId) {
+        throw new Error('Mapping not found');
+      }
+
+      await prisma.$transaction(async (tx) => {
+        const rides = await tx.ride.findMany({
+          where: { userId, stravaGearId: mapping.stravaGearId, bikeId: mapping.bikeId },
+          select: { durationSeconds: true },
+        });
+
+        const totalSeconds = rides.reduce((sum, r) => sum + r.durationSeconds, 0);
+        const totalHours = totalSeconds / 3600;
+
+        await tx.ride.updateMany({
+          where: { userId, stravaGearId: mapping.stravaGearId },
+          data: { bikeId: null },
+        });
+
+        if (totalHours > 0) {
+          await tx.component.updateMany({
+            where: { userId, bikeId: mapping.bikeId },
+            data: { hoursUsed: { decrement: totalHours } },
+          });
+
+          await tx.component.updateMany({
+            where: { userId, bikeId: mapping.bikeId, hoursUsed: { lt: 0 } },
+            data: { hoursUsed: 0 },
+          });
+        }
+
+        await tx.stravaGearMapping.delete({ where: { id } });
+      });
+
+      return { ok: true, id };
     },
   },
 

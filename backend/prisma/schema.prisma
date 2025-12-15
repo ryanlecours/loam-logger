@@ -40,6 +40,7 @@ model User {
   bikes Bike[]
   components Component[]
   accounts       UserAccount[]
+  stravaGearMappings StravaGearMapping[]
 
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
@@ -80,6 +81,7 @@ model Ride {
 
   garminActivityId  String?   @unique
   stravaActivityId  String?   @unique  // Strava activity ID
+  stravaGearId      String?   // Strava gear_id from API
   startTime         DateTime
   durationSeconds   Int
   distanceMiles     Float
@@ -118,10 +120,30 @@ model Bike {
   notes         String?
 
   components Component[]
+  stravaGearMappings StravaGearMapping[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   Ride      Ride[]
+}
+
+model StravaGearMapping {
+  id              String   @id @default(uuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  stravaGearId    String   // e.g., "b12345678"
+  stravaGearName  String?  // e.g., "Trek Slash 9.9"
+
+  bikeId          String
+  bike            Bike     @relation(fields: [bikeId], references: [id], onDelete: Cascade)
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([userId, stravaGearId])
+  @@index([userId])
+  @@index([bikeId])
 }
 
 model Component {
