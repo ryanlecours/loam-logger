@@ -229,6 +229,7 @@ async function processActivityEvent(event: StravaWebhookEvent): Promise<void> {
         moving_time: number; // seconds
         distance: number; // meters
         total_elevation_gain: number; // meters
+        gear_id?: string | null; // Strava bike/gear ID
         average_heartrate?: number;
         max_heartrate?: number;
         average_speed?: number; // m/s
@@ -262,6 +263,20 @@ async function processActivityEvent(event: StravaWebhookEvent): Promise<void> {
       const elevationGainFeet = activity.total_elevation_gain * 3.28084; // meters to feet
       const startTime = new Date(activity.start_date);
 
+      // Look up bike mapping if gear_id exists
+      let bikeId: string | null = null;
+      if (activity.gear_id) {
+        const mapping = await prisma.stravaGearMapping.findUnique({
+          where: {
+            userId_stravaGearId: {
+              userId: userAccount.userId,
+              stravaGearId: activity.gear_id,
+            },
+          },
+        });
+        bikeId = mapping?.bikeId ?? null;
+      }
+
       // Upsert the ride
       await prisma.ride.upsert({
         where: {
@@ -270,22 +285,26 @@ async function processActivityEvent(event: StravaWebhookEvent): Promise<void> {
         create: {
           userId: userAccount.userId,
           stravaActivityId: activityId.toString(),
+          stravaGearId: activity.gear_id ?? null,
           startTime,
-          durationSeconds: activity.elapsed_time,
+          durationSeconds: activity.moving_time,
           distanceMiles,
           elevationGainFeet,
           averageHr: activity.average_heartrate ? Math.round(activity.average_heartrate) : null,
           rideType: activity.sport_type,
           notes: activity.name || null,
+          bikeId,
         },
         update: {
           startTime,
-          durationSeconds: activity.elapsed_time,
+          stravaGearId: activity.gear_id ?? null,
+          durationSeconds: activity.moving_time,
           distanceMiles,
           elevationGainFeet,
           averageHr: activity.average_heartrate ? Math.round(activity.average_heartrate) : null,
           rideType: activity.sport_type,
           notes: activity.name || null,
+          bikeId,
         },
       });
 
