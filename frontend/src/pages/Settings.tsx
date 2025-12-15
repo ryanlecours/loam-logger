@@ -37,6 +37,7 @@ export default function Settings() {
   const [duplicatesModalOpen, setDuplicatesModalOpen] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [activeDataSource, setActiveDataSource] = useState<'garmin' | 'strava' | null>(null);
+  const [stravaDeleteLoading, setStravaDeleteLoading] = useState(false);
 
   // Check for OAuth connection callbacks
   useEffect(() => {
@@ -134,6 +135,35 @@ export default function Settings() {
     } catch (err) {
       console.error('Failed to set data source:', err);
       alert('Failed to set data source. Please try again.');
+    }
+  };
+
+  const handleDeleteStravaRides = async () => {
+    if (!confirm('Delete ALL rides imported from Strava? This also removes the hours added to your bikes from those rides.')) {
+      return;
+    }
+
+    setStravaDeleteLoading(true);
+    try {
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/strava/testing/delete-imported-rides`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      if (!res.ok) throw new Error('Failed to delete Strava rides');
+
+      const data = await res.json();
+      const deleted = Number(data.deletedRides || 0);
+      const message =
+        deleted > 0
+          ? `Deleted ${deleted} Strava ride${deleted === 1 ? '' : 's'} and reset component hours.`
+          : 'No Strava rides found to delete.';
+      setSuccessMessage(message);
+      setTimeout(() => setSuccessMessage(null), 6000);
+    } catch (err) {
+      console.error('Failed to delete Strava rides:', err);
+      alert('Failed to delete Strava rides. Please try again.');
+    } finally {
+      setStravaDeleteLoading(false);
     }
   };
 
@@ -249,6 +279,13 @@ export default function Settings() {
                       className="rounded-xl px-3 py-1.5 text-xs font-medium text-[#FC4C02]/80 bg-surface-2/50 border border-[#FC4C02]/30 hover:bg-surface-2 hover:text-[#FC4C02] hover:border-[#FC4C02]/50 hover:cursor-pointer transition"
                     >
                       Import Rides
+                    </button>
+                    <button
+                      onClick={handleDeleteStravaRides}
+                      disabled={stravaDeleteLoading}
+                      className="rounded-xl px-3 py-1.5 text-xs font-medium text-orange-200/90 bg-transparent border border-orange-200/40 hover:bg-orange-500/10 hover:border-orange-200/70 hover:text-orange-200 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {stravaDeleteLoading ? 'Deleting…' : 'Clear Strava Rides'}
                     </button>
                     <button
                       onClick={handleDisconnectStrava}

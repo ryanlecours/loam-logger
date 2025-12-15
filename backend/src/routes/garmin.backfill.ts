@@ -91,7 +91,8 @@ r.get<Empty, void, Empty, { days?: string }>(
               errors.push(
                 `Adjusted start date to ${minStartDate.toISOString()} due to Garmin min start restriction`
               );
-              currentStartDate = minStartDate;
+              const alignedMinStart = new Date(Math.ceil(minStartDate.getTime() / 1000) * 1000);
+              currentStartDate = alignedMinStart;
               continue;
             }
             console.error(`[Garmin Backfill] Failed to trigger backfill chunk: ${backfillRes.status} ${text}`);
