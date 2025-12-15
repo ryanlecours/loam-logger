@@ -277,6 +277,17 @@ async function processActivityEvent(event: StravaWebhookEvent): Promise<void> {
         bikeId = mapping?.bikeId ?? null;
       }
 
+      // If no bike assigned yet, check if user has exactly one bike (auto-assign)
+      if (!bikeId) {
+        const userBikes = await prisma.bike.findMany({
+          where: { userId: userAccount.userId },
+          select: { id: true },
+        });
+        if (userBikes.length === 1) {
+          bikeId = userBikes[0].id;
+        }
+      }
+
       // Upsert the ride
       await prisma.ride.upsert({
         where: {
