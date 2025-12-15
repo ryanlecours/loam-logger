@@ -37,4 +37,5 @@ export const BIKE_MODELS: Record<string, string[]> = {
   Vitus: ['Sommet', 'Nucleon', 'Mythique', 'Raptor'],
   Whyte: ['E-150', 'E-160', 'E-170', 'G-160', 'T-130S'],
   Yeti: ['SB165', 'SB140', 'SB150', 'Arc'],
+  'YT Industries': ['Jeffsy', 'Capra', 'Izzo', 'Sicuro', 'Tues'],
 };

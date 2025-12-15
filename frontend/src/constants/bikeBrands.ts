@@ -37,4 +37,5 @@ export const MOUNTAIN_BIKE_BRANDS = [
   'Vitus',
   'Whyte',
   'Yeti',
+  'YT Industries',
 ];
