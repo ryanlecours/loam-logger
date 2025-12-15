@@ -2242,9 +2242,22 @@ r$4.get(
       return res.status(401).json({ error: "Not authenticated" });
     }
     try {
-      const days = parseInt(req.query.days || "30", 10);
-      if (isNaN(days) || days < 1 || days > 365) {
-        return res.status(400).json({ error: "Days must be between 1 and 365" });
+      const currentYear = (/* @__PURE__ */ new Date()).getFullYear();
+      const yearParam = req.query.year;
+      let startDate;
+      let endDate;
+      if (yearParam === "ytd") {
+        startDate = new Date(currentYear, 0, 1);
+        endDate = /* @__PURE__ */ new Date();
+      } else {
+        const year = parseInt(yearParam || String(currentYear), 10);
+        if (isNaN(year) || year < 2e3 || year > currentYear) {
+          return res.status(400).json({
+            error: `Year must be between 2000 and ${currentYear}, or 'ytd'`
+          });
+        }
+        startDate = new Date(year, 0, 1);
+        endDate = new Date(year, 11, 31, 23, 59, 59);
       }
       const accessToken = await getValidStravaToken(userId);
       if (!accessToken) {
@@ -2252,11 +2265,9 @@ r$4.get(
           error: "Strava not connected or token expired. Please reconnect your Strava account."
         });
       }
-      const endDate = /* @__PURE__ */ new Date();
-      const startDate = dateFns.subDays(endDate, days);
       const afterTimestamp = Math.floor(startDate.getTime() / 1e3);
       const beforeTimestamp = Math.floor(endDate.getTime() / 1e3);
-      console.log(`[Strava Backfill] Fetching activities from ${startDate.toISOString()} to ${endDate.toISOString()}`);
+      console.log(`[Strava Backfill] Fetching ${yearParam || currentYear} activities from ${startDate.toISOString()} to ${endDate.toISOString()}`);
       const activities = [];
       let page = 1;
       const perPage = 50;
@@ -2286,8 +2297,8 @@ r$4.get(
         } else {
           page++;
         }
-        if (page > 10) {
-          console.warn("[Strava Backfill] Reached page limit (10), stopping pagination");
+        if (page > 50) {
+          console.warn("[Strava Backfill] Reached page limit (50), stopping pagination");
           hasMore = false;
         }
       }
