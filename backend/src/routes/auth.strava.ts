@@ -27,7 +27,7 @@ r.get<Empty, void, Empty>('/strava/start', async (_req: Request, res: Response) 
 
   const cookieOptions = {
     httpOnly: true,
-    sameSite: (process.env.NODE_ENV === 'production' ? 'none' : 'lax') as 'none' | 'lax',
+    sameSite: 'lax' as const, // 'lax' allows cookies to be sent on top-level navigations (OAuth redirects)
     secure: process.env.NODE_ENV !== 'development',
     maxAge: 10 * 60 * 1000,
     path: '/',
