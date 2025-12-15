@@ -1,6 +1,5 @@
-// src/components/RideCard.tsx
 import { useState } from 'react';
-import { FaMountain } from 'react-icons/fa';
+import { FaMountain, FaPencilAlt, FaStrava } from 'react-icons/fa';
 import { useMutation } from '@apollo/client';
 import { UPDATE_RIDE } from '../graphql/updateRide';
 import { RIDES } from '../graphql/rides';
@@ -12,6 +11,7 @@ import { fmtDateTime, fmtDuration, fmtMiles, fmtFeet } from '../lib/format';
 type Ride = {
   id: string;
   garminActivityId?: string | null;
+  stravaActivityId?: string | null;
   startTime: string | number | Date;
   durationSeconds: number;
   distanceMiles: number;
@@ -36,6 +36,32 @@ type RideCardProps = {
   bikes?: Bike[];
 };
 
+type RideSource = 'garmin' | 'strava' | 'manual';
+
+const getRideSource = (ride: Ride): RideSource => {
+  if (ride.garminActivityId) return 'garmin';
+  if (ride.stravaActivityId) return 'strava';
+  return 'manual';
+};
+
+const SOURCE_BADGES: Record<
+  RideSource,
+  { label: string; color: string; Icon: typeof FaMountain }
+> = {
+  garmin: { label: 'Garmin', color: '#11A9ED', Icon: FaMountain },
+  strava: { label: 'Strava', color: '#FC4C02', Icon: FaStrava },
+  manual: { label: 'Manual', color: '#9CA3AF', Icon: FaPencilAlt },
+};
+
+const formatTitle = (ride: Ride) => {
+  const trimmedLocation = ride.location?.trim();
+  const trimmedTrail = ride.trailSystem?.trim();
+  const titleParts = [trimmedLocation, trimmedTrail].filter(
+    (part): part is string => Boolean(part)
+  );
+  return titleParts.length ? titleParts.join(' — ') : `${ride.rideType} ride`;
+};
+
 export default function RideCard({ ride, bikes = [] }: RideCardProps) {
   const [editing, setEditing] = useState(false);
   const [selectedBikeId, setSelectedBikeId] = useState<string>(bikes[0]?.id || '');
@@ -44,17 +70,15 @@ export default function RideCard({ ride, bikes = [] }: RideCardProps) {
   const [updateRide] = useMutation(UPDATE_RIDE, {
     refetchQueries: [
       { query: RIDES, variables: { take: 5 } },
-      { query: RIDES }, // Refetch all rides
-      { query: BIKES }, // Refetch bikes to update component hours
+      { query: RIDES },
+      { query: BIKES },
     ],
   });
 
-  const title =
-    (ride.trailSystem?.trim() || ride.location?.trim())
-      ? [ride.trailSystem?.trim(), ride.location?.trim()].filter(Boolean).join(' — ')
-      : `${ride.rideType} ride`;
-
+  const title = formatTitle(ride);
   const needsBikeAssignment = !ride.bikeId && bikes.length > 1;
+  const source = getRideSource(ride);
+  const sourceBadge = SOURCE_BADGES[source];
 
   const handleAssignBike = async () => {
     if (!selectedBikeId) return;
@@ -83,10 +107,24 @@ export default function RideCard({ ride, bikes = [] }: RideCardProps) {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
             <div className="font-medium truncate">{title}</div>
-            {ride.garminActivityId && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-[#11A9ED]/20 text-[#11A9ED] border border-[#11A9ED]/50">
-                <FaMountain className="text-xs" />
-                Garmin
+            {sourceBadge && (
+              <span
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs border"
+                style={{
+                  backgroundColor: `${sourceBadge.color}33`,
+                  color: sourceBadge.color,
+                  borderColor: `${sourceBadge.color}80`,
+                }}
+                title={
+                  source === 'garmin'
+                    ? 'From Garmin Connect'
+                    : source === 'strava'
+                      ? 'From Strava'
+                      : 'Manual entry'
+                }
+              >
+                <sourceBadge.Icon className="text-xs" />
+                {sourceBadge.label}
               </span>
             )}
           </div>
@@ -98,17 +136,23 @@ export default function RideCard({ ride, bikes = [] }: RideCardProps) {
             {typeof ride.averageHr === 'number' && <span>{ride.averageHr} bpm</span>}
           </div>
           {ride.notes && (
-            <div className="mt-1 text-sm opacity-80 italic"
-                 style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}
-                 title={ride.notes}>
+            <div
+              className="mt-1 text-sm opacity-80 italic"
+              style={{
+                display: '-webkit-box',
+                WebkitLineClamp: 2,
+                WebkitBoxOrient: 'vertical',
+                overflow: 'hidden',
+              }}
+              title={ride.notes}
+            >
               {ride.notes}
             </div>
           )}
 
-          {/* Bike assignment selector for multi-bike users */}
           {needsBikeAssignment && (
             <div className="mt-2 flex items-center gap-2">
-              <span className="text-xs text-yellow-400">⚠️ Assign to bike:</span>
+              <span className="text-xs text-yellow-400">Heads up: Assign to bike:</span>
               <select
                 value={selectedBikeId}
                 onChange={(e) => setSelectedBikeId(e.target.value)}
@@ -133,7 +177,6 @@ export default function RideCard({ ride, bikes = [] }: RideCardProps) {
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
-          {/* Edit button */}
           <button
             type="button"
             onClick={() => setEditing(true)}
@@ -146,7 +189,6 @@ export default function RideCard({ ride, bikes = [] }: RideCardProps) {
             </svg>
           </button>
 
-          {/* Delete button */}
           <DeleteRideButton id={ride.id} />
         </div>
       </li>

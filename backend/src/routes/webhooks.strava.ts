@@ -1,6 +1,8 @@
 import { Router as createRouter, type Router, type Request, type Response } from 'express';
+import type { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma.ts';
 import { getValidStravaToken } from '../lib/strava-token.ts';
+import { deriveLocation, shouldApplyAutoLocation } from '../lib/location.ts';
 
 type Empty = Record<string, never>;
 const r: Router = createRouter();
@@ -52,6 +54,37 @@ type StravaWebhookEvent = {
   event_time: number; // Unix timestamp
   updates?: Record<string, unknown>;
 };
+
+type StravaActivityDetail = {
+  id: number;
+  name: string;
+  sport_type: string;
+  start_date: string; // ISO 8601
+  elapsed_time: number; // seconds
+  moving_time: number; // seconds
+  distance: number; // meters
+  total_elevation_gain: number; // meters
+  gear_id?: string | null; // Strava bike/gear ID
+  average_heartrate?: number;
+  max_heartrate?: number;
+  average_speed?: number; // m/s
+  max_speed?: number; // m/s
+  calories?: number;
+  location_city?: string | null;
+  location_state?: string | null;
+  location_country?: string | null;
+  start_latlng?: [number, number] | null;
+  [key: string]: unknown;
+};
+
+const extractStravaLocation = (activity: StravaActivityDetail) =>
+  deriveLocation({
+    city: activity.location_city ?? null,
+    state: activity.location_state ?? null,
+    country: activity.location_country ?? null,
+    lat: activity.start_latlng?.[0] ?? null,
+    lon: activity.start_latlng?.[1] ?? null,
+  });
 
 r.post<Empty, void, StravaWebhookEvent>(
   '/webhooks/strava',
@@ -146,6 +179,57 @@ r.post<Empty, void, { athlete_id: number }>(
   }
 );
 
+const secondsToHours = (seconds: number | null | undefined) => Math.max(0, seconds ?? 0) / 3600;
+
+async function syncBikeComponentHours(
+  tx: Prisma.TransactionClient,
+  userId: string,
+  previous: { bikeId: string | null; durationSeconds: number | null | undefined },
+  next: { bikeId: string | null; durationSeconds: number | null | undefined }
+) {
+  const prevBikeId = previous.bikeId;
+  const nextBikeId = next.bikeId;
+  const prevHours = secondsToHours(previous.durationSeconds);
+  const nextHours = secondsToHours(next.durationSeconds);
+  const bikeChanged = prevBikeId !== nextBikeId;
+  const hoursDiff = nextHours - prevHours;
+
+  if (prevBikeId) {
+    if (bikeChanged && prevHours > 0) {
+      await tx.component.updateMany({
+        where: { userId, bikeId: prevBikeId },
+        data: { hoursUsed: { decrement: prevHours } },
+      });
+    } else if (!bikeChanged && hoursDiff < 0) {
+      await tx.component.updateMany({
+        where: { userId, bikeId: prevBikeId },
+        data: { hoursUsed: { decrement: Math.abs(hoursDiff) } },
+      });
+    }
+
+    if (bikeChanged || hoursDiff < 0) {
+      await tx.component.updateMany({
+        where: { userId, bikeId: prevBikeId, hoursUsed: { lt: 0 } },
+        data: { hoursUsed: 0 },
+      });
+    }
+  }
+
+  if (nextBikeId) {
+    if (bikeChanged && nextHours > 0) {
+      await tx.component.updateMany({
+        where: { userId, bikeId: nextBikeId },
+        data: { hoursUsed: { increment: nextHours } },
+      });
+    } else if (!bikeChanged && hoursDiff > 0) {
+      await tx.component.updateMany({
+        where: { userId, bikeId: nextBikeId },
+        data: { hoursUsed: { increment: hoursDiff } },
+      });
+    }
+  }
+}
+
 /**
  * Process a single Strava activity event
  */
@@ -184,12 +268,25 @@ async function processActivityEvent(event: StravaWebhookEvent): Promise<void> {
 
   // Handle different event types
   if (aspect_type === 'delete') {
-    // Delete ride
-    await prisma.ride.deleteMany({
-      where: {
-        userId: userAccount.userId,
-        stravaActivityId: activityId.toString(),
-      },
+    await prisma.$transaction(async (tx) => {
+      const existing = await tx.ride.findUnique({
+        where: { stravaActivityId: activityId.toString() },
+        select: { id: true, userId: true, durationSeconds: true, bikeId: true },
+      });
+
+      if (!existing || existing.userId !== userAccount.userId) {
+        console.log(`[Strava Activity Event] No ride to delete for activity ${activityId}`);
+        return;
+      }
+
+      await syncBikeComponentHours(
+        tx,
+        userAccount.userId,
+        { bikeId: existing.bikeId ?? null, durationSeconds: existing.durationSeconds },
+        { bikeId: null, durationSeconds: 0 }
+      );
+
+      await tx.ride.delete({ where: { id: existing.id } });
     });
     console.log(`[Strava Activity Event] Deleted ride for activity ${activityId}`);
     return;
@@ -219,24 +316,6 @@ async function processActivityEvent(event: StravaWebhookEvent): Promise<void> {
         console.error(`[Strava Activity Event] Failed to fetch activity ${activityId}: ${activityRes.status} ${text}`);
         return;
       }
-
-      type StravaActivityDetail = {
-        id: number;
-        name: string;
-        sport_type: string;
-        start_date: string; // ISO 8601
-        elapsed_time: number; // seconds
-        moving_time: number; // seconds
-        distance: number; // meters
-        total_elevation_gain: number; // meters
-        gear_id?: string | null; // Strava bike/gear ID
-        average_heartrate?: number;
-        max_heartrate?: number;
-        average_speed?: number; // m/s
-        max_speed?: number; // m/s
-        calories?: number;
-        [key: string]: unknown;
-      };
 
       const activity = (await activityRes.json()) as StravaActivityDetail;
 
@@ -288,35 +367,60 @@ async function processActivityEvent(event: StravaWebhookEvent): Promise<void> {
         }
       }
 
-      // Upsert the ride
-      await prisma.ride.upsert({
-        where: {
-          stravaActivityId: activityId.toString(),
-        },
-        create: {
-          userId: userAccount.userId,
-          stravaActivityId: activityId.toString(),
-          stravaGearId: activity.gear_id ?? null,
-          startTime,
-          durationSeconds: activity.moving_time,
-          distanceMiles,
-          elevationGainFeet,
-          averageHr: activity.average_heartrate ? Math.round(activity.average_heartrate) : null,
-          rideType: activity.sport_type,
-          notes: activity.name || null,
-          bikeId,
-        },
-        update: {
-          startTime,
-          stravaGearId: activity.gear_id ?? null,
-          durationSeconds: activity.moving_time,
-          distanceMiles,
-          elevationGainFeet,
-          averageHr: activity.average_heartrate ? Math.round(activity.average_heartrate) : null,
-          rideType: activity.sport_type,
-          notes: activity.name || null,
-          bikeId,
-        },
+      const autoLocation = extractStravaLocation(activity);
+
+      await prisma.$transaction(async (tx) => {
+        const existing = await tx.ride.findUnique({
+          where: { stravaActivityId: activityId.toString() },
+          select: { durationSeconds: true, bikeId: true, location: true },
+        });
+
+        const locationUpdate = shouldApplyAutoLocation(existing?.location ?? null, autoLocation);
+
+        const ride = await tx.ride.upsert({
+          where: {
+            stravaActivityId: activityId.toString(),
+          },
+          create: {
+            userId: userAccount.userId,
+            stravaActivityId: activityId.toString(),
+            stravaGearId: activity.gear_id ?? null,
+            startTime,
+            durationSeconds: activity.moving_time,
+            distanceMiles,
+            elevationGainFeet,
+            averageHr: activity.average_heartrate ? Math.round(activity.average_heartrate) : null,
+            rideType: activity.sport_type,
+            notes: activity.name || null,
+            bikeId,
+            location: autoLocation,
+          },
+          update: {
+            startTime,
+            stravaGearId: activity.gear_id ?? null,
+            durationSeconds: activity.moving_time,
+            distanceMiles,
+            elevationGainFeet,
+            averageHr: activity.average_heartrate ? Math.round(activity.average_heartrate) : null,
+            rideType: activity.sport_type,
+            notes: activity.name || null,
+            bikeId,
+            ...(locationUpdate !== undefined ? { location: locationUpdate } : {}),
+          },
+        });
+
+        await syncBikeComponentHours(
+          tx,
+          userAccount.userId,
+          {
+            bikeId: existing?.bikeId ?? null,
+            durationSeconds: existing?.durationSeconds ?? null,
+          },
+          {
+            bikeId: ride.bikeId ?? null,
+            durationSeconds: ride.durationSeconds,
+          }
+        );
       });
 
       console.log(`[Strava Activity Event] Successfully stored ride for activity ${activityId}`);
