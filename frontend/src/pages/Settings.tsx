@@ -29,7 +29,9 @@ const CONNECTED_ACCOUNTS_QUERY = gql`
 export default function Settings() {
   const { user } = useCurrentUser();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { data: accountsData, refetch: refetchAccounts } = useQuery(CONNECTED_ACCOUNTS_QUERY);
+  const { data: accountsData, refetch: refetchAccounts } = useQuery(CONNECTED_ACCOUNTS_QUERY, {
+    fetchPolicy: 'cache-and-network',
+  });
   const [hoursDisplay, setHoursDisplay] = useState<"total" | "remaining">("total");
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
@@ -130,6 +132,7 @@ export default function Settings() {
 
       const data = await res.json();
       setActiveDataSource(data.activeDataSource);
+      await refetchAccounts();
       setSuccessMessage(`Active data source set to ${provider.charAt(0).toUpperCase() + provider.slice(1)}`);
       setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err) {
