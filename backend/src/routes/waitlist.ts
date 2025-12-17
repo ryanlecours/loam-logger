@@ -35,8 +35,15 @@ router.post('/waitlist', express.json(), async (req: Request, res) => {
     }
 
     // Extract metadata
-    const referrer = req.headers.referer || req.headers.referrer || null;
-    const userAgent = req.headers['user-agent'] || null;
+    const rawReferrer = req.headers.referer || req.headers.referrer || null;
+    const referrer = typeof rawReferrer === 'string'
+      ? rawReferrer.substring(0, 500)
+      : null;
+
+    const rawUserAgent = req.headers['user-agent'] || null;
+    const userAgent = typeof rawUserAgent === 'string'
+      ? rawUserAgent.substring(0, 500)
+      : null;
 
     // Hash IP for privacy (not storing raw IP)
     const rawIp = req.ip || null;
@@ -49,8 +56,8 @@ router.post('/waitlist', express.json(), async (req: Request, res) => {
       data: {
         email,
         name: trimmedName,
-        referrer: referrer?.substring(0, 500) || null,
-        userAgent: userAgent?.substring(0, 500) || null,
+        referrer,
+        userAgent,
         ipAddress,
       },
     });
