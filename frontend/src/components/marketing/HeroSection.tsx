@@ -38,20 +38,20 @@ export default function HeroSection() {
       >
         <a
           href="/login"
-          className="text-sm text-mkt-sand/80 hover:text-mkt-cream transition-colors"
+          className="text-sm text-sand/80 hover:text-cream transition-colors"
         >
           Log In
         </a>
       </motion.div>
 
       {/* Content */}
-      <div className="relative z-10 mkt-container text-center px-6">
+      <div className="relative z-10 container text-center px-6">
         <motion.div
           initial={{ opacity: 0, y: 30 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.8, delay: 0.2 }}
         >
-          <h1 className="mkt-hero-headline mb-6">
+          <h1 className="hero-headline mb-6">
             Stop Guessing.<br />Start Riding Smarter.
           </h1>
         </motion.div>
@@ -61,7 +61,7 @@ export default function HeroSection() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.8, delay: 0.4 }}
         >
-          <p className="mkt-body-large text-mkt-sand max-w-3xl mx-auto mb-8">
+          <p className="body-large text-sand max-w-3xl mx-auto mb-8">
             Track every ride. Optimize every component. Never miss a service again.
           </p>
         </motion.div>
@@ -83,8 +83,8 @@ export default function HeroSection() {
           transition={{ duration: 0.8, delay: 0.8 }}
           className="mt-6"
         >
-          <div className="inline-flex items-center gap-2 px-4 py-2 bg-mkt-mint/20 border border-mkt-mint/40 rounded-full">
-            <span className="text-sm font-semibold text-mkt-mint">Free Forever for Beta Users</span>
+          <div className="inline-flex items-center gap-2 px-4 py-2 bg-mint/20 border border-mint/40 rounded-full">
+            <span className="text-sm font-semibold text-mint">Free Forever for Beta Users</span>
           </div>
         </motion.div>
       </div>
@@ -101,8 +101,8 @@ export default function HeroSection() {
           repeatType: 'reverse',
         }}
       >
-        <div className="w-6 h-10 border-2 border-mkt-mint/50 rounded-full flex items-start justify-center p-2">
-          <div className="w-1 h-2 bg-mkt-mint rounded-full" />
+        <div className="w-6 h-10 border-2 border-mint/50 rounded-full flex items-start justify-center p-2">
+          <div className="w-1 h-2 bg-mint rounded-full" />
         </div>
       </motion.div>
     </section>

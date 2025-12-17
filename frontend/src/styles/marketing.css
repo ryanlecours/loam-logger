@@ -1,5 +1,5 @@
 /**
- * Loam Logger Marketing Landing Page Styles
+ * Loam Logger Design System
  * High-end, sleek design system for MTB audience
  */
 
@@ -8,109 +8,189 @@
    ============================================ */
 
 :root {
+  /* RGB tuples for Tailwind opacity modifiers */
+  --bg: 18 28 24;                    /* forest-deep RGB */
+  --surface: 30 34 32;               /* charcoal RGB */
+  --surface-2: 42 46 44;             /* stone RGB */
+  --surface-accent: 54 60 57;        /* slate RGB */
+  --text: 252 250 246;               /* cream RGB */
+  --text-muted: 142 148 145;         /* concrete RGB */
+  --primary: 134 158 140;            /* sage RGB */
+  --primary-foreground: 18 28 24;    /* forest-deep RGB */
+  --accent: 212 175 124;             /* gold RGB */
+  --border: 54 60 57;                /* slate RGB */
+  --ring: 168 208 184;               /* mint RGB */
+  --success: 168 208 184;            /* mint RGB */
+  --warning: 184 115 84;             /* copper RGB */
+  --danger: 196 89 67;               /* error RGB */
+  --panel-bg: 30 34 32;              /* charcoal RGB */
+  --panel-border: 54 60 57;          /* slate RGB */
+  --input-bg: 30 34 32;              /* charcoal RGB */
+  --input-border: 54 60 57;          /* slate RGB */
+  --input-text: 252 250 246;         /* cream RGB */
+  --input-placeholder: 142 148 145;  /* concrete RGB */
+  --panel-shadow: 18 28 24;          /* forest-deep RGB */
+  --header-gradient-start: #121C18;  /* forest-deep */
+  --header-gradient-mid: #44604C;    /* moss */
+  --header-gradient-end: #1E2220;    /* charcoal */
+  --font-sans: 'Inter', 'Work Sans', 'Segoe UI', system-ui, sans-serif;
+
   /* Primary Brand Colors - Earthy, sophisticated greens and browns */
-  --mkt-forest-deep: rgb(18, 28, 24);        /* #121C18 - Deep forest background */
-  --mkt-moss: rgb(68, 96, 76);               /* #44604C - Moss green accents */
-  --mkt-sage: rgb(134, 158, 140);            /* #869E8C - Sage green highlights */
-  --mkt-earth: rgb(89, 72, 58);              /* #59483A - Earth brown */
-  --mkt-stone: rgb(42, 46, 44);              /* #2A2E2C - Stone gray */
+  --forest-deep: rgb(18, 28, 24);        /* #121C18 - Deep forest background */
+  --moss: rgb(68, 96, 76);               /* #44604C - Moss green accents */
+  --sage: rgb(134, 158, 140);            /* #869E8C - Sage green highlights */
+  --earth: rgb(89, 72, 58);              /* #59483A - Earth brown */
+  --stone: rgb(42, 46, 44);              /* #2A2E2C - Stone gray */
 
   /* Accent Colors - Premium metallics and highlights */
-  --mkt-gold: rgb(212, 175, 124);            /* #D4AF7C - Brushed gold */
-  --mkt-copper: rgb(184, 115, 84);           /* #B87354 - Copper accent */
-  --mkt-mint: rgb(168, 208, 184);            /* #A8D0B8 - Fresh mint */
+  --gold: rgb(212, 175, 124);            /* #D4AF7C - Brushed gold */
+  --copper: rgb(184, 115, 84);           /* #B87354 - Copper accent */
+  --mint: rgb(168, 208, 184);            /* #A8D0B8 - Fresh mint */
 
   /* Neutrals - Clean, sophisticated */
-  --mkt-charcoal: rgb(30, 34, 32);           /* #1E2220 - Charcoal */
-  --mkt-slate: rgb(54, 60, 57);              /* #363C39 - Slate */
-  --mkt-concrete: rgb(142, 148, 145);        /* #8E9491 - Concrete */
-  --mkt-sand: rgb(242, 238, 232);            /* #F2EEE8 - Sand beige */
-  --mkt-cream: rgb(252, 250, 246);           /* #FCFAF6 - Cream white */
+  --charcoal: rgb(30, 34, 32);           /* #1E2220 - Charcoal */
+  --slate: rgb(54, 60, 57);              /* #363C39 - Slate */
+  --concrete: rgb(142, 148, 145);        /* #8E9491 - Concrete */
+  --sand: rgb(242, 238, 232);            /* #F2EEE8 - Sand beige */
+  --cream: rgb(252, 250, 246);           /* #FCFAF6 - Cream white */
 
   /* Functional Colors */
-  --mkt-success: var(--mkt-mint);
-  --mkt-warning: var(--mkt-copper);
-  --mkt-error: rgb(196, 89, 67);             /* #C45943 - Terra cotta */
+  --success: var(--mint);
+  --warning: var(--copper);
+  --error: rgb(196, 89, 67);             /* #C45943 - Terra cotta */
 
   /* Opacity Variants */
-  --mkt-overlay-dark: rgba(18, 28, 24, 0.85);
-  --mkt-overlay-light: rgba(252, 250, 246, 0.95);
-  --mkt-glass: rgba(54, 60, 57, 0.6);
+  --overlay-dark: rgba(18, 28, 24, 0.85);
+  --overlay-light: rgba(252, 250, 246, 0.95);
+  --glass: rgba(54, 60, 57, 0.6);
+}
+
+/* ============================================
+   GLOBAL STYLES
+   ============================================ */
+
+html,
+body,
+#root {
+  min-height: 100%;
+  font-family: var(--font-sans);
+  background:
+    radial-gradient(120% 120% at 10% 10%, rgba(68, 96, 76, 0.25), transparent),
+    radial-gradient(70% 120% at 90% 0%, rgba(42, 46, 44, 0.4), transparent),
+    var(--forest-deep);
+  color: var(--cream);
+}
+
+/* Placeholder styling */
+input::placeholder,
+textarea::placeholder {
+  color: rgba(142, 148, 145, 0.6);
+}
+input::-webkit-input-placeholder,
+textarea::-webkit-input-placeholder {
+  color: rgba(142, 148, 145, 0.6);
+}
+input::-moz-placeholder,
+textarea::-moz-placeholder {
+  color: rgba(142, 148, 145, 0.6);
+  opacity: 1;
+}
+input:focus::placeholder,
+textarea:focus::placeholder {
+  color: transparent;
 }
 
 /* ============================================
    TYPOGRAPHY SYSTEM
    ============================================ */
 
-.mkt-hero-headline {
+.hero-headline {
   font-size: clamp(3rem, 6vw, 4.5rem);
   font-weight: 800;
   line-height: 1.1;
   letter-spacing: -0.02em;
-  color: var(--mkt-cream);
+  color: var(--cream);
 }
 
-.mkt-section-title {
+.section-title {
   font-size: clamp(2rem, 4vw, 3rem);
   font-weight: 700;
   line-height: 1.2;
   letter-spacing: -0.01em;
 }
 
-.mkt-card-title {
+.card-title {
   font-size: 1.5rem;
   font-weight: 600;
   line-height: 1.3;
   letter-spacing: -0.005em;
 }
 
-.mkt-body {
+.body {
   font-size: clamp(1rem, 1.2vw, 1.125rem);
   font-weight: 400;
   line-height: 1.7;
-  color: var(--mkt-concrete);
+  color: var(--concrete);
 }
 
-.mkt-body-large {
+.body-large {
   font-size: clamp(1.125rem, 1.5vw, 1.25rem);
   line-height: 1.6;
 }
 
-.mkt-small {
+.small {
   font-size: 0.875rem;
   font-weight: 500;
   line-height: 1.5;
 }
 
-.mkt-cta-text {
+.cta-text {
   font-size: 1.125rem;
   font-weight: 600;
   letter-spacing: 0.02em;
   text-transform: none;
 }
 
+.text-heading {
+  color: var(--cream);
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.text-accent {
+  color: var(--mint);
+}
+
+.text-gold {
+  color: var(--gold);
+}
+
+.text-muted {
+  color: var(--concrete);
+}
+
 /* ============================================
    LAYOUT & SPACING
    ============================================ */
 
-.mkt-section {
+.section {
   width: 100%;
   position: relative;
 }
 
-.mkt-container {
+.container {
   max-width: 1280px;
   margin: 0 auto;
   padding-left: clamp(1.5rem, 5vw, 3rem);
   padding-right: clamp(1.5rem, 5vw, 3rem);
 }
 
-.mkt-section-padding {
+.section-padding {
   padding-top: clamp(4rem, 10vh, 8rem);
   padding-bottom: clamp(4rem, 10vh, 8rem);
 }
 
-.mkt-section-padding-sm {
+.section-padding-sm {
   padding-top: clamp(3rem, 7vh, 6rem);
   padding-bottom: clamp(3rem, 7vh, 6rem);
 }
@@ -119,33 +199,55 @@
    BACKGROUND VARIANTS
    ============================================ */
 
-.mkt-bg-dark {
-  background-color: var(--mkt-forest-deep);
-  color: var(--mkt-cream);
+.bg-dark {
+  background-color: var(--forest-deep);
+  color: var(--cream);
 }
 
-.mkt-bg-charcoal {
-  background-color: var(--mkt-charcoal);
-  color: var(--mkt-cream);
+.bg-charcoal {
+  background-color: var(--charcoal);
+  color: var(--cream);
 }
 
-.mkt-bg-light {
-  background-color: var(--mkt-sand);
-  color: var(--mkt-charcoal);
+.bg-light {
+  background-color: var(--sand);
+  color: var(--charcoal);
 }
 
-.mkt-bg-cream {
-  background-color: var(--mkt-cream);
-  color: var(--mkt-charcoal);
+.bg-cream {
+  background-color: var(--cream);
+  color: var(--charcoal);
 }
 
-.mkt-bg-gradient-dark {
-  background: radial-gradient(ellipse at center, var(--mkt-stone) 0%, var(--mkt-forest-deep) 100%);
-  color: var(--mkt-cream);
+.bg-gradient-dark {
+  background: radial-gradient(ellipse at center, var(--stone) 0%, var(--forest-deep) 100%);
+  color: var(--cream);
+}
+
+/* Base utilities */
+.bg-app {
+  background: var(--forest-deep);
+  color: var(--cream);
+}
+
+.bg-surface {
+  background: var(--charcoal);
+}
+
+.bg-surface-2 {
+  background: var(--stone);
+}
+
+.bg-accent {
+  background: var(--slate);
+}
+
+.border-app {
+  border-color: var(--slate);
 }
 
 /* Texture overlays */
-.mkt-texture-loam {
+.texture-loam {
   background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23000000' fill-opacity='0.03'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
 }
 
@@ -154,8 +256,8 @@
    ============================================ */
 
 /* Card - Frosted glass effect */
-.mkt-card {
-  background: var(--mkt-glass);
+.card {
+  background: var(--glass);
   border: 1px solid rgba(134, 158, 140, 0.2);
   border-radius: 1rem;
   padding: 2rem;
@@ -167,7 +269,7 @@
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.mkt-card:hover {
+.card:hover {
   transform: translateY(-5px);
   box-shadow:
     0 30px 80px rgba(18, 28, 24, 0.4),
@@ -177,8 +279,8 @@
 }
 
 /* Card - Solid variant for light backgrounds */
-.mkt-card-solid {
-  background: var(--mkt-charcoal);
+.card-solid {
+  background: var(--charcoal);
   border: 1px solid rgba(134, 158, 140, 0.15);
   border-radius: 1rem;
   padding: 2rem;
@@ -186,16 +288,20 @@
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.mkt-card-solid:hover {
+.card-solid:hover {
   transform: translateY(-5px);
   box-shadow: 0 30px 80px rgba(18, 28, 24, 0.35);
   border-color: rgba(134, 158, 140, 0.3);
 }
 
-/* Buttons */
-.mkt-btn-primary {
-  background: linear-gradient(135deg, var(--mkt-sage) 0%, var(--mkt-moss) 100%);
-  color: var(--mkt-cream);
+/* ============================================
+   BUTTONS
+   ============================================ */
+
+/* Primary button */
+.btn-primary {
+  background: linear-gradient(135deg, var(--sage) 0%, var(--moss) 100%);
+  color: var(--cream);
   border: 2px solid rgba(168, 208, 184, 0.4);
   border-radius: 999px;
   padding: 1rem 3rem;
@@ -211,7 +317,7 @@
     0 0 0 1px rgba(168, 208, 184, 0.2) inset;
 }
 
-.mkt-btn-primary::before {
+.btn-primary::before {
   content: '';
   position: absolute;
   top: 0;
@@ -223,7 +329,7 @@
   transition: opacity 0.3s ease;
 }
 
-.mkt-btn-primary:hover {
+.btn-primary:hover {
   transform: scale(1.05);
   box-shadow:
     0 15px 40px rgba(68, 96, 76, 0.5),
@@ -232,20 +338,20 @@
   border-color: rgba(168, 208, 184, 0.6);
 }
 
-.mkt-btn-primary:hover::before {
+.btn-primary:hover::before {
   opacity: 1;
 }
 
-.mkt-btn-primary:active {
+.btn-primary:active {
   transform: scale(0.98);
 }
 
 /* Button with pulse animation for CTAs */
-.mkt-btn-pulse {
-  animation: mkt-pulse 2.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+.btn-pulse {
+  animation: pulse 2.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
-@keyframes mkt-pulse {
+@keyframes pulse {
   0%, 100% {
     box-shadow:
       0 10px 30px rgba(68, 96, 76, 0.3),
@@ -261,10 +367,10 @@
 }
 
 /* Secondary button */
-.mkt-btn-secondary {
+.btn-secondary {
   background: transparent;
-  color: var(--mkt-sage);
-  border: 2px solid var(--mkt-moss);
+  color: var(--sage);
+  border: 2px solid var(--moss);
   border-radius: 999px;
   padding: 1rem 3rem;
   font-size: 1.125rem;
@@ -274,45 +380,170 @@
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.mkt-btn-secondary:hover {
-  background: var(--mkt-moss);
-  color: var(--mkt-cream);
+.btn-secondary:hover {
+  background: var(--moss);
+  color: var(--cream);
   transform: scale(1.05);
+}
+
+/* Accent button */
+.btn-accent {
+  background: linear-gradient(120deg, var(--gold), var(--copper));
+  color: var(--charcoal);
+  border: 1px solid rgba(212, 175, 124, 0.4);
+  border-radius: 0.65rem;
+  padding: 0.5rem 1.2rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.btn-accent:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.35);
+}
+
+/* Outline button */
+.btn-outline {
+  background-color: transparent;
+  color: var(--sage);
+  border: 1px solid var(--moss);
+  border-radius: 0.65rem;
+  padding: 0.45rem 1.15rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.btn-outline:hover {
+  background: rgba(68, 96, 76, 0.15);
+  color: var(--cream);
+}
+
+/* Disabled button */
+.btn-disabled {
+  background-color: rgba(42, 46, 44, 0.85);
+  color: rgba(142, 148, 145, 0.75);
+  border: 1px solid rgba(54, 60, 57, 0.4);
+  border-radius: 0.6rem;
+  padding: 0.45rem 1.1rem;
+  font-weight: 500;
+  cursor: not-allowed;
+}
+
+/* ============================================
+   LINKS
+   ============================================ */
+
+.link-accent {
+  color: var(--sage);
+  transition: color 0.15s ease;
+}
+
+.link-accent:hover {
+  color: var(--mint);
+}
+
+.link-accent-contrast {
+  color: var(--gold);
+}
+
+.link-accent-contrast:hover {
+  color: var(--sage);
+}
+
+/* ============================================
+   PANELS & MODALS
+   ============================================ */
+
+.panel-soft {
+  background-color: rgba(30, 34, 32, 0.96);
+  border: 1px solid rgba(54, 60, 57, 0.7);
+  color: var(--cream);
+  backdrop-filter: blur(14px);
+  border-radius: 1rem;
+}
+
+.shadow-soft {
+  box-shadow: 0 20px 60px rgba(18, 28, 24, 0.45);
+}
+
+.modal-surface {
+  background-color: rgba(30, 34, 32, 0.98);
+  border: 1px solid rgba(54, 60, 57, 0.85);
+  border-radius: 1rem;
+  box-shadow:
+    0 45px 120px rgba(18, 28, 24, 0.55),
+    0 0 0 1px rgba(168, 208, 184, 0.2);
+}
+
+/* ============================================
+   FORMS
+   ============================================ */
+
+.input-soft {
+  width: 100%;
+  background-color: rgba(30, 34, 32, 1);
+  border: 1px solid rgba(54, 60, 57, 1);
+  color: var(--cream);
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.9rem;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.input-soft::placeholder {
+  color: rgba(142, 148, 145, 0.6);
+}
+
+.input-soft:focus {
+  outline: none;
+  border-color: var(--mint);
+  box-shadow: 0 0 0 3px rgba(168, 208, 184, 0.25);
+}
+
+.label-muted {
+  color: rgba(142, 148, 145, 0.9);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.68rem;
+}
+
+.gear-form-field,
+.gear-textarea-field {
+  width: 100%;
+  border-radius: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.9rem;
+  line-height: 1.25rem;
+  background-color: rgba(30, 34, 32, 0.98);
+  border: 1px solid rgba(54, 60, 57, 0.8);
+  color: var(--cream);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 /* ============================================
    UTILITY CLASSES
    ============================================ */
 
-.mkt-text-accent {
-  color: var(--mkt-mint);
-}
-
-.mkt-text-gold {
-  color: var(--mkt-gold);
-}
-
-.mkt-text-muted {
-  color: var(--mkt-concrete);
-}
-
-.mkt-accent-bar {
+.accent-bar {
   width: 60px;
   height: 4px;
-  background: linear-gradient(90deg, var(--mkt-sage) 0%, var(--mkt-mint) 100%);
+  background: linear-gradient(90deg, var(--sage) 0%, var(--mint) 100%);
   border-radius: 2px;
   margin-bottom: 1.5rem;
 }
 
-.mkt-divider {
+.divider {
   width: 100%;
   height: 1px;
   background: linear-gradient(90deg, transparent 0%, rgba(134, 158, 140, 0.2) 50%, transparent 100%);
 }
 
 /* Icon styling */
-.mkt-icon {
-  color: var(--mkt-mint);
+.icon {
+  color: var(--mint);
   filter: drop-shadow(0 4px 8px rgba(168, 208, 184, 0.3));
 }
 
@@ -320,13 +551,13 @@
    RESPONSIVE GRID SYSTEMS
    ============================================ */
 
-.mkt-grid-3 {
+.grid-3 {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
   gap: 2rem;
 }
 
-.mkt-grid-2 {
+.grid-2 {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
   gap: 3rem;
@@ -334,8 +565,8 @@
 }
 
 @media (max-width: 768px) {
-  .mkt-grid-3,
-  .mkt-grid-2 {
+  .grid-3,
+  .grid-2 {
     grid-template-columns: 1fr;
     gap: 1.5rem;
   }
@@ -359,13 +590,13 @@ html.marketing-page:focus-within {
     scroll-behavior: auto;
   }
 
-  .mkt-card,
-  .mkt-btn-primary,
-  .mkt-btn-secondary {
+  .card,
+  .btn-primary,
+  .btn-secondary {
     transition: none !important;
   }
 
-  .mkt-btn-pulse {
+  .btn-pulse {
     animation: none !important;
   }
 }
@@ -374,14 +605,14 @@ html.marketing-page:focus-within {
    ACCESSIBILITY
    ============================================ */
 
-.mkt-btn-primary:focus-visible,
-.mkt-btn-secondary:focus-visible {
-  outline: 3px solid var(--mkt-mint);
+.btn-primary:focus-visible,
+.btn-secondary:focus-visible {
+  outline: 3px solid var(--mint);
   outline-offset: 3px;
 }
 
-.mkt-card:focus-visible {
-  outline: 2px solid var(--mkt-mint);
+.card:focus-visible {
+  outline: 2px solid var(--mint);
   outline-offset: 2px;
 }
 
@@ -389,14 +620,14 @@ html.marketing-page:focus-within {
    PERFORMANCE OPTIMIZATIONS
    ============================================ */
 
-.mkt-card,
-.mkt-btn-primary,
-.mkt-btn-secondary {
+.card,
+.btn-primary,
+.btn-secondary {
   will-change: transform;
 }
 
-.mkt-card:hover,
-.mkt-btn-primary:hover,
-.mkt-btn-secondary:hover {
+.card:hover,
+.btn-primary:hover,
+.btn-secondary:hover {
   will-change: transform, box-shadow;
 }

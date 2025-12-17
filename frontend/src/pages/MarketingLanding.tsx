@@ -9,7 +9,6 @@ import ProblemSolutionSection from '../components/marketing/ProblemSolutionSecti
 import TestimonialsSection from '../components/marketing/TestimonialsSection';
 import CTASection from '../components/marketing/CTASection';
 import MarketingFooter from '../components/marketing/MarketingFooter';
-import '../styles/marketing.css';
 
 export default function MarketingLanding() {
   useEffect(() => {

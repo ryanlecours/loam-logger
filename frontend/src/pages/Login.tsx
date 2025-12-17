@@ -6,7 +6,6 @@ import { motion } from 'motion/react';
 import { ME_QUERY } from '../graphql/me';
 import { useRedirectFrom } from '../utils/loginUtils';
 import { Button } from '@/components/ui';
-import '../styles/marketing.css';
 
 export default function Login() {
   const apollo = useApolloClient();
@@ -147,7 +146,7 @@ export default function Login() {
   }
 
   return (
-    <section className="relative min-h-screen flex items-center justify-center overflow-hidden mkt-bg-dark">
+    <section className="relative min-h-screen flex items-center justify-center overflow-hidden bg-dark">
       {/* Background Image with Overlay - Desktop */}
       <div
         className="absolute inset-0 z-0 hidden md:block"
@@ -183,7 +182,7 @@ export default function Login() {
         <a
           href="/"
           className="text-sm hover:opacity-80 transition-opacity"
-          style={{ color: 'var(--mkt-sand)' }}
+          style={{ color: 'var(--sand)' }}
         >
           ← Back to Home
         </a>
@@ -191,20 +190,20 @@ export default function Login() {
 
       {/* Login Form Content */}
       <motion.div
-        className="relative z-10 mkt-container px-6 max-w-md w-full"
+        className="relative z-10 container px-6 max-w-md w-full"
         initial={{ opacity: 0, y: 30 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.8 }}
       >
         <div className="w-full rounded-2xl p-8 space-y-6" style={{
-          backgroundColor: 'var(--mkt-glass)',
-          border: '1px solid var(--mkt-slate)',
+          backgroundColor: 'var(--glass)',
+          border: '1px solid var(--slate)',
           backdropFilter: 'blur(12px)',
         }}>
         <div className="text-center space-y-1">
-          <p className="text-xs uppercase tracking-[0.4em]" style={{ color: 'var(--mkt-sage)' }}>Loam Logger</p>
-          <h1 className="text-2xl font-semibold" style={{ color: 'var(--mkt-cream)' }}>Track your rides, maintain your bike</h1>
-          <p className="text-sm" style={{ color: 'var(--mkt-concrete)' }}>Sign in to sync rides, gear hours, and service logs.</p>
+          <p className="text-xs uppercase tracking-[0.4em]" style={{ color: 'var(--sage)' }}>Loam Logger</p>
+          <h1 className="text-2xl font-semibold" style={{ color: 'var(--cream)' }}>Track your rides, maintain your bike</h1>
+          <p className="text-sm" style={{ color: 'var(--concrete)' }}>Sign in to sync rides, gear hours, and service logs.</p>
         </div>
 
         <div className="flex rounded-full border border-app p-1">
@@ -247,7 +246,7 @@ export default function Login() {
             </div>
           )}
           {mode === 'signup' && (
-            <label className="block text-xs uppercase tracking-[0.3em]" style={{ color: 'var(--mkt-concrete)' }}>
+            <label className="block text-xs uppercase tracking-[0.3em]" style={{ color: 'var(--concrete)' }}>
               Name
               <input
                 type="text"
@@ -260,7 +259,7 @@ export default function Login() {
               />
             </label>
           )}
-          <label className="block text-xs uppercase tracking-[0.3em]" style={{ color: 'var(--mkt-concrete)' }}>
+          <label className="block text-xs uppercase tracking-[0.3em]" style={{ color: 'var(--concrete)' }}>
             Email
             <input
               type="email"
@@ -272,7 +271,7 @@ export default function Login() {
               required
             />
           </label>
-          <label className="block text-xs uppercase tracking-[0.3em]" style={{ color: 'var(--mkt-concrete)' }}>
+          <label className="block text-xs uppercase tracking-[0.3em]" style={{ color: 'var(--concrete)' }}>
             Password
             <input
               type="password"
@@ -285,7 +284,7 @@ export default function Login() {
             />
           </label>
           {mode === 'signup' && (
-            <label className="block text-xs uppercase tracking-[0.3em]" style={{ color: 'var(--mkt-concrete)' }}>
+            <label className="block text-xs uppercase tracking-[0.3em]" style={{ color: 'var(--concrete)' }}>
               Confirm Password
               <input
                 type="password"
@@ -314,7 +313,7 @@ export default function Login() {
         </form>
 
         <div className={`space-y-3 p-4 rounded-xl ${isLoading ? 'opacity-50 pointer-events-none' : ''}`} style={{ backgroundColor: 'rgba(54, 60, 57, 0.3)' }}>
-          <div className="text-center text-xs uppercase tracking-[0.3em]" style={{ color: 'var(--mkt-concrete)' }}>Or continue with</div>
+          <div className="text-center text-xs uppercase tracking-[0.3em]" style={{ color: 'var(--concrete)' }}>Or continue with</div>
           <div className="flex flex-col gap-3">
             <div className="flex justify-center">
               <GoogleLogin

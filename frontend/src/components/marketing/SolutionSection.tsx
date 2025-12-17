@@ -24,16 +24,16 @@ export default function SolutionSection() {
   return (
     <SectionWrapper background="light">
       <div className="text-center mb-12">
-        <div className="mkt-accent-bar mx-auto" />
-        <h2 className="mkt-section-title text-mkt-charcoal mb-4">
+        <div className="accent-bar mx-auto" />
+        <h2 className="section-title text-charcoal mb-4">
           Built by Riders, for Riders
         </h2>
-        <p className="mkt-body max-w-2xl mx-auto">
+        <p className="body max-w-2xl mx-auto">
           We got sick of guessing too. So we built the tool that doesn't exist.
         </p>
       </div>
 
-      <div className="mkt-grid-3">
+      <div className="grid-3">
         {solutions.map((solution, index) => (
           <MarketingCard
             key={index}

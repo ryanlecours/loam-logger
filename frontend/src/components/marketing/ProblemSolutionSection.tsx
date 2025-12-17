@@ -21,8 +21,8 @@ export default function ProblemSolutionSection() {
   return (
     <SectionWrapper background="light">
       <div className="text-center mb-12">
-        <div className="mkt-accent-bar mx-auto" />
-        <h2 className="mkt-section-title text-mkt-charcoal mb-4">
+        <div className="accent-bar mx-auto" />
+        <h2 className="section-title text-charcoal mb-4">
           No More Guesswork
         </h2>
       </div>
@@ -39,20 +39,20 @@ export default function ProblemSolutionSection() {
             className="grid md:grid-cols-[1fr_auto_1fr] gap-4 items-center"
           >
             {/* Problem (Left) */}
-            <div className="bg-mkt-sand/50 border border-red-600/20 rounded-lg p-4">
-              <p className="text-sm font-medium text-mkt-charcoal opacity-75">
+            <div className="bg-sand/50 border border-red-600/20 rounded-lg p-4">
+              <p className="text-sm font-medium text-charcoal opacity-75">
                 {item.problem}
               </p>
             </div>
 
             {/* Arrow */}
             <div className="hidden md:flex justify-center">
-              <RiArrowRightLine size={24} className="text-mkt-moss" />
+              <RiArrowRightLine size={24} className="text-moss" />
             </div>
 
             {/* Solution (Right) */}
-            <div className="bg-mkt-charcoal border border-mkt-mint/30 rounded-lg p-4">
-              <p className="text-sm font-medium text-mkt-cream">
+            <div className="bg-charcoal border border-mint/30 rounded-lg p-4">
+              <p className="text-sm font-medium text-cream">
                 {item.solution}
               </p>
             </div>

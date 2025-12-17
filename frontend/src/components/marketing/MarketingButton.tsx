@@ -18,7 +18,7 @@ const sizeClasses: Record<Size, string> = {
   sm: 'text-sm px-4 py-2',
   md: 'text-base px-6 py-3',
   lg: 'text-lg px-8 py-4',
-  xl: 'mkt-cta-text px-12 py-5',
+  xl: 'cta-text px-12 py-5',
 };
 
 export default function MarketingButton({
@@ -30,8 +30,8 @@ export default function MarketingButton({
   pulse = false,
   className = '',
 }: Props) {
-  const baseClass = variant === 'primary' ? 'mkt-btn-primary' : 'mkt-btn-secondary';
-  const pulseClass = pulse ? 'mkt-btn-pulse' : '';
+  const baseClass = variant === 'primary' ? 'btn-primary' : 'btn-secondary';
+  const pulseClass = pulse ? 'btn-pulse' : '';
   const classes = `${baseClass} ${sizeClasses[size]} ${pulseClass} ${className}`;
 
   if (href) {
