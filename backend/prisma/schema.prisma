@@ -183,3 +183,16 @@ enum ComponentType {
   OTHER
   PIVOT_BEARINGS
 }
+
+model BetaWaitlist {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  name      String?
+  referrer  String?
+  userAgent String?
+  ipAddress String?  // Hashed for privacy
+
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}
