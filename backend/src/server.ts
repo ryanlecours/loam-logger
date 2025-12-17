@@ -17,6 +17,7 @@ import duplicatesRouter from './routes/duplicates.ts';
 import garminTest from './routes/garmin.test.ts';
 import mockGarmin from './routes/mock.garmin.ts';
 import onboardingRouter from './routes/onboarding.ts';
+import waitlistRouter from './routes/waitlist.ts';
 import { googleRouter, emailRouter, deleteAccountRouter, attachUser } from './auth/index.ts';
 
 export type GraphQLContext = {
@@ -93,6 +94,7 @@ const startServer = async () => {
   app.use('/api', stravaBackfill);      // Strava backfill (import historical rides)
   app.use('/api', dataSourceRouter);    // Data source preference API
   app.use('/api', duplicatesRouter);    // Duplicate rides management
+  app.use('/api', waitlistRouter);      // Beta waitlist signup
   app.use(webhooksGarmin);              // Garmin webhooks (deregistration, permissions, activities)
   app.use(webhooksStrava);              // Strava webhooks (verification, events)
   app.use('/onboarding', onboardingRouter); // POST /onboarding/complete
