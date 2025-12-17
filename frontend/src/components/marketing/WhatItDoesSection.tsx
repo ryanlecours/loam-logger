@@ -21,16 +21,16 @@ export default function WhatItDoesSection() {
           viewport={{ once: true }}
           transition={{ duration: 0.8 }}
         >
-          <h2 className="mkt-section-title text-mkt-charcoal mb-6">
+          <h2 className="section-title text-charcoal mb-6">
             Your Bike's Digital Logbook
           </h2>
-          <p className="mkt-body mb-6">
+          <p className="body mb-6">
             Stop guessing when your components need service. Loam Logger automatically tracks every ride
             and monitors wear on every part of your bike, so you know exactly when maintenance is due.
           </p>
           <a
             href="#how-it-works"
-            className="inline-flex items-center text-mkt-moss font-semibold hover:text-mkt-sage transition"
+            className="inline-flex items-center text-moss font-semibold hover:text-sage transition"
           >
             See How It Works →
           </a>
@@ -47,9 +47,9 @@ export default function WhatItDoesSection() {
           {features.map((feature, index) => (
             <div key={index} className="flex items-start gap-3">
               <div className="flex-shrink-0 mt-1">
-                <RiCheckLine size={24} className="text-mkt-mint" />
+                <RiCheckLine size={24} className="text-mint" />
               </div>
-              <p className="text-lg text-mkt-charcoal">{feature}</p>
+              <p className="text-lg text-charcoal">{feature}</p>
             </div>
           ))}
         </motion.div>

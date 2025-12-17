@@ -23,11 +23,11 @@ export default function HowItWorksSection() {
   return (
     <SectionWrapper background="dark">
       <div className="text-center mb-16">
-        <div className="mkt-accent-bar mx-auto" />
-        <h2 className="mkt-section-title text-mkt-cream mb-4">
+        <div className="accent-bar mx-auto" />
+        <h2 className="section-title text-cream mb-4">
           Three Steps. Then Ride.
         </h2>
-        <p className="mkt-body text-mkt-concrete max-w-2xl mx-auto">
+        <p className="body text-concrete max-w-2xl mx-auto">
           Getting started is simple. No complexity, no learning curve.
         </p>
       </div>
@@ -36,7 +36,7 @@ export default function HowItWorksSection() {
       <div className="hidden lg:block">
         <div className="relative">
           {/* Connecting Line */}
-          <div className="absolute top-16 left-0 right-0 h-1 bg-gradient-to-r from-mkt-sage via-mkt-mint to-mkt-sage" />
+          <div className="absolute top-16 left-0 right-0 h-1 bg-gradient-to-r from-sage via-mint to-sage" />
 
           <div className="grid grid-cols-3 gap-8 relative">
             {steps.map((step, index) => (
@@ -50,16 +50,16 @@ export default function HowItWorksSection() {
               >
                 {/* Number Circle */}
                 <div className="relative mx-auto w-32 h-32 mb-6 flex items-center justify-center">
-                  <div className="absolute inset-0 rounded-full bg-gradient-to-br from-mkt-sage to-mkt-moss border-4 border-mkt-mint/30" />
-                  <span className="relative text-4xl font-bold text-mkt-cream">
+                  <div className="absolute inset-0 rounded-full bg-gradient-to-br from-sage to-moss border-4 border-mint/30" />
+                  <span className="relative text-4xl font-bold text-cream">
                     {step.number}
                   </span>
                 </div>
 
-                <h3 className="mkt-card-title text-mkt-cream mb-3">
+                <h3 className="card-title text-cream mb-3">
                   {step.title}
                 </h3>
-                <p className="mkt-body text-mkt-concrete">
+                <p className="body text-concrete">
                   {step.description}
                 </p>
               </motion.div>
@@ -82,8 +82,8 @@ export default function HowItWorksSection() {
             {/* Number Circle */}
             <div className="flex-shrink-0">
               <div className="relative w-20 h-20 flex items-center justify-center">
-                <div className="absolute inset-0 rounded-full bg-gradient-to-br from-mkt-sage to-mkt-moss border-4 border-mkt-mint/30" />
-                <span className="relative text-2xl font-bold text-mkt-cream">
+                <div className="absolute inset-0 rounded-full bg-gradient-to-br from-sage to-moss border-4 border-mint/30" />
+                <span className="relative text-2xl font-bold text-cream">
                   {step.number}
                 </span>
               </div>
@@ -91,10 +91,10 @@ export default function HowItWorksSection() {
 
             {/* Content */}
             <div className="flex-1 pt-2">
-              <h3 className="mkt-card-title text-mkt-cream mb-2">
+              <h3 className="card-title text-cream mb-2">
                 {step.title}
               </h3>
-              <p className="mkt-body text-mkt-concrete">
+              <p className="body text-concrete">
                 {step.description}
               </p>
             </div>

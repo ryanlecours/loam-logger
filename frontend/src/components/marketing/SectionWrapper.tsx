@@ -10,11 +10,11 @@ type Props = {
 };
 
 const backgroundClasses: Record<BackgroundVariant, string> = {
-  dark: 'mkt-bg-dark',
-  charcoal: 'mkt-bg-charcoal',
-  light: 'mkt-bg-light',
-  cream: 'mkt-bg-cream',
-  'gradient-dark': 'mkt-bg-gradient-dark',
+  dark: 'bg-dark',
+  charcoal: 'bg-charcoal',
+  light: 'bg-light',
+  cream: 'bg-cream',
+  'gradient-dark': 'bg-gradient-dark',
 };
 
 export default function SectionWrapper({
@@ -26,9 +26,9 @@ export default function SectionWrapper({
   return (
     <section
       id={id}
-      className={`mkt-section mkt-section-padding ${backgroundClasses[background]} ${className}`}
+      className={`section section-padding ${backgroundClasses[background]} ${className}`}
     >
-      <div className="mkt-container">
+      <div className="container">
         {children}
       </div>
     </section>

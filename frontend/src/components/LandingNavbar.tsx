@@ -16,7 +16,7 @@ export default function LandingNavbar() {
         boxShadow: '0 2px 4px rgba(0, 0, 0, 0.4)',
       }}
     >
-      <div className="mkt-container">
+      <div className="container">
         <div className="flex justify-between items-center h-16">
           {/* Logo/Brand */}
           <Link
@@ -40,28 +40,28 @@ export default function LandingNavbar() {
           <div className="hidden md:flex items-center space-x-8">
             <a
               href="#features"
-              className="mkt-small transition-colors duration-200 hover:opacity-80"
-              style={{ color: 'var(--mkt-sage)' }}
+              className="small transition-colors duration-200 hover:opacity-80"
+              style={{ color: 'var(--sage)' }}
             >
               Features
             </a>
             <a
               href="#about"
-              className="mkt-small transition-colors duration-200 hover:opacity-80"
-              style={{ color: 'var(--mkt-sage)' }}
+              className="small transition-colors duration-200 hover:opacity-80"
+              style={{ color: 'var(--sage)' }}
             >
               Who Is This For?
             </a>
             <Link
               to="/login"
-              className="mkt-small transition-colors duration-200 hover:opacity-80"
-              style={{ color: 'var(--mkt-sage)' }}
+              className="small transition-colors duration-200 hover:opacity-80"
+              style={{ color: 'var(--sage)' }}
             >
               Sign In
             </Link>
             <Link
               to="/beta-waitlist"
-              className="mkt-btn-primary"
+              className="btn-primary"
               style={{
                 padding: '0.75rem 2rem',
                 fontSize: '0.875rem',
@@ -76,7 +76,7 @@ export default function LandingNavbar() {
             onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
             className="md:hidden p-2 rounded-lg transition-colors"
             style={{
-              color: 'var(--mkt-sage)',
+              color: 'var(--sage)',
               background: 'transparent'
             }}
             onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(134, 158, 140, 0.1)'}
@@ -129,8 +129,8 @@ export default function LandingNavbar() {
               <a
                 href="#features"
                 onClick={() => setIsMobileMenuOpen(false)}
-                className="block px-4 py-2 rounded-lg transition-colors mkt-small"
-                style={{ color: 'var(--mkt-sage)' }}
+                className="block px-4 py-2 rounded-lg transition-colors small"
+                style={{ color: 'var(--sage)' }}
                 onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(134, 158, 140, 0.1)'}
                 onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
               >
@@ -139,8 +139,8 @@ export default function LandingNavbar() {
               <a
                 href="#about"
                 onClick={() => setIsMobileMenuOpen(false)}
-                className="block px-4 py-2 rounded-lg transition-colors mkt-small"
-                style={{ color: 'var(--mkt-sage)' }}
+                className="block px-4 py-2 rounded-lg transition-colors small"
+                style={{ color: 'var(--sage)' }}
                 onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(134, 158, 140, 0.1)'}
                 onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
               >
@@ -149,8 +149,8 @@ export default function LandingNavbar() {
               <Link
                 to="/login"
                 onClick={() => setIsMobileMenuOpen(false)}
-                className="block px-4 py-2 rounded-lg transition-colors mkt-small"
-                style={{ color: 'var(--mkt-sage)' }}
+                className="block px-4 py-2 rounded-lg transition-colors small"
+                style={{ color: 'var(--sage)' }}
                 onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(134, 158, 140, 0.1)'}
                 onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
               >
@@ -159,7 +159,7 @@ export default function LandingNavbar() {
               <Link
                 to="/beta-waitlist"
                 onClick={() => setIsMobileMenuOpen(false)}
-                className="mkt-btn-primary block text-center"
+                className="btn-primary block text-center"
                 style={{
                   padding: '0.75rem 2rem',
                   fontSize: '0.875rem',

@@ -4,8 +4,8 @@ export default function MarketingFooter() {
   const currentYear = new Date().getFullYear();
 
   return (
-    <footer className="bg-mkt-charcoal border-t border-mkt-slate/30">
-      <div className="mkt-container py-12">
+    <footer className="bg-charcoal border-t border-slate/30">
+      <div className="container py-12">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-8">
           {/* Brand */}
           <div>
@@ -15,23 +15,23 @@ export default function MarketingFooter() {
                 alt="Loam Logger"
                 className="w-10 h-10 rounded-lg"
               />
-              <h3 className="text-xl font-bold text-mkt-cream">Loam Logger</h3>
+              <h3 className="text-xl font-bold text-cream">Loam Logger</h3>
             </div>
-            <p className="text-sm text-mkt-concrete">
+            <p className="text-sm text-concrete">
               Track every ride. Optimize every component. Never miss a service again.
             </p>
           </div>
 
           {/* Links */}
           <div>
-            <h4 className="text-sm font-semibold text-mkt-sand uppercase tracking-wider mb-4">
+            <h4 className="text-sm font-semibold text-sand uppercase tracking-wider mb-4">
               Product
             </h4>
             <ul className="space-y-2">
               <li>
                 <Link
                   to="/beta-waitlist"
-                  className="text-sm text-mkt-concrete hover:text-mkt-mint transition"
+                  className="text-sm text-concrete hover:text-mint transition"
                 >
                   Join Beta Waitlist
                 </Link>
@@ -39,7 +39,7 @@ export default function MarketingFooter() {
               <li>
                 <Link
                   to="/login"
-                  className="text-sm text-mkt-concrete hover:text-mkt-mint transition"
+                  className="text-sm text-concrete hover:text-mint transition"
                 >
                   Sign In
                 </Link>
@@ -49,14 +49,14 @@ export default function MarketingFooter() {
 
           {/* Legal */}
           <div>
-            <h4 className="text-sm font-semibold text-mkt-sand uppercase tracking-wider mb-4">
+            <h4 className="text-sm font-semibold text-sand uppercase tracking-wider mb-4">
               Legal
             </h4>
             <ul className="space-y-2">
               <li>
                 <Link
                   to="/privacy"
-                  className="text-sm text-mkt-concrete hover:text-mkt-mint transition"
+                  className="text-sm text-concrete hover:text-mint transition"
                 >
                   Privacy Policy
                 </Link>
@@ -66,12 +66,12 @@ export default function MarketingFooter() {
         </div>
 
         {/* Bottom Bar */}
-        <div className="pt-8 border-t border-mkt-slate/30">
+        <div className="pt-8 border-t border-slate/30">
           <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-            <p className="text-xs text-mkt-concrete">
+            <p className="text-xs text-concrete">
               © {currentYear} Loam Logger. Built by riders, for riders.
             </p>
-            <p className="text-xs text-mkt-concrete">
+            <p className="text-xs text-concrete">
               Made with ❤️ for the MTB community
             </p>
           </div>
