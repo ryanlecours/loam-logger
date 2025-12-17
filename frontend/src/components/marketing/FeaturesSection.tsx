@@ -13,12 +13,12 @@ const features = [
   {
     icon: <RiBikeLine size={36} />,
     title: 'Multi-Bike Management',
-    description: 'Track your entire quiver in one place. From XC whips to downhill sleds, manage every bike with ease.',
+    description: 'Track your entire quiver in one place. From trail bikes to downhill sleds, manage every bike with ease.',
   },
   {
     icon: <RiSettings4Line size={36} />,
     title: 'Component-Level Tracking',
-    description: 'Monitor fork, shock, drivetrain, wheels, and brakes independently. Know exactly what needs attention.',
+    description: 'Monitor fork, shock, drivetrain, wheels, and pivot bearings independently. Know exactly what needs attention.',
   },
   {
     icon: <RiHistoryLine size={36} />,
@@ -38,7 +38,7 @@ const features = [
   {
     icon: <RiCloudLine size={36} />,
     title: 'Auto-Sync Everything',
-    description: 'Connect Strava, Garmin, and soon Suunto and Whoop. Your rides sync automatically.',
+    description: 'Connect Strava, Garmin, Suunto or Whoop. Your rides sync automatically.',
   },
 ];
 
