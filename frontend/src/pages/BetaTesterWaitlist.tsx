@@ -1,5 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { motion } from 'motion/react';
 import { useNavigate } from 'react-router-dom';
+import MarketingButton from '../components/marketing/MarketingButton';
+import '../styles/marketing.css';
 
 export default function BetaTesterWaitlist() {
   const navigate = useNavigate();
@@ -8,6 +11,13 @@ export default function BetaTesterWaitlist() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    document.documentElement.classList.add('marketing-page');
+    return () => {
+      document.documentElement.classList.remove('marketing-page');
+    };
+  }, []);
 
   // Clear error when user types
   const handleEmailChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -74,95 +84,254 @@ export default function BetaTesterWaitlist() {
   // Success state
   if (success) {
     return (
-      <div className="min-h-screen w-full bg-[radial-gradient(circle_at_top,_rgba(0,60,30,0.6),_transparent),radial-gradient(circle_at_bottom,_rgba(0,20,10,0.8),_rgb(6,8,6))] flex items-center justify-center px-4 py-10">
-        <div className="w-full max-w-md rounded-[32px] panel-soft shadow-soft border border-app/80 p-8 space-y-6">
-          <div className="text-center space-y-3">
-            <div className="text-5xl">✓</div>
-            <h1 className="text-2xl font-semibold text-white">You're on the list!</h1>
-            <p className="text-sm text-muted">
-              Thanks for your interest in Loam Logger. We'll email you at <strong className="text-white">{email}</strong> when beta access is ready.
-            </p>
-          </div>
+      <section className="relative min-h-screen flex items-center justify-center overflow-hidden mkt-bg-dark">
+        {/* Background Image with Overlay - Desktop */}
+        <div
+          className="absolute inset-0 z-0 hidden md:block"
+          style={{
+            backgroundImage: 'url(/mtbLandingPhoto.jpg)',
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+            backgroundAttachment: 'fixed',
+          }}
+        >
+          <div className="absolute inset-0 bg-gradient-to-b from-black/75 via-black/60 to-black/75" />
+        </div>
 
-          <div className="rounded-xl bg-surface-2 p-4 border border-app/40">
-            <p className="text-xs text-muted">
+        {/* Background Image with Overlay - Mobile */}
+        <div
+          className="absolute inset-0 z-0 md:hidden"
+          style={{
+            backgroundImage: 'url(/mtbLandingPhotoMobile.jpg)',
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+          }}
+        >
+          <div className="absolute inset-0 bg-gradient-to-b from-black/75 via-black/60 to-black/75" />
+        </div>
+
+        {/* Login Link */}
+        <motion.div
+          className="absolute top-6 right-6 z-20"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.8, delay: 0.5 }}
+        >
+          <a
+            href="/login"
+            className="text-sm"
+            style={{ color: 'var(--mkt-sand)' }}
+          >
+            Log In
+          </a>
+        </motion.div>
+
+        {/* Success Content */}
+        <motion.div
+          className="relative z-10 mkt-container text-center px-6 max-w-2xl"
+          initial={{ opacity: 0, y: 30 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.8 }}
+        >
+          <div className="text-7xl mb-6">✓</div>
+          <h1 className="mkt-hero-headline mb-6">You're on the list!</h1>
+          <p className="mkt-body-large mb-4" style={{ color: 'var(--mkt-sand)' }}>
+            Thanks for your interest in Loam Logger. We'll email you at{' '}
+            <strong style={{ color: 'var(--mkt-mint)' }}>{email}</strong> when beta access is ready.
+          </p>
+
+          <div
+            className="rounded-2xl p-6 mb-8"
+            style={{
+              backgroundColor: 'var(--mkt-glass)',
+              border: '1px solid var(--mkt-slate)',
+            }}
+          >
+            <p className="mkt-body" style={{ color: 'var(--mkt-concrete)' }}>
               We're rolling out access in waves to ensure quality. Keep an eye on your inbox!
             </p>
           </div>
 
-          <button
-            onClick={() => navigate('/')}
-            className="w-full py-2 px-4 rounded-full btn-primary font-semibold text-center transition-colors hover:opacity-90"
-          >
+          <MarketingButton href="/" size="lg">
             Back to Home
-          </button>
-        </div>
-      </div>
+          </MarketingButton>
+        </motion.div>
+      </section>
     );
   }
 
   // Form state
   return (
-    <div className="min-h-screen w-full bg-[radial-gradient(circle_at_top,_rgba(0,60,30,0.6),_transparent),radial-gradient(circle_at_bottom,_rgba(0,20,10,0.8),_rgb(6,8,6))] flex items-center justify-center px-4 py-10">
-      <div className="w-full max-w-md rounded-[32px] panel-soft shadow-soft border border-app/80 p-8 space-y-6">
-        <div className="text-center space-y-3">
-          <div className="text-5xl">🚧</div>
-          <h1 className="text-2xl font-semibold text-white">Join the Beta Waitlist</h1>
-          <p className="text-sm text-muted">
+    <section className="relative min-h-screen flex items-center justify-center overflow-hidden mkt-bg-dark">
+      {/* Background Image with Overlay - Desktop */}
+      <div
+        className="absolute inset-0 z-0 hidden md:block"
+        style={{
+          backgroundImage: 'url(/mtbLandingPhoto.jpg)',
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+          backgroundAttachment: 'fixed',
+        }}
+      >
+        <div className="absolute inset-0 bg-gradient-to-b from-black/75 via-black/60 to-black/75" />
+      </div>
+
+      {/* Background Image with Overlay - Mobile */}
+      <div
+        className="absolute inset-0 z-0 md:hidden"
+        style={{
+          backgroundImage: 'url(/mtbLandingPhotoMobile.jpg)',
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+        }}
+      >
+        <div className="absolute inset-0 bg-gradient-to-b from-black/75 via-black/60 to-black/75" />
+      </div>
+
+      {/* Login Link */}
+      <motion.div
+        className="absolute top-6 right-6 z-20"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.8, delay: 0.5 }}
+      >
+        <a
+          href="/login"
+          className="text-sm hover:opacity-80 transition-opacity"
+          style={{ color: 'var(--mkt-sand)' }}
+        >
+          Log In
+        </a>
+      </motion.div>
+
+      {/* Form Content */}
+      <motion.div
+        className="relative z-10 mkt-container px-6 max-w-xl w-full"
+        initial={{ opacity: 0, y: 30 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.8 }}
+      >
+        <div className="text-center mb-8">
+          <div className="text-6xl mb-4">🚧</div>
+          <h1 className="mkt-hero-headline mb-4">Join the Beta</h1>
+          <p className="mkt-body-large" style={{ color: 'var(--mkt-sand)' }}>
             Loam Logger is currently in private beta. Sign up below and we'll email you when we're ready for more testers.
           </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-1">
-            <label className="block text-sm text-muted">Email *</label>
+        <motion.form
+          onSubmit={handleSubmit}
+          className="space-y-6 rounded-2xl p-8"
+          style={{
+            backgroundColor: 'var(--mkt-glass)',
+            border: '1px solid var(--mkt-slate)',
+            backdropFilter: 'blur(12px)',
+          }}
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.8, delay: 0.2 }}
+        >
+          <div className="space-y-2">
+            <label
+              className="block text-sm font-semibold"
+              style={{ color: 'var(--mkt-sand)' }}
+            >
+              Email *
+            </label>
             <input
               type="email"
               value={email}
               onChange={handleEmailChange}
-              className="w-full bg-app border border-app rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[rgb(var(--ring))]"
+              className="w-full rounded-lg px-4 py-3 text-base focus:outline-none focus:ring-2 transition-all"
+              style={{
+                backgroundColor: 'var(--mkt-charcoal)',
+                border: '1px solid var(--mkt-slate)',
+                color: 'var(--mkt-cream)',
+              }}
+              onFocus={(e) => {
+                e.target.style.borderColor = 'var(--mkt-mint)';
+                e.target.style.boxShadow = '0 0 0 3px rgba(168, 208, 184, 0.1)';
+              }}
+              onBlur={(e) => {
+                e.target.style.borderColor = 'var(--mkt-slate)';
+                e.target.style.boxShadow = 'none';
+              }}
               placeholder="you@example.com"
               disabled={isSubmitting}
               required
             />
           </div>
 
-          <div className="space-y-1">
-            <label className="block text-sm text-muted">Name (optional)</label>
+          <div className="space-y-2">
+            <label
+              className="block text-sm font-semibold"
+              style={{ color: 'var(--mkt-sand)' }}
+            >
+              Name (optional)
+            </label>
             <input
               type="text"
               value={name}
               onChange={handleNameChange}
-              className="w-full bg-app border border-app rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[rgb(var(--ring))]"
+              className="w-full rounded-lg px-4 py-3 text-base focus:outline-none focus:ring-2 transition-all"
+              style={{
+                backgroundColor: 'var(--mkt-charcoal)',
+                border: '1px solid var(--mkt-slate)',
+                color: 'var(--mkt-cream)',
+              }}
+              onFocus={(e) => {
+                e.target.style.borderColor = 'var(--mkt-mint)';
+                e.target.style.boxShadow = '0 0 0 3px rgba(168, 208, 184, 0.1)';
+              }}
+              onBlur={(e) => {
+                e.target.style.borderColor = 'var(--mkt-slate)';
+                e.target.style.boxShadow = 'none';
+              }}
               placeholder="Your name"
               disabled={isSubmitting}
             />
           </div>
 
           {error && (
-            <div className="text-sm" style={{ color: 'rgb(var(--danger))' }}>
-              {error}
-            </div>
+            <motion.div
+              className="rounded-lg px-4 py-3"
+              style={{
+                backgroundColor: 'rgba(196, 89, 67, 0.1)',
+                border: '1px solid var(--mkt-error)',
+              }}
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+            >
+              <p className="text-sm font-medium" style={{ color: 'var(--mkt-error)' }}>
+                {error}
+              </p>
+            </motion.div>
           )}
 
           <button
             type="submit"
             disabled={isSubmitting}
-            className="w-full py-2 px-4 rounded-full btn-primary font-semibold text-center transition-colors hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="mkt-btn-primary text-lg px-8 py-4 w-full transition-all disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isSubmitting ? 'Joining...' : 'Join Waitlist'}
           </button>
-        </form>
+        </motion.form>
 
-        <div className="text-center">
+        <motion.div
+          className="text-center mt-6"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.8, delay: 0.4 }}
+        >
           <button
             onClick={() => navigate('/')}
-            className="text-sm text-muted hover:text-white transition-colors"
+            className="text-sm transition-opacity hover:opacity-80"
+            style={{ color: 'var(--mkt-concrete)' }}
           >
             ← Back to Home
           </button>
-        </div>
-      </div>
-    </div>
+        </motion.div>
+      </motion.div>
+    </section>
   );
 }
