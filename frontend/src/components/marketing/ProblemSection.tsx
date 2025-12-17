@@ -22,18 +22,18 @@ const problems = [
 
 export default function ProblemSection() {
   return (
-    <SectionWrapper background="charcoal" className="mkt-texture-loam">
+    <SectionWrapper background="charcoal" className="texture-loam">
       <div className="text-center mb-12">
-        <div className="mkt-accent-bar mx-auto" />
-        <h2 className="mkt-section-title text-mkt-cream mb-4">
+        <div className="accent-bar mx-auto" />
+        <h2 className="section-title text-cream mb-4">
           You Know the Drill
         </h2>
-        <p className="mkt-body text-mkt-concrete max-w-2xl mx-auto">
+        <p className="body text-concrete max-w-2xl mx-auto">
           Every rider has been there. The preventable mechanical. The forgotten service interval. The guesswork.
         </p>
       </div>
 
-      <div className="mkt-grid-3">
+      <div className="grid-3">
         {problems.map((problem, index) => (
           <MarketingCard
             key={index}

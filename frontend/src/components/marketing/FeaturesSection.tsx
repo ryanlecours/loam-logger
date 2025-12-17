@@ -46,11 +46,11 @@ export default function FeaturesSection() {
   return (
     <SectionWrapper background="gradient-dark">
       <div className="text-center mb-12">
-        <div className="mkt-accent-bar mx-auto" />
-        <h2 className="mkt-section-title text-mkt-cream mb-4">
+        <div className="accent-bar mx-auto" />
+        <h2 className="section-title text-cream mb-4">
           Everything You Need. Nothing You Don't.
         </h2>
-        <p className="mkt-body text-mkt-concrete max-w-2xl mx-auto">
+        <p className="body text-concrete max-w-2xl mx-auto">
           Comprehensive bike and component tracking designed specifically for mountain bikers.
         </p>
       </div>

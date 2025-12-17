@@ -20,21 +20,21 @@ export default function MarketingCard({
   title,
   hoverEffect = true,
 }: Props) {
-  const baseClass = variant === 'glass' ? 'mkt-card' : 'mkt-card-solid';
+  const baseClass = variant === 'glass' ? 'card' : 'card-solid';
 
   const cardContent = (
     <>
       {icon && (
-        <div className="mkt-icon mb-4">
+        <div className="icon mb-4">
           {icon}
         </div>
       )}
       {title && (
-        <h3 className="mkt-card-title mb-3">
+        <h3 className="card-title mb-3">
           {title}
         </h3>
       )}
-      <div className="mkt-body">
+      <div className="body">
         {children}
       </div>
     </>
