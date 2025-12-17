@@ -23,7 +23,7 @@ export default function AudienceSection() {
   return (
     <SectionWrapper background="cream" className="!py-16">
       <div className="text-center mb-8">
-        <h3 className="text-xl font-semibold text-mkt-charcoal mb-2">
+        <h3 className="text-xl font-semibold text-charcoal mb-2">
           Built For You If...
         </h3>
       </div>
@@ -34,15 +34,15 @@ export default function AudienceSection() {
           {personas.map((persona, index) => (
             <div
               key={index}
-              className="w-80 md:w-auto flex-shrink-0 bg-mkt-charcoal border border-mkt-slate/30 rounded-xl p-5 transition-transform hover:scale-105"
+              className="w-80 md:w-auto flex-shrink-0 bg-charcoal border border-slate/30 rounded-xl p-5 transition-transform hover:scale-105"
             >
-              <div className="text-mkt-mint mb-3">
+              <div className="text-mint mb-3">
                 {persona.icon}
               </div>
-              <h4 className="text-lg font-semibold text-mkt-cream mb-2">
+              <h4 className="text-lg font-semibold text-cream mb-2">
                 {persona.title}
               </h4>
-              <p className="text-sm text-mkt-concrete leading-relaxed">
+              <p className="text-sm text-concrete leading-relaxed">
                 {persona.description}
               </p>
             </div>

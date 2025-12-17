@@ -14,7 +14,7 @@ export default function CTASection() {
           backgroundAttachment: 'fixed',
         }}
       >
-        <div className="absolute inset-0 bg-gradient-to-r from-mkt-forest-deep/95 via-mkt-charcoal/90 to-mkt-forest-deep/95" />
+        <div className="absolute inset-0 bg-gradient-to-r from-forest-deep/95 via-charcoal/90 to-forest-deep/95" />
       </div>
 
       {/* Background with gradient overlay - Mobile */}
@@ -26,11 +26,11 @@ export default function CTASection() {
           backgroundPosition: 'center',
         }}
       >
-        <div className="absolute inset-0 bg-gradient-to-r from-mkt-forest-deep/95 via-mkt-charcoal/90 to-mkt-forest-deep/95" />
+        <div className="absolute inset-0 bg-gradient-to-r from-forest-deep/95 via-charcoal/90 to-forest-deep/95" />
       </div>
 
       {/* Content */}
-      <div className="relative z-10 mkt-container">
+      <div className="relative z-10 container">
         <motion.div
           className="max-w-4xl mx-auto text-center rounded-3xl px-8 py-12 md:px-12 md:py-16"
           style={{
@@ -44,10 +44,10 @@ export default function CTASection() {
           viewport={{ once: true }}
           transition={{ duration: 0.8 }}
         >
-          <h2 className="mkt-section-title text-mkt-cream mb-6">
+          <h2 className="section-title text-cream mb-6">
             Your Bike Deserves Better
           </h2>
-          <p className="mkt-body-large text-mkt-sand max-w-2xl mx-auto mb-10">
+          <p className="body-large text-sand max-w-2xl mx-auto mb-10">
             Join the waitlist now. Beta access is limited.
           </p>
 
@@ -57,27 +57,27 @@ export default function CTASection() {
             </MarketingButton>
 
             <div className="flex flex-col items-center gap-2">
-              <p className="text-sm font-semibold text-mkt-mint">
+              <p className="text-sm font-semibold text-mint">
                 Early access rolling out soon. Limited spots.
               </p>
-              <p className="text-xs text-mkt-concrete">
+              <p className="text-xs text-concrete">
                 No spam. Just launch updates. Unsubscribe anytime.
               </p>
             </div>
           </div>
 
           {/* Trust badges */}
-          <div className="flex flex-wrap items-center justify-center gap-4 text-sm text-mkt-concrete">
+          <div className="flex flex-wrap items-center justify-center gap-4 text-sm text-concrete">
             <div className="flex items-center gap-2">
-              <span className="text-mkt-mint">✓</span>
+              <span className="text-mint">✓</span>
               <span>Free Forever for Beta Users</span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-mkt-mint">✓</span>
+              <span className="text-mint">✓</span>
               <span>No Credit Card Required</span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-mkt-mint">✓</span>
+              <span className="text-mint">✓</span>
               <span>Built by Riders, for Riders</span>
             </div>
           </div>
