@@ -1,0 +1,402 @@
+/**
+ * Loam Logger Marketing Landing Page Styles
+ * High-end, sleek design system for MTB audience
+ */
+
+/* ============================================
+   COLOR SYSTEM - Sleek, Premium MTB Brand
+   ============================================ */
+
+:root {
+  /* Primary Brand Colors - Earthy, sophisticated greens and browns */
+  --mkt-forest-deep: rgb(18, 28, 24);        /* #121C18 - Deep forest background */
+  --mkt-moss: rgb(68, 96, 76);               /* #44604C - Moss green accents */
+  --mkt-sage: rgb(134, 158, 140);            /* #869E8C - Sage green highlights */
+  --mkt-earth: rgb(89, 72, 58);              /* #59483A - Earth brown */
+  --mkt-stone: rgb(42, 46, 44);              /* #2A2E2C - Stone gray */
+
+  /* Accent Colors - Premium metallics and highlights */
+  --mkt-gold: rgb(212, 175, 124);            /* #D4AF7C - Brushed gold */
+  --mkt-copper: rgb(184, 115, 84);           /* #B87354 - Copper accent */
+  --mkt-mint: rgb(168, 208, 184);            /* #A8D0B8 - Fresh mint */
+
+  /* Neutrals - Clean, sophisticated */
+  --mkt-charcoal: rgb(30, 34, 32);           /* #1E2220 - Charcoal */
+  --mkt-slate: rgb(54, 60, 57);              /* #363C39 - Slate */
+  --mkt-concrete: rgb(142, 148, 145);        /* #8E9491 - Concrete */
+  --mkt-sand: rgb(242, 238, 232);            /* #F2EEE8 - Sand beige */
+  --mkt-cream: rgb(252, 250, 246);           /* #FCFAF6 - Cream white */
+
+  /* Functional Colors */
+  --mkt-success: var(--mkt-mint);
+  --mkt-warning: var(--mkt-copper);
+  --mkt-error: rgb(196, 89, 67);             /* #C45943 - Terra cotta */
+
+  /* Opacity Variants */
+  --mkt-overlay-dark: rgba(18, 28, 24, 0.85);
+  --mkt-overlay-light: rgba(252, 250, 246, 0.95);
+  --mkt-glass: rgba(54, 60, 57, 0.6);
+}
+
+/* ============================================
+   TYPOGRAPHY SYSTEM
+   ============================================ */
+
+.mkt-hero-headline {
+  font-size: clamp(3rem, 6vw, 4.5rem);
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  color: var(--mkt-cream);
+}
+
+.mkt-section-title {
+  font-size: clamp(2rem, 4vw, 3rem);
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+
+.mkt-card-title {
+  font-size: 1.5rem;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.005em;
+}
+
+.mkt-body {
+  font-size: clamp(1rem, 1.2vw, 1.125rem);
+  font-weight: 400;
+  line-height: 1.7;
+  color: var(--mkt-concrete);
+}
+
+.mkt-body-large {
+  font-size: clamp(1.125rem, 1.5vw, 1.25rem);
+  line-height: 1.6;
+}
+
+.mkt-small {
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.mkt-cta-text {
+  font-size: 1.125rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+
+/* ============================================
+   LAYOUT & SPACING
+   ============================================ */
+
+.mkt-section {
+  width: 100%;
+  position: relative;
+}
+
+.mkt-container {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding-left: clamp(1.5rem, 5vw, 3rem);
+  padding-right: clamp(1.5rem, 5vw, 3rem);
+}
+
+.mkt-section-padding {
+  padding-top: clamp(4rem, 10vh, 8rem);
+  padding-bottom: clamp(4rem, 10vh, 8rem);
+}
+
+.mkt-section-padding-sm {
+  padding-top: clamp(3rem, 7vh, 6rem);
+  padding-bottom: clamp(3rem, 7vh, 6rem);
+}
+
+/* ============================================
+   BACKGROUND VARIANTS
+   ============================================ */
+
+.mkt-bg-dark {
+  background-color: var(--mkt-forest-deep);
+  color: var(--mkt-cream);
+}
+
+.mkt-bg-charcoal {
+  background-color: var(--mkt-charcoal);
+  color: var(--mkt-cream);
+}
+
+.mkt-bg-light {
+  background-color: var(--mkt-sand);
+  color: var(--mkt-charcoal);
+}
+
+.mkt-bg-cream {
+  background-color: var(--mkt-cream);
+  color: var(--mkt-charcoal);
+}
+
+.mkt-bg-gradient-dark {
+  background: radial-gradient(ellipse at center, var(--mkt-stone) 0%, var(--mkt-forest-deep) 100%);
+  color: var(--mkt-cream);
+}
+
+/* Texture overlays */
+.mkt-texture-loam {
+  background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23000000' fill-opacity='0.03'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+}
+
+/* ============================================
+   COMPONENT PATTERNS
+   ============================================ */
+
+/* Card - Frosted glass effect */
+.mkt-card {
+  background: var(--mkt-glass);
+  border: 1px solid rgba(134, 158, 140, 0.2);
+  border-radius: 1rem;
+  padding: 2rem;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow:
+    0 20px 60px rgba(18, 28, 24, 0.3),
+    0 0 0 1px rgba(168, 208, 184, 0.05) inset;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.mkt-card:hover {
+  transform: translateY(-5px);
+  box-shadow:
+    0 30px 80px rgba(18, 28, 24, 0.4),
+    0 0 0 1px rgba(168, 208, 184, 0.15) inset,
+    0 0 40px rgba(168, 208, 184, 0.1);
+  border-color: rgba(134, 158, 140, 0.4);
+}
+
+/* Card - Solid variant for light backgrounds */
+.mkt-card-solid {
+  background: var(--mkt-charcoal);
+  border: 1px solid rgba(134, 158, 140, 0.15);
+  border-radius: 1rem;
+  padding: 2rem;
+  box-shadow: 0 20px 60px rgba(18, 28, 24, 0.25);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.mkt-card-solid:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 30px 80px rgba(18, 28, 24, 0.35);
+  border-color: rgba(134, 158, 140, 0.3);
+}
+
+/* Buttons */
+.mkt-btn-primary {
+  background: linear-gradient(135deg, var(--mkt-sage) 0%, var(--mkt-moss) 100%);
+  color: var(--mkt-cream);
+  border: 2px solid rgba(168, 208, 184, 0.4);
+  border-radius: 999px;
+  padding: 1rem 3rem;
+  font-size: 1.125rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  overflow: hidden;
+  box-shadow:
+    0 10px 30px rgba(68, 96, 76, 0.3),
+    0 0 0 1px rgba(168, 208, 184, 0.2) inset;
+}
+
+.mkt-btn-primary::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, rgba(168, 208, 184, 0.2) 0%, transparent 100%);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.mkt-btn-primary:hover {
+  transform: scale(1.05);
+  box-shadow:
+    0 15px 40px rgba(68, 96, 76, 0.5),
+    0 0 0 1px rgba(168, 208, 184, 0.4) inset,
+    0 0 40px rgba(168, 208, 184, 0.2);
+  border-color: rgba(168, 208, 184, 0.6);
+}
+
+.mkt-btn-primary:hover::before {
+  opacity: 1;
+}
+
+.mkt-btn-primary:active {
+  transform: scale(0.98);
+}
+
+/* Button with pulse animation for CTAs */
+.mkt-btn-pulse {
+  animation: mkt-pulse 2.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes mkt-pulse {
+  0%, 100% {
+    box-shadow:
+      0 10px 30px rgba(68, 96, 76, 0.3),
+      0 0 0 1px rgba(168, 208, 184, 0.2) inset,
+      0 0 0 0 rgba(134, 158, 140, 0.7);
+  }
+  50% {
+    box-shadow:
+      0 10px 30px rgba(68, 96, 76, 0.3),
+      0 0 0 1px rgba(168, 208, 184, 0.2) inset,
+      0 0 0 15px rgba(134, 158, 140, 0);
+  }
+}
+
+/* Secondary button */
+.mkt-btn-secondary {
+  background: transparent;
+  color: var(--mkt-sage);
+  border: 2px solid var(--mkt-moss);
+  border-radius: 999px;
+  padding: 1rem 3rem;
+  font-size: 1.125rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.mkt-btn-secondary:hover {
+  background: var(--mkt-moss);
+  color: var(--mkt-cream);
+  transform: scale(1.05);
+}
+
+/* ============================================
+   UTILITY CLASSES
+   ============================================ */
+
+.mkt-text-accent {
+  color: var(--mkt-mint);
+}
+
+.mkt-text-gold {
+  color: var(--mkt-gold);
+}
+
+.mkt-text-muted {
+  color: var(--mkt-concrete);
+}
+
+.mkt-accent-bar {
+  width: 60px;
+  height: 4px;
+  background: linear-gradient(90deg, var(--mkt-sage) 0%, var(--mkt-mint) 100%);
+  border-radius: 2px;
+  margin-bottom: 1.5rem;
+}
+
+.mkt-divider {
+  width: 100%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent 0%, rgba(134, 158, 140, 0.2) 50%, transparent 100%);
+}
+
+/* Icon styling */
+.mkt-icon {
+  color: var(--mkt-mint);
+  filter: drop-shadow(0 4px 8px rgba(168, 208, 184, 0.3));
+}
+
+/* ============================================
+   RESPONSIVE GRID SYSTEMS
+   ============================================ */
+
+.mkt-grid-3 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 2rem;
+}
+
+.mkt-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+  gap: 3rem;
+  align-items: center;
+}
+
+@media (max-width: 768px) {
+  .mkt-grid-3,
+  .mkt-grid-2 {
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+  }
+}
+
+/* ============================================
+   SCROLL BEHAVIOR
+   ============================================ */
+
+html.marketing-page {
+  scroll-behavior: smooth;
+}
+
+html.marketing-page:focus-within {
+  scroll-behavior: smooth;
+}
+
+/* Respect reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+  html.marketing-page {
+    scroll-behavior: auto;
+  }
+
+  .mkt-card,
+  .mkt-btn-primary,
+  .mkt-btn-secondary {
+    transition: none !important;
+  }
+
+  .mkt-btn-pulse {
+    animation: none !important;
+  }
+}
+
+/* ============================================
+   ACCESSIBILITY
+   ============================================ */
+
+.mkt-btn-primary:focus-visible,
+.mkt-btn-secondary:focus-visible {
+  outline: 3px solid var(--mkt-mint);
+  outline-offset: 3px;
+}
+
+.mkt-card:focus-visible {
+  outline: 2px solid var(--mkt-mint);
+  outline-offset: 2px;
+}
+
+/* ============================================
+   PERFORMANCE OPTIMIZATIONS
+   ============================================ */
+
+.mkt-card,
+.mkt-btn-primary,
+.mkt-btn-secondary {
+  will-change: transform;
+}
+
+.mkt-card:hover,
+.mkt-btn-primary:hover,
+.mkt-btn-secondary:hover {
+  will-change: transform, box-shadow;
+}

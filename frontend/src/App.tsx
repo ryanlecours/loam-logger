@@ -2,7 +2,7 @@
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 
-import Home from './pages/Home';
+import MarketingLanding from './pages/MarketingLanding';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import NotFound from './pages/NotFound';
@@ -54,7 +54,7 @@ function AppRoutes() {
       <AnimatePresence mode="wait" initial={false}>
         <Routes location={location} key={location.pathname}>
           {/* Public */}
-          <Route path="/" element={<Page><Home /></Page>} />
+          <Route path="/" element={<MarketingLanding />} />
           <Route path="/privacy" element={<PrivacyPolicy />} />
           <Route path="/login" element={<Page><Login /></Page>} />
           <Route path="/beta-waitlist" element={<Page><BetaTesterWaitlist /></Page>} />
