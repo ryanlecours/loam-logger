@@ -4,9 +4,9 @@ import MarketingButton from './MarketingButton';
 export default function CTASection() {
   return (
     <section className="relative py-24 overflow-hidden">
-      {/* Background with gradient overlay */}
+      {/* Background with gradient overlay - Desktop */}
       <div
-        className="absolute inset-0 z-0"
+        className="absolute inset-0 z-0 hidden md:block"
         style={{
           backgroundImage: 'url(/mtbLandingPhoto.jpg)',
           backgroundSize: 'cover',
@@ -17,9 +17,28 @@ export default function CTASection() {
         <div className="absolute inset-0 bg-gradient-to-r from-mkt-forest-deep/95 via-mkt-charcoal/90 to-mkt-forest-deep/95" />
       </div>
 
+      {/* Background with gradient overlay - Mobile */}
+      <div
+        className="absolute inset-0 z-0 md:hidden"
+        style={{
+          backgroundImage: 'url(/mtbLandingPhotoMobile.jpg)',
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+        }}
+      >
+        <div className="absolute inset-0 bg-gradient-to-r from-mkt-forest-deep/95 via-mkt-charcoal/90 to-mkt-forest-deep/95" />
+      </div>
+
       {/* Content */}
-      <div className="relative z-10 mkt-container text-center">
+      <div className="relative z-10 mkt-container">
         <motion.div
+          className="max-w-4xl mx-auto text-center rounded-3xl px-8 py-12 md:px-12 md:py-16"
+          style={{
+            backgroundColor: 'rgba(18, 28, 24, 0.7)',
+            backdropFilter: 'blur(16px)',
+            border: '1px solid rgba(168, 208, 184, 0.1)',
+            boxShadow: '0 20px 60px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(168, 208, 184, 0.05)',
+          }}
           initial={{ opacity: 0, y: 30 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}

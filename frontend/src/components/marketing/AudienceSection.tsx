@@ -5,7 +5,7 @@ const personas = [
   {
     icon: <RiUserHeartLine size={40} />,
     title: 'The Weekend Warrior',
-    description: 'You ride hard every chance you get. You want your bike dialed without spending hours on spreadsheets. Just tell you what needs attention and when.',
+    description: 'You ride hard every chance you get. You want your bike dialed but only service it when it "feels bad". Get alerts when it\'s time to service before you damage expensive components.',
   },
   {
     icon: <RiToolsLine size={40} />,
@@ -14,8 +14,8 @@ const personas = [
   },
   {
     icon: <RiCarLine size={40} />,
-    title: 'The Shuttle Chaser',
-    description: 'Big days mean big wear. You maximize every ride and want to maximize component life too. Get the most out of your gear without surprise failures.',
+    title: 'The Set-and-Forget Rider',
+    description: 'You couldn\'t be bothered by tracking or performing maintenance. You have no clue what work was done to your bike since you bought it. Get alerts when it\'s time to service—no thinking, no guessing, no surprises.',
   },
 ];
 

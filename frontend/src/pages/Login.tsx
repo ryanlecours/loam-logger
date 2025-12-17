@@ -1,10 +1,12 @@
-﻿import { useState } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { useApolloClient } from '@apollo/client';
 import { GoogleLogin, type CredentialResponse } from '@react-oauth/google';
 import { useNavigate } from 'react-router-dom';
+import { motion } from 'motion/react';
 import { ME_QUERY } from '../graphql/me';
 import { useRedirectFrom } from '../utils/loginUtils';
 import { Button } from '@/components/ui';
+import '../styles/marketing.css';
 
 export default function Login() {
   const apollo = useApolloClient();
@@ -17,6 +19,16 @@ export default function Login() {
   const [name, setName] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    document.documentElement.classList.add('marketing-page');
+    document.documentElement.style.scrollBehavior = 'smooth';
+
+    return () => {
+      document.documentElement.classList.remove('marketing-page');
+      document.documentElement.style.scrollBehavior = '';
+    };
+  }, []);
 
   async function handleLoginSuccess(resp: CredentialResponse) {
     const credential = resp.credential;
@@ -135,12 +147,64 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen w-full bg-[radial-gradient(circle_at_top,_rgba(0,60,30,0.6),_transparent),radial-gradient(circle_at_bottom,_rgba(0,20,10,0.8),_rgb(6,8,6))] flex items-center justify-center px-4 py-10">
-      <div className="w-full max-w-md rounded-[32px] panel-soft shadow-soft border border-app/80 p-8 space-y-6">
+    <section className="relative min-h-screen flex items-center justify-center overflow-hidden mkt-bg-dark">
+      {/* Background Image with Overlay - Desktop */}
+      <div
+        className="absolute inset-0 z-0 hidden md:block"
+        style={{
+          backgroundImage: 'url(/mtbLandingPhoto.jpg)',
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+          backgroundAttachment: 'fixed',
+        }}
+      >
+        <div className="absolute inset-0 bg-gradient-to-b from-black/75 via-black/60 to-black/75" />
+      </div>
+
+      {/* Background Image with Overlay - Mobile */}
+      <div
+        className="absolute inset-0 z-0 md:hidden"
+        style={{
+          backgroundImage: 'url(/mtbLandingPhotoMobile.jpg)',
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+        }}
+      >
+        <div className="absolute inset-0 bg-gradient-to-b from-black/75 via-black/60 to-black/75" />
+      </div>
+
+      {/* Back to Home Link */}
+      <motion.div
+        className="absolute top-6 right-6 z-20"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.8, delay: 0.5 }}
+      >
+        <a
+          href="/"
+          className="text-sm hover:opacity-80 transition-opacity"
+          style={{ color: 'var(--mkt-sand)' }}
+        >
+          ← Back to Home
+        </a>
+      </motion.div>
+
+      {/* Login Form Content */}
+      <motion.div
+        className="relative z-10 mkt-container px-6 max-w-md w-full"
+        initial={{ opacity: 0, y: 30 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.8 }}
+      >
+        <div className="w-full rounded-2xl p-8 space-y-6" style={{
+          backgroundColor: 'var(--mkt-glass)',
+          border: '1px solid var(--mkt-slate)',
+          backdropFilter: 'blur(12px)',
+        }}>
         <div className="text-center space-y-1">
-          <p className="text-xs uppercase tracking-[0.4em] text-muted">Loam Logger</p>
-          <h1 className="text-2xl font-semibold text-white">Track your rides, maintain your bike</h1>
-          <p className="text-sm text-muted">Sign in to sync rides, gear hours, and service logs.</p>
+          <p className="text-xs uppercase tracking-[0.4em]" style={{ color: 'var(--mkt-sage)' }}>Loam Logger</p>
+          <h1 className="text-2xl font-semibold" style={{ color: 'var(--mkt-cream)' }}>Track your rides, maintain your bike</h1>
+          <p className="text-sm" style={{ color: 'var(--mkt-concrete)' }}>Sign in to sync rides, gear hours, and service logs.</p>
         </div>
 
         <div className="flex rounded-full border border-app p-1">
@@ -176,14 +240,14 @@ export default function Login() {
           </button>
         </div>
 
-        <form className="space-y-4 bg-surface p-4 rounded-xl" onSubmit={handleManualSubmit}>
+        <form className="space-y-4 p-4 rounded-xl" style={{ backgroundColor: 'rgba(54, 60, 57, 0.3)' }} onSubmit={handleManualSubmit}>
           {error && (
             <div className="rounded-lg bg-red-500/10 border border-red-500/30 p-3">
               <p className="text-sm text-red-400">{error}</p>
             </div>
           )}
           {mode === 'signup' && (
-            <label className="block text-xs uppercase tracking-[0.3em] text-muted">
+            <label className="block text-xs uppercase tracking-[0.3em]" style={{ color: 'var(--mkt-concrete)' }}>
               Name
               <input
                 type="text"
@@ -196,7 +260,7 @@ export default function Login() {
               />
             </label>
           )}
-          <label className="block text-xs uppercase tracking-[0.3em] text-muted">
+          <label className="block text-xs uppercase tracking-[0.3em]" style={{ color: 'var(--mkt-concrete)' }}>
             Email
             <input
               type="email"
@@ -208,7 +272,7 @@ export default function Login() {
               required
             />
           </label>
-          <label className="block text-xs uppercase tracking-[0.3em] text-muted">
+          <label className="block text-xs uppercase tracking-[0.3em]" style={{ color: 'var(--mkt-concrete)' }}>
             Password
             <input
               type="password"
@@ -221,7 +285,7 @@ export default function Login() {
             />
           </label>
           {mode === 'signup' && (
-            <label className="block text-xs uppercase tracking-[0.3em] text-muted">
+            <label className="block text-xs uppercase tracking-[0.3em]" style={{ color: 'var(--mkt-concrete)' }}>
               Confirm Password
               <input
                 type="password"
@@ -249,8 +313,8 @@ export default function Login() {
           </Button>
         </form>
 
-        <div className={`space-y-3 bg-surface p-4 rounded-xl ${isLoading ? 'opacity-50 pointer-events-none' : ''}`}>
-          <div className="text-center text-xs uppercase tracking-[0.3em] text-muted">Or continue with</div>
+        <div className={`space-y-3 p-4 rounded-xl ${isLoading ? 'opacity-50 pointer-events-none' : ''}`} style={{ backgroundColor: 'rgba(54, 60, 57, 0.3)' }}>
+          <div className="text-center text-xs uppercase tracking-[0.3em]" style={{ color: 'var(--mkt-concrete)' }}>Or continue with</div>
           <div className="flex flex-col gap-3">
             <div className="flex justify-center">
               <GoogleLogin
@@ -266,15 +330,8 @@ export default function Login() {
           </div>
         </div>
 
-        <Button
-          variant="secondary"
-          onClick={() => navigate('/')}
-          className="w-full justify-center text-sm"
-          type="button"
-        >
-          ← Back to site
-        </Button>
-      </div>
-    </div>
+        </div>
+      </motion.div>
+    </section>
   );
 }
