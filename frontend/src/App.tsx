@@ -22,7 +22,7 @@ import PrivacyPolicy from './pages/PrivacyPolicy';
 
 function Page({ children, className }: { children: React.ReactNode; className?: string }) {
   const reduce = useReducedMotion();
-  const classes = className ?? 'mx-auto px-4 py-6 min-h-screen';
+  const classes = className ?? 'mx-auto min-h-screen';
   return (
     <motion.main
       initial={{ opacity: 0, y: reduce ? 0 : 8 }}
