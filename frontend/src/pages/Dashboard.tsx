@@ -1,4 +1,4 @@
-﻿// src/pages/Dashboard.tsx
+// src/pages/Dashboard.tsx
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useMutation } from '@apollo/client';
@@ -142,7 +142,7 @@ export default function Dashboard() {
   const [unmappedGears, setUnmappedGears] = useState<Array<{ gearId: string; rideCount: number }>>([]);
 
   const { data: unmappedData } = useQuery(UNMAPPED_STRAVA_GEARS, {
-    pollInterval: 60000, // Check every minute
+    pollInterval: 60000,
     skip: !user,
   });
 
@@ -184,7 +184,6 @@ export default function Dashboard() {
     closeGpxModal();
   };
 
-  // TEMPORARY: Simulate Garmin ride webhook for testing
   const handleSimulateGarminRide = async () => {
     if (bikesRaw.length === 0) {
       alert('Please add a bike first to test Garmin rides.');
@@ -193,16 +192,14 @@ export default function Dashboard() {
 
     setIsSimulatingRide(true);
     try {
-      // Generate mock Garmin ride data
       const now = new Date();
       const mockRideData = {
         startTime: now.toISOString(),
-        durationSeconds: Math.floor(Math.random() * 3600) + 1800, // 30-90 min
-        distanceMiles: parseFloat((Math.random() * 15 + 5).toFixed(2)), // 5-20 miles
-        elevationGainFeet: Math.floor(Math.random() * 2000) + 500, // 500-2500 ft
-        averageHr: Math.floor(Math.random() * 40) + 140, // 140-180 bpm
+        durationSeconds: Math.floor(Math.random() * 3600) + 1800,
+        distanceMiles: parseFloat((Math.random() * 15 + 5).toFixed(2)),
+        elevationGainFeet: Math.floor(Math.random() * 2000) + 500,
+        averageHr: Math.floor(Math.random() * 40) + 140,
         rideType: 'TRAIL',
-        // Don't pass bikeId - let backend auto-assign for single bike, or leave unassigned for multi-bike
         notes: '🧪 TEST: Simulated Garmin ride from watch',
         trailSystem: 'Mock Trail System',
         location: 'Test Location',
@@ -212,9 +209,7 @@ export default function Dashboard() {
         variables: { input: mockRideData },
       });
 
-      // Refetch rides to show the new one
       await refetchRides();
-
       alert('✅ Simulated Garmin ride created successfully!');
     } catch (err) {
       console.error('Failed to simulate Garmin ride:', err);
@@ -224,7 +219,6 @@ export default function Dashboard() {
     }
   };
 
-  // TEMPORARY: Simulate a long 50+ hour Garmin ride for testing
   const handleSimulateLongGarminRide = async () => {
     if (bikesRaw.length === 0) {
       alert('Please add a bike first to test Garmin rides.');
@@ -233,16 +227,14 @@ export default function Dashboard() {
 
     setIsSimulatingRide(true);
     try {
-      // Generate mock long Garmin ride data (50+ hours)
       const now = new Date();
       const mockRideData = {
         startTime: now.toISOString(),
-        durationSeconds: Math.floor(Math.random() * 36000) + 180000, // 50-60 hours
-        distanceMiles: parseFloat((Math.random() * 200 + 300).toFixed(2)), // 300-500 miles
-        elevationGainFeet: Math.floor(Math.random() * 20000) + 30000, // 30000-50000 ft
-        averageHr: Math.floor(Math.random() * 40) + 140, // 140-180 bpm
+        durationSeconds: Math.floor(Math.random() * 36000) + 180000,
+        distanceMiles: parseFloat((Math.random() * 200 + 300).toFixed(2)),
+        elevationGainFeet: Math.floor(Math.random() * 20000) + 30000,
+        averageHr: Math.floor(Math.random() * 40) + 140,
         rideType: 'TRAIL',
-        // Don't pass bikeId - let backend auto-assign for single bike, or leave unassigned for multi-bike
         notes: '🧪 TEST: Simulated LONG Garmin ride from watch (50+ hours)',
         trailSystem: 'Epic Long Trail System',
         location: 'Test Location',
@@ -252,9 +244,7 @@ export default function Dashboard() {
         variables: { input: mockRideData },
       });
 
-      // Refetch rides to show the new one
       await refetchRides();
-
       alert('✅ Simulated long Garmin ride created successfully!');
     } catch (err) {
       console.error('Failed to simulate long Garmin ride:', err);
@@ -265,185 +255,215 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="space-y-8">
-      <section className="panel-soft shadow-soft border border-app rounded-3xl p-6">
-        <div className="flex flex-wrap items-start justify-between gap-6">
-          <div className="space-y-2">
-            <p className="text-xs uppercase tracking-[0.3em] text-muted">Ride overview</p>
-            <h2 className="text-3xl font-semibold text-white">
-              Dialed in, {firstName}. Keep the streak going.
-            </h2>
-            <p className="text-muted text-base max-w-xl">
-              Your latest rides, service hours, and equipment health are all synced below.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-3">
-            <Link to="/rides" className="btn-primary text-sm px-5 py-2">
-              Log Ride
-            </Link>
-            <button
-              type="button"
-              className="btn-secondary text-sm px-5 py-2"
-              onClick={() => setGpxModalOpen(true)}
-            >
-              Upload GPX
-            </button>
-            <Link to="/gear" className="btn-secondary text-sm px-5 py-2">
-              Manage Bikes
-            </Link>
-            {/* TEMPORARY: Test button for Garmin webhook simulation */}
-            <button
-              type="button"
-              className="text-sm px-5 py-2 rounded-2xl border-2 border-yellow-500/50 bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20 hover:border-yellow-500/70 transition font-semibold"
-              onClick={handleSimulateGarminRide}
-              disabled={isSimulatingRide}
-            >
-              {isSimulatingRide ? '⏳ Simulating...' : '🧪 TEST: Simulate Garmin Ride'}
-            </button>
-            {/* TEMPORARY: Test button for long Garmin ride simulation */}
-            <button
-              type="button"
-              className="text-sm px-5 py-2 rounded-2xl border-2 border-orange-500/50 bg-orange-500/10 text-orange-400 hover:bg-orange-500/20 hover:border-orange-500/70 transition font-semibold"
-              onClick={handleSimulateLongGarminRide}
-              disabled={isSimulatingRide}
-            >
-              {isSimulatingRide ? '⏳ Simulating...' : '🧪 TEST: Simulate Long Garmin Ride'}
-            </button>
-          </div>
+    <div className="dashboard-app">
+      {/* Hero Welcome Section */}
+      <section className="dashboard-hero">
+        <div className="hero-greeting-badge">
+          <span className="greeting-dot" />
+          Welcome Back
+        </div>
+        <h1 className="hero-title">
+          Everything looks good, <span className="hero-name">{firstName}</span>.
+        </h1>
+        <p className="hero-subtitle">
+          Your bikes are maintained, your rides are logged, and your components are tracked.
+          <span className="hero-subtitle-highlight"> Let's keep the momentum going.</span>
+        </p>
+        <div className="hero-actions">
+          <Link to="/rides" className="action-btn action-btn-primary">
+            Log New Ride
+          </Link>
+          <button
+            type="button"
+            className="action-btn action-btn-secondary"
+            onClick={() => setGpxModalOpen(true)}
+          >
+            Upload GPX
+          </button>
+          <Link to="/gear" className="action-btn action-btn-outline">
+            View Garage
+          </Link>
+        </div>
+
+        {/* Test buttons */}
+        <div className="dev-actions">
+          <button
+            type="button"
+            className="dev-btn"
+            onClick={handleSimulateGarminRide}
+            disabled={isSimulatingRide}
+          >
+            {isSimulatingRide ? '⏳ Simulating' : '🧪 Test Ride'}
+          </button>
+          <button
+            type="button"
+            className="dev-btn"
+            onClick={handleSimulateLongGarminRide}
+            disabled={isSimulatingRide}
+          >
+            {isSimulatingRide ? '⏳ Simulating' : '🧪 Long Ride'}
+          </button>
         </div>
       </section>
 
-      {/* Single Column Layout: Service Radar, Ride Statistics, Recent Rides */}
-      <div className="space-y-6">
-        {/* Service Radar */}
-        <section className="panel-soft shadow-soft border border-app rounded-3xl p-6">
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <p className="text-xs uppercase tracking-[0.3em] text-muted">Bike / Gear</p>
-              <h3 className="text-2xl font-semibold text-white">Service radar</h3>
+      {/* Dashboard Grid - Asymmetric Flow */}
+      <div className="dashboard-grid">
+        {/* Service Overview - Large Featured Card */}
+        <section className="data-card data-card-primary card-service">
+          <div className="card-header">
+            <div className="card-label-group">
+              <span className="card-eyebrow">Component Health</span>
+              <h2 className="card-title">Service Overview</h2>
+              <span className="card-count">{userBikes.length} {userBikes.length === 1 ? 'bike' : 'bikes'} tracked</span>
             </div>
-            <Link to="/gear" className="btn-outline text-sm px-4 py-2">
-              Garage
+            <Link to="/gear" className="card-action-link">
+              View All →
             </Link>
           </div>
 
-          <div className="space-y-5">
+          <div>
             {bikesLoading && (
-              <div className="space-y-3">
+              <div className="loading-state">
                 {Array.from({ length: 2 }).map((_, idx) => (
-                  <div key={idx} className="h-28 rounded-2xl bg-surface-2/80 animate-pulse" />
+                  <div key={idx} className="skeleton-item" />
                 ))}
               </div>
             )}
             {bikesError && (
-              <div className="text-sm text-danger">
-                Couldn't load bikes. {bikesError.message}
+              <div className="error-state">
+                <span className="error-icon">⚠️</span>
+                <p className="error-text">
+                  Unable to load bikes: {bikesError.message}
+                </p>
               </div>
             )}
             {!bikesLoading && !bikesError && userBikes.length === 0 && (
-              <div className="rounded-xl border border-dashed border-app/50 px-4 py-6 text-sm text-muted text-center">
-                No bikes yet.{' '}
-                <Link to="/gear" className="link-accent underline">
-                  Manage your garage
-                </Link>
-                .
+              <div className="empty-state">
+                <span className="empty-icon">🚵</span>
+                <p className="empty-text">
+                  No bikes in your garage yet.{' '}
+                  <Link to="/gear" className="empty-link">
+                    Add your first bike
+                  </Link>
+                  {' '}to start tracking components.
+                </p>
               </div>
             )}
-            {userBikes.map((bike) => (
-              <BikeCard key={bike.id} bike={bike} />
-            ))}
+            {!bikesLoading && !bikesError && userBikes.length > 0 && (
+              <div className="item-list">
+                {userBikes.map((bike, idx) => (
+                  <div key={bike.id} className="list-item" style={{ animationDelay: `${idx * 0.1}s` }}>
+                    <BikeCard bike={bike} />
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </section>
 
-        {/* Ride Statistics */}
-        <section className="panel-soft shadow-soft border border-app rounded-3xl p-6">
-          <div className="mb-5 flex items-center justify-between">
-            <div>
-              <p className="text-xs uppercase tracking-[0.3em] text-muted">Ride statistics</p>
-              <h3 className="text-2xl font-semibold text-white">How you're trending</h3>
+        {/* Ride Statistics - Elevated Data Card */}
+        <section className="data-card data-card-secondary card-stats">
+          <div className="card-header">
+            <div className="card-label-group">
+              <span className="card-eyebrow">Performance</span>
+              <h2 className="card-title">Ride Stats</h2>
             </div>
           </div>
-          <RideStatsCard showHeading={false} />
+          <div>
+            <RideStatsCard showHeading={false} />
+          </div>
         </section>
 
-        {/* Trail Log */}
-        <section className="panel-soft shadow-soft border border-app rounded-3xl p-6">
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <p className="text-xs uppercase tracking-[0.3em] text-muted">Recent rides</p>
-              <h3 className="text-2xl font-semibold text-white">Trail log</h3>
+        {/* Trail Log - Recent Activity */}
+        <section className="data-card data-card-tertiary card-trail-log">
+          <div className="card-header">
+            <div className="card-label-group">
+              <span className="card-eyebrow">Recent Activity</span>
+              <h2 className="card-title">Trail Log</h2>
+              <span className="card-count">{rides.length} of last {RECENT_COUNT}</span>
             </div>
-            <Link to="/rides" className="btn-outline text-sm px-4 py-2">
-              View all
+            <Link to="/rides" className="card-action-link">
+              View All →
             </Link>
           </div>
 
-          {ridesLoading && (
-            <div className="space-y-3">
-              {Array.from({ length: 3 }).map((_, idx) => (
-                <div key={idx} className="h-20 rounded-2xl bg-surface-2/80 animate-pulse" />
-              ))}
-            </div>
-          )}
+          <div>
+            {ridesLoading && (
+              <div className="loading-state">
+                {Array.from({ length: 3 }).map((_, idx) => (
+                  <div key={idx} className="skeleton-item" />
+                ))}
+              </div>
+            )}
 
-          {ridesError && (
-            <div className="text-sm text-danger">
-              Couldn't load rides. {ridesError.message}
-            </div>
-          )}
+            {ridesError && (
+              <div className="error-state">
+                <span className="error-icon">⚠️</span>
+                <p className="error-text">
+                  Unable to load rides: {ridesError.message}
+                </p>
+              </div>
+            )}
 
-          {!ridesLoading && !ridesError && rides.length === 0 && (
-            <div className="rounded-xl border border-dashed border-app/50 px-4 py-6 text-sm text-muted text-center">
-              No rides yet.{' '}
-              <Link to="/rides" className="link-accent underline">
-                Add your first ride
-              </Link>
-              .
-            </div>
-          )}
+            {!ridesLoading && !ridesError && rides.length === 0 && (
+              <div className="empty-state">
+                <span className="empty-icon">🏔️</span>
+                <p className="empty-text">
+                  No rides recorded yet.{' '}
+                  <Link to="/rides" className="empty-link">
+                    Log your first ride
+                  </Link>
+                  {' '}to start tracking your adventures.
+                </p>
+              </div>
+            )}
 
-          {!ridesLoading && !ridesError && rides.length > 0 && (
-            <ul className="space-y-3">
-              {rides.map((ride) => (
-                <RideCard key={ride.id} ride={ride} bikes={bikesRaw} />
-              ))}
-            </ul>
-          )}
+            {!ridesLoading && !ridesError && rides.length > 0 && (
+              <ul className="item-list">
+                {rides.map((ride, idx) => (
+                  <li key={ride.id} className="list-item" style={{ animationDelay: `${idx * 0.08}s` }}>
+                    <RideCard ride={ride} bikes={bikesRaw} />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </section>
       </div>
 
+      {/* GPX Upload Modal */}
       {gpxModalOpen && (
         <div
-          className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4 py-6"
+          className="modal-overlay"
           onClick={closeGpxModal}
         >
           <div
             role="dialog"
             aria-modal="true"
-            className="w-full max-w-lg rounded-3xl panel-soft modal-surface shadow-soft p-6"
+            className="modal-dialog"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="mb-4 flex items-center justify-between">
+            <div className="modal-header">
               <div>
-                <h3 className="text-2xl font-semibold">Upload GPX File</h3>
-                <p className="text-sm text-muted">
-                  Import ride data from Strava, Garmin, or Suunto and align it to a bike.
+                <h3 className="modal-title">Upload GPX File</h3>
+                <p className="modal-subtitle">
+                  Import ride data from Strava, Garmin, or Suunto
                 </p>
               </div>
-              <button className="text-2xl text-muted" onClick={closeGpxModal} aria-label="Close">
+              <button className="modal-close" onClick={closeGpxModal} aria-label="Close">
                 ×
               </button>
             </div>
 
-            <label className="block rounded-2xl border border-dashed border-app/60 bg-surface-2/70 px-4 py-12 text-center text-sm text-muted cursor-pointer">
+            <label className="file-drop-zone">
               <input
                 type="file"
                 accept=".gpx"
-                className="hidden"
+                className="file-input"
                 onChange={(e) => handleGpxFile(e.target.files?.[0])}
               />
-              <div className="flex flex-col items-center gap-2">
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="none">
+              <div className="file-drop-content">
+                <svg className="file-icon" width="48" height="48" viewBox="0 0 24 24" fill="none">
                   <path
                     d="M12 5v14m0-14 4 4m-4-4-4 4"
                     stroke="currentColor"
@@ -459,15 +479,15 @@ export default function Dashboard() {
                     strokeLinejoin="round"
                   />
                 </svg>
-                <span className="font-semibold">{gpxFileName || 'Drop GPX file here'}</span>
-                <span className="text-xs text-muted">or click to browse</span>
+                <span className="file-label">{gpxFileName || 'Drop your GPX file here'}</span>
+                <span className="file-hint">or click to browse your files</span>
               </div>
             </label>
 
-            <div className="mt-4">
-              <label className="text-xs uppercase tracking-[0.3em] text-muted">Assign to Bike</label>
+            <div className="modal-field">
+              <label className="field-label">Assign to Bike</label>
               <select
-                className="mt-2 w-full rounded-2xl border border-app/60 bg-surface-2/70 px-3 py-2 text-sm"
+                className="field-select"
                 value={gpxBikeId}
                 onChange={(e) => setGpxBikeId(e.target.value)}
               >
@@ -479,12 +499,12 @@ export default function Dashboard() {
               </select>
             </div>
 
-            <div className="mt-6 flex justify-end gap-3">
-              <button className="btn-secondary" type="button" onClick={closeGpxModal}>
+            <div className="modal-actions">
+              <button className="modal-btn modal-btn-cancel" type="button" onClick={closeGpxModal}>
                 Cancel
               </button>
               <button
-                className="btn-primary"
+                className="modal-btn modal-btn-submit"
                 type="button"
                 onClick={handleGpxSubmit}
                 disabled={!gpxFileName || !gpxBikeId}
