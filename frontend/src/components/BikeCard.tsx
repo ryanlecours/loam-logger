@@ -11,12 +11,23 @@ import { LOG_COMPONENT_SERVICE } from "../graphql/logComponentService";
 import { BIKES } from "../graphql/bikes";
 
 const statusIcons = {
-  ok: <FaCheckCircle className="text-green-600 inline" />,
-  warning: <FaExclamationTriangle className="text-yellow-500 inline" />,
-  danger: <FaExclamationCircle className="text-red-600 inline" />,
+  ok: <FaCheckCircle className="component-icon icon-good" />,
+  warning: <FaExclamationTriangle className="component-icon icon-warning" />,
+  danger: <FaExclamationCircle className="component-icon icon-danger" />,
 };
 
-// Format hours as "Xh Ym" rounded to nearest minute
+type ComponentInfo = {
+  id: string;
+  label: string;
+  brand: string;
+  model: string;
+  hours: number;
+};
+
+type ComponentRowProps = ComponentInfo & {
+  status: "ok" | "warning" | "danger";
+};
+
 function formatHoursAndMinutes(totalHours: number): string {
   const hours = Math.floor(totalHours);
   const minutes = Math.round((totalHours - hours) * 60);
@@ -30,32 +41,132 @@ function formatHoursAndMinutes(totalHours: number): string {
   return `${hours}h ${minutes}m`;
 }
 
-type ComponentCardProps = {
-  componentId: string;
-  label: string;
-  brand: string;
-  model: string;
-  hours: number;
-};
+function getStatusVisuals(status: "ok" | "warning" | "danger") {
+  let statusClass = "component-status-good";
+  let statusIcon = statusIcons.ok;
 
-function ComponentCard({ componentId, label, brand, model, hours }: ComponentCardProps) {
+  if (status === "warning") {
+    statusClass = "component-status-warning";
+    statusIcon = statusIcons.warning;
+  } else if (status === "danger") {
+    statusClass = "component-status-danger";
+    statusIcon = statusIcons.danger;
+  }
+
+  return { statusClass, statusIcon };
+}
+
+function ComponentRow({ label, brand, model, hours, status }: ComponentRowProps) {
+  const { statusClass, statusIcon } = getStatusVisuals(status);
+
+  return (
+    <div className={`component-row ${statusClass}`}>
+      <div className="component-row-heading pl-4">
+        <div className="component-row-title">
+          <h3 className="component-label">{label}</h3>
+          {statusIcon}
+        </div>
+        <span className="component-hours-pill">
+          {formatHoursAndMinutes(hours)}
+        </span>
+      </div>
+      <p className="component-details pl-4">
+        {brand} {model}
+      </p>
+    </div>
+  );
+}
+
+export default function BikeCard({ bike }: { bike: Bike }) {
+  const [isOverlayOpen, setIsOverlayOpen] = useState(false);
+  const [selectedComponentIds, setSelectedComponentIds] = useState<string[]>([]);
   const [isLogging, setIsLogging] = useState(false);
   const [logService] = useMutation(LOG_COMPONENT_SERVICE, {
     refetchQueries: [{ query: BIKES }],
   });
 
+  const components: ComponentRowProps[] = [
+    bike.fork.id
+      ? {
+          id: bike.fork.id,
+          label: "Fork",
+          brand: bike.fork.brand,
+          model: bike.fork.model,
+          hours: bike.fork.hoursSinceLastService,
+          status: getHealthStatus(bike.fork.hoursSinceLastService),
+        }
+      : null,
+    bike.shock.id
+      ? {
+          id: bike.shock.id,
+          label: "Shock",
+          brand: bike.shock.brand,
+          model: bike.shock.model,
+          hours: bike.shock.hoursSinceLastService,
+          status: getHealthStatus(bike.shock.hoursSinceLastService),
+        }
+      : null,
+    bike.wheelBearings.id
+      ? {
+          id: bike.wheelBearings.id,
+          label: "Wheel Bearings",
+          brand: bike.wheelBearings.brand,
+          model: bike.wheelBearings.model,
+          hours: bike.wheelBearings.hoursSinceLastService,
+          status: getHealthStatus(bike.wheelBearings.hoursSinceLastService),
+        }
+      : null,
+    bike.dropperPost.id
+      ? {
+          id: bike.dropperPost.id,
+          label: "Dropper Post",
+          brand: bike.dropperPost.brand,
+          model: bike.dropperPost.model,
+          hours: bike.dropperPost.hoursSinceLastService,
+          status: getHealthStatus(bike.dropperPost.hoursSinceLastService),
+        }
+      : null,
+    bike.pivotBearingsId
+      ? {
+          id: bike.pivotBearingsId,
+          label: "Pivot Bearings",
+          brand: "Pivot",
+          model: "Bearings",
+          hours: bike.hoursSinceLastService,
+          status: getHealthStatus(bike.hoursSinceLastService),
+        }
+      : null,
+  ].filter((component): component is ComponentRowProps => Boolean(component?.id));
+
+  const toggleSelection = (componentId: string) => {
+    setSelectedComponentIds((prev) =>
+      prev.includes(componentId)
+        ? prev.filter((id) => id !== componentId)
+        : [...prev, componentId]
+    );
+  };
+
+  const openServiceOverlay = () => {
+    setSelectedComponentIds(components.map((component) => component.id));
+    setIsOverlayOpen(true);
+  };
+
   const handleLogService = async () => {
-    if (!componentId) {
-      console.error("Cannot log service: componentId is missing");
-      alert("Cannot log service: component ID is missing");
+    if (selectedComponentIds.length === 0) {
+      alert("Select at least one component to log.");
       return;
     }
 
     setIsLogging(true);
     try {
-      await logService({
-        variables: { id: componentId },
-      });
+      await Promise.all(
+        selectedComponentIds.map((id) =>
+          logService({
+            variables: { id },
+          })
+        )
+      );
+      setIsOverlayOpen(false);
     } catch (err) {
       console.error("Failed to log service:", err);
       alert("Failed to log service. Please try again.");
@@ -64,92 +175,113 @@ function ComponentCard({ componentId, label, brand, model, hours }: ComponentCar
     }
   };
 
-  const status = getHealthStatus(hours);
-
-  // Determine border color based on status
-  let borderColorClass = 'border-green-500/50';
-  let statusIconColor = statusIcons.ok;
-
-  if (status === 'warning') {
-    borderColorClass = 'border-yellow-500/50';
-    statusIconColor = statusIcons.warning;
-  } else if (status === 'danger') {
-    borderColorClass = 'border-red-500/50';
-    statusIconColor = statusIcons.danger;
-  }
-
   return (
-    <div className={`flex flex-col rounded-xl border-2 p-4 bg-surface-2/30 ${borderColorClass}`}>
-      <div className="flex items-center justify-between mb-2">
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-accent">{label}</h3>
-        {statusIconColor}
-      </div>
-      <p className="text-xs text-muted mb-auto">
-        {brand} {model}
-      </p>
-      <p className="text-lg font-bold mb-3 text-white">{formatHoursAndMinutes(hours)}</p>
-      <button
-        onClick={handleLogService}
-        disabled={isLogging}
-        className="text-xs px-3 py-1.5 rounded-xl border-2 border-accent/60 text-accent hover:bg-accent/20 hover:border-accent transition disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        {isLogging ? "Logging..." : "Log Service"}
-      </button>
-    </div>
-  );
-}
-
-export default function BikeCard({ bike }: { bike: Bike }) {
-  return (
-    <div className="border rounded-xl p-5 shadow-sm mb-4">
-      <h2 className="text-xl font-bold mb-4">{bike.name}</h2>
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
-        {bike.fork.id && (
-          <ComponentCard
-            componentId={bike.fork.id}
-            label="Fork"
-            brand={bike.fork.brand}
-            model={bike.fork.model}
-            hours={bike.fork.hoursSinceLastService}
-          />
-        )}
-        {bike.shock.id && (
-          <ComponentCard
-            componentId={bike.shock.id}
-            label="Shock"
-            brand={bike.shock.brand}
-            model={bike.shock.model}
-            hours={bike.shock.hoursSinceLastService}
-          />
-        )}
-        {bike.wheelBearings.id && (
-          <ComponentCard
-            componentId={bike.wheelBearings.id}
-            label="Wheel Bearings"
-            brand={bike.wheelBearings.brand}
-            model={bike.wheelBearings.model}
-            hours={bike.wheelBearings.hoursSinceLastService}
-          />
-        )}
-        {bike.dropperPost.id && (
-          <ComponentCard
-            componentId={bike.dropperPost.id}
-            label="Dropper Post"
-            brand={bike.dropperPost.brand}
-            model={bike.dropperPost.model}
-            hours={bike.dropperPost.hoursSinceLastService}
-          />
-        )}
-        {bike.pivotBearingsId && (
-          <ComponentCard
-            componentId={bike.pivotBearingsId}
-            label="Pivot Bearings"
-            brand="Pivot"
-            model="Bearings"
-            hours={bike.hoursSinceLastService}
-          />
+    <div className="bike-card-container">
+      <div className="bike-card-header">
+        <h2 className="bike-name">{bike.name}</h2>
+        {components.length > 0 && (
+          <button
+            onClick={openServiceOverlay}
+            className="log-service-bike-btn"
+            aria-label={`Log service for ${bike.name}`}
+          >
+            Log Service
+          </button>
         )}
       </div>
+
+      <div className="components-panel">
+        {components.length === 0 ? (
+          <p className="components-empty">No components available.</p>
+        ) : (
+          components.map((component) => (
+            <ComponentRow key={component.id} {...component} />
+          ))
+        )}
+      </div>
+
+      {isOverlayOpen && (
+        <div
+          className="service-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Log service for ${bike.name}`}
+        >
+          <div className="service-overlay-card">
+            <div className="service-overlay-header">
+              <div>
+                <p className="overlay-eyebrow">Service log</p>
+                <h3 className="overlay-title">{bike.name}</h3>
+              </div>
+              <button
+                type="button"
+                className="overlay-close"
+                onClick={() => setIsOverlayOpen(false)}
+                aria-label="Close service selection"
+                disabled={isLogging}
+              >
+                &times;
+              </button>
+            </div>
+
+            <p className="service-overlay-subtitle">
+              Select the components you serviced.
+            </p>
+
+            <div className="service-checkbox-list">
+              {components.map((component) => {
+                const { statusClass, statusIcon } = getStatusVisuals(
+                  component.status
+                );
+
+                return (
+                  <label
+                    key={component.id}
+                    className={`service-checkbox ${statusClass}`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedComponentIds.includes(component.id)}
+                      onChange={() => toggleSelection(component.id)}
+                    />
+                    <div className="service-checkbox-content">
+                      <div className="service-checkbox-title">
+                        <span className="component-label">{component.label}</span>
+                        <span className="component-hours-pill small">
+                          {formatHoursAndMinutes(component.hours)}
+                        </span>
+                      </div>
+                      <p className="component-details">
+                        {component.brand} {component.model}
+                      </p>
+                    </div>
+                    {statusIcon}
+                  </label>
+                );
+              })}
+            </div>
+
+            <div className="service-overlay-actions">
+              <button
+                type="button"
+                className="overlay-button ghost"
+                onClick={() => setIsOverlayOpen(false)}
+                disabled={isLogging}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="overlay-button primary"
+                onClick={handleLogService}
+                disabled={isLogging || selectedComponentIds.length === 0}
+              >
+                {isLogging ? "Logging..." : "Log Selected"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

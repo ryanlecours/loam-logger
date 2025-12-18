@@ -103,17 +103,17 @@ export default function RideCard({ ride, bikes = [] }: RideCardProps) {
 
   return (
     <>
-      <li className="border rounded-lg p-3 flex items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 flex-wrap">
-            <div className="font-medium truncate">{title}</div>
+      <div className="ride-card-container">
+        <div className="ride-content">
+          <div className="ride-header">
+            <h3 className="ride-title" title={title}>{title}</h3>
             {sourceBadge && (
               <span
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs border"
+                className="source-badge"
                 style={{
-                  backgroundColor: `${sourceBadge.color}33`,
+                  backgroundColor: `${sourceBadge.color}15`,
                   color: sourceBadge.color,
-                  borderColor: `${sourceBadge.color}80`,
+                  borderColor: `${sourceBadge.color}40`,
                 }}
                 title={
                   source === 'garmin'
@@ -123,41 +123,36 @@ export default function RideCard({ ride, bikes = [] }: RideCardProps) {
                       : 'Manual entry'
                 }
               >
-                <sourceBadge.Icon className="text-xs" />
+                <sourceBadge.Icon className="source-icon" />
                 {sourceBadge.label}
               </span>
             )}
           </div>
-          <div className="text-sm opacity-80 flex flex-wrap gap-3">
-            <span>{fmtDateTime(Number(ride.startTime))}</span>
-            <span>{fmtDuration(ride.durationSeconds)}</span>
-            <span>{fmtMiles(ride.distanceMiles)}</span>
-            <span>{fmtFeet(ride.elevationGainFeet)}</span>
-            {typeof ride.averageHr === 'number' && <span>{ride.averageHr} bpm</span>}
+
+          <div className="ride-metadata">
+            <span className="meta-item">{fmtDateTime(Number(ride.startTime))}</span>
+            <span className="meta-item">{fmtDuration(ride.durationSeconds)}</span>
+            <span className="meta-item">{fmtMiles(ride.distanceMiles)}</span>
+            <span className="meta-item">{fmtFeet(ride.elevationGainFeet)}</span>
+            {typeof ride.averageHr === 'number' && (
+              <span className="meta-item">{ride.averageHr} bpm</span>
+            )}
           </div>
+
           {ride.notes && (
-            <div
-              className="mt-1 text-sm opacity-80 italic"
-              style={{
-                display: '-webkit-box',
-                WebkitLineClamp: 2,
-                WebkitBoxOrient: 'vertical',
-                overflow: 'hidden',
-              }}
-              title={ride.notes}
-            >
+            <div className="ride-notes" title={ride.notes}>
               {ride.notes}
             </div>
           )}
 
           {needsBikeAssignment && (
-            <div className="mt-2 flex items-center gap-2">
-              <span className="text-xs text-yellow-400">Heads up: Assign to bike:</span>
+            <div className="bike-assignment">
+              <span className="assignment-label">Assign to bike:</span>
               <select
                 value={selectedBikeId}
                 onChange={(e) => setSelectedBikeId(e.target.value)}
                 disabled={isAssigning}
-                className="text-xs rounded-lg border border-app/60 bg-surface-2/70 px-2 py-1"
+                className="assignment-select"
               >
                 {bikes.map((bike) => (
                   <option key={bike.id} value={bike.id}>
@@ -168,7 +163,7 @@ export default function RideCard({ ride, bikes = [] }: RideCardProps) {
               <button
                 onClick={handleAssignBike}
                 disabled={isAssigning || !selectedBikeId}
-                className="text-xs px-3 py-1 rounded-lg bg-primary/20 text-primary border border-primary/50 hover:bg-primary/30 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                className="assignment-btn"
               >
                 {isAssigning ? 'Assigning...' : 'Confirm'}
               </button>
@@ -176,22 +171,22 @@ export default function RideCard({ ride, bikes = [] }: RideCardProps) {
           )}
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="ride-actions">
           <button
             type="button"
             onClick={() => setEditing(true)}
-            className="p-2 rounded-lg border-2 border-accent/60 text-accent hover:bg-accent/20 hover:border-accent transition"
+            className="ride-action-btn"
             title="Edit ride"
             aria-label="Edit ride"
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <svg className="action-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
               <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25ZM20.71 7.04a1.003 1.003 0 0 0 0-1.42l-2.34-2.34a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 1.84-1.82Z" />
             </svg>
           </button>
 
           <DeleteRideButton id={ride.id} />
         </div>
-      </li>
+      </div>
 
       {editing && <EditRideModal ride={ride} onClose={() => setEditing(false)} />}
     </>
