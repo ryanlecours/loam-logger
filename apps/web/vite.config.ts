@@ -6,6 +6,7 @@ import path from "path";
 
 export default defineConfig({
   plugins: [tailwindcss(), react(), nxViteTsPaths()],
+  cacheDir: path.resolve(__dirname, '../../.cache/vite/web'),
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "src")
