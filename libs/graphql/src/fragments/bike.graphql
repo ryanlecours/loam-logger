@@ -1,0 +1,17 @@
+#import "./component.graphql"
+
+fragment BikeFields on Bike {
+  id
+  nickname
+  manufacturer
+  model
+  year
+  travelForkMm
+  travelShockMm
+  notes
+  components {
+    ...ComponentFields
+  }
+  createdAt
+  updatedAt
+}
