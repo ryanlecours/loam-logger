@@ -6,6 +6,7 @@ claude.internal.md
 
 # Dependencies
 node_modules/
+**/node_modules/
 
 # Package locks (only root package-lock.json should exist)
 apps/**/package-lock.json
