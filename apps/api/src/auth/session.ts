@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
+import { extractBearerToken, verifyToken } from './token';
 
 const { SESSION_SECRET } = process.env;
 
@@ -24,13 +25,26 @@ export function clearSessionCookie(res: Response) {
 }
 
 export function attachUser(req: Request, _res: Response, next: NextFunction) {
-  const token = req.cookies?.ll_session;
-  if (!token) return next();
-  try {
-    const user = jwt.verify(token, SESSION_SECRET!) as SessionUser;
-    req.sessionUser = user;
-  } catch {
-    // ignore invalid/expired token
+  // First, try cookie-based session (for web)
+  const cookieToken = req.cookies?.ll_session;
+  if (cookieToken) {
+    try {
+      const user = jwt.verify(cookieToken, SESSION_SECRET!) as SessionUser;
+      req.sessionUser = user;
+      return next();
+    } catch {
+      // ignore invalid/expired cookie token
+    }
   }
+
+  // If no cookie, try bearer token (for mobile)
+  const bearerToken = extractBearerToken(req);
+  if (bearerToken) {
+    const user = verifyToken(bearerToken);
+    if (user) {
+      req.sessionUser = user;
+    }
+  }
+
   next();
 }
