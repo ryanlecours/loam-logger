@@ -19,6 +19,7 @@ import mockGarmin from './routes/mock.garmin.ts';
 import onboardingRouter from './routes/onboarding.ts';
 import waitlistRouter from './routes/waitlist.ts';
 import { googleRouter, emailRouter, deleteAccountRouter, attachUser } from './auth/index.ts';
+import mobileAuthRouter from './auth/mobile.route.ts';
 
 export type GraphQLContext = {
   req: Request
@@ -46,13 +47,34 @@ const startServer = async () => {
     try {
       const u = new URL(origin);
       const host = u.hostname;
-      return (
-        origin === FRONTEND_URL ||
-        origin === 'http://localhost:5173' ||
-        EXTRA_ORIGINS.includes(origin) ||
-        host.endsWith('.vercel.app')
-      );
+
+      // Allow configured origins
+      if (origin === FRONTEND_URL ||
+          origin === 'http://localhost:5173' ||
+          EXTRA_ORIGINS.includes(origin) ||
+          host.endsWith('.vercel.app')) {
+        return true;
+      }
+
+      // Allow Expo development URLs (exp://, localhost:8081, etc.)
+      if (origin.startsWith('exp://') ||
+          origin.startsWith('http://localhost:8081') ||
+          origin.startsWith('http://localhost:19000') ||
+          origin.startsWith('http://localhost:19006')) {
+        return true;
+      }
+
+      // Allow custom scheme for mobile app
+      if (origin.startsWith('loamlogger://')) {
+        return true;
+      }
+
+      return false;
     } catch {
+      // If origin doesn't parse as URL, check if it's an Expo or custom scheme
+      if (origin?.startsWith('exp://') || origin?.startsWith('loamlogger://')) {
+        return true;
+      }
       return false;
     }
   };
@@ -88,6 +110,7 @@ const startServer = async () => {
   app.use('/auth', googleRouter);       // POST /auth/google/code, /auth/logout
   app.use('/auth', emailRouter);        // POST /auth/signup, /auth/login
   app.use('/auth', deleteAccountRouter); // DELETE /auth/delete-account
+  app.use('/auth', mobileAuthRouter);   // Mobile auth: Google, Apple, Email login + refresh
   app.use('/auth', authGarmin);         // Garmin OAuth
   app.use('/auth', authStrava);         // Strava OAuth
   app.use('/api', garminBackfill);      // Garmin backfill (import historical rides)
