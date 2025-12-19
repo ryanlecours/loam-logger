@@ -1,0 +1,15 @@
+{
+  "name": "@loam/graphql",
+  "version": "0.0.1",
+  "private": true,
+  "dependencies": {
+    "@apollo/client": "^3.13.9",
+    "graphql": "^16.10.0"
+  },
+  "devDependencies": {
+    "@graphql-codegen/cli": "^5.0.0",
+    "@graphql-codegen/typescript": "^4.0.1",
+    "@graphql-codegen/typescript-operations": "^4.0.1",
+    "@graphql-codegen/typescript-react-apollo": "^4.1.0"
+  }
+}

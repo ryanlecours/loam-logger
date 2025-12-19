@@ -1,0 +1,44 @@
+#import "../fragments/bike.graphql"
+#import "../fragments/component.graphql"
+
+query Gear {
+  bikes {
+    ...BikeFields
+  }
+  spareComponents: components(
+    filter: { onlySpare: true, types: [FORK, SHOCK, DROPPER, WHEELS] }
+  ) {
+    ...ComponentFields
+  }
+}
+
+mutation AddBike($input: AddBikeInput!) {
+  addBike(input: $input) {
+    ...BikeFields
+  }
+}
+
+mutation UpdateBike($id: ID!, $input: UpdateBikeInput!) {
+  updateBike(id: $id, input: $input) {
+    ...BikeFields
+  }
+}
+
+mutation AddComponent($input: AddComponentInput!, $bikeId: ID) {
+  addComponent(input: $input, bikeId: $bikeId) {
+    ...ComponentFields
+  }
+}
+
+mutation UpdateComponent($id: ID!, $input: UpdateComponentInput!) {
+  updateComponent(id: $id, input: $input) {
+    ...ComponentFields
+  }
+}
+
+mutation DeleteComponent($id: ID!) {
+  deleteComponent(id: $id) {
+    ok
+    id
+  }
+}

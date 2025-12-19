@@ -1,0 +1,7 @@
+mutation LogComponentService($id: ID!) {
+  logComponentService(id: $id) {
+    id
+    hoursUsed
+    updatedAt
+  }
+}
