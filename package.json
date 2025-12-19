@@ -1,0 +1,20 @@
+{
+  "name": "@loam/source",
+  "private": true,
+  "workspaces": ["apps/*", "libs/*"],
+  "scripts": {
+    "dev:web": "nx serve web",
+    "dev:api": "nx serve api",
+    "dev:mobile": "nx start mobile",
+    "build": "nx run-many --target=build",
+    "codegen": "nx run graphql:codegen"
+  },
+  "devDependencies": {
+    "nx": "^20.0.0",
+    "@nx/js": "^20.0.0",
+    "@nx/vite": "^20.0.0",
+    "@nx/react": "^20.0.0",
+    "@nx/expo": "^20.0.0",
+    "typescript": "~5.8.3"
+  }
+}
