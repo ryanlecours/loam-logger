@@ -4,14 +4,17 @@ const config: CodegenConfig = {
   schema: process.env.GRAPHQL_SCHEMA_URL || "http://localhost:4000/graphql",
   documents: ["src/**/*.graphql"],
   generates: {
-    "src/generated/types.ts": {
-      plugins: ["typescript", "typescript-operations"]
-    },
-    "src/generated/hooks.ts": {
-      preset: "import-types",
-      plugins: ["typescript-react-apollo"],
-      presetConfig: { typesPath: "./types" },
-      config: { withHooks: true }
+    "src/generated/index.ts": {
+      plugins: [
+        "typescript",
+        "typescript-operations",
+        "typescript-react-apollo"
+      ],
+      config: {
+        withHooks: true,
+        withComponent: false,
+        withHOC: false
+      }
     }
   }
 };

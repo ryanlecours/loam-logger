@@ -1,0 +1,9 @@
+{
+  "name": "shared",
+  "projectType": "library",
+  "targets": {
+    "lint": {
+      "executor": "@nx/eslint:lint"
+    }
+  }
+}
