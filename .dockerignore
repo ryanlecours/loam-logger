@@ -2,3 +2,4 @@
 **/.vite
 .nx/cache
 dist
+.cache
