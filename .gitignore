@@ -7,6 +7,14 @@ claude.internal.md
 # Dependencies
 node_modules/
 
+# Package locks (only root package-lock.json should exist)
+apps/**/package-lock.json
+apps/**/yarn.lock
+apps/**/pnpm-lock.yaml
+libs/**/package-lock.json
+libs/**/yarn.lock
+libs/**/pnpm-lock.yaml
+
 # Environment variables
 .env
 .env.local
@@ -20,5 +28,16 @@ Thumbs.db
 .vscode/*
 !.vscode/extensions.json
 .idea
+
+# Build outputs
+dist/
+.nx/
+.cache/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
 documentation/*
