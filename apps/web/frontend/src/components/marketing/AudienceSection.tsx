@@ -1,0 +1,54 @@
+import SectionWrapper from './SectionWrapper';
+import { RiUserHeartLine, RiToolsLine, RiCarLine } from 'react-icons/ri';
+
+const personas = [
+  {
+    icon: <RiUserHeartLine size={40} />,
+    title: 'The Weekend Warrior',
+    description: 'You ride hard every chance you get. You want your bike dialed but only service it when it "feels bad". Get alerts when it\'s time to service before you damage expensive components.',
+  },
+  {
+    icon: <RiToolsLine size={40} />,
+    title: 'The Gear Head',
+    description: 'Multiple bikes. Component swaps. Constant tinkering. You need to track it all without losing your mind. Know what\'s on which bike and when it needs service.',
+  },
+  {
+    icon: <RiCarLine size={40} />,
+    title: 'The Set-and-Forget Rider',
+    description: 'You couldn\'t be bothered by tracking or performing maintenance. You have no clue what work was done to your bike since you bought it. Get alerts when it\'s time to service—no thinking, no guessing, no surprises.',
+  },
+];
+
+export default function AudienceSection() {
+  return (
+    <SectionWrapper background="cream" className="!py-16">
+      <div className="text-center mb-8">
+        <h3 className="text-xl font-semibold text-charcoal mb-2">
+          Built For You If...
+        </h3>
+      </div>
+
+      {/* Horizontal Scroll Container */}
+      <div className="overflow-x-auto pb-4 -mx-4 px-4 md:overflow-visible">
+        <div className="flex md:grid md:grid-cols-3 gap-4 min-w-max md:min-w-0">
+          {personas.map((persona, index) => (
+            <div
+              key={index}
+              className="w-80 md:w-auto flex-shrink-0 bg-charcoal border border-slate/30 rounded-xl p-5 transition-transform hover:scale-105"
+            >
+              <div className="text-mint mb-3">
+                {persona.icon}
+              </div>
+              <h4 className="text-lg font-semibold text-cream mb-2">
+                {persona.title}
+              </h4>
+              <p className="text-sm text-concrete leading-relaxed">
+                {persona.description}
+              </p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </SectionWrapper>
+  );
+}
