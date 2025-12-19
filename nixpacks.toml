@@ -1,0 +1,14 @@
+providers = ["node"]
+
+[phases.install]
+cmds = ["npm ci"]
+cacheDirectories = ["/root/.npm"]
+
+[phases.build]
+cmds = [
+  "npx nx run api:prisma-generate",
+  "npx nx build api"
+]
+
+[start]
+cmd = "node dist/apps/api/main.js"
