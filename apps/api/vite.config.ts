@@ -3,7 +3,7 @@ import { defineConfig } from "vite";
 export default defineConfig({
   build: {
     ssr: "src/server.ts",         // your entry file
-    outDir: "dist",
+    outDir: "../../dist/apps/api",
     target: "node18",
     rollupOptions: {
       external: [

@@ -1,0 +1,21 @@
+import { gql } from '@apollo/client';
+
+export const RIDES = gql`
+  query Rides($take: Int, $after: ID, $filter: RidesFilterInput) {
+    rides(take: $take, after: $after, filter: $filter) {
+      id
+      garminActivityId
+      stravaActivityId
+      startTime
+      durationSeconds
+      distanceMiles
+      elevationGainFeet
+      averageHr
+      rideType
+      bikeId
+      notes
+      trailSystem
+      location
+    }
+  }
+`;
