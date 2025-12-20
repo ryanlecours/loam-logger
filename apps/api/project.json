@@ -1,11 +1,17 @@
 {
   "name": "api",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "apps/api/src",
   "projectType": "application",
+  "root": "apps/api",
   "targets": {
     "build": {
-      "executor": "@nx/vite:build",
+      "dependsOn": ["prisma-generate"],
+      "executor": "nx:run-commands",
+      "outputs": ["{workspaceRoot}/dist/apps/api"],
       "options": {
-        "outputPath": "dist/apps/api"
+        "command": "npx esbuild src/server.ts --bundle --platform=node --format=cjs --outfile=../../dist/apps/api/server.cjs --external:@prisma/client --external:.prisma/client",
+        "cwd": "apps/api"
       }
     },
     "serve": {

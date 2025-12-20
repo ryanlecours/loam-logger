@@ -1,4 +1,4 @@
-import { prisma } from './prisma.ts';
+import { prisma } from './prisma';
 
 /**
  * Get a valid Strava access token for a user

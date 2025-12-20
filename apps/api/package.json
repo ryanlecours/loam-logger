@@ -2,8 +2,7 @@
   "name": "backend",
   "version": "1.0.0",
   "description": "",
-  "main": "dist/index.js",
-  "type": "module",
+  "main": "dist/server.cjs",
   "scripts": {
     "build": "vite build",
     "dev": "tsx --env-file=.env src/server.ts",
@@ -39,6 +38,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.32.0",
+    "@nx/esbuild": "^22.3.3",
     "@nx/vite": "^20.8.3",
     "@types/bcryptjs": "^2.4.6",
     "@types/body-parser": "^1.19.6",

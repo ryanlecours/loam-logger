@@ -1,7 +1,7 @@
 import { Router as createRouter, type Router, type Request, type Response } from 'express';
-import { getValidGarminToken } from '../lib/garmin-token.ts';
+import { getValidGarminToken } from '../lib/garmin-token';
 import { subDays } from 'date-fns';
-import { prisma } from '../lib/prisma.ts';
+import { prisma } from '../lib/prisma';
 
 type Empty = Record<string, never>;
 const r: Router = createRouter();

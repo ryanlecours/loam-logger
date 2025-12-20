@@ -1,5 +1,5 @@
 // src/services/garmin.ts
-import { prisma } from '../lib/prisma.ts';
+import { prisma } from '../lib/prisma';
 
 const API_BASE = (process.env.GARMIN_API_BASE || '').replace(/\/$/, '');
 const TOKEN_URL = process.env.GARMIN_TOKEN_URL || '';

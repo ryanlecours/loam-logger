@@ -5,7 +5,7 @@ import {
   type Response,
   type RequestHandler,
 } from 'express';
-import { garminGetActivities } from '../services/garmin.ts';
+import { garminGetActivities } from '../services/garmin';
 
 const r: Router = createRouter();
 

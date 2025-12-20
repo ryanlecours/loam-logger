@@ -11,6 +11,7 @@
     "@graphql-codegen/typescript": "^4.0.1",
     "@graphql-codegen/typescript-operations": "^4.0.1",
     "@graphql-codegen/typescript-react-apollo": "^4.1.0",
+    "@nx/esbuild": "^22.3.3",
     "@nx/vite": "^20.8.3"
   }
 }

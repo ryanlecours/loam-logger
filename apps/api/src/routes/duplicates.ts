@@ -1,5 +1,5 @@
 import { Router as createRouter, type Router, type Request, type Response } from 'express';
-import { prisma } from '../lib/prisma.ts';
+import { prisma } from '../lib/prisma';
 
 type Empty = Record<string, never>;
 const r: Router = createRouter();
