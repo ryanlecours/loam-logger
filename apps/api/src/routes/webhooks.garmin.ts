@@ -1,7 +1,7 @@
 import { Router as createRouter, type Router, type Request, type Response } from 'express';
-import { prisma } from '../lib/prisma.ts';
-import { getValidGarminToken } from '../lib/garmin-token.ts';
-import { deriveLocation, shouldApplyAutoLocation } from '../lib/location.ts';
+import { prisma } from '../lib/prisma';
+import { getValidGarminToken } from '../lib/garmin-token';
+import { deriveLocation, shouldApplyAutoLocation } from '../lib/location';
 
 type Empty = Record<string, never>;
 const r: Router = createRouter();

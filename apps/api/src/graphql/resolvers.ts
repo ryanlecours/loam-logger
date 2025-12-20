@@ -1,5 +1,5 @@
-import type { GraphQLContext } from '../server.ts';
-import { prisma } from '../lib/prisma.ts';
+import type { GraphQLContext } from '../server';
+import { prisma } from '../lib/prisma';
 import { ComponentType as ComponentTypeEnum } from '@prisma/client';
 import type {
   Prisma,

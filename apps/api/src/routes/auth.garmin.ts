@@ -1,6 +1,6 @@
 import { Router as createRouter, type Router, type Request, type Response } from 'express';
-import { prisma } from '../lib/prisma.ts';
-import { sha256, randomString } from '../lib/pcke.ts'; 
+import { prisma } from '../lib/prisma';
+import { sha256, randomString } from '../lib/pcke'; 
 import { addSeconds } from 'date-fns';
 
 type Empty = Record<string, never>

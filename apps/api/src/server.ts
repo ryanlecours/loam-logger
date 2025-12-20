@@ -4,22 +4,22 @@ import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import { ApolloServer } from '@apollo/server';
 import { expressMiddleware, type ExpressContextFunctionArgument } from '@as-integrations/express4';
-import { typeDefs } from './graphql/schema.ts';
-import { resolvers } from './graphql/resolvers.ts';
-import authGarmin from './routes/auth.garmin.ts';
-import authStrava from './routes/auth.strava.ts';
-import webhooksGarmin from './routes/webhooks.garmin.ts';
-import webhooksStrava from './routes/webhooks.strava.ts';
-import garminBackfill from './routes/garmin.backfill.ts';
-import stravaBackfill from './routes/strava.backfill.ts';
-import dataSourceRouter from './routes/data-source.ts';
-import duplicatesRouter from './routes/duplicates.ts';
-import garminTest from './routes/garmin.test.ts';
-import mockGarmin from './routes/mock.garmin.ts';
-import onboardingRouter from './routes/onboarding.ts';
-import waitlistRouter from './routes/waitlist.ts';
-import { googleRouter, emailRouter, deleteAccountRouter, attachUser } from './auth/index.ts';
-import mobileAuthRouter from './auth/mobile.route.ts';
+import { typeDefs } from './graphql/schema';
+import { resolvers } from './graphql/resolvers';
+import authGarmin from './routes/auth.garmin';
+import authStrava from './routes/auth.strava';
+import webhooksGarmin from './routes/webhooks.garmin';
+import webhooksStrava from './routes/webhooks.strava';
+import garminBackfill from './routes/garmin.backfill';
+import stravaBackfill from './routes/strava.backfill';
+import dataSourceRouter from './routes/data-source';
+import duplicatesRouter from './routes/duplicates';
+import garminTest from './routes/garmin.test';
+import mockGarmin from './routes/mock.garmin';
+import onboardingRouter from './routes/onboarding';
+import waitlistRouter from './routes/waitlist';
+import { googleRouter, emailRouter, deleteAccountRouter, attachUser } from './auth/index';
+import mobileAuthRouter from './auth/mobile.route';
 
 export type GraphQLContext = {
   req: Request

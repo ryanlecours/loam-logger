@@ -1,8 +1,8 @@
 import { Router as createRouter, type Router, type Request, type Response } from 'express';
-import { getValidStravaToken } from '../lib/strava-token.ts';
+import { getValidStravaToken } from '../lib/strava-token';
 import { subDays } from 'date-fns';
-import { prisma } from '../lib/prisma.ts';
-import { deriveLocation } from '../lib/location.ts';
+import { prisma } from '../lib/prisma';
+import { deriveLocation } from '../lib/location';
 
 type Empty = Record<string, never>;
 const r: Router = createRouter();

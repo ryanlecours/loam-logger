@@ -1,4 +1,4 @@
-import { prisma } from './prisma.ts';
+import { prisma } from './prisma';
 import { addSeconds } from 'date-fns';
 
 /**
