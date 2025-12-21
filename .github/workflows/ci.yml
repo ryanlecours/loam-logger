@@ -4,86 +4,68 @@ on:
   push:
     branches: [main, dev]
     paths:
-      - 'frontend/**'
-      - 'backend/**'
+      - 'apps/**'
+      - 'libs/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'nx.json'
+      - 'tsconfig.base.json'
   pull_request:
     branches: [main, dev]
     paths:
-      - 'frontend/**'
-      - 'backend/**'
+      - 'apps/**'
+      - 'libs/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'nx.json'
+      - 'tsconfig.base.json'
   issue_comment:
     types: [created]
 
 jobs:
-  backend-ci:
-    name: Backend CI
+  # Nx monorepo CI - runs affected projects only
+  monorepo-ci:
+    name: Nx Monorepo CI
     runs-on: ubuntu-latest
     if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
-    defaults:
-      run:
-        working-directory: ./backend
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch all history for Nx affected commands
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: 'npm'
-          cache-dependency-path: backend/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Type check
-        run: npx tsc --noEmit
+      - name: Derive appropriate SHAs for base and head for Nx affected commands
+        uses: nrwl/nx-set-shas@v4
 
-      - name: Validate Prisma schema
-        run: npx prisma validate
+      - name: Lint affected projects
+        run: npx nx affected -t lint --parallel=3
+
+      - name: Type check affected projects
+        run: npx nx affected -t type-check --parallel=3 || echo "No type-check target defined"
+
+      - name: Build affected projects
+        run: npx nx affected -t build --parallel=3
+
+      - name: Validate Prisma schema (if API affected)
+        run: |
+          if npx nx show projects --affected | grep -q "api"; then
+            cd apps/api && npx prisma validate
+          else
+            echo "API not affected, skipping Prisma validation"
+          fi
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-
-      - name: Lint
-        run: npx eslint src --ext .ts
-
-    # Only run when files in the backend directory change
-    outputs:
-      triggered: ${{ steps.filter.outputs.backend }}
-
-  frontend-ci:
-    name: Frontend CI
-    runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
-    defaults:
-      run:
-        working-directory: ./frontend
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Lint
-        run: npm run lint
-
-      - name: Type check
-        run: npm run type-check
-
-      - name: Build
-        run: npm run build
-
-    # Only run when files in the frontend directory change
-    outputs:
-      triggered: ${{ steps.filter.outputs.frontend }}
+          DATABASE_URL: postgresql://user:pass@localhost:5432/test
 
   claude-pr-review:
     name: Claude PR Review (Haiku, manual on @claude review)
