@@ -42,8 +42,13 @@ jobs:
           cache: 'npm'
           cache-dependency-path: package-lock.json
 
+      - name: Clean nested node_modules (prevent native dep issues)
+        run: |
+          rm -rf apps/web/node_modules
+          rm -rf apps/api/node_modules
+
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --include=optional
 
       - name: Derive appropriate SHAs for base and head for Nx affected commands
         uses: nrwl/nx-set-shas@v4
