@@ -53,15 +53,14 @@ jobs:
       - name: Derive appropriate SHAs for base and head for Nx affected commands
         uses: nrwl/nx-set-shas@v4
 
-      - name: Run GraphQL codegen (if graphql lib affected)
+      - name: Verify GraphQL generated files are committed
         run: |
-          if npx nx show projects --affected | grep -q "graphql"; then
-            npx nx run graphql:codegen
-          else
-            echo "GraphQL lib not affected, skipping codegen"
+          if [ ! -f "libs/graphql/src/generated/index.ts" ]; then
+            echo "❌ Error: GraphQL generated files are missing!"
+            echo "Run 'npm run codegen' locally and commit the generated files."
+            exit 1
           fi
-        env:
-          GRAPHQL_SCHEMA_URL: ${{ secrets.GRAPHQL_SCHEMA_URL || 'http://localhost:4000/graphql' }}
+          echo "✅ GraphQL generated files are present"
 
       - name: Lint affected projects
         run: npx nx affected -t lint --parallel=3
