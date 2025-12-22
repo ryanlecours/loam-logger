@@ -57,7 +57,7 @@ export default function StravaGearMappingModal({
     if (open && currentGear && !gearNames[currentGear.gearId]) {
       fetchGearName(currentGear.gearId);
     }
-  }, [open, currentGear?.gearId]);
+  }, [open, currentGear, gearNames]);
 
   const fetchGearName = async (gearId: string) => {
     try {
