@@ -1,0 +1,11 @@
+fragment ComponentFields on Component {
+  id
+  type
+  brand
+  model
+  notes
+  isStock
+  bikeId
+  hoursUsed
+  serviceDueAtHours
+}

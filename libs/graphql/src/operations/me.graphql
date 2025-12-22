@@ -1,0 +1,11 @@
+query Me {
+  me {
+    id
+    email
+    name
+    avatarUrl
+    onboardingCompleted
+    location
+    age
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "buildCommand": "cd ../.. && npx nx build web",
+  "outputDirectory": "../../dist/apps/web",
+  "installCommand": "cd ../.. && npm ci",
+  "framework": null,
+  "devCommand": "cd ../.. && npx nx serve web",
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}

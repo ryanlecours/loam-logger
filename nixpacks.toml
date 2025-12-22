@@ -1,0 +1,22 @@
+# Nixpacks configuration for Railway deployment
+# Nx monorepo - API deployment
+
+providers = ["node"]
+
+[phases.setup]
+nixPkgs = ["nodejs_20", "npm-9_x"]
+
+[phases.install]
+cmds = [
+  "npm ci --include=optional"
+]
+cacheDirectories = ["/root/.npm", "node_modules/.cache"]
+
+[phases.build]
+cmds = [
+  "npx nx run api:prisma-generate",
+  "npx nx build api"
+]
+
+[start]
+cmd = "node dist/apps/api/server.cjs"

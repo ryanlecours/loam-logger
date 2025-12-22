@@ -6,6 +6,15 @@ claude.internal.md
 
 # Dependencies
 node_modules/
+**/node_modules/
+
+# Package locks (only root package-lock.json should exist)
+apps/**/package-lock.json
+apps/**/yarn.lock
+apps/**/pnpm-lock.yaml
+libs/**/package-lock.json
+libs/**/yarn.lock
+libs/**/pnpm-lock.yaml
 
 # Environment variables
 .env
@@ -21,4 +30,30 @@ Thumbs.db
 !.vscode/extensions.json
 .idea
 
+# Build outputs
+dist/
+**/dist/
+apps/api/server.cjs
+.nx/
+.cache/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
 documentation/*
+
+.cache/
+
+# Expo / React Native
+.expo/
+.expo-shared/
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
+web-build/
