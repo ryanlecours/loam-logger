@@ -10,6 +10,7 @@
     "dev:api": "nx serve api",
     "dev:mobile": "nx start mobile",
     "build": "nx run-many --target=build",
+    "build:web": "nx build web",
     "lint": "nx run-many --target=lint",
     "codegen": "nx run graphql:codegen"
   },
@@ -21,10 +22,11 @@
     "@nx/js": "^20.0.0",
     "@nx/react": "^20.0.0",
     "@nx/vite": "^20.0.0",
+    "@nx/workspace": "^22.3.3",
     "eslint": "^9.32.0",
     "eslint-plugin-react-hooks": "^7.0.1",
     "globals": "^16.5.0",
-    "nx": "^20.0.0",
+    "nx": "^20.8.3",
     "typescript": "~5.8.3",
     "typescript-eslint": "^8.39.0"
   },
