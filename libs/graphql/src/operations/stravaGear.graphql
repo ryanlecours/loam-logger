@@ -1,0 +1,40 @@
+query UnmappedStravaGears {
+  unmappedStravaGears {
+    gearId
+    gearName
+    rideCount
+    isMapped
+  }
+}
+
+query StravaGearMappings {
+  stravaGearMappings {
+    id
+    stravaGearId
+    stravaGearName
+    bikeId
+    bike {
+      id
+      nickname
+      manufacturer
+      model
+    }
+    createdAt
+  }
+}
+
+mutation CreateStravaGearMapping($input: CreateStravaGearMappingInput!) {
+  createStravaGearMapping(input: $input) {
+    id
+    stravaGearId
+    stravaGearName
+    bikeId
+  }
+}
+
+mutation DeleteStravaGearMapping($id: ID!) {
+  deleteStravaGearMapping(id: $id) {
+    ok
+    id
+  }
+}

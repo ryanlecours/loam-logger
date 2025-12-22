@@ -1,0 +1,6 @@
+mutation DeleteRide($id: ID!) {
+  deleteRide(id: $id) {
+    ok
+    id
+  }
+}

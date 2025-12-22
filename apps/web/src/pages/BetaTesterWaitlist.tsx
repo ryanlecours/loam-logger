@@ -1,0 +1,336 @@
+import { useState, useEffect } from 'react';
+import { motion } from 'motion/react';
+import { useNavigate } from 'react-router-dom';
+import MarketingButton from '../components/marketing/MarketingButton';
+
+export default function BetaTesterWaitlist() {
+  const navigate = useNavigate();
+  const [email, setEmail] = useState('');
+  const [name, setName] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    document.documentElement.classList.add('marketing-page');
+    return () => {
+      document.documentElement.classList.remove('marketing-page');
+    };
+  }, []);
+
+  // Clear error when user types
+  const handleEmailChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setEmail(e.target.value);
+    if (error) setError(null);
+  };
+
+  const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setName(e.target.value);
+    if (error) setError(null);
+  };
+
+  // Validation
+  const validate = (): string | null => {
+    if (!email.trim()) return 'Email is required';
+
+    // Basic email format check
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) return 'Please enter a valid email address';
+
+    if (name.trim().length > 255) return 'Name is too long';
+
+    return null;
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    const validationError = validate();
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+
+    setIsSubmitting(true);
+    setError(null);
+
+    try {
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/waitlist`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: email.trim(),
+          name: name.trim() || undefined,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setError(data.message || 'Failed to join waitlist');
+        return;
+      }
+
+      setSuccess(true);
+    } catch (err) {
+      console.error('[Waitlist] Network error:', err);
+      setError('Network error. Please check your connection and try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Success state
+  if (success) {
+    return (
+      <section className="relative min-h-screen flex items-center justify-center overflow-hidden bg-dark">
+        {/* Background Image with Overlay - Desktop */}
+        <div
+          className="absolute inset-0 z-0 hidden md:block"
+          style={{
+            backgroundImage: 'url(/mtbLandingPhoto.jpg)',
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+            backgroundAttachment: 'fixed',
+          }}
+        >
+          <div className="absolute inset-0 bg-gradient-to-b from-black/75 via-black/60 to-black/75" />
+        </div>
+
+        {/* Background Image with Overlay - Mobile */}
+        <div
+          className="absolute inset-0 z-0 md:hidden"
+          style={{
+            backgroundImage: 'url(/mtbLandingPhotoMobile.jpg)',
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+          }}
+        >
+          <div className="absolute inset-0 bg-gradient-to-b from-black/75 via-black/60 to-black/75" />
+        </div>
+
+        {/* Login Link */}
+        <motion.div
+          className="absolute top-6 right-6 z-20"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.8, delay: 0.5 }}
+        >
+          <a
+            href="/login"
+            className="text-sm"
+            style={{ color: 'var(--sand)' }}
+          >
+            Log In
+          </a>
+        </motion.div>
+
+        {/* Success Content */}
+        <motion.div
+          className="relative z-10 container text-center px-6 max-w-2xl"
+          initial={{ opacity: 0, y: 30 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.8 }}
+        >
+          <div className="text-7xl mb-6">✓</div>
+          <h1 className="hero-headline mb-6">You're on the list!</h1>
+          <p className="body-large mb-4" style={{ color: 'var(--sand)' }}>
+            Thanks for your interest in Loam Logger. We'll email you at{' '}
+            <strong style={{ color: 'var(--mint)' }}>{email}</strong> when beta access is ready.
+          </p>
+
+          <div
+            className="rounded-2xl p-6 mb-8"
+            style={{
+              backgroundColor: 'var(--glass)',
+              border: '1px solid var(--slate)',
+            }}
+          >
+            <p className="body" style={{ color: 'var(--concrete)' }}>
+              We're rolling out access in waves to ensure quality. Keep an eye on your inbox!
+            </p>
+          </div>
+
+          <MarketingButton href="/" size="lg">
+            Back to Home
+          </MarketingButton>
+        </motion.div>
+      </section>
+    );
+  }
+
+  // Form state
+  return (
+    <section className="relative min-h-screen flex items-center justify-center overflow-hidden bg-dark">
+      {/* Background Image with Overlay - Desktop */}
+      <div
+        className="absolute inset-0 z-0 hidden md:block"
+        style={{
+          backgroundImage: 'url(/mtbLandingPhoto.jpg)',
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+          backgroundAttachment: 'fixed',
+        }}
+      >
+        <div className="absolute inset-0 bg-gradient-to-b from-black/75 via-black/60 to-black/75" />
+      </div>
+
+      {/* Background Image with Overlay - Mobile */}
+      <div
+        className="absolute inset-0 z-0 md:hidden"
+        style={{
+          backgroundImage: 'url(/mtbLandingPhotoMobile.jpg)',
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+        }}
+      >
+        <div className="absolute inset-0 bg-gradient-to-b from-black/75 via-black/60 to-black/75" />
+      </div>
+
+      {/* Login Link */}
+      <motion.div
+        className="absolute top-6 right-6 z-20"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.8, delay: 0.5 }}
+      >
+        <a
+          href="/login"
+          className="text-sm hover:opacity-80 transition-opacity"
+          style={{ color: 'var(--sand)' }}
+        >
+          Log In
+        </a>
+      </motion.div>
+
+      {/* Form Content */}
+      <motion.div
+        className="relative z-10 container px-6 max-w-xl w-full"
+        initial={{ opacity: 0, y: 30 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.8 }}
+      >
+        <div className="text-center mb-8">
+          <div className="text-6xl mb-4">🚧</div>
+          <h1 className="hero-headline mb-4">Join the Beta</h1>
+          <p className="body-large" style={{ color: 'var(--sand)' }}>
+            Loam Logger is currently in private beta. Sign up below and we'll email you when we're ready for more testers.
+          </p>
+        </div>
+
+        <motion.form
+          onSubmit={handleSubmit}
+          className="space-y-6 rounded-2xl p-8"
+          style={{
+            backgroundColor: 'var(--glass)',
+            border: '1px solid var(--slate)',
+            backdropFilter: 'blur(12px)',
+          }}
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.8, delay: 0.2 }}
+        >
+          <div className="space-y-2">
+            <label
+              className="block text-sm font-semibold"
+              style={{ color: 'var(--sand)' }}
+            >
+              Email *
+            </label>
+            <input
+              type="email"
+              value={email}
+              onChange={handleEmailChange}
+              className="w-full rounded-lg px-4 py-3 text-base focus:outline-none focus:ring-2 transition-all"
+              style={{
+                backgroundColor: 'var(--charcoal)',
+                border: '1px solid var(--slate)',
+                color: 'var(--cream)',
+              }}
+              onFocus={(e) => {
+                e.target.style.borderColor = 'var(--mint)';
+                e.target.style.boxShadow = '0 0 0 3px rgba(168, 208, 184, 0.1)';
+              }}
+              onBlur={(e) => {
+                e.target.style.borderColor = 'var(--slate)';
+                e.target.style.boxShadow = 'none';
+              }}
+              placeholder="you@example.com"
+              disabled={isSubmitting}
+              required
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label
+              className="block text-sm font-semibold"
+              style={{ color: 'var(--sand)' }}
+            >
+              Name (optional)
+            </label>
+            <input
+              type="text"
+              value={name}
+              onChange={handleNameChange}
+              className="w-full rounded-lg px-4 py-3 text-base focus:outline-none focus:ring-2 transition-all"
+              style={{
+                backgroundColor: 'var(--charcoal)',
+                border: '1px solid var(--slate)',
+                color: 'var(--cream)',
+              }}
+              onFocus={(e) => {
+                e.target.style.borderColor = 'var(--mint)';
+                e.target.style.boxShadow = '0 0 0 3px rgba(168, 208, 184, 0.1)';
+              }}
+              onBlur={(e) => {
+                e.target.style.borderColor = 'var(--slate)';
+                e.target.style.boxShadow = 'none';
+              }}
+              placeholder="Your name"
+              disabled={isSubmitting}
+            />
+          </div>
+
+          {error && (
+            <motion.div
+              className="rounded-lg px-4 py-3"
+              style={{
+                backgroundColor: 'rgba(196, 89, 67, 0.1)',
+                border: '1px solid var(--error)',
+              }}
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+            >
+              <p className="text-sm font-medium" style={{ color: 'var(--error)' }}>
+                {error}
+              </p>
+            </motion.div>
+          )}
+
+          <button
+            type="submit"
+            disabled={isSubmitting}
+            className="btn-primary text-lg px-8 py-4 w-full transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isSubmitting ? 'Joining...' : 'Join Waitlist'}
+          </button>
+        </motion.form>
+
+        <motion.div
+          className="text-center mt-6"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.8, delay: 0.4 }}
+        >
+          <button
+            onClick={() => navigate('/')}
+            className="text-sm transition-opacity hover:opacity-80"
+            style={{ color: 'var(--concrete)' }}
+          >
+            ← Back to Home
+          </button>
+        </motion.div>
+      </motion.div>
+    </section>
+  );
+}

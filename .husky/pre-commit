@@ -1,0 +1,17 @@
+echo "Running frontend lint..."
+cd frontend && npm run lint
+FRONTEND_STATUS=$?
+
+echo "Running backend lint..."
+cd ../backend && npm run lint
+BACKEND_STATUS=$?
+
+if [ $FRONTEND_STATUS -ne 0 ] || [ $BACKEND_STATUS -ne 0 ]; then
+  echo ""
+  echo "❌ Linting failed! Fix the errors before committing."
+  exit 1
+fi
+
+echo ""
+echo "✅ All linting checks passed!"
+exit 0

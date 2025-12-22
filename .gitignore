@@ -1,0 +1,48 @@
+# Claude internal documentation
+claude.internal.md
+
+# Claude settings
+.claude/
+
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Package locks (only root package-lock.json should exist)
+apps/**/package-lock.json
+apps/**/yarn.lock
+apps/**/pnpm-lock.yaml
+libs/**/package-lock.json
+libs/**/yarn.lock
+libs/**/pnpm-lock.yaml
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/*
+!.vscode/extensions.json
+.idea
+
+# Build outputs
+dist/
+**/dist/
+apps/api/server.cjs
+.nx/
+.cache/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+documentation/*
+
+.cache/

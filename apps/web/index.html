@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <link rel="icon" type="image/png" href="/favicon-96x96.png" sizes="96x96" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="shortcut icon" href="/favicon.ico" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+  <meta name="apple-mobile-web-app-title" content="LoamLogger" />
+  <link rel="manifest" href="/site.webmanifest" />
+  <meta name="theme-color" content="#151b22" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Loam Logger" />
+  <meta property="og:title" content="Loam Logger — MTB ride tracking & analytics" />
+  <meta property="og:description" content="Track rides, components, and MTB-specific stats with Loam Logger." />
+  <meta property="og:url" content="https://loamlogger.app" />
+  <meta property="og:image" content="https://loamlogger.app/loamLoggerLogo_1200x630.png" />
+
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Loam Logger — MTB ride tracking & analytics" />
+  <meta name="twitter:description" content="Track rides, components, and MTB-specific stats with Loam Logger." />
+  <meta name="twitter:image" content="https://loamlogger.app/loamLoggerLogo_1200x630.png" />
+  <title>Loam Logger</title>
+  <script>
+    (function () {
+      try {
+        var saved = localStorage.getItem('theme');
+        var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        var theme = saved === 'light' || saved === 'dark' ? saved : (prefersDark ? 'dark' : 'light');
+        if (theme === 'dark') document.documentElement.classList.add('dark');
+        else document.documentElement.classList.remove('dark');
+      } catch (e) { }
+    })();
+  </script>
+</head>
+
+<body>
+  <div id="root"></div>
+  <script type="module" src="/src/main.tsx"></script>
+</body>
+
+</html>
