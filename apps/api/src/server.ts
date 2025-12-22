@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import express, { type Request, type Response, type NextFunction } from 'express';
+import express, { type Request, type Response } from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import { ApolloServer } from '@apollo/server';
@@ -37,7 +37,7 @@ const startServer = async () => {
   // Basic health / diagnostics
   app.get('/health', (_req, res) => res.status(200).send('ok'));
   app.get('/whoami', (req, res) => {
-    res.json({ sessionUser: (req as any).sessionUser ?? null });
+    res.json({ sessionUser: req.sessionUser ?? null });
   });
 
   const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
@@ -127,8 +127,8 @@ const startServer = async () => {
     '/graphql',
     expressMiddleware(server, {
       context: async ({ req, res }: ExpressContextFunctionArgument): Promise<GraphQLContext> => {
-        const legacy = (req as any).user as { id: string; email?: string } | undefined;
-        const sess = (req as any).sessionUser as { uid: string; email?: string } | undefined;
+        const legacy = req.user;
+        const sess = req.sessionUser;
         const user = legacy ?? (sess ? { id: sess.uid, email: sess.email } : null);
         return { req, res, user };
       },
@@ -157,7 +157,7 @@ const startServer = async () => {
   app.use(mockGarmin);
 
   // Error handler (so you see thrown middleware errors)
-  app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+  app.use((err: Error, _req: Request, res: Response) => {
     console.error('[ERROR]', err?.message ?? err, err?.stack);
     res.status(500).json({ error: 'internal_error', message: err?.message ?? String(err) });
   });
