@@ -9,20 +9,32 @@ Built by [**Ryan LeCours**](https://www.ryanlecours.dev) to combine data-driven 
 
 ## 🚀 Tech Stack
 
-### Frontend
+### Web App
 - **Framework:** [Vite + React + TypeScript](https://vitejs.dev/)
 - **Styling:** [Tailwind CSS v4](https://tailwindcss.com/docs/v4-beta)
 - **State / API:** Apollo Client (GraphQL)
 - **Deployment:** [Vercel](https://vercel.com)
 - **Theme:** Custom Loam palette (forest + loam tones) via CSS variables
 
-### Backend
+### Mobile App
+- **Framework:** React Native + [Expo Router](https://expo.github.io/router/)
+- **Navigation:** File-based routing with tab navigation
+- **State / API:** Apollo Client (GraphQL with bearer token auth)
+- **Auth:** Email/password, Google Sign-In, Apple Sign-In
+- **Storage:** Expo SecureStore for encrypted token storage
+
+### Backend API
 - **Runtime:** Node.js 20 + TypeScript
 - **Framework:** Express + Apollo Server (GraphQL)
 - **ORM:** Prisma ORM
 - **Database:** PostgreSQL (hosted on [Railway](https://railway.app))
-- **Auth:** JWT-based (Garmin OAuth integration in progress)
+- **Auth:** JWT tokens (cookie-based for web, bearer token for mobile)
 - **Hosting:** Railway
+
+### Monorepo
+- **Build System:** [Nx](https://nx.dev/)
+- **Package Manager:** npm workspaces
+- **Shared Libraries:** `@loam/graphql` (GraphQL operations), `@loam/shared` (types & utils)
 
 ---
 
@@ -30,26 +42,49 @@ Built by [**Ryan LeCours**](https://www.ryanlecours.dev) to combine data-driven 
 
 ```
 loam-logger/
+├── apps/
+│   ├── web/              # React + Vite web app
+│   │   ├── src/
+│   │   │   ├── components/
+│   │   │   ├── pages/
+│   │   │   └── styles/theme.css
+│   │   └── vite.config.ts
+│   │
+│   ├── api/              # Express + GraphQL API
+│   │   ├── prisma/
+│   │   │   ├── schema.prisma
+│   │   │   └── migrations/
+│   │   └── src/
+│   │       ├── server.ts
+│   │       ├── graphql/
+│   │       ├── routes/
+│   │       └── auth/
+│   │
+│   └── mobile/           # React Native + Expo app
+│       ├── app/
+│       │   ├── (auth)/   # Auth screens
+│       │   └── (tabs)/   # Main app tabs
+│       └── src/
+│           ├── lib/      # Apollo Client, auth utils
+│           └── hooks/    # Auth context
 │
-├── frontend/       # React + Vite + Tailwind app
-│   ├── src/
-│   │   ├── components/
-│   │   ├── pages/
-│   │   └── styles/theme.css
-│   └── vite.config.ts
+├── libs/
+│   ├── graphql/          # Shared GraphQL operations
+│   │   ├── src/
+│   │   │   ├── operations/
+│   │   │   ├── fragments/
+│   │   │   └── generated/
+│   │   └── codegen.ts
+│   │
+│   └── shared/           # Shared types & utilities
+│       └── src/
+│           ├── types/
+│           ├── utils/
+│           └── constants/
 │
-├── backend/        # Node.js GraphQL API with Prisma
-│   ├── prisma/
-│   │   ├── schema.prisma
-│   │   └── migrations/
-│   └── src/
-│       ├── index.ts
-│       ├── resolvers/
-│       ├── middleware/
-│       └── types/
-│
-├── package.json    # npm workspaces config
-└── README.md
+├── nx.json               # Nx workspace config
+├── tsconfig.base.json    # Shared TypeScript config
+└── package.json          # npm workspaces config
 ```
 
 ---
@@ -106,19 +141,31 @@ If using Railway, your `DATABASE_URL` will point to the hosted Postgres instance
 
 ## 🖥️ Run Locally
 
-### Backend
+All commands should be run from the **root directory** of the monorepo:
+
+### Web App
 ```bash
-cd backend
-npm run dev
+npm run dev:web
+```
+Starts Vite on [http://localhost:5173](http://localhost:5173)
+
+### API
+```bash
+npm run dev:api
 ```
 Runs the GraphQL API at [http://localhost:4000/graphql](http://localhost:4000/graphql)
 
-### Frontend
+### Mobile App
 ```bash
-cd frontend
-npm run dev
+npm run dev:mobile
 ```
-Starts Vite on [http://localhost:5173](http://localhost:5173)
+Starts Expo development server. Scan QR code with Expo Go app on your device.
+
+### Build All
+```bash
+npm run build
+```
+Builds all apps using Nx affected commands.
 
 ---
 
@@ -133,10 +180,11 @@ Starts Vite on [http://localhost:5173](http://localhost:5173)
 
 ### 🔜 Coming Soon
 - Garmin OAuth integration
+- Strava OAuth integration
 - Gear wear tracking analytics
 - Ride stats dashboard with 1w / 1m / 3m / YTD metrics
 - Bike-based time distribution chart
-- React Native mobile app (Phase 2)
+- Mobile app features (ride sync, gear tracking, offline support)
 
 ---
 
