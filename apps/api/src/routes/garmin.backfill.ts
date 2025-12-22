@@ -254,7 +254,7 @@ function extractMinStartDate(errorText: string): Date | null {
         return dt;
       }
     }
-  } catch (err) {
+  } catch {
     // ignore JSON parse errors and fall through
   }
   return null;
