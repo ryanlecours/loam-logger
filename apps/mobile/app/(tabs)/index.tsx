@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, FlatList, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import { useAuth } from '../../src/hooks/useAuth';
 
 export default function RidesScreen() {
