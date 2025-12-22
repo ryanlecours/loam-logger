@@ -1,8 +1,16 @@
+# Nixpacks configuration for Railway deployment
+# Nx monorepo - API deployment
+
 providers = ["node"]
 
+[phases.setup]
+nixPkgs = ["nodejs_20", "npm-9_x"]
+
 [phases.install]
-cmds = ["npm ci"]
-cacheDirectories = ["/root/.npm"]
+cmds = [
+  "npm ci --include=optional"
+]
+cacheDirectories = ["/root/.npm", "node_modules/.cache"]
 
 [phases.build]
 cmds = [
@@ -11,4 +19,4 @@ cmds = [
 ]
 
 [start]
-cmd = "node dist/apps/api/main.js"
+cmd = "node dist/apps/api/server.cjs"
