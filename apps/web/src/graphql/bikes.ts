@@ -1,0 +1,44 @@
+import { gql } from '@apollo/client';
+
+export const BIKES = gql`
+  query Bikes {
+    bikes {
+      id
+      nickname
+      manufacturer
+      model
+      travelForkMm
+      travelShockMm
+      notes
+      fork {
+        id
+        brand
+        model
+        hoursUsed
+        serviceDueAtHours
+      }
+      shock {
+        id
+        brand
+        model
+        hoursUsed
+        serviceDueAtHours
+      }
+      pivotBearings {
+        id
+        brand
+        model
+        hoursUsed
+        serviceDueAtHours
+      }
+      components {
+        id
+        type
+        brand
+        model
+        hoursUsed
+        serviceDueAtHours
+      }
+    }
+  }
+`;

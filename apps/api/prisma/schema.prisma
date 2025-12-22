@@ -1,0 +1,198 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum AuthProvider {
+  garmin
+  google
+  strava
+}
+
+model User {
+  id             String    @id @default(uuid())
+  email          String    @unique
+  name           String?
+  passwordHash   String?   // null for OAuth-only accounts
+  garminUserId   String?   @unique
+  stravaUserId   String?   @unique  // For webhook identification
+  activeDataSource AuthProvider?  // Preferred data source (garmin or strava)
+  accessToken    String?
+  refreshToken   String?
+  tokenExpiresAt DateTime?
+  avatarUrl      String?
+  emailVerified  DateTime?
+  onboardingCompleted Boolean @default(false)
+  location       String?   // city, state/province for finding local shops
+  age            Int?      // user age for insights and recommendations
+
+  rides Ride[]
+  bikes Bike[]
+  components Component[]
+  accounts       UserAccount[]
+  stravaGearMappings StravaGearMapping[]
+
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  tokens    OauthToken[]
+}
+
+model OauthToken {
+  id           String   @id @default(cuid())
+  userId       String
+  provider     AuthProvider
+  accessToken  String
+  refreshToken String?
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  User         User     @relation(fields: [userId], references: [id])
+
+  @@unique([userId, provider])
+}
+
+model UserAccount {
+  id              String        @id @default(cuid())
+  userId          String
+  provider        AuthProvider
+  providerUserId  String        // e.g., Google "sub" claim
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerUserId])  // a given external identity maps to exactly one user
+  @@index([userId])
+}
+
+model Ride {
+  id     String @id @default(uuid())
+  user   User   @relation(fields: [userId], references: [id])
+  userId String
+
+  garminActivityId  String?   @unique
+  stravaActivityId  String?   @unique  // Strava activity ID
+  stravaGearId      String?   // Strava gear_id from API
+  startTime         DateTime
+  durationSeconds   Int
+  distanceMiles     Float
+  elevationGainFeet Float
+  averageHr         Int?
+
+  rideType          String      @db.Text
+  bike     Bike?    @relation(fields: [bikeId], references: [id])
+  bikeId   String?
+
+  notes    String?
+  trailSystem  String?
+  location     String?
+
+  // Duplicate detection
+  duplicateOfId String?  // Points to the "primary" ride if this is a duplicate
+  isDuplicate   Boolean @default(false)  // Flag for quick filtering
+  duplicateOf   Ride?   @relation("DuplicateRides", fields: [duplicateOfId], references: [id], onDelete: SetNull)
+  duplicates    Ride[]  @relation("DuplicateRides")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Bike {
+  id     String @id @default(uuid())
+  user   User   @relation(fields: [userId], references: [id])
+  userId String
+
+  nickname      String?
+  manufacturer  String
+  model         String
+  year          Int?
+  travelForkMm  Int?
+  travelShockMm Int?
+  notes         String?
+
+  components Component[]
+  stravaGearMappings StravaGearMapping[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  Ride      Ride[]
+}
+
+model StravaGearMapping {
+  id              String   @id @default(uuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  stravaGearId    String   // e.g., "b12345678"
+  stravaGearName  String?  // e.g., "Trek Slash 9.9"
+
+  bikeId          String
+  bike            Bike     @relation(fields: [bikeId], references: [id], onDelete: Cascade)
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([userId, stravaGearId])
+  @@index([userId])
+  @@index([bikeId])
+}
+
+model Component {
+  id     String @id @default(uuid())
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+  bike   Bike?  @relation(fields: [bikeId], references: [id], onDelete: SetNull)
+  bikeId String?
+
+  type              ComponentType
+  brand             String
+  model             String
+  installedAt       DateTime?
+  hoursUsed         Float         @default(0)
+  serviceDueAtHours Float?
+  notes             String?
+  isStock           Boolean       @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([bikeId])
+}
+
+enum ComponentType {
+  FORK
+  SHOCK
+  BRAKES
+  DRIVETRAIN
+  TIRES
+  WHEELS
+  DROPPER
+  PEDALS
+  CHAIN
+  CASSETTE
+  OTHER
+  PIVOT_BEARINGS
+}
+
+model BetaWaitlist {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  name      String?
+  referrer  String?
+  userAgent String?
+  ipAddress String?  // Hashed for privacy
+
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}
