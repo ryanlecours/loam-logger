@@ -60,7 +60,7 @@ jobs:
         run: npx nx affected -t type-check --parallel=3 || echo "No type-check target defined"
 
       - name: Build affected projects
-        run: npx nx affected -t build --parallel=3
+        run: npx nx affected -t build --parallel=3 --verbose
 
       - name: Validate Prisma schema (if API affected)
         run: |
