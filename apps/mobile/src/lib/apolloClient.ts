@@ -58,7 +58,7 @@ const errorLink = onError(
     }
 
     if (networkError) {
-      console.log(`[Network error]: ${networkError}`);
+      console.warn(`[Network error]: ${networkError}`);
     }
   }
 );

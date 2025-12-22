@@ -57,8 +57,11 @@ export default function SignupScreen() {
       await storeTokens(data.accessToken, data.refreshToken, data.user);
       setUser(data.user);
       router.replace('/(tabs)');
-    } catch (error: any) {
-      Alert.alert('Signup Failed', error.message || 'Please try again');
+    } catch (error) {
+      Alert.alert(
+        'Signup Failed',
+        error instanceof Error ? error.message : 'Please try again'
+      );
     } finally {
       setLoading(false);
     }

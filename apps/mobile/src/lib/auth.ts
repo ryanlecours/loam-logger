@@ -97,7 +97,7 @@ export async function loginWithEmail(
     const data = await response.json();
     await storeTokens(data.accessToken, data.refreshToken, data.user);
     return { success: true };
-  } catch (error) {
+  } catch (_error) {
     return { success: false, error: 'Network error' };
   }
 }
@@ -124,7 +124,7 @@ export async function loginWithGoogle(
     const data = await response.json();
     await storeTokens(data.accessToken, data.refreshToken, data.user);
     return { success: true };
-  } catch (error) {
+  } catch (_error) {
     return { success: false, error: 'Network error' };
   }
 }
@@ -152,7 +152,7 @@ export async function loginWithApple(
     const data = await response.json();
     await storeTokens(data.accessToken, data.refreshToken, data.user);
     return { success: true };
-  } catch (error) {
+  } catch (_error) {
     return { success: false, error: 'Network error' };
   }
 }
