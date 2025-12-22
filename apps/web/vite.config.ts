@@ -9,6 +9,7 @@ export default defineConfig({
   plugins: [tailwindcss(), react(), nxViteTsPaths()],
   cacheDir: path.resolve(__dirname, '../../.cache/vite/web'),
   resolve: {
+    dedupe: ["react", "react-dom", "tailwindcss", "lightningcss"],
     alias: {
       "@": path.resolve(__dirname, "src")
     }
