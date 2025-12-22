@@ -5,6 +5,7 @@ import { nxViteTsPaths } from "@nx/vite/plugins/nx-tsconfig-paths.plugin";
 import path from "path";
 
 export default defineConfig({
+  root: __dirname,
   plugins: [tailwindcss(), react(), nxViteTsPaths()],
   cacheDir: path.resolve(__dirname, '../../.cache/vite/web'),
   resolve: {
