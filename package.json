@@ -1,7 +1,10 @@
 {
   "name": "@loam/source",
   "private": true,
-  "workspaces": ["apps/*", "libs/*"],
+  "workspaces": [
+    "apps/*",
+    "libs/*"
+  ],
   "scripts": {
     "dev:web": "nx serve web",
     "dev:api": "nx serve api",
@@ -10,11 +13,12 @@
     "codegen": "nx run graphql:codegen"
   },
   "devDependencies": {
-    "nx": "^20.0.0",
-    "@nx/js": "^20.0.0",
-    "@nx/vite": "^20.0.0",
-    "@nx/react": "^20.0.0",
+    "@ampproject/remapping": "^2.3.0",
     "@nx/expo": "^20.0.0",
+    "@nx/js": "^20.0.0",
+    "@nx/react": "^20.0.0",
+    "@nx/vite": "^20.0.0",
+    "nx": "^20.0.0",
     "typescript": "~5.8.3"
   }
 }
