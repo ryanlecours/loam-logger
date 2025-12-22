@@ -1,11 +1,12 @@
 import 'dotenv/config';
-import express, { type Request, type Response } from 'express';
+import express, { type Request, type Response, type NextFunction } from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import { ApolloServer } from '@apollo/server';
 import { expressMiddleware, type ExpressContextFunctionArgument } from '@as-integrations/express4';
 import { typeDefs } from './graphql/schema';
 import { resolvers } from './graphql/resolvers';
+
 import authGarmin from './routes/auth.garmin';
 import authStrava from './routes/auth.strava';
 import webhooksGarmin from './routes/webhooks.garmin';
@@ -22,10 +23,10 @@ import { googleRouter, emailRouter, deleteAccountRouter, attachUser } from './au
 import mobileAuthRouter from './auth/mobile.route';
 
 export type GraphQLContext = {
-  req: Request
-  res: Response
-  user: { id: string; email?: string } | null
-}
+  req: Request;
+  res: Response;
+  user: { id: string; email?: string } | null;
+};
 
 const startServer = async () => {
   const app = express();
@@ -33,48 +34,48 @@ const startServer = async () => {
   // Railway / proxies so secure cookies & IPs work right
   app.set('trust proxy', 1);
 
+  // Basic health / diagnostics
   app.get('/health', (_req, res) => res.status(200).send('ok'));
+  app.get('/whoami', (req, res) => {
+    res.json({ sessionUser: (req as any).sessionUser ?? null });
+  });
 
   const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
   const EXTRA_ORIGINS = (process.env.CORS_EXTRA_ORIGINS || '')
     .split(',')
-    .map(s => s.trim())
+    .map((s) => s.trim())
     .filter(Boolean);
 
-
-  const allowOrigin = (origin?: string | undefined) => {
+  const allowOrigin = (origin?: string) => {
     if (!origin) return true; // SSR/tools/no Origin header
+
+    // Allow Expo/custom schemes quickly (these are not valid URLs for new URL())
+    if (origin.startsWith('exp://') || origin.startsWith('loamlogger://')) return true;
+
     try {
       const u = new URL(origin);
       const host = u.hostname;
 
-      // Allow configured origins
-      if (origin === FRONTEND_URL ||
-          origin === 'http://localhost:5173' ||
-          EXTRA_ORIGINS.includes(origin) ||
-          host.endsWith('.vercel.app')) {
+      if (
+        origin === FRONTEND_URL ||
+        origin === 'http://localhost:5173' ||
+        EXTRA_ORIGINS.includes(origin) ||
+        host.endsWith('.vercel.app')
+      ) {
         return true;
       }
 
-      // Allow Expo development URLs (exp://, localhost:8081, etc.)
-      if (origin.startsWith('exp://') ||
-          origin.startsWith('http://localhost:8081') ||
-          origin.startsWith('http://localhost:19000') ||
-          origin.startsWith('http://localhost:19006')) {
-        return true;
-      }
-
-      // Allow custom scheme for mobile app
-      if (origin.startsWith('loamlogger://')) {
+      // Local RN dev servers (http only)
+      if (
+        origin.startsWith('http://localhost:8081') ||
+        origin.startsWith('http://localhost:19000') ||
+        origin.startsWith('http://localhost:19006')
+      ) {
         return true;
       }
 
       return false;
     } catch {
-      // If origin doesn't parse as URL, check if it's an Expo or custom scheme
-      if (origin?.startsWith('exp://') || origin?.startsWith('loamlogger://')) {
-        return true;
-      }
       return false;
     }
   };
@@ -95,59 +96,74 @@ const startServer = async () => {
   app.use(express.json());
   app.use(express.urlencoded({ extended: false }));
   app.use(cookieParser(process.env.COOKIE_SECRET || 'dev-secret'));
-  app.use((req, res, next) => {
-  if (req.path === '/graphql' || req.path.startsWith('/auth')) {
-    console.log(`[REQ] ${req.method} ${req.path} origin=${req.headers.origin || 'n/a'}`);
-  }
-  next();
-});
+
+  // Request logging (make it obvious if /graphql is even hit)
+  app.use((req, _res, next) => {
+    if (req.path === '/graphql' || req.path.startsWith('/auth') || req.path.startsWith('/api')) {
+      console.log(`[REQ] ${req.method} ${req.path} origin=${req.headers.origin || 'n/a'}`);
+    }
+    next();
+  });
+
+  // Attach user/session
   app.use(attachUser);
 
-  app.get('/whoami', (req, res) => {
-  res.json({ sessionUser: req.sessionUser ?? null });
-});
-  
-  app.use('/auth', googleRouter);       // POST /auth/google/code, /auth/logout
-  app.use('/auth', emailRouter);        // POST /auth/signup, /auth/login
-  app.use('/auth', deleteAccountRouter); // DELETE /auth/delete-account
-  app.use('/auth', mobileAuthRouter);   // Mobile auth: Google, Apple, Email login + refresh
-  app.use('/auth', authGarmin);         // Garmin OAuth
-  app.use('/auth', authStrava);         // Strava OAuth
-  app.use('/api', garminBackfill);      // Garmin backfill (import historical rides)
-  app.use('/api', stravaBackfill);      // Strava backfill (import historical rides)
-  app.use('/api', dataSourceRouter);    // Data source preference API
-  app.use('/api', duplicatesRouter);    // Duplicate rides management
-  app.use('/api', waitlistRouter);      // Beta waitlist signup
-  app.use(webhooksGarmin);              // Garmin webhooks (deregistration, permissions, activities)
-  app.use(webhooksStrava);              // Strava webhooks (verification, events)
-  app.use('/onboarding', onboardingRouter); // POST /onboarding/complete
-  app.use(garminTest);            // test route
-  app.use(mockGarmin);            // mock route
-
+  // ---- GraphQL ----
   const server = new ApolloServer<GraphQLContext>({ typeDefs, resolvers });
   await server.start();
 
-  app.use((req, _res, next) => {
-  if (req.path === '/graphql' && req.method === 'POST') {
-    console.log('[GraphQL] sessionUser:', req.sessionUser ?? null);
-  }
-  next();
-});
+  // Explicitly handle GET /graphql (helps debugging and some tooling)
+  app.get('/graphql', (_req, res) => {
+    res.status(200).send('GraphQL endpoint is alive. Use POST.');
+  });
+
+  // Hard "hit" log right at the route
+  app.all('/graphql', (req, _res, next) => {
+    console.log(`[HIT] /graphql ${req.method} content-type=${req.headers['content-type'] ?? 'n/a'}`);
+    next();
+  });
 
   app.use(
     '/graphql',
     expressMiddleware(server, {
       context: async ({ req, res }: ExpressContextFunctionArgument): Promise<GraphQLContext> => {
-        const legacy = req.user as { id: string; email?: string } | undefined;
-        const sess = req.sessionUser as { uid: string; email?: string } | undefined;
+        const legacy = (req as any).user as { id: string; email?: string } | undefined;
+        const sess = (req as any).sessionUser as { uid: string; email?: string } | undefined;
         const user = legacy ?? (sess ? { id: sess.uid, email: sess.email } : null);
-        return { req, res, user: user ?? null };
+        return { req, res, user };
       },
     })
   );
 
+  // ---- Rest routes ----
+  app.use('/auth', googleRouter);
+  app.use('/auth', emailRouter);
+  app.use('/auth', deleteAccountRouter);
+  app.use('/auth', mobileAuthRouter);
+  app.use('/auth', authGarmin);
+  app.use('/auth', authStrava);
+
+  app.use('/api', garminBackfill);
+  app.use('/api', stravaBackfill);
+  app.use('/api', dataSourceRouter);
+  app.use('/api', duplicatesRouter);
+  app.use('/api', waitlistRouter);
+
+  app.use(webhooksGarmin);
+  app.use(webhooksStrava);
+
+  app.use('/onboarding', onboardingRouter);
+  app.use(garminTest);
+  app.use(mockGarmin);
+
+  // Error handler (so you see thrown middleware errors)
+  app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+    console.error('[ERROR]', err?.message ?? err, err?.stack);
+    res.status(500).json({ error: 'internal_error', message: err?.message ?? String(err) });
+  });
+
   const PORT = Number(process.env.PORT) || 4000;
-  const HOST = '0.0.0.0'; // bind to all interfaces for Railway
+  const HOST = '0.0.0.0';
 
   app.listen(PORT, HOST, () => {
     console.log(`🚴 LoamLogger backend running on :${PORT} (GraphQL at /graphql)`);
