@@ -210,11 +210,59 @@ Defined in [`theme.css`](frontend/src/styles/theme.css).
 
 ---
 
-## 🧑‍💻 Development Notes
+## 🧑‍💻 Development Workflow
 
-- Backend uses **ESM** modules with `tsx` runner for hot reload.  
-- Prisma schema and migrations must run **from the backend directory**.  
-- Consistent import aliasing via `tsconfig.paths.json`.
+### GraphQL Code Generation
+
+When you update the GraphQL schema:
+
+```bash
+# 1. Start the API (required for introspection)
+npm run dev:api
+
+# 2. Generate TypeScript types
+npm run codegen
+
+# 3. Commit the generated files
+git add libs/graphql/src/generated/
+git commit -m "Update GraphQL types"
+```
+
+**Important:** Generated files are committed to the repository. See [libs/graphql/README.md](libs/graphql/README.md) for details.
+
+### Nx Commands
+
+```bash
+# Lint all affected projects
+npx nx affected -t lint
+
+# Build all affected projects
+npx nx affected -t build
+
+# Run specific app
+npx nx serve web      # Web app
+npx nx serve api      # API
+npx nx start mobile   # Mobile app
+
+# View project graph
+npx nx graph
+```
+
+### CI/CD
+
+GitHub Actions runs automatically on push and PR. See [CI_CD_GUIDE.md](CI_CD_GUIDE.md) for troubleshooting.
+
+**Key points:**
+- Only affected projects are tested/built
+- GraphQL types must be generated locally and committed
+- Production APIs have introspection disabled for security
+
+### Development Notes
+
+- Nx workspace with affected commands for faster builds
+- Shared libraries (`@loam/graphql`, `@loam/shared`) for code reuse
+- React 19.1.0 enforced via npm overrides across all projects
+- Prisma commands run from `apps/api` directory
 
 ---
 
