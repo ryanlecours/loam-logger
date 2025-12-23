@@ -35,7 +35,30 @@ export default function LoginScreen() {
       setUser(user);
       router.replace('/(tabs)');
     } else {
-      Alert.alert('Login Failed', result.error || 'Please try again');
+      // Display user-friendly error messages based on error type
+      if (result.errorType === 'invalid_credentials') {
+        Alert.alert(
+          'Invalid Credentials',
+          result.error || 'The email or password you entered is incorrect. Please try again.'
+        );
+      } else if (result.errorType === 'oauth_only') {
+        Alert.alert(
+          'OAuth Account',
+          result.error || 'This account uses OAuth login. Please use Google or Apple sign-in.'
+        );
+      } else if (result.errorType === 'not_beta') {
+        Alert.alert(
+          'Access Restricted',
+          result.error || 'This app is currently in beta. Please contact support for access.'
+        );
+      } else if (result.errorType === 'network') {
+        Alert.alert(
+          'Connection Failed',
+          result.error || 'Unable to connect to the server. Please check your internet connection.'
+        );
+      } else {
+        Alert.alert('Login Failed', result.error || 'Please try again');
+      }
     }
   }
 

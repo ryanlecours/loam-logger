@@ -108,7 +108,7 @@ export async function refreshAccessToken(): Promise<string | null> {
 export async function loginWithEmail(
   email: string,
   password: string
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; error?: string; errorType?: string }> {
   const apiUrl = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:4000';
 
   try {
@@ -121,15 +121,48 @@ export async function loginWithEmail(
     });
 
     if (!response.ok) {
-      const error = await response.json();
-      return { success: false, error: error.message || 'Login failed' };
+      let errorMessage = 'Login failed';
+      let errorType = 'unknown';
+
+      try {
+        const error = await response.json();
+        errorMessage = error.message || error.error || errorMessage;
+      } catch {
+        errorMessage = await response.text();
+      }
+
+      // Categorize error types based on status code and message
+      if (response.status === 401) {
+        if (errorMessage.includes('OAuth')) {
+          errorType = 'oauth_only';
+          errorMessage = 'This account uses OAuth login only. Please use Google or Apple sign-in.';
+        } else {
+          errorType = 'invalid_credentials';
+          errorMessage = 'Invalid email or password. Please check your credentials and try again.';
+        }
+      } else if (response.status === 403 && errorMessage.includes('NOT_BETA_TESTER')) {
+        errorType = 'not_beta';
+        errorMessage = 'This app is currently in beta. Please contact support for access.';
+      } else if (response.status === 400) {
+        errorType = 'invalid_input';
+      }
+
+      return { success: false, error: errorMessage, errorType };
     }
 
     const data = await response.json();
     await storeTokens(data.accessToken, data.refreshToken, data.user);
     return { success: true };
-  } catch (_error) {
-    return { success: false, error: 'Network error' };
+  } catch (error) {
+    // Handle network errors
+    if (error instanceof TypeError && error.message === 'Network request failed') {
+      return {
+        success: false,
+        error: 'Unable to connect to the server. Please check your internet connection and try again.',
+        errorType: 'network',
+      };
+    }
+    return { success: false, error: 'An unexpected error occurred. Please try again.', errorType: 'unknown' };
   }
 }
 

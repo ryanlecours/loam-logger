@@ -49,7 +49,27 @@ export default function SignupScreen() {
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.error || error.message || 'Signup failed');
+        const errorMessage = error.error || error.message || 'Signup failed';
+
+        // Handle specific error cases with user-friendly messages
+        if (response.status === 409 || errorMessage === 'Email already registered') {
+          Alert.alert(
+            'Account Already Exists',
+            'An account with this email address already exists. Please sign in instead or use a different email.'
+          );
+        } else if (response.status === 403 || errorMessage === 'NOT_BETA_TESTER') {
+          Alert.alert(
+            'Access Restricted',
+            'This app is currently in beta. Please contact support for access.'
+          );
+        } else if (errorMessage.includes('Password')) {
+          Alert.alert('Invalid Password', errorMessage);
+        } else if (errorMessage.includes('email')) {
+          Alert.alert('Invalid Email', errorMessage);
+        } else {
+          Alert.alert('Signup Failed', errorMessage);
+        }
+        return;
       }
 
       const data = await response.json();
@@ -63,10 +83,19 @@ export default function SignupScreen() {
       router.replace('/(tabs)');
     } catch (error) {
       console.error('[Signup] Error:', error);
-      Alert.alert(
-        'Signup Failed',
-        error instanceof Error ? error.message : 'Please try again'
-      );
+
+      // Handle network errors
+      if (error instanceof TypeError && error.message === 'Network request failed') {
+        Alert.alert(
+          'Connection Failed',
+          'Unable to connect to the server. Please check your internet connection and try again.'
+        );
+      } else {
+        Alert.alert(
+          'Signup Failed',
+          error instanceof Error ? error.message : 'An unexpected error occurred. Please try again.'
+        );
+      }
     } finally {
       setLoading(false);
     }
