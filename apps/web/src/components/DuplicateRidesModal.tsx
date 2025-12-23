@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
+import { Modal, Button } from './ui';
 
 type Ride = {
   id: string;
@@ -90,97 +90,81 @@ export default function DuplicateRidesModal({ open, onClose }: Props) {
   };
 
   return (
-    <AnimatePresence>
-      {open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.95 }}
-            className="relative w-full max-w-4xl bg-surface border border-app rounded-3xl p-6 shadow-xl max-h-[80vh] overflow-y-auto"
-          >
-            <button
-              onClick={onClose}
-              className="absolute top-4 right-4 text-2xl text-muted hover:text-white"
-            >
-              ×
-            </button>
+    <Modal
+      isOpen={open}
+      onClose={onClose}
+      title="Duplicate Rides"
+      size="xl"
+      footer={
+        <Button variant="secondary" onClick={onClose}>
+          Close
+        </Button>
+      }
+    >
+      {loading ? (
+        <div className="py-8 text-center text-muted">Loading duplicates...</div>
+      ) : duplicateGroups.length === 0 ? (
+        <div className="py-8 text-center text-muted">
+          No duplicate rides found!
+        </div>
+      ) : (
+        <div className="space-y-6">
+          {duplicateGroups.map((group) => (
+            <div key={group.id} className="border border-app/50 rounded-2xl p-4 space-y-3">
+              <p className="text-sm text-muted">
+                {new Date(group.startTime).toLocaleDateString()} - {group.distanceMiles.toFixed(1)} mi
+              </p>
 
-            <h2 className="text-2xl font-bold mb-4">Duplicate Rides</h2>
-
-            {loading ? (
-              <div className="py-8 text-center text-muted">Loading duplicates...</div>
-            ) : duplicateGroups.length === 0 ? (
-              <div className="py-8 text-center text-muted">
-                No duplicate rides found! 🎉
-              </div>
-            ) : (
-              <div className="space-y-6">
-                {duplicateGroups.map((group) => (
-                  <div key={group.id} className="border border-app/50 rounded-2xl p-4 space-y-3">
-                    <p className="text-sm text-muted">
-                      {new Date(group.startTime).toLocaleDateString()} - {group.distanceMiles.toFixed(1)} mi
+              {/* Primary ride */}
+              <div className="bg-surface-2 border border-green-600/30 rounded-xl p-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="font-semibold">{(group as unknown as Ride).notes || 'Ride'}</p>
+                    <p className="text-xs text-muted">
+                      Source: {(group as unknown as Ride).garminActivityId ? 'Garmin' : 'Strava'}
                     </p>
-
-                    {/* Primary ride */}
-                    <div className="bg-surface-2 border border-green-600/30 rounded-xl p-3">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="font-semibold">{(group as unknown as Ride).notes || 'Ride'}</p>
-                          <p className="text-xs text-muted">
-                            Source: {(group as unknown as Ride).garminActivityId ? 'Garmin' : 'Strava'}
-                          </p>
-                        </div>
-                        <span className="text-xs text-green-400">Primary</span>
-                      </div>
-                    </div>
-
-                    {/* Duplicate rides */}
-                    {group.duplicates.map((dup) => (
-                      <div key={dup.id} className="bg-surface-2 border border-yellow-600/30 rounded-xl p-3">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="font-semibold">{dup.notes || 'Ride'}</p>
-                            <p className="text-xs text-muted">
-                              Source: {dup.garminActivityId ? 'Garmin' : 'Strava'}
-                            </p>
-                          </div>
-                          <div className="flex gap-2">
-                            <button
-                              onClick={() => handleMerge(group.id, dup.id)}
-                              className="text-xs px-3 py-1 bg-red-600/20 border border-red-600/50 text-red-400 rounded-lg hover:bg-red-600/30"
-                            >
-                              Delete This
-                            </button>
-                            <button
-                              onClick={() => handleMerge(dup.id, group.id)}
-                              className="text-xs px-3 py-1 bg-green-600/20 border border-green-600/50 text-green-400 rounded-lg hover:bg-green-600/30"
-                            >
-                              Keep This
-                            </button>
-                            <button
-                              onClick={() => handleMarkNotDuplicate(dup.id)}
-                              className="text-xs px-3 py-1 bg-blue-600/20 border border-blue-600/50 text-blue-400 rounded-lg hover:bg-blue-600/30"
-                            >
-                              Not Duplicate
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
                   </div>
-                ))}
+                  <span className="text-xs text-green-400">Primary</span>
+                </div>
               </div>
-            )}
 
-            <div className="mt-6 flex justify-end">
-              <button onClick={onClose} className="btn-secondary">
-                Close
-              </button>
+              {/* Duplicate rides */}
+              {group.duplicates.map((dup) => (
+                <div key={dup.id} className="bg-surface-2 border border-yellow-600/30 rounded-xl p-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="font-semibold">{dup.notes || 'Ride'}</p>
+                      <p className="text-xs text-muted">
+                        Source: {dup.garminActivityId ? 'Garmin' : 'Strava'}
+                      </p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleMerge(group.id, dup.id)}
+                        className="text-xs px-3 py-1 bg-red-600/20 border border-red-600/50 text-red-400 rounded-lg hover:bg-red-600/30"
+                      >
+                        Delete This
+                      </button>
+                      <button
+                        onClick={() => handleMerge(dup.id, group.id)}
+                        className="text-xs px-3 py-1 bg-green-600/20 border border-green-600/50 text-green-400 rounded-lg hover:bg-green-600/30"
+                      >
+                        Keep This
+                      </button>
+                      <button
+                        onClick={() => handleMarkNotDuplicate(dup.id)}
+                        className="text-xs px-3 py-1 bg-blue-600/20 border border-blue-600/50 text-blue-400 rounded-lg hover:bg-blue-600/30"
+                      >
+                        Not Duplicate
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
-          </motion.div>
+          ))}
         </div>
       )}
-    </AnimatePresence>
+    </Modal>
   );
 }

@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   BIKE_COMPONENT_SECTIONS,
   type BikeComponentSection,
@@ -8,6 +8,7 @@ import {
 } from '@/models/BikeComponents';
 import { MOUNTAIN_BIKE_BRANDS } from '@/constants/bikeBrands';
 import { BIKE_MODELS } from '@/constants/bikeModels';
+import { Input, Select, Textarea, Button } from './ui';
 
 
 
@@ -53,104 +54,78 @@ export function BikeForm({
     onSubmit(form);
   };
 
-  const inputClass =
-    'w-full bg-app border border-app rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[rgb(var(--ring))]';
-
-  const labelClass = 'block text-sm text-muted';
-
   return (
     <form onSubmit={handleSubmit} className="bg-surface border border-app rounded-xl shadow p-6 space-y-4">
       <div className="grid gap-4 md:grid-cols-2">
-        <label className="flex flex-col gap-1">
-          <span className={labelClass}>Manufacturer</span>
-          <select
-            className={inputClass}
-            value={form.manufacturer}
-            onChange={(e) => setField('manufacturer', e.target.value)}
-            required
-          >
-            <option value="">Select a brand</option>
-            {MOUNTAIN_BIKE_BRANDS.map((brand) => (
-              <option key={brand} value={brand}>
-                {brand}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className={labelClass}>Model</span>
-          <select
-            className={inputClass}
-            value={form.model}
-            onChange={(e) => setField('model', e.target.value)}
-            disabled={!form.manufacturer}
-            required
-          >
-            <option value="">
-              {form.manufacturer ? 'Select a model' : 'Select a manufacturer first'}
+        <Select
+          label="Manufacturer"
+          value={form.manufacturer}
+          onChange={(e) => setField('manufacturer', e.target.value)}
+          required
+        >
+          <option value="">Select a brand</option>
+          {MOUNTAIN_BIKE_BRANDS.map((brand) => (
+            <option key={brand} value={brand}>
+              {brand}
             </option>
-            {form.manufacturer && BIKE_MODELS[form.manufacturer]?.map((model) => (
-              <option key={model} value={model}>
-                {model}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className={labelClass}>Year</span>
-          <input
-            type="number"
-            className={inputClass}
-            value={form.year}
-            onChange={(e) => setField('year', e.target.value)}
-            min={1990}
-            max={new Date().getFullYear() + 1}
-            required
-          />
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className={labelClass}>Nickname (optional)</span>
-          <input
-            className={inputClass}
-            value={form.nickname}
-            onChange={(e) => setField('nickname', e.target.value)}
-            placeholder="Lunch laps rig"
-          />
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className={labelClass}>Fork Travel (mm)</span>
-          <input
-            type="number"
-            className={inputClass}
-            value={form.travelForkMm}
-            onChange={(e) => setField('travelForkMm', e.target.value)}
-            placeholder="160"
-            min={0}
-          />
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className={labelClass}>Shock Travel (mm)</span>
-          <input
-            type="number"
-            className={inputClass}
-            value={form.travelShockMm}
-            onChange={(e) => setField('travelShockMm', e.target.value)}
-            placeholder="150"
-            min={0}
-          />
-        </label>
+          ))}
+        </Select>
+        <Select
+          label="Model"
+          value={form.model}
+          onChange={(e) => setField('model', e.target.value)}
+          disabled={!form.manufacturer}
+          required
+        >
+          <option value="">
+            {form.manufacturer ? 'Select a model' : 'Select a manufacturer first'}
+          </option>
+          {form.manufacturer && BIKE_MODELS[form.manufacturer]?.map((model) => (
+            <option key={model} value={model}>
+              {model}
+            </option>
+          ))}
+        </Select>
+        <Input
+          label="Year"
+          type="number"
+          value={form.year}
+          onChange={(e) => setField('year', e.target.value)}
+          min={1990}
+          max={new Date().getFullYear() + 1}
+          required
+        />
+        <Input
+          label="Nickname (optional)"
+          value={form.nickname}
+          onChange={(e) => setField('nickname', e.target.value)}
+          placeholder="Lunch laps rig"
+        />
+        <Input
+          label="Fork Travel (mm)"
+          type="number"
+          value={form.travelForkMm}
+          onChange={(e) => setField('travelForkMm', e.target.value)}
+          placeholder="160"
+          min={0}
+        />
+        <Input
+          label="Shock Travel (mm)"
+          type="number"
+          value={form.travelShockMm}
+          onChange={(e) => setField('travelShockMm', e.target.value)}
+          placeholder="150"
+          min={0}
+        />
       </div>
 
-      <label className="flex flex-col gap-1">
-        <span className={labelClass}>Bike Notes</span>
-        <textarea
-          className={`${inputClass} resize-y`}
-          rows={3}
-          value={form.notes}
-          onChange={(e) => setField('notes', e.target.value)}
-          placeholder="Setup notes, service reminders..."
-        />
-      </label>
+      <Textarea
+        label="Bike Notes"
+        rows={3}
+        value={form.notes}
+        onChange={(e) => setField('notes', e.target.value)}
+        placeholder="Setup notes, service reminders..."
+      />
 
       <div className="space-y-4">
         <p className="text-heading text-base">Key Components</p>
@@ -171,24 +146,21 @@ export function BikeForm({
                   </label>
                 </div>
                 <div className="space-y-2">
-                  <input
-                    className={inputClass}
+                  <Input
                     placeholder="Brand"
                     value={component.brand}
                     disabled={component.isStock}
                     onChange={(e) => setComponentField(section.key, 'brand', e.target.value)}
                     required={!component.isStock}
                   />
-                  <input
-                    className={inputClass}
+                  <Input
                     placeholder="Model"
                     value={component.model}
                     disabled={component.isStock}
                     onChange={(e) => setComponentField(section.key, 'model', e.target.value)}
                     required={!component.isStock}
                   />
-                  <textarea
-                    className={`${inputClass} resize-y`}
+                  <Textarea
                     placeholder="Notes"
                     value={component.notes}
                     rows={2}
@@ -202,26 +174,26 @@ export function BikeForm({
       </div>
 
       {error && (
-        <div className="text-sm" style={{ color: 'rgb(var(--danger))' }}>
+        <div className="text-sm text-danger">
           {error}
         </div>
       )}
 
       <div className="flex justify-end gap-3 pt-2">
-        <button
+        <Button
           type="button"
+          variant="secondary"
           onClick={onClose}
-          className="btn-secondary"
         >
           Cancel
-        </button>
-        <button
+        </Button>
+        <Button
           type="submit"
-          className="btn-primary"
+          variant="primary"
           disabled={submitting}
         >
           {submitting ? 'Saving...' : mode === 'edit' ? 'Update Bike' : 'Create Bike'}
-        </button>
+        </Button>
       </div>
     </form>
   );

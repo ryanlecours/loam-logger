@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { useMutation, useQuery } from '@apollo/client';
 import { ADD_RIDE } from '../graphql/addRide';
 import { BIKES } from '../graphql/bikes';
+import { Select, Textarea, Button } from './ui';
 
 const SUGGESTED_TYPES = ['trail', 'enduro', 'commute', 'road', 'gravel', 'trainer'];
 
@@ -18,19 +19,27 @@ const formatBikeName = (bike: BikeSummary) =>
   (bike.nickname?.trim() || `${bike.manufacturer} ${bike.model}`.trim() || 'Bike').trim();
 
 export default function AddRideForm({ onAdded }: { onAdded?: () => void }) {
-  // --- existing state (same as your working form) ---
+  // Core required fields
   const [startLocal, setStartLocal] = useState<string>(() => new Date().toISOString().slice(0, 16));
   const [hours, setHours] = useState<number>(1);
   const [minutes, setMinutes] = useState<number>(0);
   const [distanceMiles, setDistanceMiles] = useState<number>(10);
   const [elevationGainFeet, setElevationGainFeet] = useState<number>(500);
+  const [rideType, setRideType] = useState<string>('trail');
+  const [bikeId, setBikeId] = useState<string | ''>('');
+
+  // Optional fields
   const [averageHr, setAverageHr] = useState<number | ''>('');
-  const [rideType, setRideType] = useState<string>('trail'); // free text since backend stores string
-  const [bikeId, setBikeId] = useState<string | ''>('');     // keep if you’re using bikes
   const [notes, setNotes] = useState<string>('');
   const [trailSystem, setTrailSystem] = useState<string>('');
   const [location, setLocation] = useState<string>('');
+
+  // UI state
+  const [showDetails, setShowDetails] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
+
   const MAX_NOTES_LEN = 2000;
+
   const {
     data: bikesData,
     loading: bikesLoading,
@@ -44,10 +53,15 @@ export default function AddRideForm({ onAdded }: { onAdded?: () => void }) {
   );
 
   const [addRide, { loading, error }] = useMutation(ADD_RIDE, {
-    onCompleted: () => onAdded?.(),
+    onCompleted: () => {
+      onAdded?.();
+      resetForm();
+      setIsExpanded(false);
+    },
   });
 
   const [formError, setFormError] = useState<string | null>(null);
+
   useEffect(() => {
     if (userBikes.length === 1) {
       setBikeId((current) => current || userBikes[0].id);
@@ -57,6 +71,7 @@ export default function AddRideForm({ onAdded }: { onAdded?: () => void }) {
       setBikeId((current) => (userBikes.some((bike) => bike.id === current) ? current : ''));
     }
   }, [userBikes]);
+
   useEffect(() => setFormError(null), [
     startLocal, hours, minutes, distanceMiles, elevationGainFeet, averageHr, rideType, bikeId, notes, trailSystem, location,
   ]);
@@ -112,223 +127,313 @@ export default function AddRideForm({ onAdded }: { onAdded?: () => void }) {
     setTrailSystem('');
     setLocation('');
     setFormError(null);
+    setShowDetails(false);
   }
 
-  // Common input class (uses your theme tokens + Tailwind utilities)
-  const inputCls =
-    'w-full bg-app border border-app rounded-lg px-3 py-2 text-sm ' +
-    'focus:outline-none focus:ring-2 focus:ring-[rgb(var(--ring))]';
-
-  const labelCls = 'block text-sm text-muted';
   const submitDisabled = loading || bikesLoading || userBikes.length === 0 || !bikeId;
   const submitLabel = userBikes.length === 0 ? 'Add a bike to log rides' : loading ? 'Saving...' : 'Save Ride';
+
+  // Collapsed quick-add view
+  if (!isExpanded) {
+    return (
+      <button
+        onClick={() => setIsExpanded(true)}
+        className="w-full bg-surface-2/30 hover:bg-surface-2/50 border border-app/50 hover:border-primary/30 rounded-2xl p-6 text-left transition-all duration-200 group"
+      >
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-lg font-semibold text-white group-hover:text-primary transition-colors">
+              Log a New Ride
+            </h3>
+            <p className="text-sm text-muted mt-1">
+              Quick entry or detailed logging
+            </p>
+          </div>
+          <div className="bg-surface-2/50 group-hover:bg-primary/10 border border-app group-hover:border-primary/30 rounded-xl p-3 transition-all">
+            <svg className="w-5 h-5 text-muted group-hover:text-primary transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+          </div>
+        </div>
+      </button>
+    );
+  }
 
   return (
     <form
       onSubmit={onSubmit}
-      className="bg-surface border border-app rounded-xl shadow p-6 space-y-4"
+      className="panel-soft shadow-soft border border-app rounded-2xl p-6 space-y-5"
     >
-      <h2 className="text-heading text-xl">Log a New Ride</h2>
-
-      {/* Start time */}
-      <div className="space-y-1">
-        <label className={labelCls}>Start (local)</label>
-        <input
-          type="datetime-local"
-          value={startLocal}
-          onChange={e => setStartLocal(e.target.value)}
-          className={inputCls}
-          required
-        />
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="text-lg font-semibold text-white">Log a New Ride</h3>
+        <button
+          type="button"
+          onClick={() => {
+            setIsExpanded(false);
+            resetForm();
+          }}
+          className="text-muted hover:text-white transition-colors p-1"
+          title="Collapse"
+        >
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
       </div>
 
-      {/* Duration */}
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-1">
-          <label className={labelCls}>Hours</label>
-          <input
-            type="number"
-            min={0}
-            value={hours}
-            onChange={e => setHours(Number(e.target.value))}
-            className={inputCls}
-          />
-        </div>
-        <div className="space-y-1">
-          <label className={labelCls}>Minutes</label>
-          <input
-            type="number"
-            min={0}
-            max={59}
-            value={minutes}
-            onChange={e => setMinutes(Number(e.target.value))}
-            className={inputCls}
-          />
-        </div>
-      </div>
-      <div className="text-xs text-muted">Total duration: {Math.floor(durationSeconds / 60)} min</div>
-
-      {/* Distance / Elevation */}
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-1">
-          <label className={labelCls}>Distance (miles)</label>
-          <input
-            type="number"
-            min={0}
-            step={0.1}
-            value={distanceMiles}
-            onChange={e => setDistanceMiles(Number(e.target.value))}
-            className={inputCls}
-          />
-        </div>
-        <div className="space-y-1">
-          <label className={labelCls}>Elevation Gain (feet)</label>
-          <input
-            type="number"
-            min={0}
-            step={1}
-            value={elevationGainFeet}
-            onChange={e => setElevationGainFeet(Number(e.target.value))}
-            className={inputCls}
-          />
-        </div>
-      </div>
-
-      {/* Avg HR */}
-      <div className="space-y-1">
-        <label className={labelCls}>Average HR (optional)</label>
-        <input
-          type="number"
-          min={0}
-          max={250}
-          step={1}
-          value={averageHr}
-          onChange={e => setAverageHr(e.target.value === '' ? '' : Number(e.target.value))}
-          className={inputCls}
-          placeholder="e.g., 145"
-        />
-      </div>
-
-      {/* Ride type + Bike */}
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-1">
-          <label className={labelCls}>Ride Type</label>
-          <input
-            type="text"
-            list="ride-type-suggest"
-            value={rideType}
-            onChange={e => setRideType(e.target.value)}
-            className={inputCls}
-            maxLength={32}
-            placeholder="trail / road / etc"
-          />
-          <datalist id="ride-type-suggest">
-            {SUGGESTED_TYPES.map(t => <option key={t} value={t} />)}
-          </datalist>
-        </div>
-        <div className="space-y-1">
-          <label className={labelCls}>Bike</label>
-          {bikesLoading ? (
-            <div className="text-sm text-muted">Loading bikes...</div>
-          ) : userBikes.length > 0 ? (
-            <select
-              value={bikeId}
-              onChange={(e) => setBikeId(e.target.value)}
-              className={inputCls}
-              required
-            >
-              <option value="" disabled>
-                {userBikes.length > 1 ? 'Select a bike' : 'Bike'}
-              </option>
-              {userBikes.map((bike) => (
-                <option key={bike.id} value={bike.id}>
-                  {formatBikeName(bike)}
-                </option>
-              ))}
-            </select>
-          ) : (
-            <div className="text-sm text-muted">
-              No bikes yet.{' '}
-              <Link to="/gear" className="underline text-accent">
-                Add a bike
-              </Link>{' '}
-              to log rides.
+      {/* Essential Info - Always visible */}
+      <div className="space-y-4">
+        {/* Quick Stats Row */}
+        <div className="grid grid-cols-3 gap-3">
+          <div className="space-y-1.5">
+            <label className="block text-sm font-medium text-muted mb-1.5">Duration</label>
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <input
+                  type="number"
+                  min={0}
+                  value={hours}
+                  onChange={e => setHours(Number(e.target.value))}
+                  className="input-soft pr-8 text-center"
+                  placeholder="1"
+                />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted/60 pointer-events-none">h</span>
+              </div>
+              <div className="relative flex-1">
+                <input
+                  type="number"
+                  min={0}
+                  max={59}
+                  value={minutes}
+                  onChange={e => setMinutes(Number(e.target.value))}
+                  className="input-soft pr-8 text-center"
+                  placeholder="0"
+                />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted/60 pointer-events-none">m</span>
+              </div>
             </div>
-          )}
+            <p className="text-xs text-muted/80">{Math.floor(durationSeconds / 60)} total min</p>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="block text-sm font-medium text-muted mb-1.5">Distance</label>
+            <div className="relative">
+              <input
+                type="number"
+                min={0}
+                step={0.1}
+                value={distanceMiles}
+                onChange={e => setDistanceMiles(Number(e.target.value))}
+                className="input-soft pr-12 text-center"
+                placeholder="10"
+              />
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted/60 pointer-events-none">mi</span>
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="block text-sm font-medium text-muted mb-1.5">Elevation</label>
+            <div className="relative">
+              <input
+                type="number"
+                min={0}
+                step={1}
+                value={elevationGainFeet}
+                onChange={e => setElevationGainFeet(Number(e.target.value))}
+                className="input-soft pr-12 text-center"
+                placeholder="500"
+              />
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted/60 pointer-events-none">ft</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Type and Bike Row */}
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1.5">
+            <label className="block text-sm font-medium text-muted mb-1.5">Ride Type</label>
+            <div className="flex flex-wrap gap-2">
+              {SUGGESTED_TYPES.map(type => (
+                <button
+                  key={type}
+                  type="button"
+                  onClick={() => setRideType(type)}
+                  className={`
+                    px-3 py-1.5 rounded-lg text-xs font-medium transition-all border
+                    ${rideType === type
+                      ? 'bg-primary/20 text-primary border-primary/30'
+                      : 'bg-surface-2/30 text-muted border-app/50 hover:border-primary/20 hover:text-white'
+                    }
+                  `}
+                >
+                  {type}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="block text-sm font-medium text-muted mb-1.5">Bike</label>
+            {bikesLoading ? (
+              <div className="text-sm text-muted">Loading bikes...</div>
+            ) : userBikes.length > 0 ? (
+              <Select
+                value={bikeId}
+                onChange={(e) => setBikeId(e.target.value)}
+                required
+              >
+                <option value="" disabled>
+                  Select a bike
+                </option>
+                {userBikes.map((bike) => (
+                  <option key={bike.id} value={bike.id}>
+                    {formatBikeName(bike)}
+                  </option>
+                ))}
+              </Select>
+            ) : (
+              <div className="text-sm text-muted bg-surface-2/20 border border-app/50 rounded-lg p-2.5">
+                No bikes yet.{' '}
+                <Link to="/gear" className="underline text-accent hover:text-accent/80">
+                  Add a bike
+                </Link>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Trail system / Location */}
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-1">
-          <label className={labelCls}>Trail system (optional)</label>
-          <input
-            type="text"
-            value={trailSystem}
-            onChange={e => setTrailSystem(e.target.value)}
-            className={inputCls}
-            maxLength={120}
-            placeholder="e.g., Copper Harbor"
-          />
-        </div>
-        <div className="space-y-1">
-          <label className={labelCls}>Location (optional)</label>
-          <input
-            type="text"
-            value={location}
-            onChange={e => setLocation(e.target.value)}
-            className={inputCls}
-            maxLength={120}
-            placeholder="e.g., MI, USA"
-          />
-        </div>
+      {/* Optional Details - Collapsible */}
+      <div className="border-t border-app/30 pt-4">
+        <button
+          type="button"
+          onClick={() => setShowDetails(!showDetails)}
+          className="flex items-center gap-2 text-sm text-muted hover:text-white transition-colors mb-4"
+        >
+          <svg
+            className={`w-4 h-4 transition-transform ${showDetails ? 'rotate-90' : ''}`}
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+          <span>{showDetails ? 'Hide' : 'Show'} optional details</span>
+          <span className="text-xs text-muted/60">(time, HR, location, notes)</span>
+        </button>
+
+        {showDetails && (
+          <div className="space-y-4">
+            {/* Start Time */}
+            <div className="space-y-1.5">
+              <label className="block text-sm font-medium text-muted mb-1.5">Start Time</label>
+              <input
+                type="datetime-local"
+                value={startLocal}
+                onChange={e => setStartLocal(e.target.value)}
+                className="input-soft"
+                required
+              />
+            </div>
+
+            {/* HR */}
+            <div className="space-y-1.5">
+              <label className="block text-sm font-medium text-muted mb-1.5">Average Heart Rate</label>
+              <div className="relative">
+                <input
+                  type="number"
+                  min={0}
+                  max={250}
+                  step={1}
+                  value={averageHr}
+                  onChange={e => setAverageHr(e.target.value === '' ? '' : Number(e.target.value))}
+                  className="input-soft pr-16"
+                  placeholder="145"
+                />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted/60 pointer-events-none">bpm</span>
+              </div>
+            </div>
+
+            {/* Location fields */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <label className="block text-sm font-medium text-muted mb-1.5">Trail System</label>
+                <input
+                  type="text"
+                  value={trailSystem}
+                  onChange={e => setTrailSystem(e.target.value)}
+                  className="input-soft"
+                  maxLength={120}
+                  placeholder="Copper Harbor"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="block text-sm font-medium text-muted mb-1.5">Location</label>
+                <input
+                  type="text"
+                  value={location}
+                  onChange={e => setLocation(e.target.value)}
+                  className="input-soft"
+                  maxLength={120}
+                  placeholder="MI, USA"
+                />
+              </div>
+            </div>
+
+            {/* Notes */}
+            <div className="space-y-1.5">
+              <Textarea
+                label="Notes"
+                value={notes}
+                onChange={e => setNotes(e.target.value)}
+                rows={3}
+                maxLength={MAX_NOTES_LEN}
+                placeholder="Conditions, trails, workout details..."
+                hint={`${notes.length}/${MAX_NOTES_LEN}`}
+              />
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Notes */}
-      <div className="space-y-1">
-        <label className={labelCls}>Notes (optional)</label>
-        <textarea
-          value={notes}
-          onChange={e => setNotes(e.target.value)}
-          rows={3}
-          maxLength={MAX_NOTES_LEN}
-          className={inputCls + ' resize-y'}
-          placeholder="Conditions, trails, workout details..."
-        />
-        <div className="text-xs text-muted">{notes.length}/{MAX_NOTES_LEN}</div>
-      </div>
-
+      {/* Error Display */}
       {(formError || error || bikesError) && (
-        <div className="text-sm" style={{ color: 'rgb(var(--danger))' }}>
+        <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 text-sm text-red-400">
           {formError || error?.message || bikesError?.message}
         </div>
       )}
 
       {/* Actions */}
-      <div className="flex justify-end gap-3 pt-2">
+      <div className="flex justify-between items-center gap-3 pt-2">
         <button
           type="button"
           onClick={resetForm}
-          className="btn-secondary"
-          title="Reset form"
+          className="text-sm text-muted hover:text-white transition-colors"
         >
           Reset
         </button>
-        <button
-          type="submit"
-          className="btn-primary"
-          disabled={submitDisabled}
-        >
-          {submitLabel}
-        </button>
+        <div className="flex gap-3">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => {
+              setIsExpanded(false);
+              resetForm();
+            }}
+            className="px-6 py-2.5"
+          >
+            Cancel
+          </Button>
+          <Button
+            type="submit"
+            variant="primary"
+            className="px-6 py-2.5"
+            disabled={submitDisabled}
+          >
+            {submitLabel}
+          </Button>
+        </div>
       </div>
     </form>
   );
 }
-
-
-
-
-
-
-
