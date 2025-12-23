@@ -57,7 +57,7 @@ export function Input({
   );
 }
 
-export interface TextareaProps extends InputHTMLAttributes<HTMLTextAreaElement> {
+export interface TextareaProps extends React.TextareaHTMLAttributes<HTMLTextAreaElement> {
   label?: string;
   error?: string;
   hint?: string;
@@ -95,7 +95,7 @@ export function Textarea({
         className={textareaClassName}
         aria-invalid={error ? 'true' : undefined}
         aria-describedby={errorId || hintId}
-        {...(props as any)}
+        {...props}
       />
       {error && (
         <span id={errorId} className="text-sm text-danger mt-1 block">
@@ -111,7 +111,7 @@ export function Textarea({
   );
 }
 
-export interface SelectProps extends InputHTMLAttributes<HTMLSelectElement> {
+export interface SelectProps extends React.SelectHTMLAttributes<HTMLSelectElement> {
   label?: string;
   error?: string;
   hint?: string;
@@ -148,7 +148,7 @@ export function Select({
         className={selectClassName}
         aria-invalid={error ? 'true' : undefined}
         aria-describedby={errorId || hintId}
-        {...(props as any)}
+        {...props}
       >
         {children}
       </select>
@@ -166,14 +166,13 @@ export function Select({
   );
 }
 
-export interface LabelProps extends InputHTMLAttributes<HTMLLabelElement> {
-  htmlFor?: string;
+export interface LabelProps extends React.LabelHTMLAttributes<HTMLLabelElement> {
   children: ReactNode;
 }
 
 export function Label({ htmlFor, children, className = '', ...props }: LabelProps) {
   return (
-    <label htmlFor={htmlFor} className={`label-muted ${className}`.trim()} {...(props as any)}>
+    <label htmlFor={htmlFor} className={`label-muted ${className}`.trim()} {...props}>
       {children}
     </label>
   );
