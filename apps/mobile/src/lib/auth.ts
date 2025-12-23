@@ -1,4 +1,5 @@
 import * as SecureStore from 'expo-secure-store';
+import { Platform } from 'react-native';
 
 const ACCESS_TOKEN_KEY = 'access_token';
 const REFRESH_TOKEN_KEY = 'refresh_token';
@@ -15,33 +16,63 @@ export interface AuthTokens {
   refreshToken: string;
 }
 
+/**
+ * Platform-specific storage wrapper
+ * Uses localStorage for web, SecureStore for native (iOS/Android)
+ */
+const storage = {
+  async setItem(key: string, value: string): Promise<void> {
+    if (Platform.OS === 'web') {
+      localStorage.setItem(key, value);
+    } else {
+      await SecureStore.setItemAsync(key, value);
+    }
+  },
+
+  async getItem(key: string): Promise<string | null> {
+    if (Platform.OS === 'web') {
+      return localStorage.getItem(key);
+    } else {
+      return await SecureStore.getItemAsync(key);
+    }
+  },
+
+  async removeItem(key: string): Promise<void> {
+    if (Platform.OS === 'web') {
+      localStorage.removeItem(key);
+    } else {
+      await SecureStore.deleteItemAsync(key);
+    }
+  },
+};
+
 export async function storeTokens(
   accessToken: string,
   refreshToken: string,
   user: User
 ): Promise<void> {
-  await SecureStore.setItemAsync(ACCESS_TOKEN_KEY, accessToken);
-  await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, refreshToken);
-  await SecureStore.setItemAsync(USER_KEY, JSON.stringify(user));
+  await storage.setItem(ACCESS_TOKEN_KEY, accessToken);
+  await storage.setItem(REFRESH_TOKEN_KEY, refreshToken);
+  await storage.setItem(USER_KEY, JSON.stringify(user));
 }
 
 export async function getAccessToken(): Promise<string | null> {
-  return await SecureStore.getItemAsync(ACCESS_TOKEN_KEY);
+  return await storage.getItem(ACCESS_TOKEN_KEY);
 }
 
 export async function getRefreshToken(): Promise<string | null> {
-  return await SecureStore.getItemAsync(REFRESH_TOKEN_KEY);
+  return await storage.getItem(REFRESH_TOKEN_KEY);
 }
 
 export async function getStoredUser(): Promise<User | null> {
-  const userJson = await SecureStore.getItemAsync(USER_KEY);
+  const userJson = await storage.getItem(USER_KEY);
   return userJson ? JSON.parse(userJson) : null;
 }
 
 export async function clearTokens(): Promise<void> {
-  await SecureStore.deleteItemAsync(ACCESS_TOKEN_KEY);
-  await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
-  await SecureStore.deleteItemAsync(USER_KEY);
+  await storage.removeItem(ACCESS_TOKEN_KEY);
+  await storage.removeItem(REFRESH_TOKEN_KEY);
+  await storage.removeItem(USER_KEY);
 }
 
 export async function refreshAccessToken(): Promise<string | null> {
@@ -65,7 +96,7 @@ export async function refreshAccessToken(): Promise<string | null> {
     }
 
     const data = await response.json();
-    await SecureStore.setItemAsync(ACCESS_TOKEN_KEY, data.accessToken);
+    await storage.setItem(ACCESS_TOKEN_KEY, data.accessToken);
     return data.accessToken;
   } catch (error) {
     console.error('Token refresh failed:', error);

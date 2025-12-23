@@ -61,7 +61,7 @@ export default function LoginScreen() {
             placeholder="Password"
             value={password}
             onChangeText={setPassword}
-            secureTextEntry
+            secureTextEntry={true}
             editable={!loading}
           />
 

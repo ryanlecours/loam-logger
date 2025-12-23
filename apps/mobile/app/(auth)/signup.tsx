@@ -49,15 +49,20 @@ export default function SignupScreen() {
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.message || 'Signup failed');
+        throw new Error(error.error || error.message || 'Signup failed');
       }
 
       const data = await response.json();
+
       const { storeTokens } = await import('../../src/lib/auth');
       await storeTokens(data.accessToken, data.refreshToken, data.user);
+
       setUser(data.user);
+
+      // Force navigation
       router.replace('/(tabs)');
     } catch (error) {
+      console.error('[Signup] Error:', error);
       Alert.alert(
         'Signup Failed',
         error instanceof Error ? error.message : 'Please try again'
@@ -89,7 +94,7 @@ export default function SignupScreen() {
             placeholder="Password"
             value={password}
             onChangeText={setPassword}
-            secureTextEntry
+            secureTextEntry={true}
             editable={!loading}
           />
 
@@ -98,7 +103,7 @@ export default function SignupScreen() {
             placeholder="Confirm Password"
             value={confirmPassword}
             onChangeText={setConfirmPassword}
-            secureTextEntry
+            secureTextEntry={true}
             editable={!loading}
           />
 

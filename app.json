@@ -1,0 +1,11 @@
+{
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "772101ac-b504-4f5a-b5f3-2e5d556ef153"
+      }
+    },
+    "owner": "ryanlecours",
+    "slug": "loamloggermobile"
+  }
+}

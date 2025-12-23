@@ -2,7 +2,7 @@ import express from 'express';
 import { OAuth2Client } from 'google-auth-library';
 import { ensureUserFromGoogle } from './ensureUserFromGoogle';
 import { normalizeEmail, isBetaTester } from './utils';
-import { verifyPassword } from './password.utils';
+import { verifyPassword, hashPassword, validatePassword } from './password.utils';
 import { generateAccessToken, generateRefreshToken, verifyToken } from './token';
 import { prisma } from '../lib/prisma';
 
@@ -168,6 +168,81 @@ router.post('/mobile/login', express.json(), async (req, res) => {
   } catch (e) {
     console.error('[MobileAuth] Email login failed', e);
     res.status(500).send('Login failed');
+  }
+});
+
+/**
+ * POST /auth/mobile/signup
+ * Sign up a new user with email and password
+ * Returns access token and refresh token for mobile app
+ */
+router.post('/mobile/signup', express.json(), async (req, res) => {
+  try {
+    const { email: rawEmail, password, name } = req.body as {
+      email?: string;
+      password?: string;
+      name?: string;
+    };
+
+    // Validate input
+    if (!rawEmail || !password) {
+      return res.status(400).json({ error: 'Email and password are required' });
+    }
+
+    const email = normalizeEmail(rawEmail);
+    if (!email) {
+      return res.status(400).json({ error: 'Invalid email' });
+    }
+
+    // Validate password strength
+    const passwordValidation = validatePassword(password);
+    if (!passwordValidation.isValid) {
+      return res.status(400).json({ error: passwordValidation.error });
+    }
+
+    // Check if user already exists
+    const existingUser = await prisma.user.findUnique({
+      where: { email },
+    });
+
+    if (existingUser) {
+      return res.status(409).json({ error: 'Email already registered' });
+    }
+
+    // Check beta tester access
+    if (process.env.BETA_TESTER_EMAILS) {
+      if (!isBetaTester(email)) {
+        return res.status(403).json({ error: 'NOT_BETA_TESTER' });
+      }
+    }
+
+    // Hash password and create user
+    const passwordHash = await hashPassword(password);
+    const user = await prisma.user.create({
+      data: {
+        email,
+        passwordHash,
+        name: name || null,
+      },
+    });
+
+    // Generate tokens for mobile
+    const accessToken = generateAccessToken({ uid: user.id, email: user.email });
+    const refreshToken = generateRefreshToken({ uid: user.id, email: user.email });
+
+    res.status(201).json({
+      accessToken,
+      refreshToken,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        avatarUrl: user.avatarUrl,
+      },
+    });
+  } catch (e) {
+    console.error('[MobileAuth] Signup failed', e);
+    res.status(500).json({ error: 'Signup failed' });
   }
 });
 

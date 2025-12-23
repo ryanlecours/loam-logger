@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import express, { type Request, type Response } from 'express';
+import express, { type Request, type Response, type NextFunction } from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import { ApolloServer } from '@apollo/server';
@@ -157,7 +157,8 @@ const startServer = async () => {
   app.use(mockGarmin);
 
   // Error handler (so you see thrown middleware errors)
-  app.use((err: Error, _req: Request, res: Response) => {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
     console.error('[ERROR]', err?.message ?? err, err?.stack);
     res.status(500).json({ error: 'internal_error', message: err?.message ?? String(err) });
   });
