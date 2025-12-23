@@ -1,5 +1,5 @@
-import React, { useEffect, useRef, useState } from "react";
-import { Button } from "./ui";
+import { useEffect, useState } from "react";
+import { Modal, Button } from "./ui";
 
 /** ---------- Types ---------- */
 type ChangelogItem = {
@@ -109,41 +109,17 @@ export default function AboutAppModal({
 }: AboutAppModalProps) {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<Tab>("about");
-  const dialogRef = useRef<HTMLDivElement>(null);
-  const firstFocusable = useRef<HTMLButtonElement>(null);
 
-  // body scroll lock
-  useEffect(() => {
-    document.body.classList.toggle("overflow-hidden", open);
-    return () => document.body.classList.remove("overflow-hidden");
-  }, [open]);
-
-  // esc + focus trap + arrow key tab switching
+  // arrow key tab switching
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
       if (e.key === "ArrowLeft") setTab((t) => (t === "roadmap" ? "new" : t === "new" ? "about" : "about"));
       if (e.key === "ArrowRight") setTab((t) => (t === "about" ? "new" : t === "new" ? "roadmap" : "roadmap"));
-
-      if (e.key === "Tab" && dialogRef.current) {
-        const n = dialogRef.current.querySelectorAll<HTMLElement>(
-          'button,[href],input,select,textarea,[tabindex]:not([tabindex="-1"])'
-        );
-        if (!n.length) return;
-        const first = n[0], last = n[n.length - 1];
-        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
-        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
-      }
     };
     document.addEventListener("keydown", onKey);
-    firstFocusable.current?.focus();
     return () => document.removeEventListener("keydown", onKey);
   }, [open]);
-
-  const onBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (e.target === e.currentTarget) setOpen(false);
-  };
 
   /** helpers */
   const badge = (txt: string) => (
@@ -175,139 +151,116 @@ export default function AboutAppModal({
 
   return (
     <>
-    <Button
-    onClick={() => { setTab("about"); setOpen(true);}}
-    variant="secondary"
-    children={triggerLabel}
-    className="mt-6" />
-    
+      <Button
+        onClick={() => { setTab("about"); setOpen(true); }}
+        variant="secondary"
+        className="mt-6"
+      >
+        {triggerLabel}
+      </Button>
 
-      {open && (
-        <div
-          onClick={onBackdropClick}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
-          aria-modal="true"
-          role="dialog"
-          aria-labelledby="about-title"
-        >
-          <div
-            ref={dialogRef}
-            className="w-full max-w-3xl max-h-[80vh] overflow-y-auto rounded-3xl bg-white p-6 text-neutral-900 shadow-2xl dark:bg-neutral-900 dark:text-neutral-100"
+      <Modal
+        isOpen={open}
+        onClose={() => setOpen(false)}
+        title="About Loam Logger"
+        size="xl"
+        footer={
+          <Button
+            variant="secondary"
+            onClick={() => setOpen(false)}
           >
-            {/* Header */}
-            <div className="flex items-start justify-between gap-4">
-              <h2 id="about-title" className="text-xl font-semibold">About Loam Logger</h2>
-              <button
-                ref={firstFocusable}
-                onClick={() => setOpen(false)}
-                aria-label="Close"
-                className="rounded-xl px-2 py-1 text-sm hover:bg-black/5 cursor-pointer dark:hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-black/30"
-              >
-                ✕
-              </button>
-            </div>
-
-            {/* Tabs */}
-            <div className="mt-4">
-              <div role="tablist" aria-label="About tabs" className="flex gap-2 rounded-2xl bg-black/[0.04] p-1 dark:bg-white/[0.06]">
-                {[
-                  { id: "about", label: "About" },
-                  { id: "new", label: "What’s New" },
-                  { id: "roadmap", label: "Roadmap" },
-                ].map(({ id, label }) => (
-                  <button
-                    key={id}
-                    role="tab"
-                    aria-selected={tab === id}
-                    aria-controls={`panel-${id}`}
-                    onClick={() => setTab(id as Tab)}
-                    className={`flex-1 rounded-xl px-3 py-2 text-sm font-medium transition ${
-                      tab === id
-                        ? "bg-white shadow dark:bg-neutral-700"
-                        : "cursor-pointer hover:bg-white/70 dark:hover:bg-white/10"
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-
-              {/* Panels */}
-              <div className="mt-4">
-                {/* About */}
-                {tab === "about" && (
-                  <section id="panel-about" role="tabpanel" className="space-y-4">
-                    <p className="text-sm leading-6 opacity-90 whitespace-pre-line mx-auto my-6">{description}</p>
-                    <div className="grid gap-3 justify-center mx-auto">
-                      <div className="w-sm rounded-xl col-span-3  border border-yellow-500 p-3">
-                        <div className="text-xs opacity-70">Status</div>
-                        <div className="text-sm font-medium">Active development</div>
-                      </div>
-                      <div className="rounded-xl col-span-3  border border-black/10 p-3 dark:border-white/10">
-                        <div className="text-xs opacity-70">Author</div>
-                        <div className="text-sm font-medium">Ryan LeCours</div>
-                      </div>
-                      <a
-                        href="https://ryanlecours.dev"
-                        target="_blank"
-                        rel="noreferrer"
-                        className="col-span-3 rounded-xl border border-black/10 p-3 transition hover:bg-black/[0.03] dark:border-white/10 dark:hover:bg-white/[0.06]"
-                      >
-                        <div className="text-xs opacity-70">More</div>
-                        <div className="text-sm font-medium underline underline-offset-4">ryanlecours.dev</div>
-                      </a>
-                    </div>
-                  </section>
-                )}
-
-                {/* What's New (changelog cards) */}
-                {tab === "new" && (
-                  <section id="panel-new" role="tabpanel" className="space-y-4">
-                    {changelog.map((entry, i) => (
-                      <article key={i} className="rounded-2xl border border-black/10 p-4 dark:border-white/10">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div className="flex items-center gap-2">
-                            {entry.version && <span className="text-sm font-semibold">{entry.version}</span>}
-                            <span className="text-xs opacity-70">{new Date(entry.date).toLocaleDateString()}</span>
-                          </div>
-                          <div className="flex flex-wrap gap-1">
-                            {(entry.highlights ?? []).map(h => badge(h))}
-                          </div>
-                        </div>
-                        <ul className="mt-2 space-y-1">
-                          {entry.changes.map((c, idx) => (
-                            <li key={idx} className="text-sm leading-6">
-                              • {c}
-                            </li>
-                          ))}
-                        </ul>
-                      </article>
-                    ))}
-                  </section>
-                )}
-
-                {/* Roadmap (Now / Next / Later) */}
-                {tab === "roadmap" && (
-                  <section id="panel-roadmap" role="tabpanel" className="grid gap-6 sm:grid-cols-3">
-                    <RoadmapColumn label="Now" />
-                    <RoadmapColumn label="Next" />
-                    <RoadmapColumn label="Later" />
-                  </section>
-                )}
-              </div>
-            </div>
-
-            {/* Footer */}
-            <div className="mt-6 flex items-center justify-end">
-                <Button 
-                onClick={() => setOpen(false)}
-                variant="secondary"
-                children={"Close"}
-                className="rounded-2xl text-sm"/>
-            </div>
-          </div>
+            Close
+          </Button>
+        }
+      >
+        {/* Tabs */}
+        <div role="tablist" aria-label="About tabs" className="flex gap-2 rounded-2xl bg-black/[0.04] p-1 dark:bg-white/[0.06] mb-4">
+          {[
+            { id: "about", label: "About" },
+            { id: "new", label: "What's New" },
+            { id: "roadmap", label: "Roadmap" },
+          ].map(({ id, label }) => (
+            <button
+              key={id}
+              role="tab"
+              aria-selected={tab === id}
+              aria-controls={`panel-${id}`}
+              onClick={() => setTab(id as Tab)}
+              className={`flex-1 rounded-xl px-3 py-2 text-sm font-medium transition ${
+                tab === id
+                  ? "bg-white shadow dark:bg-neutral-700"
+                  : "cursor-pointer hover:bg-white/70 dark:hover:bg-white/10"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
         </div>
-      )}
+
+        {/* Panels */}
+        <div>
+          {/* About */}
+          {tab === "about" && (
+            <section id="panel-about" role="tabpanel" className="space-y-4">
+              <p className="text-sm leading-6 opacity-90 whitespace-pre-line mx-auto my-6">{description}</p>
+              <div className="grid gap-3 justify-center mx-auto">
+                <div className="w-sm rounded-xl col-span-3 border border-yellow-500 p-3">
+                  <div className="text-xs opacity-70">Status</div>
+                  <div className="text-sm font-medium">Active development</div>
+                </div>
+                <div className="rounded-xl col-span-3 border border-black/10 p-3 dark:border-white/10">
+                  <div className="text-xs opacity-70">Author</div>
+                  <div className="text-sm font-medium">Ryan LeCours</div>
+                </div>
+                <a
+                  href="https://ryanlecours.dev"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="col-span-3 rounded-xl border border-black/10 p-3 transition hover:bg-black/[0.03] dark:border-white/10 dark:hover:bg-white/[0.06]"
+                >
+                  <div className="text-xs opacity-70">More</div>
+                  <div className="text-sm font-medium underline underline-offset-4">ryanlecours.dev</div>
+                </a>
+              </div>
+            </section>
+          )}
+
+          {/* What's New (changelog cards) */}
+          {tab === "new" && (
+            <section id="panel-new" role="tabpanel" className="space-y-4">
+              {changelog.map((entry, i) => (
+                <article key={i} className="rounded-2xl border border-black/10 p-4 dark:border-white/10">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      {entry.version && <span className="text-sm font-semibold">{entry.version}</span>}
+                      <span className="text-xs opacity-70">{new Date(entry.date).toLocaleDateString()}</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {(entry.highlights ?? []).map(h => badge(h))}
+                    </div>
+                  </div>
+                  <ul className="mt-2 space-y-1">
+                    {entry.changes.map((c, idx) => (
+                      <li key={idx} className="text-sm leading-6">
+                        • {c}
+                      </li>
+                    ))}
+                  </ul>
+                </article>
+              ))}
+            </section>
+          )}
+
+          {/* Roadmap (Now / Next / Later) */}
+          {tab === "roadmap" && (
+            <section id="panel-roadmap" role="tabpanel" className="grid gap-6 sm:grid-cols-3">
+              <RoadmapColumn label="Now" />
+              <RoadmapColumn label="Next" />
+              <RoadmapColumn label="Later" />
+            </section>
+          )}
+        </div>
+      </Modal>
     </>
   );
 }

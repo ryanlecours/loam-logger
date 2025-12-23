@@ -7,12 +7,12 @@ import { BIKES } from '../graphql/bikes';
 import { ADD_RIDE } from '../graphql/addRide';
 import { UNMAPPED_STRAVA_GEARS } from '../graphql/stravaGear';
 import RideCard from '../components/RideCard';
-import BikeCard from '../components/BikeCard';
 import RideStatsCard from '../components/RideStatsCard.tsx';
 import StravaGearMappingModal from '../components/StravaGearMappingModal';
+import { BikeHealthHero } from '../components/BikeHealthHero';
+import { BikeHealthModal } from '../components/BikeHealthModal';
 import { useCurrentUser } from '../hooks/useCurrentUser.ts';
-import type { Bike } from '../models/BikeComponents';
-
+import { transformToHealthData, type BikeSummary } from '../utils/transformToHealthData';
 
 type Ride = {
   id: string;
@@ -26,98 +26,13 @@ type Ride = {
   notes?: string | null;
 };
 
-type ComponentSummary = {
-  id: string;
-  type: string;
-  brand?: string | null;
-  model?: string | null;
-  hoursUsed?: number | null;
-  serviceDueAtHours?: number | null;
-};
-
-type BikeSummary = {
-  id: string;
-  nickname?: string | null;
-  manufacturer: string;
-  model: string;
-  travelForkMm?: number | null;
-  travelShockMm?: number | null;
-  notes?: string | null;
-  fork?: ComponentSummary | null;
-  shock?: ComponentSummary | null;
-  pivotBearings?: ComponentSummary | null;
-  components: ComponentSummary[];
-};
-
-const ensureNumber = (value?: number | null, fallback = 0) =>
-  typeof value === 'number' ? value : fallback;
-
-const toBikeCardModel = (bike: BikeSummary): Bike => {
-  const drivetrain =
-    bike.components?.find((component) => component.type === 'DRIVETRAIN') ?? null;
-  const wheels =
-    bike.components?.find((component) => component.type === 'WHEELS') ?? null;
-  const dropper =
-    bike.components?.find((component) => component.type === 'DROPPER') ?? null;
-  const name = (bike.nickname?.trim() || `${bike.manufacturer} ${bike.model}`.trim()) || 'Bike';
-
-  return {
-    id: bike.id,
-    name,
-    type: 'trail',
-    frameMaterial: 'carbon',
-    travelFrontMm: ensureNumber(bike.travelForkMm),
-    travelRearMm: ensureNumber(bike.travelShockMm),
-    fork: {
-      id: bike.fork?.id,
-      brand: bike.fork?.brand ?? 'Fork',
-      model: bike.fork?.model ?? 'Stock',
-      travelMm: ensureNumber(bike.travelForkMm),
-      hoursSinceLastService: ensureNumber(bike.fork?.hoursUsed),
-      offsetMm: undefined,
-      damper: undefined,
-    },
-    shock: {
-      id: bike.shock?.id,
-      brand: bike.shock?.brand ?? 'Shock',
-      model: bike.shock?.model ?? 'Stock',
-      strokeMm: ensureNumber(bike.travelShockMm),
-      eyeToEyeMm: 0,
-      hoursSinceLastService: ensureNumber(bike.shock?.hoursUsed),
-      type: 'air',
-    },
-    drivetrain: {
-      id: drivetrain?.id,
-      brand: drivetrain?.brand ?? 'Stock',
-      speed: 12,
-      cassetteRange: drivetrain?.model ?? 'N/A',
-      derailleur: drivetrain?.model ?? 'N/A',
-      shifter: drivetrain?.model ?? 'N/A',
-      hoursSinceLastService: ensureNumber(drivetrain?.hoursUsed),
-    },
-    wheelBearings: {
-      id: wheels?.id,
-      brand: wheels?.brand ?? 'Stock',
-      model: wheels?.model ?? 'Wheels',
-      hoursSinceLastService: ensureNumber(wheels?.hoursUsed),
-    },
-    dropperPost: {
-      id: dropper?.id,
-      brand: dropper?.brand ?? 'Stock',
-      model: dropper?.model ?? 'Dropper',
-      hoursSinceLastService: ensureNumber(dropper?.hoursUsed),
-    },
-    hoursSinceLastService: ensureNumber(bike.pivotBearings?.hoursUsed),
-    pivotBearingsId: bike.pivotBearings?.id,
-    notes: bike.notes ?? undefined,
-  };
-};
-
 const RECENT_COUNT = 5;
 
 export default function Dashboard() {
   const user = useCurrentUser().user;
   const firstName = user?.name?.split(' ')?.[0] ?? 'Rider';
+
+  // Queries
   const {
     data: ridesData,
     loading: ridesLoading,
@@ -127,6 +42,7 @@ export default function Dashboard() {
     variables: { take: RECENT_COUNT },
     fetchPolicy: 'cache-first',
   });
+
   const {
     data: bikesData,
     loading: bikesLoading,
@@ -135,17 +51,37 @@ export default function Dashboard() {
     fetchPolicy: 'cache-and-network',
   });
 
-  const [addRide] = useMutation(ADD_RIDE);
-  const [isSimulatingRide, setIsSimulatingRide] = useState(false);
-
-  const [showGearMapping, setShowGearMapping] = useState(false);
-  const [unmappedGears, setUnmappedGears] = useState<Array<{ gearId: string; rideCount: number }>>([]);
-
   const { data: unmappedData } = useQuery(UNMAPPED_STRAVA_GEARS, {
     pollInterval: 60000,
     skip: !user,
   });
 
+  // Mutations
+  const [addRide] = useMutation(ADD_RIDE);
+
+  // State
+  const [isSimulatingRide, setIsSimulatingRide] = useState(false);
+  const [showGearMapping, setShowGearMapping] = useState(false);
+  const [unmappedGears, setUnmappedGears] = useState<Array<{ gearId: string; rideCount: number }>>([]);
+  const [gpxModalOpen, setGpxModalOpen] = useState(false);
+  const [gpxBikeId, setGpxBikeId] = useState<string>('');
+  const [gpxFileName, setGpxFileName] = useState<string>('');
+  const [selectedBikeId, setSelectedBikeId] = useState<string | null>(null);
+  const [isHealthModalOpen, setIsHealthModalOpen] = useState(false);
+
+  // Derived data
+  const rides = ridesData?.rides ?? [];
+  const bikesRaw = useMemo(() => bikesData?.bikes ?? [], [bikesData]);
+  const bikeHealthData = useMemo(
+    () => transformToHealthData(bikesRaw),
+    [bikesRaw]
+  );
+  const selectedBike = useMemo(
+    () => bikeHealthData.find((b) => b.id === selectedBikeId) ?? null,
+    [bikeHealthData, selectedBikeId]
+  );
+
+  // Effects
   useEffect(() => {
     if (unmappedData?.unmappedStravaGears?.length > 0) {
       setUnmappedGears(unmappedData.unmappedStravaGears);
@@ -153,21 +89,22 @@ export default function Dashboard() {
     }
   }, [unmappedData]);
 
-  const rides = ridesData?.rides ?? [];
-  const bikesRaw = useMemo(() => bikesData?.bikes ?? [], [bikesData]);
-  const userBikes = useMemo(
-    () => bikesRaw.map((bike) => toBikeCardModel(bike)),
-    [bikesRaw]
-  );
-  const [gpxModalOpen, setGpxModalOpen] = useState(false);
-  const [gpxBikeId, setGpxBikeId] = useState<string>('');
-  const [gpxFileName, setGpxFileName] = useState<string>('');
-
   useEffect(() => {
     if (!gpxBikeId && bikesRaw.length > 0) {
       setGpxBikeId(bikesRaw[0].id);
     }
   }, [bikesRaw, gpxBikeId]);
+
+  // Handlers
+  const handleViewDetails = (bikeId: string) => {
+    setSelectedBikeId(bikeId);
+    setIsHealthModalOpen(true);
+  };
+
+  const handleLogService = (bikeId: string) => {
+    setSelectedBikeId(bikeId);
+    setIsHealthModalOpen(true);
+  };
 
   const closeGpxModal = () => {
     setGpxModalOpen(false);
@@ -200,7 +137,7 @@ export default function Dashboard() {
         elevationGainFeet: Math.floor(Math.random() * 2000) + 500,
         averageHr: Math.floor(Math.random() * 40) + 140,
         rideType: 'TRAIL',
-        notes: '🧪 TEST: Simulated Garmin ride from watch',
+        notes: 'TEST: Simulated Garmin ride from watch',
         trailSystem: 'Mock Trail System',
         location: 'Test Location',
       };
@@ -210,10 +147,10 @@ export default function Dashboard() {
       });
 
       await refetchRides();
-      alert('✅ Simulated Garmin ride created successfully!');
+      alert('Simulated Garmin ride created successfully!');
     } catch (err) {
       console.error('Failed to simulate Garmin ride:', err);
-      alert('❌ Failed to simulate ride. Check console for details.');
+      alert('Failed to simulate ride. Check console for details.');
     } finally {
       setIsSimulatingRide(false);
     }
@@ -235,7 +172,7 @@ export default function Dashboard() {
         elevationGainFeet: Math.floor(Math.random() * 20000) + 30000,
         averageHr: Math.floor(Math.random() * 40) + 140,
         rideType: 'TRAIL',
-        notes: '🧪 TEST: Simulated LONG Garmin ride from watch (50+ hours)',
+        notes: 'TEST: Simulated LONG Garmin ride from watch (50+ hours)',
         trailSystem: 'Epic Long Trail System',
         location: 'Test Location',
       };
@@ -245,10 +182,10 @@ export default function Dashboard() {
       });
 
       await refetchRides();
-      alert('✅ Simulated long Garmin ride created successfully!');
+      alert('Simulated long Garmin ride created successfully!');
     } catch (err) {
       console.error('Failed to simulate long Garmin ride:', err);
-      alert('❌ Failed to simulate ride. Check console for details.');
+      alert('Failed to simulate ride. Check console for details.');
     } finally {
       setIsSimulatingRide(false);
     }
@@ -256,134 +193,35 @@ export default function Dashboard() {
 
   return (
     <div className="dashboard-app">
-      {/* Hero Welcome Section */}
-      <section className="dashboard-hero">
-        <div className="hero-greeting-badge">
-          <span className="greeting-dot" />
-          Welcome Back
-        </div>
-        <h1 className="hero-title">
-          Everything looks good, <span className="hero-name">{firstName}</span>.
-        </h1>
-        <p className="hero-subtitle">
-          Your bikes are maintained, your rides are logged, and your components are tracked.
-          <span className="hero-subtitle-highlight"> Let's keep the momentum going.</span>
-        </p>
-        <div className="hero-actions">
-          <Link to="/rides" className="action-btn action-btn-primary">
-            Log New Ride
-          </Link>
-          <button
-            type="button"
-            className="action-btn action-btn-secondary"
-            onClick={() => setGpxModalOpen(true)}
-          >
-            Upload GPX
-          </button>
-          <Link to="/gear" className="action-btn action-btn-outline">
-            View Garage
-          </Link>
-        </div>
+      {/* Primary: Bike Health Hero */}
+      <BikeHealthHero
+        bikes={bikeHealthData}
+        loading={bikesLoading}
+        error={bikesError ?? undefined}
+        firstName={firstName}
+        onViewDetails={handleViewDetails}
+        onLogService={handleLogService}
+        onUploadGpx={() => setGpxModalOpen(true)}
+        devMode={{
+          onTestRide: handleSimulateGarminRide,
+          onLongRide: handleSimulateLongGarminRide,
+          isSimulating: isSimulatingRide,
+        }}
+      />
 
-        {/* Test buttons */}
-        <div className="dev-actions">
-          <button
-            type="button"
-            className="dev-btn"
-            onClick={handleSimulateGarminRide}
-            disabled={isSimulatingRide}
-          >
-            {isSimulatingRide ? '⏳ Simulating' : '🧪 Test Ride'}
-          </button>
-          <button
-            type="button"
-            className="dev-btn"
-            onClick={handleSimulateLongGarminRide}
-            disabled={isSimulatingRide}
-          >
-            {isSimulatingRide ? '⏳ Simulating' : '🧪 Long Ride'}
-          </button>
-        </div>
-      </section>
-
-      {/* Dashboard Grid - Asymmetric Flow */}
-      <div className="dashboard-grid">
-        {/* Service Overview - Large Featured Card */}
-        <section className="data-card data-card-primary card-service">
+      {/* Secondary: Recent Rides + Stats */}
+      <div className="dashboard-secondary-grid">
+        {/* Recent Rides */}
+        <section className="data-card card-rides">
           <div className="card-header">
             <div className="card-label-group">
-              <span className="card-eyebrow">Component Health</span>
-              <h2 className="card-title">Service Overview</h2>
-              <span className="card-count">{userBikes.length} {userBikes.length === 1 ? 'bike' : 'bikes'} tracked</span>
-            </div>
-            <Link to="/gear" className="card-action-link">
-              View All →
-            </Link>
-          </div>
-
-          <div>
-            {bikesLoading && (
-              <div className="loading-state">
-                {Array.from({ length: 2 }).map((_, idx) => (
-                  <div key={idx} className="skeleton-item" />
-                ))}
-              </div>
-            )}
-            {bikesError && (
-              <div className="error-state">
-                <span className="error-icon">⚠️</span>
-                <p className="error-text">
-                  Unable to load bikes: {bikesError.message}
-                </p>
-              </div>
-            )}
-            {!bikesLoading && !bikesError && userBikes.length === 0 && (
-              <div className="empty-state">
-                <span className="empty-icon">🚵</span>
-                <p className="empty-text">
-                  No bikes in your garage yet.{' '}
-                  <Link to="/gear" className="empty-link">
-                    Add your first bike
-                  </Link>
-                  {' '}to start tracking components.
-                </p>
-              </div>
-            )}
-            {!bikesLoading && !bikesError && userBikes.length > 0 && (
-              <div className="item-list">
-                {userBikes.map((bike, idx) => (
-                  <div key={bike.id} className="list-item" style={{ animationDelay: `${idx * 0.1}s` }}>
-                    <BikeCard bike={bike} />
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </section>
-
-        {/* Ride Statistics - Elevated Data Card */}
-        <section className="data-card data-card-secondary card-stats">
-          <div className="card-header">
-            <div className="card-label-group">
-              <span className="card-eyebrow">Performance</span>
-              <h2 className="card-title">Ride Stats</h2>
-            </div>
-          </div>
-          <div>
-            <RideStatsCard showHeading={false} />
-          </div>
-        </section>
-
-        {/* Trail Log - Recent Activity */}
-        <section className="data-card data-card-tertiary card-trail-log">
-          <div className="card-header">
-            <div className="card-label-group">
-              <span className="card-eyebrow">Recent Activity</span>
-              <h2 className="card-title">Trail Log</h2>
-              <span className="card-count">{rides.length} of last {RECENT_COUNT}</span>
+              <h2 className="card-title">Recent Rides</h2>
+              <span className="card-count">
+                {rides.length} of last {RECENT_COUNT}
+              </span>
             </div>
             <Link to="/rides" className="card-action-link">
-              View All →
+              View All
             </Link>
           </div>
 
@@ -398,10 +236,8 @@ export default function Dashboard() {
 
             {ridesError && (
               <div className="error-state">
-                <span className="error-icon">⚠️</span>
-                <p className="error-text">
-                  Unable to load rides: {ridesError.message}
-                </p>
+                <span className="error-icon">!</span>
+                <p className="error-text">Unable to load rides: {ridesError.message}</p>
               </div>
             )}
 
@@ -412,8 +248,8 @@ export default function Dashboard() {
                   No rides recorded yet.{' '}
                   <Link to="/rides" className="empty-link">
                     Log your first ride
-                  </Link>
-                  {' '}to start tracking your adventures.
+                  </Link>{' '}
+                  to start tracking your adventures.
                 </p>
               </div>
             )}
@@ -421,7 +257,11 @@ export default function Dashboard() {
             {!ridesLoading && !ridesError && rides.length > 0 && (
               <ul className="item-list">
                 {rides.map((ride, idx) => (
-                  <li key={ride.id} className="list-item" style={{ animationDelay: `${idx * 0.08}s` }}>
+                  <li
+                    key={ride.id}
+                    className="list-item"
+                    style={{ animationDelay: `${idx * 0.08}s` }}
+                  >
                     <RideCard ride={ride} bikes={bikesRaw} />
                   </li>
                 ))}
@@ -429,14 +269,26 @@ export default function Dashboard() {
             )}
           </div>
         </section>
+
+        {/* Ride Stats - Compact */}
+        <section className="data-card data-card-compact card-stats">
+          <div className="card-header card-header-compact">
+            <h2 className="card-title card-title-sm">Ride Stats</h2>
+          </div>
+          <RideStatsCard showHeading={false} />
+        </section>
       </div>
+
+      {/* Bike Health Modal */}
+      <BikeHealthModal
+        isOpen={isHealthModalOpen}
+        onClose={() => setIsHealthModalOpen(false)}
+        bike={selectedBike}
+      />
 
       {/* GPX Upload Modal */}
       {gpxModalOpen && (
-        <div
-          className="modal-overlay"
-          onClick={closeGpxModal}
-        >
+        <div className="modal-overlay" onClick={closeGpxModal}>
           <div
             role="dialog"
             aria-modal="true"
@@ -516,6 +368,7 @@ export default function Dashboard() {
         </div>
       )}
 
+      {/* Strava Gear Mapping Modal */}
       {showGearMapping && unmappedGears.length > 0 && (
         <StravaGearMappingModal
           open={showGearMapping}

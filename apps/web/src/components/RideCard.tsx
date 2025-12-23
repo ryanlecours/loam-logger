@@ -7,6 +7,7 @@ import { BIKES } from '../graphql/bikes';
 import DeleteRideButton from './DeleteRideButton';
 import EditRideModal from './EditRideModal';
 import { fmtDateTime, fmtDuration, fmtMiles, fmtFeet } from '../lib/format';
+import { Badge, Select } from './ui';
 
 type Ride = {
   id: string;
@@ -108,13 +109,10 @@ export default function RideCard({ ride, bikes = [] }: RideCardProps) {
           <div className="ride-header">
             <h3 className="ride-title" title={title}>{title}</h3>
             {sourceBadge && (
-              <span
-                className="source-badge"
-                style={{
-                  backgroundColor: `${sourceBadge.color}15`,
-                  color: sourceBadge.color,
-                  borderColor: `${sourceBadge.color}40`,
-                }}
+              <Badge
+                variant="custom"
+                color={sourceBadge.color}
+                icon={<sourceBadge.Icon />}
                 title={
                   source === 'garmin'
                     ? 'From Garmin Connect'
@@ -123,9 +121,8 @@ export default function RideCard({ ride, bikes = [] }: RideCardProps) {
                       : 'Manual entry'
                 }
               >
-                <sourceBadge.Icon className="source-icon" />
                 {sourceBadge.label}
-              </span>
+              </Badge>
             )}
           </div>
 
@@ -148,18 +145,18 @@ export default function RideCard({ ride, bikes = [] }: RideCardProps) {
           {needsBikeAssignment && (
             <div className="bike-assignment">
               <span className="assignment-label">Assign to bike:</span>
-              <select
+              <Select
                 value={selectedBikeId}
                 onChange={(e) => setSelectedBikeId(e.target.value)}
                 disabled={isAssigning}
-                className="assignment-select"
+                className="assignment-select flex-1"
               >
                 {bikes.map((bike) => (
                   <option key={bike.id} value={bike.id}>
                     {bike.nickname || `${bike.manufacturer} ${bike.model}`}
                   </option>
                 ))}
-              </select>
+              </Select>
               <button
                 onClick={handleAssignBike}
                 disabled={isAssigning || !selectedBikeId}

@@ -197,6 +197,10 @@ r.post<Empty, void, { activities?: GarminActivityPush[] }>(
  * Spec: Garmin Activity API Section 5 (Ping Service)
  *
  * PING mode is preferred because it includes userId in the notification.
+ *
+ * Garmin sends TWO different payload formats:
+ * 1. activityDetails: [{ userId, summaryId, userAccessToken, ... }]
+ * 2. activities: [{ userId, callbackURL }] - used for backfill responses
  */
 type GarminActivityPing = {
   userId: string;
@@ -206,7 +210,44 @@ type GarminActivityPing = {
   [key: string]: unknown;
 };
 
-r.post<Empty, void, { activityDetails?: GarminActivityPing[] }>(
+type GarminActivityCallback = {
+  userId: string;
+  callbackURL: string;
+  [key: string]: unknown;
+};
+
+type GarminPingPayload = {
+  activityDetails?: GarminActivityPing[];
+  activities?: GarminActivityCallback[];
+};
+
+type GarminActivityDetail = {
+  summaryId: string;
+  activityId?: number;
+  activityType: string;
+  activityName?: string;
+  startTimeInSeconds: number;
+  startTimeOffsetInSeconds?: number;
+  durationInSeconds: number;
+  distanceInMeters?: number;
+  elevationGainInMeters?: number;
+  totalElevationGainInMeters?: number;
+  averageHeartRateInBeatsPerMinute?: number;
+  maxHeartRateInBeatsPerMinute?: number;
+  averageSpeedInMetersPerSecond?: number;
+  maxSpeedInMetersPerSecond?: number;
+  activeKilocalories?: number;
+  deviceName?: string;
+  manual?: boolean;
+  locationName?: string;
+  startLatitudeInDegrees?: number;
+  startLongitudeInDegrees?: number;
+  beginLatitude?: number;
+  beginLongitude?: number;
+  [key: string]: unknown;
+};
+
+r.post<Empty, void, GarminPingPayload>(
   '/webhooks/garmin/activities-ping',
   async (req: Request, res: Response) => {
     // Log incoming webhook request IMMEDIATELY to verify Garmin is hitting this endpoint
@@ -215,27 +256,49 @@ r.post<Empty, void, { activityDetails?: GarminActivityPing[] }>(
     console.log(`[Garmin PING Webhook] Body:`, JSON.stringify(req.body, null, 2));
 
     try {
-      const { activityDetails } = req.body;
+      const { activityDetails, activities } = req.body;
 
-      if (!activityDetails || !Array.isArray(activityDetails)) {
-        console.warn('[Garmin Activities PING] Invalid payload:', req.body);
-        return res.status(400).json({ error: 'Invalid activities payload' });
-      }
+      // Handle the "activities" format with callbackURL (used for backfill)
+      if (activities && Array.isArray(activities) && activities.length > 0) {
+        console.log(`[Garmin Activities PING] Received ${activities.length} callback notification(s)`);
 
-      console.log(`[Garmin Activities PING] Received ${activityDetails.length} notification(s)`);
+        // IMPORTANT: Respond with 200 OK immediately (Garmin requires this within 30 seconds)
+        res.status(200).send('OK');
 
-      // IMPORTANT: Respond with 200 OK immediately (Garmin requires this within 30 seconds)
-      res.status(200).send('OK');
-
-      // Process activity notifications after responding
-      for (const notification of activityDetails) {
-        try {
-          await processActivityPing(notification);
-        } catch (error) {
-          console.error(`[Garmin Activities PING] Failed to process notification ${notification.summaryId}:`, error);
-          // Continue processing other notifications even if one fails
+        // Process each callback URL
+        for (const notification of activities) {
+          try {
+            await processActivityCallback(notification);
+          } catch (error) {
+            console.error(`[Garmin Activities PING] Failed to process callback for user ${notification.userId}:`, error);
+            // Continue processing other notifications even if one fails
+          }
         }
+        return;
       }
+
+      // Handle the "activityDetails" format with summaryId
+      if (activityDetails && Array.isArray(activityDetails) && activityDetails.length > 0) {
+        console.log(`[Garmin Activities PING] Received ${activityDetails.length} notification(s)`);
+
+        // IMPORTANT: Respond with 200 OK immediately (Garmin requires this within 30 seconds)
+        res.status(200).send('OK');
+
+        // Process activity notifications after responding
+        for (const notification of activityDetails) {
+          try {
+            await processActivityPing(notification);
+          } catch (error) {
+            console.error(`[Garmin Activities PING] Failed to process notification ${notification.summaryId}:`, error);
+            // Continue processing other notifications even if one fails
+          }
+        }
+        return;
+      }
+
+      // Neither format matched
+      console.warn('[Garmin Activities PING] Invalid payload:', req.body);
+      return res.status(400).json({ error: 'Invalid activities payload' });
     } catch (error) {
       console.error('[Garmin Activities PING] Error:', error);
       // Already responded, so just log the error
@@ -359,32 +422,6 @@ async function processActivityPing(notification: GarminActivityPing): Promise<vo
       return;
     }
 
-type GarminActivityDetail = {
-  summaryId: string;
-  activityId?: number;
-  activityType: string;
-  activityName?: string;
-  startTimeInSeconds: number;
-  startTimeOffsetInSeconds?: number;
-  durationInSeconds: number;
-  distanceInMeters?: number;
-  elevationGainInMeters?: number;
-  totalElevationGainInMeters?: number;
-  averageHeartRateInBeatsPerMinute?: number;
-  maxHeartRateInBeatsPerMinute?: number;
-  averageSpeedInMetersPerSecond?: number;
-  maxSpeedInMetersPerSecond?: number;
-  activeKilocalories?: number;
-  deviceName?: string;
-  manual?: boolean;
-  locationName?: string;
-  startLatitudeInDegrees?: number;
-  startLongitudeInDegrees?: number;
-  beginLatitude?: number;
-  beginLongitude?: number;
-  [key: string]: unknown;
-};
-
     const activityDetail = (await activityRes.json()) as GarminActivityDetail;
 
     // Filter: Only process cycling/mountain biking activities
@@ -483,6 +520,167 @@ type GarminActivityDetail = {
     console.log(`[Garmin Activities PING] Successfully stored ride for activity ${summaryId}`);
   } catch (error) {
     console.error(`[Garmin Activities PING] Error fetching/storing activity ${summaryId}:`, error);
+    throw error;
+  }
+}
+
+/**
+ * Process a Garmin activity callback notification (used for backfill)
+ * Fetches activities from the provided callbackURL
+ */
+async function processActivityCallback(notification: GarminActivityCallback): Promise<void> {
+  const { userId: garminUserId, callbackURL } = notification;
+
+  console.log(`[Garmin Activities Callback] Processing callback for Garmin user: ${garminUserId}`);
+  console.log(`[Garmin Activities Callback] Callback URL: ${callbackURL}`);
+
+  // Find the user by their Garmin User ID
+  const userAccount = await prisma.userAccount.findUnique({
+    where: {
+      provider_providerUserId: {
+        provider: 'garmin',
+        providerUserId: garminUserId,
+      },
+    },
+  });
+
+  if (!userAccount) {
+    console.warn(`[Garmin Activities Callback] Unknown Garmin userId: ${garminUserId}`);
+    return;
+  }
+
+  console.log(`[Garmin Activities Callback] Found user: ${userAccount.userId}`);
+
+  // Get valid access token (auto-refreshes if expired)
+  const accessToken = await getValidGarminToken(userAccount.userId);
+
+  if (!accessToken) {
+    console.error(`[Garmin Activities Callback] No valid OAuth token for user ${userAccount.userId}`);
+    return;
+  }
+
+  try {
+    // Fetch activities from the callback URL
+    const callbackRes = await fetch(callbackURL, {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Accept': 'application/json',
+      },
+    });
+
+    if (!callbackRes.ok) {
+      const text = await callbackRes.text();
+      console.error(`[Garmin Activities Callback] Failed to fetch from callback URL: ${callbackRes.status} ${text}`);
+      return;
+    }
+
+    const activities = (await callbackRes.json()) as GarminActivityDetail[];
+
+    if (!Array.isArray(activities)) {
+      console.error(`[Garmin Activities Callback] Unexpected response format:`, activities);
+      return;
+    }
+
+    console.log(`[Garmin Activities Callback] Fetched ${activities.length} activities from callback URL`);
+
+    // Filter: Only process cycling/mountain biking activities
+    const CYCLING_ACTIVITY_TYPES = [
+      'cycling',
+      'bmx',
+      'cyclocross',
+      'downhill_biking',
+      'e_bike_fitness',
+      'e_bike_mountain',
+      'e_enduro_mtb',
+      'enduro_mtb',
+      'gravel_cycling',
+      'indoor_cycling',
+      'mountain_biking',
+      'recumbent_cycling',
+      'road_biking',
+      'track_cycling',
+      'virtual_ride',
+      'handcycling',
+      'indoor_handcycling',
+    ];
+
+    for (const activity of activities) {
+      const activityTypeLower = activity.activityType.toLowerCase().replace(/\s+/g, '_');
+      if (!CYCLING_ACTIVITY_TYPES.includes(activityTypeLower)) {
+        console.log(`[Garmin Activities Callback] Skipping non-cycling activity: ${activity.activityType} (${activity.summaryId})`);
+        continue;
+      }
+
+      console.log(`[Garmin Activities Callback] Processing cycling activity: ${activity.activityType} (${activity.summaryId})`);
+
+      // Convert activity to Ride format
+      const distanceMiles = activity.distanceInMeters
+        ? activity.distanceInMeters * 0.000621371
+        : 0;
+
+      const elevationGainFeet = (activity.totalElevationGainInMeters ?? activity.elevationGainInMeters)
+        ? (activity.totalElevationGainInMeters ?? activity.elevationGainInMeters)! * 3.28084
+        : 0;
+
+      const startTime = new Date(activity.startTimeInSeconds * 1000);
+
+      const autoLocation = deriveLocation({
+        city: activity.locationName ?? null,
+        state: null,
+        country: null,
+        lat:
+          activity.startLatitudeInDegrees ??
+          activity.beginLatitude ??
+          null,
+        lon:
+          activity.startLongitudeInDegrees ??
+          activity.beginLongitude ??
+          null,
+      });
+
+      const existingRide = await prisma.ride.findUnique({
+        where: { garminActivityId: activity.summaryId },
+        select: { location: true },
+      });
+
+      const locationUpdate = shouldApplyAutoLocation(
+        existingRide?.location ?? null,
+        autoLocation
+      );
+
+      // Upsert the ride (create or update if it already exists)
+      await prisma.ride.upsert({
+        where: {
+          garminActivityId: activity.summaryId,
+        },
+        create: {
+          userId: userAccount.userId,
+          garminActivityId: activity.summaryId,
+          startTime,
+          durationSeconds: activity.durationInSeconds,
+          distanceMiles,
+          elevationGainFeet,
+          averageHr: activity.averageHeartRateInBeatsPerMinute ?? null,
+          rideType: activity.activityType,
+          notes: activity.activityName ?? null,
+          location: autoLocation,
+        },
+        update: {
+          startTime,
+          durationSeconds: activity.durationInSeconds,
+          distanceMiles,
+          elevationGainFeet,
+          averageHr: activity.averageHeartRateInBeatsPerMinute ?? null,
+          rideType: activity.activityType,
+          notes: activity.activityName ?? null,
+          ...(locationUpdate !== undefined ? { location: locationUpdate } : {}),
+        },
+      });
+
+      console.log(`[Garmin Activities Callback] Successfully stored ride for activity ${activity.summaryId}`);
+    }
+  } catch (error) {
+    console.error(`[Garmin Activities Callback] Error processing callback:`, error);
     throw error;
   }
 }

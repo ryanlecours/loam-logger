@@ -9,6 +9,7 @@ import {
 } from "react-icons/fa";
 import { LOG_COMPONENT_SERVICE } from "../graphql/logComponentService";
 import { BIKES } from "../graphql/bikes";
+import { Modal, Button } from "./ui";
 
 const statusIcons = {
   ok: <FaCheckCircle className="component-icon icon-good" />,
@@ -200,88 +201,64 @@ export default function BikeCard({ bike }: { bike: Bike }) {
         )}
       </div>
 
-      {isOverlayOpen && (
-        <div
-          className="service-overlay"
-          role="dialog"
-          aria-modal="true"
-          aria-label={`Log service for ${bike.name}`}
-        >
-          <div className="service-overlay-card">
-            <div className="service-overlay-header">
-              <div>
-                <p className="overlay-eyebrow">Service log</p>
-                <h3 className="overlay-title">{bike.name}</h3>
-              </div>
-              <button
-                type="button"
-                className="overlay-close"
-                onClick={() => setIsOverlayOpen(false)}
-                aria-label="Close service selection"
-                disabled={isLogging}
+      <Modal
+        isOpen={isOverlayOpen}
+        onClose={() => setIsOverlayOpen(false)}
+        title={bike.name}
+        subtitle="Select the components you serviced."
+        preventClose={isLogging}
+        footer={
+          <>
+            <Button
+              variant="secondary"
+              onClick={() => setIsOverlayOpen(false)}
+              disabled={isLogging}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              onClick={handleLogService}
+              disabled={isLogging || selectedComponentIds.length === 0}
+            >
+              {isLogging ? "Logging..." : "Log Selected"}
+            </Button>
+          </>
+        }
+      >
+        <div className="service-checkbox-list">
+          {components.map((component) => {
+            const { statusClass, statusIcon } = getStatusVisuals(
+              component.status
+            );
+
+            return (
+              <label
+                key={component.id}
+                className={`service-checkbox ${statusClass}`}
               >
-                &times;
-              </button>
-            </div>
-
-            <p className="service-overlay-subtitle">
-              Select the components you serviced.
-            </p>
-
-            <div className="service-checkbox-list">
-              {components.map((component) => {
-                const { statusClass, statusIcon } = getStatusVisuals(
-                  component.status
-                );
-
-                return (
-                  <label
-                    key={component.id}
-                    className={`service-checkbox ${statusClass}`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selectedComponentIds.includes(component.id)}
-                      onChange={() => toggleSelection(component.id)}
-                    />
-                    <div className="service-checkbox-content">
-                      <div className="service-checkbox-title">
-                        <span className="component-label">{component.label}</span>
-                        <span className="component-hours-pill small">
-                          {formatHoursAndMinutes(component.hours)}
-                        </span>
-                      </div>
-                      <p className="component-details">
-                        {component.brand} {component.model}
-                      </p>
-                    </div>
-                    {statusIcon}
-                  </label>
-                );
-              })}
-            </div>
-
-            <div className="service-overlay-actions">
-              <button
-                type="button"
-                className="overlay-button ghost"
-                onClick={() => setIsOverlayOpen(false)}
-                disabled={isLogging}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="overlay-button primary"
-                onClick={handleLogService}
-                disabled={isLogging || selectedComponentIds.length === 0}
-              >
-                {isLogging ? "Logging..." : "Log Selected"}
-              </button>
-            </div>
-          </div>
+                <input
+                  type="checkbox"
+                  checked={selectedComponentIds.includes(component.id)}
+                  onChange={() => toggleSelection(component.id)}
+                />
+                <div className="service-checkbox-content">
+                  <div className="service-checkbox-title">
+                    <span className="component-label">{component.label}</span>
+                    <span className="component-hours-pill small">
+                      {formatHoursAndMinutes(component.hours)}
+                    </span>
+                  </div>
+                  <p className="component-details">
+                    {component.brand} {component.model}
+                  </p>
+                </div>
+                {statusIcon}
+              </label>
+            );
+          })}
         </div>
-      )}
+      </Modal>
     </div>
   );
 }
