@@ -16,6 +16,7 @@ export const BIKES = gql`
         model
         hoursUsed
         serviceDueAtHours
+        updatedAt
       }
       shock {
         id
@@ -23,6 +24,7 @@ export const BIKES = gql`
         model
         hoursUsed
         serviceDueAtHours
+        updatedAt
       }
       pivotBearings {
         id
@@ -30,6 +32,7 @@ export const BIKES = gql`
         model
         hoursUsed
         serviceDueAtHours
+        updatedAt
       }
       components {
         id
@@ -38,6 +41,7 @@ export const BIKES = gql`
         model
         hoursUsed
         serviceDueAtHours
+        updatedAt
       }
     }
   }

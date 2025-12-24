@@ -29,21 +29,6 @@ export default function HeroSection() {
         <div className="absolute inset-0 bg-gradient-to-b from-black/75 via-black/60 to-black/75" />
       </div>
 
-      {/* Login Link for Existing Users */}
-      <motion.div
-        className="absolute top-6 right-6 z-20"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ duration: 0.8, delay: 0.5 }}
-      >
-        <a
-          href="/login"
-          className="text-sm text-sand/80 hover:text-cream transition-colors"
-        >
-          Log In
-        </a>
-      </motion.div>
-
       {/* Content */}
       <div className="relative z-10 container text-center px-6">
         <motion.div
