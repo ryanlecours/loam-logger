@@ -33,26 +33,49 @@ export default function Navbar() {
   };
 
   return (
-    <nav className="bg-surface-2 shadow-sm sticky top-0 z-50">
-      <div className="mx-auto px-4">
+    <nav
+      className="fixed top-0 left-0 right-0 z-50 border-b"
+      style={{
+        background: 'rgba(18, 28, 24, 0.2)',
+        backdropFilter: 'blur(32px)',
+        WebkitBackdropFilter: 'blur(16px)',
+        borderColor: 'rgba(168, 208, 184, 0.1)',
+        boxShadow: '0 2px 4px rgba(0, 0, 0, 0.4)',
+      }}
+    >
+      <div className="container">
         <div className="flex justify-between items-center h-16">
-          <NavLink to="/dashboard" className="text-xl font-bold">
-            LoamLogger
+          {/* Logo/Brand */}
+          <NavLink
+            to="/dashboard"
+            className="flex items-center space-x-2 group"
+          >
+            <span
+              className="text-2xl font-bold transition-all duration-300"
+              style={{
+                background: 'linear-gradient(135deg, rgb(134, 158, 140) 0%, rgb(168, 208, 184) 100%)',
+                WebkitBackgroundClip: 'text',
+                WebkitTextFillColor: 'transparent',
+                backgroundClip: 'text'
+              }}
+            >
+              LoamLogger
+            </span>
           </NavLink>
 
-          {/* Desktop Links + Logout - Hidden on mobile, visible on md+ */}
-          <div className="hidden md:flex items-center gap-2">
+          {/* Desktop Navigation */}
+          <div className="hidden md:flex items-center space-x-2">
             {navLinks.map(({ label, path }) => (
               <NavLink
                 key={label}
                 to={path}
                 className={({ isActive }) =>
                   [
-                    "relative group rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-                    isActive ? "text-accent" : "text-accent-contrast hover:text-black",
-                    "hover:ring-1 hover:ring-primary/40 hover:ring-offset-1 hover:ring-offset-surface-1",
+                    "relative px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200",
+                    isActive ? "" : "hover:opacity-80",
                   ].join(" ")
                 }
+                style={{ color: 'var(--sage)' }}
                 end
               >
                 {({ isActive }) => (
@@ -61,7 +84,8 @@ export default function Navbar() {
                       {isActive && (
                         <motion.span
                           layoutId="nav-active-pill"
-                          className="absolute inset-0 rounded-lg bg-primary/10"
+                          className="absolute inset-0 rounded-lg"
+                          style={{ background: 'rgba(134, 158, 140, 0.15)' }}
                           initial={{ opacity: 0 }}
                           animate={{ opacity: 1 }}
                           exit={{ opacity: 0 }}
@@ -77,16 +101,23 @@ export default function Navbar() {
 
             <button
               onClick={handleLogout}
-              className="ml-2 cursor-pointer rounded-lg px-3 py-2 text-sm font-medium text-accent-contrast hover:text-black transition hover:ring-1 hover:ring-primary/40 hover:ring-offset-1 hover:ring-offset-surface-1"
+              className="ml-4 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 hover:opacity-80"
+              style={{ color: 'var(--sage)' }}
             >
               Logout
             </button>
           </div>
 
-          {/* Mobile Hamburger - Visible on mobile, hidden on md+ */}
+          {/* Mobile Menu Button */}
           <button
-            className="flex md:hidden p-2 rounded-lg hover:bg-surface-accent transition text-white"
             onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+            className="md:hidden p-2 rounded-lg transition-colors"
+            style={{
+              color: 'var(--sage)',
+              background: 'transparent'
+            }}
+            onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(134, 158, 140, 0.1)'}
+            onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
             aria-label="Toggle menu"
           >
             <svg
@@ -94,7 +125,6 @@ export default function Navbar() {
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
-              xmlns="http://www.w3.org/2000/svg"
             >
               {isMobileMenuOpen ? (
                 <path
@@ -114,51 +144,74 @@ export default function Navbar() {
             </svg>
           </button>
         </div>
-
-        {/* Mobile Menu Dropdown */}
-        <AnimatePresence>
-          {isMobileMenuOpen && (
-            <motion.div
-              className="md:hidden pb-4"
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: "auto", opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.2 }}
-            >
-              <div className="flex flex-col space-y-2">
-                {navLinks.map(({ label, path }) => (
-                  <NavLink
-                    key={label}
-                    to={path}
-                    onClick={closeMobileMenu}
-                    className={({ isActive }) =>
-                      [
-                        "rounded-lg px-4 py-3 text-sm font-medium transition-colors",
-                        isActive
-                          ? "bg-primary/10 text-accent"
-                          : "text-accent-contrast hover:bg-surface-accent",
-                      ].join(" ")
-                    }
-                    end
-                  >
-                    {label}
-                  </NavLink>
-                ))}
-
-                <button
-                  onClick={() => {
-                    closeMobileMenu();
-                    handleLogout();
-                  }}
-                  className="rounded-lg px-4 py-3 text-sm font-medium text-accent-contrast hover:bg-surface-accent transition text-left"
-                >
-                  Logout
-                </button>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
       </div>
+
+      {/* Mobile Menu */}
+      <AnimatePresence>
+        {isMobileMenuOpen && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.2 }}
+            style={{
+              borderTop: '1px solid rgba(168, 208, 184, 0.1)',
+              background: 'rgba(18, 28, 24, 0.95)',
+              backdropFilter: 'blur(16px)',
+              WebkitBackdropFilter: 'blur(16px)',
+            }}
+            className="md:hidden"
+          >
+            <div className="px-4 py-4 space-y-1">
+              {navLinks.map(({ label, path }) => (
+                <NavLink
+                  key={label}
+                  to={path}
+                  onClick={closeMobileMenu}
+                  className={({ isActive }) =>
+                    [
+                      "block px-4 py-3 rounded-lg text-sm font-medium transition-colors",
+                      isActive ? "" : "",
+                    ].join(" ")
+                  }
+                  style={{ color: 'var(--sage)' }}
+                  end
+                >
+                  {({ isActive }) => (
+                    <span
+                      className="block px-4 py-3 -mx-4 -my-3 rounded-lg transition-colors"
+                      style={{
+                        background: isActive ? 'rgba(134, 158, 140, 0.15)' : 'transparent',
+                      }}
+                      onMouseEnter={(e) => {
+                        if (!isActive) e.currentTarget.style.background = 'rgba(134, 158, 140, 0.1)';
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!isActive) e.currentTarget.style.background = 'transparent';
+                      }}
+                    >
+                      {label}
+                    </span>
+                  )}
+                </NavLink>
+              ))}
+
+              <button
+                onClick={() => {
+                  closeMobileMenu();
+                  handleLogout();
+                }}
+                className="block w-full text-left px-4 py-3 rounded-lg text-sm font-medium transition-colors"
+                style={{ color: 'var(--sage)' }}
+                onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(134, 158, 140, 0.1)'}
+                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+              >
+                Logout
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </nav>
   );
 }

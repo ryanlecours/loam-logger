@@ -20,7 +20,6 @@ export function BikeHealthCard({
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4 }}
-      whileHover={{ y: -4 }}
     >
       <h3 className="health-card-bike-name">{bike.name}</h3>
 
@@ -46,10 +45,10 @@ export function BikeHealthCard({
       </div>
 
       <div className="health-card-actions">
-        <Button variant="secondary" onClick={onViewDetails}>
+        <Button variant="secondary" size='sm' onClick={onViewDetails}>
           View Details
         </Button>
-        <Button variant="outline" onClick={onLogService}>
+        <Button variant="outline" size='sm' onClick={onLogService}>
           Log Service
         </Button>
       </div>

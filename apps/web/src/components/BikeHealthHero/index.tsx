@@ -1,8 +1,11 @@
+import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'motion/react';
 import { BikeHealthCard } from './BikeHealthCard';
 import { Button } from '../ui';
+import DashboardGreeting from '../DashboardGreeting';
 import type { BikeHealth } from '../../utils/transformToHealthData';
+import type { RideStats } from '../RideStatsCard/types';
 
 interface BikeHealthHeroProps {
   bikes: BikeHealth[];
@@ -12,6 +15,8 @@ interface BikeHealthHeroProps {
   onViewDetails: (bikeId: string) => void;
   onLogService: (bikeId: string) => void;
   onUploadGpx: () => void;
+  weeklyStats?: RideStats | null;
+  totalHoursAllTime?: number;
   devMode?: {
     onTestRide: () => void;
     onLongRide: () => void;
@@ -27,13 +32,27 @@ export function BikeHealthHero({
   onViewDetails,
   onLogService,
   onUploadGpx,
+  weeklyStats,
+  totalHoursAllTime,
   devMode,
 }: BikeHealthHeroProps) {
+  // Aggregate bike health counts across all bikes
+  const aggregateBikeHealth = useMemo(() => {
+    const criticalCount = bikes.reduce((sum, b) => sum + b.criticalCount, 0);
+    const warningCount = bikes.reduce((sum, b) => sum + b.warningCount, 0);
+    return { criticalCount, warningCount };
+  }, [bikes]);
+
   return (
     <section className="bike-health-hero">
       {/* Header Row: Greeting + Quick Actions */}
       <div className="health-hero-header">
-        <span className="hero-greeting-small">Hey {firstName}</span>
+        <DashboardGreeting
+          firstName={firstName}
+          stats={weeklyStats ?? null}
+          bikeHealth={aggregateBikeHealth}
+          totalHoursAllTime={totalHoursAllTime}
+        />
         <div className="hero-quick-actions">
           {devMode && (
             <>
