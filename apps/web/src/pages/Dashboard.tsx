@@ -230,6 +230,7 @@ export default function Dashboard() {
           onLongRide: handleSimulateLongGarminRide,
           isSimulating: isSimulatingRide,
         }}
+        isAdmin={user?.role === 'ADMIN'}
       />
 
       {/* Secondary: Recent Rides + Stats */}
