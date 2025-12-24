@@ -26,6 +26,12 @@ export const typeDefs = gql`
     PIVOT_BEARINGS
   }
 
+  enum UserRole {
+    FREE
+    PRO
+    ADMIN
+  }
+
   type Ride {
     id: ID!
     userId: ID!
@@ -228,6 +234,7 @@ export const typeDefs = gql`
     age: Int
     activeDataSource: String
     accounts: [ConnectedAccount!]!
+    role: UserRole!
   }
 
   input RidesFilterInput {

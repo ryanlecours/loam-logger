@@ -10,6 +10,7 @@ export const ME_QUERY = gql`
       onboardingCompleted
       location
       age
+      role
     }
   }
 `
