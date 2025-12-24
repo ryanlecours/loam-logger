@@ -5,7 +5,7 @@ type MotionButtonProps = React.ComponentPropsWithoutRef<typeof motion.button>;
 
 interface ButtonProps extends Omit<MotionButtonProps, "variant"> {
   variant?: "primary" | "secondary" | "outline";
-  size?: "sm" | "default";
+  size?: "sm" | "default" | "lg";
 }
 
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
@@ -13,7 +13,16 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     const base =
       "cursor-pointer font-medium transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2";
 
-    const sizeClasses = size === "sm" ? "btn-sm" : "px-4 py-2";
+    const sizeClasses = (() => {
+      switch (size) {
+        case "sm":
+          return "btn-sm";
+        case "lg":
+          return "btn-lg";
+        default:
+          return "px-4 py-2";
+      }
+    })();
 
     const variantClasses = (() => {
       switch (variant) {
