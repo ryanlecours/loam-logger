@@ -65,8 +65,8 @@ export default function Admin() {
       } else {
         setWaitlist((prev) => [...prev, ...data.entries]);
       }
-      setHasMore(pageNum < data.pagination.totalPages);
-      setPage(pageNum);
+      setHasMore(data.pagination.page < data.pagination.totalPages);
+      setPage(data.pagination.page);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
     } finally {
