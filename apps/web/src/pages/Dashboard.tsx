@@ -7,12 +7,14 @@ import { BIKES } from '../graphql/bikes';
 import { ADD_RIDE } from '../graphql/addRide';
 import { UNMAPPED_STRAVA_GEARS } from '../graphql/stravaGear';
 import RideCard from '../components/RideCard';
-import RideStatsCard from '../components/RideStatsCard.tsx';
+import RideStatsCard from '../components/RideStatsCard';
 import StravaGearMappingModal from '../components/StravaGearMappingModal';
 import { BikeHealthHero } from '../components/BikeHealthHero';
 import { BikeHealthModal } from '../components/BikeHealthModal';
 import { useCurrentUser } from '../hooks/useCurrentUser.ts';
 import { transformToHealthData, type BikeSummary } from '../utils/transformToHealthData';
+import { useRideStats, buildBikeNameMap } from '../components/RideStatsCard/hooks/useRideStats';
+import type { Ride as RideModel } from '../models/Ride';
 
 type Ride = {
   id: string;
@@ -27,6 +29,7 @@ type Ride = {
 };
 
 const RECENT_COUNT = 5;
+const STATS_RIDE_COUNT = 200;
 
 export default function Dashboard() {
   const user = useCurrentUser().user;
@@ -40,6 +43,12 @@ export default function Dashboard() {
     refetch: refetchRides,
   } = useQuery<{ rides: Ride[] }>(RIDES, {
     variables: { take: RECENT_COUNT },
+    fetchPolicy: 'cache-first',
+  });
+
+  // Separate query for stats (more rides needed)
+  const { data: statsRidesData } = useQuery<{ rides: RideModel[] }>(RIDES, {
+    variables: { take: STATS_RIDE_COUNT },
     fetchPolicy: 'cache-first',
   });
 
@@ -80,6 +89,18 @@ export default function Dashboard() {
     () => bikeHealthData.find((b) => b.id === selectedBikeId) ?? null,
     [bikeHealthData, selectedBikeId]
   );
+
+  // Compute ride stats for greeting insights
+  const bikeNameMap = useMemo(
+    () => buildBikeNameMap(bikesRaw),
+    [bikesRaw]
+  );
+  const rideStats = useRideStats({
+    rides: statsRidesData?.rides ?? [],
+    bikeNameMap,
+  });
+  const weeklyStats = rideStats['1w'] ?? null;
+  const allTimeStats = rideStats['ALL'] ?? null;
 
   // Effects
   useEffect(() => {
@@ -202,6 +223,8 @@ export default function Dashboard() {
         onViewDetails={handleViewDetails}
         onLogService={handleLogService}
         onUploadGpx={() => setGpxModalOpen(true)}
+        weeklyStats={weeklyStats}
+        totalHoursAllTime={allTimeStats?.hours}
         devMode={{
           onTestRide: handleSimulateGarminRide,
           onLongRide: handleSimulateLongGarminRide,
