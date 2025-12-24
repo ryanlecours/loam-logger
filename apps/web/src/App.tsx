@@ -9,6 +9,7 @@ import NotFound from './pages/NotFound';
 import Rides from './pages/Rides';
 import Settings from './pages/Settings';
 import Gear from './pages/Gear';
+import Admin from './pages/Admin';
 import AuthComplete from './pages/AuthComplete';
 import BetaTesterWaitlist from './pages/BetaTesterWaitlist';
 
@@ -68,6 +69,7 @@ function AppRoutes() {
           <Route path="/rides" element={<ProtectedRoute><Rides /></ProtectedRoute>} />
           <Route path="/gear" element={<ProtectedRoute><Gear /></ProtectedRoute>} />
           <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+          <Route path="/admin" element={<ProtectedRoute><Admin /></ProtectedRoute>} />
 
           {/* 404 */}
           <Route path="*" element={<Page><NotFound /></Page>} />

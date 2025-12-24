@@ -19,11 +19,18 @@ enum AuthProvider {
   strava
 }
 
+enum UserRole {
+  FREE
+  PRO
+  ADMIN
+}
+
 model User {
   id             String    @id @default(uuid())
   email          String    @unique
   name           String?
   passwordHash   String?   // null for OAuth-only accounts
+  role           UserRole  @default(FREE)  // FREE, PRO, or ADMIN
   garminUserId   String?   @unique
   stravaUserId   String?   @unique  // For webhook identification
   activeDataSource AuthProvider?  // Preferred data source (garmin or strava)
