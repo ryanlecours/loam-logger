@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useApolloClient } from '@apollo/client';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import type { ReactNode } from 'react';
+import { useCurrentUser } from '../../hooks/useCurrentUser';
 
-const NAV_LINKS = [
+const BASE_NAV_LINKS = [
   { label: 'Dashboard', path: '/dashboard' },
   { label: 'My Bikes', path: '/gear' },
   { label: 'Rides', path: '/rides' },
@@ -16,6 +17,15 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const apollo = useApolloClient();
   const reduceMotion = useReducedMotion();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const { user } = useCurrentUser();
+
+  const navLinks = useMemo(() => {
+    const links = [...BASE_NAV_LINKS];
+    if (user?.role === 'ADMIN') {
+      links.push({ label: 'Admin', path: '/admin' });
+    }
+    return links;
+  }, [user?.role]);
 
   const handleLogout = async () => {
     try {
@@ -68,7 +78,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
             {/* Desktop Navigation */}
             <div className="hidden md:flex items-center space-x-2">
-              {NAV_LINKS.map(({ label, path }) => (
+              {navLinks.map(({ label, path }) => (
                 <NavLink
                   key={path}
                   to={path}
@@ -166,7 +176,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
               className="md:hidden"
             >
               <div className="px-4 py-4 space-y-1">
-                {NAV_LINKS.map(({ label, path }) => (
+                {navLinks.map(({ label, path }) => (
                   <NavLink
                     key={path}
                     to={path}
