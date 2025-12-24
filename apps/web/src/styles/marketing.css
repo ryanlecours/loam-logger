@@ -2351,3 +2351,324 @@ html.marketing-page:focus-within {
 .modal-dialog {
   will-change: transform;
 }
+
+/* ============================================
+   BADGE COMPONENT
+   ============================================ */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.25rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border: 1px solid;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.badge-icon {
+  width: 0.875rem;
+  height: 0.875rem;
+}
+
+.badge-success {
+  background: rgba(168, 208, 184, 0.15);
+  color: var(--mint);
+  border-color: rgba(168, 208, 184, 0.4);
+}
+
+.badge-warning {
+  background: rgba(184, 115, 84, 0.15);
+  color: var(--copper);
+  border-color: rgba(184, 115, 84, 0.4);
+}
+
+.badge-danger {
+  background: rgba(196, 89, 67, 0.15);
+  color: var(--error);
+  border-color: rgba(196, 89, 67, 0.4);
+}
+
+.badge-info {
+  background: rgba(134, 158, 140, 0.15);
+  color: var(--sage);
+  border-color: rgba(134, 158, 140, 0.4);
+}
+
+.badge-default {
+  background: rgba(142, 148, 145, 0.15);
+  color: var(--concrete);
+  border-color: rgba(142, 148, 145, 0.4);
+}
+
+/* ============================================
+   BIKE HEALTH HERO - Dashboard Primary Section
+   ============================================ */
+
+.bike-health-hero {
+  background: linear-gradient(
+    135deg,
+    rgba(68, 96, 76, 0.15) 0%,
+    rgba(54, 60, 57, 0.1) 100%
+  );
+  border: 1px solid rgba(134, 158, 140, 0.15);
+  border-radius: 1.5rem;
+  padding: clamp(1.5rem, 3vw, 2rem);
+  margin-bottom: clamp(1.5rem, 2vw, 2rem);
+  backdrop-filter: blur(20px);
+}
+
+.health-hero-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.hero-greeting-small {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--sage);
+}
+
+.hero-quick-actions {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.health-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 360px));
+  gap: 1.25rem;
+}
+
+/* Health Card */
+.health-card {
+  background: rgba(54, 60, 57, 0.4);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(134, 158, 140, 0.2);
+  border-radius: 1rem;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.health-card:hover {
+  border-color: rgba(134, 158, 140, 0.35);
+}
+
+.health-card-skeleton {
+  min-height: 180px;
+}
+
+.health-card-bike-name {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--cream);
+  margin: 0;
+}
+
+.health-card-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.health-card-actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: auto;
+}
+
+/* Health States */
+.health-error-state,
+.health-empty-state {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 2rem;
+  color: var(--concrete);
+}
+
+.health-error-state .error-icon,
+.health-empty-state .empty-icon {
+  font-size: 2rem;
+  display: block;
+  margin-bottom: 0.5rem;
+}
+
+/* Secondary Dashboard Grid */
+.dashboard-secondary-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: clamp(1.25rem, 2vw, 1.75rem);
+}
+
+/* Override old grid positioning for new layout */
+.dashboard-secondary-grid .card-stats,
+.dashboard-secondary-grid .card-rides {
+  grid-column: auto;
+}
+
+@media (max-width: 1024px) {
+  .dashboard-secondary-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Compact Card Variants */
+.data-card-compact {
+  padding: clamp(1.25rem, 2vw, 1.5rem);
+}
+
+.card-header-compact {
+  margin-bottom: 1rem;
+  padding-bottom: 0.75rem;
+}
+
+.card-title-sm {
+  font-size: 1.125rem;
+}
+
+/* ============================================
+   BIKE HEALTH MODAL - Component Details
+   ============================================ */
+
+.component-details-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.component-detail-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  padding: 1rem;
+  background: rgba(54, 60, 57, 0.4);
+  border-radius: 0.75rem;
+  border-left: 3px solid var(--mint);
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.component-detail-row:hover {
+  background: rgba(54, 60, 57, 0.6);
+}
+
+.component-detail-row.component-status-warning {
+  border-left-color: var(--copper);
+}
+
+.component-detail-row.component-status-danger {
+  border-left-color: var(--error);
+}
+
+.component-checkbox {
+  margin-top: 0.25rem;
+  width: 1.25rem;
+  height: 1.25rem;
+  accent-color: var(--sage);
+  cursor: pointer;
+}
+
+.component-detail-content {
+  flex: 1;
+}
+
+.component-detail-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 0.75rem;
+}
+
+.component-detail-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.component-detail-info .component-label {
+  font-weight: 600;
+  color: var(--cream);
+}
+
+.component-detail-info .component-brand {
+  font-size: 0.875rem;
+  color: var(--concrete);
+}
+
+.component-detail-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid rgba(134, 158, 140, 0.1);
+}
+
+.stat-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.stat-label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--concrete);
+}
+
+.stat-value {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--cream);
+  font-family: 'SF Mono', 'Consolas', monospace;
+}
+
+/* Skeleton loading for health cards */
+.skeleton-line {
+  background: linear-gradient(
+    90deg,
+    rgba(134, 158, 140, 0.1) 25%,
+    rgba(134, 158, 140, 0.2) 50%,
+    rgba(134, 158, 140, 0.1) 75%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s infinite;
+  border-radius: 0.5rem;
+}
+
+.skeleton-title {
+  height: 1.5rem;
+  width: 60%;
+  margin-bottom: 1rem;
+}
+
+.skeleton-badge {
+  height: 1.5rem;
+  width: 40%;
+  margin-bottom: 1rem;
+}
+
+.skeleton-buttons {
+  height: 2.5rem;
+  width: 100%;
+}
+
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}

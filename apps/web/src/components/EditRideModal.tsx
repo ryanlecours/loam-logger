@@ -3,6 +3,7 @@ import { useMutation } from '@apollo/client';
 import { UPDATE_RIDE } from '../graphql/updateRide';
 import { RIDES } from '../graphql/rides';
 import { toLocalInputValue, fromLocalInputValue } from '../lib/format';
+import { Modal, Input, Textarea, Button } from './ui';
 
 type Ride = {
   id: string;
@@ -44,17 +45,13 @@ export default function EditRideModal({
   );
 
   const [mutate, { loading, error }] = useMutation(UPDATE_RIDE, {
-    // EITHER: patch cache for RIDES lists…
     update(cache, { data }) {
       const updated = data?.updateRide;
       if (!updated) return;
-      // write the updated entity, then merge into list
       cache.updateQuery<{ rides: Ride[] }>({ query: RIDES }, (prev) =>
         prev ? { rides: prev.rides.map((r) => (r.id === updated.id ? { ...r, ...updated } : r)) } : prev
       );
     },
-    // …or just refetch:
-    // refetchQueries: [{ query: RIDES }],
     onCompleted: () => onClose(),
   });
 
@@ -82,92 +79,121 @@ export default function EditRideModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4">
-      <form onSubmit={onSave} className="w-full max-w-lg bg-white rounded-2xl shadow-lg p-4 grid gap-3">
-        <h3 className="text-lg font-semibold">Edit Ride</h3>
-
-        <label className="grid gap-1">
-          <span className="text-sm">Start (local)</span>
-          <input type="datetime-local" value={startLocal} onChange={e => setStartLocal(e.target.value)}
-                 className="border rounded px-2 py-1" required />
-        </label>
-
-        <div className="grid grid-cols-2 gap-3">
-          <label className="grid gap-1">
-            <span className="text-sm">Hours</span>
-            <input type="number" min={0} value={hours} onChange={e => setHours(Number(e.target.value))}
-                   className="border rounded px-2 py-1" />
-          </label>
-          <label className="grid gap-1">
-            <span className="text-sm">Minutes</span>
-            <input type="number" min={0} max={59} value={minutes} onChange={e => setMinutes(Number(e.target.value))}
-                   className="border rounded px-2 py-1" />
-          </label>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <label className="grid gap-1">
-            <span className="text-sm">Distance (miles)</span>
-            <input type="number" min={0} step={0.1} value={distanceMiles}
-                   onChange={e => setDistanceMiles(Number(e.target.value))}
-                   className="border rounded px-2 py-1" />
-          </label>
-          <label className="grid gap-1">
-            <span className="text-sm">Elevation Gain (feet)</span>
-            <input type="number" min={0} step={1} value={elevationGainFeet}
-                   onChange={e => setElevationGainFeet(Number(e.target.value))}
-                   className="border rounded px-2 py-1" />
-          </label>
-        </div>
-
-        <label className="grid gap-1">
-          <span className="text-sm">Average HR (optional)</span>
-          <input type="number" min={0} max={250} step={1} value={averageHr}
-                 onChange={e => setAverageHr(e.target.value === '' ? '' : Number(e.target.value))}
-                 className="border rounded px-2 py-1" />
-        </label>
-
-        <label className="grid gap-1">
-          <span className="text-sm">Ride Type</span>
-          <input type="text" value={rideType} onChange={e => setRideType(e.target.value)}
-                 className="border rounded px-2 py-1" maxLength={32} />
-        </label>
-
-        <label className="grid gap-1">
-          <span className="text-sm">Bike (optional)</span>
-          <input type="text" value={bikeId} onChange={e => setBikeId(e.target.value)}
-                 className="border rounded px-2 py-1" placeholder="Bike id (or leave blank)" />
-        </label>
-
-        <label className="grid gap-1">
-          <span className="text-sm">Trail system (optional)</span>
-          <input type="text" value={trailSystem} onChange={e => setTrailSystem(e.target.value)}
-                 className="border rounded px-2 py-1" maxLength={120} />
-        </label>
-
-        <label className="grid gap-1">
-          <span className="text-sm">Location (optional)</span>
-          <input type="text" value={location} onChange={e => setLocation(e.target.value)}
-                 className="border rounded px-2 py-1" maxLength={120} />
-        </label>
-
-        <label className="grid gap-1">
-          <span className="text-sm">Notes (optional)</span>
-          <textarea value={notes} onChange={e => setNotes(e.target.value)}
-                    className="border rounded px-2 py-1" rows={3} maxLength={2000} />
-        </label>
-
-        {error && <div className="text-sm text-red-600">{error.message}</div>}
-
-        <div className="flex justify-end gap-2 pt-2">
-          <button type="button" onClick={onClose} className="border rounded px-3 py-2">
+    <Modal
+      isOpen={true}
+      onClose={onClose}
+      title="Edit Ride"
+      size="lg"
+      preventClose={loading}
+      footer={
+        <>
+          <Button type="button" variant="secondary" onClick={onClose} disabled={loading}>
             Cancel
-          </button>
-          <button type="submit" className="border rounded px-3 py-2" disabled={loading}>
-            {loading ? 'Saving…' : 'Save'}
-          </button>
+          </Button>
+          <Button type="submit" variant="primary" disabled={loading} onClick={onSave}>
+            {loading ? 'Saving...' : 'Save'}
+          </Button>
+        </>
+      }
+    >
+      <form onSubmit={onSave} className="space-y-4">
+        <Input
+          label="Start (local)"
+          type="datetime-local"
+          value={startLocal}
+          onChange={e => setStartLocal(e.target.value)}
+          required
+        />
+
+        <div className="grid grid-cols-2 gap-3">
+          <Input
+            label="Hours"
+            type="number"
+            min={0}
+            value={hours}
+            onChange={e => setHours(Number(e.target.value))}
+          />
+          <Input
+            label="Minutes"
+            type="number"
+            min={0}
+            max={59}
+            value={minutes}
+            onChange={e => setMinutes(Number(e.target.value))}
+          />
         </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <Input
+            label="Distance (miles)"
+            type="number"
+            min={0}
+            step={0.1}
+            value={distanceMiles}
+            onChange={e => setDistanceMiles(Number(e.target.value))}
+          />
+          <Input
+            label="Elevation Gain (feet)"
+            type="number"
+            min={0}
+            step={1}
+            value={elevationGainFeet}
+            onChange={e => setElevationGainFeet(Number(e.target.value))}
+          />
+        </div>
+
+        <Input
+          label="Average HR (optional)"
+          type="number"
+          min={0}
+          max={250}
+          step={1}
+          value={averageHr}
+          onChange={e => setAverageHr(e.target.value === '' ? '' : Number(e.target.value))}
+        />
+
+        <Input
+          label="Ride Type"
+          type="text"
+          value={rideType}
+          onChange={e => setRideType(e.target.value)}
+          maxLength={32}
+        />
+
+        <Input
+          label="Bike (optional)"
+          type="text"
+          value={bikeId}
+          onChange={e => setBikeId(e.target.value)}
+          placeholder="Bike id (or leave blank)"
+        />
+
+        <Input
+          label="Trail system (optional)"
+          type="text"
+          value={trailSystem}
+          onChange={e => setTrailSystem(e.target.value)}
+          maxLength={120}
+        />
+
+        <Input
+          label="Location (optional)"
+          type="text"
+          value={location}
+          onChange={e => setLocation(e.target.value)}
+          maxLength={120}
+        />
+
+        <Textarea
+          label="Notes (optional)"
+          value={notes}
+          onChange={e => setNotes(e.target.value)}
+          rows={3}
+          maxLength={2000}
+        />
+
+        {error && <div className="text-sm text-danger">{error.message}</div>}
       </form>
-    </div>
+    </Modal>
   );
 }
