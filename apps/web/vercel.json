@@ -1,10 +1,7 @@
 {
-  "buildCommand": "cd ../.. && npx nx build web",
+  "buildCommand": "cd ../.. && npx nx build web && echo '{\"rewrites\":[{\"source\":\"/(.*)\",\"destination\":\"/index.html\"}]}' > dist/apps/web/vercel.json",
   "outputDirectory": "../../dist/apps/web",
   "installCommand": "cd ../.. && npm ci",
   "framework": "vite",
-  "devCommand": "cd ../.. && npx nx serve web",
-  "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
-  ]
+  "devCommand": "cd ../.. && npx nx serve web"
 }
