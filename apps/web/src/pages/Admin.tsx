@@ -41,7 +41,10 @@ export default function Admin() {
       });
       if (!res.ok) throw new Error('Failed to fetch stats');
       const data = await res.json();
-      setStats(data);
+      setStats({
+        userCount: data.users,
+        waitlistCount: data.waitlist,
+      });
     } catch (err) {
       console.error('Failed to fetch stats:', err);
     }
@@ -58,12 +61,12 @@ export default function Admin() {
       const data = await res.json();
 
       if (pageNum === 1) {
-        setWaitlist(data.waitlist);
+        setWaitlist(data.entries);
       } else {
-        setWaitlist((prev) => [...prev, ...data.waitlist]);
+        setWaitlist((prev) => [...prev, ...data.entries]);
       }
-      setHasMore(data.hasMore);
-      setPage(pageNum);
+      setHasMore(data.pagination.page < data.pagination.totalPages);
+      setPage(data.pagination.page);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
     } finally {
