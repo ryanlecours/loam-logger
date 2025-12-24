@@ -211,6 +211,7 @@ export default function BikeCard({ bike }: { bike: Bike }) {
           <>
             <Button
               variant="secondary"
+              size="sm"
               onClick={() => setIsOverlayOpen(false)}
               disabled={isLogging}
             >
@@ -218,6 +219,7 @@ export default function BikeCard({ bike }: { bike: Bike }) {
             </Button>
             <Button
               variant="primary"
+              size="sm"
               onClick={handleLogService}
               disabled={isLogging || selectedComponentIds.length === 0}
             >

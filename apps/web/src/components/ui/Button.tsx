@@ -5,12 +5,15 @@ type MotionButtonProps = React.ComponentPropsWithoutRef<typeof motion.button>;
 
 interface ButtonProps extends Omit<MotionButtonProps, "variant"> {
   variant?: "primary" | "secondary" | "outline";
+  size?: "sm" | "default";
 }
 
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ children, className = "", variant = "primary", ...props }, ref) => {
+  ({ children, className = "", variant = "primary", size = "default", ...props }, ref) => {
     const base =
-      "rounded-xl cursor-pointer px-4 py-2 font-medium transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2";
+      "cursor-pointer font-medium transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2";
+
+    const sizeClasses = size === "sm" ? "btn-sm" : "px-4 py-2";
 
     const variantClasses = (() => {
       switch (variant) {
@@ -22,7 +25,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
             return "btn-outline";
         default:
           return "";
-      }});
+      }})();
 
     return (
       <motion.button
@@ -30,7 +33,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         whileHover={{ scale: 1.07 }}
         whileTap={{ scale: 0.95 }}
         transition={{ type: "spring", stiffness: 300, damping: 15 }}
-        className={`${base} ${variantClasses()} ${className}`}
+        className={`${base} ${sizeClasses} ${variantClasses} ${className}`}
         {...props}
       >
         {children}
