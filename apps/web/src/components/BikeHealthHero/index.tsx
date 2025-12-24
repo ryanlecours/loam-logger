@@ -22,6 +22,7 @@ interface BikeHealthHeroProps {
     onLongRide: () => void;
     isSimulating: boolean;
   };
+  isAdmin?: boolean;
 }
 
 export function BikeHealthHero({
@@ -35,6 +36,7 @@ export function BikeHealthHero({
   weeklyStats,
   totalHoursAllTime,
   devMode,
+  isAdmin,
 }: BikeHealthHeroProps) {
   // Aggregate bike health counts across all bikes
   const aggregateBikeHealth = useMemo(() => {
@@ -54,7 +56,7 @@ export function BikeHealthHero({
           totalHoursAllTime={totalHoursAllTime}
         />
         <div className="hero-quick-actions">
-          {devMode && (
+          {devMode && isAdmin && (
             <>
               <button
                 type="button"
@@ -75,9 +77,9 @@ export function BikeHealthHero({
             </>
           )}
           <Link to="/rides">
-            <Button variant="primary">Log Ride</Button>
+            <Button variant="primary" size="lg">Log Ride</Button>
           </Link>
-          <Button variant="secondary" onClick={onUploadGpx}>
+          <Button variant="secondary" size="lg" onClick={onUploadGpx}>
             Upload GPX
           </Button>
         </div>
