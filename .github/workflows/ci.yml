@@ -81,22 +81,30 @@ jobs:
         env:
           DATABASE_URL: postgresql://user:pass@localhost:5432/test
 
+  name: Claude PR Review (manual)
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
   claude-pr-review:
     name: Claude PR Review (Haiku, manual on @claude review)
     runs-on: ubuntu-latest
 
     # Only run when:
-    # - Event is an issue comment
-    # - The comment is on a PR
-    # - The comment contains "@claude review"
+    # - Comment is on a PR (not an Issue)
+    # - Comment contains "@claude review"
+    # - Comment author is not a bot (optional but recommended)
     if: >
-      github.event_name == 'issue_comment' &&
       github.event.issue.pull_request != null &&
-      contains(github.event.comment.body, '@claude review')
-
-    permissions:
-      contents: read
-      pull-requests: write
+      contains(github.event.comment.body, '@claude review') &&
+      github.event.comment.user.type != 'Bot'
 
     steps:
       - name: Get PR base branch
@@ -106,6 +114,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const prNumber = context.issue.number;
+
             const { data: pr } = await github.rest.pulls.get({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -121,7 +130,6 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          # Cheapest coding-capable model
           claude_args: |
             --model claude-3-5-haiku-20241022
             --max-turns 6
