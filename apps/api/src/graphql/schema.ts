@@ -27,6 +27,7 @@ export const typeDefs = gql`
   }
 
   enum UserRole {
+    WAITLIST
     FREE
     PRO
     ADMIN
@@ -235,6 +236,7 @@ export const typeDefs = gql`
     activeDataSource: String
     accounts: [ConnectedAccount!]!
     role: UserRole!
+    mustChangePassword: Boolean!
   }
 
   input RidesFilterInput {

@@ -102,15 +102,25 @@ export default function Login() {
         body: JSON.stringify(body),
       });
 
-      const text = await res.text();
-
       if (!res.ok) {
+        const text = await res.text();
         console.error(`[${mode}] Backend responded with error`, res.status, text);
 
         // Handle specific errors
         if (text.trim() === 'NOT_BETA_TESTER') {
           navigate('/beta-waitlist', { replace: true });
           return;
+        }
+
+        // Handle WAITLIST account error (JSON response)
+        try {
+          const jsonError = JSON.parse(text);
+          if (jsonError.error === 'ACCOUNT_NOT_ACTIVATED') {
+            setError('Your account is on the waitlist and not yet activated. You will receive an email when your access is approved.');
+            return;
+          }
+        } catch {
+          // Not JSON, continue with text handling
         }
 
         // Map backend error messages to user-friendly messages
@@ -133,9 +143,18 @@ export default function Login() {
         return;
       }
 
+      // Parse success response
+      const data = await res.json();
+
+      // Check if user needs to change password
+      if (data.mustChangePassword) {
+        navigate('/change-password', { replace: true });
+        return;
+      }
+
       // Success - refetch user and navigate
-      const { data } = await apollo.query({ query: ME_QUERY, fetchPolicy: 'network-only' });
-      apollo.writeQuery({ query: ME_QUERY, data });
+      const { data: userData } = await apollo.query({ query: ME_QUERY, fetchPolicy: 'network-only' });
+      apollo.writeQuery({ query: ME_QUERY, data: userData });
       navigate(from, { replace: true });
     } catch (err) {
       console.error(`[${mode}] Network or unexpected error`, err);

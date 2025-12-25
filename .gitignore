@@ -1,5 +1,6 @@
 # Claude internal documentation
 claude.internal.md
+PRE_PUBLIC_CHECKLIST.md
 
 # Claude settings
 .claude/
@@ -57,3 +58,5 @@ documentation/*
 *.mobileprovision
 *.orig.*
 web-build/
+.vercel
+.env*.local

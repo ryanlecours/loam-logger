@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { prisma } from '../lib/prisma';
 import { requireAdmin } from '../auth/adminMiddleware';
+import { activateWaitlistUser } from '../services/activation.service';
 
 const router = Router();
 
@@ -13,14 +14,16 @@ router.use(requireAdmin);
  */
 router.get('/stats', async (_req, res) => {
   try {
-    const [userCount, waitlistCount] = await Promise.all([
-      prisma.user.count(),
-      prisma.betaWaitlist.count(),
+    const [activeUserCount, waitlistCount, proCount] = await Promise.all([
+      prisma.user.count({ where: { role: { in: ['FREE', 'PRO', 'ADMIN'] } } }),
+      prisma.user.count({ where: { role: 'WAITLIST' } }),
+      prisma.user.count({ where: { role: 'PRO' } }),
     ]);
 
     res.json({
-      users: userCount,
+      users: activeUserCount,
       waitlist: waitlistCount,
+      pro: proCount,
     });
   } catch (error) {
     console.error('Admin stats error:', error);
@@ -30,7 +33,7 @@ router.get('/stats', async (_req, res) => {
 
 /**
  * GET /api/admin/waitlist
- * Returns paginated waitlist entries
+ * Returns paginated WAITLIST users
  */
 router.get('/waitlist', async (req, res) => {
   try {
@@ -39,7 +42,8 @@ router.get('/waitlist', async (req, res) => {
     const skip = (page - 1) * limit;
 
     const [entries, total] = await Promise.all([
-      prisma.betaWaitlist.findMany({
+      prisma.user.findMany({
+        where: { role: 'WAITLIST' },
         orderBy: { createdAt: 'desc' },
         skip,
         take: limit,
@@ -47,11 +51,10 @@ router.get('/waitlist', async (req, res) => {
           id: true,
           email: true,
           name: true,
-          referrer: true,
           createdAt: true,
         },
       }),
-      prisma.betaWaitlist.count(),
+      prisma.user.count({ where: { role: 'WAITLIST' } }),
     ]);
 
     res.json({
@@ -66,6 +69,28 @@ router.get('/waitlist', async (req, res) => {
   } catch (error) {
     console.error('Admin waitlist error:', error);
     res.status(500).json({ error: 'Failed to fetch waitlist' });
+  }
+});
+
+/**
+ * POST /api/admin/activate/:userId
+ * Activate a WAITLIST user -> FREE with temp password
+ */
+router.post('/activate/:userId', async (req, res) => {
+  try {
+    const adminUserId = req.sessionUser?.uid;
+    const { userId } = req.params;
+
+    if (!adminUserId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const result = await activateWaitlistUser({ userId, adminUserId });
+    res.json(result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to activate user';
+    console.error('Admin activate error:', message);
+    res.status(400).json({ error: message });
   }
 });
 
