@@ -6,6 +6,7 @@ import { ApolloServer } from '@apollo/server';
 import { expressMiddleware, type ExpressContextFunctionArgument } from '@as-integrations/express4';
 import { typeDefs } from './graphql/schema';
 import { resolvers } from './graphql/resolvers';
+import { startWorkers, stopWorkers } from './workers';
 
 import authGarmin from './routes/auth.garmin';
 import authStrava from './routes/auth.strava';
@@ -167,11 +168,19 @@ const startServer = async () => {
   const PORT = Number(process.env.PORT) || 4000;
   const HOST = '0.0.0.0';
 
+  // Start BullMQ workers if Redis is configured
+  if (process.env.REDIS_URL) {
+    startWorkers();
+  } else {
+    console.warn('[Workers] REDIS_URL not set, workers disabled');
+  }
+
   app.listen(PORT, HOST, () => {
     console.log(`🚴 LoamLogger backend running on :${PORT} (GraphQL at /graphql)`);
   });
 
   process.on('SIGTERM', async () => {
+    await stopWorkers();
     await server.stop();
     process.exit(0);
   });

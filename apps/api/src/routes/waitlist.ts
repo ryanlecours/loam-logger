@@ -51,9 +51,38 @@ router.post('/waitlist', express.json(), async (req: Request, res) => {
       ? crypto.createHash('sha256').update(rawIp).digest('hex').substring(0, 32)
       : null;
 
-    // Insert into database
-    await prisma.betaWaitlist.create({
+    // Check if email already exists as a User
+    const existingUser = await prisma.user.findUnique({
+      where: { email },
+      select: { id: true, role: true },
+    });
+
+    if (existingUser) {
+      if (existingUser.role === 'WAITLIST') {
+        return res.status(409).json({
+          message: 'This email is already on the waitlist',
+        });
+      }
+      return res.status(409).json({
+        message: 'An account with this email already exists',
+      });
+    }
+
+    // Create User with WAITLIST role (replacing BetaWaitlist)
+    await prisma.user.create({
       data: {
+        email,
+        name: trimmedName,
+        role: 'WAITLIST',
+        // passwordHash is null - will be set on activation
+      },
+    });
+
+    // Also keep a record in BetaWaitlist for historical/analytics purposes
+    await prisma.betaWaitlist.upsert({
+      where: { email },
+      update: {},
+      create: {
         email,
         name: trimmedName,
         referrer,

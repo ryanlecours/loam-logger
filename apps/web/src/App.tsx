@@ -12,6 +12,7 @@ import Gear from './pages/Gear';
 import Admin from './pages/Admin';
 import AuthComplete from './pages/AuthComplete';
 import BetaTesterWaitlist from './pages/BetaTesterWaitlist';
+import ChangePassword from './pages/ChangePassword';
 
 import AuthGate from './components/AuthGate';
 import AppShell from './components/layout/AppShell';
@@ -59,6 +60,7 @@ function AppRoutes() {
           <Route path="/privacy" element={<PrivacyPolicy />} />
           <Route path="/login" element={<Page><Login /></Page>} />
           <Route path="/beta-waitlist" element={<Page><BetaTesterWaitlist /></Page>} />
+          <Route path="/change-password" element={<Page><ChangePassword /></Page>} />
           <Route path="/auth/complete" element={<AuthComplete />} />
 
           {/* Onboarding */}

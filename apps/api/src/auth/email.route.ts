@@ -103,10 +103,25 @@ router.post('/login', express.json(), async (req, res) => {
     // Find user by email
     const user = await prisma.user.findUnique({
       where: { email },
+      select: {
+        id: true,
+        email: true,
+        passwordHash: true,
+        role: true,
+        mustChangePassword: true,
+      },
     });
 
     if (!user) {
       return res.status(401).send('Invalid email or password');
+    }
+
+    // Block WAITLIST users - they cannot login until activated
+    if (user.role === 'WAITLIST') {
+      return res.status(403).json({
+        error: 'ACCOUNT_NOT_ACTIVATED',
+        message: 'Your account is on the waitlist and not yet activated.',
+      });
     }
 
     // Check if user has a password (created via email/password signup)
@@ -129,10 +144,75 @@ router.post('/login', express.json(), async (req, res) => {
 
     // Set session cookie
     setSessionCookie(res, { uid: user.id, email: user.email });
-    res.status(200).json({ ok: true });
+
+    // Return success with mustChangePassword flag
+    res.status(200).json({
+      ok: true,
+      mustChangePassword: user.mustChangePassword,
+    });
   } catch (e) {
     console.error('[EmailAuth] Login failed', e);
     res.status(500).send('Login failed');
+  }
+});
+
+/**
+ * POST /auth/change-password
+ * Change password for authenticated user
+ * Used after login with temporary password
+ */
+router.post('/change-password', express.json(), async (req, res) => {
+  try {
+    const sessionUser = (req as unknown as { sessionUser?: { uid: string } }).sessionUser;
+    if (!sessionUser?.uid) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const { currentPassword, newPassword } = req.body as {
+      currentPassword?: string;
+      newPassword?: string;
+    };
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: 'Current and new password are required' });
+    }
+
+    // Validate new password strength
+    const validation = validatePassword(newPassword);
+    if (!validation.isValid) {
+      return res.status(400).json({ error: validation.error });
+    }
+
+    // Get user with current password hash
+    const user = await prisma.user.findUnique({
+      where: { id: sessionUser.uid },
+      select: { passwordHash: true, mustChangePassword: true },
+    });
+
+    if (!user || !user.passwordHash) {
+      return res.status(400).json({ error: 'Cannot change password for this account' });
+    }
+
+    // Verify current password
+    const isValid = await verifyPassword(currentPassword, user.passwordHash);
+    if (!isValid) {
+      return res.status(401).json({ error: 'Current password is incorrect' });
+    }
+
+    // Hash and save new password, clear mustChangePassword flag
+    const newHash = await hashPassword(newPassword);
+    await prisma.user.update({
+      where: { id: sessionUser.uid },
+      data: {
+        passwordHash: newHash,
+        mustChangePassword: false,
+      },
+    });
+
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('[EmailAuth] Change password failed', e);
+    res.status(500).json({ error: 'Failed to change password' });
   }
 });
 
