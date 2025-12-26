@@ -2,8 +2,15 @@ import { Queue } from 'bullmq';
 import { getQueueConnection } from './connection';
 
 // Time constants in milliseconds
-const HOURS = 60 * 60 * 1000;
+const SECONDS = 1000;
+const HOURS = 60 * 60 * SECONDS;
 const DAYS = 24 * HOURS;
+
+// Job retry configuration
+const INITIAL_RETRY_DELAY_MS = 1 * SECONDS;
+const MAX_RETRY_ATTEMPTS = 3;
+const COMPLETED_JOBS_TO_KEEP = 100;
+const FAILED_JOBS_TO_KEEP = 500;
 
 /**
  * Welcome email series delays after activation.
@@ -41,13 +48,13 @@ export function getEmailQueue(): Queue<EmailJobData, void, EmailJobName> {
     emailQueue = new Queue<EmailJobData, void, EmailJobName>('email', {
       ...getQueueConnection(),
       defaultJobOptions: {
-        attempts: 3,
+        attempts: MAX_RETRY_ATTEMPTS,
         backoff: {
           type: 'exponential',
-          delay: 1000,
+          delay: INITIAL_RETRY_DELAY_MS,
         },
-        removeOnComplete: 100,
-        removeOnFail: 500,
+        removeOnComplete: COMPLETED_JOBS_TO_KEEP,
+        removeOnFail: FAILED_JOBS_TO_KEEP,
       },
     });
   }

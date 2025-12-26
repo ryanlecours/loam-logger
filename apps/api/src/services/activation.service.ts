@@ -43,7 +43,18 @@ export type ActivateUserResult = {
   userId: string;
   email: string;
   emailQueued: boolean;
-  tempPassword?: string; // Only returned if email queueing failed, for manual sharing
+  /**
+   * SECURITY NOTE: tempPassword is only returned when email queueing fails.
+   * This is an intentional tradeoff to prevent users from being stuck without access.
+   *
+   * Callers MUST:
+   * - Never log API responses containing this field
+   * - Display it once to admin and not persist it
+   * - Ensure HTTPS is used for all admin API calls
+   *
+   * The admin should securely communicate this to the user (e.g., phone call, secure message).
+   */
+  tempPassword?: string;
 };
 
 /**
@@ -120,12 +131,12 @@ export async function activateWaitlistUser({
 
     emailQueued = true;
     console.log(`[Activation] User ${user.email} activated by admin ${adminUserId}`);
-  } catch {
+  } catch (emailErr) {
     // CRITICAL: User is activated but email failed - preserve temp password for admin
-    // Log without exposing the password or full error stack
+    // Log the error for debugging but don't expose the password
     console.error(
-      `[Activation] CRITICAL: User ${user.email} (${userId}) activated but email queueing failed. ` +
-      `Temp password returned to admin for manual sharing.`
+      `[Activation] CRITICAL: User ${user.email} (${userId}) activated but email queueing failed:`,
+      emailErr instanceof Error ? emailErr.message : 'Unknown error'
     );
     returnPassword = tempPassword;
   }

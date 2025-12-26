@@ -953,12 +953,14 @@ export const resolvers = {
       const rateLimitResult = await checkRateLimit('syncLatest', providerLower, userId);
 
       if (!rateLimitResult.allowed) {
+        // Round up to nearest 10 seconds to avoid leaking exact timing info
+        const roundedRetry = Math.ceil(rateLimitResult.retryAfter / 10) * 10;
         throw new GraphQLError(
-          `Please wait ${rateLimitResult.retryAfter} seconds before syncing ${provider} again`,
+          `Please wait before syncing ${provider} again`,
           {
             extensions: {
               code: 'RATE_LIMITED',
-              retryAfter: rateLimitResult.retryAfter,
+              retryAfter: roundedRetry,
             },
           }
         );
