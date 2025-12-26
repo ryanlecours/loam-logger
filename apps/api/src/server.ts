@@ -7,6 +7,7 @@ import { expressMiddleware, type ExpressContextFunctionArgument } from '@as-inte
 import { typeDefs } from './graphql/schema';
 import { resolvers } from './graphql/resolvers';
 import { startWorkers, stopWorkers } from './workers';
+import { checkRedisHealth } from './lib/redis';
 
 import authGarmin from './routes/auth.garmin';
 import authStrava from './routes/auth.strava';
@@ -38,6 +39,19 @@ const startServer = async () => {
 
   // Basic health / diagnostics
   app.get('/health', (_req, res) => res.status(200).send('ok'));
+
+  // Detailed health check including Redis status
+  app.get('/health/detailed', async (_req, res) => {
+    const redisHealth = await checkRedisHealth();
+    const healthy = redisHealth.healthy;
+
+    res.status(healthy ? 200 : 503).json({
+      status: healthy ? 'healthy' : 'degraded',
+      redis: redisHealth,
+      timestamp: new Date().toISOString(),
+    });
+  });
+
   app.get('/whoami', (req, res) => {
     res.json({ sessionUser: req.sessionUser ?? null });
   });

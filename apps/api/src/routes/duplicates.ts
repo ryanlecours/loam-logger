@@ -1,5 +1,6 @@
 import { Router as createRouter, type Router, type Request, type Response } from 'express';
 import { prisma } from '../lib/prisma';
+import { sendBadRequest, sendUnauthorized, sendNotFound, sendForbidden, sendInternalError } from '../lib/api-response';
 
 type Empty = Record<string, never>;
 const r: Router = createRouter();
@@ -10,7 +11,7 @@ const r: Router = createRouter();
 r.get('/duplicates', async (req: Request, res: Response) => {
   const userId = req.user?.id || req.sessionUser?.uid;
   if (!userId) {
-    return res.status(401).json({ error: 'Not authenticated' });
+    return sendUnauthorized(res, 'Not authenticated');
   }
 
   try {
@@ -47,7 +48,7 @@ r.get('/duplicates', async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error('[Duplicates] Error fetching:', error);
-    return res.status(500).json({ error: 'Failed to fetch duplicates' });
+    return sendInternalError(res, 'Failed to fetch duplicates');
   }
 });
 
@@ -59,13 +60,13 @@ r.post<Empty, void, { keepRideId: string; deleteRideId: string }>(
   async (req: Request<Empty, void, { keepRideId: string; deleteRideId: string }>, res: Response) => {
     const userId = req.user?.id || req.sessionUser?.uid;
     if (!userId) {
-      return res.status(401).json({ error: 'Not authenticated' });
+      return sendUnauthorized(res, 'Not authenticated');
     }
 
     const { keepRideId, deleteRideId } = req.body;
 
     if (!keepRideId || !deleteRideId) {
-      return res.status(400).json({ error: 'Missing keepRideId or deleteRideId' });
+      return sendBadRequest(res, 'Missing keepRideId or deleteRideId');
     }
 
     try {
@@ -76,11 +77,11 @@ r.post<Empty, void, { keepRideId: string; deleteRideId: string }>(
       ]);
 
       if (!keepRide || !deleteRide) {
-        return res.status(404).json({ error: 'One or both rides not found' });
+        return sendNotFound(res, 'One or both rides not found');
       }
 
       if (keepRide.userId !== userId || deleteRide.userId !== userId) {
-        return res.status(403).json({ error: 'Unauthorized' });
+        return sendForbidden(res, 'Unauthorized');
       }
 
       // Delete the duplicate
@@ -106,7 +107,7 @@ r.post<Empty, void, { keepRideId: string; deleteRideId: string }>(
       });
     } catch (error) {
       console.error('[Duplicates] Error merging:', error);
-      return res.status(500).json({ error: 'Failed to merge rides' });
+      return sendInternalError(res, 'Failed to merge rides');
     }
   }
 );
@@ -119,7 +120,7 @@ r.post<Empty, void, { rideId: string }>(
   async (req: Request<Empty, void, { rideId: string }>, res: Response) => {
     const userId = req.user?.id || req.sessionUser?.uid;
     if (!userId) {
-      return res.status(401).json({ error: 'Not authenticated' });
+      return sendUnauthorized(res, 'Not authenticated');
     }
 
     const { rideId } = req.body;
@@ -131,11 +132,11 @@ r.post<Empty, void, { rideId: string }>(
       });
 
       if (!ride) {
-        return res.status(404).json({ error: 'Ride not found' });
+        return sendNotFound(res, 'Ride not found');
       }
 
       if (ride.userId !== userId) {
-        return res.status(403).json({ error: 'Unauthorized' });
+        return sendForbidden(res, 'Unauthorized');
       }
 
       // Clear duplicate flags
@@ -153,7 +154,7 @@ r.post<Empty, void, { rideId: string }>(
       });
     } catch (error) {
       console.error('[Duplicates] Error marking:', error);
-      return res.status(500).json({ error: 'Failed to update ride' });
+      return sendInternalError(res, 'Failed to update ride');
     }
   }
 );

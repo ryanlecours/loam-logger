@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
 import { Button } from '@/components/ui';
+import { validatePassword, PASSWORD_RULES } from '@loam/shared';
 
 export default function ChangePassword() {
   const navigate = useNavigate();
@@ -21,9 +22,10 @@ export default function ChangePassword() {
       return;
     }
 
-    // Basic client-side validation
-    if (newPassword.length < 8) {
-      setError('Password must be at least 8 characters.');
+    // Validate password requirements using shared validation
+    const validation = validatePassword(newPassword);
+    if (!validation.isValid) {
+      setError(validation.error || 'Password does not meet requirements.');
       return;
     }
 
@@ -149,11 +151,9 @@ export default function ChangePassword() {
             <div className="text-xs" style={{ color: 'var(--concrete)' }}>
               <p className="font-medium mb-1">Password requirements:</p>
               <ul className="list-disc list-inside space-y-0.5">
-                <li>At least 8 characters</li>
-                <li>One uppercase letter</li>
-                <li>One lowercase letter</li>
-                <li>One number</li>
-                <li>One special character (!@#$%^&*)</li>
+                {PASSWORD_RULES.map((rule) => (
+                  <li key={rule.key}>{rule.label}</li>
+                ))}
               </ul>
             </div>
 

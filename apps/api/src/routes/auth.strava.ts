@@ -1,6 +1,7 @@
 import { Router as createRouter, type Router, type Request, type Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { randomString } from '../lib/pcke';
+import { sendBadRequest, sendUnauthorized, sendInternalError } from '../lib/api-response';
 
 type Empty = Record<string, never>;
 const r: Router = createRouter();
@@ -19,7 +20,7 @@ r.get<Empty, void, Empty>('/strava/start', async (_req: Request, res: Response) 
       !CLIENT_ID && 'STRAVA_CLIENT_ID',
       !REDIRECT_URI && 'STRAVA_REDIRECT_URI',
     ].filter(Boolean).join(', ');
-    return res.status(500).send(`Missing env vars: ${missing}`);
+    return sendInternalError(res, `Missing env vars: ${missing}`);
   }
 
   const state = randomString(24);
@@ -76,7 +77,7 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string }>(
           !CLIENT_SECRET && 'STRAVA_CLIENT_SECRET',
         ].filter(Boolean).join(', ');
         console.error('[Strava Callback] Missing env vars:', missing);
-        return res.status(500).send(`Missing env vars: ${missing}`);
+        return sendInternalError(res, `Missing env vars: ${missing}`);
       }
 
       const { code, state } = req.query;
@@ -91,13 +92,13 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string }>(
       });
 
       if (!code || !state || !cookieState || state !== cookieState) {
-        return res.status(400).send('Invalid OAuth state');
+        return sendBadRequest(res, 'Invalid OAuth state');
       }
 
       // Check for authenticated user
       const userId = req.user?.id || req.sessionUser?.uid;
       if (!userId) {
-        return res.status(401).send('No user - please log in first');
+        return sendUnauthorized(res, 'No user - please log in first');
       }
 
       // Token exchange (OAuth2 Authorization Code)
@@ -229,7 +230,7 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string }>(
 r.delete<Empty, void, Empty>('/strava/disconnect', async (req: Request, res: Response) => {
   const userId = req.user?.id || req.sessionUser?.uid;
   if (!userId) {
-    return res.status(401).json({ error: 'Not authenticated' });
+    return sendUnauthorized(res, 'Not authenticated');
   }
 
   try {
@@ -266,7 +267,7 @@ r.delete<Empty, void, Empty>('/strava/disconnect', async (req: Request, res: Res
     return res.status(200).json({ success: true });
   } catch (error) {
     console.error('[Strava Disconnect] Error:', error);
-    return res.status(500).json({ error: 'Failed to disconnect' });
+    return sendInternalError(res, 'Failed to disconnect');
   }
 });
 

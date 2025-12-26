@@ -4,6 +4,7 @@ import { hashPassword, verifyPassword, validatePassword } from './password.utils
 import { validateEmailFormat } from './email.utils';
 import { setSessionCookie } from './session';
 import { prisma } from '../lib/prisma';
+import { sendBadRequest, sendUnauthorized, sendForbidden, sendConflict, sendInternalError } from '../lib/api-response';
 
 const router = express.Router();
 
@@ -21,32 +22,32 @@ router.post('/signup', express.json(), async (req, res) => {
 
     // Validate input
     if (!rawEmail || !password) {
-      return res.status(400).send('Email and password are required');
+      return sendBadRequest(res, 'Email and password are required');
     }
 
     if (!name || name.trim().length === 0) {
-      return res.status(400).send('Name is required');
+      return sendBadRequest(res, 'Name is required');
     }
 
     const email = normalizeEmail(rawEmail);
     if (!email) {
-      return res.status(400).send('Invalid email');
+      return sendBadRequest(res, 'Invalid email');
     }
 
     if (!validateEmailFormat(email)) {
-      return res.status(400).send('Invalid email format');
+      return sendBadRequest(res, 'Invalid email format');
     }
 
     // Validate password strength
     const passwordValidation = validatePassword(password);
     if (!passwordValidation.isValid) {
-      return res.status(400).send(passwordValidation.error);
+      return sendBadRequest(res, passwordValidation.error || 'Invalid password');
     }
 
     // Check beta tester access
     if (process.env.BETA_TESTER_EMAILS) {
       if (!isBetaTester(email)) {
-        return res.status(403).send('NOT_BETA_TESTER');
+        return sendForbidden(res, 'NOT_BETA_TESTER');
       }
     }
 
@@ -72,10 +73,10 @@ router.post('/signup', express.json(), async (req, res) => {
 
     // Check if email already exists
     if (error.includes('Unique constraint failed')) {
-      return res.status(409).send('Email already in use');
+      return sendConflict(res, 'Email already in use');
     }
 
-    res.status(500).send('Signup failed');
+    return sendInternalError(res, 'Signup failed');
   }
 });
 
@@ -92,12 +93,12 @@ router.post('/login', express.json(), async (req, res) => {
 
     // Validate input
     if (!rawEmail || !password) {
-      return res.status(400).send('Email and password are required');
+      return sendBadRequest(res, 'Email and password are required');
     }
 
     const email = normalizeEmail(rawEmail);
     if (!email) {
-      return res.status(400).send('Invalid email');
+      return sendBadRequest(res, 'Invalid email');
     }
 
     // Find user by email
@@ -113,32 +114,29 @@ router.post('/login', express.json(), async (req, res) => {
     });
 
     if (!user) {
-      return res.status(401).send('Invalid email or password');
+      return sendUnauthorized(res, 'Invalid email or password');
     }
 
     // Block WAITLIST users - they cannot login until activated
     if (user.role === 'WAITLIST') {
-      return res.status(403).json({
-        error: 'ACCOUNT_NOT_ACTIVATED',
-        message: 'Your account is on the waitlist and not yet activated.',
-      });
+      return sendForbidden(res, 'Your account is on the waitlist and not yet activated.', 'ACCOUNT_NOT_ACTIVATED');
     }
 
     // Check if user has a password (created via email/password signup)
     if (!user.passwordHash) {
-      return res.status(401).send('This account uses OAuth login only');
+      return sendUnauthorized(res, 'This account uses OAuth login only');
     }
 
     // Verify password
     const isValid = await verifyPassword(password, user.passwordHash);
     if (!isValid) {
-      return res.status(401).send('Invalid email or password');
+      return sendUnauthorized(res, 'Invalid email or password');
     }
 
     // Check beta tester access
     if (process.env.BETA_TESTER_EMAILS) {
       if (!isBetaTester(email)) {
-        return res.status(403).send('NOT_BETA_TESTER');
+        return sendForbidden(res, 'NOT_BETA_TESTER');
       }
     }
 
@@ -152,7 +150,7 @@ router.post('/login', express.json(), async (req, res) => {
     });
   } catch (e) {
     console.error('[EmailAuth] Login failed', e);
-    res.status(500).send('Login failed');
+    return sendInternalError(res, 'Login failed');
   }
 });
 
@@ -165,7 +163,7 @@ router.post('/change-password', express.json(), async (req, res) => {
   try {
     const sessionUser = (req as unknown as { sessionUser?: { uid: string } }).sessionUser;
     if (!sessionUser?.uid) {
-      return res.status(401).json({ error: 'Unauthorized' });
+      return sendUnauthorized(res);
     }
 
     const { currentPassword, newPassword } = req.body as {
@@ -174,13 +172,13 @@ router.post('/change-password', express.json(), async (req, res) => {
     };
 
     if (!currentPassword || !newPassword) {
-      return res.status(400).json({ error: 'Current and new password are required' });
+      return sendBadRequest(res, 'Current and new password are required');
     }
 
     // Validate new password strength
     const validation = validatePassword(newPassword);
     if (!validation.isValid) {
-      return res.status(400).json({ error: validation.error });
+      return sendBadRequest(res, validation.error || 'Invalid password');
     }
 
     // Get user with current password hash
@@ -190,13 +188,13 @@ router.post('/change-password', express.json(), async (req, res) => {
     });
 
     if (!user || !user.passwordHash) {
-      return res.status(400).json({ error: 'Cannot change password for this account' });
+      return sendBadRequest(res, 'Cannot change password for this account');
     }
 
     // Verify current password
     const isValid = await verifyPassword(currentPassword, user.passwordHash);
     if (!isValid) {
-      return res.status(401).json({ error: 'Current password is incorrect' });
+      return sendUnauthorized(res, 'Current password is incorrect');
     }
 
     // Hash and save new password, clear mustChangePassword flag
@@ -212,7 +210,7 @@ router.post('/change-password', express.json(), async (req, res) => {
     res.json({ ok: true });
   } catch (e) {
     console.error('[EmailAuth] Change password failed', e);
-    res.status(500).json({ error: 'Failed to change password' });
+    return sendInternalError(res, 'Failed to change password');
   }
 });
 

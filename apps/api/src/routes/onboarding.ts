@@ -2,6 +2,7 @@ import express, { type Request } from 'express';
 import { prisma } from '../lib/prisma';
 import { type SessionUser } from '../auth/session';
 import { type ComponentType } from '@prisma/client';
+import { sendBadRequest, sendUnauthorized, sendInternalError } from '../lib/api-response';
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
@@ -25,7 +26,7 @@ router.post('/complete', express.json(), async (req: Request, res) => {
 
     // Verify user is authenticated
     if (!sessionUser?.uid) {
-      return res.status(401).json({ message: 'Unauthorized: No active session' });
+      return sendUnauthorized(res, 'No active session');
     }
 
     const { age, location, bikeYear, bikeMake, bikeModel, components } = req.body as {
@@ -44,11 +45,11 @@ router.post('/complete', express.json(), async (req: Request, res) => {
 
     // Validate bike data
     if (!bikeMake || !bikeModel) {
-      return res.status(400).json({ message: 'Bike make and model are required' });
+      return sendBadRequest(res, 'Bike make and model are required');
     }
 
     if (age && (age < 16 || age > 150)) {
-      return res.status(400).json({ message: 'Please enter a valid age' });
+      return sendBadRequest(res, 'Please enter a valid age');
     }
 
     const userId = sessionUser.uid;
@@ -137,10 +138,7 @@ router.post('/complete', express.json(), async (req: Request, res) => {
     });
   } catch (error) {
     console.error('[Onboarding] Error completing onboarding:', error);
-
-    res.status(500).json({
-      message: 'An error occurred while completing onboarding. Please try again.',
-    });
+    return sendInternalError(res, 'An error occurred while completing onboarding. Please try again.');
   }
 });
 

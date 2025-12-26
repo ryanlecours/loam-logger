@@ -2,6 +2,7 @@ import { Router as createRouter, type Router, type Request, type Response } from
 import { getValidGarminToken } from '../lib/garmin-token';
 import { subDays } from 'date-fns';
 import { prisma } from '../lib/prisma';
+import { sendBadRequest, sendUnauthorized, sendNotFound, sendInternalError } from '../lib/api-response';
 
 type Empty = Record<string, never>;
 const r: Router = createRouter();
@@ -15,20 +16,20 @@ r.get<Empty, void, Empty, { days?: string }>(
   async (req: Request<Empty, void, Empty, { days?: string }>, res: Response) => {
     const userId = req.user?.id || req.sessionUser?.uid;
     if (!userId) {
-      return res.status(401).json({ error: 'Not authenticated' });
+      return sendUnauthorized(res, 'Not authenticated');
     }
 
     try {
       const days = parseInt(req.query.days || '30', 10);
       if (isNaN(days) || days < 1 || days > 365) {
-        return res.status(400).json({ error: 'Days must be between 1 and 365' });
+        return sendBadRequest(res, 'Days must be between 1 and 365');
       }
 
       // Get valid OAuth token (auto-refreshes if expired)
       const accessToken = await getValidGarminToken(userId);
 
       if (!accessToken) {
-        return res.status(400).json({ error: 'Garmin not connected or token expired. Please reconnect your Garmin account.' });
+        return sendBadRequest(res, 'Garmin not connected or token expired. Please reconnect your Garmin account.');
       }
 
       // Calculate date range
@@ -144,7 +145,7 @@ r.get<Empty, void, Empty, { days?: string }>(
       });
     } catch (error) {
       console.error('[Garmin Backfill] Error:', error);
-      return res.status(500).json({ error: 'Failed to fetch activities' });
+      return sendInternalError(res, 'Failed to fetch activities');
     }
   }
 );
@@ -157,7 +158,7 @@ r.get<Empty, void, Empty, Empty>(
   async (req: Request<Empty, void, Empty, Empty>, res: Response) => {
     const userId = req.user?.id || req.sessionUser?.uid;
     if (!userId) {
-      return res.status(401).json({ error: 'Not authenticated' });
+      return sendUnauthorized(res, 'Not authenticated');
     }
 
     try {
@@ -172,7 +173,7 @@ r.get<Empty, void, Empty, Empty>(
       });
 
       if (!userAccount) {
-        return res.status(404).json({ error: 'Garmin account not connected' });
+        return sendNotFound(res, 'Garmin account not connected');
       }
 
       return res.json({
@@ -181,7 +182,7 @@ r.get<Empty, void, Empty, Empty>(
       });
     } catch (error) {
       console.error('[Garmin User ID] Error:', error);
-      return res.status(500).json({ error: 'Failed to fetch Garmin user ID' });
+      return sendInternalError(res, 'Failed to fetch Garmin user ID');
     }
   }
 );
@@ -195,7 +196,7 @@ r.get<Empty, void, Empty, Empty>(
   async (req: Request<Empty, void, Empty, Empty>, res: Response) => {
     const userId = req.user?.id || req.sessionUser?.uid;
     if (!userId) {
-      return res.status(401).json({ error: 'Not authenticated' });
+      return sendUnauthorized(res, 'Not authenticated');
     }
 
     try {
@@ -235,7 +236,7 @@ r.get<Empty, void, Empty, Empty>(
       });
     } catch (error) {
       console.error('[Garmin Backfill Status] Error:', error);
-      return res.status(500).json({ error: 'Failed to fetch backfill status' });
+      return sendInternalError(res, 'Failed to fetch backfill status');
     }
   }
 );
