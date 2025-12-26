@@ -4,7 +4,7 @@ export type Welcome3Params = {
 };
 
 export function getWelcome3Subject(): string {
-  return 'Sync your rides automatically';
+  return 'One last note';
 }
 
 export function getWelcome3Html(params: Welcome3Params): string {
@@ -37,42 +37,6 @@ export function getWelcome3Html(params: Welcome3Params): string {
       margin-top: 0;
       font-size: 24px;
     }
-    h2 {
-      color: #2d5a27;
-      font-size: 18px;
-      margin-top: 24px;
-    }
-    .integration-card {
-      display: flex;
-      align-items: center;
-      background: #f9fafb;
-      padding: 16px;
-      border-radius: 8px;
-      margin: 12px 0;
-      border: 1px solid #e5e7eb;
-    }
-    .integration-icon {
-      font-size: 32px;
-      margin-right: 16px;
-    }
-    .integration-info h3 {
-      margin: 0 0 4px;
-      font-size: 16px;
-    }
-    .integration-info p {
-      margin: 0;
-      color: #6b7280;
-      font-size: 14px;
-    }
-    .feature-list {
-      background: #f0f4f0;
-      padding: 16px 20px;
-      border-radius: 8px;
-      margin: 20px 0;
-    }
-    .feature-list li {
-      margin: 8px 0;
-    }
     .cta-button {
       display: inline-block;
       background: #2d5a27;
@@ -94,50 +58,47 @@ export function getWelcome3Html(params: Welcome3Params): string {
 </head>
 <body>
   <div class="container">
-    <h1>Connect Your Fitness Apps</h1>
+    <h1>A quick closing note</h1>
 
     <p>${greeting},</p>
 
-    <p>The easiest way to use Loam Logger is to connect your existing fitness platform. Your rides sync automatically, and we'll track component hours for you.</p>
-
-    <h2>Supported Integrations</h2>
-
-    <div class="integration-card">
-      <div class="integration-icon">🟠</div>
-      <div class="integration-info">
-        <h3>Strava</h3>
-        <p>Sync rides, map gear to bikes, automatic hour tracking</p>
-      </div>
-    </div>
-
-    <div class="integration-card">
-      <div class="integration-icon">🔵</div>
-      <div class="integration-info">
-        <h3>Garmin Connect</h3>
-        <p>Direct sync from your Garmin device or app</p>
-      </div>
-    </div>
-
-    <div class="feature-list">
-      <h3 style="margin-top: 0;">When you connect:</h3>
-      <ul style="margin-bottom: 0; padding-left: 20px;">
-        <li><strong>Rides sync automatically</strong> - no manual logging needed</li>
-        <li><strong>Hours accumulate</strong> - track component wear passively</li>
-        <li><strong>Gear mapping</strong> - match Strava gear to your Loam Logger bikes</li>
-        <li><strong>Historical import</strong> - backfill your past rides</li>
-      </ul>
-    </div>
-
     <p>
-      <a href="${params.settingsUrl}" class="cta-button">Connect an Integration</a>
+      This will be the last onboarding email from me.
     </p>
 
-    <p>That wraps up our welcome series! You're all set to keep your bikes in peak condition.</p>
+    <p>
+      By now you’ve seen enough to get a feel for what Loam Logger is trying to be. Some riders dive in right away, others don’t really touch it until something needs attention. Both paths are completely normal.
+    </p>
 
-    <p>See you on the trails!<br>The Loam Logger Team</p>
+    <p>
+      If it helps in the background, great. If you forget about it for a while and come back later, that’s exactly how it’s meant to work.
+    </p>
+
+    <p>
+      Down the road, if you decide you want rides to sync automatically, you can connect Strava or Garmin anytime from your settings. There’s no setup you need to do now.
+    </p>
+
+    <p>
+      <a href="${params.settingsUrl}" class="cta-button">View settings</a>
+    </p>
+
+    <p>
+      I won’t keep emailing you about onboarding. From here on out, Loam Logger should quietly do its job and stay out of the way.
+    </p>
+
+    <p>
+      If you ever have feedback, questions, or something just feels off, you can always reply directly to this email.
+    </p>
+
+    <p>
+      Thanks again for being part of the early group.<br />
+      — Ryan
+    </p>
 
     <div class="footer">
-      <p>This is the last email in our welcome series. We'll only email you for important updates going forward.</p>
+      <p>
+        You’re receiving this because you signed up for early access to Loam Logger.
+      </p>
     </div>
   </div>
 </body>
