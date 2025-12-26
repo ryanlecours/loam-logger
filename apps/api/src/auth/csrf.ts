@@ -38,17 +38,17 @@ export function clearCsrfCookie(res: Response): void {
   });
 }
 
-// Paths that should skip CSRF validation (login/signup establish sessions)
-const CSRF_EXEMPT_PATHS = [
-  '/auth/google/code',
-  '/auth/signup',
-  '/auth/login',
-  '/auth/garmin/callback',
-  '/auth/strava/callback',
-  '/webhooks/garmin',
-  '/webhooks/strava',
-  '/api/waitlist',
-];
+// Exact paths that skip CSRF validation (login/signup establish sessions)
+// These endpoints either create sessions or use alternative authentication (signatures)
+const CSRF_EXEMPT_PATHS = new Set([
+  '/auth/google/code',     // Google OAuth login - creates session
+  '/auth/signup',          // Email signup - creates session
+  '/auth/login',           // Email login - creates session
+  '/auth/garmin/callback', // Garmin OAuth callback - creates session
+  '/auth/strava/callback', // Strava OAuth callback - creates session
+  '/webhooks/garmin',      // Garmin webhooks - authenticated via signature
+  '/webhooks/strava',      // Strava webhooks - authenticated via signature
+]);
 
 /**
  * Middleware to verify CSRF token on state-changing requests.
@@ -59,6 +59,7 @@ const CSRF_EXEMPT_PATHS = [
  * - Requests with Bearer token (mobile apps don't use cookies)
  * - Auth endpoints (login/signup establish sessions, no CSRF yet)
  * - Webhook endpoints (authenticated via signatures)
+ * - Unauthenticated requests (no session cookie)
  */
 export function verifyCsrf(req: Request, res: Response, next: NextFunction): void {
   // Skip for safe methods
@@ -72,8 +73,8 @@ export function verifyCsrf(req: Request, res: Response, next: NextFunction): voi
     return next();
   }
 
-  // Skip for exempt paths (login, signup, webhooks)
-  if (CSRF_EXEMPT_PATHS.some(path => req.path === path || req.path.startsWith(path + '/'))) {
+  // Skip for exempt paths (exact match only for security)
+  if (CSRF_EXEMPT_PATHS.has(req.path)) {
     return next();
   }
 
