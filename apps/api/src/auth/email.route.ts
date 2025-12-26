@@ -3,7 +3,7 @@ import { normalizeEmail, isBetaTester } from './utils';
 import { hashPassword, verifyPassword, validatePassword } from './password.utils';
 import { validateEmailFormat } from './email.utils';
 import { setSessionCookie } from './session';
-import { setCsrfCookie } from './csrf';
+import { setCsrfCookie } from './csrf'; // Used by /auth/csrf-token endpoint
 import { prisma } from '../lib/prisma';
 import { sendBadRequest, sendUnauthorized, sendForbidden, sendConflict, sendInternalError } from '../lib/api-response';
 
@@ -65,9 +65,8 @@ router.post('/signup', express.json(), async (req, res) => {
       },
     });
 
-    // Set session and CSRF cookies
+    // Set session cookie (CSRF token is fetched explicitly by frontend after login)
     setSessionCookie(res, { uid: user.id, email: user.email });
-    setCsrfCookie(res);
     res.status(200).json({ ok: true });
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e);
@@ -142,9 +141,8 @@ router.post('/login', express.json(), async (req, res) => {
       }
     }
 
-    // Set session and CSRF cookies
+    // Set session cookie (CSRF token is fetched explicitly by frontend after login)
     setSessionCookie(res, { uid: user.id, email: user.email });
-    setCsrfCookie(res);
 
     // Return success with mustChangePassword flag
     res.status(200).json({
