@@ -61,6 +61,12 @@ export default function Login() {
         return;
       }
 
+      // Fetch CSRF token to ensure cookie is set before GraphQL requests
+      await fetch(`${import.meta.env.VITE_API_URL}/auth/csrf-token`, {
+        method: 'GET',
+        credentials: 'include',
+      });
+
       const { data } = await apollo.query({ query: ME_QUERY, fetchPolicy: 'network-only' });
       apollo.writeQuery({ query: ME_QUERY, data });
       navigate(from, { replace: true });
@@ -151,6 +157,14 @@ export default function Login() {
         navigate('/change-password', { replace: true });
         return;
       }
+
+      // Fetch CSRF token to ensure cookie is set before GraphQL requests
+      // This is needed because the login response sets the cookie but Apollo
+      // might read document.cookie before the browser has processed it
+      await fetch(`${import.meta.env.VITE_API_URL}/auth/csrf-token`, {
+        method: 'GET',
+        credentials: 'include',
+      });
 
       // Success - refetch user and navigate
       const { data: userData } = await apollo.query({ query: ME_QUERY, fetchPolicy: 'network-only' });
