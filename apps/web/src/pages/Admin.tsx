@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useCurrentUser } from '../hooks/useCurrentUser';
+import { getAuthHeaders } from '@/lib/csrf';
 
 interface WaitlistEntry {
   id: string;
@@ -110,6 +111,7 @@ export default function Admin() {
       const res = await fetch(`${import.meta.env.VITE_API_URL}/api/admin/activate/${userId}`, {
         method: 'POST',
         credentials: 'include',
+        headers: getAuthHeaders(),
       });
 
       if (!res.ok) {

@@ -79,7 +79,11 @@ export function verifyCsrf(req: Request, res: Response, next: NextFunction): voi
   }
 
   // Constant-time comparison to prevent timing attacks
-  if (!crypto.timingSafeEqual(Buffer.from(cookieToken), Buffer.from(headerToken))) {
+  // timingSafeEqual requires equal length buffers, so check length first
+  if (
+    cookieToken.length !== headerToken.length ||
+    !crypto.timingSafeEqual(Buffer.from(cookieToken), Buffer.from(headerToken))
+  ) {
     res.status(403).json({
       success: false,
       error: 'CSRF token mismatch',
