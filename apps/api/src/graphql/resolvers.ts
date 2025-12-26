@@ -1,3 +1,4 @@
+import { GraphQLError } from 'graphql';
 import type { GraphQLContext } from '../server';
 import { prisma } from '../lib/prisma';
 import { ComponentType as ComponentTypeEnum } from '@prisma/client';
@@ -7,6 +8,8 @@ import type {
   Bike,
   Component as ComponentModel,
 } from '@prisma/client';
+import { checkRateLimit } from '../lib/rate-limit';
+import { enqueueSyncJob, type SyncProvider } from '../lib/queue';
 
 type ComponentType = ComponentTypeLiteral;
 
@@ -935,6 +938,54 @@ export const resolvers = {
 
       return { ok: true, id };
     },
+
+    triggerProviderSync: async (
+      _: unknown,
+      { provider }: { provider: 'STRAVA' | 'GARMIN' | 'SUUNTO' },
+      ctx: GraphQLContext
+    ) => {
+      const userId = requireUserId(ctx);
+
+      // Convert GraphQL enum to queue provider type
+      const providerLower = provider.toLowerCase() as SyncProvider;
+
+      // Check rate limit (60 second cooldown per provider per user)
+      const rateLimitResult = await checkRateLimit('syncLatest', providerLower, userId);
+
+      if (!rateLimitResult.allowed) {
+        // Round up to nearest 10 seconds to avoid leaking exact timing info
+        const roundedRetry = Math.ceil(rateLimitResult.retryAfter / 10) * 10;
+        throw new GraphQLError(
+          `Please wait before syncing ${provider} again`,
+          {
+            extensions: {
+              code: 'RATE_LIMITED',
+              retryAfter: roundedRetry,
+            },
+          }
+        );
+      }
+
+      // Enqueue the sync job with deduplication
+      const enqueueResult = await enqueueSyncJob('syncLatest', {
+        userId,
+        provider: providerLower,
+      });
+
+      if (enqueueResult.status === 'already_queued') {
+        return {
+          status: 'ALREADY_QUEUED',
+          message: `A sync for ${provider} is already in progress`,
+          jobId: enqueueResult.jobId,
+        };
+      }
+
+      return {
+        status: 'QUEUED',
+        message: `${provider} sync has been queued`,
+        jobId: enqueueResult.jobId,
+      };
+    },
   },
 
   Bike: {
@@ -961,6 +1012,7 @@ export const resolvers = {
   User: {
     activeDataSource: (parent: { activeDataSource: string | null }) => parent.activeDataSource,
     role: (parent: { role: string }) => parent.role,
+    mustChangePassword: (parent: { mustChangePassword?: boolean }) => parent.mustChangePassword ?? false,
     accounts: async (parent: { id: string }) => {
       const accounts = await prisma.userAccount.findMany({
         where: { userId: parent.id },

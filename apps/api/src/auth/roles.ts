@@ -20,3 +20,17 @@ export function isPro(role: UserRole): boolean {
 export function isFree(role: UserRole): boolean {
   return role === 'FREE';
 }
+
+/**
+ * Check if user is on WAITLIST (not yet activated)
+ */
+export function isWaitlist(role: UserRole): boolean {
+  return role === 'WAITLIST';
+}
+
+/**
+ * Check if user has been activated (not WAITLIST)
+ */
+export function isActivated(role: UserRole): boolean {
+  return role !== 'WAITLIST';
+}

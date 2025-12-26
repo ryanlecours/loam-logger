@@ -1,5 +1,6 @@
 import { Router as createRouter, type Router, type Request, type Response } from 'express';
 import { prisma } from '../lib/prisma';
+import { sendBadRequest, sendUnauthorized, sendNotFound, sendInternalError } from '../lib/api-response';
 
 type Empty = Record<string, never>;
 const r: Router = createRouter();
@@ -12,7 +13,7 @@ r.get<Empty, void, Empty, Empty>(
   async (req: Request<Empty, void, Empty, Empty>, res: Response) => {
     const userId = req.user?.id || req.sessionUser?.uid;
     if (!userId) {
-      return res.status(401).json({ error: 'Not authenticated' });
+      return sendUnauthorized(res, 'Not authenticated');
     }
 
     try {
@@ -22,7 +23,7 @@ r.get<Empty, void, Empty, Empty>(
       });
 
       if (!user) {
-        return res.status(404).json({ error: 'User not found' });
+        return sendNotFound(res, 'User not found');
       }
 
       return res.json({
@@ -31,7 +32,7 @@ r.get<Empty, void, Empty, Empty>(
       });
     } catch (error) {
       console.error('[Data Source] Error fetching preference:', error);
-      return res.status(500).json({ error: 'Failed to fetch data source preference' });
+      return sendInternalError(res, 'Failed to fetch data source preference');
     }
   }
 );
@@ -44,13 +45,13 @@ r.post<Empty, void, { provider: 'garmin' | 'strava' }>(
   async (req: Request<Empty, void, { provider: 'garmin' | 'strava' }>, res: Response) => {
     const userId = req.user?.id || req.sessionUser?.uid;
     if (!userId) {
-      return res.status(401).json({ error: 'Not authenticated' });
+      return sendUnauthorized(res, 'Not authenticated');
     }
 
     const { provider } = req.body;
 
     if (!provider || (provider !== 'garmin' && provider !== 'strava')) {
-      return res.status(400).json({ error: 'Invalid provider. Must be "garmin" or "strava"' });
+      return sendBadRequest(res, 'Invalid provider. Must be "garmin" or "strava"');
     }
 
     try {
@@ -63,9 +64,7 @@ r.post<Empty, void, { provider: 'garmin' | 'strava' }>(
       });
 
       if (!userAccount) {
-        return res.status(400).json({
-          error: `${provider.charAt(0).toUpperCase() + provider.slice(1)} account not connected`
-        });
+        return sendBadRequest(res, `${provider.charAt(0).toUpperCase() + provider.slice(1)} account not connected`);
       }
 
       // Update active data source
@@ -83,7 +82,7 @@ r.post<Empty, void, { provider: 'garmin' | 'strava' }>(
       });
     } catch (error) {
       console.error('[Data Source] Error setting preference:', error);
-      return res.status(500).json({ error: 'Failed to set data source preference' });
+      return sendInternalError(res, 'Failed to set data source preference');
     }
   }
 );

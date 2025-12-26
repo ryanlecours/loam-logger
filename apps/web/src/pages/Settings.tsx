@@ -12,6 +12,7 @@ import StravaImportModal from "../components/StravaImportModal";
 import DataSourceSelector from "../components/DataSourceSelector";
 import DuplicateRidesModal from "../components/DuplicateRidesModal";
 import { useCurrentUser } from "../hooks/useCurrentUser";
+import { getAuthHeaders } from "@/lib/csrf";
 
 const CONNECTED_ACCOUNTS_QUERY = gql`
   query ConnectedAccounts {
@@ -84,6 +85,7 @@ export default function Settings() {
       const res = await fetch(`${import.meta.env.VITE_API_URL}/auth/garmin/disconnect`, {
         method: 'DELETE',
         credentials: 'include',
+        headers: getAuthHeaders(),
       });
 
       if (!res.ok) throw new Error('Failed to disconnect');
@@ -106,6 +108,7 @@ export default function Settings() {
       const res = await fetch(`${import.meta.env.VITE_API_URL}/auth/strava/disconnect`, {
         method: 'DELETE',
         credentials: 'include',
+        headers: getAuthHeaders(),
       });
 
       if (!res.ok) throw new Error('Failed to disconnect');
@@ -124,7 +127,7 @@ export default function Settings() {
       const res = await fetch(`${import.meta.env.VITE_API_URL}/api/data-source/preference`, {
         method: 'POST',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ provider }),
       });
 
@@ -151,6 +154,7 @@ export default function Settings() {
       const res = await fetch(`${import.meta.env.VITE_API_URL}/api/strava/testing/delete-imported-rides`, {
         method: 'DELETE',
         credentials: 'include',
+        headers: getAuthHeaders(),
       });
       if (!res.ok) throw new Error('Failed to delete Strava rides');
 
@@ -175,6 +179,7 @@ export default function Settings() {
       const response = await fetch(`${import.meta.env.VITE_API_URL}/auth/delete-account`, {
         method: "DELETE",
         credentials: "include",
+        headers: getAuthHeaders(),
       });
 
       if (!response.ok) {

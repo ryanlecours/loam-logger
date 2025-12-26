@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useCurrentUser } from '../hooks/useCurrentUser';
+import { getAuthHeaders } from '@/lib/csrf';
 
 interface WaitlistEntry {
   id: string;
@@ -24,6 +25,7 @@ export default function Admin() {
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const [exporting, setExporting] = useState(false);
+  const [activating, setActivating] = useState<string | null>(null);
 
   const isAdmin = user?.role === 'ADMIN';
 
@@ -99,6 +101,36 @@ export default function Admin() {
     }
   };
 
+  const handleActivate = async (userId: string, email: string) => {
+    if (!confirm(`Activate ${email}? They will receive an email with a temporary password.`)) {
+      return;
+    }
+
+    try {
+      setActivating(userId);
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/admin/activate/${userId}`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: getAuthHeaders(),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to activate');
+      }
+
+      // Remove from waitlist and refresh stats
+      setWaitlist((prev) => prev.filter((entry) => entry.id !== userId));
+      fetchStats();
+      alert(`${email} has been activated! They will receive an email with login instructions.`);
+    } catch (err) {
+      console.error('Activation failed:', err);
+      alert(err instanceof Error ? err.message : 'Failed to activate user');
+    } finally {
+      setActivating(null);
+    }
+  };
+
   // Show loading while checking user
   if (userLoading) {
     return (
@@ -170,8 +202,8 @@ export default function Admin() {
               <tr className="border-b border-app/50">
                 <th className="text-left py-3 px-4 text-muted font-medium">Email</th>
                 <th className="text-left py-3 px-4 text-muted font-medium">Name</th>
-                <th className="text-left py-3 px-4 text-muted font-medium">Referrer</th>
                 <th className="text-left py-3 px-4 text-muted font-medium">Signed Up</th>
+                <th className="text-right py-3 px-4 text-muted font-medium">Action</th>
               </tr>
             </thead>
             <tbody>
@@ -179,11 +211,17 @@ export default function Admin() {
                 <tr key={entry.id} className="border-b border-app/30 hover:bg-surface-2/50">
                   <td className="py-3 px-4 text-white">{entry.email}</td>
                   <td className="py-3 px-4 text-muted">{entry.name || '-'}</td>
-                  <td className="py-3 px-4 text-muted truncate max-w-[200px]">
-                    {entry.referrer || '-'}
-                  </td>
                   <td className="py-3 px-4 text-muted">
                     {new Date(entry.createdAt).toLocaleDateString()}
+                  </td>
+                  <td className="py-3 px-4 text-right">
+                    <button
+                      onClick={() => handleActivate(entry.id, entry.email)}
+                      disabled={activating === entry.id}
+                      className="rounded-xl px-3 py-1.5 text-xs font-medium text-white bg-green-600 hover:bg-green-500 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {activating === entry.id ? 'Activating...' : 'Activate'}
+                    </button>
                   </td>
                 </tr>
               ))}

@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import { prisma } from '../lib/prisma';
 import { isAdmin } from './roles';
+import { sendUnauthorized, sendForbidden, sendInternalError } from '../lib/api-response';
 
 /**
  * Middleware that requires the user to have ADMIN role.
@@ -14,7 +15,7 @@ export async function requireAdmin(
   const sessionUser = req.sessionUser;
 
   if (!sessionUser?.uid) {
-    res.status(401).json({ error: 'Unauthorized' });
+    sendUnauthorized(res);
     return;
   }
 
@@ -25,13 +26,13 @@ export async function requireAdmin(
     });
 
     if (!user || !isAdmin(user.role)) {
-      res.status(403).json({ error: 'Forbidden: Admin access required' });
+      sendForbidden(res, 'Admin access required', 'ADMIN_REQUIRED');
       return;
     }
 
     next();
   } catch (error) {
-    console.error('Admin middleware error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('[AdminMiddleware] Error:', error);
+    sendInternalError(res);
   }
 }

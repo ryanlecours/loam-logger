@@ -27,9 +27,29 @@ export const typeDefs = gql`
   }
 
   enum UserRole {
+    WAITLIST
     FREE
     PRO
     ADMIN
+  }
+
+  enum SyncProvider {
+    STRAVA
+    GARMIN
+    SUUNTO
+  }
+
+  enum TriggerSyncStatus {
+    QUEUED
+    ALREADY_QUEUED
+    RATE_LIMITED
+  }
+
+  type TriggerSyncResult {
+    status: TriggerSyncStatus!
+    message: String!
+    retryAfter: Int
+    jobId: String
   }
 
   type Ride {
@@ -216,6 +236,7 @@ export const typeDefs = gql`
     logComponentService(id: ID!): Component!
     createStravaGearMapping(input: CreateStravaGearMappingInput!): StravaGearMapping!
     deleteStravaGearMapping(id: ID!): DeleteResult!
+    triggerProviderSync(provider: SyncProvider!): TriggerSyncResult!
   }
 
   type ConnectedAccount {
@@ -235,6 +256,7 @@ export const typeDefs = gql`
     activeDataSource: String
     accounts: [ConnectedAccount!]!
     role: UserRole!
+    mustChangePassword: Boolean!
   }
 
   input RidesFilterInput {
