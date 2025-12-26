@@ -65,9 +65,10 @@ router.post('/signup', express.json(), async (req, res) => {
       },
     });
 
-    // Set session cookie (CSRF token is fetched explicitly by frontend after login)
+    // Set session and CSRF cookies, return CSRF token for immediate use
     setSessionCookie(res, { uid: user.id, email: user.email });
-    res.status(200).json({ ok: true });
+    const csrfToken = setCsrfCookie(res);
+    res.status(200).json({ ok: true, csrfToken });
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e);
     console.error('[EmailAuth] Signup failed', e);
@@ -141,13 +142,15 @@ router.post('/login', express.json(), async (req, res) => {
       }
     }
 
-    // Set session cookie (CSRF token is fetched explicitly by frontend after login)
+    // Set session and CSRF cookies, return CSRF token for immediate use
     setSessionCookie(res, { uid: user.id, email: user.email });
+    const csrfToken = setCsrfCookie(res);
 
-    // Return success with mustChangePassword flag
+    // Return success with mustChangePassword flag and CSRF token
     res.status(200).json({
       ok: true,
       mustChangePassword: user.mustChangePassword,
+      csrfToken,
     });
   } catch (e) {
     console.error('[EmailAuth] Login failed', e);
