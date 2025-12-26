@@ -13,6 +13,7 @@ export function setSessionCookie(res: Response, payload: SessionUser) {
     secure: process.env.APP_ENV === 'production',
     sameSite: process.env.APP_ENV === 'production' ? 'none' : 'lax',
     maxAge: 7 * 24 * 60 * 60 * 1000,
+    path: '/', // Ensure cookie is sent to all routes, not just /auth/*
   });
 }
 
@@ -20,7 +21,8 @@ export function clearSessionCookie(res: Response) {
   res.clearCookie('ll_session', {
     httpOnly: true,
     secure: process.env.APP_ENV === 'production',
-    sameSite: 'lax',
+    sameSite: process.env.APP_ENV === 'production' ? 'none' : 'lax',
+    path: '/',
   });
 }
 
