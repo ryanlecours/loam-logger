@@ -7,6 +7,7 @@ import { useCurrentUser } from '../hooks/useCurrentUser';
 import { MOUNTAIN_BIKE_BRANDS } from '../constants/bikeBrands';
 import { BIKE_MODELS } from '../constants/bikeModels';
 import { Button } from '@/components/ui';
+import { getAuthHeaders } from '@/lib/csrf';
 
 const CONNECTED_ACCOUNTS_QUERY = gql`
   query ConnectedAccounts {
@@ -139,7 +140,7 @@ export default function Onboarding() {
       const response = await fetch(`${import.meta.env.VITE_API_URL}/onboarding/complete`, {
         method: 'POST',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify(data),
       });
 
