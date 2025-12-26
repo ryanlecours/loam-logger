@@ -128,6 +128,96 @@ router.post('/activate/:userId', async (req, res) => {
 });
 
 /**
+ * POST /api/admin/migrate-waitlist
+ * Creates User records for BetaWaitlist entries that don't have one
+ * TEMPORARY: Will be removed after migration is complete
+ */
+router.post('/migrate-waitlist', async (req, res) => {
+  try {
+    const adminUserId = req.sessionUser?.uid;
+    if (!adminUserId) {
+      return sendUnauthorized(res);
+    }
+
+    // 1. Get all BetaWaitlist entries
+    const waitlistEntries = await prisma.betaWaitlist.findMany({
+      select: { email: true, name: true },
+    });
+
+    // 2. Get all existing User emails (Set for O(1) lookup)
+    const existingUsers = await prisma.user.findMany({
+      select: { email: true },
+    });
+    const existingEmails = new Set(existingUsers.map((u) => u.email.toLowerCase()));
+
+    // 3. Filter to entries that need User records
+    const toMigrate = waitlistEntries.filter(
+      (entry) => !existingEmails.has(entry.email.toLowerCase())
+    );
+
+    // 4. Create User records in batches
+    let migrated = 0;
+    let failed = 0;
+    const errors: string[] = [];
+    const BATCH_SIZE = 100;
+
+    for (let i = 0; i < toMigrate.length; i += BATCH_SIZE) {
+      const batch = toMigrate.slice(i, i + BATCH_SIZE);
+
+      try {
+        await prisma.user.createMany({
+          data: batch.map((entry) => ({
+            email: entry.email,
+            name: entry.name,
+            role: 'WAITLIST',
+          })),
+          skipDuplicates: true,
+        });
+        migrated += batch.length;
+      } catch {
+        // Fall back to individual creates if batch fails
+        for (const entry of batch) {
+          try {
+            await prisma.user.create({
+              data: {
+                email: entry.email,
+                name: entry.name,
+                role: 'WAITLIST',
+              },
+            });
+            migrated++;
+          } catch (individualErr) {
+            failed++;
+            errors.push(
+              `${entry.email}: ${individualErr instanceof Error ? individualErr.message : 'Unknown error'}`
+            );
+          }
+        }
+      }
+    }
+
+    const skipped = waitlistEntries.length - toMigrate.length;
+
+    console.log(
+      `[Admin] Waitlist migration by ${adminUserId}: ` +
+        `${migrated} migrated, ${skipped} skipped, ${failed} failed`
+    );
+
+    res.json({
+      success: true,
+      migrated,
+      skipped,
+      failed,
+      total: waitlistEntries.length,
+      ...(errors.length > 0 ? { errors } : {}),
+    });
+  } catch (error) {
+    console.error('Admin migrate-waitlist error:', error);
+    return sendInternalError(res, 'Failed to migrate waitlist entries');
+  }
+});
+
+/**
  * GET /api/admin/waitlist/export
  * Downloads waitlist as CSV
  */

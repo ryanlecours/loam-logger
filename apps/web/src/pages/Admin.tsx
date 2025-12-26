@@ -16,6 +16,14 @@ interface AdminStats {
   waitlistCount: number;
 }
 
+interface MigrationResult {
+  migrated: number;
+  skipped: number;
+  failed: number;
+  total: number;
+  errors?: string[];
+}
+
 export default function Admin() {
   const { user, loading: userLoading } = useCurrentUser();
   const [stats, setStats] = useState<AdminStats | null>(null);
@@ -26,6 +34,8 @@ export default function Admin() {
   const [hasMore, setHasMore] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [activating, setActivating] = useState<string | null>(null);
+  const [migrating, setMigrating] = useState(false);
+  const [migrationResult, setMigrationResult] = useState<MigrationResult | null>(null);
 
   const isAdmin = user?.role === 'ADMIN';
 
@@ -131,6 +141,49 @@ export default function Admin() {
     }
   };
 
+  const handleMigrateWaitlist = async () => {
+    if (
+      !confirm(
+        "This will create User records for all BetaWaitlist entries that don't already have one.\n\n" +
+          'NO emails will be sent.\n\n' +
+          'Continue?'
+      )
+    ) {
+      return;
+    }
+
+    try {
+      setMigrating(true);
+      setMigrationResult(null);
+
+      const res = await fetch(
+        `${import.meta.env.VITE_API_URL}/api/admin/migrate-waitlist`,
+        {
+          method: 'POST',
+          credentials: 'include',
+          headers: getAuthHeaders(),
+        }
+      );
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Migration failed');
+      }
+
+      const result = await res.json();
+      setMigrationResult(result);
+
+      // Refresh stats and waitlist
+      fetchStats();
+      fetchWaitlist(1);
+    } catch (err) {
+      console.error('Migration failed:', err);
+      alert(err instanceof Error ? err.message : 'Migration failed');
+    } finally {
+      setMigrating(false);
+    }
+  };
+
   // Show loading while checking user
   if (userLoading) {
     return (
@@ -173,6 +226,53 @@ export default function Admin() {
           </div>
         </section>
       )}
+
+      {/* Migration Tool - TEMPORARY */}
+      <section className="panel-soft shadow-soft border border-yellow-600/50 rounded-3xl p-6 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-xs uppercase tracking-[0.3em] text-yellow-500">
+              Temporary Migration Tool
+            </p>
+            <h2 className="text-xl font-semibold text-white">Migrate Legacy Waitlist Entries</h2>
+            <p className="text-sm text-muted max-w-2xl">
+              Creates User records (role: WAITLIST) for BetaWaitlist entries that don't already
+              have corresponding Users. No emails will be sent.
+            </p>
+          </div>
+          <button
+            onClick={handleMigrateWaitlist}
+            disabled={migrating}
+            className="rounded-2xl px-4 py-2 text-sm font-medium text-black bg-yellow-500 hover:bg-yellow-400 transition disabled:opacity-50"
+          >
+            {migrating ? 'Migrating...' : 'Migrate Entries'}
+          </button>
+        </div>
+
+        {migrationResult && (
+          <div className="rounded-2xl bg-surface-2/50 border border-app p-4 space-y-2">
+            <p className="text-white font-medium">Migration Complete</p>
+            <ul className="text-sm text-muted space-y-1">
+              <li>Total entries processed: {migrationResult.total}</li>
+              <li className="text-green-400">Created: {migrationResult.migrated} new User records</li>
+              <li>Skipped: {migrationResult.skipped} (already had User)</li>
+              {migrationResult.failed > 0 && (
+                <li className="text-red-400">Failed: {migrationResult.failed}</li>
+              )}
+            </ul>
+            {migrationResult.errors && migrationResult.errors.length > 0 && (
+              <details className="text-sm text-red-300">
+                <summary className="cursor-pointer">View errors</summary>
+                <ul className="mt-2 space-y-1 pl-4">
+                  {migrationResult.errors.map((err, i) => (
+                    <li key={i}>{err}</li>
+                  ))}
+                </ul>
+              </details>
+            )}
+          </div>
+        )}
+      </section>
 
       {/* Waitlist Table */}
       <section className="panel-soft shadow-soft border border-app rounded-3xl p-6 space-y-4">
