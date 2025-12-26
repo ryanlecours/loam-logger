@@ -1,5 +1,5 @@
 // Queue exports
-export { getEmailQueue, scheduleWelcomeSeries, closeEmailQueue } from './email.queue';
+export { getEmailQueue, addEmailJob, scheduleWelcomeSeries, closeEmailQueue } from './email.queue';
 export type { EmailJobName, EmailJobData } from './email.queue';
 
 export { getSyncQueue, closeSyncQueue, enqueueSyncJob, buildSyncJobId } from './sync.queue';

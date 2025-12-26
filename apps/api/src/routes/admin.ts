@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma';
 import { requireAdmin } from '../auth/adminMiddleware';
 import { activateWaitlistUser } from '../services/activation.service';
 import { sendUnauthorized, sendBadRequest, sendInternalError } from '../lib/api-response';
+import { checkAdminRateLimit } from '../lib/rate-limit';
 
 const router = Router();
 
@@ -104,7 +105,20 @@ router.post('/activate/:userId', async (req, res) => {
       return sendBadRequest(res, 'Invalid userId');
     }
 
-    const result = await activateWaitlistUser({ userId: userId.trim(), adminUserId });
+    const trimmedUserId = userId.trim();
+
+    // Rate limit to prevent email flooding
+    const rateLimit = await checkAdminRateLimit('activation', trimmedUserId);
+    if (!rateLimit.allowed) {
+      res.setHeader('Retry-After', rateLimit.retryAfter.toString());
+      return res.status(429).json({
+        success: false,
+        error: 'Too many activation attempts for this user',
+        retryAfter: rateLimit.retryAfter,
+      });
+    }
+
+    const result = await activateWaitlistUser({ userId: trimmedUserId, adminUserId });
     res.json(result);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to activate user';

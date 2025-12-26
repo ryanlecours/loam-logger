@@ -2,6 +2,7 @@ import express from 'express';
 import { OAuth2Client } from 'google-auth-library';
 import { ensureUserFromGoogle } from './ensureUserFromGoogle';
 import { setSessionCookie, clearSessionCookie } from './session';
+import { setCsrfCookie, clearCsrfCookie } from './csrf';
 
 const router = express.Router();
 
@@ -41,6 +42,7 @@ router.post('/google/code', express.json(), async (req, res) => {
     );
 
     setSessionCookie(res, { uid: user.id, email: user.email });
+    setCsrfCookie(res);
     res.status(200).json({ ok: true });
   } catch (e) {
     const errorMessage = e instanceof Error ? e.message : String(e);
@@ -58,6 +60,7 @@ router.post('/google/code', express.json(), async (req, res) => {
 router.post('/logout', (_req, res) => {
   console.log('[GoogleAuth] Logout request');
   clearSessionCookie(res);
+  clearCsrfCookie(res);
   res.status(200).json({ ok: true });
 });
 

@@ -17,6 +17,17 @@ export const RATE_LIMITS = {
   backfillStart: 24 * HOURS,
 } as const;
 
+/**
+ * Rate limit configuration for admin actions.
+ * Values are in seconds.
+ */
+export const ADMIN_RATE_LIMITS = {
+  /** Activation cooldown: 10 seconds per target user (prevents email flood) */
+  activation: 10 * SECONDS,
+} as const;
+
+export type AdminRateLimitType = keyof typeof ADMIN_RATE_LIMITS;
+
 export type RateLimitType = keyof typeof RATE_LIMITS;
 
 /**
@@ -87,6 +98,65 @@ export async function checkRateLimit(
     // Redis operation failed, allow the operation but log warning
     console.warn(
       `[RateLimit] Redis error during ${operation} check for ${provider}:${userId}, allowing operation:`,
+      err instanceof Error ? err.message : 'Unknown error'
+    );
+    return { allowed: true, redisAvailable: false };
+  }
+}
+
+/**
+ * Build a rate limit key for admin actions.
+ * Format: rl:admin:<operation>:<targetId>
+ */
+function buildAdminRateLimitKey(
+  operation: AdminRateLimitType,
+  targetId: string
+): string {
+  return `rl:admin:${operation}:${targetId}`;
+}
+
+/**
+ * Check if an admin action is rate limited and set the rate limit if allowed.
+ * Used to prevent abuse like email flooding via activation endpoint.
+ *
+ * @param operation - The type of admin operation (activation)
+ * @param targetId - The target user/entity ID
+ * @returns Whether the operation is allowed, and retryAfter seconds if not
+ */
+export async function checkAdminRateLimit(
+  operation: AdminRateLimitType,
+  targetId: string
+): Promise<RateLimitResult> {
+  // Graceful degradation: allow operation if Redis is unavailable
+  if (!isRedisReady()) {
+    console.warn(
+      `[RateLimit] Redis unavailable, allowing admin ${operation} for ${targetId}`
+    );
+    return { allowed: true, redisAvailable: false };
+  }
+
+  try {
+    const redis = getRedisConnection();
+    const key = buildAdminRateLimitKey(operation, targetId);
+    const ttlSeconds = ADMIN_RATE_LIMITS[operation];
+
+    // Try to set the key with NX (only if not exists) and EX (expiry)
+    const result = await redis.set(key, Date.now().toString(), 'EX', ttlSeconds, 'NX');
+
+    if (result === 'OK') {
+      return { allowed: true, redisAvailable: true };
+    }
+
+    // Key already exists, get TTL to calculate retryAfter
+    const ttl = await redis.ttl(key);
+    return {
+      allowed: false,
+      retryAfter: ttl > 0 ? ttl : ttlSeconds,
+      redisAvailable: true,
+    };
+  } catch (err) {
+    console.warn(
+      `[RateLimit] Redis error during admin ${operation} check for ${targetId}, allowing operation:`,
       err instanceof Error ? err.message : 'Unknown error'
     );
     return { allowed: true, redisAvailable: false };

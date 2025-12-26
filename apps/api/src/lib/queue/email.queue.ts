@@ -62,28 +62,54 @@ export function getEmailQueue(): Queue<EmailJobData, void, EmailJobName> {
 }
 
 /**
+ * Add a job to the email queue, silently ignoring duplicates.
+ * BullMQ throws an error when a job with the same ID already exists.
+ * This wrapper catches that error and logs it as a warning instead.
+ *
+ * @returns true if job was added, false if duplicate was ignored
+ */
+export async function addEmailJob(
+  name: EmailJobName,
+  data: EmailJobData,
+  options: { delay?: number; jobId: string }
+): Promise<boolean> {
+  const queue = getEmailQueue();
+  try {
+    await queue.add(name, data, options);
+    return true;
+  } catch (err) {
+    // BullMQ throws "Job with id X already exists" for duplicates
+    if (err instanceof Error && err.message.includes('already exists')) {
+      console.warn(`[EmailQueue] Duplicate job ignored: ${options.jobId}`);
+      return false;
+    }
+    throw err;
+  }
+}
+
+/**
  * Schedule the welcome email series for a newly activated user.
  * Emails are sent at: Day 1, Day 3, Day 7
+ * Duplicate jobs are silently ignored.
  */
 export async function scheduleWelcomeSeries(
   userId: string,
   email: string,
   name?: string
 ): Promise<void> {
-  const queue = getEmailQueue();
   const baseData = { userId, email, name };
 
-  await queue.add('welcome-1', baseData, {
+  await addEmailJob('welcome-1', baseData, {
     delay: WELCOME_EMAIL_DELAYS.WELCOME_1,
     jobId: `welcome-1-${userId}`,
   });
 
-  await queue.add('welcome-2', baseData, {
+  await addEmailJob('welcome-2', baseData, {
     delay: WELCOME_EMAIL_DELAYS.WELCOME_2,
     jobId: `welcome-2-${userId}`,
   });
 
-  await queue.add('welcome-3', baseData, {
+  await addEmailJob('welcome-3', baseData, {
     delay: WELCOME_EMAIL_DELAYS.WELCOME_3,
     jobId: `welcome-3-${userId}`,
   });

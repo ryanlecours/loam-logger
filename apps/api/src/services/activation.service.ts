@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import { prisma } from '../lib/prisma';
 import { hashPassword } from '../auth/password.utils';
-import { getEmailQueue, scheduleWelcomeSeries } from '../lib/queue';
+import { addEmailJob, scheduleWelcomeSeries } from '../lib/queue';
 import { PASSWORD_REQUIREMENTS } from '@loam/shared';
 
 // Word list for generating memorable temporary passwords
@@ -112,8 +112,8 @@ export async function activateWaitlistUser({
   let returnPassword: string | undefined;
 
   try {
-    const emailQueue = getEmailQueue();
-    await emailQueue.add(
+    // Use addEmailJob to handle duplicates gracefully
+    const wasAdded = await addEmailJob(
       'activation',
       {
         userId: user.id,
@@ -129,8 +129,12 @@ export async function activateWaitlistUser({
     // 5. Schedule welcome series
     await scheduleWelcomeSeries(user.id, user.email, user.name || undefined);
 
-    emailQueued = true;
-    console.log(`[Activation] User ${user.email} activated by admin ${adminUserId}`);
+    emailQueued = wasAdded;
+    if (wasAdded) {
+      console.log(`[Activation] User ${user.email} activated by admin ${adminUserId}`);
+    } else {
+      console.log(`[Activation] User ${user.email} activation email already queued (duplicate ignored)`);
+    }
   } catch (emailErr) {
     // CRITICAL: User is activated but email failed - preserve temp password for admin
     // Log the error for debugging but don't expose the password
