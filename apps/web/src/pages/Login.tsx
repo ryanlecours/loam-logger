@@ -62,10 +62,16 @@ export default function Login() {
       }
 
       // Fetch CSRF token to ensure cookie is set before GraphQL requests
-      await fetch(`${import.meta.env.VITE_API_URL}/auth/csrf-token`, {
+      const csrfRes = await fetch(`${import.meta.env.VITE_API_URL}/auth/csrf-token`, {
         method: 'GET',
         credentials: 'include',
       });
+
+      if (!csrfRes.ok) {
+        console.error('[GoogleLogin] Failed to fetch CSRF token', csrfRes.status);
+        alert('Login succeeded but session setup failed. Please refresh and try again.');
+        return;
+      }
 
       const { data } = await apollo.query({ query: ME_QUERY, fetchPolicy: 'network-only' });
       apollo.writeQuery({ query: ME_QUERY, data });
@@ -159,12 +165,16 @@ export default function Login() {
       }
 
       // Fetch CSRF token to ensure cookie is set before GraphQL requests
-      // This is needed because the login response sets the cookie but Apollo
-      // might read document.cookie before the browser has processed it
-      await fetch(`${import.meta.env.VITE_API_URL}/auth/csrf-token`, {
+      const csrfRes = await fetch(`${import.meta.env.VITE_API_URL}/auth/csrf-token`, {
         method: 'GET',
         credentials: 'include',
       });
+
+      if (!csrfRes.ok) {
+        console.error(`[${mode}] Failed to fetch CSRF token`, csrfRes.status);
+        setError('Login succeeded but session setup failed. Please refresh and try again.');
+        return;
+      }
 
       // Success - refetch user and navigate
       const { data: userData } = await apollo.query({ query: ME_QUERY, fetchPolicy: 'network-only' });
