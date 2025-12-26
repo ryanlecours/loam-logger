@@ -22,17 +22,11 @@ export function clearCsrfToken(): void {
 }
 
 /**
- * Get the CSRF token from sessionStorage or cookie.
+ * Get the CSRF token from cookie or sessionStorage.
  * Returns undefined if token is not available.
  */
 export function getCsrfToken(): string | undefined {
-  // Prefer sessionStorage token (set after login) to avoid cookie timing issues
-  const cached = sessionStorage.getItem(CSRF_STORAGE_KEY);
-  if (cached) {
-    return cached;
-  }
-
-  // Fallback to reading from cookie (for page refreshes when already logged in)
+  // Read from cookie first (most reliable - set by server with path: '/')
   const cookies = document.cookie.split(';');
   for (const cookie of cookies) {
     const [name, value] = cookie.trim().split('=');
@@ -40,6 +34,13 @@ export function getCsrfToken(): string | undefined {
       return value;
     }
   }
+
+  // Fallback to sessionStorage
+  const cached = sessionStorage.getItem(CSRF_STORAGE_KEY);
+  if (cached) {
+    return cached;
+  }
+
   return undefined;
 }
 
