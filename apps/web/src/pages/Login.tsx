@@ -6,6 +6,7 @@ import { motion } from 'motion/react';
 import { ME_QUERY } from '../graphql/me';
 import { useRedirectFrom } from '../utils/loginUtils';
 import { Button } from '@/components/ui';
+import { setCsrfToken } from '@/lib/csrf';
 
 export default function Login() {
   const apollo = useApolloClient();
@@ -61,7 +62,7 @@ export default function Login() {
         return;
       }
 
-      // Fetch CSRF token to ensure cookie is set before GraphQL requests
+      // Fetch CSRF token and cache it for immediate use
       const csrfRes = await fetch(`${import.meta.env.VITE_API_URL}/auth/csrf-token`, {
         method: 'GET',
         credentials: 'include',
@@ -72,6 +73,9 @@ export default function Login() {
         alert('Login succeeded but session setup failed. Please refresh and try again.');
         return;
       }
+
+      const { csrfToken } = await csrfRes.json();
+      setCsrfToken(csrfToken);
 
       const { data } = await apollo.query({ query: ME_QUERY, fetchPolicy: 'network-only' });
       apollo.writeQuery({ query: ME_QUERY, data });
@@ -164,7 +168,7 @@ export default function Login() {
         return;
       }
 
-      // Fetch CSRF token to ensure cookie is set before GraphQL requests
+      // Fetch CSRF token and cache it for immediate use
       const csrfRes = await fetch(`${import.meta.env.VITE_API_URL}/auth/csrf-token`, {
         method: 'GET',
         credentials: 'include',
@@ -175,6 +179,9 @@ export default function Login() {
         setError('Login succeeded but session setup failed. Please refresh and try again.');
         return;
       }
+
+      const { csrfToken } = await csrfRes.json();
+      setCsrfToken(csrfToken);
 
       // Success - refetch user and navigate
       const { data: userData } = await apollo.query({ query: ME_QUERY, fetchPolicy: 'network-only' });

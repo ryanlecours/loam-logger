@@ -4,7 +4,7 @@ import { useApolloClient } from '@apollo/client';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import type { ReactNode } from 'react';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
-import { getAuthHeaders } from '@/lib/csrf';
+import { getAuthHeaders, clearCsrfToken } from '@/lib/csrf';
 
 const BASE_NAV_LINKS = [
   { label: 'Dashboard', path: '/dashboard' },
@@ -35,6 +35,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
         credentials: 'include',
         headers: getAuthHeaders(),
       });
+      clearCsrfToken();
       await apollo.clearStore();
       navigate('/login');
     } catch (err) {
