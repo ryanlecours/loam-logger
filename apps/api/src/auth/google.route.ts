@@ -2,7 +2,7 @@ import express from 'express';
 import { OAuth2Client } from 'google-auth-library';
 import { ensureUserFromGoogle } from './ensureUserFromGoogle';
 import { setSessionCookie, clearSessionCookie } from './session';
-import { clearCsrfCookie } from './csrf';
+import { setCsrfCookie, clearCsrfCookie } from './csrf';
 
 const router = express.Router();
 
@@ -41,9 +41,10 @@ router.post('/google/code', express.json(), async (req, res) => {
       },
     );
 
-    // Set session cookie (CSRF token is fetched explicitly by frontend after login)
+    // Set session and CSRF cookies, return CSRF token for immediate use
     setSessionCookie(res, { uid: user.id, email: user.email });
-    res.status(200).json({ ok: true });
+    const csrfToken = setCsrfCookie(res);
+    res.status(200).json({ ok: true, csrfToken });
   } catch (e) {
     const errorMessage = e instanceof Error ? e.message : String(e);
     console.error('[GoogleAuth] ID-token login failed', e);

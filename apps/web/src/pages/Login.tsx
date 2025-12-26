@@ -62,20 +62,11 @@ export default function Login() {
         return;
       }
 
-      // Fetch CSRF token and cache it for immediate use
-      const csrfRes = await fetch(`${import.meta.env.VITE_API_URL}/auth/csrf-token`, {
-        method: 'GET',
-        credentials: 'include',
-      });
-
-      if (!csrfRes.ok) {
-        console.error('[GoogleLogin] Failed to fetch CSRF token', csrfRes.status);
-        alert('Login succeeded but session setup failed. Please refresh and try again.');
-        return;
+      // Get CSRF token from login response and cache it for immediate use
+      const { csrfToken } = await res.json();
+      if (csrfToken) {
+        setCsrfToken(csrfToken);
       }
-
-      const { csrfToken } = await csrfRes.json();
-      setCsrfToken(csrfToken);
 
       const { data } = await apollo.query({ query: ME_QUERY, fetchPolicy: 'network-only' });
       apollo.writeQuery({ query: ME_QUERY, data });
@@ -159,29 +150,17 @@ export default function Login() {
         return;
       }
 
-      // Parse success response
+      // Parse success response and cache CSRF token for immediate use
       const data = await res.json();
+      if (data.csrfToken) {
+        setCsrfToken(data.csrfToken);
+      }
 
       // Check if user needs to change password
       if (data.mustChangePassword) {
         navigate('/change-password', { replace: true });
         return;
       }
-
-      // Fetch CSRF token and cache it for immediate use
-      const csrfRes = await fetch(`${import.meta.env.VITE_API_URL}/auth/csrf-token`, {
-        method: 'GET',
-        credentials: 'include',
-      });
-
-      if (!csrfRes.ok) {
-        console.error(`[${mode}] Failed to fetch CSRF token`, csrfRes.status);
-        setError('Login succeeded but session setup failed. Please refresh and try again.');
-        return;
-      }
-
-      const { csrfToken } = await csrfRes.json();
-      setCsrfToken(csrfToken);
 
       // Success - refetch user and navigate
       const { data: userData } = await apollo.query({ query: ME_QUERY, fetchPolicy: 'network-only' });
