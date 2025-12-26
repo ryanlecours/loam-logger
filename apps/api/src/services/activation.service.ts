@@ -73,7 +73,10 @@ export async function activateWaitlistUser({
   const tempPassword = generateTempPassword();
   const passwordHash = await hashPassword(tempPassword);
 
-  // 3. Update user record
+  // 3. Update user record and queue emails
+  // Note: We update the user first, then queue emails. If email queueing fails,
+  // the user is still activated but we log the error for manual intervention.
+  // This is preferable to leaving a user in WAITLIST state indefinitely.
   await prisma.user.update({
     where: { id: userId },
     data: {
@@ -85,25 +88,38 @@ export async function activateWaitlistUser({
     },
   });
 
-  // 4. Queue activation email
-  const emailQueue = getEmailQueue();
-  await emailQueue.add(
-    'activation',
-    {
-      userId: user.id,
-      email: user.email,
-      name: user.name || undefined,
-      tempPassword,
-    },
-    {
-      jobId: `activation-${userId}`,
-    }
-  );
+  // 4. Queue activation email and welcome series
+  // If this fails, user is activated but won't receive email - log for manual follow-up
+  try {
+    const emailQueue = getEmailQueue();
+    await emailQueue.add(
+      'activation',
+      {
+        userId: user.id,
+        email: user.email,
+        name: user.name || undefined,
+        tempPassword,
+      },
+      {
+        jobId: `activation-${userId}`,
+      }
+    );
 
-  // 5. Schedule welcome series
-  await scheduleWelcomeSeries(user.id, user.email, user.name || undefined);
+    // 5. Schedule welcome series
+    await scheduleWelcomeSeries(user.id, user.email, user.name || undefined);
 
-  console.log(`[Activation] User ${user.email} activated by admin ${adminUserId}`);
+    console.log(`[Activation] User ${user.email} activated by admin ${adminUserId}`);
+  } catch (emailError) {
+    // CRITICAL: User is activated but email failed - needs manual intervention
+    // Note: We intentionally do NOT log the temp password for security reasons.
+    // Admin can reset the user's password manually if needed.
+    console.error(
+      `[Activation] CRITICAL: User ${user.email} (${userId}) activated but email queueing failed. ` +
+      `Admin should manually reset password or re-trigger activation email. Error:`,
+      emailError
+    );
+    // Don't throw - user is activated, admin can manually share credentials if needed
+  }
 
   return {
     success: true,

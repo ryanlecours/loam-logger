@@ -39,6 +39,65 @@ export function getSyncQueue(): Queue<SyncJobData, void, SyncJobName> {
 }
 
 /**
+ * Build a deterministic job ID for sync jobs.
+ * Format: syncLatest:<provider>:<userId> or syncActivity:<provider>:<userId>:<activityId>
+ */
+export function buildSyncJobId(
+  jobName: SyncJobName,
+  provider: SyncProvider,
+  userId: string,
+  activityId?: string
+): string {
+  if (jobName === 'syncActivity' && activityId) {
+    return `${jobName}:${provider}:${userId}:${activityId}`;
+  }
+  return `${jobName}:${provider}:${userId}`;
+}
+
+/**
+ * Result of enqueueing a sync job.
+ */
+export type EnqueueSyncResult =
+  | { status: 'queued'; jobId: string }
+  | { status: 'already_queued'; jobId: string };
+
+/**
+ * Enqueue a sync job with deduplication.
+ * Uses deterministic job IDs so duplicate jobs are never queued.
+ *
+ * @param jobName - The job name (syncLatest, syncActivity)
+ * @param data - The job data
+ * @returns Result indicating if job was queued or already exists
+ */
+export async function enqueueSyncJob(
+  jobName: SyncJobName,
+  data: SyncJobData
+): Promise<EnqueueSyncResult> {
+  const queue = getSyncQueue();
+  const jobId = buildSyncJobId(jobName, data.provider, data.userId, data.activityId);
+
+  // Check if job already exists (waiting, delayed, or active)
+  const existingJob = await queue.getJob(jobId);
+
+  if (existingJob) {
+    const state = await existingJob.getState();
+    // If job is waiting, delayed, or active, don't enqueue again
+    if (state === 'waiting' || state === 'delayed' || state === 'active') {
+      console.log(`[SyncQueue] Job ${jobId} already exists (state: ${state})`);
+      return { status: 'already_queued', jobId };
+    }
+    // If job is completed or failed, we can enqueue a new one
+  }
+
+  await queue.add(jobName, data, {
+    jobId,
+  });
+
+  console.log(`[SyncQueue] Enqueued job ${jobId}`);
+  return { status: 'queued', jobId };
+}
+
+/**
  * Close the sync queue connection.
  */
 export async function closeSyncQueue(): Promise<void> {
