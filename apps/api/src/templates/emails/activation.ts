@@ -6,7 +6,7 @@ export type ActivationEmailParams = {
 };
 
 export function getActivationEmailSubject(): string {
-  return 'Your Loam Logger account is ready!';
+  return 'Welcome — your Loam Logger access is ready';
 }
 
 export function getActivationEmailHtml(params: ActivationEmailParams): string {
@@ -68,10 +68,6 @@ export function getActivationEmailHtml(params: ActivationEmailParams): string {
     .cta-button:hover {
       background: #234a1f;
     }
-    .warning {
-      color: #92400e;
-      font-weight: 500;
-    }
     .footer {
       margin-top: 32px;
       padding-top: 16px;
@@ -83,39 +79,54 @@ export function getActivationEmailHtml(params: ActivationEmailParams): string {
 </head>
 <body>
   <div class="container">
-    <h1>Welcome to Loam Logger!</h1>
+    <h1>Welcome to Loam Logger</h1>
 
     <p>${greeting},</p>
 
-    <p>Great news - your Loam Logger account has been activated! You can now start tracking your mountain bike maintenance and ride history.</p>
+    <p>
+      Thanks for raising your hand early. I’m building Loam Logger slowly and deliberately, and the people who help shape it at the beginning really matter.
+    </p>
 
-    <h2 style="color: #2d5a27; font-size: 18px;">Your Login Credentials</h2>
+    <p>
+      Because you are part of this first group, you’ve been added as a <strong>Founding Rider</strong>. That means you have free access for life — no paywalls, no expiration, no strings attached.
+    </p>
+
+    <p>
+      Use it as much or as little as you want. If it’s useful, great. If it’s not yet, that’s okay too. The goal right now is simply to make something that genuinely helps riders stay on top of their bikes.
+    </p>
+
+    <h2 style="color: #2d5a27; font-size: 18px;">Your login details</h2>
 
     <div class="credentials-box">
       <p><strong>Email:</strong> ${params.email}</p>
-      <p><strong>Temporary Password:</strong> <span class="password-code">${params.tempPassword}</span></p>
+      <p><strong>Temporary password:</strong> <span class="password-code">${params.tempPassword}</span></p>
     </div>
 
-    <p class="warning"><strong>Important:</strong> You'll be prompted to change this password when you first log in.</p>
-
     <p>
-      <a href="${params.loginUrl}" class="cta-button">Log In to Loam Logger</a>
+      You’ll be prompted to change this password the first time you log in.
     </p>
 
-    <p>Once you're in, you can:</p>
-    <ul>
-      <li>Add your bikes to your garage</li>
-      <li>Track component wear and service intervals</li>
-      <li>Connect Strava or Garmin to sync rides automatically</li>
-      <li>Log rides manually with GPX upload</li>
-    </ul>
+    <p>
+      <a href="${params.loginUrl}" class="cta-button">Log in to Loam Logger</a>
+    </p>
 
-    <p>Questions? Just reply to this email and we'll help you out.</p>
+    <p>
+      Once you’re in, you can add your bikes, connect Garmin or Strava, and start tracking maintenance in whatever way feels natural. There’s no setup you have to rush through.
+    </p>
 
-    <p>Ride on!<br>The Loam Logger Team</p>
+    <p>
+      If you ever have feedback — good, bad, or indifferent — just reply to this email. And if you’d rather just ride and never think about it, that’s completely fine too.
+    </p>
+
+    <p>
+      Thanks again for being here.<br />
+      — Ryan
+    </p>
 
     <div class="footer">
-      <p>You received this email because your Loam Logger beta access was approved. If you didn't request this, please ignore this email.</p>
+      <p>
+        You’re receiving this email because you signed up for early access to Loam Logger. If this landed in your inbox by mistake, feel free to ignore it.
+      </p>
     </div>
   </div>
 </body>

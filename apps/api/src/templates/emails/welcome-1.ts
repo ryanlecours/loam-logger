@@ -4,7 +4,7 @@ export type Welcome1Params = {
 };
 
 export function getWelcome1Subject(): string {
-  return 'Getting started with Loam Logger';
+  return 'A quick note as you get started';
 }
 
 export function getWelcome1Html(params: Welcome1Params): string {
@@ -37,30 +37,6 @@ export function getWelcome1Html(params: Welcome1Params): string {
       margin-top: 0;
       font-size: 24px;
     }
-    h2 {
-      color: #2d5a27;
-      font-size: 18px;
-      margin-top: 24px;
-    }
-    .tip-box {
-      background: #f0f4f0;
-      padding: 16px 20px;
-      border-radius: 8px;
-      margin: 16px 0;
-    }
-    .tip-number {
-      display: inline-block;
-      background: #2d5a27;
-      color: white;
-      width: 24px;
-      height: 24px;
-      border-radius: 50%;
-      text-align: center;
-      line-height: 24px;
-      font-weight: 600;
-      font-size: 14px;
-      margin-right: 8px;
-    }
     .cta-button {
       display: inline-block;
       background: #2d5a27;
@@ -82,39 +58,42 @@ export function getWelcome1Html(params: Welcome1Params): string {
 </head>
 <body>
   <div class="container">
-    <h1>Quick Start Guide</h1>
+    <h1>Getting oriented</h1>
 
     <p>${greeting},</p>
 
-    <p>Welcome to Day 1 with Loam Logger! Here are three quick tips to get the most out of your account.</p>
-
-    <h2>Get Started in 5 Minutes</h2>
-
-    <div class="tip-box">
-      <p><span class="tip-number">1</span> <strong>Add Your First Bike</strong></p>
-      <p style="margin-left: 32px;">Head to your Garage and add your primary bike. Include the manufacturer, model, and year to unlock insights.</p>
-    </div>
-
-    <div class="tip-box">
-      <p><span class="tip-number">2</span> <strong>Track Key Components</strong></p>
-      <p style="margin-left: 32px;">Add your fork, shock, and drivetrain. We'll track hours and remind you when service is due.</p>
-    </div>
-
-    <div class="tip-box">
-      <p><span class="tip-number">3</span> <strong>Log Your Last Ride</strong></p>
-      <p style="margin-left: 32px;">Manually log your most recent ride or upload a GPX file. This helps establish your riding patterns.</p>
-    </div>
-
     <p>
-      <a href="${params.dashboardUrl}" class="cta-button">Open Dashboard</a>
+      When you log in for the first time, Loam Logger will ask you to add a bike. That’s intentional — everything else builds off of it.
     </p>
 
-    <p>In a few days, I'll show you how to connect Strava or Garmin for automatic ride syncing.</p>
+    <p>
+      You don’t need to get it perfect. Adding the bike you ride most is enough to get started, and you can always fill in details later if and when they matter.
+    </p>
 
-    <p>Happy trails!<br>The Loam Logger Team</p>
+    <p>
+      From there, the app will guide you at a comfortable pace. There’s no checklist to complete and nothing you can mess up.
+    </p>
+
+    <p>
+      <a href="${params.dashboardUrl}" class="cta-button">Open Loam Logger</a>
+    </p>
+
+    <p>
+      Over time, Loam Logger works best when it quietly keeps track of things you’d rather not hold in your head — and only surfaces what’s relevant when it matters.
+    </p>
+
+    <p>
+      If anything feels unclear or off, you can always reply directly to this email. Otherwise, enjoy getting familiar with it.
+    </p>
+
+    <p>
+      — Ryan
+    </p>
 
     <div class="footer">
-      <p>You're receiving this as part of our welcome series. Reply if you have questions!</p>
+      <p>
+        You’re receiving this because you signed up for early access to Loam Logger.
+      </p>
     </div>
   </div>
 </body>

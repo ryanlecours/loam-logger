@@ -4,7 +4,7 @@ export type Welcome2Params = {
 };
 
 export function getWelcome2Subject(): string {
-  return 'Pro tip: Track your component wear';
+  return 'Why Loam Logger tracks wear at all';
 }
 
 export function getWelcome2Html(params: Welcome2Params): string {
@@ -37,28 +37,6 @@ export function getWelcome2Html(params: Welcome2Params): string {
       margin-top: 0;
       font-size: 24px;
     }
-    h2 {
-      color: #2d5a27;
-      font-size: 18px;
-      margin-top: 24px;
-    }
-    .highlight-box {
-      background: linear-gradient(135deg, #f0f4f0 0%, #e8ede8 100%);
-      padding: 20px;
-      border-radius: 8px;
-      margin: 20px 0;
-      border-left: 4px solid #2d5a27;
-    }
-    .service-intervals {
-      background: #fefce8;
-      padding: 16px 20px;
-      border-radius: 8px;
-      margin: 16px 0;
-    }
-    .service-intervals h3 {
-      margin-top: 0;
-      color: #854d0e;
-    }
     .cta-button {
       display: inline-block;
       background: #2d5a27;
@@ -80,46 +58,46 @@ export function getWelcome2Html(params: Welcome2Params): string {
 </head>
 <body>
   <div class="container">
-    <h1>Never Miss a Service Again</h1>
+    <h1>A quick bit of context</h1>
 
     <p>${greeting},</p>
 
-    <p>Did you know that regular fork and shock service can extend their life by years and keep your ride feeling fresh?</p>
-
-    <div class="highlight-box">
-      <p><strong>Loam Logger tracks ride hours automatically</strong> and alerts you when components are due for service based on manufacturer recommendations.</p>
-    </div>
-
-    <h2>Typical Service Intervals</h2>
-
-    <div class="service-intervals">
-      <h3>Suspension</h3>
-      <ul style="margin: 0;">
-        <li><strong>Fork lowers service:</strong> Every 50 hours</li>
-        <li><strong>Full fork rebuild:</strong> Every 100-200 hours</li>
-        <li><strong>Shock service:</strong> Every 100-200 hours</li>
-      </ul>
-    </div>
-
-    <div class="service-intervals">
-      <h3>Drivetrain</h3>
-      <ul style="margin: 0;">
-        <li><strong>Chain:</strong> Every 500-1000 miles (check with tool)</li>
-        <li><strong>Cassette:</strong> Every 2-3 chains</li>
-        <li><strong>Brake pads:</strong> Check monthly, varies by riding</li>
-      </ul>
-    </div>
-
-    <p>Set up your service intervals in your Garage to get automatic reminders:</p>
-
     <p>
-      <a href="${params.gearUrl}" class="cta-button">Set Up Service Intervals</a>
+      One of the main reasons I started building Loam Logger was that bike maintenance lives in an awkward middle ground. It’s important, but it’s also easy to forget — especially if you ride a lot or rotate between bikes.
     </p>
 
-    <p>Ride safe!<br>The Loam Logger Team</p>
+    <p>
+      Most riders don’t ignore maintenance because they don’t care. They ignore it because they don’t want to keep mental notes, spreadsheets, or reminders for every component on every bike.
+    </p>
+
+    <p>
+      The goal with Loam Logger isn’t to make you think about service more. It’s to think about it less — and only surface something when it’s actually relevant.
+    </p>
+
+    <p>
+      That’s why component wear exists in the app at all. Not as a checklist, and not as something you need to constantly manage, but as quiet context in the background while you ride.
+    </p>
+
+    <p>
+      If and when you’re curious, the Gear section is where that information lives. You can add details there, or ignore it entirely until it matters.
+    </p>
+
+    <p>
+      <a href="${params.gearUrl}" class="cta-button">View your gear</a>
+    </p>
+
+    <p>
+      Over time, Loam Logger should feel less like a tracker and more like a safety net — something that has your back without asking for attention.
+    </p>
+
+    <p>
+      — Ryan
+    </p>
 
     <div class="footer">
-      <p>You're receiving this as part of our welcome series. Reply if you have questions!</p>
+      <p>
+        You’re receiving this because you signed up for early access to Loam Logger.
+      </p>
     </div>
   </div>
 </body>
