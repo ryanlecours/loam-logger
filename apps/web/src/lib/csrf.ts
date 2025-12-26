@@ -4,33 +4,32 @@
  */
 
 const CSRF_COOKIE_NAME = 'll_csrf';
-
-// In-memory cache of the CSRF token to avoid cookie read timing issues
-let cachedCsrfToken: string | undefined;
+const CSRF_STORAGE_KEY = 'll_csrf_cache';
 
 /**
- * Set the CSRF token in memory cache.
+ * Set the CSRF token in sessionStorage.
  * Call this after fetching /auth/csrf-token to ensure immediate availability.
  */
 export function setCsrfToken(token: string): void {
-  cachedCsrfToken = token;
+  sessionStorage.setItem(CSRF_STORAGE_KEY, token);
 }
 
 /**
  * Clear the cached CSRF token (call on logout).
  */
 export function clearCsrfToken(): void {
-  cachedCsrfToken = undefined;
+  sessionStorage.removeItem(CSRF_STORAGE_KEY);
 }
 
 /**
- * Get the CSRF token from memory cache or cookie.
+ * Get the CSRF token from sessionStorage or cookie.
  * Returns undefined if token is not available.
  */
 export function getCsrfToken(): string | undefined {
-  // Prefer cached token (set after login) to avoid cookie timing issues
-  if (cachedCsrfToken) {
-    return cachedCsrfToken;
+  // Prefer sessionStorage token (set after login) to avoid cookie timing issues
+  const cached = sessionStorage.getItem(CSRF_STORAGE_KEY);
+  if (cached) {
+    return cached;
   }
 
   // Fallback to reading from cookie (for page refreshes when already logged in)
