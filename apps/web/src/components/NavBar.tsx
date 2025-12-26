@@ -2,6 +2,7 @@ import { useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useApolloClient } from "@apollo/client";
 import { motion, AnimatePresence } from "motion/react";
+import { clearCsrfToken } from "@/lib/csrf";
 
 export default function Navbar() {
   const navigate = useNavigate();
@@ -21,6 +22,7 @@ export default function Navbar() {
         method: "POST",
         credentials: "include",
       });
+      clearCsrfToken();
       await apollo.clearStore();
       navigate("/login");
     } catch (err) {
