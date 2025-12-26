@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Modal, Button } from './ui';
+import { getAuthHeaders } from '@/lib/csrf';
 
 type Ride = {
   id: string;
@@ -57,7 +58,7 @@ export default function DuplicateRidesModal({ open, onClose }: Props) {
       const res = await fetch(`${import.meta.env.VITE_API_URL}/api/duplicates/merge`, {
         method: 'POST',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ keepRideId: keepId, deleteRideId: deleteId }),
       });
 
@@ -76,7 +77,7 @@ export default function DuplicateRidesModal({ open, onClose }: Props) {
       const res = await fetch(`${import.meta.env.VITE_API_URL}/api/duplicates/mark-not-duplicate`, {
         method: 'POST',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ rideId }),
       });
 

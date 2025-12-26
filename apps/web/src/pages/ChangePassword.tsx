@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
 import { Button } from '@/components/ui';
 import { validatePassword, PASSWORD_RULES } from '@loam/shared';
+import { getAuthHeaders } from '@/lib/csrf';
 
 export default function ChangePassword() {
   const navigate = useNavigate();
@@ -35,7 +36,7 @@ export default function ChangePassword() {
       const res = await fetch(`${import.meta.env.VITE_API_URL}/auth/change-password`, {
         method: 'POST',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ currentPassword, newPassword }),
       });
 

@@ -4,6 +4,7 @@ import { useApolloClient } from '@apollo/client';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import type { ReactNode } from 'react';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
+import { getAuthHeaders } from '@/lib/csrf';
 
 const BASE_NAV_LINKS = [
   { label: 'Dashboard', path: '/dashboard' },
@@ -32,6 +33,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
       await fetch(`${import.meta.env.VITE_API_URL}/auth/logout`, {
         method: 'POST',
         credentials: 'include',
+        headers: getAuthHeaders(),
       });
       await apollo.clearStore();
       navigate('/login');
