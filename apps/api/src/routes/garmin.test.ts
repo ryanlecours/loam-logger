@@ -6,28 +6,27 @@ import {
   type RequestHandler,
 } from 'express';
 import { garminGetActivities } from '../services/garmin';
+import { sendUnauthorized, sendSuccess, sendError } from '../lib/api-response';
 
 const r: Router = createRouter();
 
 const requireUser: RequestHandler = (req, res, next) => {
   if (!req.user?.id) {
-    res.status(401).json({ ok: false, error: 'unauthorized' });
+    sendUnauthorized(res);
     return;
   }
   next();
 };
 
-type Params = Record<string, never>
-type Query = { limit?: string; from?: string; to?: string }
-type SuccessBody = { ok: true; data: unknown[] }
-type ErrorBody = { ok: false; error: string }
+type Params = Record<string, never>;
+type Query = { limit?: string; from?: string; to?: string };
 
-r.get<Params, SuccessBody | ErrorBody, never, Query>(
+r.get<Params, unknown, never, Query>(
   '/me/garmin/activities',
   requireUser,
   async (
-    req: Request<Params, SuccessBody | ErrorBody, never, Query>,
-    res: Response<SuccessBody | ErrorBody>
+    req: Request<Params, unknown, never, Query>,
+    res: Response
   ) => {
     try {
       const userId = req.user!.id; // safe after requireUser
@@ -40,11 +39,11 @@ r.get<Params, SuccessBody | ErrorBody, never, Query>(
       if (req.query.to) params.to = req.query.to;
 
       const data = await garminGetActivities(userId, params);
-      res.status(200).json({ ok: true, data });
+      sendSuccess(res, data);
       return;
     } catch (err) {
-        const msg = err instanceof Error ? err.message : 'failed';
-      res.status(502).json({ ok: false, error: msg });
+      const msg = err instanceof Error ? err.message : 'Failed to fetch activities';
+      sendError(res, 502, msg, 'GARMIN_API_ERROR');
       return;
     }
   }

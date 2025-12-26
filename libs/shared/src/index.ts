@@ -9,3 +9,6 @@ export * from './utils/healthStatus';
 
 // Constants
 export * from './constants/bikeBrands';
+
+// Password
+export * from './password';

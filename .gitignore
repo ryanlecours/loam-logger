@@ -1,5 +1,6 @@
 # Claude internal documentation
 claude.internal.md
+PRE_PUBLIC_CHECKLIST.md
 
 # Claude settings
 .claude/
@@ -10,11 +11,7 @@ node_modules/
 
 # Package locks (only root package-lock.json should exist)
 apps/**/package-lock.json
-apps/**/yarn.lock
-apps/**/pnpm-lock.yaml
 libs/**/package-lock.json
-libs/**/yarn.lock
-libs/**/pnpm-lock.yaml
 
 # Environment variables
 .env
@@ -57,3 +54,5 @@ documentation/*
 *.mobileprovision
 *.orig.*
 web-build/
+.vercel
+.env*.local

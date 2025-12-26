@@ -1,6 +1,7 @@
 import express, { type Request } from 'express';
 import { prisma } from '../lib/prisma';
 import { clearSessionCookie, type SessionUser } from './session';
+import { sendBadRequest, sendUnauthorized, sendInternalError } from '../lib/api-response';
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
@@ -24,7 +25,7 @@ router.delete('/delete-account', async (req: Request, res) => {
 
     // Verify user is authenticated
     if (!sessionUser?.uid) {
-      return res.status(401).json({ message: 'Unauthorized: No active session' });
+      return sendUnauthorized(res, 'No active session');
     }
 
     const userId = sessionUser.uid;
@@ -83,14 +84,10 @@ router.delete('/delete-account', async (req: Request, res) => {
 
     // Check if it's a "not found" error
     if (errorMessage.includes('An operation failed because it depends on one or more records')) {
-      return res.status(400).json({
-        message: 'Failed to delete account: Some data could not be removed'
-      });
+      return sendBadRequest(res, 'Failed to delete account: Some data could not be removed');
     }
 
-    res.status(500).json({
-      message: 'An error occurred while deleting your account. Please try again.'
-    });
+    return sendInternalError(res, 'An error occurred while deleting your account. Please try again.');
   }
 });
 

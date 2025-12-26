@@ -6,6 +6,8 @@ import { ApolloServer } from '@apollo/server';
 import { expressMiddleware, type ExpressContextFunctionArgument } from '@as-integrations/express4';
 import { typeDefs } from './graphql/schema';
 import { resolvers } from './graphql/resolvers';
+import { startWorkers, stopWorkers } from './workers';
+import { getRedisConnection, checkRedisHealth } from './lib/redis';
 
 import authGarmin from './routes/auth.garmin';
 import authStrava from './routes/auth.strava';
@@ -20,7 +22,7 @@ import mockGarmin from './routes/mock.garmin';
 import onboardingRouter from './routes/onboarding';
 import waitlistRouter from './routes/waitlist';
 import adminRouter from './routes/admin';
-import { googleRouter, emailRouter, deleteAccountRouter, attachUser } from './auth/index';
+import { googleRouter, emailRouter, deleteAccountRouter, attachUser, verifyCsrf } from './auth/index';
 import mobileAuthRouter from './auth/mobile.route';
 
 export type GraphQLContext = {
@@ -37,6 +39,19 @@ const startServer = async () => {
 
   // Basic health / diagnostics
   app.get('/health', (_req, res) => res.status(200).send('ok'));
+
+  // Detailed health check including Redis status
+  app.get('/health/detailed', async (_req, res) => {
+    const redisHealth = await checkRedisHealth();
+    const healthy = redisHealth.healthy;
+
+    res.status(healthy ? 200 : 503).json({
+      status: healthy ? 'healthy' : 'degraded',
+      redis: redisHealth,
+      timestamp: new Date().toISOString(),
+    });
+  });
+
   app.get('/whoami', (req, res) => {
     res.json({ sessionUser: req.sessionUser ?? null });
   });
@@ -88,7 +103,7 @@ const startServer = async () => {
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-csrf-token'],
   });
 
   app.use(corsMw);
@@ -108,6 +123,10 @@ const startServer = async () => {
 
   // Attach user/session
   app.use(attachUser);
+
+  // CSRF protection for state-changing requests
+  // Skips: GET/HEAD/OPTIONS, Bearer token auth (mobile), unauthenticated requests
+  app.use(verifyCsrf);
 
   // ---- GraphQL ----
   const server = new ApolloServer<GraphQLContext>({ typeDefs, resolvers });
@@ -167,11 +186,35 @@ const startServer = async () => {
   const PORT = Number(process.env.PORT) || 4000;
   const HOST = '0.0.0.0';
 
+  // Start BullMQ workers if Redis is configured
+  if (process.env.REDIS_URL) {
+    // Initialize Redis connection and verify health at startup
+    try {
+      getRedisConnection();
+      const health = await checkRedisHealth();
+      if (health.healthy) {
+        console.log(`[Redis] Startup health check passed (latency: ${health.latencyMs}ms)`);
+      } else {
+        console.warn('[Redis] Startup health check failed:', health.status, health.lastError ?? '');
+      }
+    } catch (err) {
+      console.error(
+        '[Redis] Initialization failed:',
+        err instanceof Error ? err.message : 'Unknown error'
+      );
+    }
+
+    startWorkers();
+  } else {
+    console.warn('[Workers] REDIS_URL not set, workers disabled');
+  }
+
   app.listen(PORT, HOST, () => {
     console.log(`🚴 LoamLogger backend running on :${PORT} (GraphQL at /graphql)`);
   });
 
   process.on('SIGTERM', async () => {
+    await stopWorkers();
     await server.stop();
     process.exit(0);
   });

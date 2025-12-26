@@ -1,7 +1,8 @@
 import { Router as createRouter, type Router, type Request, type Response } from 'express';
 import { prisma } from '../lib/prisma';
-import { sha256, randomString } from '../lib/pcke'; 
+import { sha256, randomString } from '../lib/pcke';
 import { addSeconds } from 'date-fns';
+import { sendBadRequest, sendUnauthorized, sendInternalError } from '../lib/api-response';
 
 type Empty = Record<string, never>
 const r: Router = createRouter();
@@ -21,7 +22,7 @@ r.get<Empty, void, Empty>('/garmin/start', async (_req: Request, res: Response) 
       !CLIENT_ID && 'GARMIN_CLIENT_ID',
       !REDIRECT_URI && 'GARMIN_REDIRECT_URI',
     ].filter(Boolean).join(', ');
-    return res.status(500).send(`Missing env vars: ${missing}`);
+    return sendInternalError(res, `Missing env vars: ${missing}`);
   }
 
   const state = randomString(24);
@@ -75,7 +76,7 @@ r.get<Empty, void, Empty, { code?: string; state?: string }>(
           !CLIENT_ID && 'GARMIN_CLIENT_ID',
         ].filter(Boolean).join(', ');
         console.error('[Garmin Callback] Missing env vars:', missing);
-        return res.status(500).send(`Missing env vars: ${missing}`);
+        return sendInternalError(res, `Missing env vars: ${missing}`);
       }
 
     const { code, state } = req.query;
@@ -83,13 +84,13 @@ r.get<Empty, void, Empty, { code?: string; state?: string }>(
     const verifier = req.cookies['ll_pkce_verifier'];
 
     if (!code || !state || !cookieState || state !== cookieState || !verifier) {
-      return res.status(400).send('Invalid OAuth state/PKCE');
+      return sendBadRequest(res, 'Invalid OAuth state/PKCE');
     }
 
     // Check for authenticated user (supports both old req.user and new req.sessionUser)
     const userId = req.user?.id || req.sessionUser?.uid;
     if (!userId) {
-      return res.status(401).send('No user - please log in first');
+      return sendUnauthorized(res, 'No user - please log in first');
     }
 
     // Token exchange (OAuth2 Authorization Code + PKCE)
@@ -211,7 +212,7 @@ r.get<Empty, void, Empty, { code?: string; state?: string }>(
 r.delete<Empty, void, Empty>('/garmin/disconnect', async (req: Request, res: Response) => {
   const userId = req.user?.id || req.sessionUser?.uid;
   if (!userId) {
-    return res.status(401).json({ error: 'Not authenticated' });
+    return sendUnauthorized(res, 'Not authenticated');
   }
 
   try {
@@ -235,7 +236,7 @@ r.delete<Empty, void, Empty>('/garmin/disconnect', async (req: Request, res: Res
     return res.status(200).json({ success: true });
   } catch (error) {
     console.error('[Garmin Disconnect] Error:', error);
-    return res.status(500).json({ error: 'Failed to disconnect' });
+    return sendInternalError(res, 'Failed to disconnect');
   }
 });
 

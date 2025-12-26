@@ -20,6 +20,7 @@ enum AuthProvider {
 }
 
 enum UserRole {
+  WAITLIST  // Users from waitlist form, cannot access app until activated
   FREE
   PRO
   ADMIN
@@ -42,6 +43,11 @@ model User {
   onboardingCompleted Boolean @default(false)
   location       String?   // city, state/province for finding local shops
   age            Int?      // user age for insights and recommendations
+
+  // Activation fields (for WAITLIST -> FREE transition)
+  mustChangePassword Boolean   @default(false)  // Force password change on first login
+  activatedAt        DateTime?                  // When admin activated this user
+  activatedBy        String?                    // Admin user ID who activated
 
   rides Ride[]
   bikes Bike[]
