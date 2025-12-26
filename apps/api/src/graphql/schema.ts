@@ -33,6 +33,25 @@ export const typeDefs = gql`
     ADMIN
   }
 
+  enum SyncProvider {
+    STRAVA
+    GARMIN
+    SUUNTO
+  }
+
+  enum TriggerSyncStatus {
+    QUEUED
+    ALREADY_QUEUED
+    RATE_LIMITED
+  }
+
+  type TriggerSyncResult {
+    status: TriggerSyncStatus!
+    message: String!
+    retryAfter: Int
+    jobId: String
+  }
+
   type Ride {
     id: ID!
     userId: ID!
@@ -217,6 +236,7 @@ export const typeDefs = gql`
     logComponentService(id: ID!): Component!
     createStravaGearMapping(input: CreateStravaGearMappingInput!): StravaGearMapping!
     deleteStravaGearMapping(id: ID!): DeleteResult!
+    triggerProviderSync(provider: SyncProvider!): TriggerSyncResult!
   }
 
   type ConnectedAccount {

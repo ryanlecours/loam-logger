@@ -1,4 +1,5 @@
 import { createEmailWorker, closeEmailWorker } from './email.worker';
+import { createSyncWorker, closeSyncWorker } from './sync.worker';
 import { closeRedisConnection } from '../lib/redis';
 import { closeEmailQueue, closeSyncQueue, closeBackfillQueue } from '../lib/queue';
 
@@ -10,7 +11,7 @@ export function startWorkers(): void {
   console.log('[Workers] Starting BullMQ workers...');
 
   createEmailWorker();
-  // Future: createSyncWorker();
+  createSyncWorker();
   // Future: createBackfillWorker();
 
   console.log('[Workers] All workers started');
@@ -24,7 +25,7 @@ export async function stopWorkers(): Promise<void> {
   console.log('[Workers] Stopping workers...');
 
   await closeEmailWorker();
-  // Future: await closeSyncWorker();
+  await closeSyncWorker();
   // Future: await closeBackfillWorker();
 
   // Close queue connections

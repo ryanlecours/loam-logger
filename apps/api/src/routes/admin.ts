@@ -85,7 +85,12 @@ router.post('/activate/:userId', async (req, res) => {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const result = await activateWaitlistUser({ userId, adminUserId });
+    // Validate userId parameter
+    if (!userId || typeof userId !== 'string' || userId.trim() === '') {
+      return res.status(400).json({ error: 'Invalid userId' });
+    }
+
+    const result = await activateWaitlistUser({ userId: userId.trim(), adminUserId });
     res.json(result);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to activate user';
