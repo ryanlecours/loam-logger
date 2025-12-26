@@ -3,6 +3,7 @@ import { normalizeEmail, isBetaTester } from './utils';
 import { hashPassword, verifyPassword, validatePassword } from './password.utils';
 import { validateEmailFormat } from './email.utils';
 import { setSessionCookie } from './session';
+import { setCsrfCookie } from './csrf';
 import { prisma } from '../lib/prisma';
 import { sendBadRequest, sendUnauthorized, sendForbidden, sendConflict, sendInternalError } from '../lib/api-response';
 
@@ -64,8 +65,9 @@ router.post('/signup', express.json(), async (req, res) => {
       },
     });
 
-    // Set session cookie
+    // Set session and CSRF cookies
     setSessionCookie(res, { uid: user.id, email: user.email });
+    setCsrfCookie(res);
     res.status(200).json({ ok: true });
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e);
@@ -140,8 +142,9 @@ router.post('/login', express.json(), async (req, res) => {
       }
     }
 
-    // Set session cookie
+    // Set session and CSRF cookies
     setSessionCookie(res, { uid: user.id, email: user.email });
+    setCsrfCookie(res);
 
     // Return success with mustChangePassword flag
     res.status(200).json({
@@ -161,7 +164,7 @@ router.post('/login', express.json(), async (req, res) => {
  */
 router.post('/change-password', express.json(), async (req, res) => {
   try {
-    const sessionUser = (req as unknown as { sessionUser?: { uid: string } }).sessionUser;
+    const sessionUser = req.sessionUser;
     if (!sessionUser?.uid) {
       return sendUnauthorized(res);
     }
@@ -212,6 +215,22 @@ router.post('/change-password', express.json(), async (req, res) => {
     console.error('[EmailAuth] Change password failed', e);
     return sendInternalError(res, 'Failed to change password');
   }
+});
+
+/**
+ * GET /auth/csrf-token
+ * Get or refresh the CSRF token for authenticated sessions.
+ * The token is returned in the response body and also set as a cookie.
+ */
+router.get('/csrf-token', (req, res) => {
+  // Only provide CSRF token if user is authenticated via session cookie
+  if (!req.sessionUser?.uid) {
+    return sendUnauthorized(res, 'Authentication required');
+  }
+
+  // Set a new CSRF cookie and return the token
+  const token = setCsrfCookie(res);
+  res.json({ csrfToken: token });
 });
 
 export default router;

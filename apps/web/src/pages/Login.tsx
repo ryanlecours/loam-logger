@@ -115,7 +115,7 @@ export default function Login() {
         // Handle WAITLIST account error (JSON response)
         try {
           const jsonError = JSON.parse(text);
-          if (jsonError.error === 'ACCOUNT_NOT_ACTIVATED') {
+          if (jsonError.code === 'ACCOUNT_NOT_ACTIVATED') {
             setError('Your account is on the waitlist and not yet activated. You will receive an email when your access is approved.');
             return;
           }

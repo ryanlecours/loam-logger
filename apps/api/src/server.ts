@@ -22,7 +22,7 @@ import mockGarmin from './routes/mock.garmin';
 import onboardingRouter from './routes/onboarding';
 import waitlistRouter from './routes/waitlist';
 import adminRouter from './routes/admin';
-import { googleRouter, emailRouter, deleteAccountRouter, attachUser } from './auth/index';
+import { googleRouter, emailRouter, deleteAccountRouter, attachUser, verifyCsrf } from './auth/index';
 import mobileAuthRouter from './auth/mobile.route';
 
 export type GraphQLContext = {
@@ -103,7 +103,7 @@ const startServer = async () => {
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-csrf-token'],
   });
 
   app.use(corsMw);
@@ -123,6 +123,10 @@ const startServer = async () => {
 
   // Attach user/session
   app.use(attachUser);
+
+  // CSRF protection for state-changing requests
+  // Skips: GET/HEAD/OPTIONS, Bearer token auth (mobile), unauthenticated requests
+  app.use(verifyCsrf);
 
   // ---- GraphQL ----
   const server = new ApolloServer<GraphQLContext>({ typeDefs, resolvers });

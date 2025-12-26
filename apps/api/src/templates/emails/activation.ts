@@ -1,3 +1,5 @@
+import { escapeHtml } from '../../lib/html';
+
 export type ActivationEmailParams = {
   name?: string;
   email: string;
@@ -10,7 +12,10 @@ export function getActivationEmailSubject(): string {
 }
 
 export function getActivationEmailHtml(params: ActivationEmailParams): string {
-  const greeting = params.name ? `Hi ${params.name}` : 'Hi there';
+  const safeName = params.name ? escapeHtml(params.name) : null;
+  const safeEmail = escapeHtml(params.email);
+  const safeTempPassword = escapeHtml(params.tempPassword);
+  const greeting = safeName ? `Hi ${safeName}` : 'Hi there';
 
   return `
 <!DOCTYPE html>
@@ -98,8 +103,8 @@ export function getActivationEmailHtml(params: ActivationEmailParams): string {
     <h2 style="color: #2d5a27; font-size: 18px;">Your login details</h2>
 
     <div class="credentials-box">
-      <p><strong>Email:</strong> ${params.email}</p>
-      <p><strong>Temporary password:</strong> <span class="password-code">${params.tempPassword}</span></p>
+      <p><strong>Email:</strong> ${safeEmail}</p>
+      <p><strong>Temporary password:</strong> <span class="password-code">${safeTempPassword}</span></p>
     </div>
 
     <p>

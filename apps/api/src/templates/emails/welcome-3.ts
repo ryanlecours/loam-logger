@@ -1,3 +1,5 @@
+import { escapeHtml } from '../../lib/html';
+
 export type Welcome3Params = {
   name?: string;
   settingsUrl: string;
@@ -8,7 +10,8 @@ export function getWelcome3Subject(): string {
 }
 
 export function getWelcome3Html(params: Welcome3Params): string {
-  const greeting = params.name ? `Hi ${params.name}` : 'Hi there';
+  const safeName = params.name ? escapeHtml(params.name) : null;
+  const greeting = safeName ? `Hi ${safeName}` : 'Hi there';
 
   return `
 <!DOCTYPE html>
