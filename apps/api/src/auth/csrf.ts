@@ -38,6 +38,18 @@ export function clearCsrfCookie(res: Response): void {
   });
 }
 
+// Paths that should skip CSRF validation (login/signup establish sessions)
+const CSRF_EXEMPT_PATHS = [
+  '/auth/google/code',
+  '/auth/signup',
+  '/auth/login',
+  '/auth/garmin/callback',
+  '/auth/strava/callback',
+  '/webhooks/garmin',
+  '/webhooks/strava',
+  '/api/waitlist',
+];
+
 /**
  * Middleware to verify CSRF token on state-changing requests.
  * Uses double-submit cookie pattern: cookie value must match header value.
@@ -45,6 +57,7 @@ export function clearCsrfCookie(res: Response): void {
  * Skips verification for:
  * - Non-state-changing methods (GET, HEAD, OPTIONS)
  * - Requests with Bearer token (mobile apps don't use cookies)
+ * - Auth endpoints (login/signup establish sessions, no CSRF yet)
  * - Webhook endpoints (authenticated via signatures)
  */
 export function verifyCsrf(req: Request, res: Response, next: NextFunction): void {
@@ -56,6 +69,11 @@ export function verifyCsrf(req: Request, res: Response, next: NextFunction): voi
   // Skip for Bearer token auth (mobile apps)
   const authHeader = req.headers.authorization;
   if (authHeader?.startsWith('Bearer ')) {
+    return next();
+  }
+
+  // Skip for exempt paths (login, signup, webhooks)
+  if (CSRF_EXEMPT_PATHS.some(path => req.path === path || req.path.startsWith(path + '/'))) {
     return next();
   }
 
