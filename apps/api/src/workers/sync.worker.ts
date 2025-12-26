@@ -8,7 +8,6 @@ import { deriveLocation, shouldApplyAutoLocation } from '../lib/location';
 import type { SyncJobData, SyncJobName, SyncProvider } from '../lib/queue/sync.queue';
 import type { Prisma } from '@prisma/client';
 
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 const GARMIN_API_BASE = process.env.GARMIN_API_BASE || 'https://apis.garmin.com/wellness-api';
 
 // Retry delay when lock acquisition fails (30 seconds)
@@ -298,7 +297,6 @@ async function upsertStravaActivity(userId: string, activity: StravaActivity): P
     });
 
     const locationUpdate = shouldApplyAutoLocation(existing?.location ?? null, autoLocation);
-    const durationHours = Math.max(0, activity.moving_time) / 3600;
 
     const ride = await tx.ride.upsert({
       where: { stravaActivityId: activity.id.toString() },
