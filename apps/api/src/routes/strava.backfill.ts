@@ -3,6 +3,7 @@ import { getValidStravaToken } from '../lib/strava-token';
 import { subDays } from 'date-fns';
 import { prisma } from '../lib/prisma';
 import { deriveLocation } from '../lib/location';
+import { sendBadRequest, sendUnauthorized, sendNotFound, sendInternalError } from '../lib/api-response';
 
 type Empty = Record<string, never>;
 const r: Router = createRouter();
@@ -16,7 +17,7 @@ r.get<Empty, void, Empty, { year?: string }>(
   async (req: Request<Empty, void, Empty, { year?: string }>, res: Response) => {
     const userId = req.user?.id || req.sessionUser?.uid;
     if (!userId) {
-      return res.status(401).json({ error: 'Not authenticated' });
+      return sendUnauthorized(res, 'Not authenticated');
     }
 
     try {
@@ -34,9 +35,7 @@ r.get<Empty, void, Empty, { year?: string }>(
         // Specific year: Jan 1 to Dec 31
         const year = parseInt(yearParam || String(currentYear), 10);
         if (isNaN(year) || year < 2000 || year > currentYear) {
-          return res.status(400).json({
-            error: `Year must be between 2000 and ${currentYear}, or 'ytd'`
-          });
+          return sendBadRequest(res, `Year must be between 2000 and ${currentYear}, or 'ytd'`);
         }
         startDate = new Date(year, 0, 1); // Jan 1
         endDate = new Date(year, 11, 31, 23, 59, 59); // Dec 31 end of day
@@ -46,9 +45,7 @@ r.get<Empty, void, Empty, { year?: string }>(
       const accessToken = await getValidStravaToken(userId);
 
       if (!accessToken) {
-        return res.status(400).json({
-          error: 'Strava not connected or token expired. Please reconnect your Strava account.'
-        });
+        return sendBadRequest(res, 'Strava not connected or token expired. Please reconnect your Strava account.');
       }
 
       // Calculate Unix timestamps
@@ -238,7 +235,7 @@ r.get<Empty, void, Empty, { year?: string }>(
       });
     } catch (error) {
       console.error('[Strava Backfill] Error:', error);
-      return res.status(500).json({ error: 'Failed to fetch activities' });
+      return sendInternalError(res, 'Failed to fetch activities');
     }
   }
 );
@@ -251,7 +248,7 @@ r.get<Empty, void, Empty, Empty>(
   async (req: Request<Empty, void, Empty, Empty>, res: Response) => {
     const userId = req.user?.id || req.sessionUser?.uid;
     if (!userId) {
-      return res.status(401).json({ error: 'Not authenticated' });
+      return sendUnauthorized(res, 'Not authenticated');
     }
 
     try {
@@ -266,7 +263,7 @@ r.get<Empty, void, Empty, Empty>(
       });
 
       if (!userAccount) {
-        return res.status(404).json({ error: 'Strava account not connected' });
+        return sendNotFound(res, 'Strava account not connected');
       }
 
       return res.json({
@@ -275,7 +272,7 @@ r.get<Empty, void, Empty, Empty>(
       });
     } catch (error) {
       console.error('[Strava Athlete ID] Error:', error);
-      return res.status(500).json({ error: 'Failed to fetch Strava athlete ID' });
+      return sendInternalError(res, 'Failed to fetch Strava athlete ID');
     }
   }
 );
@@ -289,7 +286,7 @@ r.get<Empty, void, Empty, Empty>(
   async (req: Request<Empty, void, Empty, Empty>, res: Response) => {
     const userId = req.user?.id || req.sessionUser?.uid;
     if (!userId) {
-      return res.status(401).json({ error: 'Not authenticated' });
+      return sendUnauthorized(res, 'Not authenticated');
     }
 
     try {
@@ -329,7 +326,7 @@ r.get<Empty, void, Empty, Empty>(
       });
     } catch (error) {
       console.error('[Strava Backfill Status] Error:', error);
-      return res.status(500).json({ error: 'Failed to fetch backfill status' });
+      return sendInternalError(res, 'Failed to fetch backfill status');
     }
   }
 );
@@ -342,7 +339,7 @@ r.get<{ gearId: string }, void, Empty, Empty>(
   async (req: Request<{ gearId: string }, void, Empty, Empty>, res: Response) => {
     const userId = req.user?.id || req.sessionUser?.uid;
     if (!userId) {
-      return res.status(401).json({ error: 'Not authenticated' });
+      return sendUnauthorized(res, 'Not authenticated');
     }
 
     try {
@@ -350,7 +347,7 @@ r.get<{ gearId: string }, void, Empty, Empty>(
       const accessToken = await getValidStravaToken(userId);
 
       if (!accessToken) {
-        return res.status(400).json({ error: 'Strava not connected' });
+        return sendBadRequest(res, 'Strava not connected');
       }
 
       const gearUrl = `https://www.strava.com/api/v3/gear/${gearId}`;
@@ -362,7 +359,7 @@ r.get<{ gearId: string }, void, Empty, Empty>(
       });
 
       if (!gearRes.ok) {
-        return res.status(404).json({ error: 'Gear not found' });
+        return sendNotFound(res, 'Gear not found');
       }
 
       const gear = (await gearRes.json()) as {
@@ -380,7 +377,7 @@ r.get<{ gearId: string }, void, Empty, Empty>(
       });
     } catch (error) {
       console.error('[Strava Gear] Error:', error);
-      return res.status(500).json({ error: 'Failed to fetch gear' });
+      return sendInternalError(res, 'Failed to fetch gear');
     }
   }
 );
@@ -394,7 +391,7 @@ r.delete<Empty, void, Empty>(
   async (req: Request, res: Response) => {
     const userId = req.user?.id || req.sessionUser?.uid;
     if (!userId) {
-      return res.status(401).json({ error: 'Not authenticated' });
+      return sendUnauthorized(res, 'Not authenticated');
     }
 
     try {
@@ -450,7 +447,7 @@ r.delete<Empty, void, Empty>(
       });
     } catch (error) {
       console.error('[Strava Delete Rides] Error:', error);
-      return res.status(500).json({ error: 'Failed to delete Strava rides' });
+      return sendInternalError(res, 'Failed to delete Strava rides');
     }
   }
 );

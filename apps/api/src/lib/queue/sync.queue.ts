@@ -65,6 +65,13 @@ export type EnqueueSyncResult =
  * Enqueue a sync job with deduplication.
  * Uses deterministic job IDs so duplicate jobs are never queued.
  *
+ * Uses atomic add-if-not-exists pattern:
+ * 1. Attempt to add the job with a unique jobId
+ * 2. BullMQ throws if job with same ID already exists (waiting/delayed/active)
+ * 3. Catch the duplicate error and return 'already_queued'
+ *
+ * This avoids the TOCTOU race condition of checking then adding.
+ *
  * @param jobName - The job name (syncLatest, syncActivity)
  * @param data - The job data
  * @returns Result indicating if job was queued or already exists
@@ -76,25 +83,28 @@ export async function enqueueSyncJob(
   const queue = getSyncQueue();
   const jobId = buildSyncJobId(jobName, data.provider, data.userId, data.activityId);
 
-  // Check if job already exists (waiting, delayed, or active)
-  const existingJob = await queue.getJob(jobId);
+  try {
+    // Attempt to add the job atomically
+    // BullMQ will reject if a job with this ID already exists and is not completed/failed
+    await queue.add(jobName, data, {
+      jobId,
+      // Setting a specific jobId makes this idempotent - BullMQ rejects duplicates
+    });
 
-  if (existingJob) {
-    const state = await existingJob.getState();
-    // If job is waiting, delayed, or active, don't enqueue again
-    if (state === 'waiting' || state === 'delayed' || state === 'active') {
-      console.log(`[SyncQueue] Job ${jobId} already exists (state: ${state})`);
+    console.log(`[SyncQueue] Enqueued job ${jobId}`);
+    return { status: 'queued', jobId };
+  } catch (err) {
+    // Check if this is a duplicate job error
+    const message = err instanceof Error ? err.message : String(err);
+
+    if (message.includes('Job') && message.includes('already exists')) {
+      console.log(`[SyncQueue] Job ${jobId} already exists (duplicate rejected)`);
       return { status: 'already_queued', jobId };
     }
-    // If job is completed or failed, we can enqueue a new one
+
+    // Re-throw unexpected errors
+    throw err;
   }
-
-  await queue.add(jobName, data, {
-    jobId,
-  });
-
-  console.log(`[SyncQueue] Enqueued job ${jobId}`);
-  return { status: 'queued', jobId };
 }
 
 /**

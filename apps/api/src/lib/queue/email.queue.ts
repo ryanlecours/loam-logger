@@ -1,6 +1,23 @@
 import { Queue } from 'bullmq';
 import { getQueueConnection } from './connection';
 
+// Time constants in milliseconds
+const HOURS = 60 * 60 * 1000;
+const DAYS = 24 * HOURS;
+
+/**
+ * Welcome email series delays after activation.
+ * These can be adjusted to tune the onboarding experience.
+ */
+export const WELCOME_EMAIL_DELAYS = {
+  /** Day 1: Getting started tips */
+  WELCOME_1: 1 * DAYS,
+  /** Day 3: Feature highlights */
+  WELCOME_2: 3 * DAYS,
+  /** Day 7: Integration prompts */
+  WELCOME_3: 7 * DAYS,
+} as const;
+
 export type EmailJobName =
   | 'activation'
   | 'welcome-1'
@@ -49,21 +66,18 @@ export async function scheduleWelcomeSeries(
   const queue = getEmailQueue();
   const baseData = { userId, email, name };
 
-  // Welcome email 1: 1 day after activation
   await queue.add('welcome-1', baseData, {
-    delay: 24 * 60 * 60 * 1000, // 24 hours
+    delay: WELCOME_EMAIL_DELAYS.WELCOME_1,
     jobId: `welcome-1-${userId}`,
   });
 
-  // Welcome email 2: 3 days after activation
   await queue.add('welcome-2', baseData, {
-    delay: 3 * 24 * 60 * 60 * 1000, // 72 hours
+    delay: WELCOME_EMAIL_DELAYS.WELCOME_2,
     jobId: `welcome-2-${userId}`,
   });
 
-  // Welcome email 3: 7 days after activation
   await queue.add('welcome-3', baseData, {
-    delay: 7 * 24 * 60 * 60 * 1000, // 168 hours
+    delay: WELCOME_EMAIL_DELAYS.WELCOME_3,
     jobId: `welcome-3-${userId}`,
   });
 

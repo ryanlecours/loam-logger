@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import { prisma } from '../lib/prisma';
 import { hashPassword } from '../auth/password.utils';
 import { getEmailQueue, scheduleWelcomeSeries } from '../lib/queue';
+import { PASSWORD_REQUIREMENTS } from '@loam/shared';
 
 // Word list for generating memorable temporary passwords
 const WORD_LIST = [
@@ -9,8 +10,8 @@ const WORD_LIST = [
   'Climb', 'Dirt', 'Rock', 'Root', 'Berm', 'Line', 'Roost', 'Rip', 'Huck', 'Gnar',
 ];
 
-// Special characters for password validation compliance
-const SPECIAL_CHARS = ['!', '@', '#', '$', '%', '^', '&', '*'];
+// Special characters from shared requirements
+const SPECIAL_CHARS = PASSWORD_REQUIREMENTS.specialChars.split('');
 
 /**
  * Generate a secure temporary password that satisfies validation rules.
@@ -18,8 +19,8 @@ const SPECIAL_CHARS = ['!', '@', '#', '$', '%', '^', '&', '*'];
  * - Contains uppercase (from capitalized words)
  * - Contains lowercase (from word tails)
  * - Contains numbers (4 digits)
- * - Contains special characters (! and #)
- * - At least 8 characters
+ * - Contains special characters (from PASSWORD_REQUIREMENTS.specialChars)
+ * - At least PASSWORD_REQUIREMENTS.minLength characters
  */
 export function generateTempPassword(): string {
   const word1 = WORD_LIST[crypto.randomInt(WORD_LIST.length)];
@@ -41,6 +42,8 @@ export type ActivateUserResult = {
   success: boolean;
   userId: string;
   email: string;
+  emailQueued: boolean;
+  tempPassword?: string; // Only returned if email queueing failed, for manual sharing
 };
 
 /**
@@ -50,6 +53,9 @@ export type ActivateUserResult = {
  * 3. Updating their role to FREE
  * 4. Queuing activation email
  * 5. Scheduling welcome email series
+ *
+ * Security: Temp password is only returned to admin if email queueing fails.
+ * The password is cleared from memory after use to minimize exposure in stack traces.
  */
 export async function activateWaitlistUser({
   userId,
@@ -69,13 +75,14 @@ export async function activateWaitlistUser({
     throw new Error(`User is already activated (current role: ${user.role})`);
   }
 
-  // 2. Generate temporary password
-  const tempPassword = generateTempPassword();
+  // 2. Generate temporary password and hash it
+  // Store in mutable variable so we can clear it after use
+  let tempPassword: string | null = generateTempPassword();
   const passwordHash = await hashPassword(tempPassword);
 
-  // 3. Update user record and queue emails
+  // 3. Update user record
   // Note: We update the user first, then queue emails. If email queueing fails,
-  // the user is still activated but we log the error for manual intervention.
+  // the user is still activated but we return the temp password for manual sharing.
   // This is preferable to leaving a user in WAITLIST state indefinitely.
   await prisma.user.update({
     where: { id: userId },
@@ -89,7 +96,10 @@ export async function activateWaitlistUser({
   });
 
   // 4. Queue activation email and welcome series
-  // If this fails, user is activated but won't receive email - log for manual follow-up
+  // If this fails, user is activated but won't receive email - return temp password for manual sharing
+  let emailQueued = false;
+  let returnPassword: string | undefined;
+
   try {
     const emailQueue = getEmailQueue();
     await emailQueue.add(
@@ -108,22 +118,26 @@ export async function activateWaitlistUser({
     // 5. Schedule welcome series
     await scheduleWelcomeSeries(user.id, user.email, user.name || undefined);
 
+    emailQueued = true;
     console.log(`[Activation] User ${user.email} activated by admin ${adminUserId}`);
-  } catch (emailError) {
-    // CRITICAL: User is activated but email failed - needs manual intervention
-    // Note: We intentionally do NOT log the temp password for security reasons.
-    // Admin can reset the user's password manually if needed.
+  } catch {
+    // CRITICAL: User is activated but email failed - preserve temp password for admin
+    // Log without exposing the password or full error stack
     console.error(
       `[Activation] CRITICAL: User ${user.email} (${userId}) activated but email queueing failed. ` +
-      `Admin should manually reset password or re-trigger activation email. Error:`,
-      emailError
+      `Temp password returned to admin for manual sharing.`
     );
-    // Don't throw - user is activated, admin can manually share credentials if needed
+    returnPassword = tempPassword;
   }
+
+  // Clear the temp password from memory now that we're done with it
+  tempPassword = null;
 
   return {
     success: true,
     userId: user.id,
     email: user.email,
+    emailQueued,
+    ...(returnPassword ? { tempPassword: returnPassword } : {}),
   };
 }

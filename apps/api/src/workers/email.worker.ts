@@ -15,23 +15,94 @@ import type { EmailJobData, EmailJobName } from '../lib/queue/email.queue';
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
+// Email validation regex (RFC 5322 simplified)
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// Max lengths to prevent abuse
+const MAX_EMAIL_LENGTH = 254; // RFC 5321
+const MAX_NAME_LENGTH = 100;
+
+/**
+ * Validate and sanitize email job data.
+ * Throws descriptive errors for invalid data.
+ */
+function validateJobData(
+  jobName: EmailJobName,
+  data: EmailJobData
+): { email: string; name: string | undefined; userId: string } {
+  const { email, name, userId, tempPassword } = data;
+
+  // Validate userId
+  if (!userId || typeof userId !== 'string' || userId.trim() === '') {
+    throw new Error('Invalid job data: userId is required');
+  }
+
+  // Validate email - required for all email jobs
+  if (!email || typeof email !== 'string') {
+    throw new Error('Invalid job data: email is required');
+  }
+
+  const trimmedEmail = email.trim().toLowerCase();
+
+  if (trimmedEmail.length === 0) {
+    throw new Error('Invalid job data: email cannot be empty');
+  }
+
+  if (trimmedEmail.length > MAX_EMAIL_LENGTH) {
+    throw new Error(`Invalid job data: email exceeds ${MAX_EMAIL_LENGTH} characters`);
+  }
+
+  if (!EMAIL_REGEX.test(trimmedEmail)) {
+    throw new Error('Invalid job data: email format is invalid');
+  }
+
+  // Validate name - optional but must be valid if provided
+  let sanitizedName: string | undefined;
+  if (name !== undefined && name !== null) {
+    if (typeof name !== 'string') {
+      throw new Error('Invalid job data: name must be a string');
+    }
+
+    const trimmedName = name.trim();
+    if (trimmedName.length > 0) {
+      if (trimmedName.length > MAX_NAME_LENGTH) {
+        throw new Error(`Invalid job data: name exceeds ${MAX_NAME_LENGTH} characters`);
+      }
+      sanitizedName = trimmedName;
+    }
+  }
+
+  // Validate tempPassword for activation emails
+  if (jobName === 'activation') {
+    if (!tempPassword || typeof tempPassword !== 'string' || tempPassword.length === 0) {
+      throw new Error('Invalid job data: activation email requires tempPassword');
+    }
+  }
+
+  return {
+    email: trimmedEmail,
+    name: sanitizedName,
+    userId: userId.trim(),
+  };
+}
+
 async function processEmailJob(job: Job<EmailJobData, void, EmailJobName>): Promise<void> {
-  const { email, name, tempPassword } = job.data;
+  // Validate all job data upfront
+  const { email, name } = validateJobData(job.name, job.data);
+  const { tempPassword } = job.data;
 
   console.log(`[EmailWorker] Processing ${job.name} for ${email}`);
 
   switch (job.name) {
     case 'activation':
-      if (!tempPassword) {
-        throw new Error('Activation email requires tempPassword');
-      }
+      // tempPassword already validated in validateJobData
       await sendEmail({
         to: email,
         subject: getActivationEmailSubject(),
         html: getActivationEmailHtml({
           name,
           email,
-          tempPassword,
+          tempPassword: tempPassword!,
           loginUrl: `${FRONTEND_URL}/login`,
         }),
       });

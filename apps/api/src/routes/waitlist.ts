@@ -2,6 +2,7 @@ import express, { type Request } from 'express';
 import { prisma } from '../lib/prisma';
 import { validateEmailFormat } from '../auth/email.utils';
 import { normalizeEmail } from '../auth/utils';
+import { sendBadRequest, sendError, sendSuccess, sendInternalError } from '../lib/api-response';
 import crypto from 'crypto';
 
 const router = express.Router();
@@ -20,18 +21,18 @@ router.post('/waitlist', express.json(), async (req: Request, res) => {
 
     // Validate email
     if (!rawEmail) {
-      return res.status(400).json({ message: 'Email is required' });
+      return sendBadRequest(res, 'Email is required');
     }
 
     const email = normalizeEmail(rawEmail);
     if (!email || !validateEmailFormat(email)) {
-      return res.status(400).json({ message: 'Invalid email format' });
+      return sendBadRequest(res, 'Invalid email format');
     }
 
     // Optional name validation
     const trimmedName = name?.trim() || null;
     if (trimmedName && trimmedName.length > 255) {
-      return res.status(400).json({ message: 'Name is too long' });
+      return sendBadRequest(res, 'Name is too long');
     }
 
     // Extract metadata
@@ -59,13 +60,9 @@ router.post('/waitlist', express.json(), async (req: Request, res) => {
 
     if (existingUser) {
       if (existingUser.role === 'WAITLIST') {
-        return res.status(409).json({
-          message: 'This email is already on the waitlist',
-        });
+        return sendError(res, 409, 'This email is already on the waitlist', 'ALREADY_ON_WAITLIST');
       }
-      return res.status(409).json({
-        message: 'An account with this email already exists',
-      });
+      return sendError(res, 409, 'An account with this email already exists', 'ACCOUNT_EXISTS');
     }
 
     // Create User with WAITLIST role (replacing BetaWaitlist)
@@ -93,25 +90,18 @@ router.post('/waitlist', express.json(), async (req: Request, res) => {
 
     console.log(`[Waitlist] New signup: ${email}`);
 
-    return res.status(201).json({
-      ok: true,
-      message: 'Successfully joined the waitlist!',
-    });
+    return sendSuccess(res, undefined, 'Successfully joined the waitlist!', 201);
 
   } catch (e) {
-    const error = e instanceof Error ? e.message : String(e);
-    console.error('[Waitlist] Error:', error);
+    const errorMessage = e instanceof Error ? e.message : String(e);
+    console.error('[Waitlist] Error:', errorMessage);
 
-    // Handle duplicate email
-    if (error.includes('Unique constraint failed')) {
-      return res.status(409).json({
-        message: 'This email is already on the waitlist'
-      });
+    // Handle duplicate email (race condition fallback)
+    if (errorMessage.includes('Unique constraint failed')) {
+      return sendError(res, 409, 'This email is already on the waitlist', 'ALREADY_ON_WAITLIST');
     }
 
-    return res.status(500).json({
-      message: 'Failed to join waitlist. Please try again.'
-    });
+    return sendInternalError(res, 'Failed to join waitlist. Please try again.');
   }
 });
 
