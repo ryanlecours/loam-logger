@@ -89,15 +89,22 @@ export function getActivationEmailHtml(params: ActivationEmailParams): string {
     <p>${greeting},</p>
 
     <p>
-      Thanks for raising your hand early. I’m building Loam Logger slowly and deliberately, and the people who help shape it at the beginning really matter.
+      Thank you for raising your hand early.
+      </p>
+      
+    <p>
+      I am building Loam Logger slowly and deliberately, and the people who help shape it at the beginning really matter.
     </p>
 
     <p>
-      Because you are part of this first group, you’ve been added as a <strong>Founding Rider</strong>. That means you have free access for life — no paywalls, no expiration, no strings attached.
+      Because you are part of this first group, you have been added as a <strong>Founding Rider</strong>. That means you have free access for life — no paywalls, no expiration, no strings attached.
     </p>
 
     <p>
-      Use it as much or as little as you want. If it’s useful, great. If it’s not yet, that’s okay too. The goal right now is simply to make something that genuinely helps riders stay on top of their bikes.
+      Use it as much or as little as you want. If it’s useful, great. If it’s not yet, that’s okay too.
+    </p>
+    <p>
+      The goal right now is simply to make something that genuinely helps riders stay on top of their bikes.
     </p>
 
     <h2 style="color: #2d5a27; font-size: 18px;">Your login details</h2>
