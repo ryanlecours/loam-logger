@@ -61,6 +61,18 @@ export default function Login() {
         return;
       }
 
+      // Fetch CSRF token to ensure cookie is set before GraphQL requests
+      const csrfRes = await fetch(`${import.meta.env.VITE_API_URL}/auth/csrf-token`, {
+        method: 'GET',
+        credentials: 'include',
+      });
+
+      if (!csrfRes.ok) {
+        console.error('[GoogleLogin] Failed to fetch CSRF token', csrfRes.status);
+        alert('Login succeeded but session setup failed. Please refresh and try again.');
+        return;
+      }
+
       const { data } = await apollo.query({ query: ME_QUERY, fetchPolicy: 'network-only' });
       apollo.writeQuery({ query: ME_QUERY, data });
       navigate(from, { replace: true });
@@ -149,6 +161,18 @@ export default function Login() {
       // Check if user needs to change password
       if (data.mustChangePassword) {
         navigate('/change-password', { replace: true });
+        return;
+      }
+
+      // Fetch CSRF token to ensure cookie is set before GraphQL requests
+      const csrfRes = await fetch(`${import.meta.env.VITE_API_URL}/auth/csrf-token`, {
+        method: 'GET',
+        credentials: 'include',
+      });
+
+      if (!csrfRes.ok) {
+        console.error(`[${mode}] Failed to fetch CSRF token`, csrfRes.status);
+        setError('Login succeeded but session setup failed. Please refresh and try again.');
         return;
       }
 
