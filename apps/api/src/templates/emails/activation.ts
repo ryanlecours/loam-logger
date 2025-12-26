@@ -89,7 +89,9 @@ export function getActivationEmailHtml(params: ActivationEmailParams): string {
     <p>${greeting},</p>
 
     <p>
-      Thank you for raising your hand early.</p>
+      Thank you for raising your hand early.
+      </p>
+      
     <p>
       I am building Loam Logger slowly and deliberately, and the people who help shape it at the beginning really matter.
     </p>
