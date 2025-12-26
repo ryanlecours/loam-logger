@@ -23,6 +23,7 @@ export function setCsrfCookie(res: Response): string {
     secure: process.env.APP_ENV === 'production',
     sameSite: process.env.APP_ENV === 'production' ? 'none' : 'lax',
     maxAge: 7 * 24 * 60 * 60 * 1000, // Same as session cookie
+    path: '/', // Ensure cookie is sent to all routes, not just /auth/*
   });
   return token;
 }
@@ -35,6 +36,7 @@ export function clearCsrfCookie(res: Response): void {
     httpOnly: false,
     secure: process.env.APP_ENV === 'production',
     sameSite: process.env.APP_ENV === 'production' ? 'none' : 'lax',
+    path: '/',
   });
 }
 
