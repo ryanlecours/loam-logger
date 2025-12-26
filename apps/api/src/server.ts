@@ -7,7 +7,7 @@ import { expressMiddleware, type ExpressContextFunctionArgument } from '@as-inte
 import { typeDefs } from './graphql/schema';
 import { resolvers } from './graphql/resolvers';
 import { startWorkers, stopWorkers } from './workers';
-import { checkRedisHealth } from './lib/redis';
+import { getRedisConnection, checkRedisHealth } from './lib/redis';
 
 import authGarmin from './routes/auth.garmin';
 import authStrava from './routes/auth.strava';
@@ -184,6 +184,22 @@ const startServer = async () => {
 
   // Start BullMQ workers if Redis is configured
   if (process.env.REDIS_URL) {
+    // Initialize Redis connection and verify health at startup
+    try {
+      getRedisConnection();
+      const health = await checkRedisHealth();
+      if (health.healthy) {
+        console.log(`[Redis] Startup health check passed (latency: ${health.latencyMs}ms)`);
+      } else {
+        console.warn('[Redis] Startup health check failed:', health.status, health.lastError ?? '');
+      }
+    } catch (err) {
+      console.error(
+        '[Redis] Initialization failed:',
+        err instanceof Error ? err.message : 'Unknown error'
+      );
+    }
+
     startWorkers();
   } else {
     console.warn('[Workers] REDIS_URL not set, workers disabled');

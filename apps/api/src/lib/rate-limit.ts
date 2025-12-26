@@ -1,14 +1,20 @@
 import { getRedisConnection, isRedisReady } from './redis';
 import type { SyncProvider } from './queue';
 
+// Time constants in seconds (for Redis TTL)
+const SECONDS = 1;
+const MINUTES = 60 * SECONDS;
+const HOURS = 60 * MINUTES;
+
 /**
  * Rate limit configuration for different sync operations.
+ * Values are in seconds.
  */
 export const RATE_LIMITS = {
   /** Latest sync cooldown: 60 seconds per user per provider */
-  syncLatest: 60,
+  syncLatest: 60 * SECONDS,
   /** Backfill start cooldown: 24 hours per user per provider */
-  backfillStart: 24 * 60 * 60,
+  backfillStart: 24 * HOURS,
 } as const;
 
 export type RateLimitType = keyof typeof RATE_LIMITS;

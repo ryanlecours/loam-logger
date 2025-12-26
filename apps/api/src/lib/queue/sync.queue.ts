@@ -1,6 +1,16 @@
 import { Queue } from 'bullmq';
 import { getQueueConnection } from './connection';
 
+// Time constants in milliseconds
+const SECONDS = 1000;
+
+// Sync job retry configuration
+const INITIAL_RETRY_DELAY_MS = 2 * SECONDS;
+const MAX_RETRY_ATTEMPTS = 5;
+const COMPLETED_JOBS_TO_KEEP = 100;
+const FAILED_JOBS_TO_KEEP = 500;
+const HIGH_PRIORITY = 1;
+
 export type SyncProvider = 'strava' | 'garmin' | 'suunto';
 
 export type SyncJobName =
@@ -24,14 +34,14 @@ export function getSyncQueue(): Queue<SyncJobData, void, SyncJobName> {
     syncQueue = new Queue<SyncJobData, void, SyncJobName>('sync', {
       ...getQueueConnection(),
       defaultJobOptions: {
-        attempts: 5,
+        attempts: MAX_RETRY_ATTEMPTS,
         backoff: {
           type: 'exponential',
-          delay: 2000,
+          delay: INITIAL_RETRY_DELAY_MS,
         },
-        priority: 1, // High priority
-        removeOnComplete: 100,
-        removeOnFail: 500,
+        priority: HIGH_PRIORITY,
+        removeOnComplete: COMPLETED_JOBS_TO_KEEP,
+        removeOnFail: FAILED_JOBS_TO_KEEP,
       },
     });
   }
