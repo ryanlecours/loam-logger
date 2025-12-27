@@ -41,6 +41,7 @@ export default function Settings() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [activeDataSource, setActiveDataSource] = useState<'garmin' | 'strava' | null>(null);
   const [stravaDeleteLoading, setStravaDeleteLoading] = useState(false);
+  const [garminDeleteLoading, setGarminDeleteLoading] = useState(false);
 
   // Check for OAuth connection callbacks
   useEffect(() => {
@@ -174,6 +175,36 @@ export default function Settings() {
     }
   };
 
+  const handleDeleteGarminRides = async () => {
+    if (!confirm('Delete ALL rides imported from Garmin? This also removes the hours added to your bikes from those rides.')) {
+      return;
+    }
+
+    setGarminDeleteLoading(true);
+    try {
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/garmin/testing/delete-imported-rides`, {
+        method: 'DELETE',
+        credentials: 'include',
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) throw new Error('Failed to delete Garmin rides');
+
+      const data = await res.json();
+      const deleted = Number(data.deletedRides || 0);
+      const message =
+        deleted > 0
+          ? `Deleted ${deleted} Garmin ride${deleted === 1 ? '' : 's'} and reset component hours.`
+          : 'No Garmin rides found to delete.';
+      setSuccessMessage(message);
+      setTimeout(() => setSuccessMessage(null), 6000);
+    } catch (err) {
+      console.error('Failed to delete Garmin rides:', err);
+      alert('Failed to delete Garmin rides. Please try again.');
+    } finally {
+      setGarminDeleteLoading(false);
+    }
+  };
+
   const handleDeleteAccount = async () => {
     try {
       const response = await fetch(`${import.meta.env.VITE_API_URL}/auth/delete-account`, {
@@ -253,7 +284,14 @@ export default function Settings() {
                       onClick={() => setImportModalOpen(true)}
                       className="rounded-xl px-3 py-1.5 text-xs font-medium text-blue-400/80 bg-surface-2/50 border border-blue-400/30 hover:bg-surface-2 hover:text-blue-400 hover:border-blue-400/50 hover:cursor-pointer transition"
                     >
-                      Import Rides
+                      Import Previous Rides
+                    </button>
+                    <button
+                      onClick={handleDeleteGarminRides}
+                      disabled={garminDeleteLoading}
+                      className="rounded-xl px-3 py-1.5 text-xs font-medium text-orange-200/90 bg-transparent border border-orange-200/40 hover:bg-orange-500/10 hover:border-orange-200/70 hover:text-orange-200 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {garminDeleteLoading ? 'Deleting…' : 'Clear Garmin Rides'}
                     </button>
                     <button
                       onClick={handleDisconnectGarmin}
@@ -286,7 +324,7 @@ export default function Settings() {
                       onClick={() => setStravaImportModalOpen(true)}
                       className="rounded-xl px-3 py-1.5 text-xs font-medium text-[#FC4C02]/80 bg-surface-2/50 border border-[#FC4C02]/30 hover:bg-surface-2 hover:text-[#FC4C02] hover:border-[#FC4C02]/50 hover:cursor-pointer transition"
                     >
-                      Import Rides
+                      Import Previous Rides
                     </button>
                     <button
                       onClick={handleDeleteStravaRides}

@@ -70,18 +70,18 @@ type StravaActivityDetail = {
   average_speed?: number; // m/s
   max_speed?: number; // m/s
   calories?: number;
-  location_city?: string | null;
-  location_state?: string | null;
-  location_country?: string | null;
+  // Location coordinates - we use these for reverse geocoding
   start_latlng?: [number, number] | null;
+  // Note: location_city/state/country are unreliable, so we ignore them
   [key: string]: unknown;
 };
 
+/**
+ * Extract location from Strava activity using only coordinates.
+ * Uses reverse geocoding via Nominatim API for single-activity webhook events.
+ */
 const extractStravaLocation = (activity: StravaActivityDetail) =>
   deriveLocationAsync({
-    city: activity.location_city ?? null,
-    state: activity.location_state ?? null,
-    country: activity.location_country ?? null,
     lat: activity.start_latlng?.[0] ?? null,
     lon: activity.start_latlng?.[1] ?? null,
   });
