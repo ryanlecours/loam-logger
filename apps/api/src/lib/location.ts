@@ -117,46 +117,29 @@ const setCachedGeocode = async (key: string, value: string | null): Promise<void
 };
 
 /**
- * Common country code mappings for shorter display.
- * Uses ISO 3166-1 alpha-2 codes where familiar, otherwise keeps short names.
+ * Special country code overrides for display.
+ * Most countries use their ISO 3166-1 alpha-2 code directly from Nominatim.
+ * These overrides handle cases where we want a different format.
  */
-const COUNTRY_CODE_MAP: Record<string, string> = {
-  'United States': 'USA',
-  'United States of America': 'USA',
-  'Canada': 'CA',
-  'United Kingdom': 'UK',
-  'Australia': 'AU',
-  'New Zealand': 'NZ',
-  'Germany': 'DE',
-  'France': 'FR',
-  'Italy': 'IT',
-  'Spain': 'ES',
-  'Netherlands': 'NL',
-  'Belgium': 'BE',
-  'Switzerland': 'CH',
-  'Austria': 'AT',
-  'Japan': 'JP',
-  'Mexico': 'MX',
-  'Brazil': 'BR',
-  'Argentina': 'AR',
-  'South Africa': 'ZA',
-  'Ireland': 'IE',
-  'Portugal': 'PT',
-  'Norway': 'NO',
-  'Sweden': 'SE',
-  'Denmark': 'DK',
-  'Finland': 'FI',
-  'Poland': 'PL',
-  'Czech Republic': 'CZ',
-  'Czechia': 'CZ',
+const COUNTRY_CODE_OVERRIDES: Record<string, string> = {
+  us: 'USA',
+  gb: 'UK',
 };
 
 /**
- * Shorten country name to code if available, otherwise return as-is.
+ * Get country display code from Nominatim response.
+ * Prefers country_code (ISO 3166-1 alpha-2) with overrides for common cases.
  */
-const shortenCountry = (country: string | null | undefined): string | null => {
-  if (!country) return null;
-  return COUNTRY_CODE_MAP[country] ?? country;
+const getCountryCode = (
+  countryCode: string | null | undefined,
+  countryName: string | null | undefined
+): string | null => {
+  if (countryCode) {
+    const code = countryCode.toLowerCase();
+    return COUNTRY_CODE_OVERRIDES[code] ?? countryCode.toUpperCase();
+  }
+  // Fallback to country name if no code available
+  return countryName ?? null;
 };
 
 /**
@@ -241,7 +224,7 @@ export const reverseGeocode = async (
       null;
 
     const state = address.state || address.state_district || null;
-    const country = shortenCountry(address.country);
+    const country = getCountryCode(address.country_code, address.country);
 
     // Build location string: "City, State, Country" or subset if parts missing
     const result = buildLocationString([city, state, country]);

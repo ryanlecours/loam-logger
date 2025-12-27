@@ -214,7 +214,7 @@ describe('reverseGeocode', () => {
       expect.stringContaining('nominatim.openstreetmap.org/reverse'),
       expect.objectContaining({
         headers: expect.objectContaining({
-          'User-Agent': 'LoamLogger/1.0 (https://github.com/jlcrow23/loam-logger)',
+          'User-Agent': 'LoamLogger/1.0 (ryan.lecours@loamlogger.app)',
         }),
       })
     );
