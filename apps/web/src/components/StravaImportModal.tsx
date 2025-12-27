@@ -138,7 +138,8 @@ export default function StravaImportModal({ open, onClose, onSuccess }: Props) {
           <div className="space-y-6">
             <div className="flex flex-col items-center justify-center py-8">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mb-4"></div>
-              <p className="text-muted">Importing activities from Strava...</p>
+              <p className="text-muted">Importing activities from Strava...</p>< br/>
+              <p className="text-muted text-center">Depending on how many rides you have completed,< br/>this may take 1-2 minutes.</p>
             </div>
           </div>
         )}

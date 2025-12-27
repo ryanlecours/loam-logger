@@ -1,5 +1,4 @@
--- Add WAITLIST to UserRole enum
-ALTER TYPE "UserRole" ADD VALUE 'WAITLIST' BEFORE 'FREE';
+-- WAITLIST enum value is already included in UserRole (created with enum in earlier migration)
 
 -- Add activation fields to User table
 ALTER TABLE "User" ADD COLUMN "mustChangePassword" BOOLEAN NOT NULL DEFAULT false;

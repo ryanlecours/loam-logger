@@ -1,6 +1,9 @@
 -- This migration was applied directly to the database
 -- Adding placeholder to maintain migration history
 
+-- CreateEnum
+CREATE TYPE "UserRole" AS ENUM ('WAITLIST', 'FREE', 'PRO', 'ADMIN');
+
 -- AlterEnum
 ALTER TYPE "AuthProvider" ADD VALUE 'strava';
 

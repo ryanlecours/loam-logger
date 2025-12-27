@@ -8,5 +8,8 @@ export type { SyncJobName, SyncJobData, SyncProvider, EnqueueSyncResult } from '
 export { getBackfillQueue, closeBackfillQueue } from './backfill.queue';
 export type { BackfillJobName, BackfillJobData } from './backfill.queue';
 
+export { getGeocodeQueue, addGeocodeJob, closeGeocodeQueue } from './geocode.queue';
+export type { GeocodeJobName, GeocodeJobData } from './geocode.queue';
+
 // Connection
 export { getQueueConnection } from './connection';

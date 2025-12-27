@@ -3,12 +3,8 @@ import { prisma } from '../lib/prisma';
 import { validateEmailFormat } from '../auth/email.utils';
 import { normalizeEmail } from '../auth/utils';
 import { sendBadRequest, sendError, sendSuccess, sendInternalError } from '../lib/api-response';
-import crypto from 'crypto';
 
 const router = express.Router();
-
-// Secret for salting IP hashes to prevent rainbow table attacks
-const IP_HASH_SECRET = process.env.IP_HASH_SECRET || 'loam-waitlist-ip-salt';
 
 /**
  * POST /api/waitlist
@@ -38,24 +34,6 @@ router.post('/waitlist', express.json(), async (req: Request, res) => {
       return sendBadRequest(res, 'Name is too long');
     }
 
-    // Extract metadata
-    const rawReferrer = req.headers.referer || req.headers.referrer || null;
-    const referrer = typeof rawReferrer === 'string'
-      ? rawReferrer.substring(0, 500)
-      : null;
-
-    const rawUserAgent = req.headers['user-agent'] || null;
-    const userAgent = typeof rawUserAgent === 'string'
-      ? rawUserAgent.substring(0, 500)
-      : null;
-
-    // Hash IP for privacy (not storing raw IP)
-    // Salt prevents rainbow table attacks on common IP addresses
-    const rawIp = req.ip || null;
-    const ipAddress = rawIp
-      ? crypto.createHash('sha256').update(rawIp + IP_HASH_SECRET).digest('hex').substring(0, 32)
-      : null;
-
     // Check if email already exists as a User
     const existingUser = await prisma.user.findUnique({
       where: { email },
@@ -69,29 +47,15 @@ router.post('/waitlist', express.json(), async (req: Request, res) => {
       return sendError(res, 409, 'An account with this email already exists', 'ACCOUNT_EXISTS');
     }
 
-    // Create User with WAITLIST role and BetaWaitlist record atomically
-    await prisma.$transaction([
-      prisma.user.create({
-        data: {
-          email,
-          name: trimmedName,
-          role: 'WAITLIST',
-          // passwordHash is null - will be set on activation
-        },
-      }),
-      // Also keep a record in BetaWaitlist for historical/analytics purposes
-      prisma.betaWaitlist.upsert({
-        where: { email },
-        update: {},
-        create: {
-          email,
-          name: trimmedName,
-          referrer,
-          userAgent,
-          ipAddress,
-        },
-      }),
-    ]);
+    // Create User with WAITLIST role
+    await prisma.user.create({
+      data: {
+        email,
+        name: trimmedName,
+        role: 'WAITLIST',
+        // passwordHash is null - will be set on activation
+      },
+    });
 
     console.log(`[Waitlist] New signup: ${email}`);
 

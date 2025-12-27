@@ -23,6 +23,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@loam/shared": "*",
     "@apollo/server": "^5.0.0",
     "@as-integrations/express4": "^1.1.2",
     "@prisma/client": "^6.14.0",
