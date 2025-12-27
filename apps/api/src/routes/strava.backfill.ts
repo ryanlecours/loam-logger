@@ -201,8 +201,13 @@ r.get<Empty, void, Empty, { year?: string }>(
 
         // Queue background geocoding job if we have coordinates
         if (lat !== null && lon !== null) {
-          await addGeocodeJob({ rideId: ride.id, lat, lon });
-          geocodeJobsQueued++;
+          try {
+            await addGeocodeJob({ rideId: ride.id, lat, lon });
+            geocodeJobsQueued++;
+          } catch (err) {
+            // Don't fail the import if geocoding queue is unavailable
+            console.warn(`[Strava Backfill] Failed to queue geocode job for ride ${ride.id}:`, err);
+          }
         }
 
         importedCount++;
