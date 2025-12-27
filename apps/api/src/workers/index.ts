@@ -1,7 +1,8 @@
 import { createEmailWorker, closeEmailWorker } from './email.worker';
 import { createSyncWorker, closeSyncWorker } from './sync.worker';
+import { createGeocodeWorker, closeGeocodeWorker } from './geocode.worker';
 import { closeRedisConnection } from '../lib/redis';
-import { closeEmailQueue, closeSyncQueue, closeBackfillQueue } from '../lib/queue';
+import { closeEmailQueue, closeSyncQueue, closeBackfillQueue, closeGeocodeQueue } from '../lib/queue';
 
 /**
  * Start all BullMQ workers.
@@ -12,7 +13,7 @@ export function startWorkers(): void {
 
   createEmailWorker();
   createSyncWorker();
-  // Future: createBackfillWorker();
+  createGeocodeWorker();
 
   console.log('[Workers] All workers started');
 }
@@ -32,13 +33,13 @@ export async function stopWorkers(): Promise<void> {
     const workerResults = await Promise.allSettled([
       closeEmailWorker(),
       closeSyncWorker(),
-      // Future: closeBackfillWorker(),
+      closeGeocodeWorker(),
     ]);
 
     // Log any worker shutdown failures
     workerResults.forEach((result, index) => {
       if (result.status === 'rejected') {
-        const workerNames = ['EmailWorker', 'SyncWorker'];
+        const workerNames = ['EmailWorker', 'SyncWorker', 'GeocodeWorker'];
         console.error(`[Workers] Failed to close ${workerNames[index]}:`, result.reason);
       }
     });
@@ -48,12 +49,13 @@ export async function stopWorkers(): Promise<void> {
       closeEmailQueue(),
       closeSyncQueue(),
       closeBackfillQueue(),
+      closeGeocodeQueue(),
     ]);
 
     // Log any queue shutdown failures
     queueResults.forEach((result, index) => {
       if (result.status === 'rejected') {
-        const queueNames = ['EmailQueue', 'SyncQueue', 'BackfillQueue'];
+        const queueNames = ['EmailQueue', 'SyncQueue', 'BackfillQueue', 'GeocodeQueue'];
         console.error(`[Workers] Failed to close ${queueNames[index]}:`, result.reason);
       }
     });

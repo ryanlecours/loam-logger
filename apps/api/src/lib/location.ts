@@ -4,7 +4,45 @@ import { getRedisConnection, isRedisReady } from './redis';
 // Uses LRU-like behavior with max size limit
 const memoryCache = new Map<string, { value: string | null; expiresAt: number }>();
 const MEMORY_CACHE_MAX_SIZE = 1000;
-const CACHE_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days - locations don't change often
+const CACHE_TTL_SECONDS = 60 * 60 * 24 * 180; // 180 days - locations don't change
+
+// Rate limiting for Nominatim API (max 1 request per second)
+// Using a simple queue with mutex to serialize requests globally
+const NOMINATIM_MIN_INTERVAL_MS = 1100; // 1.1 seconds to be safe
+let lastNominatimRequest = 0;
+let nominatimQueuePromise: Promise<void> = Promise.resolve();
+
+/**
+ * Acquire rate limit slot for Nominatim API.
+ * Ensures minimum 1.1 second spacing between requests.
+ */
+const acquireNominatimSlot = async (): Promise<void> => {
+  // Chain onto the queue to serialize all requests
+  const previousPromise = nominatimQueuePromise;
+
+  let resolveSlot: () => void;
+  nominatimQueuePromise = new Promise((resolve) => {
+    resolveSlot = resolve;
+  });
+
+  // Wait for previous request to complete
+  await previousPromise;
+
+  // Wait for rate limit interval
+  const now = Date.now();
+  const timeSinceLastRequest = now - lastNominatimRequest;
+  if (timeSinceLastRequest < NOMINATIM_MIN_INTERVAL_MS) {
+    await new Promise((resolve) =>
+      setTimeout(resolve, NOMINATIM_MIN_INTERVAL_MS - timeSinceLastRequest)
+    );
+  }
+
+  lastNominatimRequest = Date.now();
+
+  // Release slot after request completes (caller should await their fetch)
+  // We release immediately since we've acquired our time slot
+  resolveSlot!();
+};
 
 /**
  * Generate a cache key for lat/lon coordinates.
@@ -75,8 +113,51 @@ const setCachedGeocode = async (key: string, value: string | null): Promise<void
 };
 
 /**
- * Reverse geocode lat/lon to city, state using OpenStreetMap Nominatim API.
- * Returns "City, State" format or null if lookup fails.
+ * Common country code mappings for shorter display.
+ * Uses ISO 3166-1 alpha-2 codes where familiar, otherwise keeps short names.
+ */
+const COUNTRY_CODE_MAP: Record<string, string> = {
+  'United States': 'USA',
+  'United States of America': 'USA',
+  'Canada': 'CA',
+  'United Kingdom': 'UK',
+  'Australia': 'AU',
+  'New Zealand': 'NZ',
+  'Germany': 'DE',
+  'France': 'FR',
+  'Italy': 'IT',
+  'Spain': 'ES',
+  'Netherlands': 'NL',
+  'Belgium': 'BE',
+  'Switzerland': 'CH',
+  'Austria': 'AT',
+  'Japan': 'JP',
+  'Mexico': 'MX',
+  'Brazil': 'BR',
+  'Argentina': 'AR',
+  'South Africa': 'ZA',
+  'Ireland': 'IE',
+  'Portugal': 'PT',
+  'Norway': 'NO',
+  'Sweden': 'SE',
+  'Denmark': 'DK',
+  'Finland': 'FI',
+  'Poland': 'PL',
+  'Czech Republic': 'CZ',
+  'Czechia': 'CZ',
+};
+
+/**
+ * Shorten country name to code if available, otherwise return as-is.
+ */
+const shortenCountry = (country: string | null | undefined): string | null => {
+  if (!country) return null;
+  return COUNTRY_CODE_MAP[country] ?? country;
+};
+
+/**
+ * Reverse geocode lat/lon to city, state, country using OpenStreetMap Nominatim API.
+ * Returns "City, State, USA" format or null if lookup fails.
  * Results are cached in Redis (30 days) with memory fallback.
  * Respects Nominatim usage policy (1 req/sec, User-Agent required).
  */
@@ -93,6 +174,9 @@ export const reverseGeocode = async (
   }
 
   try {
+    // Acquire rate limit slot before making request (1 req/sec max)
+    await acquireNominatimSlot();
+
     const url = new URL('https://nominatim.openstreetmap.org/reverse');
     url.searchParams.set('lat', lat.toString());
     url.searchParams.set('lon', lon.toString());
@@ -122,6 +206,7 @@ export const reverseGeocode = async (
         state_district?: string;
         county?: string;
         country?: string;
+        country_code?: string;
       };
     };
 
@@ -142,8 +227,10 @@ export const reverseGeocode = async (
       null;
 
     const state = address.state || address.state_district || null;
+    const country = shortenCountry(address.country);
 
-    const result = buildLocationString([city, state]);
+    // Build location string: "City, State, Country" or subset if parts missing
+    const result = buildLocationString([city, state, country]);
 
     // Cache the result
     await setCachedGeocode(cacheKey, result);
