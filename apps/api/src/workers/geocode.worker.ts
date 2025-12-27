@@ -30,27 +30,20 @@ async function processGeocodeJob(job: Job<GeocodeJobData, void, GeocodeJobName>)
   }
 
   // Update the ride with the geocoded location
-  // Only update if the current location is still in lat/lon format
-  const ride = await prisma.ride.findUnique({
-    where: { id: rideId },
-    select: { location: true },
+  // Only update if the current location is still in "Lat X, Lon Y" format
+  // This prevents overwriting user-edited locations
+  const result = await prisma.ride.updateMany({
+    where: {
+      id: rideId,
+      location: { startsWith: 'Lat ' },
+    },
+    data: { location },
   });
 
-  if (!ride) {
-    console.warn(`[GeocodeWorker] Ride ${rideId} not found, skipping`);
-    return;
-  }
-
-  // Only update if location is still in "Lat X, Lon Y" format
-  // This prevents overwriting user-edited locations
-  if (ride.location && ride.location.startsWith('Lat ')) {
-    await prisma.ride.update({
-      where: { id: rideId },
-      data: { location },
-    });
+  if (result.count > 0) {
     console.log(`[GeocodeWorker] Updated ride ${rideId} location to: ${location}`);
   } else {
-    console.log(`[GeocodeWorker] Ride ${rideId} location already set, skipping: ${ride.location}`);
+    console.log(`[GeocodeWorker] Ride ${rideId} not found or location already set, skipping`);
   }
 }
 

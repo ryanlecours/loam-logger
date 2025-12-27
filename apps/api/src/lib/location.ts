@@ -1,10 +1,13 @@
 import { getRedisConnection, isRedisReady } from './redis';
 
 // In-memory cache fallback (used when Redis is unavailable)
-// Uses LRU-like behavior with max size limit
+// Uses FIFO eviction when max size is reached
 const memoryCache = new Map<string, { value: string | null; expiresAt: number }>();
 const MEMORY_CACHE_MAX_SIZE = 1000;
-const CACHE_TTL_SECONDS = 60 * 60 * 24 * 180; // 180 days - locations don't change
+// 1 year TTL - coordinates map to the same location indefinitely.
+// Using a finite TTL allows for rare OSM data corrections and prevents
+// unbounded cache growth if Redis persistence is enabled.
+const CACHE_TTL_SECONDS = 60 * 60 * 24 * 365;
 
 // Rate limiting for Nominatim API (max 1 request per second)
 // Using a simple queue with mutex to serialize requests globally
@@ -20,7 +23,7 @@ const acquireNominatimSlot = async (): Promise<void> => {
   // Chain onto the queue to serialize all requests
   const previousPromise = nominatimQueuePromise;
 
-  let resolveSlot: () => void;
+  let resolveSlot: () => void = () => {};
   nominatimQueuePromise = new Promise((resolve) => {
     resolveSlot = resolve;
   });
@@ -41,7 +44,7 @@ const acquireNominatimSlot = async (): Promise<void> => {
 
   // Release slot after request completes (caller should await their fetch)
   // We release immediately since we've acquired our time slot
-  resolveSlot!();
+  resolveSlot();
 };
 
 /**
@@ -185,7 +188,7 @@ export const reverseGeocode = async (
 
     const response = await fetch(url.toString(), {
       headers: {
-        'User-Agent': 'LoamLogger/1.0 (bike ride tracking app)',
+        'User-Agent': 'LoamLogger/1.0 (ryan.lecours@loamlogger.app)',
         'Accept': 'application/json',
       },
     });
