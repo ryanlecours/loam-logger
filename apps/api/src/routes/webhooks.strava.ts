@@ -2,7 +2,7 @@ import { Router as createRouter, type Router, type Request, type Response } from
 import type { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { getValidStravaToken } from '../lib/strava-token';
-import { deriveLocation, shouldApplyAutoLocation } from '../lib/location';
+import { deriveLocationAsync, shouldApplyAutoLocation } from '../lib/location';
 
 type Empty = Record<string, never>;
 const r: Router = createRouter();
@@ -78,7 +78,7 @@ type StravaActivityDetail = {
 };
 
 const extractStravaLocation = (activity: StravaActivityDetail) =>
-  deriveLocation({
+  deriveLocationAsync({
     city: activity.location_city ?? null,
     state: activity.location_state ?? null,
     country: activity.location_country ?? null,
@@ -367,7 +367,7 @@ async function processActivityEvent(event: StravaWebhookEvent): Promise<void> {
         }
       }
 
-      const autoLocation = extractStravaLocation(activity);
+      const autoLocation = await extractStravaLocation(activity);
 
       await prisma.$transaction(async (tx) => {
         const existing = await tx.ride.findUnique({
