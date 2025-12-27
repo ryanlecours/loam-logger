@@ -42,8 +42,9 @@ const acquireNominatimSlot = async (): Promise<void> => {
 
   lastNominatimRequest = Date.now();
 
-  // Release slot after request completes (caller should await their fetch)
-  // We release immediately since we've acquired our time slot
+  // Release the queue so the next request can start waiting.
+  // The timestamp is already recorded, so the next request will
+  // wait 1.1s from now regardless of how fast this fetch completes.
   resolveSlot();
 };
 
@@ -161,13 +162,23 @@ const shortenCountry = (country: string | null | undefined): string | null => {
 /**
  * Reverse geocode lat/lon to city, state, country using OpenStreetMap Nominatim API.
  * Returns "City, State, USA" format or null if lookup fails.
- * Results are cached in Redis (30 days) with memory fallback.
+ * Results are cached in Redis (1 year) with memory fallback.
  * Respects Nominatim usage policy (1 req/sec, User-Agent required).
  */
 export const reverseGeocode = async (
   lat: number,
   lon: number
 ): Promise<string | null> => {
+  // Validate coordinate ranges
+  if (!Number.isFinite(lat) || lat < -90 || lat > 90) {
+    console.warn(`[ReverseGeocode] Invalid latitude: ${lat}`);
+    return null;
+  }
+  if (!Number.isFinite(lon) || lon < -180 || lon > 180) {
+    console.warn(`[ReverseGeocode] Invalid longitude: ${lon}`);
+    return null;
+  }
+
   const cacheKey = getCacheKey(lat, lon);
 
   // Check cache first
