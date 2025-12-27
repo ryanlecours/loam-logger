@@ -140,6 +140,17 @@ router.post('/users', async (req, res) => {
       return sendUnauthorized(res);
     }
 
+    // Rate limit to prevent accidental spam
+    const rateLimit = await checkAdminRateLimit('createUser', adminUserId);
+    if (!rateLimit.allowed) {
+      res.setHeader('Retry-After', rateLimit.retryAfter.toString());
+      return res.status(429).json({
+        success: false,
+        error: 'Too many user creation attempts',
+        retryAfter: rateLimit.retryAfter,
+      });
+    }
+
     const { email, name, role = 'FREE', sendActivationEmail = false } = req.body;
 
     // Validate email
@@ -236,6 +247,17 @@ router.post('/users/:userId/demote', async (req, res) => {
 
     if (!adminUserId) {
       return sendUnauthorized(res);
+    }
+
+    // Rate limit to prevent accidental spam
+    const rateLimit = await checkAdminRateLimit('demoteUser', userId);
+    if (!rateLimit.allowed) {
+      res.setHeader('Retry-After', rateLimit.retryAfter.toString());
+      return res.status(429).json({
+        success: false,
+        error: 'Too many demotion attempts for this user',
+        retryAfter: rateLimit.retryAfter,
+      });
     }
 
     // Prevent self-demotion

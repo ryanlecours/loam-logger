@@ -6,8 +6,10 @@ jest.mock('./redis', () => ({
 
 import {
   RATE_LIMITS,
+  ADMIN_RATE_LIMITS,
   LOCK_TTL,
   checkRateLimit,
+  checkAdminRateLimit,
   clearRateLimit,
   acquireLock,
   releaseLock,
@@ -25,6 +27,20 @@ describe('RATE_LIMITS', () => {
 
   it('should have backfillStart at 24 hours', () => {
     expect(RATE_LIMITS.backfillStart).toBe(24 * 60 * 60);
+  });
+});
+
+describe('ADMIN_RATE_LIMITS', () => {
+  it('should have activation at 10 seconds', () => {
+    expect(ADMIN_RATE_LIMITS.activation).toBe(10);
+  });
+
+  it('should have createUser at 5 seconds', () => {
+    expect(ADMIN_RATE_LIMITS.createUser).toBe(5);
+  });
+
+  it('should have demoteUser at 5 seconds', () => {
+    expect(ADMIN_RATE_LIMITS.demoteUser).toBe(5);
   });
 });
 
@@ -120,6 +136,96 @@ describe('checkRateLimit', () => {
       86400,
       'NX'
     );
+  });
+});
+
+describe('checkAdminRateLimit', () => {
+  let mockRedis: {
+    set: jest.Mock;
+    ttl: jest.Mock;
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockRedis = {
+      set: jest.fn(),
+      ttl: jest.fn(),
+    };
+    mockGetRedisConnection.mockReturnValue(mockRedis as never);
+  });
+
+  it('should allow operation when Redis is unavailable', async () => {
+    mockIsRedisReady.mockReturnValue(false);
+
+    const result = await checkAdminRateLimit('activation', 'user123');
+
+    expect(result).toEqual({ allowed: true, redisAvailable: false });
+    expect(mockRedis.set).not.toHaveBeenCalled();
+  });
+
+  it('should allow operation when key is set successfully', async () => {
+    mockIsRedisReady.mockReturnValue(true);
+    mockRedis.set.mockResolvedValue('OK');
+
+    const result = await checkAdminRateLimit('activation', 'user123');
+
+    expect(result).toEqual({ allowed: true, redisAvailable: true });
+    expect(mockRedis.set).toHaveBeenCalledWith(
+      'rl:admin:activation:user123',
+      expect.any(String),
+      'EX',
+      10,
+      'NX'
+    );
+  });
+
+  it('should deny operation when key already exists', async () => {
+    mockIsRedisReady.mockReturnValue(true);
+    mockRedis.set.mockResolvedValue(null);
+    mockRedis.ttl.mockResolvedValue(8);
+
+    const result = await checkAdminRateLimit('activation', 'user123');
+
+    expect(result).toEqual({ allowed: false, retryAfter: 8, redisAvailable: true });
+  });
+
+  it('should use correct TTL for createUser', async () => {
+    mockIsRedisReady.mockReturnValue(true);
+    mockRedis.set.mockResolvedValue('OK');
+
+    await checkAdminRateLimit('createUser', 'admin456');
+
+    expect(mockRedis.set).toHaveBeenCalledWith(
+      'rl:admin:createUser:admin456',
+      expect.any(String),
+      'EX',
+      5,
+      'NX'
+    );
+  });
+
+  it('should use correct TTL for demoteUser', async () => {
+    mockIsRedisReady.mockReturnValue(true);
+    mockRedis.set.mockResolvedValue('OK');
+
+    await checkAdminRateLimit('demoteUser', 'targetUser789');
+
+    expect(mockRedis.set).toHaveBeenCalledWith(
+      'rl:admin:demoteUser:targetUser789',
+      expect.any(String),
+      'EX',
+      5,
+      'NX'
+    );
+  });
+
+  it('should allow operation when Redis throws error', async () => {
+    mockIsRedisReady.mockReturnValue(true);
+    mockRedis.set.mockRejectedValue(new Error('Connection refused'));
+
+    const result = await checkAdminRateLimit('activation', 'user123');
+
+    expect(result).toEqual({ allowed: true, redisAvailable: false });
   });
 });
 
