@@ -16,18 +16,18 @@ jest.mock('../auth/password.utils', () => ({
 }));
 
 jest.mock('../lib/queue', () => ({
-  getEmailQueue: jest.fn(),
+  addEmailJob: jest.fn().mockResolvedValue(true),
   scheduleWelcomeSeries: jest.fn().mockResolvedValue(undefined),
 }));
 
 // Import mocks
 import { prisma } from '../lib/prisma';
 import { hashPassword } from '../auth/password.utils';
-import { getEmailQueue, scheduleWelcomeSeries } from '../lib/queue';
+import { addEmailJob, scheduleWelcomeSeries } from '../lib/queue';
 
 const mockPrisma = prisma as jest.Mocked<typeof prisma>;
 const mockHashPassword = hashPassword as jest.MockedFunction<typeof hashPassword>;
-const mockGetEmailQueue = getEmailQueue as jest.MockedFunction<typeof getEmailQueue>;
+const mockAddEmailJob = addEmailJob as jest.MockedFunction<typeof addEmailJob>;
 const mockScheduleWelcomeSeries = scheduleWelcomeSeries as jest.MockedFunction<typeof scheduleWelcomeSeries>;
 
 describe('generateTempPassword', () => {
@@ -89,15 +89,10 @@ describe('activateWaitlistUser', () => {
     role: 'WAITLIST' as const,
   };
 
-  let mockQueueAdd: jest.Mock;
-
   beforeEach(() => {
     jest.clearAllMocks();
 
-    mockQueueAdd = jest.fn().mockResolvedValue({});
-    mockGetEmailQueue.mockReturnValue({
-      add: mockQueueAdd,
-    } as never);
+    mockAddEmailJob.mockResolvedValue(true);
 
     (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue(mockUser);
     (mockPrisma.user.update as jest.Mock).mockResolvedValue({ ...mockUser, role: 'FREE' });
@@ -163,7 +158,7 @@ describe('activateWaitlistUser', () => {
   it('should queue activation email', async () => {
     await activateWaitlistUser({ userId: 'user123', adminUserId: 'admin1' });
 
-    expect(mockQueueAdd).toHaveBeenCalledWith(
+    expect(mockAddEmailJob).toHaveBeenCalledWith(
       'activation',
       expect.objectContaining({
         userId: 'user123',
@@ -197,7 +192,7 @@ describe('activateWaitlistUser', () => {
   });
 
   it('should return tempPassword when email queueing fails', async () => {
-    mockQueueAdd.mockRejectedValue(new Error('Redis connection failed'));
+    mockAddEmailJob.mockRejectedValue(new Error('Redis connection failed'));
 
     const result = await activateWaitlistUser({ userId: 'user123', adminUserId: 'admin1' });
 
@@ -209,7 +204,7 @@ describe('activateWaitlistUser', () => {
   });
 
   it('should still activate user even if email fails', async () => {
-    mockQueueAdd.mockRejectedValue(new Error('Redis connection failed'));
+    mockAddEmailJob.mockRejectedValue(new Error('Redis connection failed'));
 
     await activateWaitlistUser({ userId: 'user123', adminUserId: 'admin1' });
 
@@ -225,7 +220,7 @@ describe('activateWaitlistUser', () => {
 
     await activateWaitlistUser({ userId: 'user123', adminUserId: 'admin1' });
 
-    expect(mockQueueAdd).toHaveBeenCalledWith(
+    expect(mockAddEmailJob).toHaveBeenCalledWith(
       'activation',
       expect.objectContaining({
         name: undefined,

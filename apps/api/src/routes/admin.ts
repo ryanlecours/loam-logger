@@ -1,7 +1,9 @@
 import { Router } from 'express';
 import { prisma } from '../lib/prisma';
 import { requireAdmin } from '../auth/adminMiddleware';
-import { activateWaitlistUser } from '../services/activation.service';
+import { activateWaitlistUser, generateTempPassword } from '../services/activation.service';
+import { hashPassword } from '../auth/password.utils';
+import { addEmailJob, scheduleWelcomeSeries } from '../lib/queue';
 import { sendUnauthorized, sendBadRequest, sendInternalError } from '../lib/api-response';
 import { checkAdminRateLimit } from '../lib/rate-limit';
 
@@ -128,92 +130,304 @@ router.post('/activate/:userId', async (req, res) => {
 });
 
 /**
- * POST /api/admin/migrate-waitlist
- * Creates User records for BetaWaitlist entries that don't have one
- * TEMPORARY: Will be removed after migration is complete
+ * POST /api/admin/users
+ * Create a new user with optional activation email
  */
-router.post('/migrate-waitlist', async (req, res) => {
+router.post('/users', async (req, res) => {
   try {
     const adminUserId = req.sessionUser?.uid;
     if (!adminUserId) {
       return sendUnauthorized(res);
     }
 
-    // 1. Get all BetaWaitlist entries
-    const waitlistEntries = await prisma.betaWaitlist.findMany({
-      select: { email: true, name: true },
-    });
-
-    // 2. Get all existing User emails (Set for O(1) lookup)
-    const existingUsers = await prisma.user.findMany({
-      select: { email: true },
-    });
-    const existingEmails = new Set(existingUsers.map((u) => u.email.toLowerCase()));
-
-    // 3. Filter to entries that need User records
-    const toMigrate = waitlistEntries.filter(
-      (entry) => !existingEmails.has(entry.email.toLowerCase())
-    );
-
-    // 4. Create User records in batches
-    let migrated = 0;
-    let failed = 0;
-    const errors: string[] = [];
-    const BATCH_SIZE = 100;
-
-    for (let i = 0; i < toMigrate.length; i += BATCH_SIZE) {
-      const batch = toMigrate.slice(i, i + BATCH_SIZE);
-
-      try {
-        await prisma.user.createMany({
-          data: batch.map((entry) => ({
-            email: entry.email,
-            name: entry.name,
-            role: 'WAITLIST',
-          })),
-          skipDuplicates: true,
-        });
-        migrated += batch.length;
-      } catch {
-        // Fall back to individual creates if batch fails
-        for (const entry of batch) {
-          try {
-            await prisma.user.create({
-              data: {
-                email: entry.email,
-                name: entry.name,
-                role: 'WAITLIST',
-              },
-            });
-            migrated++;
-          } catch (individualErr) {
-            failed++;
-            errors.push(
-              `${entry.email}: ${individualErr instanceof Error ? individualErr.message : 'Unknown error'}`
-            );
-          }
-        }
-      }
+    // Rate limit to prevent accidental spam
+    const rateLimit = await checkAdminRateLimit('createUser', adminUserId);
+    if (!rateLimit.allowed) {
+      res.setHeader('Retry-After', rateLimit.retryAfter.toString());
+      return res.status(429).json({
+        success: false,
+        error: 'Too many user creation attempts',
+        retryAfter: rateLimit.retryAfter,
+      });
     }
 
-    const skipped = waitlistEntries.length - toMigrate.length;
+    const { email, name, role = 'FREE', sendActivationEmail = false } = req.body;
 
-    console.log(
-      `[Admin] Waitlist migration by ${adminUserId}: ` +
-        `${migrated} migrated, ${skipped} skipped, ${failed} failed`
-    );
+    // Validate email
+    if (!email || typeof email !== 'string' || !email.includes('@')) {
+      return sendBadRequest(res, 'Valid email is required');
+    }
+
+    // Validate role
+    const validRoles = ['FREE', 'PRO', 'ADMIN'];
+    if (!validRoles.includes(role)) {
+      return sendBadRequest(res, `Role must be one of: ${validRoles.join(', ')}`);
+    }
+
+    // Check for existing user
+    const existingUser = await prisma.user.findUnique({
+      where: { email: email.toLowerCase().trim() },
+    });
+    if (existingUser) {
+      return sendBadRequest(res, 'User with this email already exists');
+    }
+
+    // Generate temp password if sending activation email
+    let tempPassword: string | null = null;
+    let passwordHash: string | null = null;
+    if (sendActivationEmail) {
+      tempPassword = generateTempPassword();
+      passwordHash = await hashPassword(tempPassword);
+    }
+
+    // Create user
+    const user = await prisma.user.create({
+      data: {
+        email: email.toLowerCase().trim(),
+        name: name?.trim() || null,
+        role,
+        passwordHash,
+        mustChangePassword: sendActivationEmail,
+        activatedAt: new Date(),
+        activatedBy: adminUserId,
+      },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        role: true,
+        createdAt: true,
+      },
+    });
+
+    // Send activation email if requested
+    let emailQueued = false;
+    if (sendActivationEmail && tempPassword) {
+      try {
+        emailQueued = await addEmailJob(
+          'activation',
+          {
+            userId: user.id,
+            email: user.email,
+            name: user.name || undefined,
+            tempPassword,
+          },
+          { jobId: `activation-${user.id}` }
+        );
+        await scheduleWelcomeSeries(user.id, user.email, user.name || undefined);
+        console.log(`[Admin] User ${user.email} created and activated by ${adminUserId}`);
+      } catch (emailErr) {
+        console.error(`[Admin] Failed to queue activation email for ${user.email}:`, emailErr);
+      }
+    } else {
+      console.log(`[Admin] User ${user.email} created (no email) by ${adminUserId}`);
+    }
 
     res.json({
       success: true,
-      migrated,
-      skipped,
-      failed,
-      total: waitlistEntries.length,
-      ...(errors.length > 0 ? { errors } : {}),
+      user,
+      emailQueued,
+      // Only return temp password if email failed but was requested
+      ...(sendActivationEmail && !emailQueued && tempPassword ? { tempPassword } : {}),
     });
   } catch (error) {
-    console.error('Admin migrate-waitlist error:', error);
-    return sendInternalError(res, 'Failed to migrate waitlist entries');
+    console.error('Admin create user error:', error);
+    return sendInternalError(res, 'Failed to create user');
+  }
+});
+
+/**
+ * POST /api/admin/users/:userId/demote
+ * Demote a user back to WAITLIST role (for testing)
+ */
+router.post('/users/:userId/demote', async (req, res) => {
+  try {
+    const adminUserId = req.sessionUser?.uid;
+    const { userId } = req.params;
+
+    if (!adminUserId) {
+      return sendUnauthorized(res);
+    }
+
+    // Rate limit to prevent accidental spam
+    const rateLimit = await checkAdminRateLimit('demoteUser', userId);
+    if (!rateLimit.allowed) {
+      res.setHeader('Retry-After', rateLimit.retryAfter.toString());
+      return res.status(429).json({
+        success: false,
+        error: 'Too many demotion attempts for this user',
+        retryAfter: rateLimit.retryAfter,
+      });
+    }
+
+    // Prevent self-demotion
+    if (userId === adminUserId) {
+      return sendBadRequest(res, 'Cannot demote your own account');
+    }
+
+    // Verify user exists
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, email: true, role: true },
+    });
+
+    if (!user) {
+      return sendBadRequest(res, 'User not found');
+    }
+
+    if (user.role === 'WAITLIST') {
+      return sendBadRequest(res, 'User is already on waitlist');
+    }
+
+    // Demote user to WAITLIST and clear activation fields
+    const updated = await prisma.user.update({
+      where: { id: userId },
+      data: {
+        role: 'WAITLIST',
+        activatedAt: null,
+        activatedBy: null,
+        mustChangePassword: false,
+        passwordHash: null,
+      },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+      },
+    });
+
+    console.log(`[Admin] User ${user.email} demoted to WAITLIST by ${adminUserId}`);
+
+    res.json({ success: true, user: updated });
+  } catch (error) {
+    console.error('Admin demote user error:', error);
+    return sendInternalError(res, 'Failed to demote user');
+  }
+});
+
+/**
+ * DELETE /api/admin/users/:userId
+ * Delete a user
+ */
+router.delete('/users/:userId', async (req, res) => {
+  try {
+    const adminUserId = req.sessionUser?.uid;
+    const { userId } = req.params;
+
+    if (!adminUserId) {
+      return sendUnauthorized(res);
+    }
+
+    // Prevent self-deletion
+    if (userId === adminUserId) {
+      return sendBadRequest(res, 'Cannot delete your own account');
+    }
+
+    // Verify user exists
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, email: true, role: true },
+    });
+
+    if (!user) {
+      return sendBadRequest(res, 'User not found');
+    }
+
+    // Delete user (cascades to rides, bikes, etc.)
+    await prisma.user.delete({
+      where: { id: userId },
+    });
+
+    console.log(`[Admin] User ${user.email} deleted by ${adminUserId}`);
+
+    res.json({ success: true, deletedUserId: userId });
+  } catch (error) {
+    console.error('Admin delete user error:', error);
+    return sendInternalError(res, 'Failed to delete user');
+  }
+});
+
+/**
+ * DELETE /api/admin/waitlist/:userId
+ * Delete a waitlist entry
+ */
+router.delete('/waitlist/:userId', async (req, res) => {
+  try {
+    const adminUserId = req.sessionUser?.uid;
+    const { userId } = req.params;
+
+    if (!adminUserId) {
+      return sendUnauthorized(res);
+    }
+
+    // Verify user exists and is WAITLIST
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, email: true, role: true },
+    });
+
+    if (!user) {
+      return sendBadRequest(res, 'User not found');
+    }
+
+    if (user.role !== 'WAITLIST') {
+      return sendBadRequest(res, 'User is not in waitlist');
+    }
+
+    // Delete user
+    await prisma.user.delete({
+      where: { id: userId },
+    });
+
+    console.log(`[Admin] Waitlist entry ${user.email} deleted by ${adminUserId}`);
+
+    res.json({ success: true, deletedUserId: userId });
+  } catch (error) {
+    console.error('Admin delete waitlist error:', error);
+    return sendInternalError(res, 'Failed to delete waitlist entry');
+  }
+});
+
+/**
+ * GET /api/admin/users
+ * Returns paginated active users (FREE, PRO, ADMIN roles)
+ */
+router.get('/users', async (req, res) => {
+  try {
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 50));
+    const skip = (page - 1) * limit;
+
+    const [users, total] = await Promise.all([
+      prisma.user.findMany({
+        where: { role: { in: ['FREE', 'PRO', 'ADMIN'] } },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          role: true,
+          createdAt: true,
+          activatedAt: true,
+        },
+      }),
+      prisma.user.count({ where: { role: { in: ['FREE', 'PRO', 'ADMIN'] } } }),
+    ]);
+
+    res.json({
+      users,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    });
+  } catch (error) {
+    console.error('Admin users error:', error);
+    return sendInternalError(res, 'Failed to fetch users');
   }
 });
 

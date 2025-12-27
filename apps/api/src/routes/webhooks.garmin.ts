@@ -1,7 +1,7 @@
 import { Router as createRouter, type Router, type Request, type Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { getValidGarminToken } from '../lib/garmin-token';
-import { deriveLocation, shouldApplyAutoLocation } from '../lib/location';
+import { deriveLocationAsync, shouldApplyAutoLocation } from '../lib/location';
 
 type Empty = Record<string, never>;
 const r: Router = createRouter();
@@ -464,7 +464,7 @@ async function processActivityPing(notification: GarminActivityPing): Promise<vo
 
     const startTime = new Date(activityDetail.startTimeInSeconds * 1000);
 
-    const autoLocation = deriveLocation({
+    const autoLocation = await deriveLocationAsync({
       city: activityDetail.locationName ?? null,
       state: null,
       country: null,
@@ -624,7 +624,7 @@ async function processActivityCallback(notification: GarminActivityCallback): Pr
 
       const startTime = new Date(activity.startTimeInSeconds * 1000);
 
-      const autoLocation = deriveLocation({
+      const autoLocation = await deriveLocationAsync({
         city: activity.locationName ?? null,
         state: null,
         country: null,

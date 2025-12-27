@@ -24,6 +24,10 @@ export const RATE_LIMITS = {
 export const ADMIN_RATE_LIMITS = {
   /** Activation cooldown: 10 seconds per target user (prevents email flood) */
   activation: 10 * SECONDS,
+  /** User creation cooldown: 5 seconds per admin (prevents accidental spam) */
+  createUser: 5 * SECONDS,
+  /** User demotion cooldown: 5 seconds per target user (prevents accidental spam) */
+  demoteUser: 5 * SECONDS,
 } as const;
 
 export type AdminRateLimitType = keyof typeof ADMIN_RATE_LIMITS;
