@@ -176,8 +176,33 @@ export default function Onboarding() {
   const progressPercentage = (currentStep / 5) * 100;
 
   return (
-    <div className="min-h-screen w-full bg-[radial-gradient(circle_at_top,_rgba(0,60,30,0.6),_transparent),radial-gradient(circle_at_bottom,_rgba(0,20,10,0.8),_rgb(6,8,6))] flex items-center justify-center px-4 py-10">
-      <div className="w-full max-w-2xl">
+    <div className="min-h-screen w-full relative flex items-center justify-center px-4 py-10">
+      {/* Background - Desktop */}
+      <div
+        className="absolute inset-0 z-0 hidden md:block"
+        style={{
+          backgroundImage: 'url(/mtbLandingPhoto.jpg)',
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+          backgroundAttachment: 'fixed',
+        }}
+      >
+        <div className="absolute inset-0 bg-gradient-to-r from-forest-deep/95 via-charcoal/90 to-forest-deep/95" />
+      </div>
+
+      {/* Background - Mobile */}
+      <div
+        className="absolute inset-0 z-0 md:hidden"
+        style={{
+          backgroundImage: 'url(/mtbLandingPhotoMobile.jpg)',
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+        }}
+      >
+        <div className="absolute inset-0 bg-gradient-to-r from-forest-deep/95 via-charcoal/90 to-forest-deep/95" />
+      </div>
+
+      <div className="relative z-10 w-full max-w-2xl">
         {/* Progress Bar */}
         <div className="mb-8">
           <div className="flex justify-between items-center mb-2">
@@ -193,7 +218,15 @@ export default function Onboarding() {
         </div>
 
         {/* Content Card */}
-        <div className="rounded-3xl panel-soft shadow-soft border border-app/80 p-8 space-y-6">
+        <div
+          className="rounded-3xl p-8 space-y-6"
+          style={{
+            backgroundColor: 'rgba(18, 28, 24, 0.7)',
+            backdropFilter: 'blur(16px)',
+            border: '1px solid rgba(168, 208, 184, 0.1)',
+            boxShadow: '0 20px 60px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(168, 208, 184, 0.05)',
+          }}
+        >
           {error && (
             <div className="rounded-lg bg-red-500/10 border border-red-500/30 p-3">
               <p className="text-sm text-red-400">{error}</p>

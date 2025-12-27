@@ -2,7 +2,8 @@ import { Router as createRouter, type Router, type Request, type Response } from
 import { getValidStravaToken } from '../lib/strava-token';
 import { subDays } from 'date-fns';
 import { prisma } from '../lib/prisma';
-import { deriveLocation } from '../lib/location';
+import { formatLatLon } from '../lib/location';
+import { addGeocodeJob } from '../lib/queue';
 import { sendBadRequest, sendUnauthorized, sendNotFound, sendInternalError } from '../lib/api-response';
 
 type Empty = Record<string, never>;
@@ -121,6 +122,7 @@ r.get<Empty, void, Empty, { year?: string }>(
       // Import each cycling activity
       let importedCount = 0;
       let skippedCount = 0;
+      let geocodeJobsQueued = 0;
 
       for (const activity of cyclingActivities) {
         // Check if activity already exists
@@ -164,16 +166,13 @@ r.get<Empty, void, Empty, { year?: string }>(
         const startTime = new Date(activity.start_date);
 
         const durationHours = Math.max(0, activity.moving_time) / 3600;
-        const autoLocation = deriveLocation({
-          city: activity.location_city ?? null,
-          state: activity.location_state ?? null,
-          country: activity.location_country ?? null,
-          lat: activity.start_latlng?.[0] ?? null,
-          lon: activity.start_latlng?.[1] ?? null,
-        });
+        const lat = activity.start_latlng?.[0] ?? null;
+        const lon = activity.start_latlng?.[1] ?? null;
+        // Use lat/lon format initially, geocode in background
+        const initialLocation = formatLatLon(lat, lon);
 
-        await prisma.$transaction(async (tx) => {
-          await tx.ride.create({
+        const ride = await prisma.$transaction(async (tx) => {
+          const createdRide = await tx.ride.create({
             data: {
               userId,
               stravaActivityId: activity.id.toString(),
@@ -186,7 +185,7 @@ r.get<Empty, void, Empty, { year?: string }>(
               rideType: activity.sport_type,
               notes: activity.name || null,
               bikeId,
-              location: autoLocation,
+              location: initialLocation,
             },
           });
 
@@ -196,7 +195,20 @@ r.get<Empty, void, Empty, { year?: string }>(
               data: { hoursUsed: { increment: durationHours } },
             });
           }
+
+          return createdRide;
         });
+
+        // Queue background geocoding job if we have coordinates
+        if (lat !== null && lon !== null) {
+          try {
+            await addGeocodeJob({ rideId: ride.id, lat, lon });
+            geocodeJobsQueued++;
+          } catch (err) {
+            // Don't fail the import if geocoding queue is unavailable
+            console.warn(`[Strava Backfill] Failed to queue geocode job for ride ${ride.id}:`, err);
+          }
+        }
 
         importedCount++;
       }
@@ -224,6 +236,10 @@ r.get<Empty, void, Empty, { year?: string }>(
 
       console.log(`[Strava Backfill] Unmapped gears: ${unmappedGears.length}`);
 
+      // Calculate estimated geocoding time (1.1s per job due to Nominatim rate limit)
+      const geocodeEstimateSeconds = Math.ceil(geocodeJobsQueued * 1.1);
+      const geocodeEstimateMinutes = Math.ceil(geocodeEstimateSeconds / 60);
+
       return res.json({
         success: true,
         message: `Successfully imported ${importedCount} rides from Strava.`,
@@ -232,6 +248,12 @@ r.get<Empty, void, Empty, { year?: string }>(
         imported: importedCount,
         skipped: skippedCount,
         unmappedGears,
+        geocoding: geocodeJobsQueued > 0 ? {
+          jobsQueued: geocodeJobsQueued,
+          estimateSeconds: geocodeEstimateSeconds,
+          estimateMinutes: geocodeEstimateMinutes,
+          message: `Location names for ${geocodeJobsQueued} rides will be ready in approximately ${geocodeEstimateMinutes} minute${geocodeEstimateMinutes === 1 ? '' : 's'}.`,
+        } : null,
       });
     } catch (error) {
       console.error('[Strava Backfill] Error:', error);
@@ -453,25 +475,37 @@ r.delete<Empty, void, Empty>(
 );
 
 // Type definitions for Strava API responses
+// Based on: https://developers.strava.com/docs/reference/#api-Activities-getLoggedInAthleteActivities
 type StravaActivity = {
   id: number;
   name: string;
-  sport_type: string;
-  start_date: string; // ISO 8601
+  type: string; // e.g., "Ride"
+  sport_type: string; // e.g., "MountainBikeRide", "GravelRide"
+  start_date: string; // ISO 8601 UTC
+  start_date_local: string; // ISO 8601 local
+  timezone: string; // e.g., "(GMT-08:00) America/Los_Angeles"
   elapsed_time: number; // seconds
   moving_time: number; // seconds
   distance: number; // meters
   total_elevation_gain: number; // meters
-  gear_id?: string | null; // Strava bike/gear ID
+  gear_id: string | null; // Strava bike/gear ID
   average_heartrate?: number;
   max_heartrate?: number;
   average_speed?: number; // m/s
   max_speed?: number; // m/s
-  [key: string]: unknown;
-  location_city?: string | null;
-  location_state?: string | null;
-  location_country?: string | null;
-  start_latlng?: [number, number] | null;
+  // Location coordinates - we use these for reverse geocoding
+  start_latlng: [number, number] | null;
+  end_latlng: [number, number] | null;
+  // Note: location_city/state/country are unreliable, so we ignore them
+  // Additional fields from sample
+  trainer?: boolean;
+  commute?: boolean;
+  manual?: boolean;
+  private?: boolean;
+  device_name?: string;
+  average_watts?: number;
+  kilojoules?: number;
+  suffer_score?: number;
 };
 
 export default r;
