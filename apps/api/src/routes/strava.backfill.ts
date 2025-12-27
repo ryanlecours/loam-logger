@@ -2,7 +2,7 @@ import { Router as createRouter, type Router, type Request, type Response } from
 import { getValidStravaToken } from '../lib/strava-token';
 import { subDays } from 'date-fns';
 import { prisma } from '../lib/prisma';
-import { deriveLocation } from '../lib/location';
+import { deriveLocationAsync } from '../lib/location';
 import { sendBadRequest, sendUnauthorized, sendNotFound, sendInternalError } from '../lib/api-response';
 
 type Empty = Record<string, never>;
@@ -164,7 +164,7 @@ r.get<Empty, void, Empty, { year?: string }>(
         const startTime = new Date(activity.start_date);
 
         const durationHours = Math.max(0, activity.moving_time) / 3600;
-        const autoLocation = deriveLocation({
+        const autoLocation = await deriveLocationAsync({
           city: activity.location_city ?? null,
           state: activity.location_state ?? null,
           country: activity.location_country ?? null,

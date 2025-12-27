@@ -11,31 +11,51 @@ interface WaitlistEntry {
   createdAt: string;
 }
 
+interface UserEntry {
+  id: string;
+  email: string;
+  name: string | null;
+  role: 'FREE' | 'PRO' | 'ADMIN';
+  createdAt: string;
+  activatedAt: string | null;
+}
+
 interface AdminStats {
   userCount: number;
   waitlistCount: number;
 }
 
-interface MigrationResult {
-  migrated: number;
-  skipped: number;
-  failed: number;
-  total: number;
-  errors?: string[];
+interface AddUserForm {
+  email: string;
+  name: string;
+  role: 'FREE' | 'PRO' | 'ADMIN';
+  sendActivationEmail: boolean;
 }
 
 export default function Admin() {
   const { user, loading: userLoading } = useCurrentUser();
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [waitlist, setWaitlist] = useState<WaitlistEntry[]>([]);
+  const [users, setUsers] = useState<UserEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [usersLoading, setUsersLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
+  const [usersPage, setUsersPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
+  const [usersHasMore, setUsersHasMore] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [activating, setActivating] = useState<string | null>(null);
-  const [migrating, setMigrating] = useState(false);
-  const [migrationResult, setMigrationResult] = useState<MigrationResult | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const [demoting, setDemoting] = useState<string | null>(null);
+  const [showAddUserForm, setShowAddUserForm] = useState(false);
+  const [addingUser, setAddingUser] = useState(false);
+  const [addUserForm, setAddUserForm] = useState<AddUserForm>({
+    email: '',
+    name: '',
+    role: 'FREE',
+    sendActivationEmail: true,
+  });
 
   const isAdmin = user?.role === 'ADMIN';
 
@@ -43,6 +63,7 @@ export default function Admin() {
     if (!userLoading && isAdmin) {
       fetchStats();
       fetchWaitlist(1);
+      fetchUsers(1);
     }
   }, [userLoading, isAdmin]);
 
@@ -83,6 +104,30 @@ export default function Admin() {
       setError(err instanceof Error ? err.message : 'Unknown error');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchUsers = async (pageNum: number) => {
+    try {
+      setUsersLoading(true);
+      const res = await fetch(
+        `${import.meta.env.VITE_API_URL}/api/admin/users?page=${pageNum}&limit=50`,
+        { credentials: 'include' }
+      );
+      if (!res.ok) throw new Error('Failed to fetch users');
+      const data = await res.json();
+
+      if (pageNum === 1) {
+        setUsers(data.users);
+      } else {
+        setUsers((prev) => [...prev, ...data.users]);
+      }
+      setUsersHasMore(data.pagination.page < data.pagination.totalPages);
+      setUsersPage(data.pagination.page);
+    } catch (err) {
+      console.error('Failed to fetch users:', err);
+    } finally {
+      setUsersLoading(false);
     }
   };
 
@@ -141,46 +186,146 @@ export default function Admin() {
     }
   };
 
-  const handleMigrateWaitlist = async () => {
-    if (
-      !confirm(
-        "This will create User records for all BetaWaitlist entries that don't already have one.\n\n" +
-          'NO emails will be sent.\n\n' +
-          'Continue?'
-      )
-    ) {
+  const handleAddUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!addUserForm.email.trim()) {
+      alert('Email is required');
       return;
     }
 
     try {
-      setMigrating(true);
-      setMigrationResult(null);
+      setAddingUser(true);
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/admin/users`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(addUserForm),
+      });
 
-      const res = await fetch(
-        `${import.meta.env.VITE_API_URL}/api/admin/migrate-waitlist`,
-        {
-          method: 'POST',
-          credentials: 'include',
-          headers: getAuthHeaders(),
-        }
-      );
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to create user');
+      }
+
+      // Reset form and close modal
+      setAddUserForm({ email: '', name: '', role: 'FREE', sendActivationEmail: true });
+      setShowAddUserForm(false);
+
+      // Refresh users and stats
+      fetchUsers(1);
+      fetchStats();
+
+      if (data.emailQueued) {
+        alert(`User ${data.user.email} created! Activation email sent.`);
+      } else if (data.tempPassword) {
+        alert(`User created! Email failed to send.\n\nTemp password: ${data.tempPassword}`);
+      } else {
+        alert(`User ${data.user.email} created successfully!`);
+      }
+    } catch (err) {
+      console.error('Add user failed:', err);
+      alert(err instanceof Error ? err.message : 'Failed to create user');
+    } finally {
+      setAddingUser(false);
+    }
+  };
+
+  const handleDeleteUser = async (userId: string, email: string) => {
+    if (!confirm(`Delete user ${email}? This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      setDeleting(userId);
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/admin/users/${userId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+        headers: getAuthHeaders(),
+      });
 
       if (!res.ok) {
         const data = await res.json();
-        throw new Error(data.error || 'Migration failed');
+        throw new Error(data.error || 'Failed to delete user');
       }
 
-      const result = await res.json();
-      setMigrationResult(result);
-
-      // Refresh stats and waitlist
+      // Remove from local state and refresh stats
+      setUsers((prev) => prev.filter((u) => u.id !== userId));
       fetchStats();
-      fetchWaitlist(1);
     } catch (err) {
-      console.error('Migration failed:', err);
-      alert(err instanceof Error ? err.message : 'Migration failed');
+      console.error('Delete user failed:', err);
+      alert(err instanceof Error ? err.message : 'Failed to delete user');
     } finally {
-      setMigrating(false);
+      setDeleting(null);
+    }
+  };
+
+  const handleDemoteUser = async (userId: string, email: string) => {
+    if (!confirm(`Demote ${email} to waitlist? They will need to be re-activated to access the app.`)) {
+      return;
+    }
+
+    try {
+      setDemoting(userId);
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/admin/users/${userId}/demote`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: getAuthHeaders(),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to demote user');
+      }
+
+      // Remove from users list and refresh both lists
+      setUsers((prev) => prev.filter((u) => u.id !== userId));
+      fetchWaitlist(1);
+      fetchStats();
+    } catch (err) {
+      console.error('Demote user failed:', err);
+      alert(err instanceof Error ? err.message : 'Failed to demote user');
+    } finally {
+      setDemoting(null);
+    }
+  };
+
+  const handleDeleteWaitlist = async (userId: string, email: string) => {
+    if (!confirm(`Remove ${email} from waitlist? This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      setDeleting(userId);
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/admin/waitlist/${userId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+        headers: getAuthHeaders(),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to delete waitlist entry');
+      }
+
+      // Remove from local state and refresh stats
+      setWaitlist((prev) => prev.filter((w) => w.id !== userId));
+      fetchStats();
+    } catch (err) {
+      console.error('Delete waitlist entry failed:', err);
+      alert(err instanceof Error ? err.message : 'Failed to delete waitlist entry');
+    } finally {
+      setDeleting(null);
+    }
+  };
+
+  const getRoleBadgeColor = (role: string) => {
+    switch (role) {
+      case 'ADMIN':
+        return 'bg-purple-600 text-purple-100';
+      case 'PRO':
+        return 'bg-amber-600 text-amber-100';
+      default:
+        return 'bg-blue-600 text-blue-100';
     }
   };
 
@@ -227,50 +372,168 @@ export default function Admin() {
         </section>
       )}
 
-      {/* Migration Tool - TEMPORARY */}
-      <section className="panel-soft shadow-soft border border-yellow-600/50 rounded-3xl p-6 space-y-4">
+      {/* Active Users Table */}
+      <section className="panel-soft shadow-soft border border-app rounded-3xl p-6 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="text-xs uppercase tracking-[0.3em] text-yellow-500">
-              Temporary Migration Tool
-            </p>
-            <h2 className="text-xl font-semibold text-white">Migrate Legacy Waitlist Entries</h2>
-            <p className="text-sm text-muted max-w-2xl">
-              Creates User records (role: WAITLIST) for BetaWaitlist entries that don't already
-              have corresponding Users. No emails will be sent.
-            </p>
+            <p className="text-xs uppercase tracking-[0.3em] text-muted">Active Users</p>
+            <h2 className="text-xl font-semibold text-white">User Management</h2>
           </div>
           <button
-            onClick={handleMigrateWaitlist}
-            disabled={migrating}
-            className="rounded-2xl px-4 py-2 text-sm font-medium text-black bg-yellow-500 hover:bg-yellow-400 transition disabled:opacity-50"
+            onClick={() => setShowAddUserForm(true)}
+            className="rounded-2xl px-4 py-2 text-sm font-medium text-black bg-green-500 hover:bg-green-400 transition"
           >
-            {migrating ? 'Migrating...' : 'Migrate Entries'}
+            + Add User
           </button>
         </div>
 
-        {migrationResult && (
-          <div className="rounded-2xl bg-surface-2/50 border border-app p-4 space-y-2">
-            <p className="text-white font-medium">Migration Complete</p>
-            <ul className="text-sm text-muted space-y-1">
-              <li>Total entries processed: {migrationResult.total}</li>
-              <li className="text-green-400">Created: {migrationResult.migrated} new User records</li>
-              <li>Skipped: {migrationResult.skipped} (already had User)</li>
-              {migrationResult.failed > 0 && (
-                <li className="text-red-400">Failed: {migrationResult.failed}</li>
-              )}
-            </ul>
-            {migrationResult.errors && migrationResult.errors.length > 0 && (
-              <details className="text-sm text-red-300">
-                <summary className="cursor-pointer">View errors</summary>
-                <ul className="mt-2 space-y-1 pl-4">
-                  {migrationResult.errors.map((err, i) => (
-                    <li key={i}>{err}</li>
-                  ))}
-                </ul>
-              </details>
-            )}
+        {/* Add User Modal */}
+        {showAddUserForm && (
+          <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+            <div className="panel-soft shadow-soft border border-app rounded-3xl p-6 w-full max-w-md mx-4">
+              <h3 className="text-lg font-semibold text-white mb-4">Add New User</h3>
+              <form onSubmit={handleAddUser} className="space-y-4">
+                <div>
+                  <label className="block text-sm text-muted mb-1">Email *</label>
+                  <input
+                    type="email"
+                    value={addUserForm.email}
+                    onChange={(e) => setAddUserForm({ ...addUserForm, email: e.target.value })}
+                    className="w-full px-4 py-2 rounded-xl bg-surface-2 border border-app text-white focus:outline-none focus:ring-2 focus:ring-primary"
+                    placeholder="user@example.com"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-muted mb-1">Name</label>
+                  <input
+                    type="text"
+                    value={addUserForm.name}
+                    onChange={(e) => setAddUserForm({ ...addUserForm, name: e.target.value })}
+                    className="w-full px-4 py-2 rounded-xl bg-surface-2 border border-app text-white focus:outline-none focus:ring-2 focus:ring-primary"
+                    placeholder="John Doe"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-muted mb-1">Role</label>
+                  <select
+                    value={addUserForm.role}
+                    onChange={(e) =>
+                      setAddUserForm({ ...addUserForm, role: e.target.value as 'FREE' | 'PRO' | 'ADMIN' })
+                    }
+                    className="w-full px-4 py-2 rounded-xl bg-surface-2 border border-app text-white focus:outline-none focus:ring-2 focus:ring-primary"
+                  >
+                    <option value="FREE">Free</option>
+                    <option value="PRO">Pro</option>
+                    <option value="ADMIN">Admin</option>
+                  </select>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="sendActivationEmail"
+                    checked={addUserForm.sendActivationEmail}
+                    onChange={(e) =>
+                      setAddUserForm({ ...addUserForm, sendActivationEmail: e.target.checked })
+                    }
+                    className="rounded border-app"
+                  />
+                  <label htmlFor="sendActivationEmail" className="text-sm text-muted">
+                    Send activation email with temporary password
+                  </label>
+                </div>
+                <div className="flex gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowAddUserForm(false)}
+                    className="flex-1 rounded-2xl px-4 py-2 text-sm font-medium text-white bg-surface-2 hover:bg-surface-2/80 border border-app transition"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={addingUser}
+                    className="flex-1 rounded-2xl px-4 py-2 text-sm font-medium text-black bg-green-500 hover:bg-green-400 transition disabled:opacity-50"
+                  >
+                    {addingUser ? 'Creating...' : 'Create User'}
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
+        )}
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-app/50">
+                <th className="text-left py-3 px-4 text-muted font-medium">Email</th>
+                <th className="text-left py-3 px-4 text-muted font-medium">Name</th>
+                <th className="text-left py-3 px-4 text-muted font-medium">Role</th>
+                <th className="text-left py-3 px-4 text-muted font-medium">Activated</th>
+                <th className="text-right py-3 px-4 text-muted font-medium">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {users.map((u) => (
+                <tr key={u.id} className="border-b border-app/30 hover:bg-surface-2/50">
+                  <td className="py-3 px-4 text-white">{u.email}</td>
+                  <td className="py-3 px-4 text-muted">{u.name || '-'}</td>
+                  <td className="py-3 px-4">
+                    <span
+                      className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${getRoleBadgeColor(u.role)}`}
+                    >
+                      {u.role}
+                    </span>
+                  </td>
+                  <td className="py-3 px-4 text-muted">
+                    {u.activatedAt ? new Date(u.activatedAt).toLocaleDateString() : '-'}
+                  </td>
+                  <td className="py-3 px-4 text-right">
+                    <div className="flex gap-2 justify-end">
+                      <button
+                        onClick={() => handleDemoteUser(u.id, u.email)}
+                        disabled={demoting === u.id || deleting === u.id || u.id === user?.id}
+                        className="rounded-xl px-3 py-1.5 text-xs font-medium text-white bg-yellow-600 hover:bg-yellow-500 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                        title={u.id === user?.id ? "Can't demote yourself" : 'Demote to waitlist'}
+                      >
+                        {demoting === u.id ? 'Demoting...' : 'Demote'}
+                      </button>
+                      <button
+                        onClick={() => handleDeleteUser(u.id, u.email)}
+                        disabled={deleting === u.id || demoting === u.id || u.id === user?.id}
+                        className="rounded-xl px-3 py-1.5 text-xs font-medium text-white bg-red-600 hover:bg-red-500 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                        title={u.id === user?.id ? "Can't delete yourself" : 'Delete user'}
+                      >
+                        {deleting === u.id ? 'Deleting...' : 'Delete'}
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {usersLoading && (
+          <div className="flex justify-center py-4">
+            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary" />
+          </div>
+        )}
+
+        {!usersLoading && usersHasMore && (
+          <div className="flex justify-center">
+            <button
+              onClick={() => fetchUsers(usersPage + 1)}
+              className="rounded-2xl px-4 py-2 text-sm font-medium text-white bg-surface-2 hover:bg-surface-2/80 border border-app transition"
+            >
+              Load More
+            </button>
+          </div>
+        )}
+
+        {!usersLoading && users.length === 0 && (
+          <p className="text-center text-muted py-8">No active users yet.</p>
         )}
       </section>
 
@@ -315,13 +578,22 @@ export default function Admin() {
                     {new Date(entry.createdAt).toLocaleDateString()}
                   </td>
                   <td className="py-3 px-4 text-right">
-                    <button
-                      onClick={() => handleActivate(entry.id, entry.email)}
-                      disabled={activating === entry.id}
-                      className="rounded-xl px-3 py-1.5 text-xs font-medium text-white bg-green-600 hover:bg-green-500 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {activating === entry.id ? 'Activating...' : 'Activate'}
-                    </button>
+                    <div className="flex gap-2 justify-end">
+                      <button
+                        onClick={() => handleActivate(entry.id, entry.email)}
+                        disabled={activating === entry.id || deleting === entry.id}
+                        className="rounded-xl px-3 py-1.5 text-xs font-medium text-white bg-green-600 hover:bg-green-500 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {activating === entry.id ? 'Activating...' : 'Activate'}
+                      </button>
+                      <button
+                        onClick={() => handleDeleteWaitlist(entry.id, entry.email)}
+                        disabled={deleting === entry.id || activating === entry.id}
+                        className="rounded-xl px-3 py-1.5 text-xs font-medium text-white bg-red-600 hover:bg-red-500 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {deleting === entry.id ? 'Deleting...' : 'Delete'}
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
