@@ -24,6 +24,13 @@ export const typeDefs = gql`
     CASSETTE
     OTHER
     PIVOT_BEARINGS
+    STEM
+    HANDLEBAR
+    SADDLE
+    SEATPOST
+    RIMS
+    CRANK
+    REAR_DERAILLEUR
   }
 
   enum UserRole {
@@ -97,6 +104,24 @@ export const typeDefs = gql`
     travelForkMm: Int
     travelShockMm: Int
     notes: String
+    spokesId: String
+    spokesUrl: String
+    thumbnailUrl: String
+    family: String
+    category: String
+    subcategory: String
+    buildKind: String
+    isFrameset: Boolean
+    isEbike: Boolean
+    gender: String
+    frameMaterial: String
+    hangerStandard: String
+    # E-bike motor/battery specs
+    motorMaker: String
+    motorModel: String
+    motorPowerW: Int
+    motorTorqueNm: Int
+    batteryWh: Int
     fork: Component
     shock: Component
     dropper: Component
@@ -164,6 +189,28 @@ export const typeDefs = gql`
     isStock: Boolean
   }
 
+  input SpokesComponentInput {
+    maker: String
+    model: String
+    description: String
+    kind: String
+  }
+
+  input SpokesComponentsInput {
+    fork: SpokesComponentInput
+    rearShock: SpokesComponentInput
+    brakes: SpokesComponentInput
+    rearDerailleur: SpokesComponentInput
+    crank: SpokesComponentInput
+    cassette: SpokesComponentInput
+    rims: SpokesComponentInput
+    tires: SpokesComponentInput
+    stem: SpokesComponentInput
+    handlebar: SpokesComponentInput
+    saddle: SpokesComponentInput
+    seatpost: SpokesComponentInput
+  }
+
   input AddBikeInput {
     nickname: String
     manufacturer: String!
@@ -172,6 +219,25 @@ export const typeDefs = gql`
     travelForkMm: Int
     travelShockMm: Int
     notes: String
+    spokesId: String
+    spokesUrl: String
+    thumbnailUrl: String
+    family: String
+    category: String
+    subcategory: String
+    buildKind: String
+    isFrameset: Boolean
+    isEbike: Boolean
+    gender: String
+    frameMaterial: String
+    hangerStandard: String
+    # E-bike motor/battery specs
+    motorMaker: String
+    motorModel: String
+    motorPowerW: Int
+    motorTorqueNm: Int
+    batteryWh: Int
+    spokesComponents: SpokesComponentsInput
     fork: BikeComponentInput
     shock: BikeComponentInput
     dropper: BikeComponentInput
@@ -187,6 +253,25 @@ export const typeDefs = gql`
     travelForkMm: Int
     travelShockMm: Int
     notes: String
+    spokesId: String
+    spokesUrl: String
+    thumbnailUrl: String
+    family: String
+    category: String
+    subcategory: String
+    buildKind: String
+    isFrameset: Boolean
+    isEbike: Boolean
+    gender: String
+    frameMaterial: String
+    hangerStandard: String
+    # E-bike motor/battery specs
+    motorMaker: String
+    motorModel: String
+    motorPowerW: Int
+    motorTorqueNm: Int
+    batteryWh: Int
+    spokesComponents: SpokesComponentsInput
     fork: BikeComponentInput
     shock: BikeComponentInput
     dropper: BikeComponentInput

@@ -160,7 +160,7 @@ export function createEmailWorker(): Worker<EmailJobData, void, EmailJobName> {
     'email',
     processEmailJob,
     {
-      ...getQueueConnection(),
+      connection: getQueueConnection(),
       concurrency: 5,
     }
   );

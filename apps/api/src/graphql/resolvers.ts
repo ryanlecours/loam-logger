@@ -48,6 +48,28 @@ type BikeComponentInputGQL = {
   isStock?: boolean | null;
 };
 
+type SpokesComponentInputGQL = {
+  maker?: string | null;
+  model?: string | null;
+  description?: string | null;
+  kind?: string | null;  // For seatpost: 'dropper' | 'rigid'
+};
+
+type SpokesComponentsInputGQL = {
+  fork?: SpokesComponentInputGQL | null;
+  rearShock?: SpokesComponentInputGQL | null;
+  brakes?: SpokesComponentInputGQL | null;
+  rearDerailleur?: SpokesComponentInputGQL | null;
+  crank?: SpokesComponentInputGQL | null;
+  cassette?: SpokesComponentInputGQL | null;
+  rims?: SpokesComponentInputGQL | null;
+  tires?: SpokesComponentInputGQL | null;
+  stem?: SpokesComponentInputGQL | null;
+  handlebar?: SpokesComponentInputGQL | null;
+  saddle?: SpokesComponentInputGQL | null;
+  seatpost?: SpokesComponentInputGQL | null;
+};
+
 type AddBikeInputGQL = {
   nickname?: string | null;
   manufacturer: string;
@@ -56,6 +78,25 @@ type AddBikeInputGQL = {
   travelForkMm?: number | null;
   travelShockMm?: number | null;
   notes?: string | null;
+  spokesId?: string | null;
+  spokesUrl?: string | null;
+  thumbnailUrl?: string | null;
+  family?: string | null;
+  category?: string | null;
+  subcategory?: string | null;
+  buildKind?: string | null;
+  isFrameset?: boolean | null;
+  isEbike?: boolean | null;
+  gender?: string | null;
+  frameMaterial?: string | null;
+  hangerStandard?: string | null;
+  // E-bike motor/battery specs
+  motorMaker?: string | null;
+  motorModel?: string | null;
+  motorPowerW?: number | null;
+  motorTorqueNm?: number | null;
+  batteryWh?: number | null;
+  spokesComponents?: SpokesComponentsInputGQL | null;
   fork?: BikeComponentInputGQL | null;
   shock?: BikeComponentInputGQL | null;
   dropper?: BikeComponentInputGQL | null;
@@ -65,6 +106,22 @@ type AddBikeInputGQL = {
 
 type UpdateBikeInputGQL = Partial<AddBikeInputGQL> & {
   year?: number | null;
+};
+
+// Mapping from 99spokes component keys to ComponentType
+const SPOKES_TO_COMPONENT_TYPE: Record<string, ComponentType> = {
+  fork: 'FORK',
+  rearShock: 'SHOCK',
+  brakes: 'BRAKES',
+  rearDerailleur: 'REAR_DERAILLEUR',
+  crank: 'CRANK',
+  cassette: 'CASSETTE',
+  rims: 'RIMS',
+  tires: 'TIRES',
+  stem: 'STEM',
+  handlebar: 'HANDLEBAR',
+  saddle: 'SADDLE',
+  seatpost: 'SEATPOST',
 };
 
 type AddComponentInputGQL = {
@@ -676,6 +733,27 @@ export const resolvers = {
       const travelForkMm = parseTravel(input.travelForkMm);
       const travelShockMm = parseTravel(input.travelShockMm);
       const notes = cleanText(input.notes, MAX_NOTES_LEN);
+      const spokesId = cleanText(input.spokesId, 64);
+
+      // 99spokes metadata fields
+      const spokesUrl = cleanText(input.spokesUrl, 512);
+      const thumbnailUrl = cleanText(input.thumbnailUrl, 512);
+      const family = cleanText(input.family, MAX_LABEL_LEN);
+      const category = cleanText(input.category, MAX_LABEL_LEN);
+      const subcategory = cleanText(input.subcategory, MAX_LABEL_LEN);
+      const buildKind = cleanText(input.buildKind, MAX_LABEL_LEN);
+      const isFrameset = Boolean(input.isFrameset);
+      const isEbike = Boolean(input.isEbike);
+      const gender = cleanText(input.gender, MAX_LABEL_LEN);
+      const frameMaterial = cleanText(input.frameMaterial, MAX_LABEL_LEN);
+      const hangerStandard = cleanText(input.hangerStandard, MAX_LABEL_LEN);
+
+      // E-bike motor/battery specs (only store if e-bike)
+      const motorMaker = isEbike ? cleanText(input.motorMaker, MAX_LABEL_LEN) : null;
+      const motorModel = isEbike ? cleanText(input.motorModel, MAX_LABEL_LEN) : null;
+      const motorPowerW = isEbike && input.motorPowerW != null ? Math.max(0, Math.floor(input.motorPowerW)) : null;
+      const motorTorqueNm = isEbike && input.motorTorqueNm != null ? Math.max(0, Math.floor(input.motorTorqueNm)) : null;
+      const batteryWh = isEbike && input.batteryWh != null ? Math.max(0, Math.floor(input.batteryWh)) : null;
 
       return prisma.$transaction(async (tx) => {
         const bike = await tx.bike.create({
@@ -687,10 +765,28 @@ export const resolvers = {
             travelForkMm,
             travelShockMm,
             notes: notes ?? null,
+            spokesId: spokesId ?? null,
+            spokesUrl: spokesUrl ?? null,
+            thumbnailUrl: thumbnailUrl ?? null,
+            family: family ?? null,
+            category: category ?? null,
+            subcategory: subcategory ?? null,
+            buildKind: buildKind ?? null,
+            isFrameset,
+            isEbike,
+            gender: gender ?? null,
+            frameMaterial: frameMaterial ?? null,
+            hangerStandard: hangerStandard ?? null,
+            motorMaker,
+            motorModel,
+            motorPowerW,
+            motorTorqueNm,
+            batteryWh,
             userId,
           },
         });
 
+        // Sync the required bike components (fork, shock, dropper, wheels, pivotBearings)
         await syncBikeComponents(tx, {
           bikeId: bike.id,
           userId,
@@ -703,6 +799,52 @@ export const resolvers = {
           },
           createMissing: true,
         });
+
+        // Auto-create components from 99spokes data
+        if (input.spokesComponents) {
+          const spokesComps = input.spokesComponents;
+          for (const [key, compData] of Object.entries(spokesComps)) {
+            if (!compData || !compData.maker || !compData.model) continue;
+
+            let componentType = SPOKES_TO_COMPONENT_TYPE[key];
+            if (!componentType) continue;
+
+            // Skip types already handled by syncBikeComponents (FORK, SHOCK)
+            // to avoid duplicates
+            if (componentType === 'FORK' || componentType === 'SHOCK') continue;
+
+            // Smart dropper detection: if seatpost.kind === 'dropper', create as DROPPER
+            if (key === 'seatpost') {
+              if (compData.kind === 'dropper') {
+                componentType = 'DROPPER';
+              } else {
+                // It's a rigid seatpost, create as SEATPOST
+                componentType = 'SEATPOST';
+              }
+            }
+
+            // Check if component already exists for this bike
+            const existing = await tx.component.findFirst({
+              where: { bikeId: bike.id, type: componentType },
+            });
+
+            if (!existing) {
+              await tx.component.create({
+                data: {
+                  type: componentType,
+                  bikeId: bike.id,
+                  userId,
+                  brand: compData.maker,
+                  model: compData.model,
+                  notes: compData.description ?? null,
+                  isStock: true,
+                  hoursUsed: 0,
+                  installedAt: new Date(),
+                },
+              });
+            }
+          }
+        }
 
         return tx.bike.findUnique({
           where: { id: bike.id },
@@ -741,6 +883,28 @@ export const resolvers = {
       if (input.travelShockMm !== undefined)
         data.travelShockMm = parseTravel(input.travelShockMm) ?? null;
       if (input.notes !== undefined) data.notes = cleanText(input.notes, MAX_NOTES_LEN);
+      if (input.spokesId !== undefined) data.spokesId = cleanText(input.spokesId, 64) ?? null;
+
+      // 99spokes metadata fields
+      if (input.spokesUrl !== undefined) data.spokesUrl = cleanText(input.spokesUrl, 512) ?? null;
+      if (input.thumbnailUrl !== undefined) data.thumbnailUrl = cleanText(input.thumbnailUrl, 512) ?? null;
+      if (input.family !== undefined) data.family = cleanText(input.family, MAX_LABEL_LEN) ?? null;
+      if (input.category !== undefined) data.category = cleanText(input.category, MAX_LABEL_LEN) ?? null;
+      if (input.subcategory !== undefined) data.subcategory = cleanText(input.subcategory, MAX_LABEL_LEN) ?? null;
+      if (input.buildKind !== undefined) data.buildKind = cleanText(input.buildKind, MAX_LABEL_LEN) ?? null;
+      if (input.isFrameset !== undefined) data.isFrameset = Boolean(input.isFrameset);
+      if (input.isEbike !== undefined) data.isEbike = Boolean(input.isEbike);
+      if (input.gender !== undefined) data.gender = cleanText(input.gender, MAX_LABEL_LEN) ?? null;
+      if (input.frameMaterial !== undefined) data.frameMaterial = cleanText(input.frameMaterial, MAX_LABEL_LEN) ?? null;
+      if (input.hangerStandard !== undefined) data.hangerStandard = cleanText(input.hangerStandard, MAX_LABEL_LEN) ?? null;
+
+      // E-bike motor/battery specs
+      const isEbike = input.isEbike !== undefined ? Boolean(input.isEbike) : undefined;
+      if (input.motorMaker !== undefined) data.motorMaker = isEbike === false ? null : cleanText(input.motorMaker, MAX_LABEL_LEN) ?? null;
+      if (input.motorModel !== undefined) data.motorModel = isEbike === false ? null : cleanText(input.motorModel, MAX_LABEL_LEN) ?? null;
+      if (input.motorPowerW !== undefined) data.motorPowerW = isEbike === false || input.motorPowerW == null ? null : Math.max(0, Math.floor(input.motorPowerW));
+      if (input.motorTorqueNm !== undefined) data.motorTorqueNm = isEbike === false || input.motorTorqueNm == null ? null : Math.max(0, Math.floor(input.motorTorqueNm));
+      if (input.batteryWh !== undefined) data.batteryWh = isEbike === false || input.batteryWh == null ? null : Math.max(0, Math.floor(input.batteryWh));
 
       return prisma.$transaction(async (tx) => {
         if (Object.keys(data).length > 0) {
