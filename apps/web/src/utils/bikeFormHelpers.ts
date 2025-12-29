@@ -54,11 +54,7 @@ export const buildComponentEntries = (
     let model = '';
     let description = '';
     let kind: string | undefined;
-    const travelMm: number | undefined = undefined;
-    const offsetMm: number | undefined = undefined;
-    const lengthMm: number | undefined = undefined;
-    const widthMm: number | undefined = undefined;
-
+    
     if (details?.components && spokesKey) {
       const comp = details.components[spokesKey as keyof typeof details.components] as SpokesComponentEntry | undefined;
       if (comp) {
@@ -79,10 +75,10 @@ export const buildComponentEntries = (
       model,
       description,
       kind,
-      travelMm,
-      offsetMm,
-      lengthMm,
-      widthMm,
+      travelMm: undefined,
+      offsetMm: undefined,
+      lengthMm: undefined,
+      widthMm: undefined,
     };
   });
 };

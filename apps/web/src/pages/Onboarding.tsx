@@ -208,17 +208,11 @@ export default function Onboarding() {
         seatpost: toSpokesInput(details.components.seatpost),
       } : undefined;
 
-      // Prefer travelMM from direct endpoint, fallback to travel from search
-      const forkTravel = details.suspension?.front?.travelMM || details.suspension?.front?.travel;
-      const shockTravel = details.suspension?.rear?.travelMM || details.suspension?.rear?.travel;
-
       // Check if seatpost is a dropper
       const isDropperSeatpost = details.components?.seatpost?.kind === 'dropper';
 
       setData((prev) => ({
         ...prev,
-        bikeTravelFork: forkTravel,
-        bikeTravelShock: shockTravel,
         // 99spokes metadata
         spokesUrl: details.url || undefined,
         thumbnailUrl: details.thumbnailUrl || undefined,
@@ -242,11 +236,11 @@ export default function Onboarding() {
         // Update visible component fields (legacy format for display)
         components: {
           ...prev.components,
-          fork: details.suspension?.front?.component
-            ? `${details.suspension.front.component.make || ''} ${details.suspension.front.component.model || ''}`.trim()
+          fork: details.components?.fork
+            ? `${details.components.fork.make || details.components.fork.maker || ''} ${details.components.fork.model || ''}`.trim()
             : prev.components.fork,
-          rearShock: details.suspension?.rear?.component
-            ? `${details.suspension.rear.component.make || ''} ${details.suspension.rear.component.model || ''}`.trim()
+          rearShock: details.components?.shock || details.components?.rearShock
+            ? `${(details.components.shock || details.components.rearShock)?.make || (details.components.shock || details.components.rearShock)?.maker || ''} ${(details.components.shock || details.components.rearShock)?.model || ''}`.trim()
             : prev.components.rearShock,
           wheels: details.components?.wheels
             ? `${details.components.wheels.make || details.components.wheels.maker || ''} ${details.components.wheels.model || ''}`.trim()

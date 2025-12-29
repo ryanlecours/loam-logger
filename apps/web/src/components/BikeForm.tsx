@@ -202,14 +202,8 @@ export function BikeForm({
     if (details) {
       setSpokesDetails(details);
 
-      // Prefer travelMM from direct endpoint
-      const forkTravel = details.suspension?.front?.travelMM || details.suspension?.front?.travel;
-      const shockTravel = details.suspension?.rear?.travelMM || details.suspension?.rear?.travel;
-
       setForm((prev) => ({
         ...prev,
-        travelForkMm: forkTravel ? String(forkTravel) : prev.travelForkMm,
-        travelShockMm: shockTravel ? String(shockTravel) : prev.travelShockMm,
         spokesUrl: details.url || null,
         thumbnailUrl: details.thumbnailUrl || null,
         family: details.family || prev.family,

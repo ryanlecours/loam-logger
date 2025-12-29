@@ -1,27 +1,6 @@
 import { useState, useCallback, useRef } from 'react';
 import { getAuthHeaders } from '@/lib/csrf';
 
-export interface SpokesSuspension {
-  front?: {
-    travel?: number;
-    travelMM?: number;  // Direct endpoint uses travelMM
-    component?: {
-      make?: string;
-      model?: string;
-      description?: string;
-    };
-  };
-  rear?: {
-    travel?: number;
-    travelMM?: number;  // Direct endpoint uses travelMM
-    component?: {
-      make?: string;
-      model?: string;
-      description?: string;
-    };
-  };
-}
-
 export interface SpokesComponentEntry {
   make?: string;
   maker?: string;  // Some endpoints use 'maker' instead of 'make'
@@ -30,27 +9,6 @@ export interface SpokesComponentEntry {
   display?: string;  // Display string from API
   kind?: string;  // e.g., 'dropper' for seatpost
   material?: string;  // For fork, handlebar, rims
-}
-
-export interface SpokesGeometry {
-  stemLengthMM?: number;
-  handlebarWidthMM?: number;
-  crankLengthMM?: number;
-  frontTravelMM?: number;
-  rearTravelMM?: number;
-  rakeMM?: number;  // Fork offset
-}
-
-export interface SpokesSize {
-  name: string;
-  riderHeight?: {
-    minCM?: number;
-    maxCM?: number;
-  };
-  geometry?: {
-    source?: SpokesGeometry;
-    computed?: SpokesGeometry;
-  };
 }
 
 export interface SpokesImage {
@@ -112,9 +70,7 @@ export interface SpokesBikeDetails {
   gender?: string;
   frameMaterial?: string;
   hangerStandard?: string;
-  suspension?: SpokesSuspension;
   components?: SpokesComponents;
-  sizes?: SpokesSize[];  // Available sizes with geometry
   images?: SpokesImage[];  // Additional images for fallback
 }
 
