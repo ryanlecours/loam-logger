@@ -1,146 +1,17 @@
-import { useEffect, useState } from 'react';
-import {
-  type BikeFormProps,
-  type BikeFormValues,
-  type SpokesComponentData,
-} from '@/models/BikeComponents';
+import { useCallback, useEffect, useState } from 'react';
+import { type BikeFormProps, type BikeFormValues } from '@/models/BikeComponents';
 import { Input, Textarea, Button } from './ui';
 import { BikeSearch, type SpokesSearchResult } from './BikeSearch';
-import { useSpokes, type SpokesComponentEntry, type SpokesBikeDetails } from '@/hooks/useSpokes';
-import { ALL_COMPONENT_TYPES } from '@loam/shared';
+import { useSpokes, type SpokesBikeDetails } from '@/hooks/useSpokes';
 import { FaPencilAlt } from 'react-icons/fa';
-
-// Component entry for Step 2 - split brand/model with dimensions
-type ComponentEntry = {
-  key: string;
-  label: string;
-  brand: string;        // Separate brand field
-  model: string;        // Separate model field
-  description: string;  // Optional description from 99spokes
-  kind?: string;        // For seatpost dropper detection
-  // Dimension fields
-  travelMm?: number;    // Fork/shock travel
-  offsetMm?: number;    // Fork offset (rake)
-  lengthMm?: number;    // Stem length
-  widthMm?: number;     // Handlebar width
-};
-
-// Helper to extract only GraphQL-allowed fields for SpokesComponentInput
-const toSpokesInput = (comp: SpokesComponentEntry | null | undefined): SpokesComponentData | null => {
-  if (!comp) return null;
-  return {
-    maker: comp.make || comp.maker || null,
-    model: comp.model || null,
-    description: comp.description || null,
-    kind: comp.kind || null,
-  };
-};
-
-// Build component entries from 99spokes data with dimensions
-const buildComponentEntries = (
-  details: SpokesBikeDetails | null,
-  selectedSize?: string
-): ComponentEntry[] => {
-  // Get geometry from selected size or first available
-  const sizeData = selectedSize
-    ? details?.sizes?.find(s => s.name === selectedSize)
-    : details?.sizes?.[0];
-  const geometry = sizeData?.geometry?.source || sizeData?.geometry?.computed;
-
-  return ALL_COMPONENT_TYPES.map(({ key, label, spokesKey }) => {
-    let brand = '';
-    let model = '';
-    let description = '';
-    let kind: string | undefined;
-    let travelMm: number | undefined;
-    let offsetMm: number | undefined;
-    let lengthMm: number | undefined;
-    let widthMm: number | undefined;
-
-    if (details?.components && spokesKey) {
-      const comp = details.components[spokesKey as keyof typeof details.components] as SpokesComponentEntry | undefined;
-      if (comp) {
-        brand = comp.make || comp.maker || '';
-        model = comp.model || '';
-        description = comp.description || '';
-        kind = comp.kind;
-      }
-    }
-
-    // Special handling for suspension components
-    if (key === 'fork' && details?.suspension?.front?.component) {
-      const suspComp = details.suspension.front.component;
-      brand = suspComp.make || brand;
-      model = suspComp.model || model;
-      description = suspComp.description || description;
-    }
-    if (key === 'rearShock' && details?.suspension?.rear?.component) {
-      const suspComp = details.suspension.rear.component;
-      brand = suspComp.make || brand;
-      model = suspComp.model || model;
-      description = suspComp.description || description;
-    }
-
-    // Add dimension data based on component type
-    if (key === 'fork') {
-      travelMm = details?.suspension?.front?.travelMM || details?.suspension?.front?.travel;
-      offsetMm = geometry?.rakeMM;
-    }
-    if (key === 'rearShock') {
-      travelMm = details?.suspension?.rear?.travelMM || details?.suspension?.rear?.travel;
-    }
-    if (key === 'stem') {
-      lengthMm = geometry?.stemLengthMM;
-    }
-    if (key === 'handlebar') {
-      widthMm = geometry?.handlebarWidthMM;
-    }
-
-    // Update label for dropper posts
-    const displayLabel = key === 'seatpost' && kind === 'dropper' ? 'Dropper Post' : label;
-
-    return {
-      key,
-      label: displayLabel,
-      brand,
-      model,
-      description,
-      kind,
-      travelMm,
-      offsetMm,
-      lengthMm,
-      widthMm,
-    };
-  });
-};
-
-// Build component entries from existing bike components (edit mode)
-const buildComponentEntriesFromExisting = (initial: BikeFormValues): ComponentEntry[] => {
-  return ALL_COMPONENT_TYPES.map(({ key, label }) => {
-    // Map our component keys to the legacy BIKE_COMPONENT_SECTIONS keys
-    const legacyKeyMap: Record<string, string> = {
-      fork: 'fork',
-      rearShock: 'shock',
-      wheels: 'wheels',
-      pivotBearings: 'pivotBearings',
-      seatpost: 'dropper', // dropper was the legacy key
-    };
-
-    const legacyKey = legacyKeyMap[key];
-    const existingComp = legacyKey ? initial.components[legacyKey as keyof typeof initial.components] : undefined;
-
-    return {
-      key,
-      label,
-      brand: existingComp?.brand || '',
-      model: existingComp?.model || '',
-      description: '',
-      // Dimensions from form travel fields
-      travelMm: key === 'fork' && initial.travelForkMm ? parseInt(initial.travelForkMm) :
-                key === 'rearShock' && initial.travelShockMm ? parseInt(initial.travelShockMm) : undefined,
-    };
-  });
-};
+import {
+  type ComponentEntry,
+  toSpokesInput,
+  buildComponentEntries,
+  buildComponentEntriesFromExisting,
+  validateComponentEntry,
+  parseNumericInput,
+} from '@/utils/bikeFormHelpers';
 
 export function BikeForm({
   mode,
@@ -265,11 +136,7 @@ export function BikeForm({
           return { ...entry, [field]: value as string };
         }
         // Handle numeric dimension fields with NaN validation
-        if (typeof value === 'string') {
-          const parsed = parseInt(value, 10);
-          return { ...entry, [field]: !isNaN(parsed) ? parsed : undefined };
-        }
-        return { ...entry, [field]: value };
+        return { ...entry, [field]: parseNumericInput(value) };
       })
     );
     // Clear validation error when user edits
@@ -282,21 +149,11 @@ export function BikeForm({
     }
   };
 
-  // Validate a single component entry
-  const validateComponent = (entry: ComponentEntry): string | null => {
-    // Empty is OK (stock/default component)
-    if (!entry.brand.trim() && !entry.model.trim()) return null;
-    // Must have both brand and model if either is filled
-    if (!entry.brand.trim()) return 'Brand required';
-    if (!entry.model.trim()) return 'Model required';
-    return null;
-  };
-
-  // Validate all components
+  // Validate all components using shared utility
   const validateAll = (): boolean => {
     const newErrors: Record<string, string> = {};
     componentEntries.forEach((entry) => {
-      const err = validateComponent(entry);
+      const err = validateComponentEntry(entry);
       if (err) newErrors[entry.key] = err;
     });
     setErrors(newErrors);
@@ -304,7 +161,8 @@ export function BikeForm({
   };
 
   // Handle size selection - preserve user edits, only update dimensions from new size
-  const handleSizeChange = (sizeName: string) => {
+  // Wrapped in useCallback to prevent unnecessary re-renders and ensure stable reference
+  const handleSizeChange = useCallback((sizeName: string) => {
     setSelectedSize(sizeName || null);
     if (sizeName && spokesDetails) {
       const newEntries = buildComponentEntries(spokesDetails, sizeName);
@@ -322,7 +180,7 @@ export function BikeForm({
         })
       );
     }
-  };
+  }, [spokesDetails]);
 
   // Build final form data and submit
   const handleSubmit = (evt: React.FormEvent) => {

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useApolloClient, useQuery, gql } from '@apollo/client';
 import { FaMountain, FaPencilAlt } from 'react-icons/fa';
@@ -7,112 +7,13 @@ import { useCurrentUser } from '../hooks/useCurrentUser';
 import { Button } from '@/components/ui';
 import { getAuthHeaders } from '@/lib/csrf';
 import { BikeSearch, type SpokesSearchResult } from '@/components/BikeSearch';
-import { useSpokes, type SpokesComponentEntry, type SpokesBikeDetails } from '@/hooks/useSpokes';
-import { ALL_COMPONENT_TYPES } from '@loam/shared';
-
-// Component entry for the review table - split brand/model with dimensions
-type ComponentEntry = {
-  key: string;
-  label: string;
-  brand: string;        // Separate brand field
-  model: string;        // Separate model field
-  description: string;
-  kind?: string;
-  // Dimension fields
-  travelMm?: number;    // Fork/shock travel
-  offsetMm?: number;    // Fork offset (rake)
-  lengthMm?: number;    // Stem length
-  widthMm?: number;     // Handlebar width
-};
-
-// Helper to extract only GraphQL-allowed fields for SpokesComponentInput
-const toSpokesInput = (comp: SpokesComponentEntry | null | undefined): SpokesComponentData | null => {
-  if (!comp) return null;
-  return {
-    maker: comp.make || comp.maker || undefined,
-    model: comp.model || undefined,
-    description: comp.description || undefined,
-    kind: comp.kind || undefined,
-  };
-};
-
-// Build component entries from 99spokes data with dimensions (matching BikeForm)
-const buildComponentEntries = (
-  details: SpokesBikeDetails | null,
-  selectedSize?: string
-): ComponentEntry[] => {
-  // Get geometry from selected size or first available
-  const sizeData = selectedSize
-    ? details?.sizes?.find(s => s.name === selectedSize)
-    : details?.sizes?.[0];
-  const geometry = sizeData?.geometry?.source || sizeData?.geometry?.computed;
-
-  return ALL_COMPONENT_TYPES.map(({ key, label, spokesKey }) => {
-    let brand = '';
-    let model = '';
-    let description = '';
-    let kind: string | undefined;
-    let travelMm: number | undefined;
-    let offsetMm: number | undefined;
-    let lengthMm: number | undefined;
-    let widthMm: number | undefined;
-
-    if (details?.components && spokesKey) {
-      const comp = details.components[spokesKey as keyof typeof details.components] as SpokesComponentEntry | undefined;
-      if (comp) {
-        brand = comp.make || comp.maker || '';
-        model = comp.model || '';
-        description = comp.description || '';
-        kind = comp.kind;
-      }
-    }
-
-    // Special handling for suspension components
-    if (key === 'fork' && details?.suspension?.front?.component) {
-      const suspComp = details.suspension.front.component;
-      brand = suspComp.make || brand;
-      model = suspComp.model || model;
-      description = suspComp.description || description;
-    }
-    if (key === 'rearShock' && details?.suspension?.rear?.component) {
-      const suspComp = details.suspension.rear.component;
-      brand = suspComp.make || brand;
-      model = suspComp.model || model;
-      description = suspComp.description || description;
-    }
-
-    // Add dimension data based on component type
-    if (key === 'fork') {
-      travelMm = details?.suspension?.front?.travelMM || details?.suspension?.front?.travel;
-      offsetMm = geometry?.rakeMM;
-    }
-    if (key === 'rearShock') {
-      travelMm = details?.suspension?.rear?.travelMM || details?.suspension?.rear?.travel;
-    }
-    if (key === 'stem') {
-      lengthMm = geometry?.stemLengthMM;
-    }
-    if (key === 'handlebar') {
-      widthMm = geometry?.handlebarWidthMM;
-    }
-
-    // Update label for dropper posts
-    const displayLabel = key === 'seatpost' && kind === 'dropper' ? 'Dropper Post' : label;
-
-    return {
-      key,
-      label: displayLabel,
-      brand,
-      model,
-      description,
-      kind,
-      travelMm,
-      offsetMm,
-      lengthMm,
-      widthMm,
-    };
-  });
-};
+import { useSpokes, type SpokesBikeDetails } from '@/hooks/useSpokes';
+import {
+  type ComponentEntry,
+  toSpokesInput,
+  buildComponentEntries,
+  parseNumericInput,
+} from '@/utils/bikeFormHelpers';
 
 const CONNECTED_ACCOUNTS_QUERY = gql`
   query ConnectedAccounts {
@@ -127,10 +28,10 @@ const CONNECTED_ACCOUNTS_QUERY = gql`
 `;
 
 type SpokesComponentData = {
-  maker?: string;
-  model?: string;
-  description?: string;
-  kind?: string;  // For seatpost: 'dropper' | 'rigid'
+  maker?: string | null;
+  model?: string | null;
+  description?: string | null;
+  kind?: string | null;  // For seatpost: 'dropper' | 'rigid'
 };
 
 type OnboardingData = {
@@ -260,11 +161,7 @@ export default function Onboarding() {
           return { ...entry, [field]: value as string };
         }
         // Handle numeric dimension fields with NaN validation
-        if (typeof value === 'string') {
-          const parsed = parseInt(value, 10);
-          return { ...entry, [field]: !isNaN(parsed) ? parsed : undefined };
-        }
-        return { ...entry, [field]: value };
+        return { ...entry, [field]: parseNumericInput(value) };
       })
     );
     // Clear validation error when user edits
@@ -278,7 +175,8 @@ export default function Onboarding() {
   };
 
   // Handle size selection - preserve user edits, only update dimensions from new size
-  const handleSizeChange = (sizeName: string) => {
+  // Wrapped in useCallback to prevent unnecessary re-renders and ensure stable reference
+  const handleSizeChange = useCallback((sizeName: string) => {
     setSelectedSize(sizeName || null);
     if (sizeName && spokesDetails) {
       const newEntries = buildComponentEntries(spokesDetails, sizeName);
@@ -296,7 +194,7 @@ export default function Onboarding() {
         })
       );
     }
-  };
+  }, [spokesDetails]);
 
   // Handle bike selection from search
   const handleBikeSelect = async (bike: SpokesSearchResult) => {
