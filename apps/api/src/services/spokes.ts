@@ -243,7 +243,7 @@ export async function searchBikes(params: {
     url.searchParams.set('q', query);
     url.searchParams.set('queryMode', 'prefix');
     url.searchParams.set('limit', String(params.limit || 20));
-    url.searchParams.set('include', 'thumbnailUrl');
+    url.searchParams.set('include', 'thumbnailUrl,components');
 
     if (params.year) {
       url.searchParams.set('year', String(params.year));
@@ -251,9 +251,6 @@ export async function searchBikes(params: {
     if (params.category) {
       url.searchParams.set('category', params.category);
     }
-
-    // Include components for auto-fill (suspension requires higher API tier)
-    url.searchParams.set('include', 'components');
 
     const response = await fetch(url.toString(), {
       headers: {

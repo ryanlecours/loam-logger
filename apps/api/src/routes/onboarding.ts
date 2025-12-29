@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma';
 import { type SessionUser } from '../auth/session';
 import { type ComponentType } from '@prisma/client';
 import { sendBadRequest, sendUnauthorized, sendInternalError } from '../lib/api-response';
+import { SPOKES_TO_COMPONENT_TYPE } from '@loam/shared';
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
@@ -203,25 +204,10 @@ router.post('/complete', express.json(), async (req: Request, res) => {
 
       // Auto-create components from 99spokes data
       if (spokesComponents) {
-        const spokesToComponentType: Record<string, ComponentType> = {
-          fork: 'FORK',
-          rearShock: 'SHOCK',
-          brakes: 'BRAKES',
-          rearDerailleur: 'REAR_DERAILLEUR',
-          crank: 'CRANK',
-          cassette: 'CASSETTE',
-          rims: 'RIMS',
-          tires: 'TIRES',
-          stem: 'STEM',
-          handlebar: 'HANDLEBAR',
-          saddle: 'SADDLE',
-          seatpost: 'SEATPOST',
-        };
-
         for (const [key, compData] of Object.entries(spokesComponents)) {
           if (!compData || !compData.maker || !compData.model) continue;
 
-          let componentType = spokesToComponentType[key];
+          let componentType = SPOKES_TO_COMPONENT_TYPE[key] as ComponentType | undefined;
           if (!componentType) continue;
 
           // Smart dropper detection: if seatpost.kind === 'dropper', create as DROPPER
