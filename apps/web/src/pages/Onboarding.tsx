@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useApolloClient, useQuery, gql } from '@apollo/client';
-import { FaMountain } from 'react-icons/fa';
+import { FaMountain, FaPencilAlt } from 'react-icons/fa';
 import { ME_QUERY } from '../graphql/me';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { Button } from '@/components/ui';
@@ -749,19 +749,22 @@ export default function Onboarding() {
                     {componentEntries.map((entry, idx) => (
                       <tr
                         key={entry.key}
-                        className={idx < componentEntries.length - 1 ? 'border-b border-app' : ''}
+                        className={`${idx < componentEntries.length - 1 ? 'border-b border-app' : ''} hover:bg-surface-2 transition-colors group`}
                       >
                         <td className="px-4 py-2 text-sm text-heading font-medium">
                           {entry.label}
                         </td>
                         <td className="px-4 py-2">
-                          <input
-                            type="text"
-                            value={entry.value}
-                            onChange={(e) => updateComponentEntry(entry.key, e.target.value)}
-                            placeholder="Brand Model"
-                            className="w-full bg-transparent text-sm text-heading placeholder:text-muted/50 focus:outline-none"
-                          />
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="text"
+                              value={entry.value}
+                              onChange={(e) => updateComponentEntry(entry.key, e.target.value)}
+                              placeholder="Brand Model"
+                              className="flex-1 bg-transparent text-sm text-heading placeholder:text-muted/50 focus:outline-none"
+                            />
+                            <FaPencilAlt className="w-3 h-3 text-muted/40 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
+                          </div>
                         </td>
                       </tr>
                     ))}
