@@ -928,6 +928,34 @@ export const resolvers = {
       });
     },
 
+    deleteBike: async (_: unknown, { id }: { id: string }, ctx: GraphQLContext) => {
+      const userId = requireUserId(ctx);
+      const existing = await prisma.bike.findUnique({
+        where: { id },
+        select: { userId: true },
+      });
+      if (!existing || existing.userId !== userId) throw new Error('Bike not found');
+
+      await prisma.$transaction(async (tx) => {
+        // Delete all components associated with this bike
+        await tx.component.deleteMany({ where: { bikeId: id } });
+
+        // Remove bike association from rides (set bikeId to null)
+        await tx.ride.updateMany({
+          where: { bikeId: id },
+          data: { bikeId: null },
+        });
+
+        // Delete any Strava gear mappings for this bike
+        await tx.stravaGearMapping.deleteMany({ where: { bikeId: id } });
+
+        // Delete the bike itself
+        await tx.bike.delete({ where: { id } });
+      });
+
+      return { ok: true, id };
+    },
+
     addComponent: async (
       _: unknown,
       { input, bikeId }: { input: AddComponentInputGQL; bikeId?: string | null },

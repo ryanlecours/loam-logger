@@ -2556,6 +2556,35 @@ html.marketing-page:focus-within {
   margin-top: auto;
 }
 
+/* Health Card Image */
+.health-card-image-container {
+  position: relative;
+  width: 100%;
+  min-height: 80px;
+}
+
+.health-card-image {
+  width: 100%;
+  height: auto;
+  object-fit: contain;
+  display: block;
+  max-height: 160px;
+}
+
+.health-card-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 80px;
+  background: rgba(134, 158, 140, 0.1);
+  border-radius: 0.5rem;
+}
+
+.health-card-placeholder-icon {
+  font-size: 2rem;
+  color: rgba(134, 158, 140, 0.4);
+}
+
 /* Health States */
 .health-error-state,
 .health-empty-state {

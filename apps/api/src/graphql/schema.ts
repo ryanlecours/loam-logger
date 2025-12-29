@@ -315,6 +315,7 @@ export const typeDefs = gql`
     deleteRide(id: ID!): DeleteRideResult!
     addBike(input: AddBikeInput!): Bike!
     updateBike(id: ID!, input: UpdateBikeInput!): Bike!
+    deleteBike(id: ID!): DeleteResult!
     addComponent(input: AddComponentInput!, bikeId: ID): Component!
     updateComponent(id: ID!, input: UpdateComponentInput!): Component!
     deleteComponent(id: ID!): DeleteResult!

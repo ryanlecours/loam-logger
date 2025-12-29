@@ -1,5 +1,6 @@
+import { useState } from 'react';
 import { motion } from 'motion/react';
-import { FaCheckCircle, FaExclamationCircle, FaExclamationTriangle } from 'react-icons/fa';
+import { FaBicycle, FaCheckCircle, FaExclamationCircle, FaExclamationTriangle } from 'react-icons/fa';
 import { Badge, Button } from '../ui';
 import type { BikeHealth } from '../../utils/transformToHealthData';
 
@@ -14,6 +15,8 @@ export function BikeHealthCard({
   onViewDetails,
   onLogService,
 }: BikeHealthCardProps) {
+  const [imageError, setImageError] = useState(false);
+
   return (
     <motion.div
       className="health-card"
@@ -22,6 +25,21 @@ export function BikeHealthCard({
       transition={{ duration: 0.4 }}
     >
       <h3 className="health-card-bike-name">{bike.name}</h3>
+
+      <div className="health-card-image-container">
+        {bike.thumbnailUrl && !imageError ? (
+          <img
+            src={bike.thumbnailUrl}
+            alt={bike.name}
+            className="health-card-image"
+            onError={() => setImageError(true)}
+          />
+        ) : (
+          <div className="health-card-placeholder">
+            <FaBicycle className="health-card-placeholder-icon" />
+          </div>
+        )}
+      </div>
 
       <div className="health-card-status">
         {bike.isHealthy ? (

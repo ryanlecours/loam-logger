@@ -17,6 +17,7 @@ export interface BikeSummary {
   nickname?: string | null;
   manufacturer: string;
   model: string;
+  thumbnailUrl?: string | null;
   fork?: ComponentSummary | null;
   shock?: ComponentSummary | null;
   pivotBearings?: ComponentSummary | null;
@@ -38,6 +39,7 @@ export interface ComponentHealth {
 export interface BikeHealth {
   id: string;
   name: string;
+  thumbnailUrl?: string | null;
   components: ComponentHealth[];
   criticalCount: number;
   warningCount: number;
@@ -105,6 +107,7 @@ export function transformToHealthData(bikes: BikeSummary[]): BikeHealth[] {
     return {
       id: bike.id,
       name,
+      thumbnailUrl: bike.thumbnailUrl,
       components,
       criticalCount,
       warningCount,

@@ -1,12 +1,14 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery } from '@apollo/client';
 import { motion } from 'motion/react';
+import { FaBicycle } from 'react-icons/fa';
 import { Button } from '@/components/ui/Button';
 import { BikeForm } from '@/components/BikeForm';
 import { BIKE_COMPONENT_SECTIONS, type BikeComponentSection, type BikeFormValues, type GearComponentState, type SpareFormState } from '@/models/BikeComponents';
 import {
   ADD_BIKE,
   UPDATE_BIKE,
+  DELETE_BIKE,
   GEAR_QUERY,
   ADD_COMPONENT,
   UPDATE_COMPONENT,
@@ -132,6 +134,10 @@ export default function Gear() {
     awaitRefetchQueries: true,
   });
   const [updateBikeMutation, updateBikeState] = useMutation(UPDATE_BIKE, {
+    refetchQueries: [{ query: GEAR_QUERY }],
+    awaitRefetchQueries: true,
+  });
+  const [deleteBikeMutation, deleteBikeState] = useMutation(DELETE_BIKE, {
     refetchQueries: [{ query: GEAR_QUERY }],
     awaitRefetchQueries: true,
   });
@@ -328,6 +334,14 @@ export default function Gear() {
     await deleteComponentMutation({ variables: { id } });
   };
 
+  const handleDeleteBike = async (id: string, bikeName: string) => {
+    const confirmed = window.confirm(
+      `Are you sure you want to delete "${bikeName}"? This will also remove all components associated with this bike. Rides logged to this bike will be preserved but no longer associated with it.`
+    );
+    if (!confirmed) return;
+    await deleteBikeMutation({ variables: { id } });
+  };
+
   return (
     <div className="min-h-screen bg-app px-4 py-6">
       <header className="mb-8 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -390,19 +404,22 @@ export default function Gear() {
               >
                 <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                   {/* Thumbnail image */}
-                  {bike.thumbnailUrl && (
-                    <div className="flex-shrink-0">
+                  <div className="flex-shrink-0 w-32 h-24 rounded-lg bg-white/5 flex items-center justify-center">
+                    {bike.thumbnailUrl ? (
                       <img
                         src={bike.thumbnailUrl}
                         alt={`${bike.year} ${bike.manufacturer} ${bike.model}`}
-                        className="w-32 h-24 object-contain rounded-lg bg-white/5"
+                        className="w-full h-full object-contain"
                         onError={(e) => {
-                          // Hide broken images
                           e.currentTarget.style.display = 'none';
+                          (e.currentTarget.nextElementSibling as HTMLElement)?.classList.remove('hidden');
                         }}
                       />
-                    </div>
-                  )}
+                    ) : null}
+                    <FaBicycle
+                      className={`text-3xl text-muted/40 ${bike.thumbnailUrl ? 'hidden' : ''}`}
+                    />
+                  </div>
                   <div className="flex-1 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
                   <div>
                     <p className="text-sm uppercase tracking-wide text-muted">{bike.manufacturer}</p>
@@ -447,16 +464,26 @@ export default function Gear() {
                         View on 99spokes
                       </a>
                     )}
-                    <Button
-                      variant="outline"
-                      className="text-xs"
-                      onClick={() => {
-                        setBikeFormError(null);
-                        setBikeModal({ mode: 'edit', bike });
-                      }}
-                    >
-                      Edit Bike
-                    </Button>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        className="text-xs"
+                        onClick={() => {
+                          setBikeFormError(null);
+                          setBikeModal({ mode: 'edit', bike });
+                        }}
+                      >
+                        Edit Bike
+                      </Button>
+                      <Button
+                        variant="outline"
+                        className="text-xs text-red-500 border-red-500/30 hover:bg-red-500/10"
+                        onClick={() => handleDeleteBike(bike.id, bike.nickname || `${bike.year} ${bike.manufacturer} ${bike.model}`)}
+                        disabled={deleteBikeState.loading}
+                      >
+                        Delete
+                      </Button>
+                    </div>
                   </div>
                   </div>
                 </div>
