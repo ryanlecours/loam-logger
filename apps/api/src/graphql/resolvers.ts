@@ -725,11 +725,16 @@ export const resolvers = {
       let model = cleanText(input.model, MAX_LABEL_LEN);
 
       if (spokesId && isSpokesConfigured()) {
-        const spokesData = await getBikeById(spokesId);
-        // Only use spokesData if both maker and model are present
-        if (spokesData?.maker && spokesData?.model) {
-          manufacturer = cleanText(spokesData.maker, MAX_LABEL_LEN);
-          model = cleanText(spokesData.model, MAX_LABEL_LEN);
+        try {
+          const spokesData = await getBikeById(spokesId);
+          // Only use spokesData if both maker and model are present
+          if (spokesData?.maker && spokesData?.model) {
+            manufacturer = cleanText(spokesData.maker, MAX_LABEL_LEN);
+            model = cleanText(spokesData.model, MAX_LABEL_LEN);
+          }
+        } catch (error) {
+          console.warn('[addBike] Failed to fetch spokes data, using user input:', error);
+          // Fall back to user-provided manufacturer/model (already set above)
         }
       }
 

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState, memo } from 'react';
+import React, { useCallback, useEffect, useState, useRef, memo } from 'react';
 import { type BikeFormProps, type BikeFormValues } from '@/models/BikeComponents';
 import { Input, Textarea, Button } from './ui';
 import { BikeSearch, type SpokesSearchResult } from './BikeSearch';
@@ -151,6 +151,8 @@ export function BikeForm({
   const [spokesDetails, setSpokesDetails] = useState<SpokesBikeDetails | null>(null);
   const [selectedSize, setSelectedSize] = useState<string | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [pendingSizeChange, setPendingSizeChange] = useState<string | null>(null);
+  const validationTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const { getBikeDetails, isLoading: loadingDetails } = useSpokes();
 
   // Get available sizes from spokesDetails
@@ -246,6 +248,9 @@ export function BikeForm({
   };
 
   // Update a component entry field - memoized to prevent ComponentRow re-renders
+  // INTENTIONAL: Empty deps array for stable callback reference.
+  // Uses functional state updates to avoid dependency on errors/componentEntries.
+  // This prevents ComponentRow re-renders on every keystroke.
   const updateComponentEntry = useCallback((
     key: string,
     field: 'brand' | 'model' | 'travelMm' | 'offsetMm' | 'lengthMm' | 'widthMm',
@@ -268,6 +273,21 @@ export function BikeForm({
       delete next[key];
       return next;
     });
+
+    // Debounced re-validation (300ms) to show errors in real-time
+    clearTimeout(validationTimerRef.current);
+    validationTimerRef.current = setTimeout(() => {
+      setComponentEntries((current) => {
+        const entry = current.find((e) => e.key === key);
+        if (entry) {
+          const err = validateComponentEntry(entry);
+          if (err) {
+            setErrors((prev) => ({ ...prev, [key]: err }));
+          }
+        }
+        return current; // No mutation, just reading for validation
+      });
+    }, 300);
   }, []);
 
   // Validate all components using shared utility
@@ -281,13 +301,28 @@ export function BikeForm({
     return Object.keys(newErrors).length === 0;
   };
 
-  // Handle size selection - preserve user edits, only update dimensions from new size
-  // Wrapped in useCallback to prevent unnecessary re-renders and ensure stable reference
-  const handleSizeChange = useCallback((sizeName: string) => {
+  // Check if user has manually edited any dimension fields
+  const hasUserDimensionEdits = useCallback((): boolean => {
+    if (!spokesDetails || !selectedSize) return false;
+    const original = buildComponentEntries(spokesDetails, selectedSize);
+    return componentEntries.some((entry) => {
+      const orig = original.find((o) => o.key === entry.key);
+      if (!orig) return false;
+      return (
+        (entry.travelMm !== undefined && entry.travelMm !== orig.travelMm) ||
+        (entry.offsetMm !== undefined && entry.offsetMm !== orig.offsetMm) ||
+        (entry.lengthMm !== undefined && entry.lengthMm !== orig.lengthMm) ||
+        (entry.widthMm !== undefined && entry.widthMm !== orig.widthMm)
+      );
+    });
+  }, [componentEntries, spokesDetails, selectedSize]);
+
+  // Apply new size selection (called after confirmation or when no edits exist)
+  const applyNewSize = useCallback((sizeName: string) => {
     setSelectedSize(sizeName || null);
     if (sizeName && spokesDetails) {
       const newEntries = buildComponentEntries(spokesDetails, sizeName);
-      // Merge new size geometry with existing user edits
+      // Merge new size geometry with existing user edits (preserve brand/model only)
       setComponentEntries((prev) =>
         newEntries.map((newEntry) => {
           const existing = prev.find((e) => e.key === newEntry.key);
@@ -301,7 +336,18 @@ export function BikeForm({
         })
       );
     }
+    setPendingSizeChange(null);
   }, [spokesDetails]);
+
+  // Handle size selection - warn before overwriting user's dimension edits
+  // Wrapped in useCallback to prevent unnecessary re-renders and ensure stable reference
+  const handleSizeChange = useCallback((sizeName: string) => {
+    if (hasUserDimensionEdits()) {
+      setPendingSizeChange(sizeName);
+      return;
+    }
+    applyNewSize(sizeName);
+  }, [hasUserDimensionEdits, applyNewSize]);
 
   // Build final form data and submit
   const handleSubmit = (evt: React.FormEvent) => {
@@ -457,6 +503,31 @@ export function BikeForm({
                 <p className="text-xs text-muted mt-1">
                   Size selection updates component dimensions
                 </p>
+
+                {/* Confirmation dialog for size change when user has edited dimensions */}
+                {pendingSizeChange && (
+                  <div className="mt-2 p-3 bg-surface-2 border border-amber-500/50 rounded-lg">
+                    <p className="text-sm text-heading mb-2">
+                      Changing size will reset dimension values you've edited. Continue?
+                    </p>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => applyNewSize(pendingSizeChange)}
+                        className="px-3 py-1 text-sm bg-primary text-white rounded hover:bg-primary/90"
+                      >
+                        Yes, change size
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPendingSizeChange(null)}
+                        className="px-3 py-1 text-sm bg-surface border border-app text-muted rounded hover:bg-surface-2"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
