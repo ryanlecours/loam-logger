@@ -110,3 +110,12 @@ export const DELETE_COMPONENT = gql`
     }
   }
 `;
+
+export const DELETE_BIKE = gql`
+  mutation DeleteBike($id: ID!) {
+    deleteBike(id: $id) {
+      ok
+      id
+    }
+  }
+`;

@@ -30,14 +30,9 @@ const ALL_COMPONENT_TYPES = [
 type ComponentEntry = {
   key: string;
   label: string;
-  stockBrand: string;
-  stockModel: string;
-  stockDescription: string;
-  isStock: boolean;
-  customBrand: string;
-  customModel: string;
-  notes: string;
-  kind?: string; // For seatpost dropper detection
+  value: string;        // Combined "Brand Model" string
+  description: string;  // Optional description from 99spokes
+  kind?: string;        // For seatpost dropper detection
 };
 
 // Helper to extract only GraphQL-allowed fields for SpokesComponentInput
@@ -54,17 +49,17 @@ const toSpokesInput = (comp: SpokesComponentEntry | null | undefined): SpokesCom
 // Build component entries from 99spokes data
 const buildComponentEntries = (details: SpokesBikeDetails | null): ComponentEntry[] => {
   return ALL_COMPONENT_TYPES.map(({ key, label, spokesKey }) => {
-    let stockBrand = 'OEM';
-    let stockModel = 'Stock';
-    let stockDescription = '';
+    let brand = '';
+    let model = '';
+    let description = '';
     let kind: string | undefined;
 
     if (details?.components && spokesKey) {
       const comp = details.components[spokesKey as keyof typeof details.components] as SpokesComponentEntry | undefined;
       if (comp) {
-        stockBrand = comp.make || comp.maker || 'OEM';
-        stockModel = comp.model || 'Stock';
-        stockDescription = comp.description || '';
+        brand = comp.make || comp.maker || '';
+        model = comp.model || '';
+        description = comp.description || '';
         kind = comp.kind;
       }
     }
@@ -72,16 +67,19 @@ const buildComponentEntries = (details: SpokesBikeDetails | null): ComponentEntr
     // Special handling for suspension components
     if (key === 'fork' && details?.suspension?.front?.component) {
       const suspComp = details.suspension.front.component;
-      stockBrand = suspComp.make || stockBrand;
-      stockModel = suspComp.model || stockModel;
-      stockDescription = suspComp.description || stockDescription;
+      brand = suspComp.make || brand;
+      model = suspComp.model || model;
+      description = suspComp.description || description;
     }
     if (key === 'rearShock' && details?.suspension?.rear?.component) {
       const suspComp = details.suspension.rear.component;
-      stockBrand = suspComp.make || stockBrand;
-      stockModel = suspComp.model || stockModel;
-      stockDescription = suspComp.description || stockDescription;
+      brand = suspComp.make || brand;
+      model = suspComp.model || model;
+      description = suspComp.description || description;
     }
+
+    // Combine brand and model into single value
+    const value = [brand, model].filter(Boolean).join(' ').trim();
 
     // Update label for dropper posts
     const displayLabel = key === 'seatpost' && kind === 'dropper' ? 'Dropper Post' : label;
@@ -89,13 +87,8 @@ const buildComponentEntries = (details: SpokesBikeDetails | null): ComponentEntr
     return {
       key,
       label: displayLabel,
-      stockBrand,
-      stockModel,
-      stockDescription,
-      isStock: true,
-      customBrand: '',
-      customModel: '',
-      notes: '',
+      value,
+      description,
       kind,
     };
   });
@@ -116,30 +109,15 @@ const buildComponentEntriesFromExisting = (initial: BikeFormValues): ComponentEn
     const legacyKey = legacyKeyMap[key];
     const existingComp = legacyKey ? initial.components[legacyKey as keyof typeof initial.components] : undefined;
 
-    if (existingComp && (existingComp.brand || existingComp.model)) {
-      return {
-        key,
-        label,
-        stockBrand: existingComp.isStock ? existingComp.brand || 'OEM' : 'OEM',
-        stockModel: existingComp.isStock ? existingComp.model || 'Stock' : 'Stock',
-        stockDescription: '',
-        isStock: existingComp.isStock,
-        customBrand: existingComp.isStock ? '' : existingComp.brand,
-        customModel: existingComp.isStock ? '' : existingComp.model,
-        notes: existingComp.notes || '',
-      };
-    }
+    const value = existingComp
+      ? [existingComp.brand, existingComp.model].filter(Boolean).join(' ').trim()
+      : '';
 
     return {
       key,
       label,
-      stockBrand: 'OEM',
-      stockModel: 'Stock',
-      stockDescription: '',
-      isStock: true,
-      customBrand: '',
-      customModel: '',
-      notes: '',
+      value,
+      description: '',
     };
   });
 };
@@ -242,10 +220,10 @@ export function BikeForm({
     setStep(1);
   };
 
-  // Update a component entry
-  const updateComponentEntry = (key: string, updates: Partial<ComponentEntry>) => {
+  // Update a component entry value
+  const updateComponentEntry = (key: string, value: string) => {
     setComponentEntries((prev) =>
-      prev.map((entry) => (entry.key === key ? { ...entry, ...updates } : entry))
+      prev.map((entry) => (entry.key === key ? { ...entry, value } : entry))
     );
   };
 
@@ -275,12 +253,18 @@ export function BikeForm({
     // Build legacy components format for the 5 key components
     const getComponentData = (key: string) => {
       const entry = componentEntries.find((e) => e.key === key);
-      if (!entry) return { brand: '', model: '', notes: '', isStock: true };
+      if (!entry || !entry.value.trim()) {
+        return { brand: '', model: '', notes: '', isStock: true };
+      }
+      // Parse value back into brand/model (first word = brand, rest = model)
+      const parts = entry.value.trim().split(/\s+/);
+      const brand = parts[0] || '';
+      const model = parts.slice(1).join(' ') || '';
       return {
-        brand: entry.isStock ? entry.stockBrand : entry.customBrand,
-        model: entry.isStock ? entry.stockModel : entry.customModel,
-        notes: entry.notes,
-        isStock: entry.isStock,
+        brand,
+        model,
+        notes: '',
+        isStock: false,
       };
     };
 
@@ -508,67 +492,43 @@ export function BikeForm({
       </div>
 
       <p className="text-sm text-muted">
-        Review your bike's components below. Toggle off "Stock" to enter custom parts.
+        Review your bike's components. Edit any parts you've customized.
       </p>
 
-      <div className="grid gap-3 md:grid-cols-2">
-        {componentEntries.map((entry) => (
-          <div
-            key={entry.key}
-            className="border border-app rounded-lg bg-surface p-4 space-y-3"
-          >
-            <div className="flex items-center justify-between">
-              <span className="text-heading font-medium">{entry.label}</span>
-              <label className="flex items-center gap-2 text-xs text-muted uppercase cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={entry.isStock}
-                  onChange={(e) =>
-                    updateComponentEntry(entry.key, { isStock: e.target.checked })
-                  }
-                />
-                Stock
-              </label>
-            </div>
-
-            {entry.isStock ? (
-              <div className="text-sm">
-                <p className="text-heading">
-                  {entry.stockBrand} {entry.stockModel}
-                </p>
-                {entry.stockDescription && (
-                  <p className="text-xs text-muted mt-1">{entry.stockDescription}</p>
-                )}
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <Input
-                  placeholder="Brand"
-                  value={entry.customBrand}
-                  onChange={(e) =>
-                    updateComponentEntry(entry.key, { customBrand: e.target.value })
-                  }
-                />
-                <Input
-                  placeholder="Model"
-                  value={entry.customModel}
-                  onChange={(e) =>
-                    updateComponentEntry(entry.key, { customModel: e.target.value })
-                  }
-                />
-              </div>
-            )}
-
-            <Textarea
-              placeholder="Notes (optional)"
-              value={entry.notes}
-              rows={2}
-              onChange={(e) =>
-                updateComponentEntry(entry.key, { notes: e.target.value })
-              }
-            />
-          </div>
-        ))}
+      <div className="border border-app rounded-lg bg-surface overflow-hidden">
+        <table className="w-full">
+          <thead>
+            <tr className="border-b border-app bg-surface-2">
+              <th className="text-left text-xs font-medium text-muted uppercase tracking-wide px-4 py-2 w-1/3">
+                Component
+              </th>
+              <th className="text-left text-xs font-medium text-muted uppercase tracking-wide px-4 py-2">
+                Part
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {componentEntries.map((entry, idx) => (
+              <tr
+                key={entry.key}
+                className={idx < componentEntries.length - 1 ? 'border-b border-app' : ''}
+              >
+                <td className="px-4 py-2 text-sm text-heading font-medium">
+                  {entry.label}
+                </td>
+                <td className="px-4 py-2">
+                  <input
+                    type="text"
+                    value={entry.value}
+                    onChange={(e) => updateComponentEntry(entry.key, e.target.value)}
+                    placeholder="Brand Model"
+                    className="w-full bg-transparent text-sm text-heading placeholder:text-muted/50 focus:outline-none"
+                  />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
 
       {error && (

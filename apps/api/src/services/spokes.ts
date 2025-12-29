@@ -236,6 +236,7 @@ export async function searchBikes(params: {
     url.searchParams.set('q', query);
     url.searchParams.set('queryMode', 'prefix');
     url.searchParams.set('limit', String(params.limit || 20));
+    url.searchParams.set('include', 'thumbnailUrl');
 
     if (params.year) {
       url.searchParams.set('year', String(params.year));
@@ -308,8 +309,9 @@ export async function getBikeById(id: string): Promise<SpokesBike | null> {
     await acquireRequestSlot();
 
     // Use direct endpoint for full bike details
-    const url = `${SPOKES_API_BASE}/bikes/${encodeURIComponent(id)}?include=components`;
+    const url = `${SPOKES_API_BASE}/bikes/${id}?include=thumbnailUrl,components`;
 
+    console.log('URL = ' + url);
     const response = await fetch(url, {
       headers: {
         Authorization: `Bearer ${SPOKES_API_KEY}`,
@@ -328,6 +330,7 @@ export async function getBikeById(id: string): Promise<SpokesBike | null> {
     // Direct endpoint returns the bike object directly, not wrapped in items array
     const bike = (await response.json()) as SpokesBike;
 
+    console.log(bike);
     if (!bike || !bike.id) {
       return null;
     }
