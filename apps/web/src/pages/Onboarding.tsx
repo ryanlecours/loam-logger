@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useApolloClient, useQuery, gql } from '@apollo/client';
 import { FaMountain, FaPencilAlt } from 'react-icons/fa';
@@ -7,76 +7,16 @@ import { useCurrentUser } from '../hooks/useCurrentUser';
 import { Button } from '@/components/ui';
 import { getAuthHeaders } from '@/lib/csrf';
 import { BikeSearch, type SpokesSearchResult } from '@/components/BikeSearch';
-import { useSpokes, type SpokesComponentEntry, type SpokesBikeDetails } from '@/hooks/useSpokes';
-import { ALL_COMPONENT_TYPES } from '@loam/shared';
-
-// Component entry for the review table
-type ComponentEntry = {
-  key: string;
-  label: string;
-  value: string;
-  description: string;
-  kind?: string;
-};
-
-// Helper to extract only GraphQL-allowed fields for SpokesComponentInput
-const toSpokesInput = (comp: SpokesComponentEntry | null | undefined): SpokesComponentData | null => {
-  if (!comp) return null;
-  return {
-    maker: comp.make || comp.maker || undefined,
-    model: comp.model || undefined,
-    description: comp.description || undefined,
-    kind: comp.kind || undefined,
-  };
-};
-
-// Build component entries from 99spokes data (matching BikeForm)
-const buildComponentEntries = (details: SpokesBikeDetails | null): ComponentEntry[] => {
-  return ALL_COMPONENT_TYPES.map(({ key, label, spokesKey }) => {
-    let brand = '';
-    let model = '';
-    let description = '';
-    let kind: string | undefined;
-
-    if (details?.components && spokesKey) {
-      const comp = details.components[spokesKey as keyof typeof details.components] as SpokesComponentEntry | undefined;
-      if (comp) {
-        brand = comp.make || comp.maker || '';
-        model = comp.model || '';
-        description = comp.description || '';
-        kind = comp.kind;
-      }
-    }
-
-    // Special handling for suspension components
-    if (key === 'fork' && details?.suspension?.front?.component) {
-      const suspComp = details.suspension.front.component;
-      brand = suspComp.make || brand;
-      model = suspComp.model || model;
-      description = suspComp.description || description;
-    }
-    if (key === 'rearShock' && details?.suspension?.rear?.component) {
-      const suspComp = details.suspension.rear.component;
-      brand = suspComp.make || brand;
-      model = suspComp.model || model;
-      description = suspComp.description || description;
-    }
-
-    // Combine brand and model into single value
-    const value = [brand, model].filter(Boolean).join(' ').trim();
-
-    // Update label for dropper posts
-    const displayLabel = key === 'seatpost' && kind === 'dropper' ? 'Dropper Post' : label;
-
-    return {
-      key,
-      label: displayLabel,
-      value,
-      description,
-      kind,
-    };
-  });
-};
+import { useSpokes, type SpokesBikeDetails } from '@/hooks/useSpokes';
+import {
+  type ComponentEntry,
+  toSpokesInput,
+  buildComponentEntries,
+  parseNumericInput,
+  getDimensionLimit,
+  isValidImageUrl,
+  filterNonNullComponents,
+} from '@/utils/bikeFormHelpers';
 
 const CONNECTED_ACCOUNTS_QUERY = gql`
   query ConnectedAccounts {
@@ -91,10 +31,10 @@ const CONNECTED_ACCOUNTS_QUERY = gql`
 `;
 
 type SpokesComponentData = {
-  maker?: string;
-  model?: string;
-  description?: string;
-  kind?: string;  // For seatpost: 'dropper' | 'rigid'
+  maker?: string | null;
+  model?: string | null;
+  description?: string | null;
+  kind?: string | null;  // For seatpost: 'dropper' | 'rigid'
 };
 
 type OnboardingData = {
@@ -145,11 +85,24 @@ export default function Onboarding() {
   const [showManualBikeEntry, setShowManualBikeEntry] = useState(false);
   const [componentEntries, setComponentEntries] = useState<ComponentEntry[]>(() => buildComponentEntries(null));
   const [spokesDetails, setSpokesDetails] = useState<SpokesBikeDetails | null>(null);
+  const [selectedSize, setSelectedSize] = useState<string | null>(null);
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
+
+  // Get available sizes from spokesDetails
+  const availableSizes = spokesDetails?.sizes?.map(s => s.name) || [];
+
+  // Get bike image URL with fallback to images array, validated for security
+  const getBikeImageUrl = () => {
+    const url = data.thumbnailUrl || spokesDetails?.images?.[0]?.url;
+    return url && isValidImageUrl(url) ? url : null;
+  };
 
   // Read step from URL query parameter, default to 1
   const initialStep = parseInt(searchParams.get('step') || '1', 10);
   const [currentStep, setCurrentStep] = useState(initialStep);
-  const [isLoading, setIsLoading] = useState(false);
+  // Granular loading state for better UX during submission
+  const [loadingState, setLoadingState] = useState<'idle' | 'saving' | 'syncing' | 'redirecting'>('idle');
+  const isLoading = loadingState !== 'idle';
   const [error, setError] = useState<string | null>(null);
 
   const accounts = accountsData?.me?.accounts || [];
@@ -199,12 +152,53 @@ export default function Onboarding() {
     return data.bikeYear > 0 && data.bikeMake !== '' && data.bikeModel !== '' && data.bikeModel !== 'Select a model';
   };
 
-  // Update a component entry value
-  const updateComponentEntry = (key: string, value: string) => {
+  // Update a component entry field
+  const updateComponentEntry = (
+    key: string,
+    field: 'brand' | 'model' | 'travelMm' | 'offsetMm' | 'lengthMm' | 'widthMm',
+    value: string | number
+  ) => {
     setComponentEntries((prev) =>
-      prev.map((entry) => (entry.key === key ? { ...entry, value } : entry))
+      prev.map((entry) => {
+        if (entry.key !== key) return entry;
+        if (field === 'brand' || field === 'model') {
+          return { ...entry, [field]: value as string };
+        }
+        // Handle numeric dimension fields with field-specific limits
+        return { ...entry, [field]: parseNumericInput(value, 0, getDimensionLimit(field)) };
+      })
     );
+    // Clear validation error when user edits
+    if (validationErrors[key]) {
+      setValidationErrors((prev) => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+    }
   };
+
+  // Handle size selection - preserve user edits, only update dimensions from new size
+  // Wrapped in useCallback to prevent unnecessary re-renders and ensure stable reference
+  const handleSizeChange = useCallback((sizeName: string) => {
+    setSelectedSize(sizeName || null);
+    if (sizeName && spokesDetails) {
+      const newEntries = buildComponentEntries(spokesDetails, sizeName);
+      // Merge new size geometry with existing user edits
+      setComponentEntries((prev) =>
+        newEntries.map((newEntry) => {
+          const existing = prev.find((e) => e.key === newEntry.key);
+          if (!existing) return newEntry;
+          // Preserve user's brand/model edits, update dimensions from new size
+          return {
+            ...newEntry,
+            brand: existing.brand || newEntry.brand,
+            model: existing.model || newEntry.model,
+          };
+        })
+      );
+    }
+  }, [spokesDetails]);
 
   // Handle bike selection from search
   const handleBikeSelect = async (bike: SpokesSearchResult) => {
@@ -346,7 +340,7 @@ export default function Onboarding() {
   };
 
   const handleComplete = async () => {
-    setIsLoading(true);
+    setLoadingState('saving');
     setError(null);
 
     try {
@@ -369,19 +363,30 @@ export default function Onboarding() {
         } : null,
       } : undefined;
 
-      // Build legacy components format from component entries
+      // Build legacy components format from component entries (now with separate brand/model)
       const getComponentValue = (key: string) => {
         const entry = componentEntries.find((e) => e.key === key);
-        return entry?.value || '';
+        if (!entry) return '';
+        // Combine brand and model for legacy format
+        return [entry.brand, entry.model].filter(Boolean).join(' ').trim();
       };
 
       // Check if seatpost is a dropper
       const seatpostEntry = componentEntries.find((e) => e.key === 'seatpost');
       const isDropper = seatpostEntry?.kind === 'dropper';
 
+      // Travel fields: component table entries take precedence over form state.
+      // This allows users to edit travel in the component table and have
+      // those values persist to the bike record, overriding any auto-populated values.
+      const forkEntry = componentEntries.find((e) => e.key === 'fork');
+      const shockEntry = componentEntries.find((e) => e.key === 'rearShock');
+
       const submissionData = {
         ...data,
-        spokesComponents,
+        selectedSize: selectedSize || undefined,  // Frontend-only, not persisted to DB
+        bikeTravelFork: forkEntry?.travelMm || data.bikeTravelFork,
+        bikeTravelShock: shockEntry?.travelMm || data.bikeTravelShock,
+        spokesComponents: filterNonNullComponents(spokesComponents),
         components: {
           fork: getComponentValue('fork'),
           rearShock: getComponentValue('rearShock'),
@@ -402,6 +407,9 @@ export default function Onboarding() {
         throw new Error(text || 'Failed to complete onboarding');
       }
 
+      // Update loading state for cache sync
+      setLoadingState('syncing');
+
       // Refetch user data to get updated onboardingCompleted status
       const { data: userData } = await apollo.query({ query: ME_QUERY, fetchPolicy: 'network-only' });
       apollo.writeQuery({ query: ME_QUERY, data: userData });
@@ -409,10 +417,11 @@ export default function Onboarding() {
       // Clear saved onboarding data from sessionStorage
       sessionStorage.removeItem('onboarding_data');
 
+      setLoadingState('redirecting');
       navigate('/dashboard', { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
-      setIsLoading(false);
+      setLoadingState('idle');
     }
   };
 
@@ -579,9 +588,9 @@ export default function Onboarding() {
               {data.bikeMake && data.bikeModel && !showManualBikeEntry && (
                 <div className="rounded-lg bg-surface-2 p-4 border border-app text-left">
                   <div className="flex gap-4">
-                    {data.thumbnailUrl && (
+                    {getBikeImageUrl() && (
                       <img
-                        src={data.thumbnailUrl}
+                        src={getBikeImageUrl()!}
                         alt={`${data.bikeYear} ${data.bikeMake} ${data.bikeModel}`}
                         className="w-24 h-18 object-contain rounded bg-white/5"
                         onError={(e) => {
@@ -605,10 +614,33 @@ export default function Onboarding() {
                       )}
                     </div>
                   </div>
+
+                  {/* Size selector */}
+                  {availableSizes.length > 0 && (
+                    <div className="mt-4 pt-3 border-t border-app/50">
+                      <label className="text-sm text-muted block mb-1">Frame Size</label>
+                      <select
+                        value={selectedSize || ''}
+                        onChange={(e) => handleSizeChange(e.target.value)}
+                        className="w-full px-3 py-2 rounded-lg bg-surface border border-app text-heading text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+                      >
+                        <option value="">Select size (optional)</option>
+                        {availableSizes.map((size) => (
+                          <option key={size} value={size}>
+                            {size}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="text-xs text-muted mt-1">
+                        Size selection updates component dimensions
+                      </p>
+                    </div>
+                  )}
+
                   <button
                     type="button"
                     onClick={() => setShowManualBikeEntry(true)}
-                    className="text-xs text-primary hover:underline mt-2"
+                    className="text-xs text-primary hover:underline mt-3"
                   >
                     Edit details manually
                   </button>
@@ -737,37 +769,126 @@ export default function Onboarding() {
                 <table className="w-full">
                   <thead>
                     <tr className="border-b border-app bg-surface-2">
-                      <th className="text-left text-xs font-medium text-muted uppercase tracking-wide px-4 py-2 w-1/3">
+                      <th className="text-left text-xs font-medium text-muted uppercase tracking-wide px-4 py-2 w-28">
                         Component
                       </th>
+                      <th className="text-left text-xs font-medium text-muted uppercase tracking-wide px-4 py-2 w-32">
+                        Brand
+                      </th>
                       <th className="text-left text-xs font-medium text-muted uppercase tracking-wide px-4 py-2">
-                        Part
+                        Model
+                      </th>
+                      <th className="text-left text-xs font-medium text-muted uppercase tracking-wide px-4 py-2 w-40">
+                        Specs
                       </th>
                     </tr>
                   </thead>
                   <tbody>
-                    {componentEntries.map((entry, idx) => (
-                      <tr
-                        key={entry.key}
-                        className={`${idx < componentEntries.length - 1 ? 'border-b border-app' : ''} hover:bg-surface-2 transition-colors group`}
-                      >
-                        <td className="px-4 py-2 text-sm text-heading font-medium">
-                          {entry.label}
-                        </td>
-                        <td className="px-4 py-2">
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="text"
-                              value={entry.value}
-                              onChange={(e) => updateComponentEntry(entry.key, e.target.value)}
-                              placeholder="Brand Model"
-                              className="flex-1 bg-transparent text-sm text-heading placeholder:text-muted/50 focus:outline-none"
-                            />
-                            <FaPencilAlt className="w-3 h-3 text-muted/40 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
+                    {componentEntries.map((entry, idx) => {
+                      // Determine which dimension field to show
+                      const hasTravelSpec = entry.key === 'fork' || entry.key === 'rearShock';
+                      const hasOffsetSpec = entry.key === 'fork';
+                      const hasLengthSpec = entry.key === 'stem';
+                      const hasWidthSpec = entry.key === 'handlebar';
+                      const hasAnySpec = hasTravelSpec || hasLengthSpec || hasWidthSpec;
+
+                      return (
+                        <tr
+                          key={entry.key}
+                          className={`${idx < componentEntries.length - 1 ? 'border-b border-app' : ''} hover:bg-surface-2 transition-colors group`}
+                        >
+                          <td className="px-4 py-2 text-sm text-heading font-medium">
+                            {entry.label}
+                          </td>
+                          <td className="px-4 py-2">
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="text"
+                                value={entry.brand}
+                                onChange={(e) => updateComponentEntry(entry.key, 'brand', e.target.value)}
+                                placeholder="Brand"
+                                className="w-full bg-transparent text-sm text-heading placeholder:text-muted/50 focus:outline-none"
+                              />
+                              <FaPencilAlt className="w-3 h-3 text-muted/40 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
+                            </div>
+                          </td>
+                          <td className="px-4 py-2">
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="text"
+                                value={entry.model}
+                                onChange={(e) => updateComponentEntry(entry.key, 'model', e.target.value)}
+                                placeholder="Model"
+                                className="w-full bg-transparent text-sm text-heading placeholder:text-muted/50 focus:outline-none"
+                              />
+                              <FaPencilAlt className="w-3 h-3 text-muted/40 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
+                            </div>
+                          </td>
+                          <td className="px-4 py-2">
+                            {hasAnySpec && (
+                              <div className="flex items-center gap-2 text-sm">
+                                {hasTravelSpec && (
+                                  <div className="flex items-center gap-1">
+                                    <input
+                                      type="number"
+                                      value={entry.travelMm ?? ''}
+                                      onChange={(e) => updateComponentEntry(entry.key, 'travelMm', e.target.value)}
+                                      placeholder="—"
+                                      className="w-12 bg-transparent text-heading placeholder:text-muted/50 focus:outline-none text-center"
+                                      min={0}
+                                    />
+                                    <span className="text-muted text-xs">mm</span>
+                                  </div>
+                                )}
+                                {hasOffsetSpec && (
+                                  <div className="flex items-center gap-1 ml-2">
+                                    <span className="text-muted text-xs">offset</span>
+                                    <input
+                                      type="number"
+                                      value={entry.offsetMm ?? ''}
+                                      onChange={(e) => updateComponentEntry(entry.key, 'offsetMm', e.target.value)}
+                                      placeholder="—"
+                                      className="w-10 bg-transparent text-heading placeholder:text-muted/50 focus:outline-none text-center"
+                                      min={0}
+                                    />
+                                    <span className="text-muted text-xs">mm</span>
+                                  </div>
+                                )}
+                                {hasLengthSpec && (
+                                  <div className="flex items-center gap-1">
+                                    <input
+                                      type="number"
+                                      value={entry.lengthMm ?? ''}
+                                      onChange={(e) => updateComponentEntry(entry.key, 'lengthMm', e.target.value)}
+                                      placeholder="—"
+                                      className="w-12 bg-transparent text-heading placeholder:text-muted/50 focus:outline-none text-center"
+                                      min={0}
+                                    />
+                                    <span className="text-muted text-xs">mm</span>
+                                  </div>
+                                )}
+                                {hasWidthSpec && (
+                                  <div className="flex items-center gap-1">
+                                    <input
+                                      type="number"
+                                      value={entry.widthMm ?? ''}
+                                      onChange={(e) => updateComponentEntry(entry.key, 'widthMm', e.target.value)}
+                                      placeholder="—"
+                                      className="w-12 bg-transparent text-heading placeholder:text-muted/50 focus:outline-none text-center"
+                                      min={0}
+                                    />
+                                    <span className="text-muted text-xs">mm</span>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                            {entry.kind === 'dropper' && (
+                              <span className="text-xs text-muted italic">dropper</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -873,7 +994,10 @@ export default function Onboarding() {
                   className="flex-1"
                   disabled={isLoading}
                 >
-                  {isLoading ? 'Completing...' : 'Continue'}
+                  {loadingState === 'idle' && 'Continue'}
+                  {loadingState === 'saving' && 'Saving bike...'}
+                  {loadingState === 'syncing' && 'Syncing...'}
+                  {loadingState === 'redirecting' && 'Redirecting...'}
                 </Button>
               </div>
             )}
