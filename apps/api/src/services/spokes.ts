@@ -304,6 +304,7 @@ export async function searchBikes(params: {
       headers: {
         Authorization: `Bearer ${SPOKES_API_KEY}`,
         Accept: 'application/json',
+        'User-Agent': 'LoamLogger/1.0',
       },
     });
 
@@ -358,14 +359,14 @@ export async function getBikeById(id: string): Promise<SpokesBike | null> {
     await acquireRequestSlot();
 
     // Use direct endpoint for full bike details with geometry/size data
-    const url = new URL(`${SPOKES_API_BASE}/bikes/`);
-    url.pathname = url.pathname + id;
+    const url = new URL(`${SPOKES_API_BASE}/bikes/${id}`);
     url.searchParams.set('include', 'thumbnailUrl,components,suspension,sizes,images');
 
     const response = await fetch(url.toString(), {
       headers: {
         Authorization: `Bearer ${SPOKES_API_KEY}`,
         Accept: 'application/json',
+        'User-Agent': 'LoamLogger/1.0',
       },
     });
 
@@ -373,7 +374,8 @@ export async function getBikeById(id: string): Promise<SpokesBike | null> {
       if (response.status === 404) {
         return null;
       }
-      console.error(`[Spokes] Get bike API error ${response.status}`);
+      const errorBody = await response.text().catch(() => '');
+      console.error(`[Spokes] Get bike API error ${response.status}: ${errorBody}`);
       return null;
     }
 
