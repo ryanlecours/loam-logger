@@ -14,58 +14,6 @@ import { SPOKES_TO_COMPONENT_TYPE } from '@loam/shared';
 
 type ComponentType = ComponentTypeLiteral;
 
-/**
- * Creates a component if one doesn't already exist for the given bike and type.
- * Uses findFirst + create pattern but handles race conditions by catching
- * duplicate creation errors gracefully.
- */
-async function createComponentIfNotExists(
-  tx: Prisma.TransactionClient,
-  data: {
-    bikeId: string;
-    userId: string;
-    type: ComponentType;
-    brand: string;
-    model: string;
-    notes?: string | null;
-    isStock?: boolean;
-    hoursUsed?: number;
-    installedAt?: Date;
-  }
-): Promise<void> {
-  const existing = await tx.component.findFirst({
-    where: { bikeId: data.bikeId, type: data.type },
-  });
-
-  if (existing) return;
-
-  try {
-    await tx.component.create({
-      data: {
-        type: data.type,
-        bikeId: data.bikeId,
-        userId: data.userId,
-        brand: data.brand,
-        model: data.model,
-        notes: data.notes ?? null,
-        isStock: data.isStock ?? false,
-        hoursUsed: data.hoursUsed ?? 0,
-        installedAt: data.installedAt ?? new Date(),
-      },
-    });
-  } catch (error) {
-    // Handle race condition: if another request created the component
-    // between our findFirst and create, just ignore the error
-    if (
-      error instanceof Error &&
-      error.message.includes('Unique constraint')
-    ) {
-      return;
-    }
-    throw error;
-  }
-}
-
 type UserArgs = { id: string };
 
 type AddRideInput = {
