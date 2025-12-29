@@ -45,27 +45,19 @@ export const toSpokesInput = (
  * Used when selecting a bike from search.
  *
  * @param details - 99spokes bike details (or null for empty entries)
- * @param selectedSize - Optional frame size to use for geometry values
  */
 export const buildComponentEntries = (
-  details: SpokesBikeDetails | null,
-  selectedSize?: string
+  details: SpokesBikeDetails | null
 ): ComponentEntry[] => {
-  // Get geometry from selected size or first available
-  const sizeData = selectedSize
-    ? details?.sizes?.find(s => s.name === selectedSize)
-    : details?.sizes?.[0];
-  const geometry = sizeData?.geometry?.source || sizeData?.geometry?.computed;
-
   return ALL_COMPONENT_TYPES.map(({ key, label, spokesKey }) => {
     let brand = '';
     let model = '';
     let description = '';
     let kind: string | undefined;
-    let travelMm: number | undefined;
-    let offsetMm: number | undefined;
-    let lengthMm: number | undefined;
-    let widthMm: number | undefined;
+    const travelMm: number | undefined = undefined;
+    const offsetMm: number | undefined = undefined;
+    const lengthMm: number | undefined = undefined;
+    const widthMm: number | undefined = undefined;
 
     if (details?.components && spokesKey) {
       const comp = details.components[spokesKey as keyof typeof details.components] as SpokesComponentEntry | undefined;
@@ -75,36 +67,6 @@ export const buildComponentEntries = (
         description = comp.description || '';
         kind = comp.kind;
       }
-    }
-
-    // Special handling for suspension components - prefer suspension object data
-    if (key === 'fork' && details?.suspension?.front?.component) {
-      const suspComp = details.suspension.front.component;
-      brand = suspComp.make || brand;
-      model = suspComp.model || model;
-      description = suspComp.description || description;
-    }
-    if (key === 'rearShock' && details?.suspension?.rear?.component) {
-      const suspComp = details.suspension.rear.component;
-      brand = suspComp.make || brand;
-      model = suspComp.model || model;
-      description = suspComp.description || description;
-    }
-
-    // Add dimension data based on component type
-    // Use nullish coalescing (??) to preserve valid zero values
-    if (key === 'fork') {
-      travelMm = details?.suspension?.front?.travelMM ?? details?.suspension?.front?.travel;
-      offsetMm = geometry?.rakeMM ?? undefined;
-    }
-    if (key === 'rearShock') {
-      travelMm = details?.suspension?.rear?.travelMM ?? details?.suspension?.rear?.travel;
-    }
-    if (key === 'stem') {
-      lengthMm = geometry?.stemLengthMM ?? undefined;
-    }
-    if (key === 'handlebar') {
-      widthMm = geometry?.handlebarWidthMM ?? undefined;
     }
 
     // Update label for dropper posts

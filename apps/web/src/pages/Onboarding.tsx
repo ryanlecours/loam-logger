@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useApolloClient, useQuery, gql } from '@apollo/client';
 import { FaMountain, FaPencilAlt } from 'react-icons/fa';
@@ -85,11 +85,7 @@ export default function Onboarding() {
   const [showManualBikeEntry, setShowManualBikeEntry] = useState(false);
   const [componentEntries, setComponentEntries] = useState<ComponentEntry[]>(() => buildComponentEntries(null));
   const [spokesDetails, setSpokesDetails] = useState<SpokesBikeDetails | null>(null);
-  const [selectedSize, setSelectedSize] = useState<string | null>(null);
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
-
-  // Get available sizes from spokesDetails
-  const availableSizes = spokesDetails?.sizes?.map(s => s.name) || [];
 
   // Get bike image URL with fallback to images array, validated for security
   const getBikeImageUrl = () => {
@@ -177,28 +173,6 @@ export default function Onboarding() {
       });
     }
   };
-
-  // Handle size selection - preserve user edits, only update dimensions from new size
-  // Wrapped in useCallback to prevent unnecessary re-renders and ensure stable reference
-  const handleSizeChange = useCallback((sizeName: string) => {
-    setSelectedSize(sizeName || null);
-    if (sizeName && spokesDetails) {
-      const newEntries = buildComponentEntries(spokesDetails, sizeName);
-      // Merge new size geometry with existing user edits
-      setComponentEntries((prev) =>
-        newEntries.map((newEntry) => {
-          const existing = prev.find((e) => e.key === newEntry.key);
-          if (!existing) return newEntry;
-          // Preserve user's brand/model edits, update dimensions from new size
-          return {
-            ...newEntry,
-            brand: existing.brand || newEntry.brand,
-            model: existing.model || newEntry.model,
-          };
-        })
-      );
-    }
-  }, [spokesDetails]);
 
   // Handle bike selection from search
   const handleBikeSelect = async (bike: SpokesSearchResult) => {
@@ -383,7 +357,6 @@ export default function Onboarding() {
 
       const submissionData = {
         ...data,
-        selectedSize: selectedSize || undefined,  // Frontend-only, not persisted to DB
         bikeTravelFork: forkEntry?.travelMm || data.bikeTravelFork,
         bikeTravelShock: shockEntry?.travelMm || data.bikeTravelShock,
         spokesComponents: filterNonNullComponents(spokesComponents),
@@ -614,28 +587,6 @@ export default function Onboarding() {
                       )}
                     </div>
                   </div>
-
-                  {/* Size selector */}
-                  {availableSizes.length > 0 && (
-                    <div className="mt-4 pt-3 border-t border-app/50">
-                      <label className="text-sm text-muted block mb-1">Frame Size</label>
-                      <select
-                        value={selectedSize || ''}
-                        onChange={(e) => handleSizeChange(e.target.value)}
-                        className="w-full px-3 py-2 rounded-lg bg-surface border border-app text-heading text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
-                      >
-                        <option value="">Select size (optional)</option>
-                        {availableSizes.map((size) => (
-                          <option key={size} value={size}>
-                            {size}
-                          </option>
-                        ))}
-                      </select>
-                      <p className="text-xs text-muted mt-1">
-                        Size selection updates component dimensions
-                      </p>
-                    </div>
-                  )}
 
                   <button
                     type="button"
