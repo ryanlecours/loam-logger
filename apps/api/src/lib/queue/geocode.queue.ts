@@ -23,7 +23,7 @@ let geocodeQueue: Queue<GeocodeJobData, void, GeocodeJobName> | null = null;
 export function getGeocodeQueue(): Queue<GeocodeJobData, void, GeocodeJobName> {
   if (!geocodeQueue) {
     geocodeQueue = new Queue<GeocodeJobData, void, GeocodeJobName>('geocode', {
-      ...getQueueConnection(),
+      connection: getQueueConnection(),
       defaultJobOptions: {
         attempts: MAX_RETRY_ATTEMPTS,
         backoff: {

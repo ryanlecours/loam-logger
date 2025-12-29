@@ -550,7 +550,7 @@ export function createSyncWorker(): Worker<SyncJobData, void, SyncJobName> {
     'sync',
     processSyncJob,
     {
-      ...getQueueConnection(),
+      connection: getQueueConnection(),
       concurrency: 3, // Process up to 3 syncs in parallel (different users/providers)
     }
   );

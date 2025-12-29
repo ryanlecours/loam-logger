@@ -132,12 +132,35 @@ model Bike {
   travelShockMm Int?
   notes         String?
 
+  // 99spokes integration
+  spokesId       String?   // 99spokes bike ID for future spec lookups
+  spokesUrl      String?   // Full URL to 99spokes page
+  thumbnailUrl   String?   // Bike image URL from 99spokes
+  family         String?   // e.g., "TYEE", "Slash"
+  category       String?   // e.g., "mountain", "road"
+  subcategory    String?   // e.g., "enduro", "trail"
+  buildKind      String?   // e.g., "complete", "frameset"
+  isFrameset     Boolean   @default(false)
+  isEbike        Boolean   @default(false)
+  gender         String?   // e.g., "unisex", "mens", "womens"
+  frameMaterial  String?   // e.g., "carbon", "aluminum"
+  hangerStandard String?   // e.g., "udh"
+
+  // E-bike motor/battery specs (for service tracking)
+  motorMaker     String?   // e.g., "Shimano"
+  motorModel     String?   // e.g., "EP8"
+  motorPowerW    Int?      // Motor power in watts
+  motorTorqueNm  Int?      // Motor torque in Nm
+  batteryWh      Int?      // Battery capacity in Wh
+
   components Component[]
   stravaGearMappings StravaGearMapping[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   Ride      Ride[]
+
+  @@index([spokesId])
 }
 
 model StravaGearMapping {
@@ -195,4 +218,12 @@ enum ComponentType {
   CASSETTE
   OTHER
   PIVOT_BEARINGS
+  // New from 99spokes
+  STEM
+  HANDLEBAR
+  SADDLE
+  SEATPOST
+  RIMS
+  CRANK
+  REAR_DERAILLEUR
 }

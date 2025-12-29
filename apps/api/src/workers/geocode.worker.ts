@@ -63,7 +63,7 @@ export function createGeocodeWorker(): Worker<GeocodeJobData, void, GeocodeJobNa
     'geocode',
     processGeocodeJob,
     {
-      ...getQueueConnection(),
+      connection: getQueueConnection(),
       // Concurrency of 1 ensures sequential processing for rate limiting
       concurrency: 1,
     }
