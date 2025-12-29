@@ -303,6 +303,15 @@ export default function Gear() {
   const currentBike = bikeModal?.mode === 'edit' ? bikeModal.bike : undefined;
   const currentSpare = spareModal?.mode === 'edit' ? spareModal.component : undefined;
 
+  // Memoize the bike form state to prevent re-initialization on every render
+  // This preserves the form state when validation errors occur
+  const initialBikeState = useMemo(
+    () => createBikeFormState(currentBike),
+    // Only recreate when the modal mode or bike ID changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [bikeModal?.mode, currentBike?.id]
+  );
+
   const initialSpareState: SpareFormState = useMemo(() => {
     if (!currentSpare) {
       return {
@@ -596,7 +605,7 @@ export default function Gear() {
         {bikeModal && (
           <BikeForm
             mode={bikeModal.mode}
-            initial={createBikeFormState(currentBike)}
+            initial={initialBikeState}
             submitting={busyBike}
             error={bikeFormError}
             onSubmit={(form) => handleBikeSubmit(form, currentBike?.id)}
