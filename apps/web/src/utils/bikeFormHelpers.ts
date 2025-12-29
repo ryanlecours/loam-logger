@@ -187,15 +187,24 @@ export const validateAllComponents = (entries: ComponentEntry[]): Record<string,
 const MAX_DIMENSION_MM = 220;
 
 /**
- * Parses a numeric input value with NaN and range validation.
+ * Parses a numeric input value with strict validation.
  * Returns the parsed number or undefined if invalid or out of range.
+ * Unlike parseInt, this rejects strings with trailing non-numeric characters
+ * (e.g., "123abc" returns undefined instead of 123).
  */
 export const parseNumericInput = (
   value: string | number,
   min = 0,
   max = MAX_DIMENSION_MM
 ): number | undefined => {
-  const num = typeof value === 'number' ? value : parseInt(value, 10);
+  if (typeof value === 'number') {
+    if (Number.isNaN(value) || value < min || value > max) return undefined;
+    return value;
+  }
+  // Strict parsing: reject strings with non-numeric characters
+  const trimmed = value.trim();
+  if (!/^-?\d+$/.test(trimmed)) return undefined;
+  const num = parseInt(trimmed, 10);
   if (Number.isNaN(num) || num < min || num > max) return undefined;
   return num;
 };

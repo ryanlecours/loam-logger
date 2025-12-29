@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { getRedisConnection, isRedisReady } from '../lib/redis';
 
 // API configuration
@@ -195,11 +196,14 @@ const acquireRequestSlot = async (): Promise<void> => {
 
 /**
  * Sanitizes a string for use in cache keys.
- * Replaces colons, whitespace, and control characters with underscores,
- * then truncates to prevent excessively long keys.
+ * Replaces non-alphanumeric characters with underscores and appends a short hash
+ * to prevent collisions (e.g., "Santa Cruz" vs "Santa:Cruz" would otherwise both
+ * become "Santa_Cruz").
  */
-const sanitizeCacheKey = (str: string): string =>
-  str.replace(/[:\s\n\r\t]/g, '_').slice(0, 200);
+const sanitizeCacheKey = (str: string): string => {
+  const hash = crypto.createHash('sha256').update(str).digest('hex').slice(0, 8);
+  return str.replace(/[^\w-]/g, '_').slice(0, 100) + '_' + hash;
+};
 
 const getCached = async <T>(key: string): Promise<T | undefined> => {
   // Try Redis first
@@ -354,7 +358,9 @@ export async function getBikeById(id: string): Promise<SpokesBike | null> {
     await acquireRequestSlot();
 
     // Use direct endpoint for full bike details with geometry/size data
-    const url = new URL(`${SPOKES_API_BASE}/bikes/${encodeURIComponent(id)}`);
+    // Build URL safely: construct base first, then append encoded ID to pathname
+    const url = new URL(`${SPOKES_API_BASE}/bikes/`);
+    url.pathname = url.pathname + encodeURIComponent(id);
     url.searchParams.set('include', 'thumbnailUrl,components,suspension,sizes,images');
 
     const response = await fetch(url.toString(), {
