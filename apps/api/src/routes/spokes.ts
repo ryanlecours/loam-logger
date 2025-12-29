@@ -47,7 +47,7 @@ router.get('/search', async (req, res) => {
 
 /**
  * GET /api/spokes/bike/:id
- * Get full bike details including suspension and components.
+ * Get full bike details including components and images.
  */
 router.get('/bike/:id', async (req, res) => {
   try {

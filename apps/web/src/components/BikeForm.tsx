@@ -150,14 +150,9 @@ export function BikeForm({
   const [showManualEntry, setShowManualEntry] = useState(false);
   const [componentEntries, setComponentEntries] = useState<ComponentEntry[]>([]);
   const [spokesDetails, setSpokesDetails] = useState<SpokesBikeDetails | null>(null);
-  const [selectedSize, setSelectedSize] = useState<string | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [pendingSizeChange, setPendingSizeChange] = useState<string | null>(null);
   const validationTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const { getBikeDetails, isLoading: loadingDetails } = useSpokes();
-
-  // Get available sizes from spokesDetails
-  const availableSizes = spokesDetails?.sizes?.map(s => s.name) || [];
 
   // Get bike image URL with fallback to images array, validated for security
   const getBikeImageUrl = () => {
@@ -207,14 +202,8 @@ export function BikeForm({
     if (details) {
       setSpokesDetails(details);
 
-      // Prefer travelMM from direct endpoint
-      const forkTravel = details.suspension?.front?.travelMM || details.suspension?.front?.travel;
-      const shockTravel = details.suspension?.rear?.travelMM || details.suspension?.rear?.travel;
-
       setForm((prev) => ({
         ...prev,
-        travelForkMm: forkTravel ? String(forkTravel) : prev.travelForkMm,
-        travelShockMm: shockTravel ? String(shockTravel) : prev.travelShockMm,
         spokesUrl: details.url || null,
         thumbnailUrl: details.thumbnailUrl || null,
         family: details.family || prev.family,
@@ -309,53 +298,6 @@ export function BikeForm({
     return Object.keys(newErrors).length === 0;
   };
 
-  // Check if user has manually edited any dimension fields
-  const hasUserDimensionEdits = useCallback((): boolean => {
-    if (!spokesDetails || !selectedSize) return false;
-    const original = buildComponentEntries(spokesDetails, selectedSize);
-    return componentEntries.some((entry) => {
-      const orig = original.find((o) => o.key === entry.key);
-      if (!orig) return false;
-      return (
-        (entry.travelMm !== undefined && entry.travelMm !== orig.travelMm) ||
-        (entry.offsetMm !== undefined && entry.offsetMm !== orig.offsetMm) ||
-        (entry.lengthMm !== undefined && entry.lengthMm !== orig.lengthMm) ||
-        (entry.widthMm !== undefined && entry.widthMm !== orig.widthMm)
-      );
-    });
-  }, [componentEntries, spokesDetails, selectedSize]);
-
-  // Apply new size selection (called after confirmation or when no edits exist)
-  const applyNewSize = useCallback((sizeName: string) => {
-    setSelectedSize(sizeName || null);
-    if (sizeName && spokesDetails) {
-      const newEntries = buildComponentEntries(spokesDetails, sizeName);
-      // Merge new size geometry with existing user edits (preserve brand/model only)
-      setComponentEntries((prev) =>
-        newEntries.map((newEntry) => {
-          const existing = prev.find((e) => e.key === newEntry.key);
-          if (!existing) return newEntry;
-          // Preserve user's brand/model edits, update dimensions from new size
-          return {
-            ...newEntry,
-            brand: existing.brand || newEntry.brand,
-            model: existing.model || newEntry.model,
-          };
-        })
-      );
-    }
-    setPendingSizeChange(null);
-  }, [spokesDetails]);
-
-  // Handle size selection - warn before overwriting user's dimension edits
-  // Wrapped in useCallback to prevent unnecessary re-renders and ensure stable reference
-  const handleSizeChange = useCallback((sizeName: string) => {
-    if (hasUserDimensionEdits()) {
-      setPendingSizeChange(sizeName);
-      return;
-    }
-    applyNewSize(sizeName);
-  }, [hasUserDimensionEdits, applyNewSize]);
 
   // Build final form data and submit
   const handleSubmit = (evt: React.FormEvent) => {
@@ -413,7 +355,6 @@ export function BikeForm({
       ...form,
       travelForkMm: forkEntry?.travelMm ? String(forkEntry.travelMm) : form.travelForkMm,
       travelShockMm: shockEntry?.travelMm ? String(shockEntry.travelMm) : form.travelShockMm,
-      selectedSize: selectedSize || undefined,
       spokesComponents: filterNonNullComponents(spokesComponents),
       components: {
         fork: getComponentData('fork'),
@@ -491,53 +432,6 @@ export function BikeForm({
                 )}
               </div>
             </div>
-
-            {/* Size selector */}
-            {availableSizes.length > 0 && (
-              <div className="mt-4 pt-3 border-t border-app/50">
-                <label className="text-sm text-muted block mb-1">Frame Size</label>
-                <select
-                  value={selectedSize || ''}
-                  onChange={(e) => handleSizeChange(e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg bg-surface border border-app text-heading text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
-                >
-                  <option value="">Select size (optional)</option>
-                  {availableSizes.map((size) => (
-                    <option key={size} value={size}>
-                      {size}
-                    </option>
-                  ))}
-                </select>
-                <p className="text-xs text-muted mt-1">
-                  Size selection updates component dimensions
-                </p>
-
-                {/* Confirmation dialog for size change when user has edited dimensions */}
-                {pendingSizeChange && (
-                  <div className="mt-2 p-3 bg-surface-2 border border-amber-500/50 rounded-lg">
-                    <p className="text-sm text-heading mb-2">
-                      Changing size will reset dimension values you've edited. Continue?
-                    </p>
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={() => applyNewSize(pendingSizeChange)}
-                        className="px-3 py-1 text-sm bg-primary text-white rounded hover:bg-primary/90"
-                      >
-                        Yes, change size
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setPendingSizeChange(null)}
-                        className="px-3 py-1 text-sm bg-surface border border-app text-muted rounded hover:bg-surface-2"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
 
             <button
               type="button"
