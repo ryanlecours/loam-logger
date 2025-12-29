@@ -92,18 +92,19 @@ export const buildComponentEntries = (
     }
 
     // Add dimension data based on component type
+    // Use nullish coalescing (??) to preserve valid zero values
     if (key === 'fork') {
-      travelMm = details?.suspension?.front?.travelMM || details?.suspension?.front?.travel;
-      offsetMm = geometry?.rakeMM;
+      travelMm = details?.suspension?.front?.travelMM ?? details?.suspension?.front?.travel;
+      offsetMm = geometry?.rakeMM ?? undefined;
     }
     if (key === 'rearShock') {
-      travelMm = details?.suspension?.rear?.travelMM || details?.suspension?.rear?.travel;
+      travelMm = details?.suspension?.rear?.travelMM ?? details?.suspension?.rear?.travel;
     }
     if (key === 'stem') {
-      lengthMm = geometry?.stemLengthMM;
+      lengthMm = geometry?.stemLengthMM ?? undefined;
     }
     if (key === 'handlebar') {
-      widthMm = geometry?.handlebarWidthMM;
+      widthMm = geometry?.handlebarWidthMM ?? undefined;
     }
 
     // Update label for dropper posts
@@ -182,12 +183,53 @@ export const validateAllComponents = (entries: ComponentEntry[]): Record<string,
   return errors;
 };
 
+/** Maximum dimension in mm (220mm - brake rotors are 220mm, everything else is <220mm) */
+const MAX_DIMENSION_MM = 220;
+
 /**
- * Parses a numeric input value with NaN validation.
- * Returns the parsed number or undefined if invalid.
+ * Parses a numeric input value with NaN and range validation.
+ * Returns the parsed number or undefined if invalid or out of range.
  */
-export const parseNumericInput = (value: string | number): number | undefined => {
-  if (typeof value === 'number') return value;
-  const parsed = parseInt(value, 10);
-  return !isNaN(parsed) ? parsed : undefined;
+export const parseNumericInput = (
+  value: string | number,
+  min = 0,
+  max = MAX_DIMENSION_MM
+): number | undefined => {
+  const num = typeof value === 'number' ? value : parseInt(value, 10);
+  if (Number.isNaN(num) || num < min || num > max) return undefined;
+  return num;
+};
+
+/**
+ * Validates that a URL is safe for use in img src attributes.
+ * Only allows http/https protocols to prevent XSS via javascript: or data: URLs.
+ */
+export const isValidImageUrl = (url: string | null | undefined): boolean => {
+  if (!url) return false;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * Filters spokesComponents to only include non-null entries.
+ * Reduces payload size when sending to the backend.
+ */
+export const filterNonNullComponents = (
+  components: Record<string, SpokesComponentData | null> | null | undefined
+): Record<string, SpokesComponentData> | null => {
+  if (!components) return null;
+
+  const filtered = Object.entries(components).reduce((acc, [key, value]) => {
+    if (value !== null && value !== undefined) {
+      acc[key] = value;
+    }
+    return acc;
+  }, {} as Record<string, SpokesComponentData>);
+
+  // Return null if all components were null
+  return Object.keys(filtered).length > 0 ? filtered : null;
 };

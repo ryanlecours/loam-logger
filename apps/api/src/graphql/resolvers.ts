@@ -726,7 +726,8 @@ export const resolvers = {
 
       if (spokesId && isSpokesConfigured()) {
         const spokesData = await getBikeById(spokesId);
-        if (spokesData) {
+        // Only use spokesData if both maker and model are present
+        if (spokesData?.maker && spokesData?.model) {
           manufacturer = cleanText(spokesData.maker, MAX_LABEL_LEN);
           model = cleanText(spokesData.model, MAX_LABEL_LEN);
         }

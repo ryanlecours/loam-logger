@@ -13,6 +13,8 @@ import {
   toSpokesInput,
   buildComponentEntries,
   parseNumericInput,
+  isValidImageUrl,
+  filterNonNullComponents,
 } from '@/utils/bikeFormHelpers';
 
 const CONNECTED_ACCOUNTS_QUERY = gql`
@@ -88,17 +90,18 @@ export default function Onboarding() {
   // Get available sizes from spokesDetails
   const availableSizes = spokesDetails?.sizes?.map(s => s.name) || [];
 
-  // Get bike image URL with fallback to images array
+  // Get bike image URL with fallback to images array, validated for security
   const getBikeImageUrl = () => {
-    if (data.thumbnailUrl) return data.thumbnailUrl;
-    if (spokesDetails?.images?.[0]?.url) return spokesDetails.images[0].url;
-    return null;
+    const url = data.thumbnailUrl || spokesDetails?.images?.[0]?.url;
+    return url && isValidImageUrl(url) ? url : null;
   };
 
   // Read step from URL query parameter, default to 1
   const initialStep = parseInt(searchParams.get('step') || '1', 10);
   const [currentStep, setCurrentStep] = useState(initialStep);
-  const [isLoading, setIsLoading] = useState(false);
+  // Granular loading state for better UX during submission
+  const [loadingState, setLoadingState] = useState<'idle' | 'saving' | 'syncing' | 'redirecting'>('idle');
+  const isLoading = loadingState !== 'idle';
   const [error, setError] = useState<string | null>(null);
 
   const accounts = accountsData?.me?.accounts || [];
@@ -336,7 +339,7 @@ export default function Onboarding() {
   };
 
   const handleComplete = async () => {
-    setIsLoading(true);
+    setLoadingState('saving');
     setError(null);
 
     try {
@@ -382,7 +385,7 @@ export default function Onboarding() {
         selectedSize: selectedSize || undefined,  // Frontend-only, not persisted to DB
         bikeTravelFork: forkEntry?.travelMm || data.bikeTravelFork,
         bikeTravelShock: shockEntry?.travelMm || data.bikeTravelShock,
-        spokesComponents,
+        spokesComponents: filterNonNullComponents(spokesComponents),
         components: {
           fork: getComponentValue('fork'),
           rearShock: getComponentValue('rearShock'),
@@ -403,6 +406,9 @@ export default function Onboarding() {
         throw new Error(text || 'Failed to complete onboarding');
       }
 
+      // Update loading state for cache sync
+      setLoadingState('syncing');
+
       // Refetch user data to get updated onboardingCompleted status
       const { data: userData } = await apollo.query({ query: ME_QUERY, fetchPolicy: 'network-only' });
       apollo.writeQuery({ query: ME_QUERY, data: userData });
@@ -410,10 +416,11 @@ export default function Onboarding() {
       // Clear saved onboarding data from sessionStorage
       sessionStorage.removeItem('onboarding_data');
 
+      setLoadingState('redirecting');
       navigate('/dashboard', { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
-      setIsLoading(false);
+      setLoadingState('idle');
     }
   };
 
@@ -986,7 +993,10 @@ export default function Onboarding() {
                   className="flex-1"
                   disabled={isLoading}
                 >
-                  {isLoading ? 'Completing...' : 'Continue'}
+                  {loadingState === 'idle' && 'Continue'}
+                  {loadingState === 'saving' && 'Saving bike...'}
+                  {loadingState === 'syncing' && 'Syncing...'}
+                  {loadingState === 'redirecting' && 'Redirecting...'}
                 </Button>
               </div>
             )}

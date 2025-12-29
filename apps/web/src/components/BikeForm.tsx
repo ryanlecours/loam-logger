@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState, memo } from 'react';
 import { type BikeFormProps, type BikeFormValues } from '@/models/BikeComponents';
 import { Input, Textarea, Button } from './ui';
 import { BikeSearch, type SpokesSearchResult } from './BikeSearch';
@@ -11,7 +11,130 @@ import {
   buildComponentEntriesFromExisting,
   validateComponentEntry,
   parseNumericInput,
+  isValidImageUrl,
+  filterNonNullComponents,
 } from '@/utils/bikeFormHelpers';
+
+/**
+ * Props for ComponentRow - memoized to prevent re-renders on sibling changes
+ */
+type ComponentRowProps = {
+  entry: ComponentEntry;
+  isLast: boolean;
+  error?: string;
+  onUpdate: (key: string, field: 'brand' | 'model' | 'travelMm' | 'offsetMm' | 'lengthMm' | 'widthMm', value: string | number) => void;
+};
+
+/**
+ * Memoized component row to prevent expensive table re-renders.
+ * Only re-renders when its specific entry, error, or isLast status changes.
+ */
+const ComponentRow = memo(function ComponentRow({ entry, isLast, error, onUpdate }: ComponentRowProps) {
+  const hasTravelSpec = entry.key === 'fork' || entry.key === 'rearShock';
+  const hasOffsetSpec = entry.key === 'fork';
+  const hasLengthSpec = entry.key === 'stem';
+  const hasWidthSpec = entry.key === 'handlebar';
+  const hasAnySpec = hasTravelSpec || hasLengthSpec || hasWidthSpec;
+
+  return (
+    <tr
+      className={`${!isLast ? 'border-b border-app' : ''} hover:bg-surface-2 transition-colors group`}
+    >
+      <td className="px-4 py-2 text-sm text-heading font-medium">
+        {entry.label}
+      </td>
+      <td className="px-4 py-2">
+        <div className="flex items-center gap-2">
+          <input
+            type="text"
+            value={entry.brand}
+            onChange={(e) => onUpdate(entry.key, 'brand', e.target.value)}
+            placeholder="Brand"
+            className={`w-full bg-transparent text-sm text-heading placeholder:text-muted/50 focus:outline-none ${error && !entry.brand.trim() ? 'text-red-400 placeholder:text-red-400/50' : ''}`}
+          />
+          <FaPencilAlt className="w-3 h-3 text-muted/40 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
+        </div>
+      </td>
+      <td className="px-4 py-2">
+        <div className="flex items-center gap-2">
+          <input
+            type="text"
+            value={entry.model}
+            onChange={(e) => onUpdate(entry.key, 'model', e.target.value)}
+            placeholder="Model"
+            className={`w-full bg-transparent text-sm text-heading placeholder:text-muted/50 focus:outline-none ${error && !entry.model.trim() ? 'text-red-400 placeholder:text-red-400/50' : ''}`}
+          />
+          <FaPencilAlt className="w-3 h-3 text-muted/40 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
+        </div>
+        {error && (
+          <span className="text-xs text-red-400">{error}</span>
+        )}
+      </td>
+      <td className="px-4 py-2">
+        {hasAnySpec && (
+          <div className="flex items-center gap-2 text-sm">
+            {hasTravelSpec && (
+              <div className="flex items-center gap-1">
+                <input
+                  type="number"
+                  value={entry.travelMm ?? ''}
+                  onChange={(e) => onUpdate(entry.key, 'travelMm', e.target.value)}
+                  placeholder="—"
+                  className="w-12 bg-transparent text-heading placeholder:text-muted/50 focus:outline-none text-center"
+                  min={0}
+                />
+                <span className="text-muted text-xs">mm</span>
+              </div>
+            )}
+            {hasOffsetSpec && (
+              <div className="flex items-center gap-1 ml-2">
+                <span className="text-muted text-xs">offset</span>
+                <input
+                  type="number"
+                  value={entry.offsetMm ?? ''}
+                  onChange={(e) => onUpdate(entry.key, 'offsetMm', e.target.value)}
+                  placeholder="—"
+                  className="w-10 bg-transparent text-heading placeholder:text-muted/50 focus:outline-none text-center"
+                  min={0}
+                />
+                <span className="text-muted text-xs">mm</span>
+              </div>
+            )}
+            {hasLengthSpec && (
+              <div className="flex items-center gap-1">
+                <input
+                  type="number"
+                  value={entry.lengthMm ?? ''}
+                  onChange={(e) => onUpdate(entry.key, 'lengthMm', e.target.value)}
+                  placeholder="—"
+                  className="w-12 bg-transparent text-heading placeholder:text-muted/50 focus:outline-none text-center"
+                  min={0}
+                />
+                <span className="text-muted text-xs">mm</span>
+              </div>
+            )}
+            {hasWidthSpec && (
+              <div className="flex items-center gap-1">
+                <input
+                  type="number"
+                  value={entry.widthMm ?? ''}
+                  onChange={(e) => onUpdate(entry.key, 'widthMm', e.target.value)}
+                  placeholder="—"
+                  className="w-12 bg-transparent text-heading placeholder:text-muted/50 focus:outline-none text-center"
+                  min={0}
+                />
+                <span className="text-muted text-xs">mm</span>
+              </div>
+            )}
+          </div>
+        )}
+        {entry.kind === 'dropper' && (
+          <span className="text-xs text-muted italic">dropper</span>
+        )}
+      </td>
+    </tr>
+  );
+});
 
 export function BikeForm({
   mode,
@@ -33,11 +156,10 @@ export function BikeForm({
   // Get available sizes from spokesDetails
   const availableSizes = spokesDetails?.sizes?.map(s => s.name) || [];
 
-  // Get bike image URL with fallback to images array
+  // Get bike image URL with fallback to images array, validated for security
   const getBikeImageUrl = () => {
-    if (form.thumbnailUrl) return form.thumbnailUrl;
-    if (spokesDetails?.images?.[0]?.url) return spokesDetails.images[0].url;
-    return null;
+    const url = form.thumbnailUrl || spokesDetails?.images?.[0]?.url;
+    return url && isValidImageUrl(url) ? url : null;
   };
 
   useEffect(() => {
@@ -123,8 +245,8 @@ export function BikeForm({
     setStep(1);
   };
 
-  // Update a component entry field
-  const updateComponentEntry = (
+  // Update a component entry field - memoized to prevent ComponentRow re-renders
+  const updateComponentEntry = useCallback((
     key: string,
     field: 'brand' | 'model' | 'travelMm' | 'offsetMm' | 'lengthMm' | 'widthMm',
     value: string | number
@@ -139,15 +261,14 @@ export function BikeForm({
         return { ...entry, [field]: parseNumericInput(value) };
       })
     );
-    // Clear validation error when user edits
-    if (errors[key]) {
-      setErrors((prev) => {
-        const next = { ...prev };
-        delete next[key];
-        return next;
-      });
-    }
-  };
+    // Clear validation error when user edits (using functional form to avoid dependency on errors)
+    setErrors((prev) => {
+      if (!prev[key]) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  }, []);
 
   // Validate all components using shared utility
   const validateAll = (): boolean => {
@@ -239,7 +360,7 @@ export function BikeForm({
       travelForkMm: forkEntry?.travelMm ? String(forkEntry.travelMm) : form.travelForkMm,
       travelShockMm: shockEntry?.travelMm ? String(shockEntry.travelMm) : form.travelShockMm,
       selectedSize: selectedSize || undefined,
-      spokesComponents,
+      spokesComponents: filterNonNullComponents(spokesComponents),
       components: {
         fork: getComponentData('fork'),
         shock: getComponentData('rearShock'),
@@ -502,114 +623,15 @@ export function BikeForm({
             </tr>
           </thead>
           <tbody>
-            {componentEntries.map((entry, idx) => {
-              // Determine which dimension field to show
-              const hasTravelSpec = entry.key === 'fork' || entry.key === 'rearShock';
-              const hasOffsetSpec = entry.key === 'fork';
-              const hasLengthSpec = entry.key === 'stem';
-              const hasWidthSpec = entry.key === 'handlebar';
-              const hasAnySpec = hasTravelSpec || hasLengthSpec || hasWidthSpec;
-
-              return (
-                <tr
-                  key={entry.key}
-                  className={`${idx < componentEntries.length - 1 ? 'border-b border-app' : ''} hover:bg-surface-2 transition-colors group`}
-                >
-                  <td className="px-4 py-2 text-sm text-heading font-medium">
-                    {entry.label}
-                  </td>
-                  <td className="px-4 py-2">
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="text"
-                        value={entry.brand}
-                        onChange={(e) => updateComponentEntry(entry.key, 'brand', e.target.value)}
-                        placeholder="Brand"
-                        className={`w-full bg-transparent text-sm text-heading placeholder:text-muted/50 focus:outline-none ${errors[entry.key] && !entry.brand.trim() ? 'text-red-400 placeholder:text-red-400/50' : ''}`}
-                      />
-                      <FaPencilAlt className="w-3 h-3 text-muted/40 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
-                    </div>
-                  </td>
-                  <td className="px-4 py-2">
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="text"
-                        value={entry.model}
-                        onChange={(e) => updateComponentEntry(entry.key, 'model', e.target.value)}
-                        placeholder="Model"
-                        className={`w-full bg-transparent text-sm text-heading placeholder:text-muted/50 focus:outline-none ${errors[entry.key] && !entry.model.trim() ? 'text-red-400 placeholder:text-red-400/50' : ''}`}
-                      />
-                      <FaPencilAlt className="w-3 h-3 text-muted/40 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
-                    </div>
-                    {errors[entry.key] && (
-                      <span className="text-xs text-red-400">{errors[entry.key]}</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-2">
-                    {hasAnySpec && (
-                      <div className="flex items-center gap-2 text-sm">
-                        {hasTravelSpec && (
-                          <div className="flex items-center gap-1">
-                            <input
-                              type="number"
-                              value={entry.travelMm ?? ''}
-                              onChange={(e) => updateComponentEntry(entry.key, 'travelMm', e.target.value)}
-                              placeholder="—"
-                              className="w-12 bg-transparent text-heading placeholder:text-muted/50 focus:outline-none text-center"
-                              min={0}
-                            />
-                            <span className="text-muted text-xs">mm</span>
-                          </div>
-                        )}
-                        {hasOffsetSpec && (
-                          <div className="flex items-center gap-1 ml-2">
-                            <span className="text-muted text-xs">offset</span>
-                            <input
-                              type="number"
-                              value={entry.offsetMm ?? ''}
-                              onChange={(e) => updateComponentEntry(entry.key, 'offsetMm', e.target.value)}
-                              placeholder="—"
-                              className="w-10 bg-transparent text-heading placeholder:text-muted/50 focus:outline-none text-center"
-                              min={0}
-                            />
-                            <span className="text-muted text-xs">mm</span>
-                          </div>
-                        )}
-                        {hasLengthSpec && (
-                          <div className="flex items-center gap-1">
-                            <input
-                              type="number"
-                              value={entry.lengthMm ?? ''}
-                              onChange={(e) => updateComponentEntry(entry.key, 'lengthMm', e.target.value)}
-                              placeholder="—"
-                              className="w-12 bg-transparent text-heading placeholder:text-muted/50 focus:outline-none text-center"
-                              min={0}
-                            />
-                            <span className="text-muted text-xs">mm</span>
-                          </div>
-                        )}
-                        {hasWidthSpec && (
-                          <div className="flex items-center gap-1">
-                            <input
-                              type="number"
-                              value={entry.widthMm ?? ''}
-                              onChange={(e) => updateComponentEntry(entry.key, 'widthMm', e.target.value)}
-                              placeholder="—"
-                              className="w-12 bg-transparent text-heading placeholder:text-muted/50 focus:outline-none text-center"
-                              min={0}
-                            />
-                            <span className="text-muted text-xs">mm</span>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                    {entry.kind === 'dropper' && (
-                      <span className="text-xs text-muted italic">dropper</span>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
+            {componentEntries.map((entry, idx) => (
+              <ComponentRow
+                key={entry.key}
+                entry={entry}
+                isLast={idx === componentEntries.length - 1}
+                error={errors[entry.key]}
+                onUpdate={updateComponentEntry}
+              />
+            ))}
           </tbody>
         </table>
       </div>
