@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { getAuthHeaders } from '@/lib/csrf';
 
 export interface SpokesSuspension {
@@ -122,8 +122,17 @@ export function useSpokes() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Cache bike details to avoid redundant API calls
+  const cacheRef = useRef<Map<string, SpokesBikeDetails>>(new Map());
+
   const getBikeDetails = useCallback(async (spokesId: string): Promise<SpokesBikeDetails | null> => {
     if (!spokesId) return null;
+
+    // Check cache first
+    const cached = cacheRef.current.get(spokesId);
+    if (cached) {
+      return cached;
+    }
 
     setIsLoading(true);
     setError(null);
@@ -145,7 +154,14 @@ export function useSpokes() {
       }
 
       const data = await response.json();
-      return data.bike;
+      const bike = data.bike;
+
+      // Store in cache
+      if (bike) {
+        cacheRef.current.set(spokesId, bike);
+      }
+
+      return bike;
     } catch (err) {
       console.error('Error fetching bike details:', err);
       setError('Failed to load bike details');

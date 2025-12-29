@@ -193,6 +193,14 @@ const acquireRequestSlot = async (): Promise<void> => {
 // Caching Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Sanitizes a string for use in cache keys.
+ * Replaces colons, whitespace, and control characters with underscores,
+ * then truncates to prevent excessively long keys.
+ */
+const sanitizeCacheKey = (str: string): string =>
+  str.replace(/[:\s\n\r\t]/g, '_').slice(0, 200);
+
 const getCached = async <T>(key: string): Promise<T | undefined> => {
   // Try Redis first
   if (isRedisReady()) {
@@ -263,8 +271,8 @@ export async function searchBikes(params: {
     return [];
   }
 
-  // Build cache key
-  const cacheKey = `spokes:search:${query.toLowerCase()}:${params.year || 'any'}:${params.category || 'all'}`;
+  // Build cache key with sanitized user input
+  const cacheKey = `spokes:search:${sanitizeCacheKey(query.toLowerCase())}:${params.year || 'any'}:${sanitizeCacheKey(params.category || 'all')}`;
 
   // Check cache
   const cached = await getCached<SpokesSearchResult[]>(cacheKey);
@@ -334,7 +342,7 @@ export async function getBikeById(id: string): Promise<SpokesBike | null> {
     return null;
   }
 
-  const cacheKey = `spokes:bike:${id}`;
+  const cacheKey = `spokes:bike:${sanitizeCacheKey(id)}`;
 
   // Check cache
   const cached = await getCached<SpokesBike>(cacheKey);
