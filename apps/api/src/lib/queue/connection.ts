@@ -1,11 +1,10 @@
 import { getRedisConnection } from '../redis';
-import type { ConnectionOptions } from 'bullmq';
+import type Redis from 'ioredis';
 
 /**
- * BullMQ connection options using the shared Redis connection.
+ * Get the Redis connection for BullMQ queues and workers.
+ * BullMQ v5 expects the connection to be passed directly to the `connection` option.
  */
-export function getQueueConnection(): ConnectionOptions {
-  return {
-    connection: getRedisConnection(),
-  };
+export function getQueueConnection(): Redis {
+  return getRedisConnection();
 }

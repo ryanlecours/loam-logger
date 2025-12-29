@@ -1,12 +1,14 @@
-﻿import { useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useMutation, useQuery } from '@apollo/client';
 import { motion } from 'motion/react';
+import { FaBicycle } from 'react-icons/fa';
 import { Button } from '@/components/ui/Button';
 import { BikeForm } from '@/components/BikeForm';
 import { BIKE_COMPONENT_SECTIONS, type BikeComponentSection, type BikeFormValues, type GearComponentState, type SpareFormState } from '@/models/BikeComponents';
 import {
   ADD_BIKE,
   UPDATE_BIKE,
+  DELETE_BIKE,
   GEAR_QUERY,
   ADD_COMPONENT,
   UPDATE_COMPONENT,
@@ -37,6 +39,25 @@ type BikeDto = {
   travelForkMm?: number | null;
   travelShockMm?: number | null;
   notes?: string | null;
+  spokesId?: string | null;
+  // 99spokes metadata
+  spokesUrl?: string | null;
+  thumbnailUrl?: string | null;
+  family?: string | null;
+  category?: string | null;
+  subcategory?: string | null;
+  buildKind?: string | null;
+  isFrameset?: boolean | null;
+  isEbike?: boolean | null;
+  gender?: string | null;
+  frameMaterial?: string | null;
+  hangerStandard?: string | null;
+  // E-bike motor/battery specs
+  motorMaker?: string | null;
+  motorModel?: string | null;
+  motorPowerW?: number | null;
+  motorTorqueNm?: number | null;
+  batteryWh?: number | null;
   components: ComponentDto[];
 };
 
@@ -69,6 +90,25 @@ const createBikeFormState = (bike?: BikeDto): BikeFormValues => ({
   travelForkMm: bike?.travelForkMm ? String(bike.travelForkMm) : '',
   travelShockMm: bike?.travelShockMm ? String(bike.travelShockMm) : '',
   notes: bike?.notes ?? '',
+  spokesId: bike?.spokesId ?? null,
+  // 99spokes metadata
+  spokesUrl: bike?.spokesUrl ?? null,
+  thumbnailUrl: bike?.thumbnailUrl ?? null,
+  family: bike?.family ?? null,
+  category: bike?.category ?? null,
+  subcategory: bike?.subcategory ?? null,
+  buildKind: bike?.buildKind ?? null,
+  isFrameset: bike?.isFrameset ?? false,
+  isEbike: bike?.isEbike ?? false,
+  gender: bike?.gender ?? null,
+  frameMaterial: bike?.frameMaterial ?? null,
+  hangerStandard: bike?.hangerStandard ?? null,
+  // E-bike motor/battery specs
+  motorMaker: bike?.motorMaker ?? null,
+  motorModel: bike?.motorModel ?? null,
+  motorPowerW: bike?.motorPowerW ?? null,
+  motorTorqueNm: bike?.motorTorqueNm ?? null,
+  batteryWh: bike?.batteryWh ?? null,
   components: BIKE_COMPONENT_SECTIONS.reduce(
     (acc, section) => ({ ...acc, [section.key]: toComponentState(bike, section) }),
     {} as BikeFormValues['components']
@@ -94,6 +134,10 @@ export default function Gear() {
     awaitRefetchQueries: true,
   });
   const [updateBikeMutation, updateBikeState] = useMutation(UPDATE_BIKE, {
+    refetchQueries: [{ query: GEAR_QUERY }],
+    awaitRefetchQueries: true,
+  });
+  const [deleteBikeMutation, deleteBikeState] = useMutation(DELETE_BIKE, {
     refetchQueries: [{ query: GEAR_QUERY }],
     awaitRefetchQueries: true,
   });
@@ -170,6 +214,28 @@ export default function Gear() {
       travelForkMm: form.travelForkMm ? Number(form.travelForkMm) : undefined,
       travelShockMm: form.travelShockMm ? Number(form.travelShockMm) : undefined,
       notes: form.notes,
+      spokesId: form.spokesId || undefined,
+      // 99spokes metadata
+      spokesUrl: form.spokesUrl || undefined,
+      thumbnailUrl: form.thumbnailUrl || undefined,
+      family: form.family || undefined,
+      category: form.category || undefined,
+      subcategory: form.subcategory || undefined,
+      buildKind: form.buildKind || undefined,
+      isFrameset: form.isFrameset ?? false,
+      isEbike: form.isEbike ?? false,
+      gender: form.gender || undefined,
+      frameMaterial: form.frameMaterial || undefined,
+      hangerStandard: form.hangerStandard || undefined,
+      // E-bike motor/battery specs
+      motorMaker: form.motorMaker || undefined,
+      motorModel: form.motorModel || undefined,
+      motorPowerW: form.motorPowerW || undefined,
+      motorTorqueNm: form.motorTorqueNm || undefined,
+      batteryWh: form.batteryWh || undefined,
+      // 99spokes components for auto-creation
+      spokesComponents: form.spokesComponents || undefined,
+      // Component inputs
       fork: componentInput(form.components.fork),
       shock: componentInput(form.components.shock),
       dropper: componentInput(form.components.dropper),
@@ -268,6 +334,14 @@ export default function Gear() {
     await deleteComponentMutation({ variables: { id } });
   };
 
+  const handleDeleteBike = async (id: string, bikeName: string) => {
+    const confirmed = window.confirm(
+      `Are you sure you want to delete "${bikeName}"? This will also remove all components associated with this bike. Rides logged to this bike will be preserved but no longer associated with it.`
+    );
+    if (!confirmed) return;
+    await deleteBikeMutation({ variables: { id } });
+  };
+
   return (
     <div className="min-h-screen bg-app px-4 py-6">
       <header className="mb-8 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -328,7 +402,25 @@ export default function Gear() {
                 whileHover={{ y: -3 }}
                 className="bg-surface-2 border shadow-xl backdrop-blur-2xl rounded-2xl px-5 py-4"
               >
-                <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                  {/* Thumbnail image */}
+                  <div className="flex-shrink-0 w-32 h-24 rounded-lg bg-white/5 flex items-center justify-center">
+                    {bike.thumbnailUrl ? (
+                      <img
+                        src={bike.thumbnailUrl}
+                        alt={`${bike.year} ${bike.manufacturer} ${bike.model}`}
+                        className="w-full h-full object-contain"
+                        onError={(e) => {
+                          e.currentTarget.style.display = 'none';
+                          (e.currentTarget.nextElementSibling as HTMLElement)?.classList.remove('hidden');
+                        }}
+                      />
+                    ) : null}
+                    <FaBicycle
+                      className={`text-3xl text-muted/40 ${bike.thumbnailUrl ? 'hidden' : ''}`}
+                    />
+                  </div>
+                  <div className="flex-1 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
                   <div>
                     <p className="text-sm uppercase tracking-wide text-muted">{bike.manufacturer}</p>
                     <h3 className="text-2xl font-semibold">
@@ -336,24 +428,63 @@ export default function Gear() {
                       {bike.model}
                     </h3>
                     {bike.nickname && (
-                      <p className="text-sm text-muted">â€œ{bike.nickname}â€</p>
+                      <p className="text-sm text-muted">"{bike.nickname}"</p>
                     )}
+                    {/* Bike metadata badges */}
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      {bike.category && (
+                        <span className="px-2 py-0.5 text-xs rounded-full bg-primary/10 text-primary capitalize">
+                          {bike.subcategory || bike.category}
+                        </span>
+                      )}
+                      {bike.isEbike && (
+                        <span className="px-2 py-0.5 text-xs rounded-full bg-accent/10 text-accent">
+                          E-Bike
+                        </span>
+                      )}
+                      {bike.frameMaterial && (
+                        <span className="px-2 py-0.5 text-xs rounded-full bg-muted/10 text-muted capitalize">
+                          {bike.frameMaterial}
+                        </span>
+                      )}
+                    </div>
                   </div>
                   <div className="flex flex-col items-start gap-2 md:items-end">
                     <div className="flex gap-3 text-sm text-muted">
                       {bike.travelForkMm ? <span>{bike.travelForkMm}mm front</span> : null}
                       {bike.travelShockMm ? <span>{bike.travelShockMm}mm rear</span> : null}
                     </div>
-                    <Button
-                      variant="outline"
-                      className="text-xs"
-                      onClick={() => {
-                        setBikeFormError(null);
-                        setBikeModal({ mode: 'edit', bike });
-                      }}
-                    >
-                      Edit Bike
-                    </Button>
+                    {bike.spokesUrl && (
+                      <a
+                        href={bike.spokesUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-primary hover:underline"
+                      >
+                        View on 99spokes
+                      </a>
+                    )}
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        className="text-xs"
+                        onClick={() => {
+                          setBikeFormError(null);
+                          setBikeModal({ mode: 'edit', bike });
+                        }}
+                      >
+                        Edit Bike
+                      </Button>
+                      <Button
+                        variant="outline"
+                        className="text-xs text-red-500 border-red-500/30 hover:bg-red-500/10"
+                        onClick={() => handleDeleteBike(bike.id, bike.nickname || `${bike.year} ${bike.manufacturer} ${bike.model}`)}
+                        disabled={deleteBikeState.loading}
+                      >
+                        Delete
+                      </Button>
+                    </div>
+                  </div>
                   </div>
                 </div>
                 {bike.notes && (
@@ -428,7 +559,7 @@ export default function Gear() {
                     <p className="text-xs text-muted">
                       {component.hoursUsed ?? 0}h used
                       {component.serviceDueAtHours != null
-                        ? ` Â· Service @ ${component.serviceDueAtHours}h`
+                        ? ` · Service @ ${component.serviceDueAtHours}h`
                         : ''}
                     </p>
                   </div>
@@ -530,30 +661,3 @@ function Modal({ open, title, children, onClose }: ModalProps) {
     </div>
   );
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
