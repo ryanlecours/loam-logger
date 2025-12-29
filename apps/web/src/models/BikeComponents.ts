@@ -100,6 +100,7 @@ export interface BikeFormValues {
   travelShockMm: string;
   notes: string;
   spokesId?: string | null;
+  selectedSize?: string;  // Frame size selected from 99spokes sizes
   // 99spokes metadata fields
   spokesUrl?: string | null;
   thumbnailUrl?: string | null;

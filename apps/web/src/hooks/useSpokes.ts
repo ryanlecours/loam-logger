@@ -27,7 +27,39 @@ export interface SpokesComponentEntry {
   maker?: string;  // Some endpoints use 'maker' instead of 'make'
   model?: string;
   description?: string;
+  display?: string;  // Display string from API
   kind?: string;  // e.g., 'dropper' for seatpost
+  material?: string;  // For fork, handlebar, rims
+}
+
+export interface SpokesGeometry {
+  stemLengthMM?: number;
+  handlebarWidthMM?: number;
+  crankLengthMM?: number;
+  frontTravelMM?: number;
+  rearTravelMM?: number;
+  rakeMM?: number;  // Fork offset
+}
+
+export interface SpokesSize {
+  name: string;
+  riderHeight?: {
+    minCM?: number;
+    maxCM?: number;
+  };
+  geometry?: {
+    source?: SpokesGeometry;
+    computed?: SpokesGeometry;
+  };
+}
+
+export interface SpokesImage {
+  url: string;
+  dimensions?: {
+    width: number;
+    height: number;
+  };
+  colorKey?: string;
 }
 
 export interface SpokesMotorEntry extends SpokesComponentEntry {
@@ -82,6 +114,8 @@ export interface SpokesBikeDetails {
   hangerStandard?: string;
   suspension?: SpokesSuspension;
   components?: SpokesComponents;
+  sizes?: SpokesSize[];  // Available sizes with geometry
+  images?: SpokesImage[];  // Additional images for fallback
 }
 
 export function useSpokes() {

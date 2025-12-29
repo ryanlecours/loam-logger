@@ -6,16 +6,23 @@ import {
 } from '@/models/BikeComponents';
 import { Input, Textarea, Button } from './ui';
 import { BikeSearch, type SpokesSearchResult } from './BikeSearch';
-import { useSpokes, type SpokesComponentEntry, type SpokesBikeDetails } from '@/hooks/useSpokes';
+import { useSpokes, type SpokesComponentEntry, type SpokesBikeDetails, type SpokesGeometry } from '@/hooks/useSpokes';
 import { ALL_COMPONENT_TYPES } from '@loam/shared';
+import { FaPencilAlt } from 'react-icons/fa';
 
-// Component entry for Step 2
+// Component entry for Step 2 - split brand/model with dimensions
 type ComponentEntry = {
   key: string;
   label: string;
-  value: string;        // Combined "Brand Model" string
+  brand: string;        // Separate brand field
+  model: string;        // Separate model field
   description: string;  // Optional description from 99spokes
   kind?: string;        // For seatpost dropper detection
+  // Dimension fields
+  travelMm?: number;    // Fork/shock travel
+  offsetMm?: number;    // Fork offset (rake)
+  lengthMm?: number;    // Stem length
+  widthMm?: number;     // Handlebar width
 };
 
 // Helper to extract only GraphQL-allowed fields for SpokesComponentInput
@@ -29,13 +36,26 @@ const toSpokesInput = (comp: SpokesComponentEntry | null | undefined): SpokesCom
   };
 };
 
-// Build component entries from 99spokes data
-const buildComponentEntries = (details: SpokesBikeDetails | null): ComponentEntry[] => {
+// Build component entries from 99spokes data with dimensions
+const buildComponentEntries = (
+  details: SpokesBikeDetails | null,
+  selectedSize?: string
+): ComponentEntry[] => {
+  // Get geometry from selected size or first available
+  const sizeData = selectedSize
+    ? details?.sizes?.find(s => s.name === selectedSize)
+    : details?.sizes?.[0];
+  const geometry = sizeData?.geometry?.source || sizeData?.geometry?.computed;
+
   return ALL_COMPONENT_TYPES.map(({ key, label, spokesKey }) => {
     let brand = '';
     let model = '';
     let description = '';
     let kind: string | undefined;
+    let travelMm: number | undefined;
+    let offsetMm: number | undefined;
+    let lengthMm: number | undefined;
+    let widthMm: number | undefined;
 
     if (details?.components && spokesKey) {
       const comp = details.components[spokesKey as keyof typeof details.components] as SpokesComponentEntry | undefined;
@@ -61,8 +81,20 @@ const buildComponentEntries = (details: SpokesBikeDetails | null): ComponentEntr
       description = suspComp.description || description;
     }
 
-    // Combine brand and model into single value
-    const value = [brand, model].filter(Boolean).join(' ').trim();
+    // Add dimension data based on component type
+    if (key === 'fork') {
+      travelMm = details?.suspension?.front?.travelMM || details?.suspension?.front?.travel;
+      offsetMm = geometry?.rakeMM;
+    }
+    if (key === 'rearShock') {
+      travelMm = details?.suspension?.rear?.travelMM || details?.suspension?.rear?.travel;
+    }
+    if (key === 'stem') {
+      lengthMm = geometry?.stemLengthMM;
+    }
+    if (key === 'handlebar') {
+      widthMm = geometry?.handlebarWidthMM;
+    }
 
     // Update label for dropper posts
     const displayLabel = key === 'seatpost' && kind === 'dropper' ? 'Dropper Post' : label;
@@ -70,9 +102,14 @@ const buildComponentEntries = (details: SpokesBikeDetails | null): ComponentEntr
     return {
       key,
       label: displayLabel,
-      value,
+      brand,
+      model,
       description,
       kind,
+      travelMm,
+      offsetMm,
+      lengthMm,
+      widthMm,
     };
   });
 };
@@ -92,15 +129,15 @@ const buildComponentEntriesFromExisting = (initial: BikeFormValues): ComponentEn
     const legacyKey = legacyKeyMap[key];
     const existingComp = legacyKey ? initial.components[legacyKey as keyof typeof initial.components] : undefined;
 
-    const value = existingComp
-      ? [existingComp.brand, existingComp.model].filter(Boolean).join(' ').trim()
-      : '';
-
     return {
       key,
       label,
-      value,
+      brand: existingComp?.brand || '',
+      model: existingComp?.model || '',
       description: '',
+      // Dimensions from form travel fields
+      travelMm: key === 'fork' && initial.travelForkMm ? parseInt(initial.travelForkMm) :
+                key === 'rearShock' && initial.travelShockMm ? parseInt(initial.travelShockMm) : undefined,
     };
   });
 };
@@ -118,7 +155,19 @@ export function BikeForm({
   const [showManualEntry, setShowManualEntry] = useState(false);
   const [componentEntries, setComponentEntries] = useState<ComponentEntry[]>([]);
   const [spokesDetails, setSpokesDetails] = useState<SpokesBikeDetails | null>(null);
+  const [selectedSize, setSelectedSize] = useState<string | null>(null);
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const { getBikeDetails, isLoading: loadingDetails } = useSpokes();
+
+  // Get available sizes from spokesDetails
+  const availableSizes = spokesDetails?.sizes?.map(s => s.name) || [];
+
+  // Get bike image URL with fallback to images array
+  const getBikeImageUrl = () => {
+    if (form.thumbnailUrl) return form.thumbnailUrl;
+    if (spokesDetails?.images?.[0]?.url) return spokesDetails.images[0].url;
+    return null;
+  };
 
   useEffect(() => {
     setForm(initial);
@@ -203,16 +252,71 @@ export function BikeForm({
     setStep(1);
   };
 
-  // Update a component entry value
-  const updateComponentEntry = (key: string, value: string) => {
+  // Update a component entry field
+  const updateComponentEntry = (
+    key: string,
+    field: 'brand' | 'model' | 'travelMm' | 'offsetMm' | 'lengthMm' | 'widthMm',
+    value: string | number
+  ) => {
     setComponentEntries((prev) =>
-      prev.map((entry) => (entry.key === key ? { ...entry, value } : entry))
+      prev.map((entry) => {
+        if (entry.key !== key) return entry;
+        if (field === 'brand' || field === 'model') {
+          return { ...entry, [field]: value as string };
+        }
+        // Handle numeric dimension fields
+        const numVal = typeof value === 'string' ? (value ? parseInt(value, 10) : undefined) : value;
+        return { ...entry, [field]: numVal };
+      })
     );
+    // Clear validation error when user edits
+    if (errors[key]) {
+      setErrors((prev) => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+    }
+  };
+
+  // Validate a single component entry
+  const validateComponent = (entry: ComponentEntry): string | null => {
+    // Empty is OK (stock/default component)
+    if (!entry.brand.trim() && !entry.model.trim()) return null;
+    // Must have both brand and model if either is filled
+    if (!entry.brand.trim()) return 'Brand required';
+    if (!entry.model.trim()) return 'Model required';
+    return null;
+  };
+
+  // Validate all components
+  const validateAll = (): boolean => {
+    const newErrors: Record<string, string> = {};
+    componentEntries.forEach((entry) => {
+      const err = validateComponent(entry);
+      if (err) newErrors[entry.key] = err;
+    });
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  // Handle size selection
+  const handleSizeChange = (sizeName: string) => {
+    setSelectedSize(sizeName || null);
+    if (sizeName && spokesDetails) {
+      // Rebuild component entries with new size geometry
+      setComponentEntries(buildComponentEntries(spokesDetails, sizeName));
+    }
   };
 
   // Build final form data and submit
   const handleSubmit = (evt: React.FormEvent) => {
     evt.preventDefault();
+
+    // Validate before submit
+    if (!validateAll()) {
+      return;
+    }
 
     // Build spokesComponents from entries (only GraphQL-allowed fields)
     const spokesComponents = spokesDetails?.components ? {
@@ -236,16 +340,12 @@ export function BikeForm({
     // Build legacy components format for the 5 key components
     const getComponentData = (key: string) => {
       const entry = componentEntries.find((e) => e.key === key);
-      if (!entry || !entry.value.trim()) {
+      if (!entry || (!entry.brand.trim() && !entry.model.trim())) {
         return { brand: '', model: '', notes: '', isStock: true };
       }
-      // Parse value back into brand/model (first word = brand, rest = model)
-      const parts = entry.value.trim().split(/\s+/);
-      const brand = parts[0] || '';
-      const model = parts.slice(1).join(' ') || '';
       return {
-        brand,
-        model,
+        brand: entry.brand.trim(),
+        model: entry.model.trim(),
         notes: '',
         isStock: false,
       };
@@ -255,8 +355,15 @@ export function BikeForm({
     const seatpostEntry = componentEntries.find((e) => e.key === 'seatpost');
     const isDropper = seatpostEntry?.kind === 'dropper';
 
+    // Update form travel fields from component entries
+    const forkEntry = componentEntries.find((e) => e.key === 'fork');
+    const shockEntry = componentEntries.find((e) => e.key === 'rearShock');
+
     const finalForm: BikeFormValues = {
       ...form,
+      travelForkMm: forkEntry?.travelMm ? String(forkEntry.travelMm) : form.travelForkMm,
+      travelShockMm: shockEntry?.travelMm ? String(shockEntry.travelMm) : form.travelShockMm,
+      selectedSize: selectedSize || undefined,
       spokesComponents,
       components: {
         fork: getComponentData('fork'),
@@ -308,9 +415,9 @@ export function BikeForm({
         {form.manufacturer && form.model && !showManualEntry && (
           <div className="rounded-lg bg-surface-2 p-4 border border-app">
             <div className="flex gap-4">
-              {form.thumbnailUrl && (
+              {getBikeImageUrl() && (
                 <img
-                  src={form.thumbnailUrl}
+                  src={getBikeImageUrl()!}
                   alt={`${form.year} ${form.manufacturer} ${form.model}`}
                   className="w-24 h-18 object-contain rounded bg-white/5"
                   onError={(e) => {
@@ -334,10 +441,33 @@ export function BikeForm({
                 )}
               </div>
             </div>
+
+            {/* Size selector */}
+            {availableSizes.length > 0 && (
+              <div className="mt-4 pt-3 border-t border-app/50">
+                <label className="text-sm text-muted block mb-1">Frame Size</label>
+                <select
+                  value={selectedSize || ''}
+                  onChange={(e) => handleSizeChange(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg bg-surface border border-app text-heading text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+                >
+                  <option value="">Select size (optional)</option>
+                  {availableSizes.map((size) => (
+                    <option key={size} value={size}>
+                      {size}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-muted mt-1">
+                  Size selection updates component dimensions
+                </p>
+              </div>
+            )}
+
             <button
               type="button"
               onClick={() => setShowManualEntry(true)}
-              className="text-xs text-primary hover:underline mt-2"
+              className="text-xs text-primary hover:underline mt-3"
             >
               Edit details manually
             </button>
@@ -482,34 +612,129 @@ export function BikeForm({
         <table className="w-full">
           <thead>
             <tr className="border-b border-app bg-surface-2">
-              <th className="text-left text-xs font-medium text-muted uppercase tracking-wide px-4 py-2 w-1/3">
+              <th className="text-left text-xs font-medium text-muted uppercase tracking-wide px-4 py-2 w-28">
                 Component
               </th>
+              <th className="text-left text-xs font-medium text-muted uppercase tracking-wide px-4 py-2 w-32">
+                Brand
+              </th>
               <th className="text-left text-xs font-medium text-muted uppercase tracking-wide px-4 py-2">
-                Part
+                Model
+              </th>
+              <th className="text-left text-xs font-medium text-muted uppercase tracking-wide px-4 py-2 w-40">
+                Specs
               </th>
             </tr>
           </thead>
           <tbody>
-            {componentEntries.map((entry, idx) => (
-              <tr
-                key={entry.key}
-                className={idx < componentEntries.length - 1 ? 'border-b border-app' : ''}
-              >
-                <td className="px-4 py-2 text-sm text-heading font-medium">
-                  {entry.label}
-                </td>
-                <td className="px-4 py-2">
-                  <input
-                    type="text"
-                    value={entry.value}
-                    onChange={(e) => updateComponentEntry(entry.key, e.target.value)}
-                    placeholder="Brand Model"
-                    className="w-full bg-transparent text-sm text-heading placeholder:text-muted/50 focus:outline-none"
-                  />
-                </td>
-              </tr>
-            ))}
+            {componentEntries.map((entry, idx) => {
+              // Determine which dimension field to show
+              const hasTravelSpec = entry.key === 'fork' || entry.key === 'rearShock';
+              const hasOffsetSpec = entry.key === 'fork';
+              const hasLengthSpec = entry.key === 'stem';
+              const hasWidthSpec = entry.key === 'handlebar';
+              const hasAnySpec = hasTravelSpec || hasLengthSpec || hasWidthSpec;
+
+              return (
+                <tr
+                  key={entry.key}
+                  className={`${idx < componentEntries.length - 1 ? 'border-b border-app' : ''} hover:bg-surface-2 transition-colors group`}
+                >
+                  <td className="px-4 py-2 text-sm text-heading font-medium">
+                    {entry.label}
+                  </td>
+                  <td className="px-4 py-2">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={entry.brand}
+                        onChange={(e) => updateComponentEntry(entry.key, 'brand', e.target.value)}
+                        placeholder="Brand"
+                        className={`w-full bg-transparent text-sm text-heading placeholder:text-muted/50 focus:outline-none ${errors[entry.key] && !entry.brand.trim() ? 'text-red-400 placeholder:text-red-400/50' : ''}`}
+                      />
+                      <FaPencilAlt className="w-3 h-3 text-muted/40 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
+                    </div>
+                  </td>
+                  <td className="px-4 py-2">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={entry.model}
+                        onChange={(e) => updateComponentEntry(entry.key, 'model', e.target.value)}
+                        placeholder="Model"
+                        className={`w-full bg-transparent text-sm text-heading placeholder:text-muted/50 focus:outline-none ${errors[entry.key] && !entry.model.trim() ? 'text-red-400 placeholder:text-red-400/50' : ''}`}
+                      />
+                      <FaPencilAlt className="w-3 h-3 text-muted/40 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
+                    </div>
+                    {errors[entry.key] && (
+                      <span className="text-xs text-red-400">{errors[entry.key]}</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-2">
+                    {hasAnySpec && (
+                      <div className="flex items-center gap-2 text-sm">
+                        {hasTravelSpec && (
+                          <div className="flex items-center gap-1">
+                            <input
+                              type="number"
+                              value={entry.travelMm ?? ''}
+                              onChange={(e) => updateComponentEntry(entry.key, 'travelMm', e.target.value)}
+                              placeholder="—"
+                              className="w-12 bg-transparent text-heading placeholder:text-muted/50 focus:outline-none text-center"
+                              min={0}
+                            />
+                            <span className="text-muted text-xs">mm</span>
+                          </div>
+                        )}
+                        {hasOffsetSpec && (
+                          <div className="flex items-center gap-1 ml-2">
+                            <span className="text-muted text-xs">offset</span>
+                            <input
+                              type="number"
+                              value={entry.offsetMm ?? ''}
+                              onChange={(e) => updateComponentEntry(entry.key, 'offsetMm', e.target.value)}
+                              placeholder="—"
+                              className="w-10 bg-transparent text-heading placeholder:text-muted/50 focus:outline-none text-center"
+                              min={0}
+                            />
+                            <span className="text-muted text-xs">mm</span>
+                          </div>
+                        )}
+                        {hasLengthSpec && (
+                          <div className="flex items-center gap-1">
+                            <input
+                              type="number"
+                              value={entry.lengthMm ?? ''}
+                              onChange={(e) => updateComponentEntry(entry.key, 'lengthMm', e.target.value)}
+                              placeholder="—"
+                              className="w-12 bg-transparent text-heading placeholder:text-muted/50 focus:outline-none text-center"
+                              min={0}
+                            />
+                            <span className="text-muted text-xs">mm</span>
+                          </div>
+                        )}
+                        {hasWidthSpec && (
+                          <div className="flex items-center gap-1">
+                            <input
+                              type="number"
+                              value={entry.widthMm ?? ''}
+                              onChange={(e) => updateComponentEntry(entry.key, 'widthMm', e.target.value)}
+                              placeholder="—"
+                              className="w-12 bg-transparent text-heading placeholder:text-muted/50 focus:outline-none text-center"
+                              min={0}
+                            />
+                            <span className="text-muted text-xs">mm</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {entry.kind === 'dropper' && (
+                      <span className="text-xs text-muted italic">dropper</span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

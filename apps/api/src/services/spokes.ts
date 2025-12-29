@@ -67,7 +67,41 @@ export interface SpokesComponent {
   maker?: string;  // Some endpoints use 'maker' instead of 'make'
   model?: string;
   description?: string;
+  display?: string;  // Display string from API
   kind?: string;  // e.g., 'dropper' for seatpost
+  material?: string;  // For fork, handlebar, rims
+  innerWidthMM?: number;  // For rims
+  width?: string;  // For tires
+}
+
+export interface SpokesGeometry {
+  stemLengthMM?: number;
+  handlebarWidthMM?: number;
+  crankLengthMM?: number;
+  frontTravelMM?: number;
+  rearTravelMM?: number;
+  rakeMM?: number;  // Fork offset
+}
+
+export interface SpokesSize {
+  name: string;
+  riderHeight?: {
+    minCM?: number;
+    maxCM?: number;
+  };
+  geometry?: {
+    source?: SpokesGeometry;
+    computed?: SpokesGeometry;
+  };
+}
+
+export interface SpokesImage {
+  url: string;
+  dimensions?: {
+    width: number;
+    height: number;
+  };
+  colorKey?: string;
 }
 
 export interface SpokesComponents {
@@ -119,6 +153,8 @@ export interface SpokesBike {
   hangerStandard?: string;  // 'udh' | etc.
   suspension?: SpokesSuspension;
   components?: SpokesComponents;
+  sizes?: SpokesSize[];  // Available sizes with geometry
+  images?: SpokesImage[];  // Additional images for fallback
 }
 
 interface SpokesApiResponse {
@@ -309,10 +345,11 @@ export async function getBikeById(id: string): Promise<SpokesBike | null> {
   try {
     await acquireRequestSlot();
 
-    // Use direct endpoint for full bike details
-    const url = `${SPOKES_API_BASE}/bikes/${id}?include=thumbnailUrl,components`;
+    // Use direct endpoint for full bike details with geometry/size data
+    const url = new URL(`${SPOKES_API_BASE}/bikes/${encodeURIComponent(id)}`);
+    url.searchParams.set('include', 'thumbnailUrl,components,suspension,sizes,images');
 
-    const response = await fetch(url, {
+    const response = await fetch(url.toString(), {
       headers: {
         Authorization: `Bearer ${SPOKES_API_KEY}`,
         Accept: 'application/json',
