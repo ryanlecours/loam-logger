@@ -11,6 +11,7 @@ import type {
 import { checkRateLimit } from '../lib/rate-limit';
 import { enqueueSyncJob, type SyncProvider } from '../lib/queue';
 import { SPOKES_TO_COMPONENT_TYPE } from '@loam/shared';
+import { getBikeById, isSpokesConfigured } from '../services/spokes';
 
 type ComponentType = ComponentTypeLiteral;
 
@@ -716,8 +717,21 @@ export const resolvers = {
     addBike: async (_: unknown, { input }: { input: AddBikeInputGQL }, ctx: GraphQLContext) => {
       const userId = requireUserId(ctx);
 
-      const manufacturer = cleanText(input.manufacturer, MAX_LABEL_LEN);
-      const model = cleanText(input.model, MAX_LABEL_LEN);
+      // Get spokesId first so we can fetch authoritative manufacturer/model
+      const spokesId = cleanText(input.spokesId, 64);
+
+      // Use 99spokes API data for manufacturer/model when available
+      let manufacturer = cleanText(input.manufacturer, MAX_LABEL_LEN);
+      let model = cleanText(input.model, MAX_LABEL_LEN);
+
+      if (spokesId && isSpokesConfigured()) {
+        const spokesData = await getBikeById(spokesId);
+        if (spokesData) {
+          manufacturer = cleanText(spokesData.maker, MAX_LABEL_LEN);
+          model = cleanText(spokesData.model, MAX_LABEL_LEN);
+        }
+      }
+
       if (!manufacturer) throw new Error('manufacturer is required');
       if (!model) throw new Error('model is required');
 
@@ -726,7 +740,6 @@ export const resolvers = {
       const travelForkMm = parseTravel(input.travelForkMm);
       const travelShockMm = parseTravel(input.travelShockMm);
       const notes = cleanText(input.notes, MAX_NOTES_LEN);
-      const spokesId = cleanText(input.spokesId, 64);
 
       // 99spokes metadata fields
       const spokesUrl = cleanText(input.spokesUrl, 512);
