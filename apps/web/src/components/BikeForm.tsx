@@ -6,7 +6,7 @@ import {
 } from '@/models/BikeComponents';
 import { Input, Textarea, Button } from './ui';
 import { BikeSearch, type SpokesSearchResult } from './BikeSearch';
-import { useSpokes, type SpokesComponentEntry, type SpokesBikeDetails, type SpokesGeometry } from '@/hooks/useSpokes';
+import { useSpokes, type SpokesComponentEntry, type SpokesBikeDetails } from '@/hooks/useSpokes';
 import { ALL_COMPONENT_TYPES } from '@loam/shared';
 import { FaPencilAlt } from 'react-icons/fa';
 
