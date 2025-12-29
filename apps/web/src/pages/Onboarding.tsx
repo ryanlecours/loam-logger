@@ -7,7 +7,34 @@ import { useCurrentUser } from '../hooks/useCurrentUser';
 import { Button } from '@/components/ui';
 import { getAuthHeaders } from '@/lib/csrf';
 import { BikeSearch, type SpokesSearchResult } from '@/components/BikeSearch';
-import { useSpokes, type SpokesComponentEntry } from '@/hooks/useSpokes';
+import { useSpokes, type SpokesComponentEntry, type SpokesBikeDetails } from '@/hooks/useSpokes';
+
+// All component types we track (matching BikeForm)
+const ALL_COMPONENT_TYPES = [
+  { key: 'fork', label: 'Fork', spokesKey: 'fork' },
+  { key: 'rearShock', label: 'Rear Shock', spokesKey: 'rearShock' },
+  { key: 'brakes', label: 'Brakes', spokesKey: 'brakes' },
+  { key: 'rearDerailleur', label: 'Rear Derailleur', spokesKey: 'rearDerailleur' },
+  { key: 'crank', label: 'Crankset', spokesKey: 'crank' },
+  { key: 'cassette', label: 'Cassette', spokesKey: 'cassette' },
+  { key: 'rims', label: 'Rims', spokesKey: 'rims' },
+  { key: 'tires', label: 'Tires', spokesKey: 'tires' },
+  { key: 'stem', label: 'Stem', spokesKey: 'stem' },
+  { key: 'handlebar', label: 'Handlebar', spokesKey: 'handlebar' },
+  { key: 'saddle', label: 'Saddle', spokesKey: 'saddle' },
+  { key: 'seatpost', label: 'Seatpost', spokesKey: 'seatpost' },
+  { key: 'wheels', label: 'Wheels', spokesKey: 'wheels' },
+  { key: 'pivotBearings', label: 'Pivot Bearings', spokesKey: null },
+] as const;
+
+// Component entry for the review table
+type ComponentEntry = {
+  key: string;
+  label: string;
+  value: string;
+  description: string;
+  kind?: string;
+};
 
 // Helper to extract only GraphQL-allowed fields for SpokesComponentInput
 const toSpokesInput = (comp: SpokesComponentEntry | null | undefined): SpokesComponentData | null => {
@@ -18,6 +45,54 @@ const toSpokesInput = (comp: SpokesComponentEntry | null | undefined): SpokesCom
     description: comp.description || undefined,
     kind: comp.kind || undefined,
   };
+};
+
+// Build component entries from 99spokes data (matching BikeForm)
+const buildComponentEntries = (details: SpokesBikeDetails | null): ComponentEntry[] => {
+  return ALL_COMPONENT_TYPES.map(({ key, label, spokesKey }) => {
+    let brand = '';
+    let model = '';
+    let description = '';
+    let kind: string | undefined;
+
+    if (details?.components && spokesKey) {
+      const comp = details.components[spokesKey as keyof typeof details.components] as SpokesComponentEntry | undefined;
+      if (comp) {
+        brand = comp.make || comp.maker || '';
+        model = comp.model || '';
+        description = comp.description || '';
+        kind = comp.kind;
+      }
+    }
+
+    // Special handling for suspension components
+    if (key === 'fork' && details?.suspension?.front?.component) {
+      const suspComp = details.suspension.front.component;
+      brand = suspComp.make || brand;
+      model = suspComp.model || model;
+      description = suspComp.description || description;
+    }
+    if (key === 'rearShock' && details?.suspension?.rear?.component) {
+      const suspComp = details.suspension.rear.component;
+      brand = suspComp.make || brand;
+      model = suspComp.model || model;
+      description = suspComp.description || description;
+    }
+
+    // Combine brand and model into single value
+    const value = [brand, model].filter(Boolean).join(' ').trim();
+
+    // Update label for dropper posts
+    const displayLabel = key === 'seatpost' && kind === 'dropper' ? 'Dropper Post' : label;
+
+    return {
+      key,
+      label: displayLabel,
+      value,
+      description,
+      kind,
+    };
+  });
 };
 
 const CONNECTED_ACCOUNTS_QUERY = gql`
@@ -85,6 +160,8 @@ export default function Onboarding() {
   const { data: accountsData, refetch: refetchAccounts } = useQuery(CONNECTED_ACCOUNTS_QUERY);
   const { getBikeDetails, isLoading: loadingBikeDetails } = useSpokes();
   const [showManualBikeEntry, setShowManualBikeEntry] = useState(false);
+  const [componentEntries, setComponentEntries] = useState<ComponentEntry[]>(() => buildComponentEntries(null));
+  const [spokesDetails, setSpokesDetails] = useState<SpokesBikeDetails | null>(null);
 
   // Read step from URL query parameter, default to 1
   const initialStep = parseInt(searchParams.get('step') || '1', 10);
@@ -137,6 +214,13 @@ export default function Onboarding() {
 
   const isBikeDataValid = () => {
     return data.bikeYear > 0 && data.bikeMake !== '' && data.bikeModel !== '' && data.bikeModel !== 'Select a model';
+  };
+
+  // Update a component entry value
+  const updateComponentEntry = (key: string, value: string) => {
+    setComponentEntries((prev) =>
+      prev.map((entry) => (entry.key === key ? { ...entry, value } : entry))
+    );
   };
 
   // Handle bike selection from search
@@ -224,6 +308,14 @@ export default function Onboarding() {
               : prev.components.dropperPost,
         },
       }));
+
+      // Store full details and build component entries for Step 4
+      setSpokesDetails(details);
+      setComponentEntries(buildComponentEntries(details));
+    } else {
+      // No details found, use empty component entries
+      setSpokesDetails(null);
+      setComponentEntries(buildComponentEntries(null));
     }
   };
 
@@ -275,11 +367,51 @@ export default function Onboarding() {
     setError(null);
 
     try {
+      // Build spokesComponents from component entries for auto-creation
+      const spokesComponents = spokesDetails?.components ? {
+        fork: toSpokesInput(spokesDetails.components.fork),
+        rearShock: toSpokesInput(spokesDetails.components.rearShock || spokesDetails.components.shock),
+        brakes: toSpokesInput(spokesDetails.components.brakes),
+        rearDerailleur: toSpokesInput(spokesDetails.components.rearDerailleur),
+        crank: toSpokesInput(spokesDetails.components.crank),
+        cassette: toSpokesInput(spokesDetails.components.cassette),
+        rims: toSpokesInput(spokesDetails.components.rims),
+        tires: toSpokesInput(spokesDetails.components.tires),
+        stem: toSpokesInput(spokesDetails.components.stem),
+        handlebar: toSpokesInput(spokesDetails.components.handlebar),
+        saddle: toSpokesInput(spokesDetails.components.saddle),
+        seatpost: spokesDetails.components.seatpost ? {
+          ...toSpokesInput(spokesDetails.components.seatpost),
+          kind: spokesDetails.components.seatpost.kind || undefined,
+        } : null,
+      } : undefined;
+
+      // Build legacy components format from component entries
+      const getComponentValue = (key: string) => {
+        const entry = componentEntries.find((e) => e.key === key);
+        return entry?.value || '';
+      };
+
+      // Check if seatpost is a dropper
+      const seatpostEntry = componentEntries.find((e) => e.key === 'seatpost');
+      const isDropper = seatpostEntry?.kind === 'dropper';
+
+      const submissionData = {
+        ...data,
+        spokesComponents,
+        components: {
+          fork: getComponentValue('fork'),
+          rearShock: getComponentValue('rearShock'),
+          wheels: getComponentValue('wheels'),
+          dropperPost: isDropper ? getComponentValue('seatpost') : getComponentValue('seatpost'),
+        },
+      };
+
       const response = await fetch(`${import.meta.env.VITE_API_URL}/onboarding/complete`, {
         method: 'POST',
         credentials: 'include',
         headers: getAuthHeaders(),
-        body: JSON.stringify(data),
+        body: JSON.stringify(submissionData),
       });
 
       if (!response.ok) {
@@ -463,8 +595,18 @@ export default function Onboarding() {
               {/* Selected bike display */}
               {data.bikeMake && data.bikeModel && !showManualBikeEntry && (
                 <div className="rounded-lg bg-surface-2 p-4 border border-app text-left">
-                  <div className="flex justify-between items-start">
-                    <div>
+                  <div className="flex gap-4">
+                    {data.thumbnailUrl && (
+                      <img
+                        src={data.thumbnailUrl}
+                        alt={`${data.bikeYear} ${data.bikeMake} ${data.bikeModel}`}
+                        className="w-24 h-18 object-contain rounded bg-white/5"
+                        onError={(e) => {
+                          e.currentTarget.style.display = 'none';
+                        }}
+                      />
+                    )}
+                    <div className="flex-1">
                       <p className="text-heading font-medium">
                         {data.bikeYear} {data.bikeMake} {data.bikeModel}
                       </p>
@@ -475,15 +617,18 @@ export default function Onboarding() {
                           {data.bikeTravelShock && `Shock: ${data.bikeTravelShock}mm`}
                         </p>
                       )}
+                      {data.category && (
+                        <p className="text-xs text-muted mt-1 capitalize">{data.category}</p>
+                      )}
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => setShowManualBikeEntry(true)}
-                      className="text-xs text-primary hover:underline"
-                    >
-                      Edit details
-                    </button>
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowManualBikeEntry(true)}
+                    className="text-xs text-primary hover:underline mt-2"
+                  >
+                    Edit details manually
+                  </button>
                 </div>
               )}
 
@@ -595,51 +740,50 @@ export default function Onboarding() {
                     <span className="text-2xl">🔧</span>
                   </div>
                 </div>
-                <h2 className="text-3xl font-semibold text-white">What components does it have?</h2>
-                <p className="text-muted">We'll track service intervals for each component</p>
+                <h2 className="text-3xl font-semibold text-white">Review Components</h2>
+                <p className="text-muted">
+                  {data.bikeYear} {data.bikeMake} {data.bikeModel}
+                </p>
               </div>
 
-              <div className="space-y-4 text-left">
-                <label className="text-xs uppercase tracking-[0.3em] text-muted">
-                  Fork
-                  <input
-                    type="text"
-                    className="mt-2 w-full input-soft"
-                    placeholder="RockShox Lyrik Ultimate"
-                    value={data.components.fork}
-                    onChange={(e) => setData({ ...data, components: { ...data.components, fork: e.target.value } })}
-                  />
-                </label>
-                <label className="text-xs uppercase tracking-[0.3em] text-muted">
-                  Rear Shock
-                  <input
-                    type="text"
-                    className="mt-2 w-full input-soft"
-                    placeholder="Fox Float X2"
-                    value={data.components.rearShock}
-                    onChange={(e) => setData({ ...data, components: { ...data.components, rearShock: e.target.value } })}
-                  />
-                </label>
-                <label className="text-xs uppercase tracking-[0.3em] text-muted">
-                  Wheels
-                  <input
-                    type="text"
-                    className="mt-2 w-full input-soft"
-                    placeholder="Industry Nine Enduro 305"
-                    value={data.components.wheels}
-                    onChange={(e) => setData({ ...data, components: { ...data.components, wheels: e.target.value } })}
-                  />
-                </label>
-                <label className="text-xs uppercase tracking-[0.3em] text-muted">
-                  Dropper Post
-                  <input
-                    type="text"
-                    className="mt-2 w-full input-soft"
-                    placeholder="PNW Loam"
-                    value={data.components.dropperPost}
-                    onChange={(e) => setData({ ...data, components: { ...data.components, dropperPost: e.target.value } })}
-                  />
-                </label>
+              <p className="text-sm text-muted text-left">
+                Review your bike's components. Edit any parts you've customized.
+              </p>
+
+              <div className="border border-app rounded-lg bg-surface overflow-hidden text-left">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-app bg-surface-2">
+                      <th className="text-left text-xs font-medium text-muted uppercase tracking-wide px-4 py-2 w-1/3">
+                        Component
+                      </th>
+                      <th className="text-left text-xs font-medium text-muted uppercase tracking-wide px-4 py-2">
+                        Part
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {componentEntries.map((entry, idx) => (
+                      <tr
+                        key={entry.key}
+                        className={idx < componentEntries.length - 1 ? 'border-b border-app' : ''}
+                      >
+                        <td className="px-4 py-2 text-sm text-heading font-medium">
+                          {entry.label}
+                        </td>
+                        <td className="px-4 py-2">
+                          <input
+                            type="text"
+                            value={entry.value}
+                            onChange={(e) => updateComponentEntry(entry.key, e.target.value)}
+                            placeholder="Brand Model"
+                            className="w-full bg-transparent text-sm text-heading placeholder:text-muted/50 focus:outline-none"
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>
           )}

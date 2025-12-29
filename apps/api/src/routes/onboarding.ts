@@ -238,20 +238,28 @@ router.post('/complete', express.json(), async (req: Request, res) => {
           });
 
           if (!existing) {
-            await tx.component.create({
-              data: {
-                userId,
-                bikeId: bike.id,
-                type: componentType,
-                brand: compData.maker,
-                model: compData.model,
-                notes: compData.description ?? null,
-                isStock: true,
-                hoursUsed: 0,
-              },
-            });
+            try {
+              await tx.component.create({
+                data: {
+                  userId,
+                  bikeId: bike.id,
+                  type: componentType,
+                  brand: compData.maker,
+                  model: compData.model,
+                  notes: compData.description ?? null,
+                  isStock: true,
+                  hoursUsed: 0,
+                },
+              });
 
-            console.log(`[Onboarding] Created ${componentType} component from 99spokes for bike: ${bike.id}`);
+              console.log(`[Onboarding] Created ${componentType} component from 99spokes for bike: ${bike.id}`);
+            } catch (error) {
+              // Handle race condition: component was created between findFirst and create
+              if (error instanceof Error && error.message.includes('Unique constraint')) {
+                continue;
+              }
+              throw error;
+            }
           }
         }
       }

@@ -13,6 +13,58 @@ import { enqueueSyncJob, type SyncProvider } from '../lib/queue';
 
 type ComponentType = ComponentTypeLiteral;
 
+/**
+ * Creates a component if one doesn't already exist for the given bike and type.
+ * Uses findFirst + create pattern but handles race conditions by catching
+ * duplicate creation errors gracefully.
+ */
+async function createComponentIfNotExists(
+  tx: Prisma.TransactionClient,
+  data: {
+    bikeId: string;
+    userId: string;
+    type: ComponentType;
+    brand: string;
+    model: string;
+    notes?: string | null;
+    isStock?: boolean;
+    hoursUsed?: number;
+    installedAt?: Date;
+  }
+): Promise<void> {
+  const existing = await tx.component.findFirst({
+    where: { bikeId: data.bikeId, type: data.type },
+  });
+
+  if (existing) return;
+
+  try {
+    await tx.component.create({
+      data: {
+        type: data.type,
+        bikeId: data.bikeId,
+        userId: data.userId,
+        brand: data.brand,
+        model: data.model,
+        notes: data.notes ?? null,
+        isStock: data.isStock ?? false,
+        hoursUsed: data.hoursUsed ?? 0,
+        installedAt: data.installedAt ?? new Date(),
+      },
+    });
+  } catch (error) {
+    // Handle race condition: if another request created the component
+    // between our findFirst and create, just ignore the error
+    if (
+      error instanceof Error &&
+      error.message.includes('Unique constraint')
+    ) {
+      return;
+    }
+    throw error;
+  }
+}
+
 type UserArgs = { id: string };
 
 type AddRideInput = {
@@ -255,18 +307,26 @@ async function syncBikeComponents(
         },
       });
     } else if (opts.createMissing || incoming) {
-      await tx.component.create({
-        data: {
-          type,
-          bikeId: opts.bikeId,
-          userId: opts.userId,
-          brand: normalized.brand,
-          model: normalized.model,
-          notes: normalized.notes,
-          isStock: normalized.isStock,
-          installedAt: new Date(),
-        },
-      });
+      try {
+        await tx.component.create({
+          data: {
+            type,
+            bikeId: opts.bikeId,
+            userId: opts.userId,
+            brand: normalized.brand,
+            model: normalized.model,
+            notes: normalized.notes,
+            isStock: normalized.isStock,
+            installedAt: new Date(),
+          },
+        });
+      } catch (error) {
+        // Handle race condition: component was created between findFirst and create
+        if (error instanceof Error && error.message.includes('Unique constraint')) {
+          continue;
+        }
+        throw error;
+      }
     }
   }
 }
@@ -823,26 +883,16 @@ export const resolvers = {
               }
             }
 
-            // Check if component already exists for this bike
-            const existing = await tx.component.findFirst({
-              where: { bikeId: bike.id, type: componentType },
+            // Create component if not exists (handles race conditions)
+            await createComponentIfNotExists(tx, {
+              bikeId: bike.id,
+              userId,
+              type: componentType,
+              brand: compData.maker ?? 'Stock',
+              model: compData.model ?? 'Stock',
+              notes: compData.description,
+              isStock: true,
             });
-
-            if (!existing) {
-              await tx.component.create({
-                data: {
-                  type: componentType,
-                  bikeId: bike.id,
-                  userId,
-                  brand: compData.maker,
-                  model: compData.model,
-                  notes: compData.description ?? null,
-                  isStock: true,
-                  hoursUsed: 0,
-                  installedAt: new Date(),
-                },
-              });
-            }
           }
         }
 
