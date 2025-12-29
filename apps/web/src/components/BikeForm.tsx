@@ -11,6 +11,7 @@ import {
   buildComponentEntriesFromExisting,
   validateComponentEntry,
   parseNumericInput,
+  getDimensionLimit,
   isValidImageUrl,
   filterNonNullComponents,
 } from '@/utils/bikeFormHelpers';
@@ -176,6 +177,13 @@ export function BikeForm({
     }
   }, [initial, mode]);
 
+  // Cleanup validation timer on unmount to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      clearTimeout(validationTimerRef.current ?? undefined);
+    };
+  }, []);
+
   const setField = (key: keyof BikeFormValues, value: string) => {
     setForm((prev) => ({ ...prev, [key]: value }));
   };
@@ -262,8 +270,8 @@ export function BikeForm({
         if (field === 'brand' || field === 'model') {
           return { ...entry, [field]: value as string };
         }
-        // Handle numeric dimension fields with NaN validation
-        return { ...entry, [field]: parseNumericInput(value) };
+        // Handle numeric dimension fields with field-specific limits
+        return { ...entry, [field]: parseNumericInput(value, 0, getDimensionLimit(field)) };
       })
     );
     // Clear validation error when user edits (using functional form to avoid dependency on errors)

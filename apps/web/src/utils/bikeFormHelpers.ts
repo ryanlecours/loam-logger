@@ -183,8 +183,21 @@ export const validateAllComponents = (entries: ComponentEntry[]): Record<string,
   return errors;
 };
 
-/** Maximum dimension in mm (220mm - brake rotors are 220mm, everything else is <220mm) */
-const MAX_DIMENSION_MM = 220;
+/** Component-specific dimension limits in mm */
+const DIMENSION_LIMITS: Record<string, number> = {
+  travelMm: 220,      // Fork/shock travel (max ~220mm for DH bikes)
+  offsetMm: 100,      // Fork offset (typically 37-51mm, max ~65mm)
+  lengthMm: 150,      // Stem length (typically 35-80mm, max ~150mm)
+  widthMm: 850,       // Handlebar width (typically 760-800mm)
+  default: 220,       // Fallback for unknown fields
+};
+
+/**
+ * Gets the maximum allowed value for a dimension field.
+ */
+export const getDimensionLimit = (field: string): number => {
+  return DIMENSION_LIMITS[field] ?? DIMENSION_LIMITS.default;
+};
 
 /**
  * Parses a numeric input value with strict validation.
@@ -195,7 +208,7 @@ const MAX_DIMENSION_MM = 220;
 export const parseNumericInput = (
   value: string | number,
   min = 0,
-  max = MAX_DIMENSION_MM
+  max = DIMENSION_LIMITS.default
 ): number | undefined => {
   if (typeof value === 'number') {
     if (Number.isNaN(value) || value < min || value > max) return undefined;
