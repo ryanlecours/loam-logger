@@ -61,6 +61,48 @@ export interface Bike {
 
 export type BikeComponentKey = 'fork' | 'shock' | 'dropper' | 'wheels' | 'pivotBearings';
 
+/**
+ * All component types tracked in the system.
+ * This is the single source of truth for component type definitions.
+ */
+export const ALL_COMPONENT_TYPES = [
+  { key: 'fork', label: 'Fork', spokesKey: 'fork', dbType: 'FORK' },
+  { key: 'rearShock', label: 'Rear Shock', spokesKey: 'rearShock', dbType: 'SHOCK' },
+  { key: 'brakes', label: 'Brakes', spokesKey: 'brakes', dbType: 'BRAKES' },
+  { key: 'rearDerailleur', label: 'Rear Derailleur', spokesKey: 'rearDerailleur', dbType: 'REAR_DERAILLEUR' },
+  { key: 'crank', label: 'Crankset', spokesKey: 'crank', dbType: 'CRANK' },
+  { key: 'cassette', label: 'Cassette', spokesKey: 'cassette', dbType: 'CASSETTE' },
+  { key: 'rims', label: 'Rims', spokesKey: 'rims', dbType: 'RIMS' },
+  { key: 'tires', label: 'Tires', spokesKey: 'tires', dbType: 'TIRES' },
+  { key: 'stem', label: 'Stem', spokesKey: 'stem', dbType: 'STEM' },
+  { key: 'handlebar', label: 'Handlebar', spokesKey: 'handlebar', dbType: 'HANDLEBAR' },
+  { key: 'saddle', label: 'Saddle', spokesKey: 'saddle', dbType: 'SADDLE' },
+  { key: 'seatpost', label: 'Seatpost', spokesKey: 'seatpost', dbType: 'SEATPOST' },
+  { key: 'wheels', label: 'Wheels', spokesKey: 'wheels', dbType: 'WHEELS' },
+  { key: 'pivotBearings', label: 'Pivot Bearings', spokesKey: null, dbType: 'PIVOT_BEARINGS' },
+] as const;
+
+export type ComponentTypeEntry = (typeof ALL_COMPONENT_TYPES)[number];
+
+/**
+ * Mapping from 99spokes API component keys to database ComponentType enum values.
+ * Used when creating components from 99spokes data.
+ */
+export const SPOKES_TO_COMPONENT_TYPE: Record<string, string> = {
+  fork: 'FORK',
+  rearShock: 'SHOCK',
+  brakes: 'BRAKES',
+  rearDerailleur: 'REAR_DERAILLEUR',
+  crank: 'CRANK',
+  cassette: 'CASSETTE',
+  rims: 'RIMS',
+  tires: 'TIRES',
+  stem: 'STEM',
+  handlebar: 'HANDLEBAR',
+  saddle: 'SADDLE',
+  seatpost: 'SEATPOST',
+};
+
 export interface GearComponentState {
   brand: string;
   model: string;

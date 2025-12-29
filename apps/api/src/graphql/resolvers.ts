@@ -10,6 +10,7 @@ import type {
 } from '@prisma/client';
 import { checkRateLimit } from '../lib/rate-limit';
 import { enqueueSyncJob, type SyncProvider } from '../lib/queue';
+import { SPOKES_TO_COMPONENT_TYPE } from '@loam/shared';
 
 type ComponentType = ComponentTypeLiteral;
 
@@ -158,22 +159,6 @@ type AddBikeInputGQL = {
 
 type UpdateBikeInputGQL = Partial<AddBikeInputGQL> & {
   year?: number | null;
-};
-
-// Mapping from 99spokes component keys to ComponentType
-const SPOKES_TO_COMPONENT_TYPE: Record<string, ComponentType> = {
-  fork: 'FORK',
-  rearShock: 'SHOCK',
-  brakes: 'BRAKES',
-  rearDerailleur: 'REAR_DERAILLEUR',
-  crank: 'CRANK',
-  cassette: 'CASSETTE',
-  rims: 'RIMS',
-  tires: 'TIRES',
-  stem: 'STEM',
-  handlebar: 'HANDLEBAR',
-  saddle: 'SADDLE',
-  seatpost: 'SEATPOST',
 };
 
 type AddComponentInputGQL = {
@@ -860,39 +845,67 @@ export const resolvers = {
           createMissing: true,
         });
 
-        // Auto-create components from 99spokes data
+        // Auto-create components from 99spokes data (batched to avoid N+1 queries)
         if (input.spokesComponents) {
           const spokesComps = input.spokesComponents;
+
+          // Build list of components to create
+          const componentsToCreate: Array<{
+            type: ComponentType;
+            brand: string;
+            model: string;
+            notes: string | null;
+          }> = [];
+
           for (const [key, compData] of Object.entries(spokesComps)) {
             if (!compData || !compData.maker || !compData.model) continue;
 
-            let componentType = SPOKES_TO_COMPONENT_TYPE[key];
+            let componentType = SPOKES_TO_COMPONENT_TYPE[key] as ComponentType | undefined;
             if (!componentType) continue;
 
             // Skip types already handled by syncBikeComponents (FORK, SHOCK)
-            // to avoid duplicates
             if (componentType === 'FORK' || componentType === 'SHOCK') continue;
 
             // Smart dropper detection: if seatpost.kind === 'dropper', create as DROPPER
             if (key === 'seatpost') {
-              if (compData.kind === 'dropper') {
-                componentType = 'DROPPER';
-              } else {
-                // It's a rigid seatpost, create as SEATPOST
-                componentType = 'SEATPOST';
-              }
+              componentType = compData.kind === 'dropper' ? 'DROPPER' : 'SEATPOST';
             }
 
-            // Create component if not exists (handles race conditions)
-            await createComponentIfNotExists(tx, {
-              bikeId: bike.id,
-              userId,
+            componentsToCreate.push({
               type: componentType,
               brand: compData.maker ?? 'Stock',
               model: compData.model ?? 'Stock',
-              notes: compData.description,
-              isStock: true,
+              notes: compData.description ?? null,
             });
+          }
+
+          if (componentsToCreate.length > 0) {
+            // Batch fetch existing component types for this bike
+            const existingComponents = await tx.component.findMany({
+              where: { bikeId: bike.id },
+              select: { type: true },
+            });
+            const existingTypes = new Set(existingComponents.map((c) => c.type));
+
+            // Filter to only components that don't exist yet
+            const toCreate = componentsToCreate
+              .filter((c) => !existingTypes.has(c.type))
+              .map((c) => ({
+                type: c.type,
+                bikeId: bike.id,
+                userId,
+                brand: c.brand,
+                model: c.model,
+                notes: c.notes,
+                isStock: true,
+                hoursUsed: 0,
+                installedAt: new Date(),
+              }));
+
+            // Batch create all missing components
+            if (toCreate.length > 0) {
+              await tx.component.createMany({ data: toCreate });
+            }
           }
         }
 

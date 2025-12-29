@@ -7,24 +7,7 @@ import {
 import { Input, Textarea, Button } from './ui';
 import { BikeSearch, type SpokesSearchResult } from './BikeSearch';
 import { useSpokes, type SpokesComponentEntry, type SpokesBikeDetails } from '@/hooks/useSpokes';
-
-// All component types we track
-const ALL_COMPONENT_TYPES = [
-  { key: 'fork', label: 'Fork', spokesKey: 'fork' },
-  { key: 'rearShock', label: 'Rear Shock', spokesKey: 'rearShock' },
-  { key: 'brakes', label: 'Brakes', spokesKey: 'brakes' },
-  { key: 'rearDerailleur', label: 'Rear Derailleur', spokesKey: 'rearDerailleur' },
-  { key: 'crank', label: 'Crankset', spokesKey: 'crank' },
-  { key: 'cassette', label: 'Cassette', spokesKey: 'cassette' },
-  { key: 'rims', label: 'Rims', spokesKey: 'rims' },
-  { key: 'tires', label: 'Tires', spokesKey: 'tires' },
-  { key: 'stem', label: 'Stem', spokesKey: 'stem' },
-  { key: 'handlebar', label: 'Handlebar', spokesKey: 'handlebar' },
-  { key: 'saddle', label: 'Saddle', spokesKey: 'saddle' },
-  { key: 'seatpost', label: 'Seatpost', spokesKey: 'seatpost' },
-  { key: 'wheels', label: 'Wheels', spokesKey: 'wheels' },
-  { key: 'pivotBearings', label: 'Pivot Bearings', spokesKey: null },
-] as const;
+import { ALL_COMPONENT_TYPES } from '@loam/shared';
 
 // Component entry for Step 2
 type ComponentEntry = {
