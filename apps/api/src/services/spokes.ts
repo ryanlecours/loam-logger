@@ -358,9 +358,8 @@ export async function getBikeById(id: string): Promise<SpokesBike | null> {
     await acquireRequestSlot();
 
     // Use direct endpoint for full bike details with geometry/size data
-    // Build URL safely: construct base first, then append encoded ID to pathname
     const url = new URL(`${SPOKES_API_BASE}/bikes/`);
-    url.pathname = url.pathname + encodeURIComponent(id);
+    url.pathname = url.pathname + id;
     url.searchParams.set('include', 'thumbnailUrl,components,suspension,sizes,images');
 
     const response = await fetch(url.toString(), {
