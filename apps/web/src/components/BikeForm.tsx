@@ -264,9 +264,12 @@ export function BikeForm({
         if (field === 'brand' || field === 'model') {
           return { ...entry, [field]: value as string };
         }
-        // Handle numeric dimension fields
-        const numVal = typeof value === 'string' ? (value ? parseInt(value, 10) : undefined) : value;
-        return { ...entry, [field]: numVal };
+        // Handle numeric dimension fields with NaN validation
+        if (typeof value === 'string') {
+          const parsed = parseInt(value, 10);
+          return { ...entry, [field]: !isNaN(parsed) ? parsed : undefined };
+        }
+        return { ...entry, [field]: value };
       })
     );
     // Clear validation error when user edits
@@ -300,12 +303,24 @@ export function BikeForm({
     return Object.keys(newErrors).length === 0;
   };
 
-  // Handle size selection
+  // Handle size selection - preserve user edits, only update dimensions from new size
   const handleSizeChange = (sizeName: string) => {
     setSelectedSize(sizeName || null);
     if (sizeName && spokesDetails) {
-      // Rebuild component entries with new size geometry
-      setComponentEntries(buildComponentEntries(spokesDetails, sizeName));
+      const newEntries = buildComponentEntries(spokesDetails, sizeName);
+      // Merge new size geometry with existing user edits
+      setComponentEntries((prev) =>
+        newEntries.map((newEntry) => {
+          const existing = prev.find((e) => e.key === newEntry.key);
+          if (!existing) return newEntry;
+          // Preserve user's brand/model edits, update dimensions from new size
+          return {
+            ...newEntry,
+            brand: existing.brand || newEntry.brand,
+            model: existing.model || newEntry.model,
+          };
+        })
+      );
     }
   };
 
@@ -355,7 +370,9 @@ export function BikeForm({
     const seatpostEntry = componentEntries.find((e) => e.key === 'seatpost');
     const isDropper = seatpostEntry?.kind === 'dropper';
 
-    // Update form travel fields from component entries
+    // Travel fields: component table entries take precedence over form state.
+    // This allows users to edit travel in the component table (Step 2) and have
+    // those values persist to the bike record, overriding any auto-populated values.
     const forkEntry = componentEntries.find((e) => e.key === 'fork');
     const shockEntry = componentEntries.find((e) => e.key === 'rearShock');
 
