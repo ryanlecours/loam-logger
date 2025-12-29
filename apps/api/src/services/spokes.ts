@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { getRedisConnection, isRedisReady } from '../lib/redis';
 
 // API configuration
@@ -67,7 +68,41 @@ export interface SpokesComponent {
   maker?: string;  // Some endpoints use 'maker' instead of 'make'
   model?: string;
   description?: string;
+  display?: string;  // Display string from API
   kind?: string;  // e.g., 'dropper' for seatpost
+  material?: string;  // For fork, handlebar, rims
+  innerWidthMM?: number;  // For rims
+  width?: string;  // For tires
+}
+
+export interface SpokesGeometry {
+  stemLengthMM?: number;
+  handlebarWidthMM?: number;
+  crankLengthMM?: number;
+  frontTravelMM?: number;
+  rearTravelMM?: number;
+  rakeMM?: number;  // Fork offset
+}
+
+export interface SpokesSize {
+  name: string;
+  riderHeight?: {
+    minCM?: number;
+    maxCM?: number;
+  };
+  geometry?: {
+    source?: SpokesGeometry;
+    computed?: SpokesGeometry;
+  };
+}
+
+export interface SpokesImage {
+  url: string;
+  dimensions?: {
+    width: number;
+    height: number;
+  };
+  colorKey?: string;
 }
 
 export interface SpokesComponents {
@@ -119,6 +154,8 @@ export interface SpokesBike {
   hangerStandard?: string;  // 'udh' | etc.
   suspension?: SpokesSuspension;
   components?: SpokesComponents;
+  sizes?: SpokesSize[];  // Available sizes with geometry
+  images?: SpokesImage[];  // Additional images for fallback
 }
 
 interface SpokesApiResponse {
@@ -156,6 +193,17 @@ const acquireRequestSlot = async (): Promise<void> => {
 // ─────────────────────────────────────────────────────────────────────────────
 // Caching Helpers
 // ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Sanitizes a string for use in cache keys.
+ * Replaces non-alphanumeric characters with underscores and appends a short hash
+ * to prevent collisions (e.g., "Santa Cruz" vs "Santa:Cruz" would otherwise both
+ * become "Santa_Cruz").
+ */
+const sanitizeCacheKey = (str: string): string => {
+  const hash = crypto.createHash('sha256').update(str).digest('hex').slice(0, 8);
+  return str.replace(/[^\w-]/g, '_').slice(0, 100) + '_' + hash;
+};
 
 const getCached = async <T>(key: string): Promise<T | undefined> => {
   // Try Redis first
@@ -227,8 +275,8 @@ export async function searchBikes(params: {
     return [];
   }
 
-  // Build cache key
-  const cacheKey = `spokes:search:${query.toLowerCase()}:${params.year || 'any'}:${params.category || 'all'}`;
+  // Build cache key with sanitized user input
+  const cacheKey = `spokes:search:${sanitizeCacheKey(query.toLowerCase())}:${params.year || 'any'}:${sanitizeCacheKey(params.category || 'all')}`;
 
   // Check cache
   const cached = await getCached<SpokesSearchResult[]>(cacheKey);
@@ -298,7 +346,7 @@ export async function getBikeById(id: string): Promise<SpokesBike | null> {
     return null;
   }
 
-  const cacheKey = `spokes:bike:${id}`;
+  const cacheKey = `spokes:bike:${sanitizeCacheKey(id)}`;
 
   // Check cache
   const cached = await getCached<SpokesBike>(cacheKey);
@@ -309,10 +357,13 @@ export async function getBikeById(id: string): Promise<SpokesBike | null> {
   try {
     await acquireRequestSlot();
 
-    // Use direct endpoint for full bike details
-    const url = `${SPOKES_API_BASE}/bikes/${id}?include=thumbnailUrl,components`;
+    // Use direct endpoint for full bike details with geometry/size data
+    // Build URL safely: construct base first, then append encoded ID to pathname
+    const url = new URL(`${SPOKES_API_BASE}/bikes/`);
+    url.pathname = url.pathname + encodeURIComponent(id);
+    url.searchParams.set('include', 'thumbnailUrl,components,suspension,sizes,images');
 
-    const response = await fetch(url, {
+    const response = await fetch(url.toString(), {
       headers: {
         Authorization: `Bearer ${SPOKES_API_KEY}`,
         Accept: 'application/json',

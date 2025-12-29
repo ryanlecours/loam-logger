@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { getAuthHeaders } from '@/lib/csrf';
 
 export interface SpokesSuspension {
@@ -27,7 +27,39 @@ export interface SpokesComponentEntry {
   maker?: string;  // Some endpoints use 'maker' instead of 'make'
   model?: string;
   description?: string;
+  display?: string;  // Display string from API
   kind?: string;  // e.g., 'dropper' for seatpost
+  material?: string;  // For fork, handlebar, rims
+}
+
+export interface SpokesGeometry {
+  stemLengthMM?: number;
+  handlebarWidthMM?: number;
+  crankLengthMM?: number;
+  frontTravelMM?: number;
+  rearTravelMM?: number;
+  rakeMM?: number;  // Fork offset
+}
+
+export interface SpokesSize {
+  name: string;
+  riderHeight?: {
+    minCM?: number;
+    maxCM?: number;
+  };
+  geometry?: {
+    source?: SpokesGeometry;
+    computed?: SpokesGeometry;
+  };
+}
+
+export interface SpokesImage {
+  url: string;
+  dimensions?: {
+    width: number;
+    height: number;
+  };
+  colorKey?: string;
 }
 
 export interface SpokesMotorEntry extends SpokesComponentEntry {
@@ -82,14 +114,25 @@ export interface SpokesBikeDetails {
   hangerStandard?: string;
   suspension?: SpokesSuspension;
   components?: SpokesComponents;
+  sizes?: SpokesSize[];  // Available sizes with geometry
+  images?: SpokesImage[];  // Additional images for fallback
 }
 
 export function useSpokes() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Cache bike details to avoid redundant API calls
+  const cacheRef = useRef<Map<string, SpokesBikeDetails>>(new Map());
+
   const getBikeDetails = useCallback(async (spokesId: string): Promise<SpokesBikeDetails | null> => {
     if (!spokesId) return null;
+
+    // Check cache first
+    const cached = cacheRef.current.get(spokesId);
+    if (cached) {
+      return cached;
+    }
 
     setIsLoading(true);
     setError(null);
@@ -111,7 +154,14 @@ export function useSpokes() {
       }
 
       const data = await response.json();
-      return data.bike;
+      const bike = data.bike;
+
+      // Store in cache
+      if (bike) {
+        cacheRef.current.set(spokesId, bike);
+      }
+
+      return bike;
     } catch (err) {
       console.error('Error fetching bike details:', err);
       setError('Failed to load bike details');

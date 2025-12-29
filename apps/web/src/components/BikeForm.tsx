@@ -1,109 +1,141 @@
-import { useEffect, useState } from 'react';
-import {
-  type BikeFormProps,
-  type BikeFormValues,
-  type SpokesComponentData,
-} from '@/models/BikeComponents';
+import React, { useCallback, useEffect, useState, useRef, memo } from 'react';
+import { type BikeFormProps, type BikeFormValues } from '@/models/BikeComponents';
 import { Input, Textarea, Button } from './ui';
 import { BikeSearch, type SpokesSearchResult } from './BikeSearch';
-import { useSpokes, type SpokesComponentEntry, type SpokesBikeDetails } from '@/hooks/useSpokes';
-import { ALL_COMPONENT_TYPES } from '@loam/shared';
+import { useSpokes, type SpokesBikeDetails } from '@/hooks/useSpokes';
+import { FaPencilAlt } from 'react-icons/fa';
+import {
+  type ComponentEntry,
+  toSpokesInput,
+  buildComponentEntries,
+  buildComponentEntriesFromExisting,
+  validateComponentEntry,
+  parseNumericInput,
+  getDimensionLimit,
+  isValidImageUrl,
+  filterNonNullComponents,
+} from '@/utils/bikeFormHelpers';
 
-// Component entry for Step 2
-type ComponentEntry = {
-  key: string;
-  label: string;
-  value: string;        // Combined "Brand Model" string
-  description: string;  // Optional description from 99spokes
-  kind?: string;        // For seatpost dropper detection
+/**
+ * Props for ComponentRow - memoized to prevent re-renders on sibling changes
+ */
+type ComponentRowProps = {
+  entry: ComponentEntry;
+  isLast: boolean;
+  error?: string;
+  onUpdate: (key: string, field: 'brand' | 'model' | 'travelMm' | 'offsetMm' | 'lengthMm' | 'widthMm', value: string | number) => void;
 };
 
-// Helper to extract only GraphQL-allowed fields for SpokesComponentInput
-const toSpokesInput = (comp: SpokesComponentEntry | null | undefined): SpokesComponentData | null => {
-  if (!comp) return null;
-  return {
-    maker: comp.make || comp.maker || null,
-    model: comp.model || null,
-    description: comp.description || null,
-    kind: comp.kind || null,
-  };
-};
+/**
+ * Memoized component row to prevent expensive table re-renders.
+ * Only re-renders when its specific entry, error, or isLast status changes.
+ */
+const ComponentRow = memo(function ComponentRow({ entry, isLast, error, onUpdate }: ComponentRowProps) {
+  const hasTravelSpec = entry.key === 'fork' || entry.key === 'rearShock';
+  const hasOffsetSpec = entry.key === 'fork';
+  const hasLengthSpec = entry.key === 'stem';
+  const hasWidthSpec = entry.key === 'handlebar';
+  const hasAnySpec = hasTravelSpec || hasLengthSpec || hasWidthSpec;
 
-// Build component entries from 99spokes data
-const buildComponentEntries = (details: SpokesBikeDetails | null): ComponentEntry[] => {
-  return ALL_COMPONENT_TYPES.map(({ key, label, spokesKey }) => {
-    let brand = '';
-    let model = '';
-    let description = '';
-    let kind: string | undefined;
-
-    if (details?.components && spokesKey) {
-      const comp = details.components[spokesKey as keyof typeof details.components] as SpokesComponentEntry | undefined;
-      if (comp) {
-        brand = comp.make || comp.maker || '';
-        model = comp.model || '';
-        description = comp.description || '';
-        kind = comp.kind;
-      }
-    }
-
-    // Special handling for suspension components
-    if (key === 'fork' && details?.suspension?.front?.component) {
-      const suspComp = details.suspension.front.component;
-      brand = suspComp.make || brand;
-      model = suspComp.model || model;
-      description = suspComp.description || description;
-    }
-    if (key === 'rearShock' && details?.suspension?.rear?.component) {
-      const suspComp = details.suspension.rear.component;
-      brand = suspComp.make || brand;
-      model = suspComp.model || model;
-      description = suspComp.description || description;
-    }
-
-    // Combine brand and model into single value
-    const value = [brand, model].filter(Boolean).join(' ').trim();
-
-    // Update label for dropper posts
-    const displayLabel = key === 'seatpost' && kind === 'dropper' ? 'Dropper Post' : label;
-
-    return {
-      key,
-      label: displayLabel,
-      value,
-      description,
-      kind,
-    };
-  });
-};
-
-// Build component entries from existing bike components (edit mode)
-const buildComponentEntriesFromExisting = (initial: BikeFormValues): ComponentEntry[] => {
-  return ALL_COMPONENT_TYPES.map(({ key, label }) => {
-    // Map our component keys to the legacy BIKE_COMPONENT_SECTIONS keys
-    const legacyKeyMap: Record<string, string> = {
-      fork: 'fork',
-      rearShock: 'shock',
-      wheels: 'wheels',
-      pivotBearings: 'pivotBearings',
-      seatpost: 'dropper', // dropper was the legacy key
-    };
-
-    const legacyKey = legacyKeyMap[key];
-    const existingComp = legacyKey ? initial.components[legacyKey as keyof typeof initial.components] : undefined;
-
-    const value = existingComp
-      ? [existingComp.brand, existingComp.model].filter(Boolean).join(' ').trim()
-      : '';
-
-    return {
-      key,
-      label,
-      value,
-      description: '',
-    };
-  });
-};
+  return (
+    <tr
+      className={`${!isLast ? 'border-b border-app' : ''} hover:bg-surface-2 transition-colors group`}
+    >
+      <td className="px-4 py-2 text-sm text-heading font-medium">
+        {entry.label}
+      </td>
+      <td className="px-4 py-2">
+        <div className="flex items-center gap-2">
+          <input
+            type="text"
+            value={entry.brand}
+            onChange={(e) => onUpdate(entry.key, 'brand', e.target.value)}
+            placeholder="Brand"
+            className={`w-full bg-transparent text-sm text-heading placeholder:text-muted/50 focus:outline-none ${error && !entry.brand.trim() ? 'text-red-400 placeholder:text-red-400/50' : ''}`}
+          />
+          <FaPencilAlt className="w-3 h-3 text-muted/40 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
+        </div>
+      </td>
+      <td className="px-4 py-2">
+        <div className="flex items-center gap-2">
+          <input
+            type="text"
+            value={entry.model}
+            onChange={(e) => onUpdate(entry.key, 'model', e.target.value)}
+            placeholder="Model"
+            className={`w-full bg-transparent text-sm text-heading placeholder:text-muted/50 focus:outline-none ${error && !entry.model.trim() ? 'text-red-400 placeholder:text-red-400/50' : ''}`}
+          />
+          <FaPencilAlt className="w-3 h-3 text-muted/40 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
+        </div>
+        {error && (
+          <span className="text-xs text-red-400">{error}</span>
+        )}
+      </td>
+      <td className="px-4 py-2">
+        {hasAnySpec && (
+          <div className="flex items-center gap-2 text-sm">
+            {hasTravelSpec && (
+              <div className="flex items-center gap-1">
+                <input
+                  type="number"
+                  value={entry.travelMm ?? ''}
+                  onChange={(e) => onUpdate(entry.key, 'travelMm', e.target.value)}
+                  placeholder="—"
+                  className="w-12 bg-transparent text-heading placeholder:text-muted/50 focus:outline-none text-center"
+                  min={0}
+                />
+                <span className="text-muted text-xs">mm</span>
+              </div>
+            )}
+            {hasOffsetSpec && (
+              <div className="flex items-center gap-1 ml-2">
+                <span className="text-muted text-xs">offset</span>
+                <input
+                  type="number"
+                  value={entry.offsetMm ?? ''}
+                  onChange={(e) => onUpdate(entry.key, 'offsetMm', e.target.value)}
+                  placeholder="—"
+                  className="w-10 bg-transparent text-heading placeholder:text-muted/50 focus:outline-none text-center"
+                  min={0}
+                />
+                <span className="text-muted text-xs">mm</span>
+              </div>
+            )}
+            {hasLengthSpec && (
+              <div className="flex items-center gap-1">
+                <input
+                  type="number"
+                  value={entry.lengthMm ?? ''}
+                  onChange={(e) => onUpdate(entry.key, 'lengthMm', e.target.value)}
+                  placeholder="—"
+                  className="w-12 bg-transparent text-heading placeholder:text-muted/50 focus:outline-none text-center"
+                  min={0}
+                />
+                <span className="text-muted text-xs">mm</span>
+              </div>
+            )}
+            {hasWidthSpec && (
+              <div className="flex items-center gap-1">
+                <input
+                  type="number"
+                  value={entry.widthMm ?? ''}
+                  onChange={(e) => onUpdate(entry.key, 'widthMm', e.target.value)}
+                  placeholder="—"
+                  className="w-12 bg-transparent text-heading placeholder:text-muted/50 focus:outline-none text-center"
+                  min={0}
+                />
+                <span className="text-muted text-xs">mm</span>
+              </div>
+            )}
+          </div>
+        )}
+        {entry.kind === 'dropper' && (
+          <span className="text-xs text-muted italic">dropper</span>
+        )}
+      </td>
+    </tr>
+  );
+});
 
 export function BikeForm({
   mode,
@@ -118,7 +150,20 @@ export function BikeForm({
   const [showManualEntry, setShowManualEntry] = useState(false);
   const [componentEntries, setComponentEntries] = useState<ComponentEntry[]>([]);
   const [spokesDetails, setSpokesDetails] = useState<SpokesBikeDetails | null>(null);
+  const [selectedSize, setSelectedSize] = useState<string | null>(null);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [pendingSizeChange, setPendingSizeChange] = useState<string | null>(null);
+  const validationTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const { getBikeDetails, isLoading: loadingDetails } = useSpokes();
+
+  // Get available sizes from spokesDetails
+  const availableSizes = spokesDetails?.sizes?.map(s => s.name) || [];
+
+  // Get bike image URL with fallback to images array, validated for security
+  const getBikeImageUrl = () => {
+    const url = form.thumbnailUrl || spokesDetails?.images?.[0]?.url;
+    return url && isValidImageUrl(url) ? url : null;
+  };
 
   useEffect(() => {
     setForm(initial);
@@ -131,6 +176,13 @@ export function BikeForm({
       }
     }
   }, [initial, mode]);
+
+  // Cleanup validation timer on unmount to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      clearTimeout(validationTimerRef.current ?? undefined);
+    };
+  }, []);
 
   const setField = (key: keyof BikeFormValues, value: string) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -203,16 +255,116 @@ export function BikeForm({
     setStep(1);
   };
 
-  // Update a component entry value
-  const updateComponentEntry = (key: string, value: string) => {
+  // Update a component entry field - memoized to prevent ComponentRow re-renders
+  // INTENTIONAL: Empty deps array for stable callback reference.
+  // Uses functional state updates to avoid dependency on errors/componentEntries.
+  // This prevents ComponentRow re-renders on every keystroke.
+  const updateComponentEntry = useCallback((
+    key: string,
+    field: 'brand' | 'model' | 'travelMm' | 'offsetMm' | 'lengthMm' | 'widthMm',
+    value: string | number
+  ) => {
     setComponentEntries((prev) =>
-      prev.map((entry) => (entry.key === key ? { ...entry, value } : entry))
+      prev.map((entry) => {
+        if (entry.key !== key) return entry;
+        if (field === 'brand' || field === 'model') {
+          return { ...entry, [field]: value as string };
+        }
+        // Handle numeric dimension fields with field-specific limits
+        return { ...entry, [field]: parseNumericInput(value, 0, getDimensionLimit(field)) };
+      })
     );
+    // Clear validation error when user edits (using functional form to avoid dependency on errors)
+    setErrors((prev) => {
+      if (!prev[key]) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+
+    // Debounced re-validation (300ms) to show errors in real-time
+    clearTimeout(validationTimerRef.current);
+    validationTimerRef.current = setTimeout(() => {
+      setComponentEntries((current) => {
+        const entry = current.find((e) => e.key === key);
+        if (entry) {
+          const err = validateComponentEntry(entry);
+          if (err) {
+            setErrors((prev) => ({ ...prev, [key]: err }));
+          }
+        }
+        return current; // No mutation, just reading for validation
+      });
+    }, 300);
+  }, []);
+
+  // Validate all components using shared utility
+  const validateAll = (): boolean => {
+    const newErrors: Record<string, string> = {};
+    componentEntries.forEach((entry) => {
+      const err = validateComponentEntry(entry);
+      if (err) newErrors[entry.key] = err;
+    });
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
   };
+
+  // Check if user has manually edited any dimension fields
+  const hasUserDimensionEdits = useCallback((): boolean => {
+    if (!spokesDetails || !selectedSize) return false;
+    const original = buildComponentEntries(spokesDetails, selectedSize);
+    return componentEntries.some((entry) => {
+      const orig = original.find((o) => o.key === entry.key);
+      if (!orig) return false;
+      return (
+        (entry.travelMm !== undefined && entry.travelMm !== orig.travelMm) ||
+        (entry.offsetMm !== undefined && entry.offsetMm !== orig.offsetMm) ||
+        (entry.lengthMm !== undefined && entry.lengthMm !== orig.lengthMm) ||
+        (entry.widthMm !== undefined && entry.widthMm !== orig.widthMm)
+      );
+    });
+  }, [componentEntries, spokesDetails, selectedSize]);
+
+  // Apply new size selection (called after confirmation or when no edits exist)
+  const applyNewSize = useCallback((sizeName: string) => {
+    setSelectedSize(sizeName || null);
+    if (sizeName && spokesDetails) {
+      const newEntries = buildComponentEntries(spokesDetails, sizeName);
+      // Merge new size geometry with existing user edits (preserve brand/model only)
+      setComponentEntries((prev) =>
+        newEntries.map((newEntry) => {
+          const existing = prev.find((e) => e.key === newEntry.key);
+          if (!existing) return newEntry;
+          // Preserve user's brand/model edits, update dimensions from new size
+          return {
+            ...newEntry,
+            brand: existing.brand || newEntry.brand,
+            model: existing.model || newEntry.model,
+          };
+        })
+      );
+    }
+    setPendingSizeChange(null);
+  }, [spokesDetails]);
+
+  // Handle size selection - warn before overwriting user's dimension edits
+  // Wrapped in useCallback to prevent unnecessary re-renders and ensure stable reference
+  const handleSizeChange = useCallback((sizeName: string) => {
+    if (hasUserDimensionEdits()) {
+      setPendingSizeChange(sizeName);
+      return;
+    }
+    applyNewSize(sizeName);
+  }, [hasUserDimensionEdits, applyNewSize]);
 
   // Build final form data and submit
   const handleSubmit = (evt: React.FormEvent) => {
     evt.preventDefault();
+
+    // Validate before submit
+    if (!validateAll()) {
+      return;
+    }
 
     // Build spokesComponents from entries (only GraphQL-allowed fields)
     const spokesComponents = spokesDetails?.components ? {
@@ -236,16 +388,12 @@ export function BikeForm({
     // Build legacy components format for the 5 key components
     const getComponentData = (key: string) => {
       const entry = componentEntries.find((e) => e.key === key);
-      if (!entry || !entry.value.trim()) {
+      if (!entry || (!entry.brand.trim() && !entry.model.trim())) {
         return { brand: '', model: '', notes: '', isStock: true };
       }
-      // Parse value back into brand/model (first word = brand, rest = model)
-      const parts = entry.value.trim().split(/\s+/);
-      const brand = parts[0] || '';
-      const model = parts.slice(1).join(' ') || '';
       return {
-        brand,
-        model,
+        brand: entry.brand.trim(),
+        model: entry.model.trim(),
         notes: '',
         isStock: false,
       };
@@ -255,9 +403,18 @@ export function BikeForm({
     const seatpostEntry = componentEntries.find((e) => e.key === 'seatpost');
     const isDropper = seatpostEntry?.kind === 'dropper';
 
+    // Travel fields: component table entries take precedence over form state.
+    // This allows users to edit travel in the component table (Step 2) and have
+    // those values persist to the bike record, overriding any auto-populated values.
+    const forkEntry = componentEntries.find((e) => e.key === 'fork');
+    const shockEntry = componentEntries.find((e) => e.key === 'rearShock');
+
     const finalForm: BikeFormValues = {
       ...form,
-      spokesComponents,
+      travelForkMm: forkEntry?.travelMm ? String(forkEntry.travelMm) : form.travelForkMm,
+      travelShockMm: shockEntry?.travelMm ? String(shockEntry.travelMm) : form.travelShockMm,
+      selectedSize: selectedSize || undefined,
+      spokesComponents: filterNonNullComponents(spokesComponents),
       components: {
         fork: getComponentData('fork'),
         shock: getComponentData('rearShock'),
@@ -308,9 +465,9 @@ export function BikeForm({
         {form.manufacturer && form.model && !showManualEntry && (
           <div className="rounded-lg bg-surface-2 p-4 border border-app">
             <div className="flex gap-4">
-              {form.thumbnailUrl && (
+              {getBikeImageUrl() && (
                 <img
-                  src={form.thumbnailUrl}
+                  src={getBikeImageUrl()!}
                   alt={`${form.year} ${form.manufacturer} ${form.model}`}
                   className="w-24 h-18 object-contain rounded bg-white/5"
                   onError={(e) => {
@@ -334,10 +491,58 @@ export function BikeForm({
                 )}
               </div>
             </div>
+
+            {/* Size selector */}
+            {availableSizes.length > 0 && (
+              <div className="mt-4 pt-3 border-t border-app/50">
+                <label className="text-sm text-muted block mb-1">Frame Size</label>
+                <select
+                  value={selectedSize || ''}
+                  onChange={(e) => handleSizeChange(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg bg-surface border border-app text-heading text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+                >
+                  <option value="">Select size (optional)</option>
+                  {availableSizes.map((size) => (
+                    <option key={size} value={size}>
+                      {size}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-muted mt-1">
+                  Size selection updates component dimensions
+                </p>
+
+                {/* Confirmation dialog for size change when user has edited dimensions */}
+                {pendingSizeChange && (
+                  <div className="mt-2 p-3 bg-surface-2 border border-amber-500/50 rounded-lg">
+                    <p className="text-sm text-heading mb-2">
+                      Changing size will reset dimension values you've edited. Continue?
+                    </p>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => applyNewSize(pendingSizeChange)}
+                        className="px-3 py-1 text-sm bg-primary text-white rounded hover:bg-primary/90"
+                      >
+                        Yes, change size
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPendingSizeChange(null)}
+                        className="px-3 py-1 text-sm bg-surface border border-app text-muted rounded hover:bg-surface-2"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             <button
               type="button"
               onClick={() => setShowManualEntry(true)}
-              className="text-xs text-primary hover:underline mt-2"
+              className="text-xs text-primary hover:underline mt-3"
             >
               Edit details manually
             </button>
@@ -482,33 +687,29 @@ export function BikeForm({
         <table className="w-full">
           <thead>
             <tr className="border-b border-app bg-surface-2">
-              <th className="text-left text-xs font-medium text-muted uppercase tracking-wide px-4 py-2 w-1/3">
+              <th className="text-left text-xs font-medium text-muted uppercase tracking-wide px-4 py-2 w-28">
                 Component
               </th>
+              <th className="text-left text-xs font-medium text-muted uppercase tracking-wide px-4 py-2 w-32">
+                Brand
+              </th>
               <th className="text-left text-xs font-medium text-muted uppercase tracking-wide px-4 py-2">
-                Part
+                Model
+              </th>
+              <th className="text-left text-xs font-medium text-muted uppercase tracking-wide px-4 py-2 w-40">
+                Specs
               </th>
             </tr>
           </thead>
           <tbody>
             {componentEntries.map((entry, idx) => (
-              <tr
+              <ComponentRow
                 key={entry.key}
-                className={idx < componentEntries.length - 1 ? 'border-b border-app' : ''}
-              >
-                <td className="px-4 py-2 text-sm text-heading font-medium">
-                  {entry.label}
-                </td>
-                <td className="px-4 py-2">
-                  <input
-                    type="text"
-                    value={entry.value}
-                    onChange={(e) => updateComponentEntry(entry.key, e.target.value)}
-                    placeholder="Brand Model"
-                    className="w-full bg-transparent text-sm text-heading placeholder:text-muted/50 focus:outline-none"
-                  />
-                </td>
-              </tr>
+                entry={entry}
+                isLast={idx === componentEntries.length - 1}
+                error={errors[entry.key]}
+                onUpdate={updateComponentEntry}
+              />
             ))}
           </tbody>
         </table>
