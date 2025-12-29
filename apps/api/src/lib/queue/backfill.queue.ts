@@ -23,7 +23,7 @@ let backfillQueue: Queue<BackfillJobData, void, BackfillJobName> | null = null;
 export function getBackfillQueue(): Queue<BackfillJobData, void, BackfillJobName> {
   if (!backfillQueue) {
     backfillQueue = new Queue<BackfillJobData, void, BackfillJobName>('backfill', {
-      ...getQueueConnection(),
+      connection: getQueueConnection(),
       defaultJobOptions: {
         attempts: 3,
         backoff: {

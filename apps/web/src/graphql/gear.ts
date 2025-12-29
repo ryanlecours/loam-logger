@@ -24,6 +24,25 @@ export const BIKE_FIELDS = gql`
     travelForkMm
     travelShockMm
     notes
+    spokesId
+    # 99spokes metadata
+    spokesUrl
+    thumbnailUrl
+    family
+    category
+    subcategory
+    buildKind
+    isFrameset
+    isEbike
+    gender
+    frameMaterial
+    hangerStandard
+    # E-bike motor/battery specs
+    motorMaker
+    motorModel
+    motorPowerW
+    motorTorqueNm
+    batteryWh
     components {
       ...ComponentFields
     }
@@ -86,6 +105,15 @@ export const UPDATE_COMPONENT = gql`
 export const DELETE_COMPONENT = gql`
   mutation DeleteComponent($id: ID!) {
     deleteComponent(id: $id) {
+      ok
+      id
+    }
+  }
+`;
+
+export const DELETE_BIKE = gql`
+  mutation DeleteBike($id: ID!) {
+    deleteBike(id: $id) {
       ok
       id
     }

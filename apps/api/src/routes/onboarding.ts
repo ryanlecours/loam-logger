@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma';
 import { type SessionUser } from '../auth/session';
 import { type ComponentType } from '@prisma/client';
 import { sendBadRequest, sendUnauthorized, sendInternalError } from '../lib/api-response';
+import { SPOKES_TO_COMPONENT_TYPE } from '@loam/shared';
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
@@ -29,18 +30,69 @@ router.post('/complete', express.json(), async (req: Request, res) => {
       return sendUnauthorized(res, 'No active session');
     }
 
-    const { age, location, bikeYear, bikeMake, bikeModel, components } = req.body as {
+    const {
+      age,
+      location,
+      bikeYear,
+      bikeMake,
+      bikeModel,
+      bikeTravelFork,
+      bikeTravelShock,
+      spokesId,
+      // New 99spokes metadata fields
+      spokesUrl,
+      thumbnailUrl,
+      family,
+      category,
+      subcategory,
+      buildKind,
+      isFrameset,
+      isEbike,
+      gender,
+      frameMaterial,
+      hangerStandard,
+      // E-bike motor/battery specs
+      motorMaker,
+      motorModel,
+      motorPowerW,
+      motorTorqueNm,
+      batteryWh,
+      // Components (legacy format)
+      components,
+      // 99spokes components data for auto-creation
+      spokesComponents,
+    } = req.body as {
       age?: number;
       location?: string;
       bikeYear?: number;
       bikeMake?: string;
       bikeModel?: string;
+      bikeTravelFork?: number;
+      bikeTravelShock?: number;
+      spokesId?: string;
+      spokesUrl?: string;
+      thumbnailUrl?: string;
+      family?: string;
+      category?: string;
+      subcategory?: string;
+      buildKind?: string;
+      isFrameset?: boolean;
+      isEbike?: boolean;
+      gender?: string;
+      frameMaterial?: string;
+      hangerStandard?: string;
+      motorMaker?: string;
+      motorModel?: string;
+      motorPowerW?: number;
+      motorTorqueNm?: number;
+      batteryWh?: number;
       components?: {
         fork?: string;
         rearShock?: string;
         wheels?: string;
         dropperPost?: string;
       };
+      spokesComponents?: Record<string, { maker?: string; model?: string; description?: string; kind?: string } | null>;
     };
 
     // Validate bike data
@@ -68,13 +120,35 @@ router.post('/complete', express.json(), async (req: Request, res) => {
 
       console.log(`[Onboarding] Updated user profile for: ${userId}`);
 
-      // Create bike
+      // Create bike with all metadata
+      const bikeIsEbike = isEbike ?? false;
       const bike = await tx.bike.create({
         data: {
           userId,
           manufacturer: bikeMake,
           model: bikeModel,
           year: bikeYear || null,
+          travelForkMm: bikeTravelFork || null,
+          travelShockMm: bikeTravelShock || null,
+          spokesId: spokesId || null,
+          // 99spokes metadata
+          spokesUrl: spokesUrl || null,
+          thumbnailUrl: thumbnailUrl || null,
+          family: family || null,
+          category: category || null,
+          subcategory: subcategory || null,
+          buildKind: buildKind || null,
+          isFrameset: isFrameset ?? false,
+          isEbike: bikeIsEbike,
+          gender: gender || null,
+          frameMaterial: frameMaterial || null,
+          hangerStandard: hangerStandard || null,
+          // E-bike motor/battery specs (only store if e-bike)
+          motorMaker: bikeIsEbike ? (motorMaker || null) : null,
+          motorModel: bikeIsEbike ? (motorModel || null) : null,
+          motorPowerW: bikeIsEbike && motorPowerW ? Math.max(0, Math.floor(motorPowerW)) : null,
+          motorTorqueNm: bikeIsEbike && motorTorqueNm ? Math.max(0, Math.floor(motorTorqueNm)) : null,
+          batteryWh: bikeIsEbike && batteryWh ? Math.max(0, Math.floor(batteryWh)) : null,
         },
       });
 
@@ -127,6 +201,54 @@ router.post('/complete', express.json(), async (req: Request, res) => {
       });
 
       console.log(`[Onboarding] Created stock Pivot Bearings component for bike: ${bike.id}`);
+
+      // Auto-create components from 99spokes data
+      if (spokesComponents) {
+        for (const [key, compData] of Object.entries(spokesComponents)) {
+          if (!compData || !compData.maker || !compData.model) continue;
+
+          let componentType = SPOKES_TO_COMPONENT_TYPE[key] as ComponentType | undefined;
+          if (!componentType) continue;
+
+          // Smart dropper detection: if seatpost.kind === 'dropper', create as DROPPER
+          if (key === 'seatpost' && compData.kind === 'dropper') {
+            componentType = 'DROPPER';
+          }
+
+          // Skip types already handled above (FORK, SHOCK, WHEELS, DROPPER from legacy components)
+          if (['FORK', 'SHOCK', 'WHEELS', 'PIVOT_BEARINGS'].includes(componentType)) continue;
+
+          // Check if component already exists (important for DROPPER which may already exist)
+          const existing = await tx.component.findFirst({
+            where: { bikeId: bike.id, type: componentType },
+          });
+
+          if (!existing) {
+            try {
+              await tx.component.create({
+                data: {
+                  userId,
+                  bikeId: bike.id,
+                  type: componentType,
+                  brand: compData.maker,
+                  model: compData.model,
+                  notes: compData.description ?? null,
+                  isStock: true,
+                  hoursUsed: 0,
+                },
+              });
+
+              console.log(`[Onboarding] Created ${componentType} component from 99spokes for bike: ${bike.id}`);
+            } catch (error) {
+              // Handle race condition: component was created between findFirst and create
+              if (error instanceof Error && error.message.includes('Unique constraint')) {
+                continue;
+              }
+              throw error;
+            }
+          }
+        }
+      }
 
       return { user, bike };
     });

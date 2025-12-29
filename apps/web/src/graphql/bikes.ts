@@ -7,6 +7,7 @@ export const BIKES = gql`
       nickname
       manufacturer
       model
+      thumbnailUrl
       travelForkMm
       travelShockMm
       notes

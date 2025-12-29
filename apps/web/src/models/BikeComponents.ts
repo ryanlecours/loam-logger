@@ -68,6 +68,29 @@ export interface GearComponentState {
   isStock: boolean;
 }
 
+// 99spokes component data for auto-creation
+export interface SpokesComponentData {
+  maker?: string | null;
+  model?: string | null;
+  description?: string | null;
+  kind?: string | null;  // For seatpost: 'dropper' | 'rigid'
+}
+
+export interface SpokesComponentsData {
+  fork?: SpokesComponentData | null;
+  rearShock?: SpokesComponentData | null;
+  brakes?: SpokesComponentData | null;
+  rearDerailleur?: SpokesComponentData | null;
+  crank?: SpokesComponentData | null;
+  cassette?: SpokesComponentData | null;
+  rims?: SpokesComponentData | null;
+  tires?: SpokesComponentData | null;
+  stem?: SpokesComponentData | null;
+  handlebar?: SpokesComponentData | null;
+  saddle?: SpokesComponentData | null;
+  seatpost?: SpokesComponentData | null;
+}
+
 export interface BikeFormValues {
   nickname: string;
   manufacturer: string;
@@ -76,6 +99,27 @@ export interface BikeFormValues {
   travelForkMm: string;
   travelShockMm: string;
   notes: string;
+  spokesId?: string | null;
+  // 99spokes metadata fields
+  spokesUrl?: string | null;
+  thumbnailUrl?: string | null;
+  family?: string | null;
+  category?: string | null;
+  subcategory?: string | null;
+  buildKind?: string | null;
+  isFrameset?: boolean;
+  isEbike?: boolean;
+  gender?: string | null;
+  frameMaterial?: string | null;
+  hangerStandard?: string | null;
+  // E-bike motor/battery specs
+  motorMaker?: string | null;
+  motorModel?: string | null;
+  motorPowerW?: number | null;
+  motorTorqueNm?: number | null;
+  batteryWh?: number | null;
+  // 99spokes components for auto-creation
+  spokesComponents?: SpokesComponentsData | null;
   components: Record<BikeComponentKey, GearComponentState>;
 }
 

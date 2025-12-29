@@ -22,6 +22,7 @@ import mockGarmin from './routes/mock.garmin';
 import onboardingRouter from './routes/onboarding';
 import waitlistRouter from './routes/waitlist';
 import adminRouter from './routes/admin';
+import spokesRouter from './routes/spokes';
 import { googleRouter, emailRouter, deleteAccountRouter, attachUser, verifyCsrf } from './auth/index';
 import mobileAuthRouter from './auth/mobile.route';
 
@@ -169,6 +170,7 @@ const startServer = async () => {
   app.use('/api', duplicatesRouter);
   app.use('/api', waitlistRouter);
   app.use('/api/admin', adminRouter);
+  app.use('/api/spokes', spokesRouter);
 
   app.use(webhooksGarmin);
   app.use(webhooksStrava);

@@ -46,7 +46,7 @@ let emailQueue: Queue<EmailJobData, void, EmailJobName> | null = null;
 export function getEmailQueue(): Queue<EmailJobData, void, EmailJobName> {
   if (!emailQueue) {
     emailQueue = new Queue<EmailJobData, void, EmailJobName>('email', {
-      ...getQueueConnection(),
+      connection: getQueueConnection(),
       defaultJobOptions: {
         attempts: MAX_RETRY_ATTEMPTS,
         backoff: {

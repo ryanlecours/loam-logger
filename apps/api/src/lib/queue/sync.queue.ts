@@ -32,7 +32,7 @@ let syncQueue: Queue<SyncJobData, void, SyncJobName> | null = null;
 export function getSyncQueue(): Queue<SyncJobData, void, SyncJobName> {
   if (!syncQueue) {
     syncQueue = new Queue<SyncJobData, void, SyncJobName>('sync', {
-      ...getQueueConnection(),
+      connection: getQueueConnection(),
       defaultJobOptions: {
         attempts: MAX_RETRY_ATTEMPTS,
         backoff: {
