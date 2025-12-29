@@ -2,7 +2,17 @@ import { getRedisConnection, isRedisReady } from '../lib/redis';
 
 // API configuration
 const SPOKES_API_BASE = 'https://api.99spokes.com/v1';
-const SPOKES_API_KEY = process.env.SPOKES_API_KEY || '';
+const SPOKES_API_KEY = process.env.SPOKES_API_KEY ?? '';
+
+/**
+ * Validates API key is configured. Throws if not.
+ * Routes should check isSpokesConfigured() before calling service functions.
+ */
+function assertApiKeyConfigured(): void {
+  if (!SPOKES_API_KEY) {
+    throw new Error('[Spokes] SPOKES_API_KEY is not configured. Check isSpokesConfigured() before calling API methods.');
+  }
+}
 
 // Cache configuration
 const SEARCH_CACHE_TTL_SECONDS = 60 * 60 * 24; // 24 hours for search results
@@ -210,10 +220,7 @@ export async function searchBikes(params: {
   category?: string;
   limit?: number;
 }): Promise<SpokesSearchResult[]> {
-  if (!SPOKES_API_KEY) {
-    console.error('[Spokes] SPOKES_API_KEY not configured');
-    return [];
-  }
+  assertApiKeyConfigured();
 
   const query = params.query.trim();
   if (query.length < 2) {
@@ -288,10 +295,7 @@ export async function searchBikes(params: {
  * Results are cached for 7 days (bike specs rarely change).
  */
 export async function getBikeById(id: string): Promise<SpokesBike | null> {
-  if (!SPOKES_API_KEY) {
-    console.error('[Spokes] SPOKES_API_KEY not configured');
-    return null;
-  }
+  assertApiKeyConfigured();
 
   if (!id) {
     return null;
@@ -311,7 +315,6 @@ export async function getBikeById(id: string): Promise<SpokesBike | null> {
     // Use direct endpoint for full bike details
     const url = `${SPOKES_API_BASE}/bikes/${id}?include=thumbnailUrl,components`;
 
-    console.log('URL = ' + url);
     const response = await fetch(url, {
       headers: {
         Authorization: `Bearer ${SPOKES_API_KEY}`,
@@ -330,7 +333,6 @@ export async function getBikeById(id: string): Promise<SpokesBike | null> {
     // Direct endpoint returns the bike object directly, not wrapped in items array
     const bike = (await response.json()) as SpokesBike;
 
-    console.log(bike);
     if (!bike || !bike.id) {
       return null;
     }
