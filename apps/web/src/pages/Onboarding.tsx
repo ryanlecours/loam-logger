@@ -13,6 +13,7 @@ import {
   toSpokesInput,
   buildComponentEntries,
   parseNumericInput,
+  getDimensionLimit,
   isValidImageUrl,
   filterNonNullComponents,
 } from '@/utils/bikeFormHelpers';
@@ -163,8 +164,8 @@ export default function Onboarding() {
         if (field === 'brand' || field === 'model') {
           return { ...entry, [field]: value as string };
         }
-        // Handle numeric dimension fields with NaN validation
-        return { ...entry, [field]: parseNumericInput(value) };
+        // Handle numeric dimension fields with field-specific limits
+        return { ...entry, [field]: parseNumericInput(value, 0, getDimensionLimit(field)) };
       })
     );
     // Clear validation error when user edits
