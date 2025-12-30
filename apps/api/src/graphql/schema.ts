@@ -31,6 +31,29 @@ export const typeDefs = gql`
     RIMS
     CRANK
     REAR_DERAILLEUR
+    BRAKE_PAD
+    BRAKE_ROTOR
+    HEADSET
+    BOTTOM_BRACKET
+  }
+
+  enum ComponentLocation {
+    FRONT
+    REAR
+    NONE
+  }
+
+  enum PredictionStatus {
+    ALL_GOOD
+    DUE_SOON
+    DUE_NOW
+    OVERDUE
+  }
+
+  enum ConfidenceLevel {
+    HIGH
+    MEDIUM
+    LOW
   }
 
   enum UserRole {
@@ -82,6 +105,7 @@ export const typeDefs = gql`
   type Component {
     id: ID!
     type: ComponentType!
+    location: ComponentLocation!
     brand: String!
     model: String!
     installedAt: String
@@ -91,8 +115,53 @@ export const typeDefs = gql`
     isStock: Boolean!
     bikeId: ID
     isSpare: Boolean!
+    serviceLogs: [ServiceLog!]!
     createdAt: String!
     updatedAt: String!
+  }
+
+  type ServiceLog {
+    id: ID!
+    componentId: ID!
+    performedAt: String!
+    notes: String
+    hoursAtService: Float!
+    createdAt: String!
+  }
+
+  type WearDriver {
+    factor: String!
+    contribution: Int!
+    label: String!
+  }
+
+  type ComponentPrediction {
+    componentId: ID!
+    componentType: ComponentType!
+    location: ComponentLocation!
+    brand: String!
+    model: String!
+    status: PredictionStatus!
+    hoursRemaining: Float!
+    ridesRemainingEstimate: Int!
+    confidence: ConfidenceLevel!
+    currentHours: Float!
+    serviceIntervalHours: Float!
+    hoursSinceService: Float!
+    why: String
+    drivers: [WearDriver!]
+  }
+
+  type BikePredictionSummary {
+    bikeId: ID!
+    bikeName: String!
+    components: [ComponentPrediction!]!
+    priorityComponent: ComponentPrediction
+    overallStatus: PredictionStatus!
+    dueNowCount: Int!
+    dueSoonCount: Int!
+    generatedAt: String!
+    algoVersion: String!
   }
 
   type Bike {
@@ -128,6 +197,7 @@ export const typeDefs = gql`
     wheels: Component
     pivotBearings: Component
     components: [Component!]!
+    predictions: BikePredictionSummary
     createdAt: String!
     updatedAt: String!
   }
@@ -304,6 +374,12 @@ export const typeDefs = gql`
     types: [ComponentType!]
   }
 
+  input LogServiceInput {
+    componentId: ID!
+    notes: String
+    performedAt: String
+  }
+
   type DeleteResult {
     ok: Boolean!
     id: ID!
@@ -320,6 +396,7 @@ export const typeDefs = gql`
     updateComponent(id: ID!, input: UpdateComponentInput!): Component!
     deleteComponent(id: ID!): DeleteResult!
     logComponentService(id: ID!): Component!
+    logService(input: LogServiceInput!): ServiceLog!
     createStravaGearMapping(input: CreateStravaGearMappingInput!): StravaGearMapping!
     deleteStravaGearMapping(id: ID!): DeleteResult!
     triggerProviderSync(provider: SyncProvider!): TriggerSyncResult!
