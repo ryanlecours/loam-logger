@@ -529,16 +529,28 @@ export const resolvers = {
 
       const hoursDelta = durationSeconds / 3600;
 
-      return prisma.$transaction(async (tx) => {
-        const ride = await tx.ride.create({ data: rideData });
+      const ride = await prisma.$transaction(async (tx) => {
+        const newRide = await tx.ride.create({ data: rideData });
         if (bikeId && hoursDelta > 0) {
           await tx.component.updateMany({
             where: { bikeId, userId },
             data: { hoursUsed: { increment: hoursDelta } },
           });
         }
-        return ride;
+        return newRide;
       });
+
+      // Invalidate prediction cache if ride has a bike
+      if (bikeId) {
+        try {
+          const { invalidateBikePrediction } = await import('../services/prediction');
+          await invalidateBikePrediction(userId, bikeId);
+        } catch (error) {
+          console.error('[Resolver] Cache invalidation failed:', error);
+        }
+      }
+
+      return ride;
     },
     deleteRide: async (_: unknown, { id }: { id: string }, ctx: GraphQLContext) => {
       const userId = requireUserId(ctx);
@@ -552,6 +564,8 @@ export const resolvers = {
       }
 
       const hoursDelta = Math.max(0, ride.durationSeconds ?? 0) / 3600;
+
+      const deletedBikeId = ride.bikeId;
 
       await prisma.$transaction(async (tx) => {
         if (ride.bikeId && hoursDelta > 0) {
@@ -567,6 +581,16 @@ export const resolvers = {
 
         await tx.ride.delete({ where: { id } });
       });
+
+      // Invalidate prediction cache if ride had a bike
+      if (deletedBikeId) {
+        try {
+          const { invalidateBikePrediction } = await import('../services/prediction');
+          await invalidateBikePrediction(userId, deletedBikeId);
+        } catch (error) {
+          console.error('[Resolver] Cache invalidation failed:', error);
+        }
+      }
 
       return { ok: true, id };
     },
@@ -665,7 +689,7 @@ export const resolvers = {
       const durationChanged = durationUpdate !== undefined;
       const bikeChanged = bikeUpdate !== undefined && nextBikeId !== existing.bikeId;
 
-      return prisma.$transaction(async (tx) => {
+      const updatedRide = await prisma.$transaction(async (tx) => {
         const updated = await tx.ride.update({
           where: { id },
           data,
@@ -712,6 +736,21 @@ export const resolvers = {
 
         return updated;
       });
+
+      // Invalidate prediction cache for affected bikes
+      try {
+        const { invalidateBikePrediction } = await import('../services/prediction');
+        if (existing.bikeId) {
+          await invalidateBikePrediction(userId, existing.bikeId);
+        }
+        if (nextBikeId && nextBikeId !== existing.bikeId) {
+          await invalidateBikePrediction(userId, nextBikeId);
+        }
+      } catch (error) {
+        console.error('[Resolver] Cache invalidation failed:', error);
+      }
+
+      return updatedRide;
     },
 
     addBike: async (_: unknown, { input }: { input: AddBikeInputGQL }, ctx: GraphQLContext) => {
@@ -1033,10 +1072,22 @@ export const resolvers = {
         serviceDueAtHours: existing.serviceDueAtHours,
       });
 
-      return prisma.component.update({
+      const updated = await prisma.component.update({
         where: { id },
         data: normalized,
       });
+
+      // Invalidate prediction cache if component has a bike
+      if (existing.bikeId) {
+        try {
+          const { invalidateBikePrediction } = await import('../services/prediction');
+          await invalidateBikePrediction(userId, existing.bikeId);
+        } catch (error) {
+          console.error('[Resolver] Cache invalidation failed:', error);
+        }
+      }
+
+      return updated;
     },
 
     deleteComponent: async (_: unknown, { id }: { id: string }, ctx: GraphQLContext) => {
@@ -1049,13 +1100,81 @@ export const resolvers = {
 
     logComponentService: async (_: unknown, { id }: { id: string }, ctx: GraphQLContext) => {
       const userId = requireUserId(ctx);
-      const existing = await prisma.component.findUnique({ where: { id }, select: { userId: true } });
+      const existing = await prisma.component.findUnique({
+        where: { id },
+        select: { userId: true, bikeId: true },
+      });
       if (!existing || existing.userId !== userId) throw new Error('Component not found');
 
-      return prisma.component.update({
+      const updated = await prisma.component.update({
         where: { id },
         data: { hoursUsed: 0 },
       });
+
+      // Invalidate prediction cache if component has a bike
+      if (existing.bikeId) {
+        try {
+          const { invalidateBikePrediction } = await import('../services/prediction');
+          await invalidateBikePrediction(userId, existing.bikeId);
+        } catch (error) {
+          console.error('[Resolver] Cache invalidation failed:', error);
+        }
+      }
+
+      return updated;
+    },
+
+    logService: async (
+      _: unknown,
+      { input }: { input: { componentId: string; notes?: string | null; performedAt?: string | null } },
+      ctx: GraphQLContext
+    ) => {
+      const userId = requireUserId(ctx);
+
+      // Verify component ownership
+      const component = await prisma.component.findUnique({
+        where: { id: input.componentId },
+        select: { userId: true, bikeId: true, hoursUsed: true },
+      });
+
+      if (!component || component.userId !== userId) {
+        throw new Error('Component not found');
+      }
+
+      const performedAt = input.performedAt ? new Date(input.performedAt) : new Date();
+      const notes = input.notes ? cleanText(input.notes, MAX_NOTES_LEN) : null;
+
+      const serviceLog = await prisma.$transaction(async (tx) => {
+        // Create service log
+        const log = await tx.serviceLog.create({
+          data: {
+            componentId: input.componentId,
+            performedAt,
+            notes,
+            hoursAtService: component.hoursUsed,
+          },
+        });
+
+        // Reset component hours
+        await tx.component.update({
+          where: { id: input.componentId },
+          data: { hoursUsed: 0 },
+        });
+
+        return log;
+      });
+
+      // Invalidate prediction cache
+      if (component.bikeId) {
+        try {
+          const { invalidateBikePrediction } = await import('../services/prediction');
+          await invalidateBikePrediction(userId, component.bikeId);
+        } catch (error) {
+          console.error('[Resolver] Cache invalidation failed:', error);
+        }
+      }
+
+      return serviceLog;
     },
 
     createStravaGearMapping: async (
@@ -1082,8 +1201,8 @@ export const resolvers = {
         throw new Error('This Strava bike is already mapped');
       }
 
-      return prisma.$transaction(async (tx) => {
-        const mapping = await tx.stravaGearMapping.create({
+      const mapping = await prisma.$transaction(async (tx) => {
+        const newMapping = await tx.stravaGearMapping.create({
           data: {
             userId,
             stravaGearId: input.stravaGearId,
@@ -1115,8 +1234,18 @@ export const resolvers = {
           }
         }
 
-        return mapping;
+        return newMapping;
       });
+
+      // Invalidate prediction cache for the bike
+      try {
+        const { invalidateBikePrediction } = await import('../services/prediction');
+        await invalidateBikePrediction(userId, input.bikeId);
+      } catch (error) {
+        console.error('[Resolver] Cache invalidation failed:', error);
+      }
+
+      return mapping;
     },
 
     deleteStravaGearMapping: async (_: unknown, { id }: { id: string }, ctx: GraphQLContext) => {
@@ -1128,6 +1257,8 @@ export const resolvers = {
       if (!mapping || mapping.userId !== userId) {
         throw new Error('Mapping not found');
       }
+
+      const deletedBikeId = mapping.bikeId;
 
       await prisma.$transaction(async (tx) => {
         const rides = await tx.ride.findMany({
@@ -1157,6 +1288,14 @@ export const resolvers = {
 
         await tx.stravaGearMapping.delete({ where: { id } });
       });
+
+      // Invalidate prediction cache for the bike
+      try {
+        const { invalidateBikePrediction } = await import('../services/prediction');
+        await invalidateBikePrediction(userId, deletedBikeId);
+      } catch (error) {
+        console.error('[Resolver] Cache invalidation failed:', error);
+      }
 
       return { ok: true, id };
     },
@@ -1225,10 +1364,40 @@ export const resolvers = {
       pickComponent(bike, ComponentTypeEnum.WHEELS),
     pivotBearings: (bike: Bike & { components?: ComponentModel[] }) =>
       pickComponent(bike, ComponentTypeEnum.PIVOT_BEARINGS),
+    predictions: async (bike: Bike, _args: unknown, ctx: GraphQLContext) => {
+      const userId = ctx.user?.id;
+      if (!userId) return null;
+
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { role: true },
+      });
+
+      if (!user) return null;
+
+      try {
+        const { generateBikePredictions } = await import('../services/prediction');
+        return generateBikePredictions({
+          userId,
+          bikeId: bike.id,
+          userRole: user.role,
+        });
+      } catch (error) {
+        console.error('[Resolver] Prediction generation failed:', error);
+        return null;
+      }
+    },
   },
 
   Component: {
     isSpare: (component: ComponentModel) => component.bikeId == null,
+    location: (component: ComponentModel & { location?: string }) =>
+      component.location ?? 'NONE',
+    serviceLogs: (component: ComponentModel) =>
+      prisma.serviceLog.findMany({
+        where: { componentId: component.id },
+        orderBy: { performedAt: 'desc' },
+      }),
   },
 
   User: {

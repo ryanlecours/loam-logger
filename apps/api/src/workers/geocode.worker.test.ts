@@ -17,6 +17,7 @@ jest.mock('../lib/prisma', () => ({
     ride: {
       findUnique: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn(),
     },
   },
 }));
@@ -151,10 +152,7 @@ describe('processGeocodeJob (via worker processor)', () => {
   describe('geocoding', () => {
     it('should call reverseGeocode with coordinates', async () => {
       mockReverseGeocode.mockResolvedValue('Denver, Colorado, USA');
-      (mockPrisma.ride.findUnique as jest.Mock).mockResolvedValue({
-        location: 'Lat 39.739, Lon -104.990',
-      });
-      (mockPrisma.ride.update as jest.Mock).mockResolvedValue({});
+      (mockPrisma.ride.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
 
       await processGeocodeJob({
         data: { rideId: 'ride123', lat: 39.7392, lon: -104.9903 },
@@ -165,17 +163,17 @@ describe('processGeocodeJob (via worker processor)', () => {
 
     it('should update ride location when geocoding succeeds', async () => {
       mockReverseGeocode.mockResolvedValue('Boulder, Colorado, USA');
-      (mockPrisma.ride.findUnique as jest.Mock).mockResolvedValue({
-        location: 'Lat 40.015, Lon -105.271',
-      });
-      (mockPrisma.ride.update as jest.Mock).mockResolvedValue({});
+      (mockPrisma.ride.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
 
       await processGeocodeJob({
         data: { rideId: 'ride123', lat: 40.015, lon: -105.2705 },
       });
 
-      expect(mockPrisma.ride.update).toHaveBeenCalledWith({
-        where: { id: 'ride123' },
+      expect(mockPrisma.ride.updateMany).toHaveBeenCalledWith({
+        where: {
+          id: 'ride123',
+          location: { startsWith: 'Lat ' },
+        },
         data: { location: 'Boulder, Colorado, USA' },
       });
     });
@@ -187,63 +185,64 @@ describe('processGeocodeJob (via worker processor)', () => {
         data: { rideId: 'ride123', lat: 0, lon: 0 },
       });
 
-      expect(mockPrisma.ride.findUnique).not.toHaveBeenCalled();
-      expect(mockPrisma.ride.update).not.toHaveBeenCalled();
+      expect(mockPrisma.ride.updateMany).not.toHaveBeenCalled();
     });
   });
 
-  describe('ride not found', () => {
-    it('should skip when ride does not exist', async () => {
+  describe('ride not found or location protection', () => {
+    it('should handle case when ride does not exist (updateMany returns count 0)', async () => {
       mockReverseGeocode.mockResolvedValue('Denver, Colorado, USA');
-      (mockPrisma.ride.findUnique as jest.Mock).mockResolvedValue(null);
+      (mockPrisma.ride.updateMany as jest.Mock).mockResolvedValue({ count: 0 });
 
       await processGeocodeJob({
         data: { rideId: 'deleted-ride', lat: 39.7392, lon: -104.9903 },
       });
 
-      expect(mockPrisma.ride.update).not.toHaveBeenCalled();
+      // updateMany is still called, but count will be 0
+      expect(mockPrisma.ride.updateMany).toHaveBeenCalled();
     });
-  });
 
-  describe('user-edited location protection', () => {
-    it('should not overwrite user-edited location', async () => {
+    it('should not overwrite user-edited location (updateMany condition handles this)', async () => {
+      // When location doesn't start with "Lat ", updateMany will match 0 rows
       mockReverseGeocode.mockResolvedValue('Denver, Colorado, USA');
-      (mockPrisma.ride.findUnique as jest.Mock).mockResolvedValue({
-        location: 'My Favorite Trail',
-      });
+      (mockPrisma.ride.updateMany as jest.Mock).mockResolvedValue({ count: 0 });
 
       await processGeocodeJob({
         data: { rideId: 'ride123', lat: 39.7392, lon: -104.9903 },
       });
 
-      expect(mockPrisma.ride.update).not.toHaveBeenCalled();
+      // updateMany is called but will not update due to where clause
+      expect(mockPrisma.ride.updateMany).toHaveBeenCalledWith({
+        where: {
+          id: 'ride123',
+          location: { startsWith: 'Lat ' },
+        },
+        data: { location: 'Denver, Colorado, USA' },
+      });
     });
 
     it('should update location in lat/lon format', async () => {
       mockReverseGeocode.mockResolvedValue('Denver, Colorado, USA');
-      (mockPrisma.ride.findUnique as jest.Mock).mockResolvedValue({
-        location: 'Lat 39.739, Lon -104.990',
-      });
-      (mockPrisma.ride.update as jest.Mock).mockResolvedValue({});
+      (mockPrisma.ride.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
 
       await processGeocodeJob({
         data: { rideId: 'ride123', lat: 39.7392, lon: -104.9903 },
       });
 
-      expect(mockPrisma.ride.update).toHaveBeenCalled();
+      expect(mockPrisma.ride.updateMany).toHaveBeenCalled();
     });
 
-    it('should not update when location is null', async () => {
+    it('should handle when location is null (updateMany condition handles this)', async () => {
+      // When location is null, updateMany condition won't match
       mockReverseGeocode.mockResolvedValue('Denver, Colorado, USA');
-      (mockPrisma.ride.findUnique as jest.Mock).mockResolvedValue({
-        location: null,
-      });
+      (mockPrisma.ride.updateMany as jest.Mock).mockResolvedValue({ count: 0 });
 
       await processGeocodeJob({
         data: { rideId: 'ride123', lat: 39.7392, lon: -104.9903 },
       });
 
-      expect(mockPrisma.ride.update).not.toHaveBeenCalled();
+      // updateMany is called but will not update due to where clause
+      expect(mockPrisma.ride.updateMany).toHaveBeenCalled();
     });
   });
 });
