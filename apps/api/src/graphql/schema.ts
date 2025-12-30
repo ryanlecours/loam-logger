@@ -351,6 +351,7 @@ export const typeDefs = gql`
 
   input AddComponentInput {
     type: ComponentType!
+    location: ComponentLocation
     brand: String
     model: String
     notes: String
@@ -360,6 +361,7 @@ export const typeDefs = gql`
   }
 
   input UpdateComponentInput {
+    location: ComponentLocation
     brand: String
     model: String
     notes: String

@@ -5,11 +5,12 @@ import { ComponentType as ComponentTypeEnum } from '@prisma/client';
 import type {
   Prisma,
   ComponentType as ComponentTypeLiteral,
+  ComponentLocation,
   Bike,
   Component as ComponentModel,
 } from '@prisma/client';
 import { checkRateLimit } from '../lib/rate-limit';
-import { enqueueSyncJob, type SyncProvider } from '../lib/queue';
+import { enqueueSyncJob, enqueueBikeInvalidation, type SyncProvider } from '../lib/queue';
 import { SPOKES_TO_COMPONENT_TYPE } from '@loam/shared';
 import { getBikeById, isSpokesConfigured } from '../services/spokes';
 
@@ -112,6 +113,7 @@ type UpdateBikeInputGQL = Partial<AddBikeInputGQL> & {
 
 type AddComponentInputGQL = {
   type: ComponentType;
+  location?: ComponentLocation | null;
   brand?: string | null;
   model?: string | null;
   notes?: string | null;
@@ -120,7 +122,15 @@ type AddComponentInputGQL = {
   serviceDueAtHours?: number | null;
 };
 
-type UpdateComponentInputGQL = Omit<AddComponentInputGQL, 'type'>;
+type UpdateComponentInputGQL = {
+  location?: ComponentLocation | null;
+  brand?: string | null;
+  model?: string | null;
+  notes?: string | null;
+  isStock?: boolean | null;
+  hoursUsed?: number | null;
+  serviceDueAtHours?: number | null;
+};
 
 type ComponentFilterInputGQL = {
   bikeId?: string | null;
@@ -542,12 +552,7 @@ export const resolvers = {
 
       // Invalidate prediction cache if ride has a bike
       if (bikeId) {
-        try {
-          const { invalidateBikePrediction } = await import('../services/prediction');
-          await invalidateBikePrediction(userId, bikeId);
-        } catch (error) {
-          console.error('[Resolver] Cache invalidation failed:', error);
-        }
+        enqueueBikeInvalidation(userId, bikeId);
       }
 
       return ride;
@@ -584,12 +589,7 @@ export const resolvers = {
 
       // Invalidate prediction cache if ride had a bike
       if (deletedBikeId) {
-        try {
-          const { invalidateBikePrediction } = await import('../services/prediction');
-          await invalidateBikePrediction(userId, deletedBikeId);
-        } catch (error) {
-          console.error('[Resolver] Cache invalidation failed:', error);
-        }
+        enqueueBikeInvalidation(userId, deletedBikeId);
       }
 
       return { ok: true, id };
@@ -738,16 +738,11 @@ export const resolvers = {
       });
 
       // Invalidate prediction cache for affected bikes
-      try {
-        const { invalidateBikePrediction } = await import('../services/prediction');
-        if (existing.bikeId) {
-          await invalidateBikePrediction(userId, existing.bikeId);
-        }
-        if (nextBikeId && nextBikeId !== existing.bikeId) {
-          await invalidateBikePrediction(userId, nextBikeId);
-        }
-      } catch (error) {
-        console.error('[Resolver] Cache invalidation failed:', error);
+      if (existing.bikeId) {
+        enqueueBikeInvalidation(userId, existing.bikeId);
+      }
+      if (nextBikeId && nextBikeId !== existing.bikeId) {
+        enqueueBikeInvalidation(userId, nextBikeId);
       }
 
       return updatedRide;
@@ -1047,6 +1042,7 @@ export const resolvers = {
         data: {
           ...normalizeLooseComponentInput(type, input),
           type,
+          location: input.location ?? 'NONE',
           bikeId: bikeId ?? null,
           userId,
           installedAt: new Date(),
@@ -1074,17 +1070,15 @@ export const resolvers = {
 
       const updated = await prisma.component.update({
         where: { id },
-        data: normalized,
+        data: {
+          ...normalized,
+          ...(input.location !== undefined && input.location !== null && { location: input.location }),
+        },
       });
 
       // Invalidate prediction cache if component has a bike
       if (existing.bikeId) {
-        try {
-          const { invalidateBikePrediction } = await import('../services/prediction');
-          await invalidateBikePrediction(userId, existing.bikeId);
-        } catch (error) {
-          console.error('[Resolver] Cache invalidation failed:', error);
-        }
+        enqueueBikeInvalidation(userId, existing.bikeId);
       }
 
       return updated;
@@ -1113,12 +1107,7 @@ export const resolvers = {
 
       // Invalidate prediction cache if component has a bike
       if (existing.bikeId) {
-        try {
-          const { invalidateBikePrediction } = await import('../services/prediction');
-          await invalidateBikePrediction(userId, existing.bikeId);
-        } catch (error) {
-          console.error('[Resolver] Cache invalidation failed:', error);
-        }
+        enqueueBikeInvalidation(userId, existing.bikeId);
       }
 
       return updated;
@@ -1166,12 +1155,7 @@ export const resolvers = {
 
       // Invalidate prediction cache
       if (component.bikeId) {
-        try {
-          const { invalidateBikePrediction } = await import('../services/prediction');
-          await invalidateBikePrediction(userId, component.bikeId);
-        } catch (error) {
-          console.error('[Resolver] Cache invalidation failed:', error);
-        }
+        enqueueBikeInvalidation(userId, component.bikeId);
       }
 
       return serviceLog;
@@ -1238,12 +1222,7 @@ export const resolvers = {
       });
 
       // Invalidate prediction cache for the bike
-      try {
-        const { invalidateBikePrediction } = await import('../services/prediction');
-        await invalidateBikePrediction(userId, input.bikeId);
-      } catch (error) {
-        console.error('[Resolver] Cache invalidation failed:', error);
-      }
+      enqueueBikeInvalidation(userId, input.bikeId);
 
       return mapping;
     },
@@ -1290,12 +1269,7 @@ export const resolvers = {
       });
 
       // Invalidate prediction cache for the bike
-      try {
-        const { invalidateBikePrediction } = await import('../services/prediction');
-        await invalidateBikePrediction(userId, deletedBikeId);
-      } catch (error) {
-        console.error('[Resolver] Cache invalidation failed:', error);
-      }
+      enqueueBikeInvalidation(userId, deletedBikeId);
 
       return { ok: true, id };
     },
@@ -1393,11 +1367,8 @@ export const resolvers = {
     isSpare: (component: ComponentModel) => component.bikeId == null,
     location: (component: ComponentModel & { location?: string }) =>
       component.location ?? 'NONE',
-    serviceLogs: (component: ComponentModel) =>
-      prisma.serviceLog.findMany({
-        where: { componentId: component.id },
-        orderBy: { performedAt: 'desc' },
-      }),
+    serviceLogs: (component: ComponentModel, _args: unknown, ctx: GraphQLContext) =>
+      ctx.loaders.serviceLogsByComponentId.load(component.id),
   },
 
   User: {
