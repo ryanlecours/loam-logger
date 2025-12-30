@@ -1,8 +1,15 @@
 import { createEmailWorker, closeEmailWorker } from './email.worker';
 import { createSyncWorker, closeSyncWorker } from './sync.worker';
 import { createGeocodeWorker, closeGeocodeWorker } from './geocode.worker';
+import { createCacheInvalidationWorker, closeCacheInvalidationWorker } from './cache-invalidation.worker';
 import { closeRedisConnection } from '../lib/redis';
-import { closeEmailQueue, closeSyncQueue, closeBackfillQueue, closeGeocodeQueue } from '../lib/queue';
+import {
+  closeEmailQueue,
+  closeSyncQueue,
+  closeBackfillQueue,
+  closeGeocodeQueue,
+  closeCacheInvalidationQueue,
+} from '../lib/queue';
 
 /**
  * Start all BullMQ workers.
@@ -14,6 +21,7 @@ export function startWorkers(): void {
   createEmailWorker();
   createSyncWorker();
   createGeocodeWorker();
+  createCacheInvalidationWorker();
 
   console.log('[Workers] All workers started');
 }
@@ -34,12 +42,13 @@ export async function stopWorkers(): Promise<void> {
       closeEmailWorker(),
       closeSyncWorker(),
       closeGeocodeWorker(),
+      closeCacheInvalidationWorker(),
     ]);
 
     // Log any worker shutdown failures
     workerResults.forEach((result, index) => {
       if (result.status === 'rejected') {
-        const workerNames = ['EmailWorker', 'SyncWorker', 'GeocodeWorker'];
+        const workerNames = ['EmailWorker', 'SyncWorker', 'GeocodeWorker', 'CacheInvalidationWorker'];
         console.error(`[Workers] Failed to close ${workerNames[index]}:`, result.reason);
       }
     });
@@ -50,12 +59,13 @@ export async function stopWorkers(): Promise<void> {
       closeSyncQueue(),
       closeBackfillQueue(),
       closeGeocodeQueue(),
+      closeCacheInvalidationQueue(),
     ]);
 
     // Log any queue shutdown failures
     queueResults.forEach((result, index) => {
       if (result.status === 'rejected') {
-        const queueNames = ['EmailQueue', 'SyncQueue', 'BackfillQueue', 'GeocodeQueue'];
+        const queueNames = ['EmailQueue', 'SyncQueue', 'BackfillQueue', 'GeocodeQueue', 'CacheInvalidationQueue'];
         console.error(`[Workers] Failed to close ${queueNames[index]}:`, result.reason);
       }
     });

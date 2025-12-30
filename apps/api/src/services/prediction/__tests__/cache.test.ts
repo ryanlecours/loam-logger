@@ -194,7 +194,7 @@ describe('prediction cache', () => {
 
     it('should clear Redis entries when available', async () => {
       const mockRedis = {
-        keys: jest.fn().mockResolvedValue(['key1', 'key2']),
+        scan: jest.fn().mockResolvedValue(['0', ['key1', 'key2']]),
         del: jest.fn().mockResolvedValue(2),
       };
       (isRedisReady as jest.Mock).mockReturnValue(true);
@@ -202,8 +202,12 @@ describe('prediction cache', () => {
 
       await invalidateBikePrediction('user-123', 'bike-123');
 
-      expect(mockRedis.keys).toHaveBeenCalledWith(
-        expect.stringContaining('bike:bike-123')
+      expect(mockRedis.scan).toHaveBeenCalledWith(
+        '0',
+        'MATCH',
+        expect.stringContaining('bike:bike-123'),
+        'COUNT',
+        100
       );
       expect(mockRedis.del).toHaveBeenCalledWith('key1', 'key2');
     });

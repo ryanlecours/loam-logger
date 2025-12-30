@@ -1,6 +1,25 @@
+import type { Redis } from 'ioredis';
 import { getRedisConnection, isRedisReady } from '../../lib/redis';
 import type { PredictionCacheKey, BikePredictionSummary } from './types';
 import { DEFAULT_CACHE_TTL_SECONDS, ALGO_VERSION } from './config';
+
+/**
+ * Delete Redis keys matching a pattern using SCAN (non-blocking).
+ * Unlike KEYS, SCAN doesn't block the Redis server.
+ */
+async function deleteKeysByPattern(
+  redis: Redis,
+  pattern: string
+): Promise<void> {
+  let cursor = '0';
+  do {
+    const [newCursor, keys] = await redis.scan(cursor, 'MATCH', pattern, 'COUNT', 100);
+    cursor = newCursor;
+    if (keys.length > 0) {
+      await redis.del(...keys);
+    }
+  } while (cursor !== '0');
+}
 
 /** In-memory cache fallback */
 const memoryCache = new Map<
@@ -115,15 +134,11 @@ export async function invalidateBikePrediction(
     }
   }
 
-  // Clear Redis cache
+  // Clear Redis cache using SCAN (non-blocking)
   if (isRedisReady()) {
     try {
       const redis = getRedisConnection();
-      const pattern = `${keyPrefix}*`;
-      const keys = await redis.keys(pattern);
-      if (keys.length > 0) {
-        await redis.del(...keys);
-      }
+      await deleteKeysByPattern(redis, `${keyPrefix}*`);
     } catch (error) {
       console.warn('[PredictionCache] Redis invalidation failed:', error);
     }
@@ -146,15 +161,11 @@ export async function invalidateUserPredictions(userId: string): Promise<void> {
     }
   }
 
-  // Clear Redis cache
+  // Clear Redis cache using SCAN (non-blocking)
   if (isRedisReady()) {
     try {
       const redis = getRedisConnection();
-      const pattern = `${keyPrefix}*`;
-      const keys = await redis.keys(pattern);
-      if (keys.length > 0) {
-        await redis.del(...keys);
-      }
+      await deleteKeysByPattern(redis, `${keyPrefix}*`);
     } catch (error) {
       console.warn('[PredictionCache] Redis user invalidation failed:', error);
     }

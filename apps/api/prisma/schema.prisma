@@ -144,24 +144,41 @@ model StravaGearMapping {
 }
 
 model Component {
-  id                String        @id @default(uuid())
+  id                String            @id @default(uuid())
   bikeId            String?
   type              ComponentType
+  location          ComponentLocation @default(NONE)
   brand             String
   model             String
   installedAt       DateTime?
-  hoursUsed         Float         @default(0)
+  hoursUsed         Float             @default(0)
   serviceDueAtHours Float?
   notes             String?
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
-  isStock           Boolean       @default(false)
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  isStock           Boolean           @default(false)
   userId            String
-  bike              Bike?         @relation(fields: [bikeId], references: [id])
-  user              User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bike              Bike?             @relation(fields: [bikeId], references: [id])
+  user              User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  serviceLogs       ServiceLog[]
 
   @@index([userId])
   @@index([bikeId])
+}
+
+model ServiceLog {
+  id             String    @id @default(uuid())
+  component      Component @relation(fields: [componentId], references: [id], onDelete: Cascade)
+  componentId    String
+  performedAt    DateTime  @default(now())
+  notes          String?
+  hoursAtService Float     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([componentId])
+  @@index([performedAt])
 }
 
 enum AuthProvider {
@@ -175,6 +192,12 @@ enum UserRole {
   FREE
   PRO
   ADMIN
+}
+
+enum ComponentLocation {
+  FRONT
+  REAR
+  NONE
 }
 
 enum ComponentType {
@@ -197,4 +220,8 @@ enum ComponentType {
   RIMS
   CRANK
   REAR_DERAILLEUR
+  BRAKE_PAD
+  BRAKE_ROTOR
+  HEADSET
+  BOTTOM_BRACKET
 }
