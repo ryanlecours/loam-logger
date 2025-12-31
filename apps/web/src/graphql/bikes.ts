@@ -44,6 +44,54 @@ export const BIKES = gql`
         serviceDueAtHours
         updatedAt
       }
+      predictions {
+        bikeId
+        bikeName
+        overallStatus
+        dueNowCount
+        dueSoonCount
+        generatedAt
+        priorityComponent {
+          componentId
+          componentType
+          location
+          brand
+          model
+          status
+          hoursRemaining
+          ridesRemainingEstimate
+          confidence
+          currentHours
+          serviceIntervalHours
+          hoursSinceService
+          why
+          drivers {
+            factor
+            contribution
+            label
+          }
+        }
+        components {
+          componentId
+          componentType
+          location
+          brand
+          model
+          status
+          hoursRemaining
+          ridesRemainingEstimate
+          confidence
+          currentHours
+          serviceIntervalHours
+          hoursSinceService
+          why
+          drivers {
+            factor
+            contribution
+            label
+          }
+        }
+      }
     }
   }
 `;
