@@ -1,6 +1,7 @@
 import { FaBicycle } from 'react-icons/fa';
 import type { BikeWithPredictions } from '../../hooks/usePriorityBike';
 import type { PredictionStatus } from '../../types/prediction';
+import { getBikeName } from '../../utils/formatters';
 
 interface BikeSwitcherTileProps {
   bike: BikeWithPredictions;
@@ -14,10 +15,6 @@ const STATUS_CLASSES: Record<PredictionStatus, string> = {
   DUE_SOON: 'status-dot-due-soon',
   ALL_GOOD: 'status-dot-all-good',
 };
-
-function getBikeName(bike: BikeWithPredictions): string {
-  return bike.nickname?.trim() || `${bike.manufacturer} ${bike.model}`.trim() || 'Bike';
-}
 
 export function BikeSwitcherTile({ bike, isSelected, onClick }: BikeSwitcherTileProps) {
   const status = bike.predictions?.overallStatus ?? 'ALL_GOOD';

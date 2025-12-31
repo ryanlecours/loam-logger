@@ -1,4 +1,5 @@
-import { format, isValid } from 'date-fns';
+import { formatDurationCompact, formatRideDate } from '../../utils/formatters';
+import { getRideSource, SOURCE_LABELS } from '../../utils/rideSource';
 
 interface Ride {
   id: string;
@@ -16,42 +17,10 @@ interface CompactRideRowProps {
   ride: Ride;
 }
 
-function formatDuration(seconds: number): string {
-  if (!seconds || isNaN(seconds)) return '0m';
-  const hours = Math.floor(seconds / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-
-  if (hours > 0) {
-    return `${hours}h ${minutes}m`;
-  }
-  return `${minutes}m`;
-}
-
-function formatRideDate(startTime: string | undefined | null): string {
-  if (!startTime) return 'Unknown';
-  const date = new Date(startTime);
-  if (!isValid(date)) return 'Unknown';
-  return format(date, 'MMM d');
-}
-
-function getRideSource(
-  ride: Ride
-): 'strava' | 'garmin' | 'manual' {
-  if (ride.stravaActivityId) return 'strava';
-  if (ride.garminActivityId) return 'garmin';
-  return 'manual';
-}
-
-const SOURCE_LABELS: Record<string, string> = {
-  strava: 'Strava',
-  garmin: 'Garmin',
-  manual: 'Manual',
-};
-
 export function CompactRideRow({ ride }: CompactRideRowProps) {
   const title = ride.trailSystem || ride.location || 'Ride';
   const formattedDate = formatRideDate(ride.startTime);
-  const duration = formatDuration(ride.durationSeconds);
+  const duration = formatDurationCompact(ride.durationSeconds);
   const climbValue = ride.elevationGainFeet ?? 0;
   const climb = isNaN(climbValue) ? '0' : Math.round(climbValue).toLocaleString();
   const source = getRideSource(ride);

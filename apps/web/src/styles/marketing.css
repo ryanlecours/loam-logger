@@ -3431,6 +3431,32 @@ html.marketing-page:focus-within {
   min-height: 0;
 }
 
+.priority-hero-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  text-align: center;
+}
+
+.priority-hero-empty-icon {
+  color: var(--sage);
+  opacity: 0.5;
+}
+
+.priority-hero-empty-title {
+  margin: 0;
+  color: var(--cream);
+  font-size: 1.25rem;
+}
+
+.priority-hero-empty-text {
+  margin: 0.5rem 0 0;
+  color: var(--sage);
+}
+
 .priority-hero-body {
   flex: 1;
   display: flex;

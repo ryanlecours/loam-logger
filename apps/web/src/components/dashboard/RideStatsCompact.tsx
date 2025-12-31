@@ -1,6 +1,12 @@
 import { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { FaChartLine } from 'react-icons/fa';
+import {
+  getTimeframeStartDate,
+  filterRidesByDate,
+  calculateRideStats,
+  type Timeframe,
+} from '../../utils/rideStats';
 
 interface Ride {
   id: string;
@@ -15,8 +21,6 @@ interface RideStatsCompactProps {
   loading?: boolean;
 }
 
-type Timeframe = '7' | '30' | '90' | 'YTD';
-
 const TIMEFRAME_LABELS: Record<Timeframe, string> = {
   '7': '7 days',
   '30': '30 days',
@@ -24,49 +28,13 @@ const TIMEFRAME_LABELS: Record<Timeframe, string> = {
   'YTD': 'Year to date',
 };
 
-function getTimeframeStartDate(timeframe: Timeframe): Date {
-  const now = new Date();
-  switch (timeframe) {
-    case '7':
-      return new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    case '30':
-      return new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-    case '90':
-      return new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
-    case 'YTD':
-      return new Date(now.getFullYear(), 0, 1);
-  }
-}
-
 export function RideStatsCompact({ rides, loading = false }: RideStatsCompactProps) {
   const [timeframe, setTimeframe] = useState<Timeframe>('30');
 
   const stats = useMemo(() => {
     const startDate = getTimeframeStartDate(timeframe);
-    const filteredRides = rides.filter((ride) => {
-      if (!ride.startTime) return false;
-      const rideDate = new Date(ride.startTime);
-      return !isNaN(rideDate.getTime()) && rideDate >= startDate;
-    });
-
-    const totalSeconds = filteredRides.reduce(
-      (sum, ride) => sum + (ride.durationSeconds ?? 0),
-      0
-    );
-    const totalMiles = filteredRides.reduce(
-      (sum, ride) => sum + (ride.distanceMiles ?? 0),
-      0
-    );
-    const totalClimb = filteredRides.reduce(
-      (sum, ride) => sum + (ride.elevationGainFeet ?? 0),
-      0
-    );
-
-    return {
-      hours: (totalSeconds / 3600).toFixed(1),
-      miles: Math.round(totalMiles).toLocaleString(),
-      climb: Math.round(totalClimb).toLocaleString(),
-    };
+    const filteredRides = filterRidesByDate(rides, startDate);
+    return calculateRideStats(filteredRides);
   }, [rides, timeframe]);
 
   // Loading skeleton
