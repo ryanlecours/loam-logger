@@ -164,7 +164,7 @@ body {
   gap: 2rem;
   flex: 1;
   min-height: 0;
-  overflow: hidden;
+  overflow-y: auto;
 }
 
 @media (max-width: 1279px) {
