@@ -9,11 +9,12 @@ import type {
   Bike,
   Component as ComponentModel,
 } from '@prisma/client';
-import { checkRateLimit } from '../lib/rate-limit';
+import { checkRateLimit, checkMutationRateLimit } from '../lib/rate-limit';
 import { enqueueSyncJob, enqueueBikeInvalidation, type SyncProvider } from '../lib/queue';
 import { invalidateBikePrediction } from '../services/prediction/cache';
 import { SPOKES_TO_COMPONENT_TYPE } from '@loam/shared';
 import { getBikeById, isSpokesConfigured } from '../services/spokes';
+import { parseISO } from 'date-fns';
 
 type ComponentType = ComponentTypeLiteral;
 
@@ -489,8 +490,15 @@ export const resolvers = {
   Mutation: {
     addRide: async (_p: unknown, { input }: { input: AddRideInput }, ctx: GraphQLContext) => {
       if (!ctx.user?.id) throw new Error('Unauthorized');
-
       const userId = ctx.user.id;
+
+      // Rate limit check
+      const rateLimit = await checkMutationRateLimit('addRide', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
       const start = parseIso(input.startTime);
       const durationSeconds = Math.max(0, Math.floor(input.durationSeconds));
       const distanceMiles = Math.max(0, Number(input.distanceMiles));
@@ -562,6 +570,14 @@ export const resolvers = {
     deleteRide: async (_: unknown, { id }: { id: string }, ctx: GraphQLContext) => {
       const userId = requireUserId(ctx);
 
+      // Rate limit check
+      const rateLimit = await checkMutationRateLimit('deleteRide', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
+
       const ride = await prisma.ride.findUnique({
         where: { id },
         select: { userId: true, durationSeconds: true, bikeId: true },
@@ -603,6 +619,14 @@ export const resolvers = {
       ctx: GraphQLContext
     ) => {
       const userId = requireUserId(ctx);
+
+      // Rate limit check
+      const rateLimit = await checkMutationRateLimit('updateRide', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
 
       const existing = await prisma.ride.findUnique({
         where: { id },
@@ -1070,6 +1094,15 @@ export const resolvers = {
       ctx: GraphQLContext
     ) => {
       const userId = requireUserId(ctx);
+
+      // Rate limit check
+      const rateLimit = await checkMutationRateLimit('updateComponent', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
+
       const existing = await prisma.component.findUnique({ where: { id } });
       if (!existing || existing.userId !== userId) throw new Error('Component not found');
 
@@ -1109,6 +1142,15 @@ export const resolvers = {
 
     logComponentService: async (_: unknown, { id }: { id: string }, ctx: GraphQLContext) => {
       const userId = requireUserId(ctx);
+
+      // Rate limit check
+      const rateLimit = await checkMutationRateLimit('logComponentService', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
+
       const existing = await prisma.component.findUnique({
         where: { id },
         select: { userId: true, bikeId: true },
@@ -1136,6 +1178,14 @@ export const resolvers = {
     ) => {
       const userId = requireUserId(ctx);
 
+      // Rate limit check
+      const rateLimit = await checkMutationRateLimit('logService', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
+
       // Verify component ownership
       const component = await prisma.component.findUnique({
         where: { id: input.componentId },
@@ -1146,7 +1196,16 @@ export const resolvers = {
         throw new Error('Component not found');
       }
 
-      const performedAt = input.performedAt ? new Date(input.performedAt) : new Date();
+      let performedAt = new Date();
+      if (input.performedAt) {
+        performedAt = parseISO(input.performedAt);
+        if (isNaN(performedAt.getTime())) {
+          throw new Error('Invalid date format');
+        }
+        if (performedAt > new Date()) {
+          throw new Error('Service date cannot be in the future');
+        }
+      }
       const notes = input.notes ? cleanText(input.notes, MAX_NOTES_LEN) : null;
 
       const serviceLog = await prisma.$transaction(async (tx) => {
@@ -1184,6 +1243,14 @@ export const resolvers = {
       ctx: GraphQLContext
     ) => {
       const userId = requireUserId(ctx);
+
+      // Rate limit check
+      const rateLimit = await checkMutationRateLimit('createStravaGearMapping', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
 
       const bike = await prisma.bike.findUnique({
         where: { id: input.bikeId },
@@ -1247,6 +1314,15 @@ export const resolvers = {
 
     deleteStravaGearMapping: async (_: unknown, { id }: { id: string }, ctx: GraphQLContext) => {
       const userId = requireUserId(ctx);
+
+      // Rate limit check
+      const rateLimit = await checkMutationRateLimit('deleteStravaGearMapping', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
+
       const mapping = await prisma.stravaGearMapping.findUnique({
         where: { id },
         select: { userId: true, stravaGearId: true, bikeId: true },
@@ -1360,6 +1436,11 @@ export const resolvers = {
     predictions: async (bike: Bike, _args: unknown, ctx: GraphQLContext) => {
       const userId = ctx.user?.id;
       if (!userId) return null;
+
+      // Verify the bike belongs to the requesting user
+      if (bike.userId !== userId) {
+        throw new Error('Unauthorized');
+      }
 
       const user = await prisma.user.findUnique({
         where: { id: userId },

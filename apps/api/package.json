@@ -6,6 +6,7 @@
   "scripts": {
     "build": "vite build",
     "dev": "tsx --env-file=.env src/server.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.app.json",
     "lint": "npx eslint src --ext .ts",
     "lint-fix": "npx eslint src --ext .ts --fix",
     "prisma:fmt": "prisma format",

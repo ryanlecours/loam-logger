@@ -18,6 +18,31 @@ export const RATE_LIMITS = {
 } as const;
 
 /**
+ * Rate limit configuration for mutations.
+ * Uses a sliding window approach with max requests per window.
+ */
+export const MUTATION_RATE_LIMITS = {
+  /** addRide: max 30 requests per minute per user */
+  addRide: { windowSeconds: 60, maxRequests: 30 },
+  /** updateRide: max 30 requests per minute per user */
+  updateRide: { windowSeconds: 60, maxRequests: 30 },
+  /** deleteRide: max 30 requests per minute per user */
+  deleteRide: { windowSeconds: 60, maxRequests: 30 },
+  /** logService: max 20 requests per minute per user */
+  logService: { windowSeconds: 60, maxRequests: 20 },
+  /** logComponentService (reset hours): max 20 requests per minute per user */
+  logComponentService: { windowSeconds: 60, maxRequests: 20 },
+  /** updateComponent: max 30 requests per minute per user */
+  updateComponent: { windowSeconds: 60, maxRequests: 30 },
+  /** createStravaGearMapping: max 10 requests per minute per user */
+  createStravaGearMapping: { windowSeconds: 60, maxRequests: 10 },
+  /** deleteStravaGearMapping: max 10 requests per minute per user */
+  deleteStravaGearMapping: { windowSeconds: 60, maxRequests: 10 },
+} as const;
+
+export type MutationRateLimitType = keyof typeof MUTATION_RATE_LIMITS;
+
+/**
  * Rate limit configuration for admin actions.
  * Values are in seconds.
  */
@@ -102,6 +127,70 @@ export async function checkRateLimit(
     // Redis operation failed, allow the operation but log warning
     console.warn(
       `[RateLimit] Redis error during ${operation} check for ${provider}:${userId}, allowing operation:`,
+      err instanceof Error ? err.message : 'Unknown error'
+    );
+    return { allowed: true, redisAvailable: false };
+  }
+}
+
+/**
+ * Build a rate limit key for mutation operations.
+ * Format: rl:mutation:<operation>:<userId>
+ */
+function buildMutationRateLimitKey(
+  operation: MutationRateLimitType,
+  userId: string
+): string {
+  return `rl:mutation:${operation}:${userId}`;
+}
+
+/**
+ * Check if a mutation is rate limited using a sliding window counter.
+ * Uses Redis INCR with EXPIRE for simple and efficient rate limiting.
+ *
+ * Graceful degradation: If Redis is unavailable, allows the operation.
+ *
+ * @param operation - The mutation type
+ * @param userId - The user ID
+ * @returns Whether the operation is allowed, and retryAfter seconds if not
+ */
+export async function checkMutationRateLimit(
+  operation: MutationRateLimitType,
+  userId: string
+): Promise<RateLimitResult> {
+  // Graceful degradation: allow operation if Redis is unavailable
+  if (!isRedisReady()) {
+    return { allowed: true, redisAvailable: false };
+  }
+
+  try {
+    const redis = getRedisConnection();
+    const config = MUTATION_RATE_LIMITS[operation];
+    const key = buildMutationRateLimitKey(operation, userId);
+
+    // Increment the counter
+    const count = await redis.incr(key);
+
+    // Set expiry on first request in the window
+    if (count === 1) {
+      await redis.expire(key, config.windowSeconds);
+    }
+
+    if (count <= config.maxRequests) {
+      return { allowed: true, redisAvailable: true };
+    }
+
+    // Rate limited - get TTL for retry info
+    const ttl = await redis.ttl(key);
+    return {
+      allowed: false,
+      retryAfter: ttl > 0 ? ttl : config.windowSeconds,
+      redisAvailable: true,
+    };
+  } catch (err) {
+    // Redis operation failed, allow the operation but log warning
+    console.warn(
+      `[RateLimit] Redis error during mutation ${operation} check for ${userId}, allowing operation:`,
       err instanceof Error ? err.message : 'Unknown error'
     );
     return { allowed: true, redisAvailable: false };
