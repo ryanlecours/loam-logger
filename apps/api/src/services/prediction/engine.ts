@@ -324,19 +324,12 @@ export async function generateBikePredictions(
   // Get recent rides for wear analysis
   const recentRides = await getRecentRides(userId, bikeId);
 
-  // Generate predictions for each component
-  const predictions: ComponentPrediction[] = [];
-
-  for (const component of trackableComponents) {
-    const prediction = await predictComponent(
-      component,
-      userId,
-      bikeId,
-      recentRides,
-      isPro
-    );
-    predictions.push(prediction);
-  }
+  // Generate predictions for each component (in parallel)
+  const predictions = await Promise.all(
+    trackableComponents.map((component) =>
+      predictComponent(component, userId, bikeId, recentRides, isPro)
+    )
+  );
 
   // Build summary
   const bikeName = bike.nickname ?? `${bike.manufacturer} ${bike.model}`;
