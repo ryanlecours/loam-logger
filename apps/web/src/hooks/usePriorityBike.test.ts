@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { getTopDueComponents } from './usePriorityBike';
-import type { BikePredictionSummary, ComponentPrediction, PredictionStatus } from '../types/prediction';
+import type { BikePredictionSummary, ComponentPrediction } from '../types/prediction';
 
 describe('getTopDueComponents', () => {
   const createComponent = (
