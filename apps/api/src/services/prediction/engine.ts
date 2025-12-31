@@ -37,10 +37,23 @@ import {
 } from './cache';
 import {
   getRecentRides,
-  getRidesSinceDate,
   getFirstRideDate,
-  getBikeCreatedAt,
+  getAllRidesForBike,
 } from './window';
+
+/**
+ * Pre-fetched context for batch prediction to avoid N+1 queries.
+ */
+type PredictionContext = {
+  /** Map of componentId -> last service date */
+  serviceLogMap: Map<string, Date>;
+  /** First ride date for the bike (fallback when no service log) */
+  firstRideDate: Date | null;
+  /** Bike creation date (fallback when no rides) */
+  bikeCreatedAt: Date;
+  /** All rides for the bike, ordered by startTime ascending */
+  allRides: RideMetrics[];
+};
 
 /**
  * Determine prediction status from hours remaining.
@@ -86,33 +99,36 @@ function estimateRidesRemaining(
 }
 
 /**
- * Get the last service date for a component.
+ * Get the last service date for a component using pre-fetched context.
  * Falls back to first ride date or bike creation date.
  */
-async function getLastServiceDate(
+function getLastServiceDateFromContext(
   componentId: string,
-  userId: string,
-  bikeId: string
-): Promise<Date> {
-  // Try to get last service log
-  const lastService = await prisma.serviceLog.findFirst({
-    where: { componentId },
-    orderBy: { performedAt: 'desc' },
-    select: { performedAt: true },
-  });
-
-  if (lastService) {
-    return lastService.performedAt;
+  ctx: PredictionContext
+): Date {
+  // Try to get from pre-fetched service log map
+  const lastServiceDate = ctx.serviceLogMap.get(componentId);
+  if (lastServiceDate) {
+    return lastServiceDate;
   }
 
   // Fallback: first ride date for this bike
-  const firstRideDate = await getFirstRideDate(userId, bikeId);
-  if (firstRideDate) {
-    return firstRideDate;
+  if (ctx.firstRideDate) {
+    return ctx.firstRideDate;
   }
 
   // Fallback: bike creation date
-  return getBikeCreatedAt(bikeId);
+  return ctx.bikeCreatedAt;
+}
+
+/**
+ * Get rides since a specific date from pre-fetched rides array.
+ */
+function getRidesSinceDateFromContext(
+  sinceDate: Date,
+  ctx: PredictionContext
+): RideMetrics[] {
+  return ctx.allRides.filter((ride) => ride.startTime > sinceDate);
 }
 
 /**
@@ -121,23 +137,22 @@ async function getLastServiceDate(
  * FREE tier: Deterministic (hoursRemaining = baseInterval - hoursSinceService)
  * PRO tier: Adaptive with wear ratio adjustment
  */
-async function predictComponent(
+function predictComponent(
   component: Component,
-  userId: string,
-  bikeId: string,
   recentRides: RideMetrics[],
-  isPro: boolean
-): Promise<ComponentPrediction> {
+  isPro: boolean,
+  ctx: PredictionContext
+): ComponentPrediction {
   // Get base interval for this component type and location
   const baseInterval =
     component.serviceDueAtHours ??
     getBaseInterval(component.type, component.location);
 
-  // Get last service date
-  const lastServiceDate = await getLastServiceDate(component.id, userId, bikeId);
+  // Get last service date from pre-fetched context
+  const lastServiceDate = getLastServiceDateFromContext(component.id, ctx);
 
-  // Get rides and hours since last service
-  const ridesSinceService = await getRidesSinceDate(userId, bikeId, lastServiceDate);
+  // Get rides and hours since last service from pre-fetched context
+  const ridesSinceService = getRidesSinceDateFromContext(lastServiceDate, ctx);
   const hoursSinceService = calculateTotalHours(ridesSinceService);
   const rideCountSinceService = ridesSinceService.length;
 
@@ -171,7 +186,12 @@ async function predictComponent(
     const wearRemaining = effectiveInterval - wearSinceService;
 
     // Convert wear remaining to hours
-    hoursRemaining = wearRemaining / Math.max(recentWearPerHour, 0.001);
+    if (recentWearPerHour < 0.01) {
+      // Insufficient data for adaptive prediction, use historical average
+      hoursRemaining = wearRemaining / BASELINE_WEAR_PER_HOUR;
+    } else {
+      hoursRemaining = wearRemaining / recentWearPerHour;
+    }
     hoursRemaining = Math.max(0, hoursRemaining);
   } else {
     // FREE tier: Deterministic prediction
@@ -181,7 +201,10 @@ async function predictComponent(
   // Determine status and confidence
   const status = getStatus(hoursRemaining);
   const totalHours = calculateTotalHours(recentRides);
-  const confidence = getConfidence(rideCountSinceService, totalHours);
+  // Force LOW confidence when insufficient wear data for adaptive prediction
+  const hasInsufficientWearData = isPro && recentRides.length > 0 &&
+    calculateWearPerHourRatio(recentRides, component.type) < 0.01;
+  const confidence = hasInsufficientWearData ? 'LOW' : getConfidence(rideCountSinceService, totalHours);
   const ridesRemainingEstimate = estimateRidesRemaining(hoursRemaining, recentRides);
 
   // Generate explanation for Pro tier
@@ -321,14 +344,44 @@ export async function generateBikePredictions(
     isTrackableComponent(c.type)
   );
 
-  // Get recent rides for wear analysis
-  const recentRides = await getRecentRides(userId, bikeId);
+  // Batch fetch all data needed for predictions to avoid N+1 queries
+  const componentIds = trackableComponents.map((c) => c.id);
 
-  // Generate predictions for each component (in parallel)
-  const predictions = await Promise.all(
-    trackableComponents.map((component) =>
-      predictComponent(component, userId, bikeId, recentRides, isPro)
-    )
+  const [serviceLogs, firstRideDate, allRides, recentRides] = await Promise.all([
+    // Fetch all service logs for all components at once
+    prisma.serviceLog.findMany({
+      where: { componentId: { in: componentIds } },
+      orderBy: { performedAt: 'desc' },
+      select: { componentId: true, performedAt: true },
+    }),
+    // Fetch first ride date (fallback)
+    getFirstRideDate(userId, bikeId),
+    // Fetch all rides for the bike (for rides-since-service calculations)
+    getAllRidesForBike(userId, bikeId),
+    // Get recent rides for wear analysis
+    getRecentRides(userId, bikeId),
+  ]);
+
+  // Build service log map (componentId -> most recent service date)
+  const serviceLogMap = new Map<string, Date>();
+  for (const log of serviceLogs) {
+    // Since logs are ordered desc, first one for each component is the most recent
+    if (!serviceLogMap.has(log.componentId)) {
+      serviceLogMap.set(log.componentId, log.performedAt);
+    }
+  }
+
+  // Create prediction context
+  const ctx: PredictionContext = {
+    serviceLogMap,
+    firstRideDate,
+    bikeCreatedAt: bike.createdAt,
+    allRides,
+  };
+
+  // Generate predictions for each component (synchronously - no more DB calls)
+  const predictions = trackableComponents.map((component) =>
+    predictComponent(component, recentRides, isPro, ctx)
   );
 
   // Build summary

@@ -1,27 +1,12 @@
 import { prisma } from '../../lib/prisma';
 import type { RideMetrics } from './types';
-import {
-  RECENT_RIDES_TARGET,
-  PRIMARY_WINDOW_DAYS,
-  FALLBACK_WINDOW_DAYS,
-} from './config';
+import { RECENT_RIDES_TARGET } from './config';
 
 /**
- * Subtract days from a date.
- */
-function subDays(date: Date, days: number): Date {
-  const result = new Date(date);
-  result.setDate(result.getDate() - days);
-  return result;
-}
-
-/**
- * Get recent rides for wear calculation with windowing logic.
+ * Get recent rides for wear calculation.
  *
- * Windowing rules from spec:
- * - Prefer last 10 rides
- * - If fewer than 10 rides in last 30 days, extend to 90 days
- * - If still too few rides, use whatever is available
+ * Returns up to RECENT_RIDES_TARGET (10) most recent rides for the bike.
+ * If afterDate is provided, only includes rides after that date.
  *
  * @param userId - User ID
  * @param bikeId - Bike ID
@@ -33,27 +18,16 @@ export async function getRecentRides(
   bikeId: string,
   afterDate?: Date | null
 ): Promise<RideMetrics[]> {
-  const now = new Date();
-  const thirtyDaysAgo = subDays(now, PRIMARY_WINDOW_DAYS);
-  const ninetyDaysAgo = subDays(now, FALLBACK_WINDOW_DAYS);
-
-  // Build date filter based on afterDate and window
-  const buildDateFilter = (windowStart: Date) => {
-    if (afterDate) {
-      // Use the later of afterDate or windowStart
-      const effectiveStart = afterDate > windowStart ? afterDate : windowStart;
-      return { gt: effectiveStart };
-    }
-    return { gte: windowStart };
-  };
-
-  // Try primary window (30 days)
-  let rides = await prisma.ride.findMany({
+  // Single query: get the most recent rides, respecting afterDate if provided
+  // The windowing logic (30/90 days) was causing up to 3 sequential queries
+  // with overlapping data. Instead, just fetch the target number of most recent
+  // rides - this gives us the data we need in a single query.
+  const rides = await prisma.ride.findMany({
     where: {
       userId,
       bikeId,
-      startTime: buildDateFilter(thirtyDaysAgo),
       isDuplicate: false,
+      ...(afterDate && { startTime: { gt: afterDate } }),
     },
     orderBy: { startTime: 'desc' },
     take: RECENT_RIDES_TARGET,
@@ -64,46 +38,6 @@ export async function getRecentRides(
       startTime: true,
     },
   });
-
-  // If not enough rides in primary window, try fallback (90 days)
-  if (rides.length < RECENT_RIDES_TARGET) {
-    rides = await prisma.ride.findMany({
-      where: {
-        userId,
-        bikeId,
-        startTime: buildDateFilter(ninetyDaysAgo),
-        isDuplicate: false,
-      },
-      orderBy: { startTime: 'desc' },
-      take: RECENT_RIDES_TARGET,
-      select: {
-        durationSeconds: true,
-        distanceMiles: true,
-        elevationGainFeet: true,
-        startTime: true,
-      },
-    });
-  }
-
-  // If still not enough, just get whatever is available since afterDate
-  if (rides.length < RECENT_RIDES_TARGET && afterDate) {
-    rides = await prisma.ride.findMany({
-      where: {
-        userId,
-        bikeId,
-        startTime: { gt: afterDate },
-        isDuplicate: false,
-      },
-      orderBy: { startTime: 'desc' },
-      take: RECENT_RIDES_TARGET,
-      select: {
-        durationSeconds: true,
-        distanceMiles: true,
-        elevationGainFeet: true,
-        startTime: true,
-      },
-    });
-  }
 
   return rides as RideMetrics[];
 }
@@ -203,4 +137,34 @@ export async function getBikeCreatedAt(bikeId: string): Promise<Date> {
   });
 
   return bike?.createdAt ?? new Date();
+}
+
+/**
+ * Get all rides for a bike, ordered by startTime ascending.
+ * Used for batch prediction to avoid N+1 queries.
+ *
+ * @param userId - User ID
+ * @param bikeId - Bike ID
+ * @returns Array of ride metrics ordered by startTime
+ */
+export async function getAllRidesForBike(
+  userId: string,
+  bikeId: string
+): Promise<RideMetrics[]> {
+  const rides = await prisma.ride.findMany({
+    where: {
+      userId,
+      bikeId,
+      isDuplicate: false,
+    },
+    orderBy: { startTime: 'asc' },
+    select: {
+      durationSeconds: true,
+      distanceMiles: true,
+      elevationGainFeet: true,
+      startTime: true,
+    },
+  });
+
+  return rides as RideMetrics[];
 }
