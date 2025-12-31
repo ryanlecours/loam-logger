@@ -43,6 +43,71 @@ export const MUTATION_RATE_LIMITS = {
 export type MutationRateLimitType = keyof typeof MUTATION_RATE_LIMITS;
 
 /**
+ * In-memory rate limit fallback when Redis is unavailable.
+ * Uses a simple sliding window counter per operation:userId.
+ */
+const memoryRateLimits = new Map<
+  string,
+  { count: number; resetAt: number }
+>();
+
+/** Maximum entries in memory rate limit cache */
+const MEMORY_RATE_LIMIT_MAX_SIZE = 1000;
+
+/**
+ * Clean up expired entries from memory rate limit cache.
+ */
+function cleanupMemoryRateLimits(): void {
+  const now = Date.now();
+  for (const [key, entry] of memoryRateLimits) {
+    if (entry.resetAt <= now) {
+      memoryRateLimits.delete(key);
+    }
+  }
+}
+
+/**
+ * Check rate limit using in-memory fallback.
+ * Used when Redis is unavailable.
+ */
+function checkMemoryRateLimit(
+  key: string,
+  maxRequests: number,
+  windowSeconds: number
+): RateLimitResult {
+  const now = Date.now();
+  const windowMs = windowSeconds * 1000;
+
+  // Clean up periodically (every 100 checks or when cache is large)
+  if (memoryRateLimits.size > MEMORY_RATE_LIMIT_MAX_SIZE) {
+    cleanupMemoryRateLimits();
+  }
+
+  const entry = memoryRateLimits.get(key);
+
+  if (!entry || entry.resetAt <= now) {
+    // Start new window
+    memoryRateLimits.set(key, { count: 1, resetAt: now + windowMs });
+    return { allowed: true, redisAvailable: false };
+  }
+
+  // Increment counter
+  entry.count++;
+
+  if (entry.count <= maxRequests) {
+    return { allowed: true, redisAvailable: false };
+  }
+
+  // Rate limited
+  const retryAfter = Math.ceil((entry.resetAt - now) / 1000);
+  return {
+    allowed: false,
+    retryAfter: retryAfter > 0 ? retryAfter : windowSeconds,
+    redisAvailable: false,
+  };
+}
+
+/**
  * Rate limit configuration for admin actions.
  * Values are in seconds.
  */
@@ -148,7 +213,7 @@ function buildMutationRateLimitKey(
  * Check if a mutation is rate limited using a sliding window counter.
  * Uses Redis INCR with EXPIRE for simple and efficient rate limiting.
  *
- * Graceful degradation: If Redis is unavailable, allows the operation.
+ * Graceful degradation: Falls back to in-memory rate limiting if Redis is unavailable.
  *
  * @param operation - The mutation type
  * @param userId - The user ID
@@ -158,15 +223,16 @@ export async function checkMutationRateLimit(
   operation: MutationRateLimitType,
   userId: string
 ): Promise<RateLimitResult> {
-  // Graceful degradation: allow operation if Redis is unavailable
+  const config = MUTATION_RATE_LIMITS[operation];
+  const key = buildMutationRateLimitKey(operation, userId);
+
+  // Fallback to in-memory rate limiting if Redis is unavailable
   if (!isRedisReady()) {
-    return { allowed: true, redisAvailable: false };
+    return checkMemoryRateLimit(key, config.maxRequests, config.windowSeconds);
   }
 
   try {
     const redis = getRedisConnection();
-    const config = MUTATION_RATE_LIMITS[operation];
-    const key = buildMutationRateLimitKey(operation, userId);
 
     // Increment the counter
     const count = await redis.incr(key);
@@ -188,12 +254,12 @@ export async function checkMutationRateLimit(
       redisAvailable: true,
     };
   } catch (err) {
-    // Redis operation failed, allow the operation but log warning
+    // Redis operation failed, fall back to in-memory rate limiting
     console.warn(
-      `[RateLimit] Redis error during mutation ${operation} check for ${userId}, allowing operation:`,
+      `[RateLimit] Redis error during mutation ${operation} check for ${userId}, using in-memory fallback:`,
       err instanceof Error ? err.message : 'Unknown error'
     );
-    return { allowed: true, redisAvailable: false };
+    return checkMemoryRateLimit(key, config.maxRequests, config.windowSeconds);
   }
 }
 

@@ -21,14 +21,46 @@ async function deleteKeysByPattern(
   } while (cursor !== '0');
 }
 
-/** In-memory cache fallback */
+/** In-memory cache fallback with LRU tracking via lastAccessed */
 const memoryCache = new Map<
   string,
-  { value: BikePredictionSummary; expiresAt: number }
+  { value: BikePredictionSummary; expiresAt: number; lastAccessed: number }
 >();
 
 /** Maximum entries in memory cache */
 const MEMORY_CACHE_MAX_SIZE = 100;
+
+/**
+ * Evict entries from memory cache when full.
+ * Strategy: First evict expired entries, then evict least recently used.
+ */
+function evictFromMemoryCache(): void {
+  const now = Date.now();
+
+  // First pass: remove any expired entries
+  for (const [key, entry] of memoryCache) {
+    if (entry.expiresAt <= now) {
+      memoryCache.delete(key);
+    }
+  }
+
+  // If still at capacity, evict least recently used
+  if (memoryCache.size >= MEMORY_CACHE_MAX_SIZE) {
+    let lruKey: string | null = null;
+    let lruTime = Infinity;
+
+    for (const [key, entry] of memoryCache) {
+      if (entry.lastAccessed < lruTime) {
+        lruTime = entry.lastAccessed;
+        lruKey = key;
+      }
+    }
+
+    if (lruKey) {
+      memoryCache.delete(lruKey);
+    }
+  }
+}
 
 /**
  * Build cache key string from parameters.
@@ -68,6 +100,8 @@ export async function getCachedPrediction(
   // Fallback to memory cache
   const memCached = memoryCache.get(key);
   if (memCached && memCached.expiresAt > Date.now()) {
+    // Update last accessed time for LRU tracking
+    memCached.lastAccessed = Date.now();
     return memCached.value;
   }
 
@@ -92,15 +126,14 @@ export async function setCachedPrediction(
   ttlSeconds: number = DEFAULT_CACHE_TTL_SECONDS
 ): Promise<void> {
   const key = buildCacheKey(params);
-  const expiresAt = Date.now() + ttlSeconds * 1000;
+  const now = Date.now();
+  const expiresAt = now + ttlSeconds * 1000;
 
-  // Store in memory cache (with size limit)
-  if (memoryCache.size >= MEMORY_CACHE_MAX_SIZE) {
-    // Remove oldest entry (first key)
-    const firstKey = memoryCache.keys().next().value;
-    if (firstKey) memoryCache.delete(firstKey);
+  // Evict entries if cache is full (LRU strategy)
+  if (memoryCache.size >= MEMORY_CACHE_MAX_SIZE && !memoryCache.has(key)) {
+    evictFromMemoryCache();
   }
-  memoryCache.set(key, { value: prediction, expiresAt });
+  memoryCache.set(key, { value: prediction, expiresAt, lastAccessed: now });
 
   // Store in Redis
   if (isRedisReady()) {

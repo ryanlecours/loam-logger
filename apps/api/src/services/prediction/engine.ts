@@ -430,21 +430,24 @@ export async function generateAllBikePredictions(
     select: { id: true },
   });
 
-  // Generate predictions for each bike
-  const predictions: BikePredictionSummary[] = [];
-
-  for (const bike of bikes) {
-    try {
-      const summary = await generateBikePredictions({
+  // Generate predictions for all bikes in parallel
+  const results = await Promise.all(
+    bikes.map((bike) =>
+      generateBikePredictions({
         userId,
         bikeId: bike.id,
         userRole,
-      });
-      predictions.push(summary);
-    } catch (error) {
-      console.error(`[PredictionEngine] Failed for bike ${bike.id}:`, error);
-    }
-  }
+      }).catch((error) => {
+        console.error(`[PredictionEngine] Failed for bike ${bike.id}:`, error);
+        return null;
+      })
+    )
+  );
+
+  // Filter out failed predictions
+  const predictions = results.filter(
+    (p): p is BikePredictionSummary => p !== null
+  );
 
   // Sort by urgency (most urgent first)
   const statusPriority: Record<PredictionStatus, number> = {
