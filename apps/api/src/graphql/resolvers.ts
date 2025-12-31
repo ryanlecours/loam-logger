@@ -1038,6 +1038,15 @@ export const resolvers = {
         throw new Error('Pivot bearings must be attached to a bike');
       }
 
+      // Validate that components needing front/rear designation have proper location
+      if (
+        (type === ComponentTypeEnum.BRAKE_PAD || type === ComponentTypeEnum.TIRES) &&
+        (!input.location || input.location === 'NONE')
+      ) {
+        const typeName = type.replace('_', ' ').toLowerCase();
+        throw new Error(`${typeName} requires a location (FRONT or REAR)`);
+      }
+
       return prisma.component.create({
         data: {
           ...normalizeLooseComponentInput(type, input),
