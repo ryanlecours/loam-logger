@@ -116,7 +116,9 @@ export function PriorityBikeHero({
   const predictions = bike.predictions;
   const priorityComponent = predictions?.priorityComponent;
   const overallStatus = predictions?.overallStatus ?? 'ALL_GOOD';
-  const topDueComponents = getTopDueComponents(predictions, 3);
+  const topDueComponents = getTopDueComponents(predictions, 6);
+  const totalComponentCount = predictions?.components?.length ?? 0;
+  const hasMoreComponents = totalComponentCount > 6;
   const bikeName = getBikeName(bike);
 
   return (
@@ -190,6 +192,11 @@ export function PriorityBikeHero({
 
             {/* Mini component list */}
             <MiniComponentList components={topDueComponents} />
+            {hasMoreComponents && (
+              <Link to={`/gear/${bike.id}`} className="show-all-components-link">
+                {totalComponentCount - 6} more components...
+              </Link>
+            )}
 
             {/* Actions */}
             <div className="priority-hero-actions">
