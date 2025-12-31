@@ -1,4 +1,5 @@
 import { getHealthStatus } from './getHealthStatus';
+import { COMPONENT_LABELS } from '../constants/componentLabels';
 
 /** Component summary from GraphQL BIKES query */
 export interface ComponentSummary {
@@ -45,15 +46,6 @@ export interface BikeHealth {
   warningCount: number;
   isHealthy: boolean;
 }
-
-const COMPONENT_LABELS: Record<string, string> = {
-  FORK: 'Fork',
-  SHOCK: 'Shock',
-  PIVOT_BEARINGS: 'Pivot Bearings',
-  DROPPER: 'Dropper Post',
-  WHEELS: 'Wheel Bearings',
-  DRIVETRAIN: 'Drivetrain',
-};
 
 function parseLastServiceDate(updatedAt?: string | null): Date | null {
   if (!updatedAt) return null;

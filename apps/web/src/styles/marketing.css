@@ -300,6 +300,9 @@ textarea:focus::placeholder {
 
 /* Primary button */
 .btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: linear-gradient(135deg, var(--sage) 0%, var(--moss) 100%);
   color: var(--cream);
   border: 2px solid rgba(168, 208, 184, 0.4);
@@ -368,6 +371,9 @@ textarea:focus::placeholder {
 
 /* Secondary button */
 .btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: transparent;
   color: var(--sage);
   border: 2px solid var(--moss);
@@ -433,8 +439,8 @@ textarea:focus::placeholder {
 
 /* Small button size */
 .btn-sm {
-  padding: 0.4rem 1rem;
-  font-size: 0.8125rem;
+  padding: 0.4rem 1rem !important;
+  font-size: 0.8125rem !important;
 }
 
 /* Large button size */
@@ -2780,21 +2786,36 @@ html.marketing-page:focus-within {
 .ride-stats-card {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
 }
 
 .stats-header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  gap: 1rem;
+  justify-content: space-between;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid rgba(134, 158, 140, 0.1);
+  flex-shrink: 0;
+  background: rgba(30, 34, 32, 0.9);
 }
 
 .stats-title {
-  font-size: 1.125rem;
+  font-size: 1rem;
   font-weight: 600;
   color: var(--cream);
   margin: 0;
+}
+
+.stats-content {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 1rem 1.25rem;
 }
 
 .stats-error {
@@ -3348,5 +3369,1045 @@ html.marketing-page:focus-within {
   .hr-stats-row {
     flex-direction: column;
     gap: 1rem;
+  }
+}
+
+/* ========================================
+   CONTROL ROOM DASHBOARD
+   Viewport-locked layout with no page scroll
+   ======================================== */
+
+/* Status Colors */
+:root {
+  --status-overdue: #C45943;
+  --status-due-now: #B87354;
+  --status-due-soon: #D4AF7C;
+  --status-all-good: #A8D0B8;
+  --confidence-high: var(--mint);
+  --confidence-medium: var(--gold);
+  --confidence-low: var(--sage);
+}
+
+/* Control Room Container */
+.control-room {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: 1fr 425px;
+  gap: 1.5rem;
+  padding: 0;
+  background: transparent;
+}
+
+.control-room-main {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.control-room-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Priority Bike Hero */
+.priority-hero {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: rgba(30, 34, 32, 0.75);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(134, 158, 140, 0.2);
+  border-radius: 1.25rem;
+  padding: 1.5rem;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.priority-hero-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  text-align: center;
+}
+
+.priority-hero-empty-icon {
+  color: var(--sage);
+  opacity: 0.5;
+}
+
+.priority-hero-empty-title {
+  margin: 0;
+  color: var(--cream);
+  font-size: 1.25rem;
+}
+
+.priority-hero-empty-text {
+  margin: 0.5rem 0 0;
+  color: var(--sage);
+}
+
+.priority-hero-body {
+  flex: 1;
+  display: flex;
+  gap: 1.5rem;
+  min-height: 0;
+}
+
+.priority-hero-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  flex-shrink: 0;
+}
+
+.priority-hero-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--cream);
+  margin: 0;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.priority-hero-back {
+  font-size: 0.8125rem;
+  color: var(--sage);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.priority-hero-back:hover {
+  color: var(--mint);
+  background: rgba(134, 158, 140, 0.1);
+}
+
+.priority-hero-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-height: 0;
+  overflow: hidden;
+  max-width: 50%;
+}
+
+.priority-hero-keyline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem 1rem;
+  flex-shrink: 0;
+}
+
+.priority-hero-next {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--cream);
+}
+
+.priority-hero-hours {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--mint);
+  font-variant-numeric: tabular-nums;
+}
+
+.priority-hero-rides {
+  font-size: 0.875rem;
+  color: var(--sage);
+}
+
+.priority-hero-image-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  gap: 1rem;
+}
+
+.priority-hero-image {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  flex: 1;
+  min-height: 0;
+}
+
+.priority-hero-admin-buttons {
+  display: flex;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.priority-hero-admin-btn {
+  padding: 0.375rem 0.75rem;
+  font-size: 0.6875rem;
+  background: rgba(134, 158, 140, 0.2);
+  border: 1px solid rgba(134, 158, 140, 0.3);
+  border-radius: 4px;
+  color: var(--sage);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.priority-hero-admin-btn:hover:not(:disabled) {
+  background: rgba(134, 158, 140, 0.3);
+  border-color: rgba(134, 158, 140, 0.5);
+}
+
+.priority-hero-admin-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.priority-hero-actions {
+  display: flex;
+  gap: 0.75rem;
+  flex-shrink: 0;
+  margin-top: auto;
+  padding-top: 1rem;
+}
+
+.priority-hero-actions .btn-primary {
+  flex: 0 0 auto;
+}
+
+.priority-hero-actions .btn-secondary {
+  flex: 0 0 auto;
+}
+
+/* Status Pill */
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.375rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+.status-pill-overdue {
+  background: rgba(196, 89, 67, 0.2);
+  color: var(--status-overdue);
+  border: 1px solid rgba(196, 89, 67, 0.4);
+}
+
+.status-pill-due-now {
+  background: rgba(184, 115, 84, 0.2);
+  color: var(--status-due-now);
+  border: 1px solid rgba(184, 115, 84, 0.4);
+}
+
+.status-pill-due-soon {
+  background: rgba(212, 175, 124, 0.2);
+  color: var(--status-due-soon);
+  border: 1px solid rgba(212, 175, 124, 0.4);
+}
+
+.status-pill-all-good {
+  background: rgba(168, 208, 184, 0.2);
+  color: var(--status-all-good);
+  border: 1px solid rgba(168, 208, 184, 0.4);
+}
+
+.status-pill-icon {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+}
+
+/* Status Dot */
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.status-dot-overdue {
+  background: var(--status-overdue);
+  box-shadow: 0 0 6px var(--status-overdue);
+}
+
+.status-dot-due-now {
+  background: var(--status-due-now);
+  box-shadow: 0 0 6px var(--status-due-now);
+}
+
+.status-dot-due-soon {
+  background: var(--status-due-soon);
+  box-shadow: 0 0 4px var(--status-due-soon);
+}
+
+.status-dot-all-good {
+  background: var(--status-all-good);
+}
+
+/* Confidence Tag */
+.confidence-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+.confidence-tag-high {
+  background: rgba(168, 208, 184, 0.15);
+  color: var(--confidence-high);
+}
+
+.confidence-tag-medium {
+  background: rgba(212, 175, 124, 0.15);
+  color: var(--confidence-medium);
+}
+
+.confidence-tag-low {
+  background: rgba(134, 158, 140, 0.15);
+  color: var(--confidence-low);
+}
+
+/* Why Toggle */
+.why-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--sage);
+  background: none;
+  border: 1px solid rgba(134, 158, 140, 0.25);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.why-toggle:hover {
+  background: rgba(134, 158, 140, 0.1);
+  color: var(--mint);
+  border-color: rgba(134, 158, 140, 0.4);
+}
+
+.why-toggle-expanded {
+  background: rgba(134, 158, 140, 0.15);
+  color: var(--mint);
+}
+
+.why-panel {
+  background: rgba(30, 34, 32, 0.9);
+  border: 1px solid rgba(134, 158, 140, 0.2);
+  border-radius: 0.75rem;
+  padding: 1rem;
+  margin-top: 0.75rem;
+  font-size: 0.875rem;
+  color: var(--concrete);
+  line-height: 1.5;
+}
+
+.why-panel-title {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--sage);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.5rem;
+}
+
+/* Mini Component List */
+.mini-component-list {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  overflow-y: auto;
+  min-height: 0;
+  padding-right: 0.25rem;
+}
+
+.show-all-components-link {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--sage);
+  text-decoration: none;
+  transition: color 0.2s ease;
+  padding: 0.25rem 0;
+}
+
+.show-all-components-link:hover {
+  color: var(--mint);
+}
+
+.mini-component-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.625rem 0.75rem;
+  background: rgba(54, 60, 57, 0.4);
+  border-radius: 0.5rem;
+  border: 1px solid rgba(134, 158, 140, 0.1);
+  flex-shrink: 0;
+}
+
+.mini-component-label {
+  flex: 1;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--cream);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mini-component-location {
+  font-size: 0.75rem;
+  color: var(--sage);
+  margin-left: 0.25rem;
+}
+
+.mini-component-hours {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--mint);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.mini-component-rides {
+  font-size: 0.75rem;
+  color: var(--sage);
+  white-space: nowrap;
+}
+
+/* Bike Switcher Row */
+.bike-switcher-row {
+  display: flex;
+  gap: 0.75rem;
+  overflow-x: auto;
+  padding: 0.25rem;
+  margin: -0.25rem;
+  flex-shrink: 0;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(134, 158, 140, 0.3) transparent;
+}
+
+.bike-switcher-row::-webkit-scrollbar {
+  height: 6px;
+}
+
+.bike-switcher-row::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.bike-switcher-row::-webkit-scrollbar-thumb {
+  background: rgba(134, 158, 140, 0.3);
+  border-radius: 3px;
+}
+
+/* Bike Switcher Tile */
+.bike-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  min-width: 100px;
+  max-width: 120px;
+  background: rgba(54, 60, 57, 0.5);
+  border: 2px solid rgba(134, 158, 140, 0.15);
+  border-radius: 0.75rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.bike-tile:hover {
+  background: rgba(54, 60, 57, 0.7);
+  border-color: rgba(134, 158, 140, 0.3);
+  transform: translateY(-2px);
+}
+
+.bike-tile-selected {
+  background: rgba(134, 158, 140, 0.15);
+  border-color: var(--mint);
+  box-shadow: 0 0 12px rgba(168, 208, 184, 0.2);
+}
+
+.bike-tile-thumb {
+  width: 48px;
+  height: 48px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: rgba(30, 34, 32, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--sage);
+  position: relative;
+}
+
+.bike-tile-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.bike-tile-thumb svg {
+  width: 24px;
+  height: 24px;
+  opacity: 0.6;
+}
+
+.bike-tile-status {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid rgba(30, 34, 32, 1);
+}
+
+.bike-tile-name {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--cream);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.bike-tile-hours {
+  font-size: 0.6875rem;
+  color: var(--sage);
+  font-variant-numeric: tabular-nums;
+}
+
+.bike-tile-more {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  padding: 0.75rem;
+  min-width: 100px;
+  background: rgba(134, 158, 140, 0.1);
+  border: 2px dashed rgba(134, 158, 140, 0.3);
+  border-radius: 0.75rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-decoration: none;
+  flex-shrink: 0;
+}
+
+.bike-tile-more:hover {
+  background: rgba(134, 158, 140, 0.15);
+  border-color: var(--mint);
+}
+
+.bike-tile-more-icon {
+  font-size: 1.25rem;
+  color: var(--sage);
+}
+
+.bike-tile-more-text {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  color: var(--sage);
+  text-align: center;
+}
+
+/* Recent Rides Card */
+.recent-rides-card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: rgba(30, 34, 32, 0.75);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(134, 158, 140, 0.2);
+  border-radius: 1rem;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.recent-rides-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid rgba(134, 158, 140, 0.1);
+  flex-shrink: 0;
+  background: rgba(30, 34, 32, 0.9);
+}
+
+.recent-rides-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--cream);
+  margin: 0;
+}
+
+.recent-rides-link {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--sage);
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+.recent-rides-link:hover {
+  color: var(--mint);
+}
+
+.recent-rides-scroll {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  padding: 0.5rem 0;
+  position: relative;
+}
+
+.recent-rides-scroll::after {
+  content: '';
+  position: sticky;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 32px;
+  background: linear-gradient(to top, rgba(30, 34, 32, 0.9), transparent);
+  pointer-events: none;
+}
+
+.recent-rides-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1rem;
+  text-align: center;
+  color: var(--sage);
+}
+
+.recent-rides-empty-icon {
+  font-size: 2rem;
+  margin-bottom: 0.5rem;
+  opacity: 0.5;
+}
+
+.recent-rides-empty-text {
+  font-size: 0.875rem;
+  margin: 0;
+}
+
+/* Compact Ride Row */
+.compact-ride-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1.25rem;
+  transition: background 0.15s ease;
+}
+
+.compact-ride-row:hover {
+  background: rgba(134, 158, 140, 0.05);
+}
+
+.compact-ride-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.compact-ride-title {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--cream);
+  margin: 0 0 0.25rem 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.compact-ride-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--sage);
+}
+
+.compact-ride-meta-sep {
+  opacity: 0.5;
+}
+
+.compact-ride-source {
+  flex-shrink: 0;
+}
+
+.source-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.source-badge-strava {
+  background: rgba(252, 82, 0, 0.15);
+  color: #FC5200;
+}
+
+.source-badge-garmin {
+  background: rgba(0, 151, 221, 0.15);
+  color: #0097DD;
+}
+
+.source-badge-manual {
+  background: rgba(134, 158, 140, 0.15);
+  color: var(--sage);
+}
+
+/* Ride Stats Card Compact */
+.ride-stats-compact {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: rgba(30, 34, 32, 0.75);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(134, 158, 140, 0.2);
+  border-radius: 1rem;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.ride-stats-compact-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid rgba(134, 158, 140, 0.1);
+  flex-shrink: 0;
+}
+
+.ride-stats-compact-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--cream);
+  margin: 0;
+}
+
+.ride-stats-compact-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 1.25rem;
+  gap: 1rem;
+}
+
+.ride-stats-compact-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1rem;
+}
+
+.ride-stats-compact-metric {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0.25rem;
+}
+
+.ride-stats-compact-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--cream);
+  font-variant-numeric: tabular-nums;
+}
+
+.ride-stats-compact-label {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  color: var(--sage);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.ride-stats-compact-footer {
+  display: flex;
+  justify-content: center;
+  padding-top: 0.5rem;
+}
+
+/* Log Service Modal */
+.log-service-modal-content {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.log-service-modal-bike {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  background: rgba(54, 60, 57, 0.4);
+  border-radius: 0.5rem;
+}
+
+.log-service-modal-bike-name {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--cream);
+}
+
+.log-service-checklist {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.log-service-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  background: rgba(30, 34, 32, 0.5);
+  border: 1px solid rgba(134, 158, 140, 0.15);
+  border-radius: 0.5rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.log-service-item:hover {
+  background: rgba(54, 60, 57, 0.5);
+  border-color: rgba(134, 158, 140, 0.25);
+}
+
+.log-service-item-selected {
+  background: rgba(134, 158, 140, 0.1);
+  border-color: var(--mint);
+}
+
+.log-service-item-checkbox {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  border: 2px solid rgba(134, 158, 140, 0.4);
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+}
+
+.log-service-item-selected .log-service-item-checkbox {
+  background: var(--mint);
+  border-color: var(--mint);
+}
+
+.log-service-item-label {
+  flex: 1;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--cream);
+}
+
+.log-service-item-hours {
+  font-size: 0.8125rem;
+  color: var(--sage);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Control Room Responsive */
+@media (max-width: 1279px) {
+  .control-room {
+    height: auto;
+    min-height: calc(100vh - 64px);
+    overflow: auto;
+    grid-template-columns: 1fr;
+    grid-template-rows: auto;
+  }
+
+  .control-room-main {
+    overflow: visible;
+  }
+
+  .control-room-sidebar {
+    overflow: visible;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.25rem;
+  }
+
+  .priority-hero {
+    min-height: 400px;
+  }
+
+  .recent-rides-card,
+  .ride-stats-compact {
+    min-height: 300px;
+  }
+}
+
+@media (max-width: 768px) {
+  .control-room {
+    padding: 1rem;
+    gap: 1rem;
+  }
+
+  .control-room-main {
+    overflow: hidden;
+  }
+
+  .control-room-sidebar {
+    grid-template-columns: 1fr;
+  }
+
+  .priority-hero {
+    min-height: auto;
+    padding: 1rem;
+  }
+
+  .priority-hero-header {
+    flex-wrap: wrap;
+  }
+
+  .priority-hero-title {
+    font-size: 1rem;
+    order: -1;
+    flex-basis: 100%;
+  }
+
+  .priority-hero-actions {
+    flex-direction: column;
+  }
+
+  .priority-hero-actions .btn-primary,
+  .priority-hero-actions .btn-secondary {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .priority-hero-body {
+    flex-direction: column;
+  }
+
+  .priority-hero-content {
+    max-width: 100%;
+  }
+
+  .priority-hero-image-container {
+    order: -1;
+    max-height: 120px;
+    background: rgba(30, 34, 32, 0.9);
+    border-radius: 0.5rem;
+    padding: 0.5rem;
+  }
+
+  .priority-hero-image {
+    max-height: 100px;
+  }
+
+  .priority-hero-admin-buttons {
+    display: none;
+  }
+
+  .priority-hero-keyline {
+    display: grid;
+    grid-template-columns: auto auto;
+    grid-template-rows: auto auto;
+    gap: 0.25rem 0.5rem;
+    align-items: center;
+  }
+
+  .priority-hero-next {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .priority-hero-hours {
+    grid-column: 2;
+    grid-row: 1;
+    font-size: 1.25rem;
+  }
+
+  .priority-hero-rides {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .mini-component-list {
+    gap: 0.375rem;
+  }
+
+  .mini-component-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.25rem;
+    padding: 0.5rem 0.75rem;
+  }
+
+  .mini-component-label {
+    width: 100%;
+  }
+
+  .mini-component-hours,
+  .mini-component-rides {
+    font-size: 0.75rem;
+  }
+
+  .bike-switcher-row {
+    margin: 0 -1rem;
+    padding: 0.25rem 1rem;
+  }
+
+  .recent-rides-card,
+  .ride-stats-compact {
+    min-height: 250px;
+  }
+
+  .ride-stats-compact-metrics {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .ride-stats-compact-value {
+    font-size: 1.25rem;
   }
 }
