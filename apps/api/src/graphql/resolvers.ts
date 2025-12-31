@@ -11,6 +11,7 @@ import type {
 } from '@prisma/client';
 import { checkRateLimit } from '../lib/rate-limit';
 import { enqueueSyncJob, enqueueBikeInvalidation, type SyncProvider } from '../lib/queue';
+import { invalidateBikePrediction } from '../services/prediction/cache';
 import { SPOKES_TO_COMPONENT_TYPE } from '@loam/shared';
 import { getBikeById, isSpokesConfigured } from '../services/spokes';
 
@@ -552,6 +553,7 @@ export const resolvers = {
 
       // Invalidate prediction cache if ride has a bike
       if (bikeId) {
+        await invalidateBikePrediction(userId, bikeId);
         enqueueBikeInvalidation(userId, bikeId);
       }
 
@@ -589,6 +591,7 @@ export const resolvers = {
 
       // Invalidate prediction cache if ride had a bike
       if (deletedBikeId) {
+        await invalidateBikePrediction(userId, deletedBikeId);
         enqueueBikeInvalidation(userId, deletedBikeId);
       }
 
@@ -739,9 +742,11 @@ export const resolvers = {
 
       // Invalidate prediction cache for affected bikes
       if (existing.bikeId) {
+        await invalidateBikePrediction(userId, existing.bikeId);
         enqueueBikeInvalidation(userId, existing.bikeId);
       }
       if (nextBikeId && nextBikeId !== existing.bikeId) {
+        await invalidateBikePrediction(userId, nextBikeId);
         enqueueBikeInvalidation(userId, nextBikeId);
       }
 
@@ -1087,6 +1092,7 @@ export const resolvers = {
 
       // Invalidate prediction cache if component has a bike
       if (existing.bikeId) {
+        await invalidateBikePrediction(userId, existing.bikeId);
         enqueueBikeInvalidation(userId, existing.bikeId);
       }
 
@@ -1116,6 +1122,7 @@ export const resolvers = {
 
       // Invalidate prediction cache if component has a bike
       if (existing.bikeId) {
+        await invalidateBikePrediction(userId, existing.bikeId);
         enqueueBikeInvalidation(userId, existing.bikeId);
       }
 
@@ -1164,6 +1171,7 @@ export const resolvers = {
 
       // Invalidate prediction cache
       if (component.bikeId) {
+        await invalidateBikePrediction(userId, component.bikeId);
         enqueueBikeInvalidation(userId, component.bikeId);
       }
 
@@ -1231,6 +1239,7 @@ export const resolvers = {
       });
 
       // Invalidate prediction cache for the bike
+      await invalidateBikePrediction(userId, input.bikeId);
       enqueueBikeInvalidation(userId, input.bikeId);
 
       return mapping;
@@ -1278,6 +1287,7 @@ export const resolvers = {
       });
 
       // Invalidate prediction cache for the bike
+      await invalidateBikePrediction(userId, deletedBikeId);
       enqueueBikeInvalidation(userId, deletedBikeId);
 
       return { ok: true, id };
