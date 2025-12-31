@@ -161,28 +161,16 @@ const MAX_NOTES_LEN = 2000;
 const MAX_LABEL_LEN = 120;
 
 /**
- * Escape HTML special characters to prevent XSS.
- */
-const escapeHtml = (str: string): string =>
-  str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-
-/**
- * Clean and sanitize user input text.
+ * Clean user input text.
  * - Trims whitespace
  * - Truncates to max length
- * - Escapes HTML special characters to prevent XSS
+ *
+ * Note: XSS prevention is handled at the rendering layer (frontend),
+ * not at the storage layer. HTML escaping here would cause double-encoding
+ * and data corruption issues.
  */
-const cleanText = (v: unknown, max = MAX_LABEL_LEN) => {
-  if (typeof v !== 'string') return null;
-  const trimmed = v.trim().slice(0, max);
-  if (!trimmed) return null;
-  return escapeHtml(trimmed);
-};
+const cleanText = (v: unknown, max = MAX_LABEL_LEN) =>
+  typeof v === 'string' ? (v.trim().slice(0, max) || null) : null;
 
 const componentLabelMap: Partial<Record<ComponentType, string>> = {
   FORK: 'Fork',
@@ -569,6 +557,11 @@ export const resolvers = {
 
       const hoursDelta = durationSeconds / 3600;
 
+      // Invalidate prediction cache BEFORE transaction to prevent stale reads
+      if (bikeId) {
+        await invalidateBikePrediction(userId, bikeId);
+      }
+
       const ride = await prisma.$transaction(async (tx) => {
         const newRide = await tx.ride.create({ data: rideData });
         if (bikeId && hoursDelta > 0) {
@@ -580,9 +573,8 @@ export const resolvers = {
         return newRide;
       });
 
-      // Invalidate prediction cache if ride has a bike
+      // Queue async backup invalidation after transaction
       if (bikeId) {
-        await invalidateBikePrediction(userId, bikeId);
         enqueueBikeInvalidation(userId, bikeId);
       }
 
@@ -611,6 +603,11 @@ export const resolvers = {
 
       const deletedBikeId = ride.bikeId;
 
+      // Invalidate prediction cache BEFORE transaction to prevent stale reads
+      if (deletedBikeId) {
+        await invalidateBikePrediction(userId, deletedBikeId);
+      }
+
       await prisma.$transaction(async (tx) => {
         if (ride.bikeId && hoursDelta > 0) {
           await tx.component.updateMany({
@@ -626,9 +623,8 @@ export const resolvers = {
         await tx.ride.delete({ where: { id } });
       });
 
-      // Invalidate prediction cache if ride had a bike
+      // Queue async backup invalidation after transaction
       if (deletedBikeId) {
-        await invalidateBikePrediction(userId, deletedBikeId);
         enqueueBikeInvalidation(userId, deletedBikeId);
       }
 
@@ -737,6 +733,14 @@ export const resolvers = {
       const durationChanged = durationUpdate !== undefined;
       const bikeChanged = bikeUpdate !== undefined && nextBikeId !== existing.bikeId;
 
+      // Invalidate prediction cache BEFORE transaction to prevent stale reads
+      if (existing.bikeId) {
+        await invalidateBikePrediction(userId, existing.bikeId);
+      }
+      if (nextBikeId && nextBikeId !== existing.bikeId) {
+        await invalidateBikePrediction(userId, nextBikeId);
+      }
+
       const updatedRide = await prisma.$transaction(async (tx) => {
         const updated = await tx.ride.update({
           where: { id },
@@ -785,13 +789,11 @@ export const resolvers = {
         return updated;
       });
 
-      // Invalidate prediction cache for affected bikes
+      // Queue async backup invalidation after transaction
       if (existing.bikeId) {
-        await invalidateBikePrediction(userId, existing.bikeId);
         enqueueBikeInvalidation(userId, existing.bikeId);
       }
       if (nextBikeId && nextBikeId !== existing.bikeId) {
-        await invalidateBikePrediction(userId, nextBikeId);
         enqueueBikeInvalidation(userId, nextBikeId);
       }
 
@@ -1136,6 +1138,11 @@ export const resolvers = {
         serviceDueAtHours: existing.serviceDueAtHours,
       });
 
+      // Invalidate prediction cache BEFORE update to prevent stale reads
+      if (existing.bikeId) {
+        await invalidateBikePrediction(userId, existing.bikeId);
+      }
+
       const updated = await prisma.component.update({
         where: { id },
         data: {
@@ -1144,9 +1151,8 @@ export const resolvers = {
         },
       });
 
-      // Invalidate prediction cache if component has a bike
+      // Queue async backup invalidation after update
       if (existing.bikeId) {
-        await invalidateBikePrediction(userId, existing.bikeId);
         enqueueBikeInvalidation(userId, existing.bikeId);
       }
 
@@ -1178,14 +1184,18 @@ export const resolvers = {
       });
       if (!existing || existing.userId !== userId) throw new Error('Component not found');
 
+      // Invalidate prediction cache BEFORE update to prevent stale reads
+      if (existing.bikeId) {
+        await invalidateBikePrediction(userId, existing.bikeId);
+      }
+
       const updated = await prisma.component.update({
         where: { id },
         data: { hoursUsed: 0 },
       });
 
-      // Invalidate prediction cache if component has a bike
+      // Queue async backup invalidation after update
       if (existing.bikeId) {
-        await invalidateBikePrediction(userId, existing.bikeId);
         enqueueBikeInvalidation(userId, existing.bikeId);
       }
 
@@ -1229,6 +1239,11 @@ export const resolvers = {
       }
       const notes = input.notes ? cleanText(input.notes, MAX_NOTES_LEN) : null;
 
+      // Invalidate prediction cache BEFORE transaction to prevent stale reads
+      if (component.bikeId) {
+        await invalidateBikePrediction(userId, component.bikeId);
+      }
+
       const serviceLog = await prisma.$transaction(async (tx) => {
         // Create service log
         const log = await tx.serviceLog.create({
@@ -1249,9 +1264,8 @@ export const resolvers = {
         return log;
       });
 
-      // Invalidate prediction cache
+      // Queue async backup invalidation after transaction
       if (component.bikeId) {
-        await invalidateBikePrediction(userId, component.bikeId);
         enqueueBikeInvalidation(userId, component.bikeId);
       }
 
