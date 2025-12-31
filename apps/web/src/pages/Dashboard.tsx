@@ -181,6 +181,10 @@ export default function Dashboard() {
               isPro={isPro}
               onLogService={handleLogService}
               loading={bikesLoading}
+              isAdmin={isAdmin}
+              isSimulatingRide={isSimulatingRide}
+              onTestRide={handleSimulateGarminRide}
+              onLongRide={handleSimulateLongGarminRide}
             />
             {isPro && sortedBikes.length > 1 && (
               <BikeSwitcherRow
@@ -188,41 +192,6 @@ export default function Dashboard() {
                 selectedBikeId={displayedBike?.id ?? null}
                 onSelect={selectBike}
               />
-            )}
-            {/* Admin test buttons */}
-            {isAdmin && (
-              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
-                <button
-                  onClick={handleSimulateGarminRide}
-                  disabled={isSimulatingRide}
-                  style={{
-                    padding: '0.5rem 1rem',
-                    fontSize: '0.75rem',
-                    background: 'rgba(134, 158, 140, 0.2)',
-                    border: '1px solid rgba(134, 158, 140, 0.3)',
-                    borderRadius: '4px',
-                    color: 'var(--sage)',
-                    cursor: 'pointer',
-                  }}
-                >
-                  {isSimulatingRide ? 'Simulating...' : 'Test Ride'}
-                </button>
-                <button
-                  onClick={handleSimulateLongGarminRide}
-                  disabled={isSimulatingRide}
-                  style={{
-                    padding: '0.5rem 1rem',
-                    fontSize: '0.75rem',
-                    background: 'rgba(134, 158, 140, 0.2)',
-                    border: '1px solid rgba(134, 158, 140, 0.3)',
-                    borderRadius: '4px',
-                    color: 'var(--sage)',
-                    cursor: 'pointer',
-                  }}
-                >
-                  Long Ride
-                </button>
-              </div>
             )}
           </>
         }
