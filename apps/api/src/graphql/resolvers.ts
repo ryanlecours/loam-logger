@@ -160,8 +160,29 @@ const MAX_NOTES_LEN = 2000;
 
 const MAX_LABEL_LEN = 120;
 
-const cleanText = (v: unknown, max = MAX_LABEL_LEN) =>
-  typeof v === 'string' ? (v.trim().slice(0, max) || null) : null;
+/**
+ * Escape HTML special characters to prevent XSS.
+ */
+const escapeHtml = (str: string): string =>
+  str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
+/**
+ * Clean and sanitize user input text.
+ * - Trims whitespace
+ * - Truncates to max length
+ * - Escapes HTML special characters to prevent XSS
+ */
+const cleanText = (v: unknown, max = MAX_LABEL_LEN) => {
+  if (typeof v !== 'string') return null;
+  const trimmed = v.trim().slice(0, max);
+  if (!trimmed) return null;
+  return escapeHtml(trimmed);
+};
 
 const componentLabelMap: Partial<Record<ComponentType, string>> = {
   FORK: 'Fork',
