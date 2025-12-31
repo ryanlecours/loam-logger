@@ -11,5 +11,16 @@ export type { BackfillJobName, BackfillJobData } from './backfill.queue';
 export { getGeocodeQueue, addGeocodeJob, closeGeocodeQueue } from './geocode.queue';
 export type { GeocodeJobName, GeocodeJobData } from './geocode.queue';
 
+export {
+  getCacheInvalidationQueue,
+  enqueueBikeInvalidation,
+  enqueueUserInvalidation,
+  closeCacheInvalidationQueue,
+} from './cache-invalidation.queue';
+export type {
+  CacheInvalidationJobName,
+  CacheInvalidationJobData,
+} from './cache-invalidation.queue';
+
 // Connection
 export { getQueueConnection } from './connection';

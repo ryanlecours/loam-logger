@@ -1,9 +1,9 @@
 echo "Running frontend lint..."
-cd frontend && npm run lint
+cd ./apps/web && npm run lint
 FRONTEND_STATUS=$?
 
 echo "Running backend lint..."
-cd ../backend && npm run lint
+cd ../api && npm run lint
 BACKEND_STATUS=$?
 
 if [ $FRONTEND_STATUS -ne 0 ] || [ $BACKEND_STATUS -ne 0 ]; then

@@ -203,6 +203,7 @@ describe('reverseGeocode', () => {
           city: 'Denver',
           state: 'Colorado',
           country: 'United States',
+          country_code: 'us',
         },
       }),
     } as Response);
@@ -228,6 +229,7 @@ describe('reverseGeocode', () => {
         address: {
           city: 'Paris',
           country: 'France',
+          country_code: 'fr',
         },
       }),
     } as Response);
@@ -291,6 +293,7 @@ describe('reverseGeocode', () => {
           city: 'Vancouver',
           state: 'British Columbia',
           country: 'Canada',
+          country_code: 'ca',
         },
       }),
     } as Response);
@@ -309,6 +312,7 @@ describe('reverseGeocode', () => {
           town: 'Small Town',
           state: 'Colorado',
           country: 'United States',
+          country_code: 'us',
         },
       }),
     } as Response);
@@ -326,6 +330,7 @@ describe('reverseGeocode', () => {
         address: {
           village: 'Tiny Village',
           country: 'United Kingdom',
+          country_code: 'gb',
         },
       }),
     } as Response);
@@ -343,6 +348,7 @@ describe('reverseGeocode', () => {
         address: {
           city: 'Tokyo',
           country: 'Japan',
+          country_code: 'jp',
         },
       }),
     } as Response);
@@ -397,6 +403,7 @@ describe('deriveLocationAsync', () => {
           city: 'Boulder',
           state: 'Colorado',
           country: 'United States',
+          country_code: 'us',
         },
       }),
     } as Response);
