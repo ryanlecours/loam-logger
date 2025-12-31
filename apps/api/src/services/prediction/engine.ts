@@ -336,7 +336,7 @@ export async function generateBikePredictions(
   });
 
   if (!bike || bike.userId !== userId) {
-    throw new Error('Bike not found');
+    throw new Error('Not found');
   }
 
   // Filter to trackable components only
