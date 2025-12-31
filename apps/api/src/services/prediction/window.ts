@@ -151,13 +151,16 @@ export async function getAllRidesForBike(
   userId: string,
   bikeId: string
 ): Promise<RideMetrics[]> {
+  // Limit to 2000 most recent rides to prevent unbounded queries
+  // This is more than enough for accurate wear predictions
   const rides = await prisma.ride.findMany({
     where: {
       userId,
       bikeId,
       isDuplicate: false,
     },
-    orderBy: { startTime: 'asc' },
+    orderBy: { startTime: 'desc' },
+    take: 2000,
     select: {
       durationSeconds: true,
       distanceMiles: true,
@@ -166,5 +169,6 @@ export async function getAllRidesForBike(
     },
   });
 
-  return rides as RideMetrics[];
+  // Reverse to maintain ascending order for wear calculations
+  return rides.reverse() as RideMetrics[];
 }

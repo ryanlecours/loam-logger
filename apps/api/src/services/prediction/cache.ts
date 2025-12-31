@@ -63,6 +63,26 @@ function evictFromMemoryCache(): void {
 }
 
 /**
+ * Validate cached prediction data structure.
+ * Provides runtime protection against corrupted or malicious cache data.
+ */
+function isValidCachedPrediction(data: unknown): data is BikePredictionSummary {
+  if (!data || typeof data !== 'object') return false;
+  const obj = data as Record<string, unknown>;
+
+  return (
+    typeof obj.bikeId === 'string' &&
+    obj.bikeId.length > 0 &&
+    typeof obj.bikeName === 'string' &&
+    Array.isArray(obj.components) &&
+    ['ALL_GOOD', 'DUE_SOON', 'DUE_NOW', 'OVERDUE'].includes(obj.overallStatus as string) &&
+    typeof obj.dueNowCount === 'number' &&
+    typeof obj.dueSoonCount === 'number' &&
+    typeof obj.algoVersion === 'string'
+  );
+}
+
+/**
  * Build cache key string from parameters.
  */
 export function buildCacheKey(params: PredictionCacheKey): string {
@@ -87,7 +107,13 @@ export async function getCachedPrediction(
       const cached = await redis.get(key);
 
       if (cached) {
-        const parsed = JSON.parse(cached) as BikePredictionSummary;
+        const parsed = JSON.parse(cached);
+        // Validate cache structure to prevent cache poisoning
+        if (!isValidCachedPrediction(parsed)) {
+          console.warn('[PredictionCache] Invalid cache structure, invalidating');
+          await redis.del(key);
+          return null;
+        }
         // Rehydrate Date
         parsed.generatedAt = new Date(parsed.generatedAt);
         return parsed;

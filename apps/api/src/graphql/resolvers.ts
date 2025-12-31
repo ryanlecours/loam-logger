@@ -1477,6 +1477,14 @@ export const resolvers = {
         throw new Error('Unauthorized');
       }
 
+      // Rate limit prediction requests to prevent DoS
+      const rateLimit = await checkMutationRateLimit('predictions', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
+
       const user = await prisma.user.findUnique({
         where: { id: userId },
         select: { role: true },

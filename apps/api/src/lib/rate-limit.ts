@@ -38,6 +38,8 @@ export const MUTATION_RATE_LIMITS = {
   createStravaGearMapping: { windowSeconds: 60, maxRequests: 10 },
   /** deleteStravaGearMapping: max 10 requests per minute per user */
   deleteStravaGearMapping: { windowSeconds: 60, maxRequests: 10 },
+  /** predictions: max 20 requests per minute per user */
+  predictions: { windowSeconds: 60, maxRequests: 20 },
 } as const;
 
 export type MutationRateLimitType = keyof typeof MUTATION_RATE_LIMITS;
