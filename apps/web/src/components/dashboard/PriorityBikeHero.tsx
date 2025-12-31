@@ -16,6 +16,11 @@ interface PriorityBikeHeroProps {
   isPro: boolean;
   onLogService: () => void;
   loading?: boolean;
+  // Admin test ride props
+  isAdmin?: boolean;
+  isSimulatingRide?: boolean;
+  onTestRide?: () => void;
+  onLongRide?: () => void;
 }
 
 const COMPONENT_LABELS: Record<string, string> = {
@@ -47,6 +52,10 @@ export function PriorityBikeHero({
   isPro,
   onLogService,
   loading = false,
+  isAdmin = false,
+  isSimulatingRide = false,
+  onTestRide,
+  onLongRide,
 }: PriorityBikeHeroProps) {
   // Loading skeleton
   if (loading) {
@@ -111,17 +120,7 @@ export function PriorityBikeHero({
   const bikeName = getBikeName(bike);
 
   return (
-    <section className="priority-hero" style={{ position: 'relative' }}>
-      {/* Bike thumbnail background */}
-      {bike.thumbnailUrl && (
-        <img
-          src={bike.thumbnailUrl}
-          alt=""
-          className="priority-hero-image"
-          aria-hidden="true"
-        />
-      )}
-
+    <section className="priority-hero">
       {/* Header */}
       <div className="priority-hero-header">
         <StatusPill status={overallStatus} />
@@ -147,67 +146,100 @@ export function PriorityBikeHero({
         )}
       </div>
 
-      {/* Content */}
-      <AnimatePresence mode="wait">
-        <motion.div
-          key={bike.id}
-          className="priority-hero-content"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.15 }}
-        >
-          {/* Key line */}
-          {priorityComponent ? (
-            <div className="priority-hero-keyline">
-              <span className="priority-hero-next">
-                Next up: {COMPONENT_LABELS[priorityComponent.componentType] ?? priorityComponent.componentType}
-              </span>
-              <span className="priority-hero-hours">
-                {priorityComponent.hoursRemaining.toFixed(1)} hrs
-              </span>
-              <span className="priority-hero-rides">
-                ~{priorityComponent.ridesRemainingEstimate} rides
-              </span>
-              {isPro && priorityComponent.confidence && (
-                <ConfidenceTag level={priorityComponent.confidence} />
-              )}
-              {isPro && (
-                <WhyToggle
-                  explanation={priorityComponent.why}
-                  drivers={priorityComponent.drivers}
-                />
-              )}
+      {/* Two-column layout: components left, bike image right */}
+      <div className="priority-hero-body">
+        {/* Left column: components and actions */}
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={bike.id}
+            className="priority-hero-content"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+          >
+            {/* Key line */}
+            {priorityComponent ? (
+              <div className="priority-hero-keyline">
+                <span className="priority-hero-next">
+                  Next up: {COMPONENT_LABELS[priorityComponent.componentType] ?? priorityComponent.componentType}
+                </span>
+                <span className="priority-hero-hours">
+                  {priorityComponent.hoursRemaining.toFixed(1)} hrs
+                </span>
+                <span className="priority-hero-rides">
+                  ~{priorityComponent.ridesRemainingEstimate} rides
+                </span>
+                {isPro && priorityComponent.confidence && (
+                  <ConfidenceTag level={priorityComponent.confidence} />
+                )}
+                {isPro && (
+                  <WhyToggle
+                    explanation={priorityComponent.why}
+                    drivers={priorityComponent.drivers}
+                  />
+                )}
+              </div>
+            ) : (
+              <div className="priority-hero-keyline">
+                <span className="priority-hero-next" style={{ color: 'var(--mint)' }}>
+                  All components healthy!
+                </span>
+              </div>
+            )}
+
+            {/* Mini component list */}
+            <MiniComponentList components={topDueComponents} />
+
+            {/* Actions */}
+            <div className="priority-hero-actions">
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={onLogService}
+              >
+                <FaWrench size={12} style={{ marginRight: '0.375rem' }} />
+                Log service
+              </Button>
+              <Link to={`/gear/${bike.id}`}>
+                <Button variant="secondary" size="sm">
+                  <FaCog size={12} style={{ marginRight: '0.375rem' }} />
+                  View maintenance
+                </Button>
+              </Link>
             </div>
-          ) : (
-            <div className="priority-hero-keyline">
-              <span className="priority-hero-next" style={{ color: 'var(--mint)' }}>
-                All components healthy!
-              </span>
+          </motion.div>
+        </AnimatePresence>
+
+        {/* Right column: bike image and admin buttons */}
+        <div className="priority-hero-image-container">
+          {bike.thumbnailUrl && (
+            <img
+              src={bike.thumbnailUrl}
+              alt={bikeName}
+              className="priority-hero-image"
+            />
+          )}
+          {isAdmin && onTestRide && onLongRide && (
+            <div className="priority-hero-admin-buttons">
+              <button
+                onClick={onTestRide}
+                disabled={isSimulatingRide}
+                className="priority-hero-admin-btn"
+              >
+                {isSimulatingRide ? 'Simulating...' : 'Test Ride'}
+              </button>
+              <button
+                onClick={onLongRide}
+                disabled={isSimulatingRide}
+                className="priority-hero-admin-btn"
+              >
+                Long Ride
+              </button>
             </div>
           )}
-
-          {/* Mini component list */}
-          <MiniComponentList components={topDueComponents} />
-
-          {/* Actions */}
-          <div className="priority-hero-actions">
-            <Button
-              variant="primary"
-              onClick={onLogService}
-            >
-              <FaWrench size={14} style={{ marginRight: '0.5rem' }} />
-              Log service
-            </Button>
-            <Link to={`/gear/${bike.id}`}>
-              <Button variant="secondary">
-                <FaCog size={14} style={{ marginRight: '0.5rem' }} />
-                View maintenance
-              </Button>
-            </Link>
-          </div>
-        </motion.div>
-      </AnimatePresence>
+        </div>
+      </div>
     </section>
   );
 }
