@@ -11,6 +11,7 @@ import { getRedisConnection, checkRedisHealth } from './lib/redis';
 
 import authGarmin from './routes/auth.garmin';
 import authStrava from './routes/auth.strava';
+import { createDataLoaders, type DataLoaders } from './graphql/dataloaders';
 import webhooksGarmin from './routes/webhooks.garmin';
 import webhooksStrava from './routes/webhooks.strava';
 import garminBackfill from './routes/garmin.backfill';
@@ -30,6 +31,7 @@ export type GraphQLContext = {
   req: Request;
   res: Response;
   user: { id: string; email?: string } | null;
+  loaders: DataLoaders;
 };
 
 const startServer = async () => {
@@ -151,7 +153,7 @@ const startServer = async () => {
         const legacy = req.user;
         const sess = req.sessionUser;
         const user = legacy ?? (sess ? { id: sess.uid, email: sess.email } : null);
-        return { req, res, user };
+        return { req, res, user, loaders: createDataLoaders() };
       },
     })
   );

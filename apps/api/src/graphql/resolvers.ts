@@ -5,13 +5,16 @@ import { ComponentType as ComponentTypeEnum } from '@prisma/client';
 import type {
   Prisma,
   ComponentType as ComponentTypeLiteral,
+  ComponentLocation,
   Bike,
   Component as ComponentModel,
 } from '@prisma/client';
-import { checkRateLimit } from '../lib/rate-limit';
-import { enqueueSyncJob, type SyncProvider } from '../lib/queue';
+import { checkRateLimit, checkMutationRateLimit } from '../lib/rate-limit';
+import { enqueueSyncJob, enqueueBikeInvalidation, type SyncProvider } from '../lib/queue';
+import { invalidateBikePrediction } from '../services/prediction/cache';
 import { SPOKES_TO_COMPONENT_TYPE } from '@loam/shared';
 import { getBikeById, isSpokesConfigured } from '../services/spokes';
+import { parseISO } from 'date-fns';
 
 type ComponentType = ComponentTypeLiteral;
 
@@ -112,6 +115,7 @@ type UpdateBikeInputGQL = Partial<AddBikeInputGQL> & {
 
 type AddComponentInputGQL = {
   type: ComponentType;
+  location?: ComponentLocation | null;
   brand?: string | null;
   model?: string | null;
   notes?: string | null;
@@ -120,7 +124,15 @@ type AddComponentInputGQL = {
   serviceDueAtHours?: number | null;
 };
 
-type UpdateComponentInputGQL = Omit<AddComponentInputGQL, 'type'>;
+type UpdateComponentInputGQL = {
+  location?: ComponentLocation | null;
+  brand?: string | null;
+  model?: string | null;
+  notes?: string | null;
+  isStock?: boolean | null;
+  hoursUsed?: number | null;
+  serviceDueAtHours?: number | null;
+};
 
 type ComponentFilterInputGQL = {
   bikeId?: string | null;
@@ -148,6 +160,15 @@ const MAX_NOTES_LEN = 2000;
 
 const MAX_LABEL_LEN = 120;
 
+/**
+ * Clean user input text.
+ * - Trims whitespace
+ * - Truncates to max length
+ *
+ * Note: XSS prevention is handled at the rendering layer (frontend),
+ * not at the storage layer. HTML escaping here would cause double-encoding
+ * and data corruption issues.
+ */
 const cleanText = (v: unknown, max = MAX_LABEL_LEN) =>
   typeof v === 'string' ? (v.trim().slice(0, max) || null) : null;
 
@@ -478,8 +499,15 @@ export const resolvers = {
   Mutation: {
     addRide: async (_p: unknown, { input }: { input: AddRideInput }, ctx: GraphQLContext) => {
       if (!ctx.user?.id) throw new Error('Unauthorized');
-
       const userId = ctx.user.id;
+
+      // Rate limit check
+      const rateLimit = await checkMutationRateLimit('addRide', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
       const start = parseIso(input.startTime);
       const durationSeconds = Math.max(0, Math.floor(input.durationSeconds));
       const distanceMiles = Math.max(0, Number(input.distanceMiles));
@@ -529,19 +557,39 @@ export const resolvers = {
 
       const hoursDelta = durationSeconds / 3600;
 
-      return prisma.$transaction(async (tx) => {
-        const ride = await tx.ride.create({ data: rideData });
+      // Invalidate prediction cache BEFORE transaction to prevent stale reads
+      if (bikeId) {
+        await invalidateBikePrediction(userId, bikeId);
+      }
+
+      const ride = await prisma.$transaction(async (tx) => {
+        const newRide = await tx.ride.create({ data: rideData });
         if (bikeId && hoursDelta > 0) {
           await tx.component.updateMany({
             where: { bikeId, userId },
             data: { hoursUsed: { increment: hoursDelta } },
           });
         }
-        return ride;
+        return newRide;
       });
+
+      // Queue async backup invalidation after transaction
+      if (bikeId) {
+        enqueueBikeInvalidation(userId, bikeId);
+      }
+
+      return ride;
     },
     deleteRide: async (_: unknown, { id }: { id: string }, ctx: GraphQLContext) => {
       const userId = requireUserId(ctx);
+
+      // Rate limit check
+      const rateLimit = await checkMutationRateLimit('deleteRide', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
 
       const ride = await prisma.ride.findUnique({
         where: { id },
@@ -552,6 +600,13 @@ export const resolvers = {
       }
 
       const hoursDelta = Math.max(0, ride.durationSeconds ?? 0) / 3600;
+
+      const deletedBikeId = ride.bikeId;
+
+      // Invalidate prediction cache BEFORE transaction to prevent stale reads
+      if (deletedBikeId) {
+        await invalidateBikePrediction(userId, deletedBikeId);
+      }
 
       await prisma.$transaction(async (tx) => {
         if (ride.bikeId && hoursDelta > 0) {
@@ -568,6 +623,11 @@ export const resolvers = {
         await tx.ride.delete({ where: { id } });
       });
 
+      // Queue async backup invalidation after transaction
+      if (deletedBikeId) {
+        enqueueBikeInvalidation(userId, deletedBikeId);
+      }
+
       return { ok: true, id };
     },
     updateRide: async (
@@ -576,6 +636,14 @@ export const resolvers = {
       ctx: GraphQLContext
     ) => {
       const userId = requireUserId(ctx);
+
+      // Rate limit check
+      const rateLimit = await checkMutationRateLimit('updateRide', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
 
       const existing = await prisma.ride.findUnique({
         where: { id },
@@ -665,7 +733,15 @@ export const resolvers = {
       const durationChanged = durationUpdate !== undefined;
       const bikeChanged = bikeUpdate !== undefined && nextBikeId !== existing.bikeId;
 
-      return prisma.$transaction(async (tx) => {
+      // Invalidate prediction cache BEFORE transaction to prevent stale reads
+      if (existing.bikeId) {
+        await invalidateBikePrediction(userId, existing.bikeId);
+      }
+      if (nextBikeId && nextBikeId !== existing.bikeId) {
+        await invalidateBikePrediction(userId, nextBikeId);
+      }
+
+      const updatedRide = await prisma.$transaction(async (tx) => {
         const updated = await tx.ride.update({
           where: { id },
           data,
@@ -712,6 +788,16 @@ export const resolvers = {
 
         return updated;
       });
+
+      // Queue async backup invalidation after transaction
+      if (existing.bikeId) {
+        enqueueBikeInvalidation(userId, existing.bikeId);
+      }
+      if (nextBikeId && nextBikeId !== existing.bikeId) {
+        enqueueBikeInvalidation(userId, nextBikeId);
+      }
+
+      return updatedRide;
     },
 
     addBike: async (_: unknown, { input }: { input: AddBikeInputGQL }, ctx: GraphQLContext) => {
@@ -1004,10 +1090,20 @@ export const resolvers = {
         throw new Error('Pivot bearings must be attached to a bike');
       }
 
+      // Validate that components needing front/rear designation have proper location
+      if (
+        (type === ComponentTypeEnum.BRAKE_PAD || type === ComponentTypeEnum.TIRES) &&
+        (!input.location || input.location === 'NONE')
+      ) {
+        const typeName = type.replace('_', ' ').toLowerCase();
+        throw new Error(`${typeName} requires a location (FRONT or REAR)`);
+      }
+
       return prisma.component.create({
         data: {
           ...normalizeLooseComponentInput(type, input),
           type,
+          location: input.location ?? 'NONE',
           bikeId: bikeId ?? null,
           userId,
           installedAt: new Date(),
@@ -1021,6 +1117,15 @@ export const resolvers = {
       ctx: GraphQLContext
     ) => {
       const userId = requireUserId(ctx);
+
+      // Rate limit check
+      const rateLimit = await checkMutationRateLimit('updateComponent', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
+
       const existing = await prisma.component.findUnique({ where: { id } });
       if (!existing || existing.userId !== userId) throw new Error('Component not found');
 
@@ -1033,10 +1138,25 @@ export const resolvers = {
         serviceDueAtHours: existing.serviceDueAtHours,
       });
 
-      return prisma.component.update({
+      // Invalidate prediction cache BEFORE update to prevent stale reads
+      if (existing.bikeId) {
+        await invalidateBikePrediction(userId, existing.bikeId);
+      }
+
+      const updated = await prisma.component.update({
         where: { id },
-        data: normalized,
+        data: {
+          ...normalized,
+          ...(input.location !== undefined && input.location !== null && { location: input.location }),
+        },
       });
+
+      // Queue async backup invalidation after update
+      if (existing.bikeId) {
+        enqueueBikeInvalidation(userId, existing.bikeId);
+      }
+
+      return updated;
     },
 
     deleteComponent: async (_: unknown, { id }: { id: string }, ctx: GraphQLContext) => {
@@ -1049,13 +1169,107 @@ export const resolvers = {
 
     logComponentService: async (_: unknown, { id }: { id: string }, ctx: GraphQLContext) => {
       const userId = requireUserId(ctx);
-      const existing = await prisma.component.findUnique({ where: { id }, select: { userId: true } });
+
+      // Rate limit check
+      const rateLimit = await checkMutationRateLimit('logComponentService', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
+
+      const existing = await prisma.component.findUnique({
+        where: { id },
+        select: { userId: true, bikeId: true },
+      });
       if (!existing || existing.userId !== userId) throw new Error('Component not found');
 
-      return prisma.component.update({
+      // Invalidate prediction cache BEFORE update to prevent stale reads
+      if (existing.bikeId) {
+        await invalidateBikePrediction(userId, existing.bikeId);
+      }
+
+      const updated = await prisma.component.update({
         where: { id },
         data: { hoursUsed: 0 },
       });
+
+      // Queue async backup invalidation after update
+      if (existing.bikeId) {
+        enqueueBikeInvalidation(userId, existing.bikeId);
+      }
+
+      return updated;
+    },
+
+    logService: async (
+      _: unknown,
+      { input }: { input: { componentId: string; notes?: string | null; performedAt?: string | null } },
+      ctx: GraphQLContext
+    ) => {
+      const userId = requireUserId(ctx);
+
+      // Rate limit check
+      const rateLimit = await checkMutationRateLimit('logService', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
+
+      // Verify component ownership
+      const component = await prisma.component.findUnique({
+        where: { id: input.componentId },
+        select: { userId: true, bikeId: true, hoursUsed: true },
+      });
+
+      if (!component || component.userId !== userId) {
+        throw new Error('Component not found');
+      }
+
+      let performedAt = new Date();
+      if (input.performedAt) {
+        performedAt = parseISO(input.performedAt);
+        if (isNaN(performedAt.getTime())) {
+          throw new Error('Invalid date format');
+        }
+        if (performedAt > new Date()) {
+          throw new Error('Service date cannot be in the future');
+        }
+      }
+      const notes = input.notes ? cleanText(input.notes, MAX_NOTES_LEN) : null;
+
+      // Invalidate prediction cache BEFORE transaction to prevent stale reads
+      if (component.bikeId) {
+        await invalidateBikePrediction(userId, component.bikeId);
+      }
+
+      const serviceLog = await prisma.$transaction(async (tx) => {
+        // Create service log
+        const log = await tx.serviceLog.create({
+          data: {
+            componentId: input.componentId,
+            performedAt,
+            notes,
+            hoursAtService: component.hoursUsed,
+          },
+        });
+
+        // Reset component hours
+        await tx.component.update({
+          where: { id: input.componentId },
+          data: { hoursUsed: 0 },
+        });
+
+        return log;
+      });
+
+      // Queue async backup invalidation after transaction
+      if (component.bikeId) {
+        enqueueBikeInvalidation(userId, component.bikeId);
+      }
+
+      return serviceLog;
     },
 
     createStravaGearMapping: async (
@@ -1064,6 +1278,14 @@ export const resolvers = {
       ctx: GraphQLContext
     ) => {
       const userId = requireUserId(ctx);
+
+      // Rate limit check
+      const rateLimit = await checkMutationRateLimit('createStravaGearMapping', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
 
       const bike = await prisma.bike.findUnique({
         where: { id: input.bikeId },
@@ -1082,8 +1304,8 @@ export const resolvers = {
         throw new Error('This Strava bike is already mapped');
       }
 
-      return prisma.$transaction(async (tx) => {
-        const mapping = await tx.stravaGearMapping.create({
+      const mapping = await prisma.$transaction(async (tx) => {
+        const newMapping = await tx.stravaGearMapping.create({
           data: {
             userId,
             stravaGearId: input.stravaGearId,
@@ -1115,12 +1337,27 @@ export const resolvers = {
           }
         }
 
-        return mapping;
+        return newMapping;
       });
+
+      // Invalidate prediction cache for the bike
+      await invalidateBikePrediction(userId, input.bikeId);
+      enqueueBikeInvalidation(userId, input.bikeId);
+
+      return mapping;
     },
 
     deleteStravaGearMapping: async (_: unknown, { id }: { id: string }, ctx: GraphQLContext) => {
       const userId = requireUserId(ctx);
+
+      // Rate limit check
+      const rateLimit = await checkMutationRateLimit('deleteStravaGearMapping', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
+
       const mapping = await prisma.stravaGearMapping.findUnique({
         where: { id },
         select: { userId: true, stravaGearId: true, bikeId: true },
@@ -1128,6 +1365,8 @@ export const resolvers = {
       if (!mapping || mapping.userId !== userId) {
         throw new Error('Mapping not found');
       }
+
+      const deletedBikeId = mapping.bikeId;
 
       await prisma.$transaction(async (tx) => {
         const rides = await tx.ride.findMany({
@@ -1157,6 +1396,10 @@ export const resolvers = {
 
         await tx.stravaGearMapping.delete({ where: { id } });
       });
+
+      // Invalidate prediction cache for the bike
+      await invalidateBikePrediction(userId, deletedBikeId);
+      enqueueBikeInvalidation(userId, deletedBikeId);
 
       return { ok: true, id };
     },
@@ -1225,10 +1468,50 @@ export const resolvers = {
       pickComponent(bike, ComponentTypeEnum.WHEELS),
     pivotBearings: (bike: Bike & { components?: ComponentModel[] }) =>
       pickComponent(bike, ComponentTypeEnum.PIVOT_BEARINGS),
+    predictions: async (bike: Bike, _args: unknown, ctx: GraphQLContext) => {
+      const userId = ctx.user?.id;
+      if (!userId) return null;
+
+      // Verify the bike belongs to the requesting user
+      if (bike.userId !== userId) {
+        throw new Error('Unauthorized');
+      }
+
+      // Rate limit prediction requests to prevent DoS
+      const rateLimit = await checkMutationRateLimit('predictions', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
+
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { role: true },
+      });
+
+      if (!user) return null;
+
+      try {
+        const { generateBikePredictions } = await import('../services/prediction');
+        return generateBikePredictions({
+          userId,
+          bikeId: bike.id,
+          userRole: user.role,
+        });
+      } catch (error) {
+        console.error('[Resolver] Prediction generation failed:', error);
+        return null;
+      }
+    },
   },
 
   Component: {
     isSpare: (component: ComponentModel) => component.bikeId == null,
+    location: (component: ComponentModel & { location?: string }) =>
+      component.location ?? 'NONE',
+    serviceLogs: (component: ComponentModel, _args: unknown, ctx: GraphQLContext) =>
+      ctx.loaders.serviceLogsByComponentId.load(component.id),
   },
 
   User: {
