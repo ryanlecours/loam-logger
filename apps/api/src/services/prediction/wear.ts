@@ -9,6 +9,42 @@ import type {
 import { getComponentWeights } from './config';
 
 /**
+ * Maximum reasonable values for ride metrics to prevent overflow.
+ * These represent extreme but plausible values:
+ * - 24 hours max duration (86400 seconds)
+ * - 500 miles max distance (ultra-endurance events)
+ * - 50,000 feet max elevation (Everesting x2)
+ */
+const MAX_DURATION_SECONDS = 86400; // 24 hours
+const MAX_DISTANCE_MILES = 500;
+const MAX_ELEVATION_FEET = 50000;
+
+/**
+ * Sanitize ride metrics to prevent overflow and ensure valid values.
+ * Clamps values to reasonable maximums and ensures non-negative.
+ */
+function sanitizeRideMetrics(ride: RideMetrics): {
+  durationSeconds: number;
+  distanceMiles: number;
+  elevationGainFeet: number;
+} {
+  return {
+    durationSeconds: Math.min(
+      Math.max(0, ride.durationSeconds || 0),
+      MAX_DURATION_SECONDS
+    ),
+    distanceMiles: Math.min(
+      Math.max(0, ride.distanceMiles || 0),
+      MAX_DISTANCE_MILES
+    ),
+    elevationGainFeet: Math.min(
+      Math.max(0, ride.elevationGainFeet || 0),
+      MAX_ELEVATION_FEET
+    ),
+  };
+}
+
+/**
  * Calculate wear units for a single ride.
  *
  * Formula from spec:
@@ -23,9 +59,10 @@ export function calculateRideWear(
   ride: RideMetrics,
   weights: ComponentWearWeights
 ): number {
-  const H = ride.durationSeconds / 3600; // hours
-  const D = ride.distanceMiles;
-  const C = ride.elevationGainFeet;
+  const sanitized = sanitizeRideMetrics(ride);
+  const H = sanitized.durationSeconds / 3600; // hours
+  const D = sanitized.distanceMiles;
+  const C = sanitized.elevationGainFeet;
   const V = C / Math.max(D, 1); // ft per mile (steepness proxy)
 
   const wearUnits =
@@ -56,9 +93,10 @@ export function calculateWearDetailed(
   let steepnessWear = 0;
 
   for (const ride of rides) {
-    const H = ride.durationSeconds / 3600;
-    const D = ride.distanceMiles;
-    const C = ride.elevationGainFeet;
+    const sanitized = sanitizeRideMetrics(ride);
+    const H = sanitized.durationSeconds / 3600;
+    const D = sanitized.distanceMiles;
+    const C = sanitized.elevationGainFeet;
     const V = C / Math.max(D, 1);
 
     totalHours += H;
@@ -103,7 +141,10 @@ export function calculateTotalWear(
  * @returns Total hours
  */
 export function calculateTotalHours(rides: RideMetrics[]): number {
-  return rides.reduce((total, ride) => total + ride.durationSeconds / 3600, 0);
+  return rides.reduce((total, ride) => {
+    const sanitized = sanitizeRideMetrics(ride);
+    return total + sanitized.durationSeconds / 3600;
+  }, 0);
 }
 
 /**
