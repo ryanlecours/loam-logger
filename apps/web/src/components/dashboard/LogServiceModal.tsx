@@ -1,10 +1,11 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useMutation } from '@apollo/client';
-import { FaCheck, FaWrench } from 'react-icons/fa';
+import { FaCheck, FaWrench, FaExclamationTriangle } from 'react-icons/fa';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
 import { LOG_COMPONENT_SERVICE } from '../../graphql/logComponentService';
 import { BIKES } from '../../graphql/bikes';
+import { formatComponentLabel, getBikeName } from '../../utils/formatters';
 import type { BikeWithPredictions } from '../../hooks/usePriorityBike';
 import type { ComponentPrediction } from '../../types/prediction';
 import { StatusDot } from './StatusDot';
@@ -16,61 +17,31 @@ interface LogServiceModalProps {
   defaultComponentId?: string | null;
 }
 
-const COMPONENT_LABELS: Record<string, string> = {
-  FORK: 'Fork',
-  SHOCK: 'Shock',
-  BRAKES: 'Brakes',
-  DRIVETRAIN: 'Drivetrain',
-  TIRES: 'Tires',
-  CHAIN: 'Chain',
-  CASSETTE: 'Cassette',
-  CHAINRING: 'Chainring',
-  WHEELS: 'Wheels',
-  DROPPER: 'Dropper',
-  PIVOT_BEARINGS: 'Pivot Bearings',
-  BRAKE_PAD: 'Brake Pads',
-  BRAKE_ROTOR: 'Brake Rotor',
-  HEADSET: 'Headset',
-  BOTTOM_BRACKET: 'Bottom Bracket',
-};
-
-const LOCATION_LABELS: Record<string, string> = {
-  FRONT: 'Front',
-  REAR: 'Rear',
-  NONE: '',
-};
-
-function formatComponentLabel(component: ComponentPrediction): string {
-  const baseLabel = COMPONENT_LABELS[component.componentType] ?? component.componentType;
-  const locationLabel = LOCATION_LABELS[component.location] ?? '';
-
-  if (locationLabel && component.location !== 'NONE') {
-    return `${baseLabel} (${locationLabel})`;
-  }
-  return baseLabel;
-}
-
-function getBikeName(bike: BikeWithPredictions): string {
-  return bike.nickname?.trim() || `${bike.manufacturer} ${bike.model}`.trim() || 'Bike';
-}
-
 export function LogServiceModal({
   isOpen,
   onClose,
   bike,
   defaultComponentId,
 }: LogServiceModalProps) {
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => {
-    if (defaultComponentId) {
-      return new Set([defaultComponentId]);
-    }
-    return new Set();
-  });
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const [logService] = useMutation(LOG_COMPONENT_SERVICE, {
     refetchQueries: [{ query: BIKES }],
   });
+
+  // Sync selection when modal opens or defaultComponentId changes
+  useEffect(() => {
+    if (isOpen) {
+      if (defaultComponentId) {
+        setSelectedIds(new Set([defaultComponentId]));
+      } else {
+        setSelectedIds(new Set());
+      }
+      setError(null);
+    }
+  }, [isOpen, defaultComponentId]);
 
   const toggleComponent = useCallback((componentId: string) => {
     setSelectedIds((prev) => {
@@ -88,6 +59,7 @@ export function LogServiceModal({
     if (selectedIds.size === 0) return;
 
     setIsSubmitting(true);
+    setError(null);
     try {
       // Log service for each selected component
       await Promise.all(
@@ -96,16 +68,16 @@ export function LogServiceModal({
         )
       );
       onClose();
-      setSelectedIds(new Set());
-    } catch (error) {
-      console.error('Failed to log service:', error);
+    } catch (err) {
+      console.error('Failed to log service:', err);
+      setError('Failed to log service. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
   }, [selectedIds, logService, onClose]);
 
   const handleClose = useCallback(() => {
-    setSelectedIds(new Set());
+    setError(null);
     onClose();
   }, [onClose]);
 
@@ -165,6 +137,23 @@ export function LogServiceModal({
             })}
           </div>
         </div>
+
+        {error && (
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            padding: '0.75rem',
+            background: 'rgba(239, 68, 68, 0.1)',
+            border: '1px solid rgba(239, 68, 68, 0.3)',
+            borderRadius: '0.5rem',
+            color: '#ef4444',
+            fontSize: '0.875rem',
+          }}>
+            <FaExclamationTriangle size={14} />
+            {error}
+          </div>
+        )}
 
         <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
           <Button variant="outline" onClick={handleClose} disabled={isSubmitting}>

@@ -3,6 +3,9 @@ import { motion, AnimatePresence } from 'motion/react';
 import { FaWrench, FaCog, FaBicycle } from 'react-icons/fa';
 import type { BikeWithPredictions } from '../../hooks/usePriorityBike';
 import { getTopDueComponents } from '../../hooks/usePriorityBike';
+import { COMPONENT_LABELS } from '../../constants/componentLabels';
+import { MAX_DISPLAYED_COMPONENTS } from '../../constants/dashboard';
+import { getBikeName } from '../../utils/formatters';
 import { StatusPill } from './StatusPill';
 import { ConfidenceTag } from './ConfidenceTag';
 import { WhyToggle } from './WhyToggle';
@@ -21,28 +24,6 @@ interface PriorityBikeHeroProps {
   isSimulatingRide?: boolean;
   onTestRide?: () => void;
   onLongRide?: () => void;
-}
-
-const COMPONENT_LABELS: Record<string, string> = {
-  FORK: 'Fork',
-  SHOCK: 'Shock',
-  BRAKES: 'Brakes',
-  DRIVETRAIN: 'Drivetrain',
-  TIRES: 'Tires',
-  CHAIN: 'Chain',
-  CASSETTE: 'Cassette',
-  CHAINRING: 'Chainring',
-  WHEELS: 'Wheels',
-  DROPPER: 'Dropper',
-  PIVOT_BEARINGS: 'Pivot Bearings',
-  BRAKE_PAD: 'Brake Pads',
-  BRAKE_ROTOR: 'Brake Rotor',
-  HEADSET: 'Headset',
-  BOTTOM_BRACKET: 'Bottom Bracket',
-};
-
-function getBikeName(bike: BikeWithPredictions): string {
-  return bike.nickname?.trim() || `${bike.manufacturer} ${bike.model}`.trim() || 'Bike';
 }
 
 export function PriorityBikeHero({
@@ -85,23 +66,11 @@ export function PriorityBikeHero({
   if (!bike) {
     return (
       <section className="priority-hero">
-        <div
-          style={{
-            flex: 1,
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '1rem',
-            textAlign: 'center',
-          }}
-        >
-          <FaBicycle size={48} style={{ color: 'var(--sage)', opacity: 0.5 }} />
+        <div className="priority-hero-empty">
+          <FaBicycle size={48} className="priority-hero-empty-icon" />
           <div>
-            <h2 style={{ margin: 0, color: 'var(--cream)', fontSize: '1.25rem' }}>
-              No bikes yet
-            </h2>
-            <p style={{ margin: '0.5rem 0 0', color: 'var(--sage)' }}>
+            <h2 className="priority-hero-empty-title">No bikes yet</h2>
+            <p className="priority-hero-empty-text">
               Add your first bike to start tracking maintenance
             </p>
           </div>
@@ -116,9 +85,9 @@ export function PriorityBikeHero({
   const predictions = bike.predictions;
   const priorityComponent = predictions?.priorityComponent;
   const overallStatus = predictions?.overallStatus ?? 'ALL_GOOD';
-  const topDueComponents = getTopDueComponents(predictions, 6);
+  const topDueComponents = getTopDueComponents(predictions, MAX_DISPLAYED_COMPONENTS);
   const totalComponentCount = predictions?.components?.length ?? 0;
-  const hasMoreComponents = totalComponentCount > 6;
+  const hasMoreComponents = totalComponentCount > MAX_DISPLAYED_COMPONENTS;
   const bikeName = getBikeName(bike);
 
   return (
@@ -194,7 +163,7 @@ export function PriorityBikeHero({
             <MiniComponentList components={topDueComponents} />
             {hasMoreComponents && (
               <Link to={`/gear/${bike.id}`} className="show-all-components-link">
-                {totalComponentCount - 6} more components...
+                {totalComponentCount - MAX_DISPLAYED_COMPONENTS} more components...
               </Link>
             )}
 
