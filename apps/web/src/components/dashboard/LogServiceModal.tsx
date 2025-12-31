@@ -7,7 +7,6 @@ import { LOG_COMPONENT_SERVICE } from '../../graphql/logComponentService';
 import { BIKES } from '../../graphql/bikes';
 import { formatComponentLabel, getBikeName } from '../../utils/formatters';
 import type { BikeWithPredictions } from '../../hooks/usePriorityBike';
-import type { ComponentPrediction } from '../../types/prediction';
 import { StatusDot } from './StatusDot';
 
 interface LogServiceModalProps {

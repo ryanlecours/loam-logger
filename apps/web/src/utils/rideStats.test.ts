@@ -4,7 +4,6 @@ import {
   filterRidesByDate,
   calculateRideStats,
   type RideData,
-  type Timeframe,
 } from './rideStats';
 
 describe('getTimeframeStartDate', () => {
