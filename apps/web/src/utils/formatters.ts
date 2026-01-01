@@ -1,4 +1,4 @@
-import { format, isValid } from 'date-fns';
+import { format, isValid, parseISO } from 'date-fns';
 import { COMPONENT_LABELS } from '../constants/componentLabels';
 import { SECONDS_PER_HOUR } from '../constants/dashboard';
 import type { ComponentPrediction } from '../types/prediction';
@@ -32,13 +32,25 @@ export function formatDurationReadable(seconds: number): string {
 }
 
 /**
- * Format a ride date (e.g., "Jan 15")
+ * Parse a date string that may be either a Unix timestamp (ms) or an ISO string
+ */
+function parseFlexibleDate(dateStr: string): Date {
+  // If it's a numeric string (Unix timestamp in ms), convert to number first
+  if (/^\d+$/.test(dateStr)) {
+    return new Date(Number(dateStr));
+  }
+  // Otherwise treat as ISO string
+  return parseISO(dateStr);
+}
+
+/**
+ * Format a ride date (e.g., "Jan 15, 2024")
  */
 export function formatRideDate(startTime: string | undefined | null): string {
   if (!startTime) return 'Unknown';
-  const date = new Date(startTime);
+  const date = parseFlexibleDate(startTime);
   if (!isValid(date)) return 'Unknown';
-  return format(date, 'MMM d');
+  return format(date, 'MMM d, yyyy');
 }
 
 /**

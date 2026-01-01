@@ -129,6 +129,31 @@ describe('filterRidesByDate', () => {
 
     expect(result).toHaveLength(1);
   });
+
+  it('handles Unix timestamp strings (milliseconds)', () => {
+    const rides = [
+      createRide('1704067200000'), // Jan 1, 2024 00:00:00 UTC
+      createRide('1706745600000'), // Feb 1, 2024 00:00:00 UTC
+      createRide('1709251200000'), // Mar 1, 2024 00:00:00 UTC
+    ];
+    const startDate = new Date('2024-02-01T00:00:00Z');
+
+    const result = filterRidesByDate(rides, startDate);
+
+    expect(result).toHaveLength(2); // Feb and Mar
+  });
+
+  it('handles mixed ISO and timestamp formats', () => {
+    const rides = [
+      createRide('2024-02-15T12:00:00Z'), // ISO format
+      createRide('1709251200000'), // Mar 1, 2024 as timestamp
+    ];
+    const startDate = new Date('2024-02-01T00:00:00Z');
+
+    const result = filterRidesByDate(rides, startDate);
+
+    expect(result).toHaveLength(2);
+  });
 });
 
 describe('calculateRideStats', () => {

@@ -199,7 +199,7 @@ export default function Dashboard() {
           <>
             <RecentRidesCard rides={rides} loading={ridesLoading} />
             <div className="ride-stats-compact">
-              <RideStatsCard showHeading={false} />
+              <RideStatsCard showHeading={true} />
             </div>
           </>
         }
