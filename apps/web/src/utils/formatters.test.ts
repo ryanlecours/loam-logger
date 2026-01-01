@@ -101,13 +101,29 @@ describe('formatRideDate', () => {
 
   it('formats valid ISO date strings', () => {
     // Use noon UTC to avoid timezone edge cases
-    expect(formatRideDate('2024-01-15T12:00:00Z')).toBe('Jan 15');
-    expect(formatRideDate('2024-12-25T12:00:00Z')).toBe('Dec 25');
+    expect(formatRideDate('2024-01-15T12:00:00Z')).toBe('Jan 15, 2024');
+    expect(formatRideDate('2024-12-25T12:00:00Z')).toBe('Dec 25, 2024');
   });
 
   it('formats date strings with timezone offset', () => {
     // Using explicit timezone offset for predictable results
-    expect(formatRideDate('2024-07-04T12:00:00-05:00')).toBe('Jul 4');
+    expect(formatRideDate('2024-07-04T12:00:00-05:00')).toBe('Jul 4, 2024');
+  });
+
+  it('formats Unix timestamp strings (milliseconds)', () => {
+    // 1705320000000 = Jan 15, 2024 12:00:00 UTC
+    expect(formatRideDate('1705320000000')).toBe('Jan 15, 2024');
+    // 1735128000000 = Dec 25, 2024 12:00:00 UTC
+    expect(formatRideDate('1735128000000')).toBe('Dec 25, 2024');
+  });
+
+  it('handles edge cases for numeric strings', () => {
+    // Unix epoch (0) is valid - exact date depends on timezone
+    const epochResult = formatRideDate('0');
+    expect(epochResult).toMatch(/^(Dec 31, 1969|Jan 1, 1970)$/); // Depends on TZ
+
+    // Negative numbers have a dash, so not purely numeric - treated as ISO and invalid
+    expect(formatRideDate('-1')).toBe('Unknown');
   });
 });
 

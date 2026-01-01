@@ -1,4 +1,17 @@
+import { isValid, parseISO } from 'date-fns';
 import { MS_PER_DAY, SECONDS_PER_HOUR } from '../constants/dashboard';
+
+/**
+ * Parse a date string that may be either a Unix timestamp (ms) or an ISO string
+ */
+function parseFlexibleDate(dateStr: string): Date {
+  // If it's a numeric string (Unix timestamp in ms), convert to number first
+  if (/^\d+$/.test(dateStr)) {
+    return new Date(Number(dateStr));
+  }
+  // Otherwise treat as ISO string
+  return parseISO(dateStr);
+}
 
 export type Timeframe = '7' | '30' | '90' | 'YTD';
 
@@ -39,8 +52,8 @@ export function getTimeframeStartDate(timeframe: Timeframe, now: Date = new Date
 export function filterRidesByDate(rides: RideData[], startDate: Date): RideData[] {
   return rides.filter((ride) => {
     if (!ride.startTime) return false;
-    const rideDate = new Date(ride.startTime);
-    return !isNaN(rideDate.getTime()) && rideDate >= startDate;
+    const rideDate = parseFlexibleDate(ride.startTime);
+    return isValid(rideDate) && rideDate >= startDate;
   });
 }
 
