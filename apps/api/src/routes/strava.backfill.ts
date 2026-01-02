@@ -5,6 +5,7 @@ import { prisma } from '../lib/prisma';
 import { formatLatLon } from '../lib/location';
 import { addGeocodeJob } from '../lib/queue';
 import { sendBadRequest, sendUnauthorized, sendNotFound, sendInternalError } from '../lib/api-response';
+import { logError } from '../lib/logger';
 
 type Empty = Record<string, never>;
 const r: Router = createRouter();
@@ -256,7 +257,7 @@ r.get<Empty, void, Empty, { year?: string }>(
         } : null,
       });
     } catch (error) {
-      console.error('[Strava Backfill] Error:', error);
+      logError('Strava Backfill', error);
       return sendInternalError(res, 'Failed to fetch activities');
     }
   }
@@ -293,7 +294,7 @@ r.get<Empty, void, Empty, Empty>(
         message: 'Your Strava athlete ID',
       });
     } catch (error) {
-      console.error('[Strava Athlete ID] Error:', error);
+      logError('Strava Athlete ID', error);
       return sendInternalError(res, 'Failed to fetch Strava athlete ID');
     }
   }
@@ -347,7 +348,7 @@ r.get<Empty, void, Empty, Empty>(
         message: `Found ${recentStravaRides.length} recent Strava rides (last 30 days), ${totalStravaRides} total`,
       });
     } catch (error) {
-      console.error('[Strava Backfill Status] Error:', error);
+      logError('Strava Backfill Status', error);
       return sendInternalError(res, 'Failed to fetch backfill status');
     }
   }
@@ -398,7 +399,7 @@ r.get<{ gearId: string }, void, Empty, Empty>(
         model: gear.model_name,
       });
     } catch (error) {
-      console.error('[Strava Gear] Error:', error);
+      logError('Strava Gear', error);
       return sendInternalError(res, 'Failed to fetch gear');
     }
   }
@@ -468,7 +469,7 @@ r.delete<Empty, void, Empty>(
         adjustedBikes: hoursByBike.size,
       });
     } catch (error) {
-      console.error('[Strava Delete Rides] Error:', error);
+      logError('Strava Delete Rides', error);
       return sendInternalError(res, 'Failed to delete Strava rides');
     }
   }

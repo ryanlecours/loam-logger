@@ -2,6 +2,7 @@ import express, { type Request } from 'express';
 import { prisma } from '../lib/prisma';
 import { clearSessionCookie, type SessionUser } from './session';
 import { sendBadRequest, sendUnauthorized, sendInternalError } from '../lib/api-response';
+import { logError } from '../lib/logger';
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
@@ -80,7 +81,7 @@ router.delete('/delete-account', async (req: Request, res) => {
     });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error('[DeleteAccount] Error deleting account:', error);
+    logError('DeleteAccount', error);
 
     // Check if it's a "not found" error
     if (errorMessage.includes('An operation failed because it depends on one or more records')) {

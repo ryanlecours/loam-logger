@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import express, { type Request, type Response } from 'express';
+import express, { type NextFunction, type Request, type Response } from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import { ApolloServer } from '@apollo/server';
@@ -182,9 +182,11 @@ const startServer = async () => {
   app.use(mockGarmin);
 
   // Error handler (so you see thrown middleware errors)
-  app.use((err: Error, _req: Request, res: Response) => {
-    console.error('[ERROR]', err?.message ?? err, err?.stack);
-    res.status(500).json({ error: 'internal_error', message: err?.message ?? String(err) });
+  // Note: Express requires all 4 params for error middleware to be recognized
+  app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+    const message = err?.message || 'Unknown error';
+    console.error('[ERROR]', message, err?.stack ?? '');
+    res.status(500).json({ error: 'internal_error', message });
   });
 
   const PORT = Number(process.env.PORT) || 4000;

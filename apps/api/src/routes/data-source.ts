@@ -1,6 +1,7 @@
 import { Router as createRouter, type Router, type Request, type Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { sendBadRequest, sendUnauthorized, sendNotFound, sendInternalError } from '../lib/api-response';
+import { logError } from '../lib/logger';
 
 type Empty = Record<string, never>;
 const r: Router = createRouter();
@@ -31,7 +32,7 @@ r.get<Empty, void, Empty, Empty>(
         activeDataSource: user.activeDataSource,
       });
     } catch (error) {
-      console.error('[Data Source] Error fetching preference:', error);
+      logError('Data Source fetching', error);
       return sendInternalError(res, 'Failed to fetch data source preference');
     }
   }
@@ -81,7 +82,7 @@ r.post<Empty, void, { provider: 'garmin' | 'strava' }>(
         message: `Active data source set to ${provider.charAt(0).toUpperCase() + provider.slice(1)}`,
       });
     } catch (error) {
-      console.error('[Data Source] Error setting preference:', error);
+      logError('Data Source setting', error);
       return sendInternalError(res, 'Failed to set data source preference');
     }
   }

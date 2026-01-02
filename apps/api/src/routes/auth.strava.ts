@@ -2,6 +2,7 @@ import { Router as createRouter, type Router, type Request, type Response } from
 import { prisma } from '../lib/prisma';
 import { randomString } from '../lib/pcke';
 import { sendBadRequest, sendUnauthorized, sendInternalError } from '../lib/api-response';
+import { logError } from '../lib/logger';
 
 type Empty = Record<string, never>;
 const r: Router = createRouter();
@@ -214,7 +215,7 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string }>(
       console.log('[Strava Callback] Success! Redirecting to:', redirectPath);
       return res.redirect(`${appBase.replace(/\/$/, '')}${redirectPath}`);
     } catch (error) {
-      console.error('[Strava Callback] Error:', error);
+      logError('Strava Callback', error);
       const appBase = process.env.APP_BASE_URL ?? 'http://localhost:5173';
       return res.redirect(
         `${appBase}/auth/error?message=${encodeURIComponent('Strava connection failed. Please try again.')}`
@@ -266,7 +267,7 @@ r.delete<Empty, void, Empty>('/strava/disconnect', async (req: Request, res: Res
     console.log(`[Strava Disconnect] User ${userId} disconnected Strava`);
     return res.status(200).json({ success: true });
   } catch (error) {
-    console.error('[Strava Disconnect] Error:', error);
+    logError('Strava Disconnect', error);
     return sendInternalError(res, 'Failed to disconnect');
   }
 });

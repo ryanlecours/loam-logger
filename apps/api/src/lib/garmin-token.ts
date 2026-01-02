@@ -1,5 +1,6 @@
 import { prisma } from './prisma';
 import { addSeconds } from 'date-fns';
+import { logError } from './logger';
 
 /**
  * Get a valid Garmin access token for a user
@@ -94,7 +95,7 @@ export async function getValidGarminToken(userId: string): Promise<string | null
     console.log('[Garmin Token] Token refreshed successfully');
     return newTokens.access_token;
   } catch (error) {
-    console.error('[Garmin Token] Error refreshing token:', error);
+    logError('Garmin Token refresh', error);
     return null;
   }
 }
