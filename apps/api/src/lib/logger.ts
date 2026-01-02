@@ -35,5 +35,9 @@ export function safeErrorInfo(err: unknown): SafeErrorInfo {
  */
 export function logError(context: string, err: unknown): void {
   const info = safeErrorInfo(err);
-  console.error(`[${context}]`, info.message, info.stack ?? '');
+  const prefix = info.code ? `${info.message} (${info.code})` : info.message;
+  console.error(`[${context}]`, prefix);
+  if (info.stack) {
+    console.error(info.stack);
+  }
 }
