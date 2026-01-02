@@ -3,6 +3,7 @@ import { getValidGarminToken } from '../lib/garmin-token';
 import { subDays } from 'date-fns';
 import { prisma } from '../lib/prisma';
 import { sendBadRequest, sendUnauthorized, sendNotFound, sendInternalError } from '../lib/api-response';
+import { logError } from '../lib/logger';
 
 type Empty = Record<string, never>;
 const r: Router = createRouter();
@@ -106,7 +107,7 @@ r.get<Empty, void, Empty, { days?: string }>(
             errors.push(`Failed for period ${currentStartDate.toISOString().split('T')[0]}: ${backfillRes.status}`);
           }
         } catch (error) {
-          console.error(`[Garmin Backfill] Error triggering backfill chunk:`, error);
+          logError('Garmin Backfill chunk', error);
           errors.push(`Error for period ${currentStartDate.toISOString().split('T')[0]}`);
         }
 
@@ -144,7 +145,7 @@ r.get<Empty, void, Empty, { days?: string }>(
         warnings: errors.length > 0 ? errors : undefined,
       });
     } catch (error) {
-      console.error('[Garmin Backfill] Error:', error);
+      logError('Garmin Backfill', error);
       return sendInternalError(res, 'Failed to fetch activities');
     }
   }
@@ -181,7 +182,7 @@ r.get<Empty, void, Empty, Empty>(
         message: 'Use this ID in the Garmin Developer Dashboard Backfill tool',
       });
     } catch (error) {
-      console.error('[Garmin User ID] Error:', error);
+      logError('Garmin User ID', error);
       return sendInternalError(res, 'Failed to fetch Garmin user ID');
     }
   }
@@ -235,7 +236,7 @@ r.get<Empty, void, Empty, Empty>(
         message: `Found ${recentGarminRides.length} recent Garmin rides (last 30 days), ${totalGarminRides} total`,
       });
     } catch (error) {
-      console.error('[Garmin Backfill Status] Error:', error);
+      logError('Garmin Backfill Status', error);
       return sendInternalError(res, 'Failed to fetch backfill status');
     }
   }

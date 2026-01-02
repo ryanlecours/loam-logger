@@ -3,6 +3,7 @@ import type { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { getValidStravaToken } from '../lib/strava-token';
 import { deriveLocationAsync, shouldApplyAutoLocation } from '../lib/location';
+import { logError } from '../lib/logger';
 
 type Empty = Record<string, never>;
 const r: Router = createRouter();
@@ -106,7 +107,7 @@ r.post<Empty, void, StravaWebhookEvent>(
         console.log(`[Strava Webhook] Athlete event ${event.aspect_type} for athlete ${event.owner_id}`);
       }
     } catch (error) {
-      console.error('[Strava Webhook] Error processing event:', error);
+      logError('Strava Webhook', error);
       // Already responded to Strava, just log the error
     }
   }
@@ -173,7 +174,7 @@ r.post<Empty, void, { athlete_id: number }>(
       console.log(`[Strava Deauthorization] Removed Strava connection for userId: ${userAccount.userId}`);
       return res.status(200).send('OK');
     } catch (error) {
-      console.error('[Strava Deauthorization] Error:', error);
+      logError('Strava Deauthorization', error);
       return res.status(500).json({ error: 'Internal server error' });
     }
   }
@@ -425,7 +426,7 @@ async function processActivityEvent(event: StravaWebhookEvent): Promise<void> {
 
       console.log(`[Strava Activity Event] Successfully stored ride for activity ${activityId}`);
     } catch (error) {
-      console.error(`[Strava Activity Event] Error fetching/storing activity ${activityId}:`, error);
+      logError(`Strava Activity Event ${activityId}`, error);
       throw error;
     }
   }

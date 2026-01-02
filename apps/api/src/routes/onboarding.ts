@@ -4,6 +4,7 @@ import { type SessionUser } from '../auth/session';
 import { type ComponentType } from '@prisma/client';
 import { sendBadRequest, sendUnauthorized, sendInternalError } from '../lib/api-response';
 import { SPOKES_TO_COMPONENT_TYPE } from '@loam/shared';
+import { logError } from '../lib/logger';
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
@@ -259,7 +260,7 @@ router.post('/complete', express.json(), async (req: Request, res) => {
       bikeId: result.bike.id,
     });
   } catch (error) {
-    console.error('[Onboarding] Error completing onboarding:', error);
+    logError('Onboarding', error);
     return sendInternalError(res, 'An error occurred while completing onboarding. Please try again.');
   }
 });

@@ -6,6 +6,7 @@ import { hashPassword } from '../auth/password.utils';
 import { addEmailJob, scheduleWelcomeSeries } from '../lib/queue';
 import { sendUnauthorized, sendBadRequest, sendInternalError } from '../lib/api-response';
 import { checkAdminRateLimit } from '../lib/rate-limit';
+import { logError } from '../lib/logger';
 
 const router = Router();
 
@@ -43,7 +44,7 @@ router.get('/stats', async (_req, res) => {
       pro: proCount,
     });
   } catch (error) {
-    console.error('Admin stats error:', error);
+    logError('Admin stats', error);
     return sendInternalError(res, 'Failed to fetch stats');
   }
 });
@@ -84,7 +85,7 @@ router.get('/waitlist', async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('Admin waitlist error:', error);
+    logError('Admin waitlist', error);
     return sendInternalError(res, 'Failed to fetch waitlist');
   }
 });
@@ -231,7 +232,7 @@ router.post('/users', async (req, res) => {
       ...(sendActivationEmail && !emailQueued && tempPassword ? { tempPassword } : {}),
     });
   } catch (error) {
-    console.error('Admin create user error:', error);
+    logError('Admin create user', error);
     return sendInternalError(res, 'Failed to create user');
   }
 });
@@ -300,7 +301,7 @@ router.post('/users/:userId/demote', async (req, res) => {
 
     res.json({ success: true, user: updated });
   } catch (error) {
-    console.error('Admin demote user error:', error);
+    logError('Admin demote user', error);
     return sendInternalError(res, 'Failed to demote user');
   }
 });
@@ -342,7 +343,7 @@ router.delete('/users/:userId', async (req, res) => {
 
     res.json({ success: true, deletedUserId: userId });
   } catch (error) {
-    console.error('Admin delete user error:', error);
+    logError('Admin delete user', error);
     return sendInternalError(res, 'Failed to delete user');
   }
 });
@@ -383,7 +384,7 @@ router.delete('/waitlist/:userId', async (req, res) => {
 
     res.json({ success: true, deletedUserId: userId });
   } catch (error) {
-    console.error('Admin delete waitlist error:', error);
+    logError('Admin delete waitlist', error);
     return sendInternalError(res, 'Failed to delete waitlist entry');
   }
 });
@@ -426,7 +427,7 @@ router.get('/users', async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('Admin users error:', error);
+    logError('Admin users', error);
     return sendInternalError(res, 'Failed to fetch users');
   }
 });
@@ -469,7 +470,7 @@ router.get('/waitlist/export', async (_req, res) => {
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.send(csv);
   } catch (error) {
-    console.error('Admin export error:', error);
+    logError('Admin export', error);
     return sendInternalError(res, 'Failed to export waitlist');
   }
 });

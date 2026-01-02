@@ -1,6 +1,7 @@
 import { Router as createRouter, type Router, type Request, type Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { sendBadRequest, sendUnauthorized, sendNotFound, sendForbidden, sendInternalError } from '../lib/api-response';
+import { logError } from '../lib/logger';
 
 type Empty = Record<string, never>;
 const r: Router = createRouter();
@@ -47,7 +48,7 @@ r.get('/duplicates', async (req: Request, res: Response) => {
       duplicates: ridesWithDuplicates,
     });
   } catch (error) {
-    console.error('[Duplicates] Error fetching:', error);
+    logError('Duplicates fetching', error);
     return sendInternalError(res, 'Failed to fetch duplicates');
   }
 });
@@ -106,7 +107,7 @@ r.post<Empty, void, { keepRideId: string; deleteRideId: string }>(
         keptRideId: keepRideId,
       });
     } catch (error) {
-      console.error('[Duplicates] Error merging:', error);
+      logError('Duplicates merging', error);
       return sendInternalError(res, 'Failed to merge rides');
     }
   }
@@ -153,7 +154,7 @@ r.post<Empty, void, { rideId: string }>(
         message: 'Ride marked as not duplicate',
       });
     } catch (error) {
-      console.error('[Duplicates] Error marking:', error);
+      logError('Duplicates marking', error);
       return sendInternalError(res, 'Failed to update ride');
     }
   }

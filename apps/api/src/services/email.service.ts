@@ -1,4 +1,5 @@
 import { Resend } from 'resend';
+import { logError } from '../lib/logger';
 
 let resend: Resend | null = null;
 
@@ -37,7 +38,7 @@ export async function sendEmail({ to, subject, html, text }: SendEmailParams): P
   });
 
   if (error) {
-    console.error('[Email] Failed to send:', error);
+    logError('Email send', error);
     throw new Error(`Failed to send email: ${error.message}`);
   }
 
