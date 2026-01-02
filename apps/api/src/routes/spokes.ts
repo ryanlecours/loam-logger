@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { searchBikes, getBikeById, isSpokesConfigured } from '../services/spokes';
 import { sendBadRequest, sendUnauthorized, sendInternalError, sendNotFound } from '../lib/api-response';
+import { logError } from '../lib/logger';
 
 const router = Router();
 
@@ -40,7 +41,7 @@ router.get('/search', async (req, res) => {
 
     res.json({ bikes: results });
   } catch (error) {
-    console.error('[Spokes Route] Search error:', error);
+    logError('Spokes Route Search', error);
     return sendInternalError(res, 'Failed to search bikes');
   }
 });
@@ -71,7 +72,7 @@ router.get('/bike/:id', async (req, res) => {
 
     res.json({ bike });
   } catch (error) {
-    console.error('[Spokes Route] Get bike error:', error);
+    logError('Spokes Route Get bike', error);
     return sendInternalError(res, 'Failed to get bike details');
   }
 });

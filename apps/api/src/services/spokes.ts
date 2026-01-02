@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { getRedisConnection, isRedisReady } from '../lib/redis';
+import { logError } from '../lib/logger';
 
 // API configuration
 const SPOKES_API_BASE = 'https://api.99spokes.com/v1';
@@ -287,7 +288,7 @@ export async function searchBikes(params: {
 
     return results;
   } catch (error) {
-    console.error('[Spokes] Search error:', error);
+    logError('Spokes Search', error);
     return [];
   }
 }
@@ -347,7 +348,7 @@ export async function getBikeById(id: string): Promise<SpokesBike | null> {
 
     return bike;
   } catch (error) {
-    console.error('[Spokes] Get bike error:', error);
+    logError('Spokes Get bike', error);
     return null;
   }
 }
