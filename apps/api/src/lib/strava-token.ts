@@ -1,4 +1,5 @@
 import { prisma } from './prisma';
+import { logError } from './logger';
 
 /**
  * Get a valid Strava access token for a user
@@ -97,7 +98,7 @@ export async function getValidStravaToken(userId: string): Promise<string | null
     console.log('[Strava Token] Token refreshed successfully, expires at:', newExpiresAt);
     return newTokens.access_token;
   } catch (error) {
-    console.error('[Strava Token] Error refreshing token:', error);
+    logError('Strava Token refresh', error);
     return null;
   }
 }

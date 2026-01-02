@@ -2,6 +2,7 @@ import { Router as createRouter, type Router, type Request, type Response } from
 import { prisma } from '../lib/prisma';
 import { getValidGarminToken } from '../lib/garmin-token';
 import { deriveLocationAsync, shouldApplyAutoLocation } from '../lib/location';
+import { logError } from '../lib/logger';
 
 type Empty = Record<string, never>;
 const r: Router = createRouter();
@@ -64,7 +65,7 @@ r.post<Empty, void, { deregistrations?: Array<{ userId: string }> }>(
       // Return 200 OK immediately (Garmin requires this)
       return res.status(200).send('OK');
     } catch (error) {
-      console.error('[Garmin Deregistration] Error:', error);
+      logError('Garmin Deregistration', error);
       return res.status(500).json({ error: 'Internal server error' });
     }
   }
@@ -123,7 +124,7 @@ r.post<Empty, void, { userPermissionsChange?: Array<{
       // Return 200 OK immediately (Garmin requires this)
       return res.status(200).send('OK');
     } catch (error) {
-      console.error('[Garmin Permissions] Error:', error);
+      logError('Garmin Permissions', error);
       return res.status(500).json({ error: 'Internal server error' });
     }
   }
@@ -179,12 +180,12 @@ r.post<Empty, void, { activities?: GarminActivityPush[] }>(
         try {
           await processActivityPush(activity);
         } catch (error) {
-          console.error(`[Garmin Activities PUSH] Failed to process activity ${activity.summaryId}:`, error);
+          logError(`Garmin Activities PUSH ${activity.summaryId}`, error);
           // Continue processing other activities even if one fails
         }
       }
     } catch (error) {
-      console.error('[Garmin Activities PUSH] Error:', error);
+      logError('Garmin Activities PUSH', error);
       // Already responded, so just log the error
     }
   }
@@ -270,7 +271,7 @@ r.post<Empty, void, GarminPingPayload>(
           try {
             await processActivityCallback(notification);
           } catch (error) {
-            console.error(`[Garmin Activities PING] Failed to process callback for user ${notification.userId}:`, error);
+            logError(`Garmin Activities PING callback user ${notification.userId}`, error);
             // Continue processing other notifications even if one fails
           }
         }
@@ -289,7 +290,7 @@ r.post<Empty, void, GarminPingPayload>(
           try {
             await processActivityPing(notification);
           } catch (error) {
-            console.error(`[Garmin Activities PING] Failed to process notification ${notification.summaryId}:`, error);
+            logError(`Garmin Activities PING notification ${notification.summaryId}`, error);
             // Continue processing other notifications even if one fails
           }
         }
@@ -300,7 +301,7 @@ r.post<Empty, void, GarminPingPayload>(
       console.warn('[Garmin Activities PING] Invalid payload:', req.body);
       return res.status(400).json({ error: 'Invalid activities payload' });
     } catch (error) {
-      console.error('[Garmin Activities PING] Error:', error);
+      logError('Garmin Activities PING', error);
       // Already responded, so just log the error
     }
   }
@@ -519,7 +520,7 @@ async function processActivityPing(notification: GarminActivityPing): Promise<vo
 
     console.log(`[Garmin Activities PING] Successfully stored ride for activity ${summaryId}`);
   } catch (error) {
-    console.error(`[Garmin Activities PING] Error fetching/storing activity ${summaryId}:`, error);
+    logError(`Garmin Activities PING ${summaryId}`, error);
     throw error;
   }
 }
@@ -680,7 +681,7 @@ async function processActivityCallback(notification: GarminActivityCallback): Pr
       console.log(`[Garmin Activities Callback] Successfully stored ride for activity ${activity.summaryId}`);
     }
   } catch (error) {
-    console.error(`[Garmin Activities Callback] Error processing callback:`, error);
+    logError('Garmin Activities Callback', error);
     throw error;
   }
 }

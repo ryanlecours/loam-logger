@@ -13,6 +13,7 @@ import { checkRateLimit, checkMutationRateLimit } from '../lib/rate-limit';
 import { enqueueSyncJob, enqueueBikeInvalidation, type SyncProvider } from '../lib/queue';
 import { invalidateBikePrediction } from '../services/prediction/cache';
 import { SPOKES_TO_COMPONENT_TYPE } from '@loam/shared';
+import { logError } from '../lib/logger';
 import { getBikeById, isSpokesConfigured } from '../services/spokes';
 import { parseISO } from 'date-fns';
 
@@ -1500,7 +1501,7 @@ export const resolvers = {
           userRole: user.role,
         });
       } catch (error) {
-        console.error('[Resolver] Prediction generation failed:', error);
+        logError('Resolver Prediction generation', error);
         return null;
       }
     },

@@ -1,5 +1,6 @@
 import type { Component, UserRole } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
+import { logError } from '../../lib/logger';
 import type {
   ComponentPrediction,
   BikePredictionSummary,
@@ -438,7 +439,7 @@ export async function generateAllBikePredictions(
         bikeId: bike.id,
         userRole,
       }).catch((error) => {
-        console.error(`[PredictionEngine] Failed for bike ${bike.id}:`, error);
+        logError(`PredictionEngine bike ${bike.id}`, error);
         return null;
       })
     )

@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma';
 import { sha256, randomString } from '../lib/pcke';
 import { addSeconds } from 'date-fns';
 import { sendBadRequest, sendUnauthorized, sendInternalError } from '../lib/api-response';
+import { logError } from '../lib/logger';
 
 type Empty = Record<string, never>
 const r: Router = createRouter();
@@ -198,7 +199,7 @@ r.get<Empty, void, Empty, { code?: string; state?: string }>(
       console.log('[Garmin Callback] Success! Redirecting to:', redirectPath);
       return res.redirect(`${appBase.replace(/\/$/, '')}${redirectPath}`);
     } catch (error) {
-      console.error('[Garmin Callback] Error:', error);
+      logError('Garmin Callback', error);
       const appBase = process.env.APP_BASE_URL ?? 'http://localhost:5173';
       return res.redirect(`${appBase}/auth/error?message=${encodeURIComponent('Garmin connection failed. Please try again.')}`);
     }
@@ -235,7 +236,7 @@ r.delete<Empty, void, Empty>('/garmin/disconnect', async (req: Request, res: Res
     console.log(`[Garmin Disconnect] User ${userId} disconnected Garmin`);
     return res.status(200).json({ success: true });
   } catch (error) {
-    console.error('[Garmin Disconnect] Error:', error);
+    logError('Garmin Disconnect', error);
     return sendInternalError(res, 'Failed to disconnect');
   }
 });

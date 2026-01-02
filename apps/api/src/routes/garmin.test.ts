@@ -8,6 +8,7 @@ import {
 import { garminGetActivities } from '../services/garmin';
 import { sendUnauthorized, sendSuccess, sendError, sendInternalError } from '../lib/api-response';
 import { prisma } from '../lib/prisma';
+import { logError } from '../lib/logger';
 
 const r: Router = createRouter();
 
@@ -112,7 +113,7 @@ r.delete<Params, unknown, never>(
         adjustedBikes: hoursByBike.size,
       });
     } catch (error) {
-      console.error('[Garmin Delete Rides] Error:', error);
+      logError('Garmin Delete Rides', error);
       return sendInternalError(res, 'Failed to delete Garmin rides');
     }
   }
