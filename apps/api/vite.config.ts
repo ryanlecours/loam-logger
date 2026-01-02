@@ -22,6 +22,9 @@ export default defineConfig({
         // CommonJS is simplest for Node start
         format: "cjs",
         entryFileNames: "server.cjs",
+        // Bundle everything into single file - no code splitting for SSR
+        // Prevents "Cannot find module ./assets/index-*.js" errors in production
+        inlineDynamicImports: true,
       },
     },
   },
