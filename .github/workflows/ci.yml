@@ -71,6 +71,26 @@ jobs:
       - name: Build affected projects
         run: npx nx affected -t build --parallel=3 --verbose
 
+      - name: Verify API build has no orphan SSR chunks
+        run: |
+          if npx nx show projects --affected | grep -q "api"; then
+            # Check that server.cjs exists
+            if [ ! -f "dist/apps/api/server.cjs" ]; then
+              echo "❌ Error: dist/apps/api/server.cjs not found!"
+              exit 1
+            fi
+            # Check that no orphan assets/ chunks exist (we use inlineDynamicImports)
+            if [ -d "dist/apps/api/assets" ]; then
+              echo "❌ Error: dist/apps/api/assets/ exists - SSR chunks should be inlined!"
+              echo "Check that vite.config.ts has inlineDynamicImports: true"
+              ls -la dist/apps/api/assets/
+              exit 1
+            fi
+            echo "✅ API build artifact validated (single server.cjs, no chunks)"
+          else
+            echo "API not affected, skipping build validation"
+          fi
+
       - name: Validate Prisma schema (if API affected)
         run: |
           if npx nx show projects --affected | grep -q "api"; then
