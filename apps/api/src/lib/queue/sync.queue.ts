@@ -50,7 +50,8 @@ export function getSyncQueue(): Queue<SyncJobData, void, SyncJobName> {
 
 /**
  * Build a deterministic job ID for sync jobs.
- * Format: syncLatest:<provider>:<userId> or syncActivity:<provider>:<userId>:<activityId>
+ * Format: syncLatest_<provider>_<userId> or syncActivity_<provider>_<userId>_<activityId>
+ * Note: BullMQ does not allow colons in job IDs, so we use underscores.
  */
 export function buildSyncJobId(
   jobName: SyncJobName,
@@ -59,9 +60,9 @@ export function buildSyncJobId(
   activityId?: string
 ): string {
   if (jobName === 'syncActivity' && activityId) {
-    return `${jobName}:${provider}:${userId}:${activityId}`;
+    return `${jobName}_${provider}_${userId}_${activityId}`;
   }
-  return `${jobName}:${provider}:${userId}`;
+  return `${jobName}_${provider}_${userId}`;
 }
 
 /**
