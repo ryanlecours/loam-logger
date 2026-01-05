@@ -5,6 +5,7 @@ export type ActivationEmailParams = {
   email: string;
   tempPassword: string;
   loginUrl: string;
+  unsubscribeUrl: string;
 };
 
 export function getActivationEmailSubject(): string {
@@ -243,7 +244,10 @@ export function getActivationEmailHtml(params: ActivationEmailParams): string {
 
     <div class="footer">
       <p>
-        You’re receiving this email because you signed up for early access to Loam Logger. If this landed in your inbox by mistake, feel free to ignore it.
+        You're receiving this email because you signed up for early access to Loam Logger. If this landed in your inbox by mistake, feel free to ignore it.
+      </p>
+      <p>
+        <a href="${escapeHtml(params.unsubscribeUrl)}">Unsubscribe</a> from these emails.
       </p>
     </div>
   </div>

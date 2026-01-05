@@ -1,6 +1,8 @@
 import { Worker, Job } from 'bullmq';
+import { PrismaClient } from '@prisma/client';
 import { getQueueConnection } from '../lib/queue/connection';
 import { sendEmail } from '../services/email.service';
+import { generateUnsubscribeToken } from '../lib/unsubscribe-token';
 import {
   getActivationEmailHtml,
   getActivationEmailSubject,
@@ -12,6 +14,10 @@ import {
   getWelcome3Subject,
 } from '../templates/emails';
 import type { EmailJobData, EmailJobName } from '../lib/queue/email.queue';
+
+const prisma = new PrismaClient();
+
+const API_URL = process.env.API_URL || 'http://localhost:4000';
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
@@ -88,10 +94,28 @@ function validateJobData(
 
 async function processEmailJob(job: Job<EmailJobData, void, EmailJobName>): Promise<void> {
   // Validate all job data upfront
-  const { email, name } = validateJobData(job.name, job.data);
+  const { email, name, userId } = validateJobData(job.name, job.data);
   const { tempPassword } = job.data;
 
   console.log(`[EmailWorker] Processing ${job.name} for ${email}`);
+
+  // Check if user has unsubscribed (for marketing emails like welcome series)
+  const isMarketingEmail = ['welcome-1', 'welcome-2', 'welcome-3'].includes(job.name);
+  if (isMarketingEmail) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { emailUnsubscribed: true },
+    });
+
+    if (user?.emailUnsubscribed) {
+      console.log(`[EmailWorker] Skipping ${job.name} for ${email} - user unsubscribed`);
+      return;
+    }
+  }
+
+  // Generate unsubscribe URL for all emails
+  const unsubscribeToken = generateUnsubscribeToken(userId);
+  const unsubscribeUrl = `${API_URL}/api/email/unsubscribe?token=${unsubscribeToken}`;
 
   switch (job.name) {
     case 'activation':
@@ -104,6 +128,7 @@ async function processEmailJob(job: Job<EmailJobData, void, EmailJobName>): Prom
           email,
           tempPassword: tempPassword!,
           loginUrl: `${FRONTEND_URL}/login`,
+          unsubscribeUrl,
         }),
       });
       break;
@@ -115,6 +140,7 @@ async function processEmailJob(job: Job<EmailJobData, void, EmailJobName>): Prom
         html: getWelcome1Html({
           name,
           dashboardUrl: `${FRONTEND_URL}/dashboard`,
+          unsubscribeUrl,
         }),
       });
       break;
@@ -126,6 +152,7 @@ async function processEmailJob(job: Job<EmailJobData, void, EmailJobName>): Prom
         html: getWelcome2Html({
           name,
           gearUrl: `${FRONTEND_URL}/gear`,
+          unsubscribeUrl,
         }),
       });
       break;
@@ -137,6 +164,7 @@ async function processEmailJob(job: Job<EmailJobData, void, EmailJobName>): Prom
         html: getWelcome3Html({
           name,
           settingsUrl: `${FRONTEND_URL}/settings`,
+          unsubscribeUrl,
         }),
       });
       break;
@@ -161,7 +189,12 @@ export function createEmailWorker(): Worker<EmailJobData, void, EmailJobName> {
     processEmailJob,
     {
       connection: getQueueConnection(),
-      concurrency: 5,
+      concurrency: 2,
+      // Reduce polling frequency when idle to lower Redis costs
+      settings: {
+        stalledInterval: 60000, // Check for stalled jobs every 60s (default 30s)
+      },
+      drainDelay: 5000, // Wait 5s between empty polls (default 0)
     }
   );
 

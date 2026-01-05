@@ -29,6 +29,7 @@ model User {
   mustChangePassword  Boolean             @default(false)
   activatedAt         DateTime?
   activatedBy         String?
+  emailUnsubscribed   Boolean             @default(false)
   bikes               Bike[]
   components          Component[]
   tokens              OauthToken[]

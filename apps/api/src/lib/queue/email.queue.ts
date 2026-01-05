@@ -9,8 +9,8 @@ const DAYS = 24 * HOURS;
 // Job retry configuration
 const INITIAL_RETRY_DELAY_MS = 1 * SECONDS;
 const MAX_RETRY_ATTEMPTS = 3;
-const COMPLETED_JOBS_TO_KEEP = 100;
-const FAILED_JOBS_TO_KEEP = 500;
+const COMPLETED_JOBS_TO_KEEP = 10;
+const FAILED_JOBS_TO_KEEP = 50;
 
 /**
  * Welcome email series delays after activation.
@@ -115,6 +115,32 @@ export async function scheduleWelcomeSeries(
   });
 
   console.log(`[EmailQueue] Scheduled welcome series for ${email}`);
+}
+
+/**
+ * Cancel any pending welcome emails for a user (called when they unsubscribe).
+ * Uses deterministic job IDs to find and remove jobs.
+ */
+export async function cancelPendingWelcomeEmails(userId: string): Promise<void> {
+  const queue = getEmailQueue();
+  const jobIds = [
+    `welcome-1-${userId}`,
+    `welcome-2-${userId}`,
+    `welcome-3-${userId}`,
+  ];
+
+  for (const jobId of jobIds) {
+    try {
+      const job = await queue.getJob(jobId);
+      if (job) {
+        await job.remove();
+        console.log(`[EmailQueue] Cancelled pending job: ${jobId}`);
+      }
+    } catch (err) {
+      // Job may not exist or already completed - that's fine
+      console.warn(`[EmailQueue] Could not cancel job ${jobId}:`, err);
+    }
+  }
 }
 
 /**

@@ -24,6 +24,7 @@ import onboardingRouter from './routes/onboarding';
 import waitlistRouter from './routes/waitlist';
 import adminRouter from './routes/admin';
 import spokesRouter from './routes/spokes';
+import emailUnsubscribeRouter from './routes/email.unsubscribe';
 import { googleRouter, emailRouter, deleteAccountRouter, attachUser, verifyCsrf } from './auth/index';
 import mobileAuthRouter from './auth/mobile.route';
 
@@ -171,6 +172,7 @@ const startServer = async () => {
   app.use('/api', dataSourceRouter);
   app.use('/api', duplicatesRouter);
   app.use('/api', waitlistRouter);
+  app.use('/api', emailUnsubscribeRouter);
   app.use('/api/admin', adminRouter);
   app.use('/api/spokes', spokesRouter);
 
