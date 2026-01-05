@@ -8,6 +8,7 @@ import { typeDefs } from './graphql/schema';
 import { resolvers } from './graphql/resolvers';
 import { startWorkers, stopWorkers } from './workers';
 import { getRedisConnection, checkRedisHealth } from './lib/redis';
+import { startEmailScheduler, stopEmailScheduler } from './services/email-scheduler.service';
 
 import authGarmin from './routes/auth.garmin';
 import authStrava from './routes/auth.strava';
@@ -217,11 +218,15 @@ const startServer = async () => {
     console.warn('[Workers] REDIS_URL not set, workers disabled');
   }
 
+  // Start email scheduler (checks for due scheduled emails every minute)
+  startEmailScheduler();
+
   app.listen(PORT, HOST, () => {
     console.log(`🚴 LoamLogger backend running on :${PORT} (GraphQL at /graphql)`);
   });
 
   process.on('SIGTERM', async () => {
+    stopEmailScheduler();
     await stopWorkers();
     await server.stop();
     process.exit(0);

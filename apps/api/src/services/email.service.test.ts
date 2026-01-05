@@ -16,6 +16,18 @@ jest.mock('resend', () => ({
   })),
 }));
 
+// Mock Prisma (used by sendEmailWithAudit)
+jest.mock('../lib/prisma', () => ({
+  prisma: {
+    user: {
+      findUnique: jest.fn(),
+    },
+    emailSend: {
+      create: jest.fn(),
+    },
+  },
+}));
+
 import { sendEmail } from './email.service';
 
 afterAll(() => {
@@ -43,6 +55,7 @@ describe('sendEmail', () => {
     expect(result).toBe('email-123');
     expect(mockSend).toHaveBeenCalledWith({
       from: expect.any(String),
+      reply_to: expect.any(String),
       to: 'test@example.com',
       subject: 'Test Subject',
       html: '<p>Hello World</p>',

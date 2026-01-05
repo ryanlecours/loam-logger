@@ -3,12 +3,19 @@ import { prisma } from '../lib/prisma';
 import { requireAdmin } from '../auth/adminMiddleware';
 import { activateWaitlistUser, generateTempPassword } from '../services/activation.service';
 import { hashPassword } from '../auth/password.utils';
-import { sendEmail } from '../services/email.service';
-import { getActivationEmailSubject, getActivationEmailHtml } from '../templates/emails';
+import { sendEmail, sendEmailWithAudit } from '../services/email.service';
+import {
+  getActivationEmailSubject,
+  getActivationEmailHtml,
+  getAnnouncementEmailHtml,
+  ANNOUNCEMENT_TEMPLATE_VERSION,
+} from '../templates/emails';
 import { generateUnsubscribeToken } from '../lib/unsubscribe-token';
 import { sendUnauthorized, sendBadRequest, sendInternalError } from '../lib/api-response';
 import { checkAdminRateLimit } from '../lib/rate-limit';
 import { logError } from '../lib/logger';
+import { escapeHtml } from '../lib/html';
+import type { UserRole } from '@prisma/client';
 
 const API_URL = process.env.API_URL || 'http://localhost:4000';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
@@ -37,15 +44,18 @@ router.get('/stats', async (_req, res) => {
 
     // Calculate stats from the grouped counts
     const activeUserCount =
+      (countByRole.get('FOUNDING_RIDERS') ?? 0) +
       (countByRole.get('FREE') ?? 0) +
       (countByRole.get('PRO') ?? 0) +
       (countByRole.get('ADMIN') ?? 0);
     const waitlistCount = countByRole.get('WAITLIST') ?? 0;
+    const foundingRidersCount = countByRole.get('FOUNDING_RIDERS') ?? 0;
     const proCount = countByRole.get('PRO') ?? 0;
 
     res.json({
       users: activeUserCount,
       waitlist: waitlistCount,
+      foundingRiders: foundingRidersCount,
       pro: proCount,
     });
   } catch (error) {
@@ -75,6 +85,7 @@ router.get('/waitlist', async (req, res) => {
           email: true,
           name: true,
           createdAt: true,
+          emailUnsubscribed: true,
         },
       }),
       prisma.user.count({ where: { role: 'WAITLIST' } }),
@@ -165,7 +176,7 @@ router.post('/users', async (req, res) => {
     }
 
     // Validate role
-    const validRoles = ['FREE', 'PRO', 'ADMIN'];
+    const validRoles = ['FOUNDING_RIDERS', 'FREE', 'PRO', 'ADMIN'];
     if (!validRoles.includes(role)) {
       return sendBadRequest(res, `Role must be one of: ${validRoles.join(', ')}`);
     }
@@ -316,6 +327,121 @@ router.post('/users/:userId/demote', async (req, res) => {
 });
 
 /**
+ * POST /api/admin/promote/:userId
+ * Promote a WAITLIST user to FOUNDING_RIDERS
+ */
+router.post('/promote/:userId', async (req, res) => {
+  try {
+    const adminUserId = req.sessionUser?.uid;
+    const { userId } = req.params;
+
+    if (!adminUserId) {
+      return sendUnauthorized(res);
+    }
+
+    // Verify user exists and is WAITLIST
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, email: true, role: true },
+    });
+
+    if (!user) {
+      return sendBadRequest(res, 'User not found');
+    }
+
+    if (user.role !== 'WAITLIST') {
+      return sendBadRequest(res, 'User is not on waitlist');
+    }
+
+    // Promote to FOUNDING_RIDERS
+    const updated = await prisma.user.update({
+      where: { id: userId },
+      data: {
+        role: 'FOUNDING_RIDERS',
+        activatedAt: new Date(),
+        activatedBy: adminUserId,
+      },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        role: true,
+      },
+    });
+
+    console.log(`[Admin] User ${user.email} promoted to FOUNDING_RIDERS by ${adminUserId}`);
+
+    res.json({ success: true, user: updated });
+  } catch (error) {
+    logError('Admin promote user', error);
+    return sendInternalError(res, 'Failed to promote user');
+  }
+});
+
+/**
+ * POST /api/admin/promote/bulk
+ * Promote multiple WAITLIST users to FOUNDING_RIDERS
+ */
+router.post('/promote/bulk', async (req, res) => {
+  try {
+    const adminUserId = req.sessionUser?.uid;
+    if (!adminUserId) {
+      return sendUnauthorized(res);
+    }
+
+    const { userIds } = req.body;
+
+    // Validate input
+    if (!Array.isArray(userIds) || userIds.length === 0) {
+      return sendBadRequest(res, 'At least one user ID is required');
+    }
+
+    if (userIds.length > 100) {
+      return sendBadRequest(res, 'Cannot promote more than 100 users at once');
+    }
+
+    // Verify all users exist and are WAITLIST
+    const users = await prisma.user.findMany({
+      where: { id: { in: userIds } },
+      select: { id: true, email: true, role: true },
+    });
+
+    const nonWaitlistUsers = users.filter((u) => u.role !== 'WAITLIST');
+    if (nonWaitlistUsers.length > 0) {
+      return sendBadRequest(
+        res,
+        `Cannot promote ${nonWaitlistUsers.length} user(s) not on waitlist`
+      );
+    }
+
+    const validUserIds = users.map((u) => u.id);
+
+    // Promote all valid users in a transaction
+    await prisma.user.updateMany({
+      where: { id: { in: validUserIds } },
+      data: {
+        role: 'FOUNDING_RIDERS',
+        activatedAt: new Date(),
+        activatedBy: adminUserId,
+      },
+    });
+
+    console.log(
+      `[Admin] ${validUserIds.length} users promoted to FOUNDING_RIDERS by ${adminUserId}`
+    );
+
+    res.json({
+      success: true,
+      promotedCount: validUserIds.length,
+      promotedEmails: users.map((u) => u.email),
+    });
+  } catch (error) {
+    logError('Admin bulk promote', error);
+    return sendInternalError(res, 'Failed to promote users');
+  }
+});
+
+/**
  * DELETE /api/admin/users/:userId
  * Delete a user
  */
@@ -410,7 +536,7 @@ router.get('/users', async (req, res) => {
 
     const [users, total] = await Promise.all([
       prisma.user.findMany({
-        where: { role: { in: ['FREE', 'PRO', 'ADMIN'] } },
+        where: { role: { in: ['FOUNDING_RIDERS', 'FREE', 'PRO', 'ADMIN'] } },
         orderBy: { createdAt: 'desc' },
         skip,
         take: limit,
@@ -421,9 +547,10 @@ router.get('/users', async (req, res) => {
           role: true,
           createdAt: true,
           activatedAt: true,
+          emailUnsubscribed: true,
         },
       }),
-      prisma.user.count({ where: { role: { in: ['FREE', 'PRO', 'ADMIN'] } } }),
+      prisma.user.count({ where: { role: { in: ['FOUNDING_RIDERS', 'FREE', 'PRO', 'ADMIN'] } } }),
     ]);
 
     res.json({
@@ -481,6 +608,541 @@ router.get('/waitlist/export', async (_req, res) => {
   } catch (error) {
     logError('Admin export', error);
     return sendInternalError(res, 'Failed to export waitlist');
+  }
+});
+
+// ============================================================================
+// Email Management Endpoints
+// ============================================================================
+
+const VALID_EMAIL_ROLES: UserRole[] = ['WAITLIST', 'FOUNDING_RIDERS'];
+
+/**
+ * GET /api/admin/email/recipients
+ * List users by role with email/name/unsubscribed status for checkbox selection
+ */
+router.get('/email/recipients', async (req, res) => {
+  try {
+    const { role } = req.query;
+
+    if (!role || !VALID_EMAIL_ROLES.includes(role as UserRole)) {
+      return sendBadRequest(res, `Role must be one of: ${VALID_EMAIL_ROLES.join(', ')}`);
+    }
+
+    const users = await prisma.user.findMany({
+      where: { role: role as UserRole },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        emailUnsubscribed: true,
+      },
+    });
+
+    res.json({ users });
+  } catch (error) {
+    logError('Admin email recipients', error);
+    return sendInternalError(res, 'Failed to fetch recipients');
+  }
+});
+
+/**
+ * POST /api/admin/email/preview
+ * Preview rendered email template
+ */
+router.post('/email/preview', async (req, res) => {
+  try {
+    const { templateType, subject, messageHtml } = req.body;
+
+    if (!templateType || !['announcement', 'custom'].includes(templateType)) {
+      return sendBadRequest(res, 'Invalid template type');
+    }
+
+    if (!subject || typeof subject !== 'string' || subject.trim().length === 0) {
+      return sendBadRequest(res, 'Subject is required');
+    }
+
+    if (!messageHtml || typeof messageHtml !== 'string') {
+      return sendBadRequest(res, 'Message body is required');
+    }
+
+    // Sanitize and convert newlines to <br> for HTML display
+    const sanitizedMessage = escapeHtml(messageHtml).replace(/\n/g, '<br>');
+
+    const html = getAnnouncementEmailHtml({
+      name: 'Preview User',
+      subject: subject.trim(),
+      messageHtml: sanitizedMessage,
+      unsubscribeUrl: '#preview-unsubscribe',
+    });
+
+    res.json({
+      subject: subject.trim(),
+      html,
+    });
+  } catch (error) {
+    logError('Admin email preview', error);
+    return sendInternalError(res, 'Failed to generate preview');
+  }
+});
+
+/**
+ * POST /api/admin/email/send
+ * Send bulk email to selected user IDs with audit logging
+ */
+router.post('/email/send', async (req, res) => {
+  try {
+    const adminUserId = req.sessionUser?.uid;
+    if (!adminUserId) {
+      return sendUnauthorized(res);
+    }
+
+    // Rate limit bulk emails (1 per minute per admin)
+    const rateLimit = await checkAdminRateLimit('bulkEmail', adminUserId);
+    if (!rateLimit.allowed) {
+      res.setHeader('Retry-After', rateLimit.retryAfter.toString());
+      return res.status(429).json({
+        success: false,
+        error: 'Please wait before sending another bulk email',
+        retryAfter: rateLimit.retryAfter,
+      });
+    }
+
+    const { userIds, templateType, subject, messageHtml } = req.body;
+
+    // Validate inputs
+    if (!Array.isArray(userIds) || userIds.length === 0) {
+      return sendBadRequest(res, 'At least one recipient is required');
+    }
+
+    if (userIds.length > 500) {
+      return sendBadRequest(res, 'Cannot send to more than 500 recipients at once');
+    }
+
+    if (!templateType || !['announcement', 'custom'].includes(templateType)) {
+      return sendBadRequest(res, 'Invalid template type');
+    }
+
+    if (!subject || typeof subject !== 'string' || subject.trim().length === 0) {
+      return sendBadRequest(res, 'Subject is required');
+    }
+
+    if (!messageHtml || typeof messageHtml !== 'string') {
+      return sendBadRequest(res, 'Message body is required');
+    }
+
+    // Get all selected recipients
+    const recipients = await prisma.user.findMany({
+      where: { id: { in: userIds } },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        emailUnsubscribed: true,
+      },
+    });
+
+    if (recipients.length === 0) {
+      return sendBadRequest(res, 'No valid recipients found');
+    }
+
+    // Sanitize and convert newlines
+    const sanitizedMessage = escapeHtml(messageHtml).replace(/\n/g, '<br>');
+    const emailType = templateType === 'announcement' ? 'announcement' : 'custom';
+
+    const results = {
+      sent: 0,
+      failed: 0,
+      suppressed: 0,
+    };
+
+    // Send emails sequentially to respect provider rate limits
+    for (const recipient of recipients) {
+      try {
+        const unsubscribeToken = generateUnsubscribeToken(recipient.id);
+        const unsubscribeUrl = `${API_URL}/api/email/unsubscribe?token=${unsubscribeToken}`;
+
+        const html = getAnnouncementEmailHtml({
+          name: recipient.name || undefined,
+          subject: subject.trim(),
+          messageHtml: sanitizedMessage,
+          unsubscribeUrl,
+        });
+
+        const result = await sendEmailWithAudit({
+          to: recipient.email,
+          subject: subject.trim(),
+          html,
+          userId: recipient.id,
+          emailType,
+          triggerSource: 'admin_manual',
+          templateVersion: ANNOUNCEMENT_TEMPLATE_VERSION,
+        });
+
+        results[result.status]++;
+      } catch (error) {
+        results.failed++;
+        console.error(`[BulkEmail] Failed to send to ${recipient.email}:`, error);
+      }
+    }
+
+    console.log(
+      `[BulkEmail] Admin ${adminUserId} sent ${templateType}: ` +
+        `sent=${results.sent}, failed=${results.failed}, suppressed=${results.suppressed}`
+    );
+
+    res.json({
+      success: true,
+      results,
+      total: recipients.length,
+    });
+  } catch (error) {
+    logError('Admin email send', error);
+    return sendInternalError(res, 'Failed to send emails');
+  }
+});
+
+/**
+ * GET /api/admin/email/history
+ * Get recent EmailSend records
+ */
+router.get('/email/history', async (req, res) => {
+  try {
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 50));
+    const skip = (page - 1) * limit;
+
+    const [records, total] = await Promise.all([
+      prisma.emailSend.findMany({
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+        select: {
+          id: true,
+          toEmail: true,
+          emailType: true,
+          triggerSource: true,
+          status: true,
+          createdAt: true,
+          failureReason: true,
+          user: {
+            select: { name: true },
+          },
+        },
+      }),
+      prisma.emailSend.count(),
+    ]);
+
+    res.json({
+      records,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    });
+  } catch (error) {
+    logError('Admin email history', error);
+    return sendInternalError(res, 'Failed to fetch email history');
+  }
+});
+
+// ============================================================================
+// Email Scheduling Endpoints
+// ============================================================================
+
+/**
+ * POST /api/admin/email/schedule
+ * Schedule an email to be sent at a future time
+ */
+router.post('/email/schedule', async (req, res) => {
+  try {
+    const adminUserId = req.sessionUser?.uid;
+    if (!adminUserId) {
+      return sendUnauthorized(res);
+    }
+
+    // Rate limit scheduled emails same as immediate sends
+    const rateLimit = await checkAdminRateLimit('bulkEmail', adminUserId);
+    if (!rateLimit.allowed) {
+      res.setHeader('Retry-After', rateLimit.retryAfter.toString());
+      return res.status(429).json({
+        success: false,
+        error: 'Please wait before scheduling another email',
+        retryAfter: rateLimit.retryAfter,
+      });
+    }
+
+    const { userIds, templateType, subject, messageHtml, scheduledFor } = req.body;
+
+    // Validate inputs
+    if (!Array.isArray(userIds) || userIds.length === 0) {
+      return sendBadRequest(res, 'At least one recipient is required');
+    }
+
+    if (userIds.length > 500) {
+      return sendBadRequest(res, 'Cannot schedule email for more than 500 recipients');
+    }
+
+    if (!templateType || !['announcement', 'custom'].includes(templateType)) {
+      return sendBadRequest(res, 'Invalid template type');
+    }
+
+    if (!subject || typeof subject !== 'string' || subject.trim().length === 0) {
+      return sendBadRequest(res, 'Subject is required');
+    }
+
+    if (!messageHtml || typeof messageHtml !== 'string') {
+      return sendBadRequest(res, 'Message body is required');
+    }
+
+    if (!scheduledFor || typeof scheduledFor !== 'string') {
+      return sendBadRequest(res, 'Scheduled time is required');
+    }
+
+    const scheduledDate = new Date(scheduledFor);
+    if (isNaN(scheduledDate.getTime())) {
+      return sendBadRequest(res, 'Invalid scheduled time format');
+    }
+
+    if (scheduledDate <= new Date()) {
+      return sendBadRequest(res, 'Scheduled time must be in the future');
+    }
+
+    // Verify recipients exist
+    const recipients = await prisma.user.findMany({
+      where: { id: { in: userIds } },
+      select: { id: true },
+    });
+
+    if (recipients.length === 0) {
+      return sendBadRequest(res, 'No valid recipients found');
+    }
+
+    const recipientIds = recipients.map((r) => r.id);
+
+    // Sanitize and convert newlines
+    const sanitizedMessage = escapeHtml(messageHtml).replace(/\n/g, '<br>');
+
+    // Create scheduled email record
+    const scheduledEmail = await prisma.scheduledEmail.create({
+      data: {
+        subject: subject.trim(),
+        messageHtml: sanitizedMessage,
+        templateType,
+        recipientIds,
+        recipientCount: recipientIds.length,
+        scheduledFor: scheduledDate,
+        createdBy: adminUserId,
+      },
+    });
+
+    console.log(
+      `[Admin] Scheduled email ${scheduledEmail.id} for ${scheduledDate.toISOString()} ` +
+        `(${recipientIds.length} recipients) by ${adminUserId}`
+    );
+
+    res.json({
+      success: true,
+      scheduledEmail: {
+        id: scheduledEmail.id,
+        subject: scheduledEmail.subject,
+        scheduledFor: scheduledEmail.scheduledFor,
+        recipientCount: scheduledEmail.recipientCount,
+        status: scheduledEmail.status,
+      },
+    });
+  } catch (error) {
+    logError('Admin schedule email', error);
+    return sendInternalError(res, 'Failed to schedule email');
+  }
+});
+
+/**
+ * GET /api/admin/email/scheduled
+ * List scheduled emails with pagination
+ */
+router.get('/email/scheduled', async (req, res) => {
+  try {
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 50));
+    const skip = (page - 1) * limit;
+    const status = req.query.status as string | undefined;
+
+    const where = status ? { status: status as 'pending' | 'processing' | 'sent' | 'cancelled' | 'failed' } : {};
+
+    const [emails, total] = await Promise.all([
+      prisma.scheduledEmail.findMany({
+        where,
+        orderBy: { scheduledFor: 'asc' },
+        skip,
+        take: limit,
+        select: {
+          id: true,
+          subject: true,
+          scheduledFor: true,
+          recipientCount: true,
+          status: true,
+          createdAt: true,
+          sentCount: true,
+          failedCount: true,
+          suppressedCount: true,
+          processedAt: true,
+          errorMessage: true,
+        },
+      }),
+      prisma.scheduledEmail.count({ where }),
+    ]);
+
+    res.json({
+      emails,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    });
+  } catch (error) {
+    logError('Admin list scheduled emails', error);
+    return sendInternalError(res, 'Failed to fetch scheduled emails');
+  }
+});
+
+/**
+ * GET /api/admin/email/scheduled/:id
+ * Get a single scheduled email with full details
+ */
+router.get('/email/scheduled/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const scheduledEmail = await prisma.scheduledEmail.findUnique({
+      where: { id },
+    });
+
+    if (!scheduledEmail) {
+      return sendBadRequest(res, 'Scheduled email not found');
+    }
+
+    res.json({ scheduledEmail });
+  } catch (error) {
+    logError('Admin get scheduled email', error);
+    return sendInternalError(res, 'Failed to fetch scheduled email');
+  }
+});
+
+/**
+ * PUT /api/admin/email/scheduled/:id
+ * Update a pending scheduled email
+ */
+router.put('/email/scheduled/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { subject, messageHtml, scheduledFor } = req.body;
+
+    // Find the scheduled email
+    const existing = await prisma.scheduledEmail.findUnique({
+      where: { id },
+    });
+
+    if (!existing) {
+      return sendBadRequest(res, 'Scheduled email not found');
+    }
+
+    if (existing.status !== 'pending') {
+      return sendBadRequest(res, `Cannot edit scheduled email with status: ${existing.status}`);
+    }
+
+    // Build update data
+    const updateData: {
+      subject?: string;
+      messageHtml?: string;
+      scheduledFor?: Date;
+    } = {};
+
+    if (subject !== undefined) {
+      if (typeof subject !== 'string' || subject.trim().length === 0) {
+        return sendBadRequest(res, 'Subject cannot be empty');
+      }
+      updateData.subject = subject.trim();
+    }
+
+    if (messageHtml !== undefined) {
+      if (typeof messageHtml !== 'string') {
+        return sendBadRequest(res, 'Invalid message body');
+      }
+      updateData.messageHtml = escapeHtml(messageHtml).replace(/\n/g, '<br>');
+    }
+
+    if (scheduledFor !== undefined) {
+      const scheduledDate = new Date(scheduledFor);
+      if (isNaN(scheduledDate.getTime())) {
+        return sendBadRequest(res, 'Invalid scheduled time format');
+      }
+      if (scheduledDate <= new Date()) {
+        return sendBadRequest(res, 'Scheduled time must be in the future');
+      }
+      updateData.scheduledFor = scheduledDate;
+    }
+
+    // Update the scheduled email
+    const updated = await prisma.scheduledEmail.update({
+      where: { id },
+      data: updateData,
+      select: {
+        id: true,
+        subject: true,
+        scheduledFor: true,
+        recipientCount: true,
+        status: true,
+      },
+    });
+
+    console.log(`[Admin] Updated scheduled email ${id}`);
+
+    res.json({ success: true, scheduledEmail: updated });
+  } catch (error) {
+    logError('Admin update scheduled email', error);
+    return sendInternalError(res, 'Failed to update scheduled email');
+  }
+});
+
+/**
+ * DELETE /api/admin/email/scheduled/:id
+ * Cancel a pending scheduled email
+ */
+router.delete('/email/scheduled/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Find the scheduled email
+    const existing = await prisma.scheduledEmail.findUnique({
+      where: { id },
+    });
+
+    if (!existing) {
+      return sendBadRequest(res, 'Scheduled email not found');
+    }
+
+    if (existing.status !== 'pending') {
+      return sendBadRequest(res, `Cannot cancel scheduled email with status: ${existing.status}`);
+    }
+
+    // Update status to cancelled
+    await prisma.scheduledEmail.update({
+      where: { id },
+      data: { status: 'cancelled' },
+    });
+
+    console.log(`[Admin] Cancelled scheduled email ${id}`);
+
+    res.json({ success: true });
+  } catch (error) {
+    logError('Admin cancel scheduled email', error);
+    return sendInternalError(res, 'Failed to cancel scheduled email');
   }
 });
 
