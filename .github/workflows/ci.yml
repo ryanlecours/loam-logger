@@ -33,8 +33,13 @@ jobs:
           rm -rf apps/web/node_modules
           rm -rf apps/api/node_modules
 
-      - name: Install dependencies
-        run: npm ci --include=optional
+      - name: Install dependencies (with retry for Prisma CDN)
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 10
+          max_attempts: 3
+          retry_wait_seconds: 30
+          command: npm ci --include=optional
 
       - name: Derive appropriate SHAs for base and head for Nx affected commands
         uses: nrwl/nx-set-shas@v4

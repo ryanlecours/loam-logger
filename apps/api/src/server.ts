@@ -37,6 +37,11 @@ export type GraphQLContext = {
 };
 
 const startServer = async () => {
+  // Validate required environment variables at startup
+  if (!process.env.SESSION_SECRET) {
+    throw new Error('SESSION_SECRET environment variable is required');
+  }
+
   const app = express();
 
   // Railway / proxies so secure cookies & IPs work right
@@ -226,7 +231,7 @@ const startServer = async () => {
   });
 
   process.on('SIGTERM', async () => {
-    stopEmailScheduler();
+    await stopEmailScheduler();
     await stopWorkers();
     await server.stop();
     process.exit(0);
