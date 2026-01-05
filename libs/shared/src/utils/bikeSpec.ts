@@ -5,7 +5,7 @@
  * BikeSpec is used to determine which components are applicable to a given bike.
  */
 
-import { BikeSpec } from '../componentCatalog';
+import type { BikeSpec } from '../componentCatalog';
 
 /**
  * Component data shape from 99Spokes or similar sources
