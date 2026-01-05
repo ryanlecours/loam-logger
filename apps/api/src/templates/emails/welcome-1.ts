@@ -3,6 +3,7 @@ import { escapeHtml } from '../../lib/html';
 export type Welcome1Params = {
   name?: string;
   dashboardUrl: string;
+  unsubscribeUrl: string;
 };
 
 export function getWelcome1Subject(): string {
@@ -176,7 +177,10 @@ export function getWelcome1Html(params: Welcome1Params): string {
 
     <div class="footer">
       <p>
-        You’re receiving this because you signed up for early access to Loam Logger.
+        You're receiving this because you signed up for early access to Loam Logger.
+      </p>
+      <p>
+        <a href="${escapeHtml(params.unsubscribeUrl)}">Unsubscribe</a> from these emails.
       </p>
     </div>
   </div>

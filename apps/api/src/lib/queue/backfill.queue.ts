@@ -31,8 +31,8 @@ export function getBackfillQueue(): Queue<BackfillJobData, void, BackfillJobName
           delay: 5000,
         },
         priority: 10, // Lower priority than sync
-        removeOnComplete: 50,
-        removeOnFail: 200,
+        removeOnComplete: 10,
+        removeOnFail: 50,
       },
     });
   }

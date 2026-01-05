@@ -4,8 +4,8 @@ import { getQueueConnection } from './connection';
 // Job retry configuration
 const INITIAL_RETRY_DELAY_MS = 2000; // 2 seconds
 const MAX_RETRY_ATTEMPTS = 3;
-const COMPLETED_JOBS_TO_KEEP = 100;
-const FAILED_JOBS_TO_KEEP = 500;
+const COMPLETED_JOBS_TO_KEEP = 10;
+const FAILED_JOBS_TO_KEEP = 50;
 
 export type GeocodeJobName = 'geocodeRide';
 

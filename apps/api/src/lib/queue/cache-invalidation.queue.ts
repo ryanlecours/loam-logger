@@ -4,8 +4,8 @@ import { getQueueConnection } from './connection';
 // Job retry configuration
 const INITIAL_RETRY_DELAY_MS = 500;
 const MAX_RETRY_ATTEMPTS = 5;
-const COMPLETED_JOBS_TO_KEEP = 50;
-const FAILED_JOBS_TO_KEEP = 200;
+const COMPLETED_JOBS_TO_KEEP = 10;
+const FAILED_JOBS_TO_KEEP = 50;
 
 export type CacheInvalidationJobName = 'invalidateBike' | 'invalidateUser';
 

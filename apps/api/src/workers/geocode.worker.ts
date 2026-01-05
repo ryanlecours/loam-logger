@@ -66,6 +66,11 @@ export function createGeocodeWorker(): Worker<GeocodeJobData, void, GeocodeJobNa
       connection: getQueueConnection(),
       // Concurrency of 1 ensures sequential processing for rate limiting
       concurrency: 1,
+      // Reduce polling frequency when idle to lower Redis costs
+      settings: {
+        stalledInterval: 60000, // Check for stalled jobs every 60s (default 30s)
+      },
+      drainDelay: 5000, // Wait 5s between empty polls (default 0)
     }
   );
 
