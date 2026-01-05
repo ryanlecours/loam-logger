@@ -11,6 +11,11 @@ export const COMPONENT_FIELDS = gql`
     bikeId
     hoursUsed
     serviceDueAtHours
+    baselineWearPercent
+    baselineMethod
+    baselineConfidence
+    baselineSetAt
+    lastServicedAt
   }
 `;
 
@@ -43,6 +48,7 @@ export const BIKE_FIELDS = gql`
     motorPowerW
     motorTorqueNm
     batteryWh
+    acquisitionCondition
     components {
       ...ComponentFields
     }
@@ -118,4 +124,13 @@ export const DELETE_BIKE = gql`
       id
     }
   }
+`;
+
+export const BULK_UPDATE_BASELINES = gql`
+  mutation BulkUpdateBaselines($input: BulkUpdateBaselinesInput!) {
+    bulkUpdateComponentBaselines(input: $input) {
+      ...ComponentFields
+    }
+  }
+  ${COMPONENT_FIELDS}
 `;

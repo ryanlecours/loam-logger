@@ -119,6 +119,8 @@ export interface BikeFormValues {
   motorPowerW?: number | null;
   motorTorqueNm?: number | null;
   batteryWh?: number | null;
+  // Acquisition condition for baseline tracking
+  acquisitionCondition?: 'NEW' | 'USED' | 'MIXED' | null;
   // 99spokes components for auto-creation
   spokesComponents?: SpokesComponentsData | null;
   components: Record<BikeComponentKey, GearComponentState>;

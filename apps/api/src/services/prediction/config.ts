@@ -78,9 +78,11 @@ export const COMPONENT_WEIGHTS: Partial<Record<ComponentType, ComponentWearWeigh
   // Brake components - high climbing/steepness sensitivity
   BRAKE_PAD: { wH: 0.8, wD: 0.2, wC: 1.2, wV: 1.2 },
   BRAKE_ROTOR: { wH: 0.6, wD: 0.2, wC: 1.0, wV: 1.4 },
+  BRAKES: { wH: 0.7, wD: 0.3, wC: 0.8, wV: 0.9 }, // bleed interval
 
   // Drivetrain components - high distance/climbing sensitivity
   CHAIN: { wH: 1.0, wD: 1.2, wC: 0.5, wV: 0.1 },
+  CASSETTE: { wH: 0.8, wD: 1.0, wC: 0.6, wV: 0.1 }, // drivetrain wear
   DRIVETRAIN: { wH: 1.1, wD: 0.9, wC: 0.2, wV: 0.0 }, // clean/lube
 
   // Tires - balanced with distance emphasis
@@ -123,7 +125,9 @@ export const BASE_INTERVALS_HOURS: Partial<
 > = {
   BRAKE_PAD: { front: 40, rear: 35 },
   BRAKE_ROTOR: 200,
+  BRAKES: 100, // bleed interval
   CHAIN: 70,
+  CASSETTE: 200,
   TIRES: { front: 120, rear: 100 },
   FORK: 50, // lowers service
   SHOCK: 50, // air can service

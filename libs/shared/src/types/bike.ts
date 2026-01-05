@@ -154,3 +154,59 @@ export type BikeFormProps = {
   onSubmit: (form: BikeFormValues) => void;
   onClose: () => void;
 };
+
+// ============================================================================
+// Acquisition Condition & Baseline Types
+// ============================================================================
+
+/**
+ * Acquisition condition for a bike - determines default baseline behavior.
+ * - NEW: Brand new bike, all components start at 0% wear
+ * - USED: Used bike with unknown history, default 50% wear
+ * - MIXED: Some new, some used parts
+ */
+export type AcquisitionCondition = 'NEW' | 'USED' | 'MIXED';
+
+/**
+ * Method used to set the baseline wear for a component.
+ * - DEFAULT: System default based on acquisition condition
+ * - SLIDER: User estimated via wear slider
+ * - DATES: Calculated from last service date
+ */
+export type BaselineMethod = 'DEFAULT' | 'SLIDER' | 'DATES';
+
+/**
+ * Confidence level for the baseline wear estimate.
+ * - LOW: No data, using defaults (USED/MIXED bikes with no user input)
+ * - MEDIUM: User estimated (slider input)
+ * - HIGH: Based on actual data (NEW bike or date-based calculation)
+ */
+export type BaselineConfidence = 'LOW' | 'MEDIUM' | 'HIGH';
+
+/**
+ * Baseline wear data for a component.
+ */
+export interface ComponentBaseline {
+  /** Wear percentage (0-100), where 0 = just serviced, 100 = overdue */
+  wearPercent: number;
+  /** How the baseline was determined */
+  method: BaselineMethod;
+  /** Confidence level of the estimate */
+  confidence: BaselineConfidence;
+  /** When the component was last serviced (ISO date string) */
+  lastServicedAt?: string;
+}
+
+/**
+ * Wear percentage snap points for the baseline slider.
+ * Used for discrete slider positions with meaningful labels.
+ */
+export const BASELINE_WEAR_SNAP_POINTS = [
+  { value: 0, label: 'Just serviced' },
+  { value: 25, label: 'Lightly used' },
+  { value: 50, label: 'Mid-life' },
+  { value: 75, label: 'Near service' },
+  { value: 90, label: 'Overdue' },
+] as const;
+
+export type BaselineWearSnapPoint = (typeof BASELINE_WEAR_SNAP_POINTS)[number];

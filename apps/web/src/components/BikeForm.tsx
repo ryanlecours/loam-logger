@@ -15,6 +15,8 @@ import {
   isValidImageUrl,
   filterNonNullComponents,
 } from '@/utils/bikeFormHelpers';
+import { AcquisitionConditionStep } from './AcquisitionConditionStep';
+import type { AcquisitionCondition } from '@loam/shared';
 
 /**
  * Props for ComponentRow - memoized to prevent re-renders on sibling changes
@@ -145,12 +147,16 @@ export function BikeForm({
   onSubmit,
   onClose,
 }: BikeFormProps) {
-  const [step, setStep] = useState<1 | 2>(mode === 'edit' ? 2 : 1);
+  // Step 1: Bike Selection, Step 2: Acquisition Condition, Step 3: Component Review
+  const [step, setStep] = useState<1 | 2 | 3>(mode === 'edit' ? 3 : 1);
   const [form, setForm] = useState<BikeFormValues>(initial);
   const [showManualEntry, setShowManualEntry] = useState(false);
   const [componentEntries, setComponentEntries] = useState<ComponentEntry[]>([]);
   const [spokesDetails, setSpokesDetails] = useState<SpokesBikeDetails | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [acquisitionCondition, setAcquisitionCondition] = useState<AcquisitionCondition | null>(
+    initial.acquisitionCondition ?? null
+  );
   const validationTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const { getBikeDetails, isLoading: loadingDetails } = useSpokes();
 
@@ -230,18 +236,34 @@ export function BikeForm({
     }
   };
 
-  // Proceed to Step 2
-  const handleContinue = () => {
+  // Proceed from Step 1 to Step 2 (Acquisition Condition)
+  const handleContinueToCondition = () => {
     if (showManualEntry || !spokesDetails) {
       // For manual entry or when no details loaded, build empty component entries
       setComponentEntries(buildComponentEntries(null));
     }
+    // Default to NEW for 99Spokes imported bikes, otherwise null
+    if (form.spokesId && !acquisitionCondition) {
+      setAcquisitionCondition('NEW');
+    }
     setStep(2);
   };
 
+  // Proceed from Step 2 to Step 3 (Component Review)
+  const handleContinueToComponents = () => {
+    if (acquisitionCondition) {
+      setStep(3);
+    }
+  };
+
   // Go back to Step 1
-  const handleBack = () => {
+  const handleBackToStep1 = () => {
     setStep(1);
+  };
+
+  // Go back to Step 2
+  const handleBackToStep2 = () => {
+    setStep(2);
   };
 
   // Update a component entry field - memoized to prevent ComponentRow re-renders
@@ -355,6 +377,7 @@ export function BikeForm({
       ...form,
       travelForkMm: forkEntry?.travelMm ? String(forkEntry.travelMm) : form.travelForkMm,
       travelShockMm: shockEntry?.travelMm ? String(shockEntry.travelMm) : form.travelShockMm,
+      acquisitionCondition: acquisitionCondition ?? 'USED',
       spokesComponents: filterNonNullComponents(spokesComponents),
       components: {
         fork: getComponentData('fork'),
@@ -386,7 +409,7 @@ export function BikeForm({
           <h2 className="text-lg font-semibold text-heading">
             {mode === 'edit' ? 'Edit Bike' : 'Add New Bike'}
           </h2>
-          <span className="text-xs text-muted">Step 1 of 2</span>
+          <span className="text-xs text-muted">Step 1 of 3</span>
         </div>
 
         {/* Bike Search */}
@@ -542,23 +565,37 @@ export function BikeForm({
             type="button"
             variant="primary"
             disabled={!canContinue}
-            onClick={handleContinue}
+            onClick={handleContinueToCondition}
           >
-            Continue to Components
+            Continue
           </Button>
         </div>
       </div>
     );
   }
 
-  // Step 2: Component Review
+  // Step 2: Acquisition Condition
+  if (step === 2) {
+    return (
+      <AcquisitionConditionStep
+        selected={acquisitionCondition}
+        onSelect={setAcquisitionCondition}
+        onBack={handleBackToStep1}
+        onContinue={handleContinueToComponents}
+      />
+    );
+  }
+
+  // Step 3: Component Review
+  const isNewBike = acquisitionCondition === 'NEW';
+
   return (
     <form onSubmit={handleSubmit} className="bg-surface border border-app rounded-xl shadow p-6 space-y-4">
       <div className="flex items-center justify-between">
         <div>
           <button
             type="button"
-            onClick={handleBack}
+            onClick={handleBackToStep2}
             className="text-sm text-primary hover:underline mb-1"
           >
             ← Back
@@ -570,8 +607,42 @@ export function BikeForm({
             {form.year} {form.manufacturer} {form.model}
           </p>
         </div>
-        <span className="text-xs text-muted">Step 2 of 2</span>
+        <span className="text-xs text-muted">Step 3 of 3</span>
       </div>
+
+      {/* NEW bike confirmation banner */}
+      {isNewBike && (
+        <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4">
+          <div className="flex items-center gap-2">
+            <span className="text-lg">✨</span>
+            <div>
+              <p className="text-sm font-medium text-green-600 dark:text-green-400">
+                All components set to "Just serviced"
+              </p>
+              <p className="text-xs text-muted mt-0.5">
+                Since this is a brand new bike, all components start fresh with no wear.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* USED/MIXED bike info */}
+      {!isNewBike && (
+        <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-4">
+          <div className="flex items-center gap-2">
+            <span className="text-lg">🔧</span>
+            <div>
+              <p className="text-sm font-medium text-amber-600 dark:text-amber-400">
+                Components set to mid-life estimate
+              </p>
+              <p className="text-xs text-muted mt-0.5">
+                You can adjust individual component baselines after saving the bike.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       <p className="text-sm text-muted">
         Review your bike's components. Edit any parts you've customized.
