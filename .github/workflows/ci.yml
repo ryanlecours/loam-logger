@@ -3,22 +3,8 @@ name: LoamLogger CI
 on:
   push:
     branches: [main, dev]
-    paths:
-      - 'apps/**'
-      - 'libs/**'
-      - 'package.json'
-      - 'package-lock.json'
-      - 'nx.json'
-      - 'tsconfig.base.json'
   pull_request:
     branches: [main, dev]
-    paths:
-      - 'apps/**'
-      - 'libs/**'
-      - 'package.json'
-      - 'package-lock.json'
-      - 'nx.json'
-      - 'tsconfig.base.json'
   issue_comment:
     types: [created]
 
@@ -64,6 +50,9 @@ jobs:
 
       - name: Lint affected projects
         run: npx nx affected -t lint --parallel=3
+
+      - name: Test affected projects
+        run: npx nx affected -t test --parallel=3
 
       - name: Type check affected projects
         run: npx nx affected -t type-check --parallel=3 || echo "No type-check target defined"

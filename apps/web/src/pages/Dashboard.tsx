@@ -178,7 +178,6 @@ export default function Dashboard() {
               bike={displayedBike}
               isShowingPriority={isShowingPriority}
               onResetToPriority={resetToPriority}
-              isPro={isPro}
               onLogService={handleLogService}
               loading={bikesLoading}
               isAdmin={isAdmin}

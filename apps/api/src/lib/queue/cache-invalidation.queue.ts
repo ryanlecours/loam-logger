@@ -43,12 +43,13 @@ export function getCacheInvalidationQueue(): Queue<CacheInvalidationJobData, voi
 
 /**
  * Build a deterministic job ID for deduplication.
+ * Note: BullMQ does not allow colons in job IDs, so we use underscores.
  */
 function buildJobId(data: CacheInvalidationJobData): string {
   if (data.type === 'invalidateBike') {
-    return `invalidate:bike:${data.userId}:${data.bikeId}`;
+    return `invalidate_bike_${data.userId}_${data.bikeId}`;
   }
-  return `invalidate:user:${data.userId}`;
+  return `invalidate_user_${data.userId}`;
 }
 
 /**

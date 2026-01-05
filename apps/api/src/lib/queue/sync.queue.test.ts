@@ -27,39 +27,39 @@ describe('buildSyncJobId', () => {
   describe('syncLatest jobs', () => {
     it('should build ID for strava syncLatest', () => {
       const result = buildSyncJobId('syncLatest', 'strava', 'user123');
-      expect(result).toBe('syncLatest:strava:user123');
+      expect(result).toBe('syncLatest_strava_user123');
     });
 
     it('should build ID for garmin syncLatest', () => {
       const result = buildSyncJobId('syncLatest', 'garmin', 'user456');
-      expect(result).toBe('syncLatest:garmin:user456');
+      expect(result).toBe('syncLatest_garmin_user456');
     });
 
     it('should build ID for suunto syncLatest', () => {
       const result = buildSyncJobId('syncLatest', 'suunto', 'user789');
-      expect(result).toBe('syncLatest:suunto:user789');
+      expect(result).toBe('syncLatest_suunto_user789');
     });
 
     it('should ignore activityId for syncLatest', () => {
       const result = buildSyncJobId('syncLatest', 'strava', 'user123', 'activity456');
-      expect(result).toBe('syncLatest:strava:user123');
+      expect(result).toBe('syncLatest_strava_user123');
     });
   });
 
   describe('syncActivity jobs', () => {
     it('should include activityId for syncActivity', () => {
       const result = buildSyncJobId('syncActivity', 'strava', 'user123', 'activity456');
-      expect(result).toBe('syncActivity:strava:user123:activity456');
+      expect(result).toBe('syncActivity_strava_user123_activity456');
     });
 
     it('should omit activityId if not provided for syncActivity', () => {
       const result = buildSyncJobId('syncActivity', 'garmin', 'user123');
-      expect(result).toBe('syncActivity:garmin:user123');
+      expect(result).toBe('syncActivity_garmin_user123');
     });
 
     it('should handle empty activityId for syncActivity', () => {
       const result = buildSyncJobId('syncActivity', 'strava', 'user123', '');
-      expect(result).toBe('syncActivity:strava:user123');
+      expect(result).toBe('syncActivity_strava_user123');
     });
   });
 });
@@ -83,17 +83,17 @@ describe('enqueueSyncJob', () => {
 
     expect(result).toEqual({
       status: 'queued',
-      jobId: 'syncLatest:strava:user123',
+      jobId: 'syncLatest_strava_user123',
     });
     expect(mockQueueAdd).toHaveBeenCalledWith(
       'syncLatest',
       data,
-      { jobId: 'syncLatest:strava:user123' }
+      { jobId: 'syncLatest_strava_user123' }
     );
   });
 
   it('should return already_queued status for duplicate job', async () => {
-    mockQueueAdd.mockRejectedValue(new Error('Job syncLatest:strava:user123 already exists'));
+    mockQueueAdd.mockRejectedValue(new Error('Job syncLatest_strava_user123 already exists'));
 
     const data: SyncJobData = { userId: 'user123', provider: 'strava' };
 
@@ -101,7 +101,7 @@ describe('enqueueSyncJob', () => {
 
     expect(result).toEqual({
       status: 'already_queued',
-      jobId: 'syncLatest:strava:user123',
+      jobId: 'syncLatest_strava_user123',
     });
   });
 
@@ -118,11 +118,11 @@ describe('enqueueSyncJob', () => {
 
     const result = await enqueueSyncJob('syncActivity', data);
 
-    expect(result.jobId).toBe('syncActivity:garmin:user123:act456');
+    expect(result.jobId).toBe('syncActivity_garmin_user123_act456');
     expect(mockQueueAdd).toHaveBeenCalledWith(
       'syncActivity',
       data,
-      { jobId: 'syncActivity:garmin:user123:act456' }
+      { jobId: 'syncActivity_garmin_user123_act456' }
     );
   });
 });

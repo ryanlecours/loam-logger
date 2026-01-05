@@ -102,6 +102,7 @@ model Bike {
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
   year               Int?
+  sortOrder          Int                 @default(0)
   spokesId           String?
   buildKind          String?
   category           String?
@@ -118,11 +119,12 @@ model Bike {
   motorModel         String?
   motorPowerW        Int?
   motorTorqueNm      Int?
-  thumbnailUrl       String?
-  user               User                @relation(fields: [userId], references: [id], onDelete: Cascade)
-  components         Component[]
-  Ride               Ride[]
-  stravaGearMappings StravaGearMapping[]
+  thumbnailUrl         String?
+  acquisitionCondition AcquisitionCondition?
+  user                 User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  components           Component[]
+  Ride                 Ride[]
+  stravaGearMappings   StravaGearMapping[]
 
   @@index([spokesId])
 }
@@ -144,24 +146,30 @@ model StravaGearMapping {
 }
 
 model Component {
-  id                String            @id @default(uuid())
-  bikeId            String?
-  type              ComponentType
-  location          ComponentLocation @default(NONE)
-  brand             String
-  model             String
-  installedAt       DateTime?
-  hoursUsed         Float             @default(0)
-  serviceDueAtHours Float?
-  notes             String?
-  createdAt         DateTime          @default(now())
-  updatedAt         DateTime          @updatedAt
-  isStock           Boolean           @default(false)
-  userId            String
-  bike              Bike?             @relation(fields: [bikeId], references: [id])
-  user              User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  serviceLogs       ServiceLog[]
+  id                    String             @id @default(uuid())
+  bikeId                String?
+  type                  ComponentType
+  location              ComponentLocation  @default(NONE)
+  brand                 String
+  model                 String
+  installedAt           DateTime?
+  hoursUsed             Float              @default(0)
+  serviceDueAtHours     Float?
+  notes                 String?
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+  isStock               Boolean            @default(false)
+  baselineWearPercent   Int?               @default(0)
+  baselineMethod        BaselineMethod     @default(DEFAULT)
+  baselineConfidence    BaselineConfidence @default(HIGH)
+  baselineSetAt         DateTime?
+  lastServicedAt        DateTime?
+  userId                String
+  bike                  Bike?              @relation(fields: [bikeId], references: [id])
+  user                  User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  serviceLogs           ServiceLog[]
 
+  @@unique([bikeId, type, location], name: "unique_component_per_bike")
   @@index([userId])
   @@index([bikeId])
 }
@@ -224,4 +232,22 @@ enum ComponentType {
   BRAKE_ROTOR
   HEADSET
   BOTTOM_BRACKET
+}
+
+enum AcquisitionCondition {
+  NEW
+  USED
+  MIXED
+}
+
+enum BaselineMethod {
+  DEFAULT
+  SLIDER
+  DATES
+}
+
+enum BaselineConfidence {
+  LOW
+  MEDIUM
+  HIGH
 }
