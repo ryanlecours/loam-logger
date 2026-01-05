@@ -1,6 +1,206 @@
 import { describe, it, expect } from 'vitest';
-import { getTopDueComponents } from './usePriorityBike';
+import { renderHook, act } from '@testing-library/react';
+import { getTopDueComponents, usePriorityBike, type BikeWithPredictions } from './usePriorityBike';
 import type { BikePredictionSummary, ComponentPrediction } from '../types/prediction';
+
+// Factory for creating test bikes
+const createBike = (overrides: Partial<BikeWithPredictions> = {}): BikeWithPredictions => ({
+  id: `bike-${Math.random().toString(36).slice(2)}`,
+  nickname: 'Test Bike',
+  manufacturer: 'Trek',
+  model: 'Slash',
+  thumbnailUrl: null,
+  sortOrder: 0,
+  predictions: null,
+  ...overrides,
+});
+
+describe('usePriorityBike', () => {
+  describe('sortOrder sorting', () => {
+    it('sorts bikes by sortOrder ascending', () => {
+      const bikes = [
+        createBike({ id: 'bike-c', sortOrder: 2 }),
+        createBike({ id: 'bike-a', sortOrder: 0 }),
+        createBike({ id: 'bike-b', sortOrder: 1 }),
+      ];
+
+      const { result } = renderHook(() => usePriorityBike(bikes));
+
+      expect(result.current.sortedBikes.map((b) => b.id)).toEqual([
+        'bike-a',
+        'bike-b',
+        'bike-c',
+      ]);
+    });
+
+    it('first bike in sorted order becomes priorityBikeId', () => {
+      const bikes = [
+        createBike({ id: 'bike-second', sortOrder: 1 }),
+        createBike({ id: 'bike-first', sortOrder: 0 }),
+      ];
+
+      const { result } = renderHook(() => usePriorityBike(bikes));
+
+      expect(result.current.priorityBikeId).toBe('bike-first');
+    });
+
+    it('handles bikes with equal sortOrder (stable sort)', () => {
+      const bikes = [
+        createBike({ id: 'bike-a', sortOrder: 0 }),
+        createBike({ id: 'bike-b', sortOrder: 0 }),
+        createBike({ id: 'bike-c', sortOrder: 0 }),
+      ];
+
+      const { result } = renderHook(() => usePriorityBike(bikes));
+
+      // Should maintain original order for equal sortOrder values
+      expect(result.current.sortedBikes).toHaveLength(3);
+      expect(result.current.priorityBikeId).toBe('bike-a');
+    });
+
+    it('returns null priorityBikeId for empty bikes array', () => {
+      const { result } = renderHook(() => usePriorityBike([]));
+
+      expect(result.current.priorityBikeId).toBeNull();
+      expect(result.current.displayedBike).toBeNull();
+      expect(result.current.sortedBikes).toHaveLength(0);
+    });
+  });
+
+  describe('bike selection', () => {
+    it('selectBike updates selectedBikeId', () => {
+      const bikes = [
+        createBike({ id: 'bike-1', sortOrder: 0 }),
+        createBike({ id: 'bike-2', sortOrder: 1 }),
+      ];
+
+      const { result } = renderHook(() => usePriorityBike(bikes));
+
+      expect(result.current.selectedBikeId).toBeNull();
+
+      act(() => {
+        result.current.selectBike('bike-2');
+      });
+
+      expect(result.current.selectedBikeId).toBe('bike-2');
+    });
+
+    it('displayedBike reflects selectedBikeId when set', () => {
+      const bikes = [
+        createBike({ id: 'bike-1', sortOrder: 0, nickname: 'First' }),
+        createBike({ id: 'bike-2', sortOrder: 1, nickname: 'Second' }),
+      ];
+
+      const { result } = renderHook(() => usePriorityBike(bikes));
+
+      // Initially shows priority bike
+      expect(result.current.displayedBike?.id).toBe('bike-1');
+
+      act(() => {
+        result.current.selectBike('bike-2');
+      });
+
+      expect(result.current.displayedBike?.id).toBe('bike-2');
+      expect(result.current.displayedBike?.nickname).toBe('Second');
+    });
+
+    it('resetToPriority clears selectedBikeId', () => {
+      const bikes = [
+        createBike({ id: 'bike-1', sortOrder: 0 }),
+        createBike({ id: 'bike-2', sortOrder: 1 }),
+      ];
+
+      const { result } = renderHook(() => usePriorityBike(bikes));
+
+      act(() => {
+        result.current.selectBike('bike-2');
+      });
+
+      expect(result.current.selectedBikeId).toBe('bike-2');
+
+      act(() => {
+        result.current.resetToPriority();
+      });
+
+      expect(result.current.selectedBikeId).toBeNull();
+      expect(result.current.displayedBike?.id).toBe('bike-1');
+    });
+  });
+
+  describe('isShowingPriority', () => {
+    it('is true on initial render', () => {
+      const bikes = [createBike({ id: 'bike-1', sortOrder: 0 })];
+
+      const { result } = renderHook(() => usePriorityBike(bikes));
+
+      expect(result.current.isShowingPriority).toBe(true);
+    });
+
+    it('is false after selectBike with different bike', () => {
+      const bikes = [
+        createBike({ id: 'bike-1', sortOrder: 0 }),
+        createBike({ id: 'bike-2', sortOrder: 1 }),
+      ];
+
+      const { result } = renderHook(() => usePriorityBike(bikes));
+
+      act(() => {
+        result.current.selectBike('bike-2');
+      });
+
+      expect(result.current.isShowingPriority).toBe(false);
+    });
+
+    it('is true when selectedBikeId equals priorityBikeId', () => {
+      const bikes = [
+        createBike({ id: 'bike-1', sortOrder: 0 }),
+        createBike({ id: 'bike-2', sortOrder: 1 }),
+      ];
+
+      const { result } = renderHook(() => usePriorityBike(bikes));
+
+      act(() => {
+        result.current.selectBike('bike-1'); // Select the priority bike
+      });
+
+      expect(result.current.isShowingPriority).toBe(true);
+    });
+
+    it('is true after resetToPriority', () => {
+      const bikes = [
+        createBike({ id: 'bike-1', sortOrder: 0 }),
+        createBike({ id: 'bike-2', sortOrder: 1 }),
+      ];
+
+      const { result } = renderHook(() => usePriorityBike(bikes));
+
+      act(() => {
+        result.current.selectBike('bike-2');
+      });
+
+      expect(result.current.isShowingPriority).toBe(false);
+
+      act(() => {
+        result.current.resetToPriority();
+      });
+
+      expect(result.current.isShowingPriority).toBe(true);
+    });
+  });
+
+  describe('single bike', () => {
+    it('handles single bike correctly', () => {
+      const bikes = [createBike({ id: 'only-bike', sortOrder: 0 })];
+
+      const { result } = renderHook(() => usePriorityBike(bikes));
+
+      expect(result.current.priorityBikeId).toBe('only-bike');
+      expect(result.current.displayedBike?.id).toBe('only-bike');
+      expect(result.current.isShowingPriority).toBe(true);
+      expect(result.current.sortedBikes).toHaveLength(1);
+    });
+  });
+});
 
 describe('getTopDueComponents', () => {
   const createComponent = (

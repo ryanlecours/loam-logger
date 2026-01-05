@@ -8,51 +8,39 @@ export interface BikeWithPredictions {
   manufacturer: string;
   model: string;
   thumbnailUrl?: string | null;
+  sortOrder: number;
   predictions: BikePredictionSummary | null;
 }
 
 interface UsePriorityBikeResult {
-  /** The computed priority bike ID (most urgent) */
+  /** The default bike ID (first in user's sort order) */
   priorityBikeId: string | null;
-  /** The user-selected bike ID (null if showing priority) */
+  /** The user-selected bike ID (null if showing default) */
   selectedBikeId: string | null;
   /** The bike currently being displayed */
   displayedBike: BikeWithPredictions | null;
-  /** Whether we're showing the priority bike (not user-selected) */
+  /** Whether we're showing the default bike (not user-selected) */
   isShowingPriority: boolean;
   /** Select a specific bike */
   selectBike: (bikeId: string) => void;
-  /** Reset to show priority bike */
+  /** Reset to show default bike */
   resetToPriority: () => void;
-  /** All bikes sorted by urgency */
+  /** All bikes sorted by user's sortOrder */
   sortedBikes: BikeWithPredictions[];
 }
 
 /**
- * Computes the priority bike based on urgency and manages selection state.
+ * Manages bike selection state and provides sorted bikes.
  *
- * Priority logic:
- * 1. Most severe status (OVERDUE > DUE_NOW > DUE_SOON > ALL_GOOD)
- * 2. Tie-breaker: smallest hoursRemaining among most urgent items
- * 3. If all good: first bike in list (most recently added)
+ * Sorting: User-defined sortOrder (ascending)
+ * Default bike: First in user's sort order
  */
 export function usePriorityBike(bikes: BikeWithPredictions[]): UsePriorityBikeResult {
   const [selectedBikeId, setSelectedBikeId] = useState<string | null>(null);
 
-  // Sort bikes by urgency for the switcher row
+  // Sort bikes by user's sortOrder
   const sortedBikes = useMemo(() => {
-    return [...bikes].sort((a, b) => {
-      const statusA = a.predictions?.overallStatus ?? 'ALL_GOOD';
-      const statusB = b.predictions?.overallStatus ?? 'ALL_GOOD';
-
-      const severityDiff = STATUS_SEVERITY[statusB] - STATUS_SEVERITY[statusA];
-      if (severityDiff !== 0) return severityDiff;
-
-      // Tie-breaker: smallest hoursRemaining
-      const hoursA = a.predictions?.priorityComponent?.hoursRemaining ?? Infinity;
-      const hoursB = b.predictions?.priorityComponent?.hoursRemaining ?? Infinity;
-      return hoursA - hoursB;
-    });
+    return [...bikes].sort((a, b) => a.sortOrder - b.sortOrder);
   }, [bikes]);
 
   // Compute priority bike ID

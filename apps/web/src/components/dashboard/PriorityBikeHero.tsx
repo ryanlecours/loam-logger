@@ -2,21 +2,15 @@ import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { FaWrench, FaCog, FaBicycle } from 'react-icons/fa';
 import type { BikeWithPredictions } from '../../hooks/usePriorityBike';
-import { getTopDueComponents } from '../../hooks/usePriorityBike';
-import { COMPONENT_LABELS } from '../../constants/componentLabels';
-import { MAX_DISPLAYED_COMPONENTS } from '../../constants/dashboard';
 import { getBikeName } from '../../utils/formatters';
 import { StatusPill } from './StatusPill';
-import { ConfidenceTag } from './ConfidenceTag';
-import { WhyToggle } from './WhyToggle';
-import { MiniComponentList } from './MiniComponentList';
+import { ComponentHealthPanel } from './ComponentHealthPanel';
 import { Button } from '../ui/Button';
 
 interface PriorityBikeHeroProps {
   bike: BikeWithPredictions | null;
   isShowingPriority: boolean;
   onResetToPriority: () => void;
-  isPro: boolean;
   onLogService: () => void;
   loading?: boolean;
   // Admin test ride props
@@ -30,7 +24,6 @@ export function PriorityBikeHero({
   bike,
   isShowingPriority,
   onResetToPriority,
-  isPro,
   onLogService,
   loading = false,
   isAdmin = false,
@@ -83,11 +76,8 @@ export function PriorityBikeHero({
   }
 
   const predictions = bike.predictions;
-  const priorityComponent = predictions?.priorityComponent;
   const overallStatus = predictions?.overallStatus ?? 'ALL_GOOD';
-  const topDueComponents = getTopDueComponents(predictions, MAX_DISPLAYED_COMPONENTS);
-  const totalComponentCount = predictions?.components?.length ?? 0;
-  const hasMoreComponents = totalComponentCount > MAX_DISPLAYED_COMPONENTS;
+  const components = predictions?.components ?? [];
   const bikeName = getBikeName(bike);
 
   return (
@@ -129,43 +119,8 @@ export function PriorityBikeHero({
             exit={{ opacity: 0 }}
             transition={{ duration: 0.15 }}
           >
-            {/* Key line */}
-            {priorityComponent ? (
-              <div className="priority-hero-keyline">
-                <span className="priority-hero-next">
-                  Next up: {COMPONENT_LABELS[priorityComponent.componentType] ?? priorityComponent.componentType}
-                </span>
-                <span className="priority-hero-hours">
-                  {priorityComponent.hoursRemaining.toFixed(1)} hrs
-                </span>
-                <span className="priority-hero-rides">
-                  ~{priorityComponent.ridesRemainingEstimate} rides
-                </span>
-                {isPro && priorityComponent.confidence && (
-                  <ConfidenceTag level={priorityComponent.confidence} />
-                )}
-                {isPro && (
-                  <WhyToggle
-                    explanation={priorityComponent.why}
-                    drivers={priorityComponent.drivers}
-                  />
-                )}
-              </div>
-            ) : (
-              <div className="priority-hero-keyline">
-                <span className="priority-hero-next" style={{ color: 'var(--mint)' }}>
-                  All components healthy!
-                </span>
-              </div>
-            )}
-
-            {/* Mini component list */}
-            <MiniComponentList components={topDueComponents} />
-            {hasMoreComponents && (
-              <Link to={`/gear/${bike.id}`} className="show-all-components-link">
-                {totalComponentCount - MAX_DISPLAYED_COMPONENTS} more components...
-              </Link>
-            )}
+            {/* Component Health Panel */}
+            <ComponentHealthPanel components={components} />
 
             {/* Actions */}
             <div className="priority-hero-actions">

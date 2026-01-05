@@ -1,5 +1,14 @@
 import { gql } from '@apollo/client';
 
+export const UPDATE_BIKES_ORDER = gql`
+  mutation UpdateBikesOrder($bikeIds: [ID!]!) {
+    updateBikesOrder(bikeIds: $bikeIds) {
+      id
+      sortOrder
+    }
+  }
+`;
+
 export const BIKES = gql`
   query Bikes {
     bikes {
@@ -11,6 +20,7 @@ export const BIKES = gql`
       travelForkMm
       travelShockMm
       notes
+      sortOrder
       fork {
         id
         brand
