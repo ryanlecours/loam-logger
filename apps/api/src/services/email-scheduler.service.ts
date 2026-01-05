@@ -88,29 +88,30 @@ async function releaseSchedulerLock(lockValue: string | null): Promise<void> {
 async function processScheduledEmail(scheduledEmailId: string): Promise<void> {
   console.log(`[EmailScheduler] Processing scheduled email ${scheduledEmailId}`);
 
-  // CRITICAL: Atomic claim - only update if still pending
-  // This prevents race conditions where multiple instances try to process the same email
-  const claimed = await prisma.scheduledEmail.updateMany({
-    where: {
-      id: scheduledEmailId,
-      status: 'pending',
-    },
-    data: { status: 'processing' },
-  });
+  // Use transaction to atomically claim and fetch - prevents orphaned "processing" records
+  // if the record is deleted between claim and fetch
+  const scheduledEmail = await prisma.$transaction(async (tx) => {
+    // Atomic claim - only update if still pending
+    const claimed = await tx.scheduledEmail.updateMany({
+      where: {
+        id: scheduledEmailId,
+        status: 'pending',
+      },
+      data: { status: 'processing' },
+    });
 
-  if (claimed.count === 0) {
-    // Another instance already claimed this email, or it was cancelled
-    console.log(`[EmailScheduler] Email ${scheduledEmailId} already claimed or not pending, skipping`);
-    return;
-  }
+    if (claimed.count === 0) {
+      return null; // Already claimed or not pending
+    }
 
-  // Now fetch the full details
-  const scheduledEmail = await prisma.scheduledEmail.findUnique({
-    where: { id: scheduledEmailId },
+    // Fetch within same transaction - guaranteed to exist if claim succeeded
+    return tx.scheduledEmail.findUnique({
+      where: { id: scheduledEmailId },
+    });
   });
 
   if (!scheduledEmail) {
-    console.error(`[EmailScheduler] Scheduled email ${scheduledEmailId} not found after claim`);
+    console.log(`[EmailScheduler] Email ${scheduledEmailId} already claimed or not pending, skipping`);
     return;
   }
 
