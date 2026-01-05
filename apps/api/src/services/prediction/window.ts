@@ -27,7 +27,7 @@ export async function getRecentRides(
       userId,
       bikeId,
       isDuplicate: false,
-      ...(afterDate && { startTime: { gt: afterDate } }),
+      ...(afterDate && { startTime: { gte: afterDate } }),
     },
     orderBy: { startTime: 'desc' },
     take: RECENT_RIDES_TARGET,
@@ -60,7 +60,7 @@ export async function getRidesSinceDate(
     where: {
       userId,
       bikeId,
-      startTime: { gt: sinceDate },
+      startTime: { gte: sinceDate },
       isDuplicate: false,
     },
     orderBy: { startTime: 'asc' },
@@ -92,7 +92,7 @@ export async function countRidesSinceDate(
     where: {
       userId,
       bikeId,
-      startTime: { gt: sinceDate },
+      startTime: { gte: sinceDate },
       isDuplicate: false,
     },
   });
