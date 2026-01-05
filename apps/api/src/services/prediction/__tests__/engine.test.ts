@@ -12,6 +12,7 @@ jest.mock('../../../lib/prisma', () => ({
     },
     serviceLog: {
       findFirst: jest.fn(),
+      findMany: jest.fn(),
     },
     component: {
       findMany: jest.fn(),
@@ -47,6 +48,7 @@ describe('prediction engine', () => {
     nickname: 'Trail Slayer',
     manufacturer: 'Trek',
     model: 'Slash 9.9',
+    createdAt: new Date('2019-01-01'),
     components: [
       {
         id: 'comp-chain',
@@ -92,6 +94,7 @@ describe('prediction engine', () => {
         startTime: new Date('2024-01-01'),
       });
       (prisma.serviceLog.findFirst as jest.Mock).mockResolvedValue(null);
+      (prisma.serviceLog.findMany as jest.Mock).mockResolvedValue([]);
 
       const result = await generateBikePredictions({
         userId: 'user-123',
@@ -117,7 +120,7 @@ describe('prediction engine', () => {
           bikeId: 'bike-123',
           userRole: 'FREE',
         })
-      ).rejects.toThrow('Bike not found');
+      ).rejects.toThrow('Not found');
     });
 
     it('should throw for non-existent bike', async () => {
@@ -129,7 +132,7 @@ describe('prediction engine', () => {
           bikeId: 'bike-123',
           userRole: 'FREE',
         })
-      ).rejects.toThrow('Bike not found');
+      ).rejects.toThrow('Not found');
     });
   });
 
@@ -142,12 +145,31 @@ describe('prediction engine', () => {
       };
 
       // Rides that total way more than 70h (CHAIN service interval)
+      // Note: sanitizeRideMetrics caps each ride at 24 hours, so we need multiple rides
       const overdueRides: RideMetrics[] = [
         {
-          durationSeconds: 100 * 3600, // 100 hours
-          distanceMiles: 10,
-          elevationGainFeet: 1500,
+          durationSeconds: 24 * 3600, // 24 hours (max per ride)
+          distanceMiles: 50,
+          elevationGainFeet: 5000,
           startTime: new Date('2024-01-10'),
+        },
+        {
+          durationSeconds: 24 * 3600, // 24 hours
+          distanceMiles: 50,
+          elevationGainFeet: 5000,
+          startTime: new Date('2024-01-09'),
+        },
+        {
+          durationSeconds: 24 * 3600, // 24 hours
+          distanceMiles: 50,
+          elevationGainFeet: 5000,
+          startTime: new Date('2024-01-08'),
+        },
+        {
+          durationSeconds: 10 * 3600, // 10 hours - total: 82 hours > 70h interval
+          distanceMiles: 20,
+          elevationGainFeet: 2000,
+          startTime: new Date('2024-01-07'),
         },
       ];
 
@@ -157,6 +179,7 @@ describe('prediction engine', () => {
       });
       (prisma.ride.findMany as jest.Mock).mockResolvedValue(overdueRides);
       (prisma.serviceLog.findFirst as jest.Mock).mockResolvedValue(null);
+      (prisma.serviceLog.findMany as jest.Mock).mockResolvedValue([]);
       (prisma.ride.findFirst as jest.Mock).mockResolvedValue({
         startTime: new Date('2020-01-01'),
       });
@@ -183,6 +206,7 @@ describe('prediction engine', () => {
       });
       (prisma.ride.findMany as jest.Mock).mockResolvedValue([]);
       (prisma.serviceLog.findFirst as jest.Mock).mockResolvedValue(null);
+      (prisma.serviceLog.findMany as jest.Mock).mockResolvedValue([]);
       (prisma.ride.findFirst as jest.Mock).mockResolvedValue({
         startTime: new Date('2024-01-01'),
       });
@@ -202,6 +226,7 @@ describe('prediction engine', () => {
       (prisma.bike.findUnique as jest.Mock).mockResolvedValue(mockBike);
       (prisma.ride.findMany as jest.Mock).mockResolvedValue(mockRides);
       (prisma.serviceLog.findFirst as jest.Mock).mockResolvedValue(null);
+      (prisma.serviceLog.findMany as jest.Mock).mockResolvedValue([]);
       (prisma.ride.findFirst as jest.Mock).mockResolvedValue({
         startTime: new Date('2024-01-01'),
       });
@@ -221,6 +246,7 @@ describe('prediction engine', () => {
       (prisma.bike.findUnique as jest.Mock).mockResolvedValue(mockBike);
       (prisma.ride.findMany as jest.Mock).mockResolvedValue(mockRides);
       (prisma.serviceLog.findFirst as jest.Mock).mockResolvedValue(null);
+      (prisma.serviceLog.findMany as jest.Mock).mockResolvedValue([]);
       (prisma.ride.findFirst as jest.Mock).mockResolvedValue({
         startTime: new Date('2024-01-01'),
       });
@@ -240,6 +266,7 @@ describe('prediction engine', () => {
       (prisma.bike.findUnique as jest.Mock).mockResolvedValue(mockBike);
       (prisma.ride.findMany as jest.Mock).mockResolvedValue(mockRides);
       (prisma.serviceLog.findFirst as jest.Mock).mockResolvedValue(null);
+      (prisma.serviceLog.findMany as jest.Mock).mockResolvedValue([]);
       (prisma.ride.findFirst as jest.Mock).mockResolvedValue({
         startTime: new Date('2024-01-01'),
       });
@@ -284,6 +311,7 @@ describe('prediction engine', () => {
       });
       (prisma.ride.findMany as jest.Mock).mockResolvedValue([]);
       (prisma.serviceLog.findFirst as jest.Mock).mockResolvedValue(null);
+      (prisma.serviceLog.findMany as jest.Mock).mockResolvedValue([]);
       (prisma.ride.findFirst as jest.Mock).mockResolvedValue({
         startTime: new Date('2024-01-01'),
       });
@@ -304,6 +332,7 @@ describe('prediction engine', () => {
       (prisma.bike.findUnique as jest.Mock).mockResolvedValue(mockBike);
       (prisma.ride.findMany as jest.Mock).mockResolvedValue([mockRides[0]]); // Only 1 ride
       (prisma.serviceLog.findFirst as jest.Mock).mockResolvedValue(null);
+      (prisma.serviceLog.findMany as jest.Mock).mockResolvedValue([]);
       (prisma.ride.findFirst as jest.Mock).mockResolvedValue({
         startTime: new Date('2024-01-01'),
       });
