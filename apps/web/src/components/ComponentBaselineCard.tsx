@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import {
-  type BaselineMethod,
   type ComponentBaseline,
   BASELINE_WEAR_SNAP_POINTS,
 } from '@loam/shared';
