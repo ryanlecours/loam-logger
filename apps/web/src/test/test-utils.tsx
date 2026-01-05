@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import { render, type RenderOptions } from '@testing-library/react';
 import { MockedProvider, type MockedResponse } from '@apollo/client/testing';
 import { MemoryRouter } from 'react-router-dom';
