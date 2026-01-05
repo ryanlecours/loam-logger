@@ -1310,7 +1310,14 @@ export const resolvers = {
         });
       }
 
-      // Parse and validate service date
+      // SECURITY: Verify component ownership BEFORE parsing input
+      const existing = await prisma.component.findUnique({
+        where: { id },
+        select: { userId: true, bikeId: true, hoursUsed: true },
+      });
+      if (!existing || existing.userId !== userId) throw new Error('Component not found');
+
+      // Parse and validate service date AFTER authorization
       let serviceDate = new Date();
       if (performedAt) {
         serviceDate = parseISO(performedAt);
@@ -1321,12 +1328,6 @@ export const resolvers = {
           throw new Error('Service date cannot be in the future');
         }
       }
-
-      const existing = await prisma.component.findUnique({
-        where: { id },
-        select: { userId: true, bikeId: true, hoursUsed: true },
-      });
-      if (!existing || existing.userId !== userId) throw new Error('Component not found');
 
       // Invalidate prediction cache BEFORE update to prevent stale reads
       if (existing.bikeId) {
@@ -1662,8 +1663,11 @@ export const resolvers = {
       const updatedComponents = await prisma.$transaction(async (tx) => {
         const results = await Promise.all(
           input.updates.map((update) => {
-            // Clamp wear percent to 0-100
-            const wearPercent = Math.max(0, Math.min(100, update.wearPercent));
+            // Validate wearPercent bounds (reject invalid values instead of silent clamp)
+            if (update.wearPercent < 0 || update.wearPercent > 100) {
+              throw new Error(`wearPercent must be between 0 and 100, got ${update.wearPercent}`);
+            }
+            const wearPercent = update.wearPercent;
 
             // Calculate confidence based on method
             let confidence: BaselineConfidence;
