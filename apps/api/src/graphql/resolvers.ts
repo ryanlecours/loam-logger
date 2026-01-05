@@ -1656,6 +1656,10 @@ export const resolvers = {
         if (component.bikeId) {
           bikeIdsToInvalidate.add(component.bikeId);
         }
+        // Validate wearPercent bounds (reject invalid values instead of silent clamp)
+        if (update.wearPercent < 0 || update.wearPercent > 100) {
+          throw new Error(`wearPercent must be between 0 and 100, got ${update.wearPercent}`);
+        }
       }
 
       // Update all components
@@ -1663,10 +1667,6 @@ export const resolvers = {
       const updatedComponents = await prisma.$transaction(async (tx) => {
         const results = await Promise.all(
           input.updates.map((update) => {
-            // Validate wearPercent bounds (reject invalid values instead of silent clamp)
-            if (update.wearPercent < 0 || update.wearPercent > 100) {
-              throw new Error(`wearPercent must be between 0 and 100, got ${update.wearPercent}`);
-            }
             const wearPercent = update.wearPercent;
 
             // Calculate confidence based on method
