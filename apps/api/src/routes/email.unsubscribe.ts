@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { verifyUnsubscribeToken } from '../lib/unsubscribe-token';
-import { cancelPendingWelcomeEmails } from '../lib/queue/email.queue';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -31,9 +30,6 @@ router.get('/email/unsubscribe', async (req, res) => {
       where: { id: verified.userId },
       data: { emailUnsubscribed: true },
     });
-
-    // Cancel any pending welcome emails in the queue
-    await cancelPendingWelcomeEmails(verified.userId);
 
     return res.status(200).send(getSuccessPage());
   } catch (error) {

@@ -27,10 +27,6 @@ jest.mock('../../services/prediction/cache', () => ({
   invalidateBikePrediction: jest.fn().mockResolvedValue(undefined),
 }));
 
-jest.mock('../../lib/queue', () => ({
-  enqueueBikeInvalidation: jest.fn(),
-}));
-
 import { resolvers } from '../resolvers';
 import { prisma } from '../../lib/prisma';
 import { checkMutationRateLimit } from '../../lib/rate-limit';

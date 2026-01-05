@@ -1,8 +1,13 @@
 import crypto from 'crypto';
 import { prisma } from '../lib/prisma';
 import { hashPassword } from '../auth/password.utils';
-import { addEmailJob, scheduleWelcomeSeries } from '../lib/queue';
+import { sendEmail } from './email.service';
+import { getActivationEmailSubject, getActivationEmailHtml } from '../templates/emails';
+import { generateUnsubscribeToken } from '../lib/unsubscribe-token';
 import { PASSWORD_REQUIREMENTS } from '@loam/shared';
+
+const API_URL = process.env.API_URL || 'http://localhost:4000';
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 // Word list for generating memorable temporary passwords
 const WORD_LIST = [
@@ -106,40 +111,34 @@ export async function activateWaitlistUser({
     },
   });
 
-  // 4. Queue activation email and welcome series
+  // 4. Send activation email synchronously
   // If this fails, user is activated but won't receive email - return temp password for manual sharing
-  let emailQueued = false;
+  let emailSent = false;
   let returnPassword: string | undefined;
 
   try {
-    // Use addEmailJob to handle duplicates gracefully
-    const wasAdded = await addEmailJob(
-      'activation',
-      {
-        userId: user.id,
-        email: user.email,
+    const unsubscribeToken = generateUnsubscribeToken(user.id);
+    const unsubscribeUrl = `${API_URL}/api/email/unsubscribe?token=${unsubscribeToken}`;
+
+    await sendEmail({
+      to: user.email,
+      subject: getActivationEmailSubject(),
+      html: getActivationEmailHtml({
         name: user.name || undefined,
+        email: user.email,
         tempPassword,
-      },
-      {
-        jobId: `activation-${userId}`,
-      }
-    );
+        loginUrl: `${FRONTEND_URL}/login`,
+        unsubscribeUrl,
+      }),
+    });
 
-    // 5. Schedule welcome series
-    await scheduleWelcomeSeries(user.id, user.email, user.name || undefined);
-
-    emailQueued = wasAdded;
-    if (wasAdded) {
-      console.log(`[Activation] User ${user.email} activated by admin ${adminUserId}`);
-    } else {
-      console.log(`[Activation] User ${user.email} activation email already queued (duplicate ignored)`);
-    }
+    emailSent = true;
+    console.log(`[Activation] User ${user.email} activated by admin ${adminUserId}`);
   } catch (emailErr) {
     // CRITICAL: User is activated but email failed - preserve temp password for admin
     // Log the error for debugging but don't expose the password
     console.error(
-      `[Activation] CRITICAL: User ${user.email} (${userId}) activated but email queueing failed:`,
+      `[Activation] CRITICAL: User ${user.email} (${userId}) activated but email sending failed:`,
       emailErr instanceof Error ? emailErr.message : 'Unknown error'
     );
     returnPassword = tempPassword;
@@ -152,7 +151,7 @@ export async function activateWaitlistUser({
     success: true,
     userId: user.id,
     email: user.email,
-    emailQueued,
+    emailQueued: emailSent,
     ...(returnPassword ? { tempPassword: returnPassword } : {}),
   };
 }

@@ -15,20 +15,27 @@ jest.mock('../auth/password.utils', () => ({
   hashPassword: jest.fn().mockResolvedValue('hashed_password'),
 }));
 
-jest.mock('../lib/queue', () => ({
-  addEmailJob: jest.fn().mockResolvedValue(true),
-  scheduleWelcomeSeries: jest.fn().mockResolvedValue(undefined),
+jest.mock('./email.service', () => ({
+  sendEmail: jest.fn().mockResolvedValue('email-id'),
+}));
+
+jest.mock('../templates/emails', () => ({
+  getActivationEmailSubject: jest.fn().mockReturnValue('Activation Subject'),
+  getActivationEmailHtml: jest.fn().mockReturnValue('<p>Activation HTML</p>'),
+}));
+
+jest.mock('../lib/unsubscribe-token', () => ({
+  generateUnsubscribeToken: jest.fn().mockReturnValue('mock-unsubscribe-token'),
 }));
 
 // Import mocks
 import { prisma } from '../lib/prisma';
 import { hashPassword } from '../auth/password.utils';
-import { addEmailJob, scheduleWelcomeSeries } from '../lib/queue';
+import { sendEmail } from './email.service';
 
 const mockPrisma = prisma as jest.Mocked<typeof prisma>;
 const mockHashPassword = hashPassword as jest.MockedFunction<typeof hashPassword>;
-const mockAddEmailJob = addEmailJob as jest.MockedFunction<typeof addEmailJob>;
-const mockScheduleWelcomeSeries = scheduleWelcomeSeries as jest.MockedFunction<typeof scheduleWelcomeSeries>;
+const mockSendEmail = sendEmail as jest.MockedFunction<typeof sendEmail>;
 
 describe('generateTempPassword', () => {
   it('should generate a password that passes validation', () => {
@@ -92,7 +99,7 @@ describe('activateWaitlistUser', () => {
   beforeEach(() => {
     jest.clearAllMocks();
 
-    mockAddEmailJob.mockResolvedValue(true);
+    mockSendEmail.mockResolvedValue('email-id');
 
     (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue(mockUser);
     (mockPrisma.user.update as jest.Mock).mockResolvedValue({ ...mockUser, role: 'FREE' });
@@ -155,27 +162,15 @@ describe('activateWaitlistUser', () => {
     );
   });
 
-  it('should queue activation email', async () => {
+  it('should send activation email', async () => {
     await activateWaitlistUser({ userId: 'user123', adminUserId: 'admin1' });
 
-    expect(mockAddEmailJob).toHaveBeenCalledWith(
-      'activation',
+    expect(mockSendEmail).toHaveBeenCalledWith(
       expect.objectContaining({
-        userId: 'user123',
-        email: 'test@example.com',
-        name: 'Test User',
-      }),
-      { jobId: 'activation-user123' }
-    );
-  });
-
-  it('should schedule welcome series', async () => {
-    await activateWaitlistUser({ userId: 'user123', adminUserId: 'admin1' });
-
-    expect(mockScheduleWelcomeSeries).toHaveBeenCalledWith(
-      'user123',
-      'test@example.com',
-      'Test User'
+        to: 'test@example.com',
+        subject: 'Activation Subject',
+        html: '<p>Activation HTML</p>',
+      })
     );
   });
 
@@ -191,8 +186,8 @@ describe('activateWaitlistUser', () => {
     expect(result.tempPassword).toBeUndefined();
   });
 
-  it('should return tempPassword when email queueing fails', async () => {
-    mockAddEmailJob.mockRejectedValue(new Error('Redis connection failed'));
+  it('should return tempPassword when email sending fails', async () => {
+    mockSendEmail.mockRejectedValue(new Error('Email service failed'));
 
     const result = await activateWaitlistUser({ userId: 'user123', adminUserId: 'admin1' });
 
@@ -204,7 +199,7 @@ describe('activateWaitlistUser', () => {
   });
 
   it('should still activate user even if email fails', async () => {
-    mockAddEmailJob.mockRejectedValue(new Error('Redis connection failed'));
+    mockSendEmail.mockRejectedValue(new Error('Email service failed'));
 
     await activateWaitlistUser({ userId: 'user123', adminUserId: 'admin1' });
 
@@ -220,18 +215,6 @@ describe('activateWaitlistUser', () => {
 
     await activateWaitlistUser({ userId: 'user123', adminUserId: 'admin1' });
 
-    expect(mockAddEmailJob).toHaveBeenCalledWith(
-      'activation',
-      expect.objectContaining({
-        name: undefined,
-      }),
-      expect.any(Object)
-    );
-
-    expect(mockScheduleWelcomeSeries).toHaveBeenCalledWith(
-      'user123',
-      'test@example.com',
-      undefined
-    );
+    expect(mockSendEmail).toHaveBeenCalled();
   });
 });
