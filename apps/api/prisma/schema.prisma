@@ -36,6 +36,7 @@ model User {
   rides               Ride[]
   stravaGearMappings  StravaGearMapping[]
   accounts            UserAccount[]
+  emailSends          EmailSend[]
 }
 
 model OauthToken {
@@ -198,6 +199,7 @@ enum AuthProvider {
 
 enum UserRole {
   WAITLIST
+  FOUNDING_RIDERS
   FREE
   PRO
   ADMIN
@@ -251,4 +253,73 @@ enum BaselineConfidence {
   LOW
   MEDIUM
   HIGH
+}
+
+enum EmailType {
+  activation
+  welcome_series
+  announcement
+  custom
+}
+
+enum TriggerSource {
+  admin_manual
+  system_activation
+  system_welcome_series
+  scheduled
+}
+
+enum EmailStatus {
+  sent
+  failed
+  suppressed
+}
+
+model EmailSend {
+  id                String        @id @default(cuid())
+  userId            String
+  user              User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  emailType         EmailType
+  toEmail           String
+  templateVersion   String?
+  triggerSource     TriggerSource
+  createdAt         DateTime      @default(now())
+  providerMessageId String?
+  status            EmailStatus
+  failureReason     String?
+
+  @@index([userId])
+  @@index([createdAt])
+  @@index([triggerSource])
+}
+
+enum ScheduledEmailStatus {
+  pending
+  processing
+  sent
+  cancelled
+  failed
+}
+
+model ScheduledEmail {
+  id              String               @id @default(cuid())
+  subject         String
+  messageHtml     String               @db.Text
+  templateType    String               @default("announcement")
+  recipientIds    String[]
+  recipientCount  Int
+  scheduledFor    DateTime
+  status          ScheduledEmailStatus @default(pending)
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  createdBy       String
+  sentCount       Int?
+  failedCount     Int?
+  suppressedCount Int?
+  processedAt     DateTime?
+  errorMessage    String?
+
+  @@index([status])
+  @@index([scheduledFor])
+  @@index([createdBy])
 }

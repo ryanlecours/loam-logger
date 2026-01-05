@@ -9,27 +9,71 @@ interface WaitlistEntry {
   name: string | null;
   referrer: string | null;
   createdAt: string;
+  emailUnsubscribed: boolean;
 }
 
 interface UserEntry {
   id: string;
   email: string;
   name: string | null;
-  role: 'FREE' | 'PRO' | 'ADMIN';
+  role: 'FOUNDING_RIDERS' | 'FREE' | 'PRO' | 'ADMIN';
   createdAt: string;
   activatedAt: string | null;
+  emailUnsubscribed: boolean;
 }
 
 interface AdminStats {
   userCount: number;
   waitlistCount: number;
+  foundingRidersCount: number;
 }
 
 interface AddUserForm {
   email: string;
   name: string;
-  role: 'FREE' | 'PRO' | 'ADMIN';
+  role: 'FOUNDING_RIDERS' | 'FREE' | 'PRO' | 'ADMIN';
   sendActivationEmail: boolean;
+}
+
+interface EmailRecipient {
+  id: string;
+  email: string;
+  name: string | null;
+  emailUnsubscribed: boolean;
+}
+
+interface EmailForm {
+  role: 'WAITLIST' | 'FOUNDING_RIDERS';
+  templateType: 'announcement' | 'custom';
+  subject: string;
+  messageHtml: string;
+  scheduledFor: string | null;
+}
+
+interface EmailPreview {
+  subject: string;
+  html: string;
+}
+
+interface SendResult {
+  sent: number;
+  failed: number;
+  suppressed: number;
+  total: number;
+}
+
+interface ScheduledEmail {
+  id: string;
+  subject: string;
+  scheduledFor: string;
+  recipientCount: number;
+  status: 'pending' | 'processing' | 'sent' | 'cancelled' | 'failed';
+  createdAt: string;
+  sentCount?: number;
+  failedCount?: number;
+  suppressedCount?: number;
+  processedAt?: string;
+  errorMessage?: string;
 }
 
 export default function Admin() {
@@ -57,6 +101,33 @@ export default function Admin() {
     sendActivationEmail: true,
   });
 
+  // Promote state
+  const [promoting, setPromoting] = useState<string | null>(null);
+  const [bulkPromoting, setBulkPromoting] = useState(false);
+  const [selectedWaitlist, setSelectedWaitlist] = useState<Set<string>>(new Set());
+
+  // Email compose state
+  const [emailForm, setEmailForm] = useState<EmailForm>({
+    role: 'WAITLIST',
+    templateType: 'announcement',
+    subject: '',
+    messageHtml: '',
+    scheduledFor: null,
+  });
+  const [emailRecipients, setEmailRecipients] = useState<EmailRecipient[]>([]);
+  const [selectedRecipients, setSelectedRecipients] = useState<Set<string>>(new Set());
+  const [loadingRecipients, setLoadingRecipients] = useState(false);
+  const [showEmailPreview, setShowEmailPreview] = useState(false);
+  const [emailPreview, setEmailPreview] = useState<EmailPreview | null>(null);
+  const [sendingEmail, setSendingEmail] = useState(false);
+  const [sendResult, setSendResult] = useState<SendResult | null>(null);
+  const [showConfirmSend, setShowConfirmSend] = useState(false);
+
+  // Scheduled emails state
+  const [scheduledEmails, setScheduledEmails] = useState<ScheduledEmail[]>([]);
+  const [loadingScheduled, setLoadingScheduled] = useState(false);
+  const [cancellingScheduled, setCancellingScheduled] = useState<string | null>(null);
+
   const isAdmin = user?.role === 'ADMIN';
 
   useEffect(() => {
@@ -64,6 +135,7 @@ export default function Admin() {
       fetchStats();
       fetchWaitlist(1);
       fetchUsers(1);
+      fetchScheduledEmails();
     }
   }, [userLoading, isAdmin]);
 
@@ -77,6 +149,7 @@ export default function Admin() {
       setStats({
         userCount: data.users,
         waitlistCount: data.waitlist,
+        foundingRidersCount: data.foundingRiders || 0,
       });
     } catch (err) {
       console.error('Failed to fetch stats:', err);
@@ -318,12 +391,297 @@ export default function Admin() {
     }
   };
 
+  // Promote user functions
+  const handlePromote = async (userId: string, email: string) => {
+    if (!confirm(`Promote ${email} to Founding Rider? They will be able to access the app without receiving a password.`)) {
+      return;
+    }
+
+    try {
+      setPromoting(userId);
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/admin/promote/${userId}`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: getAuthHeaders(),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to promote user');
+      }
+
+      // Remove from waitlist and refresh
+      setWaitlist((prev) => prev.filter((entry) => entry.id !== userId));
+      setSelectedWaitlist((prev) => {
+        const next = new Set(prev);
+        next.delete(userId);
+        return next;
+      });
+      fetchStats();
+      fetchUsers(1);
+      alert(`${email} has been promoted to Founding Rider!`);
+    } catch (err) {
+      console.error('Promote failed:', err);
+      alert(err instanceof Error ? err.message : 'Failed to promote user');
+    } finally {
+      setPromoting(null);
+    }
+  };
+
+  const handleBulkPromote = async () => {
+    const count = selectedWaitlist.size;
+    if (count === 0) return;
+
+    if (!confirm(`Promote ${count} user(s) to Founding Riders? They will be able to access the app without receiving a password.`)) {
+      return;
+    }
+
+    try {
+      setBulkPromoting(true);
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/admin/promote/bulk`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ userIds: Array.from(selectedWaitlist) }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to promote users');
+      }
+
+      const data = await res.json();
+
+      // Remove promoted users from waitlist
+      setWaitlist((prev) => prev.filter((entry) => !selectedWaitlist.has(entry.id)));
+      setSelectedWaitlist(new Set());
+      fetchStats();
+      fetchUsers(1);
+      alert(`${data.promotedCount} user(s) promoted to Founding Riders!`);
+    } catch (err) {
+      console.error('Bulk promote failed:', err);
+      alert(err instanceof Error ? err.message : 'Failed to promote users');
+    } finally {
+      setBulkPromoting(false);
+    }
+  };
+
+  const toggleWaitlistSelection = (id: string) => {
+    setSelectedWaitlist((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const handleSelectAllWaitlist = () => {
+    setSelectedWaitlist(new Set(waitlist.map((w) => w.id)));
+  };
+
+  const handleDeselectAllWaitlist = () => {
+    setSelectedWaitlist(new Set());
+  };
+
+  // Scheduled email functions
+  const fetchScheduledEmails = async () => {
+    setLoadingScheduled(true);
+    try {
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/admin/email/scheduled`, {
+        credentials: 'include',
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setScheduledEmails(data.scheduledEmails);
+      }
+    } catch (err) {
+      console.error('Failed to fetch scheduled emails:', err);
+    } finally {
+      setLoadingScheduled(false);
+    }
+  };
+
+  const handleCancelScheduled = async (id: string) => {
+    if (!confirm('Cancel this scheduled email? This action cannot be undone.')) {
+      return;
+    }
+
+    try {
+      setCancellingScheduled(id);
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/admin/email/scheduled/${id}`, {
+        method: 'DELETE',
+        credentials: 'include',
+        headers: getAuthHeaders(),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to cancel scheduled email');
+      }
+
+      // Refresh the scheduled emails list
+      fetchScheduledEmails();
+    } catch (err) {
+      console.error('Cancel scheduled email failed:', err);
+      alert(err instanceof Error ? err.message : 'Failed to cancel scheduled email');
+    } finally {
+      setCancellingScheduled(null);
+    }
+  };
+
+  const getDefaultScheduleTime = () => {
+    const now = new Date();
+    now.setHours(now.getHours() + 1);
+    now.setMinutes(0, 0, 0);
+    return now.toISOString().slice(0, 16);
+  };
+
+  const getMinDatetime = () => {
+    return new Date().toISOString().slice(0, 16);
+  };
+
+  // Email compose functions
+  const fetchEmailRecipients = async (role: 'WAITLIST' | 'FOUNDING_RIDERS') => {
+    setLoadingRecipients(true);
+    try {
+      const res = await fetch(
+        `${import.meta.env.VITE_API_URL}/api/admin/email/recipients?role=${role}`,
+        { credentials: 'include' }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        setEmailRecipients(data.users);
+        // Pre-select all non-unsubscribed users
+        const eligibleIds = data.users
+          .filter((u: EmailRecipient) => !u.emailUnsubscribed)
+          .map((u: EmailRecipient) => u.id);
+        setSelectedRecipients(new Set(eligibleIds));
+      }
+    } catch (err) {
+      console.error('Failed to fetch recipients:', err);
+    } finally {
+      setLoadingRecipients(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isAdmin) {
+      fetchEmailRecipients(emailForm.role);
+    }
+  }, [isAdmin, emailForm.role]);
+
+  const handleSelectAll = () => {
+    const eligibleIds = emailRecipients
+      .filter((u) => !u.emailUnsubscribed)
+      .map((u) => u.id);
+    setSelectedRecipients(new Set(eligibleIds));
+  };
+
+  const handleDeselectAll = () => {
+    setSelectedRecipients(new Set());
+  };
+
+  const toggleRecipient = (id: string) => {
+    const newSet = new Set(selectedRecipients);
+    if (newSet.has(id)) {
+      newSet.delete(id);
+    } else {
+      newSet.add(id);
+    }
+    setSelectedRecipients(newSet);
+  };
+
+  const handlePreviewEmail = async () => {
+    try {
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/admin/email/preview`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          templateType: emailForm.templateType,
+          subject: emailForm.subject,
+          messageHtml: emailForm.messageHtml,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setEmailPreview(data);
+        setShowEmailPreview(true);
+      } else {
+        const data = await res.json();
+        alert(data.error || 'Failed to generate preview');
+      }
+    } catch (err) {
+      alert('Failed to generate preview');
+      console.error('Email preview failed:', err);
+    }
+  };
+
+  const handleSendEmail = async () => {
+    if (!showConfirmSend) {
+      setShowConfirmSend(true);
+      return;
+    }
+
+    setSendingEmail(true);
+    setShowConfirmSend(false);
+    setSendResult(null);
+
+    const isScheduled = !!emailForm.scheduledFor;
+    const endpoint = isScheduled
+      ? `${import.meta.env.VITE_API_URL}/api/admin/email/schedule`
+      : `${import.meta.env.VITE_API_URL}/api/admin/email/send`;
+
+    try {
+      const body: Record<string, unknown> = {
+        userIds: Array.from(selectedRecipients),
+        templateType: emailForm.templateType,
+        subject: emailForm.subject,
+        messageHtml: emailForm.messageHtml,
+      };
+
+      if (isScheduled) {
+        body.scheduledFor = new Date(emailForm.scheduledFor!).toISOString();
+      }
+
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        credentials: 'include',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        if (isScheduled) {
+          alert(`Email scheduled for ${new Date(emailForm.scheduledFor!).toLocaleString()}`);
+          setEmailForm({ ...emailForm, subject: '', messageHtml: '', scheduledFor: null });
+          fetchScheduledEmails();
+        } else {
+          setSendResult({ ...data.results, total: data.total });
+          setEmailForm({ ...emailForm, subject: '', messageHtml: '' });
+        }
+      } else {
+        alert(data.error || `Failed to ${isScheduled ? 'schedule' : 'send'} emails`);
+      }
+    } catch (err) {
+      alert(`Failed to ${isScheduled ? 'schedule' : 'send'} emails`);
+      console.error('Send email failed:', err);
+    } finally {
+      setSendingEmail(false);
+    }
+  };
+
   const getRoleBadgeColor = (role: string) => {
     switch (role) {
       case 'ADMIN':
         return 'bg-purple-600 text-purple-100';
       case 'PRO':
         return 'bg-amber-600 text-amber-100';
+      case 'FOUNDING_RIDERS':
+        return 'bg-emerald-600 text-emerald-100';
       default:
         return 'bg-blue-600 text-blue-100';
     }
@@ -360,15 +718,328 @@ export default function Admin() {
 
       {/* Stats Overview */}
       {stats && (
-        <section className="grid gap-6 md:grid-cols-2">
+        <section className="grid gap-6 md:grid-cols-3">
           <div className="panel-soft shadow-soft border border-app rounded-3xl p-6">
             <p className="text-xs uppercase tracking-[0.3em] text-muted">Total Users</p>
             <p className="text-4xl font-bold text-white">{stats.userCount}</p>
           </div>
           <div className="panel-soft shadow-soft border border-app rounded-3xl p-6">
+            <p className="text-xs uppercase tracking-[0.3em] text-muted">Founding Riders</p>
+            <p className="text-4xl font-bold text-white">{stats.foundingRidersCount}</p>
+          </div>
+          <div className="panel-soft shadow-soft border border-app rounded-3xl p-6">
             <p className="text-xs uppercase tracking-[0.3em] text-muted">Waitlist Signups</p>
             <p className="text-4xl font-bold text-white">{stats.waitlistCount}</p>
           </div>
+        </section>
+      )}
+
+      {/* Email Compose Section */}
+      <section className="panel-soft shadow-soft border border-app rounded-3xl p-6 space-y-4">
+        <div>
+          <p className="text-xs uppercase tracking-[0.3em] text-muted">Bulk Email</p>
+          <h2 className="text-xl font-semibold text-white">Send Email</h2>
+        </div>
+
+        {/* Segment Selector */}
+        <div className="space-y-2">
+          <label className="block text-sm text-muted">Recipients</label>
+          <div className="flex gap-4">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="radio"
+                name="emailRole"
+                value="WAITLIST"
+                checked={emailForm.role === 'WAITLIST'}
+                onChange={() => setEmailForm({ ...emailForm, role: 'WAITLIST' })}
+                className="text-primary"
+              />
+              <span className="text-white">Waitlist</span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="radio"
+                name="emailRole"
+                value="FOUNDING_RIDERS"
+                checked={emailForm.role === 'FOUNDING_RIDERS'}
+                onChange={() => setEmailForm({ ...emailForm, role: 'FOUNDING_RIDERS' })}
+                className="text-primary"
+              />
+              <span className="text-white">Founding Riders</span>
+            </label>
+          </div>
+        </div>
+
+        {/* Recipient List with Checkboxes */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-muted">
+              {loadingRecipients
+                ? 'Loading...'
+                : `${selectedRecipients.size} of ${emailRecipients.filter((r) => !r.emailUnsubscribed).length} selected`}
+            </span>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={handleSelectAll}
+                className="text-xs text-primary hover:underline"
+              >
+                Select All
+              </button>
+              <button
+                type="button"
+                onClick={handleDeselectAll}
+                className="text-xs text-muted hover:underline"
+              >
+                Deselect All
+              </button>
+            </div>
+          </div>
+          <div className="max-h-48 overflow-y-auto rounded-xl bg-surface-2 border border-app p-2 space-y-1">
+            {emailRecipients.map((recipient) => (
+              <label
+                key={recipient.id}
+                className={`flex items-center gap-2 p-2 rounded-lg cursor-pointer hover:bg-surface-1 ${
+                  recipient.emailUnsubscribed ? 'opacity-50 cursor-not-allowed' : ''
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={selectedRecipients.has(recipient.id)}
+                  onChange={() => toggleRecipient(recipient.id)}
+                  disabled={recipient.emailUnsubscribed}
+                  className="rounded border-app"
+                />
+                <span className="text-white text-sm">{recipient.email}</span>
+                {recipient.name && (
+                  <span className="text-muted text-sm">({recipient.name})</span>
+                )}
+                {recipient.emailUnsubscribed && (
+                  <span className="text-xs text-red-400 ml-auto">unsubscribed</span>
+                )}
+              </label>
+            ))}
+            {emailRecipients.length === 0 && !loadingRecipients && (
+              <p className="text-center text-muted py-4">No recipients in this segment</p>
+            )}
+          </div>
+        </div>
+
+        {/* Template Selector */}
+        <div>
+          <label className="block text-sm text-muted mb-1">Template</label>
+          <select
+            value={emailForm.templateType}
+            onChange={(e) =>
+              setEmailForm({
+                ...emailForm,
+                templateType: e.target.value as 'announcement' | 'custom',
+              })
+            }
+            className="w-full px-4 py-2 rounded-xl bg-surface-2 border border-app text-white focus:outline-none focus:ring-2 focus:ring-primary"
+          >
+            <option value="announcement">Announcement</option>
+            <option value="custom">Custom</option>
+          </select>
+        </div>
+
+        {/* Subject */}
+        <div>
+          <label className="block text-sm text-muted mb-1">Subject</label>
+          <input
+            type="text"
+            value={emailForm.subject}
+            onChange={(e) => setEmailForm({ ...emailForm, subject: e.target.value })}
+            className="w-full px-4 py-2 rounded-xl bg-surface-2 border border-app text-white focus:outline-none focus:ring-2 focus:ring-primary"
+            placeholder="Email subject..."
+          />
+        </div>
+
+        {/* Message Body */}
+        <div>
+          <label className="block text-sm text-muted mb-1">
+            Message Body (plain text, newlines preserved)
+          </label>
+          <textarea
+            value={emailForm.messageHtml}
+            onChange={(e) => setEmailForm({ ...emailForm, messageHtml: e.target.value })}
+            rows={8}
+            className="w-full px-4 py-2 rounded-xl bg-surface-2 border border-app text-white focus:outline-none focus:ring-2 focus:ring-primary resize-y"
+            placeholder="Your message here..."
+          />
+        </div>
+
+        {/* Schedule Option */}
+        <div className="flex flex-wrap items-center gap-4">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={!!emailForm.scheduledFor}
+              onChange={(e) =>
+                setEmailForm({
+                  ...emailForm,
+                  scheduledFor: e.target.checked ? getDefaultScheduleTime() : null,
+                })
+              }
+              className="rounded border-app"
+            />
+            <span className="text-white">Schedule for later</span>
+          </label>
+          {emailForm.scheduledFor && (
+            <input
+              type="datetime-local"
+              value={emailForm.scheduledFor}
+              onChange={(e) => setEmailForm({ ...emailForm, scheduledFor: e.target.value })}
+              min={getMinDatetime()}
+              className="px-3 py-2 rounded-xl bg-surface-2 border border-app text-white focus:outline-none focus:ring-2 focus:ring-primary"
+            />
+          )}
+        </div>
+
+        {/* Action Buttons */}
+        <div className="flex gap-3">
+          <button
+            onClick={handlePreviewEmail}
+            disabled={!emailForm.subject || !emailForm.messageHtml}
+            className="rounded-2xl px-4 py-2 text-sm font-medium text-white bg-surface-2 hover:bg-surface-2/80 border border-app transition disabled:opacity-50"
+          >
+            Preview
+          </button>
+          <button
+            onClick={handleSendEmail}
+            disabled={
+              !emailForm.subject ||
+              !emailForm.messageHtml ||
+              sendingEmail ||
+              selectedRecipients.size === 0
+            }
+            className="rounded-2xl px-4 py-2 text-sm font-medium text-black bg-primary hover:bg-primary/90 transition disabled:opacity-50"
+          >
+            {sendingEmail
+              ? emailForm.scheduledFor
+                ? 'Scheduling...'
+                : 'Sending...'
+              : showConfirmSend
+                ? `Confirm ${emailForm.scheduledFor ? 'Schedule' : 'Send'} to ${selectedRecipients.size} recipients`
+                : emailForm.scheduledFor
+                  ? 'Schedule Email'
+                  : 'Send Email'}
+          </button>
+          {showConfirmSend && (
+            <button
+              onClick={() => setShowConfirmSend(false)}
+              className="rounded-2xl px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-500 transition"
+            >
+              Cancel
+            </button>
+          )}
+        </div>
+
+        {/* Send Result */}
+        {sendResult && (
+          <div className="rounded-2xl bg-green-950/30 border border-green-600/50 p-4">
+            <p className="text-green-200">
+              Sent: {sendResult.sent} | Failed: {sendResult.failed} | Suppressed:{' '}
+              {sendResult.suppressed}
+            </p>
+          </div>
+        )}
+      </section>
+
+      {/* Preview Modal */}
+      {showEmailPreview && emailPreview && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-3xl w-full max-w-2xl max-h-[90vh] overflow-auto">
+            <div className="sticky top-0 bg-white p-4 border-b flex justify-between items-center">
+              <h3 className="font-semibold text-gray-900">Email Preview</h3>
+              <button
+                onClick={() => setShowEmailPreview(false)}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                Close
+              </button>
+            </div>
+            <div className="p-4">
+              <p className="text-sm text-gray-600 mb-2">
+                <strong>Subject:</strong> {emailPreview.subject}
+              </p>
+              <div dangerouslySetInnerHTML={{ __html: emailPreview.html }} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Scheduled Emails Section */}
+      {scheduledEmails.length > 0 && (
+        <section className="panel-soft shadow-soft border border-app rounded-3xl p-6 space-y-4">
+          <div>
+            <p className="text-xs uppercase tracking-[0.3em] text-muted">Email Queue</p>
+            <h2 className="text-xl font-semibold text-white">Scheduled Emails</h2>
+          </div>
+
+          {loadingScheduled ? (
+            <div className="flex justify-center py-4">
+              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary" />
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-app/50">
+                    <th className="text-left py-3 px-4 text-muted font-medium">Subject</th>
+                    <th className="text-left py-3 px-4 text-muted font-medium">Scheduled For</th>
+                    <th className="text-left py-3 px-4 text-muted font-medium">Recipients</th>
+                    <th className="text-left py-3 px-4 text-muted font-medium">Status</th>
+                    <th className="text-right py-3 px-4 text-muted font-medium">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {scheduledEmails.map((email) => (
+                    <tr key={email.id} className="border-b border-app/30 hover:bg-surface-2/50">
+                      <td className="py-3 px-4 text-white max-w-xs truncate">{email.subject}</td>
+                      <td className="py-3 px-4 text-muted">
+                        {new Date(email.scheduledFor).toLocaleString()}
+                      </td>
+                      <td className="py-3 px-4 text-muted">{email.recipientCount}</td>
+                      <td className="py-3 px-4">
+                        <span
+                          className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${
+                            email.status === 'pending'
+                              ? 'bg-yellow-600 text-yellow-100'
+                              : email.status === 'processing'
+                                ? 'bg-blue-600 text-blue-100'
+                                : email.status === 'sent'
+                                  ? 'bg-green-600 text-green-100'
+                                  : email.status === 'cancelled'
+                                    ? 'bg-gray-600 text-gray-100'
+                                    : 'bg-red-600 text-red-100'
+                          }`}
+                        >
+                          {email.status}
+                        </span>
+                        {email.status === 'sent' && email.sentCount !== undefined && (
+                          <span className="ml-2 text-xs text-muted">
+                            ({email.sentCount} sent, {email.failedCount || 0} failed)
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        {email.status === 'pending' && (
+                          <button
+                            onClick={() => handleCancelScheduled(email.id)}
+                            disabled={cancellingScheduled === email.id}
+                            className="rounded-xl px-3 py-1.5 text-xs font-medium text-white bg-red-600 hover:bg-red-500 transition disabled:opacity-50"
+                          >
+                            {cancellingScheduled === email.id ? 'Cancelling...' : 'Cancel'}
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </section>
       )}
 
@@ -419,10 +1090,14 @@ export default function Admin() {
                   <select
                     value={addUserForm.role}
                     onChange={(e) =>
-                      setAddUserForm({ ...addUserForm, role: e.target.value as 'FREE' | 'PRO' | 'ADMIN' })
+                      setAddUserForm({
+                        ...addUserForm,
+                        role: e.target.value as 'FOUNDING_RIDERS' | 'FREE' | 'PRO' | 'ADMIN',
+                      })
                     }
                     className="w-full px-4 py-2 rounded-xl bg-surface-2 border border-app text-white focus:outline-none focus:ring-2 focus:ring-primary"
                   >
+                    <option value="FOUNDING_RIDERS">Founding Rider</option>
                     <option value="FREE">Free</option>
                     <option value="PRO">Pro</option>
                     <option value="ADMIN">Admin</option>
@@ -477,7 +1152,14 @@ export default function Admin() {
             <tbody>
               {users.map((u) => (
                 <tr key={u.id} className="border-b border-app/30 hover:bg-surface-2/50">
-                  <td className="py-3 px-4 text-white">{u.email}</td>
+                  <td className="py-3 px-4 text-white">
+                    {u.email}
+                    {u.emailUnsubscribed && (
+                      <span className="ml-2 text-xs px-1.5 py-0.5 rounded bg-red-900/30 text-red-400">
+                        Unsubscribed
+                      </span>
+                    )}
+                  </td>
                   <td className="py-3 px-4 text-muted">{u.name || '-'}</td>
                   <td className="py-3 px-4">
                     <span
@@ -544,13 +1226,26 @@ export default function Admin() {
             <p className="text-xs uppercase tracking-[0.3em] text-muted">Beta Waitlist</p>
             <h2 className="text-xl font-semibold text-white">Email Signups</h2>
           </div>
-          <button
-            onClick={handleExport}
-            disabled={exporting}
-            className="rounded-2xl px-4 py-2 text-sm font-medium text-white bg-primary hover:bg-primary/90 transition disabled:opacity-50"
-          >
-            {exporting ? 'Exporting...' : 'Export CSV'}
-          </button>
+          <div className="flex gap-2">
+            {selectedWaitlist.size > 0 && (
+              <button
+                onClick={handleBulkPromote}
+                disabled={bulkPromoting}
+                className="rounded-2xl px-4 py-2 text-sm font-medium text-black bg-yellow-500 hover:bg-yellow-400 transition disabled:opacity-50"
+              >
+                {bulkPromoting
+                  ? 'Promoting...'
+                  : `Promote ${selectedWaitlist.size} to Founding Riders`}
+              </button>
+            )}
+            <button
+              onClick={handleExport}
+              disabled={exporting}
+              className="rounded-2xl px-4 py-2 text-sm font-medium text-white bg-primary hover:bg-primary/90 transition disabled:opacity-50"
+            >
+              {exporting ? 'Exporting...' : 'Export CSV'}
+            </button>
+          </div>
         </div>
 
         {error && (
@@ -559,10 +1254,32 @@ export default function Admin() {
           </div>
         )}
 
+        {/* Bulk selection controls */}
+        {waitlist.length > 0 && (
+          <div className="flex items-center gap-3 text-sm">
+            <span className="text-muted">
+              {selectedWaitlist.size} of {waitlist.length} selected
+            </span>
+            <button
+              onClick={handleSelectAllWaitlist}
+              className="text-primary hover:underline"
+            >
+              Select All
+            </button>
+            <button
+              onClick={handleDeselectAllWaitlist}
+              className="text-muted hover:underline"
+            >
+              Deselect All
+            </button>
+          </div>
+        )}
+
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-app/50">
+                <th className="w-10 py-3 px-4"></th>
                 <th className="text-left py-3 px-4 text-muted font-medium">Email</th>
                 <th className="text-left py-3 px-4 text-muted font-medium">Name</th>
                 <th className="text-left py-3 px-4 text-muted font-medium">Signed Up</th>
@@ -572,7 +1289,22 @@ export default function Admin() {
             <tbody>
               {waitlist.map((entry) => (
                 <tr key={entry.id} className="border-b border-app/30 hover:bg-surface-2/50">
-                  <td className="py-3 px-4 text-white">{entry.email}</td>
+                  <td className="py-3 px-4">
+                    <input
+                      type="checkbox"
+                      checked={selectedWaitlist.has(entry.id)}
+                      onChange={() => toggleWaitlistSelection(entry.id)}
+                      className="rounded border-app"
+                    />
+                  </td>
+                  <td className="py-3 px-4 text-white">
+                    {entry.email}
+                    {entry.emailUnsubscribed && (
+                      <span className="ml-2 text-xs px-1.5 py-0.5 rounded bg-red-900/30 text-red-400">
+                        Unsubscribed
+                      </span>
+                    )}
+                  </td>
                   <td className="py-3 px-4 text-muted">{entry.name || '-'}</td>
                   <td className="py-3 px-4 text-muted">
                     {new Date(entry.createdAt).toLocaleDateString()}
@@ -581,14 +1313,21 @@ export default function Admin() {
                     <div className="flex gap-2 justify-end">
                       <button
                         onClick={() => handleActivate(entry.id, entry.email)}
-                        disabled={activating === entry.id || deleting === entry.id}
+                        disabled={activating === entry.id || deleting === entry.id || promoting === entry.id}
                         className="rounded-xl px-3 py-1.5 text-xs font-medium text-white bg-green-600 hover:bg-green-500 transition disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         {activating === entry.id ? 'Activating...' : 'Activate'}
                       </button>
                       <button
+                        onClick={() => handlePromote(entry.id, entry.email)}
+                        disabled={promoting === entry.id || activating === entry.id || deleting === entry.id}
+                        className="rounded-xl px-3 py-1.5 text-xs font-medium text-black bg-yellow-500 hover:bg-yellow-400 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {promoting === entry.id ? 'Promoting...' : 'Promote'}
+                      </button>
+                      <button
                         onClick={() => handleDeleteWaitlist(entry.id, entry.email)}
-                        disabled={deleting === entry.id || activating === entry.id}
+                        disabled={deleting === entry.id || activating === entry.id || promoting === entry.id}
                         className="rounded-xl px-3 py-1.5 text-xs font-medium text-white bg-red-600 hover:bg-red-500 transition disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         {deleting === entry.id ? 'Deleting...' : 'Delete'}
