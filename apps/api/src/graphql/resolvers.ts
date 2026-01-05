@@ -426,8 +426,12 @@ async function buildBikeComponents(
   }
 
   // Batch create all components
+  // skipDuplicates handles race conditions where components may already exist
   if (componentsToCreate.length > 0) {
-    await tx.component.createMany({ data: componentsToCreate });
+    await tx.component.createMany({
+      data: componentsToCreate,
+      skipDuplicates: true,
+    });
   }
 }
 
@@ -1227,16 +1231,24 @@ export const resolvers = {
         throw new Error(`${typeName} requires a location (FRONT or REAR)`);
       }
 
-      return prisma.component.create({
-        data: {
-          ...normalizeLooseComponentInput(type, input),
-          type,
-          location: input.location ?? 'NONE',
-          bikeId: bikeId ?? null,
-          userId,
-          installedAt: new Date(),
-        },
-      });
+      try {
+        return await prisma.component.create({
+          data: {
+            ...normalizeLooseComponentInput(type, input),
+            type,
+            location: input.location ?? 'NONE',
+            bikeId: bikeId ?? null,
+            userId,
+            installedAt: new Date(),
+          },
+        });
+      } catch (error) {
+        // Handle race condition: component was created between validation and insert
+        if (error instanceof Error && error.message.includes('Unique constraint')) {
+          throw new Error('A component of this type already exists for this bike');
+        }
+        throw error;
+      }
     },
 
     updateComponent: async (
@@ -1636,10 +1648,10 @@ export const resolvers = {
 
       const componentIds = input.updates.map((u) => u.componentId);
 
-      // Verify ownership of all components
+      // Verify ownership of all components and fetch bike data for date validation
       const components = await prisma.component.findMany({
         where: { id: { in: componentIds } },
-        select: { id: true, userId: true, bikeId: true },
+        select: { id: true, userId: true, bikeId: true, bike: { select: { createdAt: true } } },
       });
 
       const componentMap = new Map(components.map((c) => [c.id, c]));
@@ -1659,6 +1671,13 @@ export const resolvers = {
         // Validate wearPercent bounds (reject invalid values instead of silent clamp)
         if (update.wearPercent < 0 || update.wearPercent > 100) {
           throw new Error(`wearPercent must be between 0 and 100, got ${update.wearPercent}`);
+        }
+        // Validate lastServicedAt is not before bike creation
+        if (update.lastServicedAt && component.bike?.createdAt) {
+          const serviceDate = parseISO(update.lastServicedAt);
+          if (!isNaN(serviceDate.getTime()) && serviceDate < component.bike.createdAt) {
+            throw new Error('Service date cannot be before the bike was added');
+          }
         }
       }
 

@@ -169,6 +169,7 @@ model Component {
   user                  User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   serviceLogs           ServiceLog[]
 
+  @@unique([bikeId, type, location], name: "unique_component_per_bike")
   @@index([userId])
   @@index([bikeId])
 }
