@@ -69,6 +69,24 @@ export const typeDefs = gql`
     SUUNTO
   }
 
+  enum AcquisitionCondition {
+    NEW
+    USED
+    MIXED
+  }
+
+  enum BaselineMethod {
+    DEFAULT
+    SLIDER
+    DATES
+  }
+
+  enum BaselineConfidence {
+    LOW
+    MEDIUM
+    HIGH
+  }
+
   enum TriggerSyncStatus {
     QUEUED
     ALREADY_QUEUED
@@ -115,6 +133,11 @@ export const typeDefs = gql`
     isStock: Boolean!
     bikeId: ID
     isSpare: Boolean!
+    baselineWearPercent: Int
+    baselineMethod: BaselineMethod!
+    baselineConfidence: BaselineConfidence!
+    baselineSetAt: String
+    lastServicedAt: String
     serviceLogs: [ServiceLog!]!
     createdAt: String!
     updatedAt: String!
@@ -173,6 +196,7 @@ export const typeDefs = gql`
     travelForkMm: Int
     travelShockMm: Int
     notes: String
+    sortOrder: Int!
     spokesId: String
     spokesUrl: String
     thumbnailUrl: String
@@ -191,6 +215,7 @@ export const typeDefs = gql`
     motorPowerW: Int
     motorTorqueNm: Int
     batteryWh: Int
+    acquisitionCondition: AcquisitionCondition
     fork: Component
     shock: Component
     dropper: Component
@@ -307,6 +332,7 @@ export const typeDefs = gql`
     motorPowerW: Int
     motorTorqueNm: Int
     batteryWh: Int
+    acquisitionCondition: AcquisitionCondition
     spokesComponents: SpokesComponentsInput
     fork: BikeComponentInput
     shock: BikeComponentInput
@@ -382,6 +408,17 @@ export const typeDefs = gql`
     performedAt: String
   }
 
+  input ComponentBaselineInput {
+    componentId: ID!
+    wearPercent: Int!
+    method: BaselineMethod!
+    lastServicedAt: String
+  }
+
+  input BulkUpdateBaselinesInput {
+    updates: [ComponentBaselineInput!]!
+  }
+
   type DeleteResult {
     ok: Boolean!
     id: ID!
@@ -394,14 +431,16 @@ export const typeDefs = gql`
     addBike(input: AddBikeInput!): Bike!
     updateBike(id: ID!, input: UpdateBikeInput!): Bike!
     deleteBike(id: ID!): DeleteResult!
+    updateBikesOrder(bikeIds: [ID!]!): [Bike!]!
     addComponent(input: AddComponentInput!, bikeId: ID): Component!
     updateComponent(id: ID!, input: UpdateComponentInput!): Component!
     deleteComponent(id: ID!): DeleteResult!
-    logComponentService(id: ID!): Component!
+    logComponentService(id: ID!, performedAt: String): Component!
     logService(input: LogServiceInput!): ServiceLog!
     createStravaGearMapping(input: CreateStravaGearMappingInput!): StravaGearMapping!
     deleteStravaGearMapping(id: ID!): DeleteResult!
     triggerProviderSync(provider: SyncProvider!): TriggerSyncResult!
+    bulkUpdateComponentBaselines(input: BulkUpdateBaselinesInput!): [Component!]!
   }
 
   type ConnectedAccount {

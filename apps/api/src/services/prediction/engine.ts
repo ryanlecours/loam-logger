@@ -129,7 +129,7 @@ function getRidesSinceDateFromContext(
   sinceDate: Date,
   ctx: PredictionContext
 ): RideMetrics[] {
-  return ctx.allRides.filter((ride) => ride.startTime > sinceDate);
+  return ctx.allRides.filter((ride) => ride.startTime >= sinceDate);
 }
 
 /**

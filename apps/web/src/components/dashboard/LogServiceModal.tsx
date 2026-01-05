@@ -23,6 +23,9 @@ export function LogServiceModal({
   defaultComponentId,
 }: LogServiceModalProps) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [serviceDate, setServiceDate] = useState(() =>
+    new Date().toISOString().split('T')[0]
+  );
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -30,7 +33,7 @@ export function LogServiceModal({
     refetchQueries: [{ query: BIKES }],
   });
 
-  // Sync selection when modal opens or defaultComponentId changes
+  // Sync selection and reset date when modal opens
   useEffect(() => {
     if (isOpen) {
       if (defaultComponentId) {
@@ -38,6 +41,7 @@ export function LogServiceModal({
       } else {
         setSelectedIds(new Set());
       }
+      setServiceDate(new Date().toISOString().split('T')[0]);
       setError(null);
     }
   }, [isOpen, defaultComponentId]);
@@ -60,10 +64,10 @@ export function LogServiceModal({
     setIsSubmitting(true);
     setError(null);
     try {
-      // Log service for each selected component
+      // Log service for each selected component with the selected date
       await Promise.all(
         Array.from(selectedIds).map((id) =>
-          logService({ variables: { id } })
+          logService({ variables: { id, performedAt: serviceDate } })
         )
       );
       onClose();
@@ -73,7 +77,7 @@ export function LogServiceModal({
     } finally {
       setIsSubmitting(false);
     }
-  }, [selectedIds, logService, onClose]);
+  }, [selectedIds, serviceDate, logService, onClose]);
 
   const handleClose = useCallback(() => {
     setError(null);
@@ -96,6 +100,20 @@ export function LogServiceModal({
         <div className="log-service-modal-bike">
           <FaWrench size={16} style={{ color: 'var(--sage)' }} />
           <span className="log-service-modal-bike-name">{bikeName}</span>
+        </div>
+
+        <div className="log-service-date-section">
+          <label className="log-service-date-label" htmlFor="service-date">
+            Service date
+          </label>
+          <input
+            id="service-date"
+            type="date"
+            value={serviceDate}
+            onChange={(e) => setServiceDate(e.target.value)}
+            max={new Date().toISOString().split('T')[0]}
+            className="log-service-date-input"
+          />
         </div>
 
         <div>

@@ -12,6 +12,7 @@ import StravaImportModal from "../components/StravaImportModal";
 import DataSourceSelector from "../components/DataSourceSelector";
 import DuplicateRidesModal from "../components/DuplicateRidesModal";
 import { useCurrentUser } from "../hooks/useCurrentUser";
+import { usePreferences } from "../hooks/usePreferences";
 import { getAuthHeaders } from "@/lib/csrf";
 
 const CONNECTED_ACCOUNTS_QUERY = gql`
@@ -33,7 +34,7 @@ export default function Settings() {
   const { data: accountsData, refetch: refetchAccounts } = useQuery(CONNECTED_ACCOUNTS_QUERY, {
     fetchPolicy: 'cache-and-network',
   });
-  const [hoursDisplay, setHoursDisplay] = useState<"total" | "remaining">("total");
+  const { hoursDisplay, setHoursDisplay } = usePreferences();
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [stravaImportModalOpen, setStravaImportModalOpen] = useState(false);

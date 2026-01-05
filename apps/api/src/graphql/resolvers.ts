@@ -12,8 +12,14 @@ import type {
 import { checkRateLimit, checkMutationRateLimit } from '../lib/rate-limit';
 import { enqueueSyncJob, enqueueBikeInvalidation, type SyncProvider } from '../lib/queue';
 import { invalidateBikePrediction } from '../services/prediction/cache';
-import { SPOKES_TO_COMPONENT_TYPE } from '@loam/shared';
+import {
+  getApplicableComponents,
+  deriveBikeSpec,
+  type BikeSpec,
+  type SpokesComponents,
+} from '@loam/shared';
 import { logError } from '../lib/logger';
+import type { AcquisitionCondition, BaselineMethod, BaselineConfidence } from '@prisma/client';
 import { getBikeById, isSpokesConfigured } from '../services/spokes';
 import { parseISO } from 'date-fns';
 
@@ -102,12 +108,24 @@ type AddBikeInputGQL = {
   motorPowerW?: number | null;
   motorTorqueNm?: number | null;
   batteryWh?: number | null;
+  acquisitionCondition?: AcquisitionCondition | null;
   spokesComponents?: SpokesComponentsInputGQL | null;
   fork?: BikeComponentInputGQL | null;
   shock?: BikeComponentInputGQL | null;
   dropper?: BikeComponentInputGQL | null;
   wheels?: BikeComponentInputGQL | null;
   pivotBearings?: BikeComponentInputGQL | null;
+};
+
+type ComponentBaselineInputGQL = {
+  componentId: string;
+  wearPercent: number;
+  method: BaselineMethod;
+  lastServicedAt?: string | null;
+};
+
+type BulkUpdateBaselinesInputGQL = {
+  updates: ComponentBaselineInputGQL[];
 };
 
 type UpdateBikeInputGQL = Partial<AddBikeInputGQL> & {
@@ -287,6 +305,132 @@ async function syncBikeComponents(
   }
 }
 
+/**
+ * Build bike components dynamically based on BikeSpec and component catalog.
+ * This replaces the old syncBikeComponents for new bike creation with baseline support.
+ */
+async function buildBikeComponents(
+  tx: Prisma.TransactionClient,
+  opts: {
+    bikeId: string;
+    userId: string;
+    bikeSpec: BikeSpec;
+    acquisitionCondition: AcquisitionCondition;
+    spokesComponents?: SpokesComponentsInputGQL | null;
+    userOverrides?: Partial<Record<BikeComponentKey, BikeComponentInputGQL | null>>;
+  }
+): Promise<void> {
+  const { bikeId, userId, bikeSpec, acquisitionCondition, spokesComponents, userOverrides } = opts;
+
+  // Determine baseline values based on acquisition condition
+  const isNew = acquisitionCondition === 'NEW';
+  const baselineWearPercent = isNew ? 0 : 50;
+  const baselineMethod: BaselineMethod = 'DEFAULT';
+  const baselineConfidence: BaselineConfidence = isNew ? 'HIGH' : 'LOW';
+  const baselineSetAt = new Date();
+
+  // Get applicable components from the catalog
+  const applicableComponents = getApplicableComponents(bikeSpec);
+
+  // Build a map of spokes data for easy lookup
+  const spokesMap: Record<string, SpokesComponentInputGQL> = {};
+  if (spokesComponents) {
+    for (const [key, data] of Object.entries(spokesComponents)) {
+      if (data) {
+        spokesMap[key] = data;
+      }
+    }
+  }
+
+  // Map user overrides by component type
+  const overridesByType: Record<string, BikeComponentInputGQL> = {};
+  if (userOverrides) {
+    for (const [key, data] of Object.entries(userOverrides)) {
+      if (data) {
+        const typeMap: Record<string, string> = {
+          fork: 'FORK',
+          shock: 'SHOCK',
+          dropper: 'DROPPER',
+          wheels: 'WHEELS',
+          pivotBearings: 'PIVOT_BEARINGS',
+        };
+        const componentType = typeMap[key];
+        if (componentType) {
+          overridesByType[componentType] = data;
+        }
+      }
+    }
+  }
+
+  // Build component data for batch creation
+  const componentsToCreate: Prisma.ComponentCreateManyInput[] = [];
+
+  for (const componentDef of applicableComponents) {
+    const { type, spokesKey, displayName } = componentDef;
+
+    // Check for user override first
+    const override = overridesByType[type];
+
+    // Get spokes data if available
+    let spokesData: SpokesComponentInputGQL | undefined;
+    if (spokesKey) {
+      spokesData = spokesMap[spokesKey];
+      // Handle seatpost/dropper special case
+      if (spokesKey === 'seatpost' && spokesData?.kind === 'dropper' && type === 'SEATPOST') {
+        // This is actually a dropper, skip SEATPOST creation
+        continue;
+      }
+    }
+
+    // Determine brand/model
+    let brand: string;
+    let model: string;
+    let notes: string | null = null;
+    let isStock = true;
+
+    if (override) {
+      // User provided override
+      const normalized = normalizeBikeComponentInput(type as ComponentType, override);
+      brand = normalized.brand;
+      model = normalized.model;
+      notes = normalized.notes;
+      isStock = normalized.isStock;
+    } else if (spokesData?.maker && spokesData?.model) {
+      // Use 99Spokes data
+      brand = spokesData.maker;
+      model = spokesData.model;
+      notes = spokesData.description ?? null;
+      isStock = true;
+    } else {
+      // Default stock component
+      brand = 'Stock';
+      model = displayName;
+      isStock = true;
+    }
+
+    componentsToCreate.push({
+      type: type as ComponentType,
+      bikeId,
+      userId,
+      brand,
+      model,
+      notes,
+      isStock,
+      hoursUsed: 0,
+      installedAt: baselineSetAt,
+      baselineWearPercent,
+      baselineMethod,
+      baselineConfidence,
+      baselineSetAt,
+    });
+  }
+
+  // Batch create all components
+  if (componentsToCreate.length > 0) {
+    await tx.component.createMany({ data: componentsToCreate });
+  }
+}
+
 const normalizeLooseComponentInput = (
   type: ComponentType,
   input: UpdateComponentInputGQL | AddComponentInputGQL,
@@ -422,7 +566,7 @@ export const resolvers = {
       const userId = requireUserId(ctx);
       return prisma.bike.findMany({
         where: { userId },
-        orderBy: { createdAt: 'desc' },
+        orderBy: { sortOrder: 'asc' },
         include: { components: true },
       });
     },
@@ -854,6 +998,15 @@ export const resolvers = {
       const motorTorqueNm = isEbike && input.motorTorqueNm != null ? Math.max(0, Math.floor(input.motorTorqueNm)) : null;
       const batteryWh = isEbike && input.batteryWh != null ? Math.max(0, Math.floor(input.batteryWh)) : null;
 
+      // Acquisition condition for baseline tracking (default to USED for backwards compatibility)
+      const acquisitionCondition: AcquisitionCondition = input.acquisitionCondition ?? 'USED';
+
+      // Derive BikeSpec for dynamic component creation
+      const bikeSpec = deriveBikeSpec(
+        { travelForkMm, travelShockMm },
+        input.spokesComponents as SpokesComponents | undefined
+      );
+
       return prisma.$transaction(async (tx) => {
         const bike = await tx.bike.create({
           data: {
@@ -881,87 +1034,26 @@ export const resolvers = {
             motorPowerW,
             motorTorqueNm,
             batteryWh,
+            acquisitionCondition,
             userId,
           },
         });
 
-        // Sync the required bike components (fork, shock, dropper, wheels, pivotBearings)
-        await syncBikeComponents(tx, {
+        // Build components dynamically based on BikeSpec and acquisition condition
+        await buildBikeComponents(tx, {
           bikeId: bike.id,
           userId,
-          components: {
+          bikeSpec,
+          acquisitionCondition,
+          spokesComponents: input.spokesComponents,
+          userOverrides: {
             fork: input.fork,
             shock: input.shock,
             dropper: input.dropper,
             wheels: input.wheels,
             pivotBearings: input.pivotBearings,
           },
-          createMissing: true,
         });
-
-        // Auto-create components from 99spokes data (batched to avoid N+1 queries)
-        if (input.spokesComponents) {
-          const spokesComps = input.spokesComponents;
-
-          // Build list of components to create
-          const componentsToCreate: Array<{
-            type: ComponentType;
-            brand: string;
-            model: string;
-            notes: string | null;
-          }> = [];
-
-          for (const [key, compData] of Object.entries(spokesComps)) {
-            if (!compData || !compData.maker || !compData.model) continue;
-
-            let componentType = SPOKES_TO_COMPONENT_TYPE[key] as ComponentType | undefined;
-            if (!componentType) continue;
-
-            // Skip types already handled by syncBikeComponents (FORK, SHOCK)
-            if (componentType === 'FORK' || componentType === 'SHOCK') continue;
-
-            // Smart dropper detection: if seatpost.kind === 'dropper', create as DROPPER
-            if (key === 'seatpost') {
-              componentType = compData.kind === 'dropper' ? 'DROPPER' : 'SEATPOST';
-            }
-
-            componentsToCreate.push({
-              type: componentType,
-              brand: compData.maker ?? 'Stock',
-              model: compData.model ?? 'Stock',
-              notes: compData.description ?? null,
-            });
-          }
-
-          if (componentsToCreate.length > 0) {
-            // Batch fetch existing component types for this bike
-            const existingComponents = await tx.component.findMany({
-              where: { bikeId: bike.id },
-              select: { type: true },
-            });
-            const existingTypes = new Set(existingComponents.map((c) => c.type));
-
-            // Filter to only components that don't exist yet
-            const toCreate = componentsToCreate
-              .filter((c) => !existingTypes.has(c.type))
-              .map((c) => ({
-                type: c.type,
-                bikeId: bike.id,
-                userId,
-                brand: c.brand,
-                model: c.model,
-                notes: c.notes,
-                isStock: true,
-                hoursUsed: 0,
-                installedAt: new Date(),
-              }));
-
-            // Batch create all missing components
-            if (toCreate.length > 0) {
-              await tx.component.createMany({ data: toCreate });
-            }
-          }
-        }
 
         return tx.bike.findUnique({
           where: { id: bike.id },
@@ -1073,6 +1165,41 @@ export const resolvers = {
       return { ok: true, id };
     },
 
+    updateBikesOrder: async (
+      _: unknown,
+      { bikeIds }: { bikeIds: string[] },
+      ctx: GraphQLContext
+    ) => {
+      const userId = requireUserId(ctx);
+
+      // Validate all bikes exist and belong to the user
+      const bikes = await prisma.bike.findMany({
+        where: { id: { in: bikeIds }, userId },
+        select: { id: true },
+      });
+
+      if (bikes.length !== bikeIds.length) {
+        throw new Error('One or more bikes not found or not owned by user');
+      }
+
+      // Update sortOrder for each bike in a transaction
+      await prisma.$transaction(
+        bikeIds.map((id, index) =>
+          prisma.bike.update({
+            where: { id },
+            data: { sortOrder: index },
+          })
+        )
+      );
+
+      // Return all bikes with updated order
+      return prisma.bike.findMany({
+        where: { userId },
+        orderBy: { sortOrder: 'asc' },
+        include: { components: true },
+      });
+    },
+
     addComponent: async (
       _: unknown,
       { input, bikeId }: { input: AddComponentInputGQL; bikeId?: string | null },
@@ -1168,7 +1295,11 @@ export const resolvers = {
       return { ok: true, id };
     },
 
-    logComponentService: async (_: unknown, { id }: { id: string }, ctx: GraphQLContext) => {
+    logComponentService: async (
+      _: unknown,
+      { id, performedAt }: { id: string; performedAt?: string | null },
+      ctx: GraphQLContext
+    ) => {
       const userId = requireUserId(ctx);
 
       // Rate limit check
@@ -1179,9 +1310,21 @@ export const resolvers = {
         });
       }
 
+      // Parse and validate service date
+      let serviceDate = new Date();
+      if (performedAt) {
+        serviceDate = parseISO(performedAt);
+        if (isNaN(serviceDate.getTime())) {
+          throw new Error('Invalid date format');
+        }
+        if (serviceDate > new Date()) {
+          throw new Error('Service date cannot be in the future');
+        }
+      }
+
       const existing = await prisma.component.findUnique({
         where: { id },
-        select: { userId: true, bikeId: true },
+        select: { userId: true, bikeId: true, hoursUsed: true },
       });
       if (!existing || existing.userId !== userId) throw new Error('Component not found');
 
@@ -1190,9 +1333,22 @@ export const resolvers = {
         await invalidateBikePrediction(userId, existing.bikeId);
       }
 
-      const updated = await prisma.component.update({
-        where: { id },
-        data: { hoursUsed: 0 },
+      // Use transaction to create service log AND reset hours atomically
+      const updated = await prisma.$transaction(async (tx) => {
+        // Create service log to record this service event
+        await tx.serviceLog.create({
+          data: {
+            componentId: id,
+            performedAt: serviceDate,
+            hoursAtService: existing.hoursUsed,
+          },
+        });
+
+        // Reset component hours
+        return tx.component.update({
+          where: { id },
+          data: { hoursUsed: 0 },
+        });
       });
 
       // Queue async backup invalidation after update
@@ -1451,6 +1607,108 @@ export const resolvers = {
         message: `${provider} sync has been queued`,
         jobId: enqueueResult.jobId,
       };
+    },
+
+    bulkUpdateComponentBaselines: async (
+      _: unknown,
+      { input }: { input: BulkUpdateBaselinesInputGQL },
+      ctx: GraphQLContext
+    ) => {
+      const userId = requireUserId(ctx);
+
+      // Rate limit check
+      const rateLimit = await checkMutationRateLimit('bulkUpdateComponentBaselines', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
+
+      if (!input.updates || input.updates.length === 0) {
+        return [];
+      }
+
+      // Limit batch size to prevent abuse
+      if (input.updates.length > 50) {
+        throw new Error('Cannot update more than 50 components at once');
+      }
+
+      const componentIds = input.updates.map((u) => u.componentId);
+
+      // Verify ownership of all components
+      const components = await prisma.component.findMany({
+        where: { id: { in: componentIds } },
+        select: { id: true, userId: true, bikeId: true },
+      });
+
+      const componentMap = new Map(components.map((c) => [c.id, c]));
+      const bikeIdsToInvalidate = new Set<string>();
+
+      for (const update of input.updates) {
+        const component = componentMap.get(update.componentId);
+        if (!component) {
+          throw new Error(`Component ${update.componentId} not found`);
+        }
+        if (component.userId !== userId) {
+          throw new Error('Unauthorized');
+        }
+        if (component.bikeId) {
+          bikeIdsToInvalidate.add(component.bikeId);
+        }
+      }
+
+      // Update all components
+      const baselineSetAt = new Date();
+      const updatedComponents = await prisma.$transaction(async (tx) => {
+        const results = await Promise.all(
+          input.updates.map((update) => {
+            // Clamp wear percent to 0-100
+            const wearPercent = Math.max(0, Math.min(100, update.wearPercent));
+
+            // Calculate confidence based on method
+            let confidence: BaselineConfidence;
+            if (update.method === 'DATES' && update.lastServicedAt) {
+              confidence = 'HIGH';
+            } else if (update.method === 'SLIDER') {
+              confidence = 'MEDIUM';
+            } else {
+              confidence = 'LOW';
+            }
+
+            // Parse lastServicedAt if provided
+            let lastServicedAt: Date | null = null;
+            if (update.lastServicedAt) {
+              lastServicedAt = parseISO(update.lastServicedAt);
+              if (isNaN(lastServicedAt.getTime())) {
+                throw new Error('Invalid lastServicedAt date format');
+              }
+              if (lastServicedAt > new Date()) {
+                throw new Error('lastServicedAt cannot be in the future');
+              }
+            }
+
+            return tx.component.update({
+              where: { id: update.componentId },
+              data: {
+                baselineWearPercent: wearPercent,
+                baselineMethod: update.method,
+                baselineConfidence: confidence,
+                baselineSetAt,
+                lastServicedAt,
+              },
+            });
+          })
+        );
+        return results;
+      });
+
+      // Invalidate prediction caches for affected bikes
+      for (const bikeId of bikeIdsToInvalidate) {
+        await invalidateBikePrediction(userId, bikeId);
+        enqueueBikeInvalidation(userId, bikeId);
+      }
+
+      return updatedComponents;
     },
   },
 
