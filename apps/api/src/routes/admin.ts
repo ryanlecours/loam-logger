@@ -20,6 +20,21 @@ import type { UserRole } from '@prisma/client';
 const API_URL = process.env.API_URL || 'http://localhost:4000';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
+// Validation helpers
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const CUID_REGEX = /^c[a-z0-9]{24}$/;
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const MAX_EMAIL_LENGTH = 255;
+const MAX_SUBJECT_LENGTH = 200;
+
+/**
+ * Validate that a value is a valid database ID (UUID or CUID format).
+ * Prevents SQL injection via malformed IDs.
+ */
+function isValidId(id: unknown): id is string {
+  return typeof id === 'string' && (UUID_REGEX.test(id) || CUID_REGEX.test(id));
+}
+
 const router = Router();
 
 // All admin routes require ADMIN role
@@ -170,8 +185,13 @@ router.post('/users', async (req, res) => {
 
     const { email, name, role = 'FREE', sendActivationEmail = false } = req.body;
 
-    // Validate email
-    if (!email || typeof email !== 'string' || !email.includes('@')) {
+    // Validate email with proper regex and length check
+    if (
+      !email ||
+      typeof email !== 'string' ||
+      email.length > MAX_EMAIL_LENGTH ||
+      !EMAIL_REGEX.test(email)
+    ) {
       return sendBadRequest(res, 'Valid email is required');
     }
 
@@ -400,42 +420,56 @@ router.post('/promote/bulk', async (req, res) => {
       return sendBadRequest(res, 'Cannot promote more than 100 users at once');
     }
 
-    // Verify all users exist and are WAITLIST
-    const users = await prisma.user.findMany({
-      where: { id: { in: userIds } },
-      select: { id: true, email: true, role: true },
-    });
-
-    const nonWaitlistUsers = users.filter((u) => u.role !== 'WAITLIST');
-    if (nonWaitlistUsers.length > 0) {
-      return sendBadRequest(
-        res,
-        `Cannot promote ${nonWaitlistUsers.length} user(s) not on waitlist`
-      );
+    // Validate all IDs are proper format (prevents injection)
+    const invalidIds = userIds.filter((id) => !isValidId(id));
+    if (invalidIds.length > 0) {
+      return sendBadRequest(res, 'Invalid user ID format');
     }
 
-    const validUserIds = users.map((u) => u.id);
+    // Use transaction to ensure atomicity of the check + update
+    const result = await prisma.$transaction(async (tx) => {
+      // Verify all users exist and are WAITLIST
+      const users = await tx.user.findMany({
+        where: { id: { in: userIds } },
+        select: { id: true, email: true, role: true },
+      });
 
-    // Promote all valid users in a transaction
-    await prisma.user.updateMany({
-      where: { id: { in: validUserIds } },
-      data: {
-        role: 'FOUNDING_RIDERS',
-        activatedAt: new Date(),
-        activatedBy: adminUserId,
-      },
+      const nonWaitlistUsers = users.filter((u) => u.role !== 'WAITLIST');
+      if (nonWaitlistUsers.length > 0) {
+        throw new Error(`Cannot promote ${nonWaitlistUsers.length} user(s) not on waitlist`);
+      }
+
+      const validUserIds = users.map((u) => u.id);
+
+      // Promote all valid users
+      await tx.user.updateMany({
+        where: { id: { in: validUserIds } },
+        data: {
+          role: 'FOUNDING_RIDERS',
+          activatedAt: new Date(),
+          activatedBy: adminUserId,
+        },
+      });
+
+      return {
+        promotedCount: validUserIds.length,
+        promotedEmails: users.map((u) => u.email),
+      };
     });
 
     console.log(
-      `[Admin] ${validUserIds.length} users promoted to FOUNDING_RIDERS by ${adminUserId}`
+      `[Admin] ${result.promotedCount} users promoted to FOUNDING_RIDERS by ${adminUserId}`
     );
 
     res.json({
       success: true,
-      promotedCount: validUserIds.length,
-      promotedEmails: users.map((u) => u.email),
+      ...result,
     });
   } catch (error) {
+    // Handle transaction validation errors separately
+    if (error instanceof Error && error.message.includes('Cannot promote')) {
+      return sendBadRequest(res, error.message);
+    }
     logError('Admin bulk promote', error);
     return sendInternalError(res, 'Failed to promote users');
   }
@@ -886,12 +920,22 @@ router.post('/email/schedule', async (req, res) => {
       return sendBadRequest(res, 'Cannot schedule email for more than 500 recipients');
     }
 
+    // Validate all IDs are proper format (prevents injection)
+    const invalidIds = userIds.filter((id) => !isValidId(id));
+    if (invalidIds.length > 0) {
+      return sendBadRequest(res, 'Invalid recipient ID format');
+    }
+
     if (!templateType || !['announcement', 'custom'].includes(templateType)) {
       return sendBadRequest(res, 'Invalid template type');
     }
 
     if (!subject || typeof subject !== 'string' || subject.trim().length === 0) {
       return sendBadRequest(res, 'Subject is required');
+    }
+
+    if (subject.trim().length > MAX_SUBJECT_LENGTH) {
+      return sendBadRequest(res, `Subject must be ${MAX_SUBJECT_LENGTH} characters or less`);
     }
 
     if (!messageHtml || typeof messageHtml !== 'string') {
@@ -1036,27 +1080,14 @@ router.get('/email/scheduled/:id', async (req, res) => {
 
 /**
  * PUT /api/admin/email/scheduled/:id
- * Update a pending scheduled email
+ * Update a pending scheduled email (atomic - only updates if still pending)
  */
 router.put('/email/scheduled/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const { subject, messageHtml, scheduledFor } = req.body;
 
-    // Find the scheduled email
-    const existing = await prisma.scheduledEmail.findUnique({
-      where: { id },
-    });
-
-    if (!existing) {
-      return sendBadRequest(res, 'Scheduled email not found');
-    }
-
-    if (existing.status !== 'pending') {
-      return sendBadRequest(res, `Cannot edit scheduled email with status: ${existing.status}`);
-    }
-
-    // Build update data
+    // Build update data with validation first
     const updateData: {
       subject?: string;
       messageHtml?: string;
@@ -1066,6 +1097,9 @@ router.put('/email/scheduled/:id', async (req, res) => {
     if (subject !== undefined) {
       if (typeof subject !== 'string' || subject.trim().length === 0) {
         return sendBadRequest(res, 'Subject cannot be empty');
+      }
+      if (subject.trim().length > MAX_SUBJECT_LENGTH) {
+        return sendBadRequest(res, `Subject must be ${MAX_SUBJECT_LENGTH} characters or less`);
       }
       updateData.subject = subject.trim();
     }
@@ -1088,10 +1122,33 @@ router.put('/email/scheduled/:id', async (req, res) => {
       updateData.scheduledFor = scheduledDate;
     }
 
-    // Update the scheduled email
-    const updated = await prisma.scheduledEmail.update({
-      where: { id },
+    // Nothing to update
+    if (Object.keys(updateData).length === 0) {
+      return sendBadRequest(res, 'No valid fields to update');
+    }
+
+    // Atomic update - only if still pending (prevents race condition with scheduler)
+    const result = await prisma.scheduledEmail.updateMany({
+      where: { id, status: 'pending' },
       data: updateData,
+    });
+
+    if (result.count === 0) {
+      // Either not found or not pending - check which
+      const existing = await prisma.scheduledEmail.findUnique({
+        where: { id },
+        select: { status: true },
+      });
+
+      if (!existing) {
+        return sendBadRequest(res, 'Scheduled email not found');
+      }
+      return sendBadRequest(res, `Cannot edit scheduled email with status: ${existing.status}`);
+    }
+
+    // Fetch updated record for response
+    const updated = await prisma.scheduledEmail.findUnique({
+      where: { id },
       select: {
         id: true,
         subject: true,

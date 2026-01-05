@@ -1,9 +1,8 @@
 import { Router } from 'express';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../lib/prisma';
 import { verifyUnsubscribeToken } from '../lib/unsubscribe-token';
 
 const router = Router();
-const prisma = new PrismaClient();
 
 /**
  * GET /api/email/unsubscribe?token=xxx
@@ -25,15 +24,33 @@ router.get('/email/unsubscribe', async (req, res) => {
   }
 
   try {
+    // Check if user exists (may have been deleted)
+    const user = await prisma.user.findUnique({
+      where: { id: verified.userId },
+      select: { id: true, email: true, emailUnsubscribed: true },
+    });
+
+    if (!user) {
+      // User deleted - show success (they're effectively unsubscribed)
+      console.log(`[Unsubscribe] User ${verified.userId} not found (likely deleted)`);
+      return res.status(200).send(getSuccessPage());
+    }
+
+    if (user.emailUnsubscribed) {
+      // Already unsubscribed - idempotent success
+      return res.status(200).send(getSuccessPage());
+    }
+
     // Update user's email preference
     await prisma.user.update({
       where: { id: verified.userId },
       data: { emailUnsubscribed: true },
     });
 
+    console.log(`[Unsubscribe] User ${user.email} unsubscribed`);
     return res.status(200).send(getSuccessPage());
   } catch (error) {
-    console.error('[Unsubscribe] Failed to update user:', error);
+    console.error('[Unsubscribe] Database error:', error);
     return res.status(500).send(getErrorPage('Something went wrong. Please try again later.'));
   }
 });
