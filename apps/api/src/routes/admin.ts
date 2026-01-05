@@ -3,10 +3,15 @@ import { prisma } from '../lib/prisma';
 import { requireAdmin } from '../auth/adminMiddleware';
 import { activateWaitlistUser, generateTempPassword } from '../services/activation.service';
 import { hashPassword } from '../auth/password.utils';
-import { addEmailJob, scheduleWelcomeSeries } from '../lib/queue';
+import { sendEmail } from '../services/email.service';
+import { getActivationEmailSubject, getActivationEmailHtml } from '../templates/emails';
+import { generateUnsubscribeToken } from '../lib/unsubscribe-token';
 import { sendUnauthorized, sendBadRequest, sendInternalError } from '../lib/api-response';
 import { checkAdminRateLimit } from '../lib/rate-limit';
 import { logError } from '../lib/logger';
+
+const API_URL = process.env.API_URL || 'http://localhost:4000';
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 const router = Router();
 
@@ -202,23 +207,27 @@ router.post('/users', async (req, res) => {
     });
 
     // Send activation email if requested
-    let emailQueued = false;
+    let emailSent = false;
     if (sendActivationEmail && tempPassword) {
       try {
-        emailQueued = await addEmailJob(
-          'activation',
-          {
-            userId: user.id,
-            email: user.email,
+        const unsubscribeToken = generateUnsubscribeToken(user.id);
+        const unsubscribeUrl = `${API_URL}/api/email/unsubscribe?token=${unsubscribeToken}`;
+
+        await sendEmail({
+          to: user.email,
+          subject: getActivationEmailSubject(),
+          html: getActivationEmailHtml({
             name: user.name || undefined,
+            email: user.email,
             tempPassword,
-          },
-          { jobId: `activation-${user.id}` }
-        );
-        await scheduleWelcomeSeries(user.id, user.email, user.name || undefined);
+            loginUrl: `${FRONTEND_URL}/login`,
+            unsubscribeUrl,
+          }),
+        });
+        emailSent = true;
         console.log(`[Admin] User ${user.email} created and activated by ${adminUserId}`);
       } catch (emailErr) {
-        console.error(`[Admin] Failed to queue activation email for ${user.email}:`, emailErr);
+        console.error(`[Admin] Failed to send activation email for ${user.email}:`, emailErr);
       }
     } else {
       console.log(`[Admin] User ${user.email} created (no email) by ${adminUserId}`);
@@ -227,9 +236,9 @@ router.post('/users', async (req, res) => {
     res.json({
       success: true,
       user,
-      emailQueued,
+      emailQueued: emailSent,
       // Only return temp password if email failed but was requested
-      ...(sendActivationEmail && !emailQueued && tempPassword ? { tempPassword } : {}),
+      ...(sendActivationEmail && !emailSent && tempPassword ? { tempPassword } : {}),
     });
   } catch (error) {
     logError('Admin create user', error);
