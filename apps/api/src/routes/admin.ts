@@ -46,11 +46,14 @@ router.use(requireAdmin);
  */
 router.get('/stats', async (_req, res) => {
   try {
-    // Single query with groupBy instead of 3 separate count queries
-    const roleCounts = await prisma.user.groupBy({
-      by: ['role'],
-      _count: { role: true },
-    });
+    // Get role counts and founding rider count in parallel
+    const [roleCounts, foundingRidersCount] = await Promise.all([
+      prisma.user.groupBy({
+        by: ['role'],
+        _count: { role: true },
+      }),
+      prisma.user.count({ where: { isFoundingRider: true } }),
+    ]);
 
     // Convert to a lookup map
     const countByRole = new Map(
@@ -59,12 +62,10 @@ router.get('/stats', async (_req, res) => {
 
     // Calculate stats from the grouped counts
     const activeUserCount =
-      (countByRole.get('FOUNDING_RIDERS') ?? 0) +
       (countByRole.get('FREE') ?? 0) +
       (countByRole.get('PRO') ?? 0) +
       (countByRole.get('ADMIN') ?? 0);
     const waitlistCount = countByRole.get('WAITLIST') ?? 0;
-    const foundingRidersCount = countByRole.get('FOUNDING_RIDERS') ?? 0;
     const proCount = countByRole.get('PRO') ?? 0;
 
     res.json({
@@ -101,6 +102,7 @@ router.get('/waitlist', async (req, res) => {
           name: true,
           createdAt: true,
           emailUnsubscribed: true,
+          isFoundingRider: true,
         },
       }),
       prisma.user.count({ where: { role: 'WAITLIST' } }),
@@ -195,8 +197,8 @@ router.post('/users', async (req, res) => {
       return sendBadRequest(res, 'Valid email is required');
     }
 
-    // Validate role
-    const validRoles = ['FOUNDING_RIDERS', 'FREE', 'PRO', 'ADMIN'];
+    // Validate role (WAITLIST users are created via signup, not admin)
+    const validRoles = ['FREE', 'PRO', 'ADMIN'];
     if (!validRoles.includes(role)) {
       return sendBadRequest(res, `Role must be one of: ${validRoles.join(', ')}`);
     }
@@ -347,22 +349,28 @@ router.post('/users/:userId/demote', async (req, res) => {
 });
 
 /**
- * POST /api/admin/promote/:userId
- * Promote a WAITLIST user to FOUNDING_RIDERS
+ * PATCH /api/admin/users/:userId/founding-rider
+ * Toggle the isFoundingRider flag for a WAITLIST user
+ * Body: { isFoundingRider: boolean }
  */
-router.post('/promote/:userId', async (req, res) => {
+router.patch('/users/:userId/founding-rider', async (req, res) => {
   try {
     const adminUserId = req.sessionUser?.uid;
     const { userId } = req.params;
+    const { isFoundingRider } = req.body;
 
     if (!adminUserId) {
       return sendUnauthorized(res);
     }
 
+    if (typeof isFoundingRider !== 'boolean') {
+      return sendBadRequest(res, 'isFoundingRider must be a boolean');
+    }
+
     // Verify user exists and is WAITLIST
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, email: true, role: true },
+      select: { id: true, email: true, role: true, isFoundingRider: true },
     });
 
     if (!user) {
@@ -370,46 +378,46 @@ router.post('/promote/:userId', async (req, res) => {
     }
 
     if (user.role !== 'WAITLIST') {
-      return sendBadRequest(res, 'User is not on waitlist');
+      return sendBadRequest(res, 'Can only toggle founding rider status for waitlist users');
     }
 
-    // Promote to FOUNDING_RIDERS
+    // Update founding rider flag
     const updated = await prisma.user.update({
       where: { id: userId },
-      data: {
-        role: 'FOUNDING_RIDERS',
-        activatedAt: new Date(),
-        activatedBy: adminUserId,
-      },
+      data: { isFoundingRider },
       select: {
         id: true,
         email: true,
         name: true,
         role: true,
+        isFoundingRider: true,
       },
     });
 
-    console.log(`[Admin] User ${user.email} promoted to FOUNDING_RIDERS by ${adminUserId}`);
+    console.log(
+      `[Admin] User ${user.email} founding rider status set to ${isFoundingRider} by ${adminUserId}`
+    );
 
     res.json({ success: true, user: updated });
   } catch (error) {
-    logError('Admin promote user', error);
-    return sendInternalError(res, 'Failed to promote user');
+    logError('Admin toggle founding rider', error);
+    return sendInternalError(res, 'Failed to update founding rider status');
   }
 });
 
 /**
- * POST /api/admin/promote/bulk
- * Promote multiple WAITLIST users to FOUNDING_RIDERS
+ * PATCH /api/admin/users/founding-rider/bulk
+ * Set isFoundingRider flag for multiple WAITLIST users
+ * Body: { userIds: string[], isFoundingRider: boolean }
  */
-router.post('/promote/bulk', async (req, res) => {
+router.patch('/users/founding-rider/bulk', async (req, res) => {
   try {
     const adminUserId = req.sessionUser?.uid;
     if (!adminUserId) {
       return sendUnauthorized(res);
     }
 
-    const { userIds } = req.body;
+    const { userIds, isFoundingRider } = req.body;
 
     // Validate input
     if (!Array.isArray(userIds) || userIds.length === 0) {
@@ -417,7 +425,11 @@ router.post('/promote/bulk', async (req, res) => {
     }
 
     if (userIds.length > 100) {
-      return sendBadRequest(res, 'Cannot promote more than 100 users at once');
+      return sendBadRequest(res, 'Cannot update more than 100 users at once');
+    }
+
+    if (typeof isFoundingRider !== 'boolean') {
+      return sendBadRequest(res, 'isFoundingRider must be a boolean');
     }
 
     // Validate all IDs are proper format (prevents injection)
@@ -436,29 +448,25 @@ router.post('/promote/bulk', async (req, res) => {
 
       const nonWaitlistUsers = users.filter((u) => u.role !== 'WAITLIST');
       if (nonWaitlistUsers.length > 0) {
-        throw new Error(`Cannot promote ${nonWaitlistUsers.length} user(s) not on waitlist`);
+        throw new Error(`Cannot update ${nonWaitlistUsers.length} user(s) not on waitlist`);
       }
 
       const validUserIds = users.map((u) => u.id);
 
-      // Promote all valid users
+      // Update founding rider flag for all valid users
       await tx.user.updateMany({
         where: { id: { in: validUserIds } },
-        data: {
-          role: 'FOUNDING_RIDERS',
-          activatedAt: new Date(),
-          activatedBy: adminUserId,
-        },
+        data: { isFoundingRider },
       });
 
       return {
-        promotedCount: validUserIds.length,
-        promotedEmails: users.map((u) => u.email),
+        updatedCount: validUserIds.length,
+        updatedEmails: users.map((u) => u.email),
       };
     });
 
     console.log(
-      `[Admin] ${result.promotedCount} users promoted to FOUNDING_RIDERS by ${adminUserId}`
+      `[Admin] ${result.updatedCount} users founding rider status set to ${isFoundingRider} by ${adminUserId}`
     );
 
     res.json({
@@ -467,11 +475,11 @@ router.post('/promote/bulk', async (req, res) => {
     });
   } catch (error) {
     // Handle transaction validation errors separately
-    if (error instanceof Error && error.message.includes('Cannot promote')) {
+    if (error instanceof Error && error.message.includes('Cannot update')) {
       return sendBadRequest(res, error.message);
     }
-    logError('Admin bulk promote', error);
-    return sendInternalError(res, 'Failed to promote users');
+    logError('Admin bulk founding rider', error);
+    return sendInternalError(res, 'Failed to update founding rider status');
   }
 });
 
@@ -570,7 +578,7 @@ router.get('/users', async (req, res) => {
 
     const [users, total] = await Promise.all([
       prisma.user.findMany({
-        where: { role: { in: ['FOUNDING_RIDERS', 'FREE', 'PRO', 'ADMIN'] } },
+        where: { role: { in: ['FREE', 'PRO', 'ADMIN'] } },
         orderBy: { createdAt: 'desc' },
         skip,
         take: limit,
@@ -582,9 +590,10 @@ router.get('/users', async (req, res) => {
           createdAt: true,
           activatedAt: true,
           emailUnsubscribed: true,
+          isFoundingRider: true,
         },
       }),
-      prisma.user.count({ where: { role: { in: ['FOUNDING_RIDERS', 'FREE', 'PRO', 'ADMIN'] } } }),
+      prisma.user.count({ where: { role: { in: ['FREE', 'PRO', 'ADMIN'] } } }),
     ]);
 
     res.json({
@@ -649,28 +658,43 @@ router.get('/waitlist/export', async (_req, res) => {
 // Email Management Endpoints
 // ============================================================================
 
-const VALID_EMAIL_ROLES: UserRole[] = ['WAITLIST', 'FOUNDING_RIDERS'];
+const VALID_EMAIL_ROLES: UserRole[] = ['WAITLIST'];
 
 /**
  * GET /api/admin/email/recipients
  * List users by role with email/name/unsubscribed status for checkbox selection
+ * Query params:
+ *   - role: UserRole (required)
+ *   - foundingRider: 'true' | 'false' (optional, filter by founding rider status)
  */
 router.get('/email/recipients', async (req, res) => {
   try {
-    const { role } = req.query;
+    const { role, foundingRider } = req.query;
 
     if (!role || !VALID_EMAIL_ROLES.includes(role as UserRole)) {
       return sendBadRequest(res, `Role must be one of: ${VALID_EMAIL_ROLES.join(', ')}`);
     }
 
+    // Build where clause with optional founding rider filter
+    const where: { role: UserRole; isFoundingRider?: boolean } = {
+      role: role as UserRole,
+    };
+
+    if (foundingRider === 'true') {
+      where.isFoundingRider = true;
+    } else if (foundingRider === 'false') {
+      where.isFoundingRider = false;
+    }
+
     const users = await prisma.user.findMany({
-      where: { role: role as UserRole },
+      where,
       orderBy: { createdAt: 'desc' },
       select: {
         id: true,
         email: true,
         name: true,
         emailUnsubscribed: true,
+        isFoundingRider: true,
       },
     });
 

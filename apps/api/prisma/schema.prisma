@@ -29,6 +29,7 @@ model User {
   mustChangePassword  Boolean             @default(false)
   activatedAt         DateTime?
   activatedBy         String?
+  isFoundingRider     Boolean             @default(false)
   emailUnsubscribed   Boolean             @default(false)
   bikes               Bike[]
   components          Component[]
@@ -199,7 +200,6 @@ enum AuthProvider {
 
 enum UserRole {
   WAITLIST
-  FOUNDING_RIDERS
   FREE
   PRO
   ADMIN

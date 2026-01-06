@@ -10,16 +10,18 @@ interface WaitlistEntry {
   referrer: string | null;
   createdAt: string;
   emailUnsubscribed: boolean;
+  isFoundingRider: boolean;
 }
 
 interface UserEntry {
   id: string;
   email: string;
   name: string | null;
-  role: 'FOUNDING_RIDERS' | 'FREE' | 'PRO' | 'ADMIN';
+  role: 'FREE' | 'PRO' | 'ADMIN';
   createdAt: string;
   activatedAt: string | null;
   emailUnsubscribed: boolean;
+  isFoundingRider: boolean;
 }
 
 interface AdminStats {
@@ -31,7 +33,7 @@ interface AdminStats {
 interface AddUserForm {
   email: string;
   name: string;
-  role: 'FOUNDING_RIDERS' | 'FREE' | 'PRO' | 'ADMIN';
+  role: 'FREE' | 'PRO' | 'ADMIN';
   sendActivationEmail: boolean;
 }
 
@@ -40,10 +42,13 @@ interface EmailRecipient {
   email: string;
   name: string | null;
   emailUnsubscribed: boolean;
+  isFoundingRider: boolean;
 }
 
+type EmailSegment = 'WAITLIST' | 'WAITLIST_FOUNDING' | 'WAITLIST_REGULAR';
+
 interface EmailForm {
-  role: 'WAITLIST' | 'FOUNDING_RIDERS';
+  segment: EmailSegment;
   templateType: 'announcement' | 'custom';
   subject: string;
   messageHtml: string;
@@ -108,7 +113,7 @@ export default function Admin() {
 
   // Email compose state
   const [emailForm, setEmailForm] = useState<EmailForm>({
-    role: 'WAITLIST',
+    segment: 'WAITLIST',
     templateType: 'announcement',
     subject: '',
     messageHtml: '',
@@ -127,6 +132,19 @@ export default function Admin() {
   const [scheduledEmails, setScheduledEmails] = useState<ScheduledEmail[]>([]);
   const [loadingScheduled, setLoadingScheduled] = useState(false);
   const [cancellingScheduled, setCancellingScheduled] = useState<string | null>(null);
+
+  // Individual email modal state
+  const [individualEmailTarget, setIndividualEmailTarget] = useState<{
+    id: string;
+    email: string;
+    name: string | null;
+  } | null>(null);
+  const [individualEmailForm, setIndividualEmailForm] = useState({
+    subject: '',
+    messageHtml: '',
+    templateType: 'announcement' as 'announcement' | 'custom',
+  });
+  const [sendingIndividualEmail, setSendingIndividualEmail] = useState(false);
 
   const isAdmin = user?.role === 'ADMIN';
 
@@ -391,76 +409,81 @@ export default function Admin() {
     }
   };
 
-  // Promote user functions
-  const handlePromote = async (userId: string, email: string) => {
-    if (!confirm(`Promote ${email} to Founding Rider? They will be able to access the app without receiving a password.`)) {
+  // Toggle founding rider status
+  const handleToggleFoundingRider = async (userId: string, email: string, currentStatus: boolean) => {
+    const newStatus = !currentStatus;
+    const action = newStatus ? 'mark as Founding Rider' : 'remove Founding Rider status from';
+    if (!confirm(`${action.charAt(0).toUpperCase() + action.slice(1)} ${email}?`)) {
       return;
     }
 
     try {
       setPromoting(userId);
-      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/admin/promote/${userId}`, {
-        method: 'POST',
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/admin/users/${userId}/founding-rider`, {
+        method: 'PATCH',
         credentials: 'include',
         headers: getAuthHeaders(),
+        body: JSON.stringify({ isFoundingRider: newStatus }),
       });
 
       if (!res.ok) {
         const data = await res.json();
-        throw new Error(data.error || 'Failed to promote user');
+        throw new Error(data.error || 'Failed to update founding rider status');
       }
 
-      // Remove from waitlist and refresh
-      setWaitlist((prev) => prev.filter((entry) => entry.id !== userId));
-      setSelectedWaitlist((prev) => {
-        const next = new Set(prev);
-        next.delete(userId);
-        return next;
-      });
+      // Update local state
+      setWaitlist((prev) =>
+        prev.map((entry) =>
+          entry.id === userId ? { ...entry, isFoundingRider: newStatus } : entry
+        )
+      );
       fetchStats();
-      fetchUsers(1);
-      alert(`${email} has been promoted to Founding Rider!`);
+      alert(`${email} ${newStatus ? 'marked as' : 'removed from'} Founding Rider!`);
     } catch (err) {
-      console.error('Promote failed:', err);
-      alert(err instanceof Error ? err.message : 'Failed to promote user');
+      console.error('Toggle founding rider failed:', err);
+      alert(err instanceof Error ? err.message : 'Failed to update founding rider status');
     } finally {
       setPromoting(null);
     }
   };
 
-  const handleBulkPromote = async () => {
+  const handleBulkToggleFoundingRider = async (setAsFoundingRider: boolean) => {
     const count = selectedWaitlist.size;
     if (count === 0) return;
 
-    if (!confirm(`Promote ${count} user(s) to Founding Riders? They will be able to access the app without receiving a password.`)) {
+    const action = setAsFoundingRider ? 'mark as Founding Riders' : 'remove Founding Rider status from';
+    if (!confirm(`${action.charAt(0).toUpperCase() + action.slice(1)} ${count} user(s)?`)) {
       return;
     }
 
     try {
       setBulkPromoting(true);
-      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/admin/promote/bulk`, {
-        method: 'POST',
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/admin/users/founding-rider/bulk`, {
+        method: 'PATCH',
         credentials: 'include',
         headers: getAuthHeaders(),
-        body: JSON.stringify({ userIds: Array.from(selectedWaitlist) }),
+        body: JSON.stringify({ userIds: Array.from(selectedWaitlist), isFoundingRider: setAsFoundingRider }),
       });
 
       if (!res.ok) {
         const data = await res.json();
-        throw new Error(data.error || 'Failed to promote users');
+        throw new Error(data.error || 'Failed to update founding rider status');
       }
 
       const data = await res.json();
 
-      // Remove promoted users from waitlist
-      setWaitlist((prev) => prev.filter((entry) => !selectedWaitlist.has(entry.id)));
+      // Update local state
+      setWaitlist((prev) =>
+        prev.map((entry) =>
+          selectedWaitlist.has(entry.id) ? { ...entry, isFoundingRider: setAsFoundingRider } : entry
+        )
+      );
       setSelectedWaitlist(new Set());
       fetchStats();
-      fetchUsers(1);
-      alert(`${data.promotedCount} user(s) promoted to Founding Riders!`);
+      alert(`${data.updatedCount} user(s) ${setAsFoundingRider ? 'marked as' : 'removed from'} Founding Riders!`);
     } catch (err) {
-      console.error('Bulk promote failed:', err);
-      alert(err instanceof Error ? err.message : 'Failed to promote users');
+      console.error('Bulk toggle founding rider failed:', err);
+      alert(err instanceof Error ? err.message : 'Failed to update founding rider status');
     } finally {
       setBulkPromoting(false);
     }
@@ -543,12 +566,24 @@ export default function Admin() {
     return new Date().toISOString().slice(0, 16);
   };
 
-  // Email compose functions
-  const fetchEmailRecipients = async (role: 'WAITLIST' | 'FOUNDING_RIDERS') => {
+  // Email compose functions - map segment to API params
+  const getEmailApiParams = (segment: EmailSegment): string => {
+    switch (segment) {
+      case 'WAITLIST':
+        return 'role=WAITLIST';
+      case 'WAITLIST_FOUNDING':
+        return 'role=WAITLIST&foundingRider=true';
+      case 'WAITLIST_REGULAR':
+        return 'role=WAITLIST&foundingRider=false';
+    }
+  };
+
+  const fetchEmailRecipients = async (segment: EmailSegment) => {
     setLoadingRecipients(true);
     try {
+      const params = getEmailApiParams(segment);
       const res = await fetch(
-        `${import.meta.env.VITE_API_URL}/api/admin/email/recipients?role=${role}`,
+        `${import.meta.env.VITE_API_URL}/api/admin/email/recipients?${params}`,
         { credentials: 'include' }
       );
       if (res.ok) {
@@ -569,9 +604,9 @@ export default function Admin() {
 
   useEffect(() => {
     if (isAdmin) {
-      fetchEmailRecipients(emailForm.role);
+      fetchEmailRecipients(emailForm.segment);
     }
-  }, [isAdmin, emailForm.role]);
+  }, [isAdmin, emailForm.segment]);
 
   const handleSelectAll = () => {
     const eligibleIds = emailRecipients
@@ -674,14 +709,57 @@ export default function Admin() {
     }
   };
 
+  // Individual email functions
+  const openIndividualEmailModal = (user: { id: string; email: string; name: string | null }) => {
+    setIndividualEmailTarget(user);
+    setIndividualEmailForm({
+      subject: '',
+      messageHtml: '',
+      templateType: 'announcement',
+    });
+  };
+
+  const closeIndividualEmailModal = () => {
+    setIndividualEmailTarget(null);
+  };
+
+  const handleSendIndividualEmail = async () => {
+    if (!individualEmailTarget) return;
+
+    setSendingIndividualEmail(true);
+    try {
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/admin/email/send`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          userIds: [individualEmailTarget.id],
+          templateType: individualEmailForm.templateType,
+          subject: individualEmailForm.subject,
+          messageHtml: individualEmailForm.messageHtml,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        alert(`Email sent to ${individualEmailTarget.email}!`);
+        closeIndividualEmailModal();
+      } else {
+        alert(data.error || 'Failed to send email');
+      }
+    } catch (err) {
+      alert('Failed to send email');
+      console.error('Individual email failed:', err);
+    } finally {
+      setSendingIndividualEmail(false);
+    }
+  };
+
   const getRoleBadgeColor = (role: string) => {
     switch (role) {
       case 'ADMIN':
         return 'bg-purple-600 text-purple-100';
       case 'PRO':
         return 'bg-amber-600 text-amber-100';
-      case 'FOUNDING_RIDERS':
-        return 'bg-emerald-600 text-emerald-100';
       default:
         return 'bg-blue-600 text-blue-100';
     }
@@ -744,28 +822,39 @@ export default function Admin() {
         {/* Segment Selector */}
         <div className="space-y-2">
           <label className="block text-sm text-muted">Recipients</label>
-          <div className="flex gap-4">
+          <div className="flex flex-wrap gap-4">
             <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="radio"
-                name="emailRole"
+                name="emailSegment"
                 value="WAITLIST"
-                checked={emailForm.role === 'WAITLIST'}
-                onChange={() => setEmailForm({ ...emailForm, role: 'WAITLIST' })}
+                checked={emailForm.segment === 'WAITLIST'}
+                onChange={() => setEmailForm({ ...emailForm, segment: 'WAITLIST' })}
                 className="text-primary"
               />
-              <span className="text-white">Waitlist</span>
+              <span className="text-white">Waitlist - All</span>
             </label>
             <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="radio"
-                name="emailRole"
-                value="FOUNDING_RIDERS"
-                checked={emailForm.role === 'FOUNDING_RIDERS'}
-                onChange={() => setEmailForm({ ...emailForm, role: 'FOUNDING_RIDERS' })}
+                name="emailSegment"
+                value="WAITLIST_FOUNDING"
+                checked={emailForm.segment === 'WAITLIST_FOUNDING'}
+                onChange={() => setEmailForm({ ...emailForm, segment: 'WAITLIST_FOUNDING' })}
                 className="text-primary"
               />
-              <span className="text-white">Founding Riders</span>
+              <span className="text-white">Waitlist - Founding Riders</span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="radio"
+                name="emailSegment"
+                value="WAITLIST_REGULAR"
+                checked={emailForm.segment === 'WAITLIST_REGULAR'}
+                onChange={() => setEmailForm({ ...emailForm, segment: 'WAITLIST_REGULAR' })}
+                className="text-primary"
+              />
+              <span className="text-white">Waitlist - Non-Founding</span>
             </label>
           </div>
         </div>
@@ -969,6 +1058,94 @@ export default function Admin() {
         </div>
       )}
 
+      {/* Individual Email Modal */}
+      {individualEmailTarget && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="panel-soft shadow-soft border border-app rounded-3xl p-6 w-full max-w-lg">
+            <div className="flex justify-between items-start mb-4">
+              <div>
+                <h3 className="text-lg font-semibold text-white">Send Email</h3>
+                <p className="text-sm text-muted">
+                  To: {individualEmailTarget.email}
+                  {individualEmailTarget.name && ` (${individualEmailTarget.name})`}
+                </p>
+              </div>
+              <button
+                onClick={closeIndividualEmailModal}
+                className="text-muted hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm text-muted mb-1">Template</label>
+                <select
+                  value={individualEmailForm.templateType}
+                  onChange={(e) =>
+                    setIndividualEmailForm({
+                      ...individualEmailForm,
+                      templateType: e.target.value as 'announcement' | 'custom',
+                    })
+                  }
+                  className="w-full px-4 py-2 rounded-xl bg-surface-2 border border-app text-white focus:outline-none focus:ring-2 focus:ring-primary"
+                >
+                  <option value="announcement">Announcement</option>
+                  <option value="custom">Custom</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm text-muted mb-1">Subject</label>
+                <input
+                  type="text"
+                  value={individualEmailForm.subject}
+                  onChange={(e) =>
+                    setIndividualEmailForm({ ...individualEmailForm, subject: e.target.value })
+                  }
+                  className="w-full px-4 py-2 rounded-xl bg-surface-2 border border-app text-white focus:outline-none focus:ring-2 focus:ring-primary"
+                  placeholder="Email subject..."
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm text-muted mb-1">Message</label>
+                <textarea
+                  value={individualEmailForm.messageHtml}
+                  onChange={(e) =>
+                    setIndividualEmailForm({ ...individualEmailForm, messageHtml: e.target.value })
+                  }
+                  rows={6}
+                  className="w-full px-4 py-2 rounded-xl bg-surface-2 border border-app text-white focus:outline-none focus:ring-2 focus:ring-primary resize-y"
+                  placeholder="Your message here..."
+                />
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  onClick={closeIndividualEmailModal}
+                  className="flex-1 rounded-2xl px-4 py-2 text-sm font-medium text-white bg-surface-2 hover:bg-surface-2/80 border border-app transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSendIndividualEmail}
+                  disabled={
+                    sendingIndividualEmail ||
+                    !individualEmailForm.subject ||
+                    !individualEmailForm.messageHtml
+                  }
+                  className="flex-1 rounded-2xl px-4 py-2 text-sm font-medium text-black bg-primary hover:bg-primary/90 transition disabled:opacity-50"
+                >
+                  {sendingIndividualEmail ? 'Sending...' : 'Send Email'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Scheduled Emails Section */}
       {scheduledEmails.length > 0 && (
         <section className="panel-soft shadow-soft border border-app rounded-3xl p-6 space-y-4">
@@ -1092,12 +1269,11 @@ export default function Admin() {
                     onChange={(e) =>
                       setAddUserForm({
                         ...addUserForm,
-                        role: e.target.value as 'FOUNDING_RIDERS' | 'FREE' | 'PRO' | 'ADMIN',
+                        role: e.target.value as 'FREE' | 'PRO' | 'ADMIN',
                       })
                     }
                     className="w-full px-4 py-2 rounded-xl bg-surface-2 border border-app text-white focus:outline-none focus:ring-2 focus:ring-primary"
                   >
-                    <option value="FOUNDING_RIDERS">Founding Rider</option>
                     <option value="FREE">Free</option>
                     <option value="PRO">Pro</option>
                     <option value="ADMIN">Admin</option>
@@ -1167,12 +1343,25 @@ export default function Admin() {
                     >
                       {u.role}
                     </span>
+                    {u.isFoundingRider && (
+                      <span className="ml-2 inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-600 text-emerald-100">
+                        Founding Rider
+                      </span>
+                    )}
                   </td>
                   <td className="py-3 px-4 text-muted">
                     {u.activatedAt ? new Date(u.activatedAt).toLocaleDateString() : '-'}
                   </td>
                   <td className="py-3 px-4 text-right">
                     <div className="flex gap-2 justify-end">
+                      <button
+                        onClick={() => openIndividualEmailModal({ id: u.id, email: u.email, name: u.name })}
+                        disabled={u.emailUnsubscribed}
+                        className="rounded-xl px-3 py-1.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-500 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                        title={u.emailUnsubscribed ? 'User has unsubscribed' : 'Send email'}
+                      >
+                        Email
+                      </button>
                       <button
                         onClick={() => handleDemoteUser(u.id, u.email)}
                         disabled={demoting === u.id || deleting === u.id || u.id === user?.id}
@@ -1228,15 +1417,22 @@ export default function Admin() {
           </div>
           <div className="flex gap-2">
             {selectedWaitlist.size > 0 && (
-              <button
-                onClick={handleBulkPromote}
-                disabled={bulkPromoting}
-                className="rounded-2xl px-4 py-2 text-sm font-medium text-black bg-yellow-500 hover:bg-yellow-400 transition disabled:opacity-50"
-              >
-                {bulkPromoting
-                  ? 'Promoting...'
-                  : `Promote ${selectedWaitlist.size} to Founding Riders`}
-              </button>
+              <>
+                <button
+                  onClick={() => handleBulkToggleFoundingRider(true)}
+                  disabled={bulkPromoting}
+                  className="rounded-2xl px-4 py-2 text-sm font-medium text-black bg-emerald-500 hover:bg-emerald-400 transition disabled:opacity-50"
+                >
+                  {bulkPromoting ? 'Updating...' : `Mark ${selectedWaitlist.size} as Founding Riders`}
+                </button>
+                <button
+                  onClick={() => handleBulkToggleFoundingRider(false)}
+                  disabled={bulkPromoting}
+                  className="rounded-2xl px-4 py-2 text-sm font-medium text-white bg-gray-600 hover:bg-gray-500 transition disabled:opacity-50"
+                >
+                  Remove Founding Rider
+                </button>
+              </>
             )}
             <button
               onClick={handleExport}
@@ -1282,6 +1478,7 @@ export default function Admin() {
                 <th className="w-10 py-3 px-4"></th>
                 <th className="text-left py-3 px-4 text-muted font-medium">Email</th>
                 <th className="text-left py-3 px-4 text-muted font-medium">Name</th>
+                <th className="text-left py-3 px-4 text-muted font-medium">Founding Rider</th>
                 <th className="text-left py-3 px-4 text-muted font-medium">Signed Up</th>
                 <th className="text-right py-3 px-4 text-muted font-medium">Action</th>
               </tr>
@@ -1306,24 +1503,38 @@ export default function Admin() {
                     )}
                   </td>
                   <td className="py-3 px-4 text-muted">{entry.name || '-'}</td>
+                  <td className="py-3 px-4">
+                    <button
+                      onClick={() => handleToggleFoundingRider(entry.id, entry.email, entry.isFoundingRider)}
+                      disabled={promoting === entry.id}
+                      className={`rounded-full px-3 py-1 text-xs font-medium transition ${
+                        entry.isFoundingRider
+                          ? 'bg-emerald-600 text-emerald-100 hover:bg-emerald-500'
+                          : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                      } disabled:opacity-50`}
+                    >
+                      {promoting === entry.id ? '...' : entry.isFoundingRider ? 'Yes' : 'No'}
+                    </button>
+                  </td>
                   <td className="py-3 px-4 text-muted">
                     {new Date(entry.createdAt).toLocaleDateString()}
                   </td>
                   <td className="py-3 px-4 text-right">
                     <div className="flex gap-2 justify-end">
                       <button
+                        onClick={() => openIndividualEmailModal({ id: entry.id, email: entry.email, name: entry.name })}
+                        disabled={entry.emailUnsubscribed}
+                        className="rounded-xl px-3 py-1.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-500 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                        title={entry.emailUnsubscribed ? 'User has unsubscribed' : 'Send email'}
+                      >
+                        Email
+                      </button>
+                      <button
                         onClick={() => handleActivate(entry.id, entry.email)}
                         disabled={activating === entry.id || deleting === entry.id || promoting === entry.id}
                         className="rounded-xl px-3 py-1.5 text-xs font-medium text-white bg-green-600 hover:bg-green-500 transition disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         {activating === entry.id ? 'Activating...' : 'Activate'}
-                      </button>
-                      <button
-                        onClick={() => handlePromote(entry.id, entry.email)}
-                        disabled={promoting === entry.id || activating === entry.id || deleting === entry.id}
-                        className="rounded-xl px-3 py-1.5 text-xs font-medium text-black bg-yellow-500 hover:bg-yellow-400 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {promoting === entry.id ? 'Promoting...' : 'Promote'}
                       </button>
                       <button
                         onClick={() => handleDeleteWaitlist(entry.id, entry.email)}
