@@ -376,7 +376,7 @@ async function processActivityEvent(event: StravaWebhookEvent): Promise<void> {
           select: { durationSeconds: true, bikeId: true, location: true },
         });
 
-        const locationUpdate = shouldApplyAutoLocation(existing?.location ?? null, autoLocation);
+        const locationUpdate = shouldApplyAutoLocation(existing?.location ?? null, autoLocation?.title ?? null);
 
         const ride = await tx.ride.upsert({
           where: {
@@ -394,7 +394,7 @@ async function processActivityEvent(event: StravaWebhookEvent): Promise<void> {
             rideType: activity.sport_type,
             notes: activity.name || null,
             bikeId,
-            location: autoLocation,
+            location: autoLocation?.title ?? null,
           },
           update: {
             startTime,

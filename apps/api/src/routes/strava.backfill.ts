@@ -202,11 +202,11 @@ r.get<Empty, void, Empty, { year?: string }>(
         // Geocode synchronously if we have coordinates
         if (lat !== null && lon !== null) {
           try {
-            const location = await reverseGeocode(lat, lon);
-            if (location) {
+            const locationResult = await reverseGeocode(lat, lon);
+            if (locationResult) {
               await prisma.ride.update({
                 where: { id: ride.id },
-                data: { location },
+                data: { location: locationResult.title },
               });
               geocodedCount++;
             }
