@@ -146,6 +146,14 @@ export default function Admin() {
   });
   const [sendingIndividualEmail, setSendingIndividualEmail] = useState(false);
 
+  // CSV import state
+  const [importing, setImporting] = useState(false);
+  const [importResults, setImportResults] = useState<{
+    imported: number;
+    skipped: number;
+    errors: Array<{ row: number; email: string; reason: string }>;
+  } | null>(null);
+
   const isAdmin = user?.role === 'ADMIN';
 
   useEffect(() => {
@@ -244,6 +252,112 @@ export default function Admin() {
       alert('Failed to export waitlist');
     } finally {
       setExporting(false);
+    }
+  };
+
+  // Parse CSV line handling quoted fields
+  const parseCSVLine = (line: string): string[] => {
+    const result: string[] = [];
+    let current = '';
+    let inQuotes = false;
+
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i];
+      if (char === '"') {
+        if (inQuotes && line[i + 1] === '"') {
+          current += '"';
+          i++; // Skip escaped quote
+        } else {
+          inQuotes = !inQuotes;
+        }
+      } else if (char === ',' && !inQuotes) {
+        result.push(current.trim());
+        current = '';
+      } else {
+        current += char;
+      }
+    }
+    result.push(current.trim());
+    return result;
+  };
+
+  const handleImportCSV = async (file: File) => {
+    try {
+      setImporting(true);
+      setImportResults(null);
+
+      const content = await file.text();
+      const lines = content.split(/\r?\n/);
+
+      if (lines.length < 2) {
+        alert('CSV file is empty or has no data rows');
+        return;
+      }
+
+      // Parse header to find column indices
+      const header = parseCSVLine(lines[0]).map((h) => h.toLowerCase());
+      const emailIdx = header.findIndex((h) => h.includes('email'));
+      const nameIdx = header.findIndex((h) => h.includes('name'));
+      const signedUpIdx = header.findIndex((h) => h.includes('signed up') || h.includes('signedup'));
+
+      if (emailIdx === -1) {
+        alert('CSV must have an "Email" column');
+        return;
+      }
+
+      // Parse data rows
+      const users: Array<{ email: string; name?: string; signedUp?: string }> = [];
+      for (let i = 1; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line) continue;
+
+        const fields = parseCSVLine(line);
+        const email = fields[emailIdx]?.trim();
+        if (!email) continue;
+
+        users.push({
+          email,
+          name: nameIdx >= 0 ? fields[nameIdx]?.trim() || undefined : undefined,
+          signedUp: signedUpIdx >= 0 ? fields[signedUpIdx]?.trim() || undefined : undefined,
+        });
+      }
+
+      if (users.length === 0) {
+        alert('No valid users found in CSV');
+        return;
+      }
+
+      // Send to API
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/admin/waitlist/import`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ users }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to import');
+      }
+
+      setImportResults(data);
+
+      // Refresh waitlist if any users were imported
+      if (data.imported > 0) {
+        fetchWaitlist(1);
+        fetchStats();
+      }
+
+      // Show summary alert
+      let message = `Import complete: ${data.imported} imported`;
+      if (data.skipped > 0) message += `, ${data.skipped} skipped (duplicates)`;
+      if (data.errors.length > 0) message += `, ${data.errors.length} failed`;
+      alert(message);
+    } catch (err) {
+      console.error('Import failed:', err);
+      alert(err instanceof Error ? err.message : 'Failed to import waitlist');
+    } finally {
+      setImporting(false);
     }
   };
 
@@ -1447,8 +1561,67 @@ export default function Admin() {
             >
               {exporting ? 'Exporting...' : 'Export CSV'}
             </button>
+            <input
+              type="file"
+              id="csv-import"
+              accept=".csv"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) {
+                  handleImportCSV(file);
+                  e.target.value = ''; // Reset to allow re-importing same file
+                }
+              }}
+            />
+            <button
+              onClick={() => document.getElementById('csv-import')?.click()}
+              disabled={importing}
+              className="rounded-2xl px-4 py-2 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-500 transition disabled:opacity-50"
+            >
+              {importing ? 'Importing...' : 'Import CSV'}
+            </button>
           </div>
         </div>
+
+        {/* Import results summary */}
+        {importResults && (
+          <div className="rounded-2xl bg-surface-2/50 border border-app/50 p-4">
+            <p className="text-white font-medium mb-2">Import Results</p>
+            <div className="flex gap-4 text-sm">
+              <span className="text-emerald-400">{importResults.imported} imported</span>
+              {importResults.skipped > 0 && (
+                <span className="text-yellow-400">{importResults.skipped} skipped (duplicates)</span>
+              )}
+              {importResults.errors.length > 0 && (
+                <span className="text-red-400">{importResults.errors.length} failed</span>
+              )}
+            </div>
+            {importResults.errors.length > 0 && (
+              <details className="mt-2">
+                <summary className="text-muted text-sm cursor-pointer hover:text-white">
+                  View errors
+                </summary>
+                <ul className="mt-2 text-xs text-red-300 space-y-1">
+                  {importResults.errors.slice(0, 10).map((err, idx) => (
+                    <li key={idx}>
+                      Row {err.row}: {err.email || '(no email)'} - {err.reason}
+                    </li>
+                  ))}
+                  {importResults.errors.length > 10 && (
+                    <li className="text-muted">...and {importResults.errors.length - 10} more</li>
+                  )}
+                </ul>
+              </details>
+            )}
+            <button
+              onClick={() => setImportResults(null)}
+              className="mt-2 text-xs text-muted hover:text-white"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
 
         {error && (
           <div className="rounded-2xl bg-red-950/30 border border-red-600/50 p-4">

@@ -662,6 +662,141 @@ router.get('/waitlist/export', async (_req, res) => {
   }
 });
 
+/**
+ * POST /api/admin/waitlist/import
+ * Import waitlist users from CSV data
+ * Body: { users: Array<{ email: string; name?: string; signedUp?: string }> }
+ */
+router.post('/waitlist/import', async (req, res) => {
+  try {
+    const adminUserId = req.sessionUser?.uid;
+    if (!adminUserId) {
+      return sendUnauthorized(res);
+    }
+
+    // Rate limit to prevent abuse
+    const rateLimit = await checkAdminRateLimit('importWaitlist', adminUserId);
+    if (!rateLimit.allowed) {
+      res.setHeader('Retry-After', rateLimit.retryAfter.toString());
+      return res.status(429).json({
+        success: false,
+        error: 'Please wait before importing again',
+        retryAfter: rateLimit.retryAfter,
+      });
+    }
+
+    const { users } = req.body;
+
+    // Validate input
+    if (!Array.isArray(users) || users.length === 0) {
+      return sendBadRequest(res, 'At least one user is required');
+    }
+
+    if (users.length > 500) {
+      return sendBadRequest(res, 'Cannot import more than 500 users at once');
+    }
+
+    // Process and validate each row
+    const results = {
+      imported: 0,
+      skipped: 0,
+      errors: [] as Array<{ row: number; email: string; reason: string }>,
+    };
+
+    // Get all existing emails in one query for efficiency
+    const inputEmails = users
+      .map((u) => (typeof u.email === 'string' ? u.email.toLowerCase().trim() : ''))
+      .filter((e) => e);
+
+    const existingUsers = await prisma.user.findMany({
+      where: { email: { in: inputEmails } },
+      select: { email: true },
+    });
+    const existingEmailSet = new Set(existingUsers.map((u) => u.email));
+
+    // Track emails we're about to create to handle duplicates within the CSV
+    const seenEmails = new Set<string>();
+
+    // Prepare valid users for batch creation
+    const usersToCreate: Array<{
+      email: string;
+      name: string | null;
+      role: 'WAITLIST';
+      createdAt: Date;
+    }> = [];
+
+    for (let i = 0; i < users.length; i++) {
+      const row = i + 1; // 1-indexed for user-friendly messages
+      const user = users[i];
+
+      // Validate email
+      if (!user.email || typeof user.email !== 'string') {
+        results.errors.push({ row, email: '', reason: 'Missing email' });
+        continue;
+      }
+
+      const email = user.email.toLowerCase().trim();
+
+      if (email.length > MAX_EMAIL_LENGTH || !EMAIL_REGEX.test(email)) {
+        results.errors.push({ row, email, reason: 'Invalid email format' });
+        continue;
+      }
+
+      // Check for duplicates in existing database
+      if (existingEmailSet.has(email)) {
+        results.skipped++;
+        continue;
+      }
+
+      // Check for duplicates within this import
+      if (seenEmails.has(email)) {
+        results.skipped++;
+        continue;
+      }
+
+      seenEmails.add(email);
+
+      // Parse signedUp date if provided
+      let createdAt = new Date();
+      if (user.signedUp && typeof user.signedUp === 'string') {
+        const parsed = new Date(user.signedUp);
+        if (!isNaN(parsed.getTime())) {
+          createdAt = parsed;
+        }
+      }
+
+      usersToCreate.push({
+        email,
+        name: user.name?.trim() || null,
+        role: 'WAITLIST',
+        createdAt,
+      });
+    }
+
+    // Batch create all valid users
+    if (usersToCreate.length > 0) {
+      await prisma.user.createMany({
+        data: usersToCreate,
+        skipDuplicates: true, // Safety net for race conditions
+      });
+      results.imported = usersToCreate.length;
+    }
+
+    console.log(
+      `[Admin] Waitlist import by ${adminUserId}: ` +
+        `imported=${results.imported}, skipped=${results.skipped}, errors=${results.errors.length}`
+    );
+
+    res.json({
+      success: true,
+      ...results,
+    });
+  } catch (error) {
+    logError('Admin waitlist import', error);
+    return sendInternalError(res, 'Failed to import waitlist');
+  }
+});
+
 // ============================================================================
 // Email Management Endpoints
 // ============================================================================
