@@ -266,12 +266,20 @@ router.post('/users', async (req, res) => {
       console.log(`[Admin] User ${user.email} created (no email) by ${adminUserId}`);
     }
 
+    // Build response with clear warning if email failed
+    const emailFailed = sendActivationEmail && !emailSent;
     res.json({
       success: true,
       user,
       emailQueued: emailSent,
-      // Only return temp password if email failed but was requested
-      ...(sendActivationEmail && !emailSent && tempPassword ? { tempPassword } : {}),
+      // Return temp password and warning if email failed
+      ...(emailFailed && tempPassword
+        ? {
+            tempPassword,
+            warning:
+              'Activation email failed to send. Please share this temporary password with the user manually.',
+          }
+        : {}),
     });
   } catch (error) {
     logError('Admin create user', error);

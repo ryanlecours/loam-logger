@@ -309,7 +309,13 @@ export default function Admin() {
       if (data.emailQueued) {
         alert(`User ${data.user.email} created! Activation email sent.`);
       } else if (data.tempPassword) {
-        alert(`User created! Email failed to send.\n\nTemp password: ${data.tempPassword}`);
+        // Email failed - show warning with temp password for manual sharing
+        alert(
+          `⚠️ User ${data.user.email} created, but activation email FAILED to send.\n\n` +
+            `Please share this temporary password with the user manually:\n\n` +
+            `${data.tempPassword}\n\n` +
+            `The user must change this password on first login.`
+        );
       } else {
         alert(`User ${data.user.email} created successfully!`);
       }
