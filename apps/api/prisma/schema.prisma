@@ -335,5 +335,4 @@ model GeoCache {
   createdAt DateTime @default(now())
 
   @@unique([lat, lon])
-  @@index([lat, lon])
 }

@@ -184,16 +184,33 @@ describe('reverseGeocode', () => {
   });
 
   describe('caching', () => {
-    it('should return cached result from DB', async () => {
+    it('should return cached JSON result with preserved quality', async () => {
+      // New format: JSON with title and quality
       mockGeoCache.findUnique.mockResolvedValue({
-        location: 'Denver, CO',
+        location: JSON.stringify({ title: 'Denver, CO', quality: 'med' }),
       });
 
       const result = await reverseGeocode(39.7392, -104.9903);
 
       expect(result).toEqual({
         title: 'Denver, CO',
-        quality: 'high',
+        quality: 'med',
+        source: 'nominatim',
+      });
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('should return cached legacy plain text with med quality', async () => {
+      // Legacy format: plain text (backward compatibility)
+      mockGeoCache.findUnique.mockResolvedValue({
+        location: 'Legacy Location',
+      });
+
+      const result = await reverseGeocode(39.74, -104.99);
+
+      expect(result).toEqual({
+        title: 'Legacy Location',
+        quality: 'med',
         source: 'nominatim',
       });
       expect(mockFetch).not.toHaveBeenCalled();
@@ -211,7 +228,7 @@ describe('reverseGeocode', () => {
       expect(mockFetch).not.toHaveBeenCalled();
     });
 
-    it('should cache successful result in DB', async () => {
+    it('should cache result as JSON with title and quality', async () => {
       mockFetch.mockResolvedValue({
         ok: true,
         json: () => Promise.resolve({
@@ -225,11 +242,36 @@ describe('reverseGeocode', () => {
 
       await reverseGeocode(48.8566, 2.3522);
 
-      // Paris without state returns just "Paris" (city only, no state abbreviation)
+      // Paris without state returns just "Paris" with medium quality, cached as JSON
       expect(mockGeoCache.upsert).toHaveBeenCalledWith(
         expect.objectContaining({
           create: expect.objectContaining({
-            location: 'Paris',
+            location: JSON.stringify({ title: 'Paris', quality: 'med' }),
+          }),
+        })
+      );
+    });
+
+    it('should cache high quality result when POI is present', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          name: 'Test Park',
+          category: 'leisure',
+          address: {
+            city: 'Test City',
+            state: 'Colorado',
+            country_code: 'us',
+          },
+        }),
+      } as Response);
+
+      await reverseGeocode(40.001, -105.001);
+
+      expect(mockGeoCache.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          create: expect.objectContaining({
+            location: JSON.stringify({ title: 'Test Park · Test City, CO', quality: 'high' }),
           }),
         })
       );
@@ -661,7 +703,7 @@ describe('reverseGeocode', () => {
   describe('coordinate rounding for cache', () => {
     it('should round coordinates to 3 decimal places', async () => {
       mockGeoCache.findUnique.mockResolvedValue({
-        location: 'Cached Location',
+        location: JSON.stringify({ title: 'Cached Location', quality: 'med' }),
       });
 
       // Use coordinates unique to this test to avoid in-memory cache hits

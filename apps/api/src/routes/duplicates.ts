@@ -197,12 +197,28 @@ r.post('/duplicates/scan', async (req: Request, res: Response) => {
     const garminRides = allRides.filter(r => r.garminActivityId);
     const stravaRides = allRides.filter(r => r.stravaActivityId);
 
+    // Index Strava rides by 10-minute time buckets for O(1) lookup
+    const BUCKET_MS = 10 * 60 * 1000;
+    const stravaByBucket = new Map<number, typeof stravaRides>();
+    for (const ride of stravaRides) {
+      const bucket = Math.floor(ride.startTime.getTime() / BUCKET_MS);
+      if (!stravaByBucket.has(bucket)) stravaByBucket.set(bucket, []);
+      stravaByBucket.get(bucket)!.push(ride);
+    }
+
     const duplicatePairs: Array<{ primaryId: string; duplicateId: string }> = [];
     const matchedStravaIds = new Set<string>();
 
-    // Compare each Garmin ride against Strava rides
+    // Compare each Garmin ride only against Strava rides in same/adjacent time buckets
     for (const garminRide of garminRides) {
-      for (const stravaRide of stravaRides) {
+      const bucket = Math.floor(garminRide.startTime.getTime() / BUCKET_MS);
+      const candidates = [
+        ...(stravaByBucket.get(bucket - 1) ?? []),
+        ...(stravaByBucket.get(bucket) ?? []),
+        ...(stravaByBucket.get(bucket + 1) ?? []),
+      ];
+
+      for (const stravaRide of candidates) {
         // Skip if this Strava ride is already matched
         if (matchedStravaIds.has(stravaRide.id)) continue;
 
@@ -217,15 +233,30 @@ r.post('/duplicates/scan', async (req: Request, res: Response) => {
       }
     }
 
-    // Update database with duplicate relationships
+    // Filter out invalid pairs (self-references and cycles) before updating
+    const validPairs: typeof duplicatePairs = [];
     for (const pair of duplicatePairs) {
-      await prisma.ride.update({
-        where: { id: pair.duplicateId },
-        data: {
-          isDuplicate: true,
-          duplicateOfId: pair.primaryId,
-        },
-      });
+      // Prevent self-reference
+      if (pair.duplicateId === pair.primaryId) {
+        console.warn(`[Duplicates] Skipping self-reference: ${pair.duplicateId}`);
+        continue;
+      }
+      validPairs.push(pair);
+    }
+
+    // Update database with duplicate relationships using transaction for atomicity
+    if (validPairs.length > 0) {
+      await prisma.$transaction(
+        validPairs.map(pair =>
+          prisma.ride.update({
+            where: { id: pair.duplicateId },
+            data: {
+              isDuplicate: true,
+              duplicateOfId: pair.primaryId,
+            },
+          })
+        )
+      );
     }
 
     console.log(`[Duplicates] Scan completed for user ${userId}: found ${duplicatePairs.length} duplicates`);
@@ -288,22 +319,27 @@ r.post('/duplicates/auto-merge', async (req: Request, res: Response) => {
       });
     }
 
+    // Batch fetch all primary rides to avoid N+1 queries
+    const primaryRideIds = [...new Set(
+      duplicateRides.map(r => r.duplicateOfId).filter((id): id is string => !!id)
+    )];
+    const primaryRides = await prisma.ride.findMany({
+      where: { id: { in: primaryRideIds } },
+      select: {
+        id: true,
+        durationSeconds: true,
+        bikeId: true,
+        garminActivityId: true,
+        stravaActivityId: true,
+      },
+    });
+    const primaryRideMap = new Map(primaryRides.map(r => [r.id, r]));
+
     const ridesToDelete: string[] = [];
     const hoursToDecrementByBike = new Map<string, number>();
 
     for (const dupRide of duplicateRides) {
-      // Get the primary ride
-      const primaryRide = await prisma.ride.findUnique({
-        where: { id: dupRide.duplicateOfId! },
-        select: {
-          id: true,
-          durationSeconds: true,
-          bikeId: true,
-          garminActivityId: true,
-          stravaActivityId: true,
-        },
-      });
-
+      const primaryRide = primaryRideMap.get(dupRide.duplicateOfId!);
       if (!primaryRide) continue;
 
       // Determine which is from preferred source
