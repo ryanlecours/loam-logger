@@ -331,12 +331,16 @@ export default function Onboarding() {
         } : null,
       } : undefined;
 
-      // Build legacy components format from component entries (now with separate brand/model)
-      const getComponentValue = (key: string) => {
+      // Build component overrides from component entries
+      // Returns { brand, model } format expected by buildBikeComponents
+      const getComponentData = (key: string) => {
         const entry = componentEntries.find((e) => e.key === key);
-        if (!entry) return '';
-        // Combine brand and model for legacy format
-        return [entry.brand, entry.model].filter(Boolean).join(' ').trim();
+        if (!entry || (!entry.brand && !entry.model)) return undefined;
+        return {
+          brand: entry.brand || undefined,
+          model: entry.model || undefined,
+          // isStock is determined by buildBikeComponents based on whether brand/model match stock values
+        };
       };
 
       // Check if seatpost is a dropper
@@ -354,11 +358,13 @@ export default function Onboarding() {
         bikeTravelFork: forkEntry?.travelMm || data.bikeTravelFork,
         bikeTravelShock: shockEntry?.travelMm || data.bikeTravelShock,
         spokesComponents: filterNonNullComponents(spokesComponents),
+        // Component overrides matching buildBikeComponents format
         components: {
-          fork: getComponentValue('fork'),
-          rearShock: getComponentValue('rearShock'),
-          wheels: getComponentValue('wheels'),
-          dropperPost: isDropper ? getComponentValue('seatpost') : getComponentValue('seatpost'),
+          fork: getComponentData('fork'),
+          shock: getComponentData('rearShock'),
+          dropper: isDropper ? getComponentData('seatpost') : undefined,
+          wheels: getComponentData('wheels'),
+          pivotBearings: getComponentData('pivotBearings'),
         },
       };
 

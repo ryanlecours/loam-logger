@@ -1,10 +1,16 @@
 import express, { type Request } from 'express';
 import { prisma } from '../lib/prisma';
 import { type SessionUser } from '../auth/session';
-import { type ComponentType } from '@prisma/client';
+import { type AcquisitionCondition } from '@prisma/client';
 import { sendBadRequest, sendUnauthorized, sendInternalError } from '../lib/api-response';
-import { SPOKES_TO_COMPONENT_TYPE } from '@loam/shared';
+import { type BikeSpec } from '@loam/shared';
 import { logError } from '../lib/logger';
+import {
+  buildBikeComponents,
+  type BikeComponentInputGQL,
+  type SpokesComponentsInputGQL,
+  type BikeComponentKey,
+} from '../graphql/resolvers';
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
@@ -62,6 +68,8 @@ router.post('/complete', express.json(), async (req: Request, res) => {
       components,
       // 99spokes components data for auto-creation
       spokesComponents,
+      // Bike acquisition condition (new/used/mixed)
+      acquisitionCondition,
     } = req.body as {
       age?: number;
       location?: string;
@@ -87,13 +95,10 @@ router.post('/complete', express.json(), async (req: Request, res) => {
       motorPowerW?: number;
       motorTorqueNm?: number;
       batteryWh?: number;
-      components?: {
-        fork?: string;
-        rearShock?: string;
-        wheels?: string;
-        dropperPost?: string;
-      };
-      spokesComponents?: Record<string, { maker?: string; model?: string; description?: string; kind?: string } | null>;
+      // Component overrides (new format matching BikeForm)
+      components?: Partial<Record<BikeComponentKey, BikeComponentInputGQL | null>>;
+      spokesComponents?: SpokesComponentsInputGQL;
+      acquisitionCondition?: AcquisitionCondition;
     };
 
     // Validate bike data
@@ -155,101 +160,25 @@ router.post('/complete', express.json(), async (req: Request, res) => {
 
       console.log(`[Onboarding] Created bike for user: ${userId}`);
 
-      // Create components if provided
-      const componentTypeMap: Record<string, ComponentType> = {
-        fork: 'FORK',
-        rearShock: 'SHOCK',
-        wheels: 'WHEELS',
-        dropperPost: 'DROPPER',
+      // Build BikeSpec from travel values (determines which components are applicable)
+      const bikeSpec: BikeSpec = {
+        hasFrontSuspension: (bikeTravelFork ?? 0) > 0,
+        hasRearSuspension: (bikeTravelShock ?? 0) > 0,
+        brakeType: 'disc', // Default to disc brakes for modern MTB
+        drivetrainType: '1x', // Default to 1x drivetrain
       };
 
-      if (components) {
-        for (const [key, value] of Object.entries(components)) {
-          if (value && value.trim().length > 0) {
-            const componentType = componentTypeMap[key];
-            if (componentType) {
-              const [brand, ...modelParts] = value.trim().split(' ');
-              const model = modelParts.join(' ') || brand;
-
-              await tx.component.create({
-                data: {
-                  userId,
-                  bikeId: bike.id,
-                  type: componentType,
-                  brand: brand,
-                  model: model,
-                  hoursUsed: 0,
-                },
-              });
-
-              console.log(`[Onboarding] Created ${componentType} component for bike: ${bike.id}`);
-            }
-          }
-        }
-      }
-
-      // Always create stock Pivot Bearings component for new bikes
-      await tx.component.create({
-        data: {
-          userId,
-          bikeId: bike.id,
-          type: 'PIVOT_BEARINGS',
-          brand: 'Stock',
-          model: 'Stock',
-          hoursUsed: 0,
-          isStock: true,
-        },
+      // Create all applicable components using the same logic as My Bikes
+      await buildBikeComponents(tx, {
+        bikeId: bike.id,
+        userId,
+        bikeSpec,
+        acquisitionCondition: acquisitionCondition ?? 'NEW',
+        spokesComponents: spokesComponents ?? null,
+        userOverrides: components ?? undefined,
       });
 
-      console.log(`[Onboarding] Created stock Pivot Bearings component for bike: ${bike.id}`);
-
-      // Auto-create components from 99spokes data
-      if (spokesComponents) {
-        for (const [key, compData] of Object.entries(spokesComponents)) {
-          if (!compData || !compData.maker || !compData.model) continue;
-
-          let componentType = SPOKES_TO_COMPONENT_TYPE[key] as ComponentType | undefined;
-          if (!componentType) continue;
-
-          // Smart dropper detection: if seatpost.kind === 'dropper', create as DROPPER
-          if (key === 'seatpost' && compData.kind === 'dropper') {
-            componentType = 'DROPPER';
-          }
-
-          // Skip types already handled above (FORK, SHOCK, WHEELS, DROPPER from legacy components)
-          if (['FORK', 'SHOCK', 'WHEELS', 'PIVOT_BEARINGS'].includes(componentType)) continue;
-
-          // Check if component already exists (important for DROPPER which may already exist)
-          const existing = await tx.component.findFirst({
-            where: { bikeId: bike.id, type: componentType },
-          });
-
-          if (!existing) {
-            try {
-              await tx.component.create({
-                data: {
-                  userId,
-                  bikeId: bike.id,
-                  type: componentType,
-                  brand: compData.maker,
-                  model: compData.model,
-                  notes: compData.description ?? null,
-                  isStock: true,
-                  hoursUsed: 0,
-                },
-              });
-
-              console.log(`[Onboarding] Created ${componentType} component from 99spokes for bike: ${bike.id}`);
-            } catch (error) {
-              // Handle race condition: component was created between findFirst and create
-              if (error instanceof Error && error.message.includes('Unique constraint')) {
-                continue;
-              }
-              throw error;
-            }
-          }
-        }
-      }
+      console.log(`[Onboarding] Created components for bike: ${bike.id}`);
 
       return { user, bike };
     });
