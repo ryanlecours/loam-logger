@@ -638,7 +638,7 @@ export default function Admin() {
       });
       if (res.ok) {
         const data = await res.json();
-        setScheduledEmails(data.scheduledEmails);
+        setScheduledEmails(data.emails ?? []);
       }
     } catch (err) {
       console.error('Failed to fetch scheduled emails:', err);
