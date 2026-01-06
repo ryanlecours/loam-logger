@@ -326,3 +326,14 @@ model ScheduledEmail {
   @@index([scheduledFor])
   @@index([createdBy])
 }
+
+model GeoCache {
+  id        String   @id @default(cuid())
+  lat       Float
+  lon       Float
+  location  String?
+  createdAt DateTime @default(now())
+
+  @@unique([lat, lon])
+  @@index([lat, lon])
+}
