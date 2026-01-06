@@ -2,6 +2,7 @@ import { Router as createRouter, type Router, type Request, type Response } from
 import { prisma } from '../lib/prisma';
 import { sendBadRequest, sendUnauthorized, sendNotFound, sendForbidden, sendInternalError } from '../lib/api-response';
 import { logError } from '../lib/logger';
+import { isDuplicateActivity } from '../lib/duplicate-detector';
 
 type Empty = Record<string, never>;
 const r: Router = createRouter();
@@ -159,5 +160,221 @@ r.post<Empty, void, { rideId: string }>(
     }
   }
 );
+
+/**
+ * Scan all user's rides and mark duplicate pairs
+ */
+r.post('/duplicates/scan', async (req: Request, res: Response) => {
+  const userId = req.user?.id || req.sessionUser?.uid;
+  if (!userId) {
+    return sendUnauthorized(res, 'Not authenticated');
+  }
+
+  try {
+    // Get all non-duplicate rides from both providers
+    const allRides = await prisma.ride.findMany({
+      where: {
+        userId,
+        isDuplicate: false,
+        OR: [
+          { garminActivityId: { not: null }, stravaActivityId: null },
+          { stravaActivityId: { not: null }, garminActivityId: null },
+        ],
+      },
+      select: {
+        id: true,
+        startTime: true,
+        durationSeconds: true,
+        distanceMiles: true,
+        elevationGainFeet: true,
+        garminActivityId: true,
+        stravaActivityId: true,
+      },
+      orderBy: { startTime: 'asc' },
+    });
+
+    // Separate by provider
+    const garminRides = allRides.filter(r => r.garminActivityId);
+    const stravaRides = allRides.filter(r => r.stravaActivityId);
+
+    const duplicatePairs: Array<{ primaryId: string; duplicateId: string }> = [];
+    const matchedStravaIds = new Set<string>();
+
+    // Compare each Garmin ride against Strava rides
+    for (const garminRide of garminRides) {
+      for (const stravaRide of stravaRides) {
+        // Skip if this Strava ride is already matched
+        if (matchedStravaIds.has(stravaRide.id)) continue;
+
+        if (isDuplicateActivity(garminRide, stravaRide)) {
+          duplicatePairs.push({
+            primaryId: garminRide.id,
+            duplicateId: stravaRide.id,
+          });
+          matchedStravaIds.add(stravaRide.id);
+          break; // Move to next Garmin ride
+        }
+      }
+    }
+
+    // Update database with duplicate relationships
+    for (const pair of duplicatePairs) {
+      await prisma.ride.update({
+        where: { id: pair.duplicateId },
+        data: {
+          isDuplicate: true,
+          duplicateOfId: pair.primaryId,
+        },
+      });
+    }
+
+    console.log(`[Duplicates] Scan completed for user ${userId}: found ${duplicatePairs.length} duplicates`);
+
+    return res.json({
+      success: true,
+      duplicatesFound: duplicatePairs.length,
+      message: `Found and marked ${duplicatePairs.length} duplicate ride pairs`,
+    });
+  } catch (error) {
+    logError('Duplicates scan', error);
+    return sendInternalError(res, 'Failed to scan for duplicates');
+  }
+});
+
+/**
+ * Auto-merge all duplicates based on user's preferred data source
+ */
+r.post('/duplicates/auto-merge', async (req: Request, res: Response) => {
+  const userId = req.user?.id || req.sessionUser?.uid;
+  if (!userId) {
+    return sendUnauthorized(res, 'Not authenticated');
+  }
+
+  try {
+    // Get user's preferred data source
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { activeDataSource: true },
+    });
+
+    if (!user?.activeDataSource) {
+      return sendBadRequest(res, 'No active data source set. Please set your preferred data source in Settings before auto-merging.');
+    }
+
+    const preferredSource = user.activeDataSource;
+
+    // Find all rides marked as duplicates with their primary ride info
+    const duplicateRides = await prisma.ride.findMany({
+      where: {
+        userId,
+        isDuplicate: true,
+        duplicateOfId: { not: null },
+      },
+      select: {
+        id: true,
+        durationSeconds: true,
+        bikeId: true,
+        garminActivityId: true,
+        stravaActivityId: true,
+        duplicateOfId: true,
+      },
+    });
+
+    if (duplicateRides.length === 0) {
+      return res.json({
+        success: true,
+        merged: 0,
+        message: 'No duplicate rides to merge',
+      });
+    }
+
+    const ridesToDelete: string[] = [];
+    const hoursToDecrementByBike = new Map<string, number>();
+
+    for (const dupRide of duplicateRides) {
+      // Get the primary ride
+      const primaryRide = await prisma.ride.findUnique({
+        where: { id: dupRide.duplicateOfId! },
+        select: {
+          id: true,
+          durationSeconds: true,
+          bikeId: true,
+          garminActivityId: true,
+          stravaActivityId: true,
+        },
+      });
+
+      if (!primaryRide) continue;
+
+      // Determine which is from preferred source
+      const dupIsFromPreferred = preferredSource === 'garmin'
+        ? !!dupRide.garminActivityId
+        : !!dupRide.stravaActivityId;
+      const primaryIsFromPreferred = preferredSource === 'garmin'
+        ? !!primaryRide.garminActivityId
+        : !!primaryRide.stravaActivityId;
+
+      let rideToDelete: typeof dupRide | typeof primaryRide;
+
+      if (dupIsFromPreferred && !primaryIsFromPreferred) {
+        // Keep duplicate, delete primary
+        rideToDelete = primaryRide;
+      } else {
+        // Keep primary, delete duplicate
+        rideToDelete = dupRide;
+      }
+
+      ridesToDelete.push(rideToDelete.id);
+
+      // Track hours to decrement per bike
+      if (rideToDelete.bikeId && rideToDelete.durationSeconds) {
+        const hours = rideToDelete.durationSeconds / 3600;
+        hoursToDecrementByBike.set(
+          rideToDelete.bikeId,
+          (hoursToDecrementByBike.get(rideToDelete.bikeId) ?? 0) + hours
+        );
+      }
+    }
+
+    // Perform deletions in transaction
+    await prisma.$transaction(async (tx) => {
+      // Adjust component hours
+      for (const [bikeId, hours] of hoursToDecrementByBike.entries()) {
+        await tx.component.updateMany({
+          where: { userId, bikeId },
+          data: { hoursUsed: { decrement: hours } },
+        });
+        // Floor at 0
+        await tx.component.updateMany({
+          where: { userId, bikeId, hoursUsed: { lt: 0 } },
+          data: { hoursUsed: 0 },
+        });
+      }
+
+      // Delete duplicate rides
+      await tx.ride.deleteMany({
+        where: { id: { in: ridesToDelete } },
+      });
+
+      // Clear duplicate flags on remaining rides
+      await tx.ride.updateMany({
+        where: { userId, isDuplicate: true },
+        data: { isDuplicate: false, duplicateOfId: null },
+      });
+    });
+
+    console.log(`[Duplicates] Auto-merge completed for user ${userId}: merged ${ridesToDelete.length} pairs, preferred: ${preferredSource}`);
+
+    return res.json({
+      success: true,
+      merged: ridesToDelete.length,
+      preferredSource,
+      message: `Merged ${ridesToDelete.length} duplicate rides, keeping ${preferredSource === 'garmin' ? 'Garmin' : 'Strava'} data`,
+    });
+  } catch (error) {
+    logError('Duplicates auto-merge', error);
+    return sendInternalError(res, 'Failed to auto-merge duplicates');
+  }
+});
 
 export default r;
