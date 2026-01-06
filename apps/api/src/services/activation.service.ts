@@ -66,7 +66,7 @@ export type ActivateUserResult = {
  * Activate a WAITLIST user by:
  * 1. Verifying they're in WAITLIST state
  * 2. Generating a temporary password
- * 3. Updating their role to FREE
+ * 3. Updating their role to PRO (founding riders) or FREE (regular users)
  * 4. Queuing activation email
  * 5. Scheduling welcome email series
  *
@@ -80,7 +80,7 @@ export async function activateWaitlistUser({
   // 1. Verify user exists and is in WAITLIST state
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { id: true, email: true, name: true, role: true },
+    select: { id: true, email: true, name: true, role: true, isFoundingRider: true },
   });
 
   if (!user) {
@@ -100,10 +100,11 @@ export async function activateWaitlistUser({
   // Note: We update the user first, then queue emails. If email queueing fails,
   // the user is still activated but we return the temp password for manual sharing.
   // This is preferable to leaving a user in WAITLIST state indefinitely.
+  // Founding riders get lifetime PRO access; regular users get FREE tier.
   await prisma.user.update({
     where: { id: userId },
     data: {
-      role: 'FREE',
+      role: user.isFoundingRider ? 'PRO' : 'FREE',
       passwordHash,
       mustChangePassword: true,
       activatedAt: new Date(),
