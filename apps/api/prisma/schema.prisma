@@ -88,7 +88,7 @@ model Ride {
   stravaActivityId  String?  @unique
   stravaGearId      String?
   bike              Bike?    @relation(fields: [bikeId], references: [id])
-  duplicateOf       Ride?    @relation("DuplicateRides", fields: [duplicateOfId], references: [id])
+  duplicateOf       Ride?    @relation("DuplicateRides", fields: [duplicateOfId], references: [id], onDelete: SetNull)
   duplicates        Ride[]   @relation("DuplicateRides")
   user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
