@@ -1,9 +1,9 @@
+import { LRUCache } from 'lru-cache';
 import { prisma } from './prisma';
 
 // In-memory LRU cache for hot-path reads
-// Avoids repeated DB hits for same trailhead during a session
-const memoryCache = new Map<string, string | null>();
-const MEMORY_CACHE_MAX_SIZE = 1000;
+// Evicts least-recently-used entries when full
+const memoryCache = new LRUCache<string, string | null>({ max: 1000 });
 
 /**
  * Ride title result from reverse geocoding
@@ -110,42 +110,38 @@ type NominatimResponse = {
 const COORDINATE_PRECISION = 3;
 
 // Rate limiting for Nominatim API (max 1 request per second)
-// Using a simple queue with mutex to serialize requests globally
+// Uses mutex to serialize requests and ensure 1.1s spacing
 const NOMINATIM_MIN_INTERVAL_MS = 1100; // 1.1 seconds to be safe
 let lastNominatimRequest = 0;
-let nominatimQueuePromise: Promise<void> = Promise.resolve();
+let nominatimMutex: Promise<void> = Promise.resolve();
 
 /**
  * Acquire rate limit slot for Nominatim API.
- * Ensures minimum 1.1 second spacing between requests.
+ * Ensures minimum 1.1 second spacing between requests using a mutex queue.
+ * Each request waits for all previous requests to complete before checking rate limit.
  */
 const acquireNominatimSlot = async (): Promise<void> => {
-  // Chain onto the queue to serialize all requests
-  const previousPromise = nominatimQueuePromise;
-
-  let resolveSlot: () => void = () => {};
-  nominatimQueuePromise = new Promise((resolve) => {
-    resolveSlot = resolve;
+  // Atomically claim our position in the queue
+  const myTurn = nominatimMutex;
+  let releaseMutex!: () => void;
+  nominatimMutex = new Promise((resolve) => {
+    releaseMutex = resolve;
   });
 
-  // Wait for previous request to complete
-  await previousPromise;
+  // Wait for all previous requests to complete
+  await myTurn;
 
-  // Wait for rate limit interval
-  const now = Date.now();
-  const timeSinceLastRequest = now - lastNominatimRequest;
-  if (timeSinceLastRequest < NOMINATIM_MIN_INTERVAL_MS) {
+  // Now we have exclusive access - check rate limit
+  const elapsed = Date.now() - lastNominatimRequest;
+  if (elapsed < NOMINATIM_MIN_INTERVAL_MS) {
     await new Promise((resolve) =>
-      setTimeout(resolve, NOMINATIM_MIN_INTERVAL_MS - timeSinceLastRequest)
+      setTimeout(resolve, NOMINATIM_MIN_INTERVAL_MS - elapsed)
     );
   }
 
+  // Record timestamp and release mutex for next request
   lastNominatimRequest = Date.now();
-
-  // Release the queue so the next request can start waiting.
-  // The timestamp is already recorded, so the next request will
-  // wait 1.1s from now regardless of how fast this fetch completes.
-  resolveSlot();
+  releaseMutex();
 };
 
 /**
@@ -178,9 +174,10 @@ const getCachedGeocode = async (
   const roundedLat = roundCoordinate(lat);
   const roundedLon = roundCoordinate(lon);
 
-  // Try memory cache first (hot path)
-  if (memoryCache.has(cacheKey)) {
-    return memoryCache.get(cacheKey);
+  // Try memory cache first (hot path) - get() also promotes to most-recently-used
+  const memoryCached = memoryCache.get(cacheKey);
+  if (memoryCached !== undefined) {
+    return memoryCached;
   }
 
   // Try DB second (persistent)
@@ -191,11 +188,7 @@ const getCachedGeocode = async (
       },
     });
     if (dbCached) {
-      // Populate memory cache for future hits
-      if (memoryCache.size >= MEMORY_CACHE_MAX_SIZE) {
-        const firstKey = memoryCache.keys().next().value;
-        if (firstKey) memoryCache.delete(firstKey);
-      }
+      // Populate memory cache for future hits (LRU handles eviction)
       memoryCache.set(cacheKey, dbCached.location);
       return dbCached.location;
     }
@@ -218,11 +211,7 @@ const setCachedGeocode = async (
   const roundedLat = roundCoordinate(lat);
   const roundedLon = roundCoordinate(lon);
 
-  // Store in memory cache (with size limit)
-  if (memoryCache.size >= MEMORY_CACHE_MAX_SIZE) {
-    const firstKey = memoryCache.keys().next().value;
-    if (firstKey) memoryCache.delete(firstKey);
-  }
+  // Store in memory cache (LRU handles eviction automatically)
   memoryCache.set(cacheKey, value);
 
   // Store in DB (persistent)
@@ -383,14 +372,29 @@ export const reverseGeocode = async (
     return null;
   }
 
-  // Check cache first - returns just the title string
+  // Check cache first - returns JSON with title and quality, or legacy plain text
   const cached = await getCachedGeocode(lat, lon);
   if (cached !== undefined) {
-    // Wrap cached string in RideTitle (assume high quality since it was cached)
     if (cached === null) return null;
+
+    // Try to parse as JSON (new format: {title, quality})
+    try {
+      const parsed = JSON.parse(cached) as { title: string; quality: RideTitle['quality'] };
+      if (parsed.title && parsed.quality) {
+        return {
+          title: parsed.title,
+          quality: parsed.quality,
+          source: 'nominatim',
+        };
+      }
+    } catch {
+      // Not valid JSON - treat as legacy plain text title, assume medium quality
+    }
+
+    // Legacy plain text format - return with medium quality
     return {
       title: cached,
-      quality: 'high',
+      quality: 'med',
       source: 'nominatim',
     };
   }
@@ -428,8 +432,12 @@ export const reverseGeocode = async (
       return null;
     }
 
-    // Cache just the title string
-    await setCachedGeocode(lat, lon, rideTitle.title);
+    // Cache title and quality as JSON
+    await setCachedGeocode(
+      lat,
+      lon,
+      JSON.stringify({ title: rideTitle.title, quality: rideTitle.quality })
+    );
 
     return rideTitle;
   } catch (error) {
