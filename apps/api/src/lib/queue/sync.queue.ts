@@ -7,8 +7,8 @@ const SECONDS = 1000;
 // Sync job retry configuration
 const INITIAL_RETRY_DELAY_MS = 2 * SECONDS;
 const MAX_RETRY_ATTEMPTS = 5;
-const COMPLETED_JOBS_TO_KEEP = 100;
-const FAILED_JOBS_TO_KEEP = 500;
+const COMPLETED_JOBS_TO_KEEP = 10;
+const FAILED_JOBS_TO_KEEP = 50;
 const HIGH_PRIORITY = 1;
 
 export type SyncProvider = 'strava' | 'garmin' | 'suunto';

@@ -29,6 +29,14 @@ export function isWaitlist(role: UserRole): boolean {
 }
 
 /**
+ * Check if user has at least FREE tier access (FREE, PRO, or ADMIN)
+ * Note: Founding riders have PRO role after activation, so they're covered by PRO check.
+ */
+export function hasFreeTierAccess(role: UserRole): boolean {
+  return role === 'FREE' || role === 'PRO' || role === 'ADMIN';
+}
+
+/**
  * Check if user has been activated (not WAITLIST)
  */
 export function isActivated(role: UserRole): boolean {
