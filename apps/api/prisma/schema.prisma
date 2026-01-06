@@ -291,6 +291,9 @@ model EmailSend {
   @@index([userId])
   @@index([createdAt])
   @@index([triggerSource])
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+  @@index([emailType, triggerSource])
 }
 
 enum ScheduledEmailStatus {
