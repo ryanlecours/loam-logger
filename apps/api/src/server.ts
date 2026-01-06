@@ -8,6 +8,7 @@ import { typeDefs } from './graphql/schema';
 import { resolvers } from './graphql/resolvers';
 import { startWorkers, stopWorkers } from './workers';
 import { getRedisConnection, checkRedisHealth } from './lib/redis';
+import { startEmailScheduler, stopEmailScheduler } from './services/email-scheduler.service';
 
 import authGarmin from './routes/auth.garmin';
 import authStrava from './routes/auth.strava';
@@ -24,6 +25,7 @@ import onboardingRouter from './routes/onboarding';
 import waitlistRouter from './routes/waitlist';
 import adminRouter from './routes/admin';
 import spokesRouter from './routes/spokes';
+import emailUnsubscribeRouter from './routes/email.unsubscribe';
 import { googleRouter, emailRouter, deleteAccountRouter, attachUser, verifyCsrf } from './auth/index';
 import mobileAuthRouter from './auth/mobile.route';
 
@@ -35,6 +37,11 @@ export type GraphQLContext = {
 };
 
 const startServer = async () => {
+  // Validate required environment variables at startup
+  if (!process.env.SESSION_SECRET) {
+    throw new Error('SESSION_SECRET environment variable is required');
+  }
+
   const app = express();
 
   // Railway / proxies so secure cookies & IPs work right
@@ -171,6 +178,7 @@ const startServer = async () => {
   app.use('/api', dataSourceRouter);
   app.use('/api', duplicatesRouter);
   app.use('/api', waitlistRouter);
+  app.use('/api', emailUnsubscribeRouter);
   app.use('/api/admin', adminRouter);
   app.use('/api/spokes', spokesRouter);
 
@@ -215,11 +223,15 @@ const startServer = async () => {
     console.warn('[Workers] REDIS_URL not set, workers disabled');
   }
 
+  // Start email scheduler (checks for due scheduled emails every minute)
+  startEmailScheduler();
+
   app.listen(PORT, HOST, () => {
     console.log(`🚴 LoamLogger backend running on :${PORT} (GraphQL at /graphql)`);
   });
 
   process.on('SIGTERM', async () => {
+    await stopEmailScheduler();
     await stopWorkers();
     await server.stop();
     process.exit(0);

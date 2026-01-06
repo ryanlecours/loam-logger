@@ -10,7 +10,7 @@ import type {
   Component as ComponentModel,
 } from '@prisma/client';
 import { checkRateLimit, checkMutationRateLimit } from '../lib/rate-limit';
-import { enqueueSyncJob, enqueueBikeInvalidation, type SyncProvider } from '../lib/queue';
+import { enqueueSyncJob, type SyncProvider } from '../lib/queue';
 import { invalidateBikePrediction } from '../services/prediction/cache';
 import {
   getApplicableComponents,
@@ -722,9 +722,9 @@ export const resolvers = {
         return newRide;
       });
 
-      // Queue async backup invalidation after transaction
+      // Invalidate prediction cache after transaction
       if (bikeId) {
-        enqueueBikeInvalidation(userId, bikeId);
+        await invalidateBikePrediction(userId, bikeId);
       }
 
       return ride;
@@ -772,9 +772,9 @@ export const resolvers = {
         await tx.ride.delete({ where: { id } });
       });
 
-      // Queue async backup invalidation after transaction
+      // Invalidate prediction cache after transaction
       if (deletedBikeId) {
-        enqueueBikeInvalidation(userId, deletedBikeId);
+        await invalidateBikePrediction(userId, deletedBikeId);
       }
 
       return { ok: true, id };
@@ -938,12 +938,12 @@ export const resolvers = {
         return updated;
       });
 
-      // Queue async backup invalidation after transaction
+      // Invalidate prediction cache after transaction
       if (existing.bikeId) {
-        enqueueBikeInvalidation(userId, existing.bikeId);
+        await invalidateBikePrediction(userId, existing.bikeId);
       }
       if (nextBikeId && nextBikeId !== existing.bikeId) {
-        enqueueBikeInvalidation(userId, nextBikeId);
+        await invalidateBikePrediction(userId, nextBikeId);
       }
 
       return updatedRide;
@@ -1291,9 +1291,9 @@ export const resolvers = {
         },
       });
 
-      // Queue async backup invalidation after update
+      // Invalidate prediction cache after update
       if (existing.bikeId) {
-        enqueueBikeInvalidation(userId, existing.bikeId);
+        await invalidateBikePrediction(userId, existing.bikeId);
       }
 
       return updated;
@@ -1364,9 +1364,9 @@ export const resolvers = {
         });
       });
 
-      // Queue async backup invalidation after update
+      // Invalidate prediction cache after update
       if (existing.bikeId) {
-        enqueueBikeInvalidation(userId, existing.bikeId);
+        await invalidateBikePrediction(userId, existing.bikeId);
       }
 
       return updated;
@@ -1434,9 +1434,9 @@ export const resolvers = {
         return log;
       });
 
-      // Queue async backup invalidation after transaction
+      // Invalidate prediction cache after transaction
       if (component.bikeId) {
-        enqueueBikeInvalidation(userId, component.bikeId);
+        await invalidateBikePrediction(userId, component.bikeId);
       }
 
       return serviceLog;
@@ -1512,7 +1512,6 @@ export const resolvers = {
 
       // Invalidate prediction cache for the bike
       await invalidateBikePrediction(userId, input.bikeId);
-      enqueueBikeInvalidation(userId, input.bikeId);
 
       return mapping;
     },
@@ -1569,7 +1568,6 @@ export const resolvers = {
 
       // Invalidate prediction cache for the bike
       await invalidateBikePrediction(userId, deletedBikeId);
-      enqueueBikeInvalidation(userId, deletedBikeId);
 
       return { ok: true, id };
     },
@@ -1728,7 +1726,6 @@ export const resolvers = {
       // Invalidate prediction caches for affected bikes
       for (const bikeId of bikeIdsToInvalidate) {
         await invalidateBikePrediction(userId, bikeId);
-        enqueueBikeInvalidation(userId, bikeId);
       }
 
       return updatedComponents;

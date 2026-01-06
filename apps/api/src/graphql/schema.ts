@@ -461,6 +461,7 @@ export const typeDefs = gql`
     accounts: [ConnectedAccount!]!
     role: UserRole!
     mustChangePassword: Boolean!
+    isFoundingRider: Boolean!
   }
 
   input RidesFilterInput {

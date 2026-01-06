@@ -1,15 +1,6 @@
-import { createEmailWorker, closeEmailWorker } from './email.worker';
 import { createSyncWorker, closeSyncWorker } from './sync.worker';
-import { createGeocodeWorker, closeGeocodeWorker } from './geocode.worker';
-import { createCacheInvalidationWorker, closeCacheInvalidationWorker } from './cache-invalidation.worker';
 import { closeRedisConnection } from '../lib/redis';
-import {
-  closeEmailQueue,
-  closeSyncQueue,
-  closeBackfillQueue,
-  closeGeocodeQueue,
-  closeCacheInvalidationQueue,
-} from '../lib/queue';
+import { closeSyncQueue } from '../lib/queue';
 
 /**
  * Start all BullMQ workers.
@@ -18,10 +9,7 @@ import {
 export function startWorkers(): void {
   console.log('[Workers] Starting BullMQ workers...');
 
-  createEmailWorker();
   createSyncWorker();
-  createGeocodeWorker();
-  createCacheInvalidationWorker();
 
   console.log('[Workers] All workers started');
 }
@@ -39,33 +27,26 @@ export async function stopWorkers(): Promise<void> {
   const shutdownPromise = async () => {
     // First, close workers (stop processing new jobs)
     const workerResults = await Promise.allSettled([
-      closeEmailWorker(),
       closeSyncWorker(),
-      closeGeocodeWorker(),
-      closeCacheInvalidationWorker(),
     ]);
 
     // Log any worker shutdown failures
     workerResults.forEach((result, index) => {
       if (result.status === 'rejected') {
-        const workerNames = ['EmailWorker', 'SyncWorker', 'GeocodeWorker', 'CacheInvalidationWorker'];
+        const workerNames = ['SyncWorker'];
         console.error(`[Workers] Failed to close ${workerNames[index]}:`, result.reason);
       }
     });
 
     // Then, close queue connections
     const queueResults = await Promise.allSettled([
-      closeEmailQueue(),
       closeSyncQueue(),
-      closeBackfillQueue(),
-      closeGeocodeQueue(),
-      closeCacheInvalidationQueue(),
     ]);
 
     // Log any queue shutdown failures
     queueResults.forEach((result, index) => {
       if (result.status === 'rejected') {
-        const queueNames = ['EmailQueue', 'SyncQueue', 'BackfillQueue', 'GeocodeQueue', 'CacheInvalidationQueue'];
+        const queueNames = ['SyncQueue'];
         console.error(`[Workers] Failed to close ${queueNames[index]}:`, result.reason);
       }
     });

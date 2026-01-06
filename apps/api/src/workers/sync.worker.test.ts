@@ -79,7 +79,7 @@ describe('createSyncWorker', () => {
     expect(MockedWorker).toHaveBeenCalledWith(
       'sync',
       expect.any(Function),
-      expect.objectContaining({ concurrency: 3 })
+      expect.objectContaining({ concurrency: 1 })
     );
   });
 

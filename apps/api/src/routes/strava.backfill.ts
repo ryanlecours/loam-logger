@@ -2,8 +2,7 @@ import { Router as createRouter, type Router, type Request, type Response } from
 import { getValidStravaToken } from '../lib/strava-token';
 import { subDays } from 'date-fns';
 import { prisma } from '../lib/prisma';
-import { formatLatLon } from '../lib/location';
-import { addGeocodeJob } from '../lib/queue';
+import { formatLatLon, reverseGeocode } from '../lib/location';
 import { sendBadRequest, sendUnauthorized, sendNotFound, sendInternalError } from '../lib/api-response';
 import { logError } from '../lib/logger';
 
@@ -123,7 +122,7 @@ r.get<Empty, void, Empty, { year?: string }>(
       // Import each cycling activity
       let importedCount = 0;
       let skippedCount = 0;
-      let geocodeJobsQueued = 0;
+      let geocodedCount = 0;
 
       for (const activity of cyclingActivities) {
         // Check if activity already exists
@@ -200,14 +199,20 @@ r.get<Empty, void, Empty, { year?: string }>(
           return createdRide;
         });
 
-        // Queue background geocoding job if we have coordinates
+        // Geocode synchronously if we have coordinates
         if (lat !== null && lon !== null) {
           try {
-            await addGeocodeJob({ rideId: ride.id, lat, lon });
-            geocodeJobsQueued++;
+            const location = await reverseGeocode(lat, lon);
+            if (location) {
+              await prisma.ride.update({
+                where: { id: ride.id },
+                data: { location },
+              });
+              geocodedCount++;
+            }
           } catch (err) {
-            // Don't fail the import if geocoding queue is unavailable
-            console.warn(`[Strava Backfill] Failed to queue geocode job for ride ${ride.id}:`, err);
+            // Don't fail the import if geocoding fails
+            console.warn(`[Strava Backfill] Failed to geocode ride ${ride.id}:`, err);
           }
         }
 
@@ -237,10 +242,6 @@ r.get<Empty, void, Empty, { year?: string }>(
 
       console.log(`[Strava Backfill] Unmapped gears: ${unmappedGears.length}`);
 
-      // Calculate estimated geocoding time (1.1s per job due to Nominatim rate limit)
-      const geocodeEstimateSeconds = Math.ceil(geocodeJobsQueued * 1.1);
-      const geocodeEstimateMinutes = Math.ceil(geocodeEstimateSeconds / 60);
-
       return res.json({
         success: true,
         message: `Successfully imported ${importedCount} rides from Strava.`,
@@ -248,13 +249,8 @@ r.get<Empty, void, Empty, { year?: string }>(
         cyclingActivities: cyclingActivities.length,
         imported: importedCount,
         skipped: skippedCount,
+        geocoded: geocodedCount,
         unmappedGears,
-        geocoding: geocodeJobsQueued > 0 ? {
-          jobsQueued: geocodeJobsQueued,
-          estimateSeconds: geocodeEstimateSeconds,
-          estimateMinutes: geocodeEstimateMinutes,
-          message: `Location names for ${geocodeJobsQueued} rides will be ready in approximately ${geocodeEstimateMinutes} minute${geocodeEstimateMinutes === 1 ? '' : 's'}.`,
-        } : null,
       });
     } catch (error) {
       logError('Strava Backfill', error);

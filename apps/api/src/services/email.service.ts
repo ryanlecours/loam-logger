@@ -1,5 +1,7 @@
 import { Resend } from 'resend';
 import { logError } from '../lib/logger';
+import { prisma } from '../lib/prisma';
+import type { EmailType, TriggerSource, EmailStatus } from '@prisma/client';
 
 let resend: Resend | null = null;
 
@@ -14,7 +16,8 @@ function getResendClient(): Resend {
   return resend;
 }
 
-const FROM_EMAIL = process.env.EMAIL_FROM || 'Loam Logger <noreply@loamlogger.com>';
+const FROM_EMAIL = 'Ryan LeCours <ryan.lecours@onboarding.loamlogger.app>';
+const REPLY_TO_EMAIL = 'ryan.lecours@loamlogger.app';
 
 export type SendEmailParams = {
   to: string;
@@ -31,6 +34,7 @@ export async function sendEmail({ to, subject, html, text }: SendEmailParams): P
 
   const { data, error } = await client.emails.send({
     from: FROM_EMAIL,
+    reply_to: REPLY_TO_EMAIL,
     to,
     subject,
     html,
@@ -56,4 +60,92 @@ function stripHtml(html: string): string {
     .replace(/<[^>]+>/g, '')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+export type SendEmailWithAuditParams = {
+  to: string;
+  subject: string;
+  html: string;
+  text?: string;
+  userId: string;
+  emailType: EmailType;
+  triggerSource: TriggerSource;
+  templateVersion?: string;
+};
+
+export type SendEmailWithAuditResult = {
+  messageId: string;
+  status: EmailStatus;
+};
+
+/**
+ * Send email with audit logging to EmailSend table.
+ * Checks emailUnsubscribed flag and records suppressed sends.
+ */
+export async function sendEmailWithAudit({
+  to,
+  subject,
+  html,
+  text,
+  userId,
+  emailType,
+  triggerSource,
+  templateVersion,
+}: SendEmailWithAuditParams): Promise<SendEmailWithAuditResult> {
+  // Check if user is unsubscribed
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { emailUnsubscribed: true },
+  });
+
+  if (user?.emailUnsubscribed) {
+    // Record suppressed send
+    await prisma.emailSend.create({
+      data: {
+        userId,
+        toEmail: to,
+        emailType,
+        triggerSource,
+        templateVersion,
+        status: 'suppressed',
+        failureReason: 'User unsubscribed',
+      },
+    });
+    console.log(`[Email] Suppressed email to ${to} (unsubscribed)`);
+    return { messageId: '', status: 'suppressed' };
+  }
+
+  try {
+    const messageId = await sendEmail({ to, subject, html, text });
+
+    // Record successful send
+    await prisma.emailSend.create({
+      data: {
+        userId,
+        toEmail: to,
+        emailType,
+        triggerSource,
+        templateVersion,
+        status: 'sent',
+        providerMessageId: messageId,
+      },
+    });
+
+    return { messageId, status: 'sent' };
+  } catch (error) {
+    // Record failed send
+    await prisma.emailSend.create({
+      data: {
+        userId,
+        toEmail: to,
+        emailType,
+        triggerSource,
+        templateVersion,
+        status: 'failed',
+        failureReason: error instanceof Error ? error.message : 'Unknown error',
+      },
+    });
+
+    throw error;
+  }
 }

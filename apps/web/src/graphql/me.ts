@@ -11,6 +11,7 @@ export const ME_QUERY = gql`
       location
       age
       role
+      isFoundingRider
     }
   }
 `
