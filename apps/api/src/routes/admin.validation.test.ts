@@ -151,16 +151,16 @@ describe('Admin Routes - ID Validation', () => {
     mockCheckAdminRateLimit.mockResolvedValue({ allowed: true, redisAvailable: true });
   });
 
-  describe('isValidId function (via bulk promote)', () => {
-    const handler = findHandler('post', '/promote/bulk');
+  describe('isValidId function (via bulk founding-rider toggle)', () => {
+    const handler = findHandler('patch', '/users/founding-rider/bulk');
 
     it('should accept valid UUID format', async () => {
       const { req, res } = createMocks();
-      req.body = { userIds: ['550e8400-e29b-41d4-a716-446655440000'] };
+      req.body = { userIds: ['550e8400-e29b-41d4-a716-446655440000'], isFoundingRider: true };
 
       (mockPrisma.$transaction as jest.Mock).mockResolvedValue({
-        promotedCount: 1,
-        promotedEmails: ['test@example.com'],
+        updatedCount: 1,
+        updatedEmails: ['test@example.com'],
       });
 
       await invokeHandler(handler, req, res);
@@ -171,11 +171,11 @@ describe('Admin Routes - ID Validation', () => {
     it('should accept valid CUID format', async () => {
       const { req, res } = createMocks();
       // CUID format: 'c' + 24 alphanumeric chars
-      req.body = { userIds: ['clyj4kp8v0000qwerty123456'] };
+      req.body = { userIds: ['clyj4kp8v0000qwerty123456'], isFoundingRider: true };
 
       (mockPrisma.$transaction as jest.Mock).mockResolvedValue({
-        promotedCount: 1,
-        promotedEmails: ['test@example.com'],
+        updatedCount: 1,
+        updatedEmails: ['test@example.com'],
       });
 
       await invokeHandler(handler, req, res);
@@ -185,7 +185,7 @@ describe('Admin Routes - ID Validation', () => {
 
     it('should reject SQL injection attempt in user ID', async () => {
       const { req, res } = createMocks();
-      req.body = { userIds: ["'; DROP TABLE users; --"] };
+      req.body = { userIds: ["'; DROP TABLE users; --"], isFoundingRider: true };
 
       await invokeHandler(handler, req, res);
 
@@ -194,7 +194,7 @@ describe('Admin Routes - ID Validation', () => {
 
     it('should reject malformed IDs', async () => {
       const { req, res } = createMocks();
-      req.body = { userIds: ['not-a-valid-id'] };
+      req.body = { userIds: ['not-a-valid-id'], isFoundingRider: true };
 
       await invokeHandler(handler, req, res);
 
@@ -203,7 +203,7 @@ describe('Admin Routes - ID Validation', () => {
 
     it('should reject empty strings', async () => {
       const { req, res } = createMocks();
-      req.body = { userIds: [''] };
+      req.body = { userIds: [''], isFoundingRider: true };
 
       await invokeHandler(handler, req, res);
 
@@ -214,6 +214,7 @@ describe('Admin Routes - ID Validation', () => {
       const { req, res } = createMocks();
       req.body = {
         userIds: ['550e8400-e29b-41d4-a716-446655440000', 'invalid-id'],
+        isFoundingRider: true,
       };
 
       await invokeHandler(handler, req, res);
@@ -370,12 +371,12 @@ describe('Admin Routes - Bulk Operations', () => {
     mockCheckAdminRateLimit.mockResolvedValue({ allowed: true, redisAvailable: true });
   });
 
-  describe('POST /promote/bulk', () => {
-    const handler = findHandler('post', '/promote/bulk');
+  describe('PATCH /users/founding-rider/bulk', () => {
+    const handler = findHandler('patch', '/users/founding-rider/bulk');
 
     it('should reject empty userIds array', async () => {
       const { req, res } = createMocks();
-      req.body = { userIds: [] };
+      req.body = { userIds: [], isFoundingRider: true };
 
       await invokeHandler(handler, req, res);
 
@@ -384,7 +385,7 @@ describe('Admin Routes - Bulk Operations', () => {
 
     it('should reject non-array userIds', async () => {
       const { req, res } = createMocks();
-      req.body = { userIds: 'not-an-array' };
+      req.body = { userIds: 'not-an-array', isFoundingRider: true };
 
       await invokeHandler(handler, req, res);
 
@@ -397,23 +398,24 @@ describe('Admin Routes - Bulk Operations', () => {
         userIds: Array.from({ length: 101 }, (_, i) =>
           `550e8400-e29b-41d4-a716-${String(i).padStart(12, '0')}`
         ),
+        isFoundingRider: true,
       };
 
       await invokeHandler(handler, req, res);
 
       expect(mockSendBadRequest).toHaveBeenCalledWith(
         res,
-        'Cannot promote more than 100 users at once'
+        'Cannot update more than 100 users at once'
       );
     });
 
     it('should use transaction for atomicity', async () => {
       const { req, res } = createMocks();
-      req.body = { userIds: ['550e8400-e29b-41d4-a716-446655440000'] };
+      req.body = { userIds: ['550e8400-e29b-41d4-a716-446655440000'], isFoundingRider: true };
 
       (mockPrisma.$transaction as jest.Mock).mockResolvedValue({
-        promotedCount: 1,
-        promotedEmails: ['test@example.com'],
+        updatedCount: 1,
+        updatedEmails: ['test@example.com'],
       });
 
       await invokeHandler(handler, req, res);
