@@ -31,6 +31,8 @@ type Props = {
 export default function DuplicateRidesModal({ open, onClose }: Props) {
   const [duplicateGroups, setDuplicateGroups] = useState<DuplicateGroup[]>([]);
   const [loading, setLoading] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [autoMerging, setAutoMerging] = useState(false);
 
   useEffect(() => {
     if (open) {
@@ -90,6 +92,57 @@ export default function DuplicateRidesModal({ open, onClose }: Props) {
     }
   };
 
+  const handleScan = async () => {
+    setScanning(true);
+    try {
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/duplicates/scan`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: getAuthHeaders(),
+      });
+
+      if (!res.ok) throw new Error('Failed to scan');
+
+      const data = await res.json();
+      alert(`Found ${data.duplicatesFound} duplicate ride pairs`);
+      await fetchDuplicates();
+    } catch (error) {
+      console.error('Failed to scan for duplicates:', error);
+      alert('Failed to scan for duplicates');
+    } finally {
+      setScanning(false);
+    }
+  };
+
+  const handleAutoMerge = async () => {
+    if (!confirm('This will automatically delete duplicate rides from your non-preferred data source. Continue?')) {
+      return;
+    }
+
+    setAutoMerging(true);
+    try {
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/duplicates/auto-merge`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: getAuthHeaders(),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.message || 'Failed to auto-merge');
+      }
+
+      alert(data.message);
+      await fetchDuplicates();
+    } catch (error) {
+      console.error('Failed to auto-merge duplicates:', error);
+      alert(error instanceof Error ? error.message : 'Failed to auto-merge duplicates');
+    } finally {
+      setAutoMerging(false);
+    }
+  };
+
   return (
     <Modal
       isOpen={open}
@@ -97,16 +150,37 @@ export default function DuplicateRidesModal({ open, onClose }: Props) {
       title="Duplicate Rides"
       size="xl"
       footer={
-        <Button variant="secondary" onClick={onClose}>
-          Close
-        </Button>
+        <div className="flex justify-between w-full">
+          <div className="flex gap-2">
+            <Button
+              variant="secondary"
+              onClick={handleScan}
+              disabled={scanning || autoMerging}
+            >
+              {scanning ? 'Scanning...' : 'Scan for Duplicates'}
+            </Button>
+            {duplicateGroups.length > 0 && (
+              <Button
+                variant="primary"
+                onClick={handleAutoMerge}
+                disabled={scanning || autoMerging}
+              >
+                {autoMerging ? 'Merging...' : 'Auto-merge All'}
+              </Button>
+            )}
+          </div>
+          <Button variant="secondary" onClick={onClose}>
+            Close
+          </Button>
+        </div>
       }
     >
       {loading ? (
         <div className="py-8 text-center text-muted">Loading duplicates...</div>
       ) : duplicateGroups.length === 0 ? (
         <div className="py-8 text-center text-muted">
-          No duplicate rides found!
+          <p>No duplicate rides found!</p>
+          <p className="text-sm mt-2">Click "Scan for Duplicates" to check your ride history.</p>
         </div>
       ) : (
         <div className="space-y-6">

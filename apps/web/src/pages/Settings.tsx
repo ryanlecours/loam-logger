@@ -498,6 +498,9 @@ export default function Settings() {
           setSuccessMessage('Backfill triggered! Your rides will sync automatically via Garmin webhooks.');
           setTimeout(() => setSuccessMessage(null), 8000);
         }}
+        onDuplicatesFound={() => {
+          setDuplicatesModalOpen(true);
+        }}
       />
 
       <StravaImportModal
@@ -506,6 +509,9 @@ export default function Settings() {
         onSuccess={() => {
           setSuccessMessage('Rides imported from Strava successfully!');
           setTimeout(() => setSuccessMessage(null), 8000);
+        }}
+        onDuplicatesFound={() => {
+          setDuplicatesModalOpen(true);
         }}
       />
 

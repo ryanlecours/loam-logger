@@ -1,18 +1,21 @@
 import { useState, useEffect } from 'react';
 import { Modal, Select, Button } from './ui';
+import { getAuthHeaders } from '@/lib/csrf';
 
 type Props = {
   open: boolean;
   onClose: () => void;
   onSuccess: () => void;
+  onDuplicatesFound?: (count: number) => void;
 };
 
-export default function GarminImportModal({ open, onClose, onSuccess }: Props) {
+export default function GarminImportModal({ open, onClose, onSuccess, onDuplicatesFound }: Props) {
   const [step, setStep] = useState<'period' | 'processing' | 'complete'>('period');
   const [days, setDays] = useState(30);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [isDuplicate, setIsDuplicate] = useState(false);
+  const [isDuplicateRequest, setIsDuplicateRequest] = useState(false);
+  const [duplicatesFound, setDuplicatesFound] = useState(0);
 
   useEffect(() => {
     if (!open) {
@@ -21,7 +24,8 @@ export default function GarminImportModal({ open, onClose, onSuccess }: Props) {
       setDays(30);
       setError(null);
       setSuccessMessage(null);
-      setIsDuplicate(false);
+      setIsDuplicateRequest(false);
+      setDuplicatesFound(0);
     }
   }, [open]);
 
@@ -43,7 +47,7 @@ export default function GarminImportModal({ open, onClose, onSuccess }: Props) {
         // Handle 409 Conflict (duplicate backfill request) specially
         if (res.status === 409) {
           setSuccessMessage(errorData.message || 'A backfill for this time period is already in progress.');
-          setIsDuplicate(true);
+          setIsDuplicateRequest(true);
           setStep('complete');
           onSuccess();
           return;
@@ -55,6 +59,23 @@ export default function GarminImportModal({ open, onClose, onSuccess }: Props) {
       const data = await res.json();
       setSuccessMessage(data.message || `Backfill triggered for ${days} days. Your rides will sync automatically.`);
       setStep('complete');
+
+      // Scan for existing duplicates
+      try {
+        const scanRes = await fetch(`${import.meta.env.VITE_API_URL}/api/duplicates/scan`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: getAuthHeaders(),
+        });
+        if (scanRes.ok) {
+          const scanData = await scanRes.json();
+          if (scanData.duplicatesFound > 0) {
+            setDuplicatesFound(scanData.duplicatesFound);
+          }
+        }
+      } catch (scanErr) {
+        console.error('Failed to scan for duplicates:', scanErr);
+      }
 
       // Call onSuccess to show toast in parent
       onSuccess();
@@ -127,19 +148,41 @@ export default function GarminImportModal({ open, onClose, onSuccess }: Props) {
       {step === 'complete' && (
         <div className="space-y-6">
           <div className={`p-4 rounded-xl ${
-            isDuplicate
+            isDuplicateRequest
               ? 'bg-yellow-950/30 border border-yellow-600/50'
               : 'bg-green-950/30 border border-green-600/50'
           }`}>
-            <p className={isDuplicate ? 'text-yellow-100' : 'text-green-100'}>
-              {isDuplicate ? '⚠' : '✓'} {successMessage}
+            <p className={isDuplicateRequest ? 'text-yellow-100' : 'text-green-100'}>
+              {isDuplicateRequest ? '⚠' : '✓'} {successMessage}
             </p>
-            <p className={`text-sm mt-2 ${isDuplicate ? 'text-yellow-200' : 'text-green-200'}`}>
+            <p className={`text-sm mt-2 ${isDuplicateRequest ? 'text-yellow-200' : 'text-green-200'}`}>
               Your rides will appear in the Rides page as Garmin processes them. This may take a few minutes.
             </p>
           </div>
 
-          <div className="flex justify-end">
+          {duplicatesFound > 0 && (
+            <div className="p-4 rounded-xl bg-yellow-950/30 border border-yellow-600/50">
+              <p className="text-yellow-100">
+                ⚠ Found {duplicatesFound} existing duplicate ride{duplicatesFound === 1 ? '' : 's'}
+              </p>
+              <p className="text-sm mt-1 text-yellow-200">
+                These rides exist in both Garmin and Strava. New duplicates may appear as Garmin syncs more rides.
+              </p>
+            </div>
+          )}
+
+          <div className="flex justify-end gap-3">
+            {duplicatesFound > 0 && onDuplicatesFound && (
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  onClose();
+                  onDuplicatesFound(duplicatesFound);
+                }}
+              >
+                Review Duplicates
+              </Button>
+            )}
             <Button variant="primary" onClick={onClose}>
               Done
             </Button>
