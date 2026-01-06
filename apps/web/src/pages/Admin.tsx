@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { getAuthHeaders } from '@/lib/csrf';
@@ -578,7 +578,7 @@ export default function Admin() {
     }
   };
 
-  const fetchEmailRecipients = async (segment: EmailSegment) => {
+  const fetchEmailRecipients = useCallback(async (segment: EmailSegment) => {
     setLoadingRecipients(true);
     try {
       const params = getEmailApiParams(segment);
@@ -600,13 +600,13 @@ export default function Admin() {
     } finally {
       setLoadingRecipients(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     if (isAdmin) {
       fetchEmailRecipients(emailForm.segment);
     }
-  }, [isAdmin, emailForm.segment]);
+  }, [isAdmin, emailForm.segment, fetchEmailRecipients]);
 
   const handleSelectAll = () => {
     const eligibleIds = emailRecipients
