@@ -53,7 +53,7 @@ type UpdateRideInput = {
   location?: string | null;
 };
 
-type BikeComponentInputGQL = {
+export type BikeComponentInputGQL = {
   brand?: string | null;
   model?: string | null;
   notes?: string | null;
@@ -67,7 +67,7 @@ type SpokesComponentInputGQL = {
   kind?: string | null;  // For seatpost: 'dropper' | 'rigid'
 };
 
-type SpokesComponentsInputGQL = {
+export type SpokesComponentsInputGQL = {
   fork?: SpokesComponentInputGQL | null;
   rearShock?: SpokesComponentInputGQL | null;
   brakes?: SpokesComponentInputGQL | null;
@@ -207,7 +207,7 @@ const REQUIRED_BIKE_COMPONENTS = [
   ['pivotBearings', ComponentTypeEnum.PIVOT_BEARINGS],
 ] as const;
 
-type BikeComponentKey = (typeof REQUIRED_BIKE_COMPONENTS)[number][0];
+export type BikeComponentKey = (typeof REQUIRED_BIKE_COMPONENTS)[number][0];
 
 const nowIsoYear = () => new Date().getFullYear();
 
@@ -309,7 +309,7 @@ async function syncBikeComponents(
  * Build bike components dynamically based on BikeSpec and component catalog.
  * This replaces the old syncBikeComponents for new bike creation with baseline support.
  */
-async function buildBikeComponents(
+export async function buildBikeComponents(
   tx: Prisma.TransactionClient,
   opts: {
     bikeId: string;
