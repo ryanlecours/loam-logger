@@ -72,10 +72,10 @@ r.post<Empty, void, { keepRideId: string; deleteRideId: string }>(
     }
 
     try {
-      // Verify both rides belong to this user
+      // Verify both rides belong to this user and check duplicate relationship
       const [keepRide, deleteRide] = await Promise.all([
-        prisma.ride.findUnique({ where: { id: keepRideId }, select: { userId: true } }),
-        prisma.ride.findUnique({ where: { id: deleteRideId }, select: { userId: true } }),
+        prisma.ride.findUnique({ where: { id: keepRideId }, select: { userId: true, duplicateOfId: true } }),
+        prisma.ride.findUnique({ where: { id: deleteRideId }, select: { userId: true, duplicateOfId: true } }),
       ]);
 
       if (!keepRide || !deleteRide) {
@@ -84,6 +84,15 @@ r.post<Empty, void, { keepRideId: string; deleteRideId: string }>(
 
       if (keepRide.userId !== userId || deleteRide.userId !== userId) {
         return sendForbidden(res, 'Unauthorized');
+      }
+
+      // Verify rides are actually marked as duplicates of each other
+      const areDuplicates =
+        deleteRide.duplicateOfId === keepRideId ||
+        keepRide.duplicateOfId === deleteRideId;
+
+      if (!areDuplicates) {
+        return sendBadRequest(res, 'Rides are not marked as duplicates of each other');
       }
 
       // Delete the duplicate
@@ -374,17 +383,14 @@ r.post('/duplicates/auto-merge', async (req: Request, res: Response) => {
 
     // Perform deletions in transaction
     await prisma.$transaction(async (tx) => {
-      // Adjust component hours
+      // Adjust component hours atomically (floor at 0 in single query)
       for (const [bikeId, hours] of hoursToDecrementByBike.entries()) {
-        await tx.component.updateMany({
-          where: { userId, bikeId },
-          data: { hoursUsed: { decrement: hours } },
-        });
-        // Floor at 0
-        await tx.component.updateMany({
-          where: { userId, bikeId, hoursUsed: { lt: 0 } },
-          data: { hoursUsed: 0 },
-        });
+        await tx.$executeRaw`
+          UPDATE "Component"
+          SET "hoursUsed" = GREATEST(0, "hoursUsed" - ${hours}),
+              "updatedAt" = NOW()
+          WHERE "userId" = ${userId} AND "bikeId" = ${bikeId}
+        `;
       }
 
       // Delete duplicate rides
