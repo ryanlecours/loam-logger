@@ -260,6 +260,7 @@ enum EmailType {
   welcome_series
   announcement
   custom
+  founding_welcome
 }
 
 enum TriggerSource {

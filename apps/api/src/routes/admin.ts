@@ -3,13 +3,16 @@ import { prisma } from '../lib/prisma';
 import { requireAdmin } from '../auth/adminMiddleware';
 import { activateWaitlistUser, generateTempPassword } from '../services/activation.service';
 import { hashPassword } from '../auth/password.utils';
-import { sendEmail, sendEmailWithAudit } from '../services/email.service';
+import { sendEmail, sendEmailWithAudit, sendReactEmailWithAudit } from '../services/email.service';
 import {
   getActivationEmailSubject,
   getActivationEmailHtml,
   getAnnouncementEmailHtml,
   ANNOUNCEMENT_TEMPLATE_VERSION,
 } from '../templates/emails';
+import FoundingRidersEmail, { FOUNDING_RIDERS_TEMPLATE_VERSION } from '../templates/emails/founding-riders';
+import { render } from '@react-email/render';
+import React from 'react';
 import { generateUnsubscribeToken } from '../lib/unsubscribe-token';
 import { sendUnauthorized, sendBadRequest, sendInternalError } from '../lib/api-response';
 import { checkAdminRateLimit } from '../lib/rate-limit';
@@ -1000,6 +1003,152 @@ router.post('/email/send', async (req, res) => {
     });
   } catch (error) {
     logError('Admin email send', error);
+    return sendInternalError(res, 'Failed to send emails');
+  }
+});
+
+// ============================================================================
+// Founding Riders Email Endpoints
+// ============================================================================
+
+/**
+ * POST /api/admin/email/founding-riders/preview
+ * Preview the founding riders welcome email
+ */
+router.post('/email/founding-riders/preview', async (req, res) => {
+  try {
+    const { activationDateText } = req.body;
+
+    if (!activationDateText || typeof activationDateText !== 'string') {
+      return sendBadRequest(res, 'activationDateText is required');
+    }
+
+    // Render the email with sample data for preview
+    const html = await render(
+      React.createElement(FoundingRidersEmail, {
+        recipientFirstName: 'Preview',
+        activationDateText,
+        appUrl: FRONTEND_URL,
+        unsubscribeUrl: `${API_URL}/api/email/unsubscribe?token=preview`,
+      })
+    );
+
+    res.json({
+      success: true,
+      subject: 'Thank you — and welcome, Founding Riders',
+      html,
+    });
+  } catch (error) {
+    logError('Admin founding riders preview', error);
+    return sendInternalError(res, 'Failed to generate preview');
+  }
+});
+
+/**
+ * POST /api/admin/email/founding-riders
+ * Send founding riders welcome email to selected recipients
+ */
+router.post('/email/founding-riders', async (req, res) => {
+  try {
+    const adminUserId = req.sessionUser?.uid;
+    if (!adminUserId) {
+      return sendUnauthorized(res);
+    }
+
+    // Rate limit bulk emails (1 per minute per admin)
+    const rateLimit = await checkAdminRateLimit('bulkEmail', adminUserId);
+    if (!rateLimit.allowed) {
+      res.setHeader('Retry-After', rateLimit.retryAfter.toString());
+      return res.status(429).json({
+        success: false,
+        error: 'Please wait before sending another bulk email',
+        retryAfter: rateLimit.retryAfter,
+      });
+    }
+
+    const { recipientIds, activationDateText } = req.body;
+
+    // Validate inputs
+    if (!Array.isArray(recipientIds) || recipientIds.length === 0) {
+      return sendBadRequest(res, 'At least one recipient is required');
+    }
+
+    if (recipientIds.length > 500) {
+      return sendBadRequest(res, 'Cannot send to more than 500 recipients at once');
+    }
+
+    // Validate all IDs are proper format
+    const invalidIds = recipientIds.filter((id) => !isValidId(id));
+    if (invalidIds.length > 0) {
+      return sendBadRequest(res, 'Invalid recipient ID format');
+    }
+
+    if (!activationDateText || typeof activationDateText !== 'string') {
+      return sendBadRequest(res, 'activationDateText is required');
+    }
+
+    // Fetch recipients - must be founding riders
+    const recipients = await prisma.user.findMany({
+      where: {
+        id: { in: recipientIds },
+        isFoundingRider: true,
+      },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        emailUnsubscribed: true,
+      },
+    });
+
+    if (recipients.length === 0) {
+      return sendBadRequest(res, 'No valid founding rider recipients found');
+    }
+
+    const results = { sent: 0, failed: 0, suppressed: 0 };
+    const subject = 'Thank you — and welcome, Founding Riders';
+
+    for (const recipient of recipients) {
+      try {
+        const unsubscribeToken = generateUnsubscribeToken(recipient.id);
+        const unsubscribeUrl = `${API_URL}/api/email/unsubscribe?token=${unsubscribeToken}`;
+
+        // Extract first name from full name
+        const firstName = recipient.name?.split(' ')[0] || undefined;
+
+        const result = await sendReactEmailWithAudit({
+          to: recipient.email,
+          subject,
+          reactElement: React.createElement(FoundingRidersEmail, {
+            recipientFirstName: firstName,
+            activationDateText,
+            appUrl: FRONTEND_URL,
+            unsubscribeUrl,
+          }),
+          userId: recipient.id,
+          emailType: 'founding_welcome',
+          triggerSource: 'admin_manual',
+          templateVersion: FOUNDING_RIDERS_TEMPLATE_VERSION,
+        });
+
+        results[result.status]++;
+      } catch (error) {
+        logError(`Founding riders email to ${recipient.email}`, error);
+        results.failed++;
+      }
+    }
+
+    console.log(
+      `[Admin] Founding riders email sent by ${adminUserId}: ${results.sent} sent, ${results.failed} failed, ${results.suppressed} suppressed`
+    );
+
+    res.json({
+      success: true,
+      results,
+      total: recipients.length,
+    });
+  } catch (error) {
+    logError('Admin founding riders email send', error);
     return sendInternalError(res, 'Failed to send emails');
   }
 });

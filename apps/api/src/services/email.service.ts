@@ -1,4 +1,6 @@
 import { Resend } from 'resend';
+import { render } from '@react-email/render';
+import type { ReactElement } from 'react';
 import { logError } from '../lib/logger';
 import { prisma } from '../lib/prisma';
 import type { EmailType, TriggerSource, EmailStatus } from '@prisma/client';
@@ -148,4 +150,39 @@ export async function sendEmailWithAudit({
 
     throw error;
   }
+}
+
+export type SendReactEmailWithAuditParams = {
+  to: string;
+  subject: string;
+  reactElement: ReactElement;
+  userId: string;
+  emailType: EmailType;
+  triggerSource: TriggerSource;
+  templateVersion?: string;
+};
+
+/**
+ * Send a React Email component with audit logging.
+ * Renders the React component to HTML and sends via sendEmailWithAudit.
+ */
+export async function sendReactEmailWithAudit({
+  to,
+  subject,
+  reactElement,
+  userId,
+  emailType,
+  triggerSource,
+  templateVersion,
+}: SendReactEmailWithAuditParams): Promise<SendEmailWithAuditResult> {
+  const html = await render(reactElement);
+  return sendEmailWithAudit({
+    to,
+    subject,
+    html,
+    userId,
+    emailType,
+    triggerSource,
+    templateVersion,
+  });
 }
