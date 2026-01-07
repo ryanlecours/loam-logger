@@ -1,7 +1,13 @@
-// Mock redis before importing
-jest.mock('./redis', () => ({
-  isRedisReady: jest.fn(),
-  getRedisConnection: jest.fn(),
+// Mock prisma before importing
+const mockGeoCache = {
+  findUnique: jest.fn(),
+  upsert: jest.fn(),
+};
+
+jest.mock('./prisma', () => ({
+  prisma: {
+    geoCache: mockGeoCache,
+  },
 }));
 
 // Mock global fetch
@@ -15,10 +21,7 @@ import {
   deriveLocationAsync,
   shouldApplyAutoLocation,
 } from './location';
-import { isRedisReady, getRedisConnection } from './redis';
 
-const mockIsRedisReady = isRedisReady as jest.MockedFunction<typeof isRedisReady>;
-const mockGetRedisConnection = getRedisConnection as jest.MockedFunction<typeof getRedisConnection>;
 const mockFetch = global.fetch as jest.MockedFunction<typeof fetch>;
 
 describe('buildLocationString', () => {
@@ -95,8 +98,6 @@ describe('deriveLocation', () => {
   });
 
   it('should return city when no state (city takes priority)', () => {
-    // buildLocationString returns single value if only one part exists
-    // So city+state with only city returns 'Paris', and we never get to city+country
     expect(deriveLocation({
       city: 'Paris',
       country: 'France',
@@ -104,10 +105,6 @@ describe('deriveLocation', () => {
   });
 
   it('should return state when no city (state takes priority over state+country)', () => {
-    // buildLocationString returns single value, so city+state with no city returns null
-    // city+country with no city returns null, but state+country with only state returns 'Bavaria'
-    // Actually wait - buildLocationString([null, state]) would filter null and return 'Bavaria'
-    // So the first non-null match is city+state -> buildLocationString([null, 'Bavaria']) -> 'Bavaria'
     expect(deriveLocation({
       state: 'Bavaria',
       country: 'Germany',
@@ -161,248 +158,594 @@ describe('shouldApplyAutoLocation', () => {
 });
 
 describe('reverseGeocode', () => {
-  let mockRedis: {
-    get: jest.Mock;
-    setex: jest.Mock;
-  };
-
   beforeEach(() => {
     jest.clearAllMocks();
-    mockRedis = {
-      get: jest.fn(),
-      setex: jest.fn(),
-    };
-    mockGetRedisConnection.mockReturnValue(mockRedis as never);
-    mockIsRedisReady.mockReturnValue(true);
+    mockGeoCache.findUnique.mockResolvedValue(null);
+    mockGeoCache.upsert.mockResolvedValue({});
   });
 
-  it('should return cached result from Redis', async () => {
-    mockRedis.get.mockResolvedValue('Denver, Colorado, USA');
+  describe('input validation', () => {
+    it('should return null for invalid latitude', async () => {
+      const result = await reverseGeocode(91, -104.99);
+      expect(result).toBeNull();
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
 
-    const result = await reverseGeocode(39.7392, -104.9903);
+    it('should return null for invalid longitude', async () => {
+      const result = await reverseGeocode(39.74, 181);
+      expect(result).toBeNull();
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
 
-    expect(result).toBe('Denver, Colorado, USA');
-    expect(mockFetch).not.toHaveBeenCalled();
+    it('should return null for NaN coordinates', async () => {
+      const result = await reverseGeocode(NaN, -104.99);
+      expect(result).toBeNull();
+    });
   });
 
-  it('should return null for cached null result', async () => {
-    mockRedis.get.mockResolvedValue('__NULL__');
+  describe('caching', () => {
+    it('should return cached JSON result with preserved quality', async () => {
+      // New format: JSON with title and quality
+      mockGeoCache.findUnique.mockResolvedValue({
+        location: JSON.stringify({ title: 'Denver, CO', quality: 'med' }),
+      });
 
-    const result = await reverseGeocode(39.7392, -104.9903);
+      const result = await reverseGeocode(39.7392, -104.9903);
 
-    expect(result).toBeNull();
-    expect(mockFetch).not.toHaveBeenCalled();
-  });
+      expect(result).toEqual({
+        title: 'Denver, CO',
+        quality: 'med',
+        source: 'nominatim',
+      });
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
 
-  it('should fetch from Nominatim when not cached', async () => {
-    mockRedis.get.mockResolvedValue(null);
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({
-        address: {
-          city: 'Denver',
-          state: 'Colorado',
-          country: 'United States',
-          country_code: 'us',
-        },
-      }),
-    } as Response);
+    it('should return cached legacy plain text with med quality', async () => {
+      // Legacy format: plain text (backward compatibility)
+      mockGeoCache.findUnique.mockResolvedValue({
+        location: 'Legacy Location',
+      });
 
-    const result = await reverseGeocode(39.7392, -104.9903);
+      const result = await reverseGeocode(39.74, -104.99);
 
-    expect(result).toBe('Denver, Colorado, USA');
-    expect(mockFetch).toHaveBeenCalledWith(
-      expect.stringContaining('nominatim.openstreetmap.org/reverse'),
-      expect.objectContaining({
-        headers: expect.objectContaining({
-          'User-Agent': 'LoamLogger/1.0 (ryan.lecours@loamlogger.app)',
+      expect(result).toEqual({
+        title: 'Legacy Location',
+        quality: 'med',
+        source: 'nominatim',
+      });
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('should return null for cached null result', async () => {
+      mockGeoCache.findUnique.mockResolvedValue({
+        location: null,
+      });
+
+      // Use different coordinates to avoid in-memory cache hit from previous test
+      const result = await reverseGeocode(35.0, -110.0);
+
+      expect(result).toBeNull();
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('should cache result as JSON with title and quality', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          address: {
+            city: 'Paris',
+            country: 'France',
+            country_code: 'fr',
+          },
         }),
-      })
-    );
+      } as Response);
+
+      await reverseGeocode(48.8566, 2.3522);
+
+      // Paris without state returns just "Paris" with medium quality, cached as JSON
+      expect(mockGeoCache.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          create: expect.objectContaining({
+            location: JSON.stringify({ title: 'Paris', quality: 'med' }),
+          }),
+        })
+      );
+    });
+
+    it('should cache high quality result when POI is present', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          name: 'Test Park',
+          category: 'leisure',
+          address: {
+            city: 'Test City',
+            state: 'Colorado',
+            country_code: 'us',
+          },
+        }),
+      } as Response);
+
+      await reverseGeocode(40.001, -105.001);
+
+      expect(mockGeoCache.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          create: expect.objectContaining({
+            location: JSON.stringify({ title: 'Test Park · Test City, CO', quality: 'high' }),
+          }),
+        })
+      );
+    });
+
+    it('should cache null result for missing address', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({}),
+      } as Response);
+
+      const result = await reverseGeocode(0.001, 0.001);
+
+      expect(result).toBeNull();
+      expect(mockGeoCache.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          create: expect.objectContaining({
+            location: null,
+          }),
+        })
+      );
+    });
   });
 
-  it('should cache successful result in Redis', async () => {
-    mockRedis.get.mockResolvedValue(null);
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({
-        address: {
-          city: 'Paris',
-          country: 'France',
-          country_code: 'fr',
+  describe('RideTitle format', () => {
+    it('should return high quality title with trusted POI', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          name: 'Galbraith Mountain Trailhead',
+          category: 'leisure',
+          type: 'nature_reserve',
+          address: {
+            city: 'Bellingham',
+            state: 'Washington',
+            country: 'United States',
+            country_code: 'us',
+          },
+        }),
+      } as Response);
+
+      const result = await reverseGeocode(48.7500, -122.4800);
+
+      expect(result).toEqual({
+        title: 'Galbraith Mountain Trailhead · Bellingham, WA',
+        subtitle: 'Bellingham, WA',
+        quality: 'high',
+        source: 'nominatim',
+      });
+    });
+
+    it('should return medium quality title without POI', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          address: {
+            city: 'Denver',
+            state: 'Colorado',
+            country: 'United States',
+            country_code: 'us',
+          },
+        }),
+      } as Response);
+
+      const result = await reverseGeocode(39.7500, -104.9900);
+
+      expect(result).toEqual({
+        title: 'Denver, CO',
+        subtitle: 'Denver, CO',
+        quality: 'med',
+        source: 'nominatim',
+      });
+    });
+
+    it('should ignore highway POI names', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          name: 'Interstate 5',
+          category: 'highway',
+          address: {
+            city: 'Seattle',
+            state: 'Washington',
+            country_code: 'us',
+          },
+        }),
+      } as Response);
+
+      const result = await reverseGeocode(47.6100, -122.3300);
+
+      // Highway category not in TRUSTED_POI_CATEGORIES, so POI name is ignored
+      expect(result?.title).toBe('Seattle, WA');
+      expect(result?.quality).toBe('med');
+    });
+
+    it('should not duplicate locality in POI title', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          name: 'Seattle',  // POI name same as city
+          category: 'leisure',
+          address: {
+            city: 'Seattle',
+            state: 'Washington',
+            country_code: 'us',
+          },
+        }),
+      } as Response);
+
+      const result = await reverseGeocode(47.6062, -122.3321);
+
+      // Should not show "Seattle · Seattle, WA"
+      expect(result?.title).toBe('Seattle, WA');
+    });
+  });
+
+  describe('US state abbreviation', () => {
+    it('should abbreviate Washington to WA', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          address: {
+            city: 'Seattle',
+            state: 'Washington',
+            country_code: 'us',
+          },
+        }),
+      } as Response);
+
+      const result = await reverseGeocode(47.6, -122.3);
+
+      expect(result?.title).toBe('Seattle, WA');
+    });
+
+    it('should abbreviate California to CA', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          address: {
+            city: 'San Francisco',
+            state: 'California',
+            country_code: 'us',
+          },
+        }),
+      } as Response);
+
+      const result = await reverseGeocode(37.7, -122.4);
+
+      expect(result?.title).toBe('San Francisco, CA');
+    });
+
+    it('should abbreviate District of Columbia to DC', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          address: {
+            city: 'Washington',
+            state: 'District of Columbia',
+            country_code: 'us',
+          },
+        }),
+      } as Response);
+
+      const result = await reverseGeocode(38.9, -77.0);
+
+      expect(result?.title).toBe('Washington, DC');
+    });
+
+    it('should keep full state name for non-US countries', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          address: {
+            city: 'Vancouver',
+            state: 'British Columbia',
+            country: 'Canada',
+            country_code: 'ca',
+          },
+        }),
+      } as Response);
+
+      const result = await reverseGeocode(49.2827, -123.1207);
+
+      expect(result?.title).toBe('Vancouver, British Columbia');
+    });
+  });
+
+  describe('country code handling', () => {
+    it('should convert us to USA', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          address: {
+            state: 'Alaska',
+            country_code: 'us',
+          },
+        }),
+      } as Response);
+
+      const result = await reverseGeocode(64.0, -150.0);
+
+      expect(result?.title).toBe('AK, USA');
+    });
+
+    it('should convert gb to UK', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          address: {
+            city: 'London',
+            state: 'England',
+            country_code: 'gb',
+          },
+        }),
+      } as Response);
+
+      const result = await reverseGeocode(51.5, -0.1);
+
+      expect(result?.title).toBe('London, England');
+    });
+
+    it('should uppercase other country codes', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          address: {
+            state: 'New South Wales',
+            country_code: 'au',
+          },
+        }),
+      } as Response);
+
+      const result = await reverseGeocode(-33.8, 151.2);
+
+      expect(result?.title).toBe('New South Wales, AU');
+    });
+  });
+
+  describe('locality fallbacks', () => {
+    it('should use town when city not available', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          address: {
+            town: 'Small Town',
+            state: 'Colorado',
+            country_code: 'us',
+          },
+        }),
+      } as Response);
+
+      const result = await reverseGeocode(39.5, -105.0);
+
+      expect(result?.title).toBe('Small Town, CO');
+    });
+
+    it('should use village when town not available', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          address: {
+            village: 'Tiny Village',
+            state: 'Vermont',
+            country_code: 'us',
+          },
+        }),
+      } as Response);
+
+      const result = await reverseGeocode(44.0, -72.7);
+
+      expect(result?.title).toBe('Tiny Village, VT');
+    });
+
+    it('should use hamlet when village not available', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          address: {
+            hamlet: 'Remote Hamlet',
+            state: 'Montana',
+            country_code: 'us',
+          },
+        }),
+      } as Response);
+
+      const result = await reverseGeocode(47.0, -110.0);
+
+      expect(result?.title).toBe('Remote Hamlet, MT');
+    });
+
+    it('should use county when no city/town/village/hamlet', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          address: {
+            county: 'Whatcom County',
+            state: 'Washington',
+            country_code: 'us',
+          },
+        }),
+      } as Response);
+
+      const result = await reverseGeocode(48.9, -122.5);
+
+      expect(result?.title).toBe('Whatcom County, WA');
+    });
+  });
+
+  describe('trusted POI categories', () => {
+    it('should include leisure category (parks, trails)', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          name: 'Central Park',
+          category: 'leisure',
+          address: {
+            city: 'New York',
+            state: 'New York',
+            country_code: 'us',
+          },
+        }),
+      } as Response);
+
+      const result = await reverseGeocode(40.7829, -73.9654);
+
+      expect(result?.title).toBe('Central Park · New York, NY');
+      expect(result?.quality).toBe('high');
+    });
+
+    it('should include tourism category (viewpoints)', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          name: 'Grand Canyon Viewpoint',
+          category: 'tourism',
+          address: {
+            state: 'Arizona',
+            country_code: 'us',
+          },
+        }),
+      } as Response);
+
+      const result = await reverseGeocode(36.1, -112.1);
+
+      expect(result?.title).toBe('Grand Canyon Viewpoint · AZ, USA');
+      expect(result?.quality).toBe('high');
+    });
+
+    it('should include natural category (peaks, forests)', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          name: 'Mount Rainier',
+          category: 'natural',
+          address: {
+            state: 'Washington',
+            country_code: 'us',
+          },
+        }),
+      } as Response);
+
+      const result = await reverseGeocode(46.8523, -121.7603);
+
+      expect(result?.title).toBe('Mount Rainier · WA, USA');
+      expect(result?.quality).toBe('high');
+    });
+
+    it('should include amenity category (trailhead parking)', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          name: 'Tiger Mountain Trailhead Parking',
+          category: 'amenity',
+          address: {
+            city: 'Issaquah',
+            state: 'Washington',
+            country_code: 'us',
+          },
+        }),
+      } as Response);
+
+      const result = await reverseGeocode(47.4626, -122.0353);
+
+      expect(result?.title).toBe('Tiger Mountain Trailhead Parking · Issaquah, WA');
+      expect(result?.quality).toBe('high');
+    });
+  });
+
+  describe('error handling', () => {
+    it('should return null on API error', async () => {
+      mockFetch.mockResolvedValue({
+        ok: false,
+        status: 500,
+      } as Response);
+
+      const result = await reverseGeocode(10.123, 20.456);
+
+      expect(result).toBeNull();
+    });
+
+    it('should return null on fetch error', async () => {
+      mockFetch.mockRejectedValue(new Error('Network error'));
+
+      const result = await reverseGeocode(11.111, 22.222);
+
+      expect(result).toBeNull();
+    });
+
+    it('should handle DB cache errors gracefully', async () => {
+      mockGeoCache.findUnique.mockRejectedValue(new Error('DB error'));
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          address: {
+            city: 'Test City',
+            state: 'Test State',
+            country_code: 'us',
+          },
+        }),
+      } as Response);
+
+      const result = await reverseGeocode(45.0, -90.0);
+
+      // Should still work, just skip cache read
+      expect(result?.title).toBe('Test City, Test State');
+    });
+  });
+
+  describe('coordinate rounding for cache', () => {
+    it('should round coordinates to 3 decimal places', async () => {
+      mockGeoCache.findUnique.mockResolvedValue({
+        location: JSON.stringify({ title: 'Cached Location', quality: 'med' }),
+      });
+
+      // Use coordinates unique to this test to avoid in-memory cache hits
+      await reverseGeocode(12.34567890, -98.76543210);
+
+      expect(mockGeoCache.findUnique).toHaveBeenCalledWith({
+        where: {
+          lat_lon: { lat: 12.346, lon: -98.765 },
         },
-      }),
-    } as Response);
-
-    await reverseGeocode(48.8566, 2.3522);
-
-    // City + country without state produces "Paris, FR" (country is shortened)
-    expect(mockRedis.setex).toHaveBeenCalledWith(
-      expect.stringContaining('geocode:'),
-      expect.any(Number),
-      'Paris, FR'
-    );
-  });
-
-  it('should cache null result for missing address', async () => {
-    mockRedis.get.mockResolvedValue(null);
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({}), // No address field
-    } as Response);
-
-    const result = await reverseGeocode(0, 0);
-
-    expect(result).toBeNull();
-    expect(mockRedis.setex).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.any(Number),
-      '__NULL__'
-    );
-  });
-
-  it('should return null on API error', async () => {
-    mockRedis.get.mockResolvedValue(null);
-    mockFetch.mockResolvedValue({
-      ok: false,
-      status: 500,
-    } as Response);
-
-    // Use unique coordinates to avoid cache hits from previous tests
-    const result = await reverseGeocode(10.123, 20.456);
-
-    expect(result).toBeNull();
-  });
-
-  it('should return null on fetch error', async () => {
-    mockRedis.get.mockResolvedValue(null);
-    mockFetch.mockRejectedValue(new Error('Network error'));
-
-    // Use unique coordinates to avoid cache hits from previous tests
-    const result = await reverseGeocode(11.111, 22.222);
-
-    expect(result).toBeNull();
-  });
-
-  it('should shorten country names', async () => {
-    mockRedis.get.mockResolvedValue(null);
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({
-        address: {
-          city: 'Vancouver',
-          state: 'British Columbia',
-          country: 'Canada',
-          country_code: 'ca',
-        },
-      }),
-    } as Response);
-
-    const result = await reverseGeocode(49.2827, -123.1207);
-
-    expect(result).toBe('Vancouver, British Columbia, CA');
-  });
-
-  it('should use town when city not available', async () => {
-    mockRedis.get.mockResolvedValue(null);
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({
-        address: {
-          town: 'Small Town',
-          state: 'Colorado',
-          country: 'United States',
-          country_code: 'us',
-        },
-      }),
-    } as Response);
-
-    const result = await reverseGeocode(39.5, -105.0);
-
-    expect(result).toBe('Small Town, Colorado, USA');
-  });
-
-  it('should use village when town not available', async () => {
-    mockRedis.get.mockResolvedValue(null);
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({
-        address: {
-          village: 'Tiny Village',
-          country: 'United Kingdom',
-          country_code: 'gb',
-        },
-      }),
-    } as Response);
-
-    const result = await reverseGeocode(51.5, -0.1);
-
-    expect(result).toBe('Tiny Village, UK');
-  });
-
-  it('should work when Redis is unavailable', async () => {
-    mockIsRedisReady.mockReturnValue(false);
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({
-        address: {
-          city: 'Tokyo',
-          country: 'Japan',
-          country_code: 'jp',
-        },
-      }),
-    } as Response);
-
-    const result = await reverseGeocode(35.6762, 139.6503);
-
-    expect(result).toBe('Tokyo, JP');
-    expect(mockRedis.get).not.toHaveBeenCalled();
-  });
-
-  it('should round coordinates for cache key', async () => {
-    mockRedis.get.mockResolvedValue('Cached Location');
-
-    await reverseGeocode(39.73921234, -104.99034567);
-
-    expect(mockRedis.get).toHaveBeenCalledWith('geocode:39.739:-104.990');
+      });
+    });
   });
 });
 
 describe('deriveLocationAsync', () => {
-  let mockRedis: {
-    get: jest.Mock;
-    setex: jest.Mock;
-  };
-
   beforeEach(() => {
     jest.clearAllMocks();
-    mockRedis = {
-      get: jest.fn(),
-      setex: jest.fn(),
-    };
-    mockGetRedisConnection.mockReturnValue(mockRedis as never);
-    mockIsRedisReady.mockReturnValue(true);
+    mockGeoCache.findUnique.mockResolvedValue(null);
+    mockGeoCache.upsert.mockResolvedValue({});
   });
 
-  it('should return sync location when available', async () => {
+  it('should return RideTitle with sync location when available', async () => {
     const result = await deriveLocationAsync({
       city: 'Denver',
       state: 'Colorado',
     });
 
-    expect(result).toBe('Denver, Colorado');
+    expect(result).toEqual({
+      title: 'Denver, Colorado',
+      quality: 'med',
+      source: 'nominatim',
+    });
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
   it('should reverse geocode when only lat/lon provided', async () => {
-    mockRedis.get.mockResolvedValue(null);
     mockFetch.mockResolvedValue({
       ok: true,
       json: () => Promise.resolve({
         address: {
           city: 'Boulder',
           state: 'Colorado',
-          country: 'United States',
           country_code: 'us',
         },
       }),
@@ -413,23 +756,30 @@ describe('deriveLocationAsync', () => {
       lon: -105.2705,
     });
 
-    expect(result).toBe('Boulder, Colorado, USA');
+    expect(result).toEqual({
+      title: 'Boulder, CO',
+      subtitle: 'Boulder, CO',
+      quality: 'med',
+      source: 'nominatim',
+    });
   });
 
-  it('should fall back to lat/lon format when geocoding fails', async () => {
-    mockRedis.get.mockResolvedValue(null);
+  it('should fall back to lat/lon format with low quality when geocoding fails', async () => {
     mockFetch.mockResolvedValue({
       ok: false,
       status: 500,
     } as Response);
 
-    // Use unique coordinates to avoid cache hits
     const result = await deriveLocationAsync({
       lat: 55.555,
       lon: -66.666,
     });
 
-    expect(result).toBe('Lat 55.555, Lon -66.666');
+    expect(result).toEqual({
+      title: 'Lat 55.555, Lon -66.666',
+      quality: 'low',
+      source: 'nominatim',
+    });
   });
 
   it('should not reverse geocode when real location exists', async () => {
@@ -439,7 +789,17 @@ describe('deriveLocationAsync', () => {
       lon: -105.2705,
     });
 
-    expect(result).toBe('Existing City');
+    expect(result).toEqual({
+      title: 'Existing City',
+      quality: 'med',
+      source: 'nominatim',
+    });
     expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('should return null when nothing provided', async () => {
+    const result = await deriveLocationAsync({});
+
+    expect(result).toBeNull();
   });
 });

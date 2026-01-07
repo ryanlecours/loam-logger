@@ -88,7 +88,7 @@ model Ride {
   stravaActivityId  String?  @unique
   stravaGearId      String?
   bike              Bike?    @relation(fields: [bikeId], references: [id])
-  duplicateOf       Ride?    @relation("DuplicateRides", fields: [duplicateOfId], references: [id])
+  duplicateOf       Ride?    @relation("DuplicateRides", fields: [duplicateOfId], references: [id], onDelete: SetNull)
   duplicates        Ride[]   @relation("DuplicateRides")
   user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
@@ -260,6 +260,7 @@ enum EmailType {
   welcome_series
   announcement
   custom
+  founding_welcome
 }
 
 enum TriggerSource {
@@ -325,4 +326,14 @@ model ScheduledEmail {
   @@index([status])
   @@index([scheduledFor])
   @@index([createdBy])
+}
+
+model GeoCache {
+  id        String   @id @default(cuid())
+  lat       Float
+  lon       Float
+  location  String?
+  createdAt DateTime @default(now())
+
+  @@unique([lat, lon])
 }

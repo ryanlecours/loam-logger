@@ -18,6 +18,7 @@ export default {
           moduleResolution: 'node',
           isolatedModules: true,
           baseUrl: '.',
+          jsx: 'react-jsx',
           paths: {
             '@loam/shared': ['../../libs/shared/src/index.ts'],
           },
