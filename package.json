@@ -11,6 +11,7 @@
     "dev:mobile": "nx start mobile",
     "build": "nx run-many --target=build",
     "build:web": "nx build web",
+    "test": "nx run-many --target=test",
     "lint": "nx run-many --target=lint",
     "codegen": "nx run graphql:codegen"
   },

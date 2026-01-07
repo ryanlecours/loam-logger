@@ -36,7 +36,7 @@ export async function sendEmail({ to, subject, html, text }: SendEmailParams): P
 
   const { data, error } = await client.emails.send({
     from: FROM_EMAIL,
-    reply_to: REPLY_TO_EMAIL,
+    replyTo: REPLY_TO_EMAIL,
     to,
     subject,
     html,

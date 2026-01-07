@@ -107,30 +107,39 @@ export default function FoundingRidersEmail({
 
             <Text className="ll-p" style={styles.p}>
               I genuinely appreciate you signing up to be among
-              the very first users of{" "}
-              Loam Logger. Spending time with an
-              early product and sharing honest feedback is not something I take
-              lightly.
+              the very first users of
+              Loam Logger.
+              </Text>
+              <Text className="ll-p" style={styles.p}>
+              My goal is to create a tool that is useful to all of my friends in the bike community.
             </Text>
 
             <Text className="ll-p" style={styles.p}>
               As a thank-you, your account is designated as a{"  "}
               <span className="ll-emph" style={styles.emph}>Founding Rider</span>, which means
-              complete access of all features at no cost for as long as Loam Logger exists,
-              as long as the account is used in good faith and in line with the
-              terms at creation.
+              complete access of all features at no cost for as long as Loam Logger exists*.
             </Text>
 
             {/* Activation Callout */}
-            <Section className="ll-callout" style={styles.callout}>
-              <Text className="ll-p" style={{ ...styles.p, margin: 0, textAlign: 'center' }}>
-                <span className="ll-emph" style={styles.emph}>Accounts go live:</span>{" "}
+            <Section className="ll-callout" style={{...styles.callout, textAlign: 'center'}}>
+              <Text className="ll-p" style={{ ...styles.p, margin: 0 }}>
+                <span className="ll-emph" style={styles.emph}>Your account goes live:</span>{" "}
                 {activationDateText}.
               </Text>
 
               <Text className="ll-p" style={styles.p}>Between now and then, I'd love to gather
-                ideas and feedback before you even log your first ride.
+                your feedback before you log your first ride.
               </Text>
+
+              <Section style={{ paddingTop: 8, paddingBottom: 6 }}>
+              <Button
+                href={`mailto:ryan.lecours@loamlogger.app?subject=Loam%20Logger%20Idea`}
+                className="ll-button"
+                style={styles.button}
+              >
+                💡 Share Your Ideas
+              </Button>
+              </Section>
             </Section>
 
             <Hr className="ll-hr" style={styles.hr} />
@@ -146,7 +155,7 @@ export default function FoundingRidersEmail({
             </Text>
 
             <Text className="ll-p" style={styles.p}>
-              I began building it because there isn't currently a great way to reliably track
+              I began building Loam Logger because there isn't currently a great way to reliably track
               maintenance and servicing across multiple bikes. I have tried
               spreadsheets, notes, mental checklists, and other apps. None of
               them felt trustworthy enough to ride without second-guessing.
@@ -154,7 +163,7 @@ export default function FoundingRidersEmail({
             <Section className="ll-callout" style={styles.callout}>
               <Text className="ll-p" style={styles.p}>
                 <span className="ll-emph" style={styles.emph}>The goal is simple:</span><br />You should be able to grab your bike after work
-                and head out the door with confidence that it's good to go.
+                and head out the door with confidence that it is good to go.
               </Text>
             </Section>
 
@@ -167,8 +176,8 @@ export default function FoundingRidersEmail({
             <Text className="ll-p" style={styles.p}>
               I have built Loam Logger entirely from the ground up, purely with code. That
               gives us a lot of flexibility, but it also means there will be some
-              bugs and rough edges early on. Your help spotting those is just as
-              valuable as feature ideas.</Text>
+              bugs and rough edges early on. <span className="ll-emph" style={styles.emph}>Your help spotting these bugs is just as
+              valuable as ideas for new features.</span></Text>
 
             <Text className="ll-p" style={styles.p}>
               Even these emails are custom coded. Let me know if anything looks weird on your end.
@@ -186,8 +195,12 @@ export default function FoundingRidersEmail({
               <Link href={spokesUrl} className="ll-link" style={styles.link}>99spokes.com</Link>
             </Text>
             <Text className="ll-bullets" style={styles.bullets}>• Track 21+ individual components on all of your bikes</Text>
-            <Text className="ll-bullets" style={styles.bullets}>• Predictive maintenance analysis - "Check your front brake pads in ~4 rides, shock 200hr service should be done in ~9 rides, etc."</Text>
-            <Text className="ll-bullets" style={styles.bullets}>• Algorithmic wear tracking considers elevation change, distance and grade when weighting wear on components</Text>
+            <Text className="ll-bullets" style={styles.bullets}>• Predictive maintenance analysis</Text>
+            <Text className="ll-bullets" style={{ ...styles.bullets, paddingLeft: 32 }}>◦ "Check your front brake pads in ~4 rides, shock 200hr service should be done in ~9 rides, etc."</Text>
+            <Text className="ll-bullets" style={styles.bullets}>• Algorithmic wear tracking</Text>
+            <Text className="ll-bullets" style={{ ...styles.bullets, paddingLeft: 32 }}>◦ Considers elevation change, distance and grade when weighting wear on components</Text>
+            <Text className="ll-bullets" style={{ ...styles.bullets, paddingLeft: 32 }}>◦ For example, the steeper the trail, the more wear and tear on your brake pads and suspension. Shuttling does not wear your drivetrain the way an XC ride will.</Text>
+            <Text className="ll-bullets" style={{ ...styles.bullets, paddingLeft: 32 }}>◦ This algorithm will need tuning to function and feel correct, we'll dial this in together.</Text>
             <Text className="ll-bullets" style={styles.bullets}>• At-a-glance dashboard for bike and component health</Text>
             <Text className="ll-bullets" style={styles.bullets}>• User customizable notifications, service intervals, and wear algorithm parameters</Text>
 
@@ -227,11 +240,11 @@ export default function FoundingRidersEmail({
 
             <Section style={{ paddingTop: 8, paddingBottom: 6, textAlign: 'center' }}>
               <Button
-                href={`mailto:ryan.lecours@loamlogger.app?subject=Loam%20Logger%20Idea`}
+                href={`mailto:ryan.lecours@loamlogger.app?subject=Loam%20Logger%20Feedback`}
                 className="ll-button"
                 style={styles.button}
               >
-                💡 Share an Idea
+                ✉️ Email Me Features You'd Like
               </Button>
             </Section>
 
@@ -257,7 +270,7 @@ export default function FoundingRidersEmail({
             </Text>
 
             <Text className="ll-p" style={{ ...styles.p, marginTop: 14, marginBottom: 0 }}>
-              Thank you again for being early, patient, and opinionated. I am
+              Thank you again for being early, patient, and <span className="ll-emph" style={styles.emph}>opinionated</span>. I am
               excited to build this with you all.
             </Text>
 
@@ -280,6 +293,9 @@ export default function FoundingRidersEmail({
             <Text className="ll-footer" style={{ ...styles.footerText, marginBottom: 0 }}>
               Loam Logger • You're receiving this because you signed up for beta
               access.
+            </Text>
+            <Text className="ll-footer" style={{ ...styles.footerText, marginTop: 6, fontStyle: 'italic' }}>
+              * As long as the account is used in good faith and in line with the terms at creation.
             </Text>
             {unsubscribeUrl ? (
               <Text className="ll-footer" style={{ ...styles.footerText, marginTop: 6 }}>

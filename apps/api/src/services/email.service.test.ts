@@ -54,8 +54,8 @@ describe('sendEmail', () => {
 
     expect(result).toBe('email-123');
     expect(mockSend).toHaveBeenCalledWith({
-      from: expect.any(String),
-      reply_to: expect.any(String),
+      from: "Ryan LeCours <ryan.lecours@onboarding.loamlogger.app>",
+      replyTo: "ryan.lecours@loamlogger.app",
       to: 'test@example.com',
       subject: 'Test Subject',
       html: '<p>Hello World</p>',
