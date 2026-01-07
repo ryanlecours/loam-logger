@@ -486,7 +486,7 @@ async function processActivityPing(notification: GarminActivityPing): Promise<vo
 
     const locationUpdate = shouldApplyAutoLocation(
       existingRide?.location ?? null,
-      autoLocation
+      autoLocation?.title ?? null
     );
 
     // Upsert the ride (create or update if it already exists)
@@ -504,7 +504,7 @@ async function processActivityPing(notification: GarminActivityPing): Promise<vo
         averageHr: activityDetail.averageHeartRateInBeatsPerMinute ?? null,
         rideType: activityDetail.activityType,
         notes: activityDetail.activityName ?? null,
-        location: autoLocation,
+        location: autoLocation?.title ?? null,
       },
       update: {
         startTime,
@@ -646,7 +646,7 @@ async function processActivityCallback(notification: GarminActivityCallback): Pr
 
       const locationUpdate = shouldApplyAutoLocation(
         existingRide?.location ?? null,
-        autoLocation
+        autoLocation?.title ?? null
       );
 
       // Upsert the ride (create or update if it already exists)
@@ -664,7 +664,7 @@ async function processActivityCallback(notification: GarminActivityCallback): Pr
           averageHr: activity.averageHeartRateInBeatsPerMinute ?? null,
           rideType: activity.activityType,
           notes: activity.activityName ?? null,
-          location: autoLocation,
+          location: autoLocation?.title ?? null,
         },
         update: {
           startTime,

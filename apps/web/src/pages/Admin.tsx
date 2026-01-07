@@ -154,6 +154,17 @@ export default function Admin() {
     errors: Array<{ row: number; email: string; reason: string }>;
   } | null>(null);
 
+  // Founding Riders Welcome Email state
+  const [foundingEmailDate, setFoundingEmailDate] = useState('January 20, 2026');
+  const [foundingEmailRecipients, setFoundingEmailRecipients] = useState<EmailRecipient[]>([]);
+  const [selectedFoundingRecipients, setSelectedFoundingRecipients] = useState<Set<string>>(new Set());
+  const [loadingFoundingRecipients, setLoadingFoundingRecipients] = useState(false);
+  const [showFoundingPreview, setShowFoundingPreview] = useState(false);
+  const [foundingPreviewHtml, setFoundingPreviewHtml] = useState('');
+  const [sendingFoundingEmail, setSendingFoundingEmail] = useState(false);
+  const [foundingSendResult, setFoundingSendResult] = useState<SendResult | null>(null);
+  const [showFoundingConfirm, setShowFoundingConfirm] = useState(false);
+
   const isAdmin = user?.role === 'ADMIN';
 
   useEffect(() => {
@@ -728,6 +739,120 @@ export default function Admin() {
     }
   }, [isAdmin, emailForm.segment, fetchEmailRecipients]);
 
+  // Founding Riders Email Functions
+  const fetchFoundingRidersRecipients = useCallback(async () => {
+    try {
+      setLoadingFoundingRecipients(true);
+      const res = await fetch(
+        `${import.meta.env.VITE_API_URL}/api/admin/email/recipients?role=WAITLIST&foundingRider=true`,
+        { credentials: 'include' }
+      );
+      if (!res.ok) throw new Error('Failed to fetch recipients');
+      const data = await res.json();
+      const users = data.users || [];
+      setFoundingEmailRecipients(users);
+      // Pre-select all eligible (non-unsubscribed) recipients
+      const eligibleIds = users
+        .filter((u: EmailRecipient) => !u.emailUnsubscribed)
+        .map((u: EmailRecipient) => u.id);
+      setSelectedFoundingRecipients(new Set(eligibleIds));
+    } catch (err) {
+      console.error('Failed to fetch founding riders:', err);
+    } finally {
+      setLoadingFoundingRecipients(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isAdmin) {
+      fetchFoundingRidersRecipients();
+    }
+  }, [isAdmin, fetchFoundingRidersRecipients]);
+
+  const handleFoundingSelectAll = () => {
+    const eligibleIds = foundingEmailRecipients
+      .filter((u) => !u.emailUnsubscribed)
+      .map((u) => u.id);
+    setSelectedFoundingRecipients(new Set(eligibleIds));
+  };
+
+  const handleFoundingDeselectAll = () => {
+    setSelectedFoundingRecipients(new Set());
+  };
+
+  const toggleFoundingRecipient = (id: string) => {
+    const newSet = new Set(selectedFoundingRecipients);
+    if (newSet.has(id)) {
+      newSet.delete(id);
+    } else {
+      newSet.add(id);
+    }
+    setSelectedFoundingRecipients(newSet);
+  };
+
+  const handleFoundingPreview = async () => {
+    try {
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/admin/email/founding-riders/preview`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          activationDateText: foundingEmailDate,
+        }),
+      });
+      if (!res.ok) throw new Error('Failed to generate preview');
+      const data = await res.json();
+      setFoundingPreviewHtml(data.html);
+      setShowFoundingPreview(true);
+    } catch (err) {
+      console.error('Failed to preview:', err);
+      alert('Failed to generate preview');
+    }
+  };
+
+  const handleFoundingSend = async () => {
+    if (selectedFoundingRecipients.size === 0) {
+      alert('Please select at least one recipient');
+      return;
+    }
+    setShowFoundingConfirm(true);
+  };
+
+  const confirmFoundingSend = async () => {
+    try {
+      setSendingFoundingEmail(true);
+      setShowFoundingConfirm(false);
+
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/admin/email/founding-riders`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          recipientIds: Array.from(selectedFoundingRecipients),
+          activationDateText: foundingEmailDate,
+        }),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.error || 'Failed to send emails');
+      }
+
+      const data = await res.json();
+      setFoundingSendResult({
+        sent: data.results.sent,
+        failed: data.results.failed,
+        suppressed: data.results.suppressed,
+        total: data.total,
+      });
+    } catch (err) {
+      console.error('Failed to send founding riders email:', err);
+      alert(err instanceof Error ? err.message : 'Failed to send emails');
+    } finally {
+      setSendingFoundingEmail(false);
+    }
+  };
+
   const handleSelectAll = () => {
     const eligibleIds = emailRecipients
       .filter((u) => !u.emailUnsubscribed)
@@ -930,6 +1055,183 @@ export default function Admin() {
             <p className="text-4xl font-bold text-white">{stats.waitlistCount}</p>
           </div>
         </section>
+      )}
+
+      {/* Founding Riders Welcome Email Section */}
+      <section className="panel-soft shadow-soft border border-app rounded-3xl p-6 space-y-4">
+        <div>
+          <p className="text-xs uppercase tracking-[0.3em] text-muted">Welcome Email</p>
+          <h2 className="text-xl font-semibold text-white">Founding Riders Welcome</h2>
+          <p className="text-sm text-muted mt-1">
+            Send the beautifully designed welcome email to founding riders.
+          </p>
+        </div>
+
+        {/* Activation Date */}
+        <div>
+          <label className="block text-sm text-muted mb-1">Activation Date Text</label>
+          <input
+            type="text"
+            value={foundingEmailDate}
+            onChange={(e) => setFoundingEmailDate(e.target.value)}
+            className="w-full max-w-xs px-4 py-2 rounded-xl bg-surface-2 border border-app text-white focus:outline-none focus:ring-2 focus:ring-primary"
+            placeholder="January 20, 2026"
+          />
+          <p className="text-xs text-muted mt-1">This appears in the email as the go-live date.</p>
+        </div>
+
+        {/* Recipient List */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-muted">
+              {loadingFoundingRecipients
+                ? 'Loading...'
+                : `${selectedFoundingRecipients.size} of ${foundingEmailRecipients.filter((r) => !r.emailUnsubscribed).length} founding riders selected`}
+            </span>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={handleFoundingSelectAll}
+                className="text-xs text-primary hover:underline"
+              >
+                Select All
+              </button>
+              <button
+                type="button"
+                onClick={handleFoundingDeselectAll}
+                className="text-xs text-muted hover:underline"
+              >
+                Deselect All
+              </button>
+            </div>
+          </div>
+          <div className="max-h-48 overflow-y-auto rounded-xl bg-surface-2 border border-app p-2 space-y-1">
+            {foundingEmailRecipients.map((recipient) => (
+              <label
+                key={recipient.id}
+                className={`flex items-center gap-2 p-2 rounded-lg cursor-pointer hover:bg-surface-1 ${
+                  recipient.emailUnsubscribed ? 'opacity-50 cursor-not-allowed' : ''
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={selectedFoundingRecipients.has(recipient.id)}
+                  onChange={() => toggleFoundingRecipient(recipient.id)}
+                  disabled={recipient.emailUnsubscribed}
+                  className="rounded border-app"
+                />
+                <span className="text-white text-sm">{recipient.email}</span>
+                {recipient.name && (
+                  <span className="text-muted text-sm">({recipient.name})</span>
+                )}
+                {recipient.emailUnsubscribed && (
+                  <span className="text-xs text-red-400 ml-auto">unsubscribed</span>
+                )}
+              </label>
+            ))}
+            {foundingEmailRecipients.length === 0 && !loadingFoundingRecipients && (
+              <p className="text-center text-muted py-4">No founding riders found</p>
+            )}
+          </div>
+        </div>
+
+        {/* Action Buttons */}
+        <div className="flex flex-wrap gap-3">
+          <button
+            type="button"
+            onClick={handleFoundingPreview}
+            className="px-4 py-2 rounded-xl bg-surface-2 border border-app text-white hover:bg-surface-1 transition-colors"
+          >
+            Preview Email
+          </button>
+          <button
+            type="button"
+            onClick={handleFoundingSend}
+            disabled={sendingFoundingEmail || selectedFoundingRecipients.size === 0}
+            className="px-4 py-2 rounded-xl bg-primary text-black font-medium hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {sendingFoundingEmail ? 'Sending...' : `Send to ${selectedFoundingRecipients.size} Recipients`}
+          </button>
+        </div>
+
+        {/* Send Result */}
+        {foundingSendResult && (
+          <div className="rounded-xl bg-surface-2 border border-app p-4 space-y-2">
+            <p className="text-white font-medium">Email Sent!</p>
+            <div className="text-sm text-muted space-y-1">
+              <p>✓ Sent: {foundingSendResult.sent}</p>
+              {foundingSendResult.suppressed > 0 && (
+                <p>⊘ Suppressed (unsubscribed): {foundingSendResult.suppressed}</p>
+              )}
+              {foundingSendResult.failed > 0 && (
+                <p className="text-red-400">✗ Failed: {foundingSendResult.failed}</p>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => setFoundingSendResult(null)}
+              className="text-xs text-muted hover:underline"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
+      </section>
+
+      {/* Preview Modal */}
+      {showFoundingPreview && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="bg-surface-1 border border-app rounded-2xl max-w-3xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between p-4 border-b border-app">
+              <h3 className="text-lg font-semibold text-white">Email Preview</h3>
+              <button
+                onClick={() => setShowFoundingPreview(false)}
+                className="text-muted hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="flex-1 overflow-auto p-4">
+              <iframe
+                srcDoc={foundingPreviewHtml}
+                className="w-full h-[600px] rounded-lg border border-app"
+                title="Email Preview"
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirm Send Modal */}
+      {showFoundingConfirm && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="bg-surface-1 border border-app rounded-2xl max-w-md w-full p-6 space-y-4">
+            <h3 className="text-lg font-semibold text-white">Confirm Send</h3>
+            <p className="text-muted">
+              You're about to send the Founding Riders Welcome email to{' '}
+              <span className="text-white font-medium">{selectedFoundingRecipients.size}</span> recipients.
+            </p>
+            <p className="text-sm text-muted">
+              Activation date: <span className="text-white">{foundingEmailDate}</span>
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                type="button"
+                onClick={() => setShowFoundingConfirm(false)}
+                className="px-4 py-2 rounded-xl bg-surface-2 border border-app text-white hover:bg-surface-1 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmFoundingSend}
+                className="px-4 py-2 rounded-xl bg-primary text-black font-medium hover:bg-primary/90 transition-colors"
+              >
+                Send Email
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Email Compose Section */}

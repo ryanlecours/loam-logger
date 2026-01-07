@@ -5,6 +5,7 @@ export interface DuplicateCandidate {
   startTime: Date;
   durationSeconds: number;
   distanceMiles: number;
+  elevationGainFeet: number;
   garminActivityId: string | null;
   stravaActivityId: string | null;
 }
@@ -37,6 +38,12 @@ export function isDuplicateActivity(
   const distanceDiff = Math.abs(newRide.distanceMiles - existingRide.distanceMiles);
   const distanceThreshold = Math.max(existingRide.distanceMiles * 0.05, 0.1);
   if (distanceDiff > distanceThreshold) return false;
+
+  // Elevation threshold: within 5% or 100ft (whichever is larger)
+  // 100ft minimum handles GPS noise on flat rides where devices may report wildly different values
+  const elevationDiff = Math.abs(newRide.elevationGainFeet - existingRide.elevationGainFeet);
+  const elevationThreshold = Math.max(existingRide.elevationGainFeet * 0.05, 100);
+  if (elevationDiff > elevationThreshold) return false;
 
   // All criteria match - this is likely a duplicate
   return true;
@@ -82,6 +89,7 @@ export async function findPotentialDuplicates(
       startTime: true,
       durationSeconds: true,
       distanceMiles: true,
+      elevationGainFeet: true,
       garminActivityId: true,
       stravaActivityId: true,
     },

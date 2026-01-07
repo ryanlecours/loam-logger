@@ -1,51 +1,155 @@
-import { getRedisConnection, isRedisReady } from './redis';
+import { LRUCache } from 'lru-cache';
+import { prisma } from './prisma';
 
-// In-memory cache fallback (used when Redis is unavailable)
-// Uses FIFO eviction when max size is reached
-const memoryCache = new Map<string, { value: string | null; expiresAt: number }>();
-const MEMORY_CACHE_MAX_SIZE = 1000;
-// 1 year TTL - coordinates map to the same location indefinitely.
-// Using a finite TTL allows for rare OSM data corrections and prevents
-// unbounded cache growth if Redis persistence is enabled.
-const CACHE_TTL_SECONDS = 60 * 60 * 24 * 365;
+// In-memory LRU cache for hot-path reads
+// Evicts least-recently-used entries when full
+const memoryCache = new LRUCache<string, string | null>({ max: 1000 });
+
+/**
+ * Ride title result from reverse geocoding
+ */
+export type RideTitle = {
+  title: string;
+  subtitle?: string;
+  quality: 'high' | 'med' | 'low';
+  source: 'nominatim';
+};
+
+/**
+ * US state name to abbreviation map
+ */
+const US_STATE_ABBREV: Record<string, string> = {
+  'Alabama': 'AL',
+  'Alaska': 'AK',
+  'Arizona': 'AZ',
+  'Arkansas': 'AR',
+  'California': 'CA',
+  'Colorado': 'CO',
+  'Connecticut': 'CT',
+  'Delaware': 'DE',
+  'Florida': 'FL',
+  'Georgia': 'GA',
+  'Hawaii': 'HI',
+  'Idaho': 'ID',
+  'Illinois': 'IL',
+  'Indiana': 'IN',
+  'Iowa': 'IA',
+  'Kansas': 'KS',
+  'Kentucky': 'KY',
+  'Louisiana': 'LA',
+  'Maine': 'ME',
+  'Maryland': 'MD',
+  'Massachusetts': 'MA',
+  'Michigan': 'MI',
+  'Minnesota': 'MN',
+  'Mississippi': 'MS',
+  'Missouri': 'MO',
+  'Montana': 'MT',
+  'Nebraska': 'NE',
+  'Nevada': 'NV',
+  'New Hampshire': 'NH',
+  'New Jersey': 'NJ',
+  'New Mexico': 'NM',
+  'New York': 'NY',
+  'North Carolina': 'NC',
+  'North Dakota': 'ND',
+  'Ohio': 'OH',
+  'Oklahoma': 'OK',
+  'Oregon': 'OR',
+  'Pennsylvania': 'PA',
+  'Rhode Island': 'RI',
+  'South Carolina': 'SC',
+  'South Dakota': 'SD',
+  'Tennessee': 'TN',
+  'Texas': 'TX',
+  'Utah': 'UT',
+  'Vermont': 'VT',
+  'Virginia': 'VA',
+  'Washington': 'WA',
+  'West Virginia': 'WV',
+  'Wisconsin': 'WI',
+  'Wyoming': 'WY',
+  'District of Columbia': 'DC',
+};
+
+/**
+ * POI categories that are trusted for ride title names.
+ * Avoids using random road segment names.
+ */
+const TRUSTED_POI_CATEGORIES = new Set([
+  'leisure',    // parks, trails, nature reserves
+  'tourism',    // viewpoints, attractions
+  'natural',    // peaks, forests, water features
+  'amenity',    // parking lots at trailheads
+]);
+
+/**
+ * Nominatim reverse geocode response shape
+ */
+type NominatimResponse = {
+  name?: string;
+  category?: string;
+  type?: string;
+  addresstype?: string;
+  address?: {
+    city?: string;
+    town?: string;
+    village?: string;
+    hamlet?: string;
+    municipality?: string;
+    state?: string;
+    state_district?: string;
+    county?: string;
+    country?: string;
+    country_code?: string;
+  };
+};
+
+// Coordinate precision: 3 decimal places (~111m resolution)
+// Using rounding to center the cache cell around the true coordinate
+const COORDINATE_PRECISION = 3;
 
 // Rate limiting for Nominatim API (max 1 request per second)
-// Using a simple queue with mutex to serialize requests globally
+// Uses mutex to serialize requests and ensure 1.1s spacing
 const NOMINATIM_MIN_INTERVAL_MS = 1100; // 1.1 seconds to be safe
 let lastNominatimRequest = 0;
-let nominatimQueuePromise: Promise<void> = Promise.resolve();
+let nominatimMutex: Promise<void> = Promise.resolve();
 
 /**
  * Acquire rate limit slot for Nominatim API.
- * Ensures minimum 1.1 second spacing between requests.
+ * Ensures minimum 1.1 second spacing between requests using a mutex queue.
+ * Each request waits for all previous requests to complete before checking rate limit.
  */
 const acquireNominatimSlot = async (): Promise<void> => {
-  // Chain onto the queue to serialize all requests
-  const previousPromise = nominatimQueuePromise;
-
-  let resolveSlot: () => void = () => {};
-  nominatimQueuePromise = new Promise((resolve) => {
-    resolveSlot = resolve;
+  // Atomically claim our position in the queue
+  const myTurn = nominatimMutex;
+  let releaseMutex!: () => void;
+  nominatimMutex = new Promise((resolve) => {
+    releaseMutex = resolve;
   });
 
-  // Wait for previous request to complete
-  await previousPromise;
+  // Wait for all previous requests to complete
+  await myTurn;
 
-  // Wait for rate limit interval
-  const now = Date.now();
-  const timeSinceLastRequest = now - lastNominatimRequest;
-  if (timeSinceLastRequest < NOMINATIM_MIN_INTERVAL_MS) {
+  // Now we have exclusive access - check rate limit
+  const elapsed = Date.now() - lastNominatimRequest;
+  if (elapsed < NOMINATIM_MIN_INTERVAL_MS) {
     await new Promise((resolve) =>
-      setTimeout(resolve, NOMINATIM_MIN_INTERVAL_MS - timeSinceLastRequest)
+      setTimeout(resolve, NOMINATIM_MIN_INTERVAL_MS - elapsed)
     );
   }
 
+  // Record timestamp and release mutex for next request
   lastNominatimRequest = Date.now();
+  releaseMutex();
+};
 
-  // Release the queue so the next request can start waiting.
-  // The timestamp is already recorded, so the next request will
-  // wait 1.1s from now regardless of how fast this fetch completes.
-  resolveSlot();
+/**
+ * Round a coordinate to the configured precision for cache lookup.
+ * Uses toFixed which rounds (not floors), centering the cache cell.
+ */
+const roundCoordinate = (coord: number): number => {
+  return parseFloat(coord.toFixed(COORDINATE_PRECISION));
 };
 
 /**
@@ -53,66 +157,80 @@ const acquireNominatimSlot = async (): Promise<void> => {
  * Rounds to 3 decimal places (~111m precision) to group nearby locations.
  */
 const getCacheKey = (lat: number, lon: number): string => {
-  const roundedLat = lat.toFixed(3);
-  const roundedLon = lon.toFixed(3);
-  return `geocode:${roundedLat}:${roundedLon}`;
+  const roundedLat = roundCoordinate(lat).toFixed(COORDINATE_PRECISION);
+  const roundedLon = roundCoordinate(lon).toFixed(COORDINATE_PRECISION);
+  return `${roundedLat}:${roundedLon}`;
 };
 
 /**
- * Get cached geocode result from Redis or memory cache.
+ * Get cached geocode result from memory or DB.
+ * Priority: Memory (fast) -> DB (persistent)
  */
-const getCachedGeocode = async (key: string): Promise<string | null | undefined> => {
-  // Try Redis first
-  if (isRedisReady()) {
-    try {
-      const redis = getRedisConnection();
-      const cached = await redis.get(key);
-      if (cached !== null) {
-        return cached === '__NULL__' ? null : cached;
-      }
-    } catch (error) {
-      console.warn('[ReverseGeocode] Redis cache read failed:', error);
+const getCachedGeocode = async (
+  lat: number,
+  lon: number
+): Promise<string | null | undefined> => {
+  const cacheKey = getCacheKey(lat, lon);
+  const roundedLat = roundCoordinate(lat);
+  const roundedLon = roundCoordinate(lon);
+
+  // Try memory cache first (hot path) - get() also promotes to most-recently-used
+  const memoryCached = memoryCache.get(cacheKey);
+  if (memoryCached !== undefined) {
+    return memoryCached;
+  }
+
+  // Try DB second (persistent)
+  try {
+    const dbCached = await prisma.geoCache.findUnique({
+      where: {
+        lat_lon: { lat: roundedLat, lon: roundedLon },
+      },
+    });
+    if (dbCached) {
+      // Populate memory cache for future hits (LRU handles eviction)
+      memoryCache.set(cacheKey, dbCached.location);
+      return dbCached.location;
     }
-  }
-
-  // Fallback to memory cache
-  const memCached = memoryCache.get(key);
-  if (memCached && memCached.expiresAt > Date.now()) {
-    return memCached.value;
-  }
-
-  // Clean up expired entry
-  if (memCached) {
-    memoryCache.delete(key);
+  } catch (error) {
+    console.warn('[ReverseGeocode] DB cache read failed:', error);
   }
 
   return undefined; // Not found in any cache
 };
 
 /**
- * Store geocode result in Redis and memory cache.
+ * Store geocode result in memory and DB cache.
  */
-const setCachedGeocode = async (key: string, value: string | null): Promise<void> => {
-  const expiresAt = Date.now() + CACHE_TTL_SECONDS * 1000;
+const setCachedGeocode = async (
+  lat: number,
+  lon: number,
+  value: string | null
+): Promise<void> => {
+  const cacheKey = getCacheKey(lat, lon);
+  const roundedLat = roundCoordinate(lat);
+  const roundedLon = roundCoordinate(lon);
 
-  // Store in memory cache (with size limit)
-  if (memoryCache.size >= MEMORY_CACHE_MAX_SIZE) {
-    // Remove oldest entry (first in Map)
-    const firstKey = memoryCache.keys().next().value;
-    if (firstKey) memoryCache.delete(firstKey);
-  }
-  memoryCache.set(key, { value, expiresAt });
+  // Store in memory cache (LRU handles eviction automatically)
+  memoryCache.set(cacheKey, value);
 
-  // Store in Redis
-  if (isRedisReady()) {
-    try {
-      const redis = getRedisConnection();
-      // Store null as special marker since Redis can't store null
-      const storeValue = value === null ? '__NULL__' : value;
-      await redis.setex(key, CACHE_TTL_SECONDS, storeValue);
-    } catch (error) {
-      console.warn('[ReverseGeocode] Redis cache write failed:', error);
-    }
+  // Store in DB (persistent)
+  try {
+    await prisma.geoCache.upsert({
+      where: {
+        lat_lon: { lat: roundedLat, lon: roundedLon },
+      },
+      create: {
+        lat: roundedLat,
+        lon: roundedLon,
+        location: value,
+      },
+      update: {
+        location: value,
+      },
+    });
+  } catch (error) {
+    console.warn('[ReverseGeocode] DB cache write failed:', error);
   }
 };
 
@@ -143,15 +261,107 @@ const getCountryCode = (
 };
 
 /**
+ * Get state display value - abbreviated for US, full name for others.
+ */
+const getStateDisplay = (
+  state: string | null | undefined,
+  countryCode: string | null | undefined
+): string | null => {
+  if (!state) return null;
+
+  // US states get abbreviated
+  if (countryCode?.toLowerCase() === 'us') {
+    return US_STATE_ABBREV[state] ?? state;
+  }
+
+  return state;
+};
+
+/**
+ * Build a user-friendly ride title from Nominatim response.
+ * Returns structured title with POI name (if trusted) and locality.
+ */
+const buildRideTitle = (data: NominatimResponse): RideTitle | null => {
+  const address = data.address;
+  if (!address) return null;
+
+  // Extract locality (city-like field)
+  const locality =
+    address.city ||
+    address.town ||
+    address.village ||
+    address.hamlet ||
+    address.municipality ||
+    address.county ||
+    null;
+
+  const state = address.state || address.state_district || null;
+  const countryCode = address.country_code;
+  const stateDisplay = getStateDisplay(state, countryCode);
+
+  // Build subtitle: "Bellingham, WA" or "British Columbia, CA"
+  let subtitle: string | null = null;
+  if (locality && stateDisplay) {
+    subtitle = `${locality}, ${stateDisplay}`;
+  } else if (locality) {
+    subtitle = locality;
+  } else if (stateDisplay) {
+    const country = getCountryCode(countryCode, address.country);
+    subtitle = country ? `${stateDisplay}, ${country}` : stateDisplay;
+  }
+
+  // Check if POI name is trustworthy
+  const category = data.category;
+  const poiName = data.name;
+  const hasTrustedPoi =
+    poiName &&
+    category &&
+    TRUSTED_POI_CATEGORIES.has(category) &&
+    poiName.toLowerCase() !== locality?.toLowerCase(); // Don't duplicate locality
+
+  // Build the title
+  let title: string;
+  let quality: RideTitle['quality'];
+
+  if (hasTrustedPoi && subtitle) {
+    // High quality: "Galbraith Mountain Trailhead · Bellingham, WA"
+    title = `${poiName} · ${subtitle}`;
+    quality = 'high';
+  } else if (hasTrustedPoi) {
+    // POI but no locality
+    title = poiName;
+    quality = 'med';
+  } else if (subtitle) {
+    // No POI, just locality: "Bellingham, WA"
+    title = subtitle;
+    quality = 'med';
+  } else if (stateDisplay) {
+    // Only state available
+    title = stateDisplay;
+    quality = 'low';
+  } else {
+    // Nothing useful
+    return null;
+  }
+
+  return {
+    title,
+    subtitle: subtitle ?? undefined,
+    quality,
+    source: 'nominatim',
+  };
+};
+
+/**
  * Reverse geocode lat/lon to city, state, country using OpenStreetMap Nominatim API.
- * Returns "City, State, USA" format or null if lookup fails.
- * Results are cached in Redis (1 year) with memory fallback.
+ * Returns RideTitle with user-friendly format like "Galbraith Mountain · Bellingham, WA".
+ * Results are cached in DB with in-memory LRU for hot reads.
  * Respects Nominatim usage policy (1 req/sec, User-Agent required).
  */
 export const reverseGeocode = async (
   lat: number,
   lon: number
-): Promise<string | null> => {
+): Promise<RideTitle | null> => {
   // Validate coordinate ranges
   if (!Number.isFinite(lat) || lat < -90 || lat > 90) {
     console.warn(`[ReverseGeocode] Invalid latitude: ${lat}`);
@@ -162,12 +372,31 @@ export const reverseGeocode = async (
     return null;
   }
 
-  const cacheKey = getCacheKey(lat, lon);
-
-  // Check cache first
-  const cached = await getCachedGeocode(cacheKey);
+  // Check cache first - returns JSON with title and quality, or legacy plain text
+  const cached = await getCachedGeocode(lat, lon);
   if (cached !== undefined) {
-    return cached;
+    if (cached === null) return null;
+
+    // Try to parse as JSON (new format: {title, quality})
+    try {
+      const parsed = JSON.parse(cached) as { title: string; quality: RideTitle['quality'] };
+      if (parsed.title && parsed.quality) {
+        return {
+          title: parsed.title,
+          quality: parsed.quality,
+          source: 'nominatim',
+        };
+      }
+    } catch {
+      // Not valid JSON - treat as legacy plain text title, assume medium quality
+    }
+
+    // Legacy plain text format - return with medium quality
+    return {
+      title: cached,
+      quality: 'med',
+      source: 'nominatim',
+    };
   }
 
   try {
@@ -192,47 +421,25 @@ export const reverseGeocode = async (
       return null;
     }
 
-    const data = (await response.json()) as {
-      address?: {
-        city?: string;
-        town?: string;
-        village?: string;
-        hamlet?: string;
-        municipality?: string;
-        state?: string;
-        state_district?: string;
-        county?: string;
-        country?: string;
-        country_code?: string;
-      };
-    };
+    const data = (await response.json()) as NominatimResponse;
 
-    const address = data.address;
-    if (!address) {
+    // Build structured ride title from response
+    const rideTitle = buildRideTitle(data);
+
+    if (!rideTitle) {
       // Cache null result to avoid repeated lookups for ocean/wilderness
-      await setCachedGeocode(cacheKey, null);
+      await setCachedGeocode(lat, lon, null);
       return null;
     }
 
-    // Prioritize city-like fields
-    const city =
-      address.city ||
-      address.town ||
-      address.village ||
-      address.hamlet ||
-      address.municipality ||
-      null;
+    // Cache title and quality as JSON
+    await setCachedGeocode(
+      lat,
+      lon,
+      JSON.stringify({ title: rideTitle.title, quality: rideTitle.quality })
+    );
 
-    const state = address.state || address.state_district || null;
-    const country = getCountryCode(address.country_code, address.country);
-
-    // Build location string: "City, State, Country" or subset if parts missing
-    const result = buildLocationString([city, state, country]);
-
-    // Cache the result
-    await setCachedGeocode(cacheKey, result);
-
-    return result;
+    return rideTitle;
   } catch (error) {
     console.warn('[ReverseGeocode] Error:', error);
     return null;
@@ -284,6 +491,7 @@ export const deriveLocation = (opts: {
 /**
  * Async version of deriveLocation that uses reverse geocoding as fallback.
  * When city/state/country are not available, attempts to reverse geocode lat/lon.
+ * Returns RideTitle for consistency with reverseGeocode.
  */
 export const deriveLocationAsync = async (opts: {
   city?: string | null;
@@ -292,13 +500,17 @@ export const deriveLocationAsync = async (opts: {
   fallback?: string | null;
   lat?: number | null;
   lon?: number | null;
-}): Promise<string | null> => {
+}): Promise<RideTitle | null> => {
   // First, try the sync version to get location from existing fields
   const syncResult = deriveLocation(opts);
 
-  // If we got a real location (not lat/lon format), return it
+  // If we got a real location (not lat/lon format), return it as medium quality
   if (syncResult && !syncResult.startsWith('Lat ')) {
-    return syncResult;
+    return {
+      title: syncResult,
+      quality: 'med',
+      source: 'nominatim', // Not actually from nominatim but keeping consistent
+    };
   }
 
   // If we have lat/lon, try reverse geocoding
@@ -309,8 +521,16 @@ export const deriveLocationAsync = async (opts: {
     }
   }
 
-  // Fall back to lat/lon format or null
-  return syncResult;
+  // Fall back to lat/lon format as low quality
+  if (syncResult) {
+    return {
+      title: syncResult,
+      quality: 'low',
+      source: 'nominatim',
+    };
+  }
+
+  return null;
 };
 
 export const shouldApplyAutoLocation = (

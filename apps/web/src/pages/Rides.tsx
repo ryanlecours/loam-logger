@@ -59,7 +59,7 @@ const getDateRangeFilter = (range: DateRange) => {
 };
 
 export default function RidesPage() {
-  const [dateRange, setDateRange] = useState<DateRange>('all');
+  const [dateRange, setDateRange] = useState<DateRange>('30days');
 
   const { data, refetch, loading, error } = useQuery<{ rides: Ride[] }>(RIDES, {
     fetchPolicy: 'cache-and-network',
@@ -112,15 +112,6 @@ export default function RidesPage() {
             <label className="flex items-center gap-2 cursor-pointer text-sm text-white hover:text-primary transition-colors">
               <input
                 type="checkbox"
-                checked={dateRange === 'all'}
-                onChange={() => setDateRange('all')}
-                className="w-4 h-4 rounded border-app/50 bg-surface-2 text-primary focus:ring-primary focus:ring-offset-0"
-              />
-              <span>All time</span>
-            </label>
-            <label className="flex items-center gap-2 cursor-pointer text-sm text-white hover:text-primary transition-colors">
-              <input
-                type="checkbox"
                 checked={dateRange === '30days'}
                 onChange={() => setDateRange('30days')}
                 className="w-4 h-4 rounded border-app/50 bg-surface-2 text-primary focus:ring-primary focus:ring-offset-0"
@@ -153,6 +144,15 @@ export default function RidesPage() {
                 className="w-4 h-4 rounded border-app/50 bg-surface-2 text-primary focus:ring-primary focus:ring-offset-0"
               />
               <span>Last year</span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer text-sm text-white hover:text-primary transition-colors">
+              <input
+                type="checkbox"
+                checked={dateRange === 'all'}
+                onChange={() => setDateRange('all')}
+                className="w-4 h-4 rounded border-app/50 bg-surface-2 text-primary focus:ring-primary focus:ring-offset-0"
+              />
+              <span>All time</span>
             </label>
           </div>
           {dateRange !== 'all' && (
