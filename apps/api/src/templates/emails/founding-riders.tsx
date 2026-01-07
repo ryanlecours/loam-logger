@@ -115,9 +115,9 @@ export default function FoundingRidersEmail({
             </Text>
 
             <Text className="ll-p" style={styles.p}>
-              As a thank-you, your account is designated as a{"  "}
+              As a thank-you, your account is designated as a{" "}
               <span className="ll-emph" style={styles.emph}>Founding Rider</span>, which means
-              complete access of all features at no cost for as long as Loam Logger exists*.
+              complete access to all features at no cost for as long as Loam Logger exists*.
             </Text>
 
             {/* Activation Callout */}
@@ -240,7 +240,7 @@ export default function FoundingRidersEmail({
 
             <Section style={{ paddingTop: 8, paddingBottom: 6, textAlign: 'center' }}>
               <Button
-                href={`mailto:ryan.lecours@loamlogger.app?subject=Loam%20Logger%20Feedback`}
+                href={`mailto:ryan.lecours@loamlogger.app?subject=Loam%20Logger%20Feature%20Idea`}
                 className="ll-button"
                 style={styles.button}
               >
