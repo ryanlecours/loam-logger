@@ -1035,7 +1035,7 @@ router.post('/email/founding-riders/preview', async (req, res) => {
 
     res.json({
       success: true,
-      subject: 'Thank you — and welcome, Founding Riders',
+      subject: 'Welcome to Loam Logger, Founding Riders',
       html,
     });
   } catch (error) {
@@ -1106,7 +1106,7 @@ router.post('/email/founding-riders', async (req, res) => {
     }
 
     const results = { sent: 0, failed: 0, suppressed: 0 };
-    const subject = 'Thank you — and welcome, Founding Riders';
+    const subject = 'Welcome to Loam Logger, Founding Riders';
 
     for (const recipient of recipients) {
       try {

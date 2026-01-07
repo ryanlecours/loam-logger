@@ -31,13 +31,14 @@ export default function BetaTesterWaitlist() {
 
   // Validation
   const validate = (): string | null => {
+    if (!name.trim()) return 'Name is required';
+    if (name.trim().length > 255) return 'Name is too long';
+
     if (!email.trim()) return 'Email is required';
 
     // Basic email format check
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) return 'Please enter a valid email address';
-
-    if (name.trim().length > 255) return 'Name is too long';
 
     return null;
   };
@@ -60,7 +61,7 @@ export default function BetaTesterWaitlist() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           email: email.trim(),
-          name: name.trim() || undefined,
+          name: name.trim(),
         }),
       });
 
@@ -235,6 +236,37 @@ export default function BetaTesterWaitlist() {
               className="block text-sm font-semibold"
               style={{ color: 'var(--sand)' }}
             >
+              Name *
+            </label>
+            <input
+              type="text"
+              value={name}
+              onChange={handleNameChange}
+              className="w-full rounded-lg px-4 py-3 text-base focus:outline-none focus:ring-2 transition-all"
+              style={{
+                backgroundColor: 'var(--charcoal)',
+                border: '1px solid var(--slate)',
+                color: 'var(--cream)',
+              }}
+              onFocus={(e) => {
+                e.target.style.borderColor = 'var(--mint)';
+                e.target.style.boxShadow = '0 0 0 3px rgba(168, 208, 184, 0.1)';
+              }}
+              onBlur={(e) => {
+                e.target.style.borderColor = 'var(--slate)';
+                e.target.style.boxShadow = 'none';
+              }}
+              placeholder="Your name"
+              disabled={isSubmitting}
+              required
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label
+              className="block text-sm font-semibold"
+              style={{ color: 'var(--sand)' }}
+            >
               Email *
             </label>
             <input
@@ -258,36 +290,6 @@ export default function BetaTesterWaitlist() {
               placeholder="you@example.com"
               disabled={isSubmitting}
               required
-            />
-          </div>
-
-          <div className="space-y-2">
-            <label
-              className="block text-sm font-semibold"
-              style={{ color: 'var(--sand)' }}
-            >
-              Name (optional)
-            </label>
-            <input
-              type="text"
-              value={name}
-              onChange={handleNameChange}
-              className="w-full rounded-lg px-4 py-3 text-base focus:outline-none focus:ring-2 transition-all"
-              style={{
-                backgroundColor: 'var(--charcoal)',
-                border: '1px solid var(--slate)',
-                color: 'var(--cream)',
-              }}
-              onFocus={(e) => {
-                e.target.style.borderColor = 'var(--mint)';
-                e.target.style.boxShadow = '0 0 0 3px rgba(168, 208, 184, 0.1)';
-              }}
-              onBlur={(e) => {
-                e.target.style.borderColor = 'var(--slate)';
-                e.target.style.boxShadow = 'none';
-              }}
-              placeholder="Your name"
-              disabled={isSubmitting}
             />
           </div>
 
