@@ -107,10 +107,9 @@ export default function FoundingRidersEmail({
 
             <Text className="ll-p" style={styles.p}>
               I genuinely appreciate you signing up to be among
-              the very first users of
-              Loam Logger.
-              </Text>
-              <Text className="ll-p" style={styles.p}>
+              the very first users of Loam Logger.
+            </Text>
+            <Text className="ll-p" style={styles.p}>
               My goal is to create a tool that is useful to all of my friends in the bike community.
             </Text>
 
@@ -121,7 +120,7 @@ export default function FoundingRidersEmail({
             </Text>
 
             {/* Activation Callout */}
-            <Section className="ll-callout" style={{...styles.callout, textAlign: 'center'}}>
+            <Section className="ll-callout" style={{ ...styles.callout, textAlign: 'center' }}>
               <Text className="ll-p" style={{ ...styles.p, margin: 0 }}>
                 <span className="ll-emph" style={styles.emph}>Your account goes live:</span>{" "}
                 {activationDateText}.
@@ -132,13 +131,13 @@ export default function FoundingRidersEmail({
               </Text>
 
               <Section style={{ paddingTop: 8, paddingBottom: 6 }}>
-              <Button
-                href={`mailto:ryan.lecours@loamlogger.app?subject=Loam%20Logger%20Idea`}
-                className="ll-button"
-                style={styles.button}
-              >
-                💡 Share Your Ideas
-              </Button>
+                <Button
+                  href={`mailto:ryan.lecours@loamlogger.app?subject=Loam%20Logger%20Idea`}
+                  className="ll-button"
+                  style={styles.button}
+                >
+                  💡 Share Your Ideas
+                </Button>
               </Section>
             </Section>
 
@@ -177,7 +176,7 @@ export default function FoundingRidersEmail({
               I have built Loam Logger entirely from the ground up, purely with code. That
               gives us a lot of flexibility, but it also means there will be some
               bugs and rough edges early on. <span className="ll-emph" style={styles.emph}>Your help spotting these bugs is just as
-              valuable as ideas for new features.</span></Text>
+                valuable as ideas for new features.</span></Text>
 
             <Text className="ll-p" style={styles.p}>
               Even these emails are custom coded. Let me know if anything looks weird on your end.
@@ -249,8 +248,9 @@ export default function FoundingRidersEmail({
             </Section>
 
             <Text className="ll-p" style={styles.p}>
-              If you have friends who care deeply about their bikes, or if those friends have a deep hatred for maintaining their bike, and would
-              enjoy contributing ideas, feel free to share this link with them.
+              If you have friends who care deeply about their bikes and would
+              enjoy contributing ideas, or if those friends have a deep hatred
+              for maintaining their bikes, feel free to share this link with them.
             </Text>
 
             <Section style={{ paddingTop: 4, paddingBottom: 6, textAlign: 'center' }}>
