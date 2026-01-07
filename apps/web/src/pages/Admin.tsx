@@ -155,7 +155,7 @@ export default function Admin() {
   } | null>(null);
 
   // Founding Riders Welcome Email state
-  const [foundingEmailDate, setFoundingEmailDate] = useState('January 20, 2026');
+  const [foundingEmailDate, setFoundingEmailDate] = useState('January 21, 2026');
   const [foundingEmailRecipients, setFoundingEmailRecipients] = useState<EmailRecipient[]>([]);
   const [selectedFoundingRecipients, setSelectedFoundingRecipients] = useState<Set<string>>(new Set());
   const [loadingFoundingRecipients, setLoadingFoundingRecipients] = useState(false);
@@ -1075,7 +1075,7 @@ export default function Admin() {
             value={foundingEmailDate}
             onChange={(e) => setFoundingEmailDate(e.target.value)}
             className="w-full max-w-xs px-4 py-2 rounded-xl bg-surface-2 border border-app text-white focus:outline-none focus:ring-2 focus:ring-primary"
-            placeholder="January 20, 2026"
+            placeholder="January 21, 2026"
           />
           <p className="text-xs text-muted mt-1">This appears in the email as the go-live date.</p>
         </div>
