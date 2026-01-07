@@ -55,7 +55,7 @@ const DARK_TOKENS = {
 
 const darkModeStyles = `
   @media (prefers-color-scheme: dark) {
-    body { background-color: ${DARK_TOKENS.bg} !important; }
+    html, body, .ll-body, .ll-container { background-color: ${DARK_TOKENS.bg} !important; }
     .ll-card { background-color: ${DARK_TOKENS.card} !important; border-color: ${DARK_TOKENS.border} !important; }
     .ll-callout { background-color: ${DARK_TOKENS.subCard} !important; border-color: ${DARK_TOKENS.subBorder} !important; }
     .ll-h1, .ll-h2, .ll-emph, .ll-brand, .ll-signature { color: ${DARK_TOKENS.text} !important; }
@@ -85,8 +85,8 @@ export default function FoundingRidersEmail({
       </Head>
       <Preview>{`Your Loam Logger access goes live ${activationDateText}.`}</Preview>
 
-      <Body style={styles.body}>
-        <Container style={styles.container}>
+      <Body className="ll-body" style={styles.body}>
+        <Container className="ll-container" style={styles.container}>
           {/* Brand */}
           <Section style={{ padding: "8px 6px 14px 6px" }}>
             <Text className="ll-brand" style={styles.brand}>
@@ -190,16 +190,17 @@ export default function FoundingRidersEmail({
             </Heading>
 
             <Text className="ll-bullets" style={styles.bullets}>• Automatic ride sync with Garmin and Strava</Text>
-            <Text className="ll-bullets" style={styles.bullets}>• Auto-populate bike specs via{" "}
+            <Text className="ll-bullets" style={{ ...styles.bullets, paddingLeft: 32 }}>- Track a ride from your smartwatch or phone like you normally do, those stats are automatically pulled in to Loam Logger.</Text>
+            <Text className="ll-bullets" style={styles.bullets}>• Auto-populate bike specs thanks to{" "}
               <Link href={spokesUrl} className="ll-link" style={styles.link}>99spokes.com</Link>
             </Text>
             <Text className="ll-bullets" style={styles.bullets}>• Track 21+ individual components on all of your bikes</Text>
             <Text className="ll-bullets" style={styles.bullets}>• Predictive maintenance analysis</Text>
-            <Text className="ll-bullets" style={{ ...styles.bullets, paddingLeft: 32 }}>◦ "Check your front brake pads in ~4 rides, shock 200hr service should be done in ~9 rides, etc."</Text>
+            <Text className="ll-bullets" style={{ ...styles.bullets, paddingLeft: 32 }}>- "Check your front brake pads in ~4 rides, shock 200hr service should be done in ~9 rides, etc."</Text>
             <Text className="ll-bullets" style={styles.bullets}>• Algorithmic wear tracking</Text>
-            <Text className="ll-bullets" style={{ ...styles.bullets, paddingLeft: 32 }}>◦ Considers elevation change, distance and grade when weighting wear on components</Text>
-            <Text className="ll-bullets" style={{ ...styles.bullets, paddingLeft: 32 }}>◦ For example, the steeper the trail, the more wear and tear on your brake pads and suspension. Shuttling does not wear your drivetrain the way an XC ride will.</Text>
-            <Text className="ll-bullets" style={{ ...styles.bullets, paddingLeft: 32 }}>◦ This algorithm will need tuning to function and feel correct, we'll dial this in together.</Text>
+            <Text className="ll-bullets" style={{ ...styles.bullets, paddingLeft: 32 }}>- Considers elevation change, distance and grade when weighting wear on components</Text>
+            <Text className="ll-bullets" style={{ ...styles.bullets, paddingLeft: 32 }}>- For example, the steeper the trail, the more wear and tear on your brake pads and suspension. Shuttling does not wear your drivetrain the way an XC ride will.</Text>
+            <Text className="ll-bullets" style={{ ...styles.bullets, paddingLeft: 32 }}>- This algorithm will need tuning to function and feel correct, we'll dial this in together.</Text>
             <Text className="ll-bullets" style={styles.bullets}>• At-a-glance dashboard for bike and component health</Text>
             <Text className="ll-bullets" style={styles.bullets}>• User customizable notifications, service intervals, and wear algorithm parameters</Text>
 
@@ -237,7 +238,7 @@ export default function FoundingRidersEmail({
               reach out however works for you.
             </Text>
 
-            <Section style={{ paddingTop: 8, paddingBottom: 6, textAlign: 'center' }}>
+            <Section style={{ paddingTop: 8, paddingBottom: 12, textAlign: 'center' }}>
               <Button
                 href={`mailto:ryan.lecours@loamlogger.app?subject=Loam%20Logger%20Feature%20Idea`}
                 className="ll-button"
@@ -250,10 +251,13 @@ export default function FoundingRidersEmail({
             <Text className="ll-p" style={styles.p}>
               If you have friends who care deeply about their bikes and would
               enjoy contributing ideas, or if those friends have a deep hatred
-              for maintaining their bikes, feel free to share this link with them.
+              for maintaining their bikes, feel free to share this link with them:{" "}
+              <Link href={appUrl} className="ll-link" style={styles.link}>
+                loamlogger.app
+              </Link>.
             </Text>
 
-            <Section style={{ paddingTop: 4, paddingBottom: 6, textAlign: 'center' }}>
+            <Section style={{ paddingBottom: 12, textAlign: 'center' }}>
               <Button
                 href={`mailto:?subject=Check%20out%20Loam%20Logger&body=I%20thought%20you%20might%20be%20interested%20in%20this%20bike%20maintenance%20app%3A%20${encodeURIComponent(appUrl)}`}
                 className="ll-button"
@@ -264,7 +268,7 @@ export default function FoundingRidersEmail({
             </Section>
             {/* Launch timing */}
             <Text className="ll-p" style={styles.p}>
-              My goal is to get something genuinely useful into the hands of friends in the bike community for the start of the season.{" "}
+              My plan is to get something genuinely useful into the hands of friends in the bike community for the start of the season.{" "}
               <span className="ll-emph" style={styles.emph}>Loam Logger will launch publicly as a website application in late April 2026</span>,
               with <span className="ll-emph" style={styles.emph}>iOS and Android apps to follow</span> as soon as I can after the public launch.
             </Text>
