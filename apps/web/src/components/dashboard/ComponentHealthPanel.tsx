@@ -73,7 +73,7 @@ export function ComponentHealthPanel({ components, className = '' }: ComponentHe
         <h3 className="component-health-title">Component Health</h3>
       </div>
 
-      <div className="component-health-list">
+      <div className="component-health-list list-stagger">
         {sortedComponents.map((component) => {
           // Determine which secondary hours value to show based on preference
           const secondaryHours = hoursDisplay === 'total'

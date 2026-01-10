@@ -86,27 +86,12 @@ export default function BetaTesterWaitlist() {
     return (
       <section className="relative min-h-screen flex items-center justify-center overflow-hidden bg-dark">
         {/* Background Image with Overlay - Desktop */}
-        <div
-          className="absolute inset-0 z-0 hidden md:block"
-          style={{
-            backgroundImage: 'url(/mtbLandingPhoto.jpg)',
-            backgroundSize: 'cover',
-            backgroundPosition: 'center',
-            backgroundAttachment: 'fixed',
-          }}
-        >
+        <div className="absolute inset-0 z-0 hidden md:block bg-hero-desktop bg-cover-center bg-fixed">
           <div className="absolute inset-0 bg-gradient-to-b from-black/75 via-black/60 to-black/75" />
         </div>
 
         {/* Background Image with Overlay - Mobile */}
-        <div
-          className="absolute inset-0 z-0 md:hidden"
-          style={{
-            backgroundImage: 'url(/mtbLandingPhotoMobile.jpg)',
-            backgroundSize: 'cover',
-            backgroundPosition: 'center',
-          }}
-        >
+        <div className="absolute inset-0 z-0 md:hidden bg-hero-mobile bg-cover-center">
           <div className="absolute inset-0 bg-gradient-to-b from-black/75 via-black/60 to-black/75" />
         </div>
 
@@ -119,8 +104,7 @@ export default function BetaTesterWaitlist() {
         >
           <a
             href="/login"
-            className="text-sm"
-            style={{ color: 'var(--sand)' }}
+            className="text-sm text-sand hover:opacity-80 transition-opacity"
           >
             Log In
           </a>
@@ -133,21 +117,15 @@ export default function BetaTesterWaitlist() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.8 }}
         >
-          <div className="text-7xl mb-6">✓</div>
+          <div className="text-7xl mb-6 success-icon-animated">✓</div>
           <h1 className="hero-headline mb-6">You're on the list!</h1>
-          <p className="body-large mb-4" style={{ color: 'var(--sand)' }}>
+          <p className="body-large text-sand mb-4">
             Thanks for your interest in Loam Logger. We'll email you at{' '}
-            <strong style={{ color: 'var(--mint)' }}>{email}</strong> when beta access is ready.
+            <strong className="text-mint">{email}</strong> when beta access is ready.
           </p>
 
-          <div
-            className="rounded-2xl p-6 mb-8"
-            style={{
-              backgroundColor: 'var(--glass)',
-              border: '1px solid var(--slate)',
-            }}
-          >
-            <p className="body" style={{ color: 'var(--concrete)' }}>
+          <div className="info-panel mb-8">
+            <p className="body text-concrete">
               We're rolling out access in waves to ensure quality. Keep an eye on your inbox!
             </p>
           </div>
@@ -164,27 +142,12 @@ export default function BetaTesterWaitlist() {
   return (
     <section className="relative min-h-screen flex items-center justify-center overflow-hidden bg-dark">
       {/* Background Image with Overlay - Desktop */}
-      <div
-        className="absolute inset-0 z-0 hidden md:block"
-        style={{
-          backgroundImage: 'url(/mtbLandingPhoto.jpg)',
-          backgroundSize: 'cover',
-          backgroundPosition: 'center',
-          backgroundAttachment: 'fixed',
-        }}
-      >
+      <div className="absolute inset-0 z-0 hidden md:block bg-hero-desktop bg-cover-center bg-fixed">
         <div className="absolute inset-0 bg-gradient-to-b from-black/75 via-black/60 to-black/75" />
       </div>
 
       {/* Background Image with Overlay - Mobile */}
-      <div
-        className="absolute inset-0 z-0 md:hidden"
-        style={{
-          backgroundImage: 'url(/mtbLandingPhotoMobile.jpg)',
-          backgroundSize: 'cover',
-          backgroundPosition: 'center',
-        }}
-      >
+      <div className="absolute inset-0 z-0 md:hidden bg-hero-mobile bg-cover-center">
         <div className="absolute inset-0 bg-gradient-to-b from-black/75 via-black/60 to-black/75" />
       </div>
 
@@ -197,8 +160,7 @@ export default function BetaTesterWaitlist() {
       >
         <a
           href="/login"
-          className="text-sm hover:opacity-80 transition-opacity"
-          style={{ color: 'var(--sand)' }}
+          className="text-sm text-sand hover:opacity-80 transition-opacity"
         >
           Log In
         </a>
@@ -214,48 +176,27 @@ export default function BetaTesterWaitlist() {
         <div className="text-center mb-8">
           <div className="text-6xl mb-4">🚧</div>
           <h1 className="hero-headline mb-4">Join the Beta</h1>
-          <p className="body-large" style={{ color: 'var(--sand)' }}>
+          <p className="body-large text-sand">
             Loam Logger is currently in private beta. Sign up below and we'll email you when we're ready for more testers.
           </p>
         </div>
 
         <motion.form
           onSubmit={handleSubmit}
-          className="space-y-6 rounded-2xl p-8"
-          style={{
-            backgroundColor: 'var(--glass)',
-            border: '1px solid var(--slate)',
-            backdropFilter: 'blur(12px)',
-          }}
+          className="space-y-6 rounded-2xl p-8 glass-form"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.8, delay: 0.2 }}
         >
           <div className="space-y-2">
-            <label
-              className="block text-sm font-semibold"
-              style={{ color: 'var(--sand)' }}
-            >
+            <label className="marketing-label">
               Name *
             </label>
             <input
               type="text"
               value={name}
               onChange={handleNameChange}
-              className="w-full rounded-lg px-4 py-3 text-base focus:outline-none focus:ring-2 transition-all"
-              style={{
-                backgroundColor: 'var(--charcoal)',
-                border: '1px solid var(--slate)',
-                color: 'var(--cream)',
-              }}
-              onFocus={(e) => {
-                e.target.style.borderColor = 'var(--mint)';
-                e.target.style.boxShadow = '0 0 0 3px rgba(168, 208, 184, 0.1)';
-              }}
-              onBlur={(e) => {
-                e.target.style.borderColor = 'var(--slate)';
-                e.target.style.boxShadow = 'none';
-              }}
+              className="marketing-input"
               placeholder="Your name"
               disabled={isSubmitting}
               required
@@ -263,30 +204,14 @@ export default function BetaTesterWaitlist() {
           </div>
 
           <div className="space-y-2">
-            <label
-              className="block text-sm font-semibold"
-              style={{ color: 'var(--sand)' }}
-            >
+            <label className="marketing-label">
               Email *
             </label>
             <input
               type="email"
               value={email}
               onChange={handleEmailChange}
-              className="w-full rounded-lg px-4 py-3 text-base focus:outline-none focus:ring-2 transition-all"
-              style={{
-                backgroundColor: 'var(--charcoal)',
-                border: '1px solid var(--slate)',
-                color: 'var(--cream)',
-              }}
-              onFocus={(e) => {
-                e.target.style.borderColor = 'var(--mint)';
-                e.target.style.boxShadow = '0 0 0 3px rgba(168, 208, 184, 0.1)';
-              }}
-              onBlur={(e) => {
-                e.target.style.borderColor = 'var(--slate)';
-                e.target.style.boxShadow = 'none';
-              }}
+              className="marketing-input"
               placeholder="you@example.com"
               disabled={isSubmitting}
               required
@@ -295,15 +220,11 @@ export default function BetaTesterWaitlist() {
 
           {error && (
             <motion.div
-              className="rounded-lg px-4 py-3"
-              style={{
-                backgroundColor: 'rgba(196, 89, 67, 0.1)',
-                border: '1px solid var(--error)',
-              }}
+              className="alert-inline alert-inline-error"
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
             >
-              <p className="text-sm font-medium" style={{ color: 'var(--error)' }}>
+              <p className="text-sm font-medium">
                 {error}
               </p>
             </motion.div>
@@ -326,8 +247,7 @@ export default function BetaTesterWaitlist() {
         >
           <button
             onClick={() => navigate('/')}
-            className="text-sm transition-opacity hover:opacity-80"
-            style={{ color: 'var(--concrete)' }}
+            className="text-sm text-concrete transition-opacity hover:opacity-80"
           >
             ← Back to Home
           </button>
