@@ -103,7 +103,7 @@ export function SpareComponentForm({ initial, submitting, error, onSubmit, onClo
         </label>
       </div>
       {error && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-600">
+        <div className="alert-inline alert-inline-error rounded-xl">
           {error}
         </div>
       )}

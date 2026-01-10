@@ -464,7 +464,7 @@ export default function Onboarding() {
         >
           {error && (
             <div className="rounded-lg bg-red-500/10 border border-red-500/30 p-3">
-              <p className="text-sm text-red-400">{error}</p>
+              <p className="text-sm text-danger">{error}</p>
             </div>
           )}
 
@@ -482,7 +482,7 @@ export default function Onboarding() {
               </div>
 
               <div className="space-y-4 text-left">
-                <label className="block text-xs uppercase tracking-[0.3em] text-muted">
+                <label className="block label-section">
                   Age
                   <input
                     type="text"
@@ -516,7 +516,7 @@ export default function Onboarding() {
               </div>
 
               <div className="space-y-4 text-left">
-                <label className="block text-xs uppercase tracking-[0.3em] text-muted">
+                <label className="block label-section">
                   Location (Optional)
                   <input
                     type="text"
@@ -625,7 +625,7 @@ export default function Onboarding() {
                     )}
                   </div>
                   <div className="grid grid-cols-2 gap-4">
-                    <label className="col-span-1 text-xs uppercase tracking-[0.3em] text-muted">
+                    <label className="col-span-1 label-section">
                       Year
                       <input
                         type="number"
@@ -639,7 +639,7 @@ export default function Onboarding() {
                         }}
                       />
                     </label>
-                    <label className="col-span-1 text-xs uppercase tracking-[0.3em] text-muted">
+                    <label className="col-span-1 label-section">
                       Make
                       <input
                         type="text"
@@ -649,7 +649,7 @@ export default function Onboarding() {
                         onChange={(e) => setData({ ...data, bikeMake: e.target.value, spokesId: undefined })}
                       />
                     </label>
-                    <label className="col-span-2 text-xs uppercase tracking-[0.3em] text-muted">
+                    <label className="col-span-2 label-section">
                       Model
                       <input
                         type="text"
@@ -659,7 +659,7 @@ export default function Onboarding() {
                         onChange={(e) => setData({ ...data, bikeModel: e.target.value, spokesId: undefined })}
                       />
                     </label>
-                    <label className="col-span-1 text-xs uppercase tracking-[0.3em] text-muted">
+                    <label className="col-span-1 label-section">
                       Fork Travel (mm)
                       <input
                         type="number"
@@ -672,7 +672,7 @@ export default function Onboarding() {
                         }}
                       />
                     </label>
-                    <label className="col-span-1 text-xs uppercase tracking-[0.3em] text-muted">
+                    <label className="col-span-1 label-section">
                       Shock Travel (mm)
                       <input
                         type="number"
@@ -691,7 +691,7 @@ export default function Onboarding() {
 
               {!isBikeDataValid() && (
                 <div className="rounded-lg bg-yellow-500/10 border border-yellow-500/30 p-3">
-                  <p className="text-sm text-yellow-400">Please enter a valid bike year, make, and model to continue</p>
+                  <p className="text-sm text-warning">Please enter a valid bike year, make, and model to continue</p>
                 </div>
               )}
             </div>
@@ -870,10 +870,10 @@ export default function Onboarding() {
                         <FaMountain className="text-lg" style={{ color: '#11A9ED' }} />
                         <div className="text-left">
                           <p className="font-semibold">Garmin Connect</p>
-                          <p className="text-xs text-green-400">Connected ✓</p>
+                          <p className="text-xs text-success">Connected ✓</p>
                         </div>
                       </div>
-                      <span className="text-xs text-green-400">Ready</span>
+                      <span className="text-xs text-success">Ready</span>
                     </div>
                   </div>
                 ) : (

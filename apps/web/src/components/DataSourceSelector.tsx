@@ -15,9 +15,9 @@ export default function DataSourceSelector({ currentSource, hasGarmin, hasStrava
   return (
     <div className="space-y-4">
       <div>
-        <p className="text-xs uppercase tracking-[0.3em] text-muted">Data Source</p>
-        <h2 className="text-xl font-semibold text-white">Active Provider</h2>
-        <p className="text-sm text-muted mt-1">
+        <p className="label-section">Data Source</p>
+        <h2 className="title-section">Active Provider</h2>
+        <p className="text-body-muted mt-1">
           Choose which provider to sync activities from. Only one can be active at a time.
         </p>
       </div>
@@ -75,8 +75,8 @@ export default function DataSourceSelector({ currentSource, hasGarmin, hasStrava
       </div>
 
       {!currentSource && (
-        <div className="p-4 bg-yellow-950/30 border border-yellow-600/50 rounded-xl">
-          <p className="text-sm text-yellow-100">
+        <div className="alert-warning-dark">
+          <p className="text-sm">
             ⚠ Please select a data source to continue syncing activities
           </p>
         </div>

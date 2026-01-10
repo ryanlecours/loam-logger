@@ -29,9 +29,9 @@ export function RecentRidesCard({ rides, loading = false }: RecentRidesCardProps
         </div>
         <div className="recent-rides-scroll">
           {[1, 2, 3].map((i) => (
-            <div key={i} style={{ padding: '0.75rem 1.25rem' }}>
-              <div className="skeleton" style={{ width: '70%', height: 16, marginBottom: 8 }} />
-              <div className="skeleton" style={{ width: '50%', height: 14 }} />
+            <div key={i} className="px-5 py-3">
+              <div className="skeleton w-3/4 h-4 mb-2" />
+              <div className="skeleton w-1/2 h-3.5" />
             </div>
           ))}
         </div>
@@ -52,7 +52,7 @@ export function RecentRidesCard({ rides, loading = false }: RecentRidesCardProps
         <div className="recent-rides-empty">
           <FaRoute className="recent-rides-empty-icon" />
           <p className="recent-rides-empty-text">
-            No rides yet. <Link to="/rides" style={{ color: 'var(--mint)' }}>Log your first ride</Link>
+            No rides yet. <Link to="/rides" className="text-mint hover:underline">Log your first ride</Link>
           </p>
         </div>
       </section>
@@ -67,7 +67,7 @@ export function RecentRidesCard({ rides, loading = false }: RecentRidesCardProps
           View all
         </Link>
       </div>
-      <div className="recent-rides-scroll">
+      <div className="recent-rides-scroll list-stagger">
         {rides.map((ride) => (
           <CompactRideRow key={ride.id} ride={ride} />
         ))}

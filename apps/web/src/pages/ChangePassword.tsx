@@ -105,8 +105,8 @@ export default function ChangePassword() {
 
           <form className="space-y-4 p-4 rounded-xl" style={{ backgroundColor: 'rgba(54, 60, 57, 0.3)' }} onSubmit={handleSubmit}>
             {error && (
-              <div className="rounded-lg bg-red-500/10 border border-red-500/30 p-3">
-                <p className="text-sm text-red-400">{error}</p>
+              <div className="alert alert-danger">
+                <p>{error}</p>
               </div>
             )}
 

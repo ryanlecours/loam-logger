@@ -138,8 +138,8 @@ export default function StravaImportModal({ open, onClose, onSuccess, onDuplicat
             </div>
 
             {error && (
-              <div className="p-4 bg-red-950/30 border border-red-600/50 rounded-xl">
-                <p className="text-sm text-red-200">{error}</p>
+              <div className="alert-danger-dark">
+                <p className="text-sm">{error}</p>
               </div>
             )}
 
@@ -168,29 +168,29 @@ export default function StravaImportModal({ open, onClose, onSuccess, onDuplicat
         {/* Step 3: Complete */}
         {step === 'complete' && (
           <div className="space-y-6">
-            <div className="p-4 rounded-xl bg-green-950/30 border border-green-600/50">
-              <p className="text-green-100">
+            <div className="alert-success-dark">
+              <p>
                 ✓ {successMessage}
               </p>
               {importStats && (
-                <div className="text-sm mt-3 text-green-200 space-y-1">
+                <div className="text-sm mt-3 opacity-90 space-y-1">
                   <p className="font-medium">Import completed for {year === 'ytd' ? 'Year to Date' : year}</p>
                   <p>• Imported: {importStats.imported} rides</p>
                   <p>• Skipped (already exist): {importStats.skipped} rides</p>
                   <p>• Total cycling activities found: {importStats.total}</p>
                   {unmappedGears.length > 0 && (
-                    <p className="text-yellow-300">• {unmappedGears.length} unmapped bike(s) - visit Gear page to map</p>
+                    <p className="text-warning">• {unmappedGears.length} unmapped bike(s) - visit Gear page to map</p>
                   )}
                 </div>
               )}
             </div>
 
             {duplicatesFound > 0 && (
-              <div className="p-4 rounded-xl bg-yellow-950/30 border border-yellow-600/50">
-                <p className="text-yellow-100">
+              <div className="alert-warning-dark">
+                <p>
                   ⚠ Found {duplicatesFound} duplicate ride{duplicatesFound === 1 ? '' : 's'}
                 </p>
-                <p className="text-sm mt-1 text-yellow-200">
+                <p className="text-sm mt-1 opacity-90">
                   These rides exist in both Garmin and Strava. Review them to keep only one copy.
                 </p>
               </div>

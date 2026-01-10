@@ -48,8 +48,8 @@ export function RideStatsCompact({ rides, loading = false }: RideStatsCompactPro
           <div className="ride-stats-compact-metrics">
             {[1, 2, 3].map((i) => (
               <div key={i} className="ride-stats-compact-metric">
-                <div className="skeleton" style={{ width: 48, height: 28, marginBottom: 4 }} />
-                <div className="skeleton" style={{ width: 40, height: 12 }} />
+                <div className="skeleton skeleton-text-lg mb-1" />
+                <div className="skeleton skeleton-text-sm" />
               </div>
             ))}
           </div>
@@ -66,15 +66,6 @@ export function RideStatsCompact({ rides, loading = false }: RideStatsCompactPro
           value={timeframe}
           onChange={(e) => setTimeframe(e.target.value as Timeframe)}
           className="timeframe-select"
-          style={{
-            background: 'rgba(54, 60, 57, 0.5)',
-            border: '1px solid rgba(134, 158, 140, 0.2)',
-            borderRadius: 6,
-            padding: '0.25rem 0.5rem',
-            color: 'var(--cream)',
-            fontSize: '0.75rem',
-            cursor: 'pointer',
-          }}
         >
           {(Object.keys(TIMEFRAME_LABELS) as Timeframe[]).map((tf) => (
             <option key={tf} value={tf}>
@@ -99,20 +90,7 @@ export function RideStatsCompact({ rides, loading = false }: RideStatsCompactPro
           </div>
         </div>
         <div className="ride-stats-compact-footer">
-          <Link
-            to="/rides"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '0.375rem',
-              fontSize: '0.75rem',
-              color: 'var(--sage)',
-              textDecoration: 'none',
-              transition: 'color 0.2s ease',
-            }}
-            onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--mint)')}
-            onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--sage)')}
-          >
+          <Link to="/rides" className="link-subtle">
             <FaChartLine size={12} />
             View details
           </Link>

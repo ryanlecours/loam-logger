@@ -49,16 +49,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="app-shell">
-      <nav
-        className="fixed top-0 left-0 right-0 z-50 border-b"
-        style={{
-          background: 'rgba(18, 28, 24, 0.2)',
-          backdropFilter: 'blur(32px)',
-          WebkitBackdropFilter: 'blur(16px)',
-          borderColor: 'rgba(168, 208, 184, 0.1)',
-          boxShadow: '0 2px 4px rgba(0, 0, 0, 0.4)',
-        }}
-      >
+      <nav className="fixed top-0 left-0 right-0 z-50 border-b app-navbar">
         <div className="container">
           <div className="flex justify-between items-center h-16">
             {/* Logo/Brand */}
@@ -66,15 +57,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
               to="/dashboard"
               className="flex items-center space-x-2 group"
             >
-              <span
-                className="text-2xl font-bold transition-all duration-300"
-                style={{
-                  background: 'linear-gradient(135deg, rgb(134, 158, 140) 0%, rgb(168, 208, 184) 100%)',
-                  WebkitBackgroundClip: 'text',
-                  WebkitTextFillColor: 'transparent',
-                  backgroundClip: 'text'
-                }}
-              >
+              <span className="text-2xl font-bold logo-gradient">
                 LoamLogger
               </span>
             </NavLink>
@@ -85,13 +68,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
                 <NavLink
                   key={path}
                   to={path}
-                  className={({ isActive }) =>
-                    [
-                      "relative px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200",
-                      isActive ? "" : "hover:opacity-80",
-                    ].join(" ")
-                  }
-                  style={{ color: 'var(--sage)' }}
+                  className="nav-link"
                   end={path !== '/dashboard'}
                 >
                   {({ isActive }) => (
@@ -100,8 +77,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
                         {isActive && (
                           <motion.span
                             layoutId="nav-active-pill"
-                            className="absolute inset-0 rounded-lg"
-                            style={{ background: 'rgba(134, 158, 140, 0.15)' }}
+                            className="absolute inset-0 rounded-lg nav-active-pill"
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}
                             exit={{ opacity: 0 }}
@@ -117,8 +93,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
               <button
                 onClick={handleLogout}
-                className="ml-4 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 hover:opacity-80"
-                style={{ color: 'var(--sage)' }}
+                className="ml-4 nav-logout"
               >
                 Logout
               </button>
@@ -127,13 +102,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
             {/* Mobile Menu Button */}
             <button
               onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-              className="md:hidden p-2 rounded-lg transition-colors"
-              style={{
-                color: 'var(--sage)',
-                background: 'transparent'
-              }}
-              onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(134, 158, 140, 0.1)'}
-              onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+              className="md:hidden nav-menu-btn"
               aria-label="Toggle menu"
             >
               <svg
@@ -170,13 +139,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
               animate={{ opacity: 1, height: 'auto' }}
               exit={{ opacity: 0, height: 0 }}
               transition={{ duration: 0.2 }}
-              style={{
-                borderTop: '1px solid rgba(168, 208, 184, 0.1)',
-                background: 'rgba(18, 28, 24, 0.95)',
-                backdropFilter: 'blur(16px)',
-                WebkitBackdropFilter: 'blur(16px)',
-              }}
-              className="md:hidden"
+              className="md:hidden mobile-menu"
             >
               <div className="px-4 py-4 space-y-1">
                 {navLinks.map(({ label, path }) => (
@@ -184,26 +147,12 @@ export default function AppShell({ children }: { children: ReactNode }) {
                     key={path}
                     to={path}
                     onClick={closeMobileMenu}
-                    className="block rounded-lg text-sm font-medium transition-colors"
-                    style={{ color: 'var(--sage)' }}
+                    className={({ isActive }) =>
+                      `nav-link-mobile ${isActive ? 'nav-link-mobile-active' : ''}`
+                    }
                     end={path !== '/dashboard'}
                   >
-                    {({ isActive }) => (
-                      <span
-                        className="block px-4 py-3 rounded-lg transition-colors"
-                        style={{
-                          background: isActive ? 'rgba(134, 158, 140, 0.15)' : 'transparent',
-                        }}
-                        onMouseEnter={(e) => {
-                          if (!isActive) e.currentTarget.style.background = 'rgba(134, 158, 140, 0.1)';
-                        }}
-                        onMouseLeave={(e) => {
-                          if (!isActive) e.currentTarget.style.background = 'transparent';
-                        }}
-                      >
-                        {label}
-                      </span>
-                    )}
+                    {label}
                   </NavLink>
                 ))}
 
@@ -212,10 +161,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
                     closeMobileMenu();
                     handleLogout();
                   }}
-                  className="block w-full text-left px-4 py-3 rounded-lg text-sm font-medium transition-colors"
-                  style={{ color: 'var(--sage)' }}
-                  onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(134, 158, 140, 0.1)'}
-                  onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                  className="block w-full text-left nav-link-mobile"
                 >
                   Logout
                 </button>

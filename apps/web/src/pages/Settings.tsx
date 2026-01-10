@@ -233,12 +233,12 @@ export default function Settings() {
 
   return (
     <div className="space-y-8">
-      <section className="panel-soft shadow-soft border border-app rounded-3xl p-6">
+      <section className="panel">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="text-xs uppercase tracking-[0.3em] text-muted">Settings</p>
+            <p className="label-section">Settings</p>
             <h1 className="text-3xl font-semibold text-white">Tune Loam Logger to your workflow</h1>
-            <p className="text-sm text-muted max-w-2xl">
+            <p className="text-body-muted max-w-2xl">
               Manage account links, display preferences, and appearance so ride data flows exactly the way you want.
             </p>
           </div>
@@ -247,10 +247,10 @@ export default function Settings() {
       </section>
 
       <section className="grid gap-6 xl:grid-cols-2">
-        <div className="panel-soft shadow-soft border border-app rounded-3xl p-6 space-y-4">
+        <div className="panel-spaced">
           <div>
-            <p className="text-xs uppercase tracking-[0.3em] text-muted">Account Linking</p>
-            <h2 className="text-xl font-semibold text-white">Connected Services</h2>
+            <p className="label-section">Account Linking</p>
+            <h2 className="title-section">Connected Services</h2>
           </div>
           <div className="space-y-3">
             {/* Google - always connected via login */}
@@ -260,10 +260,10 @@ export default function Settings() {
                   <FaGoogle className="text-lg text-blue-400" />
                   <div>
                     <p className="font-semibold">Google</p>
-                    <p className="text-sm text-muted">Used for login</p>
+                    <p className="text-body-muted">Used for login</p>
                   </div>
                 </div>
-                <span className="text-xs text-green-400">Connected</span>
+                <span className="text-xs text-success">Connected</span>
               </div>
             </div>
 
@@ -362,7 +362,7 @@ export default function Settings() {
 
         {/* Data Source Selector - only show when both Garmin and Strava are connected */}
         {(isGarminConnected && isStravaConnected) && (
-          <div className="panel-soft shadow-soft border border-app rounded-3xl p-6">
+          <div className="panel">
             <DataSourceSelector
               currentSource={activeDataSource}
               hasGarmin={isGarminConnected}
@@ -374,10 +374,10 @@ export default function Settings() {
 
         {/* Duplicate Rides Management */}
         {(isGarminConnected || isStravaConnected) && (
-          <div className="panel-soft shadow-soft border border-app rounded-3xl p-6 space-y-4">
+          <div className="panel-spaced">
             <div>
-              <p className="text-xs uppercase tracking-[0.3em] text-muted">Data Management</p>
-              <h2 className="text-xl font-semibold text-white">Duplicate Rides</h2>
+              <p className="label-section">Data Management</p>
+              <h2 className="title-section">Duplicate Rides</h2>
               <p className="text-sm text-muted mt-1">
                 Manage duplicate rides that exist in both Garmin and Strava.
               </p>
@@ -391,10 +391,10 @@ export default function Settings() {
           </div>
         )}
 
-        <div className="panel-soft shadow-soft border border-app rounded-3xl p-6 space-y-4">
+        <div className="panel-spaced">
           <div>
-            <p className="text-xs uppercase tracking-[0.3em] text-muted">Profile</p>
-            <h2 className="text-xl font-semibold text-white">Your info</h2>
+            <p className="label-section">Profile</p>
+            <h2 className="title-section">Your info</h2>
           </div>
           <dl className="grid gap-4 text-sm">
             <div>
@@ -409,10 +409,10 @@ export default function Settings() {
         </div>
       </section>
 
-      <section className="panel-soft shadow-soft border border-app rounded-3xl p-6 space-y-4">
+      <section className="panel-spaced">
         <div>
-          <p className="text-xs uppercase tracking-[0.3em] text-muted">Preferences</p>
-          <h2 className="text-xl font-semibold text-white">Component hours display</h2>
+          <p className="label-section">Preferences</p>
+          <h2 className="title-section">Component hours display</h2>
         </div>
         <div className="grid gap-3 md:grid-cols-2">
           <label
@@ -456,30 +456,27 @@ export default function Settings() {
       </section>
 
       {successMessage && (
-        <section className="panel-soft shadow-soft border border-green-600/50 rounded-3xl p-6 bg-green-950/30 space-y-4">
+        <section className="alert alert-success-dark rounded-3xl p-6">
           <div className="flex items-start gap-3">
-            <div className="text-green-400">✓</div>
+            <div className="text-success">✓</div>
             <div>
-              <h3 className="font-semibold text-green-100">{successMessage}</h3>
+              <h3 className="font-semibold">{successMessage}</h3>
             </div>
           </div>
         </section>
       )}
 
-      <section className="panel-soft shadow-soft border border-red-600/50 rounded-3xl p-6 bg-red-950/30 space-y-4">
+      <section className="panel-danger">
         <div>
-          <p className="text-xs uppercase tracking-[0.3em] text-red-400">Danger Zone</p>
-          <h2 className="text-xl font-semibold text-white">Delete Account</h2>
+          <p className="label-section text-danger">Danger Zone</p>
+          <h2 className="title-section">Delete Account</h2>
         </div>
-        <p className="text-sm text-red-200">
+        <p className="text-body-muted">
           Permanently delete your account and all associated data. This action cannot be undone.
         </p>
         <button
           onClick={() => setDeleteModalOpen(true)}
-          className="rounded-2xl px-4 py-2 text-sm font-medium text-white transition
-            bg-red-600 hover:bg-red-700 active:bg-red-800
-            focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500
-            dark:bg-red-700 dark:hover:bg-red-800"
+          className="btn-danger"
         >
           Delete Account
         </button>

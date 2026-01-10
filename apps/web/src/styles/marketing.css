@@ -1,68 +1,165 @@
 /**
  * Loam Logger Design System
- * High-end, sleek design system for MTB audience
+ * Premium dark theme - Obsidian base with forest/sage accents and mahogany warmth
  */
 
 /* ============================================
-   COLOR SYSTEM - Sleek, Premium MTB Brand
+   COLOR SYSTEM - Sleek Obsidian Dark Theme
    ============================================ */
 
 :root {
+  /* ===========================================
+     CORE PALETTE - Obsidian + Forest + Mahogany
+     =========================================== */
+
+  /* Obsidian Base - Rich blacks with subtle warm undertones */
+  --obsidian: rgb(12, 12, 14);           /* #0C0C0E - True dark base */
+  --obsidian-light: rgb(22, 22, 26);     /* #16161A - Elevated surfaces */
+  --obsidian-lighter: rgb(32, 32, 38);   /* #202026 - Cards, panels */
+
+  /* Forest Greens - Muted, sophisticated */
+  --forest: rgb(34, 54, 44);             /* #22362C - Deep forest */
+  --forest-muted: rgb(52, 74, 62);       /* #344A3E - Muted forest */
+  --sage: rgb(120, 140, 128);            /* #788C80 - Desaturated sage */
+  --sage-light: rgb(156, 176, 164);      /* #9CB0A4 - Light sage for highlights */
+
+  /* Mahogany Warmth - Rich reddish-brown accents */
+  --mahogany: rgb(103, 58, 48);          /* #673A30 - Deep mahogany */
+  --mahogany-light: rgb(140, 82, 68);    /* #8C5244 - Lighter mahogany */
+  --terracotta: rgb(176, 106, 88);       /* #B06A58 - Warm terracotta */
+
+  /* Neutrals - Warm-tinted grays */
+  --ash: rgb(58, 58, 62);                /* #3A3A3E - Warm dark gray */
+  --stone: rgb(88, 88, 94);              /* #58585E - Mid gray */
+  --silver: rgb(158, 158, 164);          /* #9E9EA4 - Light gray */
+  --pearl: rgb(232, 230, 226);           /* #E8E6E2 - Off-white */
+  --cream: rgb(250, 248, 244);           /* #FAF8F4 - Cream white */
+
+  /* ===========================================
+     SEMANTIC TOKENS - Map to core palette
+     =========================================== */
+
   /* RGB tuples for Tailwind opacity modifiers */
-  --bg: 18 28 24;                    /* forest-deep RGB */
-  --surface: 30 34 32;               /* charcoal RGB */
-  --surface-2: 42 46 44;             /* stone RGB */
-  --surface-accent: 54 60 57;        /* slate RGB */
-  --text: 252 250 246;               /* cream RGB */
-  --text-muted: 142 148 145;         /* concrete RGB */
-  --primary: 134 158 140;            /* sage RGB */
-  --primary-foreground: 18 28 24;    /* forest-deep RGB */
-  --accent: 212 175 124;             /* gold RGB */
-  --border: 54 60 57;                /* slate RGB */
-  --ring: 168 208 184;               /* mint RGB */
-  --success: 168 208 184;            /* mint RGB */
-  --warning: 184 115 84;             /* copper RGB */
-  --danger: 196 89 67;               /* error RGB */
-  --panel-bg: 30 34 32;              /* charcoal RGB */
-  --panel-border: 54 60 57;          /* slate RGB */
-  --input-bg: 30 34 32;              /* charcoal RGB */
-  --input-border: 54 60 57;          /* slate RGB */
-  --input-text: 252 250 246;         /* cream RGB */
-  --input-placeholder: 142 148 145;  /* concrete RGB */
-  --panel-shadow: 18 28 24;          /* forest-deep RGB */
-  --header-gradient-start: #121C18;  /* forest-deep */
-  --header-gradient-mid: #44604C;    /* moss */
-  --header-gradient-end: #1E2220;    /* charcoal */
+  --bg: 12 12 14;                        /* obsidian */
+  --surface: 22 22 26;                   /* obsidian-light */
+  --surface-2: 32 32 38;                 /* obsidian-lighter */
+  --surface-accent: 58 58 62;            /* ash */
+  --text: 250 248 244;                   /* cream */
+  --text-muted: 158 158 164;             /* silver */
+  --primary: 120 140 128;                /* sage */
+  --primary-foreground: 12 12 14;        /* obsidian */
+  --accent: 140 82 68;                   /* mahogany-light */
+  --border: 58 58 62;                    /* ash */
+  --ring: 156 176 164;                   /* sage-light */
+  --success: 120 140 128;                /* sage */
+  --success-foreground: 12 12 14;        /* obsidian */
+  --warning: 176 106 88;                 /* terracotta */
+  --warning-foreground: 250 248 244;     /* cream */
+  --danger: 176 88 72;                   /* warm red */
+  --danger-foreground: 250 248 244;      /* cream */
+  --info: 120 140 128;                   /* sage */
+  --info-foreground: 12 12 14;           /* obsidian */
+  --panel-bg: 22 22 26;                  /* obsidian-light */
+  --panel-border: 58 58 62;              /* ash */
+  --input-bg: 22 22 26;                  /* obsidian-light */
+  --input-border: 58 58 62;              /* ash */
+  --input-text: 250 248 244;             /* cream */
+  --input-placeholder: 158 158 164;      /* silver */
+  --panel-shadow: 0 0 0;                 /* true black for shadows */
+  --header-gradient-start: #0C0C0E;      /* obsidian */
+  --header-gradient-mid: #22362C;        /* forest */
+  --header-gradient-end: #16161A;        /* obsidian-light */
   --font-sans: 'Inter', 'Work Sans', 'Segoe UI', system-ui, sans-serif;
 
-  /* Primary Brand Colors - Earthy, sophisticated greens and browns */
-  --forest-deep: rgb(18, 28, 24);        /* #121C18 - Deep forest background */
-  --moss: rgb(68, 96, 76);               /* #44604C - Moss green accents */
-  --sage: rgb(134, 158, 140);            /* #869E8C - Sage green highlights */
-  --earth: rgb(89, 72, 58);              /* #59483A - Earth brown */
-  --stone: rgb(42, 46, 44);              /* #2A2E2C - Stone gray */
-
-  /* Accent Colors - Premium metallics and highlights */
-  --gold: rgb(212, 175, 124);            /* #D4AF7C - Brushed gold */
-  --copper: rgb(184, 115, 84);           /* #B87354 - Copper accent */
-  --mint: rgb(168, 208, 184);            /* #A8D0B8 - Fresh mint */
-
-  /* Neutrals - Clean, sophisticated */
-  --charcoal: rgb(30, 34, 32);           /* #1E2220 - Charcoal */
-  --slate: rgb(54, 60, 57);              /* #363C39 - Slate */
-  --concrete: rgb(142, 148, 145);        /* #8E9491 - Concrete */
-  --sand: rgb(242, 238, 232);            /* #F2EEE8 - Sand beige */
-  --cream: rgb(252, 250, 246);           /* #FCFAF6 - Cream white */
+  /* Legacy aliases - keeping for compatibility */
+  --forest-deep: var(--obsidian);
+  --moss: var(--forest-muted);
+  --charcoal: var(--obsidian-light);
+  --slate: var(--ash);
+  --concrete: var(--silver);
+  --sand: var(--pearl);
+  --gold: var(--terracotta);
+  --copper: var(--mahogany-light);
+  --mint: var(--sage-light);
+  --earth: var(--mahogany);
+  --error: rgb(176, 88, 72);             /* Warm red */
 
   /* Functional Colors */
-  --success: var(--mint);
-  --warning: var(--copper);
-  --error: rgb(196, 89, 67);             /* #C45943 - Terra cotta */
+  --success: var(--sage);
+  --warning: var(--terracotta);
 
-  /* Opacity Variants */
-  --overlay-dark: rgba(18, 28, 24, 0.85);
-  --overlay-light: rgba(252, 250, 246, 0.95);
-  --glass: rgba(54, 60, 57, 0.6);
+  /* ===========================================
+     OPACITY VARIANTS
+     =========================================== */
+
+  /* Overlay variants */
+  --overlay-dark: rgba(12, 12, 14, 0.85);
+  --overlay-light: rgba(250, 248, 244, 0.95);
+  --glass: rgba(58, 58, 62, 0.6);
+
+  /* Sage opacity variants (for hover states, backgrounds) */
+  --sage-5: rgba(120, 140, 128, 0.05);
+  --sage-10: rgba(120, 140, 128, 0.1);
+  --sage-15: rgba(120, 140, 128, 0.15);
+  --sage-20: rgba(120, 140, 128, 0.2);
+  --sage-25: rgba(120, 140, 128, 0.25);
+  --sage-30: rgba(120, 140, 128, 0.3);
+  --sage-40: rgba(120, 140, 128, 0.4);
+
+  /* Sage-light/Mint opacity variants (for glows, focus rings) */
+  --mint-10: rgba(156, 176, 164, 0.1);
+  --mint-15: rgba(156, 176, 164, 0.15);
+  --mint-20: rgba(156, 176, 164, 0.2);
+  --mint-30: rgba(156, 176, 164, 0.3);
+  --mint-40: rgba(156, 176, 164, 0.4);
+
+  /* Ash/Slate opacity variants (for borders, backgrounds) */
+  --slate-50: rgba(58, 58, 62, 0.5);
+  --slate-60: rgba(58, 58, 62, 0.6);
+  --slate-70: rgba(58, 58, 62, 0.7);
+
+  /* Obsidian/Forest opacity variants (for overlays) */
+  --forest-20: rgba(12, 12, 14, 0.2);
+  --forest-60: rgba(12, 12, 14, 0.6);
+  --forest-75: rgba(12, 12, 14, 0.75);
+  --forest-90: rgba(12, 12, 14, 0.9);
+  --forest-95: rgba(12, 12, 14, 0.95);
+
+  /* Mahogany opacity variants (for warm accents) */
+  --mahogany-10: rgba(140, 82, 68, 0.1);
+  --mahogany-15: rgba(140, 82, 68, 0.15);
+  --mahogany-20: rgba(140, 82, 68, 0.2);
+
+  /* ============================================
+     DESIGN TOKENS - Animation & Effects
+     ============================================ */
+
+  /* Timing Scale (standardized durations) */
+  --duration-micro: 0.15s;   /* hover feedback, opacity changes */
+  --duration-short: 0.2s;    /* color transitions, small transforms */
+  --duration-medium: 0.3s;   /* card hover, panel animations */
+  --duration-long: 0.4s;     /* modal transitions, complex animations */
+
+  /* Easing Functions */
+  --ease-default: ease;
+  --ease-premium: cubic-bezier(0.4, 0, 0.2, 1);  /* smooth, professional */
+  --ease-springy: cubic-bezier(0.16, 1, 0.3, 1); /* bouncy, delightful */
+
+  /* Shadow Scale (layered for depth) */
+  --shadow-sm: 0 4px 12px rgba(18, 28, 24, 0.15);
+  --shadow-md: 0 8px 24px var(--forest-20);
+  --shadow-lg: 0 16px 48px rgba(18, 28, 24, 0.25);
+  --shadow-xl: 0 24px 64px rgba(18, 28, 24, 0.3);
+
+  /* Premium Inset Effects (mint glow for premium feel) */
+  --inset-glow: 0 0 0 1px var(--mint-10) inset;
+  --inset-glow-hover: 0 0 0 1px var(--mint-20) inset;
+  --inset-glow-focus: 0 0 0 1px var(--mint-30) inset;
+
+  /* Blur Values */
+  --blur-sm: 8px;
+  --blur-md: 14px;
+  --blur-lg: 20px;
 }
 
 /* ============================================
@@ -170,6 +267,54 @@ textarea:focus::placeholder {
 }
 
 /* ============================================
+   COMPOSITE TYPOGRAPHY UTILITIES
+   ============================================ */
+
+/* Section label - replaces 'text-xs uppercase tracking-[0.3em] text-muted' */
+.label-section {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3em;
+  color: var(--concrete);
+}
+
+/* Form field label - replaces 'block text-sm text-muted mb-1' */
+.label-form {
+  display: block;
+  font-size: 0.875rem;
+  color: var(--concrete);
+  margin-bottom: 0.25rem;
+}
+
+/* Body text muted - replaces 'text-sm text-muted' */
+.text-body-muted {
+  font-size: 0.875rem;
+  color: var(--concrete);
+}
+
+/* Section title - replaces 'text-xl font-semibold text-white' */
+.title-section {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--cream);
+}
+
+/* Page title */
+.title-page {
+  font-size: 1.875rem;
+  font-weight: 600;
+  color: var(--cream);
+}
+
+/* Stat display value */
+.stat-value {
+  font-size: 2.25rem;
+  font-weight: 700;
+  color: var(--cream);
+}
+
+/* ============================================
    LAYOUT & SPACING
    ============================================ */
 
@@ -220,7 +365,10 @@ textarea:focus::placeholder {
 }
 
 .bg-gradient-dark {
-  background: radial-gradient(ellipse at center, var(--stone) 0%, var(--forest-deep) 100%);
+  background:
+    radial-gradient(ellipse 120% 80% at 50% 0%, var(--forest) 0%, transparent 50%),
+    radial-gradient(ellipse 120% 80% at 50% 100%, var(--forest) 0%, transparent 50%),
+    var(--obsidian);
   color: var(--cream);
 }
 
@@ -236,6 +384,15 @@ textarea:focus::placeholder {
 
 .bg-surface-2 {
   background: var(--stone);
+}
+
+/* Alias for bg-surface (for code consistency) */
+.bg-surface-1 {
+  background: var(--charcoal);
+}
+
+.text-primary {
+  color: rgb(var(--primary));
 }
 
 .bg-accent {
@@ -258,7 +415,7 @@ textarea:focus::placeholder {
 /* Card - Frosted glass effect */
 .card {
   background: var(--glass);
-  border: 1px solid rgba(134, 158, 140, 0.2);
+  border: 1px solid var(--sage-20);
   border-radius: 1rem;
   padding: 2rem;
   backdrop-filter: blur(14px);
@@ -273,15 +430,15 @@ textarea:focus::placeholder {
   transform: translateY(-5px);
   box-shadow:
     0 30px 80px rgba(18, 28, 24, 0.4),
-    0 0 0 1px rgba(168, 208, 184, 0.15) inset,
-    0 0 40px rgba(168, 208, 184, 0.1);
-  border-color: rgba(134, 158, 140, 0.4);
+    0 0 0 1px var(--mint-15) inset,
+    0 0 40px var(--mint-10);
+  border-color: var(--sage-40);
 }
 
 /* Card - Solid variant for light backgrounds */
 .card-solid {
   background: var(--charcoal);
-  border: 1px solid rgba(134, 158, 140, 0.15);
+  border: 1px solid var(--sage-15);
   border-radius: 1rem;
   padding: 2rem;
   box-shadow: 0 20px 60px rgba(18, 28, 24, 0.25);
@@ -291,7 +448,7 @@ textarea:focus::placeholder {
 .card-solid:hover {
   transform: translateY(-5px);
   box-shadow: 0 30px 80px rgba(18, 28, 24, 0.35);
-  border-color: rgba(134, 158, 140, 0.3);
+  border-color: var(--sage-30);
 }
 
 /* ============================================
@@ -305,7 +462,7 @@ textarea:focus::placeholder {
   justify-content: center;
   background: linear-gradient(135deg, var(--sage) 0%, var(--moss) 100%);
   color: var(--cream);
-  border: 2px solid rgba(168, 208, 184, 0.4);
+  border: 2px solid var(--mint-40);
   border-radius: 999px;
   padding: 1rem 3rem;
   font-size: 1.125rem;
@@ -317,7 +474,7 @@ textarea:focus::placeholder {
   overflow: hidden;
   box-shadow:
     0 10px 30px rgba(68, 96, 76, 0.3),
-    0 0 0 1px rgba(168, 208, 184, 0.2) inset;
+    0 0 0 1px var(--mint-20) inset;
 }
 
 .btn-primary::before {
@@ -327,7 +484,7 @@ textarea:focus::placeholder {
   left: 0;
   width: 100%;
   height: 100%;
-  background: linear-gradient(135deg, rgba(168, 208, 184, 0.2) 0%, transparent 100%);
+  background: linear-gradient(135deg, var(--mint-20) 0%, transparent 100%);
   opacity: 0;
   transition: opacity 0.3s ease;
 }
@@ -336,8 +493,8 @@ textarea:focus::placeholder {
   transform: scale(1.05);
   box-shadow:
     0 15px 40px rgba(68, 96, 76, 0.5),
-    0 0 0 1px rgba(168, 208, 184, 0.4) inset,
-    0 0 40px rgba(168, 208, 184, 0.2);
+    0 0 0 1px var(--mint-40) inset,
+    0 0 40px var(--mint-20);
   border-color: rgba(168, 208, 184, 0.6);
 }
 
@@ -358,13 +515,13 @@ textarea:focus::placeholder {
   0%, 100% {
     box-shadow:
       0 10px 30px rgba(68, 96, 76, 0.3),
-      0 0 0 1px rgba(168, 208, 184, 0.2) inset,
+      0 0 0 1px var(--mint-20) inset,
       0 0 0 0 rgba(134, 158, 140, 0.7);
   }
   50% {
     box-shadow:
       0 10px 30px rgba(68, 96, 76, 0.3),
-      0 0 0 1px rgba(168, 208, 184, 0.2) inset,
+      0 0 0 1px var(--mint-20) inset,
       0 0 0 15px rgba(134, 158, 140, 0);
   }
 }
@@ -449,25 +606,64 @@ textarea:focus::placeholder {
   font-size: 1rem;
 }
 
-/* ============================================
-   LINKS
-   ============================================ */
-
-.link-accent {
-  color: var(--sage);
-  transition: color 0.15s ease;
+/* Button loading state */
+.btn-loading {
+  position: relative;
+  color: transparent !important;
+  pointer-events: none;
 }
 
-.link-accent:hover {
+.btn-loading::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 16px;
+  height: 16px;
+  margin: -8px 0 0 -8px;
+  border: 2px solid var(--cream);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: btn-spin 0.8s linear infinite;
+}
+
+@keyframes btn-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Icon button (for edit/delete actions) */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem;
+  border-radius: 0.5rem;
+  color: var(--concrete);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition:
+    color var(--duration-micro) var(--ease-premium),
+    background-color var(--duration-micro) var(--ease-premium),
+    transform var(--duration-micro) var(--ease-premium);
+}
+
+.icon-btn:hover {
   color: var(--mint);
+  background-color: var(--mint-10);
+  transform: scale(1.1);
 }
 
-.link-accent-contrast {
-  color: var(--gold);
+.icon-btn:active {
+  transform: scale(0.95);
 }
 
-.link-accent-contrast:hover {
-  color: var(--sage);
+/* Danger icon button variant */
+.icon-btn-danger:hover {
+  color: rgb(var(--danger));
+  background-color: rgba(196, 89, 67, 0.1);
 }
 
 /* ============================================
@@ -476,7 +672,7 @@ textarea:focus::placeholder {
 
 .panel-soft {
   background-color: rgba(30, 34, 32, 0.96);
-  border: 1px solid rgba(54, 60, 57, 0.7);
+  border: 1px solid var(--slate-70);
   color: var(--cream);
   backdrop-filter: blur(14px);
   border-radius: 1rem;
@@ -486,13 +682,83 @@ textarea:focus::placeholder {
   box-shadow: 0 20px 60px rgba(18, 28, 24, 0.45);
 }
 
+/* ============================================
+   COMPOSITE PANEL UTILITIES
+   ============================================ */
+
+/* Standard panel - replaces 'panel-soft shadow-soft border border-app rounded-3xl p-6' */
+.panel {
+  background-color: rgba(30, 34, 32, 0.96);
+  border: 1px solid var(--slate-70);
+  color: var(--cream);
+  backdrop-filter: blur(var(--blur-md));
+  border-radius: 1.5rem;
+  padding: 1.5rem;
+  box-shadow:
+    var(--shadow-lg),
+    var(--inset-glow);
+  transition:
+    transform var(--duration-medium) var(--ease-premium),
+    box-shadow var(--duration-medium) var(--ease-premium),
+    border-color var(--duration-medium) var(--ease-premium);
+}
+
+/* Premium hover effect for interactive panels */
+.panel-interactive:hover,
+.panel:hover {
+  transform: translateY(-3px);
+  box-shadow:
+    var(--shadow-xl),
+    var(--inset-glow-hover);
+  border-color: rgba(134, 158, 140, 0.35);
+}
+
+/* Panel with vertical spacing - replaces 'panel-soft shadow-soft border border-app rounded-3xl p-6 space-y-4' */
+.panel-spaced {
+  background-color: rgba(30, 34, 32, 0.96);
+  border: 1px solid var(--slate-70);
+  color: var(--cream);
+  backdrop-filter: blur(var(--blur-md));
+  border-radius: 1.5rem;
+  padding: 1.5rem;
+  box-shadow:
+    var(--shadow-lg),
+    var(--inset-glow);
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  transition:
+    transform var(--duration-medium) var(--ease-premium),
+    box-shadow var(--duration-medium) var(--ease-premium),
+    border-color var(--duration-medium) var(--ease-premium);
+}
+
+.panel-spaced:hover {
+  transform: translateY(-3px);
+  box-shadow:
+    var(--shadow-xl),
+    var(--inset-glow-hover);
+  border-color: rgba(134, 158, 140, 0.35);
+}
+
+/* Danger zone panel - for destructive action sections */
+.panel-danger {
+  background-color: rgba(196, 89, 67, 0.08);
+  border: 1px solid rgba(196, 89, 67, 0.5);
+  color: var(--cream);
+  backdrop-filter: blur(14px);
+  border-radius: 1.5rem;
+  padding: 1.5rem;
+  box-shadow: 0 20px 60px rgba(18, 28, 24, 0.45);
+}
+
 .modal-surface {
   background-color: rgba(30, 34, 32, 0.98);
   border: 1px solid rgba(54, 60, 57, 0.85);
   border-radius: 1rem;
   box-shadow:
     0 45px 120px rgba(18, 28, 24, 0.55),
-    0 0 0 1px rgba(168, 208, 184, 0.2);
+    0 0 0 1px var(--mint-20);
 }
 
 /* ============================================
@@ -507,17 +773,31 @@ textarea:focus::placeholder {
   border-radius: 0.5rem;
   padding: 0.5rem 0.75rem;
   font-size: 0.9rem;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  transition:
+    border-color var(--duration-short) var(--ease-premium),
+    box-shadow var(--duration-short) var(--ease-premium),
+    background-color var(--duration-short) var(--ease-premium);
 }
 
 .input-soft::placeholder {
   color: rgba(142, 148, 145, 0.6);
 }
 
+/* Subtle hover state */
+.input-soft:hover:not(:focus) {
+  border-color: var(--sage-40);
+  background-color: rgba(30, 34, 32, 0.95);
+}
+
+/* Premium focus state with glow */
 .input-soft:focus {
   outline: none;
   border-color: var(--mint);
-  box-shadow: 0 0 0 3px rgba(168, 208, 184, 0.25);
+  background-color: rgba(30, 34, 32, 0.98);
+  box-shadow:
+    0 0 0 3px var(--mint-20),
+    0 4px 16px var(--mint-10),
+    var(--inset-glow-focus);
 }
 
 .label-muted {
@@ -542,6 +822,468 @@ textarea:focus::placeholder {
 }
 
 /* ============================================
+   ALERT/FEEDBACK CONTAINERS
+   ============================================ */
+
+/* Base alert style */
+.alert {
+  border-radius: 0.75rem;
+  padding: 0.75rem 1rem;
+  font-size: 0.875rem;
+  border: 1px solid;
+}
+
+/* Success alert - replaces bg-green-500/10 border-green-500/30 patterns */
+.alert-success {
+  background: var(--mint-10);
+  border-color: var(--mint-30);
+  color: var(--mint);
+}
+
+/* Warning alert - replaces bg-yellow-500/10 border-yellow-500/30 patterns */
+.alert-warning {
+  background: rgba(184, 115, 84, 0.1);
+  border-color: rgba(184, 115, 84, 0.3);
+  color: var(--copper);
+}
+
+/* Danger/Error alert - replaces bg-red-500/10 border-red-500/30 patterns */
+.alert-danger {
+  background: rgba(196, 89, 67, 0.1);
+  border-color: rgba(196, 89, 67, 0.3);
+  color: var(--error);
+}
+
+/* Info alert */
+.alert-info {
+  background: var(--sage-10);
+  border-color: var(--sage-30);
+  color: var(--sage);
+}
+
+/* Dark variants for dark backgrounds */
+.alert-success-dark {
+  background: var(--mint-15);
+  border-color: rgba(168, 208, 184, 0.5);
+  color: rgb(209, 250, 229);
+}
+
+.alert-warning-dark {
+  background: rgba(184, 115, 84, 0.15);
+  border-color: rgba(184, 115, 84, 0.5);
+  color: rgb(254, 243, 199);
+}
+
+.alert-danger-dark {
+  background: rgba(196, 89, 67, 0.15);
+  border-color: rgba(196, 89, 67, 0.5);
+  color: rgb(254, 226, 226);
+}
+
+/* ============================================
+   ROLE BADGES (Admin Panel)
+   ============================================ */
+
+.badge-role {
+  display: inline-flex;
+  padding: 0.125rem 0.5rem;
+  border-radius: 0.375rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.025em;
+}
+
+.badge-role-admin {
+  background-color: rgb(147, 51, 234);
+  color: rgb(250, 245, 255);
+}
+
+.badge-role-pro {
+  background-color: rgb(217, 119, 6);
+  color: rgb(255, 251, 235);
+}
+
+.badge-role-user {
+  background-color: rgb(37, 99, 235);
+  color: rgb(239, 246, 255);
+}
+
+/* ============================================
+   LINK UTILITIES
+   ============================================ */
+
+/* Subtle link with icon support */
+.link-subtle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.75rem;
+  color: var(--sage);
+  text-decoration: none;
+  transition: color var(--duration-short) var(--ease-premium);
+}
+
+.link-subtle:hover {
+  color: var(--mint);
+}
+
+/* Skeleton loading utilities */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    rgba(54, 60, 57, 0.4) 0%,
+    rgba(68, 96, 76, 0.2) 50%,
+    rgba(54, 60, 57, 0.4) 100%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 2s ease-in-out infinite;
+  border-radius: 0.375rem;
+}
+
+.skeleton-text-lg {
+  width: 48px;
+  height: 28px;
+}
+
+.skeleton-text-sm {
+  width: 40px;
+  height: 12px;
+}
+
+/* Skeleton size variants for specific loading states */
+.skeleton-pill {
+  width: 80px;
+  height: 24px;
+  border-radius: 12px;
+}
+
+.skeleton-title {
+  width: 200px;
+  height: 28px;
+}
+
+.skeleton-row {
+  width: 100%;
+  height: 44px;
+}
+
+.skeleton-btn {
+  width: 120px;
+  height: 42px;
+}
+
+.skeleton-btn-lg {
+  width: 140px;
+  height: 42px;
+}
+
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* Icon utilities for consistent button/link icons */
+.icon-left {
+  margin-right: 0.375rem;
+}
+
+.icon-right {
+  margin-left: 0.375rem;
+}
+
+/* Color utilities for icons */
+.icon-sage {
+  color: var(--sage);
+}
+
+.icon-mint {
+  color: var(--mint);
+}
+
+.icon-forest {
+  color: var(--forest-deep);
+}
+
+/* ============================================
+   NAVIGATION COMPONENTS
+   ============================================ */
+
+.app-navbar {
+  background: var(--forest-20);
+  backdrop-filter: blur(32px);
+  -webkit-backdrop-filter: blur(16px);
+  border-color: var(--mint-10);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);
+}
+
+.logo-gradient {
+  background: linear-gradient(135deg, var(--sage) 0%, var(--mint) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.nav-link {
+  position: relative;
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--sage);
+  background: transparent;
+  transition: all var(--duration-short) var(--ease-default);
+}
+
+.nav-link:hover,
+.nav-link:focus-visible {
+  background: var(--sage-10);
+  color: var(--mint);
+}
+
+.nav-link-active {
+  background: var(--sage-15);
+  color: var(--mint);
+}
+
+.nav-link-active:hover {
+  background: var(--sage-20);
+}
+
+/* Mobile menu nav link variant */
+.nav-link-mobile {
+  display: block;
+  padding: 0.75rem 1rem;
+  border-radius: 0.5rem;
+  font-weight: 500;
+  color: var(--sage);
+  background: transparent;
+  transition: all var(--duration-short) var(--ease-default);
+}
+
+.nav-link-mobile:hover,
+.nav-link-mobile:focus-visible {
+  background: var(--sage-10);
+  color: var(--mint);
+}
+
+.nav-link-mobile-active {
+  background: var(--sage-15);
+  color: var(--mint);
+}
+
+/* Logout button style */
+.nav-logout {
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--sage);
+  background: transparent;
+  border: 1px solid var(--sage-30);
+  cursor: pointer;
+  transition: all var(--duration-short) var(--ease-default);
+}
+
+.nav-logout:hover,
+.nav-logout:focus-visible {
+  background: var(--sage-10);
+  border-color: rgba(134, 158, 140, 0.5);
+  color: var(--mint);
+}
+
+/* Mobile menu button */
+.nav-menu-btn {
+  padding: 0.5rem;
+  border-radius: 0.5rem;
+  color: var(--sage);
+  background: transparent;
+  transition: background var(--duration-short) var(--ease-default);
+}
+
+.nav-menu-btn:hover,
+.nav-menu-btn:focus-visible {
+  background: var(--sage-10);
+}
+
+/* Mobile menu panel */
+.mobile-menu {
+  border-top: 1px solid var(--mint-10);
+  background: var(--forest-95);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+/* Active nav pill background for animated indicator */
+.nav-active-pill {
+  background: var(--sage-15);
+}
+
+/* Navigation tab glow underline for active state */
+.nav-active-pill::after {
+  content: '';
+  position: absolute;
+  bottom: -2px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 60%;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--mint), transparent);
+  border-radius: 1px;
+}
+
+/* ============================================
+   BACKGROUND PATTERNS
+   ============================================ */
+
+/* Base background image styles */
+.bg-cover-center {
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+.bg-fixed {
+  background-attachment: fixed;
+}
+
+/* Hero background images */
+.bg-hero-desktop {
+  background-image: url('/mtbLandingPhoto.jpg');
+}
+
+.bg-hero-mobile {
+  background-image: url('/mtbLandingPhotoMobile.jpg');
+}
+
+/* Glass panel effect for CTA sections */
+.glass-panel {
+  background-color: rgba(18, 28, 24, 0.7);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--mint-10);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(168, 208, 184, 0.05);
+}
+
+/* Glass form container */
+.glass-form {
+  background-color: var(--glass);
+  border: 1px solid var(--slate);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+/* Marketing page form inputs */
+.marketing-input {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border-radius: 0.5rem;
+  font-size: 1rem;
+  background-color: var(--charcoal);
+  border: 1px solid var(--slate);
+  color: var(--cream);
+  transition: all var(--duration-short) var(--ease-default);
+}
+
+.marketing-input:focus {
+  outline: none;
+  border-color: var(--mint);
+  box-shadow: 0 0 0 3px var(--mint-10);
+}
+
+.marketing-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Marketing form label */
+.marketing-label {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--sand);
+  margin-bottom: 0.5rem;
+}
+
+/* Info panel (for success messages, etc.) */
+.info-panel {
+  background-color: var(--glass);
+  border: 1px solid var(--slate);
+  border-radius: 1rem;
+  padding: 1.5rem;
+}
+
+/* ============================================
+   SEMANTIC BUTTON VARIANTS
+   ============================================ */
+
+/* Danger button - replaces bg-red-600 hover:bg-red-500 patterns */
+.btn-danger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background-color: rgb(220, 38, 38);
+  color: white;
+  border-radius: 0.75rem;
+  padding: 0.5rem 1rem;
+  font-weight: 500;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background-color: rgb(239, 68, 68);
+}
+
+.btn-danger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Success button */
+.btn-success {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background-color: rgb(34, 197, 94);
+  color: black;
+  border-radius: 0.75rem;
+  padding: 0.5rem 1rem;
+  font-weight: 500;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.btn-success:hover:not(:disabled) {
+  background-color: rgb(74, 222, 128);
+}
+
+/* Warning button */
+.btn-warning {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background-color: rgb(202, 138, 4);
+  color: white;
+  border-radius: 0.75rem;
+  padding: 0.5rem 1rem;
+  font-weight: 500;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.btn-warning:hover:not(:disabled) {
+  background-color: rgb(234, 179, 8);
+}
+
+/* ============================================
    UTILITY CLASSES
    ============================================ */
 
@@ -553,16 +1295,10 @@ textarea:focus::placeholder {
   margin-bottom: 1.5rem;
 }
 
-.divider {
-  width: 100%;
-  height: 1px;
-  background: linear-gradient(90deg, transparent 0%, rgba(134, 158, 140, 0.2) 50%, transparent 100%);
-}
-
 /* Icon styling */
 .icon {
   color: var(--mint);
-  filter: drop-shadow(0 4px 8px rgba(168, 208, 184, 0.3));
+  filter: drop-shadow(0 4px 8px var(--mint-30));
 }
 
 /* ============================================
@@ -701,7 +1437,7 @@ html.marketing-page:focus-within {
     rgba(68, 96, 76, 0.15) 0%,
     rgba(54, 60, 57, 0.1) 100%
   );
-  border: 1px solid rgba(134, 158, 140, 0.15);
+  border: 1px solid var(--sage-15);
   border-radius: 1.5rem;
   padding: clamp(2rem, 4vw, 3rem);
   margin-bottom: clamp(2rem, 3vw, 2.5rem);
@@ -710,7 +1446,7 @@ html.marketing-page:focus-within {
   position: relative;
   overflow: hidden;
   box-shadow:
-    0 10px 40px rgba(18, 28, 24, 0.2),
+    0 10px 40px var(--forest-20),
     0 0 0 1px rgba(168, 208, 184, 0.05) inset;
   animation: hero-enter 0.8s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
@@ -874,33 +1610,33 @@ html.marketing-page:focus-within {
 .action-btn-primary {
   background: linear-gradient(135deg, var(--sage) 0%, var(--moss) 100%);
   color: var(--cream);
-  border: 2px solid rgba(168, 208, 184, 0.3);
+  border: 2px solid var(--mint-30);
   box-shadow:
     0 8px 24px rgba(68, 96, 76, 0.3),
-    0 0 0 1px rgba(168, 208, 184, 0.15) inset;
+    0 0 0 1px var(--mint-15) inset;
 }
 
 .action-btn-primary:hover {
   transform: translateY(-3px) scale(1.02);
   box-shadow:
     0 12px 32px rgba(68, 96, 76, 0.4),
-    0 0 0 1px rgba(168, 208, 184, 0.3) inset,
-    0 0 30px rgba(168, 208, 184, 0.15);
+    0 0 0 1px var(--mint-30) inset,
+    0 0 30px var(--mint-15);
   border-color: rgba(168, 208, 184, 0.5);
 }
 
 .action-btn-secondary {
-  background: rgba(54, 60, 57, 0.6);
+  background: var(--slate-60);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   color: var(--cream);
-  border: 2px solid rgba(134, 158, 140, 0.25);
-  box-shadow: 0 4px 16px rgba(18, 28, 24, 0.2);
+  border: 2px solid var(--sage-25);
+  box-shadow: 0 4px 16px var(--forest-20);
 }
 
 .action-btn-secondary:hover {
   background: rgba(68, 96, 76, 0.4);
-  border-color: rgba(134, 158, 140, 0.4);
+  border-color: var(--sage-40);
   transform: translateY(-3px);
   box-shadow: 0 8px 24px rgba(18, 28, 24, 0.3);
 }
@@ -912,7 +1648,7 @@ html.marketing-page:focus-within {
 }
 
 .action-btn-outline:hover {
-  background: rgba(134, 158, 140, 0.1);
+  background: var(--sage-10);
   border-color: rgba(134, 158, 140, 0.5);
   color: var(--mint);
   transform: translateY(-3px);
@@ -933,10 +1669,10 @@ html.marketing-page:focus-within {
   font-size: 0.6875rem;
   font-weight: 600;
   font-family: 'SF Mono', 'Consolas', monospace;
-  background: rgba(18, 28, 24, 0.6);
+  background: var(--forest-60);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
-  border: 1px solid rgba(134, 158, 140, 0.2);
+  border: 1px solid var(--sage-20);
   border-radius: 6px;
   color: var(--sage);
   cursor: pointer;
@@ -947,7 +1683,7 @@ html.marketing-page:focus-within {
 
 .dev-btn:hover:not(:disabled) {
   background: rgba(68, 96, 76, 0.3);
-  border-color: rgba(134, 158, 140, 0.4);
+  border-color: var(--sage-40);
   transform: translateY(-1px);
 }
 
@@ -973,7 +1709,7 @@ html.marketing-page:focus-within {
 
 .data-card {
   background: var(--glass);
-  border: 1px solid rgba(134, 158, 140, 0.2);
+  border: 1px solid var(--sage-20);
   border-radius: 1.25rem;
   padding: clamp(1.75rem, 3vw, 2.25rem);
   backdrop-filter: blur(16px);
@@ -1053,7 +1789,7 @@ html.marketing-page:focus-within {
   align-items: flex-start;
   margin-bottom: 2rem;
   padding-bottom: 1.25rem;
-  border-bottom: 1px solid rgba(134, 158, 140, 0.15);
+  border-bottom: 1px solid var(--sage-15);
   position: relative;
 }
 
@@ -1090,9 +1826,9 @@ html.marketing-page:focus-within {
   letter-spacing: 0.05em;
   color: var(--concrete);
   padding: 0.375rem 0.75rem;
-  background: rgba(54, 60, 57, 0.5);
+  background: var(--slate-50);
   border-radius: 6px;
-  border: 1px solid rgba(134, 158, 140, 0.15);
+  border: 1px solid var(--sage-15);
   margin-top: 0.5rem;
 }
 
@@ -1107,12 +1843,12 @@ html.marketing-page:focus-within {
   padding: 0.5rem 1rem;
   border-radius: 8px;
   background: rgba(134, 158, 140, 0.08);
-  border: 1px solid rgba(134, 158, 140, 0.2);
+  border: 1px solid var(--sage-20);
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .card-action-link:hover {
-  background: rgba(134, 158, 140, 0.15);
+  background: var(--sage-15);
   border-color: rgba(134, 158, 140, 0.35);
   color: var(--mint);
   transform: translateX(4px);
@@ -1139,7 +1875,7 @@ html.marketing-page:focus-within {
   background-size: 200% 100%;
   animation: shimmer 2s ease-in-out infinite;
   border-radius: 1rem;
-  border: 1px solid rgba(134, 158, 140, 0.1);
+  border: 1px solid var(--sage-10);
 }
 
 @keyframes shimmer {
@@ -1160,7 +1896,7 @@ html.marketing-page:focus-within {
   padding: 3rem 2rem;
   text-align: center;
   background: rgba(54, 60, 57, 0.3);
-  border: 2px dashed rgba(134, 158, 140, 0.25);
+  border: 2px dashed var(--sage-25);
   border-radius: 1rem;
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
@@ -1196,7 +1932,7 @@ html.marketing-page:focus-within {
   color: var(--mint);
   font-weight: 600;
   text-decoration: underline;
-  text-decoration-color: rgba(168, 208, 184, 0.4);
+  text-decoration-color: var(--mint-40);
   text-underline-offset: 3px;
   transition: all 0.2s ease;
 }
@@ -1280,12 +2016,12 @@ html.marketing-page:focus-within {
   max-width: 36rem;
   max-height: 90%;
   background: rgba(30, 34, 32, 0.98);
-  border: 1px solid rgba(134, 158, 140, 0.25);
+  border: 1px solid var(--sage-25);
   border-radius: 1.5rem;
   padding: 2.5rem;
   box-shadow:
-    0 40px 100px rgba(18, 28, 24, 0.6),
-    0 0 0 1px rgba(168, 208, 184, 0.1) inset;
+    0 40px 100px var(--forest-60),
+    0 0 0 1px var(--mint-10) inset;
   animation: modal-slide-up 0.4s cubic-bezier(0.16, 1, 0.3, 1);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
@@ -1308,7 +2044,7 @@ html.marketing-page:focus-within {
   align-items: flex-start;
   margin-bottom: 2rem;
   padding-bottom: 1.5rem;
-  border-bottom: 1px solid rgba(134, 158, 140, 0.15);
+  border-bottom: 1px solid var(--sage-15);
 }
 
 .modal-title {
@@ -1337,7 +2073,7 @@ html.marketing-page:focus-within {
   font-weight: 300;
   color: var(--concrete);
   background: rgba(54, 60, 57, 0.4);
-  border: 1px solid rgba(134, 158, 140, 0.2);
+  border: 1px solid var(--sage-20);
   border-radius: 10px;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -1347,7 +2083,7 @@ html.marketing-page:focus-within {
 
 .modal-close:hover {
   background: rgba(68, 96, 76, 0.4);
-  border-color: rgba(134, 158, 140, 0.4);
+  border-color: var(--sage-40);
   color: var(--cream);
   transform: rotate(90deg);
 }
@@ -1356,7 +2092,7 @@ html.marketing-page:focus-within {
 .file-drop-zone {
   display: block;
   padding: 3rem 2rem;
-  border: 2px dashed rgba(134, 158, 140, 0.3);
+  border: 2px dashed var(--sage-30);
   background: rgba(54, 60, 57, 0.3);
   border-radius: 1rem;
   text-align: center;
@@ -1429,7 +2165,7 @@ html.marketing-page:focus-within {
   font-size: 0.9375rem;
   padding: 0.875rem 1rem;
   background: rgba(30, 34, 32, 0.8);
-  border: 1px solid rgba(134, 158, 140, 0.25);
+  border: 1px solid var(--sage-25);
   border-radius: 10px;
   color: var(--cream);
   cursor: pointer;
@@ -1439,13 +2175,13 @@ html.marketing-page:focus-within {
 }
 
 .field-select:hover {
-  border-color: rgba(134, 158, 140, 0.4);
+  border-color: var(--sage-40);
 }
 
 .field-select:focus {
   outline: none;
   border-color: var(--mint);
-  box-shadow: 0 0 0 3px rgba(168, 208, 184, 0.15);
+  box-shadow: 0 0 0 3px var(--mint-15);
 }
 
 /* Modal Actions */
@@ -1455,7 +2191,7 @@ html.marketing-page:focus-within {
   gap: 1rem;
   margin-top: 2rem;
   padding-top: 1.5rem;
-  border-top: 1px solid rgba(134, 158, 140, 0.1);
+  border-top: 1px solid var(--sage-10);
 }
 
 .modal-btn {
@@ -1470,19 +2206,19 @@ html.marketing-page:focus-within {
 
 .modal-btn-cancel {
   background: transparent;
-  border-color: rgba(134, 158, 140, 0.3);
+  border-color: var(--sage-30);
   color: var(--concrete);
 }
 
 .modal-btn-cancel:hover {
-  background: rgba(54, 60, 57, 0.5);
+  background: var(--slate-50);
   border-color: rgba(134, 158, 140, 0.5);
   color: var(--cream);
 }
 
 .modal-btn-submit {
   background: linear-gradient(135deg, var(--sage) 0%, var(--moss) 100%);
-  border-color: rgba(168, 208, 184, 0.3);
+  border-color: var(--mint-30);
   color: var(--cream);
   box-shadow: 0 8px 24px rgba(68, 96, 76, 0.3);
 }
@@ -1507,11 +2243,11 @@ html.marketing-page:focus-within {
   background: rgba(54, 60, 57, 0.4);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
-  border: 1px solid rgba(134, 158, 140, 0.2);
+  border: 1px solid var(--sage-20);
   border-radius: 1rem;
   padding: 1.75rem;
   box-shadow:
-    0 8px 24px rgba(18, 28, 24, 0.2),
+    0 8px 24px var(--forest-20),
     0 0 0 1px rgba(168, 208, 184, 0.05) inset;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -1520,7 +2256,7 @@ html.marketing-page:focus-within {
   transform: translateY(-3px);
   box-shadow:
     0 12px 32px rgba(18, 28, 24, 0.3),
-    0 0 0 1px rgba(168, 208, 184, 0.1) inset;
+    0 0 0 1px var(--mint-10) inset;
   border-color: rgba(134, 158, 140, 0.35);
 }
 
@@ -1550,7 +2286,7 @@ html.marketing-page:focus-within {
   font-size: 0.9rem;
   font-weight: 700;
   padding: 0.55rem 1.25rem;
-  background: linear-gradient(135deg, rgba(134, 158, 140, 0.25), rgba(134, 158, 140, 0.15));
+  background: linear-gradient(135deg, var(--sage-25), var(--sage-15));
   border: 1px solid rgba(134, 158, 140, 0.5);
   border-radius: 999px;
   color: var(--cream);
@@ -1562,7 +2298,7 @@ html.marketing-page:focus-within {
 
 .log-service-bike-btn:hover {
   transform: translateY(-1px);
-  box-shadow: 0 6px 18px rgba(134, 158, 140, 0.25);
+  box-shadow: 0 6px 18px var(--sage-25);
   color: var(--mint);
 }
 
@@ -1578,7 +2314,7 @@ html.marketing-page:focus-within {
 
 .components-panel {
   background: rgba(30, 34, 32, 0.65);
-  border: 1px solid rgba(134, 158, 140, 0.2);
+  border: 1px solid var(--sage-20);
   border-radius: 1rem;
   padding: 1rem 1.25rem;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
@@ -1647,7 +2383,7 @@ html.marketing-page:focus-within {
   -webkit-backdrop-filter: blur(8px);
   border-radius: 0.875rem;
   padding: 0.875rem 1rem;
-  border: 1px solid rgba(134, 158, 140, 0.15);
+  border: 1px solid var(--sage-15);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   display: flex;
   flex-direction: column;
@@ -1657,8 +2393,8 @@ html.marketing-page:focus-within {
 }
 
 .component-card:hover {
-  box-shadow: 0 6px 16px rgba(18, 28, 24, 0.2);
-  border-color: rgba(134, 158, 140, 0.3);
+  box-shadow: 0 6px 16px var(--forest-20);
+  border-color: var(--sage-30);
 }
 
 .component-card.expanded {
@@ -1798,7 +2534,7 @@ html.marketing-page:focus-within {
   color: var(--cream);
   margin: 0 0 0.625rem 0;
   padding: 0.5rem 0.75rem;
-  background: rgba(54, 60, 57, 0.5);
+  background: var(--slate-50);
   border-radius: 8px;
   border: 1px solid rgba(134, 158, 140, 0.12);
   text-align: center;
@@ -1810,7 +2546,7 @@ html.marketing-page:focus-within {
   font-weight: 600;
   padding: 0.5rem 1rem;
   background: rgba(134, 158, 140, 0.12);
-  border: 1px solid rgba(134, 158, 140, 0.3);
+  border: 1px solid var(--sage-30);
   border-radius: 8px;
   color: var(--sage);
   cursor: pointer;
@@ -1819,11 +2555,11 @@ html.marketing-page:focus-within {
 }
 
 .log-service-btn:hover:not(:disabled) {
-  background: rgba(134, 158, 140, 0.2);
+  background: var(--sage-20);
   border-color: rgba(134, 158, 140, 0.5);
   color: var(--mint);
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(134, 158, 140, 0.2);
+  box-shadow: 0 4px 12px var(--sage-20);
 }
 
 .log-service-btn:active:not(:disabled) {
@@ -1853,7 +2589,7 @@ html.marketing-page:focus-within {
   width: min(520px, 100%);
   background: rgba(30, 34, 32, 0.95);
   border-radius: 1rem;
-  border: 1px solid rgba(134, 158, 140, 0.25);
+  border: 1px solid var(--sage-25);
   box-shadow:
     0 12px 32px rgba(7, 10, 8, 0.4),
     0 1px 0 rgba(255, 255, 255, 0.06) inset;
@@ -1886,7 +2622,7 @@ html.marketing-page:focus-within {
   width: 34px;
   height: 34px;
   border-radius: 50%;
-  border: 1px solid rgba(134, 158, 140, 0.4);
+  border: 1px solid var(--sage-40);
   background: rgba(54, 60, 57, 0.45);
   color: var(--cream);
   cursor: pointer;
@@ -1895,7 +2631,7 @@ html.marketing-page:focus-within {
 }
 
 .overlay-close:hover:not(:disabled) {
-  background: rgba(134, 158, 140, 0.15);
+  background: var(--sage-15);
   color: var(--mint);
 }
 
@@ -1971,7 +2707,7 @@ html.marketing-page:focus-within {
   background: rgba(134, 158, 140, 0.28);
   border-color: rgba(134, 158, 140, 0.5);
   color: var(--cream);
-  box-shadow: 0 8px 20px rgba(134, 158, 140, 0.2);
+  box-shadow: 0 8px 20px var(--sage-20);
 }
 
 .overlay-button:hover:not(:disabled) {
@@ -2005,7 +2741,7 @@ html.marketing-page:focus-within {
 .ride-card-container:hover {
   transform: translateY(-2px);
   box-shadow: 0 8px 24px rgba(18, 28, 24, 0.25);
-  border-color: rgba(134, 158, 140, 0.3);
+  border-color: var(--sage-30);
   background: rgba(54, 60, 57, 0.45);
 }
 
@@ -2127,7 +2863,7 @@ html.marketing-page:focus-within {
   font-size: 0.8125rem;
   font-weight: 600;
   padding: 0.5rem 1rem;
-  background: rgba(134, 158, 140, 0.15);
+  background: var(--sage-15);
   border: 1px solid rgba(134, 158, 140, 0.35);
   border-radius: 8px;
   color: var(--sage);
@@ -2136,7 +2872,7 @@ html.marketing-page:focus-within {
 }
 
 .assignment-btn:hover:not(:disabled) {
-  background: rgba(134, 158, 140, 0.25);
+  background: var(--sage-25);
   border-color: rgba(134, 158, 140, 0.5);
   color: var(--mint);
 }
@@ -2159,8 +2895,8 @@ html.marketing-page:focus-within {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(54, 60, 57, 0.6);
-  border: 1px solid rgba(134, 158, 140, 0.25);
+  background: var(--slate-60);
+  border: 1px solid var(--sage-25);
   border-radius: 10px;
   color: var(--concrete);
   cursor: pointer;
@@ -2170,9 +2906,9 @@ html.marketing-page:focus-within {
 
 .ride-action-btn:hover {
   background: rgba(68, 96, 76, 0.4);
-  border-color: rgba(134, 158, 140, 0.4);
+  border-color: var(--sage-40);
   color: var(--mint);
-  transform: translateY(-1px);
+  transform: translateY(-1px) scale(1.05);
 }
 
 .ride-action-btn:focus-visible {
@@ -2393,9 +3129,9 @@ html.marketing-page:focus-within {
 }
 
 .badge-success {
-  background: rgba(168, 208, 184, 0.15);
+  background: var(--mint-15);
   color: var(--mint);
-  border-color: rgba(168, 208, 184, 0.4);
+  border-color: var(--mint-40);
 }
 
 .badge-warning {
@@ -2411,9 +3147,9 @@ html.marketing-page:focus-within {
 }
 
 .badge-info {
-  background: rgba(134, 158, 140, 0.15);
+  background: var(--sage-15);
   color: var(--sage);
-  border-color: rgba(134, 158, 140, 0.4);
+  border-color: var(--sage-40);
 }
 
 .badge-default {
@@ -2432,7 +3168,7 @@ html.marketing-page:focus-within {
     rgba(68, 96, 76, 0.15) 0%,
     rgba(54, 60, 57, 0.1) 100%
   );
-  border: 1px solid rgba(134, 158, 140, 0.15);
+  border: 1px solid var(--sage-15);
   border-radius: 1.5rem;
   padding: clamp(1.5rem, 3vw, 2rem);
   margin-bottom: clamp(1.5rem, 2vw, 2rem);
@@ -2526,7 +3262,7 @@ html.marketing-page:focus-within {
 .health-card {
   background: rgba(54, 60, 57, 0.4);
   backdrop-filter: blur(10px);
-  border: 1px solid rgba(134, 158, 140, 0.2);
+  border: 1px solid var(--sage-20);
   border-radius: 1rem;
   padding: 1.5rem;
   display: flex;
@@ -2582,13 +3318,13 @@ html.marketing-page:focus-within {
   align-items: center;
   justify-content: center;
   height: 80px;
-  background: rgba(134, 158, 140, 0.1);
+  background: var(--sage-10);
   border-radius: 0.5rem;
 }
 
 .health-card-placeholder-icon {
   font-size: 2rem;
-  color: rgba(134, 158, 140, 0.4);
+  color: var(--sage-40);
 }
 
 /* Health States */
@@ -2665,7 +3401,7 @@ html.marketing-page:focus-within {
 }
 
 .component-detail-row:hover {
-  background: rgba(54, 60, 57, 0.6);
+  background: var(--slate-60);
 }
 
 .component-detail-row.component-status-warning {
@@ -2716,7 +3452,7 @@ html.marketing-page:focus-within {
   grid-template-columns: 1fr 1fr;
   gap: 1rem;
   padding-top: 0.75rem;
-  border-top: 1px solid rgba(134, 158, 140, 0.1);
+  border-top: 1px solid var(--sage-10);
 }
 
 .stat-item {
@@ -2744,9 +3480,9 @@ html.marketing-page:focus-within {
 .skeleton-line {
   background: linear-gradient(
     90deg,
-    rgba(134, 158, 140, 0.1) 25%,
-    rgba(134, 158, 140, 0.2) 50%,
-    rgba(134, 158, 140, 0.1) 75%
+    var(--sage-10) 25%,
+    var(--sage-20) 50%,
+    var(--sage-10) 75%
   );
   background-size: 200% 100%;
   animation: skeleton-shimmer 1.5s infinite;
@@ -2796,7 +3532,7 @@ html.marketing-page:focus-within {
   align-items: center;
   justify-content: space-between;
   padding: 1rem 1.25rem;
-  border-bottom: 1px solid rgba(134, 158, 140, 0.1);
+  border-bottom: 1px solid var(--sage-10);
   flex-shrink: 0;
   background: rgba(30, 34, 32, 0.9);
 }
@@ -2850,8 +3586,8 @@ html.marketing-page:focus-within {
 }
 
 .timeframe-select {
-  background: rgba(54, 60, 57, 0.5);
-  border: 1px solid rgba(134, 158, 140, 0.25);
+  background: var(--slate-50);
+  border: 1px solid var(--sage-25);
   border-radius: 8px;
   padding: 0.5rem 2rem 0.5rem 0.75rem;
   font-size: 0.8125rem;
@@ -2866,13 +3602,13 @@ html.marketing-page:focus-within {
 }
 
 .timeframe-select:hover {
-  border-color: rgba(134, 158, 140, 0.4);
+  border-color: var(--sage-40);
 }
 
 .timeframe-select:focus {
   outline: none;
   border-color: var(--mint);
-  box-shadow: 0 0 0 3px rgba(168, 208, 184, 0.15);
+  box-shadow: 0 0 0 3px var(--mint-15);
 }
 
 .timeframe-select option {
@@ -2886,7 +3622,7 @@ html.marketing-page:focus-within {
   grid-template-columns: repeat(3, 1fr);
   gap: 1rem;
   padding: 1rem 0;
-  border-bottom: 1px solid rgba(134, 158, 140, 0.1);
+  border-bottom: 1px solid var(--sage-10);
 }
 
 .stats-summary-item {
@@ -2915,7 +3651,7 @@ html.marketing-page:focus-within {
 }
 
 .expandable-section {
-  border-top: 1px solid rgba(134, 158, 140, 0.1);
+  border-top: 1px solid var(--sage-10);
 }
 
 .expandable-section:first-child {
@@ -3208,7 +3944,7 @@ html.marketing-page:focus-within {
 
 .hr-coverage-bar {
   height: 4px;
-  background: rgba(54, 60, 57, 0.5);
+  background: var(--slate-50);
   border-radius: 2px;
   overflow: hidden;
 }
@@ -3290,7 +4026,7 @@ html.marketing-page:focus-within {
   font-size: 0.6875rem;
   font-weight: 600;
   color: var(--sage);
-  background: rgba(134, 158, 140, 0.15);
+  background: var(--sage-15);
   padding: 0.125rem 0.375rem;
   border-radius: 4px;
   font-variant-numeric: tabular-nums;
@@ -3336,7 +4072,7 @@ html.marketing-page:focus-within {
   font-size: 0.6875rem;
   font-weight: 600;
   color: var(--sage);
-  background: rgba(134, 158, 140, 0.15);
+  background: var(--sage-15);
   padding: 0.125rem 0.5rem;
   border-radius: 4px;
   font-variant-numeric: tabular-nums;
@@ -3379,12 +4115,12 @@ html.marketing-page:focus-within {
 
 /* Status Colors */
 :root {
-  --status-overdue: #C45943;
-  --status-due-now: #B87354;
-  --status-due-soon: #D4AF7C;
-  --status-all-good: #A8D0B8;
-  --confidence-high: var(--mint);
-  --confidence-medium: var(--gold);
+  --status-overdue: #B05848;           /* Warm red - urgent */
+  --status-due-now: #8C5244;           /* Mahogany-light - attention needed */
+  --status-due-soon: #B06A58;          /* Terracotta - upcoming */
+  --status-all-good: #9CB0A4;          /* Sage-light - healthy */
+  --confidence-high: var(--sage-light);
+  --confidence-medium: var(--terracotta);
   --confidence-low: var(--sage);
 }
 
@@ -3424,7 +4160,7 @@ html.marketing-page:focus-within {
   background: rgba(30, 34, 32, 0.75);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(134, 158, 140, 0.2);
+  border: 1px solid var(--sage-20);
   border-radius: 1.25rem;
   padding: 1.5rem;
   overflow: hidden;
@@ -3498,7 +4234,7 @@ html.marketing-page:focus-within {
 
 .priority-hero-back:hover {
   color: var(--mint);
-  background: rgba(134, 158, 140, 0.1);
+  background: var(--sage-10);
 }
 
 .priority-hero-content {
@@ -3555,6 +4291,25 @@ html.marketing-page:focus-within {
   min-height: 0;
 }
 
+/* Skeleton layout utilities for priority hero loading state */
+.skeleton-column {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  flex: 1;
+}
+
+.skeleton-row-group {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: auto;
+}
+
+/* Width utilities for skeleton */
+.w-60 {
+  width: 60%;
+}
+
 .priority-hero-admin-buttons {
   display: flex;
   gap: 0.5rem;
@@ -3564,8 +4319,8 @@ html.marketing-page:focus-within {
 .priority-hero-admin-btn {
   padding: 0.375rem 0.75rem;
   font-size: 0.6875rem;
-  background: rgba(134, 158, 140, 0.2);
-  border: 1px solid rgba(134, 158, 140, 0.3);
+  background: var(--sage-20);
+  border: 1px solid var(--sage-30);
   border-radius: 4px;
   color: var(--sage);
   cursor: pointer;
@@ -3573,7 +4328,7 @@ html.marketing-page:focus-within {
 }
 
 .priority-hero-admin-btn:hover:not(:disabled) {
-  background: rgba(134, 158, 140, 0.3);
+  background: var(--sage-30);
   border-color: rgba(134, 158, 140, 0.5);
 }
 
@@ -3619,21 +4374,21 @@ html.marketing-page:focus-within {
 }
 
 .status-pill-due-now {
-  background: rgba(184, 115, 84, 0.2);
+  background: var(--mahogany-15);
   color: var(--status-due-now);
-  border: 1px solid rgba(184, 115, 84, 0.4);
+  border: 1px solid var(--mahogany-20);
 }
 
 .status-pill-due-soon {
-  background: rgba(212, 175, 124, 0.2);
+  background: rgba(176, 106, 88, 0.2);
   color: var(--status-due-soon);
-  border: 1px solid rgba(212, 175, 124, 0.4);
+  border: 1px solid rgba(176, 106, 88, 0.4);
 }
 
 .status-pill-all-good {
-  background: rgba(168, 208, 184, 0.2);
+  background: var(--mint-20);
   color: var(--status-all-good);
-  border: 1px solid rgba(168, 208, 184, 0.4);
+  border: 1px solid var(--mint-40);
 }
 
 .status-pill-icon {
@@ -3653,11 +4408,15 @@ html.marketing-page:focus-within {
 .status-dot-overdue {
   background: var(--status-overdue);
   box-shadow: 0 0 6px var(--status-overdue);
+  position: relative;
+  animation: status-pulse-urgent 2s ease-in-out infinite;
 }
 
 .status-dot-due-now {
   background: var(--status-due-now);
   box-shadow: 0 0 6px var(--status-due-now);
+  position: relative;
+  animation: status-pulse-warning 2.5s ease-in-out infinite;
 }
 
 .status-dot-due-soon {
@@ -3667,6 +4426,29 @@ html.marketing-page:focus-within {
 
 .status-dot-all-good {
   background: var(--status-all-good);
+}
+
+/* Pulse animations for urgent status indicators */
+@keyframes status-pulse-urgent {
+  0%, 100% {
+    box-shadow: 0 0 6px var(--status-overdue);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 12px var(--status-overdue), 0 0 20px var(--status-overdue);
+    transform: scale(1.15);
+  }
+}
+
+@keyframes status-pulse-warning {
+  0%, 100% {
+    box-shadow: 0 0 6px var(--status-due-now);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 10px var(--status-due-now), 0 0 16px var(--status-due-now);
+    transform: scale(1.1);
+  }
 }
 
 /* Confidence Tag */
@@ -3681,7 +4463,7 @@ html.marketing-page:focus-within {
 }
 
 .confidence-tag-high {
-  background: rgba(168, 208, 184, 0.15);
+  background: var(--mint-15);
   color: var(--confidence-high);
 }
 
@@ -3691,7 +4473,7 @@ html.marketing-page:focus-within {
 }
 
 .confidence-tag-low {
-  background: rgba(134, 158, 140, 0.15);
+  background: var(--sage-15);
   color: var(--confidence-low);
 }
 
@@ -3706,25 +4488,25 @@ html.marketing-page:focus-within {
   font-weight: 500;
   color: var(--sage);
   background: none;
-  border: 1px solid rgba(134, 158, 140, 0.25);
+  border: 1px solid var(--sage-25);
   cursor: pointer;
   transition: all 0.2s ease;
 }
 
 .why-toggle:hover {
-  background: rgba(134, 158, 140, 0.1);
+  background: var(--sage-10);
   color: var(--mint);
-  border-color: rgba(134, 158, 140, 0.4);
+  border-color: var(--sage-40);
 }
 
 .why-toggle-expanded {
-  background: rgba(134, 158, 140, 0.15);
+  background: var(--sage-15);
   color: var(--mint);
 }
 
 .why-panel {
   background: rgba(30, 34, 32, 0.9);
-  border: 1px solid rgba(134, 158, 140, 0.2);
+  border: 1px solid var(--sage-20);
   border-radius: 0.75rem;
   padding: 1rem;
   margin-top: 0.75rem;
@@ -3740,6 +4522,40 @@ html.marketing-page:focus-within {
   text-transform: uppercase;
   letter-spacing: 0.05em;
   margin-bottom: 0.5rem;
+}
+
+.why-panel-content {
+  margin: 0;
+}
+
+.why-panel-drivers {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.why-panel-drivers-spaced {
+  margin-top: 0.75rem;
+}
+
+.why-driver-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.why-driver-value {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.why-toggle-chevron {
+  transition: transform var(--duration-short) var(--ease-default);
+}
+
+.why-toggle-expanded .why-toggle-chevron {
+  transform: rotate(180deg);
 }
 
 /* Mini Component List */
@@ -3773,7 +4589,7 @@ html.marketing-page:focus-within {
   padding: 0.625rem 0.75rem;
   background: rgba(54, 60, 57, 0.4);
   border-radius: 0.5rem;
-  border: 1px solid rgba(134, 158, 140, 0.1);
+  border: 1px solid var(--sage-10);
   flex-shrink: 0;
 }
 
@@ -3852,7 +4668,7 @@ html.marketing-page:focus-within {
   padding: 0.5rem 0.75rem;
   background: rgba(54, 60, 57, 0.4);
   border-radius: 0.5rem;
-  border: 1px solid rgba(134, 158, 140, 0.1);
+  border: 1px solid var(--sage-10);
   flex-shrink: 0;
 }
 
@@ -3932,7 +4748,7 @@ html.marketing-page:focus-within {
   margin: -0.25rem;
   flex-shrink: 0;
   scrollbar-width: thin;
-  scrollbar-color: rgba(134, 158, 140, 0.3) transparent;
+  scrollbar-color: var(--sage-30) transparent;
 }
 
 .bike-switcher-row::-webkit-scrollbar {
@@ -3944,7 +4760,7 @@ html.marketing-page:focus-within {
 }
 
 .bike-switcher-row::-webkit-scrollbar-thumb {
-  background: rgba(134, 158, 140, 0.3);
+  background: var(--sage-30);
   border-radius: 3px;
 }
 
@@ -3960,8 +4776,8 @@ html.marketing-page:focus-within {
   align-items: center;
   gap: 0.5rem;
   padding: 0.5rem 0.75rem;
-  background: rgba(168, 208, 184, 0.1);
-  border: 1px solid rgba(168, 208, 184, 0.2);
+  background: var(--mint-10);
+  border: 1px solid var(--mint-20);
   border-radius: 0.5rem;
   font-size: 0.8125rem;
   color: var(--mint);
@@ -3987,8 +4803,8 @@ html.marketing-page:focus-within {
 .bike-switcher-hint-dismiss {
   margin-left: auto;
   padding: 0.25rem 0.625rem;
-  background: rgba(168, 208, 184, 0.15);
-  border: 1px solid rgba(168, 208, 184, 0.3);
+  background: var(--mint-15);
+  border: 1px solid var(--mint-30);
   border-radius: 0.375rem;
   font-size: 0.75rem;
   font-weight: 500;
@@ -4043,8 +4859,8 @@ html.marketing-page:focus-within {
   padding: 0.75rem;
   min-width: 100px;
   max-width: 120px;
-  background: rgba(54, 60, 57, 0.5);
-  border: 2px solid rgba(134, 158, 140, 0.15);
+  background: var(--slate-50);
+  border: 2px solid var(--sage-15);
   border-radius: 0.75rem;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -4052,15 +4868,15 @@ html.marketing-page:focus-within {
 }
 
 .bike-tile:hover {
-  background: rgba(54, 60, 57, 0.7);
-  border-color: rgba(134, 158, 140, 0.3);
+  background: var(--slate-70);
+  border-color: var(--sage-30);
   transform: translateY(-2px);
 }
 
 .bike-tile-selected {
-  background: rgba(134, 158, 140, 0.15);
+  background: var(--sage-15);
   border-color: var(--mint);
-  box-shadow: 0 0 12px rgba(168, 208, 184, 0.2);
+  box-shadow: 0 0 12px var(--mint-20);
 }
 
 .bike-tile-thumb {
@@ -4130,8 +4946,8 @@ html.marketing-page:focus-within {
   gap: 0.375rem;
   padding: 0.75rem;
   min-width: 100px;
-  background: rgba(134, 158, 140, 0.1);
-  border: 2px dashed rgba(134, 158, 140, 0.3);
+  background: var(--sage-10);
+  border: 2px dashed var(--sage-30);
   border-radius: 0.75rem;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -4140,7 +4956,7 @@ html.marketing-page:focus-within {
 }
 
 .bike-tile-more:hover {
-  background: rgba(134, 158, 140, 0.15);
+  background: var(--sage-15);
   border-color: var(--mint);
 }
 
@@ -4164,7 +4980,7 @@ html.marketing-page:focus-within {
   background: rgba(30, 34, 32, 0.75);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(134, 158, 140, 0.2);
+  border: 1px solid var(--sage-20);
   border-radius: 1rem;
   overflow: hidden;
   min-height: 0;
@@ -4175,7 +4991,7 @@ html.marketing-page:focus-within {
   align-items: center;
   justify-content: space-between;
   padding: 1rem 1.25rem;
-  border-bottom: 1px solid rgba(134, 158, 140, 0.1);
+  border-bottom: 1px solid var(--sage-10);
   flex-shrink: 0;
   background: rgba(30, 34, 32, 0.9);
 }
@@ -4249,7 +5065,7 @@ html.marketing-page:focus-within {
 }
 
 .compact-ride-row:hover {
-  background: rgba(134, 158, 140, 0.05);
+  background: var(--sage-5);
 }
 
 .compact-ride-content {
@@ -4306,7 +5122,7 @@ html.marketing-page:focus-within {
 }
 
 .source-badge-manual {
-  background: rgba(134, 158, 140, 0.15);
+  background: var(--sage-15);
   color: var(--sage);
 }
 
@@ -4318,7 +5134,7 @@ html.marketing-page:focus-within {
   background: rgba(30, 34, 32, 0.75);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(134, 158, 140, 0.2);
+  border: 1px solid var(--sage-20);
   border-radius: 1rem;
   overflow: hidden;
   min-height: 0;
@@ -4329,7 +5145,7 @@ html.marketing-page:focus-within {
   align-items: center;
   justify-content: space-between;
   padding: 1rem 1.25rem;
-  border-bottom: 1px solid rgba(134, 158, 140, 0.1);
+  border-bottom: 1px solid var(--sage-10);
   flex-shrink: 0;
 }
 
@@ -4420,19 +5236,19 @@ html.marketing-page:focus-within {
   gap: 0.75rem;
   padding: 0.75rem;
   background: rgba(30, 34, 32, 0.5);
-  border: 1px solid rgba(134, 158, 140, 0.15);
+  border: 1px solid var(--sage-15);
   border-radius: 0.5rem;
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
 .log-service-item:hover {
-  background: rgba(54, 60, 57, 0.5);
-  border-color: rgba(134, 158, 140, 0.25);
+  background: var(--slate-50);
+  border-color: var(--sage-25);
 }
 
 .log-service-item-selected {
-  background: rgba(134, 158, 140, 0.1);
+  background: var(--sage-10);
   border-color: var(--mint);
 }
 
@@ -4440,7 +5256,7 @@ html.marketing-page:focus-within {
   width: 18px;
   height: 18px;
   border-radius: 4px;
-  border: 2px solid rgba(134, 158, 140, 0.4);
+  border: 2px solid var(--sage-40);
   background: transparent;
   display: flex;
   align-items: center;
@@ -4485,8 +5301,8 @@ html.marketing-page:focus-within {
 .log-service-date-input {
   flex: 1;
   padding: 0.5rem 0.75rem;
-  background: rgba(54, 60, 57, 0.6);
-  border: 1px solid rgba(134, 158, 140, 0.2);
+  background: var(--slate-60);
+  border: 1px solid var(--sage-20);
   border-radius: 0.375rem;
   color: var(--off-white);
   font-size: 0.875rem;
@@ -4495,6 +5311,47 @@ html.marketing-page:focus-within {
 .log-service-date-input:focus {
   outline: none;
   border-color: var(--sage);
+}
+
+.log-service-hint {
+  margin: 0 0 0.75rem;
+  color: var(--sage);
+  font-size: 0.875rem;
+}
+
+.log-service-actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: flex-end;
+}
+
+/* Inline Alert Styles */
+.alert-inline {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  animation: alert-slide-in 0.3s var(--ease-premium);
+  font-size: 0.875rem;
+}
+
+.alert-inline-error {
+  background: rgba(196, 89, 67, 0.1);
+  border: 1px solid rgba(196, 89, 67, 0.3);
+  color: var(--error);
+}
+
+.alert-inline-warning {
+  background: rgba(184, 115, 84, 0.1);
+  border: 1px solid rgba(184, 115, 84, 0.3);
+  color: var(--copper);
+}
+
+.alert-inline-success {
+  background: var(--mint-10);
+  border: 1px solid var(--mint-30);
+  color: var(--mint);
 }
 
 /* Control Room Responsive */
@@ -4678,5 +5535,149 @@ html.marketing-page:focus-within {
 
   .ride-stats-compact-value {
     font-size: 1.25rem;
+  }
+}
+
+/* =============================================================================
+   PHASE 3: Micro-Interactions (Delight Layer)
+   ============================================================================= */
+
+/* Alert entrance animation */
+@keyframes alert-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.alert-animated {
+  animation: alert-slide-in 0.3s var(--ease-premium);
+}
+
+/* Success checkmark animation */
+@keyframes success-appear {
+  0% {
+    opacity: 0;
+    transform: scale(0.5);
+  }
+  50% {
+    transform: scale(1.2);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.success-icon-animated {
+  animation: success-appear 0.4s var(--ease-springy);
+}
+
+/* Staggered list item entrance */
+@keyframes list-item-enter {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.list-stagger > *:nth-child(1) { animation: list-item-enter 0.3s ease-out 0s both; }
+.list-stagger > *:nth-child(2) { animation: list-item-enter 0.3s ease-out 0.05s both; }
+.list-stagger > *:nth-child(3) { animation: list-item-enter 0.3s ease-out 0.1s both; }
+.list-stagger > *:nth-child(4) { animation: list-item-enter 0.3s ease-out 0.15s both; }
+.list-stagger > *:nth-child(5) { animation: list-item-enter 0.3s ease-out 0.2s both; }
+.list-stagger > *:nth-child(n+6) { animation: list-item-enter 0.3s ease-out 0.25s both; }
+
+/* Form success feedback pulse */
+@keyframes form-success-pulse {
+  0% {
+    box-shadow: 0 0 0 0 var(--mint-40);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(168, 208, 184, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(168, 208, 184, 0);
+  }
+}
+
+.form-success {
+  animation: form-success-pulse 0.6s ease-out;
+}
+
+/* Respect reduced motion for micro-interactions */
+@media (prefers-reduced-motion: reduce) {
+  .alert-animated,
+  .success-icon-animated,
+  .form-success {
+    animation: none;
+  }
+
+  .list-stagger > * {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* =============================================================================
+   PHASE 4: Component Refinement
+   ============================================================================= */
+
+/* Generic icon button - used for edit/delete and other icon-only buttons */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem;
+  border-radius: 0.5rem;
+  color: var(--sage);
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all var(--duration-short) var(--ease-premium);
+}
+
+.icon-btn:hover {
+  transform: scale(1.1);
+  color: var(--mint);
+  background: var(--sage-10);
+}
+
+.icon-btn:focus-visible {
+  outline: 2px solid var(--mint);
+  outline-offset: 2px;
+}
+
+.icon-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* Icon button variants */
+.icon-btn-danger {
+  color: var(--error);
+  border-color: rgba(196, 89, 67, 0.3);
+}
+
+.icon-btn-danger:hover {
+  color: var(--error);
+  background: rgba(196, 89, 67, 0.15);
+  border-color: var(--error);
+}
+
+/* Respect reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .icon-btn:hover {
+    transform: none;
   }
 }

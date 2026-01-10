@@ -398,7 +398,7 @@ export default function AddRideForm({ onAdded }: { onAdded?: () => void }) {
 
       {/* Error Display */}
       {(formError || error || bikesError) && (
-        <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 text-sm text-red-400">
+        <div className="alert alert-danger">
           {formError || error?.message || bikesError?.message}
         </div>
       )}

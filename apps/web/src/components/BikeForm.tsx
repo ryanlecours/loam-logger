@@ -53,7 +53,7 @@ const ComponentRow = memo(function ComponentRow({ entry, isLast, error, onUpdate
             value={entry.brand}
             onChange={(e) => onUpdate(entry.key, 'brand', e.target.value)}
             placeholder="Brand"
-            className={`w-full bg-transparent text-sm text-heading placeholder:text-muted/50 focus:outline-none ${error && !entry.brand.trim() ? 'text-red-400 placeholder:text-red-400/50' : ''}`}
+            className={`w-full bg-transparent text-sm text-heading placeholder:text-muted/50 focus:outline-none ${error && !entry.brand.trim() ? 'text-danger placeholder:text-danger/50' : ''}`}
           />
           <FaPencilAlt className="w-3 h-3 text-muted/40 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
         </div>
@@ -65,12 +65,12 @@ const ComponentRow = memo(function ComponentRow({ entry, isLast, error, onUpdate
             value={entry.model}
             onChange={(e) => onUpdate(entry.key, 'model', e.target.value)}
             placeholder="Model"
-            className={`w-full bg-transparent text-sm text-heading placeholder:text-muted/50 focus:outline-none ${error && !entry.model.trim() ? 'text-red-400 placeholder:text-red-400/50' : ''}`}
+            className={`w-full bg-transparent text-sm text-heading placeholder:text-muted/50 focus:outline-none ${error && !entry.model.trim() ? 'text-danger placeholder:text-danger/50' : ''}`}
           />
           <FaPencilAlt className="w-3 h-3 text-muted/40 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
         </div>
         {error && (
-          <span className="text-xs text-red-400">{error}</span>
+          <span className="text-xs text-danger">{error}</span>
         )}
       </td>
       <td className="px-4 py-2">
@@ -612,11 +612,11 @@ export function BikeForm({
 
       {/* NEW bike confirmation banner */}
       {isNewBike && (
-        <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4">
+        <div className="alert alert-success">
           <div className="flex items-center gap-2">
             <span className="text-lg">✨</span>
             <div>
-              <p className="text-sm font-medium text-green-600 dark:text-green-400">
+              <p className="text-sm font-medium">
                 All components set to "Just serviced"
               </p>
               <p className="text-xs text-muted mt-0.5">

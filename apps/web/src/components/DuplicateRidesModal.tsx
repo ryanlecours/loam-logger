@@ -191,7 +191,7 @@ export default function DuplicateRidesModal({ open, onClose }: Props) {
               </p>
 
               {/* Primary ride */}
-              <div className="bg-surface-2 border border-green-600/30 rounded-xl p-3">
+              <div className="bg-surface-2 border border-success/30 rounded-xl p-3">
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="font-semibold">{(group as unknown as Ride).notes || 'Ride'}</p>
@@ -199,13 +199,13 @@ export default function DuplicateRidesModal({ open, onClose }: Props) {
                       Source: {(group as unknown as Ride).garminActivityId ? 'Garmin' : 'Strava'}
                     </p>
                   </div>
-                  <span className="text-xs text-green-400">Primary</span>
+                  <span className="text-xs text-success">Primary</span>
                 </div>
               </div>
 
               {/* Duplicate rides */}
               {group.duplicates.map((dup) => (
-                <div key={dup.id} className="bg-surface-2 border border-yellow-600/30 rounded-xl p-3">
+                <div key={dup.id} className="bg-surface-2 border border-warning/30 rounded-xl p-3">
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="font-semibold">{dup.notes || 'Ride'}</p>
@@ -216,19 +216,19 @@ export default function DuplicateRidesModal({ open, onClose }: Props) {
                     <div className="flex gap-2">
                       <button
                         onClick={() => handleMerge(group.id, dup.id)}
-                        className="text-xs px-3 py-1 bg-red-600/20 border border-red-600/50 text-red-400 rounded-lg hover:bg-red-600/30"
+                        className="text-xs px-3 py-1 bg-danger/20 border border-danger/50 text-danger rounded-lg hover:bg-danger/30"
                       >
                         Delete This
                       </button>
                       <button
                         onClick={() => handleMerge(dup.id, group.id)}
-                        className="text-xs px-3 py-1 bg-green-600/20 border border-green-600/50 text-green-400 rounded-lg hover:bg-green-600/30"
+                        className="text-xs px-3 py-1 bg-success/20 border border-success/50 text-success rounded-lg hover:bg-success/30"
                       >
                         Keep This
                       </button>
                       <button
                         onClick={() => handleMarkNotDuplicate(dup.id)}
-                        className="text-xs px-3 py-1 bg-blue-600/20 border border-blue-600/50 text-blue-400 rounded-lg hover:bg-blue-600/30"
+                        className="text-xs px-3 py-1 bg-info/20 border border-info/50 text-info rounded-lg hover:bg-info/30"
                       >
                         Not Duplicate
                       </button>
