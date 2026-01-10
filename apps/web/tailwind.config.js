@@ -1,3 +1,5 @@
+import plugin from 'tailwindcss/plugin';
+
 /** @type {import('tailwindcss').Config} */
 export default {
   darkMode: 'class',
@@ -17,6 +19,22 @@ export default {
         '.text-muted': { color: 'rgb(var(--text-muted) / <alpha-value>)' },
         '.text-accent': { color: 'rgb(var(--primary) / <alpha-value>)' },
         '.text-accent-contrast': { color: 'rgb(var(--primary-foreground) / <alpha-value>)' },
+
+        /* Semantic status colors */
+        '.text-success': { color: 'rgb(var(--success) / <alpha-value>)' },
+        '.text-warning': { color: 'rgb(var(--warning) / <alpha-value>)' },
+        '.text-danger': { color: 'rgb(var(--danger) / <alpha-value>)' },
+        '.text-info': { color: 'rgb(var(--primary) / <alpha-value>)' },
+
+        '.bg-success': { backgroundColor: 'rgb(var(--success) / <alpha-value>)' },
+        '.bg-warning': { backgroundColor: 'rgb(var(--warning) / <alpha-value>)' },
+        '.bg-danger': { backgroundColor: 'rgb(var(--danger) / <alpha-value>)' },
+        '.bg-info': { backgroundColor: 'rgb(var(--primary) / <alpha-value>)' },
+
+        '.border-success': { borderColor: 'rgb(var(--success) / <alpha-value>)' },
+        '.border-warning': { borderColor: 'rgb(var(--warning) / <alpha-value>)' },
+        '.border-danger': { borderColor: 'rgb(var(--danger) / <alpha-value>)' },
+        '.border-info': { borderColor: 'rgb(var(--primary) / <alpha-value>)' },
 
         /* Borders & Rings */
         '.border-app': { borderColor: 'rgb(var(--border) / <alpha-value>)' },

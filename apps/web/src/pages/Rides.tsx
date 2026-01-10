@@ -75,10 +75,10 @@ export default function RidesPage() {
 
   return (
     <div className="space-y-6">
-      <section className="panel-soft shadow-soft border border-app rounded-3xl p-6">
+      <section className="panel">
         <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="text-xs uppercase tracking-[0.3em] text-muted">Ride log</p>
+            <p className="label-section">Ride log</p>
             <h2 className="text-2xl font-semibold text-white">Log manual rides or sync later</h2>
             <p className="text-sm text-muted">
               Upload from devices or enter by hand to keep your service hours accurate.
@@ -95,10 +95,10 @@ export default function RidesPage() {
         <AddRideForm onAdded={() => refetch()} />
       </section>
 
-      <section className="panel-soft shadow-soft border border-app rounded-3xl p-6">
+      <section className="panel">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="text-xs uppercase tracking-[0.3em] text-muted">Ride history</p>
+            <p className="label-section">Ride history</p>
             <h3 className="text-xl font-semibold text-white">All rides</h3>
           </div>
           <Link to="/gear" className="text-sm text-muted underline hover:text-primary">
@@ -107,7 +107,7 @@ export default function RidesPage() {
         </div>
 
         <div className="mb-4 p-4 rounded-2xl bg-surface-2/50 border border-app/50">
-          <p className="text-xs uppercase tracking-[0.3em] text-muted mb-3">Filter by date</p>
+          <p className="label-section mb-3">Filter by date</p>
           <div className="flex flex-wrap gap-4">
             <label className="flex items-center gap-2 cursor-pointer text-sm text-white hover:text-primary transition-colors">
               <input
