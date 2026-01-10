@@ -118,8 +118,8 @@ export default function GarminImportModal({ open, onClose, onSuccess, onDuplicat
           </div>
 
           {error && (
-            <div className="p-4 bg-red-950/30 border border-red-600/50 rounded-xl">
-              <p className="text-sm text-red-200">{error}</p>
+            <div className="alert-danger-dark">
+              <p className="text-sm">{error}</p>
             </div>
           )}
 
@@ -147,25 +147,21 @@ export default function GarminImportModal({ open, onClose, onSuccess, onDuplicat
       {/* Step 3: Complete */}
       {step === 'complete' && (
         <div className="space-y-6">
-          <div className={`p-4 rounded-xl ${
-            isDuplicateRequest
-              ? 'bg-yellow-950/30 border border-yellow-600/50'
-              : 'bg-green-950/30 border border-green-600/50'
-          }`}>
-            <p className={isDuplicateRequest ? 'text-yellow-100' : 'text-green-100'}>
+          <div className={isDuplicateRequest ? 'alert-warning-dark' : 'alert-success-dark'}>
+            <p>
               {isDuplicateRequest ? '⚠' : '✓'} {successMessage}
             </p>
-            <p className={`text-sm mt-2 ${isDuplicateRequest ? 'text-yellow-200' : 'text-green-200'}`}>
+            <p className="text-sm mt-2 opacity-90">
               Your rides will appear in the Rides page as Garmin processes them. This may take a few minutes.
             </p>
           </div>
 
           {duplicatesFound > 0 && (
-            <div className="p-4 rounded-xl bg-yellow-950/30 border border-yellow-600/50">
-              <p className="text-yellow-100">
+            <div className="alert-warning-dark">
+              <p>
                 ⚠ Found {duplicatesFound} existing duplicate ride{duplicatesFound === 1 ? '' : 's'}
               </p>
-              <p className="text-sm mt-1 text-yellow-200">
+              <p className="text-sm mt-1 opacity-90">
                 These rides exist in both Garmin and Strava. New duplicates may appear as Garmin syncs more rides.
               </p>
             </div>

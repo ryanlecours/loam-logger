@@ -99,7 +99,7 @@ export default function RidesPage() {
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="label-section">Ride history</p>
-            <h3 className="text-xl font-semibold text-white">All rides</h3>
+            <h3 className="title-section">All rides</h3>
           </div>
           <Link to="/gear" className="text-sm text-muted underline hover:text-primary">
             Assign bikes

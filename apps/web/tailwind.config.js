@@ -36,6 +36,12 @@ export default {
         '.border-danger': { borderColor: 'rgb(var(--danger) / <alpha-value>)' },
         '.border-info': { borderColor: 'rgb(var(--primary) / <alpha-value>)' },
 
+        /* Foreground colors for status badges */
+        '.text-success-foreground': { color: 'rgb(var(--success-foreground) / <alpha-value>)' },
+        '.text-warning-foreground': { color: 'rgb(var(--warning-foreground) / <alpha-value>)' },
+        '.text-danger-foreground': { color: 'rgb(var(--danger-foreground) / <alpha-value>)' },
+        '.text-info-foreground': { color: 'rgb(var(--info-foreground) / <alpha-value>)' },
+
         /* Borders & Rings */
         '.border-app': { borderColor: 'rgb(var(--border) / <alpha-value>)' },
         '.ring-app': { '--tw-ring-color': 'rgb(var(--ring) / <alpha-value>)' },
