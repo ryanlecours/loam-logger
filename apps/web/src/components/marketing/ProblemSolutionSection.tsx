@@ -39,8 +39,8 @@ export default function ProblemSolutionSection() {
             className="grid md:grid-cols-[1fr_auto_1fr] gap-4 items-center"
           >
             {/* Problem (Left) */}
-            <div className="bg-sand/50 border border-red-600/20 rounded-lg p-4">
-              <p className="text-sm font-medium text-charcoal opacity-75">
+            <div className="rounded-lg p-4" style={{ background: 'var(--mahogany)', color: 'var(--cream)' }}>
+              <p className="text-sm font-medium">
                 {item.problem}
               </p>
             </div>

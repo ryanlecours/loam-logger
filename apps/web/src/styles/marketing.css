@@ -1,101 +1,134 @@
 /**
  * Loam Logger Design System
- * High-end, sleek design system for MTB audience
+ * Premium dark theme - Obsidian base with forest/sage accents and mahogany warmth
  */
 
 /* ============================================
-   COLOR SYSTEM - Sleek, Premium MTB Brand
+   COLOR SYSTEM - Sleek Obsidian Dark Theme
    ============================================ */
 
 :root {
+  /* ===========================================
+     CORE PALETTE - Obsidian + Forest + Mahogany
+     =========================================== */
+
+  /* Obsidian Base - Rich blacks with subtle warm undertones */
+  --obsidian: rgb(12, 12, 14);           /* #0C0C0E - True dark base */
+  --obsidian-light: rgb(22, 22, 26);     /* #16161A - Elevated surfaces */
+  --obsidian-lighter: rgb(32, 32, 38);   /* #202026 - Cards, panels */
+
+  /* Forest Greens - Muted, sophisticated */
+  --forest: rgb(34, 54, 44);             /* #22362C - Deep forest */
+  --forest-muted: rgb(52, 74, 62);       /* #344A3E - Muted forest */
+  --sage: rgb(120, 140, 128);            /* #788C80 - Desaturated sage */
+  --sage-light: rgb(156, 176, 164);      /* #9CB0A4 - Light sage for highlights */
+
+  /* Mahogany Warmth - Rich reddish-brown accents */
+  --mahogany: rgb(103, 58, 48);          /* #673A30 - Deep mahogany */
+  --mahogany-light: rgb(140, 82, 68);    /* #8C5244 - Lighter mahogany */
+  --terracotta: rgb(176, 106, 88);       /* #B06A58 - Warm terracotta */
+
+  /* Neutrals - Warm-tinted grays */
+  --ash: rgb(58, 58, 62);                /* #3A3A3E - Warm dark gray */
+  --stone: rgb(88, 88, 94);              /* #58585E - Mid gray */
+  --silver: rgb(158, 158, 164);          /* #9E9EA4 - Light gray */
+  --pearl: rgb(232, 230, 226);           /* #E8E6E2 - Off-white */
+  --cream: rgb(250, 248, 244);           /* #FAF8F4 - Cream white */
+
+  /* ===========================================
+     SEMANTIC TOKENS - Map to core palette
+     =========================================== */
+
   /* RGB tuples for Tailwind opacity modifiers */
-  --bg: 18 28 24;                    /* forest-deep RGB */
-  --surface: 30 34 32;               /* charcoal RGB */
-  --surface-2: 42 46 44;             /* stone RGB */
-  --surface-accent: 54 60 57;        /* slate RGB */
-  --text: 252 250 246;               /* cream RGB */
-  --text-muted: 142 148 145;         /* concrete RGB */
-  --primary: 134 158 140;            /* sage RGB */
-  --primary-foreground: 18 28 24;    /* forest-deep RGB */
-  --accent: 212 175 124;             /* gold RGB */
-  --border: 54 60 57;                /* slate RGB */
-  --ring: 168 208 184;               /* mint RGB */
-  --success: 168 208 184;            /* mint RGB */
-  --success-foreground: 18 28 24;   /* forest-deep RGB for contrast */
-  --warning: 184 115 84;             /* copper RGB */
-  --warning-foreground: 252 250 246; /* cream RGB for contrast */
-  --danger: 196 89 67;               /* error RGB */
-  --danger-foreground: 252 250 246;  /* cream RGB for contrast */
-  --info: 134 158 140;               /* sage RGB (same as primary) */
-  --info-foreground: 18 28 24;       /* forest-deep RGB for contrast */
-  --panel-bg: 30 34 32;              /* charcoal RGB */
-  --panel-border: 54 60 57;          /* slate RGB */
-  --input-bg: 30 34 32;              /* charcoal RGB */
-  --input-border: 54 60 57;          /* slate RGB */
-  --input-text: 252 250 246;         /* cream RGB */
-  --input-placeholder: 142 148 145;  /* concrete RGB */
-  --panel-shadow: 18 28 24;          /* forest-deep RGB */
-  --header-gradient-start: #121C18;  /* forest-deep */
-  --header-gradient-mid: #44604C;    /* moss */
-  --header-gradient-end: #1E2220;    /* charcoal */
+  --bg: 12 12 14;                        /* obsidian */
+  --surface: 22 22 26;                   /* obsidian-light */
+  --surface-2: 32 32 38;                 /* obsidian-lighter */
+  --surface-accent: 58 58 62;            /* ash */
+  --text: 250 248 244;                   /* cream */
+  --text-muted: 158 158 164;             /* silver */
+  --primary: 120 140 128;                /* sage */
+  --primary-foreground: 12 12 14;        /* obsidian */
+  --accent: 140 82 68;                   /* mahogany-light */
+  --border: 58 58 62;                    /* ash */
+  --ring: 156 176 164;                   /* sage-light */
+  --success: 120 140 128;                /* sage */
+  --success-foreground: 12 12 14;        /* obsidian */
+  --warning: 176 106 88;                 /* terracotta */
+  --warning-foreground: 250 248 244;     /* cream */
+  --danger: 176 88 72;                   /* warm red */
+  --danger-foreground: 250 248 244;      /* cream */
+  --info: 120 140 128;                   /* sage */
+  --info-foreground: 12 12 14;           /* obsidian */
+  --panel-bg: 22 22 26;                  /* obsidian-light */
+  --panel-border: 58 58 62;              /* ash */
+  --input-bg: 22 22 26;                  /* obsidian-light */
+  --input-border: 58 58 62;              /* ash */
+  --input-text: 250 248 244;             /* cream */
+  --input-placeholder: 158 158 164;      /* silver */
+  --panel-shadow: 0 0 0;                 /* true black for shadows */
+  --header-gradient-start: #0C0C0E;      /* obsidian */
+  --header-gradient-mid: #22362C;        /* forest */
+  --header-gradient-end: #16161A;        /* obsidian-light */
   --font-sans: 'Inter', 'Work Sans', 'Segoe UI', system-ui, sans-serif;
 
-  /* Primary Brand Colors - Earthy, sophisticated greens and browns */
-  --forest-deep: rgb(18, 28, 24);        /* #121C18 - Deep forest background */
-  --moss: rgb(68, 96, 76);               /* #44604C - Moss green accents */
-  --sage: rgb(134, 158, 140);            /* #869E8C - Sage green highlights */
-  --earth: rgb(89, 72, 58);              /* #59483A - Earth brown */
-  --stone: rgb(42, 46, 44);              /* #2A2E2C - Stone gray */
-
-  /* Accent Colors - Premium metallics and highlights */
-  --gold: rgb(212, 175, 124);            /* #D4AF7C - Brushed gold */
-  --copper: rgb(184, 115, 84);           /* #B87354 - Copper accent */
-  --mint: rgb(168, 208, 184);            /* #A8D0B8 - Fresh mint */
-
-  /* Neutrals - Clean, sophisticated */
-  --charcoal: rgb(30, 34, 32);           /* #1E2220 - Charcoal */
-  --slate: rgb(54, 60, 57);              /* #363C39 - Slate */
-  --concrete: rgb(142, 148, 145);        /* #8E9491 - Concrete */
-  --sand: rgb(242, 238, 232);            /* #F2EEE8 - Sand beige */
-  --cream: rgb(252, 250, 246);           /* #FCFAF6 - Cream white */
+  /* Legacy aliases - keeping for compatibility */
+  --forest-deep: var(--obsidian);
+  --moss: var(--forest-muted);
+  --charcoal: var(--obsidian-light);
+  --slate: var(--ash);
+  --concrete: var(--silver);
+  --sand: var(--pearl);
+  --gold: var(--terracotta);
+  --copper: var(--mahogany-light);
+  --mint: var(--sage-light);
+  --earth: var(--mahogany);
+  --error: rgb(176, 88, 72);             /* Warm red */
 
   /* Functional Colors */
-  --success: var(--mint);
-  --warning: var(--copper);
-  --error: rgb(196, 89, 67);             /* #C45943 - Terra cotta */
+  --success: var(--sage);
+  --warning: var(--terracotta);
 
-  /* Opacity Variants */
-  --overlay-dark: rgba(18, 28, 24, 0.85);
-  --overlay-light: rgba(252, 250, 246, 0.95);
-  --glass: var(--slate-60);
+  /* ===========================================
+     OPACITY VARIANTS
+     =========================================== */
+
+  /* Overlay variants */
+  --overlay-dark: rgba(12, 12, 14, 0.85);
+  --overlay-light: rgba(250, 248, 244, 0.95);
+  --glass: rgba(58, 58, 62, 0.6);
 
   /* Sage opacity variants (for hover states, backgrounds) */
-  --sage-5: var(--sage-5);
-  --sage-10: var(--sage-10);
-  --sage-15: var(--sage-15);
-  --sage-20: var(--sage-20);
-  --sage-25: var(--sage-25);
-  --sage-30: var(--sage-30);
-  --sage-40: var(--sage-40);
+  --sage-5: rgba(120, 140, 128, 0.05);
+  --sage-10: rgba(120, 140, 128, 0.1);
+  --sage-15: rgba(120, 140, 128, 0.15);
+  --sage-20: rgba(120, 140, 128, 0.2);
+  --sage-25: rgba(120, 140, 128, 0.25);
+  --sage-30: rgba(120, 140, 128, 0.3);
+  --sage-40: rgba(120, 140, 128, 0.4);
 
-  /* Mint opacity variants (for glows, focus rings) */
-  --mint-10: var(--mint-10);
-  --mint-15: var(--mint-15);
-  --mint-20: var(--mint-20);
-  --mint-30: var(--mint-30);
-  --mint-40: var(--mint-40);
+  /* Sage-light/Mint opacity variants (for glows, focus rings) */
+  --mint-10: rgba(156, 176, 164, 0.1);
+  --mint-15: rgba(156, 176, 164, 0.15);
+  --mint-20: rgba(156, 176, 164, 0.2);
+  --mint-30: rgba(156, 176, 164, 0.3);
+  --mint-40: rgba(156, 176, 164, 0.4);
 
-  /* Slate opacity variants (for borders, backgrounds) */
-  --slate-50: var(--slate-50);
-  --slate-60: var(--slate-60);
-  --slate-70: var(--slate-70);
+  /* Ash/Slate opacity variants (for borders, backgrounds) */
+  --slate-50: rgba(58, 58, 62, 0.5);
+  --slate-60: rgba(58, 58, 62, 0.6);
+  --slate-70: rgba(58, 58, 62, 0.7);
 
-  /* Forest opacity variants (for overlays) */
-  --forest-20: var(--forest-20);
-  --forest-60: var(--forest-60);
-  --forest-75: var(--forest-75);
-  --forest-90: var(--forest-90);
-  --forest-95: var(--forest-95);
+  /* Obsidian/Forest opacity variants (for overlays) */
+  --forest-20: rgba(12, 12, 14, 0.2);
+  --forest-60: rgba(12, 12, 14, 0.6);
+  --forest-75: rgba(12, 12, 14, 0.75);
+  --forest-90: rgba(12, 12, 14, 0.9);
+  --forest-95: rgba(12, 12, 14, 0.95);
+
+  /* Mahogany opacity variants (for warm accents) */
+  --mahogany-10: rgba(140, 82, 68, 0.1);
+  --mahogany-15: rgba(140, 82, 68, 0.15);
+  --mahogany-20: rgba(140, 82, 68, 0.2);
 
   /* ============================================
      DESIGN TOKENS - Animation & Effects
@@ -332,7 +365,10 @@ textarea:focus::placeholder {
 }
 
 .bg-gradient-dark {
-  background: radial-gradient(ellipse at center, var(--stone) 0%, var(--forest-deep) 100%);
+  background:
+    radial-gradient(ellipse 120% 80% at 50% 0%, var(--forest) 0%, transparent 50%),
+    radial-gradient(ellipse 120% 80% at 50% 100%, var(--forest) 0%, transparent 50%),
+    var(--obsidian);
   color: var(--cream);
 }
 
@@ -4079,12 +4115,12 @@ html.marketing-page:focus-within {
 
 /* Status Colors */
 :root {
-  --status-overdue: #C45943;
-  --status-due-now: #B87354;
-  --status-due-soon: #D4AF7C;
-  --status-all-good: #A8D0B8;
-  --confidence-high: var(--mint);
-  --confidence-medium: var(--gold);
+  --status-overdue: #B05848;           /* Warm red - urgent */
+  --status-due-now: #8C5244;           /* Mahogany-light - attention needed */
+  --status-due-soon: #B06A58;          /* Terracotta - upcoming */
+  --status-all-good: #9CB0A4;          /* Sage-light - healthy */
+  --confidence-high: var(--sage-light);
+  --confidence-medium: var(--terracotta);
   --confidence-low: var(--sage);
 }
 
@@ -4338,15 +4374,15 @@ html.marketing-page:focus-within {
 }
 
 .status-pill-due-now {
-  background: rgba(184, 115, 84, 0.2);
+  background: var(--mahogany-15);
   color: var(--status-due-now);
-  border: 1px solid rgba(184, 115, 84, 0.4);
+  border: 1px solid var(--mahogany-20);
 }
 
 .status-pill-due-soon {
-  background: rgba(212, 175, 124, 0.2);
+  background: rgba(176, 106, 88, 0.2);
   color: var(--status-due-soon);
-  border: 1px solid rgba(212, 175, 124, 0.4);
+  border: 1px solid rgba(176, 106, 88, 0.4);
 }
 
 .status-pill-all-good {
