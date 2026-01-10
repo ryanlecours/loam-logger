@@ -98,7 +98,7 @@ export function LogServiceModal({
     >
       <div className="log-service-modal-content">
         <div className="log-service-modal-bike">
-          <FaWrench size={16} style={{ color: 'var(--sage)' }} />
+          <FaWrench size={16} className="icon-sage" />
           <span className="log-service-modal-bike-name">{bikeName}</span>
         </div>
 
@@ -117,11 +117,11 @@ export function LogServiceModal({
         </div>
 
         <div>
-          <p style={{ margin: '0 0 0.75rem', color: 'var(--sage)', fontSize: '0.875rem' }}>
+          <p className="log-service-hint">
             Select components that were serviced:
           </p>
 
-          <div className="log-service-checklist">
+          <div className="log-service-checklist list-stagger">
             {components.map((component) => {
               const isSelected = selectedIds.has(component.componentId);
               return (
@@ -140,7 +140,7 @@ export function LogServiceModal({
                   }}
                 >
                   <div className="log-service-item-checkbox">
-                    {isSelected && <FaCheck size={10} style={{ color: 'var(--forest-deep)' }} />}
+                    {isSelected && <FaCheck size={10} className="icon-forest" />}
                   </div>
                   <StatusDot status={component.status} />
                   <span className="log-service-item-label">
@@ -156,23 +156,13 @@ export function LogServiceModal({
         </div>
 
         {error && (
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.5rem',
-            padding: '0.75rem',
-            background: 'rgba(239, 68, 68, 0.1)',
-            border: '1px solid rgba(239, 68, 68, 0.3)',
-            borderRadius: '0.5rem',
-            color: '#ef4444',
-            fontSize: '0.875rem',
-          }}>
+          <div className="alert-inline alert-inline-error">
             <FaExclamationTriangle size={14} />
             {error}
           </div>
         )}
 
-        <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
+        <div className="log-service-actions">
           <Button variant="outline" onClick={handleClose} disabled={isSubmitting}>
             Cancel
           </Button>

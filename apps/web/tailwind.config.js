@@ -20,6 +20,13 @@ export default {
         '.text-accent': { color: 'rgb(var(--primary) / <alpha-value>)' },
         '.text-accent-contrast': { color: 'rgb(var(--primary-foreground) / <alpha-value>)' },
 
+        /* Brand colors */
+        '.text-sage': { color: 'var(--sage)' },
+        '.text-mint': { color: 'var(--mint)' },
+        '.text-moss': { color: 'var(--moss)' },
+        '.text-gold': { color: 'var(--gold)' },
+        '.text-copper': { color: 'var(--copper)' },
+
         /* Semantic status colors */
         '.text-success': { color: 'rgb(var(--success) / <alpha-value>)' },
         '.text-warning': { color: 'rgb(var(--warning) / <alpha-value>)' },

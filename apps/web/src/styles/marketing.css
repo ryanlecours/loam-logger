@@ -68,6 +68,37 @@
   --overlay-dark: rgba(18, 28, 24, 0.85);
   --overlay-light: rgba(252, 250, 246, 0.95);
   --glass: rgba(54, 60, 57, 0.6);
+
+  /* ============================================
+     DESIGN TOKENS - Animation & Effects
+     ============================================ */
+
+  /* Timing Scale (standardized durations) */
+  --duration-micro: 0.15s;   /* hover feedback, opacity changes */
+  --duration-short: 0.2s;    /* color transitions, small transforms */
+  --duration-medium: 0.3s;   /* card hover, panel animations */
+  --duration-long: 0.4s;     /* modal transitions, complex animations */
+
+  /* Easing Functions */
+  --ease-default: ease;
+  --ease-premium: cubic-bezier(0.4, 0, 0.2, 1);  /* smooth, professional */
+  --ease-springy: cubic-bezier(0.16, 1, 0.3, 1); /* bouncy, delightful */
+
+  /* Shadow Scale (layered for depth) */
+  --shadow-sm: 0 4px 12px rgba(18, 28, 24, 0.15);
+  --shadow-md: 0 8px 24px rgba(18, 28, 24, 0.2);
+  --shadow-lg: 0 16px 48px rgba(18, 28, 24, 0.25);
+  --shadow-xl: 0 24px 64px rgba(18, 28, 24, 0.3);
+
+  /* Premium Inset Effects (mint glow for premium feel) */
+  --inset-glow: 0 0 0 1px rgba(168, 208, 184, 0.1) inset;
+  --inset-glow-hover: 0 0 0 1px rgba(168, 208, 184, 0.2) inset;
+  --inset-glow-focus: 0 0 0 1px rgba(168, 208, 184, 0.3) inset;
+
+  /* Blur Values */
+  --blur-sm: 8px;
+  --blur-md: 14px;
+  --blur-lg: 20px;
 }
 
 /* ============================================
@@ -511,6 +542,66 @@ textarea:focus::placeholder {
   font-size: 1rem;
 }
 
+/* Button loading state */
+.btn-loading {
+  position: relative;
+  color: transparent !important;
+  pointer-events: none;
+}
+
+.btn-loading::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 16px;
+  height: 16px;
+  margin: -8px 0 0 -8px;
+  border: 2px solid var(--cream);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: btn-spin 0.8s linear infinite;
+}
+
+@keyframes btn-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Icon button (for edit/delete actions) */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem;
+  border-radius: 0.5rem;
+  color: var(--concrete);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition:
+    color var(--duration-micro) var(--ease-premium),
+    background-color var(--duration-micro) var(--ease-premium),
+    transform var(--duration-micro) var(--ease-premium);
+}
+
+.icon-btn:hover {
+  color: var(--mint);
+  background-color: rgba(168, 208, 184, 0.1);
+  transform: scale(1.1);
+}
+
+.icon-btn:active {
+  transform: scale(0.95);
+}
+
+/* Danger icon button variant */
+.icon-btn-danger:hover {
+  color: rgb(var(--danger));
+  background-color: rgba(196, 89, 67, 0.1);
+}
+
 /* ============================================
    PANELS & MODALS
    ============================================ */
@@ -536,10 +627,26 @@ textarea:focus::placeholder {
   background-color: rgba(30, 34, 32, 0.96);
   border: 1px solid rgba(54, 60, 57, 0.7);
   color: var(--cream);
-  backdrop-filter: blur(14px);
+  backdrop-filter: blur(var(--blur-md));
   border-radius: 1.5rem;
   padding: 1.5rem;
-  box-shadow: 0 20px 60px rgba(18, 28, 24, 0.45);
+  box-shadow:
+    var(--shadow-lg),
+    var(--inset-glow);
+  transition:
+    transform var(--duration-medium) var(--ease-premium),
+    box-shadow var(--duration-medium) var(--ease-premium),
+    border-color var(--duration-medium) var(--ease-premium);
+}
+
+/* Premium hover effect for interactive panels */
+.panel-interactive:hover,
+.panel:hover {
+  transform: translateY(-3px);
+  box-shadow:
+    var(--shadow-xl),
+    var(--inset-glow-hover);
+  border-color: rgba(134, 158, 140, 0.35);
 }
 
 /* Panel with vertical spacing - replaces 'panel-soft shadow-soft border border-app rounded-3xl p-6 space-y-4' */
@@ -547,13 +654,27 @@ textarea:focus::placeholder {
   background-color: rgba(30, 34, 32, 0.96);
   border: 1px solid rgba(54, 60, 57, 0.7);
   color: var(--cream);
-  backdrop-filter: blur(14px);
+  backdrop-filter: blur(var(--blur-md));
   border-radius: 1.5rem;
   padding: 1.5rem;
-  box-shadow: 0 20px 60px rgba(18, 28, 24, 0.45);
+  box-shadow:
+    var(--shadow-lg),
+    var(--inset-glow);
   display: flex;
   flex-direction: column;
   gap: 1rem;
+  transition:
+    transform var(--duration-medium) var(--ease-premium),
+    box-shadow var(--duration-medium) var(--ease-premium),
+    border-color var(--duration-medium) var(--ease-premium);
+}
+
+.panel-spaced:hover {
+  transform: translateY(-3px);
+  box-shadow:
+    var(--shadow-xl),
+    var(--inset-glow-hover);
+  border-color: rgba(134, 158, 140, 0.35);
 }
 
 /* Danger zone panel - for destructive action sections */
@@ -588,17 +709,31 @@ textarea:focus::placeholder {
   border-radius: 0.5rem;
   padding: 0.5rem 0.75rem;
   font-size: 0.9rem;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  transition:
+    border-color var(--duration-short) var(--ease-premium),
+    box-shadow var(--duration-short) var(--ease-premium),
+    background-color var(--duration-short) var(--ease-premium);
 }
 
 .input-soft::placeholder {
   color: rgba(142, 148, 145, 0.6);
 }
 
+/* Subtle hover state */
+.input-soft:hover:not(:focus) {
+  border-color: rgba(134, 158, 140, 0.4);
+  background-color: rgba(30, 34, 32, 0.95);
+}
+
+/* Premium focus state with glow */
 .input-soft:focus {
   outline: none;
   border-color: var(--mint);
-  box-shadow: 0 0 0 3px rgba(168, 208, 184, 0.25);
+  background-color: rgba(30, 34, 32, 0.98);
+  box-shadow:
+    0 0 0 3px rgba(168, 208, 184, 0.2),
+    0 4px 16px rgba(168, 208, 184, 0.1),
+    var(--inset-glow-focus);
 }
 
 .label-muted {
@@ -708,6 +843,314 @@ textarea:focus::placeholder {
 .badge-role-user {
   background-color: rgb(37, 99, 235);
   color: rgb(239, 246, 255);
+}
+
+/* ============================================
+   LINK UTILITIES
+   ============================================ */
+
+/* Subtle link with icon support */
+.link-subtle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.75rem;
+  color: var(--sage);
+  text-decoration: none;
+  transition: color var(--duration-short) var(--ease-premium);
+}
+
+.link-subtle:hover {
+  color: var(--mint);
+}
+
+/* Skeleton loading utilities */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    rgba(54, 60, 57, 0.4) 0%,
+    rgba(68, 96, 76, 0.2) 50%,
+    rgba(54, 60, 57, 0.4) 100%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 2s ease-in-out infinite;
+  border-radius: 0.375rem;
+}
+
+.skeleton-text-lg {
+  width: 48px;
+  height: 28px;
+}
+
+.skeleton-text-sm {
+  width: 40px;
+  height: 12px;
+}
+
+/* Skeleton size variants for specific loading states */
+.skeleton-pill {
+  width: 80px;
+  height: 24px;
+  border-radius: 12px;
+}
+
+.skeleton-title {
+  width: 200px;
+  height: 28px;
+}
+
+.skeleton-row {
+  width: 100%;
+  height: 44px;
+}
+
+.skeleton-btn {
+  width: 120px;
+  height: 42px;
+}
+
+.skeleton-btn-lg {
+  width: 140px;
+  height: 42px;
+}
+
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* Icon utilities for consistent button/link icons */
+.icon-left {
+  margin-right: 0.375rem;
+}
+
+.icon-right {
+  margin-left: 0.375rem;
+}
+
+/* Color utilities for icons */
+.icon-sage {
+  color: var(--sage);
+}
+
+.icon-mint {
+  color: var(--mint);
+}
+
+.icon-forest {
+  color: var(--forest-deep);
+}
+
+/* ============================================
+   NAVIGATION COMPONENTS
+   ============================================ */
+
+.app-navbar {
+  background: rgba(18, 28, 24, 0.2);
+  backdrop-filter: blur(32px);
+  -webkit-backdrop-filter: blur(16px);
+  border-color: rgba(168, 208, 184, 0.1);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);
+}
+
+.logo-gradient {
+  background: linear-gradient(135deg, var(--sage) 0%, var(--mint) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.nav-link {
+  position: relative;
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--sage);
+  background: transparent;
+  transition: all var(--duration-short) var(--ease-default);
+}
+
+.nav-link:hover,
+.nav-link:focus-visible {
+  background: rgba(134, 158, 140, 0.1);
+  color: var(--mint);
+}
+
+.nav-link-active {
+  background: rgba(134, 158, 140, 0.15);
+  color: var(--mint);
+}
+
+.nav-link-active:hover {
+  background: rgba(134, 158, 140, 0.2);
+}
+
+/* Mobile menu nav link variant */
+.nav-link-mobile {
+  display: block;
+  padding: 0.75rem 1rem;
+  border-radius: 0.5rem;
+  font-weight: 500;
+  color: var(--sage);
+  background: transparent;
+  transition: all var(--duration-short) var(--ease-default);
+}
+
+.nav-link-mobile:hover,
+.nav-link-mobile:focus-visible {
+  background: rgba(134, 158, 140, 0.1);
+  color: var(--mint);
+}
+
+.nav-link-mobile-active {
+  background: rgba(134, 158, 140, 0.15);
+  color: var(--mint);
+}
+
+/* Logout button style */
+.nav-logout {
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--sage);
+  background: transparent;
+  border: 1px solid rgba(134, 158, 140, 0.3);
+  cursor: pointer;
+  transition: all var(--duration-short) var(--ease-default);
+}
+
+.nav-logout:hover,
+.nav-logout:focus-visible {
+  background: rgba(134, 158, 140, 0.1);
+  border-color: rgba(134, 158, 140, 0.5);
+  color: var(--mint);
+}
+
+/* Mobile menu button */
+.nav-menu-btn {
+  padding: 0.5rem;
+  border-radius: 0.5rem;
+  color: var(--sage);
+  background: transparent;
+  transition: background var(--duration-short) var(--ease-default);
+}
+
+.nav-menu-btn:hover,
+.nav-menu-btn:focus-visible {
+  background: rgba(134, 158, 140, 0.1);
+}
+
+/* Mobile menu panel */
+.mobile-menu {
+  border-top: 1px solid rgba(168, 208, 184, 0.1);
+  background: rgba(18, 28, 24, 0.95);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+/* Active nav pill background for animated indicator */
+.nav-active-pill {
+  background: rgba(134, 158, 140, 0.15);
+}
+
+/* Navigation tab glow underline for active state */
+.nav-active-pill::after {
+  content: '';
+  position: absolute;
+  bottom: -2px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 60%;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--mint), transparent);
+  border-radius: 1px;
+}
+
+/* ============================================
+   BACKGROUND PATTERNS
+   ============================================ */
+
+/* Base background image styles */
+.bg-cover-center {
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+.bg-fixed {
+  background-attachment: fixed;
+}
+
+/* Hero background images */
+.bg-hero-desktop {
+  background-image: url('/mtbLandingPhoto.jpg');
+}
+
+.bg-hero-mobile {
+  background-image: url('/mtbLandingPhotoMobile.jpg');
+}
+
+/* Glass panel effect for CTA sections */
+.glass-panel {
+  background-color: rgba(18, 28, 24, 0.7);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(168, 208, 184, 0.1);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(168, 208, 184, 0.05);
+}
+
+/* Glass form container */
+.glass-form {
+  background-color: var(--glass);
+  border: 1px solid var(--slate);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+/* Marketing page form inputs */
+.marketing-input {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border-radius: 0.5rem;
+  font-size: 1rem;
+  background-color: var(--charcoal);
+  border: 1px solid var(--slate);
+  color: var(--cream);
+  transition: all var(--duration-short) var(--ease-default);
+}
+
+.marketing-input:focus {
+  outline: none;
+  border-color: var(--mint);
+  box-shadow: 0 0 0 3px rgba(168, 208, 184, 0.1);
+}
+
+.marketing-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Marketing form label */
+.marketing-label {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--sand);
+  margin-bottom: 0.5rem;
+}
+
+/* Info panel (for success messages, etc.) */
+.info-panel {
+  background-color: var(--glass);
+  border: 1px solid var(--slate);
+  border-radius: 1rem;
+  padding: 1.5rem;
 }
 
 /* ============================================
@@ -2401,7 +2844,7 @@ html.marketing-page:focus-within {
   background: rgba(68, 96, 76, 0.4);
   border-color: rgba(134, 158, 140, 0.4);
   color: var(--mint);
-  transform: translateY(-1px);
+  transform: translateY(-1px) scale(1.05);
 }
 
 .ride-action-btn:focus-visible {
@@ -3784,6 +4227,25 @@ html.marketing-page:focus-within {
   min-height: 0;
 }
 
+/* Skeleton layout utilities for priority hero loading state */
+.skeleton-column {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  flex: 1;
+}
+
+.skeleton-row-group {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: auto;
+}
+
+/* Width utilities for skeleton */
+.w-60 {
+  width: 60%;
+}
+
 .priority-hero-admin-buttons {
   display: flex;
   gap: 0.5rem;
@@ -3882,11 +4344,15 @@ html.marketing-page:focus-within {
 .status-dot-overdue {
   background: var(--status-overdue);
   box-shadow: 0 0 6px var(--status-overdue);
+  position: relative;
+  animation: status-pulse-urgent 2s ease-in-out infinite;
 }
 
 .status-dot-due-now {
   background: var(--status-due-now);
   box-shadow: 0 0 6px var(--status-due-now);
+  position: relative;
+  animation: status-pulse-warning 2.5s ease-in-out infinite;
 }
 
 .status-dot-due-soon {
@@ -3896,6 +4362,29 @@ html.marketing-page:focus-within {
 
 .status-dot-all-good {
   background: var(--status-all-good);
+}
+
+/* Pulse animations for urgent status indicators */
+@keyframes status-pulse-urgent {
+  0%, 100% {
+    box-shadow: 0 0 6px var(--status-overdue);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 12px var(--status-overdue), 0 0 20px var(--status-overdue);
+    transform: scale(1.15);
+  }
+}
+
+@keyframes status-pulse-warning {
+  0%, 100% {
+    box-shadow: 0 0 6px var(--status-due-now);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 10px var(--status-due-now), 0 0 16px var(--status-due-now);
+    transform: scale(1.1);
+  }
 }
 
 /* Confidence Tag */
@@ -3969,6 +4458,40 @@ html.marketing-page:focus-within {
   text-transform: uppercase;
   letter-spacing: 0.05em;
   margin-bottom: 0.5rem;
+}
+
+.why-panel-content {
+  margin: 0;
+}
+
+.why-panel-drivers {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.why-panel-drivers-spaced {
+  margin-top: 0.75rem;
+}
+
+.why-driver-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.why-driver-value {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.why-toggle-chevron {
+  transition: transform var(--duration-short) var(--ease-default);
+}
+
+.why-toggle-expanded .why-toggle-chevron {
+  transform: rotate(180deg);
 }
 
 /* Mini Component List */
@@ -4726,6 +5249,47 @@ html.marketing-page:focus-within {
   border-color: var(--sage);
 }
 
+.log-service-hint {
+  margin: 0 0 0.75rem;
+  color: var(--sage);
+  font-size: 0.875rem;
+}
+
+.log-service-actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: flex-end;
+}
+
+/* Inline Alert Styles */
+.alert-inline {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  animation: alert-slide-in 0.3s var(--ease-premium);
+  font-size: 0.875rem;
+}
+
+.alert-inline-error {
+  background: rgba(196, 89, 67, 0.1);
+  border: 1px solid rgba(196, 89, 67, 0.3);
+  color: var(--error);
+}
+
+.alert-inline-warning {
+  background: rgba(184, 115, 84, 0.1);
+  border: 1px solid rgba(184, 115, 84, 0.3);
+  color: var(--copper);
+}
+
+.alert-inline-success {
+  background: rgba(168, 208, 184, 0.1);
+  border: 1px solid rgba(168, 208, 184, 0.3);
+  color: var(--mint);
+}
+
 /* Control Room Responsive */
 @media (max-width: 1279px) {
   .control-room {
@@ -4907,5 +5471,149 @@ html.marketing-page:focus-within {
 
   .ride-stats-compact-value {
     font-size: 1.25rem;
+  }
+}
+
+/* =============================================================================
+   PHASE 3: Micro-Interactions (Delight Layer)
+   ============================================================================= */
+
+/* Alert entrance animation */
+@keyframes alert-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.alert-animated {
+  animation: alert-slide-in 0.3s var(--ease-premium);
+}
+
+/* Success checkmark animation */
+@keyframes success-appear {
+  0% {
+    opacity: 0;
+    transform: scale(0.5);
+  }
+  50% {
+    transform: scale(1.2);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.success-icon-animated {
+  animation: success-appear 0.4s var(--ease-springy);
+}
+
+/* Staggered list item entrance */
+@keyframes list-item-enter {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.list-stagger > *:nth-child(1) { animation: list-item-enter 0.3s ease-out 0s both; }
+.list-stagger > *:nth-child(2) { animation: list-item-enter 0.3s ease-out 0.05s both; }
+.list-stagger > *:nth-child(3) { animation: list-item-enter 0.3s ease-out 0.1s both; }
+.list-stagger > *:nth-child(4) { animation: list-item-enter 0.3s ease-out 0.15s both; }
+.list-stagger > *:nth-child(5) { animation: list-item-enter 0.3s ease-out 0.2s both; }
+.list-stagger > *:nth-child(n+6) { animation: list-item-enter 0.3s ease-out 0.25s both; }
+
+/* Form success feedback pulse */
+@keyframes form-success-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(168, 208, 184, 0.4);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(168, 208, 184, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(168, 208, 184, 0);
+  }
+}
+
+.form-success {
+  animation: form-success-pulse 0.6s ease-out;
+}
+
+/* Respect reduced motion for micro-interactions */
+@media (prefers-reduced-motion: reduce) {
+  .alert-animated,
+  .success-icon-animated,
+  .form-success {
+    animation: none;
+  }
+
+  .list-stagger > * {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* =============================================================================
+   PHASE 4: Component Refinement
+   ============================================================================= */
+
+/* Generic icon button - used for edit/delete and other icon-only buttons */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem;
+  border-radius: 0.5rem;
+  color: var(--sage);
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all var(--duration-short) var(--ease-premium);
+}
+
+.icon-btn:hover {
+  transform: scale(1.1);
+  color: var(--mint);
+  background: rgba(134, 158, 140, 0.1);
+}
+
+.icon-btn:focus-visible {
+  outline: 2px solid var(--mint);
+  outline-offset: 2px;
+}
+
+.icon-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* Icon button variants */
+.icon-btn-danger {
+  color: var(--error);
+  border-color: rgba(196, 89, 67, 0.3);
+}
+
+.icon-btn-danger:hover {
+  color: var(--error);
+  background: rgba(196, 89, 67, 0.15);
+  border-color: var(--error);
+}
+
+/* Respect reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .icon-btn:hover {
+    transform: none;
   }
 }

@@ -11,8 +11,8 @@ export function MiniComponentList({ components, className = '' }: MiniComponentL
   if (components.length === 0) {
     return (
       <div className={`mini-component-list ${className}`.trim()}>
-        <div className="mini-component-row" style={{ justifyContent: 'center' }}>
-          <span style={{ color: 'var(--sage)', fontSize: '0.875rem' }}>
+        <div className="mini-component-row justify-center">
+          <span className="text-sage text-sm">
             All components healthy
           </span>
         </div>
@@ -21,7 +21,7 @@ export function MiniComponentList({ components, className = '' }: MiniComponentL
   }
 
   return (
-    <div className={`mini-component-list ${className}`.trim()}>
+    <div className={`mini-component-list list-stagger ${className}`.trim()}>
       {components.map((component) => (
         <div key={component.componentId} className="mini-component-row">
           <StatusDot status={component.status} />

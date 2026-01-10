@@ -36,19 +36,19 @@ export function PriorityBikeHero({
     return (
       <section className="priority-hero">
         <div className="priority-hero-header">
-          <div className="skeleton" style={{ width: 80, height: 24, borderRadius: 12 }} />
-          <div className="skeleton" style={{ width: 200, height: 28 }} />
+          <div className="skeleton skeleton-pill" />
+          <div className="skeleton skeleton-title" />
         </div>
         <div className="priority-hero-content">
-          <div className="skeleton" style={{ width: '60%', height: 24 }} />
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', flex: 1 }}>
+          <div className="skeleton w-60 h-6" />
+          <div className="skeleton-column">
             {[1, 2, 3].map((i) => (
-              <div key={i} className="skeleton" style={{ width: '100%', height: 44 }} />
+              <div key={i} className="skeleton skeleton-row" />
             ))}
           </div>
-          <div style={{ display: 'flex', gap: '0.75rem', marginTop: 'auto' }}>
-            <div className="skeleton" style={{ width: 120, height: 42 }} />
-            <div className="skeleton" style={{ width: 140, height: 42 }} />
+          <div className="skeleton-row-group">
+            <div className="skeleton skeleton-btn" />
+            <div className="skeleton skeleton-btn-lg" />
           </div>
         </div>
       </section>
@@ -129,12 +129,12 @@ export function PriorityBikeHero({
                 size="sm"
                 onClick={onLogService}
               >
-                <FaWrench size={12} style={{ marginRight: '0.375rem' }} />
+                <FaWrench size={12} className="icon-left" />
                 Log service
               </Button>
               <Link to={`/gear/${bike.id}`}>
                 <Button variant="secondary" size="sm">
-                  <FaCog size={12} style={{ marginRight: '0.375rem' }} />
+                  <FaCog size={12} className="icon-left" />
                   View maintenance
                 </Button>
               </Link>
