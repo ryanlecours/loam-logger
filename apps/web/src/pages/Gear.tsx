@@ -375,7 +375,7 @@ export default function Gear() {
       </header>
 
       {error && (
-        <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-red-700">
+        <div className="alert alert-danger mb-6">
           Couldn&apos;t load your gear just yet. {error.message}
         </div>
       )}
