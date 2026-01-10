@@ -1002,11 +1002,11 @@ export default function Admin() {
   const getRoleBadgeColor = (role: string) => {
     switch (role) {
       case 'ADMIN':
-        return 'bg-purple-600 text-purple-100';
+        return 'badge-role badge-role-admin';
       case 'PRO':
-        return 'bg-amber-600 text-amber-100';
+        return 'badge-role badge-role-pro';
       default:
-        return 'bg-blue-600 text-blue-100';
+        return 'badge-role badge-role-user';
     }
   };
 
@@ -1027,12 +1027,12 @@ export default function Admin() {
   return (
     <div className="space-y-8">
       {/* Header */}
-      <section className="panel-soft shadow-soft border border-app rounded-3xl p-6">
+      <section className="panel">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="text-xs uppercase tracking-[0.3em] text-muted">Admin Panel</p>
+            <p className="label-section">Admin Panel</p>
             <h1 className="text-3xl font-semibold text-white">Loam Logger Admin</h1>
-            <p className="text-sm text-muted max-w-2xl">
+            <p className="text-body-muted max-w-2xl">
               Manage waitlist signups and view platform statistics.
             </p>
           </div>
@@ -1042,34 +1042,34 @@ export default function Admin() {
       {/* Stats Overview */}
       {stats && (
         <section className="grid gap-6 md:grid-cols-3">
-          <div className="panel-soft shadow-soft border border-app rounded-3xl p-6">
-            <p className="text-xs uppercase tracking-[0.3em] text-muted">Total Users</p>
-            <p className="text-4xl font-bold text-white">{stats.userCount}</p>
+          <div className="panel">
+            <p className="label-section">Total Users</p>
+            <p className="stat-value">{stats.userCount}</p>
           </div>
-          <div className="panel-soft shadow-soft border border-app rounded-3xl p-6">
-            <p className="text-xs uppercase tracking-[0.3em] text-muted">Founding Riders</p>
-            <p className="text-4xl font-bold text-white">{stats.foundingRidersCount}</p>
+          <div className="panel">
+            <p className="label-section">Founding Riders</p>
+            <p className="stat-value">{stats.foundingRidersCount}</p>
           </div>
-          <div className="panel-soft shadow-soft border border-app rounded-3xl p-6">
-            <p className="text-xs uppercase tracking-[0.3em] text-muted">Waitlist Signups</p>
-            <p className="text-4xl font-bold text-white">{stats.waitlistCount}</p>
+          <div className="panel">
+            <p className="label-section">Waitlist Signups</p>
+            <p className="stat-value">{stats.waitlistCount}</p>
           </div>
         </section>
       )}
 
       {/* Founding Riders Welcome Email Section */}
-      <section className="panel-soft shadow-soft border border-app rounded-3xl p-6 space-y-4">
+      <section className="panel-spaced">
         <div>
-          <p className="text-xs uppercase tracking-[0.3em] text-muted">Welcome Email</p>
-          <h2 className="text-xl font-semibold text-white">Founding Riders Welcome</h2>
-          <p className="text-sm text-muted mt-1">
+          <p className="label-section">Welcome Email</p>
+          <h2 className="title-section">Founding Riders Welcome</h2>
+          <p className="text-body-muted mt-1">
             Send the beautifully designed welcome email to founding riders.
           </p>
         </div>
 
         {/* Activation Date */}
         <div>
-          <label className="block text-sm text-muted mb-1">Activation Date Text</label>
+          <label className="label-form">Activation Date Text</label>
           <input
             type="text"
             value={foundingEmailDate}
@@ -1125,7 +1125,7 @@ export default function Admin() {
                   <span className="text-muted text-sm">({recipient.name})</span>
                 )}
                 {recipient.emailUnsubscribed && (
-                  <span className="text-xs text-red-400 ml-auto">unsubscribed</span>
+                  <span className="text-xs text-danger ml-auto">unsubscribed</span>
                 )}
               </label>
             ))}
@@ -1164,7 +1164,7 @@ export default function Admin() {
                 <p>⊘ Suppressed (unsubscribed): {foundingSendResult.suppressed}</p>
               )}
               {foundingSendResult.failed > 0 && (
-                <p className="text-red-400">✗ Failed: {foundingSendResult.failed}</p>
+                <p className="text-danger">✗ Failed: {foundingSendResult.failed}</p>
               )}
             </div>
             <button
@@ -1235,15 +1235,15 @@ export default function Admin() {
       )}
 
       {/* Email Compose Section */}
-      <section className="panel-soft shadow-soft border border-app rounded-3xl p-6 space-y-4">
+      <section className="panel-spaced">
         <div>
-          <p className="text-xs uppercase tracking-[0.3em] text-muted">Bulk Email</p>
-          <h2 className="text-xl font-semibold text-white">Send Email</h2>
+          <p className="label-section">Bulk Email</p>
+          <h2 className="title-section">Send Email</h2>
         </div>
 
         {/* Segment Selector */}
         <div className="space-y-2">
-          <label className="block text-sm text-muted">Recipients</label>
+          <label className="label-form">Recipients</label>
           <div className="flex flex-wrap gap-4">
             <label className="flex items-center gap-2 cursor-pointer">
               <input
@@ -1326,7 +1326,7 @@ export default function Admin() {
                   <span className="text-muted text-sm">({recipient.name})</span>
                 )}
                 {recipient.emailUnsubscribed && (
-                  <span className="text-xs text-red-400 ml-auto">unsubscribed</span>
+                  <span className="text-xs text-danger ml-auto">unsubscribed</span>
                 )}
               </label>
             ))}
@@ -1338,7 +1338,7 @@ export default function Admin() {
 
         {/* Template Selector */}
         <div>
-          <label className="block text-sm text-muted mb-1">Template</label>
+          <label className="label-form">Template</label>
           <select
             value={emailForm.templateType}
             onChange={(e) =>
@@ -1356,7 +1356,7 @@ export default function Admin() {
 
         {/* Subject */}
         <div>
-          <label className="block text-sm text-muted mb-1">Subject</label>
+          <label className="label-form">Subject</label>
           <input
             type="text"
             value={emailForm.subject}
@@ -1368,7 +1368,7 @@ export default function Admin() {
 
         {/* Message Body */}
         <div>
-          <label className="block text-sm text-muted mb-1">
+          <label className="label-form">
             Message Body (plain text, newlines preserved)
           </label>
           <textarea
@@ -1439,7 +1439,7 @@ export default function Admin() {
           {showConfirmSend && (
             <button
               onClick={() => setShowConfirmSend(false)}
-              className="rounded-2xl px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-500 transition"
+              className="btn-danger"
             >
               Cancel
             </button>
@@ -1448,8 +1448,8 @@ export default function Admin() {
 
         {/* Send Result */}
         {sendResult && (
-          <div className="rounded-2xl bg-green-950/30 border border-green-600/50 p-4">
-            <p className="text-green-200">
+          <div className="alert alert-success-dark rounded-2xl">
+            <p>
               Sent: {sendResult.sent} | Failed: {sendResult.failed} | Suppressed:{' '}
               {sendResult.suppressed}
             </p>
@@ -1483,11 +1483,11 @@ export default function Admin() {
       {/* Individual Email Modal */}
       {individualEmailTarget && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-          <div className="panel-soft shadow-soft border border-app rounded-3xl p-6 w-full max-w-lg">
+          <div className="panel w-full max-w-lg">
             <div className="flex justify-between items-start mb-4">
               <div>
                 <h3 className="text-lg font-semibold text-white">Send Email</h3>
-                <p className="text-sm text-muted">
+                <p className="text-body-muted">
                   To: {individualEmailTarget.email}
                   {individualEmailTarget.name && ` (${individualEmailTarget.name})`}
                 </p>
@@ -1502,7 +1502,7 @@ export default function Admin() {
 
             <div className="space-y-4">
               <div>
-                <label className="block text-sm text-muted mb-1">Template</label>
+                <label className="label-form">Template</label>
                 <select
                   value={individualEmailForm.templateType}
                   onChange={(e) =>
@@ -1519,20 +1519,20 @@ export default function Admin() {
               </div>
 
               <div>
-                <label className="block text-sm text-muted mb-1">Subject</label>
+                <label className="label-form">Subject</label>
                 <input
                   type="text"
                   value={individualEmailForm.subject}
                   onChange={(e) =>
                     setIndividualEmailForm({ ...individualEmailForm, subject: e.target.value })
                   }
-                  className="w-full px-4 py-2 rounded-xl bg-surface-2 border border-app text-white focus:outline-none focus:ring-2 focus:ring-primary"
+                  className="input-soft"
                   placeholder="Email subject..."
                 />
               </div>
 
               <div>
-                <label className="block text-sm text-muted mb-1">Message</label>
+                <label className="label-form">Message</label>
                 <textarea
                   value={individualEmailForm.messageHtml}
                   onChange={(e) =>
@@ -1570,10 +1570,10 @@ export default function Admin() {
 
       {/* Scheduled Emails Section */}
       {scheduledEmails.length > 0 && (
-        <section className="panel-soft shadow-soft border border-app rounded-3xl p-6 space-y-4">
+        <section className="panel-spaced">
           <div>
-            <p className="text-xs uppercase tracking-[0.3em] text-muted">Email Queue</p>
-            <h2 className="text-xl font-semibold text-white">Scheduled Emails</h2>
+            <p className="label-section">Email Queue</p>
+            <h2 className="title-section">Scheduled Emails</h2>
           </div>
 
           {loadingScheduled ? (
@@ -1604,14 +1604,14 @@ export default function Admin() {
                         <span
                           className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${
                             email.status === 'pending'
-                              ? 'bg-yellow-600 text-yellow-100'
+                              ? 'bg-warning text-warning-foreground'
                               : email.status === 'processing'
-                                ? 'bg-blue-600 text-blue-100'
+                                ? 'bg-info text-info-foreground'
                                 : email.status === 'sent'
-                                  ? 'bg-green-600 text-green-100'
+                                  ? 'bg-success text-success-foreground'
                                   : email.status === 'cancelled'
-                                    ? 'bg-gray-600 text-gray-100'
-                                    : 'bg-red-600 text-red-100'
+                                    ? 'bg-surface-2 text-muted'
+                                    : 'bg-danger text-danger-foreground'
                           }`}
                         >
                           {email.status}
@@ -1627,7 +1627,7 @@ export default function Admin() {
                           <button
                             onClick={() => handleCancelScheduled(email.id)}
                             disabled={cancellingScheduled === email.id}
-                            className="rounded-xl px-3 py-1.5 text-xs font-medium text-white bg-red-600 hover:bg-red-500 transition disabled:opacity-50"
+                            className="btn-danger btn-sm"
                           >
                             {cancellingScheduled === email.id ? 'Cancelling...' : 'Cancel'}
                           </button>
@@ -1643,15 +1643,15 @@ export default function Admin() {
       )}
 
       {/* Active Users Table */}
-      <section className="panel-soft shadow-soft border border-app rounded-3xl p-6 space-y-4">
+      <section className="panel-spaced">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="text-xs uppercase tracking-[0.3em] text-muted">Active Users</p>
-            <h2 className="text-xl font-semibold text-white">User Management</h2>
+            <p className="label-section">Active Users</p>
+            <h2 className="title-section">User Management</h2>
           </div>
           <button
             onClick={() => setShowAddUserForm(true)}
-            className="rounded-2xl px-4 py-2 text-sm font-medium text-black bg-green-500 hover:bg-green-400 transition"
+            className="btn-success"
           >
             + Add User
           </button>
@@ -1660,11 +1660,11 @@ export default function Admin() {
         {/* Add User Modal */}
         {showAddUserForm && (
           <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-            <div className="panel-soft shadow-soft border border-app rounded-3xl p-6 w-full max-w-md mx-4">
+            <div className="panel w-full max-w-md mx-4">
               <h3 className="text-lg font-semibold text-white mb-4">Add New User</h3>
               <form onSubmit={handleAddUser} className="space-y-4">
                 <div>
-                  <label className="block text-sm text-muted mb-1">Email *</label>
+                  <label className="label-form">Email *</label>
                   <input
                     type="email"
                     value={addUserForm.email}
@@ -1675,7 +1675,7 @@ export default function Admin() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm text-muted mb-1">Name</label>
+                  <label className="label-form">Name</label>
                   <input
                     type="text"
                     value={addUserForm.name}
@@ -1685,7 +1685,7 @@ export default function Admin() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm text-muted mb-1">Role</label>
+                  <label className="label-form">Role</label>
                   <select
                     value={addUserForm.role}
                     onChange={(e) =>
@@ -1726,7 +1726,7 @@ export default function Admin() {
                   <button
                     type="submit"
                     disabled={addingUser}
-                    className="flex-1 rounded-2xl px-4 py-2 text-sm font-medium text-black bg-green-500 hover:bg-green-400 transition disabled:opacity-50"
+                    className="flex-1 btn-success disabled:opacity-50"
                   >
                     {addingUser ? 'Creating...' : 'Create User'}
                   </button>
@@ -1753,7 +1753,7 @@ export default function Admin() {
                   <td className="py-3 px-4 text-white">
                     {u.email}
                     {u.emailUnsubscribed && (
-                      <span className="ml-2 text-xs px-1.5 py-0.5 rounded bg-red-900/30 text-red-400">
+                      <span className="ml-2 text-xs px-1.5 py-0.5 rounded bg-danger/30 text-danger">
                         Unsubscribed
                       </span>
                     )}
@@ -1766,7 +1766,7 @@ export default function Admin() {
                       {u.role}
                     </span>
                     {u.isFoundingRider && (
-                      <span className="ml-2 inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-600 text-emerald-100">
+                      <span className="ml-2 inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-success text-success-foreground">
                         Founding Rider
                       </span>
                     )}
@@ -1779,7 +1779,7 @@ export default function Admin() {
                       <button
                         onClick={() => openIndividualEmailModal({ id: u.id, email: u.email, name: u.name })}
                         disabled={u.emailUnsubscribed}
-                        className="rounded-xl px-3 py-1.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-500 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="btn-sm rounded-xl px-3 py-1.5 text-xs font-medium text-white bg-info hover:bg-info/80 transition disabled:opacity-50 disabled:cursor-not-allowed"
                         title={u.emailUnsubscribed ? 'User has unsubscribed' : 'Send email'}
                       >
                         Email
@@ -1787,7 +1787,7 @@ export default function Admin() {
                       <button
                         onClick={() => handleDemoteUser(u.id, u.email)}
                         disabled={demoting === u.id || deleting === u.id || u.id === user?.id}
-                        className="rounded-xl px-3 py-1.5 text-xs font-medium text-white bg-yellow-600 hover:bg-yellow-500 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="btn-warning btn-sm"
                         title={u.id === user?.id ? "Can't demote yourself" : 'Demote to waitlist'}
                       >
                         {demoting === u.id ? 'Demoting...' : 'Demote'}
@@ -1795,7 +1795,7 @@ export default function Admin() {
                       <button
                         onClick={() => handleDeleteUser(u.id, u.email)}
                         disabled={deleting === u.id || demoting === u.id || u.id === user?.id}
-                        className="rounded-xl px-3 py-1.5 text-xs font-medium text-white bg-red-600 hover:bg-red-500 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="btn-danger btn-sm"
                         title={u.id === user?.id ? "Can't delete yourself" : 'Delete user'}
                       >
                         {deleting === u.id ? 'Deleting...' : 'Delete'}
@@ -1831,11 +1831,11 @@ export default function Admin() {
       </section>
 
       {/* Waitlist Table */}
-      <section className="panel-soft shadow-soft border border-app rounded-3xl p-6 space-y-4">
+      <section className="panel-spaced">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="text-xs uppercase tracking-[0.3em] text-muted">Beta Waitlist</p>
-            <h2 className="text-xl font-semibold text-white">Email Signups</h2>
+            <p className="label-section">Beta Waitlist</p>
+            <h2 className="title-section">Email Signups</h2>
           </div>
           <div className="flex gap-2">
             {selectedWaitlist.size > 0 && (
@@ -1843,14 +1843,14 @@ export default function Admin() {
                 <button
                   onClick={() => handleBulkToggleFoundingRider(true)}
                   disabled={bulkPromoting}
-                  className="rounded-2xl px-4 py-2 text-sm font-medium text-black bg-emerald-500 hover:bg-emerald-400 transition disabled:opacity-50"
+                  className="btn-success disabled:opacity-50"
                 >
                   {bulkPromoting ? 'Updating...' : `Mark ${selectedWaitlist.size} as Founding Riders`}
                 </button>
                 <button
                   onClick={() => handleBulkToggleFoundingRider(false)}
                   disabled={bulkPromoting}
-                  className="rounded-2xl px-4 py-2 text-sm font-medium text-white bg-gray-600 hover:bg-gray-500 transition disabled:opacity-50"
+                  className="btn-secondary disabled:opacity-50"
                 >
                   Remove Founding Rider
                 </button>
@@ -1879,7 +1879,7 @@ export default function Admin() {
             <button
               onClick={() => document.getElementById('csv-import')?.click()}
               disabled={importing}
-              className="rounded-2xl px-4 py-2 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-500 transition disabled:opacity-50"
+              className="btn-success disabled:opacity-50"
             >
               {importing ? 'Importing...' : 'Import CSV'}
             </button>
@@ -1891,12 +1891,12 @@ export default function Admin() {
           <div className="rounded-2xl bg-surface-2/50 border border-app/50 p-4">
             <p className="text-white font-medium mb-2">Import Results</p>
             <div className="flex gap-4 text-sm">
-              <span className="text-emerald-400">{importResults.imported} imported</span>
+              <span className="text-success">{importResults.imported} imported</span>
               {importResults.skipped > 0 && (
-                <span className="text-yellow-400">{importResults.skipped} skipped (duplicates)</span>
+                <span className="text-warning">{importResults.skipped} skipped (duplicates)</span>
               )}
               {importResults.errors.length > 0 && (
-                <span className="text-red-400">{importResults.errors.length} failed</span>
+                <span className="text-danger">{importResults.errors.length} failed</span>
               )}
             </div>
             {importResults.errors.length > 0 && (
@@ -1904,7 +1904,7 @@ export default function Admin() {
                 <summary className="text-muted text-sm cursor-pointer hover:text-white">
                   View errors
                 </summary>
-                <ul className="mt-2 text-xs text-red-300 space-y-1">
+                <ul className="mt-2 text-xs text-danger/80 space-y-1">
                   {importResults.errors.slice(0, 10).map((err, idx) => (
                     <li key={idx}>
                       Row {err.row}: {err.email || '(no email)'} - {err.reason}
@@ -1926,8 +1926,8 @@ export default function Admin() {
         )}
 
         {error && (
-          <div className="rounded-2xl bg-red-950/30 border border-red-600/50 p-4">
-            <p className="text-red-200">{error}</p>
+          <div className="alert alert-danger-dark rounded-2xl">
+            <p>{error}</p>
           </div>
         )}
 
@@ -1978,7 +1978,7 @@ export default function Admin() {
                   <td className="py-3 px-4 text-white">
                     {entry.email}
                     {entry.emailUnsubscribed && (
-                      <span className="ml-2 text-xs px-1.5 py-0.5 rounded bg-red-900/30 text-red-400">
+                      <span className="ml-2 text-xs px-1.5 py-0.5 rounded bg-danger/30 text-danger">
                         Unsubscribed
                       </span>
                     )}
@@ -1990,7 +1990,7 @@ export default function Admin() {
                       disabled={promoting === entry.id}
                       className={`rounded-full px-3 py-1 text-xs font-medium transition ${
                         entry.isFoundingRider
-                          ? 'bg-emerald-600 text-emerald-100 hover:bg-emerald-500'
+                          ? 'bg-success text-success-foreground hover:bg-success/80'
                           : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
                       } disabled:opacity-50`}
                     >
@@ -2005,7 +2005,7 @@ export default function Admin() {
                       <button
                         onClick={() => openIndividualEmailModal({ id: entry.id, email: entry.email, name: entry.name })}
                         disabled={entry.emailUnsubscribed}
-                        className="rounded-xl px-3 py-1.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-500 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="btn-sm rounded-xl px-3 py-1.5 text-xs font-medium text-white bg-info hover:bg-info/80 transition disabled:opacity-50 disabled:cursor-not-allowed"
                         title={entry.emailUnsubscribed ? 'User has unsubscribed' : 'Send email'}
                       >
                         Email
@@ -2013,14 +2013,14 @@ export default function Admin() {
                       <button
                         onClick={() => handleActivate(entry.id, entry.email)}
                         disabled={activating === entry.id || deleting === entry.id || promoting === entry.id}
-                        className="rounded-xl px-3 py-1.5 text-xs font-medium text-white bg-green-600 hover:bg-green-500 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="btn-success btn-sm"
                       >
                         {activating === entry.id ? 'Activating...' : 'Activate'}
                       </button>
                       <button
                         onClick={() => handleDeleteWaitlist(entry.id, entry.email)}
                         disabled={deleting === entry.id || activating === entry.id || promoting === entry.id}
-                        className="rounded-xl px-3 py-1.5 text-xs font-medium text-white bg-red-600 hover:bg-red-500 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="btn-danger btn-sm"
                       >
                         {deleting === entry.id ? 'Deleting...' : 'Delete'}
                       </button>
