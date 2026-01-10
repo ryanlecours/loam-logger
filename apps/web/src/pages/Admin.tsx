@@ -1604,14 +1604,14 @@ export default function Admin() {
                         <span
                           className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${
                             email.status === 'pending'
-                              ? 'bg-yellow-600 text-yellow-100'
+                              ? 'bg-warning text-warning-foreground'
                               : email.status === 'processing'
-                                ? 'bg-blue-600 text-blue-100'
+                                ? 'bg-info text-info-foreground'
                                 : email.status === 'sent'
-                                  ? 'bg-green-600 text-green-100'
+                                  ? 'bg-success text-success-foreground'
                                   : email.status === 'cancelled'
-                                    ? 'bg-gray-600 text-gray-100'
-                                    : 'bg-red-600 text-red-100'
+                                    ? 'bg-surface-2 text-muted'
+                                    : 'bg-danger text-danger-foreground'
                           }`}
                         >
                           {email.status}
@@ -1651,7 +1651,7 @@ export default function Admin() {
           </div>
           <button
             onClick={() => setShowAddUserForm(true)}
-            className="rounded-2xl px-4 py-2 text-sm font-medium text-black bg-green-500 hover:bg-green-400 transition"
+            className="btn-success"
           >
             + Add User
           </button>
@@ -1726,7 +1726,7 @@ export default function Admin() {
                   <button
                     type="submit"
                     disabled={addingUser}
-                    className="flex-1 rounded-2xl px-4 py-2 text-sm font-medium text-black bg-green-500 hover:bg-green-400 transition disabled:opacity-50"
+                    className="flex-1 btn-success disabled:opacity-50"
                   >
                     {addingUser ? 'Creating...' : 'Create User'}
                   </button>
@@ -1766,7 +1766,7 @@ export default function Admin() {
                       {u.role}
                     </span>
                     {u.isFoundingRider && (
-                      <span className="ml-2 inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-600 text-emerald-100">
+                      <span className="ml-2 inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-success text-success-foreground">
                         Founding Rider
                       </span>
                     )}
@@ -1843,14 +1843,14 @@ export default function Admin() {
                 <button
                   onClick={() => handleBulkToggleFoundingRider(true)}
                   disabled={bulkPromoting}
-                  className="rounded-2xl px-4 py-2 text-sm font-medium text-black bg-emerald-500 hover:bg-emerald-400 transition disabled:opacity-50"
+                  className="btn-success disabled:opacity-50"
                 >
                   {bulkPromoting ? 'Updating...' : `Mark ${selectedWaitlist.size} as Founding Riders`}
                 </button>
                 <button
                   onClick={() => handleBulkToggleFoundingRider(false)}
                   disabled={bulkPromoting}
-                  className="rounded-2xl px-4 py-2 text-sm font-medium text-white bg-gray-600 hover:bg-gray-500 transition disabled:opacity-50"
+                  className="btn-secondary disabled:opacity-50"
                 >
                   Remove Founding Rider
                 </button>
@@ -1879,7 +1879,7 @@ export default function Admin() {
             <button
               onClick={() => document.getElementById('csv-import')?.click()}
               disabled={importing}
-              className="rounded-2xl px-4 py-2 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-500 transition disabled:opacity-50"
+              className="btn-success disabled:opacity-50"
             >
               {importing ? 'Importing...' : 'Import CSV'}
             </button>

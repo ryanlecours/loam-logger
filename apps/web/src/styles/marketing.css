@@ -21,8 +21,13 @@
   --border: 54 60 57;                /* slate RGB */
   --ring: 168 208 184;               /* mint RGB */
   --success: 168 208 184;            /* mint RGB */
+  --success-foreground: 18 28 24;   /* forest-deep RGB for contrast */
   --warning: 184 115 84;             /* copper RGB */
+  --warning-foreground: 252 250 246; /* cream RGB for contrast */
   --danger: 196 89 67;               /* error RGB */
+  --danger-foreground: 252 250 246;  /* cream RGB for contrast */
+  --info: 134 158 140;               /* sage RGB (same as primary) */
+  --info-foreground: 18 28 24;       /* forest-deep RGB for contrast */
   --panel-bg: 30 34 32;              /* charcoal RGB */
   --panel-border: 54 60 57;          /* slate RGB */
   --input-bg: 30 34 32;              /* charcoal RGB */
@@ -286,6 +291,15 @@ textarea:focus::placeholder {
   background: var(--stone);
 }
 
+/* Alias for bg-surface (for code consistency) */
+.bg-surface-1 {
+  background: var(--charcoal);
+}
+
+.text-primary {
+  color: rgb(var(--primary));
+}
+
 .bg-accent {
   background: var(--slate);
 }
@@ -495,27 +509,6 @@ textarea:focus::placeholder {
 .btn-lg {
   padding: 0.75rem 1.5rem;
   font-size: 1rem;
-}
-
-/* ============================================
-   LINKS
-   ============================================ */
-
-.link-accent {
-  color: var(--sage);
-  transition: color 0.15s ease;
-}
-
-.link-accent:hover {
-  color: var(--mint);
-}
-
-.link-accent-contrast {
-  color: var(--gold);
-}
-
-.link-accent-contrast:hover {
-  color: var(--sage);
 }
 
 /* ============================================
@@ -793,12 +786,6 @@ textarea:focus::placeholder {
   background: linear-gradient(90deg, var(--sage) 0%, var(--mint) 100%);
   border-radius: 2px;
   margin-bottom: 1.5rem;
-}
-
-.divider {
-  width: 100%;
-  height: 1px;
-  background: linear-gradient(90deg, transparent 0%, rgba(134, 158, 140, 0.2) 50%, transparent 100%);
 }
 
 /* Icon styling */

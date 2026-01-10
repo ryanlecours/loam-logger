@@ -33,7 +33,7 @@ export default function DeleteRideButton({ id }: { id: string }) {
       onClick={onClick}
       disabled={loading}
       title={loading ? 'Deleting…' : 'Delete ride'}
-      className="p-2 rounded-lg border-2 border-red-500/60 text-red-500 hover:bg-red-500/20 hover:border-red-500 transition disabled:opacity-50 disabled:cursor-not-allowed"
+      className="p-2 rounded-lg border-2 border-danger/60 text-danger hover:bg-danger/20 hover:border-danger transition disabled:opacity-50 disabled:cursor-not-allowed"
       aria-label="Delete ride"
     >
       <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
