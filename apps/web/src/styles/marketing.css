@@ -67,7 +67,35 @@
   /* Opacity Variants */
   --overlay-dark: rgba(18, 28, 24, 0.85);
   --overlay-light: rgba(252, 250, 246, 0.95);
-  --glass: rgba(54, 60, 57, 0.6);
+  --glass: var(--slate-60);
+
+  /* Sage opacity variants (for hover states, backgrounds) */
+  --sage-5: var(--sage-5);
+  --sage-10: var(--sage-10);
+  --sage-15: var(--sage-15);
+  --sage-20: var(--sage-20);
+  --sage-25: var(--sage-25);
+  --sage-30: var(--sage-30);
+  --sage-40: var(--sage-40);
+
+  /* Mint opacity variants (for glows, focus rings) */
+  --mint-10: var(--mint-10);
+  --mint-15: var(--mint-15);
+  --mint-20: var(--mint-20);
+  --mint-30: var(--mint-30);
+  --mint-40: var(--mint-40);
+
+  /* Slate opacity variants (for borders, backgrounds) */
+  --slate-50: var(--slate-50);
+  --slate-60: var(--slate-60);
+  --slate-70: var(--slate-70);
+
+  /* Forest opacity variants (for overlays) */
+  --forest-20: var(--forest-20);
+  --forest-60: var(--forest-60);
+  --forest-75: var(--forest-75);
+  --forest-90: var(--forest-90);
+  --forest-95: var(--forest-95);
 
   /* ============================================
      DESIGN TOKENS - Animation & Effects
@@ -86,14 +114,14 @@
 
   /* Shadow Scale (layered for depth) */
   --shadow-sm: 0 4px 12px rgba(18, 28, 24, 0.15);
-  --shadow-md: 0 8px 24px rgba(18, 28, 24, 0.2);
+  --shadow-md: 0 8px 24px var(--forest-20);
   --shadow-lg: 0 16px 48px rgba(18, 28, 24, 0.25);
   --shadow-xl: 0 24px 64px rgba(18, 28, 24, 0.3);
 
   /* Premium Inset Effects (mint glow for premium feel) */
-  --inset-glow: 0 0 0 1px rgba(168, 208, 184, 0.1) inset;
-  --inset-glow-hover: 0 0 0 1px rgba(168, 208, 184, 0.2) inset;
-  --inset-glow-focus: 0 0 0 1px rgba(168, 208, 184, 0.3) inset;
+  --inset-glow: 0 0 0 1px var(--mint-10) inset;
+  --inset-glow-hover: 0 0 0 1px var(--mint-20) inset;
+  --inset-glow-focus: 0 0 0 1px var(--mint-30) inset;
 
   /* Blur Values */
   --blur-sm: 8px;
@@ -351,7 +379,7 @@ textarea:focus::placeholder {
 /* Card - Frosted glass effect */
 .card {
   background: var(--glass);
-  border: 1px solid rgba(134, 158, 140, 0.2);
+  border: 1px solid var(--sage-20);
   border-radius: 1rem;
   padding: 2rem;
   backdrop-filter: blur(14px);
@@ -366,15 +394,15 @@ textarea:focus::placeholder {
   transform: translateY(-5px);
   box-shadow:
     0 30px 80px rgba(18, 28, 24, 0.4),
-    0 0 0 1px rgba(168, 208, 184, 0.15) inset,
-    0 0 40px rgba(168, 208, 184, 0.1);
-  border-color: rgba(134, 158, 140, 0.4);
+    0 0 0 1px var(--mint-15) inset,
+    0 0 40px var(--mint-10);
+  border-color: var(--sage-40);
 }
 
 /* Card - Solid variant for light backgrounds */
 .card-solid {
   background: var(--charcoal);
-  border: 1px solid rgba(134, 158, 140, 0.15);
+  border: 1px solid var(--sage-15);
   border-radius: 1rem;
   padding: 2rem;
   box-shadow: 0 20px 60px rgba(18, 28, 24, 0.25);
@@ -384,7 +412,7 @@ textarea:focus::placeholder {
 .card-solid:hover {
   transform: translateY(-5px);
   box-shadow: 0 30px 80px rgba(18, 28, 24, 0.35);
-  border-color: rgba(134, 158, 140, 0.3);
+  border-color: var(--sage-30);
 }
 
 /* ============================================
@@ -398,7 +426,7 @@ textarea:focus::placeholder {
   justify-content: center;
   background: linear-gradient(135deg, var(--sage) 0%, var(--moss) 100%);
   color: var(--cream);
-  border: 2px solid rgba(168, 208, 184, 0.4);
+  border: 2px solid var(--mint-40);
   border-radius: 999px;
   padding: 1rem 3rem;
   font-size: 1.125rem;
@@ -410,7 +438,7 @@ textarea:focus::placeholder {
   overflow: hidden;
   box-shadow:
     0 10px 30px rgba(68, 96, 76, 0.3),
-    0 0 0 1px rgba(168, 208, 184, 0.2) inset;
+    0 0 0 1px var(--mint-20) inset;
 }
 
 .btn-primary::before {
@@ -420,7 +448,7 @@ textarea:focus::placeholder {
   left: 0;
   width: 100%;
   height: 100%;
-  background: linear-gradient(135deg, rgba(168, 208, 184, 0.2) 0%, transparent 100%);
+  background: linear-gradient(135deg, var(--mint-20) 0%, transparent 100%);
   opacity: 0;
   transition: opacity 0.3s ease;
 }
@@ -429,8 +457,8 @@ textarea:focus::placeholder {
   transform: scale(1.05);
   box-shadow:
     0 15px 40px rgba(68, 96, 76, 0.5),
-    0 0 0 1px rgba(168, 208, 184, 0.4) inset,
-    0 0 40px rgba(168, 208, 184, 0.2);
+    0 0 0 1px var(--mint-40) inset,
+    0 0 40px var(--mint-20);
   border-color: rgba(168, 208, 184, 0.6);
 }
 
@@ -451,13 +479,13 @@ textarea:focus::placeholder {
   0%, 100% {
     box-shadow:
       0 10px 30px rgba(68, 96, 76, 0.3),
-      0 0 0 1px rgba(168, 208, 184, 0.2) inset,
+      0 0 0 1px var(--mint-20) inset,
       0 0 0 0 rgba(134, 158, 140, 0.7);
   }
   50% {
     box-shadow:
       0 10px 30px rgba(68, 96, 76, 0.3),
-      0 0 0 1px rgba(168, 208, 184, 0.2) inset,
+      0 0 0 1px var(--mint-20) inset,
       0 0 0 15px rgba(134, 158, 140, 0);
   }
 }
@@ -588,7 +616,7 @@ textarea:focus::placeholder {
 
 .icon-btn:hover {
   color: var(--mint);
-  background-color: rgba(168, 208, 184, 0.1);
+  background-color: var(--mint-10);
   transform: scale(1.1);
 }
 
@@ -608,7 +636,7 @@ textarea:focus::placeholder {
 
 .panel-soft {
   background-color: rgba(30, 34, 32, 0.96);
-  border: 1px solid rgba(54, 60, 57, 0.7);
+  border: 1px solid var(--slate-70);
   color: var(--cream);
   backdrop-filter: blur(14px);
   border-radius: 1rem;
@@ -625,7 +653,7 @@ textarea:focus::placeholder {
 /* Standard panel - replaces 'panel-soft shadow-soft border border-app rounded-3xl p-6' */
 .panel {
   background-color: rgba(30, 34, 32, 0.96);
-  border: 1px solid rgba(54, 60, 57, 0.7);
+  border: 1px solid var(--slate-70);
   color: var(--cream);
   backdrop-filter: blur(var(--blur-md));
   border-radius: 1.5rem;
@@ -652,7 +680,7 @@ textarea:focus::placeholder {
 /* Panel with vertical spacing - replaces 'panel-soft shadow-soft border border-app rounded-3xl p-6 space-y-4' */
 .panel-spaced {
   background-color: rgba(30, 34, 32, 0.96);
-  border: 1px solid rgba(54, 60, 57, 0.7);
+  border: 1px solid var(--slate-70);
   color: var(--cream);
   backdrop-filter: blur(var(--blur-md));
   border-radius: 1.5rem;
@@ -694,7 +722,7 @@ textarea:focus::placeholder {
   border-radius: 1rem;
   box-shadow:
     0 45px 120px rgba(18, 28, 24, 0.55),
-    0 0 0 1px rgba(168, 208, 184, 0.2);
+    0 0 0 1px var(--mint-20);
 }
 
 /* ============================================
@@ -721,7 +749,7 @@ textarea:focus::placeholder {
 
 /* Subtle hover state */
 .input-soft:hover:not(:focus) {
-  border-color: rgba(134, 158, 140, 0.4);
+  border-color: var(--sage-40);
   background-color: rgba(30, 34, 32, 0.95);
 }
 
@@ -731,8 +759,8 @@ textarea:focus::placeholder {
   border-color: var(--mint);
   background-color: rgba(30, 34, 32, 0.98);
   box-shadow:
-    0 0 0 3px rgba(168, 208, 184, 0.2),
-    0 4px 16px rgba(168, 208, 184, 0.1),
+    0 0 0 3px var(--mint-20),
+    0 4px 16px var(--mint-10),
     var(--inset-glow-focus);
 }
 
@@ -771,8 +799,8 @@ textarea:focus::placeholder {
 
 /* Success alert - replaces bg-green-500/10 border-green-500/30 patterns */
 .alert-success {
-  background: rgba(168, 208, 184, 0.1);
-  border-color: rgba(168, 208, 184, 0.3);
+  background: var(--mint-10);
+  border-color: var(--mint-30);
   color: var(--mint);
 }
 
@@ -792,14 +820,14 @@ textarea:focus::placeholder {
 
 /* Info alert */
 .alert-info {
-  background: rgba(134, 158, 140, 0.1);
-  border-color: rgba(134, 158, 140, 0.3);
+  background: var(--sage-10);
+  border-color: var(--sage-30);
   color: var(--sage);
 }
 
 /* Dark variants for dark backgrounds */
 .alert-success-dark {
-  background: rgba(168, 208, 184, 0.15);
+  background: var(--mint-15);
   border-color: rgba(168, 208, 184, 0.5);
   color: rgb(209, 250, 229);
 }
@@ -950,10 +978,10 @@ textarea:focus::placeholder {
    ============================================ */
 
 .app-navbar {
-  background: rgba(18, 28, 24, 0.2);
+  background: var(--forest-20);
   backdrop-filter: blur(32px);
   -webkit-backdrop-filter: blur(16px);
-  border-color: rgba(168, 208, 184, 0.1);
+  border-color: var(--mint-10);
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);
 }
 
@@ -977,17 +1005,17 @@ textarea:focus::placeholder {
 
 .nav-link:hover,
 .nav-link:focus-visible {
-  background: rgba(134, 158, 140, 0.1);
+  background: var(--sage-10);
   color: var(--mint);
 }
 
 .nav-link-active {
-  background: rgba(134, 158, 140, 0.15);
+  background: var(--sage-15);
   color: var(--mint);
 }
 
 .nav-link-active:hover {
-  background: rgba(134, 158, 140, 0.2);
+  background: var(--sage-20);
 }
 
 /* Mobile menu nav link variant */
@@ -1003,12 +1031,12 @@ textarea:focus::placeholder {
 
 .nav-link-mobile:hover,
 .nav-link-mobile:focus-visible {
-  background: rgba(134, 158, 140, 0.1);
+  background: var(--sage-10);
   color: var(--mint);
 }
 
 .nav-link-mobile-active {
-  background: rgba(134, 158, 140, 0.15);
+  background: var(--sage-15);
   color: var(--mint);
 }
 
@@ -1020,14 +1048,14 @@ textarea:focus::placeholder {
   font-weight: 500;
   color: var(--sage);
   background: transparent;
-  border: 1px solid rgba(134, 158, 140, 0.3);
+  border: 1px solid var(--sage-30);
   cursor: pointer;
   transition: all var(--duration-short) var(--ease-default);
 }
 
 .nav-logout:hover,
 .nav-logout:focus-visible {
-  background: rgba(134, 158, 140, 0.1);
+  background: var(--sage-10);
   border-color: rgba(134, 158, 140, 0.5);
   color: var(--mint);
 }
@@ -1043,20 +1071,20 @@ textarea:focus::placeholder {
 
 .nav-menu-btn:hover,
 .nav-menu-btn:focus-visible {
-  background: rgba(134, 158, 140, 0.1);
+  background: var(--sage-10);
 }
 
 /* Mobile menu panel */
 .mobile-menu {
-  border-top: 1px solid rgba(168, 208, 184, 0.1);
-  background: rgba(18, 28, 24, 0.95);
+  border-top: 1px solid var(--mint-10);
+  background: var(--forest-95);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
 }
 
 /* Active nav pill background for animated indicator */
 .nav-active-pill {
-  background: rgba(134, 158, 140, 0.15);
+  background: var(--sage-15);
 }
 
 /* Navigation tab glow underline for active state */
@@ -1101,7 +1129,7 @@ textarea:focus::placeholder {
   background-color: rgba(18, 28, 24, 0.7);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(168, 208, 184, 0.1);
+  border: 1px solid var(--mint-10);
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(168, 208, 184, 0.05);
 }
 
@@ -1128,7 +1156,7 @@ textarea:focus::placeholder {
 .marketing-input:focus {
   outline: none;
   border-color: var(--mint);
-  box-shadow: 0 0 0 3px rgba(168, 208, 184, 0.1);
+  box-shadow: 0 0 0 3px var(--mint-10);
 }
 
 .marketing-input:disabled {
@@ -1234,7 +1262,7 @@ textarea:focus::placeholder {
 /* Icon styling */
 .icon {
   color: var(--mint);
-  filter: drop-shadow(0 4px 8px rgba(168, 208, 184, 0.3));
+  filter: drop-shadow(0 4px 8px var(--mint-30));
 }
 
 /* ============================================
@@ -1373,7 +1401,7 @@ html.marketing-page:focus-within {
     rgba(68, 96, 76, 0.15) 0%,
     rgba(54, 60, 57, 0.1) 100%
   );
-  border: 1px solid rgba(134, 158, 140, 0.15);
+  border: 1px solid var(--sage-15);
   border-radius: 1.5rem;
   padding: clamp(2rem, 4vw, 3rem);
   margin-bottom: clamp(2rem, 3vw, 2.5rem);
@@ -1382,7 +1410,7 @@ html.marketing-page:focus-within {
   position: relative;
   overflow: hidden;
   box-shadow:
-    0 10px 40px rgba(18, 28, 24, 0.2),
+    0 10px 40px var(--forest-20),
     0 0 0 1px rgba(168, 208, 184, 0.05) inset;
   animation: hero-enter 0.8s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
@@ -1546,33 +1574,33 @@ html.marketing-page:focus-within {
 .action-btn-primary {
   background: linear-gradient(135deg, var(--sage) 0%, var(--moss) 100%);
   color: var(--cream);
-  border: 2px solid rgba(168, 208, 184, 0.3);
+  border: 2px solid var(--mint-30);
   box-shadow:
     0 8px 24px rgba(68, 96, 76, 0.3),
-    0 0 0 1px rgba(168, 208, 184, 0.15) inset;
+    0 0 0 1px var(--mint-15) inset;
 }
 
 .action-btn-primary:hover {
   transform: translateY(-3px) scale(1.02);
   box-shadow:
     0 12px 32px rgba(68, 96, 76, 0.4),
-    0 0 0 1px rgba(168, 208, 184, 0.3) inset,
-    0 0 30px rgba(168, 208, 184, 0.15);
+    0 0 0 1px var(--mint-30) inset,
+    0 0 30px var(--mint-15);
   border-color: rgba(168, 208, 184, 0.5);
 }
 
 .action-btn-secondary {
-  background: rgba(54, 60, 57, 0.6);
+  background: var(--slate-60);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   color: var(--cream);
-  border: 2px solid rgba(134, 158, 140, 0.25);
-  box-shadow: 0 4px 16px rgba(18, 28, 24, 0.2);
+  border: 2px solid var(--sage-25);
+  box-shadow: 0 4px 16px var(--forest-20);
 }
 
 .action-btn-secondary:hover {
   background: rgba(68, 96, 76, 0.4);
-  border-color: rgba(134, 158, 140, 0.4);
+  border-color: var(--sage-40);
   transform: translateY(-3px);
   box-shadow: 0 8px 24px rgba(18, 28, 24, 0.3);
 }
@@ -1584,7 +1612,7 @@ html.marketing-page:focus-within {
 }
 
 .action-btn-outline:hover {
-  background: rgba(134, 158, 140, 0.1);
+  background: var(--sage-10);
   border-color: rgba(134, 158, 140, 0.5);
   color: var(--mint);
   transform: translateY(-3px);
@@ -1605,10 +1633,10 @@ html.marketing-page:focus-within {
   font-size: 0.6875rem;
   font-weight: 600;
   font-family: 'SF Mono', 'Consolas', monospace;
-  background: rgba(18, 28, 24, 0.6);
+  background: var(--forest-60);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
-  border: 1px solid rgba(134, 158, 140, 0.2);
+  border: 1px solid var(--sage-20);
   border-radius: 6px;
   color: var(--sage);
   cursor: pointer;
@@ -1619,7 +1647,7 @@ html.marketing-page:focus-within {
 
 .dev-btn:hover:not(:disabled) {
   background: rgba(68, 96, 76, 0.3);
-  border-color: rgba(134, 158, 140, 0.4);
+  border-color: var(--sage-40);
   transform: translateY(-1px);
 }
 
@@ -1645,7 +1673,7 @@ html.marketing-page:focus-within {
 
 .data-card {
   background: var(--glass);
-  border: 1px solid rgba(134, 158, 140, 0.2);
+  border: 1px solid var(--sage-20);
   border-radius: 1.25rem;
   padding: clamp(1.75rem, 3vw, 2.25rem);
   backdrop-filter: blur(16px);
@@ -1725,7 +1753,7 @@ html.marketing-page:focus-within {
   align-items: flex-start;
   margin-bottom: 2rem;
   padding-bottom: 1.25rem;
-  border-bottom: 1px solid rgba(134, 158, 140, 0.15);
+  border-bottom: 1px solid var(--sage-15);
   position: relative;
 }
 
@@ -1762,9 +1790,9 @@ html.marketing-page:focus-within {
   letter-spacing: 0.05em;
   color: var(--concrete);
   padding: 0.375rem 0.75rem;
-  background: rgba(54, 60, 57, 0.5);
+  background: var(--slate-50);
   border-radius: 6px;
-  border: 1px solid rgba(134, 158, 140, 0.15);
+  border: 1px solid var(--sage-15);
   margin-top: 0.5rem;
 }
 
@@ -1779,12 +1807,12 @@ html.marketing-page:focus-within {
   padding: 0.5rem 1rem;
   border-radius: 8px;
   background: rgba(134, 158, 140, 0.08);
-  border: 1px solid rgba(134, 158, 140, 0.2);
+  border: 1px solid var(--sage-20);
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .card-action-link:hover {
-  background: rgba(134, 158, 140, 0.15);
+  background: var(--sage-15);
   border-color: rgba(134, 158, 140, 0.35);
   color: var(--mint);
   transform: translateX(4px);
@@ -1811,7 +1839,7 @@ html.marketing-page:focus-within {
   background-size: 200% 100%;
   animation: shimmer 2s ease-in-out infinite;
   border-radius: 1rem;
-  border: 1px solid rgba(134, 158, 140, 0.1);
+  border: 1px solid var(--sage-10);
 }
 
 @keyframes shimmer {
@@ -1832,7 +1860,7 @@ html.marketing-page:focus-within {
   padding: 3rem 2rem;
   text-align: center;
   background: rgba(54, 60, 57, 0.3);
-  border: 2px dashed rgba(134, 158, 140, 0.25);
+  border: 2px dashed var(--sage-25);
   border-radius: 1rem;
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
@@ -1868,7 +1896,7 @@ html.marketing-page:focus-within {
   color: var(--mint);
   font-weight: 600;
   text-decoration: underline;
-  text-decoration-color: rgba(168, 208, 184, 0.4);
+  text-decoration-color: var(--mint-40);
   text-underline-offset: 3px;
   transition: all 0.2s ease;
 }
@@ -1952,12 +1980,12 @@ html.marketing-page:focus-within {
   max-width: 36rem;
   max-height: 90%;
   background: rgba(30, 34, 32, 0.98);
-  border: 1px solid rgba(134, 158, 140, 0.25);
+  border: 1px solid var(--sage-25);
   border-radius: 1.5rem;
   padding: 2.5rem;
   box-shadow:
-    0 40px 100px rgba(18, 28, 24, 0.6),
-    0 0 0 1px rgba(168, 208, 184, 0.1) inset;
+    0 40px 100px var(--forest-60),
+    0 0 0 1px var(--mint-10) inset;
   animation: modal-slide-up 0.4s cubic-bezier(0.16, 1, 0.3, 1);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
@@ -1980,7 +2008,7 @@ html.marketing-page:focus-within {
   align-items: flex-start;
   margin-bottom: 2rem;
   padding-bottom: 1.5rem;
-  border-bottom: 1px solid rgba(134, 158, 140, 0.15);
+  border-bottom: 1px solid var(--sage-15);
 }
 
 .modal-title {
@@ -2009,7 +2037,7 @@ html.marketing-page:focus-within {
   font-weight: 300;
   color: var(--concrete);
   background: rgba(54, 60, 57, 0.4);
-  border: 1px solid rgba(134, 158, 140, 0.2);
+  border: 1px solid var(--sage-20);
   border-radius: 10px;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -2019,7 +2047,7 @@ html.marketing-page:focus-within {
 
 .modal-close:hover {
   background: rgba(68, 96, 76, 0.4);
-  border-color: rgba(134, 158, 140, 0.4);
+  border-color: var(--sage-40);
   color: var(--cream);
   transform: rotate(90deg);
 }
@@ -2028,7 +2056,7 @@ html.marketing-page:focus-within {
 .file-drop-zone {
   display: block;
   padding: 3rem 2rem;
-  border: 2px dashed rgba(134, 158, 140, 0.3);
+  border: 2px dashed var(--sage-30);
   background: rgba(54, 60, 57, 0.3);
   border-radius: 1rem;
   text-align: center;
@@ -2101,7 +2129,7 @@ html.marketing-page:focus-within {
   font-size: 0.9375rem;
   padding: 0.875rem 1rem;
   background: rgba(30, 34, 32, 0.8);
-  border: 1px solid rgba(134, 158, 140, 0.25);
+  border: 1px solid var(--sage-25);
   border-radius: 10px;
   color: var(--cream);
   cursor: pointer;
@@ -2111,13 +2139,13 @@ html.marketing-page:focus-within {
 }
 
 .field-select:hover {
-  border-color: rgba(134, 158, 140, 0.4);
+  border-color: var(--sage-40);
 }
 
 .field-select:focus {
   outline: none;
   border-color: var(--mint);
-  box-shadow: 0 0 0 3px rgba(168, 208, 184, 0.15);
+  box-shadow: 0 0 0 3px var(--mint-15);
 }
 
 /* Modal Actions */
@@ -2127,7 +2155,7 @@ html.marketing-page:focus-within {
   gap: 1rem;
   margin-top: 2rem;
   padding-top: 1.5rem;
-  border-top: 1px solid rgba(134, 158, 140, 0.1);
+  border-top: 1px solid var(--sage-10);
 }
 
 .modal-btn {
@@ -2142,19 +2170,19 @@ html.marketing-page:focus-within {
 
 .modal-btn-cancel {
   background: transparent;
-  border-color: rgba(134, 158, 140, 0.3);
+  border-color: var(--sage-30);
   color: var(--concrete);
 }
 
 .modal-btn-cancel:hover {
-  background: rgba(54, 60, 57, 0.5);
+  background: var(--slate-50);
   border-color: rgba(134, 158, 140, 0.5);
   color: var(--cream);
 }
 
 .modal-btn-submit {
   background: linear-gradient(135deg, var(--sage) 0%, var(--moss) 100%);
-  border-color: rgba(168, 208, 184, 0.3);
+  border-color: var(--mint-30);
   color: var(--cream);
   box-shadow: 0 8px 24px rgba(68, 96, 76, 0.3);
 }
@@ -2179,11 +2207,11 @@ html.marketing-page:focus-within {
   background: rgba(54, 60, 57, 0.4);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
-  border: 1px solid rgba(134, 158, 140, 0.2);
+  border: 1px solid var(--sage-20);
   border-radius: 1rem;
   padding: 1.75rem;
   box-shadow:
-    0 8px 24px rgba(18, 28, 24, 0.2),
+    0 8px 24px var(--forest-20),
     0 0 0 1px rgba(168, 208, 184, 0.05) inset;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -2192,7 +2220,7 @@ html.marketing-page:focus-within {
   transform: translateY(-3px);
   box-shadow:
     0 12px 32px rgba(18, 28, 24, 0.3),
-    0 0 0 1px rgba(168, 208, 184, 0.1) inset;
+    0 0 0 1px var(--mint-10) inset;
   border-color: rgba(134, 158, 140, 0.35);
 }
 
@@ -2222,7 +2250,7 @@ html.marketing-page:focus-within {
   font-size: 0.9rem;
   font-weight: 700;
   padding: 0.55rem 1.25rem;
-  background: linear-gradient(135deg, rgba(134, 158, 140, 0.25), rgba(134, 158, 140, 0.15));
+  background: linear-gradient(135deg, var(--sage-25), var(--sage-15));
   border: 1px solid rgba(134, 158, 140, 0.5);
   border-radius: 999px;
   color: var(--cream);
@@ -2234,7 +2262,7 @@ html.marketing-page:focus-within {
 
 .log-service-bike-btn:hover {
   transform: translateY(-1px);
-  box-shadow: 0 6px 18px rgba(134, 158, 140, 0.25);
+  box-shadow: 0 6px 18px var(--sage-25);
   color: var(--mint);
 }
 
@@ -2250,7 +2278,7 @@ html.marketing-page:focus-within {
 
 .components-panel {
   background: rgba(30, 34, 32, 0.65);
-  border: 1px solid rgba(134, 158, 140, 0.2);
+  border: 1px solid var(--sage-20);
   border-radius: 1rem;
   padding: 1rem 1.25rem;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
@@ -2319,7 +2347,7 @@ html.marketing-page:focus-within {
   -webkit-backdrop-filter: blur(8px);
   border-radius: 0.875rem;
   padding: 0.875rem 1rem;
-  border: 1px solid rgba(134, 158, 140, 0.15);
+  border: 1px solid var(--sage-15);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   display: flex;
   flex-direction: column;
@@ -2329,8 +2357,8 @@ html.marketing-page:focus-within {
 }
 
 .component-card:hover {
-  box-shadow: 0 6px 16px rgba(18, 28, 24, 0.2);
-  border-color: rgba(134, 158, 140, 0.3);
+  box-shadow: 0 6px 16px var(--forest-20);
+  border-color: var(--sage-30);
 }
 
 .component-card.expanded {
@@ -2470,7 +2498,7 @@ html.marketing-page:focus-within {
   color: var(--cream);
   margin: 0 0 0.625rem 0;
   padding: 0.5rem 0.75rem;
-  background: rgba(54, 60, 57, 0.5);
+  background: var(--slate-50);
   border-radius: 8px;
   border: 1px solid rgba(134, 158, 140, 0.12);
   text-align: center;
@@ -2482,7 +2510,7 @@ html.marketing-page:focus-within {
   font-weight: 600;
   padding: 0.5rem 1rem;
   background: rgba(134, 158, 140, 0.12);
-  border: 1px solid rgba(134, 158, 140, 0.3);
+  border: 1px solid var(--sage-30);
   border-radius: 8px;
   color: var(--sage);
   cursor: pointer;
@@ -2491,11 +2519,11 @@ html.marketing-page:focus-within {
 }
 
 .log-service-btn:hover:not(:disabled) {
-  background: rgba(134, 158, 140, 0.2);
+  background: var(--sage-20);
   border-color: rgba(134, 158, 140, 0.5);
   color: var(--mint);
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(134, 158, 140, 0.2);
+  box-shadow: 0 4px 12px var(--sage-20);
 }
 
 .log-service-btn:active:not(:disabled) {
@@ -2525,7 +2553,7 @@ html.marketing-page:focus-within {
   width: min(520px, 100%);
   background: rgba(30, 34, 32, 0.95);
   border-radius: 1rem;
-  border: 1px solid rgba(134, 158, 140, 0.25);
+  border: 1px solid var(--sage-25);
   box-shadow:
     0 12px 32px rgba(7, 10, 8, 0.4),
     0 1px 0 rgba(255, 255, 255, 0.06) inset;
@@ -2558,7 +2586,7 @@ html.marketing-page:focus-within {
   width: 34px;
   height: 34px;
   border-radius: 50%;
-  border: 1px solid rgba(134, 158, 140, 0.4);
+  border: 1px solid var(--sage-40);
   background: rgba(54, 60, 57, 0.45);
   color: var(--cream);
   cursor: pointer;
@@ -2567,7 +2595,7 @@ html.marketing-page:focus-within {
 }
 
 .overlay-close:hover:not(:disabled) {
-  background: rgba(134, 158, 140, 0.15);
+  background: var(--sage-15);
   color: var(--mint);
 }
 
@@ -2643,7 +2671,7 @@ html.marketing-page:focus-within {
   background: rgba(134, 158, 140, 0.28);
   border-color: rgba(134, 158, 140, 0.5);
   color: var(--cream);
-  box-shadow: 0 8px 20px rgba(134, 158, 140, 0.2);
+  box-shadow: 0 8px 20px var(--sage-20);
 }
 
 .overlay-button:hover:not(:disabled) {
@@ -2677,7 +2705,7 @@ html.marketing-page:focus-within {
 .ride-card-container:hover {
   transform: translateY(-2px);
   box-shadow: 0 8px 24px rgba(18, 28, 24, 0.25);
-  border-color: rgba(134, 158, 140, 0.3);
+  border-color: var(--sage-30);
   background: rgba(54, 60, 57, 0.45);
 }
 
@@ -2799,7 +2827,7 @@ html.marketing-page:focus-within {
   font-size: 0.8125rem;
   font-weight: 600;
   padding: 0.5rem 1rem;
-  background: rgba(134, 158, 140, 0.15);
+  background: var(--sage-15);
   border: 1px solid rgba(134, 158, 140, 0.35);
   border-radius: 8px;
   color: var(--sage);
@@ -2808,7 +2836,7 @@ html.marketing-page:focus-within {
 }
 
 .assignment-btn:hover:not(:disabled) {
-  background: rgba(134, 158, 140, 0.25);
+  background: var(--sage-25);
   border-color: rgba(134, 158, 140, 0.5);
   color: var(--mint);
 }
@@ -2831,8 +2859,8 @@ html.marketing-page:focus-within {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(54, 60, 57, 0.6);
-  border: 1px solid rgba(134, 158, 140, 0.25);
+  background: var(--slate-60);
+  border: 1px solid var(--sage-25);
   border-radius: 10px;
   color: var(--concrete);
   cursor: pointer;
@@ -2842,7 +2870,7 @@ html.marketing-page:focus-within {
 
 .ride-action-btn:hover {
   background: rgba(68, 96, 76, 0.4);
-  border-color: rgba(134, 158, 140, 0.4);
+  border-color: var(--sage-40);
   color: var(--mint);
   transform: translateY(-1px) scale(1.05);
 }
@@ -3065,9 +3093,9 @@ html.marketing-page:focus-within {
 }
 
 .badge-success {
-  background: rgba(168, 208, 184, 0.15);
+  background: var(--mint-15);
   color: var(--mint);
-  border-color: rgba(168, 208, 184, 0.4);
+  border-color: var(--mint-40);
 }
 
 .badge-warning {
@@ -3083,9 +3111,9 @@ html.marketing-page:focus-within {
 }
 
 .badge-info {
-  background: rgba(134, 158, 140, 0.15);
+  background: var(--sage-15);
   color: var(--sage);
-  border-color: rgba(134, 158, 140, 0.4);
+  border-color: var(--sage-40);
 }
 
 .badge-default {
@@ -3104,7 +3132,7 @@ html.marketing-page:focus-within {
     rgba(68, 96, 76, 0.15) 0%,
     rgba(54, 60, 57, 0.1) 100%
   );
-  border: 1px solid rgba(134, 158, 140, 0.15);
+  border: 1px solid var(--sage-15);
   border-radius: 1.5rem;
   padding: clamp(1.5rem, 3vw, 2rem);
   margin-bottom: clamp(1.5rem, 2vw, 2rem);
@@ -3198,7 +3226,7 @@ html.marketing-page:focus-within {
 .health-card {
   background: rgba(54, 60, 57, 0.4);
   backdrop-filter: blur(10px);
-  border: 1px solid rgba(134, 158, 140, 0.2);
+  border: 1px solid var(--sage-20);
   border-radius: 1rem;
   padding: 1.5rem;
   display: flex;
@@ -3254,13 +3282,13 @@ html.marketing-page:focus-within {
   align-items: center;
   justify-content: center;
   height: 80px;
-  background: rgba(134, 158, 140, 0.1);
+  background: var(--sage-10);
   border-radius: 0.5rem;
 }
 
 .health-card-placeholder-icon {
   font-size: 2rem;
-  color: rgba(134, 158, 140, 0.4);
+  color: var(--sage-40);
 }
 
 /* Health States */
@@ -3337,7 +3365,7 @@ html.marketing-page:focus-within {
 }
 
 .component-detail-row:hover {
-  background: rgba(54, 60, 57, 0.6);
+  background: var(--slate-60);
 }
 
 .component-detail-row.component-status-warning {
@@ -3388,7 +3416,7 @@ html.marketing-page:focus-within {
   grid-template-columns: 1fr 1fr;
   gap: 1rem;
   padding-top: 0.75rem;
-  border-top: 1px solid rgba(134, 158, 140, 0.1);
+  border-top: 1px solid var(--sage-10);
 }
 
 .stat-item {
@@ -3416,9 +3444,9 @@ html.marketing-page:focus-within {
 .skeleton-line {
   background: linear-gradient(
     90deg,
-    rgba(134, 158, 140, 0.1) 25%,
-    rgba(134, 158, 140, 0.2) 50%,
-    rgba(134, 158, 140, 0.1) 75%
+    var(--sage-10) 25%,
+    var(--sage-20) 50%,
+    var(--sage-10) 75%
   );
   background-size: 200% 100%;
   animation: skeleton-shimmer 1.5s infinite;
@@ -3468,7 +3496,7 @@ html.marketing-page:focus-within {
   align-items: center;
   justify-content: space-between;
   padding: 1rem 1.25rem;
-  border-bottom: 1px solid rgba(134, 158, 140, 0.1);
+  border-bottom: 1px solid var(--sage-10);
   flex-shrink: 0;
   background: rgba(30, 34, 32, 0.9);
 }
@@ -3522,8 +3550,8 @@ html.marketing-page:focus-within {
 }
 
 .timeframe-select {
-  background: rgba(54, 60, 57, 0.5);
-  border: 1px solid rgba(134, 158, 140, 0.25);
+  background: var(--slate-50);
+  border: 1px solid var(--sage-25);
   border-radius: 8px;
   padding: 0.5rem 2rem 0.5rem 0.75rem;
   font-size: 0.8125rem;
@@ -3538,13 +3566,13 @@ html.marketing-page:focus-within {
 }
 
 .timeframe-select:hover {
-  border-color: rgba(134, 158, 140, 0.4);
+  border-color: var(--sage-40);
 }
 
 .timeframe-select:focus {
   outline: none;
   border-color: var(--mint);
-  box-shadow: 0 0 0 3px rgba(168, 208, 184, 0.15);
+  box-shadow: 0 0 0 3px var(--mint-15);
 }
 
 .timeframe-select option {
@@ -3558,7 +3586,7 @@ html.marketing-page:focus-within {
   grid-template-columns: repeat(3, 1fr);
   gap: 1rem;
   padding: 1rem 0;
-  border-bottom: 1px solid rgba(134, 158, 140, 0.1);
+  border-bottom: 1px solid var(--sage-10);
 }
 
 .stats-summary-item {
@@ -3587,7 +3615,7 @@ html.marketing-page:focus-within {
 }
 
 .expandable-section {
-  border-top: 1px solid rgba(134, 158, 140, 0.1);
+  border-top: 1px solid var(--sage-10);
 }
 
 .expandable-section:first-child {
@@ -3880,7 +3908,7 @@ html.marketing-page:focus-within {
 
 .hr-coverage-bar {
   height: 4px;
-  background: rgba(54, 60, 57, 0.5);
+  background: var(--slate-50);
   border-radius: 2px;
   overflow: hidden;
 }
@@ -3962,7 +3990,7 @@ html.marketing-page:focus-within {
   font-size: 0.6875rem;
   font-weight: 600;
   color: var(--sage);
-  background: rgba(134, 158, 140, 0.15);
+  background: var(--sage-15);
   padding: 0.125rem 0.375rem;
   border-radius: 4px;
   font-variant-numeric: tabular-nums;
@@ -4008,7 +4036,7 @@ html.marketing-page:focus-within {
   font-size: 0.6875rem;
   font-weight: 600;
   color: var(--sage);
-  background: rgba(134, 158, 140, 0.15);
+  background: var(--sage-15);
   padding: 0.125rem 0.5rem;
   border-radius: 4px;
   font-variant-numeric: tabular-nums;
@@ -4096,7 +4124,7 @@ html.marketing-page:focus-within {
   background: rgba(30, 34, 32, 0.75);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(134, 158, 140, 0.2);
+  border: 1px solid var(--sage-20);
   border-radius: 1.25rem;
   padding: 1.5rem;
   overflow: hidden;
@@ -4170,7 +4198,7 @@ html.marketing-page:focus-within {
 
 .priority-hero-back:hover {
   color: var(--mint);
-  background: rgba(134, 158, 140, 0.1);
+  background: var(--sage-10);
 }
 
 .priority-hero-content {
@@ -4255,8 +4283,8 @@ html.marketing-page:focus-within {
 .priority-hero-admin-btn {
   padding: 0.375rem 0.75rem;
   font-size: 0.6875rem;
-  background: rgba(134, 158, 140, 0.2);
-  border: 1px solid rgba(134, 158, 140, 0.3);
+  background: var(--sage-20);
+  border: 1px solid var(--sage-30);
   border-radius: 4px;
   color: var(--sage);
   cursor: pointer;
@@ -4264,7 +4292,7 @@ html.marketing-page:focus-within {
 }
 
 .priority-hero-admin-btn:hover:not(:disabled) {
-  background: rgba(134, 158, 140, 0.3);
+  background: var(--sage-30);
   border-color: rgba(134, 158, 140, 0.5);
 }
 
@@ -4322,9 +4350,9 @@ html.marketing-page:focus-within {
 }
 
 .status-pill-all-good {
-  background: rgba(168, 208, 184, 0.2);
+  background: var(--mint-20);
   color: var(--status-all-good);
-  border: 1px solid rgba(168, 208, 184, 0.4);
+  border: 1px solid var(--mint-40);
 }
 
 .status-pill-icon {
@@ -4399,7 +4427,7 @@ html.marketing-page:focus-within {
 }
 
 .confidence-tag-high {
-  background: rgba(168, 208, 184, 0.15);
+  background: var(--mint-15);
   color: var(--confidence-high);
 }
 
@@ -4409,7 +4437,7 @@ html.marketing-page:focus-within {
 }
 
 .confidence-tag-low {
-  background: rgba(134, 158, 140, 0.15);
+  background: var(--sage-15);
   color: var(--confidence-low);
 }
 
@@ -4424,25 +4452,25 @@ html.marketing-page:focus-within {
   font-weight: 500;
   color: var(--sage);
   background: none;
-  border: 1px solid rgba(134, 158, 140, 0.25);
+  border: 1px solid var(--sage-25);
   cursor: pointer;
   transition: all 0.2s ease;
 }
 
 .why-toggle:hover {
-  background: rgba(134, 158, 140, 0.1);
+  background: var(--sage-10);
   color: var(--mint);
-  border-color: rgba(134, 158, 140, 0.4);
+  border-color: var(--sage-40);
 }
 
 .why-toggle-expanded {
-  background: rgba(134, 158, 140, 0.15);
+  background: var(--sage-15);
   color: var(--mint);
 }
 
 .why-panel {
   background: rgba(30, 34, 32, 0.9);
-  border: 1px solid rgba(134, 158, 140, 0.2);
+  border: 1px solid var(--sage-20);
   border-radius: 0.75rem;
   padding: 1rem;
   margin-top: 0.75rem;
@@ -4525,7 +4553,7 @@ html.marketing-page:focus-within {
   padding: 0.625rem 0.75rem;
   background: rgba(54, 60, 57, 0.4);
   border-radius: 0.5rem;
-  border: 1px solid rgba(134, 158, 140, 0.1);
+  border: 1px solid var(--sage-10);
   flex-shrink: 0;
 }
 
@@ -4604,7 +4632,7 @@ html.marketing-page:focus-within {
   padding: 0.5rem 0.75rem;
   background: rgba(54, 60, 57, 0.4);
   border-radius: 0.5rem;
-  border: 1px solid rgba(134, 158, 140, 0.1);
+  border: 1px solid var(--sage-10);
   flex-shrink: 0;
 }
 
@@ -4684,7 +4712,7 @@ html.marketing-page:focus-within {
   margin: -0.25rem;
   flex-shrink: 0;
   scrollbar-width: thin;
-  scrollbar-color: rgba(134, 158, 140, 0.3) transparent;
+  scrollbar-color: var(--sage-30) transparent;
 }
 
 .bike-switcher-row::-webkit-scrollbar {
@@ -4696,7 +4724,7 @@ html.marketing-page:focus-within {
 }
 
 .bike-switcher-row::-webkit-scrollbar-thumb {
-  background: rgba(134, 158, 140, 0.3);
+  background: var(--sage-30);
   border-radius: 3px;
 }
 
@@ -4712,8 +4740,8 @@ html.marketing-page:focus-within {
   align-items: center;
   gap: 0.5rem;
   padding: 0.5rem 0.75rem;
-  background: rgba(168, 208, 184, 0.1);
-  border: 1px solid rgba(168, 208, 184, 0.2);
+  background: var(--mint-10);
+  border: 1px solid var(--mint-20);
   border-radius: 0.5rem;
   font-size: 0.8125rem;
   color: var(--mint);
@@ -4739,8 +4767,8 @@ html.marketing-page:focus-within {
 .bike-switcher-hint-dismiss {
   margin-left: auto;
   padding: 0.25rem 0.625rem;
-  background: rgba(168, 208, 184, 0.15);
-  border: 1px solid rgba(168, 208, 184, 0.3);
+  background: var(--mint-15);
+  border: 1px solid var(--mint-30);
   border-radius: 0.375rem;
   font-size: 0.75rem;
   font-weight: 500;
@@ -4795,8 +4823,8 @@ html.marketing-page:focus-within {
   padding: 0.75rem;
   min-width: 100px;
   max-width: 120px;
-  background: rgba(54, 60, 57, 0.5);
-  border: 2px solid rgba(134, 158, 140, 0.15);
+  background: var(--slate-50);
+  border: 2px solid var(--sage-15);
   border-radius: 0.75rem;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -4804,15 +4832,15 @@ html.marketing-page:focus-within {
 }
 
 .bike-tile:hover {
-  background: rgba(54, 60, 57, 0.7);
-  border-color: rgba(134, 158, 140, 0.3);
+  background: var(--slate-70);
+  border-color: var(--sage-30);
   transform: translateY(-2px);
 }
 
 .bike-tile-selected {
-  background: rgba(134, 158, 140, 0.15);
+  background: var(--sage-15);
   border-color: var(--mint);
-  box-shadow: 0 0 12px rgba(168, 208, 184, 0.2);
+  box-shadow: 0 0 12px var(--mint-20);
 }
 
 .bike-tile-thumb {
@@ -4882,8 +4910,8 @@ html.marketing-page:focus-within {
   gap: 0.375rem;
   padding: 0.75rem;
   min-width: 100px;
-  background: rgba(134, 158, 140, 0.1);
-  border: 2px dashed rgba(134, 158, 140, 0.3);
+  background: var(--sage-10);
+  border: 2px dashed var(--sage-30);
   border-radius: 0.75rem;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -4892,7 +4920,7 @@ html.marketing-page:focus-within {
 }
 
 .bike-tile-more:hover {
-  background: rgba(134, 158, 140, 0.15);
+  background: var(--sage-15);
   border-color: var(--mint);
 }
 
@@ -4916,7 +4944,7 @@ html.marketing-page:focus-within {
   background: rgba(30, 34, 32, 0.75);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(134, 158, 140, 0.2);
+  border: 1px solid var(--sage-20);
   border-radius: 1rem;
   overflow: hidden;
   min-height: 0;
@@ -4927,7 +4955,7 @@ html.marketing-page:focus-within {
   align-items: center;
   justify-content: space-between;
   padding: 1rem 1.25rem;
-  border-bottom: 1px solid rgba(134, 158, 140, 0.1);
+  border-bottom: 1px solid var(--sage-10);
   flex-shrink: 0;
   background: rgba(30, 34, 32, 0.9);
 }
@@ -5001,7 +5029,7 @@ html.marketing-page:focus-within {
 }
 
 .compact-ride-row:hover {
-  background: rgba(134, 158, 140, 0.05);
+  background: var(--sage-5);
 }
 
 .compact-ride-content {
@@ -5058,7 +5086,7 @@ html.marketing-page:focus-within {
 }
 
 .source-badge-manual {
-  background: rgba(134, 158, 140, 0.15);
+  background: var(--sage-15);
   color: var(--sage);
 }
 
@@ -5070,7 +5098,7 @@ html.marketing-page:focus-within {
   background: rgba(30, 34, 32, 0.75);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(134, 158, 140, 0.2);
+  border: 1px solid var(--sage-20);
   border-radius: 1rem;
   overflow: hidden;
   min-height: 0;
@@ -5081,7 +5109,7 @@ html.marketing-page:focus-within {
   align-items: center;
   justify-content: space-between;
   padding: 1rem 1.25rem;
-  border-bottom: 1px solid rgba(134, 158, 140, 0.1);
+  border-bottom: 1px solid var(--sage-10);
   flex-shrink: 0;
 }
 
@@ -5172,19 +5200,19 @@ html.marketing-page:focus-within {
   gap: 0.75rem;
   padding: 0.75rem;
   background: rgba(30, 34, 32, 0.5);
-  border: 1px solid rgba(134, 158, 140, 0.15);
+  border: 1px solid var(--sage-15);
   border-radius: 0.5rem;
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
 .log-service-item:hover {
-  background: rgba(54, 60, 57, 0.5);
-  border-color: rgba(134, 158, 140, 0.25);
+  background: var(--slate-50);
+  border-color: var(--sage-25);
 }
 
 .log-service-item-selected {
-  background: rgba(134, 158, 140, 0.1);
+  background: var(--sage-10);
   border-color: var(--mint);
 }
 
@@ -5192,7 +5220,7 @@ html.marketing-page:focus-within {
   width: 18px;
   height: 18px;
   border-radius: 4px;
-  border: 2px solid rgba(134, 158, 140, 0.4);
+  border: 2px solid var(--sage-40);
   background: transparent;
   display: flex;
   align-items: center;
@@ -5237,8 +5265,8 @@ html.marketing-page:focus-within {
 .log-service-date-input {
   flex: 1;
   padding: 0.5rem 0.75rem;
-  background: rgba(54, 60, 57, 0.6);
-  border: 1px solid rgba(134, 158, 140, 0.2);
+  background: var(--slate-60);
+  border: 1px solid var(--sage-20);
   border-radius: 0.375rem;
   color: var(--off-white);
   font-size: 0.875rem;
@@ -5285,8 +5313,8 @@ html.marketing-page:focus-within {
 }
 
 .alert-inline-success {
-  background: rgba(168, 208, 184, 0.1);
-  border: 1px solid rgba(168, 208, 184, 0.3);
+  background: var(--mint-10);
+  border: 1px solid var(--mint-30);
   color: var(--mint);
 }
 
@@ -5535,7 +5563,7 @@ html.marketing-page:focus-within {
 /* Form success feedback pulse */
 @keyframes form-success-pulse {
   0% {
-    box-shadow: 0 0 0 0 rgba(168, 208, 184, 0.4);
+    box-shadow: 0 0 0 0 var(--mint-40);
   }
   70% {
     box-shadow: 0 0 0 10px rgba(168, 208, 184, 0);
@@ -5585,7 +5613,7 @@ html.marketing-page:focus-within {
 .icon-btn:hover {
   transform: scale(1.1);
   color: var(--mint);
-  background: rgba(134, 158, 140, 0.1);
+  background: var(--sage-10);
 }
 
 .icon-btn:focus-visible {
