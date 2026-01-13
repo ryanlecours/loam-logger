@@ -1,6 +1,6 @@
 # 🌲 Loam Logger
 
-A **mountain bike–focused ride tracker** built with **React + Vite + GraphQL + Prisma**.  
+A **mountain bike–focused ride tracker** built with **React + Vite + GraphQL + Prisma**.
 Loam Logger lets riders log, analyze, and visualize their rides while tracking bike components and wear over time.
 
 Built by [**Ryan LeCours**](https://www.ryanlecours.dev) to combine data-driven performance tracking with the MTB lifestyle.
@@ -10,11 +10,14 @@ Built by [**Ryan LeCours**](https://www.ryanlecours.dev) to combine data-driven 
 ## 🚀 Tech Stack
 
 ### Web App
-- **Framework:** [Vite + React + TypeScript](https://vitejs.dev/)
-- **Styling:** [Tailwind CSS v4](https://tailwindcss.com/docs/v4-beta)
+- **Framework:** [Vite + React 19 + TypeScript](https://vitejs.dev/)
+- **Styling:** [Tailwind CSS v4](https://tailwindcss.com/docs/v4-beta) + modular CSS architecture
 - **State / API:** Apollo Client (GraphQL)
+- **Animations:** Motion (Framer Motion)
+- **Drag & Drop:** @dnd-kit
+- **Testing:** Vitest + React Testing Library
 - **Deployment:** [Vercel](https://vercel.com)
-- **Theme:** Custom Loam palette (forest + loam tones) via CSS variables
+- **Theme:** Custom Loam palette (obsidian + forest + mahogany tones)
 
 ### Mobile App
 - **Framework:** React Native + [Expo Router](https://expo.github.io/router/)
@@ -46,8 +49,17 @@ loam-logger/
 │   ├── web/              # React + Vite web app
 │   │   ├── src/
 │   │   │   ├── components/
+│   │   │   │   ├── dashboard/    # Dashboard components
+│   │   │   │   ├── gear/         # Bike & component management
+│   │   │   │   └── ui/           # Shared UI components
 │   │   │   ├── pages/
-│   │   │   └── styles/theme.css
+│   │   │   └── styles/
+│   │   │       ├── index.css           # Main entry
+│   │   │       ├── design-system/      # Colors, typography, utilities
+│   │   │       ├── components/         # Button, card, form styles
+│   │   │       ├── layout/             # Navigation, backgrounds
+│   │   │       ├── pages/              # Page-specific styles
+│   │   │       └── animations.css
 │   │   └── vite.config.ts
 │   │
 │   ├── api/              # Express + GraphQL API
@@ -100,17 +112,17 @@ npm install
 
 ### 2. Environment variables
 
-#### Backend (`backend/.env`)
+#### Backend (`apps/api/.env`)
 ```env
 NODE_ENV=development
 PORT=4000
 
 DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/DBNAME?sslmode=require"
-JWT_SECRET="dev-super-secret" # Temp JWT Token placeholder until Garmin API Access is granted.
+JWT_SECRET="dev-super-secret"
 CORS_ORIGIN="http://localhost:5173"
 ```
 
-#### Frontend (`frontend/.env`)
+#### Frontend (`apps/web/.env`)
 ```env
 VITE_API_URL=http://localhost:4000/graphql
 ```
@@ -120,7 +132,7 @@ VITE_API_URL=http://localhost:4000/graphql
 ## 🧩 Database Setup
 
 ```bash
-cd backend
+cd apps/api
 
 # validate the schema + env
 npx prisma validate --schema=./prisma/schema.prisma
@@ -167,34 +179,67 @@ npm run build
 ```
 Builds all apps using Nx affected commands.
 
+### Run Tests
+```bash
+npm run test:web
+```
+Runs all 400+ unit tests with Vitest.
+
 ---
 
-## 🧠 Features (Planned / In Progress)
+## 🧠 Features
 
 ### ✅ Current
-- GraphQL API with Prisma + PostgreSQL
-- User authentication (JWT)
-- Ride data models (distance, elevation, time)
-- Component tracking schema (wheels, tires, drivetrain, etc.)
-- Light/dark theming (Tailwind + CSS variables)
+- **Gear Management** — Full bike and component management system
+- **Component Health Tracking** — Service predictions with status indicators (overdue, due soon, all good)
+- **Dashboard** — Priority bike hero, recent rides, component health panels
+- **Service Logging** — Log component services with date tracking and wear baselines
+- **Bike Detail Pages** — Individual bike profiles with specs, components, and service history
+- **E-bike Support** — Motor power, torque, and battery specifications
+- **99 Spokes Integration** — Import bike specifications from 99spokes.com
+- **Spare Components** — Track components not currently installed on bikes
+- **Light/Dark Theming** — Premium dark theme with obsidian + forest tones
+- **Modular CSS Architecture** — Refactored styling system with design tokens
+- **Drag & Drop Bike Sorting** — Reorder bikes on dashboard
+- **Comprehensive Test Coverage** — 400+ unit tests across components
 
 ### 🔜 Coming Soon
 - Garmin OAuth integration
 - Strava OAuth integration
-- Gear wear tracking analytics
-- Ride stats dashboard with 1w / 1m / 3m / YTD metrics
-- Bike-based time distribution chart
+- Analytics dashboard with ride insights
 - Mobile app features (ride sync, gear tracking, offline support)
+
+---
+
+## 📊 Analytics Stack (Planned)
+
+```
+Frontend (React)
+  └── PostHog (events, funnels, feature flags)
+
+Backend (Node / GraphQL)
+  ├── PostgreSQL (source of truth)
+  ├── Aggregated metrics tables
+  └── Sentry (errors + performance)
+
+Infrastructure
+  ├── Vercel Analytics (traffic)
+  └── PostHog (product insights)
+```
 
 ---
 
 ## 🧱 Theming
 
-The **Loam Logger design system** uses earthy tones inspired by trail environments.  
-- **Light mode:** layered off-whites with forest-green accents  
-- **Dark mode:** deep near-blacks with loam/dirt accent colors  
+The **Loam Logger design system** uses earthy tones inspired by trail environments.
 
-Defined in [`theme.css`](frontend/src/styles/theme.css).
+**Color System:**
+- **Obsidian base** — Deep near-blacks (rgb(12, 12, 14))
+- **Forest/Sage accents** — Muted greens for primary actions
+- **Mahogany warmth** — Reddish-brown accent colors
+- **Warm-tinted neutrals** — Subtle warmth in grays
+
+Defined in [`styles/design-system/colors.css`](apps/web/src/styles/design-system/colors.css).
 
 ---
 
@@ -244,6 +289,9 @@ npx nx serve web      # Web app
 npx nx serve api      # API
 npx nx start mobile   # Mobile app
 
+# Run tests
+npx nx test web       # Web tests
+
 # View project graph
 npx nx graph
 ```
@@ -261,7 +309,7 @@ GitHub Actions runs automatically on push and PR. See [CI_CD_GUIDE.md](CI_CD_GUI
 
 - Nx workspace with affected commands for faster builds
 - Shared libraries (`@loam/graphql`, `@loam/shared`) for code reuse
-- React 19.1.0 enforced via npm overrides across all projects
+- React 19.1 enforced via npm overrides across all projects
 - Prisma commands run from `apps/api` directory
 
 ---
