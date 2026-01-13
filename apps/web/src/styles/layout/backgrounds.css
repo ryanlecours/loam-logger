@@ -1,0 +1,44 @@
+/**
+ * Loam Logger Layout - Backgrounds
+ */
+
+/* ============================================
+   BACKGROUND PATTERNS
+   ============================================ */
+
+/* Base background image styles */
+.bg-cover-center {
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+.bg-fixed {
+  background-attachment: fixed;
+}
+
+/* Hero background images */
+.bg-hero-desktop {
+  background-image: url('/mtbLandingPhoto.jpg');
+}
+
+.bg-hero-mobile {
+  background-image: url('/mtbLandingPhotoMobile.jpg');
+}
+
+/* Glass panel effect for CTA sections */
+.glass-panel {
+  background-color: rgba(18, 28, 24, 0.7);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--mint-10);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(168, 208, 184, 0.05);
+}
+
+/* Glass form container */
+.glass-form {
+  background-color: var(--glass);
+  border: 1px solid var(--slate);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}

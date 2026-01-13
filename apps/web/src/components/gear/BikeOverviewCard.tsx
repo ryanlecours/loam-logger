@@ -82,7 +82,9 @@ export function BikeOverviewCard({
     };
     const statusDiff = statusOrder[a.status] - statusOrder[b.status];
     if (statusDiff !== 0) return statusDiff;
-    return a.hoursRemaining - b.hoursRemaining;
+    const hoursA = a.hoursRemaining ?? Infinity;
+    const hoursB = b.hoursRemaining ?? Infinity;
+    return hoursA - hoursB;
   });
 
   const menuItems: KebabMenuItem[] = [

@@ -1,0 +1,51 @@
+/**
+ * Loam Logger - Main Style Entry Point
+ *
+ * This file imports all modular CSS in the correct cascade order.
+ * The original monolithic marketing.css has been split into organized modules.
+ */
+
+/* =============================================================================
+   DESIGN SYSTEM FOUNDATION
+   These must load first as they define CSS custom properties used throughout.
+   ============================================================================= */
+
+@import './design-system/colors.css';
+@import './design-system/typography.css';
+@import './design-system/utilities.css';
+
+/* =============================================================================
+   REUSABLE COMPONENTS
+   Generic UI components that can be used across any page.
+   ============================================================================= */
+
+@import './components/buttons.css';
+@import './components/cards.css';
+@import './components/forms.css';
+@import './components/alerts.css';
+@import './components/skeleton.css';
+@import './components/modals.css';
+
+/* =============================================================================
+   LAYOUT
+   Structural components for page layout and navigation.
+   ============================================================================= */
+
+@import './layout/navigation.css';
+@import './layout/backgrounds.css';
+
+/* =============================================================================
+   PAGE-SPECIFIC STYLES
+   Styles scoped to specific pages/routes.
+   ============================================================================= */
+
+@import './pages/dashboard.css';
+@import './pages/gear.css';
+@import './pages/bike-detail.css';
+
+/* =============================================================================
+   ANIMATIONS
+   Micro-interactions and animation utilities.
+   ============================================================================= */
+
+@import './animations.css';

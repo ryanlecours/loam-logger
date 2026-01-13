@@ -1,0 +1,130 @@
+/**
+ * Loam Logger Layout - Navigation
+ */
+
+/* ============================================
+   NAVIGATION COMPONENTS
+   ============================================ */
+
+.app-navbar {
+  background: var(--forest-20);
+  backdrop-filter: blur(32px);
+  -webkit-backdrop-filter: blur(16px);
+  border-color: var(--mint-10);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);
+}
+
+.logo-gradient {
+  background: linear-gradient(135deg, var(--sage) 0%, var(--mint) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.nav-link {
+  position: relative;
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--sage);
+  background: transparent;
+  transition: all var(--duration-short) var(--ease-default);
+}
+
+.nav-link:hover,
+.nav-link:focus-visible {
+  background: var(--sage-10);
+  color: var(--mint);
+}
+
+.nav-link-active {
+  background: var(--sage-15);
+  color: var(--mint);
+}
+
+.nav-link-active:hover {
+  background: var(--sage-20);
+}
+
+/* Mobile menu nav link variant */
+.nav-link-mobile {
+  display: block;
+  padding: 0.75rem 1rem;
+  border-radius: 0.5rem;
+  font-weight: 500;
+  color: var(--sage);
+  background: transparent;
+  transition: all var(--duration-short) var(--ease-default);
+}
+
+.nav-link-mobile:hover,
+.nav-link-mobile:focus-visible {
+  background: var(--sage-10);
+  color: var(--mint);
+}
+
+.nav-link-mobile-active {
+  background: var(--sage-15);
+  color: var(--mint);
+}
+
+/* Logout button style */
+.nav-logout {
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--sage);
+  background: transparent;
+  border: 1px solid var(--sage-30);
+  cursor: pointer;
+  transition: all var(--duration-short) var(--ease-default);
+}
+
+.nav-logout:hover,
+.nav-logout:focus-visible {
+  background: var(--sage-10);
+  border-color: rgba(134, 158, 140, 0.5);
+  color: var(--mint);
+}
+
+/* Mobile menu button */
+.nav-menu-btn {
+  padding: 0.5rem;
+  border-radius: 0.5rem;
+  color: var(--sage);
+  background: transparent;
+  transition: background var(--duration-short) var(--ease-default);
+}
+
+.nav-menu-btn:hover,
+.nav-menu-btn:focus-visible {
+  background: var(--sage-10);
+}
+
+/* Mobile menu panel */
+.mobile-menu {
+  border-top: 1px solid var(--mint-10);
+  background: var(--forest-95);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+/* Active nav pill background for animated indicator */
+.nav-active-pill {
+  background: var(--sage-15);
+}
+
+/* Navigation tab glow underline for active state */
+.nav-active-pill::after {
+  content: '';
+  position: absolute;
+  bottom: -2px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 60%;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--mint), transparent);
+  border-radius: 1px;
+}
