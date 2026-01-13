@@ -184,60 +184,87 @@ export default function DuplicateRidesModal({ open, onClose }: Props) {
         </div>
       ) : (
         <div className="space-y-6">
-          {duplicateGroups.map((group) => (
-            <div key={group.id} className="border border-app/50 rounded-2xl p-4 space-y-3">
-              <p className="text-sm text-muted">
-                {new Date(group.startTime).toLocaleDateString()} - {group.distanceMiles.toFixed(1)} mi
-              </p>
+          {duplicateGroups.map((group) => {
+            const primaryRide = group as unknown as Ride;
+            const primaryIsGarmin = !!primaryRide.garminActivityId;
 
-              {/* Primary ride */}
-              <div className="bg-surface-2 border border-success/30 rounded-xl p-3">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="font-semibold">{(group as unknown as Ride).notes || 'Ride'}</p>
-                    <p className="text-xs text-muted">
-                      Source: {(group as unknown as Ride).garminActivityId ? 'Garmin' : 'Strava'}
-                    </p>
-                  </div>
-                  <span className="text-xs text-success">Primary</span>
-                </div>
-              </div>
+            return (
+              <div key={group.id} className="border border-app/50 rounded-2xl p-4 space-y-3">
+                <p className="text-sm text-muted">
+                  {new Date(group.startTime).toLocaleDateString()} - {group.distanceMiles.toFixed(1)} mi
+                </p>
 
-              {/* Duplicate rides */}
-              {group.duplicates.map((dup) => (
-                <div key={dup.id} className="bg-surface-2 border border-warning/30 rounded-xl p-3">
+                {/* Primary ride */}
+                <div className={`bg-surface-2 rounded-xl p-3 ${primaryIsGarmin ? 'border border-[#00a0df]/30' : 'border border-[#fc4c02]/30'}`}>
                   <div className="flex items-center justify-between">
-                    <div>
-                      <p className="font-semibold">{dup.notes || 'Ride'}</p>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold truncate">{primaryRide.notes || 'Ride'}</p>
                       <p className="text-xs text-muted">
-                        Source: {dup.garminActivityId ? 'Garmin' : 'Strava'}
+                        Source: {primaryIsGarmin ? 'Garmin' : 'Strava'}
                       </p>
                     </div>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => handleMerge(group.id, dup.id)}
-                        className="text-xs px-3 py-1 bg-danger/20 border border-danger/50 text-danger rounded-lg hover:bg-danger/30"
-                      >
-                        Delete This
-                      </button>
-                      <button
-                        onClick={() => handleMerge(dup.id, group.id)}
-                        className="text-xs px-3 py-1 bg-success/20 border border-success/50 text-success rounded-lg hover:bg-success/30"
-                      >
-                        Keep This
-                      </button>
-                      <button
-                        onClick={() => handleMarkNotDuplicate(dup.id)}
-                        className="text-xs px-3 py-1 bg-info/20 border border-info/50 text-info rounded-lg hover:bg-info/30"
-                      >
-                        Not Duplicate
-                      </button>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-muted px-2 py-0.5 bg-surface-1 rounded">Primary</span>
+                      {group.duplicates.map((dup) => (
+                        <button
+                          key={`keep-primary-${dup.id}`}
+                          onClick={() => handleMerge(group.id, dup.id)}
+                          className={`text-xs px-3 py-1.5 rounded-lg font-medium ${
+                            primaryIsGarmin
+                              ? 'bg-[#00a0df]/20 border border-[#00a0df]/50 text-[#00a0df] hover:bg-[#00a0df]/30'
+                              : 'bg-[#fc4c02]/20 border border-[#fc4c02]/50 text-[#fc4c02] hover:bg-[#fc4c02]/30'
+                          }`}
+                        >
+                          Keep {primaryIsGarmin ? 'Garmin' : 'Strava'}
+                        </button>
+                      ))}
                     </div>
                   </div>
                 </div>
-              ))}
-            </div>
-          ))}
+
+                {/* Duplicate rides */}
+                {group.duplicates.map((dup) => {
+                  const dupIsGarmin = !!dup.garminActivityId;
+
+                  return (
+                    <div key={dup.id} className={`bg-surface-2 rounded-xl p-3 ${dupIsGarmin ? 'border border-[#00a0df]/30' : 'border border-[#fc4c02]/30'}`}>
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold truncate">{dup.notes || 'Ride'}</p>
+                          <p className="text-xs text-muted">
+                            Source: {dupIsGarmin ? 'Garmin' : 'Strava'}
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => handleMerge(dup.id, group.id)}
+                          className={`text-xs px-3 py-1.5 rounded-lg font-medium ${
+                            dupIsGarmin
+                              ? 'bg-[#00a0df]/20 border border-[#00a0df]/50 text-[#00a0df] hover:bg-[#00a0df]/30'
+                              : 'bg-[#fc4c02]/20 border border-[#fc4c02]/50 text-[#fc4c02] hover:bg-[#fc4c02]/30'
+                          }`}
+                        >
+                          Keep {dupIsGarmin ? 'Garmin' : 'Strava'}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {/* Keep Both option */}
+                <div className="flex justify-center pt-1">
+                  {group.duplicates.map((dup) => (
+                    <button
+                      key={`keep-both-${dup.id}`}
+                      onClick={() => handleMarkNotDuplicate(dup.id)}
+                      className="text-xs px-4 py-1.5 text-muted hover:text-cream transition-colors"
+                    >
+                      Keep Both
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
     </Modal>

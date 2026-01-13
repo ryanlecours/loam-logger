@@ -7,17 +7,21 @@ interface Ride {
   durationSeconds: number;
   distanceMiles: number;
   elevationGainFeet: number;
+  rideType?: string;
   trailSystem?: string | null;
   location?: string | null;
   stravaActivityId?: string | null;
   garminActivityId?: string | null;
+  bikeId?: string | null;
 }
 
 interface CompactRideRowProps {
   ride: Ride;
+  bikeName?: string | null;
+  onLinkBike?: (ride: Ride) => void;
 }
 
-export function CompactRideRow({ ride }: CompactRideRowProps) {
+export function CompactRideRow({ ride, bikeName, onLinkBike }: CompactRideRowProps) {
   const title = ride.trailSystem || ride.location || 'Ride';
   const formattedDate = formatRideDate(ride.startTime);
   const duration = formatDurationCompact(ride.durationSeconds);
@@ -38,6 +42,19 @@ export function CompactRideRow({ ride }: CompactRideRowProps) {
           <span className="compact-ride-meta-sep">•</span>
           <span>{climb} ft</span>
         </div>
+        {bikeName ? (
+          <div className="compact-ride-bike">
+            {bikeName}
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => onLinkBike?.(ride)}
+            className="compact-ride-no-bike"
+          >
+            Link bike
+          </button>
+        )}
       </div>
       <div className="compact-ride-source">
         <span className={`source-badge source-badge-${source}`}>

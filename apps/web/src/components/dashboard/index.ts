@@ -14,3 +14,4 @@ export { RecentRidesCard } from './RecentRidesCard';
 export { CompactRideRow } from './CompactRideRow';
 export { RideStatsCompact } from './RideStatsCompact';
 export { LogServiceModal } from './LogServiceModal';
+export { LinkBikeModal } from './LinkBikeModal';

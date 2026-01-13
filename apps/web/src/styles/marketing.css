@@ -2074,7 +2074,7 @@ html.marketing-page:focus-within {
   color: var(--concrete);
   background: rgba(54, 60, 57, 0.4);
   border: 1px solid var(--sage-20);
-  border-radius: 10px;
+  border-radius: 0.5rem;
   cursor: pointer;
   transition: all 0.2s ease;
   padding: 0;
@@ -4274,21 +4274,25 @@ html.marketing-page:focus-within {
 }
 
 .priority-hero-image-container {
-  flex: 0 0 auto;
+  flex: 0 0 33%;
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
-  justify-content: center;
+  align-items: center;
+  justify-content: flex-start;
+  align-self: stretch;
   min-height: 0;
   gap: 1rem;
 }
 
 .priority-hero-image {
-  max-width: 100%;
-  max-height: 100%;
+  width: 100%;
+  max-height: 200px;
   object-fit: contain;
-  flex: 1;
-  min-height: 0;
+  border-radius: 1rem;
+  border: 1px solid var(--sage-20);
+  background: rgba(30, 34, 32, 0.5);
+  padding: 1rem;
+  flex-shrink: 0;
 }
 
 /* Skeleton layout utilities for priority hero loading state */
@@ -4310,33 +4314,6 @@ html.marketing-page:focus-within {
   width: 60%;
 }
 
-.priority-hero-admin-buttons {
-  display: flex;
-  gap: 0.5rem;
-  flex-shrink: 0;
-}
-
-.priority-hero-admin-btn {
-  padding: 0.375rem 0.75rem;
-  font-size: 0.6875rem;
-  background: var(--sage-20);
-  border: 1px solid var(--sage-30);
-  border-radius: 4px;
-  color: var(--sage);
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.priority-hero-admin-btn:hover:not(:disabled) {
-  background: var(--sage-30);
-  border-color: rgba(134, 158, 140, 0.5);
-}
-
-.priority-hero-admin-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
 .priority-hero-actions {
   display: flex;
   gap: 0.75rem;
@@ -4351,6 +4328,64 @@ html.marketing-page:focus-within {
 
 .priority-hero-actions .btn-secondary {
   flex: 0 0 auto;
+}
+
+/* Bike Rides Section */
+.priority-hero-bike-rides {
+  display: none;
+  flex-direction: column;
+  gap: 0.5rem;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+}
+
+@media (min-width: 769px) {
+  .priority-hero-bike-rides {
+    display: flex;
+  }
+}
+
+.priority-hero-bike-rides-header {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--sage);
+  margin: 0;
+}
+
+.priority-hero-bike-rides-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  background: var(--sage-5);
+  border-radius: 0.5rem;
+  overflow: hidden;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* Style compact-ride-row inside bike rides section */
+.priority-hero-bike-rides-list .compact-ride-row {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--sage-10);
+}
+
+.priority-hero-bike-rides-list .compact-ride-row:last-child {
+  border-bottom: none;
+}
+
+/* Hide bike name in bike rides section since it's redundant */
+.priority-hero-bike-rides-list .compact-ride-bike {
+  display: none;
+}
+
+.priority-hero-bike-rides-empty {
+  font-size: 0.8125rem;
+  color: var(--sage);
+  font-style: italic;
 }
 
 /* Status Pill */
@@ -4650,10 +4685,10 @@ html.marketing-page:focus-within {
 }
 
 .component-health-list {
+  flex: 1;
   display: flex;
   flex-direction: column;
   gap: 0.375rem;
-  max-height: 280px;
   overflow-y: auto;
   overflow-x: hidden;
   min-height: 0;
@@ -5095,6 +5130,34 @@ html.marketing-page:focus-within {
   opacity: 0.5;
 }
 
+.compact-ride-bike {
+  font-size: 0.6875rem;
+  color: var(--mint);
+  margin-top: 0.125rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.compact-ride-no-bike {
+  font-size: 0.6875rem;
+  color: var(--amber-400, #fbbf24);
+  margin-top: 0.125rem;
+  font-weight: 500;
+  text-decoration: none;
+  transition: color 0.15s ease;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+.compact-ride-no-bike:hover {
+  color: var(--amber-300, #fcd34d);
+  text-decoration: underline;
+}
+
 .compact-ride-source {
   flex-shrink: 0;
 }
@@ -5434,18 +5497,13 @@ html.marketing-page:focus-within {
 
   .priority-hero-image-container {
     order: -1;
-    max-height: 120px;
-    background: rgba(30, 34, 32, 0.9);
-    border-radius: 0.5rem;
-    padding: 0.5rem;
+    flex: 0 0 auto;
+    max-height: 140px;
   }
 
   .priority-hero-image {
-    max-height: 100px;
-  }
-
-  .priority-hero-admin-buttons {
-    display: none;
+    max-height: 120px;
+    padding: 0.5rem;
   }
 
   .priority-hero-keyline {

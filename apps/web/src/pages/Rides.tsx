@@ -34,21 +34,28 @@ type DateRange = 'all' | '30days' | '3months' | '6months' | '1year';
 const getDateRangeFilter = (range: DateRange) => {
   if (range === 'all') return null;
 
-  const endDate = new Date();
-  const startDate = new Date();
+  const now = new Date();
+
+  // End date: end of today (23:59:59.999)
+  const endDate = new Date(now);
+  endDate.setHours(23, 59, 59, 999);
+
+  // Start date: beginning of the day N days/months/years ago (00:00:00.000)
+  const startDate = new Date(now);
+  startDate.setHours(0, 0, 0, 0);
 
   switch (range) {
     case '30days':
-      startDate.setDate(endDate.getDate() - 30);
+      startDate.setDate(startDate.getDate() - 30);
       break;
     case '3months':
-      startDate.setMonth(endDate.getMonth() - 3);
+      startDate.setMonth(startDate.getMonth() - 3);
       break;
     case '6months':
-      startDate.setMonth(endDate.getMonth() - 6);
+      startDate.setMonth(startDate.getMonth() - 6);
       break;
     case '1year':
-      startDate.setFullYear(endDate.getFullYear() - 1);
+      startDate.setFullYear(startDate.getFullYear() - 1);
       break;
   }
 

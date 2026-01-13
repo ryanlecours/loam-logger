@@ -16,7 +16,7 @@ export default function HeartRateSection({ stats }: HeartRateSectionProps) {
         </div>
         <div className="hr-stat">
           <span className="hr-value hr-max">{stats.maxHr ?? '—'}</span>
-          <span className="hr-label">Max BPM</span>
+          <span className="hr-label">Peak Avg</span>
         </div>
       </div>
 

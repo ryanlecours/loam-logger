@@ -9,8 +9,10 @@ import ConnectGarminLink from "../components/ConnectGarminLink";
 import ConnectStravaLink from "../components/ConnectStravaLink";
 import GarminImportModal from "../components/GarminImportModal";
 import StravaImportModal from "../components/StravaImportModal";
+import StravaGearMappingModal from "../components/StravaGearMappingModal";
 import DataSourceSelector from "../components/DataSourceSelector";
 import DuplicateRidesModal from "../components/DuplicateRidesModal";
+import { UNMAPPED_STRAVA_GEARS } from "../graphql/stravaGear";
 import { useCurrentUser } from "../hooks/useCurrentUser";
 import { usePreferences } from "../hooks/usePreferences";
 import { getAuthHeaders } from "@/lib/csrf";
@@ -34,6 +36,9 @@ export default function Settings() {
   const { data: accountsData, refetch: refetchAccounts } = useQuery(CONNECTED_ACCOUNTS_QUERY, {
     fetchPolicy: 'cache-and-network',
   });
+  const { data: unmappedData, refetch: refetchUnmapped } = useQuery(UNMAPPED_STRAVA_GEARS, {
+    fetchPolicy: 'cache-and-network',
+  });
   const { hoursDisplay, setHoursDisplay } = usePreferences();
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
@@ -43,6 +48,7 @@ export default function Settings() {
   const [activeDataSource, setActiveDataSource] = useState<'garmin' | 'strava' | null>(null);
   const [stravaDeleteLoading, setStravaDeleteLoading] = useState(false);
   const [garminDeleteLoading, setGarminDeleteLoading] = useState(false);
+  const [stravaMappingModalOpen, setStravaMappingModalOpen] = useState(false);
 
   // Check for OAuth connection callbacks
   useEffect(() => {
@@ -391,6 +397,30 @@ export default function Settings() {
           </div>
         )}
 
+        {/* Strava Bike Mapping */}
+        {isStravaConnected && (
+          <div className="panel-spaced">
+            <div>
+              <p className="label-section">Strava Integration</p>
+              <h2 className="title-section">Bike Mapping</h2>
+              <p className="text-sm text-muted mt-1">
+                Map your Strava bikes to Loam Logger bikes to track component hours.
+                {(unmappedData?.unmappedStravaGears?.length ?? 0) > 0 && (
+                  <span className="ml-2 text-amber-400">
+                    ({unmappedData.unmappedStravaGears.length} unmapped)
+                  </span>
+                )}
+              </p>
+            </div>
+            <button
+              onClick={() => setStravaMappingModalOpen(true)}
+              className="btn-secondary"
+            >
+              Manage Bike Mappings
+            </button>
+          </div>
+        )}
+
         <div className="panel-spaced">
           <div>
             <p className="label-section">Profile</p>
@@ -516,6 +546,20 @@ export default function Settings() {
         open={duplicatesModalOpen}
         onClose={() => setDuplicatesModalOpen(false)}
       />
+
+      {(unmappedData?.unmappedStravaGears?.length ?? 0) > 0 && (
+        <StravaGearMappingModal
+          open={stravaMappingModalOpen}
+          onClose={() => setStravaMappingModalOpen(false)}
+          onSuccess={() => {
+            refetchUnmapped();
+            setSuccessMessage('Strava bike mapped successfully!');
+            setTimeout(() => setSuccessMessage(null), 5000);
+          }}
+          unmappedGears={unmappedData.unmappedStravaGears}
+          trigger="settings"
+        />
+      )}
     </div>
   );
 }

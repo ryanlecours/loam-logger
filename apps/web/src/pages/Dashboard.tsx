@@ -1,9 +1,8 @@
 // src/pages/Dashboard.tsx
 import { useEffect, useState } from 'react';
-import { useQuery, useMutation } from '@apollo/client';
+import { useQuery } from '@apollo/client';
 import { RIDES } from '../graphql/rides';
 import { BIKES } from '../graphql/bikes';
-import { ADD_RIDE } from '../graphql/addRide';
 import { UNMAPPED_STRAVA_GEARS } from '../graphql/stravaGear';
 import StravaGearMappingModal from '../components/StravaGearMappingModal';
 import RideStatsCard from '../components/RideStatsCard';
@@ -16,6 +15,7 @@ import {
   BikeSwitcherRow,
   RecentRidesCard,
   LogServiceModal,
+  LinkBikeModal,
 } from '../components/dashboard';
 
 interface Ride {
@@ -25,7 +25,7 @@ interface Ride {
   distanceMiles: number;
   elevationGainFeet: number;
   averageHr?: number | null;
-  rideType: string;
+  rideType?: string;
   bikeId?: string | null;
   notes?: string | null;
   trailSystem?: string | null;
@@ -34,7 +34,7 @@ interface Ride {
   garminActivityId?: string | null;
 }
 
-const RECENT_COUNT = 10;
+const RECENT_COUNT = 20;
 
 export default function Dashboard() {
   const user = useCurrentUser().user;
@@ -62,9 +62,6 @@ export default function Dashboard() {
     skip: !user,
   });
 
-  // Mutations
-  const [addRide] = useMutation(ADD_RIDE);
-
   // Derived data
   const rides = ridesData?.rides ?? [];
   const bikes = bikesData?.bikes ?? [];
@@ -82,13 +79,16 @@ export default function Dashboard() {
   const [showGearMapping, setShowGearMapping] = useState(false);
   const [unmappedGears, setUnmappedGears] = useState<Array<{ gearId: string; rideCount: number }>>([]);
   const [isLogServiceOpen, setIsLogServiceOpen] = useState(false);
-  const [isSimulatingRide, setIsSimulatingRide] = useState(false);
+  const [rideToLink, setRideToLink] = useState<Ride | null>(null);
 
   // Effects
   useEffect(() => {
     if (unmappedData?.unmappedStravaGears?.length > 0) {
+      const isSnoozed = localStorage.getItem('loam-strava-mapping-snoozed') === 'true';
       setUnmappedGears(unmappedData.unmappedStravaGears);
-      setShowGearMapping(true);
+      if (!isSnoozed) {
+        setShowGearMapping(true);
+      }
     }
   }, [unmappedData]);
 
@@ -96,78 +96,6 @@ export default function Dashboard() {
   const handleLogService = () => {
     setIsLogServiceOpen(true);
   };
-
-  const handleSimulateGarminRide = async () => {
-    if (bikes.length === 0) {
-      alert('Please add a bike first to test Garmin rides.');
-      return;
-    }
-
-    setIsSimulatingRide(true);
-    try {
-      const now = new Date();
-      const mockRideData = {
-        startTime: now.toISOString(),
-        durationSeconds: Math.floor(Math.random() * 3600) + 1800,
-        distanceMiles: parseFloat((Math.random() * 15 + 5).toFixed(2)),
-        elevationGainFeet: Math.floor(Math.random() * 2000) + 500,
-        averageHr: Math.floor(Math.random() * 40) + 140,
-        rideType: 'TRAIL',
-        notes: 'TEST: Simulated Garmin ride from watch',
-        trailSystem: 'Mock Trail System',
-        location: 'Test Location',
-      };
-
-      await addRide({
-        variables: { input: mockRideData },
-      });
-
-      await refetchRides();
-      alert('Simulated Garmin ride created successfully!');
-    } catch (err) {
-      console.error('Failed to simulate Garmin ride:', err);
-      alert('Failed to simulate ride. Check console for details.');
-    } finally {
-      setIsSimulatingRide(false);
-    }
-  };
-
-  const handleSimulateLongGarminRide = async () => {
-    if (bikes.length === 0) {
-      alert('Please add a bike first to test Garmin rides.');
-      return;
-    }
-
-    setIsSimulatingRide(true);
-    try {
-      const now = new Date();
-      const mockRideData = {
-        startTime: now.toISOString(),
-        durationSeconds: Math.floor(Math.random() * 36000) + 180000,
-        distanceMiles: parseFloat((Math.random() * 200 + 300).toFixed(2)),
-        elevationGainFeet: Math.floor(Math.random() * 20000) + 30000,
-        averageHr: Math.floor(Math.random() * 40) + 140,
-        rideType: 'TRAIL',
-        notes: 'TEST: Simulated LONG Garmin ride from watch (50+ hours)',
-        trailSystem: 'Epic Long Trail System',
-        location: 'Test Location',
-      };
-
-      await addRide({
-        variables: { input: mockRideData },
-      });
-
-      await refetchRides();
-      alert('Simulated long Garmin ride created successfully!');
-    } catch (err) {
-      console.error('Failed to simulate long Garmin ride:', err);
-      alert('Failed to simulate ride. Check console for details.');
-    } finally {
-      setIsSimulatingRide(false);
-    }
-  };
-
-  const isAdmin = user?.role === 'ADMIN';
 
   return (
     <>
@@ -180,10 +108,7 @@ export default function Dashboard() {
               onResetToPriority={resetToPriority}
               onLogService={handleLogService}
               loading={bikesLoading}
-              isAdmin={isAdmin}
-              isSimulatingRide={isSimulatingRide}
-              onTestRide={handleSimulateGarminRide}
-              onLongRide={handleSimulateLongGarminRide}
+              rides={rides}
             />
             {isPro && sortedBikes.length > 1 && (
               <BikeSwitcherRow
@@ -196,7 +121,12 @@ export default function Dashboard() {
         }
         sidebar={
           <>
-            <RecentRidesCard rides={rides} loading={ridesLoading} />
+            <RecentRidesCard
+              rides={rides}
+              bikes={bikes}
+              loading={ridesLoading}
+              onLinkBike={setRideToLink}
+            />
             <div className="ride-stats-compact">
               <RideStatsCard showHeading={true} />
             </div>
@@ -223,6 +153,16 @@ export default function Dashboard() {
           }}
           unmappedGears={unmappedGears}
           trigger="webhook"
+        />
+      )}
+
+      {/* Link Bike Modal */}
+      {rideToLink && (
+        <LinkBikeModal
+          ride={rideToLink}
+          bikes={bikes}
+          onClose={() => setRideToLink(null)}
+          onSuccess={() => refetchRides()}
         />
       )}
     </>
