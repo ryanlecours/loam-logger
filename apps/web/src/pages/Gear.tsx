@@ -298,8 +298,7 @@ export default function Gear() {
 
   const initialBikeState = useMemo(
     () => createBikeFormState(currentBike),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [bikeModal?.mode, currentBike?.id]
+    [currentBike]
   );
 
   const initialSpareState: SpareFormState = useMemo(() => {
