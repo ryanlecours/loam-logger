@@ -2013,7 +2013,6 @@ html.marketing-page:focus-within {
 
 .modal-dialog {
   width: 100%;
-  max-width: 36rem;
   max-height: 90%;
   background: rgba(30, 34, 32, 0.98);
   border: 1px solid var(--sage-25);
@@ -5828,7 +5827,7 @@ html.marketing-page:focus-within {
 
 @media (min-width: 1024px) {
   .gear-layout {
-    grid-template-columns: 1fr 380px;
+    grid-template-columns: 1fr 460px;
   }
 }
 
@@ -5879,6 +5878,42 @@ html.marketing-page:focus-within {
   margin-bottom: 1rem;
 }
 
+.bike-card-header-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.bike-card-header-image {
+  flex-shrink: 0;
+  width: 200px;
+  height: 150px;
+}
+
+.bike-card-header-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: 0.5rem;
+  border: 1px solid var(--sage-15);
+  background: rgba(30, 34, 32, 0.5);
+  padding: 0.25rem;
+}
+
+.bike-card-header-img-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.5rem;
+  border: 1px solid var(--sage-15);
+  background: rgba(30, 34, 32, 0.5);
+  color: var(--sage-30);
+}
+
 .bike-card-header-content {
   flex: 1;
   min-width: 0;
@@ -5893,6 +5928,13 @@ html.marketing-page:focus-within {
   margin: 0 0 0.25rem;
 }
 
+.bike-card-title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
 .bike-card-name {
   font-size: 1.375rem;
   font-weight: 700;
@@ -5901,6 +5943,22 @@ html.marketing-page:focus-within {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.bike-card-title-separator {
+  width: 1px;
+  height: 1.25rem;
+  background: var(--sage-30);
+  flex-shrink: 0;
+}
+
+.bike-card-stats-inline {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  flex-wrap: wrap;
+  font-size: 0.8125rem;
+  color: var(--sage);
 }
 
 .bike-card-nickname {
@@ -5960,18 +6018,7 @@ html.marketing-page:focus-within {
   gap: 0.75rem;
 }
 
-@media (max-width: 639px) {
-  .bike-card-body {
-    flex-direction: column-reverse;
-  }
-
-  .bike-card-image-container {
-    flex: none;
-    width: 100%;
-    max-width: 180px;
-    margin: 0 auto;
-  }
-}
+/* Image container styles preserved for potential future use */
 
 .bike-card-image {
   width: 100%;
@@ -6461,6 +6508,30 @@ html.marketing-page:focus-within {
 
   .bike-card {
     padding: 1rem;
+  }
+
+  .bike-card-header-main {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .bike-card-header-image {
+    width: 140px;
+    height: 105px;
+  }
+
+  .bike-card-title-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+
+  .bike-card-title-separator {
+    display: none;
+  }
+
+  .bike-card-stats-inline {
+    font-size: 0.75rem;
   }
 
   .bike-card-name {

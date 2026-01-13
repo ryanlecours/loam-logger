@@ -150,10 +150,10 @@ export default function BikeDetail() {
 
   const bike = data?.bikes?.find((b) => b.id === bikeId);
   const predictions = bike?.predictions;
-  const components = bike?.components ?? [];
 
   // Sort components by prediction status (most urgent first)
   const sortedComponents = useMemo(() => {
+    const components = bike?.components ?? [];
     if (!components.length) return [];
 
     const predictionMap = new Map<string, ComponentPrediction>();
@@ -181,7 +181,7 @@ export default function BikeDetail() {
       const hoursB = predB?.hoursRemaining ?? Infinity;
       return hoursA - hoursB;
     });
-  }, [components, predictions]);
+  }, [bike?.components, predictions]);
 
   // Modal states
   const [editBikeOpen, setEditBikeOpen] = useState(false);

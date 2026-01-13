@@ -1,6 +1,6 @@
 import { motion } from 'motion/react';
 import { Link } from 'react-router-dom';
-import { FaBicycle, FaWrench, FaEye, FaPencilAlt, FaTrash, FaExternalLinkAlt } from 'react-icons/fa';
+import { FaBicycle, FaWrench, FaPencilAlt, FaTrash, FaExternalLinkAlt } from 'react-icons/fa';
 import { Button } from '../ui/Button';
 import { KebabMenu, type KebabMenuItem } from './KebabMenu';
 import { StatusDot } from '../dashboard/StatusDot';
@@ -68,7 +68,6 @@ export function BikeOverviewCard({
   onEdit,
   onDelete,
   onLogService,
-  isDeleting: _isDeleting = false,
 }: BikeOverviewCardProps) {
   const predictions = bike.predictions;
   const components = predictions?.components ?? [];
@@ -110,64 +109,83 @@ export function BikeOverviewCard({
       transition={{ duration: 0.3 }}
       layout
     >
-      {/* Header */}
+      {/* Header with inline image */}
       <header className="bike-card-header">
-        <div className="bike-card-header-content">
-          <p className="bike-card-manufacturer">{bike.manufacturer}</p>
-          <h3 className="bike-card-name">{bikeName}</h3>
-          {bike.nickname && (
-            <p className="bike-card-nickname">"{bike.nickname}"</p>
-          )}
+        <div className="bike-card-header-main">
+          {/* Bike thumbnail inline with title */}
+          <div className="bike-card-header-image">
+            {bike.thumbnailUrl ? (
+              <img
+                src={bike.thumbnailUrl}
+                alt={`${bike.year} ${bike.manufacturer} ${bike.model}`}
+                className="bike-card-header-img"
+                onError={(e) => {
+                  e.currentTarget.style.display = 'none';
+                  const placeholder = e.currentTarget.nextElementSibling as HTMLElement;
+                  if (placeholder) placeholder.style.display = 'flex';
+                }}
+              />
+            ) : null}
+            <div
+              className="bike-card-header-img-placeholder"
+              style={{ display: bike.thumbnailUrl ? 'none' : 'flex' }}
+            >
+              <FaBicycle size={48} />
+            </div>
+          </div>
 
-          {/* Badges */}
-          <div className="bike-card-badges">
-            {bike.category && (
-              <span className="bike-card-badge">
-                {bike.subcategory || bike.category}
-              </span>
+          <div className="bike-card-header-content">
+            <p className="bike-card-manufacturer">{bike.manufacturer}</p>
+            <div className="bike-card-title-row">
+              <h3 className="bike-card-name">{bikeName}</h3>
+              {/* Stats inline with title */}
+              {(bike.travelForkMm || bike.travelShockMm) && (
+                <>
+                  <span className="bike-card-title-separator" />
+                  <div className="bike-card-stats-inline">
+                    {bike.travelForkMm && (
+                      <span className="bike-card-stat">
+                        <span className="bike-card-stat-value">{bike.travelForkMm}mm</span> front
+                      </span>
+                    )}
+                    {bike.travelShockMm && (
+                      <span className="bike-card-stat">
+                        <span className="bike-card-stat-value">{bike.travelShockMm}mm</span> rear
+                      </span>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+            {bike.nickname && (
+              <p className="bike-card-nickname">"{bike.nickname}"</p>
             )}
-            {bike.isEbike && (
-              <span className="bike-card-badge bike-card-badge-accent">
-                E-Bike
-              </span>
-            )}
-            {bike.frameMaterial && (
-              <span className="bike-card-badge">{bike.frameMaterial}</span>
-            )}
+
+            {/* Badges */}
+            <div className="bike-card-badges">
+              {bike.category && (
+                <span className="bike-card-badge">
+                  {bike.subcategory || bike.category}
+                </span>
+              )}
+              {bike.isEbike && (
+                <span className="bike-card-badge bike-card-badge-accent">
+                  E-Bike
+                </span>
+              )}
+              {bike.frameMaterial && (
+                <span className="bike-card-badge">{bike.frameMaterial}</span>
+              )}
+            </div>
           </div>
         </div>
 
         <KebabMenu items={menuItems} ariaLabel={`Actions for ${bikeName}`} />
       </header>
 
-      {/* Body - Two Column Layout */}
+      {/* Body - Full width content */}
       <div className="bike-card-body">
-        {/* Left column: stats, health, actions */}
         <div className="bike-card-content">
-          {/* Stats Row */}
-          <div className="bike-card-stats">
-            {bike.travelForkMm && (
-              <span className="bike-card-stat">
-                <span className="bike-card-stat-value">{bike.travelForkMm}mm</span> front
-              </span>
-            )}
-            {bike.travelShockMm && (
-              <span className="bike-card-stat">
-                <span className="bike-card-stat-value">{bike.travelShockMm}mm</span> rear
-              </span>
-            )}
-            {bike.spokesUrl && (
-              <a
-                href={bike.spokesUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="bike-card-link"
-              >
-                99spokes <FaExternalLinkAlt size={10} />
-              </a>
-            )}
-          </div>
-
           {/* Component Health Preview */}
           {sortedComponents.length > 0 && (
             <div className="bike-card-health">
@@ -192,9 +210,6 @@ export function BikeOverviewCard({
                   </div>
                 ))}
               </div>
-              <Link to={`/gear/${bike.id}`} className="bike-card-health-more">
-                Edit Bike Details
-              </Link>
             </div>
           )}
 
@@ -218,31 +233,19 @@ export function BikeOverviewCard({
               </Button>
             )}
             <Link to={`/gear/${bike.id}`} className="btn-secondary btn-sm">
-              <FaEye size={12} className="icon-left" />
-              View details
+              <FaPencilAlt size={12} className="icon-left" />
+              Edit details
             </Link>
-          </div>
-        </div>
-
-        {/* Right column: bike image */}
-        <div className="bike-card-image-container">
-          {bike.thumbnailUrl ? (
-            <img
-              src={bike.thumbnailUrl}
-              alt={`${bike.year} ${bike.manufacturer} ${bike.model}`}
-              className="bike-card-image"
-              onError={(e) => {
-                e.currentTarget.style.display = 'none';
-                const placeholder = e.currentTarget.nextElementSibling as HTMLElement;
-                if (placeholder) placeholder.style.display = 'flex';
-              }}
-            />
-          ) : null}
-          <div
-            className="bike-card-image-placeholder"
-            style={{ display: bike.thumbnailUrl ? 'none' : 'flex' }}
-          >
-            <FaBicycle size={40} />
+            {bike.spokesUrl && (
+              <a
+                href={bike.spokesUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn-secondary btn-sm"
+              >
+                99spokes <FaExternalLinkAlt size={10} className="icon-right" />
+              </a>
+            )}
           </div>
         </div>
       </div>
