@@ -127,8 +127,8 @@ export default function StravaGearMappingModal({
   };
 
   const handleSearch = async () => {
-    if (searchQuery.length < 2) {
-      setError('Please enter at least 2 characters to search');
+    if (searchQuery.length < 3) {
+      setError('Please enter at least 3 characters to search');
       return;
     }
 
@@ -327,7 +327,7 @@ export default function StravaGearMappingModal({
       </div>
 
       {error && (
-        <div className="mb-4 p-4 bg-red-500/20 border border-red-500/50 rounded-xl text-red-200">
+        <div role="alert" className="mb-4 p-4 bg-red-500/20 border border-red-500/50 rounded-xl text-red-200">
           {error}
         </div>
       )}
@@ -354,7 +354,7 @@ export default function StravaGearMappingModal({
 
           {/* Search input with button */}
           <div className="space-y-2">
-            <label className="label-muted block">Search for your bike</label>
+            <label id="bike-search-label" className="label-muted block">Search for your bike</label>
             <div className="flex gap-2">
               <Input
                 value={searchQuery}
@@ -362,26 +362,36 @@ export default function StravaGearMappingModal({
                 onKeyDown={handleKeyDown}
                 placeholder="e.g. Trek Slash 2024"
                 containerClassName="flex-1"
+                aria-labelledby="bike-search-label"
+                aria-describedby="bike-search-hint"
               />
               <Button
                 variant="secondary"
                 size="sm"
                 onClick={handleSearch}
-                disabled={isSearching || searchQuery.length < 2}
+                disabled={isSearching || searchQuery.length < 3}
+                aria-label="Search for bike"
               >
                 {isSearching ? 'Searching...' : 'Search'}
               </Button>
             </div>
-            <p className="text-xs text-muted">Search by brand, model, or year</p>
+            <p id="bike-search-hint" className="text-xs text-muted">Search by brand, model, or year. Press Enter to search.</p>
           </div>
 
           {/* Search results */}
           {hasSearched && searchResults.length > 0 && (
-            <div className="max-h-48 overflow-auto rounded-lg bg-surface-2 border border-app">
+            <div
+              role="listbox"
+              aria-label="Bike search results"
+              className="max-h-48 overflow-auto rounded-lg bg-surface-2 border border-app"
+            >
               {searchResults.map((bike) => (
                 <button
                   key={bike.id}
                   type="button"
+                  role="option"
+                  aria-selected={selectedSpokesBike?.id === bike.id}
+                  aria-label={`${bike.year} ${bike.maker} ${bike.model}, ${bike.category}`}
                   onClick={() => {
                     setSelectedSpokesBike(bike);
                     setError(null);
@@ -438,6 +448,7 @@ export default function StravaGearMappingModal({
               setHasSearched(false);
               setSelectedSpokesBike(null);
             }}
+            aria-label="Go back to bike selection"
             className="text-sm text-muted hover:text-white transition"
           >
             ← Back to bike selection
