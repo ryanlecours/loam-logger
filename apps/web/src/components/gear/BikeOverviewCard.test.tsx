@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { BikeOverviewCard } from './BikeOverviewCard';
-import type { PredictionStatus } from '../../types/prediction';
+import type { PredictionStatus, ComponentType, ConfidenceLevel, ComponentLocation } from '../../types/prediction';
 
 // Mock framer-motion
 vi.mock('motion/react', () => ({
@@ -61,17 +61,19 @@ vi.mock('../../utils/formatters', () => ({
 describe('BikeOverviewCard', () => {
   const createComponent = (overrides = {}) => ({
     componentId: 'comp-1',
-    componentType: 'FORK',
-    location: null,
+    componentType: 'FORK' as ComponentType,
+    location: 'NONE' as ComponentLocation,
     brand: 'RockShox',
     model: 'Pike',
     status: 'DUE_SOON' as PredictionStatus,
     hoursRemaining: 10.5,
     ridesRemainingEstimate: 5,
-    confidence: 'HIGH',
+    confidence: 'HIGH' as ConfidenceLevel,
     currentHours: 35,
     serviceIntervalHours: 50,
     hoursSinceService: 35,
+    why: null,
+    drivers: null,
     ...overrides,
   });
 
