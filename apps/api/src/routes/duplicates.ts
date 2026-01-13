@@ -150,18 +150,49 @@ r.post<Empty, void, { rideId: string }>(
         return sendForbidden(res, 'Unauthorized');
       }
 
-      // Clear duplicate flags
-      await prisma.ride.update({
-        where: { id: rideId },
-        data: {
-          isDuplicate: false,
-          duplicateOfId: null,
-        },
+      // Clear duplicate flags on this ride and any related rides in a transaction
+      await prisma.$transaction(async (tx) => {
+        // Clear flags on the provided ride
+        await tx.ride.update({
+          where: { id: rideId },
+          data: {
+            isDuplicate: false,
+            duplicateOfId: null,
+          },
+        });
+
+        // If this ride points to a primary, clear any other rides pointing to that same primary
+        // (handles the case where we're marking the duplicate ride)
+        if (ride.duplicateOfId) {
+          await tx.ride.updateMany({
+            where: {
+              userId,
+              duplicateOfId: ride.duplicateOfId,
+            },
+            data: {
+              isDuplicate: false,
+              duplicateOfId: null,
+            },
+          });
+        }
+
+        // Clear flags on any rides that point to this ride as their primary
+        // (handles the case where we're marking the primary ride)
+        await tx.ride.updateMany({
+          where: {
+            userId,
+            duplicateOfId: rideId,
+          },
+          data: {
+            isDuplicate: false,
+            duplicateOfId: null,
+          },
+        });
       });
 
       return res.json({
         success: true,
-        message: 'Ride marked as not duplicate',
+        message: 'Rides marked as not duplicates',
       });
     } catch (error) {
       logError('Duplicates marking', error);
