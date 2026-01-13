@@ -150,18 +150,49 @@ r.post<Empty, void, { rideId: string }>(
         return sendForbidden(res, 'Unauthorized');
       }
 
-      // Clear duplicate flags
-      await prisma.ride.update({
-        where: { id: rideId },
-        data: {
-          isDuplicate: false,
-          duplicateOfId: null,
-        },
+      // Clear duplicate flags on this ride and any related rides in a transaction
+      await prisma.$transaction(async (tx) => {
+        // Clear flags on the provided ride
+        await tx.ride.update({
+          where: { id: rideId },
+          data: {
+            isDuplicate: false,
+            duplicateOfId: null,
+          },
+        });
+
+        // If this ride points to a primary, clear any other rides pointing to that same primary
+        // (handles the case where we're marking the duplicate ride)
+        if (ride.duplicateOfId) {
+          await tx.ride.updateMany({
+            where: {
+              userId,
+              duplicateOfId: ride.duplicateOfId,
+            },
+            data: {
+              isDuplicate: false,
+              duplicateOfId: null,
+            },
+          });
+        }
+
+        // Clear flags on any rides that point to this ride as their primary
+        // (handles the case where we're marking the primary ride)
+        await tx.ride.updateMany({
+          where: {
+            userId,
+            duplicateOfId: rideId,
+          },
+          data: {
+            isDuplicate: false,
+            duplicateOfId: null,
+          },
+        });
       });
 
       return res.json({
         success: true,
-        message: 'Ride marked as not duplicate',
+        message: 'Rides marked as not duplicates',
       });
     } catch (error) {
       logError('Duplicates marking', error);
@@ -206,26 +237,21 @@ r.post('/duplicates/scan', async (req: Request, res: Response) => {
     const garminRides = allRides.filter(r => r.garminActivityId);
     const stravaRides = allRides.filter(r => r.stravaActivityId);
 
-    // Index Strava rides by 10-minute time buckets for O(1) lookup
-    const BUCKET_MS = 10 * 60 * 1000;
-    const stravaByBucket = new Map<number, typeof stravaRides>();
+    // Index Strava rides by date (YYYY-MM-DD) for O(1) lookup
+    const stravaByDate = new Map<string, typeof stravaRides>();
     for (const ride of stravaRides) {
-      const bucket = Math.floor(ride.startTime.getTime() / BUCKET_MS);
-      if (!stravaByBucket.has(bucket)) stravaByBucket.set(bucket, []);
-      stravaByBucket.get(bucket)!.push(ride);
+      const dateKey = ride.startTime.toISOString().split('T')[0];
+      if (!stravaByDate.has(dateKey)) stravaByDate.set(dateKey, []);
+      stravaByDate.get(dateKey)!.push(ride);
     }
 
     const duplicatePairs: Array<{ primaryId: string; duplicateId: string }> = [];
     const matchedStravaIds = new Set<string>();
 
-    // Compare each Garmin ride only against Strava rides in same/adjacent time buckets
+    // Compare each Garmin ride only against Strava rides on same date
     for (const garminRide of garminRides) {
-      const bucket = Math.floor(garminRide.startTime.getTime() / BUCKET_MS);
-      const candidates = [
-        ...(stravaByBucket.get(bucket - 1) ?? []),
-        ...(stravaByBucket.get(bucket) ?? []),
-        ...(stravaByBucket.get(bucket + 1) ?? []),
-      ];
+      const dateKey = garminRide.startTime.toISOString().split('T')[0];
+      const candidates = stravaByDate.get(dateKey) ?? [];
 
       for (const stravaRide of candidates) {
         // Skip if this Strava ride is already matched
@@ -393,12 +419,24 @@ r.post('/duplicates/auto-merge', async (req: Request, res: Response) => {
         `;
       }
 
+      // Clear duplicate flags on rides that will have their primary deleted
+      // (must happen before deletion to avoid orphaned duplicateOfId references)
+      if (ridesToDelete.length > 0) {
+        await tx.ride.updateMany({
+          where: {
+            userId,
+            duplicateOfId: { in: ridesToDelete },
+          },
+          data: { isDuplicate: false, duplicateOfId: null },
+        });
+      }
+
       // Delete duplicate rides
       await tx.ride.deleteMany({
         where: { id: { in: ridesToDelete } },
       });
 
-      // Clear duplicate flags on remaining rides
+      // Clear duplicate flags on any remaining rides marked as duplicates
       await tx.ride.updateMany({
         where: { userId, isDuplicate: true },
         data: { isDuplicate: false, duplicateOfId: null },

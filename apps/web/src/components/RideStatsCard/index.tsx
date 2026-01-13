@@ -38,7 +38,7 @@ interface RideStatsCardProps {
 }
 
 export default function RideStatsCard({ showHeading = true }: RideStatsCardProps) {
-  const [selectedTf, setSelectedTf] = useState<Timeframe>('1w');
+  const [selectedTf, setSelectedTf] = useState<Timeframe>('YTD');
 
   const {
     data: ridesData,

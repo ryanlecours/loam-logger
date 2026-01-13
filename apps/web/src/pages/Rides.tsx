@@ -34,21 +34,28 @@ type DateRange = 'all' | '30days' | '3months' | '6months' | '1year';
 const getDateRangeFilter = (range: DateRange) => {
   if (range === 'all') return null;
 
-  const endDate = new Date();
-  const startDate = new Date();
+  const now = new Date();
+
+  // End date: end of today (23:59:59.999)
+  const endDate = new Date(now);
+  endDate.setHours(23, 59, 59, 999);
+
+  // Start date: beginning of the day N days/months/years ago (00:00:00.000)
+  const startDate = new Date(now);
+  startDate.setHours(0, 0, 0, 0);
 
   switch (range) {
     case '30days':
-      startDate.setDate(endDate.getDate() - 30);
+      startDate.setDate(startDate.getDate() - 30);
       break;
     case '3months':
-      startDate.setMonth(endDate.getMonth() - 3);
+      startDate.setMonth(startDate.getMonth() - 3);
       break;
     case '6months':
-      startDate.setMonth(endDate.getMonth() - 6);
+      startDate.setMonth(startDate.getMonth() - 6);
       break;
     case '1year':
-      startDate.setFullYear(endDate.getFullYear() - 1);
+      startDate.setFullYear(startDate.getFullYear() - 1);
       break;
   }
 
@@ -111,46 +118,51 @@ export default function RidesPage() {
           <div className="flex flex-wrap gap-4">
             <label className="flex items-center gap-2 cursor-pointer text-sm text-white hover:text-primary transition-colors">
               <input
-                type="checkbox"
+                type="radio"
+                name="dateRange"
                 checked={dateRange === '30days'}
                 onChange={() => setDateRange('30days')}
-                className="w-4 h-4 rounded border-app/50 bg-surface-2 text-primary focus:ring-primary focus:ring-offset-0"
+                className="w-4 h-4 border-app/50 bg-surface-2 text-primary focus:ring-primary focus:ring-offset-0"
               />
               <span>Last 30 days</span>
             </label>
             <label className="flex items-center gap-2 cursor-pointer text-sm text-white hover:text-primary transition-colors">
               <input
-                type="checkbox"
+                type="radio"
+                name="dateRange"
                 checked={dateRange === '3months'}
                 onChange={() => setDateRange('3months')}
-                className="w-4 h-4 rounded border-app/50 bg-surface-2 text-primary focus:ring-primary focus:ring-offset-0"
+                className="w-4 h-4 border-app/50 bg-surface-2 text-primary focus:ring-primary focus:ring-offset-0"
               />
               <span>Last 3 months</span>
             </label>
             <label className="flex items-center gap-2 cursor-pointer text-sm text-white hover:text-primary transition-colors">
               <input
-                type="checkbox"
+                type="radio"
+                name="dateRange"
                 checked={dateRange === '6months'}
                 onChange={() => setDateRange('6months')}
-                className="w-4 h-4 rounded border-app/50 bg-surface-2 text-primary focus:ring-primary focus:ring-offset-0"
+                className="w-4 h-4 border-app/50 bg-surface-2 text-primary focus:ring-primary focus:ring-offset-0"
               />
               <span>Last 6 months</span>
             </label>
             <label className="flex items-center gap-2 cursor-pointer text-sm text-white hover:text-primary transition-colors">
               <input
-                type="checkbox"
+                type="radio"
+                name="dateRange"
                 checked={dateRange === '1year'}
                 onChange={() => setDateRange('1year')}
-                className="w-4 h-4 rounded border-app/50 bg-surface-2 text-primary focus:ring-primary focus:ring-offset-0"
+                className="w-4 h-4 border-app/50 bg-surface-2 text-primary focus:ring-primary focus:ring-offset-0"
               />
               <span>Last year</span>
             </label>
             <label className="flex items-center gap-2 cursor-pointer text-sm text-white hover:text-primary transition-colors">
               <input
-                type="checkbox"
+                type="radio"
+                name="dateRange"
                 checked={dateRange === 'all'}
                 onChange={() => setDateRange('all')}
-                className="w-4 h-4 rounded border-app/50 bg-surface-2 text-primary focus:ring-primary focus:ring-offset-0"
+                className="w-4 h-4 border-app/50 bg-surface-2 text-primary focus:ring-primary focus:ring-offset-0"
               />
               <span>All time</span>
             </label>

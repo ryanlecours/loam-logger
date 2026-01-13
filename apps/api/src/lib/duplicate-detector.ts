@@ -11,7 +11,7 @@ export interface DuplicateCandidate {
 }
 
 /**
- * Determine if two rides are duplicates based on time, duration, and distance thresholds
+ * Determine if two rides are duplicates based on date, distance, and elevation thresholds
  */
 export function isDuplicateActivity(
   newRide: DuplicateCandidate,
@@ -24,15 +24,12 @@ export function isDuplicateActivity(
 
   if (!differentProviders) return false;
 
-  // Time threshold: within 5 minutes
-  const timeDiffMs = Math.abs(newRide.startTime.getTime() - existingRide.startTime.getTime());
-  const timeDiffMinutes = timeDiffMs / (1000 * 60);
-  if (timeDiffMinutes > 5) return false;
+  // Time threshold: same calendar day (UTC)
+  const newDate = newRide.startTime.toISOString().split('T')[0];
+  const existingDate = existingRide.startTime.toISOString().split('T')[0];
+  if (newDate !== existingDate) return false;
 
-  // Duration threshold: within 5% or 60 seconds (whichever is larger)
-  const durationDiff = Math.abs(newRide.durationSeconds - existingRide.durationSeconds);
-  const durationThreshold = Math.max(existingRide.durationSeconds * 0.05, 60);
-  if (durationDiff > durationThreshold) return false;
+  // Note: Duration check removed - Strava and Garmin report different durations for the same ride
 
   // Distance threshold: within 5% or 0.1 miles (whichever is larger)
   const distanceDiff = Math.abs(newRide.distanceMiles - existingRide.distanceMiles);
@@ -58,10 +55,10 @@ export async function findPotentialDuplicates(
   newRide: DuplicateCandidate,
   prisma: PrismaClient
 ): Promise<DuplicateCandidate | null> {
-  // Search for rides within 10-minute window
-  const timeWindowMs = 10 * 60 * 1000;
-  const startWindow = new Date(newRide.startTime.getTime() - timeWindowMs);
-  const endWindow = new Date(newRide.startTime.getTime() + timeWindowMs);
+  // Search for rides on same calendar day (UTC)
+  const rideDate = newRide.startTime.toISOString().split('T')[0];
+  const startWindow = new Date(rideDate + 'T00:00:00.000Z');
+  const endWindow = new Date(rideDate + 'T23:59:59.999Z');
 
   const potentialMatches = await prisma.ride.findMany({
     where: {
