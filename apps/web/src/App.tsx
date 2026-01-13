@@ -9,6 +9,7 @@ import NotFound from './pages/NotFound';
 import Rides from './pages/Rides';
 import Settings from './pages/Settings';
 import Gear from './pages/Gear';
+import BikeDetail from './pages/BikeDetail';
 import Admin from './pages/Admin';
 import AuthComplete from './pages/AuthComplete';
 import BetaTesterWaitlist from './pages/BetaTesterWaitlist';
@@ -70,6 +71,7 @@ function AppRoutes() {
           <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
           <Route path="/rides" element={<ProtectedRoute><Rides /></ProtectedRoute>} />
           <Route path="/gear" element={<ProtectedRoute><Gear /></ProtectedRoute>} />
+          <Route path="/gear/:bikeId" element={<ProtectedRoute><BikeDetail /></ProtectedRoute>} />
           <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
           <Route path="/admin" element={<ProtectedRoute><Admin /></ProtectedRoute>} />
 

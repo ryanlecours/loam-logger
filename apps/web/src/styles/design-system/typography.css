@@ -1,0 +1,155 @@
+/**
+ * Loam Logger Design System - Typography
+ */
+
+/* ============================================
+   GLOBAL STYLES
+   ============================================ */
+
+html,
+body,
+#root {
+  min-height: 100%;
+  font-family: var(--font-sans);
+  background:
+    radial-gradient(120% 120% at 10% 10%, rgba(68, 96, 76, 0.25), transparent),
+    radial-gradient(70% 120% at 90% 0%, rgba(42, 46, 44, 0.4), transparent),
+    var(--forest-deep);
+  color: var(--cream);
+}
+
+/* Placeholder styling */
+input::placeholder,
+textarea::placeholder {
+  color: rgba(142, 148, 145, 0.6);
+}
+input::-webkit-input-placeholder,
+textarea::-webkit-input-placeholder {
+  color: rgba(142, 148, 145, 0.6);
+}
+input::-moz-placeholder,
+textarea::-moz-placeholder {
+  color: rgba(142, 148, 145, 0.6);
+  opacity: 1;
+}
+input:focus::placeholder,
+textarea:focus::placeholder {
+  color: transparent;
+}
+
+/* ============================================
+   TYPOGRAPHY SYSTEM
+   ============================================ */
+
+.hero-headline {
+  font-size: clamp(3rem, 6vw, 4.5rem);
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  color: var(--cream);
+}
+
+.section-title {
+  font-size: clamp(2rem, 4vw, 3rem);
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+
+.card-title {
+  font-size: 1.5rem;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.005em;
+}
+
+.body {
+  font-size: clamp(1rem, 1.2vw, 1.125rem);
+  font-weight: 400;
+  line-height: 1.7;
+  color: var(--concrete);
+}
+
+.body-large {
+  font-size: clamp(1.125rem, 1.5vw, 1.25rem);
+  line-height: 1.6;
+}
+
+.small {
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.cta-text {
+  font-size: 1.125rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+
+.text-heading {
+  color: var(--cream);
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.text-accent {
+  color: var(--mint);
+}
+
+.text-gold {
+  color: var(--gold);
+}
+
+.text-muted {
+  color: var(--concrete);
+}
+
+/* ============================================
+   COMPOSITE TYPOGRAPHY UTILITIES
+   ============================================ */
+
+/* Section label - replaces 'text-xs uppercase tracking-[0.3em] text-muted' */
+.label-section {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3em;
+  color: var(--concrete);
+}
+
+/* Form field label - replaces 'block text-sm text-muted mb-1' */
+.label-form {
+  display: block;
+  font-size: 0.875rem;
+  color: var(--concrete);
+  margin-bottom: 0.25rem;
+}
+
+/* Body text muted - replaces 'text-sm text-muted' */
+.text-body-muted {
+  font-size: 0.875rem;
+  color: var(--concrete);
+}
+
+/* Section title - replaces 'text-xl font-semibold text-white' */
+.title-section {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--cream);
+}
+
+/* Page title */
+.title-page {
+  font-size: 1.875rem;
+  font-weight: 600;
+  color: var(--cream);
+}
+
+/* Stat display value */
+.stat-value {
+  font-size: 2.25rem;
+  font-weight: 700;
+  color: var(--cream);
+}

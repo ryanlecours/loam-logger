@@ -1,0 +1,95 @@
+/**
+ * Loam Logger Components - Forms
+ */
+
+/* ============================================
+   FORMS
+   ============================================ */
+
+.input-soft {
+  width: 100%;
+  background-color: rgba(30, 34, 32, 1);
+  border: 1px solid rgba(54, 60, 57, 1);
+  color: var(--cream);
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.9rem;
+  transition:
+    border-color var(--duration-short) var(--ease-premium),
+    box-shadow var(--duration-short) var(--ease-premium),
+    background-color var(--duration-short) var(--ease-premium);
+}
+
+.input-soft::placeholder {
+  color: rgba(142, 148, 145, 0.6);
+}
+
+/* Subtle hover state */
+.input-soft:hover:not(:focus) {
+  border-color: var(--sage-40);
+  background-color: rgba(30, 34, 32, 0.95);
+}
+
+/* Premium focus state with glow */
+.input-soft:focus {
+  outline: none;
+  border-color: var(--mint);
+  background-color: rgba(30, 34, 32, 0.98);
+  box-shadow:
+    0 0 0 3px var(--mint-20),
+    0 4px 16px var(--mint-10),
+    var(--inset-glow-focus);
+}
+
+.label-muted {
+  color: rgba(142, 148, 145, 0.9);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.68rem;
+}
+
+.gear-form-field,
+.gear-textarea-field {
+  width: 100%;
+  border-radius: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.9rem;
+  line-height: 1.25rem;
+  background-color: rgba(30, 34, 32, 0.98);
+  border: 1px solid rgba(54, 60, 57, 0.8);
+  color: var(--cream);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+/* Marketing page form inputs */
+.marketing-input {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border-radius: 0.5rem;
+  font-size: 1rem;
+  background-color: var(--charcoal);
+  border: 1px solid var(--slate);
+  color: var(--cream);
+  transition: all var(--duration-short) var(--ease-default);
+}
+
+.marketing-input:focus {
+  outline: none;
+  border-color: var(--mint);
+  box-shadow: 0 0 0 3px var(--mint-10);
+}
+
+.marketing-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Marketing form label */
+.marketing-label {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--sand);
+  margin-bottom: 0.5rem;
+}

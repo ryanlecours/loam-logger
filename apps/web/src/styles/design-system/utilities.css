@@ -1,0 +1,201 @@
+/**
+ * Loam Logger Design System - Utilities
+ * Layout, spacing, and background utilities
+ */
+
+/* ============================================
+   LAYOUT & SPACING
+   ============================================ */
+
+.section {
+  width: 100%;
+  position: relative;
+}
+
+.container {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding-left: clamp(1.5rem, 5vw, 3rem);
+  padding-right: clamp(1.5rem, 5vw, 3rem);
+}
+
+.section-padding {
+  padding-top: clamp(4rem, 10vh, 8rem);
+  padding-bottom: clamp(4rem, 10vh, 8rem);
+}
+
+.section-padding-sm {
+  padding-top: clamp(3rem, 7vh, 6rem);
+  padding-bottom: clamp(3rem, 7vh, 6rem);
+}
+
+/* ============================================
+   BACKGROUND VARIANTS
+   ============================================ */
+
+.bg-dark {
+  background-color: var(--forest-deep);
+  color: var(--cream);
+}
+
+.bg-charcoal {
+  background-color: var(--charcoal);
+  color: var(--cream);
+}
+
+.bg-light {
+  background-color: var(--sand);
+  color: var(--charcoal);
+}
+
+.bg-cream {
+  background-color: var(--cream);
+  color: var(--charcoal);
+}
+
+.bg-gradient-dark {
+  background:
+    radial-gradient(ellipse 120% 80% at 50% 0%, var(--forest) 0%, transparent 50%),
+    radial-gradient(ellipse 120% 80% at 50% 100%, var(--forest) 0%, transparent 50%),
+    var(--obsidian);
+  color: var(--cream);
+}
+
+/* Base utilities */
+.bg-app {
+  background: var(--forest-deep);
+  color: var(--cream);
+}
+
+.bg-surface {
+  background: var(--charcoal);
+}
+
+.bg-surface-2 {
+  background: var(--stone);
+}
+
+/* Alias for bg-surface (for code consistency) */
+.bg-surface-1 {
+  background: var(--charcoal);
+}
+
+.text-primary {
+  color: rgb(var(--primary));
+}
+
+.bg-accent {
+  background: var(--slate);
+}
+
+.border-app {
+  border-color: var(--slate);
+}
+
+/* Texture overlays */
+.texture-loam {
+  background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23000000' fill-opacity='0.03'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+}
+
+/* ============================================
+   UTILITY CLASSES
+   ============================================ */
+
+.accent-bar {
+  width: 60px;
+  height: 4px;
+  background: linear-gradient(90deg, var(--sage) 0%, var(--mint) 100%);
+  border-radius: 2px;
+  margin-bottom: 1.5rem;
+}
+
+/* Icon styling */
+.icon {
+  color: var(--mint);
+  filter: drop-shadow(0 4px 8px var(--mint-30));
+}
+
+/* ============================================
+   RESPONSIVE GRID SYSTEMS
+   ============================================ */
+
+.grid-3 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 2rem;
+}
+
+.grid-2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+  gap: 3rem;
+  align-items: center;
+}
+
+@media (max-width: 768px) {
+  .grid-3,
+  .grid-2 {
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+  }
+}
+
+/* ============================================
+   SCROLL BEHAVIOR
+   ============================================ */
+
+html.marketing-page {
+  scroll-behavior: smooth;
+}
+
+html.marketing-page:focus-within {
+  scroll-behavior: smooth;
+}
+
+/* Respect reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+  html.marketing-page {
+    scroll-behavior: auto;
+  }
+
+  .card,
+  .btn-primary,
+  .btn-secondary {
+    transition: none !important;
+  }
+
+  .btn-pulse {
+    animation: none !important;
+  }
+}
+
+/* ============================================
+   ACCESSIBILITY
+   ============================================ */
+
+.btn-primary:focus-visible,
+.btn-secondary:focus-visible {
+  outline: 3px solid var(--mint);
+  outline-offset: 3px;
+}
+
+.card:focus-visible {
+  outline: 2px solid var(--mint);
+  outline-offset: 2px;
+}
+
+/* ============================================
+   PERFORMANCE OPTIMIZATIONS
+   ============================================ */
+
+.card,
+.btn-primary,
+.btn-secondary {
+  will-change: transform;
+}
+
+.card:hover,
+.btn-primary:hover,
+.btn-secondary:hover {
+  will-change: transform, box-shadow;
+}

@@ -1,0 +1,163 @@
+/**
+ * Loam Logger Design System - Colors
+ * Premium dark theme - Obsidian base with forest/sage accents and mahogany warmth
+ */
+
+/* ============================================
+   COLOR SYSTEM - Sleek Obsidian Dark Theme
+   ============================================ */
+
+:root {
+  /* ===========================================
+     CORE PALETTE - Obsidian + Forest + Mahogany
+     =========================================== */
+
+  /* Obsidian Base - Rich blacks with subtle warm undertones */
+  --obsidian: rgb(12, 12, 14);           /* #0C0C0E - True dark base */
+  --obsidian-light: rgb(22, 22, 26);     /* #16161A - Elevated surfaces */
+  --obsidian-lighter: rgb(32, 32, 38);   /* #202026 - Cards, panels */
+
+  /* Forest Greens - Muted, sophisticated */
+  --forest: rgb(34, 54, 44);             /* #22362C - Deep forest */
+  --forest-muted: rgb(52, 74, 62);       /* #344A3E - Muted forest */
+  --sage: rgb(120, 140, 128);            /* #788C80 - Desaturated sage */
+  --sage-light: rgb(156, 176, 164);      /* #9CB0A4 - Light sage for highlights */
+
+  /* Mahogany Warmth - Rich reddish-brown accents */
+  --mahogany: rgb(103, 58, 48);          /* #673A30 - Deep mahogany */
+  --mahogany-light: rgb(140, 82, 68);    /* #8C5244 - Lighter mahogany */
+  --terracotta: rgb(176, 106, 88);       /* #B06A58 - Warm terracotta */
+
+  /* Neutrals - Warm-tinted grays */
+  --ash: rgb(58, 58, 62);                /* #3A3A3E - Warm dark gray */
+  --stone: rgb(88, 88, 94);              /* #58585E - Mid gray */
+  --silver: rgb(158, 158, 164);          /* #9E9EA4 - Light gray */
+  --pearl: rgb(232, 230, 226);           /* #E8E6E2 - Off-white */
+  --cream: rgb(250, 248, 244);           /* #FAF8F4 - Cream white */
+
+  /* ===========================================
+     SEMANTIC TOKENS - Map to core palette
+     =========================================== */
+
+  /* RGB tuples for Tailwind opacity modifiers */
+  --bg: 12 12 14;                        /* obsidian */
+  --surface: 22 22 26;                   /* obsidian-light */
+  --surface-2: 32 32 38;                 /* obsidian-lighter */
+  --surface-accent: 58 58 62;            /* ash */
+  --text: 250 248 244;                   /* cream */
+  --text-muted: 158 158 164;             /* silver */
+  --primary: 120 140 128;                /* sage */
+  --primary-foreground: 12 12 14;        /* obsidian */
+  --accent: 140 82 68;                   /* mahogany-light */
+  --border: 58 58 62;                    /* ash */
+  --ring: 156 176 164;                   /* sage-light */
+  --success: 120 140 128;                /* sage */
+  --success-foreground: 12 12 14;        /* obsidian */
+  --warning: 176 106 88;                 /* terracotta */
+  --warning-foreground: 250 248 244;     /* cream */
+  --danger: 176 88 72;                   /* warm red */
+  --danger-foreground: 250 248 244;      /* cream */
+  --info: 120 140 128;                   /* sage */
+  --info-foreground: 12 12 14;           /* obsidian */
+  --panel-bg: 22 22 26;                  /* obsidian-light */
+  --panel-border: 58 58 62;              /* ash */
+  --input-bg: 22 22 26;                  /* obsidian-light */
+  --input-border: 58 58 62;              /* ash */
+  --input-text: 250 248 244;             /* cream */
+  --input-placeholder: 158 158 164;      /* silver */
+  --panel-shadow: 0 0 0;                 /* true black for shadows */
+  --header-gradient-start: #0C0C0E;      /* obsidian */
+  --header-gradient-mid: #22362C;        /* forest */
+  --header-gradient-end: #16161A;        /* obsidian-light */
+  --font-sans: 'Inter', 'Work Sans', 'Segoe UI', system-ui, sans-serif;
+
+  /* Legacy aliases - keeping for compatibility */
+  --forest-deep: var(--obsidian);
+  --moss: var(--forest-muted);
+  --charcoal: var(--obsidian-light);
+  --slate: var(--ash);
+  --concrete: var(--silver);
+  --sand: var(--pearl);
+  --gold: var(--terracotta);
+  --copper: var(--mahogany-light);
+  --mint: var(--sage-light);
+  --earth: var(--mahogany);
+  --error: rgb(176, 88, 72);             /* Warm red */
+
+  /* Functional Colors */
+  --success: var(--sage);
+  --warning: var(--terracotta);
+
+  /* ===========================================
+     OPACITY VARIANTS
+     =========================================== */
+
+  /* Overlay variants */
+  --overlay-dark: rgba(12, 12, 14, 0.85);
+  --overlay-light: rgba(250, 248, 244, 0.95);
+  --glass: rgba(58, 58, 62, 0.6);
+
+  /* Sage opacity variants (for hover states, backgrounds) */
+  --sage-5: rgba(120, 140, 128, 0.05);
+  --sage-10: rgba(120, 140, 128, 0.1);
+  --sage-15: rgba(120, 140, 128, 0.15);
+  --sage-20: rgba(120, 140, 128, 0.2);
+  --sage-25: rgba(120, 140, 128, 0.25);
+  --sage-30: rgba(120, 140, 128, 0.3);
+  --sage-40: rgba(120, 140, 128, 0.4);
+
+  /* Sage-light/Mint opacity variants (for glows, focus rings) */
+  --mint-10: rgba(156, 176, 164, 0.1);
+  --mint-15: rgba(156, 176, 164, 0.15);
+  --mint-20: rgba(156, 176, 164, 0.2);
+  --mint-30: rgba(156, 176, 164, 0.3);
+  --mint-40: rgba(156, 176, 164, 0.4);
+
+  /* Ash/Slate opacity variants (for borders, backgrounds) */
+  --slate-50: rgba(58, 58, 62, 0.5);
+  --slate-60: rgba(58, 58, 62, 0.6);
+  --slate-70: rgba(58, 58, 62, 0.7);
+
+  /* Obsidian/Forest opacity variants (for overlays) */
+  --forest-20: rgba(12, 12, 14, 0.2);
+  --forest-60: rgba(12, 12, 14, 0.6);
+  --forest-75: rgba(12, 12, 14, 0.75);
+  --forest-90: rgba(12, 12, 14, 0.9);
+  --forest-95: rgba(12, 12, 14, 0.95);
+
+  /* Mahogany opacity variants (for warm accents) */
+  --mahogany-10: rgba(140, 82, 68, 0.1);
+  --mahogany-15: rgba(140, 82, 68, 0.15);
+  --mahogany-20: rgba(140, 82, 68, 0.2);
+
+  /* ============================================
+     DESIGN TOKENS - Animation & Effects
+     ============================================ */
+
+  /* Timing Scale (standardized durations) */
+  --duration-micro: 0.15s;   /* hover feedback, opacity changes */
+  --duration-short: 0.2s;    /* color transitions, small transforms */
+  --duration-medium: 0.3s;   /* card hover, panel animations */
+  --duration-long: 0.4s;     /* modal transitions, complex animations */
+
+  /* Easing Functions */
+  --ease-default: ease;
+  --ease-premium: cubic-bezier(0.4, 0, 0.2, 1);  /* smooth, professional */
+  --ease-springy: cubic-bezier(0.16, 1, 0.3, 1); /* bouncy, delightful */
+
+  /* Shadow Scale (layered for depth) */
+  --shadow-sm: 0 4px 12px rgba(18, 28, 24, 0.15);
+  --shadow-md: 0 8px 24px var(--forest-20);
+  --shadow-lg: 0 16px 48px rgba(18, 28, 24, 0.25);
+  --shadow-xl: 0 24px 64px rgba(18, 28, 24, 0.3);
+
+  /* Premium Inset Effects (mint glow for premium feel) */
+  --inset-glow: 0 0 0 1px var(--mint-10) inset;
+  --inset-glow-hover: 0 0 0 1px var(--mint-20) inset;
+  --inset-glow-focus: 0 0 0 1px var(--mint-30) inset;
+
+  /* Blur Values */
+  --blur-sm: 8px;
+  --blur-md: 14px;
+  --blur-lg: 20px;
+}

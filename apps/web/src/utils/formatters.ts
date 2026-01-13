@@ -1,7 +1,6 @@
 import { format, isValid, parseISO } from 'date-fns';
 import { COMPONENT_LABELS } from '../constants/componentLabels';
 import { SECONDS_PER_HOUR } from '../constants/dashboard';
-import type { ComponentPrediction } from '../types/prediction';
 
 /**
  * Format duration in compact form (e.g., "1h 30m", "45m")
@@ -71,13 +70,22 @@ const LOCATION_LABELS: Record<string, string> = {
 };
 
 /**
+ * Minimal interface for formatComponentLabel - only needs these two fields
+ */
+interface ComponentLabelable {
+  componentType: string;
+  location?: string | null;
+}
+
+/**
  * Format a component label with optional location (e.g., "Fork", "Brakes (Front)")
  */
-export function formatComponentLabel(component: ComponentPrediction): string {
+export function formatComponentLabel(component: ComponentLabelable): string {
   const baseLabel = COMPONENT_LABELS[component.componentType] ?? component.componentType;
-  const locationLabel = LOCATION_LABELS[component.location] ?? '';
+  const location = component.location ?? 'NONE';
+  const locationLabel = LOCATION_LABELS[location] ?? '';
 
-  if (locationLabel && component.location !== 'NONE') {
+  if (locationLabel && location !== 'NONE') {
     return `${baseLabel} (${locationLabel})`;
   }
   return baseLabel;
