@@ -19,6 +19,45 @@ export const COMPONENT_FIELDS = gql`
   }
 `;
 
+export const PREDICTION_FIELDS = gql`
+  fragment PredictionFields on BikePredictionSummary {
+    bikeId
+    bikeName
+    overallStatus
+    dueNowCount
+    dueSoonCount
+    generatedAt
+    priorityComponent {
+      componentId
+      componentType
+      location
+      brand
+      model
+      status
+      hoursRemaining
+      ridesRemainingEstimate
+      confidence
+      currentHours
+      serviceIntervalHours
+      hoursSinceService
+    }
+    components {
+      componentId
+      componentType
+      location
+      brand
+      model
+      status
+      hoursRemaining
+      ridesRemainingEstimate
+      confidence
+      currentHours
+      serviceIntervalHours
+      hoursSinceService
+    }
+  }
+`;
+
 export const BIKE_FIELDS = gql`
   fragment BikeFields on Bike {
     id
@@ -52,10 +91,14 @@ export const BIKE_FIELDS = gql`
     components {
       ...ComponentFields
     }
+    predictions {
+      ...PredictionFields
+    }
     createdAt
     updatedAt
   }
   ${COMPONENT_FIELDS}
+  ${PREDICTION_FIELDS}
 `;
 
 export const GEAR_QUERY = gql`

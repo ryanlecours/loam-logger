@@ -46,27 +46,17 @@ export function SpareComponentForm({ initial, submitting, error, onSubmit, onClo
           ))}
         </select>
       </label>
-      <label className="flex items-center gap-2 text-xs label-muted">
-        <input
-          type="checkbox"
-          checked={form.isStock}
-          onChange={(e) => setField('isStock', e.target.checked)}
-        />
-        Stock/OEM spec
-      </label>
       <div className="grid gap-3 md:grid-cols-2">
         <input
           className="max-w-auto rounded-lg border border-app bg-app px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[rgb(var(--ring))]"
           placeholder="Brand"
           value={form.brand}
-          disabled={form.isStock}
           onChange={(e) => setField('brand', e.target.value)}
         />
         <input
           className="max-w-auto rounded-lg border border-app bg-app px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[rgb(var(--ring))]"
           placeholder="Model"
           value={form.model}
-          disabled={form.isStock}
           onChange={(e) => setField('model', e.target.value)}
         />
       </div>

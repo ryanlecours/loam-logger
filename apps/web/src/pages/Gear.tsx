@@ -1,8 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery } from '@apollo/client';
-import { motion } from 'motion/react';
 import { FaBicycle } from 'react-icons/fa';
-import { Button } from '@/components/ui/Button';
+import { Modal } from '@/components/ui/Modal';
 import { BikeForm } from '@/components/BikeForm';
 import { BIKE_COMPONENT_SECTIONS, type BikeComponentSection, type BikeFormValues, type GearComponentState, type SpareFormState } from '@/models/BikeComponents';
 import {
@@ -15,8 +14,9 @@ import {
   DELETE_COMPONENT,
 } from '@/graphql/gear';
 import { SpareComponentForm } from '@/components/SpareComponentForm';
-
-
+import { BikeOverviewCard, SpareComponentsPanel, GearPageHeader } from '@/components/gear';
+import { LogServiceModal } from '@/components/dashboard';
+import type { BikePredictionSummary } from '@/types/prediction';
 
 type ComponentDto = {
   id: string;
@@ -40,7 +40,6 @@ type BikeDto = {
   travelShockMm?: number | null;
   notes?: string | null;
   spokesId?: string | null;
-  // 99spokes metadata
   spokesUrl?: string | null;
   thumbnailUrl?: string | null;
   family?: string | null;
@@ -52,13 +51,13 @@ type BikeDto = {
   gender?: string | null;
   frameMaterial?: string | null;
   hangerStandard?: string | null;
-  // E-bike motor/battery specs
   motorMaker?: string | null;
   motorModel?: string | null;
   motorPowerW?: number | null;
   motorTorqueNm?: number | null;
   batteryWh?: number | null;
   components: ComponentDto[];
+  predictions?: BikePredictionSummary | null;
 };
 
 const defaultComponentState = (): GearComponentState => ({
@@ -91,7 +90,6 @@ const createBikeFormState = (bike?: BikeDto): BikeFormValues => ({
   travelShockMm: bike?.travelShockMm ? String(bike.travelShockMm) : '',
   notes: bike?.notes ?? '',
   spokesId: bike?.spokesId ?? null,
-  // 99spokes metadata
   spokesUrl: bike?.spokesUrl ?? null,
   thumbnailUrl: bike?.thumbnailUrl ?? null,
   family: bike?.family ?? null,
@@ -103,7 +101,6 @@ const createBikeFormState = (bike?: BikeDto): BikeFormValues => ({
   gender: bike?.gender ?? null,
   frameMaterial: bike?.frameMaterial ?? null,
   hangerStandard: bike?.hangerStandard ?? null,
-  // E-bike motor/battery specs
   motorMaker: bike?.motorMaker ?? null,
   motorModel: bike?.motorModel ?? null,
   motorPowerW: bike?.motorPowerW ?? null,
@@ -161,6 +158,7 @@ export default function Gear() {
   const [spareModal, setSpareModal] = useState<SpareModalState | null>(null);
   const [bikeFormError, setBikeFormError] = useState<string | null>(null);
   const [spareFormError, setSpareFormError] = useState<string | null>(null);
+  const [serviceModalBike, setServiceModalBike] = useState<BikeDto | null>(null);
 
   const busyBike = addBikeState.loading || updateBikeState.loading;
   const busySpare = addComponentState.loading || updateComponentState.loading;
@@ -215,7 +213,6 @@ export default function Gear() {
       travelShockMm: form.travelShockMm ? Number(form.travelShockMm) : undefined,
       notes: form.notes,
       spokesId: form.spokesId || undefined,
-      // 99spokes metadata
       spokesUrl: form.spokesUrl || undefined,
       thumbnailUrl: form.thumbnailUrl || undefined,
       family: form.family || undefined,
@@ -227,15 +224,12 @@ export default function Gear() {
       gender: form.gender || undefined,
       frameMaterial: form.frameMaterial || undefined,
       hangerStandard: form.hangerStandard || undefined,
-      // E-bike motor/battery specs
       motorMaker: form.motorMaker || undefined,
       motorModel: form.motorModel || undefined,
       motorPowerW: form.motorPowerW || undefined,
       motorTorqueNm: form.motorTorqueNm || undefined,
       batteryWh: form.batteryWh || undefined,
-      // 99spokes components for auto-creation
       spokesComponents: form.spokesComponents || undefined,
-      // Component inputs
       fork: componentInput(form.components.fork),
       shock: componentInput(form.components.shock),
       dropper: componentInput(form.components.dropper),
@@ -268,11 +262,9 @@ export default function Gear() {
     }
 
     const hoursValue = form.hoursUsed.trim();
-    const hoursUsed =
-      hoursValue === '' ? 0 : Number(hoursValue);
+    const hoursUsed = hoursValue === '' ? 0 : Number(hoursValue);
     const serviceValue = form.serviceDueAtHours.trim();
-    const serviceDue =
-      serviceValue === '' ? null : Number(serviceValue);
+    const serviceDue = serviceValue === '' ? null : Number(serviceValue);
 
     const base = {
       type: form.type,
@@ -303,11 +295,8 @@ export default function Gear() {
   const currentBike = bikeModal?.mode === 'edit' ? bikeModal.bike : undefined;
   const currentSpare = spareModal?.mode === 'edit' ? spareModal.component : undefined;
 
-  // Memoize the bike form state to prevent re-initialization on every render
-  // This preserves the form state when validation errors occur
   const initialBikeState = useMemo(
     () => createBikeFormState(currentBike),
-    // Only recreate when the modal mode or bike ID changes
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [bikeModal?.mode, currentBike?.id]
   );
@@ -343,264 +332,106 @@ export default function Gear() {
     await deleteComponentMutation({ variables: { id } });
   };
 
-  const handleDeleteBike = async (id: string, bikeName: string) => {
+  const handleDeleteBike = async (bike: BikeDto) => {
+    const bikeName = bike.nickname || `${bike.year} ${bike.manufacturer} ${bike.model}`;
     const confirmed = window.confirm(
       `Are you sure you want to delete "${bikeName}"? This will also remove all components associated with this bike. Rides logged to this bike will be preserved but no longer associated with it.`
     );
     if (!confirmed) return;
-    await deleteBikeMutation({ variables: { id } });
+    await deleteBikeMutation({ variables: { id: bike.id } });
   };
 
   return (
-    <div className="min-h-screen bg-app px-4 py-6">
-      <header className="mb-8 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <p className="text-sm uppercase tracking-wide text-muted">Gear</p>
-          <h1 className="text-3xl font-semibold">Tools to track every bolt and bearing</h1>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button onClick={() => { setBikeFormError(null); setBikeModal({ mode: 'create' }); }}>
-            Add Bike
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => {
-              setSpareFormError(null);
-              setSpareModal({ mode: 'create' });
-            }}
-          >
-            Add Spare Component
-          </Button>
-        </div>
-      </header>
+    <div className="gear-page">
+      {/* Header */}
+      <GearPageHeader
+        onAddBike={() => {
+          setBikeFormError(null);
+          setBikeModal({ mode: 'create' });
+        }}
+        onAddSpare={() => {
+          setSpareFormError(null);
+          setSpareModal({ mode: 'create' });
+        }}
+      />
 
+      {/* Error Alert */}
       {error && (
         <div className="alert alert-danger mb-6">
           Couldn&apos;t load your gear just yet. {error.message}
         </div>
       )}
 
-      <div className="grid gap-6 lg:grid-cols-12">
-        <section className="lg:col-span-8 space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-2xl font-semibold">Your Bikes</h2>
+      {/* Two-column Layout */}
+      <div className="gear-layout">
+        {/* Main: Bikes Section */}
+        <main className="gear-layout-main">
+          <div className="bikes-section-header">
+            <h2 className="bikes-section-title">Your Bikes</h2>
             {!loading && bikes.length > 0 && (
-              <span className="text-sm text-muted">{bikes.length} bikes</span>
+              <span className="bikes-section-count">{bikes.length} bikes</span>
             )}
           </div>
+
+          {/* Loading State */}
           {loading && (
-            <div className="space-y-3">
-              {[...Array(2)].map((_, idx) => (
-                <div key={idx} className="h-36 animate-pulse rounded-2xl bg-surface-2" />
+            <div className="space-y-4">
+              {[1, 2].map((i) => (
+                <div key={i} className="bike-card-skeleton animate-pulse" style={{ height: '200px' }} />
               ))}
             </div>
           )}
+
+          {/* Empty State */}
           {!loading && bikes.length === 0 && (
-            <div className="bg-surface-2 border shadow-xl backdrop-blur-2xl border-dashed border-app/80 p-8 text-center">
-              <p className="text-lg font-medium">No bikes on file yet</p>
-              <p className="text-sm text-muted">
+            <div className="bikes-empty">
+              <FaBicycle size={48} className="bikes-empty-icon" />
+              <h3 className="bikes-empty-title">No bikes on file yet</h3>
+              <p className="bikes-empty-text">
                 Add your first bike to start tracking service intervals and upgrade paths.
               </p>
             </div>
           )}
-          <div className="space-y-4">
-            {bikes.map((bike) => (
-              <motion.div
-                key={bike.id}
-                layout
-                whileHover={{ y: -3 }}
-                className="bg-surface-2 border shadow-xl backdrop-blur-2xl rounded-2xl px-5 py-4"
-              >
-                <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-                  {/* Thumbnail image */}
-                  <div className="flex-shrink-0 w-32 h-24 rounded-lg bg-white/5 flex items-center justify-center">
-                    {bike.thumbnailUrl ? (
-                      <img
-                        src={bike.thumbnailUrl}
-                        alt={`${bike.year} ${bike.manufacturer} ${bike.model}`}
-                        className="w-full h-full object-contain"
-                        onError={(e) => {
-                          e.currentTarget.style.display = 'none';
-                          (e.currentTarget.nextElementSibling as HTMLElement)?.classList.remove('hidden');
-                        }}
-                      />
-                    ) : null}
-                    <FaBicycle
-                      className={`text-3xl text-muted/40 ${bike.thumbnailUrl ? 'hidden' : ''}`}
-                    />
-                  </div>
-                  <div className="flex-1 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-                  <div>
-                    <p className="text-sm uppercase tracking-wide text-muted">{bike.manufacturer}</p>
-                    <h3 className="text-2xl font-semibold">
-                      {bike.year ? `${bike.year} ` : ''}
-                      {bike.model}
-                    </h3>
-                    {bike.nickname && (
-                      <p className="text-sm text-muted">"{bike.nickname}"</p>
-                    )}
-                    {/* Bike metadata badges */}
-                    <div className="flex flex-wrap gap-2 mt-2">
-                      {bike.category && (
-                        <span className="px-2 py-0.5 text-xs rounded-full bg-primary/10 text-primary capitalize">
-                          {bike.subcategory || bike.category}
-                        </span>
-                      )}
-                      {bike.isEbike && (
-                        <span className="px-2 py-0.5 text-xs rounded-full bg-accent/10 text-accent">
-                          E-Bike
-                        </span>
-                      )}
-                      {bike.frameMaterial && (
-                        <span className="px-2 py-0.5 text-xs rounded-full bg-muted/10 text-muted capitalize">
-                          {bike.frameMaterial}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex flex-col items-start gap-2 md:items-end">
-                    <div className="flex gap-3 text-sm text-muted">
-                      {bike.travelForkMm ? <span>{bike.travelForkMm}mm front</span> : null}
-                      {bike.travelShockMm ? <span>{bike.travelShockMm}mm rear</span> : null}
-                    </div>
-                    {bike.spokesUrl && (
-                      <a
-                        href={bike.spokesUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-xs text-primary hover:underline"
-                      >
-                        View on 99spokes
-                      </a>
-                    )}
-                    <div className="flex gap-2">
-                      <Button
-                        variant="outline"
-                        className="text-xs"
-                        onClick={() => {
-                          setBikeFormError(null);
-                          setBikeModal({ mode: 'edit', bike });
-                        }}
-                      >
-                        Edit Bike
-                      </Button>
-                      <Button
-                        variant="outline"
-                        className="text-xs text-red-500 border-red-500/30 hover:bg-red-500/10"
-                        onClick={() => handleDeleteBike(bike.id, bike.nickname || `${bike.year} ${bike.manufacturer} ${bike.model}`)}
-                        disabled={deleteBikeState.loading}
-                      >
-                        Delete
-                      </Button>
-                    </div>
-                  </div>
-                  </div>
-                </div>
-                {bike.notes && (
-                  <p className="mt-2 text-sm text-muted">
-                    <span className="font-medium text-accent">Notes:</span> {bike.notes}
-                  </p>
-                )}
-                <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                  {BIKE_COMPONENT_SECTIONS.map((section) => {
-                    const component = bike.components.find((c) => c.type === section.type);
-                    return (
-                      <div
-                        key={section.key}
-                        className="rounded-xl panel-soft px-4 py-3"
-                      >
-                        <div className="flex items-center justify-between">
-                          <p className="text-sm font-semibold">{section.label}</p>
-                          <span
-                            className={`rounded-full px-2 py-0.5 text-xs ${
-                              component?.isStock
-                                ? 'bg-primary/10 text-primary'
-                                : 'bg-accent/10 text-accent'
-                            }`}
-                          >
-                            {component?.isStock ? 'Stock' : 'Custom'}
-                          </span>
-                        </div>
-                        <p className="text-sm text-muted">
-                          {component?.isStock
-                            ? 'OEM spec'
-                            : `${component?.brand ?? '--'} ${component?.model ?? ''}`}
-                        </p>
-                        {component?.notes && (
-                          <p className="mt-1 text-xs text-muted">{component.notes}</p>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </motion.div>
-            ))}
-          </div>
-        </section>
 
-        <section className="bg-surface-2 border shadow-xl backdrop-blur-2xl rounded-2xl lg:col-span-4 p-5">
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-xl font-semibold">Spare Components</h2>
-            <span className="text-sm text-muted">{spareComponents.length}</span>
-          </div>
-          {loading && (
-            <div className="space-y-3">
-              {[...Array(2)].map((_, idx) => (
-                <div key={idx} className="h-24 animate-pulse rounded-2xl bg-white/40" />
-              ))}
-            </div>
-          )}
-          {!loading && spareComponents.length === 0 && (
-            <div className="rounded-xl panel-soft border border-dashed border-app/80 px-4 py-6 text-center text-sm text-muted">
-              Track spare forks, shocks, wheels, or droppers so you always know what&apos;s on deck.
-            </div>
-          )}
-          <div className="space-y-3">
-            {spareComponents.map((component) => (
-              <div key={component.id} className="bg-surface-2 border shadow-xl backdrop-blur-2xl px-4 py-3">
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <p className="text-xs uppercase tracking-wide text-muted">{component.type}</p>
-                    <p className="text-base font-semibold">
-                      {component.isStock ? 'Stock spec' : `${component.brand} ${component.model}`}
-                    </p>
-                    {component.notes && <p className="text-sm text-muted">{component.notes}</p>}
-                    <p className="text-xs text-muted">
-                      {component.hoursUsed ?? 0}h used
-                      {component.serviceDueAtHours != null
-                        ? ` · Service @ ${component.serviceDueAtHours}h`
-                        : ''}
-                    </p>
-                  </div>
-                  <div className="flex flex-col gap-2">
-                    <button
-                      className="text-xs text-primary underline"
-                      onClick={() => {
-                        setSpareFormError(null);
-                        setSpareModal({ mode: 'edit', component });
-                      }}
-                    >
-                      Edit
-                    </button>
-                    <button
-                      className="text-xs text-red-500 underline"
-                      onClick={() => handleDeleteSpare(component.id)}
-                      disabled={deleteComponentState.loading}
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
+          {/* Bike Cards */}
+          {!loading && bikes.map((bike) => (
+            <BikeOverviewCard
+              key={bike.id}
+              bike={bike}
+              onEdit={() => {
+                setBikeFormError(null);
+                setBikeModal({ mode: 'edit', bike });
+              }}
+              onDelete={() => handleDeleteBike(bike)}
+              onLogService={() => setServiceModalBike(bike)}
+              isDeleting={deleteBikeState.loading}
+            />
+          ))}
+        </main>
+
+        {/* Sidebar: Spare Components */}
+        <SpareComponentsPanel
+          components={spareComponents}
+          onEdit={(component) => {
+            setSpareFormError(null);
+            setSpareModal({ mode: 'edit', component });
+          }}
+          onDelete={handleDeleteSpare}
+          onAdd={() => {
+            setSpareFormError(null);
+            setSpareModal({ mode: 'create' });
+          }}
+          loading={loading}
+          deleting={deleteComponentState.loading}
+        />
       </div>
 
+      {/* Bike Form Modal */}
       <Modal
-        open={!!bikeModal}
-        title={bikeModal?.mode === 'edit' ? 'Edit Bike' : 'Add Bike'}
+        isOpen={!!bikeModal}
         onClose={closeBikeModal}
+        title={bikeModal?.mode === 'edit' ? 'Edit Bike' : 'Add Bike'}
+        size="xl"
       >
         {bikeModal && (
           <BikeForm
@@ -614,10 +445,12 @@ export default function Gear() {
         )}
       </Modal>
 
+      {/* Spare Component Form Modal */}
       <Modal
-        open={!!spareModal}
-        title={spareModal?.mode === 'edit' ? 'Edit Spare Component' : 'Add Spare Component'}
+        isOpen={!!spareModal}
         onClose={closeSpareModal}
+        title={spareModal?.mode === 'edit' ? 'Edit Spare Component' : 'Add Spare Component'}
+        size="md"
       >
         {spareModal && (
           <SpareComponentForm
@@ -630,43 +463,14 @@ export default function Gear() {
           />
         )}
       </Modal>
-    </div>
-  );
-}
 
-type ModalProps = {
-  open: boolean;
-  title: string;
-  children: React.ReactNode;
-  onClose: () => void;
-};
-
-function Modal({ open, title, children, onClose }: ModalProps) {
-  if (!open) return null;
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm px-4 py-6"
-      onClick={onClose}
-    >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-        className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-3xl panel-soft modal-surface shadow-soft p-6 pointer-events-auto"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-2xl font-semibold">{title}</h3>
-          <button
-            className="text-2xl text-muted transition hover:text-primary"
-            onClick={onClose}
-            aria-label="Close"
-          >
-            ×
-          </button>
-        </div>
-        {children}
-      </div>
+      {/* Log Service Modal */}
+      <LogServiceModal
+        isOpen={!!serviceModalBike}
+        onClose={() => setServiceModalBike(null)}
+        bike={serviceModalBike as any}
+        defaultComponentId={serviceModalBike?.predictions?.priorityComponent?.componentId}
+      />
     </div>
   );
 }
