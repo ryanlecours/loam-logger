@@ -5,7 +5,21 @@ import type { BikeWithPredictions } from '../../hooks/usePriorityBike';
 import { getBikeName } from '../../utils/formatters';
 import { StatusPill } from './StatusPill';
 import { ComponentHealthPanel } from './ComponentHealthPanel';
+import { CompactRideRow } from './CompactRideRow';
 import { Button } from '../ui/Button';
+
+interface BikeRide {
+  id: string;
+  startTime: string;
+  durationSeconds: number;
+  distanceMiles: number;
+  elevationGainFeet: number;
+  trailSystem?: string | null;
+  location?: string | null;
+  bikeId?: string | null;
+  stravaActivityId?: string | null;
+  garminActivityId?: string | null;
+}
 
 interface PriorityBikeHeroProps {
   bike: BikeWithPredictions | null;
@@ -13,11 +27,7 @@ interface PriorityBikeHeroProps {
   onResetToPriority: () => void;
   onLogService: () => void;
   loading?: boolean;
-  // Admin test ride props
-  isAdmin?: boolean;
-  isSimulatingRide?: boolean;
-  onTestRide?: () => void;
-  onLongRide?: () => void;
+  rides?: BikeRide[];
 }
 
 export function PriorityBikeHero({
@@ -26,10 +36,7 @@ export function PriorityBikeHero({
   onResetToPriority,
   onLogService,
   loading = false,
-  isAdmin = false,
-  isSimulatingRide = false,
-  onTestRide,
-  onLongRide,
+  rides = [],
 }: PriorityBikeHeroProps) {
   // Loading skeleton
   if (loading) {
@@ -142,7 +149,7 @@ export function PriorityBikeHero({
           </motion.div>
         </AnimatePresence>
 
-        {/* Right column: bike image and admin buttons */}
+        {/* Right column: bike image and recent rides */}
         <div className="priority-hero-image-container">
           {bike.thumbnailUrl && (
             <img
@@ -151,24 +158,28 @@ export function PriorityBikeHero({
               className="priority-hero-image"
             />
           )}
-          {isAdmin && onTestRide && onLongRide && (
-            <div className="priority-hero-admin-buttons">
-              <button
-                onClick={onTestRide}
-                disabled={isSimulatingRide}
-                className="priority-hero-admin-btn"
-              >
-                {isSimulatingRide ? 'Simulating...' : 'Test Ride'}
-              </button>
-              <button
-                onClick={onLongRide}
-                disabled={isSimulatingRide}
-                className="priority-hero-admin-btn"
-              >
-                Long Ride
-              </button>
-            </div>
-          )}
+          {/* Bike Rides Section - desktop only */}
+          {(() => {
+            const bikeRides = rides.filter((r) => r.bikeId === bike.id);
+            return (
+              <div className="priority-hero-bike-rides">
+                <h4 className="priority-hero-bike-rides-header">Recent Rides</h4>
+                {bikeRides.length > 0 ? (
+                  <div className="priority-hero-bike-rides-list">
+                    {bikeRides.map((ride) => (
+                      <CompactRideRow
+                        key={ride.id}
+                        ride={ride}
+                        bikeName={bikeName}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <p className="priority-hero-bike-rides-empty">No rides on this bike yet</p>
+                )}
+              </div>
+            );
+          })()}
         </div>
       </div>
     </section>

@@ -206,26 +206,21 @@ r.post('/duplicates/scan', async (req: Request, res: Response) => {
     const garminRides = allRides.filter(r => r.garminActivityId);
     const stravaRides = allRides.filter(r => r.stravaActivityId);
 
-    // Index Strava rides by 10-minute time buckets for O(1) lookup
-    const BUCKET_MS = 10 * 60 * 1000;
-    const stravaByBucket = new Map<number, typeof stravaRides>();
+    // Index Strava rides by date (YYYY-MM-DD) for O(1) lookup
+    const stravaByDate = new Map<string, typeof stravaRides>();
     for (const ride of stravaRides) {
-      const bucket = Math.floor(ride.startTime.getTime() / BUCKET_MS);
-      if (!stravaByBucket.has(bucket)) stravaByBucket.set(bucket, []);
-      stravaByBucket.get(bucket)!.push(ride);
+      const dateKey = ride.startTime.toISOString().split('T')[0];
+      if (!stravaByDate.has(dateKey)) stravaByDate.set(dateKey, []);
+      stravaByDate.get(dateKey)!.push(ride);
     }
 
     const duplicatePairs: Array<{ primaryId: string; duplicateId: string }> = [];
     const matchedStravaIds = new Set<string>();
 
-    // Compare each Garmin ride only against Strava rides in same/adjacent time buckets
+    // Compare each Garmin ride only against Strava rides on same date
     for (const garminRide of garminRides) {
-      const bucket = Math.floor(garminRide.startTime.getTime() / BUCKET_MS);
-      const candidates = [
-        ...(stravaByBucket.get(bucket - 1) ?? []),
-        ...(stravaByBucket.get(bucket) ?? []),
-        ...(stravaByBucket.get(bucket + 1) ?? []),
-      ];
+      const dateKey = garminRide.startTime.toISOString().split('T')[0];
+      const candidates = stravaByDate.get(dateKey) ?? [];
 
       for (const stravaRide of candidates) {
         // Skip if this Strava ride is already matched

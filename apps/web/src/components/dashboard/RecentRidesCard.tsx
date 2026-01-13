@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { FaRoute } from 'react-icons/fa';
 import { CompactRideRow } from './CompactRideRow';
+import { getBikeName } from '../../utils/formatters';
 
 interface Ride {
   id: string;
@@ -8,18 +9,31 @@ interface Ride {
   durationSeconds: number;
   distanceMiles: number;
   elevationGainFeet: number;
+  rideType?: string;
   trailSystem?: string | null;
   location?: string | null;
   stravaActivityId?: string | null;
   garminActivityId?: string | null;
+  bikeId?: string | null;
+}
+
+interface Bike {
+  id: string;
+  nickname?: string | null;
+  manufacturer: string;
+  model: string;
 }
 
 interface RecentRidesCardProps {
   rides: Ride[];
+  bikes?: Bike[];
   loading?: boolean;
+  onLinkBike?: (ride: Ride) => void;
 }
 
-export function RecentRidesCard({ rides, loading = false }: RecentRidesCardProps) {
+export function RecentRidesCard({ rides, bikes = [], loading = false, onLinkBike }: RecentRidesCardProps) {
+  // Create a bike lookup map
+  const bikeMap = new Map(bikes.map((b) => [b.id, b]));
   // Loading skeleton
   if (loading) {
     return (
@@ -68,9 +82,18 @@ export function RecentRidesCard({ rides, loading = false }: RecentRidesCardProps
         </Link>
       </div>
       <div className="recent-rides-scroll list-stagger">
-        {rides.map((ride) => (
-          <CompactRideRow key={ride.id} ride={ride} />
-        ))}
+        {rides.map((ride) => {
+          const bike = ride.bikeId ? bikeMap.get(ride.bikeId) : null;
+          const bikeName = bike ? getBikeName(bike) : null;
+          return (
+            <CompactRideRow
+              key={ride.id}
+              ride={ride}
+              bikeName={bikeName}
+              onLinkBike={onLinkBike}
+            />
+          );
+        })}
       </div>
     </section>
   );
