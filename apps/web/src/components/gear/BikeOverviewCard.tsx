@@ -7,6 +7,16 @@ import { StatusDot } from '../dashboard/StatusDot';
 import type { PredictionStatus, BikePredictionSummary } from '../../types/prediction';
 import { formatComponentLabel } from '../../utils/formatters';
 
+function isValid99SpokesUrl(url: string | null | undefined): boolean {
+  if (!url) return false;
+  try {
+    const parsed = new URL(url);
+    return parsed.hostname === '99spokes.com' || parsed.hostname.endsWith('.99spokes.com');
+  } catch {
+    return false;
+  }
+}
+
 type ComponentDto = {
   id: string;
   type: string;
@@ -68,6 +78,7 @@ export function BikeOverviewCard({
   onEdit,
   onDelete,
   onLogService,
+  isDeleting,
 }: BikeOverviewCardProps) {
   const predictions = bike.predictions;
   const components = predictions?.components ?? [];
@@ -94,10 +105,11 @@ export function BikeOverviewCard({
       onClick: onEdit,
     },
     {
-      label: 'Delete bike',
+      label: isDeleting ? 'Deleting...' : 'Delete bike',
       icon: <FaTrash size={12} />,
       onClick: onDelete,
       danger: true,
+      disabled: isDeleting,
     },
   ];
 
@@ -238,9 +250,9 @@ export function BikeOverviewCard({
               <FaPencilAlt size={12} className="icon-left" />
               Edit details
             </Link>
-            {bike.spokesUrl && (
+            {isValid99SpokesUrl(bike.spokesUrl) && (
               <a
-                href={bike.spokesUrl}
+                href={bike.spokesUrl!}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="btn-secondary btn-sm"

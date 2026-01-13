@@ -6,6 +6,7 @@ export interface KebabMenuItem {
   icon?: ReactNode;
   onClick: () => void;
   danger?: boolean;
+  disabled?: boolean;
 }
 
 interface KebabMenuProps {
@@ -45,6 +46,7 @@ export function KebabMenu({ items, ariaLabel = 'Actions menu' }: KebabMenuProps)
   }, [isOpen]);
 
   const handleItemClick = (item: KebabMenuItem) => {
+    if (item.disabled) return;
     setIsOpen(false);
     item.onClick();
   };
@@ -69,9 +71,11 @@ export function KebabMenu({ items, ariaLabel = 'Actions menu' }: KebabMenuProps)
             <button
               key={index}
               type="button"
-              className={`kebab-menu-item ${item.danger ? 'kebab-menu-item-danger' : ''}`}
+              className={`kebab-menu-item ${item.danger ? 'kebab-menu-item-danger' : ''} ${item.disabled ? 'kebab-menu-item-disabled' : ''}`}
               onClick={() => handleItemClick(item)}
               role="menuitem"
+              disabled={item.disabled}
+              aria-disabled={item.disabled}
             >
               {item.icon && <span className="kebab-menu-item-icon">{item.icon}</span>}
               {item.label}
