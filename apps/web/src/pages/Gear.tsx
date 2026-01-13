@@ -17,6 +17,7 @@ import { SpareComponentForm } from '@/components/SpareComponentForm';
 import { BikeOverviewCard, SpareComponentsPanel, GearPageHeader } from '@/components/gear';
 import { LogServiceModal } from '@/components/dashboard';
 import type { BikePredictionSummary } from '@/types/prediction';
+import type { BikeWithPredictions } from '@/hooks/usePriorityBike';
 
 type ComponentDto = {
   id: string;
@@ -468,7 +469,7 @@ export default function Gear() {
       <LogServiceModal
         isOpen={!!serviceModalBike}
         onClose={() => setServiceModalBike(null)}
-        bike={serviceModalBike as any}
+        bike={serviceModalBike as BikeWithPredictions | null}
         defaultComponentId={serviceModalBike?.predictions?.priorityComponent?.componentId}
       />
     </div>
