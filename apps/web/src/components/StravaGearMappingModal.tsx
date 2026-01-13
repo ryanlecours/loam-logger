@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation } from '@apollo/client';
 import { BIKES } from '../graphql/bikes';
 import { ADD_BIKE } from '../graphql/gear';
@@ -50,7 +50,11 @@ export default function StravaGearMappingModal({
   const [selectedBikeId, setSelectedBikeId] = useState<string>('');
   const [gearNames, setGearNames] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
-  const [snoozed, setSnoozed] = useState(false);
+  const [snoozed, setSnoozed] = useState(() => localStorage.getItem(SNOOZE_KEY) === 'true');
+  const [isFetchingGearName, setIsFetchingGearName] = useState(false);
+
+  // Track which gear IDs we've already fetched to prevent infinite re-renders
+  const fetchedGearIds = useRef(new Set<string>());
 
   // Create new bike state
   const [showCreateBike, setShowCreateBike] = useState(false);
@@ -78,15 +82,17 @@ export default function StravaGearMappingModal({
       setSearchResults([]);
       setHasSearched(false);
       setSelectedSpokesBike(null);
+      fetchedGearIds.current.clear();
     }
   }, [open]);
 
   // Fetch gear names from Strava API
   useEffect(() => {
-    if (open && currentGear && !gearNames[currentGear.gearId]) {
+    if (open && currentGear && !fetchedGearIds.current.has(currentGear.gearId)) {
+      fetchedGearIds.current.add(currentGear.gearId);
       fetchGearName(currentGear.gearId);
     }
-  }, [open, currentGear, gearNames]);
+  }, [open, currentGear]);
 
   // Pre-fill search query when entering create mode
   useEffect(() => {
@@ -100,6 +106,7 @@ export default function StravaGearMappingModal({
   }, [showCreateBike, currentGear, gearNames]);
 
   const fetchGearName = async (gearId: string) => {
+    setIsFetchingGearName(true);
     try {
       const res = await fetch(
         `${import.meta.env.VITE_API_URL}/api/strava/gear/${gearId}`,
@@ -114,6 +121,8 @@ export default function StravaGearMappingModal({
       }
     } catch (err) {
       console.error('Failed to fetch gear name:', err);
+    } finally {
+      setIsFetchingGearName(false);
     }
   };
 
@@ -308,7 +317,9 @@ export default function StravaGearMappingModal({
 
       <div className="bg-highlight/30 border border-app rounded-2xl p-4 mb-6">
         <h3 className="text-lg font-semibold text-white mb-2">
-          Strava Bike: {gearDisplayName}
+          Strava Bike: {isFetchingGearName ? (
+            <span className="inline-block w-32 h-5 bg-surface-2 rounded animate-pulse" />
+          ) : gearDisplayName}
         </h3>
         <p className="text-sm text-muted">
           Used in {currentGear.rideCount} {currentGear.rideCount === 1 ? 'ride' : 'rides'}

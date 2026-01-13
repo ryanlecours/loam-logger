@@ -118,46 +118,51 @@ export default function RidesPage() {
           <div className="flex flex-wrap gap-4">
             <label className="flex items-center gap-2 cursor-pointer text-sm text-white hover:text-primary transition-colors">
               <input
-                type="checkbox"
+                type="radio"
+                name="dateRange"
                 checked={dateRange === '30days'}
                 onChange={() => setDateRange('30days')}
-                className="w-4 h-4 rounded border-app/50 bg-surface-2 text-primary focus:ring-primary focus:ring-offset-0"
+                className="w-4 h-4 border-app/50 bg-surface-2 text-primary focus:ring-primary focus:ring-offset-0"
               />
               <span>Last 30 days</span>
             </label>
             <label className="flex items-center gap-2 cursor-pointer text-sm text-white hover:text-primary transition-colors">
               <input
-                type="checkbox"
+                type="radio"
+                name="dateRange"
                 checked={dateRange === '3months'}
                 onChange={() => setDateRange('3months')}
-                className="w-4 h-4 rounded border-app/50 bg-surface-2 text-primary focus:ring-primary focus:ring-offset-0"
+                className="w-4 h-4 border-app/50 bg-surface-2 text-primary focus:ring-primary focus:ring-offset-0"
               />
               <span>Last 3 months</span>
             </label>
             <label className="flex items-center gap-2 cursor-pointer text-sm text-white hover:text-primary transition-colors">
               <input
-                type="checkbox"
+                type="radio"
+                name="dateRange"
                 checked={dateRange === '6months'}
                 onChange={() => setDateRange('6months')}
-                className="w-4 h-4 rounded border-app/50 bg-surface-2 text-primary focus:ring-primary focus:ring-offset-0"
+                className="w-4 h-4 border-app/50 bg-surface-2 text-primary focus:ring-primary focus:ring-offset-0"
               />
               <span>Last 6 months</span>
             </label>
             <label className="flex items-center gap-2 cursor-pointer text-sm text-white hover:text-primary transition-colors">
               <input
-                type="checkbox"
+                type="radio"
+                name="dateRange"
                 checked={dateRange === '1year'}
                 onChange={() => setDateRange('1year')}
-                className="w-4 h-4 rounded border-app/50 bg-surface-2 text-primary focus:ring-primary focus:ring-offset-0"
+                className="w-4 h-4 border-app/50 bg-surface-2 text-primary focus:ring-primary focus:ring-offset-0"
               />
               <span>Last year</span>
             </label>
             <label className="flex items-center gap-2 cursor-pointer text-sm text-white hover:text-primary transition-colors">
               <input
-                type="checkbox"
+                type="radio"
+                name="dateRange"
                 checked={dateRange === 'all'}
                 onChange={() => setDateRange('all')}
-                className="w-4 h-4 rounded border-app/50 bg-surface-2 text-primary focus:ring-primary focus:ring-offset-0"
+                className="w-4 h-4 border-app/50 bg-surface-2 text-primary focus:ring-primary focus:ring-offset-0"
               />
               <span>All time</span>
             </label>
