@@ -118,8 +118,8 @@ NODE_ENV=development
 PORT=4000
 
 DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/DBNAME?sslmode=require"
-JWT_SECRET="dev-super-secret"
 CORS_ORIGIN="http://localhost:5173"
+{Other Secrets will be needed}
 ```
 
 #### Frontend (`apps/web/.env`)
