@@ -1,0 +1,481 @@
+/**
+ * Bike Detail Page Styles
+ *
+ * Full detail view for individual bike pages including:
+ * - Page container and layout
+ * - Back navigation
+ * - Hero section with image and content
+ * - Status badges and actions
+ * - Specifications grid
+ * - Component detail sections (expandable rows)
+ * - Notes section
+ * - External links
+ * - Empty states
+ * - Responsive breakpoints
+ *
+ * Extracted from marketing.css (lines 6552-7014)
+ */
+
+/* ==========================================================================
+   BIKE DETAIL PAGE STYLES
+   Full detail view for individual bike
+   ========================================================================== */
+
+/* Page Container */
+.bike-detail-page {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 1.5rem;
+  gap: 1.5rem;
+  max-width: 1200px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+/* Back Navigation */
+.bike-detail-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0;
+  font-size: 0.875rem;
+  color: var(--sage);
+  text-decoration: none;
+  transition: color var(--duration-short) var(--ease-premium);
+}
+
+.bike-detail-back:hover {
+  color: var(--mint);
+}
+
+.bike-detail-back svg {
+  transition: transform var(--duration-short) var(--ease-premium);
+}
+
+.bike-detail-back:hover svg {
+  transform: translateX(-3px);
+}
+
+/* Hero Section */
+.bike-detail-hero {
+  display: flex;
+  gap: 1.5rem;
+  background: rgba(30, 34, 32, 0.75);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--sage-20);
+  border-radius: 1.25rem;
+  padding: 1.5rem;
+}
+
+.bike-detail-hero-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.bike-detail-hero-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.bike-detail-manufacturer {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--sage);
+  margin: 0;
+}
+
+.bike-detail-name {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--cream);
+  margin: 0;
+}
+
+.bike-detail-nickname {
+  font-size: 1rem;
+  color: var(--sage);
+  font-style: italic;
+  margin: 0;
+}
+
+/* Hero Status and Badges */
+.bike-detail-status-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.bike-detail-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+/* Hero Actions */
+.bike-detail-hero-actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: auto;
+}
+
+/* Hero Image */
+.bike-detail-hero-image {
+  flex: 0 0 220px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.bike-detail-hero-img {
+  max-width: 100%;
+  max-height: 180px;
+  object-fit: contain;
+  border-radius: 0.75rem;
+  border: 1px solid var(--sage-15);
+  background: rgba(30, 34, 32, 0.5);
+  padding: 0.5rem;
+}
+
+.bike-detail-hero-placeholder {
+  width: 180px;
+  height: 135px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.75rem;
+  border: 1px solid var(--sage-15);
+  background: rgba(30, 34, 32, 0.5);
+  color: var(--sage-30);
+}
+
+@media (max-width: 768px) {
+  .bike-detail-hero {
+    flex-direction: column-reverse;
+  }
+
+  .bike-detail-hero-image {
+    flex: none;
+    width: 100%;
+    max-width: 220px;
+    margin: 0 auto;
+  }
+
+  .bike-detail-hero-actions {
+    flex-direction: column;
+  }
+}
+
+/* Specifications Grid */
+.bike-detail-section {
+  background: rgba(30, 34, 32, 0.75);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--sage-20);
+  border-radius: 1.25rem;
+  padding: 1.5rem;
+}
+
+.bike-detail-section-title {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--sage);
+  margin: 0 0 1rem;
+}
+
+.bike-specs-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 1rem;
+}
+
+.bike-spec-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.75rem;
+  background: rgba(30, 34, 32, 0.5);
+  border: 1px solid var(--sage-10);
+  border-radius: 0.75rem;
+}
+
+.bike-spec-label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--sage);
+}
+
+.bike-spec-value {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--cream);
+}
+
+/* E-bike Specs */
+.ebike-specs-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 0.75rem;
+}
+
+/* Component Detail Section */
+.component-detail-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+/* Component Detail Row */
+.component-detail-row {
+  background: rgba(30, 34, 32, 0.5);
+  border: 1px solid var(--sage-15);
+  border-radius: 0.75rem;
+  overflow: hidden;
+  transition: all var(--duration-short) var(--ease-premium);
+}
+
+.component-detail-row:hover {
+  border-color: var(--sage-25);
+}
+
+.component-detail-summary {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem;
+  cursor: pointer;
+  transition: background var(--duration-short) var(--ease-premium);
+}
+
+.component-detail-summary:hover {
+  background: rgba(54, 60, 57, 0.3);
+}
+
+.component-detail-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.component-detail-name {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--cream);
+  margin: 0;
+}
+
+.component-detail-type {
+  font-size: 0.75rem;
+  color: var(--sage);
+}
+
+.component-detail-metrics {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-shrink: 0;
+}
+
+.component-detail-hours {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--mint);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.component-detail-hours-label {
+  font-size: 0.75rem;
+  color: var(--sage);
+}
+
+.component-detail-chevron {
+  color: var(--sage);
+  transition: transform var(--duration-short) var(--ease-premium);
+  flex-shrink: 0;
+}
+
+.component-detail-row-expanded .component-detail-chevron {
+  transform: rotate(180deg);
+}
+
+.component-detail-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.component-detail-edit-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.375rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--sage);
+  background: transparent;
+  border: 1px solid var(--sage-25);
+  border-radius: 0.375rem;
+  cursor: pointer;
+  transition: all var(--duration-short) var(--ease-premium);
+}
+
+.component-detail-edit-btn:hover {
+  color: var(--cream);
+  border-color: var(--sage-40);
+  background: var(--sage-10);
+}
+
+/* Expanded Details */
+.component-detail-expanded {
+  padding: 0 1rem 1rem;
+  border-top: 1px solid var(--sage-10);
+  margin-top: -1px;
+}
+
+.component-detail-expanded-inner {
+  padding-top: 1rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.75rem;
+}
+
+.component-detail-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.component-detail-field-label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--sage);
+}
+
+.component-detail-field-value {
+  font-size: 0.875rem;
+  color: var(--cream);
+}
+
+.component-detail-field-value-muted {
+  color: var(--sage);
+}
+
+.component-detail-notes {
+  grid-column: 1 / -1;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--sage-10);
+  margin-top: 0.5rem;
+}
+
+.component-detail-notes-text {
+  font-size: 0.875rem;
+  color: var(--sage);
+  font-style: italic;
+  margin: 0;
+}
+
+/* Notes Section */
+.bike-detail-notes {
+  font-size: 0.9375rem;
+  color: var(--concrete);
+  line-height: 1.6;
+  margin: 0;
+}
+
+/* External Links */
+.bike-detail-links {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.bike-detail-external-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.625rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--sage);
+  background: rgba(30, 34, 32, 0.5);
+  border: 1px solid var(--sage-20);
+  border-radius: 0.625rem;
+  text-decoration: none;
+  transition: all var(--duration-short) var(--ease-premium);
+}
+
+.bike-detail-external-link:hover {
+  color: var(--cream);
+  border-color: var(--sage-40);
+  background: var(--sage-10);
+}
+
+/* Empty Components State */
+.bike-detail-empty-components {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 2rem;
+  text-align: center;
+  border: 1px dashed var(--sage-20);
+  border-radius: 0.75rem;
+}
+
+.bike-detail-empty-icon {
+  color: var(--sage-30);
+}
+
+.bike-detail-empty-text {
+  font-size: 0.9375rem;
+  color: var(--sage);
+  margin: 0;
+}
+
+/* Responsive */
+@media (max-width: 639px) {
+  .bike-detail-page {
+    padding: 1rem;
+    gap: 1rem;
+  }
+
+  .bike-detail-section {
+    padding: 1rem;
+  }
+
+  .bike-detail-name {
+    font-size: 1.5rem;
+  }
+
+  .component-detail-summary {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .component-detail-metrics {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .component-detail-expanded-inner {
+    grid-template-columns: 1fr 1fr;
+  }
+}

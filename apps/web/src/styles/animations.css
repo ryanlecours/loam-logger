@@ -1,0 +1,95 @@
+/**
+ * Loam Logger - Animations
+ *
+ * Micro-interactions and animation utilities for enhanced UX.
+ */
+
+/* =============================================================================
+   MICRO-INTERACTIONS (Delight Layer)
+   ============================================================================= */
+
+/* Alert entrance animation */
+@keyframes alert-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.alert-animated {
+  animation: alert-slide-in 0.3s var(--ease-premium);
+}
+
+/* Success checkmark animation */
+@keyframes success-appear {
+  0% {
+    opacity: 0;
+    transform: scale(0.5);
+  }
+  50% {
+    transform: scale(1.2);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.success-icon-animated {
+  animation: success-appear 0.4s var(--ease-springy);
+}
+
+/* Staggered list item entrance */
+@keyframes list-item-enter {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.list-stagger > *:nth-child(1) { animation: list-item-enter 0.3s ease-out 0s both; }
+.list-stagger > *:nth-child(2) { animation: list-item-enter 0.3s ease-out 0.05s both; }
+.list-stagger > *:nth-child(3) { animation: list-item-enter 0.3s ease-out 0.1s both; }
+.list-stagger > *:nth-child(4) { animation: list-item-enter 0.3s ease-out 0.15s both; }
+.list-stagger > *:nth-child(5) { animation: list-item-enter 0.3s ease-out 0.2s both; }
+.list-stagger > *:nth-child(n+6) { animation: list-item-enter 0.3s ease-out 0.25s both; }
+
+/* Form success feedback pulse */
+@keyframes form-success-pulse {
+  0% {
+    box-shadow: 0 0 0 0 var(--mint-40);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(168, 208, 184, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(168, 208, 184, 0);
+  }
+}
+
+.form-success {
+  animation: form-success-pulse 0.6s ease-out;
+}
+
+/* Respect reduced motion for micro-interactions */
+@media (prefers-reduced-motion: reduce) {
+  .alert-animated,
+  .success-icon-animated,
+  .form-success {
+    animation: none;
+  }
+
+  .list-stagger > * {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+}

@@ -1,0 +1,811 @@
+/* ==========================================================================
+   GEAR PAGE STYLES
+   Premium redesign matching Dashboard aesthetic
+
+   Extracted from marketing.css for modular style organization
+   ========================================================================== */
+
+/* Page Container */
+.gear-page {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 1.5rem;
+  background: transparent;
+}
+
+/* Page Header */
+.gear-page-header {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+@media (min-width: 768px) {
+  .gear-page-header {
+    flex-direction: row;
+    align-items: flex-end;
+    justify-content: space-between;
+  }
+}
+
+.gear-page-header-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.gear-page-eyebrow {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--sage);
+}
+
+.gear-page-title {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--cream);
+  margin: 0;
+}
+
+.gear-page-subtitle {
+  font-size: 0.9375rem;
+  color: var(--sage);
+  margin: 0;
+}
+
+.gear-page-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.gear-page-actions .btn,
+.gear-page-actions button {
+  white-space: nowrap;
+}
+
+@media (max-width: 767px) {
+  .gear-page-actions {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+}
+
+/* Two-column Layout (matching control-room) */
+.gear-layout {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.5rem;
+}
+
+@media (min-width: 1024px) {
+  .gear-layout {
+    grid-template-columns: 1fr 460px;
+  }
+}
+
+.gear-layout-main {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-height: 0;
+}
+
+.gear-layout-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-height: 0;
+  align-self: start;
+}
+
+@media (min-width: 1024px) {
+  .gear-layout-sidebar {
+    /* Align with first bike card (below "Your Bikes" header: ~1.25rem title + 1rem margin) */
+    padding-top: 2.5rem;
+  }
+}
+
+/* Bike Card - Premium Glass Style */
+.bike-card {
+  background: rgba(30, 34, 32, 0.75);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--sage-20);
+  border-radius: 1.25rem;
+  padding: 1.25rem;
+  transition: all var(--duration-medium) var(--ease-premium);
+}
+
+.bike-card:hover {
+  border-color: var(--sage-30);
+  box-shadow: 0 8px 32px rgba(18, 28, 24, 0.3);
+}
+
+/* Bike Card Header */
+.bike-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.bike-card-header-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.bike-card-header-image {
+  flex-shrink: 0;
+  width: 200px;
+  height: 150px;
+}
+
+.bike-card-header-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: 0.5rem;
+  border: 1px solid var(--sage-15);
+  background: rgba(30, 34, 32, 0.5);
+  padding: 0.25rem;
+}
+
+.bike-card-header-img-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.5rem;
+  border: 1px solid var(--sage-15);
+  background: rgba(30, 34, 32, 0.5);
+  color: var(--sage-30);
+}
+
+.bike-card-header-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.bike-card-manufacturer {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--sage);
+  margin: 0 0 0.25rem;
+}
+
+.bike-card-title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.bike-card-name {
+  font-size: 1.375rem;
+  font-weight: 700;
+  color: var(--cream);
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bike-card-title-separator {
+  width: 1px;
+  height: 1.25rem;
+  background: var(--sage-30);
+  flex-shrink: 0;
+}
+
+.bike-card-stats-inline {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  flex-wrap: wrap;
+  font-size: 0.8125rem;
+  color: var(--sage);
+}
+
+.bike-card-nickname {
+  font-size: 0.875rem;
+  color: var(--sage);
+  font-style: italic;
+  margin: 0.25rem 0 0;
+}
+
+/* Bike Card Badges */
+.bike-card-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.bike-card-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.625rem;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  text-transform: capitalize;
+  border-radius: 9999px;
+  background: var(--sage-10);
+  color: var(--sage);
+  border: 1px solid var(--sage-15);
+}
+
+.bike-card-badge-accent {
+  background: rgba(140, 82, 68, 0.15);
+  color: var(--mahogany);
+  border-color: rgba(140, 82, 68, 0.3);
+}
+
+/* Bike Card Body - Two Column Layout */
+.bike-card-body {
+  display: flex;
+  gap: 1.25rem;
+}
+
+.bike-card-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.bike-card-image-container {
+  flex: 0 0 140px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+/* Image container styles preserved for potential future use */
+
+.bike-card-image {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: contain;
+  border-radius: 0.75rem;
+  border: 1px solid var(--sage-15);
+  background: rgba(30, 34, 32, 0.5);
+  padding: 0.5rem;
+}
+
+.bike-card-image-placeholder {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.75rem;
+  border: 1px solid var(--sage-15);
+  background: rgba(30, 34, 32, 0.5);
+  color: var(--sage-30);
+}
+
+/* Bike Card Stats */
+.bike-card-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  font-size: 0.8125rem;
+  color: var(--sage);
+}
+
+.bike-card-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.bike-card-stat-value {
+  font-weight: 600;
+  color: var(--cream);
+}
+
+/* Bike Card Component Health Preview */
+.bike-card-health {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.bike-card-health-title {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--sage);
+  margin: 0;
+}
+
+.bike-card-health-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.bike-card-health-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5rem 1.5rem;
+}
+
+@media (max-width: 1400px) {
+  .bike-card-health-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 900px) {
+  .bike-card-health-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.bike-card-health-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  font-size: 0.8125rem;
+  padding: 0.5rem 0.625rem;
+  border: 1px solid var(--sage-20);
+  border-radius: 0.5rem;
+  background: rgba(30, 34, 32, 0.4);
+}
+
+.bike-card-health-info {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.bike-card-health-label {
+  color: var(--cream);
+  white-space: nowrap;
+}
+
+.bike-card-health-make {
+  font-size: 0.6875rem;
+  color: var(--sage-60);
+  opacity: 0.85;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bike-card-health-hours {
+  font-size: 0.75rem;
+  color: var(--sage);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  margin-left: auto;
+}
+
+.bike-card-health-more {
+  font-size: 0.75rem;
+  color: var(--sage);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  transition: color var(--duration-short) var(--ease-premium);
+}
+
+.bike-card-health-more:hover {
+  color: var(--mint);
+}
+
+/* Bike Card Actions */
+.bike-card-actions {
+  display: flex;
+  gap: 0.625rem;
+  margin-top: auto;
+  padding-top: 0.75rem;
+}
+
+.bike-card-actions .btn-primary,
+.bike-card-actions .btn-secondary {
+  padding: 0.5rem 1rem;
+  font-size: 0.8125rem;
+}
+
+/* Bike Card Link */
+.bike-card-link {
+  font-size: 0.75rem;
+  color: var(--sage);
+  text-decoration: none;
+  transition: color var(--duration-short) var(--ease-premium);
+}
+
+.bike-card-link:hover {
+  color: var(--mint);
+  text-decoration: underline;
+}
+
+/* Kebab Menu */
+.kebab-menu {
+  position: relative;
+}
+
+.kebab-menu-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 0.5rem;
+  color: var(--sage);
+  cursor: pointer;
+  transition: all var(--duration-short) var(--ease-premium);
+}
+
+.kebab-menu-trigger:hover {
+  background: var(--sage-10);
+  border-color: var(--sage-20);
+  color: var(--cream);
+}
+
+.kebab-menu-trigger:focus-visible {
+  outline: 2px solid var(--mint);
+  outline-offset: 2px;
+}
+
+.kebab-menu-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 50;
+  min-width: 160px;
+  margin-top: 0.5rem;
+  padding: 0.5rem;
+  background: rgba(30, 34, 32, 0.95);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--sage-20);
+  border-radius: 0.75rem;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+
+.kebab-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  width: 100%;
+  padding: 0.625rem 0.75rem;
+  font-size: 0.875rem;
+  color: var(--cream);
+  background: transparent;
+  border: none;
+  border-radius: 0.5rem;
+  cursor: pointer;
+  transition: all var(--duration-short) var(--ease-premium);
+  text-align: left;
+}
+
+.kebab-menu-item:hover {
+  background: var(--sage-10);
+}
+
+.kebab-menu-item-danger {
+  color: var(--error);
+}
+
+.kebab-menu-item-danger:hover {
+  background: rgba(196, 89, 67, 0.15);
+}
+
+.kebab-menu-divider {
+  height: 1px;
+  margin: 0.375rem 0;
+  background: var(--sage-15);
+}
+
+/* Spares Panel */
+.spares-panel {
+  background: rgba(30, 34, 32, 0.75);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--sage-20);
+  border-radius: 1.25rem;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.spares-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  flex-shrink: 0;
+}
+
+.spares-panel-title {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--cream);
+  margin: 0;
+}
+
+.spares-panel-count {
+  font-size: 0.8125rem;
+  color: var(--sage);
+}
+
+.spares-panel-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.spares-panel-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  padding: 2rem 1rem;
+  text-align: center;
+  border: 1px dashed var(--sage-20);
+  border-radius: 1rem;
+}
+
+.spares-panel-empty-icon {
+  color: var(--sage-30);
+}
+
+.spares-panel-empty-text {
+  font-size: 0.875rem;
+  color: var(--sage);
+  max-width: 200px;
+}
+
+/* Spare Component Row */
+.spare-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.875rem;
+  background: rgba(30, 34, 32, 0.5);
+  border: 1px solid var(--sage-15);
+  border-radius: 0.75rem;
+  cursor: pointer;
+  transition: all var(--duration-short) var(--ease-premium);
+}
+
+.spare-row:hover {
+  background: rgba(30, 34, 32, 0.75);
+  border-color: var(--sage-25);
+}
+
+.spare-row-icon {
+  flex-shrink: 0;
+  width: 2rem;
+  height: 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.5rem;
+  background: var(--sage-10);
+  color: var(--sage);
+}
+
+.spare-row-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.spare-row-type {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--sage);
+  margin: 0 0 0.125rem;
+}
+
+.spare-row-name {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--cream);
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.spare-row-meta {
+  font-size: 0.75rem;
+  color: var(--sage);
+  margin: 0.25rem 0 0;
+}
+
+.spare-row-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  flex-shrink: 0;
+}
+
+.spare-row-action {
+  font-size: 0.75rem;
+  color: var(--sage);
+  background: none;
+  border: none;
+  padding: 0.25rem 0.5rem;
+  cursor: pointer;
+  border-radius: 0.25rem;
+  transition: all var(--duration-short) var(--ease-premium);
+}
+
+.spare-row-action:hover {
+  color: var(--mint);
+  background: var(--sage-10);
+}
+
+.spare-row-action-danger:hover {
+  color: var(--error);
+  background: rgba(196, 89, 67, 0.15);
+}
+
+/* Bikes Section Header */
+.bikes-section-header {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.bikes-section-title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--cream);
+  margin: 0;
+}
+
+.bikes-section-count {
+  font-size: 0.875rem;
+  color: var(--sage);
+}
+
+/* Empty State for Bikes */
+.bikes-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  padding: 3rem 2rem;
+  text-align: center;
+  background: rgba(30, 34, 32, 0.5);
+  border: 1px dashed var(--sage-20);
+  border-radius: 1.25rem;
+}
+
+.bikes-empty-icon {
+  color: var(--sage-30);
+}
+
+.bikes-empty-title {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--cream);
+  margin: 0;
+}
+
+.bikes-empty-text {
+  font-size: 0.9375rem;
+  color: var(--sage);
+  margin: 0;
+  max-width: 300px;
+}
+
+/* Loading Skeletons for Gear Page */
+.bike-card-skeleton {
+  background: rgba(30, 34, 32, 0.75);
+  border: 1px solid var(--sage-15);
+  border-radius: 1.25rem;
+  padding: 1.25rem;
+}
+
+.spare-skeleton {
+  height: 4.5rem;
+  background: rgba(30, 34, 32, 0.5);
+  border: 1px solid var(--sage-15);
+  border-radius: 0.75rem;
+}
+
+/* Responsive adjustments */
+@media (max-width: 1023px) {
+  .gear-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .gear-layout-sidebar {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 639px) {
+  .gear-page {
+    padding: 1rem;
+  }
+
+  .gear-page-title {
+    font-size: 1.5rem;
+  }
+
+  .bike-card {
+    padding: 1rem;
+  }
+
+  .bike-card-header-main {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .bike-card-header-image {
+    width: 140px;
+    height: 105px;
+  }
+
+  .bike-card-title-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+
+  .bike-card-title-separator {
+    display: none;
+  }
+
+  .bike-card-stats-inline {
+    font-size: 0.75rem;
+  }
+
+  .bike-card-name {
+    font-size: 1.25rem;
+  }
+
+  .bike-card-actions {
+    flex-direction: column;
+  }
+
+  .bike-card-actions .btn-primary,
+  .bike-card-actions .btn-secondary {
+    width: 100%;
+    justify-content: center;
+  }
+}

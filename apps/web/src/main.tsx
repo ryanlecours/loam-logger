@@ -1,7 +1,6 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
-import './styles/marketing.css'
 import App from './App';
 import { ApolloProvider } from '@apollo/client';
 import { ThemeProvider } from './providers/ThemeProvider';

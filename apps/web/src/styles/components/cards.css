@@ -1,0 +1,141 @@
+/**
+ * Loam Logger Components - Cards & Panels
+ */
+
+/* ============================================
+   COMPONENT PATTERNS
+   ============================================ */
+
+/* Card - Frosted glass effect */
+.card {
+  background: var(--glass);
+  border: 1px solid var(--sage-20);
+  border-radius: 1rem;
+  padding: 2rem;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow:
+    0 20px 60px rgba(18, 28, 24, 0.3),
+    0 0 0 1px rgba(168, 208, 184, 0.05) inset;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.card:hover {
+  transform: translateY(-5px);
+  box-shadow:
+    0 30px 80px rgba(18, 28, 24, 0.4),
+    0 0 0 1px var(--mint-15) inset,
+    0 0 40px var(--mint-10);
+  border-color: var(--sage-40);
+}
+
+/* Card - Solid variant for light backgrounds */
+.card-solid {
+  background: var(--charcoal);
+  border: 1px solid var(--sage-15);
+  border-radius: 1rem;
+  padding: 2rem;
+  box-shadow: 0 20px 60px rgba(18, 28, 24, 0.25);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.card-solid:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 30px 80px rgba(18, 28, 24, 0.35);
+  border-color: var(--sage-30);
+}
+
+/* ============================================
+   PANELS & MODALS
+   ============================================ */
+
+.panel-soft {
+  background-color: rgba(30, 34, 32, 0.96);
+  border: 1px solid var(--slate-70);
+  color: var(--cream);
+  backdrop-filter: blur(14px);
+  border-radius: 1rem;
+}
+
+.shadow-soft {
+  box-shadow: 0 20px 60px rgba(18, 28, 24, 0.45);
+}
+
+/* ============================================
+   COMPOSITE PANEL UTILITIES
+   ============================================ */
+
+/* Standard panel - replaces 'panel-soft shadow-soft border border-app rounded-3xl p-6' */
+.panel {
+  background-color: rgba(30, 34, 32, 0.96);
+  border: 1px solid var(--slate-70);
+  color: var(--cream);
+  backdrop-filter: blur(var(--blur-md));
+  border-radius: 1.5rem;
+  padding: 1.5rem;
+  box-shadow:
+    var(--shadow-lg),
+    var(--inset-glow);
+  transition:
+    transform var(--duration-medium) var(--ease-premium),
+    box-shadow var(--duration-medium) var(--ease-premium),
+    border-color var(--duration-medium) var(--ease-premium);
+}
+
+/* Premium hover effect for interactive panels */
+.panel-interactive:hover,
+.panel:hover {
+  transform: translateY(-3px);
+  box-shadow:
+    var(--shadow-xl),
+    var(--inset-glow-hover);
+  border-color: rgba(134, 158, 140, 0.35);
+}
+
+/* Panel with vertical spacing - replaces 'panel-soft shadow-soft border border-app rounded-3xl p-6 space-y-4' */
+.panel-spaced {
+  background-color: rgba(30, 34, 32, 0.96);
+  border: 1px solid var(--slate-70);
+  color: var(--cream);
+  backdrop-filter: blur(var(--blur-md));
+  border-radius: 1.5rem;
+  padding: 1.5rem;
+  box-shadow:
+    var(--shadow-lg),
+    var(--inset-glow);
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  transition:
+    transform var(--duration-medium) var(--ease-premium),
+    box-shadow var(--duration-medium) var(--ease-premium),
+    border-color var(--duration-medium) var(--ease-premium);
+}
+
+.panel-spaced:hover {
+  transform: translateY(-3px);
+  box-shadow:
+    var(--shadow-xl),
+    var(--inset-glow-hover);
+  border-color: rgba(134, 158, 140, 0.35);
+}
+
+/* Danger zone panel - for destructive action sections */
+.panel-danger {
+  background-color: rgba(196, 89, 67, 0.08);
+  border: 1px solid rgba(196, 89, 67, 0.5);
+  color: var(--cream);
+  backdrop-filter: blur(14px);
+  border-radius: 1.5rem;
+  padding: 1.5rem;
+  box-shadow: 0 20px 60px rgba(18, 28, 24, 0.45);
+}
+
+.modal-surface {
+  background-color: rgba(30, 34, 32, 0.98);
+  border: 1px solid rgba(54, 60, 57, 0.85);
+  border-radius: 1rem;
+  box-shadow:
+    0 45px 120px rgba(18, 28, 24, 0.55),
+    0 0 0 1px var(--mint-20);
+}

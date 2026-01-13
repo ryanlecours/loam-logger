@@ -1,0 +1,81 @@
+/**
+ * Loam Logger Components - Modals
+ */
+
+/* ============================================
+   MODAL DIALOG STYLES
+   ============================================ */
+
+.modal-dialog {
+  background-color: rgba(30, 34, 32, 0.98);
+  border: 1px solid rgba(54, 60, 57, 0.85);
+  border-radius: 1rem;
+  box-shadow:
+    0 45px 120px rgba(18, 28, 24, 0.55),
+    0 0 0 1px var(--mint-20);
+  overflow: hidden;
+}
+
+.modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 1.5rem 1.5rem 0;
+}
+
+.modal-title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--cream);
+  line-height: 1.4;
+}
+
+.modal-subtitle {
+  font-size: 0.875rem;
+  color: var(--concrete);
+  margin-top: 0.25rem;
+}
+
+.modal-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 0.5rem;
+  background: transparent;
+  border: none;
+  color: var(--concrete);
+  font-size: 1.5rem;
+  cursor: pointer;
+  transition:
+    background-color var(--duration-micro) var(--ease-premium),
+    color var(--duration-micro) var(--ease-premium);
+  flex-shrink: 0;
+}
+
+.modal-close:hover {
+  background-color: var(--sage-10);
+  color: var(--cream);
+}
+
+.modal-body {
+  padding: 1.5rem;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  padding: 1rem 1.5rem;
+  background-color: rgba(22, 22, 26, 0.5);
+  border-top: 1px solid var(--sage-10);
+}
+
+/* Info panel (for success messages, etc.) */
+.info-panel {
+  background-color: var(--glass);
+  border: 1px solid var(--slate);
+  border-radius: 1rem;
+  padding: 1.5rem;
+}
