@@ -419,12 +419,24 @@ r.post('/duplicates/auto-merge', async (req: Request, res: Response) => {
         `;
       }
 
+      // Clear duplicate flags on rides that will have their primary deleted
+      // (must happen before deletion to avoid orphaned duplicateOfId references)
+      if (ridesToDelete.length > 0) {
+        await tx.ride.updateMany({
+          where: {
+            userId,
+            duplicateOfId: { in: ridesToDelete },
+          },
+          data: { isDuplicate: false, duplicateOfId: null },
+        });
+      }
+
       // Delete duplicate rides
       await tx.ride.deleteMany({
         where: { id: { in: ridesToDelete } },
       });
 
-      // Clear duplicate flags on remaining rides
+      // Clear duplicate flags on any remaining rides marked as duplicates
       await tx.ride.updateMany({
         where: { userId, isDuplicate: true },
         data: { isDuplicate: false, duplicateOfId: null },
