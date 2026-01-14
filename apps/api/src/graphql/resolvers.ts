@@ -23,6 +23,9 @@ import type { AcquisitionCondition, BaselineMethod, BaselineConfidence } from '@
 import { getBikeById, isSpokesConfigured } from '../services/spokes';
 import { parseISO } from 'date-fns';
 
+// Single source of truth for current terms version (must match frontend)
+const CURRENT_TERMS_VERSION = '1.2.0';
+
 type ComponentType = ComponentTypeLiteral;
 
 type UserArgs = { id: string };
@@ -1730,6 +1733,58 @@ export const resolvers = {
 
       return updatedComponents;
     },
+
+    acceptTerms: async (
+      _: unknown,
+      { input }: { input: { termsVersion: string } },
+      ctx: GraphQLContext
+    ) => {
+      const userId = requireUserId(ctx);
+
+      // Validate version matches current
+      if (input.termsVersion !== CURRENT_TERMS_VERSION) {
+        throw new GraphQLError('Invalid terms version', {
+          extensions: { code: 'BAD_USER_INPUT' },
+        });
+      }
+
+      // Extract IP and User Agent from request
+      const forwardedFor = ctx.req.headers['x-forwarded-for'];
+      const ipAddress =
+        ctx.req.ip ||
+        (typeof forwardedFor === 'string'
+          ? forwardedFor.split(',')[0]?.trim()
+          : Array.isArray(forwardedFor)
+          ? forwardedFor[0]?.split(',')[0]?.trim()
+          : null) ||
+        null;
+      const userAgent =
+        (typeof ctx.req.headers['user-agent'] === 'string'
+          ? ctx.req.headers['user-agent']
+          : null) || null;
+
+      // Upsert to make idempotent (don't fail on duplicate)
+      const acceptance = await prisma.termsAcceptance.upsert({
+        where: {
+          userId_termsVersion: {
+            userId,
+            termsVersion: input.termsVersion,
+          },
+        },
+        create: {
+          userId,
+          termsVersion: input.termsVersion,
+          ipAddress,
+          userAgent,
+        },
+        update: {}, // No update if exists - keep original timestamp
+      });
+
+      return {
+        success: true,
+        acceptedAt: acceptance.acceptedAt.toISOString(),
+      };
+    },
   },
 
   Bike: {
@@ -1807,6 +1862,17 @@ export const resolvers = {
         provider: acc.provider,
         connectedAt: acc.createdAt.toISOString(),
       }));
+    },
+    hasAcceptedCurrentTerms: async (parent: { id: string }) => {
+      const acceptance = await prisma.termsAcceptance.findUnique({
+        where: {
+          userId_termsVersion: {
+            userId: parent.id,
+            termsVersion: CURRENT_TERMS_VERSION,
+          },
+        },
+      });
+      return !!acceptance;
     },
   },
 };

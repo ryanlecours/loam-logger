@@ -424,6 +424,15 @@ export const typeDefs = gql`
     id: ID!
   }
 
+  input AcceptTermsInput {
+    termsVersion: String!
+  }
+
+  type AcceptTermsResult {
+    success: Boolean!
+    acceptedAt: String!
+  }
+
   type Mutation {
     addRide(input: AddRideInput!): Ride!
     updateRide(id: ID!, input: UpdateRideInput!): Ride!
@@ -441,6 +450,7 @@ export const typeDefs = gql`
     deleteStravaGearMapping(id: ID!): DeleteResult!
     triggerProviderSync(provider: SyncProvider!): TriggerSyncResult!
     bulkUpdateComponentBaselines(input: BulkUpdateBaselinesInput!): [Component!]!
+    acceptTerms(input: AcceptTermsInput!): AcceptTermsResult!
   }
 
   type ConnectedAccount {
@@ -455,6 +465,7 @@ export const typeDefs = gql`
     name: String
     avatarUrl: String
     onboardingCompleted: Boolean!
+    hasAcceptedCurrentTerms: Boolean!
     location: String
     age: Int
     activeDataSource: String
