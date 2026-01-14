@@ -16,11 +16,18 @@ export function escapeHtml(unsafe: string): string {
  */
 export function sanitizeUserInput(input: string | undefined | null, maxLength = 100): string {
   if (!input) return '';
-  // Remove control characters (except newline/tab which might be intentional)
-  // and limit length
-  return input
-    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
-    .slice(0, maxLength);
+  // Remove control characters (except newline \x0A and tab \x09 which might be intentional)
+  // Control chars: 0x00-0x08, 0x0B, 0x0C, 0x0E-0x1F, 0x7F
+  let result = '';
+  for (const char of input) {
+    const code = char.charCodeAt(0);
+    // Skip control characters except tab (9) and newline (10)
+    if (code <= 8 || code === 11 || code === 12 || (code >= 14 && code <= 31) || code === 127) {
+      continue;
+    }
+    result += char;
+  }
+  return result.slice(0, maxLength);
 }
 
 /**
