@@ -28,7 +28,7 @@ jobs:
           cache: 'npm'
           cache-dependency-path: package-lock.json
 
-      - name: Clean nested node_modules (prevent native dep issues)
+      - name: Clean nested node_modules before install
         run: |
           rm -rf apps/web/node_modules
           rm -rf apps/api/node_modules
@@ -40,6 +40,11 @@ jobs:
           max_attempts: 3
           retry_wait_seconds: 30
           command: npm ci --include=optional
+
+      - name: Remove duplicate React copies (prevent test failures)
+        run: |
+          rm -rf apps/web/node_modules/react apps/web/node_modules/react-dom
+          rm -rf apps/api/node_modules/react apps/api/node_modules/react-dom
 
       - name: Derive appropriate SHAs for base and head for Nx affected commands
         uses: nrwl/nx-set-shas@v4
