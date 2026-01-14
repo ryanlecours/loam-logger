@@ -5,9 +5,11 @@ import { RIDES } from '../graphql/rides';
 import { BIKES } from '../graphql/bikes';
 import { UNMAPPED_STRAVA_GEARS } from '../graphql/stravaGear';
 import StravaGearMappingModal from '../components/StravaGearMappingModal';
+import StravaImportModal from '../components/StravaImportModal';
 import RideStatsCard from '../components/RideStatsCard';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useUserTier } from '../hooks/useUserTier';
+import { useConnectedAccounts } from '../hooks/useConnectedAccounts';
 import { usePriorityBike, type BikeWithPredictions } from '../hooks/usePriorityBike';
 import { FaChevronDown } from 'react-icons/fa';
 import {
@@ -36,9 +38,14 @@ interface Ride {
 
 const RECENT_COUNT = 20;
 
+const apiBase =
+  (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '') ||
+  (import.meta.env.DEV ? 'http://localhost:4000' : '');
+
 export default function Dashboard() {
   const user = useCurrentUser().user;
   const { isPro } = useUserTier();
+  const { isStravaConnected } = useConnectedAccounts();
 
   // Queries
   const {
@@ -80,6 +87,7 @@ export default function Dashboard() {
   const [unmappedGears, setUnmappedGears] = useState<Array<{ gearId: string; rideCount: number }>>([]);
   const [isLogServiceOpen, setIsLogServiceOpen] = useState(false);
   const [rideToLink, setRideToLink] = useState<Ride | null>(null);
+  const [isStravaImportOpen, setIsStravaImportOpen] = useState(false);
 
   // Effects
   useEffect(() => {
@@ -97,6 +105,15 @@ export default function Dashboard() {
     setIsLogServiceOpen(true);
   };
 
+  const handleStravaBackfill = () => {
+    if (isStravaConnected) {
+      setIsStravaImportOpen(true);
+    } else {
+      // Redirect to Strava OAuth
+      window.location.href = `${apiBase}/auth/strava/start`;
+    }
+  };
+
   return (
     <>
       <div className="dashboard-stacked-layout">
@@ -107,6 +124,8 @@ export default function Dashboard() {
             isShowingPriority={isShowingPriority}
             onResetToPriority={resetToPriority}
             onLogService={handleLogService}
+            onStravaBackfill={handleStravaBackfill}
+            isStravaConnected={isStravaConnected}
             loading={bikesLoading}
             rides={rides}
           />
@@ -171,6 +190,16 @@ export default function Dashboard() {
           onSuccess={() => refetchRides()}
         />
       )}
+
+      {/* Strava Import Modal */}
+      <StravaImportModal
+        open={isStravaImportOpen}
+        onClose={() => setIsStravaImportOpen(false)}
+        onSuccess={() => {
+          refetchRides();
+          setIsStravaImportOpen(false);
+        }}
+      />
     </>
   );
 }

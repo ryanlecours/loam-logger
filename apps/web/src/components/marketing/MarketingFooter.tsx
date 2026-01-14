@@ -68,9 +68,10 @@ export default function MarketingFooter() {
         {/* Bottom Bar */}
         <div className="pt-8 border-t border-slate/30">
           <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-            <p className="text-xs text-concrete">
-              © {currentYear} Loam Logger. Built by riders, for riders.
-            </p>
+            <div className="text-xs text-concrete">
+              <p>© {currentYear} Loam Logger. Built by riders, for riders.</p>
+              <p>Built by Loam Labs LLC</p>
+            </div>
             <p className="text-xs text-concrete">
               Made with ❤️ for the MTB community
             </p>

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { FaChevronRight } from 'react-icons/fa';
 import type { ComponentPrediction } from '../../types/prediction';
 import { STATUS_SEVERITY } from '../../types/prediction';
@@ -96,11 +96,26 @@ interface ComponentDetailOverlayProps {
 function ComponentDetailOverlay({ component, onClose }: ComponentDetailOverlayProps) {
   const makeModel = getMakeModel(component);
 
+  // Handle escape key to close modal
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
+  }, [onClose]);
+
   return (
-    <div className="wear-causes-overlay" onClick={onClose}>
+    <div
+      className="wear-causes-overlay"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="component-detail-title"
+    >
       <div className="wear-causes-modal" onClick={(e) => e.stopPropagation()}>
         <div className="wear-causes-header">
-          <h3 className="wear-causes-title">
+          <h3 className="wear-causes-title" id="component-detail-title">
             {formatComponentLabel(component)}
             <span className="wear-causes-make-model">{makeModel}</span>
           </h3>
@@ -141,8 +156,8 @@ function ComponentDetailOverlay({ component, onClose }: ComponentDetailOverlayPr
           <div className="wear-causes-drivers">
             <h4 className="wear-causes-drivers-title">Wear Factors</h4>
             <div className="wear-causes-drivers-list">
-              {component.drivers.map((driver, idx) => (
-                <div key={idx} className="wear-driver">
+              {component.drivers.map((driver) => (
+                <div key={`${component.componentId}-${driver.factor}`} className="wear-driver">
                   <div className="wear-driver-header">
                     <span className="wear-driver-label">{driver.label}</span>
                     <span className="wear-driver-contribution">{driver.contribution}%</span>

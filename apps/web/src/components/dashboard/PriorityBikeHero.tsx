@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { FaWrench, FaCog, FaBicycle, FaChevronUp, FaChevronDown } from 'react-icons/fa';
+import { FaWrench, FaCog, FaBicycle, FaChevronUp, FaChevronDown, FaStrava } from 'react-icons/fa';
 import type { BikeWithPredictions } from '../../hooks/usePriorityBike';
 import { useBikeRides, type BikeRide } from '../../hooks/useBikeRides';
 import { getBikeName } from '../../utils/formatters';
@@ -14,6 +14,8 @@ interface PriorityBikeHeroProps {
   isShowingPriority: boolean;
   onResetToPriority: () => void;
   onLogService: () => void;
+  onStravaBackfill?: () => void;
+  isStravaConnected?: boolean;
   loading?: boolean;
   rides?: BikeRide[];
 }
@@ -23,6 +25,8 @@ export function PriorityBikeHero({
   isShowingPriority,
   onResetToPriority,
   onLogService,
+  onStravaBackfill,
+  isStravaConnected = false,
   loading = false,
   rides = [],
 }: PriorityBikeHeroProps) {
@@ -141,10 +145,12 @@ export function PriorityBikeHero({
                 <FaWrench size={12} className="icon-left" />
                 Log service
               </Button>
-              <Button variant="secondary" size="sm" disabled>
-                <FaCog size={12} className="icon-left" />
-                View maintenance
-              </Button>
+              <span title="Coming soon - available by January 21, 2026">
+                <Button variant="secondary" size="sm" disabled>
+                  <FaCog size={12} className="icon-left" />
+                  View maintenance
+                </Button>
+              </span>
             </div>
           </motion.div>
         </AnimatePresence>
@@ -184,7 +190,23 @@ export function PriorityBikeHero({
               </AnimatePresence>
             </div>
           ) : (
-            <p className="priority-hero-bike-rides-empty">No rides on this bike yet</p>
+            <div className="priority-hero-bike-rides-empty">
+              <p>No rides on this bike yet</p>
+              <div className="priority-hero-bike-rides-cta">
+                <Link to="/rides" className="empty-cta-link">
+                  Log a ride
+                </Link>
+                <span className="empty-cta-divider">or</span>
+                <button
+                  type="button"
+                  className="empty-cta-link empty-cta-strava"
+                  onClick={onStravaBackfill}
+                >
+                  <FaStrava size={14} />
+                  {isStravaConnected ? 'Backfill from Strava' : 'Connect Strava'}
+                </button>
+              </div>
+            </div>
           )}
           {/* Navigation arrows below rides */}
           {(canGoNewer || canGoOlder) && (

@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useLazyQuery } from '@apollo/client';
 import { RIDES } from '../graphql/rides';
 
@@ -57,12 +57,21 @@ export function useBikeRides(
   const [additionalRides, setAdditionalRides] = useState<BikeRide[]>([]);
   const [hasMoreOlder, setHasMoreOlder] = useState(true);
 
+  // Track mount status to prevent state updates after unmount
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
   // Lazy query for fetching older rides
   const [fetchOlderRides, { loading }] = useLazyQuery<{ rides: BikeRide[] }>(
     RIDES,
     {
       fetchPolicy: 'cache-first',
       onCompleted: (data) => {
+        if (!isMountedRef.current) return;
         if (data?.rides) {
           const bikeSpecificRides = data.rides.filter((r) => r.bikeId === bikeId);
           if (bikeSpecificRides.length < FETCH_BATCH_SIZE) {
@@ -87,6 +96,8 @@ export function useBikeRides(
   }, [bikeId]);
 
   // Combine initial rides with additionally fetched rides
+  // Note: If initialRides is a new array reference on every render, this will
+  // recalculate. Callers should memoize initialRides if performance is a concern.
   const allBikeRides = useMemo(() => {
     if (!bikeId) return [];
 

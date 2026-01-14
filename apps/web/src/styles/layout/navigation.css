@@ -128,3 +128,11 @@
   background: linear-gradient(90deg, transparent, var(--mint), transparent);
   border-radius: 1px;
 }
+
+/* ============================================
+   FOOTER COMPONENTS
+   ============================================ */
+
+.footer-border {
+  border-color: var(--sage-20);
+}

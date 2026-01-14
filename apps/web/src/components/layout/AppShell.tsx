@@ -5,6 +5,7 @@ import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import type { ReactNode } from 'react';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
 import { getAuthHeaders, clearCsrfToken } from '@/lib/csrf';
+import Footer from './Footer';
 
 const BASE_NAV_LINKS = [
   { label: 'Dashboard', path: '/dashboard' },
@@ -183,6 +184,8 @@ export default function AppShell({ children }: { children: ReactNode }) {
       >
         {children}
       </motion.main>
+
+      <Footer />
     </div>
   );
 }
