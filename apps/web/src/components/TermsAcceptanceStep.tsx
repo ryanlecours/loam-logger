@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import React, { useState, useRef, useEffect, useCallback } from 'react'
 import { useMutation, useApolloClient } from '@apollo/client'
 import { ACCEPT_TERMS_MUTATION } from '../graphql/terms'
 import { ME_QUERY } from '../graphql/me'
@@ -168,7 +168,7 @@ export function TermsAcceptanceStep({ onComplete }: TermsAcceptanceStepProps) {
 // Simple markdown-to-JSX renderer for terms content
 function TermsContent() {
   const lines = TERMS_TEXT.split('\n')
-  const elements: JSX.Element[] = []
+  const elements: React.ReactElement[] = []
   let key = 0
   let inList = false
 
