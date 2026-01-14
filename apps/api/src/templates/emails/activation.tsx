@@ -12,8 +12,9 @@ import {
   Button,
   Hr,
 } from "@react-email/components";
+import { sanitizeUserInput, isValidEmail } from "../../lib/html";
 
-export const ACTIVATION_TEMPLATE_VERSION = "2.1.0";
+export const ACTIVATION_TEMPLATE_VERSION = "2.2.0";
 
 export type ActivationEmailProps = {
   recipientFirstName?: string;
@@ -82,11 +83,19 @@ export default function ActivationEmail({
   appUrl = "https://loamlogger.app",
   unsubscribeUrl,
 }: ActivationEmailProps) {
-  const greeting = recipientFirstName ? `Good morning ${recipientFirstName},` : "Good morning,";
+  // Sanitize user-provided inputs
+  const safeName = sanitizeUserInput(recipientFirstName);
+  const safeEmail = sanitizeUserInput(email, 254); // Max email length per RFC
+  const safeTempPassword = sanitizeUserInput(tempPassword, 64);
 
+  const greeting = safeName ? `Good morning ${safeName},` : "Good morning,";
+
+  // Only include email in reset URL if it's a valid format
   const safeResetUrl =
     resetPasswordUrl ??
-    `${appUrl.replace(/\/$/, "")}/forgot-password?email=${encodeURIComponent(email)}`;
+    (isValidEmail(safeEmail)
+      ? `${appUrl.replace(/\/$/, "")}/forgot-password?email=${encodeURIComponent(safeEmail)}`
+      : `${appUrl.replace(/\/$/, "")}/forgot-password`);
 
   return (
     <Html>
@@ -131,13 +140,13 @@ export default function ActivationEmail({
 
             <Section className="ll-callout" style={styles.callout}>
               <Text className="ll-p" style={{ ...styles.p, margin: "0 0 8px 0" }}>
-                <span className="ll-emph" style={styles.emph}>Email:</span> {email}
+                <span className="ll-emph" style={styles.emph}>Email:</span> {safeEmail}
               </Text>
 
               <Text className="ll-p" style={{ ...styles.p, margin: "0 0 8px 0" }}>
                 <span className="ll-emph" style={styles.emph}>Temporary password:</span>{" "}
                 <span className="ll-code" style={styles.code}>
-                  {tempPassword}
+                  {safeTempPassword}
                 </span>
               </Text>
 

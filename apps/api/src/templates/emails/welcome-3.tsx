@@ -12,8 +12,9 @@ import {
   Button,
   Hr,
 } from "@react-email/components";
+import { sanitizeUserInput } from "../../lib/html";
 
-export const WELCOME_3_TEMPLATE_VERSION = "2.1.0";
+export const WELCOME_3_TEMPLATE_VERSION = "2.2.0";
 
 export type Welcome3EmailProps = {
   recipientFirstName?: string;
@@ -77,7 +78,9 @@ export default function Welcome3Email({
   supportEmail = "ryan.lecours@loamlogger.app",
   unsubscribeUrl,
 }: Welcome3EmailProps) {
-  const greeting = recipientFirstName ? `Hi ${recipientFirstName},` : "Hi there,";
+  // Sanitize user-provided input
+  const safeName = sanitizeUserInput(recipientFirstName);
+  const greeting = safeName ? `Hi ${safeName},` : "Hi there,";
 
   return (
     <Html>

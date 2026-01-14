@@ -12,8 +12,9 @@ import {
   Button,
   Hr,
 } from "@react-email/components";
+import { sanitizeUserInput } from "../../lib/html";
 
-export const FOUNDING_RIDERS_TEMPLATE_VERSION = "1.1.0";
+export const FOUNDING_RIDERS_TEMPLATE_VERSION = "1.2.0";
 
 export type FoundingRidersEmailProps = {
   recipientFirstName?: string;
@@ -74,7 +75,10 @@ export default function FoundingRidersEmail({
   spokesUrl = "https://99spokes.com",
   unsubscribeUrl,
 }: FoundingRidersEmailProps) {
-  const hello = recipientFirstName ? `Good morning ${recipientFirstName},` : "Good morning,";
+  // Sanitize user-provided inputs
+  const safeName = sanitizeUserInput(recipientFirstName);
+  const safeActivationDate = sanitizeUserInput(activationDateText, 50);
+  const hello = safeName ? `Good morning ${safeName},` : "Good morning,";
 
   return (
     <Html>
@@ -83,7 +87,7 @@ export default function FoundingRidersEmail({
         <meta name="supported-color-schemes" content="light dark" />
         <style dangerouslySetInnerHTML={{ __html: darkModeStyles }} />
       </Head>
-      <Preview>{`Your Loam Logger access goes live ${activationDateText}.`}</Preview>
+      <Preview>{`Your Loam Logger access goes live ${safeActivationDate}.`}</Preview>
 
       <Body className="ll-body" style={styles.body}>
         <Container className="ll-container" style={styles.container}>
@@ -123,7 +127,7 @@ export default function FoundingRidersEmail({
             <Section className="ll-callout" style={{ ...styles.callout, textAlign: 'center' }}>
               <Text className="ll-p" style={{ ...styles.p, margin: 0 }}>
                 <span className="ll-emph" style={styles.emph}>Your account goes live:</span>{" "}
-                {activationDateText}.
+                {safeActivationDate}.
               </Text>
 
               <Text className="ll-p" style={styles.p}>Between now and then, I'd love to gather

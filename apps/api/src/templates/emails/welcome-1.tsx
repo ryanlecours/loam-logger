@@ -12,8 +12,9 @@ import {
   Button,
   Hr,
 } from "@react-email/components";
+import { sanitizeUserInput } from "../../lib/html";
 
-export const WELCOME_1_TEMPLATE_VERSION = "2.1.0";
+export const WELCOME_1_TEMPLATE_VERSION = "2.2.0";
 
 export type Welcome1EmailProps = {
   recipientFirstName?: string;
@@ -77,7 +78,9 @@ export default function Welcome1Email({
   appUrl = "https://loamlogger.app",
   unsubscribeUrl,
 }: Welcome1EmailProps) {
-  const greeting = recipientFirstName ? `Hi ${recipientFirstName},` : "Hi there,";
+  // Sanitize user-provided input
+  const safeName = sanitizeUserInput(recipientFirstName);
+  const greeting = safeName ? `Hi ${safeName},` : "Hi there,";
 
   const safeConnectUrl = connectUrl ?? `${appUrl.replace(/\/$/, "")}/settings/connections`;
 

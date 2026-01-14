@@ -12,8 +12,9 @@ import {
   Button,
   Hr,
 } from "@react-email/components";
+import { sanitizeUserInput } from "../../lib/html";
 
-export const WELCOME_2_TEMPLATE_VERSION = "2.3.0";
+export const WELCOME_2_TEMPLATE_VERSION = "2.4.0";
 
 export type Welcome2EmailProps = {
   recipientFirstName?: string;
@@ -75,7 +76,9 @@ export default function Welcome2Email({
   supportEmail = "ryan.lecours@loamlogger.app",
   unsubscribeUrl,
 }: Welcome2EmailProps) {
-  const greeting = recipientFirstName ? `Hi ${recipientFirstName},` : "Hi there,";
+  // Sanitize user-provided input
+  const safeName = sanitizeUserInput(recipientFirstName);
+  const greeting = safeName ? `Hi ${safeName},` : "Hi there,";
 
   return (
     <Html>

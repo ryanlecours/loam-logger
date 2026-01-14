@@ -33,6 +33,7 @@ dist/
 apps/api/server.cjs
 .nx/
 .cache/
+email-preview.html
 
 # Logs
 *.log
@@ -43,6 +44,9 @@ yarn-error.log*
 documentation/*
 
 .cache/
+
+# Dev Helpers
+./apps/api/scripts/preview-email.html
 
 # Expo / React Native
 .expo/

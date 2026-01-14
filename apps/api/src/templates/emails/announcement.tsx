@@ -11,8 +11,9 @@ import {
   Text,
   Hr,
 } from "@react-email/components";
+import { sanitizeUserInput } from "../../lib/html";
 
-export const ANNOUNCEMENT_TEMPLATE_VERSION = "2.0.0";
+export const ANNOUNCEMENT_TEMPLATE_VERSION = "2.1.0";
 
 export type AnnouncementEmailProps = {
   recipientFirstName?: string;
@@ -73,7 +74,10 @@ export default function AnnouncementEmail({
   messageContent,
   unsubscribeUrl,
 }: AnnouncementEmailProps) {
-  const greeting = recipientFirstName ? `Hi ${recipientFirstName},` : "Hi there,";
+  // Sanitize user-provided inputs
+  const safeName = sanitizeUserInput(recipientFirstName);
+  const safeSubject = sanitizeUserInput(subject, 200);
+  const greeting = safeName ? `Hi ${safeName},` : "Hi there,";
 
   return (
     <Html>
@@ -82,7 +86,7 @@ export default function AnnouncementEmail({
         <meta name="supported-color-schemes" content="light dark" />
         <style dangerouslySetInnerHTML={{ __html: darkModeStyles }} />
       </Head>
-      <Preview>{previewText || subject}</Preview>
+      <Preview>{previewText || safeSubject}</Preview>
 
       <Body className="ll-body" style={styles.body}>
         <Container className="ll-container" style={styles.container}>
@@ -96,7 +100,7 @@ export default function AnnouncementEmail({
           {/* Main Card */}
           <Section className="ll-card" style={styles.card}>
             <Heading className="ll-h1" style={styles.h1}>
-              {subject}
+              {safeSubject}
             </Heading>
 
             <Text className="ll-p" style={styles.p}>{greeting}</Text>
