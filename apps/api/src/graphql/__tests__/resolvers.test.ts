@@ -15,6 +15,10 @@ jest.mock('../../lib/prisma', () => ({
     serviceLog: {
       create: jest.fn(),
     },
+    termsAcceptance: {
+      findUnique: jest.fn(),
+      upsert: jest.fn(),
+    },
     $transaction: jest.fn(),
   },
 }));
@@ -36,10 +40,23 @@ const mockPrisma = prisma as jest.Mocked<typeof prisma>;
 const mockCheckMutationRateLimit = checkMutationRateLimit as jest.MockedFunction<typeof checkMutationRateLimit>;
 
 // Helper to create mock GraphQL context
-const createMockContext = (userId: string | null = 'user-123') => ({
+const createMockContext = (
+  userId: string | null = 'user-123',
+  reqOverrides: {
+    ip?: string | undefined;
+    headers?: Record<string, string | string[]>;
+  } = {}
+) => ({
   user: userId ? { id: userId } : null,
   loaders: {
     serviceLogsByComponentId: { load: jest.fn() },
+  },
+  req: {
+    // Only use default IP if ip is not explicitly passed in reqOverrides
+    ip: 'ip' in reqOverrides ? reqOverrides.ip : '127.0.0.1',
+    headers: reqOverrides.headers ?? {
+      'user-agent': 'test-agent',
+    },
   },
 });
 
@@ -569,6 +586,210 @@ describe('GraphQL Resolvers', () => {
         const result = await mutation({}, { bikeIds: ['bike-1'] }, ctx as never);
 
         expect(result).toHaveLength(1);
+      });
+    });
+  });
+
+  describe('acceptTerms', () => {
+    const mutation = resolvers.Mutation.acceptTerms;
+
+    it('should accept valid terms version', async () => {
+      const ctx = createMockContext('user-123');
+      const mockAcceptance = {
+        id: 'acceptance-1',
+        userId: 'user-123',
+        termsVersion: '1.2.0',
+        acceptedAt: new Date('2026-01-14T12:00:00Z'),
+        ipAddress: '127.0.0.1',
+        userAgent: 'test-agent',
+      };
+
+      mockPrisma.termsAcceptance.upsert.mockResolvedValue(mockAcceptance as never);
+
+      const result = await mutation(
+        {},
+        { input: { termsVersion: '1.2.0' } },
+        ctx as never
+      );
+
+      expect(result).toEqual({
+        success: true,
+        acceptedAt: '2026-01-14T12:00:00.000Z',
+      });
+      expect(mockPrisma.termsAcceptance.upsert).toHaveBeenCalledWith({
+        where: {
+          userId_termsVersion: {
+            userId: 'user-123',
+            termsVersion: '1.2.0',
+          },
+        },
+        create: {
+          userId: 'user-123',
+          termsVersion: '1.2.0',
+          ipAddress: '127.0.0.1',
+          userAgent: 'test-agent',
+        },
+        update: {},
+      });
+    });
+
+    it('should reject invalid terms version', async () => {
+      const ctx = createMockContext('user-123');
+
+      await expect(
+        mutation({}, { input: { termsVersion: '0.9.0' } }, ctx as never)
+      ).rejects.toThrow('Invalid terms version');
+
+      expect(mockPrisma.termsAcceptance.upsert).not.toHaveBeenCalled();
+    });
+
+    it('should be idempotent (accept same version twice)', async () => {
+      const ctx = createMockContext('user-123');
+      const originalDate = new Date('2026-01-10T12:00:00Z');
+      const mockAcceptance = {
+        id: 'acceptance-1',
+        userId: 'user-123',
+        termsVersion: '1.2.0',
+        acceptedAt: originalDate,
+        ipAddress: '127.0.0.1',
+        userAgent: 'test-agent',
+      };
+
+      // Upsert returns existing record (no update)
+      mockPrisma.termsAcceptance.upsert.mockResolvedValue(mockAcceptance as never);
+
+      const result = await mutation(
+        {},
+        { input: { termsVersion: '1.2.0' } },
+        ctx as never
+      );
+
+      // Should return success with original timestamp
+      expect(result).toEqual({
+        success: true,
+        acceptedAt: '2026-01-10T12:00:00.000Z',
+      });
+    });
+
+    it('should capture IP and user agent', async () => {
+      const ctx = createMockContext('user-123', {
+        ip: '192.168.1.100',
+        headers: {
+          'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+        },
+      });
+      const mockAcceptance = {
+        id: 'acceptance-1',
+        userId: 'user-123',
+        termsVersion: '1.2.0',
+        acceptedAt: new Date(),
+        ipAddress: '192.168.1.100',
+        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+      };
+
+      mockPrisma.termsAcceptance.upsert.mockResolvedValue(mockAcceptance as never);
+
+      await mutation({}, { input: { termsVersion: '1.2.0' } }, ctx as never);
+
+      expect(mockPrisma.termsAcceptance.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          create: expect.objectContaining({
+            ipAddress: '192.168.1.100',
+            userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+          }),
+        })
+      );
+    });
+
+    it('should use rightmost IP from x-forwarded-for header', async () => {
+      const ctx = createMockContext('user-123', {
+        ip: undefined,
+        headers: {
+          'x-forwarded-for': '1.2.3.4, 5.6.7.8, 10.0.0.1',
+          'user-agent': 'test-agent',
+        },
+      });
+      const mockAcceptance = {
+        id: 'acceptance-1',
+        userId: 'user-123',
+        termsVersion: '1.2.0',
+        acceptedAt: new Date(),
+        ipAddress: '10.0.0.1',
+        userAgent: 'test-agent',
+      };
+
+      mockPrisma.termsAcceptance.upsert.mockResolvedValue(mockAcceptance as never);
+
+      await mutation({}, { input: { termsVersion: '1.2.0' } }, ctx as never);
+
+      expect(mockPrisma.termsAcceptance.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          create: expect.objectContaining({
+            ipAddress: '10.0.0.1',
+          }),
+        })
+      );
+    });
+
+    it('should require authentication', async () => {
+      const ctx = createMockContext(null);
+
+      await expect(
+        mutation({}, { input: { termsVersion: '1.2.0' } }, ctx as never)
+      ).rejects.toThrow('Unauthorized');
+
+      expect(mockPrisma.termsAcceptance.upsert).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('User.hasAcceptedCurrentTerms', () => {
+    const resolver = resolvers.User.hasAcceptedCurrentTerms;
+
+    it('should return false when terms not accepted', async () => {
+      mockPrisma.termsAcceptance.findUnique.mockResolvedValue(null);
+
+      const result = await resolver({ id: 'user-123' });
+
+      expect(result).toBe(false);
+      expect(mockPrisma.termsAcceptance.findUnique).toHaveBeenCalledWith({
+        where: {
+          userId_termsVersion: {
+            userId: 'user-123',
+            termsVersion: '1.2.0',
+          },
+        },
+      });
+    });
+
+    it('should return true when current version accepted', async () => {
+      mockPrisma.termsAcceptance.findUnique.mockResolvedValue({
+        id: 'acceptance-1',
+        userId: 'user-123',
+        termsVersion: '1.2.0',
+        acceptedAt: new Date(),
+      } as never);
+
+      const result = await resolver({ id: 'user-123' });
+
+      expect(result).toBe(true);
+    });
+
+    it('should return false when old version accepted (queries for current version)', async () => {
+      // The resolver queries for current version, so if user only accepted 1.1.0,
+      // findUnique for 1.2.0 returns null
+      mockPrisma.termsAcceptance.findUnique.mockResolvedValue(null);
+
+      const result = await resolver({ id: 'user-123' });
+
+      expect(result).toBe(false);
+      // Verify it queried for current version, not old
+      expect(mockPrisma.termsAcceptance.findUnique).toHaveBeenCalledWith({
+        where: {
+          userId_termsVersion: {
+            userId: 'user-123',
+            termsVersion: '1.2.0',
+          },
+        },
       });
     });
   });

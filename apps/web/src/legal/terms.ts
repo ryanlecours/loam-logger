@@ -1,7 +1,17 @@
 // apps/web/src/legal/terms.ts
 // IMPORTANT: This file contains the full Terms & Conditions text verbatim as approved.
 
-export const TERMS_VERSION = "1.2.0";
+/*
+ * To update terms:
+ * 1. Update TERMS_VERSION (use semver)
+ * 2. Update TERMS_LAST_UPDATED
+ * 3. Update TERMS_TEXT
+ * 4. Update CURRENT_TERMS_VERSION in @loam/shared
+ * 5. Existing users will be prompted to accept on next login
+ */
+
+// Re-export from shared to ensure frontend and backend use the same version
+export { CURRENT_TERMS_VERSION as TERMS_VERSION } from '@loam/shared';
 export const TERMS_LAST_UPDATED = "January 2026";
 
 export const TERMS_TEXT = `# Terms and Conditions of Use

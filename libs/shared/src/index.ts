@@ -13,3 +13,6 @@ export * from './componentCatalog';
 
 // Password
 export * from './password';
+
+// Legal
+export * from './legal/terms';

@@ -17,14 +17,12 @@ import {
   deriveBikeSpec,
   type BikeSpec,
   type SpokesComponents,
+  CURRENT_TERMS_VERSION,
 } from '@loam/shared';
 import { logError } from '../lib/logger';
 import type { AcquisitionCondition, BaselineMethod, BaselineConfidence } from '@prisma/client';
 import { getBikeById, isSpokesConfigured } from '../services/spokes';
 import { parseISO } from 'date-fns';
-
-// Single source of truth for current terms version (must match frontend)
-const CURRENT_TERMS_VERSION = '1.2.0';
 
 type ComponentType = ComponentTypeLiteral;
 
@@ -1749,13 +1747,14 @@ export const resolvers = {
       }
 
       // Extract IP and User Agent from request
+      // Use rightmost IP from x-forwarded-for (added by trusted proxy) to prevent spoofing
       const forwardedFor = ctx.req.headers['x-forwarded-for'];
       const ipAddress =
         ctx.req.ip ||
         (typeof forwardedFor === 'string'
-          ? forwardedFor.split(',')[0]?.trim()
+          ? forwardedFor.split(',').pop()?.trim()
           : Array.isArray(forwardedFor)
-          ? forwardedFor[0]?.split(',')[0]?.trim()
+          ? forwardedFor[forwardedFor.length - 1]?.split(',').pop()?.trim()
           : null) ||
         null;
       const userAgent =
