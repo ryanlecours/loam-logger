@@ -8,6 +8,7 @@ export const ME_QUERY = gql`
       name
       avatarUrl
       onboardingCompleted
+      hasAcceptedCurrentTerms
       location
       age
       role

@@ -38,6 +38,7 @@ model User {
   stravaGearMappings  StravaGearMapping[]
   accounts            UserAccount[]
   emailSends          EmailSend[]
+  termsAcceptances    TermsAcceptance[]
 }
 
 model OauthToken {
@@ -336,4 +337,18 @@ model GeoCache {
   createdAt DateTime @default(now())
 
   @@unique([lat, lon])
+}
+
+model TermsAcceptance {
+  id           String   @id @default(cuid())
+  userId       String
+  termsVersion String
+  acceptedAt   DateTime @default(now())
+  ipAddress    String?
+  userAgent    String?
+  createdAt    DateTime @default(now())
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, termsVersion])
+  @@index([userId])
 }
