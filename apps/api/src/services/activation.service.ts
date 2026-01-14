@@ -124,7 +124,7 @@ export async function activateWaitlistUser({
     await sendEmail({
       to: user.email,
       subject: getActivationEmailSubject(),
-      html: getActivationEmailHtml({
+      html: await getActivationEmailHtml({
         name: user.name || undefined,
         email: user.email,
         tempPassword,

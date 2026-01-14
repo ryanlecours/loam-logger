@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useApolloClient, useQuery, gql } from '@apollo/client';
-import { FaMountain, FaPencilAlt } from 'react-icons/fa';
+import { FaMountain, FaPencilAlt, FaStrava } from 'react-icons/fa';
 import { ME_QUERY } from '../graphql/me';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { Button } from '@/components/ui';
@@ -103,7 +103,9 @@ export default function Onboarding() {
   const [error, setError] = useState<string | null>(null);
 
   const accounts = accountsData?.me?.accounts || [];
-  const hasConnectedDevice = accounts.some((acc: { provider: string }) => acc.provider === 'garmin');
+  const hasConnectedDevice = accounts.some((acc: { provider: string }) =>
+    acc.provider === 'garmin' || acc.provider === 'strava'
+  );
 
   // Load initial data from sessionStorage if available (for OAuth redirects)
   const loadSavedData = (): OnboardingData => {
@@ -407,6 +409,11 @@ export default function Onboarding() {
   const handleConnectGarmin = () => {
     const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:4000';
     window.location.href = `${apiBase}/auth/garmin/start`;
+  };
+
+  const handleConnectStrava = () => {
+    const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+    window.location.href = `${apiBase}/auth/strava/start`;
   };
 
   const handleSkipDevices = async () => {
@@ -868,14 +875,49 @@ export default function Onboarding() {
                 </div>
                 <h2 className="text-3xl font-semibold text-white">Connect Your Devices</h2>
                 <p className="text-muted max-w-lg mx-auto">
-                  Connect your fitness devices to automatically sync your rides. You can always add more devices later in Settings.
+                  Connect your fitness apps and devices to automatically sync your rides. You can always add more later in Settings.
                 </p>
               </div>
 
               <div className="space-y-3 max-w-md mx-auto">
+                {/* Strava Connection (Recommended) */}
+                {accounts.find((acc: { provider: string }) => acc.provider === 'strava') ? (
+                  <div className="w-full rounded-2xl border border-[#FC4C02]/50 bg-surface-2 px-4 py-4">
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="flex items-center gap-3">
+                        <FaStrava className="text-lg" style={{ color: '#FC4C02' }} />
+                        <div className="text-left">
+                          <p className="font-semibold">Strava</p>
+                          <p className="text-xs text-success">Connected ✓</p>
+                        </div>
+                      </div>
+                      <span className="text-xs text-success">Ready</span>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={handleConnectStrava}
+                    className="w-full rounded-2xl border border-[#FC4C02]/50 bg-[#FC4C02]/10 hover:bg-[#FC4C02]/20 px-4 py-4 transition text-left"
+                  >
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="flex items-center gap-3">
+                        <FaStrava className="text-lg" style={{ color: '#FC4C02' }} />
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <p className="font-semibold">Strava</p>
+                            <span className="text-xs bg-[#FC4C02]/20 text-[#FC4C02] px-2 py-0.5 rounded-full">Recommended</span>
+                          </div>
+                          <p className="text-xs text-muted">Import activities automatically</p>
+                        </div>
+                      </div>
+                      <span className="text-xs" style={{ color: '#FC4C02' }}>Connect</span>
+                    </div>
+                  </button>
+                )}
+
                 {/* Garmin Connection */}
                 {accounts.find((acc: { provider: string }) => acc.provider === 'garmin') ? (
-                  <div className="w-full rounded-2xl border border-app/70 bg-surface-2 px-4 py-4">
+                  <div className="w-full rounded-2xl border border-[#11A9ED]/50 bg-surface-2 px-4 py-4">
                     <div className="flex items-center justify-between gap-4">
                       <div className="flex items-center gap-3">
                         <FaMountain className="text-lg" style={{ color: '#11A9ED' }} />
@@ -890,7 +932,7 @@ export default function Onboarding() {
                 ) : (
                   <button
                     onClick={handleConnectGarmin}
-                    className="w-full rounded-2xl border border-app/70 bg-surface-2 hover:bg-surface-3 px-4 py-4 transition text-left"
+                    className="w-full rounded-2xl border border-[#11A9ED]/50 bg-[#11A9ED]/10 hover:bg-[#11A9ED]/20 px-4 py-4 transition text-left"
                   >
                     <div className="flex items-center justify-between gap-4">
                       <div className="flex items-center gap-3">
@@ -900,19 +942,18 @@ export default function Onboarding() {
                           <p className="text-xs text-muted">Import activities automatically</p>
                         </div>
                       </div>
-                      <span className="text-xs text-primary">Connect</span>
+                      <span className="text-xs" style={{ color: '#11A9ED' }}>Connect</span>
                     </div>
                   </button>
                 )}
 
-                {/* Placeholder for future integrations */}
-                <div className="w-full rounded-2xl border border-app/70 bg-surface-2/50 px-4 py-4 opacity-50">
+                {/* Coming Soon */}
+                <div className="w-full rounded-2xl border border-app/30 bg-surface-2/50 px-4 py-4 opacity-60 cursor-not-allowed">
                   <div className="flex items-center justify-between gap-4">
                     <div className="text-left">
-                      <p className="font-semibold">Strava, Suunto, Whoop</p>
-                      <p className="text-xs text-muted">Coming soon</p>
+                      <p className="font-semibold text-muted">Coming Soon</p>
+                      <p className="text-xs text-muted">Suunto, Coros, Whoop</p>
                     </div>
-                    <span className="text-xs text-muted">Not available</span>
                   </div>
                 </div>
               </div>

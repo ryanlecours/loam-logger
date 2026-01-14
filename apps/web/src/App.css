@@ -15,10 +15,7 @@ body {
 }
 
 .app-shell {
-  height: 100vh;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
+  min-height: 100vh;
   background: rgb(var(--bg));
   color: rgb(var(--text));
 }
@@ -156,21 +153,8 @@ body {
   display: flex;
   flex-direction: column;
   gap: 2rem;
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
 }
 
-@media (max-width: 1279px) {
-  .app-shell {
-    height: auto;
-    min-height: 100vh;
-    overflow: auto;
-  }
-  .app-shell__content {
-    overflow: visible;
-  }
-}
 
 @media (max-width: 768px) {
   .app-shell__headerRow {

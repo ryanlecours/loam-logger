@@ -13,6 +13,9 @@ interface DashboardLayoutProps {
  * Control room layout for the dashboard.
  * Desktop: 2-column grid, viewport-locked (no page scroll)
  * Tablet/Mobile: Single column, allows page scroll
+ *
+ * @deprecated This layout has been replaced by the stacked layout in Dashboard.tsx.
+ * The new layout moves Recent Rides and Ride Stats below the bike health section.
  */
 export function DashboardLayout({ main, sidebar, className = '' }: DashboardLayoutProps) {
   return (

@@ -23,6 +23,11 @@ import Onboarding from './pages/Onboarding';
 
 import './App.css';
 import PrivacyPolicy from './pages/PrivacyPolicy';
+import Terms from './pages/Terms';
+import Pricing from './pages/Pricing';
+import Disclaimer from './pages/Disclaimer';
+import About from './pages/About';
+import Support from './pages/Support';
 
 function Page({ children, className }: { children: React.ReactNode; className?: string }) {
   const reduce = useReducedMotion();
@@ -62,6 +67,11 @@ function AppRoutes() {
           {/* Public */}
           <Route path="/" element={<MarketingLanding />} />
           <Route path="/privacy" element={<PrivacyPolicy />} />
+          <Route path="/terms" element={<Terms />} />
+          <Route path="/pricing" element={<Page><Pricing /></Page>} />
+          <Route path="/disclaimer" element={<Page><Disclaimer /></Page>} />
+          <Route path="/about" element={<Page><About /></Page>} />
+          <Route path="/support" element={<Page><Support /></Page>} />
           <Route path="/login" element={<Page><Login /></Page>} />
           <Route path="/beta-waitlist" element={<Page><BetaTesterWaitlist /></Page>} />
           <Route path="/change-password" element={<Page><ChangePassword /></Page>} />
