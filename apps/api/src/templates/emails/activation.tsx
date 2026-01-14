@@ -12,6 +12,7 @@ import {
   Button,
   Hr,
 } from "@react-email/components";
+import { render } from "@react-email/render";
 import { sanitizeUserInput, isValidEmail } from "../../lib/html";
 
 export const ACTIVATION_TEMPLATE_VERSION = "2.2.0";
@@ -390,3 +391,43 @@ const styles: Record<string, React.CSSProperties> = {
     textDecoration: "underline",
   },
 };
+
+/**
+ * Get the activation email subject line.
+ */
+export function getActivationEmailSubject(): string {
+  return "Your Loam Logger account is live";
+}
+
+// Helper type for the legacy getActivationEmailHtml function
+export type GetActivationEmailHtmlParams = {
+  name?: string;
+  email: string;
+  tempPassword: string;
+  loginUrl?: string;
+  unsubscribeUrl?: string;
+};
+
+/**
+ * Render the activation email to HTML string.
+ * This is a convenience function for use by the activation service.
+ */
+export async function getActivationEmailHtml({
+  name,
+  email,
+  tempPassword,
+  loginUrl,
+  unsubscribeUrl,
+}: GetActivationEmailHtmlParams): Promise<string> {
+  const element = (
+    <ActivationEmail
+      recipientFirstName={name}
+      email={email}
+      tempPassword={tempPassword}
+      loginUrl={loginUrl}
+      unsubscribeUrl={unsubscribeUrl}
+    />
+  );
+
+  return render(element);
+}

@@ -158,7 +158,7 @@ async function processScheduledEmail(scheduledEmailId: string): Promise<void> {
         const unsubscribeToken = generateUnsubscribeToken(recipient.id);
         const unsubscribeUrl = `${API_URL}/api/email/unsubscribe?token=${unsubscribeToken}`;
 
-        const html = getAnnouncementEmailHtml({
+        const html = await getAnnouncementEmailHtml({
           name: recipient.name || undefined,
           subject: scheduledEmail.subject,
           messageHtml: scheduledEmail.messageHtml,

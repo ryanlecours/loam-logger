@@ -11,6 +11,7 @@ import {
   Text,
   Hr,
 } from "@react-email/components";
+import { render } from "@react-email/render";
 import { sanitizeUserInput } from "../../lib/html";
 
 export const ANNOUNCEMENT_TEMPLATE_VERSION = "2.1.0";
@@ -259,3 +260,38 @@ const styles: Record<string, React.CSSProperties> = {
     textDecoration: "underline",
   },
 };
+
+// Helper type for the legacy getAnnouncementEmailHtml function
+export type GetAnnouncementEmailHtmlParams = {
+  name?: string;
+  subject: string;
+  messageHtml: string;
+  unsubscribeUrl?: string;
+};
+
+/**
+ * Render the announcement email to HTML string.
+ * This is a convenience function for use by the email scheduler.
+ */
+export async function getAnnouncementEmailHtml({
+  name,
+  subject,
+  messageHtml,
+  unsubscribeUrl,
+}: GetAnnouncementEmailHtmlParams): Promise<string> {
+  // Create a React element that renders the HTML content
+  const messageContent = (
+    <div dangerouslySetInnerHTML={{ __html: messageHtml }} />
+  );
+
+  const element = (
+    <AnnouncementEmail
+      recipientFirstName={name}
+      subject={subject}
+      messageContent={messageContent}
+      unsubscribeUrl={unsubscribeUrl}
+    />
+  );
+
+  return render(element);
+}

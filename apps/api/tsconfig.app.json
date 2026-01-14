@@ -7,8 +7,9 @@
     "types": ["node"],
     "baseUrl": ".",
     "paths": { "@/*": ["src/*"] },
-    "outDir": "../../dist/apps/api"
+    "outDir": "../../dist/apps/api",
+    "jsx": "react-jsx"
   },
-  "include": ["src/**/*.ts"],
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
   "exclude": ["**/*.spec.ts", "**/*.test.ts", "jest.config.ts", "node_modules", "dist"]
 }

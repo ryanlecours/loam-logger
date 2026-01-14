@@ -252,7 +252,7 @@ router.post('/users', async (req, res) => {
         await sendEmail({
           to: user.email,
           subject: getActivationEmailSubject(),
-          html: getActivationEmailHtml({
+          html: await getActivationEmailHtml({
             name: user.name || undefined,
             email: user.email,
             tempPassword,
@@ -967,7 +967,7 @@ router.post('/email/send', async (req, res) => {
         const unsubscribeToken = generateUnsubscribeToken(recipient.id);
         const unsubscribeUrl = `${API_URL}/api/email/unsubscribe?token=${unsubscribeToken}`;
 
-        const html = getAnnouncementEmailHtml({
+        const html = await getAnnouncementEmailHtml({
           name: recipient.name || undefined,
           subject: subject.trim(),
           messageHtml: sanitizedMessage,
