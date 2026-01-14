@@ -1,25 +1,13 @@
 import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { FaWrench, FaCog, FaBicycle } from 'react-icons/fa';
+import { FaWrench, FaCog, FaBicycle, FaChevronUp, FaChevronDown } from 'react-icons/fa';
 import type { BikeWithPredictions } from '../../hooks/usePriorityBike';
+import { useBikeRides, type BikeRide } from '../../hooks/useBikeRides';
 import { getBikeName } from '../../utils/formatters';
 import { StatusPill } from './StatusPill';
 import { ComponentHealthPanel } from './ComponentHealthPanel';
 import { CompactRideRow } from './CompactRideRow';
 import { Button } from '../ui/Button';
-
-interface BikeRide {
-  id: string;
-  startTime: string;
-  durationSeconds: number;
-  distanceMiles: number;
-  elevationGainFeet: number;
-  trailSystem?: string | null;
-  location?: string | null;
-  bikeId?: string | null;
-  stravaActivityId?: string | null;
-  garminActivityId?: string | null;
-}
 
 interface PriorityBikeHeroProps {
   bike: BikeWithPredictions | null;
@@ -38,6 +26,18 @@ export function PriorityBikeHero({
   loading = false,
   rides = [],
 }: PriorityBikeHeroProps) {
+  // Paginated rides for this bike - show 6 rides in hero
+  const {
+    rides: paginatedRides,
+    canGoNewer,
+    canGoOlder,
+    goNewer,
+    goOlder,
+    loading: ridesLoading,
+    pageIndex,
+    rangeInfo,
+  } = useBikeRides(bike?.id ?? null, rides, 6);
+
   // Loading skeleton
   if (loading) {
     return (
@@ -89,33 +89,35 @@ export function PriorityBikeHero({
 
   return (
     <section className="priority-hero">
-      {/* Header */}
-      <div className="priority-hero-header">
-        <StatusPill status={overallStatus} />
-        <AnimatePresence mode="wait">
-          <motion.h2
-            key={bike.id}
-            className="priority-hero-title"
-            initial={{ opacity: 0, x: -10 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: 10 }}
-            transition={{ duration: 0.15 }}
-          >
-            {bikeName}
-          </motion.h2>
-        </AnimatePresence>
-        {!isShowingPriority && (
-          <button
-            className="priority-hero-back"
-            onClick={onResetToPriority}
-          >
-            ← Back to priority
-          </button>
-        )}
-      </div>
-
-      {/* Two-column layout: components left, bike image right */}
+      {/* Constrained width container for header and columns */}
       <div className="priority-hero-body">
+        {/* Header */}
+        <div className="priority-hero-header">
+          <StatusPill status={overallStatus} />
+          <AnimatePresence mode="wait">
+            <motion.h2
+              key={bike.id}
+              className="priority-hero-title"
+              initial={{ opacity: 0, x: -10 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 10 }}
+              transition={{ duration: 0.15 }}
+            >
+              {bikeName}
+            </motion.h2>
+          </AnimatePresence>
+          {!isShowingPriority && (
+            <button
+              className="priority-hero-back"
+              onClick={onResetToPriority}
+            >
+              ← Back to priority
+            </button>
+          )}
+        </div>
+
+        {/* Three-column layout: components, bike image, recent rides */}
+        <div className="priority-hero-columns">
         {/* Left column: components and actions */}
         <AnimatePresence mode="wait">
           <motion.div
@@ -139,17 +141,15 @@ export function PriorityBikeHero({
                 <FaWrench size={12} className="icon-left" />
                 Log service
               </Button>
-              <Link to={`/gear/${bike.id}`}>
-                <Button variant="secondary" size="sm">
-                  <FaCog size={12} className="icon-left" />
-                  View maintenance
-                </Button>
-              </Link>
+              <Button variant="secondary" size="sm" disabled>
+                <FaCog size={12} className="icon-left" />
+                View maintenance
+              </Button>
             </div>
           </motion.div>
         </AnimatePresence>
 
-        {/* Right column: bike image and recent rides */}
+        {/* Center column: bike image */}
         <div className="priority-hero-image-container">
           {bike.thumbnailUrl && (
             <img
@@ -158,28 +158,63 @@ export function PriorityBikeHero({
               className="priority-hero-image"
             />
           )}
-          {/* Bike Rides Section - desktop only */}
-          {(() => {
-            const bikeRides = rides.filter((r) => r.bikeId === bike.id);
-            return (
-              <div className="priority-hero-bike-rides">
-                <h4 className="priority-hero-bike-rides-header">Recent Rides</h4>
-                {bikeRides.length > 0 ? (
-                  <div className="priority-hero-bike-rides-list">
-                    {bikeRides.map((ride) => (
-                      <CompactRideRow
-                        key={ride.id}
-                        ride={ride}
-                        bikeName={bikeName}
-                      />
-                    ))}
-                  </div>
-                ) : (
-                  <p className="priority-hero-bike-rides-empty">No rides on this bike yet</p>
-                )}
+        </div>
+
+        {/* Right column: recent rides */}
+        <div className="priority-hero-bike-rides">
+          <h4 className="priority-hero-bike-rides-header">Recent Rides</h4>
+          {paginatedRides.length > 0 ? (
+            <div className="priority-hero-bike-rides-list">
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={`rides-page-${pageIndex}`}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -8 }}
+                  transition={{ duration: 0.2, ease: 'easeOut' }}
+                >
+                  {paginatedRides.map((ride) => (
+                    <CompactRideRow
+                      key={ride.id}
+                      ride={ride}
+                      bikeName={bikeName}
+                    />
+                  ))}
+                </motion.div>
+              </AnimatePresence>
+            </div>
+          ) : (
+            <p className="priority-hero-bike-rides-empty">No rides on this bike yet</p>
+          )}
+          {/* Navigation arrows below rides */}
+          {(canGoNewer || canGoOlder) && (
+            <div className="bike-rides-nav">
+              <div className="bike-rides-nav-buttons">
+                <button
+                  type="button"
+                  className="bike-rides-nav-btn"
+                  onClick={goNewer}
+                  disabled={!canGoNewer}
+                  aria-label="Show newer rides"
+                >
+                  <FaChevronUp size={14} />
+                </button>
+                <button
+                  type="button"
+                  className="bike-rides-nav-btn"
+                  onClick={goOlder}
+                  disabled={!canGoOlder || ridesLoading}
+                  aria-label="Show older rides"
+                >
+                  <FaChevronDown size={14} />
+                </button>
               </div>
-            );
-          })()}
+              <span className="bike-rides-nav-range">
+                {rangeInfo.start}–{rangeInfo.end} of {rangeInfo.total}{rangeInfo.hasMore ? '+' : ''}
+              </span>
+            </div>
+          )}
+        </div>
         </div>
       </div>
     </section>

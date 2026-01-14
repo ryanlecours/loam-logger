@@ -1,8 +1,8 @@
-import { useMemo } from 'react';
-import type { ComponentPrediction } from '../../types/prediction';
+import { useMemo, useState } from 'react';
+import { FaChevronRight } from 'react-icons/fa';
+import type { ComponentPrediction, WearDriver } from '../../types/prediction';
 import { STATUS_SEVERITY } from '../../types/prediction';
 import { formatComponentLabel } from '../../utils/formatters';
-import { usePreferences } from '../../hooks/usePreferences';
 import { StatusDot } from './StatusDot';
 
 interface ComponentHealthPanelProps {
@@ -45,8 +45,133 @@ function getSortedComponentsForHealth(
   });
 }
 
+/**
+ * Get make/model display string - returns "Stock" if no brand/model provided
+ */
+function getMakeModel(component: ComponentPrediction): string {
+  const brand = component.brand?.trim();
+  const model = component.model?.trim();
+
+  if (brand && model) {
+    return `${brand} ${model}`;
+  }
+  if (brand) {
+    return brand;
+  }
+  if (model) {
+    return model;
+  }
+  return 'Stock';
+}
+
+/**
+ * Definitions for each wear factor to explain what they mean
+ */
+const WEAR_FACTOR_DEFINITIONS: Record<string, string> = {
+  steepness: 'Measures terrain difficulty and effort intensity. Steeper, more technical trails accelerate component wear through increased stress and heat.',
+  hours: 'Total saddle time directly correlates with component fatigue. Longer rides mean more cycles of stress on bearings, seals, and moving parts.',
+  climbing: 'Elevation gain puts extra load on drivetrain components. Climbing generates higher chain tension and increases brake pad wear on descents.',
+  distance: 'Cumulative miles contribute to gradual wear across all components. More distance means more rotations, friction, and environmental exposure.',
+  speed: 'Higher average speeds increase heat buildup in brakes and stress on suspension components through faster compression cycles.',
+  temperature: 'Extreme temperatures affect lubricant viscosity and seal integrity. Heat degrades oils faster while cold makes seals brittle.',
+  conditions: 'Wet, muddy, or dusty conditions accelerate wear by introducing contaminants that act as abrasives on moving parts.',
+};
+
+/**
+ * Get the definition for a wear factor, with fallback
+ */
+function getFactorDefinition(factor: string): string {
+  return WEAR_FACTOR_DEFINITIONS[factor.toLowerCase()]
+    ?? 'This factor contributes to overall component wear based on your riding patterns.';
+}
+
+/**
+ * Overlay for showing component details and wear causes
+ */
+interface ComponentDetailOverlayProps {
+  component: ComponentPrediction;
+  onClose: () => void;
+}
+
+function ComponentDetailOverlay({ component, onClose }: ComponentDetailOverlayProps) {
+  const makeModel = getMakeModel(component);
+
+  return (
+    <div className="wear-causes-overlay" onClick={onClose}>
+      <div className="wear-causes-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="wear-causes-header">
+          <h3 className="wear-causes-title">
+            {formatComponentLabel(component)}
+            <span className="wear-causes-make-model">{makeModel}</span>
+          </h3>
+          <button className="wear-causes-close" onClick={onClose}>×</button>
+        </div>
+
+        {/* Component Stats */}
+        <div className="component-detail-stats">
+          <div className="component-detail-stat">
+            <span className="component-detail-stat-value">{formatHours(component.hoursRemaining)}</span>
+            <span className="component-detail-stat-label">Until next service</span>
+          </div>
+          <div className="component-detail-stat">
+            <span className="component-detail-stat-value">{formatHours(component.hoursSinceService)}</span>
+            <span className="component-detail-stat-label">Since last service</span>
+          </div>
+          <div className="component-detail-stat">
+            <span className="component-detail-stat-value">{formatHours(component.currentHours)}</span>
+            <span className="component-detail-stat-label">Total hours</span>
+          </div>
+          <div className="component-detail-stat">
+            <span className="component-detail-stat-value">~{component.ridesRemainingEstimate}</span>
+            <span className="component-detail-stat-label">Rides remaining</span>
+          </div>
+          <div className="component-detail-stat">
+            <span className="component-detail-stat-value">{formatHours(component.serviceIntervalHours)}</span>
+            <span className="component-detail-stat-label">Service interval</span>
+          </div>
+        </div>
+
+        {component.why && (
+          <div className="wear-causes-why">
+            <p>{component.why}</p>
+          </div>
+        )}
+
+        {component.drivers && component.drivers.length > 0 && (
+          <div className="wear-causes-drivers">
+            <h4 className="wear-causes-drivers-title">Wear Factors</h4>
+            <div className="wear-causes-drivers-list">
+              {component.drivers.map((driver, idx) => (
+                <div key={idx} className="wear-driver">
+                  <div className="wear-driver-header">
+                    <span className="wear-driver-label">{driver.label}</span>
+                    <span className="wear-driver-contribution">{driver.contribution}%</span>
+                  </div>
+                  <div className="wear-driver-bar">
+                    <div
+                      className="wear-driver-bar-fill"
+                      style={{ width: `${driver.contribution}%` }}
+                    />
+                  </div>
+                  <p className="wear-driver-definition">{getFactorDefinition(driver.factor)}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {!component.why && (!component.drivers || component.drivers.length === 0) && (
+          <div className="wear-causes-empty">
+            <p>No wear analysis available for this component.</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function ComponentHealthPanel({ components, className = '' }: ComponentHealthPanelProps) {
-  const { hoursDisplay } = usePreferences();
+  const [selectedComponent, setSelectedComponent] = useState<ComponentPrediction | null>(null);
 
   const sortedComponents = useMemo(
     () => getSortedComponentsForHealth(components),
@@ -75,32 +200,45 @@ export function ComponentHealthPanel({ components, className = '' }: ComponentHe
 
       <div className="component-health-list list-stagger">
         {sortedComponents.map((component) => {
-          // Determine which secondary hours value to show based on preference
-          const secondaryHours = hoursDisplay === 'total'
-            ? component.currentHours
-            : component.hoursSinceService;
+          const makeModel = getMakeModel(component);
 
           return (
-            <div key={component.componentId} className="component-health-row">
+            <button
+              key={component.componentId}
+              className="component-health-row"
+              onClick={() => setSelectedComponent(component)}
+              type="button"
+            >
               <StatusDot status={component.status} />
-              <span className="component-health-label">
-                {formatComponentLabel(component)}
-              </span>
+              <div className="component-health-name">
+                <span className="component-health-label">
+                  {formatComponentLabel(component)}
+                </span>
+                <span className="component-health-make-model">{makeModel}</span>
+              </div>
               <div className="component-health-metrics">
                 <span className="component-health-hours-primary">
                   {formatHours(component.hoursRemaining)} remaining
                 </span>
                 <span className="component-health-hours-secondary">
-                  {formatHours(secondaryHours)} {hoursDisplay === 'total' ? 'total' : 'since service'}
+                  {formatHours(component.hoursSinceService)} since service
                 </span>
                 <span className="component-health-rides">
                   ~{component.ridesRemainingEstimate} rides
                 </span>
               </div>
-            </div>
+              <FaChevronRight className="component-health-chevron" size={12} />
+            </button>
           );
         })}
       </div>
+
+      {selectedComponent && (
+        <ComponentDetailOverlay
+          component={selectedComponent}
+          onClose={() => setSelectedComponent(null)}
+        />
+      )}
     </div>
   );
 }
