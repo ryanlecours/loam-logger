@@ -46,7 +46,7 @@ documentation/*
 .cache/
 
 # Dev Helpers
-./apps/api/scripts/preview-email.html
+apps/api/scripts/preview-email.tsx
 
 # Expo / React Native
 .expo/
