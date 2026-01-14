@@ -18,6 +18,7 @@ import ChangePassword from './pages/ChangePassword';
 import AuthGate from './components/AuthGate';
 import AppShell from './components/layout/AppShell';
 import OnboardingGate from './components/OnboardingGate';
+import TermsGate from './components/TermsGate';
 import Onboarding from './pages/Onboarding';
 
 import './App.css';
@@ -42,9 +43,11 @@ function Page({ children, className }: { children: React.ReactNode; className?: 
 function ProtectedRoute({ children }: { children: ReactNode }) {
   return (
     <AuthGate>
-      <OnboardingGate>
-        <AppShell>{children}</AppShell>
-      </OnboardingGate>
+      <TermsGate>
+        <OnboardingGate>
+          <AppShell>{children}</AppShell>
+        </OnboardingGate>
+      </TermsGate>
     </AuthGate>
   );
 }

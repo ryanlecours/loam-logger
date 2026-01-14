@@ -8,6 +8,7 @@ import { Button } from '@/components/ui';
 import { getAuthHeaders } from '@/lib/csrf';
 import { BikeSearch, type SpokesSearchResult } from '@/components/BikeSearch';
 import { useSpokes, type SpokesBikeDetails } from '@/hooks/useSpokes';
+import { TermsAcceptanceStep } from '@/components/TermsAcceptanceStep';
 import {
   type ComponentEntry,
   toSpokesInput,
@@ -135,9 +136,9 @@ export default function Onboarding() {
     }
   }, [data]);
 
-  // Refetch accounts when returning from OAuth redirect on step 5
+  // Refetch accounts when returning from OAuth redirect on step 6
   useEffect(() => {
-    if (initialStep === 5) {
+    if (initialStep === 6) {
       refetchAccounts();
     }
   }, [initialStep, refetchAccounts]);
@@ -273,16 +274,21 @@ export default function Onboarding() {
   };
 
   const handleNext = () => {
-    // Validate age on step 1
+    // Step 1 (Terms) has its own navigation via TermsAcceptanceStep
     if (currentStep === 1) {
+      return;
+    }
+
+    // Validate age on step 2
+    if (currentStep === 2) {
       if (!Number.isInteger(data.age) || data.age < 16 || data.age > 115) {
         setError('Age must be between 16 and 115');
         return;
       }
     }
 
-    // Validate bike details on step 3
-    if (currentStep === 3) {
+    // Validate bike details on step 4
+    if (currentStep === 4) {
       const errors = [];
       if (!data.bikeYear) errors.push('bike year');
       if (!data.bikeMake) errors.push('bike make');
@@ -294,7 +300,7 @@ export default function Onboarding() {
       }
     }
 
-    if (currentStep < 5) {
+    if (currentStep < 6) {
       setCurrentStep(currentStep + 1);
       setError(null);
     }
@@ -408,7 +414,7 @@ export default function Onboarding() {
     await handleComplete();
   };
 
-  const progressPercentage = (currentStep / 5) * 100;
+  const progressPercentage = (currentStep / 6) * 100;
 
   return (
     <div className="min-h-screen w-full relative flex items-center justify-center px-4 py-10">
@@ -441,7 +447,7 @@ export default function Onboarding() {
         {/* Progress Bar */}
         <div className="mb-8">
           <div className="flex justify-between items-center mb-2">
-            <span className="text-sm text-muted">Step {currentStep} of 5</span>
+            <span className="text-sm text-muted">Step {currentStep} of 6</span>
             <span className="text-sm text-primary">{Math.round(progressPercentage)}%</span>
           </div>
           <div className="w-full h-2 bg-surface rounded-full overflow-hidden">
@@ -468,8 +474,13 @@ export default function Onboarding() {
             </div>
           )}
 
-          {/* Step 1: Age */}
+          {/* Step 1: Terms & Conditions */}
           {currentStep === 1 && (
+            <TermsAcceptanceStep onComplete={() => setCurrentStep(2)} />
+          )}
+
+          {/* Step 2: Age */}
+          {currentStep === 2 && (
             <div className="space-y-6 text-center">
               <div className="space-y-2">
                 <div className="flex justify-center mb-4">
@@ -502,8 +513,8 @@ export default function Onboarding() {
             </div>
           )}
 
-          {/* Step 2: Location */}
-          {currentStep === 2 && (
+          {/* Step 3: Location */}
+          {currentStep === 3 && (
             <div className="space-y-6 text-center">
               <div className="space-y-2">
                 <div className="flex justify-center mb-4">
@@ -531,8 +542,8 @@ export default function Onboarding() {
             </div>
           )}
 
-          {/* Step 3: Bike */}
-          {currentStep === 3 && (
+          {/* Step 4: Bike */}
+          {currentStep === 4 && (
             <div className="space-y-6 text-center">
               <div className="space-y-2">
                 <div className="flex justify-center mb-4">
@@ -697,8 +708,8 @@ export default function Onboarding() {
             </div>
           )}
 
-          {/* Step 4: Components */}
-          {currentStep === 4 && (
+          {/* Step 5: Components */}
+          {currentStep === 5 && (
             <div className="space-y-6 text-center">
               <div className="space-y-2">
                 <div className="flex justify-center mb-4">
@@ -846,8 +857,8 @@ export default function Onboarding() {
             </div>
           )}
 
-          {/* Step 5: Device Connections */}
-          {currentStep === 5 && (
+          {/* Step 6: Device Connections */}
+          {currentStep === 6 && (
             <div className="space-y-6 text-center">
               <div className="space-y-2">
                 <div className="flex justify-center mb-4">
@@ -909,8 +920,9 @@ export default function Onboarding() {
           )}
 
           {/* Navigation Buttons */}
+          {currentStep !== 1 && (
           <div className="flex gap-4 pt-6">
-            {currentStep > 1 && currentStep !== 5 && (
+            {currentStep > 1 && currentStep !== 6 && (
               <Button
                 onClick={handleBack}
                 variant="secondary"
@@ -920,12 +932,12 @@ export default function Onboarding() {
                 Back
               </Button>
             )}
-            {currentStep < 5 ? (
+            {currentStep < 6 ? (
               <Button
                 onClick={handleNext}
                 variant="primary"
                 className="flex-1"
-                disabled={isLoading || (currentStep === 3 && !isBikeDataValid())}
+                disabled={isLoading || (currentStep === 4 && !isBikeDataValid())}
               >
                 Continue
               </Button>
@@ -953,6 +965,7 @@ export default function Onboarding() {
               </div>
             )}
           </div>
+          )}
         </div>
       </div>
     </div>
