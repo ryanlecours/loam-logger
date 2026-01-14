@@ -2771,6 +2771,86 @@
   overflow: hidden;
 }
 
+/* ============================================
+   DASHBOARD - STACKED LAYOUT
+   ============================================ */
+
+/* Main stacked container */
+.dashboard-stacked-layout {
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100vh - 64px);
+  gap: 0;
+}
+
+/* Section 1: Bike Health (PriorityBikeHero + BikeSwitcherRow) */
+.bike-health-section {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  padding-bottom: 2.5rem;
+}
+
+/* Section 2: Rides & Stats */
+.rides-stats-section {
+  background: rgba(40, 44, 42, 0.85);
+  border-top: 1px solid var(--sage-15);
+  padding: 1.5rem;
+  flex: 1;
+  min-height: 400px;
+}
+
+/* Two-column grid for rides and stats */
+.rides-stats-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+  height: 100%;
+}
+
+/* Ensure child cards fill the grid cells */
+.rides-stats-grid > .recent-rides-card,
+.rides-stats-grid > .ride-stats-compact {
+  min-height: 350px;
+}
+
+/* ============================================
+   SCROLL INDICATOR
+   ============================================ */
+
+.scroll-indicator {
+  position: absolute;
+  bottom: 0.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem;
+  opacity: 0.4;
+  transition: opacity 0.2s ease;
+}
+
+.scroll-indicator:hover {
+  opacity: 0.6;
+}
+
+.scroll-indicator-icon {
+  font-size: 1rem;
+  color: var(--sage);
+  animation: scroll-bounce 2s ease-in-out infinite;
+}
+
+@keyframes scroll-bounce {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(4px);
+  }
+}
+
 /* Priority Bike Hero */
 .priority-hero {
   flex: 1;
@@ -4212,6 +4292,46 @@
 
   .ride-stats-compact-value {
     font-size: 1.25rem;
+  }
+}
+
+/* ============================================
+   STACKED LAYOUT RESPONSIVE
+   ============================================ */
+
+@media (max-width: 1024px) {
+  .rides-stats-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 1.25rem;
+  }
+
+  .rides-stats-section {
+    padding: 1.25rem;
+  }
+}
+
+@media (max-width: 768px) {
+  .rides-stats-grid {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+
+  .rides-stats-section {
+    padding: 1rem;
+    min-height: auto;
+  }
+
+  .rides-stats-grid > .recent-rides-card,
+  .rides-stats-grid > .ride-stats-compact {
+    min-height: 280px;
+  }
+
+  .scroll-indicator {
+    display: none;
+  }
+
+  .bike-health-section {
+    padding-bottom: 1rem;
   }
 }
 

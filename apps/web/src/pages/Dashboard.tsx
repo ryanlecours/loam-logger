@@ -9,8 +9,8 @@ import RideStatsCard from '../components/RideStatsCard';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useUserTier } from '../hooks/useUserTier';
 import { usePriorityBike, type BikeWithPredictions } from '../hooks/usePriorityBike';
+import { FaChevronDown } from 'react-icons/fa';
 import {
-  DashboardLayout,
   PriorityBikeHero,
   BikeSwitcherRow,
   RecentRidesCard,
@@ -99,28 +99,34 @@ export default function Dashboard() {
 
   return (
     <>
-      <DashboardLayout
-        main={
-          <>
-            <PriorityBikeHero
-              bike={displayedBike}
-              isShowingPriority={isShowingPriority}
-              onResetToPriority={resetToPriority}
-              onLogService={handleLogService}
-              loading={bikesLoading}
-              rides={rides}
+      <div className="dashboard-stacked-layout">
+        {/* Section 1: Bike Health */}
+        <section className="bike-health-section">
+          <PriorityBikeHero
+            bike={displayedBike}
+            isShowingPriority={isShowingPriority}
+            onResetToPriority={resetToPriority}
+            onLogService={handleLogService}
+            loading={bikesLoading}
+            rides={rides}
+          />
+          {isPro && sortedBikes.length > 1 && (
+            <BikeSwitcherRow
+              bikes={sortedBikes}
+              selectedBikeId={displayedBike?.id ?? null}
+              onSelect={selectBike}
             />
-            {isPro && sortedBikes.length > 1 && (
-              <BikeSwitcherRow
-                bikes={sortedBikes}
-                selectedBikeId={displayedBike?.id ?? null}
-                onSelect={selectBike}
-              />
-            )}
-          </>
-        }
-        sidebar={
-          <>
+          )}
+
+          {/* Scroll indicator */}
+          <div className="scroll-indicator" aria-hidden="true">
+            <FaChevronDown className="scroll-indicator-icon" />
+          </div>
+        </section>
+
+        {/* Section 2: Rides & Stats */}
+        <section className="rides-stats-section">
+          <div className="rides-stats-grid">
             <RecentRidesCard
               rides={rides}
               bikes={bikes}
@@ -130,9 +136,9 @@ export default function Dashboard() {
             <div className="ride-stats-compact">
               <RideStatsCard showHeading={true} />
             </div>
-          </>
-        }
-      />
+          </div>
+        </section>
+      </div>
 
       {/* Log Service Modal */}
       <LogServiceModal
