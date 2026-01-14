@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { FaChevronRight } from 'react-icons/fa';
-import type { ComponentPrediction, WearDriver } from '../../types/prediction';
+import type { ComponentPrediction } from '../../types/prediction';
 import { STATUS_SEVERITY } from '../../types/prediction';
 import { formatComponentLabel } from '../../utils/formatters';
 import { StatusDot } from './StatusDot';
