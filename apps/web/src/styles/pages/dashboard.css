@@ -3045,18 +3045,26 @@
 
 /* Bike Rides Section - Right column */
 .priority-hero-bike-rides {
-  display: none;
+  display: flex;
   flex-direction: column;
   gap: 0.5rem;
   flex: 1 1 30%;
   min-height: 0;
-  min-width: 280px;
-  max-width: 400px;
+  min-width: 0;
+  max-width: none;
+  width: 100%;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--sage-15);
 }
 
 @media (min-width: 769px) {
   .priority-hero-bike-rides {
-    display: flex;
+    min-width: 280px;
+    max-width: 400px;
+    margin-top: 0;
+    padding-top: 0;
+    border-top: none;
   }
 }
 

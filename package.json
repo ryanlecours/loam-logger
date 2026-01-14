@@ -9,6 +9,7 @@
     "dev:web": "nx serve web",
     "dev:api": "nx serve api",
     "dev:mobile": "nx start mobile",
+    "emails:dev": "npx tsx ./apps/api/scripts/preview-email.tsx",
     "build": "nx run-many --target=build",
     "build:web": "nx build web",
     "test": "nx run-many --target=test",
@@ -24,16 +25,19 @@
     "@nx/react": "^20.0.0",
     "@nx/vite": "^20.0.0",
     "@nx/workspace": "^22.3.3",
+    "@react-email/preview-server": "^5.2.5",
     "eslint": "^9.32.0",
     "eslint-plugin-react-hooks": "^7.0.1",
     "globals": "^16.5.0",
     "nx": "^20.8.3",
+    "react-email": "^5.2.5",
     "ts-node": "^10.9.2",
+    "tsx": "^4.21.0",
     "typescript": "~5.8.3",
     "typescript-eslint": "^8.39.0"
   },
-  "overrides": {
-    "react": "19.1.0",
-    "react-dom": "19.1.0"
+  "dependencies": {
+    "react": "19.1.1",
+    "react-dom": "19.1.1"
   }
 }

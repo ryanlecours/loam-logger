@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { FaChevronRight } from 'react-icons/fa';
 import type { ComponentPrediction } from '../../types/prediction';
 import { STATUS_SEVERITY } from '../../types/prediction';
@@ -95,15 +95,21 @@ interface ComponentDetailOverlayProps {
 
 function ComponentDetailOverlay({ component, onClose }: ComponentDetailOverlayProps) {
   const makeModel = getMakeModel(component);
+  const onCloseRef = useRef(onClose);
 
-  // Handle escape key to close modal
+  // Keep ref updated with latest onClose
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  // Handle escape key to close modal - uses ref to avoid listener churn
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') onCloseRef.current();
     };
     window.addEventListener('keydown', handleEscape);
     return () => window.removeEventListener('keydown', handleEscape);
-  }, [onClose]);
+  }, []);
 
   return (
     <div
@@ -165,7 +171,7 @@ function ComponentDetailOverlay({ component, onClose }: ComponentDetailOverlayPr
                   <div className="wear-driver-bar">
                     <div
                       className="wear-driver-bar-fill"
-                      style={{ width: `${driver.contribution}%` }}
+                      style={{ width: `${Math.max(0, Math.min(100, Number(driver.contribution) || 0))}%` }}
                     />
                   </div>
                   <p className="wear-driver-definition">{getFactorDefinition(driver.factor)}</p>
