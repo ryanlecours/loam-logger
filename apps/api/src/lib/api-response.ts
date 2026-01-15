@@ -86,3 +86,10 @@ export function sendBadRequest(res: Response, error: string, code?: string): voi
 export function sendInternalError(res: Response, error = 'Internal server error'): void {
   sendError(res, 500, error, 'INTERNAL_ERROR');
 }
+
+export function sendTooManyRequests(res: Response, error = 'Too many requests', retryAfter?: number): void {
+  if (retryAfter) {
+    res.setHeader('Retry-After', retryAfter.toString());
+  }
+  sendError(res, 429, error, 'TOO_MANY_REQUESTS', retryAfter ? { retryAfter } : undefined);
+}

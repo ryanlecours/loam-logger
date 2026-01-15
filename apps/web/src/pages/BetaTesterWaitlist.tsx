@@ -68,6 +68,16 @@ export default function BetaTesterWaitlist() {
       const data = await res.json();
 
       if (!res.ok) {
+        // If already on waitlist, redirect to the already-on-waitlist page
+        if (data.code === 'ALREADY_ON_WAITLIST') {
+          navigate('/already-on-waitlist', { replace: true });
+          return;
+        }
+        // If account already exists and is activated, redirect to login
+        if (data.code === 'ACCOUNT_EXISTS') {
+          navigate('/login', { replace: true });
+          return;
+        }
         setError(data.message || 'Failed to join waitlist');
         return;
       }

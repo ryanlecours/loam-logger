@@ -49,9 +49,13 @@ router.post('/google/code', express.json(), async (req, res) => {
     const errorMessage = e instanceof Error ? e.message : String(e);
     console.error('[GoogleAuth] ID-token login failed', e);
 
-    // Handle beta tester access denial
-    if (errorMessage === 'NOT_BETA_TESTER') {
-      return res.status(403).send('NOT_BETA_TESTER');
+    // Handle closed beta - new users
+    if (errorMessage === 'CLOSED_BETA') {
+      return res.status(403).send('CLOSED_BETA');
+    }
+    // Handle waitlist users trying to login
+    if (errorMessage === 'ALREADY_ON_WAITLIST') {
+      return res.status(403).send('ALREADY_ON_WAITLIST');
     }
 
     res.status(500).send('Auth failed');

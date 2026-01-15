@@ -1,7 +1,7 @@
 import express from 'express';
 import { OAuth2Client } from 'google-auth-library';
 import { ensureUserFromGoogle } from './ensureUserFromGoogle';
-import { normalizeEmail, isBetaTester } from './utils';
+import { normalizeEmail } from './utils';
 import { verifyPassword } from './password.utils';
 import { generateAccessToken, generateRefreshToken, verifyToken } from './token';
 import { prisma } from '../lib/prisma';
@@ -64,9 +64,13 @@ router.post('/mobile/google', express.json(), async (req, res) => {
     const errorMessage = e instanceof Error ? e.message : String(e);
     console.error('[MobileAuth] Google login failed', e);
 
-    // Handle beta tester access denial
-    if (errorMessage === 'NOT_BETA_TESTER') {
-      return res.status(403).send('NOT_BETA_TESTER');
+    // Handle closed beta - new users
+    if (errorMessage === 'CLOSED_BETA') {
+      return res.status(403).send('CLOSED_BETA');
+    }
+    // Handle waitlist users trying to login
+    if (errorMessage === 'ALREADY_ON_WAITLIST') {
+      return res.status(403).send('ALREADY_ON_WAITLIST');
     }
 
     res.status(500).send('Authentication failed');
@@ -144,11 +148,9 @@ router.post('/mobile/login', express.json(), async (req, res) => {
       return res.status(401).send('Invalid email or password');
     }
 
-    // Check beta tester access
-    if (process.env.BETA_TESTER_EMAILS) {
-      if (!isBetaTester(email)) {
-        return res.status(403).send('NOT_BETA_TESTER');
-      }
+    // Block WAITLIST users - they cannot login until activated
+    if (user.role === 'WAITLIST') {
+      return res.status(403).send('ALREADY_ON_WAITLIST');
     }
 
     // Generate tokens for mobile

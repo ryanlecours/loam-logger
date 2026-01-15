@@ -15,7 +15,6 @@ export default function Login() {
   const [mode, setMode] = useState<'login' | 'signup'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
   const [name, setName] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -53,8 +52,14 @@ export default function Login() {
         const text = await res.text();
         console.error('[GoogleLogin] Backend responded with error', res.status, text);
 
-        if (text.trim() === 'NOT_BETA_TESTER') {
-          navigate('/beta-waitlist', { replace: true });
+        // New user trying to sign up - redirect to closed beta page
+        if (text.trim() === 'CLOSED_BETA') {
+          navigate('/closed-beta', { replace: true });
+          return;
+        }
+        // Existing waitlist user - redirect to already on waitlist page
+        if (text.trim() === 'ALREADY_ON_WAITLIST') {
+          navigate('/already-on-waitlist', { replace: true });
           return;
         }
 
@@ -89,17 +94,12 @@ export default function Login() {
     setError(null);
     setIsLoading(true);
 
-    // Validate password confirmation for signup
-    if (mode === 'signup' && password !== confirmPassword) {
-      setError('Passwords do not match. Please try again.');
-      setIsLoading(false);
-      return;
-    }
-
     try {
       const endpoint = mode === 'login' ? 'login' : 'signup';
+      // During closed beta, signup only requires email and name
+      // Users will receive login credentials via email when activated
       const body = mode === 'signup'
-        ? { email, password, name }
+        ? { email, name }
         : { email, password };
 
       const res = await fetch(`${import.meta.env.VITE_API_URL}/auth/${endpoint}`, {
@@ -113,21 +113,31 @@ export default function Login() {
         const text = await res.text();
         console.error(`[${mode}] Backend responded with error`, res.status, text);
 
-        // Handle specific errors
-        if (text.trim() === 'NOT_BETA_TESTER') {
-          navigate('/beta-waitlist', { replace: true });
-          return;
-        }
-
-        // Handle WAITLIST account error (JSON response)
+        // Handle JSON responses first
         try {
           const jsonError = JSON.parse(text);
-          if (jsonError.code === 'ACCOUNT_NOT_ACTIVATED') {
-            setError('Your account is on the waitlist and not yet activated. You will receive an email when your access is approved.');
+          // New user trying to sign up - redirect to closed beta page
+          if (jsonError.code === 'CLOSED_BETA') {
+            navigate('/closed-beta', { replace: true });
+            return;
+          }
+          // Existing waitlist user - redirect to already on waitlist page
+          if (jsonError.code === 'ALREADY_ON_WAITLIST') {
+            navigate('/already-on-waitlist', { replace: true });
             return;
           }
         } catch {
           // Not JSON, continue with text handling
+        }
+
+        // Handle plain text responses
+        if (text.trim() === 'CLOSED_BETA') {
+          navigate('/closed-beta', { replace: true });
+          return;
+        }
+        if (text.trim() === 'ALREADY_ON_WAITLIST') {
+          navigate('/already-on-waitlist', { replace: true });
+          return;
         }
 
         // Map backend error messages to user-friendly messages
@@ -244,7 +254,6 @@ export default function Login() {
             } ${isLoading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
             onClick={() => {
               setMode('login');
-              setConfirmPassword('');
               setName('');
               setError(null);
             }}
@@ -259,7 +268,6 @@ export default function Login() {
             } ${isLoading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
             onClick={() => {
               setMode('signup');
-              setConfirmPassword('');
               setName('');
               setError(null);
             }}
@@ -300,31 +308,24 @@ export default function Login() {
               required
             />
           </label>
-          <label className="block text-xs uppercase tracking-[0.3em]" style={{ color: 'var(--concrete)' }}>
-            Password
-            <input
-              type="password"
-              className="mt-1 w-full input-soft"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="********"
-              disabled={isLoading}
-              required
-            />
-          </label>
-          {mode === 'signup' && (
+          {mode === 'login' && (
             <label className="block text-xs uppercase tracking-[0.3em]" style={{ color: 'var(--concrete)' }}>
-              Confirm Password
+              Password
               <input
                 type="password"
                 className="mt-1 w-full input-soft"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                placeholder="••••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="********"
                 disabled={isLoading}
                 required
               />
             </label>
+          )}
+          {mode === 'signup' && (
+            <div className="text-sm p-3 rounded-lg" style={{ backgroundColor: 'rgba(134, 169, 139, 0.15)', color: 'var(--sage)' }}>
+              Loam Logger is in closed beta. Join the waitlist and we'll email you login credentials when your account is activated.
+            </div>
           )}
           {isLoading && (
             <div className="flex justify-center">
@@ -337,7 +338,7 @@ export default function Login() {
             className="w-full justify-center text-base"
             disabled={isLoading}
           >
-            {isLoading ? 'Loading...' : mode === 'login' ? 'Login' : 'Create Account'}
+            {isLoading ? 'Loading...' : mode === 'login' ? 'Login' : 'Join Waitlist'}
           </Button>
         </form>
 

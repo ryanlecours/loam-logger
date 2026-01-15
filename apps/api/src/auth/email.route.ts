@@ -1,33 +1,45 @@
 import express from 'express';
-import { normalizeEmail, isBetaTester } from './utils';
+import { normalizeEmail } from './utils';
 import { hashPassword, verifyPassword, validatePassword } from './password.utils';
 import { validateEmailFormat } from './email.utils';
 import { setSessionCookie } from './session';
 import { setCsrfCookie } from './csrf'; // Used by /auth/csrf-token endpoint
 import { prisma } from '../lib/prisma';
-import { sendBadRequest, sendUnauthorized, sendForbidden, sendConflict, sendInternalError } from '../lib/api-response';
+import { sendBadRequest, sendUnauthorized, sendForbidden, sendConflict, sendInternalError, sendTooManyRequests } from '../lib/api-response';
+import { checkAuthRateLimit } from '../lib/rate-limit';
 
 const router = express.Router();
 
 /**
  * POST /auth/signup
- * Create a new user account with email and password
+ * Add user to waitlist (closed beta)
  */
 router.post('/signup', express.json(), async (req, res) => {
   try {
-    const { email: rawEmail, password, name } = req.body as {
+    // Rate limit by IP to prevent automated spam signups
+    const clientIp = req.ip || (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || 'unknown';
+    const rateLimit = await checkAuthRateLimit('signup', clientIp);
+    if (!rateLimit.allowed) {
+      return sendTooManyRequests(res, 'Too many signup attempts. Please try again later.', rateLimit.retryAfter);
+    }
+
+    const { email: rawEmail, name } = req.body as {
       email?: string;
-      password?: string;
       name?: string;
     };
 
-    // Validate input
-    if (!rawEmail || !password) {
-      return sendBadRequest(res, 'Email and password are required');
+    // Validate input - password not required during closed beta
+    // Users will receive a temporary password via email when activated
+    if (!rawEmail) {
+      return sendBadRequest(res, 'Email is required');
     }
 
     if (!name || name.trim().length === 0) {
       return sendBadRequest(res, 'Name is required');
+    }
+
+    if (name.trim().length > 255) {
+      return sendBadRequest(res, 'Name is too long (max 255 characters)');
     }
 
     const email = normalizeEmail(rawEmail);
@@ -39,45 +51,37 @@ router.post('/signup', express.json(), async (req, res) => {
       return sendBadRequest(res, 'Invalid email format');
     }
 
-    // Validate password strength
-    const passwordValidation = validatePassword(password);
-    if (!passwordValidation.isValid) {
-      return sendBadRequest(res, passwordValidation.error || 'Invalid password');
-    }
+    // Check if user already exists
+    const existingUser = await prisma.user.findUnique({
+      where: { email },
+      select: { role: true },
+    });
 
-    // Check beta tester access
-    if (process.env.BETA_TESTER_EMAILS) {
-      if (!isBetaTester(email)) {
-        return sendForbidden(res, 'NOT_BETA_TESTER');
+    if (existingUser) {
+      if (existingUser.role === 'WAITLIST') {
+        // User is already on the waitlist
+        return sendForbidden(res, 'You are already on the waitlist. We will email you when your account is activated.', 'ALREADY_ON_WAITLIST');
       }
+      // User has an activated account
+      return sendConflict(res, 'An account with this email already exists. Please log in.');
     }
 
-    // Hash password
-    const passwordHash = await hashPassword(password);
-
-    // Create user
-    const user = await prisma.user.create({
+    // During closed beta, create user with WAITLIST role (no password yet)
+    // Admin will activate them later, which generates a temporary password
+    // and sends it via email. User must change it on first login.
+    await prisma.user.create({
       data: {
         email,
-        passwordHash,
         name: name.trim(),
-        onboardingCompleted: false,
+        role: 'WAITLIST',
+        // passwordHash intentionally null - will be set during activation
       },
     });
 
-    // Set session and CSRF cookies, return CSRF token for immediate use
-    setSessionCookie(res, { uid: user.id, email: user.email });
-    const csrfToken = setCsrfCookie(res);
-    res.status(200).json({ ok: true, csrfToken });
+    // User is now on the waitlist - redirect to already-on-waitlist page
+    return sendForbidden(res, 'You have been added to the waitlist. We will email you when your account is activated.', 'ALREADY_ON_WAITLIST');
   } catch (e) {
-    const error = e instanceof Error ? e.message : String(e);
     console.error('[EmailAuth] Signup failed', e);
-
-    // Check if email already exists
-    if (error.includes('Unique constraint failed')) {
-      return sendConflict(res, 'Email already in use');
-    }
-
     return sendInternalError(res, 'Signup failed');
   }
 });
@@ -121,7 +125,7 @@ router.post('/login', express.json(), async (req, res) => {
 
     // Block WAITLIST users - they cannot login until activated
     if (user.role === 'WAITLIST') {
-      return sendForbidden(res, 'Your account is on the waitlist and not yet activated.', 'ACCOUNT_NOT_ACTIVATED');
+      return sendForbidden(res, 'You are already on the waitlist. We will email you when your account is activated.', 'ALREADY_ON_WAITLIST');
     }
 
     // Check if user has a password (created via email/password signup)
@@ -133,13 +137,6 @@ router.post('/login', express.json(), async (req, res) => {
     const isValid = await verifyPassword(password, user.passwordHash);
     if (!isValid) {
       return sendUnauthorized(res, 'Invalid email or password');
-    }
-
-    // Check beta tester access
-    if (process.env.BETA_TESTER_EMAILS) {
-      if (!isBetaTester(email)) {
-        return sendForbidden(res, 'NOT_BETA_TESTER');
-      }
     }
 
     // Set session and CSRF cookies, return CSRF token for immediate use
