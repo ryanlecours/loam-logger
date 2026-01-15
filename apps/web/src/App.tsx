@@ -13,6 +13,8 @@ import BikeDetail from './pages/BikeDetail';
 import Admin from './pages/Admin';
 import AuthComplete from './pages/AuthComplete';
 import BetaTesterWaitlist from './pages/BetaTesterWaitlist';
+import ClosedBeta from './pages/ClosedBeta';
+import AlreadyOnWaitlist from './pages/AlreadyOnWaitlist';
 import ChangePassword from './pages/ChangePassword';
 
 import AuthGate from './components/AuthGate';
@@ -74,6 +76,8 @@ function AppRoutes() {
           <Route path="/support" element={<Page><Support /></Page>} />
           <Route path="/login" element={<Page><Login /></Page>} />
           <Route path="/beta-waitlist" element={<Page><BetaTesterWaitlist /></Page>} />
+          <Route path="/closed-beta" element={<Page><ClosedBeta /></Page>} />
+          <Route path="/already-on-waitlist" element={<Page><AlreadyOnWaitlist /></Page>} />
           <Route path="/change-password" element={<Page><ChangePassword /></Page>} />
           <Route path="/auth/complete" element={<AuthComplete />} />
 

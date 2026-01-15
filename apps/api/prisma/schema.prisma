@@ -25,7 +25,7 @@ model User {
   onboardingCompleted Boolean             @default(false)
   activeDataSource    AuthProvider?
   stravaUserId        String?             @unique
-  role                UserRole            @default(FREE)
+  role                UserRole            @default(WAITLIST)
   mustChangePassword  Boolean             @default(false)
   activatedAt         DateTime?
   activatedBy         String?

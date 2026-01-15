@@ -1,5 +1,5 @@
 import { Prisma } from '@prisma/client';
-import { normalizeEmail, computeExpiry, isBetaTester } from './utils';
+import { normalizeEmail, computeExpiry } from './utils';
 import type { GoogleClaims, GoogleTokens } from './types';
 import { prisma } from '../lib/prisma';
 
@@ -13,13 +13,6 @@ export async function ensureUserFromGoogle(
   const email = normalizeEmail(claims.email);
   if (!email) throw new Error('Google login did not provide an email');
 
-  // Check if beta tester access is enabled and if user is in the beta tester list
-  if (process.env.BETA_TESTER_EMAILS) {
-    if (!isBetaTester(email)) {
-      throw new Error('NOT_BETA_TESTER');
-    }
-  }
-
   return prisma.$transaction(async (tx) => {
     // If Google identity already linked, refresh profile + tokens
     const existingAccount = await tx.userAccount.findUnique({
@@ -28,40 +21,37 @@ export async function ensureUserFromGoogle(
     });
     if (existingAccount) {
       await refresh(tx, existingAccount.user.id, claims, tokens);
+      // Block WAITLIST users from logging in via OAuth
+      if (existingAccount.user.role === 'WAITLIST') {
+        throw new Error('ALREADY_ON_WAITLIST');
+      }
       return existingAccount.user;
     }
 
-    // Link by email if present, or create user
-    let user = await tx.user.findUnique({ where: { email } });
+    // During closed beta, don't create new users via OAuth
+    // Check if user exists by email
+    const user = await tx.user.findUnique({ where: { email } });
     if (!user) {
-      try {
-        user = await tx.user.create({
-          data: {
-            email,
-            name: claims.name ?? '',
-            avatarUrl: claims.picture ?? null,
-            emailVerified: claims.email_verified ? new Date() : null,
-          },
-        });
-      } catch (e) {
-        if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
-          user = await tx.user.findUniqueOrThrow({ where: { email } });
-        } else {
-          throw e;
-        }
-      }
-    } else {
-      await tx.user.update({
-        where: { id: user.id },
-        data: {
-          name: claims.name ?? undefined,
-          avatarUrl: claims.picture ?? undefined,
-          emailVerified: claims.email_verified ? new Date() : undefined,
-        },
-      });
+      // New user trying to sign up via Google - redirect to closed beta page
+      throw new Error('CLOSED_BETA');
     }
 
-    // Create the external identity link
+    // Block WAITLIST users from logging in via OAuth
+    if (user.role === 'WAITLIST') {
+      throw new Error('ALREADY_ON_WAITLIST');
+    }
+
+    // User exists and is activated - update profile and link Google account
+    await tx.user.update({
+      where: { id: user.id },
+      data: {
+        name: claims.name ?? undefined,
+        avatarUrl: claims.picture ?? undefined,
+        emailVerified: claims.email_verified ? new Date() : undefined,
+      },
+    });
+
+    // Create the external identity link if it doesn't exist
     try {
       await tx.userAccount.create({
         data: { userId: user.id, provider: 'google', providerUserId: sub },

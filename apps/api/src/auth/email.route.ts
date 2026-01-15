@@ -1,5 +1,5 @@
 import express from 'express';
-import { normalizeEmail, isBetaTester } from './utils';
+import { normalizeEmail } from './utils';
 import { hashPassword, verifyPassword, validatePassword } from './password.utils';
 import { validateEmailFormat } from './email.utils';
 import { setSessionCookie } from './session';
@@ -39,45 +39,25 @@ router.post('/signup', express.json(), async (req, res) => {
       return sendBadRequest(res, 'Invalid email format');
     }
 
-    // Validate password strength
-    const passwordValidation = validatePassword(password);
-    if (!passwordValidation.isValid) {
-      return sendBadRequest(res, passwordValidation.error || 'Invalid password');
-    }
-
-    // Check beta tester access
-    if (process.env.BETA_TESTER_EMAILS) {
-      if (!isBetaTester(email)) {
-        return sendForbidden(res, 'NOT_BETA_TESTER');
-      }
-    }
-
-    // Hash password
-    const passwordHash = await hashPassword(password);
-
-    // Create user
-    const user = await prisma.user.create({
-      data: {
-        email,
-        passwordHash,
-        name: name.trim(),
-        onboardingCompleted: false,
-      },
+    // Check if user already exists
+    const existingUser = await prisma.user.findUnique({
+      where: { email },
+      select: { role: true },
     });
 
-    // Set session and CSRF cookies, return CSRF token for immediate use
-    setSessionCookie(res, { uid: user.id, email: user.email });
-    const csrfToken = setCsrfCookie(res);
-    res.status(200).json({ ok: true, csrfToken });
-  } catch (e) {
-    const error = e instanceof Error ? e.message : String(e);
-    console.error('[EmailAuth] Signup failed', e);
-
-    // Check if email already exists
-    if (error.includes('Unique constraint failed')) {
-      return sendConflict(res, 'Email already in use');
+    if (existingUser) {
+      if (existingUser.role === 'WAITLIST') {
+        // User is already on the waitlist
+        return sendForbidden(res, 'You are already on the waitlist. We will email you when your account is activated.', 'ALREADY_ON_WAITLIST');
+      }
+      // User has an activated account
+      return sendConflict(res, 'An account with this email already exists. Please log in.');
     }
 
+    // During closed beta, new signups are directed to the waitlist
+    return sendForbidden(res, 'Loam Logger is in closed beta. Please join the waitlist.', 'CLOSED_BETA');
+  } catch (e) {
+    console.error('[EmailAuth] Signup failed', e);
     return sendInternalError(res, 'Signup failed');
   }
 });
@@ -121,7 +101,7 @@ router.post('/login', express.json(), async (req, res) => {
 
     // Block WAITLIST users - they cannot login until activated
     if (user.role === 'WAITLIST') {
-      return sendForbidden(res, 'Your account is on the waitlist and not yet activated.', 'ACCOUNT_NOT_ACTIVATED');
+      return sendForbidden(res, 'You are already on the waitlist. We will email you when your account is activated.', 'ALREADY_ON_WAITLIST');
     }
 
     // Check if user has a password (created via email/password signup)
@@ -133,13 +113,6 @@ router.post('/login', express.json(), async (req, res) => {
     const isValid = await verifyPassword(password, user.passwordHash);
     if (!isValid) {
       return sendUnauthorized(res, 'Invalid email or password');
-    }
-
-    // Check beta tester access
-    if (process.env.BETA_TESTER_EMAILS) {
-      if (!isBetaTester(email)) {
-        return sendForbidden(res, 'NOT_BETA_TESTER');
-      }
     }
 
     // Set session and CSRF cookies, return CSRF token for immediate use
