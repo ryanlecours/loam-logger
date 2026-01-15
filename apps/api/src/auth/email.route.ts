@@ -5,16 +5,24 @@ import { validateEmailFormat } from './email.utils';
 import { setSessionCookie } from './session';
 import { setCsrfCookie } from './csrf'; // Used by /auth/csrf-token endpoint
 import { prisma } from '../lib/prisma';
-import { sendBadRequest, sendUnauthorized, sendForbidden, sendConflict, sendInternalError } from '../lib/api-response';
+import { sendBadRequest, sendUnauthorized, sendForbidden, sendConflict, sendInternalError, sendTooManyRequests } from '../lib/api-response';
+import { checkAuthRateLimit } from '../lib/rate-limit';
 
 const router = express.Router();
 
 /**
  * POST /auth/signup
- * Create a new user account with email and password
+ * Add user to waitlist (closed beta)
  */
 router.post('/signup', express.json(), async (req, res) => {
   try {
+    // Rate limit by IP to prevent automated spam signups
+    const clientIp = req.ip || (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || 'unknown';
+    const rateLimit = await checkAuthRateLimit('signup', clientIp);
+    if (!rateLimit.allowed) {
+      return sendTooManyRequests(res, 'Too many signup attempts. Please try again later.', rateLimit.retryAfter);
+    }
+
     const { email: rawEmail, name } = req.body as {
       email?: string;
       name?: string;
@@ -28,6 +36,10 @@ router.post('/signup', express.json(), async (req, res) => {
 
     if (!name || name.trim().length === 0) {
       return sendBadRequest(res, 'Name is required');
+    }
+
+    if (name.trim().length > 255) {
+      return sendBadRequest(res, 'Name is too long (max 255 characters)');
     }
 
     const email = normalizeEmail(rawEmail);

@@ -124,7 +124,20 @@ export const ADMIN_RATE_LIMITS = {
   demoteUser: 5 * SECONDS,
   /** Bulk email cooldown: 60 seconds per admin (prevents spam) */
   bulkEmail: 60 * SECONDS,
+  /** Waitlist import cooldown: 60 seconds per admin (prevents spam) */
+  importWaitlist: 60 * SECONDS,
 } as const;
+
+/**
+ * Rate limit configuration for public auth endpoints.
+ * Uses a sliding window approach with max requests per window.
+ */
+export const AUTH_RATE_LIMITS = {
+  /** signup: max 5 requests per minute per IP (prevents automated spam) */
+  signup: { windowSeconds: 60, maxRequests: 5 },
+} as const;
+
+export type AuthRateLimitType = keyof typeof AUTH_RATE_LIMITS;
 
 export type AdminRateLimitType = keyof typeof ADMIN_RATE_LIMITS;
 
@@ -263,6 +276,71 @@ export async function checkMutationRateLimit(
     // Redis operation failed, fall back to in-memory rate limiting
     console.warn(
       `[RateLimit] Redis error during mutation ${operation} check for ${userId}, using in-memory fallback:`,
+      err instanceof Error ? err.message : 'Unknown error'
+    );
+    return checkMemoryRateLimit(key, config.maxRequests, config.windowSeconds);
+  }
+}
+
+/**
+ * Build a rate limit key for auth operations.
+ * Format: rl:auth:<operation>:<identifier>
+ */
+function buildAuthRateLimitKey(
+  operation: AuthRateLimitType,
+  identifier: string
+): string {
+  return `rl:auth:${operation}:${identifier}`;
+}
+
+/**
+ * Check if an auth operation is rate limited using a sliding window counter.
+ * Used to prevent abuse of public endpoints like signup.
+ *
+ * Graceful degradation: Falls back to in-memory rate limiting if Redis is unavailable.
+ *
+ * @param operation - The auth operation type (signup)
+ * @param identifier - The identifier (typically client IP)
+ * @returns Whether the operation is allowed, and retryAfter seconds if not
+ */
+export async function checkAuthRateLimit(
+  operation: AuthRateLimitType,
+  identifier: string
+): Promise<RateLimitResult> {
+  const config = AUTH_RATE_LIMITS[operation];
+  const key = buildAuthRateLimitKey(operation, identifier);
+
+  // Fallback to in-memory rate limiting if Redis is unavailable
+  if (!isRedisReady()) {
+    return checkMemoryRateLimit(key, config.maxRequests, config.windowSeconds);
+  }
+
+  try {
+    const redis = getRedisConnection();
+
+    // Increment the counter
+    const count = await redis.incr(key);
+
+    // Set expiry on first request in the window
+    if (count === 1) {
+      await redis.expire(key, config.windowSeconds);
+    }
+
+    if (count <= config.maxRequests) {
+      return { allowed: true, redisAvailable: true };
+    }
+
+    // Rate limited - get TTL for retry info
+    const ttl = await redis.ttl(key);
+    return {
+      allowed: false,
+      retryAfter: ttl > 0 ? ttl : config.windowSeconds,
+      redisAvailable: true,
+    };
+  } catch (err) {
+    // Redis operation failed, fall back to in-memory rate limiting
+    console.warn(
+      `[RateLimit] Redis error during auth ${operation} check for ${identifier}, using in-memory fallback:`,
       err instanceof Error ? err.message : 'Unknown error'
     );
     return checkMemoryRateLimit(key, config.maxRequests, config.windowSeconds);
