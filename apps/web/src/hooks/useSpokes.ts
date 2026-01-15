@@ -48,6 +48,9 @@ export interface SpokesComponents {
   seatpost?: SpokesComponentEntry & { kind?: 'dropper' | 'rigid' };
   chain?: SpokesComponentEntry;
   pedals?: SpokesComponentEntry;
+  headset?: SpokesComponentEntry;
+  bottomBracket?: SpokesComponentEntry;
+  discRotors?: SpokesComponentEntry;
   // E-bike components
   motor?: SpokesMotorEntry;
   battery?: SpokesBatteryEntry;
@@ -114,6 +117,7 @@ export function useSpokes() {
 
       // Store in cache
       if (bike) {
+        console.log(bike);
         cacheRef.current.set(spokesId, bike);
       }
 

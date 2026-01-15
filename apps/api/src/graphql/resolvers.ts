@@ -113,7 +113,7 @@ type AddBikeInputGQL = {
   spokesComponents?: SpokesComponentsInputGQL | null;
   fork?: BikeComponentInputGQL | null;
   shock?: BikeComponentInputGQL | null;
-  dropper?: BikeComponentInputGQL | null;
+  seatpost?: BikeComponentInputGQL | null;
   wheels?: BikeComponentInputGQL | null;
   pivotBearings?: BikeComponentInputGQL | null;
 };
@@ -203,7 +203,7 @@ const componentLabelMap: Partial<Record<ComponentType, string>> = {
 const REQUIRED_BIKE_COMPONENTS = [
   ['fork', ComponentTypeEnum.FORK],
   ['shock', ComponentTypeEnum.SHOCK],
-  ['dropper', ComponentTypeEnum.DROPPER],
+  ['seatpost', ComponentTypeEnum.SEATPOST],
   ['wheels', ComponentTypeEnum.WHEELS],
   ['pivotBearings', ComponentTypeEnum.PIVOT_BEARINGS],
 ] as const;
@@ -351,7 +351,7 @@ export async function buildBikeComponents(
         const typeMap: Record<string, string> = {
           fork: 'FORK',
           shock: 'SHOCK',
-          dropper: 'DROPPER',
+          seatpost: 'SEATPOST',
           wheels: 'WHEELS',
           pivotBearings: 'PIVOT_BEARINGS',
         };
@@ -397,11 +397,34 @@ export async function buildBikeComponents(
       notes = normalized.notes;
       isStock = normalized.isStock;
     } else if (spokesData?.maker && spokesData?.model) {
-      // Use 99Spokes data
+      // Use 99Spokes data when both maker and model are available
       brand = spokesData.maker;
       model = spokesData.model;
       notes = spokesData.description ?? null;
       isStock = true;
+    } else if (spokesData?.maker && spokesData?.description) {
+      // 99Spokes has maker but no model - use description as model
+      brand = spokesData.maker;
+      model = spokesData.description;
+      notes = null;
+      isStock = true;
+    } else if (spokesData?.description) {
+      // 99Spokes only has description - parse first word as brand, rest as model
+      // Common pattern: "SIXPACK Millenium 35" -> brand: "SIXPACK", model: "Millenium 35"
+      const desc = spokesData.description.trim();
+      const firstSpaceIndex = desc.indexOf(' ');
+      if (firstSpaceIndex > 0) {
+        brand = desc.substring(0, firstSpaceIndex);
+        model = desc.substring(firstSpaceIndex + 1);
+        notes = null;
+        isStock = true;
+      } else {
+        // Single word description - use as brand, displayName as model
+        brand = desc;
+        model = displayName;
+        notes = null;
+        isStock = true;
+      }
     } else {
       // Default stock component
       brand = 'Stock';
@@ -1054,7 +1077,7 @@ export const resolvers = {
           userOverrides: {
             fork: input.fork,
             shock: input.shock,
-            dropper: input.dropper,
+            seatpost: input.seatpost,
             wheels: input.wheels,
             pivotBearings: input.pivotBearings,
           },
@@ -1131,7 +1154,7 @@ export const resolvers = {
           components: {
             fork: input.fork,
             shock: input.shock,
-            dropper: input.dropper,
+            seatpost: input.seatpost,
             wheels: input.wheels,
             pivotBearings: input.pivotBearings,
           },
@@ -1795,8 +1818,8 @@ export const resolvers = {
       pickComponent(bike, ComponentTypeEnum.FORK),
     shock: (bike: Bike & { components?: ComponentModel[] }) =>
       pickComponent(bike, ComponentTypeEnum.SHOCK),
-    dropper: (bike: Bike & { components?: ComponentModel[] }) =>
-      pickComponent(bike, ComponentTypeEnum.DROPPER),
+    seatpost: (bike: Bike & { components?: ComponentModel[] }) =>
+      pickComponent(bike, ComponentTypeEnum.SEATPOST),
     wheels: (bike: Bike & { components?: ComponentModel[] }) =>
       pickComponent(bike, ComponentTypeEnum.WHEELS),
     pivotBearings: (bike: Bike & { components?: ComponentModel[] }) =>
@@ -1810,13 +1833,8 @@ export const resolvers = {
         throw new Error('Unauthorized');
       }
 
-      // Rate limit prediction requests to prevent DoS
-      const rateLimit = await checkMutationRateLimit('predictions', userId);
-      if (!rateLimit.allowed) {
-        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
-          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
-        });
-      }
+      // Note: No rate limit here - this is a field resolver called per-bike
+      // in normal query flow. Rate limiting would block users with multiple bikes.
 
       const user = await prisma.user.findUnique({
         where: { id: userId },

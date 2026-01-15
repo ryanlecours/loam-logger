@@ -239,7 +239,7 @@ export default function BikeDetail() {
       batteryWh: form.batteryWh || undefined,
       fork: componentInput(form.components.fork),
       shock: componentInput(form.components.shock),
-      dropper: componentInput(form.components.dropper),
+      seatpost: componentInput(form.components.seatpost),
       wheels: componentInput(form.components.wheels),
       pivotBearings: componentInput(form.components.pivotBearings),
     };

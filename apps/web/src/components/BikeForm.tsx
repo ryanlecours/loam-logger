@@ -15,11 +15,12 @@ import {
   isValidImageUrl,
   filterNonNullComponents,
 } from '@/utils/bikeFormHelpers';
-import { AcquisitionConditionStep } from './AcquisitionConditionStep';
+import { WearStartStep } from './WearStartStep';
 import type { AcquisitionCondition } from '@loam/shared';
 
 /**
  * Props for ComponentRow - memoized to prevent re-renders on sibling changes
+ * Used only in edit mode for component review
  */
 type ComponentRowProps = {
   entry: ComponentEntry;
@@ -31,6 +32,7 @@ type ComponentRowProps = {
 /**
  * Memoized component row to prevent expensive table re-renders.
  * Only re-renders when its specific entry, error, or isLast status changes.
+ * Used only in edit mode.
  */
 const ComponentRow = memo(function ComponentRow({ entry, isLast, error, onUpdate }: ComponentRowProps) {
   const hasTravelSpec = entry.key === 'fork' || entry.key === 'rearShock';
@@ -147,17 +149,21 @@ export function BikeForm({
   onSubmit,
   onClose,
 }: BikeFormProps) {
-  // Step 1: Bike Selection, Step 2: Acquisition Condition, Step 3: Component Review
+  // Create mode: 2 steps (Bike Selection → Wear Start Point)
+  // Edit mode: Direct component editing (step 3)
   const [step, setStep] = useState<1 | 2 | 3>(mode === 'edit' ? 3 : 1);
   const [form, setForm] = useState<BikeFormValues>(initial);
   const [showManualEntry, setShowManualEntry] = useState(false);
-  const [componentEntries, setComponentEntries] = useState<ComponentEntry[]>([]);
   const [spokesDetails, setSpokesDetails] = useState<SpokesBikeDetails | null>(null);
-  const [errors, setErrors] = useState<Record<string, string>>({});
   const [acquisitionCondition, setAcquisitionCondition] = useState<AcquisitionCondition | null>(
-    initial.acquisitionCondition ?? null
+    initial.acquisitionCondition ?? (mode === 'create' ? 'NEW' : null)
   );
+
+  // Edit mode only - component entries and validation
+  const [componentEntries, setComponentEntries] = useState<ComponentEntry[]>([]);
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const validationTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
   const { getBikeDetails, isLoading: loadingDetails } = useSpokes();
 
   // Get bike image URL with fallback to images array, validated for security
@@ -228,32 +234,25 @@ export function BikeForm({
         batteryWh: details.isEbike && details.components?.battery?.capacityWh ? details.components.battery.capacityWh : null,
       }));
 
-      // Build component entries for Step 2
-      setComponentEntries(buildComponentEntries(details));
-    } else {
-      // No details found, use defaults
-      setComponentEntries(buildComponentEntries(null));
+      // For edit mode, build component entries
+      if (mode === 'edit') {
+        setComponentEntries(buildComponentEntries(details));
+      }
+    }
+
+    // Default to "Start Fresh" for 99Spokes bikes in create mode
+    if (mode === 'create') {
+      setAcquisitionCondition('NEW');
     }
   };
 
-  // Proceed from Step 1 to Step 2 (Acquisition Condition)
-  const handleContinueToCondition = () => {
-    if (showManualEntry || !spokesDetails) {
-      // For manual entry or when no details loaded, build empty component entries
-      setComponentEntries(buildComponentEntries(null));
-    }
-    // Default to NEW for 99Spokes imported bikes, otherwise null
-    if (form.spokesId && !acquisitionCondition) {
+  // Proceed from Step 1 to Step 2 (Wear Start Point)
+  const handleContinueToWearStart = () => {
+    // Default to NEW if not set
+    if (!acquisitionCondition) {
       setAcquisitionCondition('NEW');
     }
     setStep(2);
-  };
-
-  // Proceed from Step 2 to Step 3 (Component Review)
-  const handleContinueToComponents = () => {
-    if (acquisitionCondition) {
-      setStep(3);
-    }
   };
 
   // Go back to Step 1
@@ -261,15 +260,71 @@ export function BikeForm({
     setStep(1);
   };
 
-  // Go back to Step 2
-  const handleBackToStep2 = () => {
-    setStep(2);
+  // Build spokesComponents from 99Spokes details
+  const buildSpokesComponents = () => {
+    if (!spokesDetails?.components) return null;
+    console.log(spokesDetails.components);
+    return {
+      fork: toSpokesInput(spokesDetails.components.fork),
+      rearShock: toSpokesInput(spokesDetails.components.rearShock || spokesDetails.components.shock),
+      brakes: toSpokesInput(spokesDetails.components.brakes),
+      rearDerailleur: toSpokesInput(spokesDetails.components.rearDerailleur),
+      crank: toSpokesInput(spokesDetails.components.crank),
+      cassette: toSpokesInput(spokesDetails.components.cassette),
+      wheels: toSpokesInput(spokesDetails.components.wheels),
+      rims: toSpokesInput(spokesDetails.components.rims),
+      tires: toSpokesInput(spokesDetails.components.tires),
+      stem: toSpokesInput(spokesDetails.components.stem),
+      handlebar: toSpokesInput(spokesDetails.components.handlebar),
+      saddle: toSpokesInput(spokesDetails.components.saddle),
+      seatpost: spokesDetails.components.seatpost ? {
+        ...toSpokesInput(spokesDetails.components.seatpost),
+        kind: spokesDetails.components.seatpost.kind || null,
+      } : null,
+      chain: toSpokesInput(spokesDetails.components.chain),
+      headset: toSpokesInput(spokesDetails.components.headset),
+      bottomBracket: toSpokesInput(spokesDetails.components.bottomBracket),
+      discRotors: toSpokesInput(spokesDetails.components.discRotors),
+    };
   };
 
+  // Submit handler for create mode (called from Step 2)
+  const handleCreateSubmit = () => {
+    const spokesComponents = buildSpokesComponents();
+
+    const finalForm: BikeFormValues = {
+      ...form,
+      acquisitionCondition: acquisitionCondition ?? 'NEW',
+      spokesComponents: filterNonNullComponents(spokesComponents),
+      // Default component state - backend will create actual components
+      components: {
+        brakes: { brand: '', model: '', notes: '', isStock: true },
+        cassette: { brand: '', model: '', notes: '', isStock: true },
+        chain: { brand: '', model: '', notes: '', isStock: true },
+        rims: { brand: '', model: '', notes: '', isStock: true },
+        tires: { brand: '', model: '', notes: '', isStock: true },
+        stem: { brand: '', model: '', notes: '', isStock: true },
+        handlebar: { brand: '', model: '', notes: '', isStock: true },
+        saddle: { brand: '', model: '', notes: '', isStock: true },
+        rearDerailleur: { brand: '', model: '', notes: '', isStock: true },
+        crank: { brand: '', model: '', notes: '', isStock: true },
+        fork: { brand: '', model: '', notes: '', isStock: true },
+        shock: { brand: '', model: '', notes: '', isStock: true },
+        wheels: { brand: '', model: '', notes: '', isStock: true },
+        pivotBearings: { brand: '', model: '', notes: '', isStock: true },
+        frame: { brand: '', model: '', notes: '', isStock: true },
+        seatpost: { brand: '', model: '', notes: '', isStock: true },
+      },
+    };
+
+    onSubmit(finalForm);
+  };
+
+  // ============================================================================
+  // Edit Mode Only - Component management
+  // ============================================================================
+
   // Update a component entry field - memoized to prevent ComponentRow re-renders
-  // INTENTIONAL: Empty deps array for stable callback reference.
-  // Uses functional state updates to avoid dependency on errors/componentEntries.
-  // This prevents ComponentRow re-renders on every keystroke.
   const updateComponentEntry = useCallback((
     key: string,
     field: 'brand' | 'model' | 'travelMm' | 'offsetMm' | 'lengthMm' | 'widthMm',
@@ -281,11 +336,9 @@ export function BikeForm({
         if (field === 'brand' || field === 'model') {
           return { ...entry, [field]: value as string };
         }
-        // Handle numeric dimension fields with field-specific limits
         return { ...entry, [field]: parseNumericInput(value, 0, getDimensionLimit(field)) };
       })
     );
-    // Clear validation error when user edits (using functional form to avoid dependency on errors)
     setErrors((prev) => {
       if (!prev[key]) return prev;
       const next = { ...prev };
@@ -293,7 +346,6 @@ export function BikeForm({
       return next;
     });
 
-    // Debounced re-validation (300ms) to show errors in real-time
     clearTimeout(validationTimerRef.current);
     validationTimerRef.current = setTimeout(() => {
       setComponentEntries((current) => {
@@ -304,12 +356,12 @@ export function BikeForm({
             setErrors((prev) => ({ ...prev, [key]: err }));
           }
         }
-        return current; // No mutation, just reading for validation
+        return current;
       });
     }, 300);
   }, []);
 
-  // Validate all components using shared utility
+  // Validate all components (edit mode only)
   const validateAll = (): boolean => {
     const newErrors: Record<string, string> = {};
     componentEntries.forEach((entry) => {
@@ -320,36 +372,16 @@ export function BikeForm({
     return Object.keys(newErrors).length === 0;
   };
 
-
-  // Build final form data and submit
-  const handleSubmit = (evt: React.FormEvent) => {
+  // Submit handler for edit mode
+  const handleEditSubmit = (evt: React.FormEvent) => {
     evt.preventDefault();
 
-    // Validate before submit
     if (!validateAll()) {
       return;
     }
 
-    // Build spokesComponents from entries (only GraphQL-allowed fields)
-    const spokesComponents = spokesDetails?.components ? {
-      fork: toSpokesInput(spokesDetails.components.fork),
-      rearShock: toSpokesInput(spokesDetails.components.rearShock || spokesDetails.components.shock),
-      brakes: toSpokesInput(spokesDetails.components.brakes),
-      rearDerailleur: toSpokesInput(spokesDetails.components.rearDerailleur),
-      crank: toSpokesInput(spokesDetails.components.crank),
-      cassette: toSpokesInput(spokesDetails.components.cassette),
-      rims: toSpokesInput(spokesDetails.components.rims),
-      tires: toSpokesInput(spokesDetails.components.tires),
-      stem: toSpokesInput(spokesDetails.components.stem),
-      handlebar: toSpokesInput(spokesDetails.components.handlebar),
-      saddle: toSpokesInput(spokesDetails.components.saddle),
-      seatpost: spokesDetails.components.seatpost ? {
-        ...toSpokesInput(spokesDetails.components.seatpost),
-        kind: spokesDetails.components.seatpost.kind || null,
-      } : null,
-    } : null;
+    const spokesComponents = buildSpokesComponents();
 
-    // Build legacy components format for the 5 key components
     const getComponentData = (key: string) => {
       const entry = componentEntries.find((e) => e.key === key);
       if (!entry || (!entry.brand.trim() && !entry.model.trim())) {
@@ -363,13 +395,8 @@ export function BikeForm({
       };
     };
 
-    // Map our new keys to the legacy BIKE_COMPONENT_SECTIONS keys
     const seatpostEntry = componentEntries.find((e) => e.key === 'seatpost');
     const isDropper = seatpostEntry?.kind === 'dropper';
-
-    // Travel fields: component table entries take precedence over form state.
-    // This allows users to edit travel in the component table (Step 2) and have
-    // those values persist to the bike record, overriding any auto-populated values.
     const forkEntry = componentEntries.find((e) => e.key === 'fork');
     const shockEntry = componentEntries.find((e) => e.key === 'rearShock');
 
@@ -380,11 +407,22 @@ export function BikeForm({
       acquisitionCondition: acquisitionCondition ?? 'USED',
       spokesComponents: filterNonNullComponents(spokesComponents),
       components: {
+        brakes: getComponentData('brakes'),
+        cassette: getComponentData('cassette'),
+        chain: getComponentData('chain'),
+        rims: getComponentData('rims'),
+        tires: getComponentData('tires'),
+        stem: getComponentData('stem'),
+        handlebar: getComponentData('handlebar'),
+        saddle: getComponentData('saddle'),
+        rearDerailleur: getComponentData('rearDerailleur'),
+        crank: getComponentData('crank'),
         fork: getComponentData('fork'),
         shock: getComponentData('rearShock'),
-        dropper: isDropper ? getComponentData('seatpost') : { brand: '', model: '', notes: '', isStock: true },
         wheels: getComponentData('wheels'),
         pivotBearings: getComponentData('pivotBearings'),
+        frame: getComponentData('frame'),
+        seatpost: isDropper ? getComponentData('seatpost') : { brand: '', model: '', notes: '', isStock: true },
       },
     };
 
@@ -401,7 +439,9 @@ export function BikeForm({
 
   const canContinue = form.manufacturer && form.model && form.year;
 
-  // Step 1: Bike Selection
+  // ============================================================================
+  // Step 1: Bike Selection (Create & Edit modes)
+  // ============================================================================
   if (step === 1) {
     return (
       <div className="bg-surface border border-app rounded-xl shadow p-6 space-y-4">
@@ -409,7 +449,7 @@ export function BikeForm({
           <h2 className="text-lg font-semibold text-heading">
             {mode === 'edit' ? 'Edit Bike' : 'Add New Bike'}
           </h2>
-          <span className="text-xs text-muted">Step 1 of 3</span>
+          <span className="text-xs text-muted">Step 1 of 2</span>
         </div>
 
         {/* Bike Search */}
@@ -455,14 +495,6 @@ export function BikeForm({
                 )}
               </div>
             </div>
-
-            <button
-              type="button"
-              onClick={() => setShowManualEntry(true)}
-              className="text-xs text-primary hover:underline mt-3"
-            >
-              Edit details manually
-            </button>
           </div>
         )}
 
@@ -565,7 +597,7 @@ export function BikeForm({
             type="button"
             variant="primary"
             disabled={!canContinue}
-            onClick={handleContinueToCondition}
+            onClick={handleContinueToWearStart}
           >
             Continue
           </Button>
@@ -574,40 +606,37 @@ export function BikeForm({
     );
   }
 
-  // Step 2: Acquisition Condition
-  if (step === 2) {
+  // ============================================================================
+  // Step 2: Wear Start Point (Create mode only)
+  // ============================================================================
+  if (step === 2 && mode === 'create') {
     return (
-      <AcquisitionConditionStep
+      <WearStartStep
         selected={acquisitionCondition}
         onSelect={setAcquisitionCondition}
         onBack={handleBackToStep1}
-        onContinue={handleContinueToComponents}
+        onSubmit={handleCreateSubmit}
+        submitting={submitting}
       />
     );
   }
 
-  // Step 3: Component Review
+  // ============================================================================
+  // Step 3: Component Review (Edit mode only)
+  // ============================================================================
   const isNewBike = acquisitionCondition === 'NEW';
 
   return (
-    <form onSubmit={handleSubmit} className="bg-surface border border-app rounded-xl shadow p-6 space-y-4">
+    <form onSubmit={handleEditSubmit} className="bg-surface border border-app rounded-xl shadow p-6 space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <button
-            type="button"
-            onClick={handleBackToStep2}
-            className="text-sm text-primary hover:underline mb-1"
-          >
-            ← Back
-          </button>
           <h2 className="text-lg font-semibold text-heading">
-            Review Components
+            Edit Bike
           </h2>
           <p className="text-sm text-muted">
             {form.year} {form.manufacturer} {form.model}
           </p>
         </div>
-        <span className="text-xs text-muted">Step 3 of 3</span>
       </div>
 
       {/* NEW bike confirmation banner */}
@@ -634,10 +663,10 @@ export function BikeForm({
             <span className="text-lg">🔧</span>
             <div>
               <p className="text-sm font-medium text-amber-600 dark:text-amber-400">
-                Components set to mid-life estimate
+                Components have wear tracking enabled
               </p>
               <p className="text-xs text-muted mt-0.5">
-                You can adjust individual component baselines after saving the bike.
+                You can adjust individual component wear from the bike detail page.
               </p>
             </div>
           </div>
@@ -645,7 +674,7 @@ export function BikeForm({
       )}
 
       <p className="text-sm text-muted">
-        Review your bike's components. Edit any parts you've customized.
+        Review and edit your bike's component details.
       </p>
 
       <div className="border border-app rounded-lg bg-surface overflow-hidden">
@@ -693,7 +722,7 @@ export function BikeForm({
           variant="primary"
           disabled={submitting}
         >
-          {submitting ? 'Saving...' : mode === 'edit' ? 'Update Bike' : 'Create Bike'}
+          {submitting ? 'Saving...' : 'Update Bike'}
         </Button>
       </div>
     </form>
