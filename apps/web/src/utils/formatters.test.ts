@@ -176,7 +176,7 @@ describe('formatComponentLabel', () => {
 
   it('formats known component types without location', () => {
     expect(formatComponentLabel(createComponent('FORK', 'NONE'))).toBe('Fork');
-    expect(formatComponentLabel(createComponent('SHOCK', 'NONE'))).toBe('Shock');
+    expect(formatComponentLabel(createComponent('SHOCK', 'NONE'))).toBe('Rear Shock');
     expect(formatComponentLabel(createComponent('CHAIN', 'NONE'))).toBe('Chain');
   });
 

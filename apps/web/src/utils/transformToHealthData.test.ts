@@ -126,7 +126,7 @@ describe('transformToHealthData', () => {
 
       expect(result[0].components).toHaveLength(1);
       expect(result[0].components[0].id).toBe('shock-1');
-      expect(result[0].components[0].label).toBe('Shock');
+      expect(result[0].components[0].label).toBe('Rear Shock');
     });
 
     it('includes pivotBearings component', () => {

@@ -7,7 +7,7 @@ describe('COMPONENT_LABELS', () => {
   });
 
   it('has label for SHOCK', () => {
-    expect(COMPONENT_LABELS.SHOCK).toBe('Shock');
+    expect(COMPONENT_LABELS.SHOCK).toBe('Rear Shock');
   });
 
   it('has label for BRAKES', () => {
@@ -39,7 +39,7 @@ describe('COMPONENT_LABELS', () => {
   });
 
   it('has label for DROPPER', () => {
-    expect(COMPONENT_LABELS.DROPPER).toBe('Dropper');
+    expect(COMPONENT_LABELS.DROPPER).toBe('Dropper Post');
   });
 
   it('has label for PIVOT_BEARINGS', () => {
@@ -51,7 +51,7 @@ describe('COMPONENT_LABELS', () => {
   });
 
   it('has label for BRAKE_ROTOR', () => {
-    expect(COMPONENT_LABELS.BRAKE_ROTOR).toBe('Brake Rotor');
+    expect(COMPONENT_LABELS.BRAKE_ROTOR).toBe('Brake Rotors');
   });
 
   it('has label for HEADSET', () => {
@@ -66,7 +66,7 @@ describe('COMPONENT_LABELS', () => {
 describe('getComponentLabel', () => {
   it('returns correct label for known component types', () => {
     expect(getComponentLabel('FORK')).toBe('Fork');
-    expect(getComponentLabel('SHOCK')).toBe('Shock');
+    expect(getComponentLabel('SHOCK')).toBe('Rear Shock');
     expect(getComponentLabel('PIVOT_BEARINGS')).toBe('Pivot Bearings');
   });
 

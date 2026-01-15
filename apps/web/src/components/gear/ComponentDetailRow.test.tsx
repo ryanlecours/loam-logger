@@ -61,12 +61,12 @@ describe('ComponentDetailRow', () => {
   };
 
   describe('rendering', () => {
-    it('renders component label from prediction', () => {
+    it('renders brand/model as component label when available', () => {
       render(<ComponentDetailRow {...defaultProps} />);
 
-      // Component label appears in h4.component-detail-name
+      // Component name shows brand/model when available
       const nameElement = document.querySelector('.component-detail-name');
-      expect(nameElement).toHaveTextContent('FORK');
+      expect(nameElement).toHaveTextContent('RockShox Pike Ultimate');
     });
 
     it('renders component type', () => {
@@ -122,7 +122,8 @@ describe('ComponentDetailRow', () => {
     it('renders edit button', () => {
       render(<ComponentDetailRow {...defaultProps} />);
 
-      expect(screen.getByRole('button', { name: /Edit FORK/i })).toBeInTheDocument();
+      // Edit button aria-label uses the componentLabel (brand/model when available)
+      expect(screen.getByRole('button', { name: /Edit RockShox Pike Ultimate/i })).toBeInTheDocument();
     });
   });
 
@@ -303,7 +304,7 @@ describe('ComponentDetailRow', () => {
       const onEdit = vi.fn();
       render(<ComponentDetailRow {...defaultProps} onEdit={onEdit} />);
 
-      fireEvent.click(screen.getByRole('button', { name: /Edit FORK/i }));
+      fireEvent.click(screen.getByRole('button', { name: /Edit RockShox Pike Ultimate/i }));
 
       expect(onEdit).toHaveBeenCalledTimes(1);
     });
@@ -312,7 +313,7 @@ describe('ComponentDetailRow', () => {
       const onEdit = vi.fn();
       render(<ComponentDetailRow {...defaultProps} onEdit={onEdit} />);
 
-      fireEvent.click(screen.getByRole('button', { name: /Edit FORK/i }));
+      fireEvent.click(screen.getByRole('button', { name: /Edit RockShox Pike Ultimate/i }));
 
       expect(screen.queryByText('Brand')).not.toBeInTheDocument();
     });
