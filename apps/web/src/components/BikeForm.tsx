@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState, useRef, memo } from 'react';
 import { type BikeFormProps, type BikeFormValues } from '@/models/BikeComponents';
 import { Input, Textarea, Button } from './ui';
 import { BikeSearch, type SpokesSearchResult } from './BikeSearch';
+import { BikeImageSelector } from './BikeImageSelector';
 import { useSpokes, type SpokesBikeDetails } from '@/hooks/useSpokes';
 import { FaPencilAlt } from 'react-icons/fa';
 import {
@@ -16,7 +17,7 @@ import {
   filterNonNullComponents,
 } from '@/utils/bikeFormHelpers';
 import { WearStartStep } from './WearStartStep';
-import type { AcquisitionCondition } from '@loam/shared';
+import { parseTravelFromDescription, type AcquisitionCondition } from '@loam/shared';
 
 /**
  * Props for ComponentRow - memoized to prevent re-renders on sibling changes
@@ -149,12 +150,13 @@ export function BikeForm({
   onSubmit,
   onClose,
 }: BikeFormProps) {
-  // Create mode: 2 steps (Bike Selection → Wear Start Point)
-  // Edit mode: Direct component editing (step 3)
-  const [step, setStep] = useState<1 | 2 | 3>(mode === 'edit' ? 3 : 1);
+  // Create mode: 2-3 steps (Bike Selection → [Colorway if multiple] → Wear Start Point)
+  // Edit mode: Direct component editing (step 4)
+  const [step, setStep] = useState<1 | 2 | 3 | 4>(mode === 'edit' ? 4 : 1);
   const [form, setForm] = useState<BikeFormValues>(initial);
   const [showManualEntry, setShowManualEntry] = useState(false);
   const [spokesDetails, setSpokesDetails] = useState<SpokesBikeDetails | null>(null);
+  const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(initial.thumbnailUrl || null);
   const [acquisitionCondition, setAcquisitionCondition] = useState<AcquisitionCondition | null>(
     initial.acquisitionCondition ?? (mode === 'create' ? 'NEW' : null)
   );
@@ -166,10 +168,21 @@ export function BikeForm({
 
   const { getBikeDetails, isLoading: loadingDetails } = useSpokes();
 
+  // Determine if we have multiple images for colorway selection
+  const hasMultipleImages = (spokesDetails?.images?.length ?? 0) > 1;
+  // Total steps: 2 if no colorway choice, 3 if colorway choice exists
+  const totalSteps = hasMultipleImages ? 3 : 2;
+
   // Get bike image URL with fallback to images array, validated for security
   const getBikeImageUrl = () => {
-    const url = form.thumbnailUrl || spokesDetails?.images?.[0]?.url;
+    const url = selectedImageUrl || form.thumbnailUrl || spokesDetails?.images?.[0]?.url;
     return url && isValidImageUrl(url) ? url : null;
+  };
+
+  // Handle image selection from BikeImageSelector
+  const handleImageSelect = (url: string) => {
+    setSelectedImageUrl(url);
+    setForm((prev) => ({ ...prev, thumbnailUrl: url }));
   };
 
   useEffect(() => {
@@ -214,10 +227,20 @@ export function BikeForm({
     if (details) {
       setSpokesDetails(details);
 
+      // Parse travel from component descriptions if not directly available
+      const forkTravel = parseTravelFromDescription(details.components?.fork?.description);
+      const shockTravel = parseTravelFromDescription(
+        details.components?.rearShock?.description || details.components?.shock?.description
+      );
+
+      // Prioritize images array over thumbnailUrl
+      const defaultImage = details.images?.[0]?.url || details.thumbnailUrl || null;
+      setSelectedImageUrl(defaultImage);
+
       setForm((prev) => ({
         ...prev,
         spokesUrl: details.url || null,
-        thumbnailUrl: details.thumbnailUrl || null,
+        thumbnailUrl: defaultImage,
         family: details.family || prev.family,
         category: details.category || prev.category,
         subcategory: details.subcategory || prev.subcategory,
@@ -227,6 +250,8 @@ export function BikeForm({
         gender: details.gender || null,
         frameMaterial: details.frameMaterial || null,
         hangerStandard: details.hangerStandard || null,
+        travelForkMm: forkTravel ? String(forkTravel) : prev.travelForkMm,
+        travelShockMm: shockTravel ? String(shockTravel) : prev.travelShockMm,
         motorMaker: details.isEbike && details.components?.motor?.maker ? details.components.motor.maker : null,
         motorModel: details.isEbike && details.components?.motor?.model ? details.components.motor.model : null,
         motorPowerW: details.isEbike && details.components?.motor?.powerW ? details.components.motor.powerW : null,
@@ -246,8 +271,8 @@ export function BikeForm({
     }
   };
 
-  // Proceed from Step 1 to Step 2 (Wear Start Point)
-  const handleContinueToWearStart = () => {
+  // Proceed from Step 1 to Step 2 (Colorway if multiple images, otherwise Wear Start)
+  const handleContinueFromStep1 = () => {
     // Default to NEW if not set
     if (!acquisitionCondition) {
       setAcquisitionCondition('NEW');
@@ -255,9 +280,18 @@ export function BikeForm({
     setStep(2);
   };
 
-  // Go back to Step 1
+  // Proceed from Step 2 (Colorway) to Step 3 (Wear Start)
+  const handleContinueFromColorway = () => {
+    setStep(3);
+  };
+
+  // Go back handlers
   const handleBackToStep1 = () => {
     setStep(1);
+  };
+
+  const handleBackToStep2 = () => {
+    setStep(2);
   };
 
   // Build spokesComponents from 99Spokes details
@@ -449,7 +483,7 @@ export function BikeForm({
           <h2 className="text-lg font-semibold text-heading">
             {mode === 'edit' ? 'Edit Bike' : 'Add New Bike'}
           </h2>
-          <span className="text-xs text-muted">Step 1 of 2</span>
+          <span className="text-xs text-muted">Step 1 of {totalSteps}</span>
         </div>
 
         {/* Bike Search */}
@@ -597,7 +631,7 @@ export function BikeForm({
             type="button"
             variant="primary"
             disabled={!canContinue}
-            onClick={handleContinueToWearStart}
+            onClick={handleContinueFromStep1}
           >
             Continue
           </Button>
@@ -607,9 +641,54 @@ export function BikeForm({
   }
 
   // ============================================================================
-  // Step 2: Wear Start Point (Create mode only)
+  // Step 2: Colorway Selection (Create mode, only if multiple images)
+  // OR Wear Start Point (Create mode, if no multiple images)
   // ============================================================================
   if (step === 2 && mode === 'create') {
+    // If multiple images, show colorway selector
+    if (hasMultipleImages) {
+      return (
+        <div className="bg-surface border border-app rounded-xl shadow p-6 space-y-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-semibold text-primary">
+                Which colorway do you have?
+              </h2>
+              <p className="text-sm text-muted mt-1">
+                Select the color that matches your bike.
+              </p>
+            </div>
+            <span className="text-xs text-muted">Step 2 of {totalSteps}</span>
+          </div>
+
+          <BikeImageSelector
+            images={spokesDetails!.images!}
+            thumbnailUrl={spokesDetails!.thumbnailUrl}
+            selectedUrl={selectedImageUrl}
+            onSelect={handleImageSelect}
+          />
+
+          <div className="flex justify-between pt-2">
+            <button
+              type="button"
+              onClick={handleBackToStep1}
+              className="px-4 py-2 text-sm font-medium text-muted hover:text-primary transition-colors"
+            >
+              Back
+            </button>
+            <button
+              type="button"
+              onClick={handleContinueFromColorway}
+              className="px-6 py-2 rounded-lg text-sm font-medium bg-accent text-white hover:bg-accent-hover transition-all"
+            >
+              Continue
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    // No multiple images, show wear start directly as Step 2
     return (
       <WearStartStep
         selected={acquisitionCondition}
@@ -622,7 +701,22 @@ export function BikeForm({
   }
 
   // ============================================================================
-  // Step 3: Component Review (Edit mode only)
+  // Step 3: Wear Start Point (Create mode, only after colorway selection)
+  // ============================================================================
+  if (step === 3 && mode === 'create') {
+    return (
+      <WearStartStep
+        selected={acquisitionCondition}
+        onSelect={setAcquisitionCondition}
+        onBack={handleBackToStep2}
+        onSubmit={handleCreateSubmit}
+        submitting={submitting}
+      />
+    );
+  }
+
+  // ============================================================================
+  // Step 4: Component Review (Edit mode only)
   // ============================================================================
   const isNewBike = acquisitionCondition === 'NEW';
 

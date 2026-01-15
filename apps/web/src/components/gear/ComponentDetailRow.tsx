@@ -71,6 +71,11 @@ function formatBaselineMethod(method: string | null | undefined): string {
   return labels[method] || method;
 }
 
+function truncateLabel(label: string, maxLength: number = 40): string {
+  if (label.length <= maxLength) return label;
+  return label.slice(0, maxLength).trim() + '...';
+}
+
 export function ComponentDetailRow({
   component,
   prediction,
@@ -80,9 +85,17 @@ export function ComponentDetailRow({
 
   const status = prediction?.status ?? 'ALL_GOOD';
   const hoursRemaining = prediction?.hoursRemaining;
-  const componentLabel = prediction
-    ? formatComponentLabel(prediction)
-    : `${component.brand} ${component.model}`.trim() || component.type;
+
+  // Get brand/model from prediction or component
+  // Skip "Stock" brand - that's a placeholder, not real component data
+  const brand = prediction?.brand || component.brand;
+  const model = prediction?.model || component.model;
+  const hasRealBrandModel = brand && model && brand !== 'Stock';
+  const brandModel = hasRealBrandModel ? `${brand} ${model}`.trim() : '';
+
+  // Show brand/model if available, otherwise fall back to type label (truncated for display)
+  const fullLabel = brandModel || formatComponentLabel(prediction || { componentType: component.type, location: null });
+  const componentLabel = truncateLabel(fullLabel);
 
   return (
     <div
@@ -106,8 +119,8 @@ export function ComponentDetailRow({
         <div className="component-detail-info">
           <h4 className="component-detail-name">{componentLabel}</h4>
           <span className="component-detail-type">
-            {component.type}
-            {prediction?.location && ` · ${prediction.location}`}
+            {formatComponentLabel({ componentType: component.type, location: prediction?.location })}
+            {component.isStock ? ' · Stock' : ' · Aftermarket'}
           </span>
         </div>
 

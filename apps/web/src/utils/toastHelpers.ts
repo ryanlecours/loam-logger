@@ -9,7 +9,7 @@ export function showBikeCreatedToast(bikeId: string, navigate: (path: string) =>
     action: {
       label: 'Review components',
       onClick: () => {
-        navigate(`/bike/${bikeId}`);
+        navigate(`/gear/${bikeId}`);
       },
     },
     duration: 5000,

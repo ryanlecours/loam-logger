@@ -30,7 +30,7 @@ export function PriorityBikeHero({
   loading = false,
   rides = [],
 }: PriorityBikeHeroProps) {
-  // Paginated rides for this bike - show 6 rides in hero
+  // Paginated rides for this bike - show 5 rides in hero
   const {
     rides: paginatedRides,
     canGoNewer,
@@ -40,7 +40,7 @@ export function PriorityBikeHero({
     loading: ridesLoading,
     pageIndex,
     rangeInfo,
-  } = useBikeRides(bike?.id ?? null, rides, 6);
+  } = useBikeRides(bike?.id ?? null, rides, 5);
 
   // Loading skeleton
   if (loading) {
@@ -120,7 +120,7 @@ export function PriorityBikeHero({
           )}
         </div>
 
-        {/* Three-column layout: components, bike image, recent rides */}
+        {/* Two-column layout: components | bike image + recent rides */}
         <div className="priority-hero-columns">
         {/* Left column: components and actions */}
         <AnimatePresence mode="wait">
@@ -155,19 +155,21 @@ export function PriorityBikeHero({
           </motion.div>
         </AnimatePresence>
 
-        {/* Center column: bike image */}
-        <div className="priority-hero-image-container">
-          {bike.thumbnailUrl && (
-            <img
-              src={bike.thumbnailUrl}
-              alt={bikeName}
-              className="priority-hero-image"
-            />
-          )}
-        </div>
+        {/* Right column: bike image stacked on top of recent rides */}
+        <div className="priority-hero-right-column">
+          {/* Bike image */}
+          <div className="priority-hero-image-container">
+            {bike.thumbnailUrl && (
+              <img
+                src={bike.thumbnailUrl}
+                alt={bikeName}
+                className="priority-hero-image"
+              />
+            )}
+          </div>
 
-        {/* Right column: recent rides */}
-        <div className="priority-hero-bike-rides">
+          {/* Recent rides */}
+          <div className="priority-hero-bike-rides">
           <h4 className="priority-hero-bike-rides-header">Recent Rides</h4>
           {paginatedRides.length > 0 ? (
             <div className="priority-hero-bike-rides-list">
@@ -236,6 +238,7 @@ export function PriorityBikeHero({
               </span>
             </div>
           )}
+          </div>
         </div>
         </div>
       </div>

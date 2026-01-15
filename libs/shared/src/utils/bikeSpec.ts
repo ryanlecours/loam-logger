@@ -39,7 +39,48 @@ export interface SpokesComponents {
 }
 
 /**
+ * Check if a component has meaningful data (description or maker+model).
+ * Used to detect suspension components from 99Spokes data.
+ *
+ * @param component - Component data from 99Spokes
+ * @returns true if component has description or both maker and model
+ */
+function hasComponentData(component?: SpokesComponentData): boolean {
+  if (!component) return false;
+  if (component.description?.trim()) return true;
+  const maker = component.maker?.trim() || component.make?.trim();
+  const model = component.model?.trim();
+  return !!(maker && model);
+}
+
+/**
+ * Parse travel value from a component description string.
+ * Looks for patterns like "160mm", "150 mm", etc.
+ *
+ * @param description - Component description string
+ * @returns Travel value in mm, or null if not found
+ */
+export function parseTravelFromDescription(description?: string): number | null {
+  if (!description) return null;
+
+  // Match patterns like "160mm", "150 mm", "170MM"
+  const match = description.match(/(\d{2,3})\s*mm/i);
+  if (match) {
+    const value = parseInt(match[1], 10);
+    // Sanity check: suspension travel typically 80-220mm
+    if (value >= 80 && value <= 220) {
+      return value;
+    }
+  }
+
+  return null;
+}
+
+/**
  * Derive a BikeSpec from bike data and optional 99Spokes component info.
+ *
+ * Suspension detection prioritizes 99Spokes component data over travel values,
+ * with travel values as a fallback for manually entered bikes.
  *
  * @param bike - Basic bike data with travel values
  * @param spokesComponents - Optional component data from 99Spokes
@@ -50,8 +91,11 @@ export function deriveBikeSpec(
   spokesComponents?: SpokesComponents
 ): BikeSpec {
   return {
-    hasFrontSuspension: (bike.travelForkMm ?? 0) > 0,
-    hasRearSuspension: (bike.travelShockMm ?? 0) > 0,
+    hasFrontSuspension:
+      hasComponentData(spokesComponents?.fork) || (bike.travelForkMm ?? 0) > 0,
+    hasRearSuspension:
+      hasComponentData(spokesComponents?.rearShock) ||
+      (bike.travelShockMm ?? 0) > 0,
     brakeType: detectBrakeType(spokesComponents?.brakes?.description),
     drivetrainType: detectDrivetrainType(
       spokesComponents?.rearDerailleur?.description

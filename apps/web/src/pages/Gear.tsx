@@ -77,8 +77,8 @@ const toComponentState = (
   const match = bike?.components?.find((c) => c.type === section.type);
   if (!match) return defaultComponentState();
   return {
-    brand: match.isStock ? '' : match.brand ?? '',
-    model: match.isStock ? '' : match.model ?? '',
+    brand: match.brand ?? '',
+    model: match.model ?? '',
     notes: match.notes ?? '',
     isStock: match.isStock ?? false,
   };
@@ -331,8 +331,8 @@ export default function Gear() {
     return {
       id: currentSpare.id,
       type: currentSpare.type as SpareFormState['type'],
-      brand: currentSpare.isStock ? '' : currentSpare.brand ?? '',
-      model: currentSpare.isStock ? '' : currentSpare.model ?? '',
+      brand: currentSpare.brand ?? '',
+      model: currentSpare.model ?? '',
       notes: currentSpare.notes ?? '',
       isStock: currentSpare.isStock,
       hoursUsed: currentSpare.hoursUsed != null ? String(currentSpare.hoursUsed) : '',

@@ -2922,6 +2922,20 @@
   min-height: 0;
 }
 
+/* Right column: stacks bike image on top of recent rides */
+.priority-hero-right-column {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-left: auto;
+  margin-right: auto;
+  gap: 1rem;
+  width: 100%;
+  min-width: 280px;
+  max-width: 800px;
+}
+
 .priority-hero-title {
   font-size: 1.5rem;
   font-weight: 700;
@@ -2987,25 +3001,21 @@
 }
 
 .priority-hero-image-container {
-  flex: 0 0 auto;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  align-self: stretch;
   min-height: 0;
 }
 
 .priority-hero-image {
-  width: auto;
-  height: 100%;
-  max-height: 280px;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
   object-fit: contain;
   border-radius: 1rem;
   border: 1px solid var(--sage-20);
   background: rgba(30, 34, 32, 0.5);
   padding: 0.25rem;
-  flex-shrink: 0;
 }
 
 /* Skeleton layout utilities for priority hero loading state */
@@ -3043,29 +3053,14 @@
   flex: 0 0 auto;
 }
 
-/* Bike Rides Section - Right column */
+/* Bike Rides Section - inside right column */
 .priority-hero-bike-rides {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
-  flex: 1 1 30%;
+  flex: 1;
   min-height: 0;
-  min-width: 0;
-  max-width: none;
   width: 100%;
-  margin-top: 1rem;
-  padding-top: 1rem;
-  border-top: 1px solid var(--sage-15);
-}
-
-@media (min-width: 769px) {
-  .priority-hero-bike-rides {
-    min-width: 280px;
-    max-width: 400px;
-    margin-top: 0;
-    padding-top: 0;
-    border-top: none;
-  }
 }
 
 .priority-hero-bike-rides-header {
@@ -4571,8 +4566,13 @@
     max-width: 100%;
   }
 
-  .priority-hero-image-container {
+  .priority-hero-right-column {
     order: -1;
+    min-width: 100%;
+    max-width: 100%;
+  }
+
+  .priority-hero-image-container {
     flex: 0 0 auto;
     max-height: 140px;
   }
@@ -4582,6 +4582,10 @@
     height: auto;
     max-height: 120px;
     padding: 0.5rem;
+  }
+
+  .priority-hero-bike-rides {
+    max-height: none;
   }
 
   .priority-hero-keyline {

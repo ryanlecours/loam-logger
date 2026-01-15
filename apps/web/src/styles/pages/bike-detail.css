@@ -210,6 +210,22 @@
   border-radius: 0.75rem;
 }
 
+.bike-spec-item--editable {
+  cursor: pointer;
+  transition: all var(--duration-short) var(--ease-premium);
+}
+
+.bike-spec-item--editable:hover {
+  border-color: var(--sage-30);
+  background: rgba(30, 34, 32, 0.8);
+}
+
+.bike-spec-item--editable:focus {
+  outline: none;
+  border-color: var(--leaf);
+  box-shadow: 0 0 0 2px rgba(var(--leaf-rgb), 0.2);
+}
+
 .bike-spec-label {
   font-size: 0.6875rem;
   font-weight: 600;
@@ -277,6 +293,10 @@
   font-weight: 600;
   color: var(--cream);
   margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
 }
 
 .component-detail-type {
@@ -478,4 +498,56 @@
   .component-detail-expanded-inner {
     grid-template-columns: 1fr 1fr;
   }
+}
+
+/* ==========================================================================
+   TRAVEL EDIT MODAL
+   ========================================================================== */
+
+.travel-edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.travel-edit-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--sage);
+}
+
+.travel-edit-input {
+  padding: 0.75rem 1rem;
+  background: var(--bark);
+  border: 1px solid var(--sage-15);
+  border-radius: 0.5rem;
+  color: var(--cream);
+  font-size: 1rem;
+  transition: all var(--duration-short) var(--ease-premium);
+}
+
+.travel-edit-input:focus {
+  outline: none;
+  border-color: var(--leaf);
+  box-shadow: 0 0 0 2px rgba(var(--leaf-rgb), 0.15);
+}
+
+.travel-edit-input::placeholder {
+  color: var(--sage-30);
+}
+
+.travel-edit-error {
+  color: var(--error);
+  font-size: 0.8125rem;
+  margin: 0;
+}
+
+.travel-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
 }

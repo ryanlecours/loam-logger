@@ -389,8 +389,11 @@ export async function buildBikeComponents(
     let notes: string | null = null;
     let isStock = true;
 
-    if (override) {
-      // User provided override
+    // Only use override if it has actual brand/model data (not just isStock flag)
+    // This allows spokesComponents to be used when user didn't specify component details
+    const hasRealOverride = override && (override.brand || override.model || override.isStock === false);
+    if (hasRealOverride) {
+      // User provided real component data
       const normalized = normalizeBikeComponentInput(type as ComponentType, override);
       brand = normalized.brand;
       model = normalized.model;
