@@ -28,17 +28,17 @@ export async function ensureUserFromGoogle(
       return existingAccount.user;
     }
 
-    // During closed beta, don't create new users via OAuth
-    // Check if user exists by email
+    // During closed beta, check if user exists and is activated
     const user = await tx.user.findUnique({ where: { email } });
-    if (!user) {
-      // New user trying to sign up via Google - redirect to closed beta page
-      throw new Error('CLOSED_BETA');
-    }
 
     // Block WAITLIST users from logging in via OAuth
-    if (user.role === 'WAITLIST') {
+    if (user?.role === 'WAITLIST') {
       throw new Error('ALREADY_ON_WAITLIST');
+    }
+
+    // New user trying to sign up via Google - redirect to closed beta page
+    if (!user) {
+      throw new Error('CLOSED_BETA');
     }
 
     // User exists and is activated - update profile and link Google account
