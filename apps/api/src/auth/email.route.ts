@@ -54,8 +54,26 @@ router.post('/signup', express.json(), async (req, res) => {
       return sendConflict(res, 'An account with this email already exists. Please log in.');
     }
 
-    // During closed beta, new signups are directed to the waitlist
-    return sendForbidden(res, 'Loam Logger is in closed beta. Please join the waitlist.', 'CLOSED_BETA');
+    // Validate password before creating user
+    const passwordValidation = validatePassword(password);
+    if (!passwordValidation.isValid) {
+      return sendBadRequest(res, passwordValidation.error || 'Invalid password');
+    }
+
+    // During closed beta, create user with WAITLIST role
+    // They will be activated by admin and can then log in
+    const passwordHash = await hashPassword(password);
+    await prisma.user.create({
+      data: {
+        email,
+        name: name.trim(),
+        passwordHash,
+        role: 'WAITLIST',
+      },
+    });
+
+    // User is now on the waitlist - redirect to already-on-waitlist page
+    return sendForbidden(res, 'You have been added to the waitlist. We will email you when your account is activated.', 'ALREADY_ON_WAITLIST');
   } catch (e) {
     console.error('[EmailAuth] Signup failed', e);
     return sendInternalError(res, 'Signup failed');
