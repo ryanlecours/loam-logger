@@ -15,7 +15,6 @@ export default function Login() {
   const [mode, setMode] = useState<'login' | 'signup'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
   const [name, setName] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -255,7 +254,6 @@ export default function Login() {
             } ${isLoading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
             onClick={() => {
               setMode('login');
-              setConfirmPassword('');
               setName('');
               setError(null);
             }}
@@ -270,7 +268,6 @@ export default function Login() {
             } ${isLoading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
             onClick={() => {
               setMode('signup');
-              setConfirmPassword('');
               setName('');
               setError(null);
             }}
