@@ -15,15 +15,15 @@ const router = express.Router();
  */
 router.post('/signup', express.json(), async (req, res) => {
   try {
-    const { email: rawEmail, password, name } = req.body as {
+    const { email: rawEmail, name } = req.body as {
       email?: string;
-      password?: string;
       name?: string;
     };
 
-    // Validate input
-    if (!rawEmail || !password) {
-      return sendBadRequest(res, 'Email and password are required');
+    // Validate input - password not required during closed beta
+    // Users will receive a temporary password via email when activated
+    if (!rawEmail) {
+      return sendBadRequest(res, 'Email is required');
     }
 
     if (!name || name.trim().length === 0) {
@@ -54,21 +54,15 @@ router.post('/signup', express.json(), async (req, res) => {
       return sendConflict(res, 'An account with this email already exists. Please log in.');
     }
 
-    // Validate password before creating user
-    const passwordValidation = validatePassword(password);
-    if (!passwordValidation.isValid) {
-      return sendBadRequest(res, passwordValidation.error || 'Invalid password');
-    }
-
-    // During closed beta, create user with WAITLIST role
-    // They will be activated by admin and can then log in
-    const passwordHash = await hashPassword(password);
+    // During closed beta, create user with WAITLIST role (no password yet)
+    // Admin will activate them later, which generates a temporary password
+    // and sends it via email. User must change it on first login.
     await prisma.user.create({
       data: {
         email,
         name: name.trim(),
-        passwordHash,
         role: 'WAITLIST',
+        // passwordHash intentionally null - will be set during activation
       },
     });
 

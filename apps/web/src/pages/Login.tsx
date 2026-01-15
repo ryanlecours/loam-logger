@@ -95,17 +95,12 @@ export default function Login() {
     setError(null);
     setIsLoading(true);
 
-    // Validate password confirmation for signup
-    if (mode === 'signup' && password !== confirmPassword) {
-      setError('Passwords do not match. Please try again.');
-      setIsLoading(false);
-      return;
-    }
-
     try {
       const endpoint = mode === 'login' ? 'login' : 'signup';
+      // During closed beta, signup only requires email and name
+      // Users will receive login credentials via email when activated
       const body = mode === 'signup'
-        ? { email, password, name }
+        ? { email, name }
         : { email, password };
 
       const res = await fetch(`${import.meta.env.VITE_API_URL}/auth/${endpoint}`, {
@@ -316,31 +311,24 @@ export default function Login() {
               required
             />
           </label>
-          <label className="block text-xs uppercase tracking-[0.3em]" style={{ color: 'var(--concrete)' }}>
-            Password
-            <input
-              type="password"
-              className="mt-1 w-full input-soft"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="********"
-              disabled={isLoading}
-              required
-            />
-          </label>
-          {mode === 'signup' && (
+          {mode === 'login' && (
             <label className="block text-xs uppercase tracking-[0.3em]" style={{ color: 'var(--concrete)' }}>
-              Confirm Password
+              Password
               <input
                 type="password"
                 className="mt-1 w-full input-soft"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                placeholder="••••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="********"
                 disabled={isLoading}
                 required
               />
             </label>
+          )}
+          {mode === 'signup' && (
+            <div className="text-sm p-3 rounded-lg" style={{ backgroundColor: 'rgba(134, 169, 139, 0.15)', color: 'var(--sage)' }}>
+              Loam Logger is in closed beta. Join the waitlist and we'll email you login credentials when your account is activated.
+            </div>
           )}
           {isLoading && (
             <div className="flex justify-center">
@@ -353,7 +341,7 @@ export default function Login() {
             className="w-full justify-center text-base"
             disabled={isLoading}
           >
-            {isLoading ? 'Loading...' : mode === 'login' ? 'Login' : 'Create Account'}
+            {isLoading ? 'Loading...' : mode === 'login' ? 'Login' : 'Join Waitlist'}
           </Button>
         </form>
 
