@@ -660,7 +660,7 @@ export function BikeForm({
           <BikeImageSelector
             images={spokesDetails!.images!}
             thumbnailUrl={spokesDetails!.thumbnailUrl}
-            selectedUrl={form.thumbnailUrl}
+            selectedUrl={form.thumbnailUrl ?? null}
             onSelect={handleImageSelect}
           />
 
