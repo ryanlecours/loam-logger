@@ -297,7 +297,6 @@ export function BikeForm({
   // Build spokesComponents from 99Spokes details
   const buildSpokesComponents = () => {
     if (!spokesDetails?.components) return null;
-    console.log(spokesDetails.components);
     return {
       fork: toSpokesInput(spokesDetails.components.fork),
       rearShock: toSpokesInput(spokesDetails.components.rearShock || spokesDetails.components.shock),

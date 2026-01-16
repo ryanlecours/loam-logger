@@ -414,16 +414,15 @@ export async function buildBikeComponents(
     } else if (spokesData?.description) {
       // 99Spokes only has description - parse first word as brand, rest as model
       // Common pattern: "SIXPACK Millenium 35" -> brand: "SIXPACK", model: "Millenium 35"
-      const desc = spokesData.description.trim();
-      const firstSpaceIndex = desc.indexOf(' ');
-      if (firstSpaceIndex > 0) {
-        brand = desc.substring(0, firstSpaceIndex);
-        model = desc.substring(firstSpaceIndex + 1);
+      const parts = spokesData.description.trim().split(/\s+/).filter(Boolean);
+      if (parts.length > 1) {
+        brand = parts[0];
+        model = parts.slice(1).join(' ');
         notes = null;
         isStock = true;
-      } else {
+      } else if (parts.length === 1) {
         // Single word description - use as brand, displayName as model
-        brand = desc;
+        brand = parts[0];
         model = displayName;
         notes = null;
         isStock = true;
