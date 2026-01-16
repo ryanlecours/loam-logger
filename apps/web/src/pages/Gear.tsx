@@ -1,8 +1,10 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery } from '@apollo/client';
+import { useNavigate } from 'react-router-dom';
 import { FaBicycle } from 'react-icons/fa';
 import { Modal } from '@/components/ui/Modal';
 import { BikeForm } from '@/components/BikeForm';
+import { showBikeCreatedToast } from '@/utils/toastHelpers';
 import { BIKE_COMPONENT_SECTIONS, type BikeComponentSection, type BikeFormValues, type GearComponentState, type SpareFormState } from '@/models/BikeComponents';
 import {
   ADD_BIKE,
@@ -75,8 +77,8 @@ const toComponentState = (
   const match = bike?.components?.find((c) => c.type === section.type);
   if (!match) return defaultComponentState();
   return {
-    brand: match.isStock ? '' : match.brand ?? '',
-    model: match.isStock ? '' : match.model ?? '',
+    brand: match.brand ?? '',
+    model: match.model ?? '',
     notes: match.notes ?? '',
     isStock: match.isStock ?? false,
   };
@@ -122,6 +124,7 @@ type SpareModalState =
   | { mode: 'edit'; component: ComponentDto };
 
 export default function Gear() {
+  const navigate = useNavigate();
   const { data, loading, error } = useQuery<{ bikes: BikeDto[]; spareComponents: ComponentDto[] }>(
     GEAR_QUERY,
     { fetchPolicy: 'cache-and-network' }
@@ -233,25 +236,37 @@ export default function Gear() {
       spokesComponents: form.spokesComponents || undefined,
       fork: componentInput(form.components.fork),
       shock: componentInput(form.components.shock),
-      dropper: componentInput(form.components.dropper),
+      seatpost: componentInput(form.components.seatpost),
       wheels: componentInput(form.components.wheels),
       pivotBearings: componentInput(form.components.pivotBearings),
     };
 
     let failed = false;
+    let createdBikeId: string | null = null;
+
     if (bikeId) {
       await updateBikeMutation({ variables: { id: bikeId, input: payload } }).catch((err) => {
         failed = true;
         setBikeFormError(err.message);
       });
     } else {
-      await addBikeMutation({ variables: { input: payload } }).catch((err) => {
+      const result = await addBikeMutation({ variables: { input: payload } }).catch((err) => {
         failed = true;
         setBikeFormError(err.message);
+        return null;
       });
+      if (result?.data?.addBike?.id) {
+        createdBikeId = result.data.addBike.id;
+      }
     }
 
-    if (!failed) closeBikeModal();
+    if (!failed) {
+      closeBikeModal();
+      // Show success toast for newly created bikes
+      if (createdBikeId) {
+        showBikeCreatedToast(createdBikeId, navigate);
+      }
+    }
   };
 
   const handleSpareSubmit = async (form: SpareFormState) => {
@@ -316,8 +331,8 @@ export default function Gear() {
     return {
       id: currentSpare.id,
       type: currentSpare.type as SpareFormState['type'],
-      brand: currentSpare.isStock ? '' : currentSpare.brand ?? '',
-      model: currentSpare.isStock ? '' : currentSpare.model ?? '',
+      brand: currentSpare.brand ?? '',
+      model: currentSpare.model ?? '',
       notes: currentSpare.notes ?? '',
       isStock: currentSpare.isStock,
       hoursUsed: currentSpare.hoursUsed != null ? String(currentSpare.hoursUsed) : '',

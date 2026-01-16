@@ -81,6 +81,7 @@ export const COMPONENT_CATALOG: ComponentDefinition[] = [
     serviceIntervalHours: 70,
     defaultBaselineWearPercent: 50,
     isApplicable: () => true,
+    spokesKey: 'chain',
   },
   {
     type: 'CASSETTE',
@@ -139,6 +140,7 @@ export const COMPONENT_CATALOG: ComponentDefinition[] = [
     defaultBaselineWearPercent: 50,
     isApplicable: (spec) => spec.brakeType === 'disc',
     supportsLocation: true,
+    spokesKey: 'discRotors',
   },
 
   // ---------------------------------------------------------------------------
@@ -239,6 +241,7 @@ export const COMPONENT_CATALOG: ComponentDefinition[] = [
     serviceIntervalHours: 250,
     defaultBaselineWearPercent: 50,
     isApplicable: () => true,
+    spokesKey: 'headset',
   },
   {
     type: 'BOTTOM_BRACKET',
@@ -247,6 +250,7 @@ export const COMPONENT_CATALOG: ComponentDefinition[] = [
     serviceIntervalHours: 250,
     defaultBaselineWearPercent: 50,
     isApplicable: () => true,
+    spokesKey: 'bottomBracket',
   },
 ];
 

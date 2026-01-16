@@ -528,27 +528,12 @@ describe('BikeDetail', () => {
       expect(screen.getByText('Log Service')).toBeInTheDocument();
     });
 
-    it('renders Edit Bike button', () => {
-      renderWithRouter('bike-1');
-
-      expect(screen.getByText('Edit Bike')).toBeInTheDocument();
-    });
-
     it('opens log service modal on click', () => {
       renderWithRouter('bike-1');
 
       fireEvent.click(screen.getByText('Log Service'));
 
       expect(screen.getByTestId('log-service-modal')).toBeInTheDocument();
-    });
-
-    it('opens edit bike modal on click', () => {
-      renderWithRouter('bike-1');
-
-      fireEvent.click(screen.getByText('Edit Bike'));
-
-      expect(screen.getByTestId('modal')).toBeInTheDocument();
-      expect(screen.getByText('Edit 2024 Slash 9.8')).toBeInTheDocument();
     });
   });
 

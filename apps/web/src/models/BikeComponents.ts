@@ -59,7 +59,7 @@ export interface Bike {
   notes?: string;
 }
 
-export type BikeComponentKey = 'fork' | 'shock' | 'dropper' | 'wheels' | 'pivotBearings';
+export type BikeComponentKey = 'brakes' | 'cassette' | 'chain' | 'crank' | 'fork' | 'frame' | 'handlebar' | 'rearDerailleur' | 'rims' | 'saddle' | 'seatpost' | 'stem' | 'shock' | 'wheels' | 'pivotBearings' | 'tires';
 
 export interface GearComponentState {
   brand: string;
@@ -142,11 +142,28 @@ export const BIKE_COMPONENT_SECTIONS: ReadonlyArray<{
   label: string;
   type: string;
 }> = [
+  // Suspension
   { key: 'fork', label: 'Fork', type: 'FORK' },
-  { key: 'shock', label: 'Shock', type: 'SHOCK' },
-  { key: 'dropper', label: 'Dropper Post', type: 'DROPPER' },
+  { key: 'shock', label: 'Rear Shock', type: 'SHOCK' },
+  // Drivetrain
+  { key: 'chain', label: 'Chain', type: 'CHAIN' },
+  { key: 'cassette', label: 'Cassette', type: 'CASSETTE' },
+  { key: 'crank', label: 'Crankset', type: 'CRANK' },
+  { key: 'rearDerailleur', label: 'Rear Derailleur', type: 'REAR_DERAILLEUR' },
+  // Brakes
+  { key: 'brakes', label: 'Brakes', type: 'BRAKES' },
+  // Wheels
   { key: 'wheels', label: 'Wheels', type: 'WHEELS' },
+  { key: 'rims', label: 'Rims', type: 'RIMS' },
+  { key: 'tires', label: 'Tires', type: 'TIRES' },
+  // Cockpit
+  { key: 'stem', label: 'Stem', type: 'STEM' },
+  { key: 'handlebar', label: 'Handlebar', type: 'HANDLEBAR' },
+  { key: 'saddle', label: 'Saddle', type: 'SADDLE' },
+  { key: 'seatpost', label: 'Seatpost', type: 'SEATPOST' },
+  // Frame
   { key: 'pivotBearings', label: 'Pivot Bearings', type: 'PIVOT_BEARINGS' },
+  { key: 'frame', label: 'Frame', type: 'FRAME' },
 ];
 
 export type BikeComponentSection = (typeof BIKE_COMPONENT_SECTIONS)[number];

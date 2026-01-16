@@ -218,7 +218,7 @@ export const typeDefs = gql`
     acquisitionCondition: AcquisitionCondition
     fork: Component
     shock: Component
-    dropper: Component
+    seatpost: Component
     wheels: Component
     pivotBearings: Component
     components: [Component!]!
@@ -298,12 +298,17 @@ export const typeDefs = gql`
     rearDerailleur: SpokesComponentInput
     crank: SpokesComponentInput
     cassette: SpokesComponentInput
+    wheels: SpokesComponentInput
     rims: SpokesComponentInput
     tires: SpokesComponentInput
     stem: SpokesComponentInput
     handlebar: SpokesComponentInput
     saddle: SpokesComponentInput
     seatpost: SpokesComponentInput
+    chain: SpokesComponentInput
+    headset: SpokesComponentInput
+    bottomBracket: SpokesComponentInput
+    discRotors: SpokesComponentInput
   }
 
   input AddBikeInput {
@@ -336,7 +341,7 @@ export const typeDefs = gql`
     spokesComponents: SpokesComponentsInput
     fork: BikeComponentInput
     shock: BikeComponentInput
-    dropper: BikeComponentInput
+    seatpost: BikeComponentInput
     wheels: BikeComponentInput
     pivotBearings: BikeComponentInput
   }
@@ -370,7 +375,7 @@ export const typeDefs = gql`
     spokesComponents: SpokesComponentsInput
     fork: BikeComponentInput
     shock: BikeComponentInput
-    dropper: BikeComponentInput
+    seatpost: BikeComponentInput
     wheels: BikeComponentInput
     pivotBearings: BikeComponentInput
   }

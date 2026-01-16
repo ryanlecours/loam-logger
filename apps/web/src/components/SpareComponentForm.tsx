@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Button } from "./ui";
 import type { SpareFormState } from "@/models/BikeComponents";
+import { getComponentLabel } from "@/constants/componentLabels";
 
 type SpareFormProps = {
   initial: SpareFormState;
@@ -8,17 +9,21 @@ type SpareFormProps = {
   error: string | null;
   onSubmit: (form: SpareFormState) => void;
   onClose: () => void;
+  /** 'spare' for spare components (default), 'bike' for bike-attached components */
+  mode?: 'spare' | 'bike';
 };
 
-export function SpareComponentForm({ initial, submitting, error, onSubmit, onClose }: SpareFormProps) {
+export function SpareComponentForm({ initial, submitting, error, onSubmit, onClose, mode = 'spare' }: SpareFormProps) {
   const [form, setForm] = useState<SpareFormState>(initial);
 
   const spareTypeOptions: SpareFormState['type'][] = ['FORK', 'SHOCK', 'DROPPER', 'WHEELS'];
+  const isBikeComponent = mode === 'bike';
 
 
+  // Only reset form when editing a different component, not on every render
   useEffect(() => {
     setForm(initial);
-  }, [initial]);
+  }, [initial.id]);
 
   const setField = <K extends keyof SpareFormState>(key: K, value: SpareFormState[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -33,18 +38,25 @@ export function SpareComponentForm({ initial, submitting, error, onSubmit, onClo
     <form className="space-y-4" onSubmit={handleSubmit}>
       <label className="flex flex-col gap-2 text-sm">
         <span className="label-muted">Component Type</span>
-        <select
-          className="max-w-auto rounded-lg border border-app bg-app px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[rgb(var(--ring))]"
-          value={form.type}
-          onChange={(e) => setField('type', e.target.value as SpareFormState['type'])}
-          disabled={!!form.id}
-        >
-          {spareTypeOptions.map((type) => (
-            <option value={type} key={type}>
-              {type}
-            </option>
-          ))}
-        </select>
+        {isBikeComponent ? (
+          // For bike components, show the type as a read-only display
+          <div className="max-w-auto rounded-lg border border-app bg-app/50 px-3 py-2 text-sm text-muted">
+            {getComponentLabel(form.type)}
+          </div>
+        ) : (
+          <select
+            className="max-w-auto rounded-lg border border-app bg-app px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[rgb(var(--ring))]"
+            value={form.type}
+            onChange={(e) => setField('type', e.target.value as SpareFormState['type'])}
+            disabled={!!form.id}
+          >
+            {spareTypeOptions.map((type) => (
+              <option value={type} key={type}>
+                {type}
+              </option>
+            ))}
+          </select>
+        )}
       </label>
       <div className="grid gap-3 md:grid-cols-2">
         <input
@@ -102,7 +114,7 @@ export function SpareComponentForm({ initial, submitting, error, onSubmit, onClo
           Cancel
         </Button>
         <Button type="submit" disabled={submitting}>
-          {submitting ? 'Saving...' : form.id ? 'Update Spare' : 'Add Spare'}
+          {submitting ? 'Saving...' : form.id ? (isBikeComponent ? 'Save' : 'Update Spare') : 'Add Spare'}
         </Button>
       </div>
     </form>

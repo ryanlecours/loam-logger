@@ -7,6 +7,7 @@ import { useCurrentUser } from '../hooks/useCurrentUser';
 import { Button } from '@/components/ui';
 import { getAuthHeaders } from '@/lib/csrf';
 import { BikeSearch, type SpokesSearchResult } from '@/components/BikeSearch';
+import { BikeImageSelector } from '@/components/BikeImageSelector';
 import { useSpokes, type SpokesBikeDetails } from '@/hooks/useSpokes';
 import { TermsAcceptanceStep } from '@/components/TermsAcceptanceStep';
 import {
@@ -86,12 +87,19 @@ export default function Onboarding() {
   const [showManualBikeEntry, setShowManualBikeEntry] = useState(false);
   const [componentEntries, setComponentEntries] = useState<ComponentEntry[]>(() => buildComponentEntries(null));
   const [spokesDetails, setSpokesDetails] = useState<SpokesBikeDetails | null>(null);
+  const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null);
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
 
   // Get bike image URL with fallback to images array, validated for security
   const getBikeImageUrl = () => {
-    const url = data.thumbnailUrl || spokesDetails?.images?.[0]?.url;
+    const url = selectedImageUrl || data.thumbnailUrl || spokesDetails?.images?.[0]?.url;
     return url && isValidImageUrl(url) ? url : null;
+  };
+
+  // Handle image selection from BikeImageSelector
+  const handleImageSelect = (url: string) => {
+    setSelectedImageUrl(url);
+    setData((prev) => ({ ...prev, thumbnailUrl: url }));
   };
 
   // Read step from URL query parameter, default to 1
@@ -214,11 +222,15 @@ export default function Onboarding() {
       // Check if seatpost is a dropper
       const isDropperSeatpost = details.components?.seatpost?.kind === 'dropper';
 
+      // Prioritize images array over thumbnailUrl
+      const defaultImage = details.images?.[0]?.url || details.thumbnailUrl || undefined;
+      setSelectedImageUrl(defaultImage || null);
+
       setData((prev) => ({
         ...prev,
         // 99spokes metadata
         spokesUrl: details.url || undefined,
-        thumbnailUrl: details.thumbnailUrl || undefined,
+        thumbnailUrl: defaultImage,
         family: details.family || prev.family,
         category: details.category || prev.category,
         subcategory: details.subcategory || prev.subcategory,
@@ -370,7 +382,7 @@ export default function Onboarding() {
         components: {
           fork: getComponentData('fork'),
           shock: getComponentData('rearShock'),
-          dropper: isDropper ? getComponentData('seatpost') : undefined,
+          seatpost: isDropper ? getComponentData('seatpost') : undefined,
           wheels: getComponentData('wheels'),
           pivotBearings: getComponentData('pivotBearings'),
         },
@@ -729,6 +741,24 @@ export default function Onboarding() {
                   {data.bikeYear} {data.bikeMake} {data.bikeModel}
                 </p>
               </div>
+
+              {/* Colorway selector when multiple images available */}
+              {spokesDetails?.images && spokesDetails.images.length > 1 && (
+                <div className="text-left bg-surface border border-app rounded-xl p-4">
+                  <h3 className="text-lg font-semibold text-primary mb-1">
+                    Which colorway do you have?
+                  </h3>
+                  <p className="text-sm text-muted mb-4">
+                    Select the color that matches your bike.
+                  </p>
+                  <BikeImageSelector
+                    images={spokesDetails.images}
+                    thumbnailUrl={spokesDetails.thumbnailUrl}
+                    selectedUrl={selectedImageUrl}
+                    onSelect={handleImageSelect}
+                  />
+                </div>
+              )}
 
               <p className="text-sm text-muted text-left">
                 Review your bike's components. Edit any parts you've customized.

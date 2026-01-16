@@ -12,24 +12,22 @@ import {
 } from 'react-icons/fa';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
-import { BikeForm } from '@/components/BikeForm';
 import { StatusPill } from '@/components/dashboard/StatusPill';
 import { LogServiceModal } from '@/components/dashboard/LogServiceModal';
 import { ComponentDetailRow } from '@/components/gear/ComponentDetailRow';
 import { BikeSpecsGrid, EbikeSpecsGrid } from '@/components/gear/BikeSpecsGrid';
 import { SpareComponentForm } from '@/components/SpareComponentForm';
+import { BikeImageSelector } from '@/components/BikeImageSelector';
+import { useSpokes } from '@/hooks/useSpokes';
 import {
   GEAR_QUERY,
   UPDATE_BIKE,
   UPDATE_COMPONENT,
 } from '@/graphql/gear';
 import {
-  BIKE_COMPONENT_SECTIONS,
-  type BikeComponentSection,
-  type BikeFormValues,
-  type GearComponentState,
   type SpareFormState,
 } from '@/models/BikeComponents';
+import { getComponentLabel } from '@/constants/componentLabels';
 import type { BikePredictionSummary, ComponentPrediction, PredictionStatus } from '@/types/prediction';
 
 type ComponentDto = {
@@ -77,58 +75,6 @@ type BikeDto = {
   components: ComponentDto[];
   predictions?: BikePredictionSummary | null;
 };
-
-const defaultComponentState = (): GearComponentState => ({
-  brand: '',
-  model: '',
-  notes: '',
-  isStock: true,
-});
-
-const toComponentState = (
-  bike: BikeDto | undefined,
-  section: BikeComponentSection
-): GearComponentState => {
-  const match = bike?.components?.find((c) => c.type === section.type);
-  if (!match) return defaultComponentState();
-  return {
-    brand: match.isStock ? '' : match.brand ?? '',
-    model: match.isStock ? '' : match.model ?? '',
-    notes: match.notes ?? '',
-    isStock: match.isStock ?? false,
-  };
-};
-
-const createBikeFormState = (bike?: BikeDto): BikeFormValues => ({
-  nickname: bike?.nickname ?? '',
-  manufacturer: bike?.manufacturer ?? '',
-  model: bike?.model ?? '',
-  year: bike?.year ? String(bike.year) : String(new Date().getFullYear()),
-  travelForkMm: bike?.travelForkMm ? String(bike.travelForkMm) : '',
-  travelShockMm: bike?.travelShockMm ? String(bike.travelShockMm) : '',
-  notes: bike?.notes ?? '',
-  spokesId: bike?.spokesId ?? null,
-  spokesUrl: bike?.spokesUrl ?? null,
-  thumbnailUrl: bike?.thumbnailUrl ?? null,
-  family: bike?.family ?? null,
-  category: bike?.category ?? null,
-  subcategory: bike?.subcategory ?? null,
-  buildKind: bike?.buildKind ?? null,
-  isFrameset: bike?.isFrameset ?? false,
-  isEbike: bike?.isEbike ?? false,
-  gender: bike?.gender ?? null,
-  frameMaterial: bike?.frameMaterial ?? null,
-  hangerStandard: bike?.hangerStandard ?? null,
-  motorMaker: bike?.motorMaker ?? null,
-  motorModel: bike?.motorModel ?? null,
-  motorPowerW: bike?.motorPowerW ?? null,
-  motorTorqueNm: bike?.motorTorqueNm ?? null,
-  batteryWh: bike?.batteryWh ?? null,
-  components: BIKE_COMPONENT_SECTIONS.reduce(
-    (acc, section) => ({ ...acc, [section.key]: toComponentState(bike, section) }),
-    {} as BikeFormValues['components']
-  ),
-});
 
 export default function BikeDetail() {
   const { bikeId } = useParams<{ bikeId: string }>();
@@ -183,72 +129,62 @@ export default function BikeDetail() {
     });
   }, [bike?.components, predictions]);
 
+  // 99Spokes hook for fetching bike images
+  const { getBikeDetails, isLoading: loadingSpokesDetails } = useSpokes();
+
   // Modal states
-  const [editBikeOpen, setEditBikeOpen] = useState(false);
   const [serviceModalOpen, setServiceModalOpen] = useState(false);
   const [editingComponent, setEditingComponent] = useState<ComponentDto | null>(null);
-  const [bikeFormError, setBikeFormError] = useState<string | null>(null);
+  const [editingTravel, setEditingTravel] = useState<'fork' | 'shock' | null>(null);
+  const [travelValue, setTravelValue] = useState('');
   const [componentFormError, setComponentFormError] = useState<string | null>(null);
+  const [travelFormError, setTravelFormError] = useState<string | null>(null);
 
-  const bikeFormState = useMemo(() => createBikeFormState(bike), [bike]);
+  // Edit image modal state
+  const [editImageOpen, setEditImageOpen] = useState(false);
+  const [spokesImages, setSpokesImages] = useState<Array<{ url: string; colorKey?: string }>>([]);
+  const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null);
+  const [imageFormError, setImageFormError] = useState<string | null>(null);
 
-  const handleBikeSubmit = async (form: BikeFormValues) => {
-    if (!bike) return;
-    setBikeFormError(null);
-
-    if (!form.manufacturer.trim()) {
-      setBikeFormError('Manufacturer is required.');
+  // Handle opening the edit image modal
+  const handleEditImageOpen = async () => {
+    if (!bike?.spokesId) {
+      // No 99Spokes ID, can't fetch images
+      setImageFormError('This bike was added manually and has no additional images available.');
+      setEditImageOpen(true);
       return;
     }
-    if (!form.model.trim()) {
-      setBikeFormError('Model is required.');
-      return;
+
+    setImageFormError(null);
+    setSelectedImageUrl(bike.thumbnailUrl || null);
+    setEditImageOpen(true);
+
+    // Fetch bike details from 99Spokes to get images
+    const details = await getBikeDetails(bike.spokesId);
+    if (details?.images && details.images.length > 0) {
+      setSpokesImages(details.images);
+    } else {
+      setSpokesImages([]);
+      setImageFormError('No additional images available for this bike.');
     }
+  };
 
-    const componentInput = (component: GearComponentState) => ({
-      brand: component.isStock ? undefined : component.brand || undefined,
-      model: component.isStock ? undefined : component.model || undefined,
-      notes: component.notes,
-      isStock: component.isStock,
-    });
-
-    const payload = {
-      nickname: form.nickname || undefined,
-      manufacturer: form.manufacturer,
-      model: form.model,
-      year: Number(form.year),
-      travelForkMm: form.travelForkMm ? Number(form.travelForkMm) : undefined,
-      travelShockMm: form.travelShockMm ? Number(form.travelShockMm) : undefined,
-      notes: form.notes,
-      spokesId: form.spokesId || undefined,
-      spokesUrl: form.spokesUrl || undefined,
-      thumbnailUrl: form.thumbnailUrl || undefined,
-      family: form.family || undefined,
-      category: form.category || undefined,
-      subcategory: form.subcategory || undefined,
-      buildKind: form.buildKind || undefined,
-      isFrameset: form.isFrameset ?? false,
-      isEbike: form.isEbike ?? false,
-      gender: form.gender || undefined,
-      frameMaterial: form.frameMaterial || undefined,
-      hangerStandard: form.hangerStandard || undefined,
-      motorMaker: form.motorMaker || undefined,
-      motorModel: form.motorModel || undefined,
-      motorPowerW: form.motorPowerW || undefined,
-      motorTorqueNm: form.motorTorqueNm || undefined,
-      batteryWh: form.batteryWh || undefined,
-      fork: componentInput(form.components.fork),
-      shock: componentInput(form.components.shock),
-      dropper: componentInput(form.components.dropper),
-      wheels: componentInput(form.components.wheels),
-      pivotBearings: componentInput(form.components.pivotBearings),
-    };
+  // Handle saving the selected image
+  const handleImageSave = async () => {
+    if (!bike || !selectedImageUrl) return;
+    setImageFormError(null);
 
     try {
-      await updateBikeMutation({ variables: { id: bike.id, input: payload } });
-      setEditBikeOpen(false);
+      await updateBikeMutation({
+        variables: {
+          id: bike.id,
+          input: { thumbnailUrl: selectedImageUrl },
+        },
+      });
+      setEditImageOpen(false);
+      setSpokesImages([]);
     } catch (err) {
-      setBikeFormError((err as Error).message);
+      setImageFormError((err as Error).message);
     }
   };
 
@@ -262,9 +198,8 @@ export default function BikeDetail() {
     const serviceDue = serviceValue === '' ? null : Number(serviceValue);
 
     const payload = {
-      type: form.type,
-      brand: form.isStock ? undefined : form.brand || undefined,
-      model: form.isStock ? undefined : form.model || undefined,
+      brand: form.brand || undefined,
+      model: form.model || undefined,
       notes: form.notes,
       isStock: form.isStock,
       hoursUsed: Number.isNaN(hoursUsed) ? undefined : hoursUsed,
@@ -276,6 +211,36 @@ export default function BikeDetail() {
       setEditingComponent(null);
     } catch (err) {
       setComponentFormError((err as Error).message);
+    }
+  };
+
+  const handleEditTravel = (field: 'fork' | 'shock') => {
+    const currentValue = field === 'fork' ? bike?.travelForkMm : bike?.travelShockMm;
+    setTravelValue(currentValue ? String(currentValue) : '');
+    setTravelFormError(null);
+    setEditingTravel(field);
+  };
+
+  const handleTravelSubmit = async () => {
+    if (!bike || !editingTravel) return;
+    setTravelFormError(null);
+
+    const numValue = travelValue.trim() === '' ? null : Number(travelValue);
+    if (numValue !== null && (Number.isNaN(numValue) || numValue < 0)) {
+      setTravelFormError('Please enter a valid travel value in mm');
+      return;
+    }
+
+    const payload = editingTravel === 'fork'
+      ? { travelForkMm: numValue ?? undefined }
+      : { travelShockMm: numValue ?? undefined };
+
+    try {
+      await updateBikeMutation({ variables: { id: bike.id, input: payload } });
+      setEditingTravel(null);
+      setTravelValue('');
+    } catch (err) {
+      setTravelFormError((err as Error).message);
     }
   };
 
@@ -378,14 +343,10 @@ export default function BikeDetail() {
               <FaWrench size={12} className="icon-left" />
               Log Service
             </Button>
-            <Button variant="secondary" size="sm" onClick={() => setEditBikeOpen(true)}>
-              <FaPencilAlt size={12} className="icon-left" />
-              Edit Bike
-            </Button>
           </div>
         </div>
 
-        <div className="bike-detail-hero-image">
+        <div className="bike-detail-hero-image relative">
           {bike.thumbnailUrl ? (
             <img
               src={bike.thumbnailUrl}
@@ -404,11 +365,23 @@ export default function BikeDetail() {
           >
             <FaBicycle size={48} />
           </div>
+          {/* Edit image button */}
+          {bike.spokesId && (
+            <button
+              type="button"
+              onClick={handleEditImageOpen}
+              className="absolute bottom-2 right-2 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-black/70 text-white text-xs font-medium hover:bg-black/90 transition-colors"
+              aria-label="Change bike image"
+            >
+              <FaPencilAlt size={10} />
+              Change Image
+            </button>
+          )}
         </div>
       </section>
 
       {/* Specifications */}
-      <BikeSpecsGrid bike={bike} />
+      <BikeSpecsGrid bike={bike} onEditTravel={handleEditTravel} />
 
       {/* E-bike Specifications */}
       <EbikeSpecsGrid bike={bike} />
@@ -469,27 +442,65 @@ export default function BikeDetail() {
         </section>
       )}
 
-      {/* Edit Bike Modal */}
+      {/* Edit Image Modal */}
       <Modal
-        isOpen={editBikeOpen}
+        isOpen={editImageOpen}
         onClose={() => {
-          setEditBikeOpen(false);
-          setBikeFormError(null);
+          setEditImageOpen(false);
+          setSpokesImages([]);
+          setImageFormError(null);
         }}
-        title={`Edit ${bikeName}`}
-        size="xl"
+        title="Change Bike Image"
+        size="lg"
       >
-        <BikeForm
-          mode="edit"
-          initial={bikeFormState}
-          onSubmit={(form) => handleBikeSubmit(form)}
-          onClose={() => {
-            setEditBikeOpen(false);
-            setBikeFormError(null);
-          }}
-          submitting={updateBikeState.loading}
-          error={bikeFormError}
-        />
+        <div className="space-y-6">
+          {loadingSpokesDetails ? (
+            <div className="flex items-center justify-center py-8">
+              <p className="text-muted">Loading available images...</p>
+            </div>
+          ) : imageFormError && spokesImages.length === 0 ? (
+            <div className="text-center py-8">
+              <p className="text-muted">{imageFormError}</p>
+            </div>
+          ) : spokesImages.length > 1 ? (
+            <BikeImageSelector
+              images={spokesImages}
+              thumbnailUrl={bike?.thumbnailUrl}
+              selectedUrl={selectedImageUrl}
+              onSelect={setSelectedImageUrl}
+            />
+          ) : spokesImages.length === 1 ? (
+            <div className="text-center py-4">
+              <p className="text-muted">Only one image is available for this bike.</p>
+            </div>
+          ) : null}
+
+          {imageFormError && spokesImages.length > 0 && (
+            <p className="text-sm text-danger text-center">{imageFormError}</p>
+          )}
+
+          <div className="flex justify-end gap-3 pt-2 border-t border-app">
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setEditImageOpen(false);
+                setSpokesImages([]);
+                setImageFormError(null);
+              }}
+            >
+              Cancel
+            </Button>
+            {spokesImages.length > 1 && (
+              <Button
+                variant="primary"
+                onClick={handleImageSave}
+                disabled={updateBikeState.loading || !selectedImageUrl}
+              >
+                {updateBikeState.loading ? 'Saving...' : 'Save'}
+              </Button>
+            )}
+          </div>
+        </div>
       </Modal>
 
       {/* Log Service Modal */}
@@ -512,11 +523,12 @@ export default function BikeDetail() {
           setEditingComponent(null);
           setComponentFormError(null);
         }}
-        title={editingComponent ? `Edit ${editingComponent.type}` : 'Edit Component'}
+        title={editingComponent ? `Edit ${getComponentLabel(editingComponent.type)}` : 'Edit Component'}
         size="md"
       >
         {editingComponent && (
           <SpareComponentForm
+            mode="bike"
             initial={{
               id: editingComponent.id,
               type: editingComponent.type as SpareFormState['type'],
@@ -536,6 +548,58 @@ export default function BikeDetail() {
             error={componentFormError}
           />
         )}
+      </Modal>
+
+      {/* Edit Travel Modal */}
+      <Modal
+        isOpen={!!editingTravel}
+        onClose={() => {
+          setEditingTravel(null);
+          setTravelValue('');
+          setTravelFormError(null);
+        }}
+        title={editingTravel === 'fork' ? 'Edit Fork Travel' : 'Edit Shock Travel'}
+        size="sm"
+      >
+        <div className="travel-edit-form">
+          <label className="travel-edit-label">
+            Travel (mm)
+            <input
+              type="number"
+              value={travelValue}
+              onChange={(e) => setTravelValue(e.target.value)}
+              placeholder="e.g. 160"
+              className="travel-edit-input"
+              min="0"
+              max="300"
+              autoFocus
+            />
+          </label>
+          {travelFormError && (
+            <p className="travel-edit-error">{travelFormError}</p>
+          )}
+          <div className="travel-edit-actions">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                setEditingTravel(null);
+                setTravelValue('');
+                setTravelFormError(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={handleTravelSubmit}
+              disabled={updateBikeState.loading}
+            >
+              {updateBikeState.loading ? 'Saving...' : 'Save'}
+            </Button>
+          </div>
+        </div>
       </Modal>
     </motion.div>
   );

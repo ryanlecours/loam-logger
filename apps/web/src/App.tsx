@@ -21,6 +21,7 @@ import AuthGate from './components/AuthGate';
 import AppShell from './components/layout/AppShell';
 import OnboardingGate from './components/OnboardingGate';
 import TermsGate from './components/TermsGate';
+import { ToastProvider } from './components/ui/Toast';
 import Onboarding from './pages/Onboarding';
 
 import './App.css';
@@ -104,6 +105,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <AppRoutes />
+      <ToastProvider />
     </BrowserRouter>
   );
 }

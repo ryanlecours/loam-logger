@@ -53,7 +53,7 @@ describe('ComponentHealthPanel', () => {
       render(<ComponentHealthPanel components={components} />);
 
       expect(screen.getByText('Fork')).toBeInTheDocument();
-      expect(screen.getByText('Shock')).toBeInTheDocument();
+      expect(screen.getByText('Rear Shock')).toBeInTheDocument();
       expect(screen.getByText('Brakes (Front)')).toBeInTheDocument();
     });
 
@@ -139,8 +139,8 @@ describe('ComponentHealthPanel', () => {
       render(<ComponentHealthPanel components={components} />);
 
       const buttons = screen.getAllByRole('button');
-      // First button should be the OVERDUE component (Shock)
-      expect(buttons[0]).toHaveTextContent('Shock');
+      // First button should be the OVERDUE component (Rear Shock)
+      expect(buttons[0]).toHaveTextContent('Rear Shock');
     });
 
     it('sorts by hours remaining within same severity', () => {
@@ -154,7 +154,7 @@ describe('ComponentHealthPanel', () => {
 
       const buttons = screen.getAllByRole('button');
       // Should be sorted by hours remaining: 10, 30, 50
-      expect(buttons[0]).toHaveTextContent('Shock'); // 10 hours
+      expect(buttons[0]).toHaveTextContent('Rear Shock'); // 10 hours
       expect(buttons[1]).toHaveTextContent('Brakes'); // 30 hours
       expect(buttons[2]).toHaveTextContent('Fork'); // 50 hours
     });

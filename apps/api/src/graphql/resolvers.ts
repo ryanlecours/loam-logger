@@ -113,7 +113,7 @@ type AddBikeInputGQL = {
   spokesComponents?: SpokesComponentsInputGQL | null;
   fork?: BikeComponentInputGQL | null;
   shock?: BikeComponentInputGQL | null;
-  dropper?: BikeComponentInputGQL | null;
+  seatpost?: BikeComponentInputGQL | null;
   wheels?: BikeComponentInputGQL | null;
   pivotBearings?: BikeComponentInputGQL | null;
 };
@@ -203,7 +203,7 @@ const componentLabelMap: Partial<Record<ComponentType, string>> = {
 const REQUIRED_BIKE_COMPONENTS = [
   ['fork', ComponentTypeEnum.FORK],
   ['shock', ComponentTypeEnum.SHOCK],
-  ['dropper', ComponentTypeEnum.DROPPER],
+  ['seatpost', ComponentTypeEnum.SEATPOST],
   ['wheels', ComponentTypeEnum.WHEELS],
   ['pivotBearings', ComponentTypeEnum.PIVOT_BEARINGS],
 ] as const;
@@ -250,6 +250,73 @@ const normalizeBikeComponentInput = (
     notes,
     isStock,
   };
+};
+
+/**
+ * Extract brand/model from 99Spokes component data.
+ * Handles various data availability scenarios with centralized fallback logic.
+ *
+ * @param spokesData - Component data from 99Spokes API
+ * @param fallbackModel - Fallback model name (e.g., component display name)
+ * @returns Extracted component data or null if no usable data
+ */
+const extractSpokesComponentData = (
+  spokesData: SpokesComponentInputGQL | undefined,
+  fallbackModel: string
+): { brand: string; model: string; notes: string | null } | null => {
+  if (!spokesData) return null;
+
+  // Case 1: Both maker and model available (best case)
+  if (spokesData.maker && spokesData.model) {
+    return {
+      brand: spokesData.maker,
+      model: spokesData.model,
+      notes: spokesData.description ?? null,
+    };
+  }
+
+  // Case 2: Maker available with description (use description as model)
+  if (spokesData.maker && spokesData.description) {
+    return {
+      brand: spokesData.maker,
+      model: spokesData.description,
+      notes: null,
+    };
+  }
+
+  // Case 3: Only description available (parse first word as brand)
+  if (spokesData.description) {
+    const parts = spokesData.description.trim().split(/\s+/).filter(Boolean);
+    if (parts.length > 1) {
+      return {
+        brand: parts[0],
+        model: parts.slice(1).join(' '),
+        notes: null,
+      };
+    }
+    if (parts.length === 1) {
+      return {
+        brand: parts[0],
+        model: fallbackModel,
+        notes: null,
+      };
+    }
+  }
+
+  return null;
+};
+
+/**
+ * Check if user override contains actual component data.
+ * An override is considered "real" if it has brand, model, or explicitly marks as non-stock.
+ */
+const hasUserOverride = (override: BikeComponentInputGQL | undefined): boolean => {
+  if (!override) return false;
+  // User provided brand or model data
+  if (override.brand || override.model) return true;
+  // User explicitly marked as non-stock (aftermarket component)
+  if (override.isStock === false) return true;
+  return false;
 };
 
 async function syncBikeComponents(
@@ -351,7 +418,7 @@ export async function buildBikeComponents(
         const typeMap: Record<string, string> = {
           fork: 'FORK',
           shock: 'SHOCK',
-          dropper: 'DROPPER',
+          seatpost: 'SEATPOST',
           wheels: 'WHEELS',
           pivotBearings: 'PIVOT_BEARINGS',
         };
@@ -383,30 +450,33 @@ export async function buildBikeComponents(
       }
     }
 
-    // Determine brand/model
+    // Determine brand/model/notes/isStock
     let brand: string;
     let model: string;
     let notes: string | null = null;
     let isStock = true;
 
-    if (override) {
-      // User provided override
+    if (hasUserOverride(override)) {
+      // User provided real component data (brand, model, or explicitly non-stock)
       const normalized = normalizeBikeComponentInput(type as ComponentType, override);
       brand = normalized.brand;
       model = normalized.model;
       notes = normalized.notes;
       isStock = normalized.isStock;
-    } else if (spokesData?.maker && spokesData?.model) {
-      // Use 99Spokes data
-      brand = spokesData.maker;
-      model = spokesData.model;
-      notes = spokesData.description ?? null;
-      isStock = true;
     } else {
-      // Default stock component
-      brand = 'Stock';
-      model = displayName;
-      isStock = true;
+      // Try to extract from 99Spokes data, fall back to stock component
+      const spokesExtracted = extractSpokesComponentData(spokesData, displayName);
+      if (spokesExtracted) {
+        brand = spokesExtracted.brand;
+        model = spokesExtracted.model;
+        notes = spokesExtracted.notes;
+        isStock = true;
+      } else {
+        // Default stock component
+        brand = 'Stock';
+        model = displayName;
+        isStock = true;
+      }
     }
 
     componentsToCreate.push({
@@ -1054,7 +1124,7 @@ export const resolvers = {
           userOverrides: {
             fork: input.fork,
             shock: input.shock,
-            dropper: input.dropper,
+            seatpost: input.seatpost,
             wheels: input.wheels,
             pivotBearings: input.pivotBearings,
           },
@@ -1131,7 +1201,7 @@ export const resolvers = {
           components: {
             fork: input.fork,
             shock: input.shock,
-            dropper: input.dropper,
+            seatpost: input.seatpost,
             wheels: input.wheels,
             pivotBearings: input.pivotBearings,
           },
@@ -1795,8 +1865,8 @@ export const resolvers = {
       pickComponent(bike, ComponentTypeEnum.FORK),
     shock: (bike: Bike & { components?: ComponentModel[] }) =>
       pickComponent(bike, ComponentTypeEnum.SHOCK),
-    dropper: (bike: Bike & { components?: ComponentModel[] }) =>
-      pickComponent(bike, ComponentTypeEnum.DROPPER),
+    seatpost: (bike: Bike & { components?: ComponentModel[] }) =>
+      pickComponent(bike, ComponentTypeEnum.SEATPOST),
     wheels: (bike: Bike & { components?: ComponentModel[] }) =>
       pickComponent(bike, ComponentTypeEnum.WHEELS),
     pivotBearings: (bike: Bike & { components?: ComponentModel[] }) =>
@@ -1810,13 +1880,8 @@ export const resolvers = {
         throw new Error('Unauthorized');
       }
 
-      // Rate limit prediction requests to prevent DoS
-      const rateLimit = await checkMutationRateLimit('predictions', userId);
-      if (!rateLimit.allowed) {
-        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
-          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
-        });
-      }
+      // Note: No rate limit here - this is a field resolver called per-bike
+      // in normal query flow. Rate limiting would block users with multiple bikes.
 
       const user = await prisma.user.findUnique({
         where: { id: userId },

@@ -85,21 +85,19 @@ export const buildComponentEntries = (
 
 /**
  * Builds component entries from existing bike form values (edit mode).
- * Maps legacy component keys to new format.
+ * Maps component keys to form data, handling legacy key differences.
  */
 export const buildComponentEntriesFromExisting = (initial: BikeFormValues): ComponentEntry[] => {
-  // Map from new keys to legacy BIKE_COMPONENT_SECTIONS keys
-  const legacyKeyMap: Record<string, string> = {
-    fork: 'fork',
-    rearShock: 'shock',
-    wheels: 'wheels',
-    pivotBearings: 'pivotBearings',
-    seatpost: 'dropper', // dropper was the legacy key
+  // Map from ALL_COMPONENT_TYPES keys to BikeFormValues.components keys
+  // Most keys match directly, these are the exceptions:
+  const keyMap: Record<string, string> = {
+    rearShock: 'shock',  // ALL_COMPONENT_TYPES uses 'rearShock', form uses 'shock'
   };
 
   return ALL_COMPONENT_TYPES.map(({ key, label }) => {
-    const legacyKey = legacyKeyMap[key];
-    const existingComp = legacyKey ? initial.components[legacyKey as keyof typeof initial.components] : undefined;
+    // Use mapped key if exists, otherwise use key directly
+    const formKey = keyMap[key] || key;
+    const existingComp = initial.components[formKey as keyof typeof initial.components];
 
     return {
       key,

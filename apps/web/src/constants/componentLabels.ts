@@ -4,7 +4,7 @@
  */
 export const COMPONENT_LABELS: Record<string, string> = {
   FORK: 'Fork',
-  SHOCK: 'Shock',
+  SHOCK: 'Rear Shock',
   BRAKES: 'Brakes',
   DRIVETRAIN: 'Drivetrain',
   TIRES: 'Tires',
@@ -12,12 +12,20 @@ export const COMPONENT_LABELS: Record<string, string> = {
   CASSETTE: 'Cassette',
   CHAINRING: 'Chainring',
   WHEELS: 'Wheels',
-  DROPPER: 'Dropper',
+  RIMS: 'Rims',
+  DROPPER: 'Dropper Post',
   PIVOT_BEARINGS: 'Pivot Bearings',
   BRAKE_PAD: 'Brake Pads',
-  BRAKE_ROTOR: 'Brake Rotor',
+  BRAKE_ROTOR: 'Brake Rotors',
   HEADSET: 'Headset',
   BOTTOM_BRACKET: 'Bottom Bracket',
+  STEM: 'Stem',
+  HANDLEBAR: 'Handlebar',
+  SADDLE: 'Saddle',
+  SEATPOST: 'Seatpost',
+  CRANK: 'Crankset',
+  REAR_DERAILLEUR: 'Rear Derailleur',
+  PEDALS: 'Pedals',
 };
 
 /**

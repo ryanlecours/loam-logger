@@ -1,14 +1,12 @@
 type BikeDto = {
   id: string;
+  model?: string | null;
   travelForkMm?: number | null;
   travelShockMm?: number | null;
   frameMaterial?: string | null;
   hangerStandard?: string | null;
   category?: string | null;
   subcategory?: string | null;
-  family?: string | null;
-  buildKind?: string | null;
-  gender?: string | null;
   isEbike?: boolean | null;
   motorMaker?: string | null;
   motorModel?: string | null;
@@ -19,49 +17,61 @@ type BikeDto = {
 
 interface BikeSpecsGridProps {
   bike: BikeDto;
+  onEditTravel?: (field: 'fork' | 'shock') => void;
 }
 
 interface SpecItem {
   label: string;
   value: string | number;
+  editable?: boolean;
+  field?: 'fork' | 'shock';
 }
 
-export function BikeSpecsGrid({ bike }: BikeSpecsGridProps) {
-  // Build specs array dynamically - only include items with values
+export function BikeSpecsGrid({ bike, onEditTravel }: BikeSpecsGridProps) {
+  // Build specs array - travel specs always shown, others only if value exists
   const specs: SpecItem[] = [];
 
-  if (bike.travelForkMm) {
-    specs.push({ label: 'Fork Travel', value: `${bike.travelForkMm}mm` });
-  }
-  if (bike.travelShockMm) {
-    specs.push({ label: 'Shock Travel', value: `${bike.travelShockMm}mm` });
-  }
-  if (bike.frameMaterial) {
-    specs.push({ label: 'Frame Material', value: bike.frameMaterial });
-  }
-  if (bike.hangerStandard) {
-    specs.push({ label: 'Hanger Standard', value: bike.hangerStandard });
-  }
-  if (bike.family) {
-    specs.push({ label: 'Family', value: bike.family });
-  }
-  if (bike.buildKind) {
-    specs.push({ label: 'Build', value: bike.buildKind });
-  }
-  if (bike.gender) {
-    specs.push({ label: 'Fit', value: bike.gender });
+  // Always show Fork Travel (editable)
+  specs.push({
+    label: 'Fork Travel',
+    value: bike.travelForkMm ? `${bike.travelForkMm}mm` : '--',
+    editable: true,
+    field: 'fork',
+  });
+
+  // Always show Shock Travel (editable)
+  specs.push({
+    label: 'Shock Travel',
+    value: bike.travelShockMm ? `${bike.travelShockMm}mm` : '--',
+    editable: true,
+    field: 'shock',
+  });
+
+  // Model instead of Family
+  if (bike.model) {
+    specs.push({ label: 'Model', value: bike.model });
   }
 
-  if (specs.length === 0) {
-    return null;
-  }
+  // Removed: Build (buildKind) and Fit (gender)
 
   return (
     <div className="bike-detail-section">
       <h3 className="bike-detail-section-title">Specifications</h3>
       <div className="bike-specs-grid">
         {specs.map((spec) => (
-          <div key={spec.label} className="bike-spec-item">
+          <div
+            key={spec.label}
+            className={`bike-spec-item ${spec.editable && onEditTravel ? 'bike-spec-item--editable' : ''}`}
+            onClick={spec.editable && onEditTravel && spec.field ? () => onEditTravel(spec.field!) : undefined}
+            role={spec.editable && onEditTravel ? 'button' : undefined}
+            tabIndex={spec.editable && onEditTravel ? 0 : undefined}
+            onKeyDown={spec.editable && onEditTravel && spec.field ? (e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onEditTravel(spec.field!);
+              }
+            } : undefined}
+          >
             <span className="bike-spec-label">{spec.label}</span>
             <span className="bike-spec-value">{spec.value}</span>
           </div>

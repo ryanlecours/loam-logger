@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { BikeSpecsGrid, EbikeSpecsGrid } from './BikeSpecsGrid';
 
 describe('BikeSpecsGrid', () => {
@@ -9,105 +10,151 @@ describe('BikeSpecsGrid', () => {
   });
 
   describe('rendering', () => {
-    it('returns null when no specs are present', () => {
-      const { container } = render(<BikeSpecsGrid bike={createBike()} />);
+    it('always renders with fork and shock travel (shows -- when null)', () => {
+      render(<BikeSpecsGrid bike={createBike()} />);
 
-      expect(container.firstChild).toBeNull();
+      expect(screen.getByText('Fork Travel')).toBeInTheDocument();
+      expect(screen.getByText('Shock Travel')).toBeInTheDocument();
+      // Shows "--" for null values
+      expect(screen.getAllByText('--')).toHaveLength(2);
     });
 
-    it('renders section title when specs exist', () => {
-      render(<BikeSpecsGrid bike={createBike({ travelForkMm: 160 })} />);
+    it('renders section title', () => {
+      render(<BikeSpecsGrid bike={createBike()} />);
 
       expect(screen.getByText('Specifications')).toBeInTheDocument();
     });
   });
 
   describe('fork travel', () => {
-    it('renders fork travel when present', () => {
+    it('renders fork travel value when present', () => {
       render(<BikeSpecsGrid bike={createBike({ travelForkMm: 160 })} />);
 
       expect(screen.getByText('Fork Travel')).toBeInTheDocument();
       expect(screen.getByText('160mm')).toBeInTheDocument();
     });
 
-    it('does not render fork travel when null', () => {
-      render(<BikeSpecsGrid bike={createBike({ travelForkMm: null, frameMaterial: 'Carbon' })} />);
+    it('shows -- when fork travel is null', () => {
+      render(<BikeSpecsGrid bike={createBike({ travelForkMm: null })} />);
 
-      expect(screen.queryByText('Fork Travel')).not.toBeInTheDocument();
+      expect(screen.getByText('Fork Travel')).toBeInTheDocument();
+      // First "--" is for fork travel
+      expect(screen.getAllByText('--').length).toBeGreaterThanOrEqual(1);
     });
   });
 
   describe('shock travel', () => {
-    it('renders shock travel when present', () => {
+    it('renders shock travel value when present', () => {
       render(<BikeSpecsGrid bike={createBike({ travelShockMm: 150 })} />);
 
       expect(screen.getByText('Shock Travel')).toBeInTheDocument();
       expect(screen.getByText('150mm')).toBeInTheDocument();
     });
-  });
 
-  describe('frame material', () => {
-    it('renders frame material when present', () => {
-      render(<BikeSpecsGrid bike={createBike({ frameMaterial: 'Carbon' })} />);
+    it('shows -- when shock travel is null', () => {
+      render(<BikeSpecsGrid bike={createBike({ travelShockMm: null })} />);
 
-      expect(screen.getByText('Frame Material')).toBeInTheDocument();
-      expect(screen.getByText('Carbon')).toBeInTheDocument();
+      expect(screen.getByText('Shock Travel')).toBeInTheDocument();
+      expect(screen.getAllByText('--').length).toBeGreaterThanOrEqual(1);
     });
   });
 
-  describe('hanger standard', () => {
-    it('renders hanger standard when present', () => {
-      render(<BikeSpecsGrid bike={createBike({ hangerStandard: 'SRAM UDH' })} />);
+  describe('model', () => {
+    it('renders model when present', () => {
+      render(<BikeSpecsGrid bike={createBike({ model: 'Slash' })} />);
 
-      expect(screen.getByText('Hanger Standard')).toBeInTheDocument();
-      expect(screen.getByText('SRAM UDH')).toBeInTheDocument();
-    });
-  });
-
-  describe('family', () => {
-    it('renders family when present', () => {
-      render(<BikeSpecsGrid bike={createBike({ family: 'Slash' })} />);
-
-      expect(screen.getByText('Family')).toBeInTheDocument();
+      expect(screen.getByText('Model')).toBeInTheDocument();
       expect(screen.getByText('Slash')).toBeInTheDocument();
     });
-  });
 
-  describe('build kind', () => {
-    it('renders build kind when present', () => {
-      render(<BikeSpecsGrid bike={createBike({ buildKind: 'Complete' })} />);
+    it('does not render model when null', () => {
+      render(<BikeSpecsGrid bike={createBike({ model: null })} />);
 
-      expect(screen.getByText('Build')).toBeInTheDocument();
-      expect(screen.getByText('Complete')).toBeInTheDocument();
+      expect(screen.queryByText('Model')).not.toBeInTheDocument();
     });
   });
 
-  describe('gender', () => {
-    it('renders fit (gender) when present', () => {
-      render(<BikeSpecsGrid bike={createBike({ gender: 'Unisex' })} />);
+  describe('editable specs', () => {
+    it('calls onEditTravel when fork spec is clicked', async () => {
+      const user = userEvent.setup();
+      const onEditTravel = vi.fn();
+      render(<BikeSpecsGrid bike={createBike({ travelForkMm: 160 })} onEditTravel={onEditTravel} />);
 
-      expect(screen.getByText('Fit')).toBeInTheDocument();
-      expect(screen.getByText('Unisex')).toBeInTheDocument();
+      const forkSpec = screen.getByText('Fork Travel').closest('.bike-spec-item');
+      await user.click(forkSpec!);
+
+      expect(onEditTravel).toHaveBeenCalledWith('fork');
+    });
+
+    it('calls onEditTravel when shock spec is clicked', async () => {
+      const user = userEvent.setup();
+      const onEditTravel = vi.fn();
+      render(<BikeSpecsGrid bike={createBike({ travelShockMm: 150 })} onEditTravel={onEditTravel} />);
+
+      const shockSpec = screen.getByText('Shock Travel').closest('.bike-spec-item');
+      await user.click(shockSpec!);
+
+      expect(onEditTravel).toHaveBeenCalledWith('shock');
+    });
+
+    it('handles keyboard activation with Enter', async () => {
+      const user = userEvent.setup();
+      const onEditTravel = vi.fn();
+      render(<BikeSpecsGrid bike={createBike({ travelForkMm: 160 })} onEditTravel={onEditTravel} />);
+
+      const forkSpec = screen.getByText('Fork Travel').closest('.bike-spec-item') as HTMLElement;
+      forkSpec.focus();
+      await user.keyboard('{Enter}');
+
+      expect(onEditTravel).toHaveBeenCalledWith('fork');
+    });
+
+    it('handles keyboard activation with Space', async () => {
+      const user = userEvent.setup();
+      const onEditTravel = vi.fn();
+      render(<BikeSpecsGrid bike={createBike({ travelShockMm: 150 })} onEditTravel={onEditTravel} />);
+
+      const shockSpec = screen.getByText('Shock Travel').closest('.bike-spec-item') as HTMLElement;
+      shockSpec.focus();
+      await user.keyboard(' ');
+
+      expect(onEditTravel).toHaveBeenCalledWith('shock');
+    });
+
+    it('adds editable class when onEditTravel is provided', () => {
+      const onEditTravel = vi.fn();
+      render(<BikeSpecsGrid bike={createBike()} onEditTravel={onEditTravel} />);
+
+      const forkSpec = screen.getByText('Fork Travel').closest('.bike-spec-item');
+      expect(forkSpec).toHaveClass('bike-spec-item--editable');
+    });
+
+    it('does not add editable class when onEditTravel is not provided', () => {
+      render(<BikeSpecsGrid bike={createBike()} />);
+
+      const forkSpec = screen.getByText('Fork Travel').closest('.bike-spec-item');
+      expect(forkSpec).not.toHaveClass('bike-spec-item--editable');
     });
   });
 
   describe('multiple specs', () => {
-    it('renders all available specs', () => {
+    it('renders fork travel, shock travel, and model when all present', () => {
       render(
         <BikeSpecsGrid
           bike={createBike({
             travelForkMm: 160,
             travelShockMm: 150,
-            frameMaterial: 'Carbon',
-            hangerStandard: 'SRAM UDH',
+            model: 'Slash',
           })}
         />
       );
 
       expect(screen.getByText('Fork Travel')).toBeInTheDocument();
+      expect(screen.getByText('160mm')).toBeInTheDocument();
       expect(screen.getByText('Shock Travel')).toBeInTheDocument();
-      expect(screen.getByText('Frame Material')).toBeInTheDocument();
-      expect(screen.getByText('Hanger Standard')).toBeInTheDocument();
+      expect(screen.getByText('150mm')).toBeInTheDocument();
+      expect(screen.getByText('Model')).toBeInTheDocument();
+      expect(screen.getByText('Slash')).toBeInTheDocument();
     });
   });
 });
