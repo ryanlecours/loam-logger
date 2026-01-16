@@ -102,8 +102,8 @@ describe('BikeSpecsGrid', () => {
       const onEditTravel = vi.fn();
       render(<BikeSpecsGrid bike={createBike({ travelForkMm: 160 })} onEditTravel={onEditTravel} />);
 
-      const forkSpec = screen.getByText('Fork Travel').closest('.bike-spec-item');
-      forkSpec!.focus();
+      const forkSpec = screen.getByText('Fork Travel').closest('.bike-spec-item') as HTMLElement;
+      forkSpec.focus();
       await user.keyboard('{Enter}');
 
       expect(onEditTravel).toHaveBeenCalledWith('fork');
@@ -114,8 +114,8 @@ describe('BikeSpecsGrid', () => {
       const onEditTravel = vi.fn();
       render(<BikeSpecsGrid bike={createBike({ travelShockMm: 150 })} onEditTravel={onEditTravel} />);
 
-      const shockSpec = screen.getByText('Shock Travel').closest('.bike-spec-item');
-      shockSpec!.focus();
+      const shockSpec = screen.getByText('Shock Travel').closest('.bike-spec-item') as HTMLElement;
+      shockSpec.focus();
       await user.keyboard(' ');
 
       expect(onEditTravel).toHaveBeenCalledWith('shock');
