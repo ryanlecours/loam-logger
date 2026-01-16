@@ -156,7 +156,6 @@ export function BikeForm({
   const [form, setForm] = useState<BikeFormValues>(initial);
   const [showManualEntry, setShowManualEntry] = useState(false);
   const [spokesDetails, setSpokesDetails] = useState<SpokesBikeDetails | null>(null);
-  const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(initial.thumbnailUrl || null);
   const [acquisitionCondition, setAcquisitionCondition] = useState<AcquisitionCondition | null>(
     initial.acquisitionCondition ?? (mode === 'create' ? 'NEW' : null)
   );
@@ -175,13 +174,12 @@ export function BikeForm({
 
   // Get bike image URL with fallback to images array, validated for security
   const getBikeImageUrl = () => {
-    const url = selectedImageUrl || form.thumbnailUrl || spokesDetails?.images?.[0]?.url;
+    const url = form.thumbnailUrl || spokesDetails?.images?.[0]?.url;
     return url && isValidImageUrl(url) ? url : null;
   };
 
   // Handle image selection from BikeImageSelector
   const handleImageSelect = (url: string) => {
-    setSelectedImageUrl(url);
     setForm((prev) => ({ ...prev, thumbnailUrl: url }));
   };
 
@@ -235,7 +233,6 @@ export function BikeForm({
 
       // Prioritize images array over thumbnailUrl
       const defaultImage = details.images?.[0]?.url || details.thumbnailUrl || null;
-      setSelectedImageUrl(defaultImage);
 
       setForm((prev) => ({
         ...prev,
@@ -663,7 +660,7 @@ export function BikeForm({
           <BikeImageSelector
             images={spokesDetails!.images!}
             thumbnailUrl={spokesDetails!.thumbnailUrl}
-            selectedUrl={selectedImageUrl}
+            selectedUrl={form.thumbnailUrl}
             onSelect={handleImageSelect}
           />
 
