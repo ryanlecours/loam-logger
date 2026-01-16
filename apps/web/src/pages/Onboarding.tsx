@@ -382,7 +382,7 @@ export default function Onboarding() {
         components: {
           fork: getComponentData('fork'),
           shock: getComponentData('rearShock'),
-          dropper: isDropper ? getComponentData('seatpost') : undefined,
+          seatpost: isDropper ? getComponentData('seatpost') : undefined,
           wheels: getComponentData('wheels'),
           pivotBearings: getComponentData('pivotBearings'),
         },

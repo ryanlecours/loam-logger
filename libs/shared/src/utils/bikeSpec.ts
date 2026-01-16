@@ -67,8 +67,8 @@ export function parseTravelFromDescription(description?: string): number | null 
   const match = description.match(/(\d{2,3})\s*mm/i);
   if (match) {
     const value = parseInt(match[1], 10);
-    // Sanity check: suspension travel typically 80-220mm
-    if (value >= 80 && value <= 220) {
+    // Sanity check: suspension travel typically 30-220mm
+    if (value >= 30 && value <= 220) {
       return value;
     }
   }
