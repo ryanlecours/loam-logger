@@ -252,6 +252,73 @@ const normalizeBikeComponentInput = (
   };
 };
 
+/**
+ * Extract brand/model from 99Spokes component data.
+ * Handles various data availability scenarios with centralized fallback logic.
+ *
+ * @param spokesData - Component data from 99Spokes API
+ * @param fallbackModel - Fallback model name (e.g., component display name)
+ * @returns Extracted component data or null if no usable data
+ */
+const extractSpokesComponentData = (
+  spokesData: SpokesComponentInputGQL | undefined,
+  fallbackModel: string
+): { brand: string; model: string; notes: string | null } | null => {
+  if (!spokesData) return null;
+
+  // Case 1: Both maker and model available (best case)
+  if (spokesData.maker && spokesData.model) {
+    return {
+      brand: spokesData.maker,
+      model: spokesData.model,
+      notes: spokesData.description ?? null,
+    };
+  }
+
+  // Case 2: Maker available with description (use description as model)
+  if (spokesData.maker && spokesData.description) {
+    return {
+      brand: spokesData.maker,
+      model: spokesData.description,
+      notes: null,
+    };
+  }
+
+  // Case 3: Only description available (parse first word as brand)
+  if (spokesData.description) {
+    const parts = spokesData.description.trim().split(/\s+/).filter(Boolean);
+    if (parts.length > 1) {
+      return {
+        brand: parts[0],
+        model: parts.slice(1).join(' '),
+        notes: null,
+      };
+    }
+    if (parts.length === 1) {
+      return {
+        brand: parts[0],
+        model: fallbackModel,
+        notes: null,
+      };
+    }
+  }
+
+  return null;
+};
+
+/**
+ * Check if user override contains actual component data.
+ * An override is considered "real" if it has brand, model, or explicitly marks as non-stock.
+ */
+const hasUserOverride = (override: BikeComponentInputGQL | undefined): boolean => {
+  if (!override) return false;
+  // User provided brand or model data
+  if (override.brand || override.model) return true;
+  // User explicitly marked as non-stock (aftermarket component)
+  if (override.isStock === false) return true;
+  return false;
+};
+
 async function syncBikeComponents(
   tx: Prisma.TransactionClient,
   opts: {
@@ -383,55 +450,33 @@ export async function buildBikeComponents(
       }
     }
 
-    // Determine brand/model
+    // Determine brand/model/notes/isStock
     let brand: string;
     let model: string;
     let notes: string | null = null;
     let isStock = true;
 
-    // Only use override if it has actual brand/model data (not just isStock flag)
-    // This allows spokesComponents to be used when user didn't specify component details
-    const hasRealOverride = override && (override.brand || override.model || override.isStock === false);
-    if (hasRealOverride) {
-      // User provided real component data
+    if (hasUserOverride(override)) {
+      // User provided real component data (brand, model, or explicitly non-stock)
       const normalized = normalizeBikeComponentInput(type as ComponentType, override);
       brand = normalized.brand;
       model = normalized.model;
       notes = normalized.notes;
       isStock = normalized.isStock;
-    } else if (spokesData?.maker && spokesData?.model) {
-      // Use 99Spokes data when both maker and model are available
-      brand = spokesData.maker;
-      model = spokesData.model;
-      notes = spokesData.description ?? null;
-      isStock = true;
-    } else if (spokesData?.maker && spokesData?.description) {
-      // 99Spokes has maker but no model - use description as model
-      brand = spokesData.maker;
-      model = spokesData.description;
-      notes = null;
-      isStock = true;
-    } else if (spokesData?.description) {
-      // 99Spokes only has description - parse first word as brand, rest as model
-      // Common pattern: "SIXPACK Millenium 35" -> brand: "SIXPACK", model: "Millenium 35"
-      const parts = spokesData.description.trim().split(/\s+/).filter(Boolean);
-      if (parts.length > 1) {
-        brand = parts[0];
-        model = parts.slice(1).join(' ');
-        notes = null;
+    } else {
+      // Try to extract from 99Spokes data, fall back to stock component
+      const spokesExtracted = extractSpokesComponentData(spokesData, displayName);
+      if (spokesExtracted) {
+        brand = spokesExtracted.brand;
+        model = spokesExtracted.model;
+        notes = spokesExtracted.notes;
         isStock = true;
-      } else if (parts.length === 1) {
-        // Single word description - use as brand, displayName as model
-        brand = parts[0];
+      } else {
+        // Default stock component
+        brand = 'Stock';
         model = displayName;
-        notes = null;
         isStock = true;
       }
-    } else {
-      // Default stock component
-      brand = 'Stock';
-      model = displayName;
-      isStock = true;
     }
 
     componentsToCreate.push({

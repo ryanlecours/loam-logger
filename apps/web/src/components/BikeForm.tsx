@@ -262,8 +262,8 @@ export function BikeForm({
       }
     }
 
-    // Default to "Start Fresh" for 99Spokes bikes in create mode
-    if (mode === 'create') {
+    // Default to "Start Fresh" for 99Spokes bikes in create mode (only if not already set)
+    if (mode === 'create' && !acquisitionCondition) {
       setAcquisitionCondition('NEW');
     }
   };
