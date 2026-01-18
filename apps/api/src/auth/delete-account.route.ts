@@ -3,6 +3,8 @@ import { prisma } from '../lib/prisma';
 import { clearSessionCookie, type SessionUser } from './session';
 import { sendBadRequest, sendUnauthorized, sendInternalError } from '../lib/api-response';
 import { logError } from '../lib/logger';
+import { revokeStravaTokenForUser } from '../lib/strava-token';
+import { revokeGarminTokenForUser } from '../lib/garmin-token';
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
@@ -54,19 +56,28 @@ router.delete('/delete-account', async (req: Request, res) => {
     });
     console.log(`[DeleteAccount] Deleted bikes for user: ${userId}`);
 
-    // 4. Delete OAuth tokens
+    // 4. Revoke OAuth tokens with providers BEFORE deleting locally
+    // This ensures tokens are invalidated on Strava/Garmin servers
+    console.log(`[DeleteAccount] Revoking OAuth tokens for user: ${userId}`);
+    const [stravaRevoked, garminRevoked] = await Promise.all([
+      revokeStravaTokenForUser(userId),
+      revokeGarminTokenForUser(userId),
+    ]);
+    console.log(`[DeleteAccount] Token revocation results - Strava: ${stravaRevoked}, Garmin: ${garminRevoked}`);
+
+    // 5. Delete OAuth tokens from database
     await prisma.oauthToken.deleteMany({
       where: { userId },
     });
     console.log(`[DeleteAccount] Deleted OAuth tokens for user: ${userId}`);
 
-    // 5. Delete user accounts (these reference userId with onDelete: Cascade, but do it explicitly)
+    // 6. Delete user accounts (these reference userId with onDelete: Cascade, but do it explicitly)
     await prisma.userAccount.deleteMany({
       where: { userId },
     });
     console.log(`[DeleteAccount] Deleted user accounts for user: ${userId}`);
 
-    // 6. Finally, delete the user
+    // 7. Finally, delete the user
     const deletedUser = await prisma.user.delete({
       where: { id: userId },
     });

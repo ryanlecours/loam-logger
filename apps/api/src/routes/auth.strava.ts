@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma';
 import { randomString } from '../lib/pcke';
 import { sendBadRequest, sendUnauthorized, sendInternalError } from '../lib/api-response';
 import { logError } from '../lib/logger';
+import { revokeStravaTokenForUser } from '../lib/strava-token';
 
 type Empty = Record<string, never>;
 const r: Router = createRouter();
@@ -226,7 +227,7 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string }>(
 
 /**
  * 3) Disconnect Strava account
- * Removes OAuth tokens and UserAccount record
+ * Revokes OAuth token with Strava, then removes from database
  */
 r.delete<Empty, void, Empty>('/strava/disconnect', async (req: Request, res: Response) => {
   const userId = req.user?.id || req.sessionUser?.uid;
@@ -235,6 +236,13 @@ r.delete<Empty, void, Empty>('/strava/disconnect', async (req: Request, res: Res
   }
 
   try {
+    // Revoke the token with Strava BEFORE deleting locally
+    // This ensures the token is invalidated on Strava's servers
+    const revoked = await revokeStravaTokenForUser(userId);
+    if (!revoked) {
+      console.warn(`[Strava Disconnect] Token revocation failed for user ${userId}, proceeding with local cleanup`);
+    }
+
     // Get user to check if Strava is the active source
     const user = await prisma.user.findUnique({
       where: { id: userId },
@@ -264,7 +272,7 @@ r.delete<Empty, void, Empty>('/strava/disconnect', async (req: Request, res: Res
       }),
     ]);
 
-    console.log(`[Strava Disconnect] User ${userId} disconnected Strava`);
+    console.log(`[Strava Disconnect] User ${userId} disconnected Strava (token revoked: ${revoked})`);
     return res.status(200).json({ success: true });
   } catch (error) {
     logError('Strava Disconnect', error);

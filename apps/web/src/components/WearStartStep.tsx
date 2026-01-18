@@ -1,5 +1,5 @@
 import { type AcquisitionCondition } from '@loam/shared';
-import { HiSparkles, HiClock, HiAdjustmentsHorizontal } from 'react-icons/hi2';
+import { HiSparkles, HiClock } from 'react-icons/hi2';
 import type { IconType } from 'react-icons';
 
 interface WearStartStepProps {
@@ -10,33 +10,30 @@ interface WearStartStepProps {
   submitting: boolean;
 }
 
-interface WearOption {
+interface StockOption {
   value: AcquisitionCondition;
   title: string;
   description: string;
+  tooltip: string;
   Icon: IconType;
   recommended?: boolean;
 }
 
-const WEAR_OPTIONS: WearOption[] = [
+const STOCK_OPTIONS: StockOption[] = [
   {
-    value: 'NEW',
-    title: 'Start Fresh',
-    description: 'All components start at zero wear.',
+    value: 'NEW',  // Maps to NEW for backend compatibility
+    title: 'All Stock',
+    description: 'Components are unchanged from the factory.',
+    tooltip: 'Best for most bikes. Component specs come from 99spokes database.',
     Icon: HiSparkles,
     recommended: true,
   },
   {
-    value: 'USED',
-    title: 'Already Ridden',
-    description: 'Components start with a conservative wear estimate.',
+    value: 'USED',  // Maps to USED - signals components need attention
+    title: 'Some Swapped',
+    description: "I've replaced some parts since buying.",
+    tooltip: 'You can update component details in bike settings after creation.',
     Icon: HiClock,
-  },
-  {
-    value: 'MIXED',
-    title: "I'll fine-tune later",
-    description: 'Set individual component wear after adding the bike.',
-    Icon: HiAdjustmentsHorizontal,
   },
 ];
 
@@ -51,18 +48,19 @@ export function WearStartStep({
     <div className="bg-surface border border-app rounded-xl shadow p-6 space-y-6">
       <div>
         <h2 className="text-xl font-semibold text-primary">
-          How should we start tracking wear?
+          Are your components stock?
         </h2>
         <p className="text-sm text-muted mt-1">
-          Loam Logger tracks wear automatically based on your rides. Pick a safe starting point.
+          This helps us set up accurate component tracking. You can always update details later.
         </p>
       </div>
 
       <div className="grid gap-3">
-        {WEAR_OPTIONS.map((option) => (
+        {STOCK_OPTIONS.map((option) => (
           <button
             key={option.value}
             type="button"
+            title={option.tooltip}
             onClick={() => onSelect(option.value)}
             className={`
               w-full p-4 rounded-lg border-2 text-left transition-all

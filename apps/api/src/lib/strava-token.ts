@@ -1,6 +1,77 @@
 import { prisma } from './prisma';
 import { logError } from './logger';
 
+const STRAVA_DEAUTH_URL = 'https://www.strava.com/oauth/deauthorize';
+
+/**
+ * Revoke a Strava access token
+ * This invalidates the token on Strava's servers, not just locally.
+ * Should be called before deleting tokens from the database.
+ *
+ * @param accessToken - The access token to revoke
+ * @returns true if revocation succeeded (or token was already invalid), false on error
+ */
+export async function revokeStravaToken(accessToken: string): Promise<boolean> {
+  try {
+    console.log('[Strava Revoke] Revoking access token');
+
+    const response = await fetch(STRAVA_DEAUTH_URL, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+      },
+    });
+
+    if (response.ok) {
+      console.log('[Strava Revoke] Token revoked successfully');
+      return true;
+    }
+
+    // 401 means the token is already invalid/revoked - that's fine
+    if (response.status === 401) {
+      console.log('[Strava Revoke] Token already invalid/revoked');
+      return true;
+    }
+
+    const text = await response.text();
+    console.error(`[Strava Revoke] Failed: ${response.status} ${text}`);
+    return false;
+  } catch (error) {
+    logError('Strava Token revocation', error);
+    return false;
+  }
+}
+
+/**
+ * Revoke Strava token for a user by userId
+ * Fetches the token from the database and revokes it.
+ *
+ * @param userId - The user's ID
+ * @returns true if revocation succeeded (or no token found), false on error
+ */
+export async function revokeStravaTokenForUser(userId: string): Promise<boolean> {
+  try {
+    const token = await prisma.oauthToken.findUnique({
+      where: {
+        userId_provider: {
+          userId,
+          provider: 'strava',
+        },
+      },
+    });
+
+    if (!token) {
+      console.log('[Strava Revoke] No token found for user:', userId);
+      return true; // No token to revoke
+    }
+
+    return await revokeStravaToken(token.accessToken);
+  } catch (error) {
+    logError('Strava Token revocation for user', error);
+    return false;
+  }
+}
+
 /**
  * Get a valid Strava access token for a user
  * Automatically refreshes the token if it's expired

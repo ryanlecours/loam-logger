@@ -390,11 +390,11 @@ export async function buildBikeComponents(
 ): Promise<void> {
   const { bikeId, userId, bikeSpec, acquisitionCondition, spokesComponents, userOverrides } = opts;
 
-  // Determine baseline values based on acquisition condition
-  const isNew = acquisitionCondition === 'NEW';
-  const baselineWearPercent = isNew ? 0 : 50;
+  // Always start at 0% baseline - ride backfill + service dates provide accuracy
+  // acquisitionCondition now indicates stock vs swapped components, not wear state
+  const baselineWearPercent = 0;
   const baselineMethod: BaselineMethod = 'DEFAULT';
-  const baselineConfidence: BaselineConfidence = isNew ? 'HIGH' : 'LOW';
+  const baselineConfidence: BaselineConfidence = 'LOW';  // Until refined by user
   const baselineSetAt = new Date();
 
   // Get applicable components from the catalog

@@ -16,32 +16,27 @@ describe('WearStartStep', () => {
     it('renders title and description', () => {
       render(<WearStartStep {...defaultProps} />);
 
-      expect(screen.getByText('How should we start tracking wear?')).toBeInTheDocument();
+      expect(screen.getByText('Are your components stock?')).toBeInTheDocument();
       expect(
         screen.getByText(
-          'Loam Logger tracks wear automatically based on your rides. Pick a safe starting point.'
+          'This helps us set up accurate component tracking. You can always update details later.'
         )
       ).toBeInTheDocument();
     });
 
-    it('renders all three wear options', () => {
+    it('renders both stock options', () => {
       render(<WearStartStep {...defaultProps} />);
 
-      expect(screen.getByText('Start Fresh')).toBeInTheDocument();
-      expect(screen.getByText('All components start at zero wear.')).toBeInTheDocument();
+      expect(screen.getByText('All Stock')).toBeInTheDocument();
+      expect(screen.getByText('Components are unchanged from the factory.')).toBeInTheDocument();
 
-      expect(screen.getByText('Already Ridden')).toBeInTheDocument();
+      expect(screen.getByText('Some Swapped')).toBeInTheDocument();
       expect(
-        screen.getByText('Components start with a conservative wear estimate.')
-      ).toBeInTheDocument();
-
-      expect(screen.getByText("I'll fine-tune later")).toBeInTheDocument();
-      expect(
-        screen.getByText('Set individual component wear after adding the bike.')
+        screen.getByText("I've replaced some parts since buying.")
       ).toBeInTheDocument();
     });
 
-    it('shows Recommended badge on NEW option', () => {
+    it('shows Recommended badge on All Stock option', () => {
       render(<WearStartStep {...defaultProps} />);
 
       expect(screen.getByText('Recommended')).toBeInTheDocument();
@@ -56,51 +51,41 @@ describe('WearStartStep', () => {
   });
 
   describe('option selection', () => {
-    it('calls onSelect when NEW option is clicked', async () => {
+    it('calls onSelect when All Stock option is clicked', async () => {
       const user = userEvent.setup();
       const onSelect = vi.fn();
       render(<WearStartStep {...defaultProps} onSelect={onSelect} />);
 
-      await user.click(screen.getByText('Start Fresh'));
+      await user.click(screen.getByText('All Stock'));
 
       expect(onSelect).toHaveBeenCalledWith('NEW');
     });
 
-    it('calls onSelect when USED option is clicked', async () => {
+    it('calls onSelect when Some Swapped option is clicked', async () => {
       const user = userEvent.setup();
       const onSelect = vi.fn();
       render(<WearStartStep {...defaultProps} onSelect={onSelect} />);
 
-      await user.click(screen.getByText('Already Ridden'));
+      await user.click(screen.getByText('Some Swapped'));
 
       expect(onSelect).toHaveBeenCalledWith('USED');
-    });
-
-    it('calls onSelect when MIXED option is clicked', async () => {
-      const user = userEvent.setup();
-      const onSelect = vi.fn();
-      render(<WearStartStep {...defaultProps} onSelect={onSelect} />);
-
-      await user.click(screen.getByText("I'll fine-tune later"));
-
-      expect(onSelect).toHaveBeenCalledWith('MIXED');
     });
 
     it('highlights selected option', () => {
       const { rerender } = render(<WearStartStep {...defaultProps} selected="USED" />);
 
       // The selected option should have accent styling
-      const usedButton = screen.getByText('Already Ridden').closest('button');
+      const usedButton = screen.getByText('Some Swapped').closest('button');
       expect(usedButton).toHaveClass('border-accent');
 
       // Non-selected options should have default styling
-      const newButton = screen.getByText('Start Fresh').closest('button');
+      const newButton = screen.getByText('All Stock').closest('button');
       expect(newButton).toHaveClass('border-app');
 
       // Rerender with different selection
       rerender(<WearStartStep {...defaultProps} selected="NEW" />);
 
-      const newButtonAfter = screen.getByText('Start Fresh').closest('button');
+      const newButtonAfter = screen.getByText('All Stock').closest('button');
       expect(newButtonAfter).toHaveClass('border-accent');
     });
   });

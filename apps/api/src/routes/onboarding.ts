@@ -3,7 +3,7 @@ import { prisma } from '../lib/prisma';
 import { type SessionUser } from '../auth/session';
 import { type AcquisitionCondition } from '@prisma/client';
 import { sendBadRequest, sendUnauthorized, sendInternalError } from '../lib/api-response';
-import { type BikeSpec } from '@loam/shared';
+import { deriveBikeSpec, type SpokesComponents } from '@loam/shared';
 import { logError } from '../lib/logger';
 import {
   buildBikeComponents,
@@ -160,13 +160,12 @@ router.post('/complete', express.json(), async (req: Request, res) => {
 
       console.log(`[Onboarding] Created bike for user: ${userId}`);
 
-      // Build BikeSpec from travel values (determines which components are applicable)
-      const bikeSpec: BikeSpec = {
-        hasFrontSuspension: (bikeTravelFork ?? 0) > 0,
-        hasRearSuspension: (bikeTravelShock ?? 0) > 0,
-        brakeType: 'disc', // Default to disc brakes for modern MTB
-        drivetrainType: '1x', // Default to 1x drivetrain
-      };
+      // Derive BikeSpec from travel values and 99spokes component data
+      // This detects suspension from either travel values OR component presence
+      const bikeSpec = deriveBikeSpec(
+        { travelForkMm: bikeTravelFork, travelShockMm: bikeTravelShock },
+        spokesComponents as SpokesComponents | undefined
+      );
 
       // Create all applicable components using the same logic as My Bikes
       await buildBikeComponents(tx, {

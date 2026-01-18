@@ -3,6 +3,81 @@ import { addSeconds } from 'date-fns';
 import { logError } from './logger';
 
 /**
+ * Revoke a Garmin access token
+ * This deregisters the user from Garmin's Health API, invalidating the token.
+ * Should be called before deleting tokens from the database.
+ *
+ * Note: Garmin uses a deregistration endpoint rather than a standard OAuth revocation.
+ * See: https://developer.garmin.com/gc-developer-program/health-api/
+ *
+ * @param accessToken - The access token to use for deregistration
+ * @returns true if revocation succeeded (or token was already invalid), false on error
+ */
+export async function revokeGarminToken(accessToken: string): Promise<boolean> {
+  try {
+    const GARMIN_API_BASE = process.env.GARMIN_API_BASE || 'https://apis.garmin.com/wellness-api';
+    const deregistrationUrl = `${GARMIN_API_BASE}/rest/user/registration`;
+
+    console.log('[Garmin Revoke] Deregistering user token');
+
+    const response = await fetch(deregistrationUrl, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+      },
+    });
+
+    if (response.ok || response.status === 204) {
+      console.log('[Garmin Revoke] Token revoked successfully');
+      return true;
+    }
+
+    // 401/403 means the token is already invalid/revoked - that's fine
+    if (response.status === 401 || response.status === 403) {
+      console.log('[Garmin Revoke] Token already invalid/revoked');
+      return true;
+    }
+
+    const text = await response.text();
+    console.error(`[Garmin Revoke] Failed: ${response.status} ${text}`);
+    return false;
+  } catch (error) {
+    logError('Garmin Token revocation', error);
+    return false;
+  }
+}
+
+/**
+ * Revoke Garmin token for a user by userId
+ * Fetches the token from the database and revokes it.
+ *
+ * @param userId - The user's ID
+ * @returns true if revocation succeeded (or no token found), false on error
+ */
+export async function revokeGarminTokenForUser(userId: string): Promise<boolean> {
+  try {
+    const token = await prisma.oauthToken.findUnique({
+      where: {
+        userId_provider: {
+          userId,
+          provider: 'garmin',
+        },
+      },
+    });
+
+    if (!token) {
+      console.log('[Garmin Revoke] No token found for user:', userId);
+      return true; // No token to revoke
+    }
+
+    return await revokeGarminToken(token.accessToken);
+  } catch (error) {
+    logError('Garmin Token revocation for user', error);
+    return false;
+  }
+}
+
+/**
  * Get a valid Garmin access token for a user
  * Automatically refreshes the token if it's expired
  */
