@@ -73,6 +73,8 @@ type OnboardingData = {
   };
   // 99spokes components for auto-creation
   spokesComponents?: Record<string, SpokesComponentData | null>;
+  // Bike acquisition condition for wear tracking
+  acquisitionCondition?: AcquisitionCondition;
 };
 
 const WEAR_OPTIONS = [
@@ -91,7 +93,6 @@ export default function Onboarding() {
   const [showManualBikeEntry, setShowManualBikeEntry] = useState(false);
   const [spokesDetails, setSpokesDetails] = useState<SpokesBikeDetails | null>(null);
   const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null);
-  const [acquisitionCondition, setAcquisitionCondition] = useState<AcquisitionCondition | null>(null);
 
   // Get bike image URL with fallback to images array, validated for security
   const getBikeImageUrl = () => {
@@ -289,7 +290,7 @@ export default function Onboarding() {
     }
 
     // Validate wear start selection on step 5
-    if (currentStep === 5 && !acquisitionCondition) {
+    if (currentStep === 5 && !data.acquisitionCondition) {
       setError('Please select how to start tracking wear');
       return;
     }
@@ -308,6 +309,13 @@ export default function Onboarding() {
   };
 
   const handleComplete = async () => {
+    // Validate acquisitionCondition in case user bypassed Step 5 validation
+    if (!data.acquisitionCondition) {
+      setError('Please select how to start tracking wear');
+      setCurrentStep(5);
+      return;
+    }
+
     setLoadingState('saving');
     setError(null);
 
@@ -334,7 +342,6 @@ export default function Onboarding() {
       const submissionData = {
         ...data,
         spokesComponents: filterNonNullComponents(spokesComponents),
-        acquisitionCondition,
       };
 
       const response = await fetch(`${import.meta.env.VITE_API_URL}/onboarding/complete`, {
@@ -722,9 +729,9 @@ export default function Onboarding() {
                     <button
                       key={option.value}
                       type="button"
-                      onClick={() => setAcquisitionCondition(option.value)}
+                      onClick={() => setData((prev) => ({ ...prev, acquisitionCondition: option.value }))}
                       className={`w-full p-4 rounded-lg border-2 text-left transition-all ${
-                        acquisitionCondition === option.value
+                        data.acquisitionCondition === option.value
                           ? 'border-accent bg-accent/10'
                           : 'border-app hover:border-accent/50 hover:bg-surface-hover'
                       }`}
