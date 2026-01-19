@@ -4,6 +4,7 @@ import { sha256, randomString } from '../lib/pcke';
 import { addSeconds } from 'date-fns';
 import { sendBadRequest, sendUnauthorized, sendInternalError } from '../lib/api-response';
 import { logError } from '../lib/logger';
+import { revokeGarminTokenForUser } from '../lib/garmin-token';
 
 type Empty = Record<string, never>
 const r: Router = createRouter();
@@ -208,7 +209,7 @@ r.get<Empty, void, Empty, { code?: string; state?: string }>(
 
 /**
  * 3) Disconnect Garmin account
- * Removes OAuth tokens and UserAccount record
+ * Revokes OAuth token with Garmin, then removes from database
  */
 r.delete<Empty, void, Empty>('/garmin/disconnect', async (req: Request, res: Response) => {
   const userId = req.user?.id || req.sessionUser?.uid;
@@ -217,6 +218,13 @@ r.delete<Empty, void, Empty>('/garmin/disconnect', async (req: Request, res: Res
   }
 
   try {
+    // Revoke the token with Garmin BEFORE deleting locally
+    // This ensures the token is invalidated on Garmin's servers
+    const revoked = await revokeGarminTokenForUser(userId);
+    if (!revoked) {
+      console.warn(`[Garmin Disconnect] Token revocation failed for user ${userId}, proceeding with local cleanup`);
+    }
+
     // Delete tokens and account record
     await prisma.$transaction([
       prisma.oauthToken.deleteMany({
@@ -233,7 +241,7 @@ r.delete<Empty, void, Empty>('/garmin/disconnect', async (req: Request, res: Res
       }),
     ]);
 
-    console.log(`[Garmin Disconnect] User ${userId} disconnected Garmin`);
+    console.log(`[Garmin Disconnect] User ${userId} disconnected Garmin (token revoked: ${revoked})`);
     return res.status(200).json({ success: true });
   } catch (error) {
     logError('Garmin Disconnect', error);

@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useApolloClient, useQuery, gql } from '@apollo/client';
-import { FaMountain, FaPencilAlt, FaStrava } from 'react-icons/fa';
+import { FaMountain, FaStrava, FaHistory, FaCog, FaCheck, FaChevronDown, FaChevronUp } from 'react-icons/fa';
+import { HiSparkles, HiClock } from 'react-icons/hi2';
+import { type AcquisitionCondition } from '@loam/shared';
 import { ME_QUERY } from '../graphql/me';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { Button } from '@/components/ui';
@@ -10,12 +12,9 @@ import { BikeSearch, type SpokesSearchResult } from '@/components/BikeSearch';
 import { BikeImageSelector } from '@/components/BikeImageSelector';
 import { useSpokes, type SpokesBikeDetails } from '@/hooks/useSpokes';
 import { TermsAcceptanceStep } from '@/components/TermsAcceptanceStep';
+import { ServiceHistoryForm } from '@/components/onboarding/ServiceHistoryForm';
 import {
-  type ComponentEntry,
   toSpokesInput,
-  buildComponentEntries,
-  parseNumericInput,
-  getDimensionLimit,
   isValidImageUrl,
   filterNonNullComponents,
 } from '@/utils/bikeFormHelpers';
@@ -37,6 +36,11 @@ type SpokesComponentData = {
   model?: string | null;
   description?: string | null;
   kind?: string | null;  // For seatpost: 'dropper' | 'rigid'
+};
+
+type BikeImageData = {
+  url: string;
+  colorKey?: string;
 };
 
 type OnboardingData = {
@@ -66,6 +70,8 @@ type OnboardingData = {
   motorPowerW?: number;
   motorTorqueNm?: number;
   batteryWh?: number;
+  // Bike colorway images from 99spokes
+  bikeImages?: BikeImageData[];
   // Legacy components format
   components: {
     fork?: string;
@@ -75,7 +81,27 @@ type OnboardingData = {
   };
   // 99spokes components for auto-creation
   spokesComponents?: Record<string, SpokesComponentData | null>;
+  // Bike acquisition condition for wear tracking
+  acquisitionCondition?: AcquisitionCondition;
 };
+
+const STOCK_OPTIONS = [
+  {
+    value: 'NEW' as const,  // Maps to NEW for backend compatibility
+    title: 'All Stock',
+    description: 'Components are unchanged from the factory.',
+    tooltip: 'Best for most bikes. Component specs come from 99spokes database.',
+    Icon: HiSparkles,
+    recommended: true,
+  },
+  {
+    value: 'USED' as const,  // Maps to USED - signals components need attention
+    title: 'Some Swapped',
+    description: "I've replaced some parts since buying.",
+    tooltip: 'You can update component details in bike settings after creation.',
+    Icon: HiClock,
+  },
+];
 
 export default function Onboarding() {
   const navigate = useNavigate();
@@ -85,10 +111,16 @@ export default function Onboarding() {
   const { data: accountsData, refetch: refetchAccounts } = useQuery(CONNECTED_ACCOUNTS_QUERY);
   const { getBikeDetails, isLoading: loadingBikeDetails } = useSpokes();
   const [showManualBikeEntry, setShowManualBikeEntry] = useState(false);
-  const [componentEntries, setComponentEntries] = useState<ComponentEntry[]>(() => buildComponentEntries(null));
   const [spokesDetails, setSpokesDetails] = useState<SpokesBikeDetails | null>(null);
   const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null);
-  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
+
+  // Step 6: Component dropdown expanded state
+  const [componentsExpanded, setComponentsExpanded] = useState(false);
+
+  // Step 8: Personalization state
+  const [bikeId, setBikeId] = useState<string | null>(null);
+  const [backfillState, setBackfillState] = useState<'idle' | 'loading' | 'done'>('idle');
+  const [backfillStats, setBackfillStats] = useState<{ imported: number; skipped: number } | null>(null);
 
   // Get bike image URL with fallback to images array, validated for security
   const getBikeImageUrl = () => {
@@ -146,9 +178,9 @@ export default function Onboarding() {
     }
   }, [data]);
 
-  // Refetch accounts when returning from OAuth redirect on step 6
+  // Refetch accounts when returning from OAuth redirect on step 7 (device connections)
   useEffect(() => {
-    if (initialStep === 6) {
+    if (initialStep === 7) {
       refetchAccounts();
     }
   }, [initialStep, refetchAccounts]);
@@ -157,32 +189,6 @@ export default function Onboarding() {
 
   const isBikeDataValid = () => {
     return data.bikeYear > 0 && data.bikeMake !== '' && data.bikeModel !== '' && data.bikeModel !== 'Select a model';
-  };
-
-  // Update a component entry field
-  const updateComponentEntry = (
-    key: string,
-    field: 'brand' | 'model' | 'travelMm' | 'offsetMm' | 'lengthMm' | 'widthMm',
-    value: string | number
-  ) => {
-    setComponentEntries((prev) =>
-      prev.map((entry) => {
-        if (entry.key !== key) return entry;
-        if (field === 'brand' || field === 'model') {
-          return { ...entry, [field]: value as string };
-        }
-        // Handle numeric dimension fields with field-specific limits
-        return { ...entry, [field]: parseNumericInput(value, 0, getDimensionLimit(field)) };
-      })
-    );
-    // Clear validation error when user edits
-    if (validationErrors[key]) {
-      setValidationErrors((prev) => {
-        const next = { ...prev };
-        delete next[key];
-        return next;
-      });
-    }
   };
 
   // Handle bike selection from search
@@ -226,6 +232,12 @@ export default function Onboarding() {
       const defaultImage = details.images?.[0]?.url || details.thumbnailUrl || undefined;
       setSelectedImageUrl(defaultImage || null);
 
+      // Convert images to persistable format (strip any extra properties)
+      const bikeImages: BikeImageData[] = details.images?.map(img => ({
+        url: img.url,
+        colorKey: img.colorKey,
+      })) || [];
+
       setData((prev) => ({
         ...prev,
         // 99spokes metadata
@@ -246,6 +258,8 @@ export default function Onboarding() {
         motorPowerW: details.isEbike && details.components?.motor?.powerW ? details.components.motor.powerW : undefined,
         motorTorqueNm: details.isEbike && details.components?.motor?.torqueNm ? details.components.motor.torqueNm : undefined,
         batteryWh: details.isEbike && details.components?.battery?.capacityWh ? details.components.battery.capacityWh : undefined,
+        // Store bike images for colorway selection (persisted)
+        bikeImages,
         // Store full components for auto-creation on backend
         spokesComponents,
         // Update visible component fields (legacy format for display)
@@ -269,13 +283,10 @@ export default function Onboarding() {
         },
       }));
 
-      // Store full details and build component entries for Step 4
+      // Store full details for spokesComponents submission
       setSpokesDetails(details);
-      setComponentEntries(buildComponentEntries(details));
     } else {
-      // No details found, use empty component entries
       setSpokesDetails(null);
-      setComponentEntries(buildComponentEntries(null));
     }
   };
 
@@ -314,7 +325,15 @@ export default function Onboarding() {
       }
     }
 
-    if (currentStep < 6) {
+    // Step 5 (colorway) has no validation - optional selection
+
+    // Validate stock status selection on step 6
+    if (currentStep === 6 && !data.acquisitionCondition) {
+      setError('Please select your component status');
+      return;
+    }
+
+    if (currentStep < 7) {
       setCurrentStep(currentStep + 1);
       setError(null);
     }
@@ -328,11 +347,18 @@ export default function Onboarding() {
   };
 
   const handleComplete = async () => {
+    // Validate acquisitionCondition in case user bypassed Step 6 validation
+    if (!data.acquisitionCondition) {
+      setError('Please select your component status');
+      setCurrentStep(6);
+      return;
+    }
+
     setLoadingState('saving');
     setError(null);
 
     try {
-      // Build spokesComponents from component entries for auto-creation
+      // Build spokesComponents from 99Spokes details for auto-creation
       const spokesComponents = spokesDetails?.components ? {
         fork: toSpokesInput(spokesDetails.components.fork),
         rearShock: toSpokesInput(spokesDetails.components.rearShock || spokesDetails.components.shock),
@@ -351,41 +377,9 @@ export default function Onboarding() {
         } : null,
       } : undefined;
 
-      // Build component overrides from component entries
-      // Returns { brand, model } format expected by buildBikeComponents
-      const getComponentData = (key: string) => {
-        const entry = componentEntries.find((e) => e.key === key);
-        if (!entry || (!entry.brand && !entry.model)) return undefined;
-        return {
-          brand: entry.brand || undefined,
-          model: entry.model || undefined,
-          // isStock is determined by buildBikeComponents based on whether brand/model match stock values
-        };
-      };
-
-      // Check if seatpost is a dropper
-      const seatpostEntry = componentEntries.find((e) => e.key === 'seatpost');
-      const isDropper = seatpostEntry?.kind === 'dropper';
-
-      // Travel fields: component table entries take precedence over form state.
-      // This allows users to edit travel in the component table and have
-      // those values persist to the bike record, overriding any auto-populated values.
-      const forkEntry = componentEntries.find((e) => e.key === 'fork');
-      const shockEntry = componentEntries.find((e) => e.key === 'rearShock');
-
       const submissionData = {
         ...data,
-        bikeTravelFork: forkEntry?.travelMm || data.bikeTravelFork,
-        bikeTravelShock: shockEntry?.travelMm || data.bikeTravelShock,
         spokesComponents: filterNonNullComponents(spokesComponents),
-        // Component overrides matching buildBikeComponents format
-        components: {
-          fork: getComponentData('fork'),
-          shock: getComponentData('rearShock'),
-          seatpost: isDropper ? getComponentData('seatpost') : undefined,
-          wheels: getComponentData('wheels'),
-          pivotBearings: getComponentData('pivotBearings'),
-        },
       };
 
       const response = await fetch(`${import.meta.env.VITE_API_URL}/onboarding/complete`, {
@@ -400,6 +394,10 @@ export default function Onboarding() {
         throw new Error(text || 'Failed to complete onboarding');
       }
 
+      // Get the created bike ID from response
+      const result = await response.json();
+      setBikeId(result.bikeId);
+
       // Update loading state for cache sync
       setLoadingState('syncing');
 
@@ -410,8 +408,9 @@ export default function Onboarding() {
       // Clear saved onboarding data from sessionStorage
       sessionStorage.removeItem('onboarding_data');
 
-      setLoadingState('redirecting');
-      navigate('/dashboard', { replace: true });
+      setLoadingState('idle');
+      // Advance to Step 8 (Personalization) instead of redirecting
+      setCurrentStep(8);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
       setLoadingState('idle');
@@ -433,7 +432,42 @@ export default function Onboarding() {
     await handleComplete();
   };
 
-  const progressPercentage = (currentStep / 6) * 100;
+  // Step 7: Personalization handlers
+  const handleGoToDashboard = () => {
+    navigate('/dashboard', { replace: true });
+  };
+
+  const handleBackfillRides = async () => {
+    setBackfillState('loading');
+    try {
+      const hasStrava = accounts.some((a: { provider: string }) => a.provider === 'strava');
+      const hasGarmin = accounts.some((a: { provider: string }) => a.provider === 'garmin');
+
+      if (hasStrava) {
+        const response = await fetch(
+          `${import.meta.env.VITE_API_URL}/strava/backfill/fetch?year=ytd`,
+          { credentials: 'include', headers: getAuthHeaders() }
+        );
+        const backfillData = await response.json();
+        setBackfillStats({ imported: backfillData.imported || 0, skipped: backfillData.duplicates || 0 });
+      } else if (hasGarmin) {
+        // Garmin is async via webhooks - trigger and show message
+        await fetch(
+          `${import.meta.env.VITE_API_URL}/garmin/backfill/fetch?days=365`,
+          { credentials: 'include', headers: getAuthHeaders() }
+        );
+        // Garmin activities arrive via webhook, so we show a pending message
+        setBackfillStats({ imported: -1, skipped: 0 }); // -1 indicates async
+      }
+      setBackfillState('done');
+    } catch (err) {
+      console.error('Backfill failed:', err);
+      setBackfillState('idle');
+      setError('Failed to import rides. You can try again from the dashboard.');
+    }
+  };
+
+  const progressPercentage = (currentStep / 8) * 100;
 
   return (
     <div className="min-h-screen w-full relative flex items-center justify-center px-4 py-10">
@@ -466,7 +500,7 @@ export default function Onboarding() {
         {/* Progress Bar */}
         <div className="mb-8">
           <div className="flex justify-between items-center mb-2">
-            <span className="text-sm text-muted">Step {currentStep} of 6</span>
+            <span className="text-sm text-muted">Step {currentStep} of 8</span>
             <span className="text-sm text-primary">{Math.round(progressPercentage)}%</span>
           </div>
           <div className="w-full h-2 bg-surface rounded-full overflow-hidden">
@@ -727,8 +761,55 @@ export default function Onboarding() {
             </div>
           )}
 
-          {/* Step 5: Components */}
+          {/* Step 5: Colorway Selection (only shown if bike has multiple images) */}
           {currentStep === 5 && (
+            <div className="space-y-6 text-center">
+              <div className="space-y-2">
+                <div className="flex justify-center mb-4">
+                  <div className="w-16 h-16 rounded-full border-2 border-primary/30 flex items-center justify-center">
+                    <span className="text-2xl">🎨</span>
+                  </div>
+                </div>
+                <h2 className="text-3xl font-semibold text-white">Which colorway do you have?</h2>
+                <p className="text-muted">
+                  {data.bikeYear} {data.bikeMake} {data.bikeModel}
+                </p>
+              </div>
+
+              {/* Colorway selector - uses persisted data.bikeImages */}
+              {data.bikeImages && data.bikeImages.length > 1 ? (
+                <div className="text-left">
+                  <p className="text-sm text-muted mb-4 text-center">
+                    Select the color that matches your bike.
+                  </p>
+                  <BikeImageSelector
+                    images={data.bikeImages}
+                    thumbnailUrl={data.thumbnailUrl}
+                    selectedUrl={selectedImageUrl}
+                    onSelect={handleImageSelect}
+                  />
+                </div>
+              ) : (
+                <div className="text-center py-8">
+                  {getBikeImageUrl() ? (
+                    <div className="space-y-4">
+                      <img
+                        src={getBikeImageUrl()!}
+                        alt={`${data.bikeYear} ${data.bikeMake} ${data.bikeModel}`}
+                        className="mx-auto max-h-48 object-contain rounded-lg bg-white/5"
+                      />
+                      <p className="text-sm text-muted">Only one colorway available for this bike.</p>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted">No colorway options available for this bike.</p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Step 6: Stock Status & Components */}
+          {currentStep === 6 && (
             <div className="space-y-6 text-center">
               <div className="space-y-2">
                 <div className="flex justify-center mb-4">
@@ -736,166 +817,84 @@ export default function Onboarding() {
                     <span className="text-2xl">🔧</span>
                   </div>
                 </div>
-                <h2 className="text-3xl font-semibold text-white">Review Components</h2>
+                <h2 className="text-3xl font-semibold text-white">Are your components stock?</h2>
                 <p className="text-muted">
-                  {data.bikeYear} {data.bikeMake} {data.bikeModel}
+                  This helps us set up accurate component tracking. You can always update details later.
                 </p>
               </div>
 
-              {/* Colorway selector when multiple images available */}
-              {spokesDetails?.images && spokesDetails.images.length > 1 && (
-                <div className="text-left bg-surface border border-app rounded-xl p-4">
-                  <h3 className="text-lg font-semibold text-primary mb-1">
-                    Which colorway do you have?
-                  </h3>
-                  <p className="text-sm text-muted mb-4">
-                    Select the color that matches your bike.
-                  </p>
-                  <BikeImageSelector
-                    images={spokesDetails.images}
-                    thumbnailUrl={spokesDetails.thumbnailUrl}
-                    selectedUrl={selectedImageUrl}
-                    onSelect={handleImageSelect}
-                  />
+              {/* Stock status options */}
+              <div className="grid gap-3 text-left">
+                {STOCK_OPTIONS.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    title={option.tooltip}
+                    onClick={() => setData((prev) => ({ ...prev, acquisitionCondition: option.value }))}
+                    className={`w-full p-4 rounded-lg border-2 text-left transition-all ${
+                      data.acquisitionCondition === option.value
+                        ? 'border-accent bg-accent/10'
+                        : 'border-app hover:border-accent/50 hover:bg-surface-hover'
+                    }`}
+                  >
+                    <div className="flex items-start gap-3">
+                      <option.Icon className="w-6 h-6 text-accent mt-0.5 shrink-0" />
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-primary">{option.title}</span>
+                          {option.recommended && (
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-accent/20 text-accent font-medium">
+                              Recommended
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-sm text-muted mt-0.5">{option.description}</div>
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+
+              {/* Expandable component list from 99spokes (uses persisted data.spokesComponents) */}
+              {data.spokesComponents && Object.keys(data.spokesComponents).length > 0 && (
+                <div className="text-left border border-app rounded-xl overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => setComponentsExpanded(!componentsExpanded)}
+                    className="w-full px-4 py-3 flex items-center justify-between bg-surface hover:bg-surface-hover transition-colors"
+                  >
+                    <span className="text-sm font-medium text-primary">
+                      View stock components ({Object.entries(data.spokesComponents).filter(([, v]) => v && (v.maker || v.model)).length})
+                    </span>
+                    {componentsExpanded ? (
+                      <FaChevronUp className="w-4 h-4 text-muted" />
+                    ) : (
+                      <FaChevronDown className="w-4 h-4 text-muted" />
+                    )}
+                  </button>
+                  {componentsExpanded && (
+                    <div className="px-4 py-3 border-t border-app bg-surface-2 space-y-2">
+                      {Object.entries(data.spokesComponents)
+                        .filter(([, value]) => value && (value.maker || value.model))
+                        .map(([key, value]) => (
+                          <div key={key} className="flex justify-between items-start text-sm">
+                            <span className="text-muted capitalize">
+                              {key.replace(/([A-Z])/g, ' $1').trim()}
+                            </span>
+                            <span className="text-primary text-right max-w-[60%]">
+                              {[value?.maker, value?.model].filter(Boolean).join(' ')}
+                            </span>
+                          </div>
+                        ))}
+                    </div>
+                  )}
                 </div>
               )}
-
-              <p className="text-sm text-muted text-left">
-                Review your bike's components. Edit any parts you've customized.
-              </p>
-
-              <div className="border border-app rounded-lg bg-surface overflow-hidden text-left">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-app bg-surface-2">
-                      <th className="text-left text-xs font-medium text-muted uppercase tracking-wide px-4 py-2 w-28">
-                        Component
-                      </th>
-                      <th className="text-left text-xs font-medium text-muted uppercase tracking-wide px-4 py-2 w-32">
-                        Brand
-                      </th>
-                      <th className="text-left text-xs font-medium text-muted uppercase tracking-wide px-4 py-2">
-                        Model
-                      </th>
-                      <th className="text-left text-xs font-medium text-muted uppercase tracking-wide px-4 py-2 w-40">
-                        Specs
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {componentEntries.map((entry, idx) => {
-                      // Determine which dimension field to show
-                      const hasTravelSpec = entry.key === 'fork' || entry.key === 'rearShock';
-                      const hasOffsetSpec = entry.key === 'fork';
-                      const hasLengthSpec = entry.key === 'stem';
-                      const hasWidthSpec = entry.key === 'handlebar';
-                      const hasAnySpec = hasTravelSpec || hasLengthSpec || hasWidthSpec;
-
-                      return (
-                        <tr
-                          key={entry.key}
-                          className={`${idx < componentEntries.length - 1 ? 'border-b border-app' : ''} hover:bg-surface-2 transition-colors group`}
-                        >
-                          <td className="px-4 py-2 text-sm text-heading font-medium">
-                            {entry.label}
-                          </td>
-                          <td className="px-4 py-2">
-                            <div className="flex items-center gap-2">
-                              <input
-                                type="text"
-                                value={entry.brand}
-                                onChange={(e) => updateComponentEntry(entry.key, 'brand', e.target.value)}
-                                placeholder="Brand"
-                                className="w-full bg-transparent text-sm text-heading placeholder:text-muted/50 focus:outline-none"
-                              />
-                              <FaPencilAlt className="w-3 h-3 text-muted/40 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
-                            </div>
-                          </td>
-                          <td className="px-4 py-2">
-                            <div className="flex items-center gap-2">
-                              <input
-                                type="text"
-                                value={entry.model}
-                                onChange={(e) => updateComponentEntry(entry.key, 'model', e.target.value)}
-                                placeholder="Model"
-                                className="w-full bg-transparent text-sm text-heading placeholder:text-muted/50 focus:outline-none"
-                              />
-                              <FaPencilAlt className="w-3 h-3 text-muted/40 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
-                            </div>
-                          </td>
-                          <td className="px-4 py-2">
-                            {hasAnySpec && (
-                              <div className="flex items-center gap-2 text-sm">
-                                {hasTravelSpec && (
-                                  <div className="flex items-center gap-1">
-                                    <input
-                                      type="number"
-                                      value={entry.travelMm ?? ''}
-                                      onChange={(e) => updateComponentEntry(entry.key, 'travelMm', e.target.value)}
-                                      placeholder="—"
-                                      className="w-12 bg-transparent text-heading placeholder:text-muted/50 focus:outline-none text-center"
-                                      min={0}
-                                    />
-                                    <span className="text-muted text-xs">mm</span>
-                                  </div>
-                                )}
-                                {hasOffsetSpec && (
-                                  <div className="flex items-center gap-1 ml-2">
-                                    <span className="text-muted text-xs">offset</span>
-                                    <input
-                                      type="number"
-                                      value={entry.offsetMm ?? ''}
-                                      onChange={(e) => updateComponentEntry(entry.key, 'offsetMm', e.target.value)}
-                                      placeholder="—"
-                                      className="w-10 bg-transparent text-heading placeholder:text-muted/50 focus:outline-none text-center"
-                                      min={0}
-                                    />
-                                    <span className="text-muted text-xs">mm</span>
-                                  </div>
-                                )}
-                                {hasLengthSpec && (
-                                  <div className="flex items-center gap-1">
-                                    <input
-                                      type="number"
-                                      value={entry.lengthMm ?? ''}
-                                      onChange={(e) => updateComponentEntry(entry.key, 'lengthMm', e.target.value)}
-                                      placeholder="—"
-                                      className="w-12 bg-transparent text-heading placeholder:text-muted/50 focus:outline-none text-center"
-                                      min={0}
-                                    />
-                                    <span className="text-muted text-xs">mm</span>
-                                  </div>
-                                )}
-                                {hasWidthSpec && (
-                                  <div className="flex items-center gap-1">
-                                    <input
-                                      type="number"
-                                      value={entry.widthMm ?? ''}
-                                      onChange={(e) => updateComponentEntry(entry.key, 'widthMm', e.target.value)}
-                                      placeholder="—"
-                                      className="w-12 bg-transparent text-heading placeholder:text-muted/50 focus:outline-none text-center"
-                                      min={0}
-                                    />
-                                    <span className="text-muted text-xs">mm</span>
-                                  </div>
-                                )}
-                              </div>
-                            )}
-                            {entry.kind === 'dropper' && (
-                              <span className="text-xs text-muted italic">dropper</span>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
             </div>
           )}
 
-          {/* Step 6: Device Connections */}
-          {currentStep === 6 && (
+          {/* Step 7: Device Connections */}
+          {currentStep === 7 && (
             <div className="space-y-6 text-center">
               <div className="space-y-2">
                 <div className="flex justify-center mb-4">
@@ -990,10 +989,98 @@ export default function Onboarding() {
             </div>
           )}
 
+          {/* Step 8: Personalization (Optional) */}
+          {currentStep === 8 && bikeId && (
+            <div className="space-y-6 text-center">
+              <div className="space-y-2">
+                <div className="flex justify-center mb-4">
+                  <div className="w-16 h-16 rounded-full bg-green-500/20 flex items-center justify-center">
+                    <FaCheck className="text-2xl text-green-400" />
+                  </div>
+                </div>
+                <h2 className="text-3xl font-semibold text-white">You're All Set!</h2>
+                <p className="text-muted max-w-lg mx-auto">
+                  Your bike is ready for wear tracking. Want to personalize your experience?
+                </p>
+              </div>
+
+              {/* Optional Actions */}
+              <div className="grid gap-3 max-w-md mx-auto text-left">
+                {/* 1. Backfill rides (only if device connected) */}
+                {hasConnectedDevice && (
+                  <button
+                    onClick={handleBackfillRides}
+                    disabled={backfillState === 'loading' || backfillState === 'done'}
+                    className={`
+                      w-full p-4 rounded-lg border-2 text-left transition-all
+                      ${backfillState === 'done'
+                        ? 'border-green-500 bg-green-500/10'
+                        : 'border-app hover:border-accent/50 hover:bg-surface-hover'}
+                      ${backfillState === 'loading' ? 'opacity-70 cursor-wait' : ''}
+                    `}
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className="w-8 h-8 rounded-full bg-accent/20 flex items-center justify-center shrink-0">
+                        {backfillState === 'loading' ? (
+                          <div className="w-4 h-4 border-2 border-accent border-t-transparent rounded-full animate-spin" />
+                        ) : backfillState === 'done' ? (
+                          <FaCheck className="text-green-400" />
+                        ) : (
+                          <FaHistory className="text-accent" />
+                        )}
+                      </div>
+                      <div className="flex-1">
+                        <span className="font-medium text-primary">Import past rides</span>
+                        <div className="text-sm text-muted">
+                          {backfillState === 'done' && backfillStats ? (
+                            backfillStats.imported === -1 ? (
+                              <span className="text-green-400">Import started - rides will sync shortly</span>
+                            ) : (
+                              <span className="text-green-400">
+                                {backfillStats.imported} rides imported
+                                {backfillStats.skipped > 0 && `, ${backfillStats.skipped} already existed`}
+                              </span>
+                            )
+                          ) : (
+                            'Backfill component wear from your ride history'
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </button>
+                )}
+
+                {/* 2. Log Service History - inline form */}
+                <ServiceHistoryForm bikeId={bikeId} />
+
+                {/* 3. Edit bike components */}
+                <button
+                  onClick={() => navigate(`/gear/${bikeId}`)}
+                  className="w-full p-4 rounded-lg border-2 border-app hover:border-accent/50 hover:bg-surface-hover text-left transition-all"
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="w-8 h-8 rounded-full bg-accent/20 flex items-center justify-center shrink-0">
+                      <FaCog className="text-accent" />
+                    </div>
+                    <div className="flex-1">
+                      <span className="font-medium text-primary">Edit bike components</span>
+                      <div className="text-sm text-muted">Update component details if you've swapped parts</div>
+                    </div>
+                  </div>
+                </button>
+              </div>
+
+              {/* Primary CTA */}
+              <Button onClick={handleGoToDashboard} variant="primary" className="w-full max-w-md">
+                Go to Dashboard
+              </Button>
+            </div>
+          )}
+
           {/* Navigation Buttons */}
-          {currentStep !== 1 && (
+          {currentStep !== 1 && currentStep !== 8 && (
           <div className="flex gap-4 pt-6">
-            {currentStep > 1 && currentStep !== 6 && (
+            {currentStep > 1 && currentStep !== 7 && (
               <Button
                 onClick={handleBack}
                 variant="secondary"
@@ -1003,7 +1090,7 @@ export default function Onboarding() {
                 Back
               </Button>
             )}
-            {currentStep < 6 ? (
+            {currentStep < 7 ? (
               <Button
                 onClick={handleNext}
                 variant="primary"
