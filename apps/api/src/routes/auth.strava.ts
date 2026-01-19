@@ -205,7 +205,7 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string }>(
 
       let redirectPath: string;
       if (!user?.onboardingCompleted) {
-        redirectPath = '/onboarding?step=5';
+        redirectPath = '/onboarding?step=6';
       } else if (bothConnected) {
         // Prompt user to choose data source
         redirectPath = '/settings?strava=connected&prompt=choose-source';

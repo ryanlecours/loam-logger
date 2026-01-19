@@ -195,7 +195,7 @@ r.get<Empty, void, Empty, { code?: string; state?: string }>(
 
       // Check if user is in onboarding (hasn't completed it yet)
       const user = await prisma.user.findUnique({ where: { id: userId } });
-      const redirectPath = !user?.onboardingCompleted ? '/onboarding?step=5' : '/settings?garmin=connected';
+      const redirectPath = !user?.onboardingCompleted ? '/onboarding?step=6' : '/settings?garmin=connected';
 
       console.log('[Garmin Callback] Success! Redirecting to:', redirectPath);
       return res.redirect(`${appBase.replace(/\/$/, '')}${redirectPath}`);

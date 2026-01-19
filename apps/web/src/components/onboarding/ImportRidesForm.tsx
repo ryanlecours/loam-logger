@@ -92,7 +92,7 @@ export function ImportRidesForm({ connectedProviders }: ImportRidesFormProps) {
       setHistoryLoading(true);
       try {
         const baseUrl = import.meta.env.VITE_API_URL;
-        const response = await fetch(`${baseUrl}/backfill/history`, {
+        const response = await fetch(`${baseUrl}/api/backfill/history`, {
           credentials: 'include',
           headers: getAuthHeaders(),
         });
@@ -121,8 +121,8 @@ export function ImportRidesForm({ connectedProviders }: ImportRidesFormProps) {
     try {
       const baseUrl = import.meta.env.VITE_API_URL;
       const url = selectedProvider === 'strava'
-        ? `${baseUrl}/strava/backfill/fetch?year=${selectedYear}`
-        : `${baseUrl}/garmin/backfill/fetch?year=${selectedYear}`;
+        ? `${baseUrl}/api/strava/backfill/fetch?year=${selectedYear}`
+        : `${baseUrl}/api/garmin/backfill/fetch?year=${selectedYear}`;
 
       const response = await fetch(url, {
         credentials: 'include',
