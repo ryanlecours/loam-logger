@@ -94,8 +94,8 @@ describe('ImportRidesForm', () => {
       const select = screen.getByRole('combobox');
       const options = select.querySelectorAll('option');
 
-      // YTD + current year + 5 previous years = 7 options
-      expect(options.length).toBe(7);
+      // YTD + 5 previous years = 6 options (current year removed as redundant with YTD)
+      expect(options.length).toBe(6);
       expect(options[0]).toHaveTextContent('Year to Date');
     });
 
@@ -105,10 +105,10 @@ describe('ImportRidesForm', () => {
       fireEvent.click(screen.getByRole('button', { name: /Import past rides/i }));
 
       const select = screen.getByRole('combobox');
-      const currentYear = new Date().getFullYear();
-      fireEvent.change(select, { target: { value: String(currentYear) } });
+      const lastYear = new Date().getFullYear() - 1;
+      fireEvent.change(select, { target: { value: String(lastYear) } });
 
-      expect(select).toHaveValue(String(currentYear));
+      expect(select).toHaveValue(String(lastYear));
     });
   });
 
@@ -168,12 +168,18 @@ describe('ImportRidesForm', () => {
       fireEvent.click(screen.getByRole('button', { name: /Import past rides/i }));
 
       await waitFor(() => {
-        expect(screen.getByText('2024')).toBeInTheDocument();
-        expect(screen.getByText('YTD')).toBeInTheDocument();
+        // Check for the "Previously requested" section which contains history pills
+        expect(screen.getByText('Previously requested')).toBeInTheDocument();
+        // Use getAllByText since there are now multiple "2024" elements (checkbox label + history pill)
+        const elements2024 = screen.getAllByText('2024');
+        expect(elements2024.length).toBeGreaterThanOrEqual(2); // checkbox label + pill
+        // YTD appears in checkbox label and as history pill
+        const ytdElements = screen.getAllByText('YTD');
+        expect(ytdElements.length).toBeGreaterThanOrEqual(1);
       });
     });
 
-    it('shows checkmark for completed years in dropdown (Garmin)', async () => {
+    it('shows checkmark for completed years (Garmin)', async () => {
       mockFetch.mockResolvedValue({
         ok: true,
         json: () => Promise.resolve({
@@ -189,17 +195,15 @@ describe('ImportRidesForm', () => {
       fireEvent.click(screen.getByRole('button', { name: /Import past rides/i }));
 
       await waitFor(() => {
-        const select = screen.getByRole('combobox');
-        const option2024 = Array.from(select.querySelectorAll('option')).find(
-          (opt) => opt.value === '2024'
-        );
-        expect(option2024?.textContent).toContain('✓');
+        // Garmin uses checkboxes - completed year checkbox should be disabled
+        const checkbox2024 = screen.getByRole('checkbox', { name: /2024/i });
+        expect(checkbox2024).toBeDisabled();
       });
     });
   });
 
   describe('Duplicate Prevention (Garmin)', () => {
-    it('disables import button for already backfilled year', async () => {
+    it('disables checkbox for already backfilled year', async () => {
       mockFetch.mockResolvedValue({
         ok: true,
         json: () => Promise.resolve({
@@ -215,12 +219,10 @@ describe('ImportRidesForm', () => {
       fireEvent.click(screen.getByRole('button', { name: /Import past rides/i }));
 
       await waitFor(() => {
-        const select = screen.getByRole('combobox');
-        fireEvent.change(select, { target: { value: '2024' } });
+        // Garmin uses checkboxes - completed year checkbox should be disabled
+        const checkbox2024 = screen.getByRole('checkbox', { name: /2024/i });
+        expect(checkbox2024).toBeDisabled();
       });
-
-      const importButton = screen.getByRole('button', { name: /Already Imported/i });
-      expect(importButton).toBeDisabled();
     });
 
     it('allows YTD even if previously backfilled (incremental)', async () => {
@@ -239,12 +241,13 @@ describe('ImportRidesForm', () => {
       fireEvent.click(screen.getByRole('button', { name: /Import past rides/i }));
 
       await waitFor(() => {
-        const importButton = screen.getByRole('button', { name: /Start Import/i });
-        expect(importButton).not.toBeDisabled();
+        // YTD checkbox should be enabled even after previous backfill (incremental)
+        const ytdCheckbox = screen.getByRole('checkbox', { name: /Year to Date/i });
+        expect(ytdCheckbox).not.toBeDisabled();
       });
     });
 
-    it('disables YTD import when already in progress', async () => {
+    it('disables YTD checkbox when already in progress', async () => {
       mockFetch.mockResolvedValue({
         ok: true,
         json: () => Promise.resolve({
@@ -260,8 +263,9 @@ describe('ImportRidesForm', () => {
       fireEvent.click(screen.getByRole('button', { name: /Import past rides/i }));
 
       await waitFor(() => {
-        const importButton = screen.getByRole('button', { name: /Import In Progress/i });
-        expect(importButton).toBeDisabled();
+        // YTD checkbox should be disabled when in progress
+        const ytdCheckbox = screen.getByRole('checkbox', { name: /Year to Date/i });
+        expect(ytdCheckbox).toBeDisabled();
       });
     });
 
@@ -281,12 +285,10 @@ describe('ImportRidesForm', () => {
       fireEvent.click(screen.getByRole('button', { name: /Import past rides/i }));
 
       await waitFor(() => {
-        const select = screen.getByRole('combobox');
-        fireEvent.change(select, { target: { value: '2024' } });
+        // Failed year checkbox should be enabled for retry
+        const checkbox2024 = screen.getByRole('checkbox', { name: /2024/i });
+        expect(checkbox2024).not.toBeDisabled();
       });
-
-      const importButton = screen.getByRole('button', { name: /Start Import/i });
-      expect(importButton).not.toBeDisabled();
     });
   });
 

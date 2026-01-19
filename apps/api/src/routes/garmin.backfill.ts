@@ -4,6 +4,7 @@ import { subDays } from 'date-fns';
 import { prisma } from '../lib/prisma';
 import { sendBadRequest, sendUnauthorized, sendNotFound, sendInternalError } from '../lib/api-response';
 import { logError } from '../lib/logger';
+import { enqueueBackfillJob } from '../lib/queue/backfill.queue';
 
 type Empty = Record<string, never>;
 const r: Router = createRouter();
@@ -248,6 +249,118 @@ r.get<Empty, void, Empty, { days?: string; year?: string }>(
     } catch (error) {
       logError('Garmin Backfill', error);
       return sendInternalError(res, 'Failed to fetch activities');
+    }
+  }
+);
+
+/**
+ * Queue multiple years for background backfill processing
+ * Accepts an array of years and queues them as background jobs
+ */
+r.post<Empty, void, { years: string[] }, Empty>(
+  '/garmin/backfill/batch',
+  async (req: Request<Empty, void, { years: string[] }, Empty>, res: Response) => {
+    const userId = req.user?.id || req.sessionUser?.uid;
+    if (!userId) {
+      return sendUnauthorized(res, 'Not authenticated');
+    }
+
+    const { years } = req.body;
+    if (!Array.isArray(years) || years.length === 0) {
+      return sendBadRequest(res, 'At least one year is required');
+    }
+
+    // Limit to 10 years max to prevent abuse
+    if (years.length > 10) {
+      return sendBadRequest(res, 'Maximum 10 years can be queued at once');
+    }
+
+    try {
+      // Validate all years
+      const currentYear = new Date().getFullYear();
+      for (const year of years) {
+        if (year !== 'ytd') {
+          const yearNum = parseInt(year, 10);
+          if (isNaN(yearNum) || yearNum < 2000 || yearNum > currentYear) {
+            return sendBadRequest(res, `Invalid year: ${year}. Must be between 2000 and ${currentYear}, or 'ytd'`);
+          }
+        }
+      }
+
+      // Check for already backfilled years (non-YTD only, skip failed ones)
+      const existingBackfills = await prisma.backfillRequest.findMany({
+        where: {
+          userId,
+          provider: 'garmin',
+          year: { in: years.filter(y => y !== 'ytd') },
+          status: { notIn: ['failed'] },
+        },
+        select: { year: true, status: true },
+      });
+
+      const alreadyBackfilled = new Map(existingBackfills.map(b => [b.year, b.status]));
+
+      // Check if YTD is in progress
+      if (years.includes('ytd')) {
+        const ytdBackfill = await prisma.backfillRequest.findUnique({
+          where: { userId_provider_year: { userId, provider: 'garmin', year: 'ytd' } },
+          select: { status: true },
+        });
+        if (ytdBackfill?.status === 'in_progress') {
+          alreadyBackfilled.set('ytd', 'in_progress');
+        }
+      }
+
+      // Filter to years that can be processed
+      const yearsToProcess = years.filter(y => {
+        if (y === 'ytd') {
+          return alreadyBackfilled.get('ytd') !== 'in_progress';
+        }
+        return !alreadyBackfilled.has(y);
+      });
+
+      if (yearsToProcess.length === 0) {
+        return res.status(409).json({
+          error: 'All years already backfilled or in progress',
+          message: 'All selected years have already been imported or are currently being processed.',
+          skipped: years,
+        });
+      }
+
+      // Create BackfillRequest records and queue jobs
+      const results: Array<{ year: string; status: string; jobId?: string }> = [];
+
+      for (const year of yearsToProcess) {
+        // Create or update record to pending status
+        await prisma.backfillRequest.upsert({
+          where: { userId_provider_year: { userId, provider: 'garmin', year } },
+          update: { status: 'pending', updatedAt: new Date() },
+          create: { userId, provider: 'garmin', year, status: 'pending' },
+        });
+
+        // Queue the job
+        const result = await enqueueBackfillJob({
+          userId,
+          provider: 'garmin',
+          year,
+        });
+
+        results.push({ year, status: result.status, jobId: result.jobId });
+      }
+
+      const skipped = years.filter(y => !yearsToProcess.includes(y));
+
+      console.log(`[Garmin Backfill] Queued ${results.length} backfill jobs for user ${userId}`);
+
+      return res.json({
+        success: true,
+        message: `Queued ${results.length} backfill request(s). Your rides will sync automatically in the background.`,
+        queued: results,
+        skipped: skipped.length > 0 ? skipped : undefined,
+      });
+    } catch (error) {
+      logError('Garmin Backfill Batch', error);
+      return sendInternalError(res, 'Failed to queue backfill requests');
     }
   }
 );
