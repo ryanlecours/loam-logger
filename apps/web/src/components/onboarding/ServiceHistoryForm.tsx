@@ -236,8 +236,8 @@ export function ServiceHistoryForm({ bikeId, onComplete }: ServiceHistoryFormPro
       );
 
       // Check for failures
-      const failures = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
-      const successes = results.filter((r): r is PromiseFulfilledResult<unknown> => r.status === 'fulfilled');
+      const failures = results.filter((r) => r.status === 'rejected');
+      const successes = results.filter((r) => r.status === 'fulfilled');
 
       if (failures.length > 0) {
         // Remove only the successfully saved entries, keep failures for retry
@@ -247,7 +247,7 @@ export function ServiceHistoryForm({ bikeId, onComplete }: ServiceHistoryFormPro
         const failedEntries = entries.filter((_, i) => failedIndices.has(i));
         setEntries(failedEntries);
 
-        console.error('Some service entries failed to save:', failures.map(f => f.reason));
+        console.error('Some service entries failed to save:', failures.map(f => (f as PromiseRejectedResult).reason));
         setError(`Failed to save ${failures.length} of ${entries.length} entries. ${successes.length > 0 ? `${successes.length} saved successfully.` : ''} Please try again.`);
       } else {
         // All succeeded
