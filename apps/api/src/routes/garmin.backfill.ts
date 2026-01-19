@@ -39,14 +39,38 @@ r.get<Empty, void, Empty, { days?: string; year?: string }>(
         const yearParam = req.query.year;
 
         if (yearParam === 'ytd') {
-          startDate = new Date(currentYear, 0, 1); // Jan 1 00:00:00
+          // Check for existing YTD backfill to enable incremental fetching
+          const existingYtd = await prisma.backfillRequest.findUnique({
+            where: { userId_provider_year: { userId, provider: 'garmin', year: 'ytd' } },
+          });
+
+          if (existingYtd?.backfilledUpTo && existingYtd.status !== 'failed') {
+            // Start from where we left off (add 1 second to avoid overlap)
+            startDate = new Date(existingYtd.backfilledUpTo.getTime() + 1000);
+            periodDescription = `new activities since ${existingYtd.backfilledUpTo.toLocaleDateString()}`;
+          } else {
+            startDate = new Date(currentYear, 0, 1); // Jan 1 00:00:00
+            periodDescription = `year to date (${currentYear})`;
+          }
           endDate = new Date(); // Now
-          periodDescription = `year to date (${currentYear})`;
         } else {
           const year = parseInt(yearParam, 10);
           if (isNaN(year) || year < 2000 || year > currentYear) {
             return sendBadRequest(res, `Year must be between 2000 and ${currentYear}, or 'ytd'`);
           }
+
+          // Check if this specific year has already been backfilled
+          const existingBackfill = await prisma.backfillRequest.findUnique({
+            where: { userId_provider_year: { userId, provider: 'garmin', year: yearParam } },
+          });
+
+          if (existingBackfill && existingBackfill.status !== 'failed') {
+            return res.status(409).json({
+              error: 'Year already backfilled',
+              message: `${yearParam} has already been imported. Garmin data for this year is complete.`,
+            });
+          }
+
           startDate = new Date(year, 0, 1); // Jan 1 00:00:00
           endDate = new Date(year, 11, 31, 23, 59, 59); // Dec 31 23:59:59
           periodDescription = `year ${year}`;
@@ -146,6 +170,41 @@ r.get<Empty, void, Empty, { days?: string; year?: string }>(
       // Check if all requests were duplicates (backfill already in progress)
       const duplicateErrors = errors.filter(e => e.includes('Duplicate request'));
       const allDuplicates = duplicateErrors.length === errors.length && errors.length > 0;
+
+      // Track backfill request in database (only for year-based requests)
+      const yearKey = req.query.year || null;
+      if (yearKey) {
+        try {
+          // For YTD, store the end timestamp so we can do incremental backfills later
+          const backfilledUpToValue = yearKey === 'ytd' ? endDate : null;
+
+          if (totalChunks === 0 && allDuplicates) {
+            // Already in progress - update status
+            await prisma.backfillRequest.upsert({
+              where: { userId_provider_year: { userId, provider: 'garmin', year: yearKey } },
+              update: { status: 'in_progress', updatedAt: new Date(), backfilledUpTo: backfilledUpToValue },
+              create: { userId, provider: 'garmin', year: yearKey, status: 'in_progress', backfilledUpTo: backfilledUpToValue },
+            });
+          } else if (totalChunks === 0) {
+            // Failed - don't update backfilledUpTo
+            await prisma.backfillRequest.upsert({
+              where: { userId_provider_year: { userId, provider: 'garmin', year: yearKey } },
+              update: { status: 'failed', updatedAt: new Date() },
+              create: { userId, provider: 'garmin', year: yearKey, status: 'failed' },
+            });
+          } else {
+            // Success - mark as in_progress (Garmin is async via webhooks)
+            await prisma.backfillRequest.upsert({
+              where: { userId_provider_year: { userId, provider: 'garmin', year: yearKey } },
+              update: { status: 'in_progress', updatedAt: new Date(), backfilledUpTo: backfilledUpToValue },
+              create: { userId, provider: 'garmin', year: yearKey, status: 'in_progress', backfilledUpTo: backfilledUpToValue },
+            });
+          }
+        } catch (dbError) {
+          logError('Garmin Backfill DB tracking', dbError);
+          // Don't fail the request if tracking fails
+        }
+      }
 
       if (totalChunks === 0 && allDuplicates) {
         return res.status(409).json({

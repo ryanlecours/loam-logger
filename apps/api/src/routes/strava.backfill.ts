@@ -242,6 +242,31 @@ r.get<Empty, void, Empty, { year?: string }>(
 
       console.log(`[Strava Backfill] Unmapped gears: ${unmappedGears.length}`);
 
+      // Track backfill request in database
+      const yearKey = yearParam || 'ytd';
+      try {
+        await prisma.backfillRequest.upsert({
+          where: { userId_provider_year: { userId, provider: 'strava', year: yearKey } },
+          update: {
+            status: 'completed',
+            ridesFound: importedCount,
+            completedAt: new Date(),
+            updatedAt: new Date(),
+          },
+          create: {
+            userId,
+            provider: 'strava',
+            year: yearKey,
+            status: 'completed',
+            ridesFound: importedCount,
+            completedAt: new Date(),
+          },
+        });
+      } catch (dbError) {
+        logError('Strava Backfill DB tracking', dbError);
+        // Don't fail the request if tracking fails
+      }
+
       return res.json({
         success: true,
         message: `Successfully imported ${importedCount} rides from Strava.`,
@@ -253,6 +278,17 @@ r.get<Empty, void, Empty, { year?: string }>(
         unmappedGears,
       });
     } catch (error) {
+      // Track failed backfill
+      const yearKey = yearParam || 'ytd';
+      try {
+        await prisma.backfillRequest.upsert({
+          where: { userId_provider_year: { userId, provider: 'strava', year: yearKey } },
+          update: { status: 'failed', updatedAt: new Date() },
+          create: { userId, provider: 'strava', year: yearKey, status: 'failed' },
+        });
+      } catch {
+        // Ignore tracking errors
+      }
       logError('Strava Backfill', error);
       return sendInternalError(res, 'Failed to fetch activities');
     }

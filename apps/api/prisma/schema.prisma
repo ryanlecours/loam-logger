@@ -339,6 +339,30 @@ model GeoCache {
   @@unique([lat, lon])
 }
 
+model BackfillRequest {
+  id             String              @id @default(cuid())
+  userId         String
+  provider       AuthProvider
+  year           String              // "ytd", "2025", "2024", etc.
+  status         BackfillStatus      @default(pending)
+  ridesFound     Int?
+  backfilledUpTo DateTime?           // For YTD: the end timestamp of last backfill
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  completedAt    DateTime?
+
+  @@unique([userId, provider, year])
+  @@index([userId])
+  @@index([userId, provider])
+}
+
+enum BackfillStatus {
+  pending
+  in_progress
+  completed
+  failed
+}
+
 model TermsAcceptance {
   id           String   @id @default(cuid())
   userId       String

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { FaHistory, FaChevronDown, FaChevronUp, FaCheck } from 'react-icons/fa';
 import { getAuthHeaders } from '@/lib/csrf';
 
@@ -11,6 +11,18 @@ interface ImportStats {
   skipped: number;
   isAsync: boolean;
   message?: string;
+}
+
+interface BackfillRequest {
+  id: string;
+  provider: 'strava' | 'garmin';
+  year: string;
+  status: 'pending' | 'in_progress' | 'completed' | 'failed';
+  ridesFound: number | null;
+  backfilledUpTo: string | null;
+  createdAt: string;
+  updatedAt: string;
+  completedAt: string | null;
 }
 
 const CURRENT_YEAR = new Date().getFullYear();
@@ -36,6 +48,27 @@ export function ImportRidesForm({ connectedProviders }: ImportRidesFormProps) {
   const [importState, setImportState] = useState<'idle' | 'loading' | 'done'>('idle');
   const [importStats, setImportStats] = useState<ImportStats | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [backfillHistory, setBackfillHistory] = useState<BackfillRequest[]>([]);
+
+  // Get years that are already backfilled for Garmin (YTD is always allowed - incremental)
+  const garminBackfilledYears = useMemo(() => {
+    return new Set(
+      backfillHistory
+        .filter(
+          (req) =>
+            req.provider === 'garmin' &&
+            req.year !== 'ytd' && // YTD is always allowed (incremental)
+            req.status !== 'failed' // Failed can be retried
+        )
+        .map((req) => req.year)
+    );
+  }, [backfillHistory]);
+
+  // Check if the selected year is already backfilled (Garmin only)
+  const isYearAlreadyBackfilled =
+    selectedProvider === 'garmin' &&
+    selectedYear !== 'ytd' &&
+    garminBackfilledYears.has(selectedYear);
 
   // Auto-select provider if only one is connected
   useEffect(() => {
@@ -43,6 +76,26 @@ export function ImportRidesForm({ connectedProviders }: ImportRidesFormProps) {
       setSelectedProvider(connectedProviders[0]);
     }
   }, [connectedProviders, selectedProvider]);
+
+  // Fetch backfill history on mount
+  useEffect(() => {
+    const fetchHistory = async () => {
+      try {
+        const baseUrl = import.meta.env.VITE_API_URL;
+        const response = await fetch(`${baseUrl}/backfill/history`, {
+          credentials: 'include',
+          headers: getAuthHeaders(),
+        });
+        if (response.ok) {
+          const data = await response.json();
+          setBackfillHistory(data.requests || []);
+        }
+      } catch {
+        // Silently fail - history is supplementary
+      }
+    };
+    fetchHistory();
+  }, []);
 
   const handleImport = async () => {
     if (!selectedProvider) {
@@ -93,6 +146,20 @@ export function ImportRidesForm({ connectedProviders }: ImportRidesFormProps) {
       }
 
       setImportState('done');
+
+      // Refresh backfill history
+      try {
+        const historyResponse = await fetch(`${baseUrl}/backfill/history`, {
+          credentials: 'include',
+          headers: getAuthHeaders(),
+        });
+        if (historyResponse.ok) {
+          const historyData = await historyResponse.json();
+          setBackfillHistory(historyData.requests || []);
+        }
+      } catch {
+        // Ignore history refresh errors
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Import failed');
       setImportState('idle');
@@ -207,27 +274,74 @@ export function ImportRidesForm({ connectedProviders }: ImportRidesFormProps) {
               className="w-full input-soft"
               disabled={importState === 'loading'}
             >
-              {YEAR_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
+              {YEAR_OPTIONS.map((option) => {
+                const isBackfilled =
+                  selectedProvider === 'garmin' &&
+                  option.value !== 'ytd' &&
+                  garminBackfilledYears.has(option.value);
+
+                return (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                    {isBackfilled ? ' ✓' : ''}
+                  </option>
+                );
+              })}
             </select>
           </div>
+
+          {/* Backfill history for selected provider */}
+          {selectedProvider && backfillHistory.length > 0 && (
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-muted">Previously requested</label>
+              <div className="flex flex-wrap gap-2">
+                {backfillHistory
+                  .filter((req) => req.provider === selectedProvider)
+                  .map((req) => (
+                    <div
+                      key={req.id}
+                      className={`
+                        px-2.5 py-1 rounded-full text-xs font-medium
+                        ${req.status === 'completed'
+                          ? 'bg-green-500/20 text-green-400'
+                          : req.status === 'in_progress'
+                            ? 'bg-yellow-500/20 text-yellow-400'
+                            : req.status === 'failed'
+                              ? 'bg-red-500/20 text-red-400'
+                              : 'bg-gray-500/20 text-gray-400'}
+                      `}
+                      title={`${req.status}${req.ridesFound ? ` - ${req.ridesFound} rides` : ''}`}
+                    >
+                      {req.year === 'ytd' ? 'YTD' : req.year}
+                      {req.status === 'completed' && req.ridesFound !== null && (
+                        <span className="ml-1 opacity-75">({req.ridesFound})</span>
+                      )}
+                      {req.status === 'in_progress' && (
+                        <span className="ml-1 opacity-75">...</span>
+                      )}
+                    </div>
+                  ))}
+              </div>
+            </div>
+          )}
 
           {/* Import button */}
           <button
             type="button"
             onClick={handleImport}
-            disabled={!selectedProvider || importState === 'loading'}
+            disabled={!selectedProvider || importState === 'loading' || isYearAlreadyBackfilled}
             className={`
               w-full py-3 px-4 rounded-lg text-sm font-medium transition-all
-              ${!selectedProvider || importState === 'loading'
+              ${!selectedProvider || importState === 'loading' || isYearAlreadyBackfilled
                 ? 'bg-gray-300 dark:bg-gray-700 text-gray-500 cursor-not-allowed'
                 : 'bg-accent text-white hover:bg-accent-hover'}
             `}
           >
-            {importState === 'loading' ? 'Importing...' : 'Start Import'}
+            {importState === 'loading'
+              ? 'Importing...'
+              : isYearAlreadyBackfilled
+                ? 'Already Imported'
+                : 'Start Import'}
           </button>
         </div>
       )}
