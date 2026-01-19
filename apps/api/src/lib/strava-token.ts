@@ -15,6 +15,18 @@ const refreshPromiseCache = new Map<string, CacheEntry>();
 // Maximum time a refresh operation should take (30 seconds)
 const REFRESH_TIMEOUT_MS = 30_000;
 
+// Periodic cleanup of stale cache entries to prevent memory leaks
+// Runs every 60 seconds to remove entries older than REFRESH_TIMEOUT_MS
+setInterval(() => {
+  const now = Date.now();
+  for (const [userId, entry] of refreshPromiseCache.entries()) {
+    if (now - entry.timestamp > REFRESH_TIMEOUT_MS) {
+      console.warn(`[Strava Token] Cleaning up stale cache entry for user: ${userId}`);
+      refreshPromiseCache.delete(userId);
+    }
+  }
+}, 60_000).unref(); // unref() allows process to exit even if timer is active
+
 /**
  * Revoke a Strava access token
  * This invalidates the token on Strava's servers, not just locally.
@@ -130,9 +142,13 @@ export async function getValidStravaToken(userId: string): Promise<string | null
   }
 
   // Check if there's already a refresh in progress for this user
-  // Note: There's a small race window between promise completion and finally block
-  // where a second request might start a new refresh. This is acceptable as both
-  // requests will get valid tokens, just with a redundant API call.
+  // Note: There's a small race window where concurrent requests could both start refreshes:
+  // 1. Request A and B both await the DB lookup
+  // 2. Request A finishes first, creates refresh promise, caches it
+  // 3. Request A's refresh completes, finally block deletes cache entry
+  // 4. Request B resumes, finds empty cache, starts another refresh
+  // This is acceptable: both get valid tokens, just with a redundant API call.
+  // A proper fix would require async mutex/locks, which adds complexity for minimal benefit.
   const existingEntry = refreshPromiseCache.get(userId);
   if (existingEntry) {
     // Check if the cached promise has timed out (stale entry protection)
