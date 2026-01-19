@@ -181,41 +181,40 @@ r.get<Empty, void, Empty, { days?: string; year?: string }>(
       const allDuplicates = duplicateErrors.length === errors.length && errors.length > 0;
 
       // Track backfill request in database (only for year-based requests)
+      // Uses atomic conditional update to prevent race condition with webhook completion
       const yearKey = req.query.year || null;
       if (yearKey) {
         try {
           // For YTD, store the end timestamp so we can do incremental backfills later
           const backfilledUpToValue = yearKey === 'ytd' ? endDate : null;
 
-          // Check current status to avoid overwriting 'completed' (race condition with webhooks)
-          const currentRecord = await prisma.backfillRequest.findUnique({
+          // Determine target status based on results
+          const targetStatus = totalChunks === 0 && !allDuplicates ? 'failed' : 'in_progress';
+          const updateData =
+            targetStatus === 'failed'
+              ? { status: targetStatus as const, updatedAt: new Date() }
+              : { status: targetStatus as const, updatedAt: new Date(), backfilledUpTo: backfilledUpToValue };
+
+          // First ensure record exists (upsert with no-op update for existing records)
+          await prisma.backfillRequest.upsert({
             where: { userId_provider_year: { userId, provider: 'garmin', year: yearKey } },
+            update: {}, // No-op - actual update done atomically below
+            create: { userId, provider: 'garmin', year: yearKey, ...updateData },
           });
 
-          // Don't overwrite 'completed' status - webhooks may have finished while we were processing
-          if (currentRecord?.status === 'completed') {
+          // Atomically update ONLY if status is not 'completed' (prevents race condition with webhooks)
+          const updated = await prisma.backfillRequest.updateMany({
+            where: {
+              userId,
+              provider: 'garmin',
+              year: yearKey,
+              status: { not: 'completed' },
+            },
+            data: updateData,
+          });
+
+          if (updated.count === 0) {
             console.log(`[Garmin Backfill] Skipping status update - already completed for ${yearKey}`);
-          } else if (totalChunks === 0 && allDuplicates) {
-            // Already in progress - update status
-            await prisma.backfillRequest.upsert({
-              where: { userId_provider_year: { userId, provider: 'garmin', year: yearKey } },
-              update: { status: 'in_progress', updatedAt: new Date(), backfilledUpTo: backfilledUpToValue },
-              create: { userId, provider: 'garmin', year: yearKey, status: 'in_progress', backfilledUpTo: backfilledUpToValue },
-            });
-          } else if (totalChunks === 0) {
-            // Failed - don't update backfilledUpTo
-            await prisma.backfillRequest.upsert({
-              where: { userId_provider_year: { userId, provider: 'garmin', year: yearKey } },
-              update: { status: 'failed', updatedAt: new Date() },
-              create: { userId, provider: 'garmin', year: yearKey, status: 'failed' },
-            });
-          } else {
-            // Success - mark as in_progress (Garmin is async via webhooks)
-            await prisma.backfillRequest.upsert({
-              where: { userId_provider_year: { userId, provider: 'garmin', year: yearKey } },
-              update: { status: 'in_progress', updatedAt: new Date(), backfilledUpTo: backfilledUpToValue },
-              create: { userId, provider: 'garmin', year: yearKey, status: 'in_progress', backfilledUpTo: backfilledUpToValue },
-            });
           }
         } catch (dbError) {
           logError('Garmin Backfill DB tracking', dbError);

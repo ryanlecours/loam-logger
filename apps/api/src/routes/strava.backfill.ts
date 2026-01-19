@@ -278,8 +278,8 @@ r.get<Empty, void, Empty, { year?: string }>(
         unmappedGears,
       });
     } catch (error) {
-      // Track failed backfill
-      const yearKey = yearParam || 'ytd';
+      // Track failed backfill - use req.query.year since yearParam is scoped to try block
+      const yearKey = req.query.year || 'ytd';
       try {
         await prisma.backfillRequest.upsert({
           where: { userId_provider_year: { userId, provider: 'strava', year: yearKey } },

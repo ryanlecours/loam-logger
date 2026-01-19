@@ -7,6 +7,7 @@ global.fetch = mockFetch;
 // Mock Prisma
 const mockBackfillFindUnique = jest.fn();
 const mockBackfillUpsert = jest.fn();
+const mockBackfillUpdateMany = jest.fn();
 const mockRideFindMany = jest.fn();
 const mockRideCount = jest.fn();
 const mockUserAccountFindFirst = jest.fn();
@@ -16,6 +17,7 @@ jest.mock('../lib/prisma', () => ({
     backfillRequest: {
       findUnique: mockBackfillFindUnique,
       upsert: mockBackfillUpsert,
+      updateMany: mockBackfillUpdateMany,
     },
     ride: {
       findMany: mockRideFindMany,
@@ -393,20 +395,28 @@ describe('GET /garmin/backfill/fetch', () => {
   });
 
   describe('Database Status Updates', () => {
+    beforeEach(() => {
+      // Default: updateMany returns count of 1 (record was updated)
+      mockBackfillUpdateMany.mockResolvedValue({ count: 1 });
+    });
+
     it('should not overwrite completed status (race condition protection)', async () => {
       mockReq.query = { year: 'ytd' };
-      // First call returns null (for incremental check)
-      // Second call (after API calls) returns completed (simulating webhook completion)
-      mockBackfillFindUnique
-        .mockResolvedValueOnce(null)
-        .mockResolvedValueOnce({ status: 'completed' });
-
+      mockBackfillFindUnique.mockResolvedValue(null);
       mockFetch.mockResolvedValue({ status: 202, ok: true });
+      // Simulate race condition: updateMany returns 0 because status was already 'completed'
+      mockBackfillUpdateMany.mockResolvedValue({ count: 0 });
 
       await invokeHandler(handler, mockReq as Request, mockRes as Response);
 
-      // upsert should not be called because status was completed
-      expect(mockBackfillUpsert).not.toHaveBeenCalled();
+      // updateMany should be called with condition to exclude 'completed' status
+      expect(mockBackfillUpdateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            status: { not: 'completed' },
+          }),
+        })
+      );
     });
 
     it('should update status to in_progress on successful trigger', async () => {
@@ -416,10 +426,12 @@ describe('GET /garmin/backfill/fetch', () => {
 
       await invokeHandler(handler, mockReq as Request, mockRes as Response);
 
-      expect(mockBackfillUpsert).toHaveBeenCalledWith(
+      // Upsert ensures record exists
+      expect(mockBackfillUpsert).toHaveBeenCalled();
+      // updateMany atomically updates status
+      expect(mockBackfillUpdateMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          update: expect.objectContaining({ status: 'in_progress' }),
-          create: expect.objectContaining({ status: 'in_progress' }),
+          data: expect.objectContaining({ status: 'in_progress' }),
         })
       );
     });
@@ -431,9 +443,9 @@ describe('GET /garmin/backfill/fetch', () => {
 
       await invokeHandler(handler, mockReq as Request, mockRes as Response);
 
-      expect(mockBackfillUpsert).toHaveBeenCalledWith(
+      expect(mockBackfillUpdateMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          update: expect.objectContaining({
+          data: expect.objectContaining({
             backfilledUpTo: expect.any(Date),
           }),
         })
@@ -447,10 +459,11 @@ describe('GET /garmin/backfill/fetch', () => {
 
       await invokeHandler(handler, mockReq as Request, mockRes as Response);
 
-      expect(mockBackfillUpsert).toHaveBeenCalledWith(
+      // For specific years, backfilledUpTo should not be in the data
+      expect(mockBackfillUpdateMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          update: expect.objectContaining({
-            backfilledUpTo: null,
+          data: expect.not.objectContaining({
+            backfilledUpTo: expect.any(Date),
           }),
         })
       );
