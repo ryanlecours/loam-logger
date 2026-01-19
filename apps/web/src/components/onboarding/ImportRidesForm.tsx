@@ -27,12 +27,12 @@ interface BackfillRequest {
 
 const CURRENT_YEAR = new Date().getFullYear();
 
-// Generate year options: YTD + current year + 5 previous years
+// Generate year options: YTD + 5 previous years (current year is redundant with YTD)
 const YEAR_OPTIONS = [
   { value: 'ytd', label: `Year to Date (${CURRENT_YEAR})` },
-  ...Array.from({ length: 6 }, (_, i) => ({
-    value: String(CURRENT_YEAR - i),
-    label: String(CURRENT_YEAR - i),
+  ...Array.from({ length: 5 }, (_, i) => ({
+    value: String(CURRENT_YEAR - 1 - i),
+    label: String(CURRENT_YEAR - 1 - i),
   })),
 ];
 
@@ -44,7 +44,8 @@ const PROVIDER_LABELS: Record<string, string> = {
 export function ImportRidesForm({ connectedProviders }: ImportRidesFormProps) {
   const [expanded, setExpanded] = useState(false);
   const [selectedProvider, setSelectedProvider] = useState<'strava' | 'garmin' | ''>('');
-  const [selectedYear, setSelectedYear] = useState<string>('ytd');
+  const [selectedYear, setSelectedYear] = useState<string>('ytd'); // For Strava (single select)
+  const [selectedYears, setSelectedYears] = useState<Set<string>>(new Set(['ytd'])); // For Garmin (multi-select)
   const [importState, setImportState] = useState<'idle' | 'loading' | 'done'>('idle');
   const [importStats, setImportStats] = useState<ImportStats | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -65,7 +66,20 @@ export function ImportRidesForm({ connectedProviders }: ImportRidesFormProps) {
     );
   }, [backfillHistory]);
 
-  // Check if the selected year is already backfilled (Garmin only)
+  // Get years that are in progress for Garmin
+  const garminInProgressYears = useMemo(() => {
+    return new Set(
+      backfillHistory
+        .filter(
+          (req) =>
+            req.provider === 'garmin' &&
+            (req.status === 'in_progress' || req.status === 'pending')
+        )
+        .map((req) => req.year)
+    );
+  }, [backfillHistory]);
+
+  // Check if the selected year is already backfilled (Garmin only, for single-select compatibility)
   const isYearAlreadyBackfilled =
     selectedProvider === 'garmin' &&
     selectedYear !== 'ytd' &&
@@ -78,6 +92,30 @@ export function ImportRidesForm({ connectedProviders }: ImportRidesFormProps) {
       (req) => req.provider === 'garmin' && req.year === 'ytd' && req.status === 'in_progress'
     );
   }, [backfillHistory, selectedProvider, selectedYear]);
+
+  // Helper to check if a year can be selected for Garmin
+  const canSelectYear = (year: string): boolean => {
+    if (year === 'ytd') {
+      return !garminInProgressYears.has('ytd');
+    }
+    return !garminBackfilledYears.has(year) && !garminInProgressYears.has(year);
+  };
+
+  // Toggle year selection for Garmin multi-select
+  const toggleYearSelection = (year: string) => {
+    setSelectedYears((prev) => {
+      const next = new Set(prev);
+      if (next.has(year)) {
+        next.delete(year);
+      } else {
+        next.add(year);
+      }
+      return next;
+    });
+  };
+
+  // Get count of selectable years for button text
+  const selectableYearsCount = selectedYears.size;
 
   // Auto-select provider if only one is connected
   useEffect(() => {
@@ -109,6 +147,22 @@ export function ImportRidesForm({ connectedProviders }: ImportRidesFormProps) {
     fetchHistory();
   }, []);
 
+  const refreshBackfillHistory = async () => {
+    try {
+      const baseUrl = import.meta.env.VITE_API_URL;
+      const historyResponse = await fetch(`${baseUrl}/api/backfill/history`, {
+        credentials: 'include',
+        headers: getAuthHeaders(),
+      });
+      if (historyResponse.ok) {
+        const historyData = await historyResponse.json();
+        setBackfillHistory(historyData.requests || []);
+      }
+    } catch {
+      // Ignore history refresh errors
+    }
+  };
+
   const handleImport = async () => {
     if (!selectedProvider) {
       setError('Please select a provider');
@@ -120,57 +174,75 @@ export function ImportRidesForm({ connectedProviders }: ImportRidesFormProps) {
 
     try {
       const baseUrl = import.meta.env.VITE_API_URL;
-      const url = selectedProvider === 'strava'
-        ? `${baseUrl}/api/strava/backfill/fetch?year=${selectedYear}`
-        : `${baseUrl}/api/garmin/backfill/fetch?year=${selectedYear}`;
 
-      const response = await fetch(url, {
-        credentials: 'include',
-        headers: getAuthHeaders(),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        // Handle 409 Conflict (backfill already in progress)
-        if (response.status === 409) {
-          setError(data.message || 'A backfill for this time period is already in progress.');
+      if (selectedProvider === 'garmin') {
+        // Garmin uses batch endpoint for multi-year selection
+        const yearsArray = Array.from(selectedYears);
+        if (yearsArray.length === 0) {
+          setError('Please select at least one year');
           setImportState('idle');
           return;
         }
-        throw new Error(data.error || 'Failed to import rides');
-      }
 
-      if (selectedProvider === 'strava') {
+        const response = await fetch(`${baseUrl}/api/garmin/backfill/batch`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            ...getAuthHeaders(),
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ years: yearsArray }),
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          if (response.status === 409) {
+            setError(data.message || 'Selected years are already imported or in progress.');
+            setImportState('idle');
+            return;
+          }
+          throw new Error(data.message || data.error || 'Failed to queue backfill');
+        }
+
+        setImportStats({
+          imported: 0,
+          skipped: data.skipped?.length || 0,
+          isAsync: true,
+          message: data.message,
+        });
+
+        setImportState('done');
+        await refreshBackfillHistory();
+      } else {
+        // Strava uses single-year endpoint
+        const response = await fetch(
+          `${baseUrl}/api/strava/backfill/fetch?year=${selectedYear}`,
+          {
+            credentials: 'include',
+            headers: getAuthHeaders(),
+          }
+        );
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          if (response.status === 409) {
+            setError(data.message || 'A backfill for this time period is already in progress.');
+            setImportState('idle');
+            return;
+          }
+          throw new Error(data.error || 'Failed to import rides');
+        }
+
         setImportStats({
           imported: data.imported || 0,
           skipped: data.duplicates || 0,
           isAsync: false,
         });
-      } else {
-        // Garmin is async via webhooks
-        setImportStats({
-          imported: 0,
-          skipped: 0,
-          isAsync: true,
-          message: data.message,
-        });
-      }
 
-      setImportState('done');
-
-      // Refresh backfill history
-      try {
-        const historyResponse = await fetch(`${baseUrl}/backfill/history`, {
-          credentials: 'include',
-          headers: getAuthHeaders(),
-        });
-        if (historyResponse.ok) {
-          const historyData = await historyResponse.json();
-          setBackfillHistory(historyData.requests || []);
-        }
-      } catch {
-        // Ignore history refresh errors
+        setImportState('done');
+        await refreshBackfillHistory();
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Import failed');
@@ -277,29 +349,67 @@ export function ImportRidesForm({ connectedProviders }: ImportRidesFormProps) {
             </div>
           )}
 
-          {/* Year selector */}
-          <div className="space-y-1.5">
-            <label className="block text-sm font-medium text-muted">Year to import</label>
-            <select
-              value={selectedYear}
-              onChange={(e) => setSelectedYear(e.target.value)}
-              className="w-full input-soft"
-              disabled={importState === 'loading'}
-            >
-              {YEAR_OPTIONS.map((option) => {
-                const isBackfilled =
-                  selectedProvider === 'garmin' &&
-                  option.value !== 'ytd' &&
-                  garminBackfilledYears.has(option.value);
+          {/* Year selector - Garmin uses multi-select checkboxes, Strava uses dropdown */}
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-muted">
+              {selectedProvider === 'garmin' ? 'Years to import' : 'Year to import'}
+            </label>
 
-                return (
+            {selectedProvider === 'garmin' ? (
+              // Multi-select checkbox grid for Garmin
+              <div className="grid grid-cols-2 gap-2">
+                {YEAR_OPTIONS.map((option) => {
+                  const isBackfilled = garminBackfilledYears.has(option.value);
+                  const isInProgress = garminInProgressYears.has(option.value);
+                  const isDisabled = !canSelectYear(option.value) || importState === 'loading';
+                  const isSelected = selectedYears.has(option.value);
+
+                  return (
+                    <label
+                      key={option.value}
+                      className={`
+                        flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer transition-colors
+                        ${isDisabled ? 'opacity-50 cursor-not-allowed' : ''}
+                        ${isSelected && !isDisabled
+                          ? 'border-accent bg-accent/10'
+                          : 'border-app hover:border-accent/50'}
+                      `}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        disabled={isDisabled}
+                        onChange={() => !isDisabled && toggleYearSelection(option.value)}
+                        className="w-4 h-4 text-accent border-gray-500 focus:ring-accent rounded"
+                      />
+                      <span className={`flex-1 text-sm ${isDisabled ? 'text-muted' : 'text-primary'}`}>
+                        {option.label}
+                      </span>
+                      {isBackfilled && (
+                        <FaCheck className="w-3 h-3 text-green-400" title="Already imported" />
+                      )}
+                      {isInProgress && !isBackfilled && (
+                        <div className="w-3 h-3 border border-yellow-400 border-t-transparent rounded-full animate-spin" title="In progress" />
+                      )}
+                    </label>
+                  );
+                })}
+              </div>
+            ) : (
+              // Single-select dropdown for Strava
+              <select
+                value={selectedYear}
+                onChange={(e) => setSelectedYear(e.target.value)}
+                className="w-full input-soft"
+                disabled={importState === 'loading'}
+              >
+                {YEAR_OPTIONS.map((option) => (
                   <option key={option.value} value={option.value}>
                     {option.label}
-                    {isBackfilled ? ' ✓' : ''}
                   </option>
-                );
-              })}
-            </select>
+                ))}
+              </select>
+            )}
           </div>
 
           {/* Backfill history for selected provider */}
@@ -363,21 +473,33 @@ export function ImportRidesForm({ connectedProviders }: ImportRidesFormProps) {
           <button
             type="button"
             onClick={handleImport}
-            disabled={!selectedProvider || importState === 'loading' || isYearAlreadyBackfilled || isYtdInProgress}
+            disabled={
+              !selectedProvider ||
+              importState === 'loading' ||
+              (selectedProvider === 'garmin' && selectableYearsCount === 0) ||
+              (selectedProvider === 'strava' && (isYearAlreadyBackfilled || isYtdInProgress))
+            }
             className={`
               w-full py-3 px-4 rounded-lg text-sm font-medium transition-all
-              ${!selectedProvider || importState === 'loading' || isYearAlreadyBackfilled || isYtdInProgress
+              ${!selectedProvider ||
+                importState === 'loading' ||
+                (selectedProvider === 'garmin' && selectableYearsCount === 0) ||
+                (selectedProvider === 'strava' && (isYearAlreadyBackfilled || isYtdInProgress))
                 ? 'bg-gray-300 dark:bg-gray-700 text-gray-500 cursor-not-allowed'
                 : 'bg-accent text-white hover:bg-accent-hover'}
             `}
           >
             {importState === 'loading'
               ? 'Importing...'
-              : isYtdInProgress
-                ? 'Import In Progress'
-                : isYearAlreadyBackfilled
-                  ? 'Already Imported'
-                  : 'Start Import'}
+              : selectedProvider === 'garmin'
+                ? selectableYearsCount === 0
+                  ? 'Select years to import'
+                  : `Start Import (${selectableYearsCount} ${selectableYearsCount === 1 ? 'year' : 'years'})`
+                : isYtdInProgress
+                  ? 'Import In Progress'
+                  : isYearAlreadyBackfilled
+                    ? 'Already Imported'
+                    : 'Start Import'}
           </button>
         </div>
       )}

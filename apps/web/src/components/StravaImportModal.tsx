@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
+import { FaCheck } from 'react-icons/fa';
 import StravaGearMappingModal from './StravaGearMappingModal';
-import { Modal, Select, Button } from './ui';
+import { Modal, Button } from './ui';
 import { getAuthHeaders } from '@/lib/csrf';
 
 type Props = {
@@ -15,6 +16,29 @@ type UnmappedGear = {
   rideCount: number;
 };
 
+interface BackfillRequest {
+  id: string;
+  provider: 'strava' | 'garmin';
+  year: string;
+  status: 'pending' | 'in_progress' | 'completed' | 'failed';
+  ridesFound: number | null;
+  backfilledUpTo: string | null;
+  createdAt: string;
+  updatedAt: string;
+  completedAt: string | null;
+}
+
+const CURRENT_YEAR = new Date().getFullYear();
+
+// Generate year options: YTD + 5 previous years (current year is redundant with YTD)
+const YEAR_OPTIONS = [
+  { value: 'ytd', label: `Year to Date (${CURRENT_YEAR})` },
+  ...Array.from({ length: 5 }, (_, i) => ({
+    value: String(CURRENT_YEAR - 1 - i),
+    label: String(CURRENT_YEAR - 1 - i),
+  })),
+];
+
 export default function StravaImportModal({ open, onClose, onSuccess, onDuplicatesFound }: Props) {
   const [step, setStep] = useState<'period' | 'processing' | 'complete'>('period');
   const [year, setYear] = useState<string>('ytd');
@@ -28,9 +52,77 @@ export default function StravaImportModal({ open, onClose, onSuccess, onDuplicat
   const [unmappedGears, setUnmappedGears] = useState<UnmappedGear[]>([]);
   const [showGearMapping, setShowGearMapping] = useState(false);
   const [duplicatesFound, setDuplicatesFound] = useState(0);
+  const [backfillHistory, setBackfillHistory] = useState<BackfillRequest[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
+
+  // Get years that are already backfilled (YTD is always allowed - incremental)
+  const backfilledYears = useMemo(() => {
+    return new Set(
+      backfillHistory
+        .filter(
+          (req) =>
+            req.provider === 'strava' &&
+            req.year !== 'ytd' && // YTD is always allowed (incremental)
+            req.status !== 'failed' // Failed can be retried
+        )
+        .map((req) => req.year)
+    );
+  }, [backfillHistory]);
+
+  // Get years that are in progress
+  const inProgressYears = useMemo(() => {
+    return new Set(
+      backfillHistory
+        .filter(
+          (req) =>
+            req.provider === 'strava' &&
+            (req.status === 'in_progress' || req.status === 'pending')
+        )
+        .map((req) => req.year)
+    );
+  }, [backfillHistory]);
+
+  // Helper to check if a year can be selected
+  const canSelectYear = (yearValue: string): boolean => {
+    if (yearValue === 'ytd') {
+      return !inProgressYears.has('ytd');
+    }
+    return !backfilledYears.has(yearValue) && !inProgressYears.has(yearValue);
+  };
+
+  // Check if selected year can be imported
+  const canImport = canSelectYear(year);
+
+  // Get status for a year
+  const getYearStatus = (yearValue: string): 'backfilled' | 'in_progress' | 'available' => {
+    if (inProgressYears.has(yearValue)) return 'in_progress';
+    if (backfilledYears.has(yearValue)) return 'backfilled';
+    return 'available';
+  };
+
+  // Fetch backfill history
+  const fetchHistory = async () => {
+    try {
+      const baseUrl = import.meta.env.VITE_API_URL;
+      const response = await fetch(`${baseUrl}/api/backfill/history`, {
+        credentials: 'include',
+        headers: getAuthHeaders(),
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setBackfillHistory(data.requests || []);
+      }
+    } catch {
+      // Silently fail - history is supplementary
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
 
   useEffect(() => {
-    if (!open) {
+    if (open) {
+      fetchHistory();
+    } else {
       // Reset state when modal closes
       setStep('period');
       setYear('ytd');
@@ -40,10 +132,16 @@ export default function StravaImportModal({ open, onClose, onSuccess, onDuplicat
       setUnmappedGears([]);
       setShowGearMapping(false);
       setDuplicatesFound(0);
+      setHistoryLoading(true);
     }
   }, [open]);
 
   const handleTriggerImport = async () => {
+    if (!canImport) {
+      setError('This year has already been imported');
+      return;
+    }
+
     setError(null);
     setStep('processing');
 
@@ -52,11 +150,21 @@ export default function StravaImportModal({ open, onClose, onSuccess, onDuplicat
         `${import.meta.env.VITE_API_URL}/api/strava/backfill/fetch?year=${year}`,
         {
           credentials: 'include',
+          headers: getAuthHeaders(),
         }
       );
 
       if (!res.ok) {
         const errorData = await res.json();
+
+        // Handle 409 Conflict (already backfilled)
+        if (res.status === 409) {
+          setSuccessMessage(errorData.message || 'This year has already been imported.');
+          setStep('complete');
+          await fetchHistory();
+          return;
+        }
+
         throw new Error(errorData.error || 'Failed to import activities');
       }
 
@@ -92,6 +200,9 @@ export default function StravaImportModal({ open, onClose, onSuccess, onDuplicat
         console.error('Failed to scan for duplicates:', scanErr);
       }
 
+      // Refresh history
+      await fetchHistory();
+
       // Call onSuccess to trigger parent refresh
       onSuccess();
     } catch (err) {
@@ -118,23 +229,61 @@ export default function StravaImportModal({ open, onClose, onSuccess, onDuplicat
                 Activities will be fetched and imported immediately.
               </p>
 
-              <Select
-                label="Select Year"
-                value={year}
-                onChange={(e) => setYear(e.target.value)}
-                hint={year === 'ytd'
-                  ? `Import all rides from January 1, ${new Date().getFullYear()} to today`
-                  : `Import all rides from ${year}`
-                }
-              >
-                <option value="ytd">Year to Date ({new Date().getFullYear()})</option>
-                <option value={new Date().getFullYear()}>{new Date().getFullYear()}</option>
-                <option value={new Date().getFullYear() - 1}>{new Date().getFullYear() - 1}</option>
-                <option value={new Date().getFullYear() - 2}>{new Date().getFullYear() - 2}</option>
-                <option value={new Date().getFullYear() - 3}>{new Date().getFullYear() - 3}</option>
-                <option value={new Date().getFullYear() - 4}>{new Date().getFullYear() - 4}</option>
-                <option value={new Date().getFullYear() - 5}>{new Date().getFullYear() - 5}</option>
-              </Select>
+              <label className="block text-sm font-medium text-muted mb-2">
+                Year to import
+              </label>
+
+              {historyLoading ? (
+                <div className="flex items-center gap-2 text-sm text-muted py-4">
+                  <div className="w-4 h-4 border border-muted border-t-transparent rounded-full animate-spin" />
+                  Loading...
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-2">
+                  {YEAR_OPTIONS.map((option) => {
+                    const status = getYearStatus(option.value);
+                    const isBackfilled = status === 'backfilled';
+                    const isInProgress = status === 'in_progress';
+                    const isDisabled = !canSelectYear(option.value);
+                    const isSelected = year === option.value;
+
+                    return (
+                      <label
+                        key={option.value}
+                        className={`
+                          flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer transition-colors
+                          ${isDisabled ? 'opacity-50 cursor-not-allowed' : ''}
+                          ${isSelected && !isDisabled
+                            ? 'border-accent bg-accent/10'
+                            : 'border-app hover:border-accent/50'}
+                        `}
+                      >
+                        <input
+                          type="radio"
+                          name="strava-year"
+                          checked={isSelected}
+                          disabled={isDisabled}
+                          onChange={() => !isDisabled && setYear(option.value)}
+                          className="w-4 h-4 text-accent border-gray-500 focus:ring-accent"
+                        />
+                        <span className={`flex-1 text-sm ${isDisabled ? 'text-muted' : 'text-primary'}`}>
+                          {option.label}
+                        </span>
+                        {isBackfilled && (
+                          <FaCheck className="w-3 h-3 text-green-400" title="Already imported" />
+                        )}
+                        {isInProgress && (
+                          <div className="w-3 h-3 border border-yellow-400 border-t-transparent rounded-full animate-spin" title="In progress" />
+                        )}
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+
+              <p className="text-xs text-muted mt-2">
+                Year to Date can be run multiple times to fetch new rides since your last import.
+              </p>
             </div>
 
             {error && (
@@ -147,8 +296,16 @@ export default function StravaImportModal({ open, onClose, onSuccess, onDuplicat
               <Button variant="secondary" onClick={onClose}>
                 Cancel
               </Button>
-              <Button variant="primary" onClick={handleTriggerImport}>
-                Import Rides
+              <Button
+                variant="primary"
+                onClick={handleTriggerImport}
+                disabled={!canImport || historyLoading}
+              >
+                {!canImport
+                  ? inProgressYears.has(year)
+                    ? 'Import In Progress'
+                    : 'Already Imported'
+                  : 'Import Rides'}
               </Button>
             </div>
           </div>
@@ -159,8 +316,8 @@ export default function StravaImportModal({ open, onClose, onSuccess, onDuplicat
           <div className="space-y-6">
             <div className="flex flex-col items-center justify-center py-8">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mb-4"></div>
-              <p className="text-muted">Importing activities from Strava...</p>< br/>
-              <p className="text-muted text-center">Depending on how many rides you have completed,< br/>this may take 1-2 minutes.</p>
+              <p className="text-muted">Importing activities from Strava...</p><br/>
+              <p className="text-muted text-center">Depending on how many rides you have completed,<br/>this may take 1-2 minutes.</p>
             </div>
           </div>
         )}

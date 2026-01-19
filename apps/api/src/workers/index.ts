@@ -1,6 +1,7 @@
 import { createSyncWorker, closeSyncWorker } from './sync.worker';
+import { createBackfillWorker, closeBackfillWorker } from './backfill.worker';
 import { closeRedisConnection } from '../lib/redis';
-import { closeSyncQueue } from '../lib/queue';
+import { closeSyncQueue, closeBackfillQueue } from '../lib/queue';
 
 /**
  * Start all BullMQ workers.
@@ -10,6 +11,7 @@ export function startWorkers(): void {
   console.log('[Workers] Starting BullMQ workers...');
 
   createSyncWorker();
+  createBackfillWorker();
 
   console.log('[Workers] All workers started');
 }
@@ -28,12 +30,13 @@ export async function stopWorkers(): Promise<void> {
     // First, close workers (stop processing new jobs)
     const workerResults = await Promise.allSettled([
       closeSyncWorker(),
+      closeBackfillWorker(),
     ]);
 
     // Log any worker shutdown failures
     workerResults.forEach((result, index) => {
       if (result.status === 'rejected') {
-        const workerNames = ['SyncWorker'];
+        const workerNames = ['SyncWorker', 'BackfillWorker'];
         console.error(`[Workers] Failed to close ${workerNames[index]}:`, result.reason);
       }
     });
@@ -41,12 +44,13 @@ export async function stopWorkers(): Promise<void> {
     // Then, close queue connections
     const queueResults = await Promise.allSettled([
       closeSyncQueue(),
+      closeBackfillQueue(),
     ]);
 
     // Log any queue shutdown failures
     queueResults.forEach((result, index) => {
       if (result.status === 'rejected') {
-        const queueNames = ['SyncQueue'];
+        const queueNames = ['SyncQueue', 'BackfillQueue'];
         console.error(`[Workers] Failed to close ${queueNames[index]}:`, result.reason);
       }
     });
