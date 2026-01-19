@@ -56,6 +56,7 @@ vi.mock('react-icons/fa', () => {
     FaTrophy: createIcon('trophy-icon', '🏆'),
     FaMapMarkerAlt: createIcon('map-marker-icon', '📍'),
     FaHeartbeat: createIcon('heartbeat-icon', '💓'),
+    FaHistory: createIcon('history-icon', '⏱'),
   };
 });
 

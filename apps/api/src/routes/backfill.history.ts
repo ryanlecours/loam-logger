@@ -21,8 +21,10 @@ r.get<Empty, void, Empty, { provider?: string }>(
     try {
       const where: { userId: string; provider?: 'strava' | 'garmin' } = { userId };
 
-      if (req.query.provider === 'strava' || req.query.provider === 'garmin') {
-        where.provider = req.query.provider;
+      const validProviders = ['strava', 'garmin'] as const;
+      const providerParam = req.query.provider;
+      if (typeof providerParam === 'string' && validProviders.includes(providerParam as 'strava' | 'garmin')) {
+        where.provider = providerParam as 'strava' | 'garmin';
       }
 
       const requests = await prisma.backfillRequest.findMany({

@@ -44,8 +44,9 @@ r.get<Empty, void, Empty, { days?: string; year?: string }>(
             where: { userId_provider_year: { userId, provider: 'garmin', year: 'ytd' } },
           });
 
-          if (existingYtd?.backfilledUpTo && existingYtd.status !== 'failed') {
-            // Start from where we left off (add 1 second to avoid overlap)
+          if (existingYtd?.backfilledUpTo && existingYtd.status === 'completed') {
+            // Only use incremental logic if the previous backfill fully completed
+            // This avoids missing activities if a previous backfill failed mid-way
             startDate = new Date(existingYtd.backfilledUpTo.getTime() + 1000);
             periodDescription = `new activities since ${existingYtd.backfilledUpTo.toLocaleDateString()}`;
           } else {
@@ -160,8 +161,8 @@ r.get<Empty, void, Empty, { days?: string; year?: string }>(
           errors.push(`Error for period ${currentStartDate.toISOString().split('T')[0]}`);
         }
 
-        // Move to next chunk - start exactly where the previous chunk ended
-        // This ensures no gaps between chunks (Garmin deduplicates by activity ID)
+        // Move to next chunk - start at the same timestamp the previous chunk ended
+        // This creates 1-second overlap at boundaries, but Garmin deduplicates by activity ID
         currentStartDate = new Date(actualChunkEndDate);
       }
 
@@ -178,7 +179,15 @@ r.get<Empty, void, Empty, { days?: string; year?: string }>(
           // For YTD, store the end timestamp so we can do incremental backfills later
           const backfilledUpToValue = yearKey === 'ytd' ? endDate : null;
 
-          if (totalChunks === 0 && allDuplicates) {
+          // Check current status to avoid overwriting 'completed' (race condition with webhooks)
+          const currentRecord = await prisma.backfillRequest.findUnique({
+            where: { userId_provider_year: { userId, provider: 'garmin', year: yearKey } },
+          });
+
+          // Don't overwrite 'completed' status - webhooks may have finished while we were processing
+          if (currentRecord?.status === 'completed') {
+            console.log(`[Garmin Backfill] Skipping status update - already completed for ${yearKey}`);
+          } else if (totalChunks === 0 && allDuplicates) {
             // Already in progress - update status
             await prisma.backfillRequest.upsert({
               where: { userId_provider_year: { userId, provider: 'garmin', year: yearKey } },
@@ -216,7 +225,8 @@ r.get<Empty, void, Empty, { days?: string; year?: string }>(
 
       if (totalChunks === 0) {
         return res.status(400).json({
-          error: 'Failed to trigger any backfill requests',
+          error: 'Failed to trigger backfill',
+          message: 'Unable to request historical data from Garmin. Please try again later or select a different time period.',
           details: errors,
         });
       }
@@ -328,6 +338,14 @@ r.get<Empty, void, Empty, Empty>(
 
 export default r;
 
+/**
+ * Extracts minimum start date from Garmin API 400 error response.
+ * When a backfill request is too far in the past, Garmin returns an error like:
+ * { errorMessage: "summaryStartTimeInSeconds must be greater than or equal to min start time of 2023-01-15T00:00:00Z" }
+ *
+ * @param errorText - Raw error text (JSON) from Garmin API
+ * @returns Parsed minimum start Date, or null if not found/parseable
+ */
 function extractMinStartDate(errorText: string): Date | null {
   try {
     const parsed = JSON.parse(errorText);

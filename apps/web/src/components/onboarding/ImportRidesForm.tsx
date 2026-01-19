@@ -49,6 +49,7 @@ export function ImportRidesForm({ connectedProviders }: ImportRidesFormProps) {
   const [importStats, setImportStats] = useState<ImportStats | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [backfillHistory, setBackfillHistory] = useState<BackfillRequest[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
 
   // Get years that are already backfilled for Garmin (YTD is always allowed - incremental)
   const garminBackfilledYears = useMemo(() => {
@@ -80,6 +81,7 @@ export function ImportRidesForm({ connectedProviders }: ImportRidesFormProps) {
   // Fetch backfill history on mount
   useEffect(() => {
     const fetchHistory = async () => {
+      setHistoryLoading(true);
       try {
         const baseUrl = import.meta.env.VITE_API_URL;
         const response = await fetch(`${baseUrl}/backfill/history`, {
@@ -92,6 +94,8 @@ export function ImportRidesForm({ connectedProviders }: ImportRidesFormProps) {
         }
       } catch {
         // Silently fail - history is supplementary
+      } finally {
+        setHistoryLoading(false);
       }
     };
     fetchHistory();
@@ -291,9 +295,15 @@ export function ImportRidesForm({ connectedProviders }: ImportRidesFormProps) {
           </div>
 
           {/* Backfill history for selected provider */}
-          {selectedProvider && backfillHistory.length > 0 && (
+          {selectedProvider && (historyLoading || backfillHistory.filter(r => r.provider === selectedProvider).length > 0) && (
             <div className="space-y-2">
               <label className="block text-sm font-medium text-muted">Previously requested</label>
+              {historyLoading ? (
+                <div className="flex items-center gap-2 text-sm text-muted">
+                  <div className="w-3 h-3 border border-muted border-t-transparent rounded-full animate-spin" />
+                  Loading history...
+                </div>
+              ) : (
               <div className="flex flex-wrap gap-2">
                 {backfillHistory
                   .filter((req) => req.provider === selectedProvider)
@@ -322,6 +332,22 @@ export function ImportRidesForm({ connectedProviders }: ImportRidesFormProps) {
                     </div>
                   ))}
               </div>
+              )}
+            </div>
+          )}
+
+          {/* Bike assignment note */}
+          {selectedProvider && (
+            <div className="p-3 rounded-lg bg-blue-500/10 border border-blue-500/20 text-sm text-muted">
+              {selectedProvider === 'garmin' ? (
+                <>
+                  <span className="font-medium text-primary">Note:</span> If you rode multiple bikes, you'll need to assign the correct bike to each ride after import. Unassigned rides won't contribute to component wear tracking.
+                </>
+              ) : (
+                <>
+                  <span className="font-medium text-primary">Note:</span> You'll be prompted to map your Strava gear to your bikes. Unmapped gear won't contribute to component wear tracking.
+                </>
+              )}
             </div>
           )}
 
