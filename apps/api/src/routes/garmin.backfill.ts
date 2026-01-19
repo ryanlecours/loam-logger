@@ -44,6 +44,14 @@ r.get<Empty, void, Empty, { days?: string; year?: string }>(
             where: { userId_provider_year: { userId, provider: 'garmin', year: 'ytd' } },
           });
 
+          // Block re-triggering if a YTD backfill is already in progress
+          if (existingYtd?.status === 'in_progress') {
+            return res.status(409).json({
+              error: 'Backfill already in progress',
+              message: 'A YTD backfill is already in progress. Please wait for it to complete before requesting another.',
+            });
+          }
+
           if (existingYtd?.backfilledUpTo && existingYtd.status === 'completed') {
             // Only use incremental logic if the previous backfill fully completed
             // This avoids missing activities if a previous backfill failed mid-way

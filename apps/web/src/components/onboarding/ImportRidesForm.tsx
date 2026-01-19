@@ -71,6 +71,14 @@ export function ImportRidesForm({ connectedProviders }: ImportRidesFormProps) {
     selectedYear !== 'ytd' &&
     garminBackfilledYears.has(selectedYear);
 
+  // Check if YTD is currently in progress (Garmin only - blocks re-triggering)
+  const isYtdInProgress = useMemo(() => {
+    if (selectedProvider !== 'garmin' || selectedYear !== 'ytd') return false;
+    return backfillHistory.some(
+      (req) => req.provider === 'garmin' && req.year === 'ytd' && req.status === 'in_progress'
+    );
+  }, [backfillHistory, selectedProvider, selectedYear]);
+
   // Auto-select provider if only one is connected
   useEffect(() => {
     if (connectedProviders.length === 1 && !selectedProvider) {
@@ -355,19 +363,21 @@ export function ImportRidesForm({ connectedProviders }: ImportRidesFormProps) {
           <button
             type="button"
             onClick={handleImport}
-            disabled={!selectedProvider || importState === 'loading' || isYearAlreadyBackfilled}
+            disabled={!selectedProvider || importState === 'loading' || isYearAlreadyBackfilled || isYtdInProgress}
             className={`
               w-full py-3 px-4 rounded-lg text-sm font-medium transition-all
-              ${!selectedProvider || importState === 'loading' || isYearAlreadyBackfilled
+              ${!selectedProvider || importState === 'loading' || isYearAlreadyBackfilled || isYtdInProgress
                 ? 'bg-gray-300 dark:bg-gray-700 text-gray-500 cursor-not-allowed'
                 : 'bg-accent text-white hover:bg-accent-hover'}
             `}
           >
             {importState === 'loading'
               ? 'Importing...'
-              : isYearAlreadyBackfilled
-                ? 'Already Imported'
-                : 'Start Import'}
+              : isYtdInProgress
+                ? 'Import In Progress'
+                : isYearAlreadyBackfilled
+                  ? 'Already Imported'
+                  : 'Start Import'}
           </button>
         </div>
       )}

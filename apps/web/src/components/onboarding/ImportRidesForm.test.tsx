@@ -244,6 +244,27 @@ describe('ImportRidesForm', () => {
       });
     });
 
+    it('disables YTD import when already in progress', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          success: true,
+          requests: [
+            { id: '1', provider: 'garmin', year: 'ytd', status: 'in_progress', ridesFound: null },
+          ],
+        }),
+      });
+
+      render(<ImportRidesForm connectedProviders={['garmin']} />);
+
+      fireEvent.click(screen.getByRole('button', { name: /Import past rides/i }));
+
+      await waitFor(() => {
+        const importButton = screen.getByRole('button', { name: /Import In Progress/i });
+        expect(importButton).toBeDisabled();
+      });
+    });
+
     it('allows retry for failed backfills', async () => {
       mockFetch.mockResolvedValue({
         ok: true,

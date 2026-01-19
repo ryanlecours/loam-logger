@@ -39,6 +39,7 @@ model User {
   accounts            UserAccount[]
   emailSends          EmailSend[]
   termsAcceptances    TermsAcceptance[]
+  backfillRequests    BackfillRequest[]
 }
 
 model OauthToken {
@@ -342,6 +343,7 @@ model GeoCache {
 model BackfillRequest {
   id             String              @id @default(cuid())
   userId         String
+  user           User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   provider       AuthProvider
   year           String              // "ytd", "2025", "2024", etc.
   status         BackfillStatus      @default(pending)

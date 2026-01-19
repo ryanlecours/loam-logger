@@ -269,7 +269,7 @@ describe('GET /garmin/backfill/fetch', () => {
       expect(fetchUrl).toContain(`summaryStartTimeInSeconds=${expectedStart}`);
     });
 
-    it('should NOT use incremental logic when previous YTD is in_progress', async () => {
+    it('should return 409 when previous YTD is in_progress', async () => {
       mockReq.query = { year: 'ytd' };
       const previousEndDate = new Date('2024-06-15T12:00:00Z');
       mockBackfillFindUnique.mockResolvedValue({
@@ -281,13 +281,12 @@ describe('GET /garmin/backfill/fetch', () => {
 
       await invokeHandler(handler, mockReq as Request, mockRes as Response);
 
-      expect(mockFetch).toHaveBeenCalled();
-      const fetchUrl = mockFetch.mock.calls[0][0] as string;
-      // Should start from Jan 1, not from backfilledUpTo
-      const currentYear = new Date().getFullYear();
-      const jan1 = new Date(currentYear, 0, 1);
-      const jan1Seconds = Math.floor(jan1.getTime() / 1000);
-      expect(fetchUrl).toContain(`summaryStartTimeInSeconds=${jan1Seconds}`);
+      // Should return 409 and not proceed with backfill
+      expect(statusCode).toBe(409);
+      expect(jsonResponse).toMatchObject({
+        error: 'Backfill already in progress',
+      });
+      expect(mockFetch).not.toHaveBeenCalled();
     });
 
     it('should NOT use incremental logic when previous YTD failed', async () => {
