@@ -1,9 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useApolloClient, useQuery, gql } from '@apollo/client';
-import { FaMountain, FaStrava, FaHistory, FaCog, FaCheck, FaChevronDown, FaChevronUp } from 'react-icons/fa';
-import { HiSparkles, HiClock } from 'react-icons/hi2';
-import { type AcquisitionCondition } from '@loam/shared';
+import { FaMountain, FaStrava, FaCog, FaCheck } from 'react-icons/fa';
 import { ME_QUERY } from '../graphql/me';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { Button } from '@/components/ui';
@@ -13,6 +11,7 @@ import { BikeImageSelector } from '@/components/BikeImageSelector';
 import { useSpokes, type SpokesBikeDetails } from '@/hooks/useSpokes';
 import { TermsAcceptanceStep } from '@/components/TermsAcceptanceStep';
 import { ServiceHistoryForm } from '@/components/onboarding/ServiceHistoryForm';
+import { ImportRidesForm } from '@/components/onboarding/ImportRidesForm';
 import {
   toSpokesInput,
   isValidImageUrl,
@@ -81,27 +80,7 @@ type OnboardingData = {
   };
   // 99spokes components for auto-creation
   spokesComponents?: Record<string, SpokesComponentData | null>;
-  // Bike acquisition condition for wear tracking
-  acquisitionCondition?: AcquisitionCondition;
 };
-
-const STOCK_OPTIONS = [
-  {
-    value: 'NEW' as const,  // Maps to NEW for backend compatibility
-    title: 'All Stock',
-    description: 'Components are unchanged from the factory.',
-    tooltip: 'Best for most bikes. Component specs come from 99spokes database.',
-    Icon: HiSparkles,
-    recommended: true,
-  },
-  {
-    value: 'USED' as const,  // Maps to USED - signals components need attention
-    title: 'Some Swapped',
-    description: "I've replaced some parts since buying.",
-    tooltip: 'You can update component details in bike settings after creation.',
-    Icon: HiClock,
-  },
-];
 
 export default function Onboarding() {
   const navigate = useNavigate();
@@ -114,13 +93,8 @@ export default function Onboarding() {
   const [spokesDetails, setSpokesDetails] = useState<SpokesBikeDetails | null>(null);
   const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null);
 
-  // Step 6: Component dropdown expanded state
-  const [componentsExpanded, setComponentsExpanded] = useState(false);
-
-  // Step 8: Personalization state
+  // Step 7: Personalization state
   const [bikeId, setBikeId] = useState<string | null>(null);
-  const [backfillState, setBackfillState] = useState<'idle' | 'loading' | 'done'>('idle');
-  const [backfillStats, setBackfillStats] = useState<{ imported: number; skipped: number } | null>(null);
 
   // Get bike image URL with fallback to images array, validated for security
   const getBikeImageUrl = () => {
@@ -327,13 +301,7 @@ export default function Onboarding() {
 
     // Step 5 (colorway) has no validation - optional selection
 
-    // Validate stock status selection on step 6
-    if (currentStep === 6 && !data.acquisitionCondition) {
-      setError('Please select your component status');
-      return;
-    }
-
-    if (currentStep < 7) {
+    if (currentStep < 6) {
       setCurrentStep(currentStep + 1);
       setError(null);
     }
@@ -347,13 +315,6 @@ export default function Onboarding() {
   };
 
   const handleComplete = async () => {
-    // Validate acquisitionCondition in case user bypassed Step 6 validation
-    if (!data.acquisitionCondition) {
-      setError('Please select your component status');
-      setCurrentStep(6);
-      return;
-    }
-
     setLoadingState('saving');
     setError(null);
 
@@ -409,8 +370,8 @@ export default function Onboarding() {
       sessionStorage.removeItem('onboarding_data');
 
       setLoadingState('idle');
-      // Advance to Step 8 (Personalization) instead of redirecting
-      setCurrentStep(8);
+      // Advance to Step 7 (Personalization) instead of redirecting
+      setCurrentStep(7);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
       setLoadingState('idle');
@@ -437,37 +398,7 @@ export default function Onboarding() {
     navigate('/dashboard', { replace: true });
   };
 
-  const handleBackfillRides = async () => {
-    setBackfillState('loading');
-    try {
-      const hasStrava = accounts.some((a: { provider: string }) => a.provider === 'strava');
-      const hasGarmin = accounts.some((a: { provider: string }) => a.provider === 'garmin');
-
-      if (hasStrava) {
-        const response = await fetch(
-          `${import.meta.env.VITE_API_URL}/strava/backfill/fetch?year=ytd`,
-          { credentials: 'include', headers: getAuthHeaders() }
-        );
-        const backfillData = await response.json();
-        setBackfillStats({ imported: backfillData.imported || 0, skipped: backfillData.duplicates || 0 });
-      } else if (hasGarmin) {
-        // Garmin is async via webhooks - trigger and show message
-        await fetch(
-          `${import.meta.env.VITE_API_URL}/garmin/backfill/fetch?days=365`,
-          { credentials: 'include', headers: getAuthHeaders() }
-        );
-        // Garmin activities arrive via webhook, so we show a pending message
-        setBackfillStats({ imported: -1, skipped: 0 }); // -1 indicates async
-      }
-      setBackfillState('done');
-    } catch (err) {
-      console.error('Backfill failed:', err);
-      setBackfillState('idle');
-      setError('Failed to import rides. You can try again from the dashboard.');
-    }
-  };
-
-  const progressPercentage = (currentStep / 8) * 100;
+  const progressPercentage = (currentStep / 7) * 100;
 
   return (
     <div className="min-h-screen w-full relative flex items-center justify-center px-4 py-10">
@@ -623,43 +554,48 @@ export default function Onboarding() {
 
               {/* Selected bike display */}
               {data.bikeMake && data.bikeModel && !showManualBikeEntry && (
-                <div className="rounded-lg bg-surface-2 p-4 border border-app text-left">
-                  <div className="flex gap-4">
-                    {getBikeImageUrl() && (
-                      <img
-                        src={getBikeImageUrl()!}
-                        alt={`${data.bikeYear} ${data.bikeMake} ${data.bikeModel}`}
-                        className="w-24 h-18 object-contain rounded bg-white/5"
-                        onError={(e) => {
-                          e.currentTarget.style.display = 'none';
-                        }}
-                      />
-                    )}
-                    <div className="flex-1">
-                      <p className="text-heading font-medium">
-                        {data.bikeYear} {data.bikeMake} {data.bikeModel}
-                      </p>
-                      {(data.bikeTravelFork || data.bikeTravelShock) && (
-                        <p className="text-sm text-muted mt-1">
-                          {data.bikeTravelFork && `Fork: ${data.bikeTravelFork}mm`}
-                          {data.bikeTravelFork && data.bikeTravelShock && ' / '}
-                          {data.bikeTravelShock && `Shock: ${data.bikeTravelShock}mm`}
+                <>
+                  <div className="rounded-lg bg-accent/10 p-4 border border-accent/30 text-left">
+                    <div className="flex gap-4">
+                      {getBikeImageUrl() && (
+                        <img
+                          src={getBikeImageUrl()!}
+                          alt={`${data.bikeYear} ${data.bikeMake} ${data.bikeModel}`}
+                          className="w-24 h-18 object-contain rounded bg-white/10"
+                          onError={(e) => {
+                            e.currentTarget.style.display = 'none';
+                          }}
+                        />
+                      )}
+                      <div className="flex-1">
+                        <p className="text-heading font-medium">
+                          {data.bikeYear} {data.bikeMake} {data.bikeModel}
                         </p>
-                      )}
-                      {data.category && (
-                        <p className="text-xs text-muted mt-1 capitalize">{data.category}</p>
-                      )}
+                        {(data.bikeTravelFork || data.bikeTravelShock) && (
+                          <p className="text-sm text-muted mt-1">
+                            {data.bikeTravelFork && `Fork: ${data.bikeTravelFork}mm`}
+                            {data.bikeTravelFork && data.bikeTravelShock && ' / '}
+                            {data.bikeTravelShock && `Shock: ${data.bikeTravelShock}mm`}
+                          </p>
+                        )}
+                        {data.category && (
+                          <p className="text-xs text-muted mt-1 capitalize">{data.category}</p>
+                        )}
+                      </div>
                     </div>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => setShowManualBikeEntry(true)}
-                    className="text-xs text-primary hover:underline mt-3"
-                  >
-                    Edit details manually
-                  </button>
-                </div>
+                  <p className="text-sm text-muted mt-3">
+                    Bike not found?{' '}
+                    <button
+                      type="button"
+                      onClick={() => setShowManualBikeEntry(true)}
+                      className="text-accent hover:underline"
+                    >
+                      Enter bike details manually
+                    </button>
+                  </p>
+                </>
               )}
 
               {/* Manual entry toggle when no bike selected */}
@@ -808,93 +744,8 @@ export default function Onboarding() {
             </div>
           )}
 
-          {/* Step 6: Stock Status & Components */}
+          {/* Step 6: Device Connections */}
           {currentStep === 6 && (
-            <div className="space-y-6 text-center">
-              <div className="space-y-2">
-                <div className="flex justify-center mb-4">
-                  <div className="w-16 h-16 rounded-full border-2 border-primary/30 flex items-center justify-center">
-                    <span className="text-2xl">🔧</span>
-                  </div>
-                </div>
-                <h2 className="text-3xl font-semibold text-white">Are your components stock?</h2>
-                <p className="text-muted">
-                  This helps us set up accurate component tracking. You can always update details later.
-                </p>
-              </div>
-
-              {/* Stock status options */}
-              <div className="grid gap-3 text-left">
-                {STOCK_OPTIONS.map((option) => (
-                  <button
-                    key={option.value}
-                    type="button"
-                    title={option.tooltip}
-                    onClick={() => setData((prev) => ({ ...prev, acquisitionCondition: option.value }))}
-                    className={`w-full p-4 rounded-lg border-2 text-left transition-all ${
-                      data.acquisitionCondition === option.value
-                        ? 'border-accent bg-accent/10'
-                        : 'border-app hover:border-accent/50 hover:bg-surface-hover'
-                    }`}
-                  >
-                    <div className="flex items-start gap-3">
-                      <option.Icon className="w-6 h-6 text-accent mt-0.5 shrink-0" />
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium text-primary">{option.title}</span>
-                          {option.recommended && (
-                            <span className="text-xs px-2 py-0.5 rounded-full bg-accent/20 text-accent font-medium">
-                              Recommended
-                            </span>
-                          )}
-                        </div>
-                        <div className="text-sm text-muted mt-0.5">{option.description}</div>
-                      </div>
-                    </div>
-                  </button>
-                ))}
-              </div>
-
-              {/* Expandable component list from 99spokes (uses persisted data.spokesComponents) */}
-              {data.spokesComponents && Object.keys(data.spokesComponents).length > 0 && (
-                <div className="text-left border border-app rounded-xl overflow-hidden">
-                  <button
-                    type="button"
-                    onClick={() => setComponentsExpanded(!componentsExpanded)}
-                    className="w-full px-4 py-3 flex items-center justify-between bg-surface hover:bg-surface-hover transition-colors"
-                  >
-                    <span className="text-sm font-medium text-primary">
-                      View stock components ({Object.entries(data.spokesComponents).filter(([, v]) => v && (v.maker || v.model)).length})
-                    </span>
-                    {componentsExpanded ? (
-                      <FaChevronUp className="w-4 h-4 text-muted" />
-                    ) : (
-                      <FaChevronDown className="w-4 h-4 text-muted" />
-                    )}
-                  </button>
-                  {componentsExpanded && (
-                    <div className="px-4 py-3 border-t border-app bg-surface-2 space-y-2">
-                      {Object.entries(data.spokesComponents)
-                        .filter(([, value]) => value && (value.maker || value.model))
-                        .map(([key, value]) => (
-                          <div key={key} className="flex justify-between items-start text-sm">
-                            <span className="text-muted capitalize">
-                              {key.replace(/([A-Z])/g, ' $1').trim()}
-                            </span>
-                            <span className="text-primary text-right max-w-[60%]">
-                              {[value?.maker, value?.model].filter(Boolean).join(' ')}
-                            </span>
-                          </div>
-                        ))}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Step 7: Device Connections */}
-          {currentStep === 7 && (
             <div className="space-y-6 text-center">
               <div className="space-y-2">
                 <div className="flex justify-center mb-4">
@@ -989,8 +840,8 @@ export default function Onboarding() {
             </div>
           )}
 
-          {/* Step 8: Personalization (Optional) */}
-          {currentStep === 8 && bikeId && (
+          {/* Step 7: Personalization (Optional) */}
+          {currentStep === 7 && bikeId && (
             <div className="space-y-6 text-center">
               <div className="space-y-2">
                 <div className="flex justify-center mb-4">
@@ -1006,48 +857,13 @@ export default function Onboarding() {
 
               {/* Optional Actions */}
               <div className="grid gap-3 max-w-md mx-auto text-left">
-                {/* 1. Backfill rides (only if device connected) */}
+                {/* 1. Import past rides (only if device connected) */}
                 {hasConnectedDevice && (
-                  <button
-                    onClick={handleBackfillRides}
-                    disabled={backfillState === 'loading' || backfillState === 'done'}
-                    className={`
-                      w-full p-4 rounded-lg border-2 text-left transition-all
-                      ${backfillState === 'done'
-                        ? 'border-green-500 bg-green-500/10'
-                        : 'border-app hover:border-accent/50 hover:bg-surface-hover'}
-                      ${backfillState === 'loading' ? 'opacity-70 cursor-wait' : ''}
-                    `}
-                  >
-                    <div className="flex items-start gap-3">
-                      <div className="w-8 h-8 rounded-full bg-accent/20 flex items-center justify-center shrink-0">
-                        {backfillState === 'loading' ? (
-                          <div className="w-4 h-4 border-2 border-accent border-t-transparent rounded-full animate-spin" />
-                        ) : backfillState === 'done' ? (
-                          <FaCheck className="text-green-400" />
-                        ) : (
-                          <FaHistory className="text-accent" />
-                        )}
-                      </div>
-                      <div className="flex-1">
-                        <span className="font-medium text-primary">Import past rides</span>
-                        <div className="text-sm text-muted">
-                          {backfillState === 'done' && backfillStats ? (
-                            backfillStats.imported === -1 ? (
-                              <span className="text-green-400">Import started - rides will sync shortly</span>
-                            ) : (
-                              <span className="text-green-400">
-                                {backfillStats.imported} rides imported
-                                {backfillStats.skipped > 0 && `, ${backfillStats.skipped} already existed`}
-                              </span>
-                            )
-                          ) : (
-                            'Backfill component wear from your ride history'
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </button>
+                  <ImportRidesForm
+                    connectedProviders={accounts
+                      .filter((a: { provider: string }) => a.provider === 'strava' || a.provider === 'garmin')
+                      .map((a: { provider: string }) => a.provider as 'strava' | 'garmin')}
+                  />
                 )}
 
                 {/* 2. Log Service History - inline form */}
@@ -1078,9 +894,9 @@ export default function Onboarding() {
           )}
 
           {/* Navigation Buttons */}
-          {currentStep !== 1 && currentStep !== 8 && (
+          {currentStep !== 1 && currentStep !== 7 && (
           <div className="flex gap-4 pt-6">
-            {currentStep > 1 && currentStep !== 7 && (
+            {currentStep > 1 && currentStep !== 6 && (
               <Button
                 onClick={handleBack}
                 variant="secondary"
@@ -1090,7 +906,7 @@ export default function Onboarding() {
                 Back
               </Button>
             )}
-            {currentStep < 7 ? (
+            {currentStep < 6 ? (
               <Button
                 onClick={handleNext}
                 variant="primary"

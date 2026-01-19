@@ -10,22 +10,18 @@ const r: Router = createRouter();
 
 /**
  * Fetch historical activities from Garmin for a given time period
+ * Supports both `year` parameter (ytd or specific year) and `days` parameter (1-365)
  * Returns activities that need bike assignment
  */
-r.get<Empty, void, Empty, { days?: string }>(
+r.get<Empty, void, Empty, { days?: string; year?: string }>(
   '/garmin/backfill/fetch',
-  async (req: Request<Empty, void, Empty, { days?: string }>, res: Response) => {
+  async (req: Request<Empty, void, Empty, { days?: string; year?: string }>, res: Response) => {
     const userId = req.user?.id || req.sessionUser?.uid;
     if (!userId) {
       return sendUnauthorized(res, 'Not authenticated');
     }
 
     try {
-      const days = parseInt(req.query.days || '30', 10);
-      if (isNaN(days) || days < 1 || days > 365) {
-        return sendBadRequest(res, 'Days must be between 1 and 365');
-      }
-
       // Get valid OAuth token (auto-refreshes if expired)
       const accessToken = await getValidGarminToken(userId);
 
@@ -33,9 +29,38 @@ r.get<Empty, void, Empty, { days?: string }>(
         return sendBadRequest(res, 'Garmin not connected or token expired. Please reconnect your Garmin account.');
       }
 
-      // Calculate date range
-      const endDate = new Date();
-      const startDate = subDays(endDate, days);
+      // Calculate date range based on year or days parameter
+      let startDate: Date;
+      let endDate: Date;
+      let periodDescription: string;
+
+      if (req.query.year) {
+        const currentYear = new Date().getFullYear();
+        const yearParam = req.query.year;
+
+        if (yearParam === 'ytd') {
+          startDate = new Date(currentYear, 0, 1); // Jan 1 00:00:00
+          endDate = new Date(); // Now
+          periodDescription = `year to date (${currentYear})`;
+        } else {
+          const year = parseInt(yearParam, 10);
+          if (isNaN(year) || year < 2000 || year > currentYear) {
+            return sendBadRequest(res, `Year must be between 2000 and ${currentYear}, or 'ytd'`);
+          }
+          startDate = new Date(year, 0, 1); // Jan 1 00:00:00
+          endDate = new Date(year, 11, 31, 23, 59, 59); // Dec 31 23:59:59
+          periodDescription = `year ${year}`;
+        }
+      } else {
+        // Existing days-based logic for backwards compatibility
+        const days = parseInt(req.query.days || '30', 10);
+        if (isNaN(days) || days < 1 || days > 365) {
+          return sendBadRequest(res, 'Days must be between 1 and 365');
+        }
+        endDate = new Date();
+        startDate = subDays(endDate, days);
+        periodDescription = `${days} days`;
+      }
 
       const startDateStr = startDate.toISOString().split('T')[0]; // YYYY-MM-DD
       const endDateStr = endDate.toISOString().split('T')[0];
@@ -111,9 +136,9 @@ r.get<Empty, void, Empty, { days?: string }>(
           errors.push(`Error for period ${currentStartDate.toISOString().split('T')[0]}`);
         }
 
-        // Move to next chunk
+        // Move to next chunk - start exactly where the previous chunk ended
+        // This ensures no gaps between chunks (Garmin deduplicates by activity ID)
         currentStartDate = new Date(actualChunkEndDate);
-        currentStartDate.setDate(currentStartDate.getDate() + 1);
       }
 
       console.log(`[Garmin Backfill] Triggered ${totalChunks} backfill request(s)`);
@@ -140,7 +165,7 @@ r.get<Empty, void, Empty, { days?: string }>(
       // Return success - activities will arrive via webhooks
       return res.json({
         success: true,
-        message: `Backfill triggered for ${days} days. Your rides will sync automatically via webhooks.`,
+        message: `Backfill triggered for ${periodDescription}. Your rides will sync automatically via webhooks.`,
         chunksRequested: totalChunks,
         warnings: errors.length > 0 ? errors : undefined,
       });
