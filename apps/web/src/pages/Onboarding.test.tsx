@@ -7,10 +7,12 @@ import Onboarding from './Onboarding';
 // Mock Apollo Client
 const mockUseQuery = vi.fn();
 const mockUseApolloClient = vi.fn();
+const mockUseMutation = vi.fn();
 
 vi.mock('@apollo/client', () => ({
   useQuery: (...args: unknown[]) => mockUseQuery(...args),
   useApolloClient: () => mockUseApolloClient(),
+  useMutation: (...args: unknown[]) => mockUseMutation(...args),
   gql: vi.fn((strings: TemplateStringsArray) => strings[0]),
 }));
 
@@ -98,6 +100,9 @@ describe('Onboarding', () => {
       query: vi.fn().mockResolvedValue({ data: { me: { id: 'user-123' } } }),
       writeQuery: vi.fn(),
     });
+
+    // Mock useMutation to return a function and loading state
+    mockUseMutation.mockReturnValue([vi.fn().mockResolvedValue({ data: {} }), { loading: false }]);
 
     mockGetBikeDetails.mockResolvedValue(null);
 

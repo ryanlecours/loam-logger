@@ -5,7 +5,15 @@ const STRAVA_DEAUTH_URL = 'https://www.strava.com/oauth/deauthorize';
 
 // Cache for in-flight refresh promises to prevent race conditions
 // When multiple requests need a token refresh simultaneously, they share the same promise
-const refreshPromiseCache = new Map<string, Promise<string | null>>();
+// Stores { promise, timestamp } to enable timeout-based cleanup
+interface CacheEntry {
+  promise: Promise<string | null>;
+  timestamp: number;
+}
+const refreshPromiseCache = new Map<string, CacheEntry>();
+
+// Maximum time a refresh operation should take (30 seconds)
+const REFRESH_TIMEOUT_MS = 30_000;
 
 /**
  * Revoke a Strava access token
@@ -37,7 +45,13 @@ export async function revokeStravaToken(accessToken: string): Promise<boolean> {
       return true;
     }
 
-    const text = await response.text();
+    // Safely read error response body
+    let text = '';
+    try {
+      text = await response.text();
+    } catch {
+      text = '(failed to read response body)';
+    }
     console.error(`[Strava Revoke] Failed: ${response.status} ${text}`);
     return false;
   } catch (error) {
@@ -116,15 +130,25 @@ export async function getValidStravaToken(userId: string): Promise<string | null
   }
 
   // Check if there's already a refresh in progress for this user
-  const existingPromise = refreshPromiseCache.get(userId);
-  if (existingPromise) {
-    console.log('[Strava Token] Waiting for existing refresh for user:', userId);
-    return existingPromise;
+  // Note: There's a small race window between promise completion and finally block
+  // where a second request might start a new refresh. This is acceptable as both
+  // requests will get valid tokens, just with a redundant API call.
+  const existingEntry = refreshPromiseCache.get(userId);
+  if (existingEntry) {
+    // Check if the cached promise has timed out (stale entry protection)
+    const age = Date.now() - existingEntry.timestamp;
+    if (age < REFRESH_TIMEOUT_MS) {
+      console.log('[Strava Token] Waiting for existing refresh for user:', userId);
+      return existingEntry.promise;
+    }
+    // Stale entry - remove it and proceed with new refresh
+    console.warn(`[Strava Token] Removing stale cache entry for user: ${userId} (age: ${age}ms)`);
+    refreshPromiseCache.delete(userId);
   }
 
-  // Start a new refresh and cache the promise
+  // Start a new refresh and cache the promise with timestamp
   const refreshPromise = refreshStravaToken(userId, token.refreshToken);
-  refreshPromiseCache.set(userId, refreshPromise);
+  refreshPromiseCache.set(userId, { promise: refreshPromise, timestamp: Date.now() });
 
   try {
     return await refreshPromise;
@@ -164,7 +188,12 @@ async function refreshStravaToken(userId: string, refreshToken: string): Promise
     });
 
     if (!refreshRes.ok) {
-      const text = await refreshRes.text();
+      let text = '';
+      try {
+        text = await refreshRes.text();
+      } catch {
+        text = '(failed to read response body)';
+      }
       console.error(`[Strava Token] Refresh failed: ${refreshRes.status} ${text}`);
       return null;
     }
