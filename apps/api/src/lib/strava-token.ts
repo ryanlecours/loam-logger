@@ -3,6 +3,10 @@ import { logError } from './logger';
 
 const STRAVA_DEAUTH_URL = 'https://www.strava.com/oauth/deauthorize';
 
+// Cache for in-flight refresh promises to prevent race conditions
+// When multiple requests need a token refresh simultaneously, they share the same promise
+const refreshPromiseCache = new Map<string, Promise<string | null>>();
+
 /**
  * Revoke a Strava access token
  * This invalidates the token on Strava's servers, not just locally.
@@ -78,6 +82,9 @@ export async function revokeStravaTokenForUser(userId: string): Promise<boolean>
  *
  * CRITICAL: Strava invalidates old refresh tokens when issuing new ones.
  * We must ALWAYS update BOTH accessToken AND refreshToken on refresh.
+ *
+ * Uses promise caching to prevent race conditions when multiple requests
+ * trigger token refresh simultaneously.
  */
 export async function getValidStravaToken(userId: string): Promise<string | null> {
   const token = await prisma.oauthToken.findUnique({
@@ -108,6 +115,29 @@ export async function getValidStravaToken(userId: string): Promise<string | null
     return null;
   }
 
+  // Check if there's already a refresh in progress for this user
+  const existingPromise = refreshPromiseCache.get(userId);
+  if (existingPromise) {
+    console.log('[Strava Token] Waiting for existing refresh for user:', userId);
+    return existingPromise;
+  }
+
+  // Start a new refresh and cache the promise
+  const refreshPromise = refreshStravaToken(userId, token.refreshToken);
+  refreshPromiseCache.set(userId, refreshPromise);
+
+  try {
+    return await refreshPromise;
+  } finally {
+    // Clean up the cache entry when done (success or failure)
+    refreshPromiseCache.delete(userId);
+  }
+}
+
+/**
+ * Internal function to perform the actual token refresh
+ */
+async function refreshStravaToken(userId: string, refreshToken: string): Promise<string | null> {
   try {
     const TOKEN_URL = 'https://www.strava.com/oauth/token';
     const CLIENT_ID = process.env.STRAVA_CLIENT_ID;
@@ -124,7 +154,7 @@ export async function getValidStravaToken(userId: string): Promise<string | null
       client_id: CLIENT_ID,
       client_secret: CLIENT_SECRET,
       grant_type: 'refresh_token',
-      refresh_token: token.refreshToken,
+      refresh_token: refreshToken,
     });
 
     const refreshRes = await fetch(TOKEN_URL, {

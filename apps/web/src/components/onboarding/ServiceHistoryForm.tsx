@@ -47,13 +47,19 @@ function generateId(): string {
   return Math.random().toString(36).substring(2, 9);
 }
 
+/**
+ * Build ISO date string from user-entered date components.
+ * Uses UTC to avoid timezone shift issues - the date/time entered is stored as-is.
+ * For example, if user enters "January 15, 2024 at 2:00 PM", it's stored as
+ * "2024-01-15T14:00:00.000Z" and will display back as the same date/time.
+ */
 function buildServiceDate(year: number, month: number, day: number | null, time: string): string {
   const d = day || 1;
   if (time && day) {
     const [hours, minutes] = time.split(':').map(Number);
-    return new Date(year, month - 1, d, hours, minutes, 0, 0).toISOString();
+    return new Date(Date.UTC(year, month - 1, d, hours, minutes, 0, 0)).toISOString();
   }
-  return new Date(year, month - 1, d, 0, 0, 0, 0).toISOString();
+  return new Date(Date.UTC(year, month - 1, d, 0, 0, 0, 0)).toISOString();
 }
 
 function formatEntryDate(entry: ServiceEntry): string {
@@ -130,10 +136,26 @@ export function ServiceHistoryForm({ bikeId, onComplete }: ServiceHistoryFormPro
   };
 
   // Check if date is in the future
+  // When day is specified: compare exact date
+  // When day is null (month/year only): allow current month, reject future months
   const isDateInFuture = (year: number, month: number, day: number | null): boolean => {
     const now = new Date();
-    const checkDate = new Date(year, month - 1, day || 1);
-    return checkDate > now;
+
+    if (day !== null) {
+      // Exact date specified - compare against today
+      const checkDate = new Date(year, month - 1, day);
+      // Compare dates only (ignore time)
+      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      return checkDate > todayStart;
+    }
+
+    // Month/year only - allow current month, reject future months
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth() + 1; // 1-indexed
+
+    if (year > currentYear) return true;
+    if (year === currentYear && month > currentMonth) return true;
+    return false;
   };
 
   // Add or update entry
@@ -195,7 +217,7 @@ export function ServiceHistoryForm({ bikeId, onComplete }: ServiceHistoryFormPro
     }
   };
 
-  // Save all entries
+  // Save all entries in parallel
   const handleSaveAll = async () => {
     if (entries.length === 0) return;
 
@@ -203,20 +225,41 @@ export function ServiceHistoryForm({ bikeId, onComplete }: ServiceHistoryFormPro
     setError(null);
 
     try {
-      for (const entry of entries) {
-        const performedAt = buildServiceDate(entry.year, entry.month, entry.day, entry.time);
-        await logService({
-          variables: { id: entry.componentId, performedAt }
-        });
-      }
+      // Execute all mutations in parallel for better performance
+      const results = await Promise.allSettled(
+        entries.map(entry => {
+          const performedAt = buildServiceDate(entry.year, entry.month, entry.day, entry.time);
+          return logService({
+            variables: { id: entry.componentId, performedAt }
+          });
+        })
+      );
 
-      setEntries([]);
-      setSaveSuccess(true);
-      setTimeout(() => setSaveSuccess(false), 3000);
-      onComplete?.();
+      // Check for failures
+      const failures = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+      const successes = results.filter((r): r is PromiseFulfilledResult<unknown> => r.status === 'fulfilled');
+
+      if (failures.length > 0) {
+        // Remove only the successfully saved entries, keep failures for retry
+        const failedIndices = new Set(
+          results.map((r, i) => r.status === 'rejected' ? i : -1).filter(i => i >= 0)
+        );
+        const failedEntries = entries.filter((_, i) => failedIndices.has(i));
+        setEntries(failedEntries);
+
+        console.error('Some service entries failed to save:', failures.map(f => f.reason));
+        setError(`Failed to save ${failures.length} of ${entries.length} entries. ${successes.length > 0 ? `${successes.length} saved successfully.` : ''} Please try again.`);
+      } else {
+        // All succeeded
+        setEntries([]);
+        setSaveSuccess(true);
+        setTimeout(() => setSaveSuccess(false), 3000);
+        onComplete?.();
+      }
     } catch (err) {
-      console.error('Failed to save service history:', err);
-      setError('Failed to save some service entries. Please try again.');
+      // This shouldn't happen with allSettled, but handle just in case
+      console.error('Unexpected error saving service history:', err);
+      setError('An unexpected error occurred. Please try again.');
     } finally {
       setSaving(false);
     }
@@ -352,6 +395,7 @@ export function ServiceHistoryForm({ bikeId, onComplete }: ServiceHistoryFormPro
               {showExactDate ? '− Hide exact date' : '+ Add exact date (optional)'}
             </button>
 
+            {/* Day and time are both optional - users often remember the day but not time */}
             {showExactDate && (
               <div className="grid grid-cols-2 gap-3 mt-3">
                 <div className="space-y-1.5">
@@ -367,7 +411,7 @@ export function ServiceHistoryForm({ bikeId, onComplete }: ServiceHistoryFormPro
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <label className="block text-sm font-medium text-muted">Time</label>
+                  <label className="block text-sm font-medium text-muted">Time (optional)</label>
                   <input
                     type="time"
                     value={serviceTime}

@@ -2,6 +2,10 @@ import { prisma } from './prisma';
 import { addSeconds } from 'date-fns';
 import { logError } from './logger';
 
+// Cache for in-flight refresh promises to prevent race conditions
+// When multiple requests need a token refresh simultaneously, they share the same promise
+const refreshPromiseCache = new Map<string, Promise<string | null>>();
+
 /**
  * Revoke a Garmin access token
  * This deregisters the user from Garmin's Health API, invalidating the token.
@@ -80,6 +84,9 @@ export async function revokeGarminTokenForUser(userId: string): Promise<boolean>
 /**
  * Get a valid Garmin access token for a user
  * Automatically refreshes the token if it's expired
+ *
+ * Uses promise caching to prevent race conditions when multiple requests
+ * trigger token refresh simultaneously.
  */
 export async function getValidGarminToken(userId: string): Promise<string | null> {
   const token = await prisma.oauthToken.findUnique({
@@ -110,6 +117,29 @@ export async function getValidGarminToken(userId: string): Promise<string | null
     return null;
   }
 
+  // Check if there's already a refresh in progress for this user
+  const existingPromise = refreshPromiseCache.get(userId);
+  if (existingPromise) {
+    console.log('[Garmin Token] Waiting for existing refresh for user:', userId);
+    return existingPromise;
+  }
+
+  // Start a new refresh and cache the promise
+  const refreshPromise = refreshGarminToken(userId, token.refreshToken);
+  refreshPromiseCache.set(userId, refreshPromise);
+
+  try {
+    return await refreshPromise;
+  } finally {
+    // Clean up the cache entry when done (success or failure)
+    refreshPromiseCache.delete(userId);
+  }
+}
+
+/**
+ * Internal function to perform the actual token refresh
+ */
+async function refreshGarminToken(userId: string, refreshToken: string): Promise<string | null> {
   try {
     const TOKEN_URL = process.env.GARMIN_TOKEN_URL;
     const CLIENT_ID = process.env.GARMIN_CLIENT_ID;
@@ -123,7 +153,7 @@ export async function getValidGarminToken(userId: string): Promise<string | null
 
     const body = new URLSearchParams({
       grant_type: 'refresh_token',
-      refresh_token: token.refreshToken,
+      refresh_token: refreshToken,
       client_id: CLIENT_ID,
     });
 

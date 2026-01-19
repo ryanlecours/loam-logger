@@ -58,12 +58,22 @@ router.delete('/delete-account', async (req: Request, res) => {
 
     // 4. Revoke OAuth tokens with providers BEFORE deleting locally
     // This ensures tokens are invalidated on Strava/Garmin servers
+    // Note: We proceed with deletion even if revocation fails (GDPR compliance)
     console.log(`[DeleteAccount] Revoking OAuth tokens for user: ${userId}`);
     const [stravaRevoked, garminRevoked] = await Promise.all([
       revokeStravaTokenForUser(userId),
       revokeGarminTokenForUser(userId),
     ]);
-    console.log(`[DeleteAccount] Token revocation results - Strava: ${stravaRevoked}, Garmin: ${garminRevoked}`);
+
+    // Log warnings for failed revocations - tokens will still be deleted locally
+    // but may remain valid on provider side until they expire
+    if (!stravaRevoked) {
+      console.warn(`[DeleteAccount] WARNING: Strava token revocation failed for user ${userId}. Token may remain valid on Strava until it expires.`);
+    }
+    if (!garminRevoked) {
+      console.warn(`[DeleteAccount] WARNING: Garmin token revocation failed for user ${userId}. Token may remain valid on Garmin until it expires.`);
+    }
+    console.log(`[DeleteAccount] Token revocation complete - Strava: ${stravaRevoked}, Garmin: ${garminRevoked}`);
 
     // 5. Delete OAuth tokens from database
     await prisma.oauthToken.deleteMany({
