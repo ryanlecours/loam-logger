@@ -10,22 +10,18 @@ const r: Router = createRouter();
 
 /**
  * Fetch historical activities from Garmin for a given time period
+ * Supports both `year` parameter (ytd or specific year) and `days` parameter (1-365)
  * Returns activities that need bike assignment
  */
-r.get<Empty, void, Empty, { days?: string }>(
+r.get<Empty, void, Empty, { days?: string; year?: string }>(
   '/garmin/backfill/fetch',
-  async (req: Request<Empty, void, Empty, { days?: string }>, res: Response) => {
+  async (req: Request<Empty, void, Empty, { days?: string; year?: string }>, res: Response) => {
     const userId = req.user?.id || req.sessionUser?.uid;
     if (!userId) {
       return sendUnauthorized(res, 'Not authenticated');
     }
 
     try {
-      const days = parseInt(req.query.days || '30', 10);
-      if (isNaN(days) || days < 1 || days > 365) {
-        return sendBadRequest(res, 'Days must be between 1 and 365');
-      }
-
       // Get valid OAuth token (auto-refreshes if expired)
       const accessToken = await getValidGarminToken(userId);
 
@@ -33,9 +29,71 @@ r.get<Empty, void, Empty, { days?: string }>(
         return sendBadRequest(res, 'Garmin not connected or token expired. Please reconnect your Garmin account.');
       }
 
-      // Calculate date range
-      const endDate = new Date();
-      const startDate = subDays(endDate, days);
+      // Calculate date range based on year or days parameter
+      let startDate: Date;
+      let endDate: Date;
+      let periodDescription: string;
+
+      if (req.query.year) {
+        const currentYear = new Date().getFullYear();
+        const yearParam = req.query.year;
+
+        if (yearParam === 'ytd') {
+          // Check for existing YTD backfill to enable incremental fetching
+          const existingYtd = await prisma.backfillRequest.findUnique({
+            where: { userId_provider_year: { userId, provider: 'garmin', year: 'ytd' } },
+          });
+
+          // Block re-triggering if a YTD backfill is already in progress
+          if (existingYtd?.status === 'in_progress') {
+            return res.status(409).json({
+              error: 'Backfill already in progress',
+              message: 'A YTD backfill is already in progress. Please wait for it to complete before requesting another.',
+            });
+          }
+
+          if (existingYtd?.backfilledUpTo && existingYtd.status === 'completed') {
+            // Only use incremental logic if the previous backfill fully completed
+            // This avoids missing activities if a previous backfill failed mid-way
+            startDate = new Date(existingYtd.backfilledUpTo.getTime() + 1000);
+            periodDescription = `new activities since ${existingYtd.backfilledUpTo.toLocaleDateString()}`;
+          } else {
+            startDate = new Date(currentYear, 0, 1); // Jan 1 00:00:00
+            periodDescription = `year to date (${currentYear})`;
+          }
+          endDate = new Date(); // Now
+        } else {
+          const year = parseInt(yearParam, 10);
+          if (isNaN(year) || year < 2000 || year > currentYear) {
+            return sendBadRequest(res, `Year must be between 2000 and ${currentYear}, or 'ytd'`);
+          }
+
+          // Check if this specific year has already been backfilled
+          const existingBackfill = await prisma.backfillRequest.findUnique({
+            where: { userId_provider_year: { userId, provider: 'garmin', year: yearParam } },
+          });
+
+          if (existingBackfill && existingBackfill.status !== 'failed') {
+            return res.status(409).json({
+              error: 'Year already backfilled',
+              message: `${yearParam} has already been imported. Garmin data for this year is complete.`,
+            });
+          }
+
+          startDate = new Date(year, 0, 1); // Jan 1 00:00:00
+          endDate = new Date(year, 11, 31, 23, 59, 59); // Dec 31 23:59:59
+          periodDescription = `year ${year}`;
+        }
+      } else {
+        // Existing days-based logic for backwards compatibility
+        const days = parseInt(req.query.days || '30', 10);
+        if (isNaN(days) || days < 1 || days > 365) {
+          return sendBadRequest(res, 'Days must be between 1 and 365');
+        }
+        endDate = new Date();
+        startDate = subDays(endDate, days);
+        periodDescription = `${days} days`;
+      }
 
       const startDateStr = startDate.toISOString().split('T')[0]; // YYYY-MM-DD
       const endDateStr = endDate.toISOString().split('T')[0];
@@ -111,9 +169,9 @@ r.get<Empty, void, Empty, { days?: string }>(
           errors.push(`Error for period ${currentStartDate.toISOString().split('T')[0]}`);
         }
 
-        // Move to next chunk
+        // Move to next chunk - start at the same timestamp the previous chunk ended
+        // This creates 1-second overlap at boundaries, but Garmin deduplicates by activity ID
         currentStartDate = new Date(actualChunkEndDate);
-        currentStartDate.setDate(currentStartDate.getDate() + 1);
       }
 
       console.log(`[Garmin Backfill] Triggered ${totalChunks} backfill request(s)`);
@@ -121,6 +179,48 @@ r.get<Empty, void, Empty, { days?: string }>(
       // Check if all requests were duplicates (backfill already in progress)
       const duplicateErrors = errors.filter(e => e.includes('Duplicate request'));
       const allDuplicates = duplicateErrors.length === errors.length && errors.length > 0;
+
+      // Track backfill request in database (only for year-based requests)
+      // Uses atomic conditional update to prevent race condition with webhook completion
+      const yearKey = req.query.year || null;
+      if (yearKey) {
+        try {
+          // For YTD, store the end timestamp so we can do incremental backfills later
+          const backfilledUpToValue = yearKey === 'ytd' ? endDate : null;
+
+          // Determine target status based on results
+          const targetStatus = totalChunks === 0 && !allDuplicates ? 'failed' : 'in_progress';
+          const updateData =
+            targetStatus === 'failed'
+              ? { status: targetStatus as const, updatedAt: new Date() }
+              : { status: targetStatus as const, updatedAt: new Date(), backfilledUpTo: backfilledUpToValue };
+
+          // First ensure record exists (upsert with no-op update for existing records)
+          await prisma.backfillRequest.upsert({
+            where: { userId_provider_year: { userId, provider: 'garmin', year: yearKey } },
+            update: {}, // No-op - actual update done atomically below
+            create: { userId, provider: 'garmin', year: yearKey, ...updateData },
+          });
+
+          // Atomically update ONLY if status is not 'completed' (prevents race condition with webhooks)
+          const updated = await prisma.backfillRequest.updateMany({
+            where: {
+              userId,
+              provider: 'garmin',
+              year: yearKey,
+              status: { not: 'completed' },
+            },
+            data: updateData,
+          });
+
+          if (updated.count === 0) {
+            console.log(`[Garmin Backfill] Skipping status update - already completed for ${yearKey}`);
+          }
+        } catch (dbError) {
+          logError('Garmin Backfill DB tracking', dbError);
+          // Don't fail the request if tracking fails
+        }
+      }
 
       if (totalChunks === 0 && allDuplicates) {
         return res.status(409).json({
@@ -132,7 +232,8 @@ r.get<Empty, void, Empty, { days?: string }>(
 
       if (totalChunks === 0) {
         return res.status(400).json({
-          error: 'Failed to trigger any backfill requests',
+          error: 'Failed to trigger backfill',
+          message: 'Unable to request historical data from Garmin. Please try again later or select a different time period.',
           details: errors,
         });
       }
@@ -140,7 +241,7 @@ r.get<Empty, void, Empty, { days?: string }>(
       // Return success - activities will arrive via webhooks
       return res.json({
         success: true,
-        message: `Backfill triggered for ${days} days. Your rides will sync automatically via webhooks.`,
+        message: `Backfill triggered for ${periodDescription}. Your rides will sync automatically via webhooks.`,
         chunksRequested: totalChunks,
         warnings: errors.length > 0 ? errors : undefined,
       });
@@ -244,6 +345,14 @@ r.get<Empty, void, Empty, Empty>(
 
 export default r;
 
+/**
+ * Extracts minimum start date from Garmin API 400 error response.
+ * When a backfill request is too far in the past, Garmin returns an error like:
+ * { errorMessage: "summaryStartTimeInSeconds must be greater than or equal to min start time of 2023-01-15T00:00:00Z" }
+ *
+ * @param errorText - Raw error text (JSON) from Garmin API
+ * @returns Parsed minimum start Date, or null if not found/parseable
+ */
 function extractMinStartDate(errorText: string): Date | null {
   try {
     const parsed = JSON.parse(errorText);

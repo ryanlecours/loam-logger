@@ -169,7 +169,7 @@ describe('Onboarding', () => {
     });
   });
 
-  describe('Step 6: Stock Status Options', () => {
+  describe('Step 6: Device Connections', () => {
     const navigateToStep6 = async (user: ReturnType<typeof userEvent.setup>) => {
       renderOnboarding();
 
@@ -192,74 +192,41 @@ describe('Onboarding', () => {
       // Step 5: Skip colorway
       await user.click(screen.getByText('Continue'));
 
-      // Now on Step 6 (Stock Status)
+      // Now on Step 6 (Device Connections)
     };
 
-    it('renders both stock options on Step 6', async () => {
+    it('renders device connections step', async () => {
       const user = userEvent.setup();
       await navigateToStep6(user);
 
-      expect(screen.getByText('Are your components stock?')).toBeInTheDocument();
-      expect(screen.getByText('All Stock')).toBeInTheDocument();
-      expect(screen.getByText('Some Swapped')).toBeInTheDocument();
+      expect(screen.getByText('Connect Your Devices')).toBeInTheDocument();
     });
 
-    it('shows Recommended badge on All Stock option', async () => {
+    it('shows Strava connect option', async () => {
       const user = userEvent.setup();
       await navigateToStep6(user);
 
+      expect(screen.getByText('Strava')).toBeInTheDocument();
       expect(screen.getByText('Recommended')).toBeInTheDocument();
     });
 
-    it('highlights selected option when clicked', async () => {
+    it('shows Garmin connect option', async () => {
       const user = userEvent.setup();
       await navigateToStep6(user);
 
-      const allStockButton = screen.getByText('All Stock').closest('button');
-      await user.click(allStockButton!);
-
-      expect(allStockButton).toHaveClass('border-accent');
+      expect(screen.getByText('Garmin Connect')).toBeInTheDocument();
     });
 
-    it('prevents proceeding without selecting a stock option', async () => {
+    it('shows Skip for now button', async () => {
       const user = userEvent.setup();
       await navigateToStep6(user);
 
-      // Try to continue without selecting
-      await user.click(screen.getByText('Continue'));
-
-      expect(screen.getByText('Please select your component status')).toBeInTheDocument();
-    });
-
-    it('allows proceeding after selecting a stock option', async () => {
-      const user = userEvent.setup();
-      await navigateToStep6(user);
-
-      // Select an option
-      await user.click(screen.getByText('All Stock'));
-
-      // Continue to Step 7
-      await user.click(screen.getByText('Continue'));
-
-      // Should be on Step 7 (Device Connections)
-      await waitFor(() => {
-        expect(screen.getByText('Connect Your Devices')).toBeInTheDocument();
-      });
-    });
-
-    it('can select Some Swapped option', async () => {
-      const user = userEvent.setup();
-      await navigateToStep6(user);
-
-      const someSwappedButton = screen.getByText('Some Swapped').closest('button');
-      await user.click(someSwappedButton!);
-
-      expect(someSwappedButton).toHaveClass('border-accent');
+      expect(screen.getByText('Skip for now')).toBeInTheDocument();
     });
   });
 
-  describe('handleComplete validation', () => {
-    it('validates acquisitionCondition before submission', async () => {
+  describe('handleComplete', () => {
+    it('calls onboarding complete endpoint when completing flow', async () => {
       const user = userEvent.setup();
       renderOnboarding();
 
@@ -279,174 +246,14 @@ describe('Onboarding', () => {
       // Step 5: Skip colorway
       await user.click(screen.getByText('Continue'));
 
-      // On Step 6, select All Stock option
-      await user.click(screen.getByText('All Stock'));
+      // On Step 6, click Continue to complete
       await user.click(screen.getByText('Continue'));
 
-      // On Step 7, click Continue to complete
-      await user.click(screen.getByText('Continue'));
-
-      // Should call fetch with acquisitionCondition = NEW (All Stock maps to NEW)
+      // Should call fetch to complete onboarding
       await waitFor(() => {
         expect(mockFetch).toHaveBeenCalled();
         const fetchCall = mockFetch.mock.calls[0];
-        const body = JSON.parse(fetchCall[1].body);
-        expect(body.acquisitionCondition).toBe('NEW');
-      });
-    });
-
-    it('redirects to Step 6 if acquisitionCondition is missing on complete', async () => {
-      const user = userEvent.setup();
-
-      // Simulate a scenario where user bypassed Step 6 validation
-      // by manipulating session storage with incomplete data
-      sessionStorage.setItem(
-        'onboarding_data',
-        JSON.stringify({
-          age: 30,
-          location: '',
-          bikeYear: 2024,
-          bikeMake: 'Santa Cruz',
-          bikeModel: 'Bronson',
-          components: {},
-        })
-      );
-
-      renderOnboarding();
-
-      // Accept terms
-      await user.click(screen.getByText('Accept Terms'));
-
-      // The component should load from session storage
-      // Navigate directly to step 6 via URL manipulation (simulated)
-      // For this test, we'll go through the flow but skip Step 6 selection
-
-      const ageInput = screen.getByRole('textbox');
-      await user.clear(ageInput);
-      await user.type(ageInput, '30');
-      await user.click(screen.getByText('Continue'));
-
-      await user.click(screen.getByText('Continue')); // Skip location
-
-      await user.click(screen.getByText('Select Bike'));
-      await user.click(screen.getByText('Continue'));
-
-      // Step 5: Skip colorway
-      await user.click(screen.getByText('Continue'));
-
-      // Don't select any stock option on Step 6, try to continue
-      // This should show error
-      await user.click(screen.getByText('Continue'));
-
-      expect(screen.getByText('Please select your component status')).toBeInTheDocument();
-    });
-
-    it('passes USED acquisitionCondition when Some Swapped selected', async () => {
-      const user = userEvent.setup();
-      renderOnboarding();
-
-      // Complete the full flow with Some Swapped selected
-      await user.click(screen.getByText('Accept Terms'));
-
-      const ageInput = screen.getByRole('textbox');
-      await user.clear(ageInput);
-      await user.type(ageInput, '30');
-      await user.click(screen.getByText('Continue'));
-
-      await user.click(screen.getByText('Continue')); // Skip location
-
-      await user.click(screen.getByText('Select Bike'));
-      await user.click(screen.getByText('Continue'));
-
-      // Step 5: Skip colorway
-      await user.click(screen.getByText('Continue'));
-
-      // Step 6: Select Some Swapped option (maps to USED)
-      await user.click(screen.getByText('Some Swapped'));
-      await user.click(screen.getByText('Continue'));
-
-      // Step 7: Complete onboarding
-      await user.click(screen.getByText('Continue'));
-
-      await waitFor(() => {
-        expect(mockFetch).toHaveBeenCalled();
-        const fetchCall = mockFetch.mock.calls[0];
-        const body = JSON.parse(fetchCall[1].body);
-        expect(body.acquisitionCondition).toBe('USED');
-      });
-    });
-  });
-
-  describe('sessionStorage persistence', () => {
-    it('persists acquisitionCondition to sessionStorage', async () => {
-      const user = userEvent.setup();
-      renderOnboarding();
-
-      // Navigate to Step 6
-      await user.click(screen.getByText('Accept Terms'));
-
-      const ageInput = screen.getByRole('textbox');
-      await user.clear(ageInput);
-      await user.type(ageInput, '30');
-      await user.click(screen.getByText('Continue'));
-
-      await user.click(screen.getByText('Continue')); // Skip location
-
-      await user.click(screen.getByText('Select Bike'));
-      await user.click(screen.getByText('Continue'));
-
-      // Step 5: Skip colorway
-      await user.click(screen.getByText('Continue'));
-
-      // Step 6: Select Some Swapped option
-      await user.click(screen.getByText('Some Swapped'));
-
-      // Check sessionStorage contains acquisitionCondition
-      const savedData = JSON.parse(sessionStorage.getItem('onboarding_data') || '{}');
-      expect(savedData.acquisitionCondition).toBe('USED');
-    });
-
-    it('restores acquisitionCondition from sessionStorage after OAuth redirect', async () => {
-      // Simulate data saved before OAuth redirect
-      sessionStorage.setItem(
-        'onboarding_data',
-        JSON.stringify({
-          age: 30,
-          location: 'Seattle, WA',
-          bikeYear: 2024,
-          bikeMake: 'Santa Cruz',
-          bikeModel: 'Bronson',
-          components: {},
-          acquisitionCondition: 'USED',
-        })
-      );
-
-      const user = userEvent.setup();
-      renderOnboarding();
-
-      // Accept terms
-      await user.click(screen.getByText('Accept Terms'));
-
-      // Navigate through steps - data should be restored
-      await user.click(screen.getByText('Continue')); // Age (restored)
-      await user.click(screen.getByText('Continue')); // Location (restored)
-
-      await user.click(screen.getByText('Select Bike'));
-      await user.click(screen.getByText('Continue'));
-
-      // Step 5: Skip colorway
-      await user.click(screen.getByText('Continue'));
-
-      // On Step 6, the "Some Swapped" option should be highlighted (restored from sessionStorage)
-      const someSwappedButton = screen.getByText('Some Swapped').closest('button');
-      expect(someSwappedButton).toHaveClass('border-accent');
-
-      // Should be able to continue without re-selecting
-      await user.click(screen.getByText('Continue'));
-
-      // Should be on Step 7
-      await waitFor(() => {
-        expect(screen.getByText('Connect Your Devices')).toBeInTheDocument();
+        expect(fetchCall[0]).toContain('/onboarding/complete');
       });
     });
   });
@@ -490,52 +297,6 @@ describe('Onboarding', () => {
 
       // Should have the bike image selector component
       expect(screen.getByTestId('bike-image-selector')).toBeInTheDocument();
-    });
-  });
-
-  describe('Step 6 with expandable component list', () => {
-    it('shows component dropdown when bike has components from 99spokes', async () => {
-      mockGetBikeDetails.mockResolvedValue({
-        images: [],
-        thumbnailUrl: 'https://example.com/thumb.jpg',
-        components: {
-          fork: { maker: 'Fox', model: '36 Factory' },
-          rearShock: { maker: 'Fox', model: 'Float X2' },
-          brakes: { maker: 'SRAM', model: 'Code RSC' },
-        },
-      });
-
-      const user = userEvent.setup();
-      renderOnboarding();
-
-      // Navigate to Step 6
-      await user.click(screen.getByText('Accept Terms'));
-
-      const ageInput = screen.getByRole('textbox');
-      await user.clear(ageInput);
-      await user.type(ageInput, '30');
-      await user.click(screen.getByText('Continue'));
-
-      await user.click(screen.getByText('Continue')); // Skip location
-
-      await user.click(screen.getByText('Select Bike'));
-
-      await waitFor(() => {
-        expect(mockGetBikeDetails).toHaveBeenCalled();
-      });
-
-      await user.click(screen.getByText('Continue'));
-
-      // Step 5: Skip colorway
-      await user.click(screen.getByText('Continue'));
-
-      // Step 6: Should show expandable component list
-      await waitFor(() => {
-        expect(screen.getByText('Are your components stock?')).toBeInTheDocument();
-      });
-
-      // Should show the component dropdown button
-      expect(screen.getByText(/View stock components/)).toBeInTheDocument();
     });
   });
 });

@@ -39,6 +39,7 @@ model User {
   accounts            UserAccount[]
   emailSends          EmailSend[]
   termsAcceptances    TermsAcceptance[]
+  backfillRequests    BackfillRequest[]
 }
 
 model OauthToken {
@@ -337,6 +338,31 @@ model GeoCache {
   createdAt DateTime @default(now())
 
   @@unique([lat, lon])
+}
+
+model BackfillRequest {
+  id             String              @id @default(cuid())
+  userId         String
+  user           User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider       AuthProvider
+  year           String              // "ytd", "2025", "2024", etc.
+  status         BackfillStatus      @default(pending)
+  ridesFound     Int?
+  backfilledUpTo DateTime?           // For YTD: the end timestamp of last backfill
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  completedAt    DateTime?
+
+  @@unique([userId, provider, year])
+  @@index([userId])
+  @@index([userId, provider])
+}
+
+enum BackfillStatus {
+  pending
+  in_progress
+  completed
+  failed
 }
 
 model TermsAcceptance {

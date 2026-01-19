@@ -17,6 +17,7 @@ import webhooksGarmin from './routes/webhooks.garmin';
 import webhooksStrava from './routes/webhooks.strava';
 import garminBackfill from './routes/garmin.backfill';
 import stravaBackfill from './routes/strava.backfill';
+import backfillHistory from './routes/backfill.history';
 import dataSourceRouter from './routes/data-source';
 import duplicatesRouter from './routes/duplicates';
 import garminTest from './routes/garmin.test';
@@ -175,6 +176,7 @@ const startServer = async () => {
 
   app.use('/api', garminBackfill);
   app.use('/api', stravaBackfill);
+  app.use('/api', backfillHistory);
   app.use('/api', dataSourceRouter);
   app.use('/api', duplicatesRouter);
   app.use('/api', waitlistRouter);
