@@ -6,12 +6,14 @@ export function useUserTier() {
   const { viewer, loading, error } = useViewer();
 
   const role = viewer?.role as UserRole | undefined;
+  const isAdmin = role === 'ADMIN';
   const isPro = role === 'PRO' || role === 'ADMIN';
   const isFree = role === 'FREE';
   const isFoundingRider = viewer?.isFoundingRider ?? false;
 
   return {
     role,
+    isAdmin,
     isPro,
     isFree,
     isFoundingRider,

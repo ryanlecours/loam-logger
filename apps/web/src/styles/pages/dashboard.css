@@ -3196,6 +3196,16 @@
   color: #FC4C02;
 }
 
+.empty-cta-disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  text-decoration: none;
+}
+
+.empty-cta-disabled:hover {
+  color: var(--sage);
+}
+
 /* Status Pill */
 .status-pill {
   display: inline-flex;
