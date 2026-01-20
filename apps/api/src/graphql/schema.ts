@@ -429,6 +429,38 @@ export const typeDefs = gql`
     id: ID!
   }
 
+  type ImportNotificationState {
+    showOverlay: Boolean!
+    sessionId: ID
+    unassignedRideCount: Int!
+    totalImportedCount: Int!
+  }
+
+  type UnassignedRide {
+    id: ID!
+    startTime: String!
+    durationSeconds: Int!
+    distanceMiles: Float!
+    elevationGainFeet: Float!
+    location: String
+    rideType: String!
+  }
+
+  type UnassignedRidesPage {
+    rides: [UnassignedRide!]!
+    totalCount: Int!
+    hasMore: Boolean!
+  }
+
+  type AcknowledgeResult {
+    success: Boolean!
+  }
+
+  type BulkAssignResult {
+    success: Boolean!
+    updatedCount: Int!
+  }
+
   input AcceptTermsInput {
     termsVersion: String!
   }
@@ -436,6 +468,10 @@ export const typeDefs = gql`
   type AcceptTermsResult {
     success: Boolean!
     acceptedAt: String!
+  }
+
+  input UpdateUserPreferencesInput {
+    hoursDisplayPreference: String
   }
 
   type Mutation {
@@ -456,6 +492,9 @@ export const typeDefs = gql`
     triggerProviderSync(provider: SyncProvider!): TriggerSyncResult!
     bulkUpdateComponentBaselines(input: BulkUpdateBaselinesInput!): [Component!]!
     acceptTerms(input: AcceptTermsInput!): AcceptTermsResult!
+    updateUserPreferences(input: UpdateUserPreferencesInput!): User!
+    acknowledgeImportOverlay(importSessionId: ID!): AcknowledgeResult!
+    assignBikeToRides(rideIds: [ID!]!, bikeId: ID!): BulkAssignResult!
   }
 
   type ConnectedAccount {
@@ -478,6 +517,7 @@ export const typeDefs = gql`
     role: UserRole!
     mustChangePassword: Boolean!
     isFoundingRider: Boolean!
+    hoursDisplayPreference: String
   }
 
   input RidesFilterInput {
@@ -494,5 +534,7 @@ export const typeDefs = gql`
     components(filter: ComponentFilterInput): [Component!]!
     stravaGearMappings: [StravaGearMapping!]!
     unmappedStravaGears: [StravaGearInfo!]!
+    importNotificationState: ImportNotificationState
+    unassignedRides(importSessionId: ID!, take: Int = 50, after: ID): UnassignedRidesPage!
   }
 `;

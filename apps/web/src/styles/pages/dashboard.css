@@ -3196,6 +3196,16 @@
   color: #FC4C02;
 }
 
+.empty-cta-disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  text-decoration: none;
+}
+
+.empty-cta-disabled:hover {
+  color: var(--sage);
+}
+
 /* Status Pill */
 .status-pill {
   display: inline-flex;
@@ -4716,5 +4726,186 @@
   .bike-health-section {
     padding-bottom: 1rem;
   }
+}
+
+/* ============================================
+   IMPORT COMPLETE OVERLAY
+   ============================================ */
+
+.import-overlay-content {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.import-overlay-no-bikes {
+  text-align: center;
+  padding: 2rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  color: var(--concrete);
+}
+
+.import-overlay-all-done {
+  text-align: center;
+  padding: 2rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  color: var(--cream);
+}
+
+.import-overlay-bike-select {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.import-overlay-label {
+  color: var(--sage);
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.import-overlay-apply-all {
+  display: flex;
+  justify-content: center;
+}
+
+.import-overlay-divider {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  color: var(--concrete);
+  font-size: 0.8125rem;
+}
+
+.import-overlay-divider::before,
+.import-overlay-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--sage-20);
+}
+
+.import-overlay-rides-header {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: -0.5rem;
+}
+
+.import-overlay-select-toggle {
+  background: none;
+  border: none;
+  color: var(--mint);
+  font-size: 0.8125rem;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.25rem;
+  transition: all 0.15s ease;
+}
+
+.import-overlay-select-toggle:hover {
+  background: var(--sage-10);
+}
+
+.import-overlay-rides-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.import-overlay-ride-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  background: rgba(30, 34, 32, 0.5);
+  border: 1px solid var(--sage-15);
+  border-radius: 0.5rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.import-overlay-ride-row:hover {
+  background: var(--slate-50);
+  border-color: var(--sage-25);
+}
+
+.import-overlay-ride-row-selected {
+  background: var(--sage-10);
+  border-color: var(--mint);
+}
+
+.import-overlay-ride-checkbox {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  border: 2px solid var(--sage-40);
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+}
+
+.import-overlay-ride-row-selected .import-overlay-ride-checkbox {
+  background: var(--mint);
+  border-color: var(--mint);
+}
+
+.import-overlay-ride-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  min-width: 0;
+}
+
+.import-overlay-ride-date {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--cream);
+}
+
+.import-overlay-ride-details {
+  font-size: 0.75rem;
+  color: var(--sage);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.import-overlay-ride-type {
+  font-size: 0.75rem;
+  color: var(--concrete);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  flex-shrink: 0;
+}
+
+.import-overlay-apply-selected {
+  display: flex;
+  justify-content: center;
+}
+
+.import-overlay-actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: flex-end;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--sage-10);
+}
+
+.alert-inline-success {
+  background: rgba(94, 148, 126, 0.1);
+  border: 1px solid rgba(94, 148, 126, 0.3);
+  color: var(--mint);
 }
 

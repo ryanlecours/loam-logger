@@ -4,6 +4,7 @@ import { FaBicycle } from 'react-icons/fa';
 import type { BikeWithPredictions } from '../../hooks/usePriorityBike';
 import type { PredictionStatus } from '../../types/prediction';
 import { getBikeName } from '../../utils/formatters';
+import { useHoursDisplay } from '../../hooks/useHoursDisplay';
 
 interface SortableBikeTileProps {
   bike: BikeWithPredictions;
@@ -20,6 +21,7 @@ const STATUS_CLASSES: Record<PredictionStatus, string> = {
 };
 
 export function SortableBikeTile({ bike, isSelected, onClick, disabled }: SortableBikeTileProps) {
+  const { hoursDisplay } = useHoursDisplay();
   const {
     attributes,
     listeners,
@@ -39,7 +41,7 @@ export function SortableBikeTile({ bike, isSelected, onClick, disabled }: Sortab
   const status = bike.predictions?.overallStatus ?? 'ALL_GOOD';
   const statusClass = STATUS_CLASSES[status];
   const bikeName = getBikeName(bike);
-  const hoursRemaining = bike.predictions?.priorityComponent?.hoursRemaining;
+  const priorityComp = bike.predictions?.priorityComponent;
 
   return (
     <button
@@ -60,8 +62,12 @@ export function SortableBikeTile({ bike, isSelected, onClick, disabled }: Sortab
         <span className={`bike-tile-status ${statusClass}`} />
       </div>
       <span className="bike-tile-name">{bikeName}</span>
-      {hoursRemaining !== undefined && status !== 'ALL_GOOD' && (
-        <span className="bike-tile-hours">{hoursRemaining.toFixed(1)} hrs</span>
+      {priorityComp && status !== 'ALL_GOOD' && (
+        <span className="bike-tile-hours">
+          {hoursDisplay === 'total'
+            ? `${(priorityComp.hoursSinceService ?? 0).toFixed(1)}/${priorityComp.serviceIntervalHours}h`
+            : `${(priorityComp.hoursRemaining ?? 0).toFixed(1)} hrs`}
+        </span>
       )}
     </button>
   );

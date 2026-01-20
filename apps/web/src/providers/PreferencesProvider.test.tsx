@@ -4,6 +4,11 @@ import { renderHook } from '@testing-library/react';
 import { PreferencesProvider } from './PreferencesProvider';
 import { usePreferences } from '../hooks/usePreferences';
 
+// Mock useViewer to avoid Apollo Client dependency
+vi.mock('../graphql/me', () => ({
+  useViewer: () => ({ viewer: null, loading: false, error: null, refetch: vi.fn() }),
+}));
+
 // Mock localStorage is set up in test/setup.ts
 const mockLocalStorage = window.localStorage as unknown as {
   getItem: ReturnType<typeof vi.fn>;

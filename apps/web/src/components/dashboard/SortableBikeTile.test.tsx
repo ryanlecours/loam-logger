@@ -25,6 +25,15 @@ vi.mock('@dnd-kit/utilities', () => ({
   },
 }));
 
+// Mock useHoursDisplay to avoid PreferencesProvider dependency
+vi.mock('../../hooks/useHoursDisplay', () => ({
+  useHoursDisplay: () => ({
+    hoursDisplay: 'remaining',
+    formatHoursForDisplay: () => '10h remaining',
+    formatHoursCompact: () => '10h',
+  }),
+}));
+
 // Factory for creating test bikes
 const createBike = (overrides: Partial<BikeWithPredictions> = {}): BikeWithPredictions => ({
   id: 'bike-1',

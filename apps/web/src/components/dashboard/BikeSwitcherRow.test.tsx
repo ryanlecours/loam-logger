@@ -51,6 +51,15 @@ vi.mock('@dnd-kit/utilities', () => ({
   },
 }));
 
+// Mock useHoursDisplay to avoid PreferencesProvider dependency
+vi.mock('../../hooks/useHoursDisplay', () => ({
+  useHoursDisplay: () => ({
+    hoursDisplay: 'remaining',
+    formatHoursForDisplay: () => '10h remaining',
+    formatHoursCompact: () => '10h',
+  }),
+}));
+
 // Mock localStorage
 const mockLocalStorage = {
   getItem: vi.fn(),

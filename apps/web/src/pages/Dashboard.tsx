@@ -4,8 +4,10 @@ import { useQuery } from '@apollo/client';
 import { RIDES } from '../graphql/rides';
 import { BIKES } from '../graphql/bikes';
 import { UNMAPPED_STRAVA_GEARS } from '../graphql/stravaGear';
+import { useImportNotificationState } from '../graphql/importSession';
 import StravaGearMappingModal from '../components/StravaGearMappingModal';
 import StravaImportModal from '../components/StravaImportModal';
+import { ImportCompleteOverlay } from '../components/ImportCompleteOverlay';
 import RideStatsCard from '../components/RideStatsCard';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useUserTier } from '../hooks/useUserTier';
@@ -44,8 +46,11 @@ const apiBase =
 
 export default function Dashboard() {
   const user = useCurrentUser().user;
-  const { isPro } = useUserTier();
+  const { isPro, isAdmin } = useUserTier();
   const { isStravaConnected } = useConnectedAccounts();
+
+  // Strava connections temporarily disabled for non-admin users
+  const isStravaDisabled = !isAdmin;
 
   // Queries
   const {
@@ -69,6 +74,12 @@ export default function Dashboard() {
     skip: !user,
   });
 
+  // Import notification state (for backfill completion overlay)
+  // Poll every 60 seconds to match the backend import session checker interval
+  const { data: importNotificationData } = useImportNotificationState({
+    pollInterval: 60000,
+  });
+
   // Derived data
   const rides = ridesData?.rides ?? [];
   const bikes = bikesData?.bikes ?? [];
@@ -88,6 +99,15 @@ export default function Dashboard() {
   const [isLogServiceOpen, setIsLogServiceOpen] = useState(false);
   const [rideToLink, setRideToLink] = useState<Ride | null>(null);
   const [isStravaImportOpen, setIsStravaImportOpen] = useState(false);
+  const [isImportOverlayOpen, setIsImportOverlayOpen] = useState(false);
+
+  // Show import overlay when notification state indicates we should
+  const importState = importNotificationData?.importNotificationState;
+  useEffect(() => {
+    if (importState?.showOverlay && !isImportOverlayOpen) {
+      setIsImportOverlayOpen(true);
+    }
+  }, [importState?.showOverlay, isImportOverlayOpen]);
 
   // Effects
   useEffect(() => {
@@ -108,10 +128,11 @@ export default function Dashboard() {
   const handleStravaBackfill = () => {
     if (isStravaConnected) {
       setIsStravaImportOpen(true);
-    } else {
-      // Redirect to Strava OAuth
+    } else if (!isStravaDisabled) {
+      // Redirect to Strava OAuth (only if not disabled)
       window.location.href = `${apiBase}/auth/strava/start`;
     }
+    // If Strava is disabled and not connected, do nothing (button should be hidden/disabled by PriorityBikeHero)
   };
 
   return (
@@ -126,6 +147,7 @@ export default function Dashboard() {
             onLogService={handleLogService}
             onStravaBackfill={handleStravaBackfill}
             isStravaConnected={isStravaConnected}
+            isStravaDisabled={isStravaDisabled}
             loading={bikesLoading}
             rides={rides}
           />
@@ -199,6 +221,16 @@ export default function Dashboard() {
           refetchRides();
           setIsStravaImportOpen(false);
         }}
+      />
+
+      {/* Import Complete Overlay */}
+      <ImportCompleteOverlay
+        isOpen={isImportOverlayOpen}
+        onClose={() => setIsImportOverlayOpen(false)}
+        sessionId={importState?.sessionId ?? null}
+        unassignedRideCount={importState?.unassignedRideCount ?? 0}
+        totalImportedCount={importState?.totalImportedCount ?? 0}
+        bikes={bikes}
       />
     </>
   );

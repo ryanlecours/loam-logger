@@ -84,6 +84,48 @@ router.get('/stats', async (_req, res) => {
 });
 
 /**
+ * GET /api/admin/lookup-user
+ * Look up a user by email address - useful for finding userId for log filtering
+ */
+router.get('/lookup-user', async (req, res) => {
+  try {
+    const email = req.query.email as string | undefined;
+
+    if (!email || typeof email !== 'string') {
+      return sendBadRequest(res, 'Email is required');
+    }
+
+    const normalizedEmail = email.toLowerCase().trim();
+
+    if (!EMAIL_REGEX.test(normalizedEmail) || normalizedEmail.length > MAX_EMAIL_LENGTH) {
+      return sendBadRequest(res, 'Invalid email format');
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { email: normalizedEmail },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        role: true,
+        createdAt: true,
+        activatedAt: true,
+        isFoundingRider: true,
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json(user);
+  } catch (error) {
+    logError('Admin lookup-user', error);
+    return sendInternalError(res, 'Failed to look up user');
+  }
+});
+
+/**
  * GET /api/admin/waitlist
  * Returns paginated WAITLIST users
  */

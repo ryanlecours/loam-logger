@@ -58,6 +58,15 @@ vi.mock('../../utils/formatters', () => ({
     comp.location ? `${comp.componentType} (${comp.location})` : comp.componentType,
 }));
 
+// Mock useHoursDisplay to avoid PreferencesProvider dependency
+vi.mock('../../hooks/useHoursDisplay', () => ({
+  useHoursDisplay: () => ({
+    hoursDisplay: 'remaining',
+    formatHoursForDisplay: () => '10.5h remaining',
+    formatHoursCompact: () => '10.5h',
+  }),
+}));
+
 describe('BikeOverviewCard', () => {
   const createComponent = (overrides = {}) => ({
     componentId: 'comp-1',

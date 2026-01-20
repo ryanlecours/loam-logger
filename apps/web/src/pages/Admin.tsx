@@ -165,6 +165,20 @@ export default function Admin() {
   const [foundingSendResult, setFoundingSendResult] = useState<SendResult | null>(null);
   const [showFoundingConfirm, setShowFoundingConfirm] = useState(false);
 
+  // User lookup state (for finding userId by email)
+  const [lookupEmail, setLookupEmail] = useState('');
+  const [lookupResult, setLookupResult] = useState<{
+    id: string;
+    email: string;
+    name: string | null;
+    role: string;
+    createdAt: string;
+    activatedAt: string | null;
+    isFoundingRider: boolean;
+  } | null>(null);
+  const [lookingUp, setLookingUp] = useState(false);
+  const [lookupError, setLookupError] = useState<string | null>(null);
+
   const isAdmin = user?.role === 'ADMIN';
 
   useEffect(() => {
@@ -369,6 +383,43 @@ export default function Admin() {
       alert(err instanceof Error ? err.message : 'Failed to import waitlist');
     } finally {
       setImporting(false);
+    }
+  };
+
+  const handleLookupUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!lookupEmail.trim()) {
+      setLookupError('Email is required');
+      return;
+    }
+
+    try {
+      setLookingUp(true);
+      setLookupError(null);
+      setLookupResult(null);
+
+      const res = await fetch(
+        `${import.meta.env.VITE_API_URL}/api/admin/lookup-user?email=${encodeURIComponent(lookupEmail.trim())}`,
+        { credentials: 'include' }
+      );
+
+      if (res.status === 404) {
+        setLookupError('User not found');
+        return;
+      }
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Lookup failed');
+      }
+
+      const user = await res.json();
+      setLookupResult(user);
+    } catch (err) {
+      console.error('Lookup failed:', err);
+      setLookupError(err instanceof Error ? err.message : 'Lookup failed');
+    } finally {
+      setLookingUp(false);
     }
   };
 
@@ -1025,7 +1076,7 @@ export default function Admin() {
   }
 
   return (
-    <div className="space-y-8">
+    <div className="page-container space-y-8">
       {/* Header */}
       <section className="panel">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1056,6 +1107,80 @@ export default function Admin() {
           </div>
         </section>
       )}
+
+      {/* User Lookup Section */}
+      <section className="panel-spaced">
+        <div>
+          <p className="label-section">Developer Tools</p>
+          <h2 className="title-section">User Lookup</h2>
+          <p className="text-body-muted mt-1">
+            Look up a user by email to get their userId (for log filtering in Railway).
+          </p>
+        </div>
+
+        <form onSubmit={handleLookupUser} className="flex gap-3 items-end">
+          <div className="flex-1 max-w-md">
+            <label className="label-form">Email Address</label>
+            <input
+              type="email"
+              value={lookupEmail}
+              onChange={(e) => setLookupEmail(e.target.value)}
+              className="w-full px-4 py-2 rounded-xl bg-surface-2 border border-app text-white focus:outline-none focus:ring-2 focus:ring-primary"
+              placeholder="user@example.com"
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={lookingUp || !lookupEmail.trim()}
+            className="btn-primary px-6 py-2 disabled:opacity-50"
+          >
+            {lookingUp ? 'Looking up...' : 'Lookup'}
+          </button>
+        </form>
+
+        {lookupError && (
+          <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
+            {lookupError}
+          </div>
+        )}
+
+        {lookupResult && (
+          <div className="p-4 rounded-xl bg-surface-2 border border-app space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-muted">User ID</span>
+              <code className="text-sm bg-surface-1 px-2 py-1 rounded font-mono select-all">
+                {lookupResult.id}
+              </code>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-muted">Email</span>
+              <span className="text-sm">{lookupResult.email}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-muted">Name</span>
+              <span className="text-sm">{lookupResult.name || '—'}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-muted">Role</span>
+              <span className="text-sm">{lookupResult.role}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-muted">Founding Rider</span>
+              <span className="text-sm">{lookupResult.isFoundingRider ? 'Yes' : 'No'}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-muted">Created</span>
+              <span className="text-sm">{new Date(lookupResult.createdAt).toLocaleDateString()}</span>
+            </div>
+            {lookupResult.activatedAt && (
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-muted">Activated</span>
+                <span className="text-sm">{new Date(lookupResult.activatedAt).toLocaleDateString()}</span>
+              </div>
+            )}
+          </div>
+        )}
+      </section>
 
       {/* Founding Riders Welcome Email Section */}
       <section className="panel-spaced">

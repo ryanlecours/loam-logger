@@ -3,6 +3,7 @@ import { FaChevronRight } from 'react-icons/fa';
 import type { ComponentPrediction } from '../../types/prediction';
 import { STATUS_SEVERITY } from '../../types/prediction';
 import { formatComponentLabel } from '../../utils/formatters';
+import { useHoursDisplay } from '../../hooks/useHoursDisplay';
 import { StatusDot } from './StatusDot';
 
 interface ComponentHealthPanelProps {
@@ -193,6 +194,7 @@ function ComponentDetailOverlay({ component, onClose }: ComponentDetailOverlayPr
 
 export function ComponentHealthPanel({ components, className = '' }: ComponentHealthPanelProps) {
   const [selectedComponent, setSelectedComponent] = useState<ComponentPrediction | null>(null);
+  const { hoursDisplay } = useHoursDisplay();
 
   const sortedComponents = useMemo(
     () => getSortedComponentsForHealth(components),
@@ -238,12 +240,25 @@ export function ComponentHealthPanel({ components, className = '' }: ComponentHe
                 <span className="component-health-make-model">{makeModel}</span>
               </div>
               <div className="component-health-metrics">
-                <span className="component-health-hours-primary">
-                  {formatHours(component.hoursRemaining)} remaining
-                </span>
-                <span className="component-health-hours-secondary">
-                  {formatHours(component.hoursSinceService)} since service
-                </span>
+                {hoursDisplay === 'total' ? (
+                  <>
+                    <span className="component-health-hours-primary">
+                      {formatHours(component.hoursSinceService)} / {component.serviceIntervalHours}h
+                    </span>
+                    <span className="component-health-hours-secondary">
+                      {formatHours(component.hoursRemaining)} remaining
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <span className="component-health-hours-primary">
+                      {formatHours(component.hoursRemaining)} remaining
+                    </span>
+                    <span className="component-health-hours-secondary">
+                      {formatHours(component.hoursSinceService)} since service
+                    </span>
+                  </>
+                )}
                 <span className="component-health-rides">
                   ~{component.ridesRemainingEstimate} rides
                 </span>

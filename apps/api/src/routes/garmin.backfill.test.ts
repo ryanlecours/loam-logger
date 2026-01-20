@@ -11,6 +11,9 @@ const mockBackfillUpdateMany = jest.fn();
 const mockRideFindMany = jest.fn();
 const mockRideCount = jest.fn();
 const mockUserAccountFindFirst = jest.fn();
+const mockImportSessionFindFirst = jest.fn();
+const mockImportSessionCreate = jest.fn();
+const mockImportSessionUpdate = jest.fn();
 
 jest.mock('../lib/prisma', () => ({
   prisma: {
@@ -26,6 +29,11 @@ jest.mock('../lib/prisma', () => ({
     userAccount: {
       findFirst: mockUserAccountFindFirst,
     },
+    importSession: {
+      findFirst: mockImportSessionFindFirst,
+      create: mockImportSessionCreate,
+      update: mockImportSessionUpdate,
+    },
   },
 }));
 
@@ -38,6 +46,12 @@ jest.mock('../lib/garmin-token', () => ({
 // Mock logger
 jest.mock('../lib/logger', () => ({
   logError: jest.fn(),
+  logger: {
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    debug: jest.fn(),
+  },
 }));
 
 // Import router after mocks
@@ -105,6 +119,10 @@ describe('GET /garmin/backfill/fetch', () => {
     // Default: no existing backfill
     mockBackfillFindUnique.mockResolvedValue(null);
     mockBackfillUpsert.mockResolvedValue({});
+    // Default: no existing import session
+    mockImportSessionFindFirst.mockResolvedValue(null);
+    mockImportSessionCreate.mockResolvedValue({ id: 'import-session-1' });
+    mockImportSessionUpdate.mockResolvedValue({});
     // Default: successful Garmin API response
     mockFetch.mockResolvedValue({
       status: 202,
@@ -138,14 +156,15 @@ describe('GET /garmin/backfill/fetch', () => {
   });
 
   describe('Year Validation', () => {
-    it('should return 400 for year before 2000', async () => {
-      mockReq.query = { year: '1999' };
+    it('should return 400 for year before minimum allowed (currentYear - 4)', async () => {
+      const minYear = new Date().getFullYear() - 4;
+      mockReq.query = { year: String(minYear - 1) };
 
       await invokeHandler(handler, mockReq as Request, mockRes as Response);
 
       expect(statusCode).toBe(400);
       expect(jsonResponse).toMatchObject({
-        error: expect.stringContaining('Year must be between 2000'),
+        error: expect.stringContaining(`Year must be between ${minYear}`),
       });
     });
 
@@ -377,7 +396,7 @@ describe('GET /garmin/backfill/fetch', () => {
       });
     });
 
-    it('should handle 409 Conflict (duplicate request to Garmin)', async () => {
+    it('should handle 409 Conflict (duplicate request to Garmin) as completed', async () => {
       mockReq.query = { year: 'ytd' };
       mockFetch.mockResolvedValue({
         status: 409,
@@ -386,10 +405,11 @@ describe('GET /garmin/backfill/fetch', () => {
 
       await invokeHandler(handler, mockReq as Request, mockRes as Response);
 
-      // Should return 409 to client
-      expect(statusCode).toBe(409);
+      // When all chunks return 409, return success with alreadyCompleted flag
+      // This indicates the backfill was already done for this date range
       expect(jsonResponse).toMatchObject({
-        error: 'Backfill already in progress',
+        success: true,
+        alreadyCompleted: true,
       });
     });
   });
@@ -476,6 +496,7 @@ describe('extractMinStartDate behavior', () => {
   let mockReq: Partial<Request>;
   let mockRes: Partial<Response>;
   let handler: RequestHandler | undefined;
+  const testYear = new Date().getFullYear() - 2; // Use a year within the 4-year window
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -488,7 +509,7 @@ describe('extractMinStartDate behavior', () => {
 
     mockReq = {
       sessionUser: { uid: 'user-123' },
-      query: { year: '2020' },
+      query: { year: String(testYear) },
     };
 
     mockRes = {
@@ -499,6 +520,9 @@ describe('extractMinStartDate behavior', () => {
     mockGetValidGarminToken.mockResolvedValue('valid-token');
     mockBackfillFindUnique.mockResolvedValue(null);
     mockBackfillUpsert.mockResolvedValue({});
+    mockImportSessionFindFirst.mockResolvedValue(null);
+    mockImportSessionCreate.mockResolvedValue({ id: 'import-session-1' });
+    mockImportSessionUpdate.mockResolvedValue({});
   });
 
   it('should adjust start date when Garmin returns min start time error', async () => {
@@ -508,7 +532,7 @@ describe('extractMinStartDate behavior', () => {
         status: 400,
         ok: false,
         text: () => Promise.resolve(JSON.stringify({
-          errorMessage: 'summaryStartTimeInSeconds must be greater than or equal to min start time of 2020-06-01T00:00:00Z',
+          errorMessage: `summaryStartTimeInSeconds must be greater than or equal to min start time of ${testYear}-06-01T00:00:00Z`,
         })),
       })
       // Second chunk succeeds after adjustment

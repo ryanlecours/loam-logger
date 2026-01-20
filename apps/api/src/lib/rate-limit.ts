@@ -40,7 +40,22 @@ export const MUTATION_RATE_LIMITS = {
   deleteStravaGearMapping: { windowSeconds: 60, maxRequests: 10 },
   /** bulkUpdateComponentBaselines: max 10 requests per minute per user */
   bulkUpdateComponentBaselines: { windowSeconds: 60, maxRequests: 10 },
+  /** assignBikeToRides: max 20 requests per minute per user */
+  assignBikeToRides: { windowSeconds: 60, maxRequests: 20 },
 } as const;
+
+/**
+ * Rate limit configuration for polling queries.
+ * Uses a sliding window approach with max requests per window.
+ */
+export const QUERY_RATE_LIMITS = {
+  /** unassignedRides: max 60 requests per minute per user (supports ~1 req/sec polling) */
+  unassignedRides: { windowSeconds: 60, maxRequests: 60 },
+  /** importNotificationState: max 30 requests per minute per user (supports 30s polling) */
+  importNotificationState: { windowSeconds: 60, maxRequests: 30 },
+} as const;
+
+export type QueryRateLimitType = keyof typeof QUERY_RATE_LIMITS;
 
 export type MutationRateLimitType = keyof typeof MUTATION_RATE_LIMITS;
 
@@ -274,6 +289,71 @@ export async function checkMutationRateLimit(
     // Redis operation failed, fall back to in-memory rate limiting
     console.warn(
       `[RateLimit] Redis error during mutation ${operation} check for ${userId}, using in-memory fallback:`,
+      err instanceof Error ? err.message : 'Unknown error'
+    );
+    return checkMemoryRateLimit(key, config.maxRequests, config.windowSeconds);
+  }
+}
+
+/**
+ * Build a rate limit key for query operations.
+ * Format: rl:query:<operation>:<userId>
+ */
+function buildQueryRateLimitKey(
+  operation: QueryRateLimitType,
+  userId: string
+): string {
+  return `rl:query:${operation}:${userId}`;
+}
+
+/**
+ * Check if a polling query is rate limited using a sliding window counter.
+ * Used to prevent abuse of frequently-polled queries.
+ *
+ * Graceful degradation: Falls back to in-memory rate limiting if Redis is unavailable.
+ *
+ * @param operation - The query type
+ * @param userId - The user ID
+ * @returns Whether the operation is allowed, and retryAfter seconds if not
+ */
+export async function checkQueryRateLimit(
+  operation: QueryRateLimitType,
+  userId: string
+): Promise<RateLimitResult> {
+  const config = QUERY_RATE_LIMITS[operation];
+  const key = buildQueryRateLimitKey(operation, userId);
+
+  // Fallback to in-memory rate limiting if Redis is unavailable
+  if (!isRedisReady()) {
+    return checkMemoryRateLimit(key, config.maxRequests, config.windowSeconds);
+  }
+
+  try {
+    const redis = getRedisConnection();
+
+    // Increment the counter
+    const count = await redis.incr(key);
+
+    // Set expiry on first request in the window
+    if (count === 1) {
+      await redis.expire(key, config.windowSeconds);
+    }
+
+    if (count <= config.maxRequests) {
+      return { allowed: true, redisAvailable: true };
+    }
+
+    // Rate limited - get TTL for retry info
+    const ttl = await redis.ttl(key);
+    return {
+      allowed: false,
+      retryAfter: ttl > 0 ? ttl : config.windowSeconds,
+      redisAvailable: true,
+    };
+  } catch (err) {
+    // Redis operation failed, fall back to in-memory rate limiting
+    console.warn(
+      `[RateLimit] Redis error during query ${operation} check for ${userId}, using in-memory fallback:`,
       err instanceof Error ? err.message : 'Unknown error'
     );
     return checkMemoryRateLimit(key, config.maxRequests, config.windowSeconds);

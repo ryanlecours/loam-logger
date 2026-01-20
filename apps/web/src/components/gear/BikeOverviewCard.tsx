@@ -6,6 +6,7 @@ import { KebabMenu, type KebabMenuItem } from './KebabMenu';
 import { StatusDot } from '../dashboard/StatusDot';
 import type { PredictionStatus, BikePredictionSummary } from '../../types/prediction';
 import { formatComponentLabel } from '../../utils/formatters';
+import { useHoursDisplay } from '../../hooks/useHoursDisplay';
 
 function isValid99SpokesUrl(url: string | null | undefined): boolean {
   if (!url) return false;
@@ -80,6 +81,7 @@ export function BikeOverviewCard({
   onLogService,
   isDeleting,
 }: BikeOverviewCardProps) {
+  const { hoursDisplay } = useHoursDisplay();
   const predictions = bike.predictions;
   const components = predictions?.components ?? [];
 
@@ -219,7 +221,9 @@ export function BikeOverviewCard({
                       )}
                     </div>
                     <span className="bike-card-health-hours">
-                      {formatHours(comp.hoursRemaining)}
+                      {hoursDisplay === 'total'
+                        ? `${formatHours(comp.hoursSinceService)} / ${comp.serviceIntervalHours}h`
+                        : formatHours(comp.hoursRemaining)}
                     </span>
                   </div>
                 ))}

@@ -34,6 +34,19 @@ vi.mock('../hooks/useCurrentUser', () => ({
   }),
 }));
 
+// Mock useUserTier to return admin user (so Strava is enabled)
+vi.mock('../hooks/useUserTier', () => ({
+  useUserTier: () => ({
+    role: 'ADMIN',
+    isAdmin: true,
+    isPro: true,
+    isFree: false,
+    isFoundingRider: false,
+    loading: false,
+    error: undefined,
+  }),
+}));
+
 // Mock useSpokes
 const mockGetBikeDetails = vi.fn();
 vi.mock('@/hooks/useSpokes', () => ({

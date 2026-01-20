@@ -229,7 +229,7 @@ export default function Login() {
 
       {/* Login Form Content */}
       <motion.div
-        className="relative z-10 container px-6 max-w-md w-full"
+        className="relative z-10 px-6 max-w-3xl w-full"
         initial={{ opacity: 0, y: 30 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.8 }}

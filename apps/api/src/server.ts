@@ -1,7 +1,9 @@
 import 'dotenv/config';
+import crypto from 'crypto';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
+import pinoHttp from 'pino-http';
 import { ApolloServer } from '@apollo/server';
 import { expressMiddleware, type ExpressContextFunctionArgument } from '@as-integrations/express4';
 import { typeDefs } from './graphql/schema';
@@ -9,6 +11,13 @@ import { resolvers } from './graphql/resolvers';
 import { startWorkers, stopWorkers } from './workers';
 import { getRedisConnection, checkRedisHealth } from './lib/redis';
 import { startEmailScheduler, stopEmailScheduler } from './services/email-scheduler.service';
+import { startImportSessionChecker, stopImportSessionChecker } from './services/import-session-checker.service';
+import { rootLogger, logger } from './lib/logger';
+import {
+  runWithRequestContext,
+  createRequestContext,
+  enrichRequestContext,
+} from './lib/requestContext';
 
 import authGarmin from './routes/auth.garmin';
 import authStrava from './routes/auth.strava';
@@ -124,16 +133,53 @@ const startServer = async () => {
   app.use(express.urlencoded({ extended: false }));
   app.use(cookieParser(process.env.COOKIE_SECRET || 'dev-secret'));
 
-  // Request logging (make it obvious if /graphql is even hit)
-  app.use((req, _res, next) => {
-    if (req.path === '/graphql' || req.path.startsWith('/auth') || req.path.startsWith('/api')) {
-      console.log(`[REQ] ${req.method} ${req.path} origin=${req.headers.origin || 'n/a'}`);
-    }
-    next();
+  // pino-http middleware configuration
+  const httpLogger = pinoHttp({
+    logger: rootLogger,
+    genReqId: (req, res) => {
+      const existingId = req.headers['x-request-id'] as string | undefined;
+      const requestId = existingId ?? crypto.randomUUID();
+      res.setHeader('x-request-id', requestId);
+      return requestId;
+    },
+    customLogLevel: (_req, res, err) => {
+      if (err || res.statusCode >= 500) return 'error';
+      if (res.statusCode >= 400) return 'warn';
+      return 'info';
+    },
+    customSuccessMessage: (req, res) => `${req.method} ${req.url} ${res.statusCode}`,
+    customErrorMessage: (req, _res, err) => `${req.method} ${req.url} errored: ${err.message}`,
+    autoLogging: {
+      ignore: (req) => req.url === '/health', // Skip health check spam
+    },
   });
+
+  // AsyncLocalStorage context wrapper (must wrap entire request)
+  app.use((req, res, next) => {
+    const existingId = req.headers['x-request-id'] as string | undefined;
+    const context = createRequestContext(req.method, req.path, existingId);
+
+    runWithRequestContext(context, () => {
+      req.requestId = context.requestId;
+      res.setHeader('x-request-id', context.requestId);
+      next();
+    });
+  });
+
+  // HTTP request/response logging
+  app.use(httpLogger);
 
   // Attach user/session
   app.use(attachUser);
+
+  // Enrich context with userId after auth
+  app.use((req, _res, next) => {
+    const userId = req.sessionUser?.uid ?? req.user?.id;
+    if (userId) {
+      enrichRequestContext({ userId });
+    }
+    next();
+  });
 
   // CSRF protection for state-changing requests
   // Skips: GET/HEAD/OPTIONS, Bearer token auth (mobile), unauthenticated requests
@@ -148,12 +194,6 @@ const startServer = async () => {
     res.status(200).send('GraphQL endpoint is alive. Use POST.');
   });
 
-  // Hard "hit" log right at the route
-  app.all('/graphql', (req, _res, next) => {
-    console.log(`[HIT] /graphql ${req.method} content-type=${req.headers['content-type'] ?? 'n/a'}`);
-    next();
-  });
-
   app.use(
     '/graphql',
     expressMiddleware(server, {
@@ -161,6 +201,14 @@ const startServer = async () => {
         const legacy = req.user;
         const sess = req.sessionUser;
         const user = legacy ?? (sess ? { id: sess.uid, email: sess.email } : null);
+
+        // Extract and log GraphQL operation
+        const body = req.body as { operationName?: string } | undefined;
+        const operationName = body?.operationName ?? 'anonymous';
+        enrichRequestContext({ operationName });
+
+        logger.info({ operationName, hasUser: !!user }, 'GraphQL operation');
+
         return { req, res, user, loaders: createDataLoaders() };
       },
     })
@@ -193,10 +241,13 @@ const startServer = async () => {
 
   // Error handler (so you see thrown middleware errors)
   // Note: Express requires all 4 params for error middleware to be recognized
-  app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
-    const message = err?.message || 'Unknown error';
-    console.error('[ERROR]', message, err?.stack ?? '');
-    res.status(500).json({ error: 'internal_error', message });
+  app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
+    logger.error({ err, path: req.path, method: req.method }, 'Unhandled error');
+    res.status(500).json({
+      error: 'internal_error',
+      message: err?.message || 'Unknown error',
+      requestId: req.requestId,
+    });
   });
 
   const PORT = Number(process.env.PORT) || 4000;
@@ -209,31 +260,32 @@ const startServer = async () => {
       getRedisConnection();
       const health = await checkRedisHealth();
       if (health.healthy) {
-        console.log(`[Redis] Startup health check passed (latency: ${health.latencyMs}ms)`);
+        logger.info({ latencyMs: health.latencyMs }, 'Redis startup health check passed');
       } else {
-        console.warn('[Redis] Startup health check failed:', health.status, health.lastError ?? '');
+        logger.warn({ status: health.status, error: health.lastError }, 'Redis startup health check failed');
       }
     } catch (err) {
-      console.error(
-        '[Redis] Initialization failed:',
-        err instanceof Error ? err.message : 'Unknown error'
-      );
+      logger.error({ error: err instanceof Error ? err.message : String(err) }, 'Redis initialization failed');
     }
 
     startWorkers();
   } else {
-    console.warn('[Workers] REDIS_URL not set, workers disabled');
+    logger.warn('REDIS_URL not set, workers disabled');
   }
 
   // Start email scheduler (checks for due scheduled emails every minute)
   startEmailScheduler();
 
+  // Start import session checker (checks for idle import sessions every minute)
+  startImportSessionChecker();
+
   app.listen(PORT, HOST, () => {
-    console.log(`🚴 LoamLogger backend running on :${PORT} (GraphQL at /graphql)`);
+    logger.info({ port: PORT }, 'LoamLogger backend running (GraphQL at /graphql)');
   });
 
   process.on('SIGTERM', async () => {
     await stopEmailScheduler();
+    await stopImportSessionChecker();
     await stopWorkers();
     await server.stop();
     process.exit(0);

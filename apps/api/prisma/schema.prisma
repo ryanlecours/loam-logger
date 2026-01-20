@@ -31,6 +31,7 @@ model User {
   activatedBy         String?
   isFoundingRider     Boolean             @default(false)
   emailUnsubscribed   Boolean             @default(false)
+  hoursDisplayPreference String?          @default("remaining")
   bikes               Bike[]
   components          Component[]
   tokens              OauthToken[]
@@ -40,6 +41,7 @@ model User {
   emailSends          EmailSend[]
   termsAcceptances    TermsAcceptance[]
   backfillRequests    BackfillRequest[]
+  importSessions      ImportSession[]
 }
 
 model OauthToken {
@@ -70,29 +72,33 @@ model UserAccount {
 }
 
 model Ride {
-  id                String   @id @default(uuid())
+  id                String          @id @default(uuid())
   userId            String
-  garminActivityId  String?  @unique
+  garminActivityId  String?         @unique
   startTime         DateTime
   durationSeconds   Int
   averageHr         Int?
   rideType          String
   bikeId            String?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
   distanceMiles     Float
   elevationGainFeet Float
   notes             String?
   location          String?
   trailSystem       String?
   duplicateOfId     String?
-  isDuplicate       Boolean  @default(false)
-  stravaActivityId  String?  @unique
+  isDuplicate       Boolean         @default(false)
+  stravaActivityId  String?         @unique
   stravaGearId      String?
-  bike              Bike?    @relation(fields: [bikeId], references: [id])
-  duplicateOf       Ride?    @relation("DuplicateRides", fields: [duplicateOfId], references: [id], onDelete: SetNull)
-  duplicates        Ride[]   @relation("DuplicateRides")
-  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  importSessionId   String?
+  bike              Bike?           @relation(fields: [bikeId], references: [id])
+  duplicateOf       Ride?           @relation("DuplicateRides", fields: [duplicateOfId], references: [id], onDelete: SetNull)
+  duplicates        Ride[]          @relation("DuplicateRides")
+  user              User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  importSession     ImportSession?  @relation(fields: [importSessionId], references: [id], onDelete: SetNull)
+
+  @@index([importSessionId, bikeId])
 }
 
 model Bike {
@@ -365,6 +371,12 @@ enum BackfillStatus {
   failed
 }
 
+enum ImportSessionStatus {
+  running
+  completed
+  failed
+}
+
 model TermsAcceptance {
   id           String   @id @default(cuid())
   userId       String
@@ -377,4 +389,24 @@ model TermsAcceptance {
 
   @@unique([userId, termsVersion])
   @@index([userId])
+}
+
+model ImportSession {
+  id                     String              @id @default(cuid())
+  userId                 String
+  user                   User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider               AuthProvider
+  status                 ImportSessionStatus @default(running)
+  startedAt              DateTime            @default(now())
+  lastActivityReceivedAt DateTime?
+  completedAt            DateTime?
+  unassignedRideCount    Int                 @default(0)
+  userAcknowledgedAt     DateTime?
+  createdAt              DateTime            @default(now())
+  updatedAt              DateTime            @updatedAt
+  rides                  Ride[]
+
+  @@index([userId])
+  @@index([userId, provider, status])
+  @@index([status, lastActivityReceivedAt])
 }

@@ -3,7 +3,7 @@ import { getQueueConnection } from '../lib/queue/connection';
 import { acquireLock, releaseLock } from '../lib/rate-limit';
 import { prisma } from '../lib/prisma';
 import { getValidGarminToken } from '../lib/garmin-token';
-import { logError } from '../lib/logger';
+import { logError, logger } from '../lib/logger';
 import type { BackfillJobData, BackfillJobName } from '../lib/queue/backfill.queue';
 
 const GARMIN_API_BASE = process.env.GARMIN_API_BASE || 'https://apis.garmin.com/wellness-api';
@@ -18,7 +18,7 @@ const CHUNK_DAYS = 30;
 async function processBackfillJob(job: Job<BackfillJobData, void, BackfillJobName>): Promise<void> {
   const { userId, provider, year } = job.data;
 
-  console.log(`[BackfillWorker] Processing ${provider} backfill for year ${year}, user ${userId}`);
+  logger.info({ provider, year, userId, jobId: job.id }, 'Processing backfill job');
 
   // Update status to in_progress
   await prisma.backfillRequest.updateMany({
@@ -35,7 +35,7 @@ async function processBackfillJob(job: Job<BackfillJobData, void, BackfillJobNam
   const lockResult = await acquireLock('backfill', provider, userId);
 
   if (!lockResult.acquired) {
-    console.log(`[BackfillWorker] Could not acquire lock for ${provider}:${userId}, will retry`);
+    logger.debug({ provider, userId }, 'Backfill lock not available, will retry');
     throw new Error('Lock not available, will retry');
   }
 
@@ -46,7 +46,7 @@ async function processBackfillJob(job: Job<BackfillJobData, void, BackfillJobNam
       throw new Error(`Unsupported provider for backfill: ${provider}`);
     }
 
-    console.log(`[BackfillWorker] Completed ${provider} backfill for year ${year}`);
+    logger.info({ provider, year }, 'Backfill job completed');
   } catch (error) {
     logError(`BackfillWorker ${provider}/${year}`, error);
 
@@ -59,7 +59,7 @@ async function processBackfillJob(job: Job<BackfillJobData, void, BackfillJobNam
     throw error; // Re-throw for BullMQ retry logic
   } finally {
     await releaseLock(lockResult.lockKey, lockResult.lockValue);
-    console.log(`[BackfillWorker] Released lock for ${provider}:${userId}`);
+    logger.debug({ provider, userId }, 'Backfill lock released');
   }
 }
 
@@ -105,11 +105,15 @@ async function processGarminBackfill(userId: string, year: string): Promise<void
     endDate = new Date(yearNum, 11, 31, 23, 59, 59); // Dec 31 23:59:59
   }
 
-  console.log(`[BackfillWorker] Garmin backfill date range: ${startDate.toISOString()} to ${endDate.toISOString()}`);
+  logger.info(
+    { startDate: startDate.toISOString(), endDate: endDate.toISOString(), year },
+    'Garmin backfill date range'
+  );
 
   // Trigger backfill in 30-day chunks
   let currentStartDate = new Date(startDate);
   let totalChunks = 0;
+  let duplicateChunks = 0;
   const errors: string[] = [];
 
   while (currentStartDate < endDate) {
@@ -120,7 +124,10 @@ async function processGarminBackfill(userId: string, year: string): Promise<void
     const chunkStartSeconds = Math.floor(currentStartDate.getTime() / 1000);
     const chunkEndSeconds = Math.floor(actualChunkEndDate.getTime() / 1000);
 
-    console.log(`[BackfillWorker] Triggering chunk: ${currentStartDate.toISOString()} to ${actualChunkEndDate.toISOString()}`);
+    logger.debug(
+      { chunkStart: currentStartDate.toISOString(), chunkEnd: actualChunkEndDate.toISOString() },
+      'Triggering Garmin backfill chunk'
+    );
 
     const url = `${GARMIN_API_BASE}/rest/backfill/activities?summaryStartTimeInSeconds=${chunkStartSeconds}&summaryEndTimeInSeconds=${chunkEndSeconds}`;
 
@@ -134,23 +141,30 @@ async function processGarminBackfill(userId: string, year: string): Promise<void
 
       if (response.status === 202) {
         totalChunks++;
-        console.log(`[BackfillWorker] Chunk ${totalChunks} accepted`);
+        logger.info({ chunk: totalChunks }, 'Garmin backfill chunk accepted');
       } else if (response.status === 409) {
-        // Duplicate request - that's okay, Garmin already processing
-        console.log(`[BackfillWorker] Chunk already in progress (409)`);
+        // Duplicate request - backfill already done for this date range
+        duplicateChunks++;
+        logger.warn(
+          { startDate: currentStartDate.toISOString().split('T')[0] },
+          'Garmin backfill chunk already completed (409)'
+        );
       } else if (response.status === 400) {
         const text = await response.text();
         const minStartDate = extractMinStartDate(text);
         if (minStartDate && minStartDate > currentStartDate) {
-          console.warn(`[BackfillWorker] Adjusting start to Garmin min ${minStartDate.toISOString()}`);
+          logger.warn(
+            { originalStart: currentStartDate.toISOString(), adjustedStart: minStartDate.toISOString() },
+            'Adjusting to Garmin minimum start date'
+          );
           currentStartDate = new Date(Math.ceil(minStartDate.getTime() / 1000) * 1000);
           continue;
         }
-        console.error(`[BackfillWorker] Chunk failed: ${response.status} ${text}`);
+        logger.error({ status: response.status, response: text }, 'Garmin backfill chunk failed');
         errors.push(`Failed for ${currentStartDate.toISOString().split('T')[0]}: ${response.status}`);
       } else {
         const text = await response.text();
-        console.error(`[BackfillWorker] Chunk failed: ${response.status} ${text}`);
+        logger.error({ status: response.status, response: text }, 'Garmin backfill chunk failed');
         errors.push(`Failed for ${currentStartDate.toISOString().split('T')[0]}: ${response.status}`);
       }
     } catch (error) {
@@ -161,7 +175,30 @@ async function processGarminBackfill(userId: string, year: string): Promise<void
     currentStartDate = new Date(actualChunkEndDate);
   }
 
-  console.log(`[BackfillWorker] Triggered ${totalChunks} backfill chunks for year ${year}`);
+  logger.info(
+    { totalChunks, duplicateChunks, year },
+    'Garmin backfill chunks processed'
+  );
+
+  // Check if ALL chunks returned 409 - means backfill was already completed
+  const totalAttempted = totalChunks + duplicateChunks + errors.length;
+  const allDuplicates = duplicateChunks > 0 && totalChunks === 0 && errors.length === 0;
+
+  if (allDuplicates) {
+    // All chunks returned 409 - backfill was already done for entire date range
+    logger.warn(
+      { userId, year, duplicateChunks },
+      'Garmin backfill already completed for entire date range'
+    );
+
+    // Mark as completed since the data was already fetched
+    await prisma.backfillRequest.updateMany({
+      where: { userId, provider: 'garmin', year },
+      data: { status: 'completed', updatedAt: new Date() },
+    });
+
+    return; // Success - backfill was already done
+  }
 
   // Update backfilledUpTo for YTD
   if (year === 'ytd') {
@@ -226,21 +263,21 @@ export function createBackfillWorker(): Worker<BackfillJobData, void, BackfillJo
   );
 
   backfillWorker.on('completed', (job) => {
-    console.log(`[BackfillWorker] Job ${job.id} (${job.name}) completed for year ${job.data.year}`);
+    logger.info({ jobId: job.id, jobName: job.name, year: job.data.year }, 'Backfill job completed');
   });
 
   backfillWorker.on('failed', (job, err) => {
-    console.error(
-      `[BackfillWorker] Job ${job?.id} (${job?.name}) failed for year ${job?.data.year}:`,
-      err.message
+    logger.error(
+      { jobId: job?.id, jobName: job?.name, year: job?.data.year, error: err.message },
+      'Backfill job failed'
     );
   });
 
   backfillWorker.on('error', (err) => {
-    console.error('[BackfillWorker] Worker error:', err.message);
+    logger.error({ error: err.message }, 'BackfillWorker error');
   });
 
-  console.log('[BackfillWorker] Started');
+  logger.info('BackfillWorker started');
   return backfillWorker;
 }
 
@@ -251,6 +288,6 @@ export async function closeBackfillWorker(): Promise<void> {
   if (backfillWorker) {
     await backfillWorker.close();
     backfillWorker = null;
-    console.log('[BackfillWorker] Stopped');
+    logger.info('BackfillWorker stopped');
   }
 }
