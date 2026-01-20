@@ -5,9 +5,15 @@ import { RIDES } from '../graphql/rides';
 import { BIKES } from '../graphql/bikes';
 import { UNMAPPED_STRAVA_GEARS } from '../graphql/stravaGear';
 import { useImportNotificationState } from '../graphql/importSession';
+import {
+  useCalibrationState,
+  useDismissCalibration,
+  useCompleteCalibration,
+} from '../graphql/calibration';
 import StravaGearMappingModal from '../components/StravaGearMappingModal';
 import StravaImportModal from '../components/StravaImportModal';
 import { ImportCompleteOverlay } from '../components/ImportCompleteOverlay';
+import { CalibrationOverlay } from '../components/CalibrationOverlay';
 import RideStatsCard from '../components/RideStatsCard';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useUserTier } from '../hooks/useUserTier';
@@ -80,6 +86,11 @@ export default function Dashboard() {
     pollInterval: 60000,
   });
 
+  // Calibration state (for first-time component calibration overlay)
+  const { data: calibrationData, refetch: refetchCalibration } = useCalibrationState();
+  const [dismissCalibration] = useDismissCalibration();
+  const [completeCalibration] = useCompleteCalibration();
+
   // Derived data
   const rides = ridesData?.rides ?? [];
   const bikes = bikesData?.bikes ?? [];
@@ -97,9 +108,11 @@ export default function Dashboard() {
   const [showGearMapping, setShowGearMapping] = useState(false);
   const [unmappedGears, setUnmappedGears] = useState<Array<{ gearId: string; rideCount: number }>>([]);
   const [isLogServiceOpen, setIsLogServiceOpen] = useState(false);
+  const [logServiceComponentId, setLogServiceComponentId] = useState<string | null>(null);
   const [rideToLink, setRideToLink] = useState<Ride | null>(null);
   const [isStravaImportOpen, setIsStravaImportOpen] = useState(false);
   const [isImportOverlayOpen, setIsImportOverlayOpen] = useState(false);
+  const [isCalibrationOpen, setIsCalibrationOpen] = useState(false);
 
   // Show import overlay when notification state indicates we should
   const importState = importNotificationData?.importNotificationState;
@@ -108,6 +121,19 @@ export default function Dashboard() {
       setIsImportOverlayOpen(true);
     }
   }, [importState?.showOverlay, isImportOverlayOpen]);
+
+  // Show calibration overlay when conditions are met
+  // Only show if import overlay is not currently open (calibration comes after import)
+  const calibrationState = calibrationData?.calibrationState;
+  useEffect(() => {
+    if (
+      calibrationState?.showOverlay &&
+      !isCalibrationOpen &&
+      !isImportOverlayOpen
+    ) {
+      setIsCalibrationOpen(true);
+    }
+  }, [calibrationState?.showOverlay, isCalibrationOpen, isImportOverlayOpen]);
 
   // Effects
   useEffect(() => {
@@ -121,7 +147,8 @@ export default function Dashboard() {
   }, [unmappedData]);
 
   // Handlers
-  const handleLogService = () => {
+  const handleLogService = (componentId?: string) => {
+    setLogServiceComponentId(componentId ?? null);
     setIsLogServiceOpen(true);
   };
 
@@ -183,10 +210,14 @@ export default function Dashboard() {
 
       {/* Log Service Modal */}
       <LogServiceModal
+        key={logServiceComponentId ?? 'default'}
         isOpen={isLogServiceOpen}
-        onClose={() => setIsLogServiceOpen(false)}
+        onClose={() => {
+          setIsLogServiceOpen(false);
+          setLogServiceComponentId(null);
+        }}
         bike={displayedBike}
-        defaultComponentId={displayedBike?.predictions?.priorityComponent?.componentId}
+        defaultComponentId={logServiceComponentId ?? displayedBike?.predictions?.priorityComponent?.componentId}
       />
 
       {/* Strava Gear Mapping Modal */}
@@ -231,6 +262,20 @@ export default function Dashboard() {
         unassignedRideCount={importState?.unassignedRideCount ?? 0}
         totalImportedCount={importState?.totalImportedCount ?? 0}
         bikes={bikes}
+      />
+
+      {/* Calibration Overlay */}
+      <CalibrationOverlay
+        isOpen={isCalibrationOpen}
+        onClose={async () => {
+          await dismissCalibration();
+          setIsCalibrationOpen(false);
+        }}
+        onComplete={async () => {
+          await completeCalibration();
+          await refetchCalibration();
+          setIsCalibrationOpen(false);
+        }}
       />
     </>
   );

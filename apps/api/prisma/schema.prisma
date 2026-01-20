@@ -32,6 +32,8 @@ model User {
   isFoundingRider     Boolean             @default(false)
   emailUnsubscribed   Boolean             @default(false)
   hoursDisplayPreference String?          @default("remaining")
+  calibrationCompletedAt DateTime?
+  calibrationDismissedAt DateTime?
   bikes               Bike[]
   components          Component[]
   tokens              OauthToken[]

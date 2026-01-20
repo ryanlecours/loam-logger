@@ -833,6 +833,132 @@ export const resolvers = {
         hasMore,
       };
     },
+
+    calibrationState: async (_: unknown, __: unknown, ctx: GraphQLContext) => {
+      const userId = ctx.user?.id;
+      if (!userId) {
+        return {
+          showOverlay: false,
+          overdueCount: 0,
+          totalComponentCount: 0,
+          bikes: [],
+        };
+      }
+
+      // Get user calibration state
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          onboardingCompleted: true,
+          calibrationCompletedAt: true,
+          calibrationDismissedAt: true,
+          role: true,
+        },
+      });
+
+      if (!user) {
+        return {
+          showOverlay: false,
+          overdueCount: 0,
+          totalComponentCount: 0,
+          bikes: [],
+        };
+      }
+
+      // Get bikes with predictions to determine overdue components
+      const bikes = await prisma.bike.findMany({
+        where: { userId },
+        orderBy: { sortOrder: 'asc' },
+        include: { components: true },
+      });
+
+      if (bikes.length === 0) {
+        return {
+          showOverlay: false,
+          overdueCount: 0,
+          totalComponentCount: 0,
+          bikes: [],
+        };
+      }
+
+      // Generate predictions for each bike to get component status
+      const { generateBikePredictions } = await import('../services/prediction');
+      const bikesWithPredictions = await Promise.all(
+        bikes.map(async (bike) => {
+          try {
+            const predictions = await generateBikePredictions({
+              userId,
+              bikeId: bike.id,
+              userRole: user.role,
+            });
+            return { bike, predictions };
+          } catch {
+            return { bike, predictions: null };
+          }
+        })
+      );
+
+      // Filter to bikes with overdue/due-now components
+      const bikesNeedingCalibration: Array<{
+        bikeId: string;
+        bikeName: string;
+        thumbnailUrl: string | null;
+        components: Array<{
+          componentId: string;
+          componentType: string;
+          location: string;
+          brand: string;
+          model: string;
+          status: string;
+          hoursRemaining: number;
+          ridesRemainingEstimate: number;
+          confidence: string;
+          currentHours: number;
+          serviceIntervalHours: number;
+          hoursSinceService: number;
+          why: string | null;
+          drivers: Array<{ factor: string; contribution: number; label: string }> | null;
+        }>;
+      }> = [];
+
+      let totalOverdue = 0;
+      let totalComponents = 0;
+
+      for (const { bike, predictions } of bikesWithPredictions) {
+        if (!predictions?.components) continue;
+
+        totalComponents += predictions.components.length;
+
+        // Filter to OVERDUE and DUE_NOW components
+        const needsAttention = predictions.components.filter(
+          (c) => c.status === 'OVERDUE' || c.status === 'DUE_NOW'
+        );
+
+        if (needsAttention.length > 0) {
+          totalOverdue += needsAttention.length;
+          bikesNeedingCalibration.push({
+            bikeId: bike.id,
+            bikeName: bike.nickname || `${bike.year || ''} ${bike.manufacturer} ${bike.model}`.trim(),
+            thumbnailUrl: bike.thumbnailUrl,
+            components: needsAttention,
+          });
+        }
+      }
+
+      // Determine if overlay should show
+      const showOverlay =
+        user.onboardingCompleted &&
+        !user.calibrationCompletedAt &&
+        !user.calibrationDismissedAt &&
+        totalOverdue > 0;
+
+      return {
+        showOverlay,
+        overdueCount: totalOverdue,
+        totalComponentCount: totalComponents,
+        bikes: bikesNeedingCalibration,
+      };
+    },
   },
   Mutation: {
     addRide: async (_p: unknown, { input }: { input: AddRideInput }, ctx: GraphQLContext) => {
@@ -2118,6 +2244,139 @@ export const resolvers = {
         success: true,
         updatedCount: rideIds.length,
       };
+    },
+
+    logBulkComponentService: async (
+      _: unknown,
+      { input }: { input: { componentIds: string[]; performedAt: string } },
+      ctx: GraphQLContext
+    ) => {
+      const userId = requireUserId(ctx);
+
+      // Rate limit check
+      const rateLimit = await checkMutationRateLimit('logBulkComponentService', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
+
+      // Limit batch size
+      const MAX_COMPONENTS_PER_BULK = 50;
+      if (input.componentIds.length > MAX_COMPONENTS_PER_BULK) {
+        throw new GraphQLError(`Cannot log service for more than ${MAX_COMPONENTS_PER_BULK} components at once`, {
+          extensions: { code: 'BAD_USER_INPUT' },
+        });
+      }
+
+      if (input.componentIds.length === 0) {
+        return { success: true, updatedCount: 0 };
+      }
+
+      // Parse and validate service date
+      const serviceDate = parseISO(input.performedAt);
+      if (isNaN(serviceDate.getTime())) {
+        throw new GraphQLError('Invalid date format', {
+          extensions: { code: 'BAD_USER_INPUT' },
+        });
+      }
+      if (serviceDate > new Date()) {
+        throw new GraphQLError('Service date cannot be in the future', {
+          extensions: { code: 'BAD_USER_INPUT' },
+        });
+      }
+
+      // Verify ownership of all components and get bike IDs for cache invalidation
+      const components = await prisma.component.findMany({
+        where: { id: { in: input.componentIds } },
+        select: { id: true, userId: true, bikeId: true, hoursUsed: true },
+      });
+
+      if (components.length !== input.componentIds.length) {
+        throw new GraphQLError('One or more components not found', {
+          extensions: { code: 'NOT_FOUND' },
+        });
+      }
+
+      const bikeIdsToInvalidate = new Set<string>();
+      for (const component of components) {
+        if (component.userId !== userId) {
+          throw new GraphQLError('Unauthorized', {
+            extensions: { code: 'FORBIDDEN' },
+          });
+        }
+        if (component.bikeId) {
+          bikeIdsToInvalidate.add(component.bikeId);
+        }
+      }
+
+      // Invalidate prediction caches BEFORE transaction
+      for (const bikeId of bikeIdsToInvalidate) {
+        await invalidateBikePrediction(userId, bikeId);
+      }
+
+      // Create service logs and reset hours in transaction
+      await prisma.$transaction(async (tx) => {
+        for (const component of components) {
+          // Create service log
+          await tx.serviceLog.create({
+            data: {
+              componentId: component.id,
+              performedAt: serviceDate,
+              hoursAtService: component.hoursUsed,
+            },
+          });
+
+          // Reset component hours
+          await tx.component.update({
+            where: { id: component.id },
+            data: { hoursUsed: 0 },
+          });
+        }
+      });
+
+      // Invalidate prediction caches after transaction
+      for (const bikeId of bikeIdsToInvalidate) {
+        await invalidateBikePrediction(userId, bikeId);
+      }
+
+      return {
+        success: true,
+        updatedCount: components.length,
+      };
+    },
+
+    dismissCalibration: async (_: unknown, __: unknown, ctx: GraphQLContext) => {
+      const userId = requireUserId(ctx);
+
+      return prisma.user.update({
+        where: { id: userId },
+        data: { calibrationDismissedAt: new Date() },
+      });
+    },
+
+    completeCalibration: async (_: unknown, __: unknown, ctx: GraphQLContext) => {
+      const userId = requireUserId(ctx);
+
+      return prisma.user.update({
+        where: { id: userId },
+        data: {
+          calibrationCompletedAt: new Date(),
+          calibrationDismissedAt: null, // Clear dismissed state if completing
+        },
+      });
+    },
+
+    resetCalibration: async (_: unknown, __: unknown, ctx: GraphQLContext) => {
+      const userId = requireUserId(ctx);
+
+      return prisma.user.update({
+        where: { id: userId },
+        data: {
+          calibrationCompletedAt: null,
+          calibrationDismissedAt: null,
+        },
+      });
     },
   },
 

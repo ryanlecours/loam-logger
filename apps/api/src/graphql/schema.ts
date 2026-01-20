@@ -461,6 +461,30 @@ export const typeDefs = gql`
     updatedCount: Int!
   }
 
+  type BikeCalibrationInfo {
+    bikeId: ID!
+    bikeName: String!
+    thumbnailUrl: String
+    components: [ComponentPrediction!]!
+  }
+
+  type CalibrationState {
+    showOverlay: Boolean!
+    overdueCount: Int!
+    totalComponentCount: Int!
+    bikes: [BikeCalibrationInfo!]!
+  }
+
+  input BulkServiceLogInput {
+    componentIds: [ID!]!
+    performedAt: String!
+  }
+
+  type BulkServiceResult {
+    success: Boolean!
+    updatedCount: Int!
+  }
+
   input AcceptTermsInput {
     termsVersion: String!
   }
@@ -495,6 +519,10 @@ export const typeDefs = gql`
     updateUserPreferences(input: UpdateUserPreferencesInput!): User!
     acknowledgeImportOverlay(importSessionId: ID!): AcknowledgeResult!
     assignBikeToRides(rideIds: [ID!]!, bikeId: ID!): BulkAssignResult!
+    logBulkComponentService(input: BulkServiceLogInput!): BulkServiceResult!
+    dismissCalibration: User!
+    completeCalibration: User!
+    resetCalibration: User!
   }
 
   type ConnectedAccount {
@@ -536,5 +564,6 @@ export const typeDefs = gql`
     unmappedStravaGears: [StravaGearInfo!]!
     importNotificationState: ImportNotificationState
     unassignedRides(importSessionId: ID!, take: Int = 50, after: ID): UnassignedRidesPage!
+    calibrationState: CalibrationState
   }
 `;

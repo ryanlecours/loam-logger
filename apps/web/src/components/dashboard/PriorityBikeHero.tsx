@@ -13,7 +13,7 @@ interface PriorityBikeHeroProps {
   bike: BikeWithPredictions | null;
   isShowingPriority: boolean;
   onResetToPriority: () => void;
-  onLogService: () => void;
+  onLogService: (componentId?: string) => void;
   onStravaBackfill?: () => void;
   isStravaConnected?: boolean;
   isStravaDisabled?: boolean;
@@ -135,14 +135,14 @@ export function PriorityBikeHero({
             transition={{ duration: 0.15 }}
           >
             {/* Component Health Panel */}
-            <ComponentHealthPanel components={components} />
+            <ComponentHealthPanel components={components} onLogService={onLogService} />
 
             {/* Actions */}
             <div className="priority-hero-actions">
               <Button
                 variant="primary"
                 size="sm"
-                onClick={onLogService}
+                onClick={() => onLogService()}
               >
                 <FaWrench size={12} className="icon-left" />
                 Log service

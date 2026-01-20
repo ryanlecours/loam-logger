@@ -33,14 +33,12 @@ export function LogServiceModal({
     refetchQueries: [{ query: BIKES }],
   });
 
-  // Sync selection and reset date when modal opens
+  // Sync selection and reset date when modal opens or defaultComponentId changes
   useEffect(() => {
     if (isOpen) {
-      if (defaultComponentId) {
-        setSelectedIds(new Set([defaultComponentId]));
-      } else {
-        setSelectedIds(new Set());
-      }
+      // Set initial selection based on defaultComponentId
+      const initialSelection = defaultComponentId ? new Set([defaultComponentId]) : new Set<string>();
+      setSelectedIds(initialSelection);
       setServiceDate(new Date().toISOString().split('T')[0]);
       setError(null);
     }
@@ -95,6 +93,21 @@ export function LogServiceModal({
       onClose={handleClose}
       title="Log Service"
       size="md"
+      footer={
+        <>
+          <Button variant="outline" size="sm" onClick={handleClose} disabled={isSubmitting}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={handleSubmit}
+            disabled={selectedIds.size === 0 || isSubmitting}
+          >
+            {isSubmitting ? 'Logging...' : `Log Service (${selectedIds.size})`}
+          </Button>
+        </>
+      }
     >
       <div className="log-service-modal-content">
         <div className="log-service-modal-bike">
@@ -161,19 +174,6 @@ export function LogServiceModal({
             {error}
           </div>
         )}
-
-        <div className="log-service-actions">
-          <Button variant="outline" onClick={handleClose} disabled={isSubmitting}>
-            Cancel
-          </Button>
-          <Button
-            variant="primary"
-            onClick={handleSubmit}
-            disabled={selectedIds.size === 0 || isSubmitting}
-          >
-            {isSubmitting ? 'Logging...' : `Log Service (${selectedIds.size})`}
-          </Button>
-        </div>
       </div>
     </Modal>
   );

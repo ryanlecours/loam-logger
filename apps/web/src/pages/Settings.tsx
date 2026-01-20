@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, gql } from "@apollo/client";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, useNavigate } from "react-router-dom";
 import { FaMountain, FaGoogle, FaStrava } from "react-icons/fa";
 import { formatDistanceToNow } from "date-fns";
 import ThemeToggle from "../components/ThemeToggleButton";
@@ -13,6 +13,7 @@ import StravaGearMappingModal from "../components/StravaGearMappingModal";
 import DataSourceSelector from "../components/DataSourceSelector";
 import DuplicateRidesModal from "../components/DuplicateRidesModal";
 import { UNMAPPED_STRAVA_GEARS } from "../graphql/stravaGear";
+import { useResetCalibration } from "../graphql/calibration";
 import { useCurrentUser } from "../hooks/useCurrentUser";
 import { usePreferences } from "../hooks/usePreferences";
 import { getAuthHeaders } from "@/lib/csrf";
@@ -33,7 +34,9 @@ const CONNECTED_ACCOUNTS_QUERY = gql`
 
 export default function Settings() {
   const { user } = useCurrentUser();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const [resetCalibration] = useResetCalibration();
   const { data: accountsData, refetch: refetchAccounts } = useQuery(CONNECTED_ACCOUNTS_QUERY, {
     fetchPolicy: 'cache-and-network',
   });
@@ -531,6 +534,26 @@ export default function Settings() {
             <span className="text-xs text-amber-400">Unsaved changes</span>
           )}
         </div>
+      </section>
+
+      <section className="panel-spaced xl:max-w-[calc(50%-0.75rem)]">
+        <div>
+          <p className="label-section">Maintenance</p>
+          <h2 className="title-section">Re-calibrate Components</h2>
+        </div>
+        <p className="text-sm text-muted">
+          If your component service status looks incorrect (e.g., after importing ride history),
+          you can re-calibrate to set accurate service dates for your components.
+        </p>
+        <button
+          onClick={async () => {
+            await resetCalibration();
+            navigate('/dashboard');
+          }}
+          className="btn-secondary"
+        >
+          Open Calibration
+        </button>
       </section>
 
       {successMessage && (
