@@ -26,6 +26,7 @@ const REDACT_PATHS = [
   'req.body.refreshToken',
   'req.body.accessToken',
   'req.body.userAccessToken',
+  'req.body.email',
   // Response body fields (prevent token leakage in logs)
   'res.body.token',
   'res.body.accessToken',
@@ -38,6 +39,16 @@ const REDACT_PATHS = [
   'userAccessToken',
   'authorization',
   'cookie',
+  // PII fields
+  'email',
+  'userEmail',
+  'phoneNumber',
+  'phone',
+  // GPS coordinates (protect location privacy)
+  'startLatitude',
+  'startLongitude',
+  'endLatitude',
+  'endLongitude',
 ];
 
 /**

@@ -77,8 +77,9 @@ r.get<Empty, void, Empty, { days?: string; year?: string }>(
           endDate = new Date(); // Now
         } else {
           const year = parseInt(yearParam, 10);
-          if (isNaN(year) || year < 2000 || year > currentYear) {
-            return sendBadRequest(res, `Year must be between 2000 and ${currentYear}, or 'ytd'`);
+          const minYear = currentYear - 4;
+          if (isNaN(year) || year < minYear || year > currentYear) {
+            return sendBadRequest(res, `Year must be between ${minYear} and ${currentYear}, or 'ytd'`);
           }
 
           // Check if this specific year has already been backfilled
@@ -354,6 +355,18 @@ r.post<Empty, void, { years: string[] }, Empty>(
       return sendBadRequest(res, 'Maximum 10 years can be queued at once');
     }
 
+    // Validate all years upfront (fail fast before any DB queries)
+    const currentYear = new Date().getFullYear();
+    const minYear = currentYear - 4;
+    for (const year of years) {
+      if (year !== 'ytd') {
+        const yearNum = parseInt(year, 10);
+        if (isNaN(yearNum) || yearNum < minYear || yearNum > currentYear) {
+          return sendBadRequest(res, `Invalid year: ${year}. Must be between ${minYear} and ${currentYear}, or 'ytd'`);
+        }
+      }
+    }
+
     try {
       // Check for existing running ImportSession - prevent concurrent backfills
       const existingImportSession = await prisma.importSession.findFirst({
@@ -365,16 +378,6 @@ r.post<Empty, void, { years: string[] }, Empty>(
           error: 'Import already in progress',
           message: 'A Garmin import is already in progress. Please wait for it to complete before starting another.',
         });
-      }
-      // Validate all years
-      const currentYear = new Date().getFullYear();
-      for (const year of years) {
-        if (year !== 'ytd') {
-          const yearNum = parseInt(year, 10);
-          if (isNaN(yearNum) || yearNum < 2000 || yearNum > currentYear) {
-            return sendBadRequest(res, `Invalid year: ${year}. Must be between 2000 and ${currentYear}, or 'ytd'`);
-          }
-        }
       }
 
       // Check for already backfilled years (non-YTD only, skip failed ones)

@@ -12,6 +12,10 @@ import {
 } from '../graphql/importSession';
 import { getBikeName } from '../utils/formatters';
 import { formatDistanceCompact, formatDurationCompact, formatDate } from '../utils/formatters';
+import type { BikeWithPredictions } from '../hooks/usePriorityBike';
+
+/** Minimal bike fields needed for the overlay */
+type Bike = Pick<BikeWithPredictions, 'id' | 'nickname' | 'manufacturer' | 'model'>;
 
 interface ImportCompleteOverlayProps {
   isOpen: boolean;
@@ -22,13 +26,6 @@ interface ImportCompleteOverlayProps {
   /** Optional bikes prop to avoid redundant query when parent already has bikes */
   bikes?: Bike[];
 }
-
-type Bike = {
-  id: string;
-  nickname?: string | null;
-  manufacturer: string;
-  model: string;
-};
 
 export function ImportCompleteOverlay({
   isOpen,
@@ -109,10 +106,12 @@ export function ImportCompleteOverlay({
       const allRideIds = rides.map((r) => r.id);
       await assignBikeToRides({ variables: { rideIds: allRideIds, bikeId: selectedBikeId } });
       setSuccessMessage(`Assigned ${allRideIds.length} rides to bike!`);
-      refetchRides();
       setSelectedRideIds(new Set());
-    } catch (err) {
-      console.error('Failed to assign rides:', err);
+      // Refetch in background - assignment succeeded, so don't fail the whole operation
+      refetchRides().catch(() => {
+        // Silently handle refetch failure - data will refresh on next poll
+      });
+    } catch {
       setError('Failed to assign rides. Please try again.');
     } finally {
       setIsSubmitting(false);
@@ -130,10 +129,12 @@ export function ImportCompleteOverlay({
       const rideIds = Array.from(selectedRideIds);
       await assignBikeToRides({ variables: { rideIds, bikeId: selectedBikeId } });
       setSuccessMessage(`Assigned ${rideIds.length} rides to bike!`);
-      refetchRides();
       setSelectedRideIds(new Set());
-    } catch (err) {
-      console.error('Failed to assign rides:', err);
+      // Refetch in background - assignment succeeded, so don't fail the whole operation
+      refetchRides().catch(() => {
+        // Silently handle refetch failure - data will refresh on next poll
+      });
+    } catch {
       setError('Failed to assign rides. Please try again.');
     } finally {
       setIsSubmitting(false);
@@ -146,11 +147,10 @@ export function ImportCompleteOverlay({
       return;
     }
 
-    try {
-      await acknowledgeOverlay({ variables: { importSessionId: sessionId } });
-    } catch (err) {
-      console.error('Failed to acknowledge overlay:', err);
-    }
+    // Acknowledge in background - failure doesn't affect user experience
+    acknowledgeOverlay({ variables: { importSessionId: sessionId } }).catch(() => {
+      // Silently ignore - overlay state will be corrected on next import
+    });
     onClose();
   }, [sessionId, acknowledgeOverlay, onClose]);
 
@@ -298,12 +298,15 @@ function RideRow({
   const duration = formatDurationCompact(ride.durationSeconds);
   const distance = formatDistanceCompact(ride.distanceMiles);
 
+  const ariaLabel = `${ride.rideType} ride on ${formattedDate}, ${duration}, ${distance}${ride.location ? `, ${ride.location}` : ''}`;
+
   return (
     <div
       className={`import-overlay-ride-row ${isSelected ? 'import-overlay-ride-row-selected' : ''}`}
       onClick={onToggle}
       role="checkbox"
       aria-checked={isSelected}
+      aria-label={ariaLabel}
       tabIndex={0}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {

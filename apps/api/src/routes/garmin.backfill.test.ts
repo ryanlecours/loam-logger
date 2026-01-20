@@ -156,14 +156,15 @@ describe('GET /garmin/backfill/fetch', () => {
   });
 
   describe('Year Validation', () => {
-    it('should return 400 for year before 2000', async () => {
-      mockReq.query = { year: '1999' };
+    it('should return 400 for year before minimum allowed (currentYear - 4)', async () => {
+      const minYear = new Date().getFullYear() - 4;
+      mockReq.query = { year: String(minYear - 1) };
 
       await invokeHandler(handler, mockReq as Request, mockRes as Response);
 
       expect(statusCode).toBe(400);
       expect(jsonResponse).toMatchObject({
-        error: expect.stringContaining('Year must be between 2000'),
+        error: expect.stringContaining(`Year must be between ${minYear}`),
       });
     });
 
@@ -495,6 +496,7 @@ describe('extractMinStartDate behavior', () => {
   let mockReq: Partial<Request>;
   let mockRes: Partial<Response>;
   let handler: RequestHandler | undefined;
+  const testYear = new Date().getFullYear() - 2; // Use a year within the 4-year window
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -507,7 +509,7 @@ describe('extractMinStartDate behavior', () => {
 
     mockReq = {
       sessionUser: { uid: 'user-123' },
-      query: { year: '2020' },
+      query: { year: String(testYear) },
     };
 
     mockRes = {
@@ -530,7 +532,7 @@ describe('extractMinStartDate behavior', () => {
         status: 400,
         ok: false,
         text: () => Promise.resolve(JSON.stringify({
-          errorMessage: 'summaryStartTimeInSeconds must be greater than or equal to min start time of 2020-06-01T00:00:00Z',
+          errorMessage: `summaryStartTimeInSeconds must be greater than or equal to min start time of ${testYear}-06-01T00:00:00Z`,
         })),
       })
       // Second chunk succeeds after adjustment

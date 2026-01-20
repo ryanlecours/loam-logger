@@ -231,18 +231,19 @@ export function startImportSessionChecker(): void {
 
 /**
  * Stop the import session checker gracefully.
- * Waits for any in-flight processing to complete (up to 30 seconds).
+ * Waits for any in-flight processing to complete (up to 10 seconds).
+ * Reduced from 30s to avoid delaying container orchestration shutdown (K8s, ECS).
  */
 export async function stopImportSessionChecker(): Promise<void> {
   if (checkerInterval) {
     clearInterval(checkerInterval);
     checkerInterval = null;
 
-    // Wait for in-flight processing to complete (max 30 seconds)
+    // Wait for in-flight processing to complete (max 10 seconds)
     if (isProcessing) {
-      logger.info('[ImportSessionChecker] Waiting for in-flight processing to complete...');
+      logger.info('[ImportSessionChecker] Shutdown requested, waiting for in-flight processing...');
       let waitCount = 0;
-      const maxWait = 30;
+      const maxWait = 10;
 
       while (isProcessing && waitCount < maxWait) {
         await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -250,9 +251,12 @@ export async function stopImportSessionChecker(): Promise<void> {
       }
 
       if (isProcessing) {
-        logger.warn('[ImportSessionChecker] Forced stop while still processing');
+        logger.warn(
+          { waitedSeconds: waitCount },
+          '[ImportSessionChecker] Forced shutdown - processing still in progress'
+        );
       } else {
-        logger.info('[ImportSessionChecker] Stopped gracefully');
+        logger.info({ waitedSeconds: waitCount }, '[ImportSessionChecker] Stopped gracefully');
       }
     } else {
       logger.info('[ImportSessionChecker] Stopped');
