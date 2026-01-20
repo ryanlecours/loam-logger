@@ -438,6 +438,10 @@ export const typeDefs = gql`
     acceptedAt: String!
   }
 
+  input UpdateUserPreferencesInput {
+    hoursDisplayPreference: String
+  }
+
   type Mutation {
     addRide(input: AddRideInput!): Ride!
     updateRide(id: ID!, input: UpdateRideInput!): Ride!
@@ -456,6 +460,7 @@ export const typeDefs = gql`
     triggerProviderSync(provider: SyncProvider!): TriggerSyncResult!
     bulkUpdateComponentBaselines(input: BulkUpdateBaselinesInput!): [Component!]!
     acceptTerms(input: AcceptTermsInput!): AcceptTermsResult!
+    updateUserPreferences(input: UpdateUserPreferencesInput!): User!
   }
 
   type ConnectedAccount {
@@ -478,6 +483,7 @@ export const typeDefs = gql`
     role: UserRole!
     mustChangePassword: Boolean!
     isFoundingRider: Boolean!
+    hoursDisplayPreference: String
   }
 
   input RidesFilterInput {

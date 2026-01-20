@@ -4,6 +4,7 @@ import { FaChevronDown, FaPencilAlt } from 'react-icons/fa';
 import { StatusDot } from '../dashboard/StatusDot';
 import type { PredictionStatus } from '../../types/prediction';
 import { formatComponentLabel } from '../../utils/formatters';
+import { useHoursDisplay } from '../../hooks/useHoursDisplay';
 
 type ComponentDto = {
   id: string;
@@ -82,6 +83,7 @@ export function ComponentDetailRow({
   onEdit,
 }: ComponentDetailRowProps) {
   const [isExpanded, setIsExpanded] = useState(false);
+  const { hoursDisplay } = useHoursDisplay();
 
   const status = prediction?.status ?? 'ALL_GOOD';
   const hoursRemaining = prediction?.hoursRemaining;
@@ -125,13 +127,23 @@ export function ComponentDetailRow({
         </div>
 
         <div className="component-detail-metrics">
-          {hoursRemaining != null && (
-            <>
-              <span className="component-detail-hours">
-                {formatHours(hoursRemaining)}
-              </span>
-              <span className="component-detail-hours-label">left</span>
-            </>
+          {hoursDisplay === 'total' ? (
+            prediction?.hoursSinceService != null && prediction?.serviceIntervalHours != null && (
+              <>
+                <span className="component-detail-hours">
+                  {formatHours(prediction.hoursSinceService)} / {prediction.serviceIntervalHours}h
+                </span>
+              </>
+            )
+          ) : (
+            hoursRemaining != null && (
+              <>
+                <span className="component-detail-hours">
+                  {formatHours(hoursRemaining)}
+                </span>
+                <span className="component-detail-hours-label">left</span>
+              </>
+            )
           )}
         </div>
 

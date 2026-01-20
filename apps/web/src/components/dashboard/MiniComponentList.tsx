@@ -1,5 +1,6 @@
 import type { ComponentPrediction } from '../../types/prediction';
 import { formatComponentLabel } from '../../utils/formatters';
+import { useHoursDisplay } from '../../hooks/useHoursDisplay';
 import { StatusDot } from './StatusDot';
 
 interface MiniComponentListProps {
@@ -8,6 +9,8 @@ interface MiniComponentListProps {
 }
 
 export function MiniComponentList({ components, className = '' }: MiniComponentListProps) {
+  const { hoursDisplay } = useHoursDisplay();
+
   if (components.length === 0) {
     return (
       <div className={`mini-component-list ${className}`.trim()}>
@@ -29,7 +32,9 @@ export function MiniComponentList({ components, className = '' }: MiniComponentL
             {formatComponentLabel(component)}
           </span>
           <span className="mini-component-hours">
-            {component.hoursRemaining.toFixed(1)} hrs
+            {hoursDisplay === 'total'
+              ? `${component.hoursSinceService.toFixed(1)}/${component.serviceIntervalHours}h`
+              : `${component.hoursRemaining.toFixed(1)} hrs`}
           </span>
           <span className="mini-component-rides">
             ~{component.ridesRemainingEstimate} rides

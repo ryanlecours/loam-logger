@@ -19,6 +19,13 @@
   padding-right: clamp(1.5rem, 5vw, 3rem);
 }
 
+.page-container {
+  max-width: 1734px;
+  margin-left: auto;
+  margin-right: auto;
+  width: 100%;
+}
+
 .section-padding {
   padding-top: clamp(4rem, 10vh, 8rem);
   padding-bottom: clamp(4rem, 10vh, 8rem);

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useQuery, gql } from "@apollo/client";
+import { useQuery, useMutation, gql } from "@apollo/client";
 import { useSearchParams } from "react-router-dom";
 import { FaMountain, FaGoogle, FaStrava } from "react-icons/fa";
 import { formatDistanceToNow } from "date-fns";
@@ -16,6 +16,7 @@ import { UNMAPPED_STRAVA_GEARS } from "../graphql/stravaGear";
 import { useCurrentUser } from "../hooks/useCurrentUser";
 import { usePreferences } from "../hooks/usePreferences";
 import { getAuthHeaders } from "@/lib/csrf";
+import { UPDATE_USER_PREFERENCES_MUTATION } from "../graphql/userPreferences";
 
 const CONNECTED_ACCOUNTS_QUERY = gql`
   query ConnectedAccounts {
@@ -40,6 +41,9 @@ export default function Settings() {
     fetchPolicy: 'cache-and-network',
   });
   const { hoursDisplay, setHoursDisplay } = usePreferences();
+  const [savedHoursDisplay, setSavedHoursDisplay] = useState(hoursDisplay);
+  const [preferenceSaving, setPreferenceSaving] = useState(false);
+  const [updateUserPreferences] = useMutation(UPDATE_USER_PREFERENCES_MUTATION);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [stravaImportModalOpen, setStravaImportModalOpen] = useState(false);
@@ -77,6 +81,15 @@ export default function Settings() {
       setActiveDataSource(accountsData.me.activeDataSource);
     }
   }, [accountsData]);
+
+  // Sync hoursDisplay preference from database when user data loads
+  useEffect(() => {
+    if (user?.hoursDisplayPreference) {
+      const dbPref = user.hoursDisplayPreference as 'total' | 'remaining';
+      setSavedHoursDisplay(dbPref);
+      setHoursDisplay(dbPref);
+    }
+  }, [user?.hoursDisplayPreference, setHoursDisplay]);
 
   const accounts = accountsData?.me?.accounts || [];
   const garminAccount = accounts.find((acc: { provider: string; connectedAt: string }) => acc.provider === "garmin");
@@ -212,6 +225,25 @@ export default function Settings() {
     }
   };
 
+  const handleSavePreferences = async () => {
+    setPreferenceSaving(true);
+    try {
+      await updateUserPreferences({
+        variables: {
+          input: { hoursDisplayPreference: hoursDisplay },
+        },
+      });
+      setSavedHoursDisplay(hoursDisplay);
+      setSuccessMessage('Preferences saved successfully');
+      setTimeout(() => setSuccessMessage(null), 3000);
+    } catch (err) {
+      console.error('Failed to save preferences:', err);
+      alert('Failed to save preferences. Please try again.');
+    } finally {
+      setPreferenceSaving(false);
+    }
+  };
+
   const handleDeleteAccount = async () => {
     try {
       const response = await fetch(`${import.meta.env.VITE_API_URL}/auth/delete-account`, {
@@ -238,13 +270,13 @@ export default function Settings() {
   };
 
   return (
-    <div className="space-y-8">
+    <div className="page-container space-y-8">
       <section className="panel">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="label-section">Settings</p>
             <h1 className="text-3xl font-semibold text-white">Tune Loam Logger to your workflow</h1>
-            <p className="text-body-muted max-w-2xl">
+            <p className="text-body-muted max-w-md">
               Manage account links, display preferences, and appearance so ride data flows exactly the way you want.
             </p>
           </div>
@@ -390,7 +422,7 @@ export default function Settings() {
             </div>
             <button
               onClick={() => setDuplicatesModalOpen(true)}
-              className="btn-secondary"
+              className="btn-secondary max-w-md mx-auto"
             >
               Review Duplicates
             </button>
@@ -414,7 +446,7 @@ export default function Settings() {
             </div>
             <button
               onClick={() => setStravaMappingModalOpen(true)}
-              className="btn-secondary"
+              className="btn-secondary max-w-md mx-auto"
             >
               Manage Bike Mappings
             </button>
@@ -439,7 +471,7 @@ export default function Settings() {
         </div>
       </section>
 
-      <section className="panel-spaced">
+      <section className="panel-spaced xl:max-w-[calc(50%-0.75rem)]">
         <div>
           <p className="label-section">Preferences</p>
           <h2 className="title-section">Component hours display</h2>
@@ -483,6 +515,18 @@ export default function Settings() {
         <p className="text-xs text-muted">
           Total hours are always stored. This preference only affects how we display service intervals.
         </p>
+        <div className="flex items-center gap-3 pt-2">
+          <button
+            onClick={handleSavePreferences}
+            disabled={preferenceSaving || hoursDisplay === savedHoursDisplay}
+            className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {preferenceSaving ? 'Saving...' : 'Save Preferences'}
+          </button>
+          {hoursDisplay !== savedHoursDisplay && (
+            <span className="text-xs text-amber-400">Unsaved changes</span>
+          )}
+        </div>
       </section>
 
       {successMessage && (

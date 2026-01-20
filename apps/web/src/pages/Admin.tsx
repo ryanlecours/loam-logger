@@ -1025,7 +1025,7 @@ export default function Admin() {
   }
 
   return (
-    <div className="space-y-8">
+    <div className="page-container space-y-8">
       {/* Header */}
       <section className="panel">
         <div className="flex flex-wrap items-center justify-between gap-3">

@@ -1854,6 +1854,37 @@ export const resolvers = {
         acceptedAt: acceptance.acceptedAt.toISOString(),
       };
     },
+
+    updateUserPreferences: async (
+      _: unknown,
+      { input }: { input: { hoursDisplayPreference?: string | null } },
+      ctx: GraphQLContext
+    ) => {
+      const userId = requireUserId(ctx);
+
+      const updateData: { hoursDisplayPreference?: string | null } = {};
+
+      if (input.hoursDisplayPreference !== undefined) {
+        // Validate the preference value
+        if (input.hoursDisplayPreference !== null &&
+            input.hoursDisplayPreference !== 'total' &&
+            input.hoursDisplayPreference !== 'remaining') {
+          throw new GraphQLError('Invalid hoursDisplayPreference value. Must be "total" or "remaining"', {
+            extensions: { code: 'BAD_USER_INPUT' },
+          });
+        }
+        updateData.hoursDisplayPreference = input.hoursDisplayPreference;
+      }
+
+      if (Object.keys(updateData).length === 0) {
+        return prisma.user.findUnique({ where: { id: userId } });
+      }
+
+      return prisma.user.update({
+        where: { id: userId },
+        data: updateData,
+      });
+    },
   },
 
   Bike: {

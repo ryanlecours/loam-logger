@@ -81,7 +81,7 @@ export default function RidesPage() {
   const bikes = bikesData?.bikes ?? [];
 
   return (
-    <div className="space-y-6">
+    <div className="page-container space-y-6">
       <section className="panel">
         <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
           <div>
