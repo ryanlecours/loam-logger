@@ -3,7 +3,7 @@ import { prisma } from './prisma';
 
 // In-memory LRU cache for hot-path reads
 // Evicts least-recently-used entries when full
-const memoryCache = new LRUCache<string, string | null>({ max: 1000 });
+const memoryCache = new LRUCache<string, string>({ max: 1000 });
 
 /**
  * Ride title result from reverse geocoding
@@ -189,7 +189,10 @@ const getCachedGeocode = async (
     });
     if (dbCached) {
       // Populate memory cache for future hits (LRU handles eviction)
-      memoryCache.set(cacheKey, dbCached.location);
+      // Only cache non-null values in memory; null values are persisted in DB
+      if (dbCached.location !== null) {
+        memoryCache.set(cacheKey, dbCached.location);
+      }
       return dbCached.location;
     }
   } catch (error) {
@@ -212,7 +215,10 @@ const setCachedGeocode = async (
   const roundedLon = roundCoordinate(lon);
 
   // Store in memory cache (LRU handles eviction automatically)
-  memoryCache.set(cacheKey, value);
+  // Only cache non-null values in memory; null values are persisted in DB
+  if (value !== null) {
+    memoryCache.set(cacheKey, value);
+  }
 
   // Store in DB (persistent)
   try {

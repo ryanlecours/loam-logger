@@ -4,6 +4,15 @@ import userEvent from '@testing-library/user-event';
 import { ComponentHealthPanel } from './ComponentHealthPanel';
 import type { ComponentPrediction } from '../../types/prediction';
 
+// Mock useHoursDisplay to avoid PreferencesProvider dependency
+vi.mock('../../hooks/useHoursDisplay', () => ({
+  useHoursDisplay: () => ({
+    hoursDisplay: 'remaining',
+    formatHoursForDisplay: () => '100h remaining',
+    formatHoursCompact: () => '100h',
+  }),
+}));
+
 // Factory for creating test components
 const createComponent = (overrides: Partial<ComponentPrediction> = {}): ComponentPrediction => ({
   componentId: `comp-${Math.random().toString(36).slice(2)}`,

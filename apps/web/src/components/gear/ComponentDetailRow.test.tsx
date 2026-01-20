@@ -25,6 +25,15 @@ vi.mock('../../utils/formatters', () => ({
     comp.location ? `${comp.componentType} (${comp.location})` : comp.componentType,
 }));
 
+// Mock useHoursDisplay to avoid PreferencesProvider dependency
+vi.mock('../../hooks/useHoursDisplay', () => ({
+  useHoursDisplay: () => ({
+    hoursDisplay: 'remaining',
+    formatHoursForDisplay: () => '4.5h remaining',
+    formatHoursCompact: () => '4.5h',
+  }),
+}));
+
 describe('ComponentDetailRow', () => {
   const createComponent = (overrides = {}) => ({
     id: 'comp-1',

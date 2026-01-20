@@ -38,6 +38,12 @@ jest.mock('../lib/garmin-token', () => ({
 // Mock logger
 jest.mock('../lib/logger', () => ({
   logError: jest.fn(),
+  logger: {
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    debug: jest.fn(),
+  },
 }));
 
 // Import router after mocks
@@ -377,7 +383,7 @@ describe('GET /garmin/backfill/fetch', () => {
       });
     });
 
-    it('should handle 409 Conflict (duplicate request to Garmin)', async () => {
+    it('should handle 409 Conflict (duplicate request to Garmin) as completed', async () => {
       mockReq.query = { year: 'ytd' };
       mockFetch.mockResolvedValue({
         status: 409,
@@ -386,10 +392,11 @@ describe('GET /garmin/backfill/fetch', () => {
 
       await invokeHandler(handler, mockReq as Request, mockRes as Response);
 
-      // Should return 409 to client
-      expect(statusCode).toBe(409);
+      // When all chunks return 409, return success with alreadyCompleted flag
+      // This indicates the backfill was already done for this date range
       expect(jsonResponse).toMatchObject({
-        error: 'Backfill already in progress',
+        success: true,
+        alreadyCompleted: true,
       });
     });
   });

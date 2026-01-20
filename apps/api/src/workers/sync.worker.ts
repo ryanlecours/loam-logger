@@ -553,9 +553,6 @@ export function createSyncWorker(): Worker<SyncJobData, void, SyncJobName> {
       connection: getQueueConnection(),
       concurrency: 1, // Single user app - sequential processing is sufficient
       // Reduce polling frequency when idle to lower Redis costs
-      settings: {
-        stalledInterval: 60000, // Check for stalled jobs every 60s (default 30s)
-      },
       drainDelay: 5000, // Wait 5s between empty polls (default 0)
     }
   );
