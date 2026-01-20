@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, gql } from "@apollo/client";
 import { useSearchParams } from "react-router-dom";
 import { FaMountain, FaGoogle, FaStrava } from "react-icons/fa";
@@ -43,6 +43,7 @@ export default function Settings() {
   const { hoursDisplay, setHoursDisplay } = usePreferences();
   const [savedHoursDisplay, setSavedHoursDisplay] = useState(hoursDisplay);
   const [preferenceSaving, setPreferenceSaving] = useState(false);
+  const initialPrefSyncedRef = useRef(false);
   const [updateUserPreferences] = useMutation(UPDATE_USER_PREFERENCES_MUTATION);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
@@ -82,12 +83,15 @@ export default function Settings() {
     }
   }, [accountsData]);
 
-  // Sync hoursDisplay preference from database when user data loads
+  // Sync hoursDisplay preference from database on initial load only
+  // Using a ref to prevent re-syncing when Apollo refetches user data,
+  // which would overwrite any pending unsaved changes
   useEffect(() => {
-    if (user?.hoursDisplayPreference) {
+    if (user?.hoursDisplayPreference && !initialPrefSyncedRef.current) {
       const dbPref = user.hoursDisplayPreference as 'total' | 'remaining';
       setSavedHoursDisplay(dbPref);
       setHoursDisplay(dbPref);
+      initialPrefSyncedRef.current = true;
     }
   }, [user?.hoursDisplayPreference, setHoursDisplay]);
 

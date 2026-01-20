@@ -140,16 +140,12 @@ function ComponentDetailOverlay({ component, onClose }: ComponentDetailOverlayPr
             <span className="component-detail-stat-label">Since last service</span>
           </div>
           <div className="component-detail-stat">
-            <span className="component-detail-stat-value">{formatHours(component.currentHours)}</span>
-            <span className="component-detail-stat-label">Total hours</span>
+            <span className="component-detail-stat-value">{formatHours(component.serviceIntervalHours)}</span>
+            <span className="component-detail-stat-label">Service interval</span>
           </div>
           <div className="component-detail-stat">
             <span className="component-detail-stat-value">~{component.ridesRemainingEstimate}</span>
             <span className="component-detail-stat-label">Rides remaining</span>
-          </div>
-          <div className="component-detail-stat">
-            <span className="component-detail-stat-value">{formatHours(component.serviceIntervalHours)}</span>
-            <span className="component-detail-stat-label">Service interval</span>
           </div>
         </div>
 
