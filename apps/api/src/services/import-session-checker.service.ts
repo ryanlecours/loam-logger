@@ -19,6 +19,7 @@ const CHECKER_LOCK_TTL_SECONDS = 120;
 
 let checkerInterval: NodeJS.Timeout | null = null;
 let isProcessing = false;
+let shouldAbort = false;
 
 /**
  * Acquire a distributed lock for the import session checker.
@@ -121,6 +122,12 @@ async function checkIdleSessions(): Promise<void> {
       logger.info({ count: idleSessions.length }, '[ImportSessionChecker] Found idle sessions to complete');
 
       for (const session of idleSessions) {
+        // Check for abort signal before each DB operation
+        if (shouldAbort) {
+          logger.info('[ImportSessionChecker] Aborting due to shutdown request');
+          return;
+        }
+
         try {
           // Atomically count unassigned rides and update session in a single query
           // This prevents race conditions if user assigns bikes between count and update
@@ -158,6 +165,12 @@ async function checkIdleSessions(): Promise<void> {
       }
     }
 
+    // Check for abort before stale session cleanup
+    if (shouldAbort) {
+      logger.info('[ImportSessionChecker] Aborting due to shutdown request');
+      return;
+    }
+
     // Also complete stale sessions that never received any activities
     const staleResult = await prisma.importSession.updateMany({
       where: {
@@ -177,6 +190,12 @@ async function checkIdleSessions(): Promise<void> {
         { count: staleResult.count },
         '[ImportSessionChecker] Completed stale sessions with no activity'
       );
+    }
+
+    // Check for abort before stuck session cleanup
+    if (shouldAbort) {
+      logger.info('[ImportSessionChecker] Aborting due to shutdown request');
+      return;
     }
 
     // Clean up stuck sessions (running > 24 hours, likely from worker crash)
@@ -239,6 +258,9 @@ export async function stopImportSessionChecker(): Promise<void> {
     clearInterval(checkerInterval);
     checkerInterval = null;
 
+    // Signal abort to any in-flight processing
+    shouldAbort = true;
+
     // Wait for in-flight processing to complete (max 10 seconds)
     if (isProcessing) {
       logger.info('[ImportSessionChecker] Shutdown requested, waiting for in-flight processing...');
@@ -261,5 +283,8 @@ export async function stopImportSessionChecker(): Promise<void> {
     } else {
       logger.info('[ImportSessionChecker] Stopped');
     }
+
+    // Reset abort flag for potential restart
+    shouldAbort = false;
   }
 }

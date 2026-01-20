@@ -2042,6 +2042,14 @@ export const resolvers = {
     ) => {
       const userId = requireUserId(ctx);
 
+      // Limit array size to prevent memory/performance issues
+      const MAX_RIDES_PER_ASSIGNMENT = 2000;
+      if (rideIds.length > MAX_RIDES_PER_ASSIGNMENT) {
+        throw new GraphQLError(`Cannot assign more than ${MAX_RIDES_PER_ASSIGNMENT} rides at once`, {
+          extensions: { code: 'BAD_USER_INPUT' },
+        });
+      }
+
       // Rate limit check
       const rateLimit = await checkMutationRateLimit('assignBikeToRides', userId);
       if (!rateLimit.allowed) {

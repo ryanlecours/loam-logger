@@ -108,8 +108,8 @@ export function ImportCompleteOverlay({
       setSuccessMessage(`Assigned ${allRideIds.length} rides to bike!`);
       setSelectedRideIds(new Set());
       // Refetch in background - assignment succeeded, so don't fail the whole operation
-      refetchRides().catch(() => {
-        // Silently handle refetch failure - data will refresh on next poll
+      refetchRides().catch((err) => {
+        console.warn('Failed to refetch rides after assignment:', err);
       });
     } catch {
       setError('Failed to assign rides. Please try again.');
@@ -131,8 +131,8 @@ export function ImportCompleteOverlay({
       setSuccessMessage(`Assigned ${rideIds.length} rides to bike!`);
       setSelectedRideIds(new Set());
       // Refetch in background - assignment succeeded, so don't fail the whole operation
-      refetchRides().catch(() => {
-        // Silently handle refetch failure - data will refresh on next poll
+      refetchRides().catch((err) => {
+        console.warn('Failed to refetch rides after assignment:', err);
       });
     } catch {
       setError('Failed to assign rides. Please try again.');
@@ -148,8 +148,8 @@ export function ImportCompleteOverlay({
     }
 
     // Acknowledge in background - failure doesn't affect user experience
-    acknowledgeOverlay({ variables: { importSessionId: sessionId } }).catch(() => {
-      // Silently ignore - overlay state will be corrected on next import
+    acknowledgeOverlay({ variables: { importSessionId: sessionId } }).catch((err) => {
+      console.warn('Failed to acknowledge import overlay:', err);
     });
     onClose();
   }, [sessionId, acknowledgeOverlay, onClose]);
