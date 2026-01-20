@@ -61,6 +61,25 @@ export function formatElevation(feet: number): string {
 }
 
 /**
+ * Format distance in compact form (e.g., "12.3 mi")
+ */
+export function formatDistanceCompact(miles: number): string {
+  if (!miles || isNaN(miles) || miles < 0) return '0 mi';
+  return `${miles.toFixed(1)} mi`;
+}
+
+/**
+ * Format a date with specified style
+ */
+export function formatDate(date: Date, style: 'short' | 'long' = 'long'): string {
+  if (!isValid(date)) return 'Unknown';
+  if (style === 'short') {
+    return format(date, 'MMM d');
+  }
+  return format(date, 'MMM d, yyyy');
+}
+
+/**
  * Location labels for component positions
  */
 const LOCATION_LABELS: Record<string, string> = {
