@@ -19,11 +19,13 @@ interface ImportCompleteOverlayProps {
   sessionId: string | null;
   unassignedRideCount: number;
   totalImportedCount: number;
+  /** Optional bikes prop to avoid redundant query when parent already has bikes */
+  bikes?: Bike[];
 }
 
 type Bike = {
   id: string;
-  nickname: string | null;
+  nickname?: string | null;
   manufacturer: string;
   model: string;
 };
@@ -34,6 +36,7 @@ export function ImportCompleteOverlay({
   sessionId,
   unassignedRideCount,
   totalImportedCount,
+  bikes: bikesProp,
 }: ImportCompleteOverlayProps) {
   const [selectedBikeId, setSelectedBikeId] = useState<string>('');
   const [selectedRideIds, setSelectedRideIds] = useState<Set<string>>(new Set());
@@ -41,12 +44,15 @@ export function ImportCompleteOverlay({
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  const { data: bikesData } = useQuery<{ bikes: Bike[] }>(BIKES);
+  // Use bikes from prop if provided, otherwise query (for standalone usage)
+  const { data: bikesData } = useQuery<{ bikes: Bike[] }>(BIKES, {
+    skip: !!bikesProp, // Skip query if bikes provided via prop
+  });
   const { data: ridesData, refetch: refetchRides } = useUnassignedRides(sessionId, 50);
   const [acknowledgeOverlay] = useAcknowledgeImportOverlay();
   const [assignBikeToRides] = useAssignBikeToRides();
 
-  const bikes = bikesData?.bikes ?? [];
+  const bikes = bikesProp ?? bikesData?.bikes ?? [];
   const rides = ridesData?.unassignedRides?.rides ?? [];
   const hasRides = rides.length > 0;
 

@@ -25,11 +25,17 @@ const REDACT_PATHS = [
   'req.body.token',
   'req.body.refreshToken',
   'req.body.accessToken',
+  'req.body.userAccessToken',
+  // Response body fields (prevent token leakage in logs)
+  'res.body.token',
+  'res.body.accessToken',
+  'res.body.refreshToken',
   // Generic patterns (for direct logging of these fields)
   'password',
   'token',
   'refreshToken',
   'accessToken',
+  'userAccessToken',
   'authorization',
   'cookie',
 ];

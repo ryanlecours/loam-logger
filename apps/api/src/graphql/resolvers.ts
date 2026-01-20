@@ -9,7 +9,7 @@ import type {
   Bike,
   Component as ComponentModel,
 } from '@prisma/client';
-import { checkRateLimit, checkMutationRateLimit } from '../lib/rate-limit';
+import { checkRateLimit, checkMutationRateLimit, checkQueryRateLimit } from '../lib/rate-limit';
 import { enqueueSyncJob, type SyncProvider } from '../lib/queue';
 import { invalidateBikePrediction } from '../services/prediction/cache';
 import {
@@ -727,6 +727,14 @@ export const resolvers = {
         };
       }
 
+      // Rate limit check for polling queries
+      const rateLimit = await checkQueryRateLimit('importNotificationState', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
+
       // Find most recent completed, unacknowledged session with unassigned rides
       const session = await prisma.importSession.findFirst({
         where: {
@@ -773,6 +781,14 @@ export const resolvers = {
       ctx: GraphQLContext
     ) => {
       const userId = requireUserId(ctx);
+
+      // Rate limit check for polling queries
+      const rateLimit = await checkQueryRateLimit('unassignedRides', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
 
       // Verify the session belongs to the user
       const session = await prisma.importSession.findUnique({
@@ -1967,6 +1983,12 @@ export const resolvers = {
       const updateData: { hoursDisplayPreference?: string | null } = {};
 
       if (input.hoursDisplayPreference !== undefined) {
+        // Input length validation to prevent DoS/excessive storage
+        if (input.hoursDisplayPreference !== null && input.hoursDisplayPreference.length > 20) {
+          throw new GraphQLError('hoursDisplayPreference exceeds maximum length', {
+            extensions: { code: 'BAD_USER_INPUT' },
+          });
+        }
         // Validate the preference value
         if (input.hoursDisplayPreference !== null &&
             input.hoursDisplayPreference !== 'total' &&

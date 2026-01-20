@@ -75,8 +75,9 @@ export default function Dashboard() {
   });
 
   // Import notification state (for backfill completion overlay)
+  // Poll every 60 seconds to match the backend import session checker interval
   const { data: importNotificationData } = useImportNotificationState({
-    pollInterval: 30000, // Check every 30 seconds
+    pollInterval: 60000,
   });
 
   // Derived data
@@ -229,6 +230,7 @@ export default function Dashboard() {
         sessionId={importState?.sessionId ?? null}
         unassignedRideCount={importState?.unassignedRideCount ?? 0}
         totalImportedCount={importState?.totalImportedCount ?? 0}
+        bikes={bikes}
       />
     </>
   );

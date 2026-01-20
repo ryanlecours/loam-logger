@@ -2,7 +2,7 @@ import { Router as createRouter, type Router, type Request, type Response } from
 import { prisma } from '../lib/prisma';
 import { getValidGarminToken } from '../lib/garmin-token';
 import { deriveLocationAsync, shouldApplyAutoLocation } from '../lib/location';
-import { logError } from '../lib/logger';
+import { logger, logError } from '../lib/logger';
 
 type Empty = Record<string, never>;
 const r: Router = createRouter();
@@ -19,11 +19,11 @@ r.post<Empty, void, { deregistrations?: Array<{ userId: string }> }>(
       const { deregistrations } = req.body;
 
       if (!deregistrations || !Array.isArray(deregistrations)) {
-        console.warn('[Garmin Deregistration] Invalid payload:', req.body);
+        logger.warn({ body: req.body }, '[Garmin Deregistration] Invalid payload');
         return res.status(400).json({ error: 'Invalid deregistration payload' });
       }
 
-      console.log(`[Garmin Deregistration] Received ${deregistrations.length} deregistration(s)`);
+      logger.info({ count: deregistrations.length }, '[Garmin Deregistration] Received deregistration(s)');
 
       for (const { userId: garminUserId } of deregistrations) {
         // Find the user by their Garmin User ID
@@ -37,7 +37,7 @@ r.post<Empty, void, { deregistrations?: Array<{ userId: string }> }>(
         });
 
         if (!userAccount) {
-          console.warn(`[Garmin Deregistration] Unknown Garmin userId: ${garminUserId}`);
+          logger.warn({ garminUserId }, '[Garmin Deregistration] Unknown Garmin userId');
           continue;
         }
 
@@ -59,7 +59,7 @@ r.post<Empty, void, { deregistrations?: Array<{ userId: string }> }>(
           }),
         ]);
 
-        console.log(`[Garmin Deregistration] Removed Garmin connection for userId: ${userAccount.userId}`);
+        logger.info({ userId: userAccount.userId }, '[Garmin Deregistration] Removed Garmin connection');
       }
 
       // Return 200 OK immediately (Garmin requires this)
@@ -88,11 +88,11 @@ r.post<Empty, void, { userPermissionsChange?: Array<{
       const { userPermissionsChange } = req.body;
 
       if (!userPermissionsChange || !Array.isArray(userPermissionsChange)) {
-        console.warn('[Garmin Permissions] Invalid payload:', req.body);
+        logger.warn({ body: req.body }, '[Garmin Permissions] Invalid payload');
         return res.status(400).json({ error: 'Invalid permissions payload' });
       }
 
-      console.log(`[Garmin Permissions] Received ${userPermissionsChange.length} permission change(s)`);
+      logger.info({ count: userPermissionsChange.length }, '[Garmin Permissions] Received permission change(s)');
 
       for (const change of userPermissionsChange) {
         const { userId: garminUserId, permissions } = change;
@@ -108,15 +108,15 @@ r.post<Empty, void, { userPermissionsChange?: Array<{
         });
 
         if (!userAccount) {
-          console.warn(`[Garmin Permissions] Unknown Garmin userId: ${garminUserId}`);
+          logger.warn({ garminUserId }, '[Garmin Permissions] Unknown Garmin userId');
           continue;
         }
 
-        console.log(`[Garmin Permissions] User ${userAccount.userId} permissions:`, permissions);
+        logger.info({ userId: userAccount.userId, permissions }, '[Garmin Permissions] User permissions');
 
         // Check if ACTIVITY_EXPORT permission is still granted
         if (!permissions.includes('ACTIVITY_EXPORT')) {
-          console.warn(`[Garmin Permissions] User ${userAccount.userId} revoked ACTIVITY_EXPORT permission`);
+          logger.warn({ userId: userAccount.userId }, '[Garmin Permissions] User revoked ACTIVITY_EXPORT permission');
           // You could notify the user or disable sync here
         }
       }
@@ -126,67 +126,6 @@ r.post<Empty, void, { userPermissionsChange?: Array<{
     } catch (error) {
       logError('Garmin Permissions', error);
       return res.status(500).json({ error: 'Internal server error' });
-    }
-  }
-);
-
-/**
- * Activity PUSH webhook
- * Receives activity data directly from Garmin (PUSH mode)
- * Spec: Garmin Activity API Section 5 (Push Service)
- *
- * NOTE: PUSH mode has a limitation - it doesn't include userId in the payload.
- * Consider using PING mode instead (see /webhooks/garmin/activities-ping endpoint below).
- */
-type GarminActivityPush = {
-  summaryId: string;
-  activityId: number;
-  activityType: string;
-  activityName?: string;
-  startTimeInSeconds: number;
-  startTimeOffsetInSeconds: number;
-  durationInSeconds: number;
-  distanceInMeters?: number;
-  elevationGainInMeters?: number; // Note: Garmin uses totalElevationGainInMeters
-  totalElevationGainInMeters?: number;
-  averageHeartRateInBeatsPerMinute?: number;
-  averageSpeedInMetersPerSecond?: number;
-  activeKilocalories?: number;
-  deviceName?: string;
-  manual?: boolean;
-  notes?: string;
-  [key: string]: unknown; // Allow other fields
-};
-
-r.post<Empty, void, { activities?: GarminActivityPush[] }>(
-  '/webhooks/garmin/activities',
-  async (req: Request, res: Response) => {
-    try {
-      const { activities } = req.body;
-
-      if (!activities || !Array.isArray(activities)) {
-        console.warn('[Garmin Activities PUSH] Invalid payload:', req.body);
-        return res.status(400).json({ error: 'Invalid activities payload' });
-      }
-
-      console.log(`[Garmin Activities PUSH] Received ${activities.length} activity(ies)`);
-
-      // IMPORTANT: Respond with 200 OK immediately (Garmin requires this within 30 seconds)
-      // Process activities asynchronously
-      res.status(200).send('OK');
-
-      // Process activities after responding
-      for (const activity of activities) {
-        try {
-          await processActivityPush(activity);
-        } catch (error) {
-          logError(`Garmin Activities PUSH ${activity.summaryId}`, error);
-          // Continue processing other activities even if one fails
-        }
-      }
-    } catch (error) {
-      logError('Garmin Activities PUSH', error);
-      // Already responded, so just log the error
     }
   }
 );
@@ -252,16 +191,14 @@ r.post<Empty, void, GarminPingPayload>(
   '/webhooks/garmin/activities-ping',
   async (req: Request, res: Response) => {
     // Log incoming webhook request IMMEDIATELY to verify Garmin is hitting this endpoint
-    console.log(`[Garmin PING Webhook] Incoming request at ${new Date().toISOString()}`);
-    console.log(`[Garmin PING Webhook] Headers:`, JSON.stringify(req.headers, null, 2));
-    console.log(`[Garmin PING Webhook] Body:`, JSON.stringify(req.body, null, 2));
+    logger.debug({ headers: req.headers, body: req.body }, '[Garmin PING Webhook] Incoming request');
 
     try {
       const { activityDetails, activities } = req.body;
 
       // Handle the "activities" format with callbackURL (used for backfill)
       if (activities && Array.isArray(activities) && activities.length > 0) {
-        console.log(`[Garmin Activities PING] Received ${activities.length} callback notification(s)`);
+        logger.info({ count: activities.length }, '[Garmin Activities PING] Received callback notification(s)');
 
         // IMPORTANT: Respond with 200 OK immediately (Garmin requires this within 30 seconds)
         res.status(200).send('OK');
@@ -280,7 +217,7 @@ r.post<Empty, void, GarminPingPayload>(
 
       // Handle the "activityDetails" format with summaryId
       if (activityDetails && Array.isArray(activityDetails) && activityDetails.length > 0) {
-        console.log(`[Garmin Activities PING] Received ${activityDetails.length} notification(s)`);
+        logger.info({ count: activityDetails.length }, '[Garmin Activities PING] Received notification(s)');
 
         // IMPORTANT: Respond with 200 OK immediately (Garmin requires this within 30 seconds)
         res.status(200).send('OK');
@@ -298,7 +235,7 @@ r.post<Empty, void, GarminPingPayload>(
       }
 
       // Neither format matched
-      console.warn('[Garmin Activities PING] Invalid payload:', req.body);
+      logger.warn({ body: req.body }, '[Garmin Activities PING] Invalid payload');
       return res.status(400).json({ error: 'Invalid activities payload' });
     } catch (error) {
       logError('Garmin Activities PING', error);
@@ -308,73 +245,13 @@ r.post<Empty, void, GarminPingPayload>(
 );
 
 /**
- * Process a single Garmin activity from PUSH mode
- * NOTE: This has limitations due to missing userId in the payload
- */
-async function processActivityPush(activity: GarminActivityPush): Promise<void> {
-  const {
-    activityId,
-    activityType,
-  } = activity;
-
-  console.log(`[Garmin Activities PUSH] Processing activity ${activityId} (${activityType})`);
-
-  // Note: The activity doesn't include the userId directly
-  // We need to identify the user another way, or Garmin needs to include it
-  // According to the docs, PUSH notifications don't include userId
-  // This is a limitation - we'll need to handle this differently
-
-  // For now, log a warning
-  console.warn('[Garmin Activities PUSH] PUSH notification does not include userId - cannot identify user');
-  console.warn('[Garmin Activities PUSH] Consider using PING mode instead (/webhooks/garmin/activities-ping)');
-
-  // TODO: Implement user identification strategy
-  // Option 1: Use PING mode instead (includes userId) - RECOMMENDED
-  // Option 2: Store a mapping of summaryId -> userId from backfill
-  // Option 3: Use Activity Details endpoint to fetch userId
-
-  // Variables are destructured above with _ prefix for future TODO implementation
-
-  // TODO: Once userId identification is resolved, uncomment and update:
-  /*
-  await prisma.ride.upsert({
-    where: {
-      garminActivityId: activityId.toString(),
-    },
-    create: {
-      userId: resolvedUserId,
-      garminActivityId: activityId.toString(),
-      startTime,
-      durationSeconds: durationInSeconds,
-      distanceMiles,
-      elevationGainFeet,
-      averageHr: averageHeartRateInBeatsPerMinute ?? null,
-      rideType: activityType,
-      notes: activity.activityName ?? null,
-    },
-    update: {
-      startTime,
-      durationSeconds: durationInSeconds,
-      distanceMiles,
-      elevationGainFeet,
-      averageHr: averageHeartRateInBeatsPerMinute ?? null,
-      rideType: activityType,
-      notes: activity.activityName ?? null,
-    },
-  });
-
-  console.log(`[Garmin Activities PUSH] Successfully stored ride for activity ${activityId}`);
-  */
-}
-
-/**
  * Process a single Garmin activity notification from PING mode
  * Fetches full activity details from Garmin API using the provided summaryId
  */
 async function processActivityPing(notification: GarminActivityPing): Promise<void> {
   const { userId: garminUserId, summaryId } = notification;
 
-  console.log(`[Garmin Activities PING] Processing notification for summaryId: ${summaryId}`);
+  logger.info({ summaryId }, '[Garmin Activities PING] Processing notification');
 
   // Find the user by their Garmin User ID
   const userAccount = await prisma.userAccount.findUnique({
@@ -387,11 +264,11 @@ async function processActivityPing(notification: GarminActivityPing): Promise<vo
   });
 
   if (!userAccount) {
-    console.warn(`[Garmin Activities PING] Unknown Garmin userId: ${garminUserId}`);
+    logger.warn({ garminUserId }, '[Garmin Activities PING] Unknown Garmin userId');
     return;
   }
 
-  console.log(`[Garmin Activities PING] Found user: ${userAccount.userId}`);
+  logger.info({ userId: userAccount.userId }, '[Garmin Activities PING] Found user');
 
   // Fetch the full activity details from Garmin API
   // The summaryId is the activityId we need to fetch
@@ -401,7 +278,7 @@ async function processActivityPing(notification: GarminActivityPing): Promise<vo
   const accessToken = await getValidGarminToken(userAccount.userId);
 
   if (!accessToken) {
-    console.error(`[Garmin Activities PING] No valid OAuth token for user ${userAccount.userId}`);
+    logger.error({ userId: userAccount.userId }, '[Garmin Activities PING] No valid OAuth token');
     return;
   }
 
@@ -419,7 +296,7 @@ async function processActivityPing(notification: GarminActivityPing): Promise<vo
 
     if (!activityRes.ok) {
       const text = await activityRes.text();
-      console.error(`[Garmin Activities PING] Failed to fetch activity ${summaryId}: ${activityRes.status} ${text}`);
+      logger.error({ summaryId, status: activityRes.status, response: text }, '[Garmin Activities PING] Failed to fetch activity');
       return;
     }
 
@@ -448,11 +325,11 @@ async function processActivityPing(notification: GarminActivityPing): Promise<vo
 
     const activityTypeLower = activityDetail.activityType.toLowerCase().replace(/\s+/g, '_');
     if (!CYCLING_ACTIVITY_TYPES.includes(activityTypeLower)) {
-      console.log(`[Garmin Activities PING] Skipping non-cycling activity: ${activityDetail.activityType} (${summaryId})`);
+      logger.debug({ activityType: activityDetail.activityType, summaryId }, '[Garmin Activities PING] Skipping non-cycling activity');
       return;
     }
 
-    console.log(`[Garmin Activities PING] Processing cycling activity: ${activityDetail.activityType}`);
+    logger.info({ activityType: activityDetail.activityType }, '[Garmin Activities PING] Processing cycling activity');
 
     // Convert activity to Ride format
     const distanceMiles = activityDetail.distanceInMeters
@@ -534,7 +411,7 @@ async function processActivityPing(notification: GarminActivityPing): Promise<vo
       });
     }
 
-    console.log(`[Garmin Activities PING] Successfully stored ride for activity ${summaryId}`);
+    logger.info({ summaryId }, '[Garmin Activities PING] Successfully stored ride');
   } catch (error) {
     logError(`Garmin Activities PING ${summaryId}`, error);
     throw error;
@@ -548,8 +425,7 @@ async function processActivityPing(notification: GarminActivityPing): Promise<vo
 async function processActivityCallback(notification: GarminActivityCallback): Promise<void> {
   const { userId: garminUserId, callbackURL } = notification;
 
-  console.log(`[Garmin Activities Callback] Processing callback for Garmin user: ${garminUserId}`);
-  console.log(`[Garmin Activities Callback] Callback URL: ${callbackURL}`);
+  logger.info({ garminUserId, callbackURL }, '[Garmin Activities Callback] Processing callback');
 
   // Find the user by their Garmin User ID
   const userAccount = await prisma.userAccount.findUnique({
@@ -562,17 +438,17 @@ async function processActivityCallback(notification: GarminActivityCallback): Pr
   });
 
   if (!userAccount) {
-    console.warn(`[Garmin Activities Callback] Unknown Garmin userId: ${garminUserId}`);
+    logger.warn({ garminUserId }, '[Garmin Activities Callback] Unknown Garmin userId');
     return;
   }
 
-  console.log(`[Garmin Activities Callback] Found user: ${userAccount.userId}`);
+  logger.info({ userId: userAccount.userId }, '[Garmin Activities Callback] Found user');
 
   // Get valid access token (auto-refreshes if expired)
   const accessToken = await getValidGarminToken(userAccount.userId);
 
   if (!accessToken) {
-    console.error(`[Garmin Activities Callback] No valid OAuth token for user ${userAccount.userId}`);
+    logger.error({ userId: userAccount.userId }, '[Garmin Activities Callback] No valid OAuth token');
     return;
   }
 
@@ -587,18 +463,18 @@ async function processActivityCallback(notification: GarminActivityCallback): Pr
 
     if (!callbackRes.ok) {
       const text = await callbackRes.text();
-      console.error(`[Garmin Activities Callback] Failed to fetch from callback URL: ${callbackRes.status} ${text}`);
+      logger.error({ status: callbackRes.status, response: text }, '[Garmin Activities Callback] Failed to fetch from callback URL');
       return;
     }
 
     const activities = (await callbackRes.json()) as GarminActivityDetail[];
 
     if (!Array.isArray(activities)) {
-      console.error(`[Garmin Activities Callback] Unexpected response format:`, activities);
+      logger.error({ response: activities }, '[Garmin Activities Callback] Unexpected response format');
       return;
     }
 
-    console.log(`[Garmin Activities Callback] Fetched ${activities.length} activities from callback URL`);
+    logger.info({ count: activities.length }, '[Garmin Activities Callback] Fetched activities from callback URL');
 
     // Filter: Only process cycling/mountain biking activities
     const CYCLING_ACTIVITY_TYPES = [
@@ -621,14 +497,23 @@ async function processActivityCallback(notification: GarminActivityCallback): Pr
       'indoor_handcycling',
     ];
 
+    // Look up running ImportSession for this user once before processing the batch
+    // This avoids N+1 queries when processing many activities
+    const runningSession = await prisma.importSession.findFirst({
+      where: { userId: userAccount.userId, provider: 'garmin', status: 'running' },
+      select: { id: true },
+    });
+
+    let processedActivityCount = 0;
+
     for (const activity of activities) {
       const activityTypeLower = activity.activityType.toLowerCase().replace(/\s+/g, '_');
       if (!CYCLING_ACTIVITY_TYPES.includes(activityTypeLower)) {
-        console.log(`[Garmin Activities Callback] Skipping non-cycling activity: ${activity.activityType} (${activity.summaryId})`);
+        logger.debug({ activityType: activity.activityType, summaryId: activity.summaryId }, '[Garmin Activities Callback] Skipping non-cycling activity');
         continue;
       }
 
-      console.log(`[Garmin Activities Callback] Processing cycling activity: ${activity.activityType} (${activity.summaryId})`);
+      logger.info({ activityType: activity.activityType, summaryId: activity.summaryId }, '[Garmin Activities Callback] Processing cycling activity');
 
       // Convert activity to Ride format
       const distanceMiles = activity.distanceInMeters
@@ -665,13 +550,6 @@ async function processActivityCallback(notification: GarminActivityCallback): Pr
         autoLocation?.title ?? null
       );
 
-      // Look up running ImportSession for this user (if any)
-      // This is done inside the loop to handle potential session changes during long batches
-      const runningSession = await prisma.importSession.findFirst({
-        where: { userId: userAccount.userId, provider: 'garmin', status: 'running' },
-        select: { id: true },
-      });
-
       // Upsert the ride (create or update if it already exists)
       await prisma.ride.upsert({
         where: {
@@ -703,19 +581,22 @@ async function processActivityCallback(notification: GarminActivityCallback): Pr
         },
       });
 
-      // Update session's lastActivityReceivedAt if there's a running session
-      if (runningSession) {
-        await prisma.importSession.update({
-          where: { id: runningSession.id },
-          data: { lastActivityReceivedAt: new Date() },
-        });
-      }
+      processedActivityCount++;
+      logger.info({ summaryId: activity.summaryId }, '[Garmin Activities Callback] Successfully stored ride');
+    }
 
-      console.log(`[Garmin Activities Callback] Successfully stored ride for activity ${activity.summaryId}`);
+    // Update session's lastActivityReceivedAt once after processing the batch
+    // This avoids N updates when processing many activities
+    if (runningSession && processedActivityCount > 0) {
+      await prisma.importSession.update({
+        where: { id: runningSession.id },
+        data: { lastActivityReceivedAt: new Date() },
+      });
     }
   } catch (error) {
+    // Log the error but don't re-throw - allow other notifications in the batch to continue
+    // Network failures, JSON parse errors, or DB errors for one callback shouldn't crash the entire batch
     logError('Garmin Activities Callback', error);
-    throw error;
   }
 }
 

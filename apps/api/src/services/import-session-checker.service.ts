@@ -11,6 +11,9 @@ const IDLE_WINDOW_MS = 10 * 60 * 1000;
 // Sessions with no activity received within 30 min of start are considered stale
 const STALE_SESSION_MS = 30 * 60 * 1000;
 
+// Sessions stuck in running state for 24+ hours are considered failed (worker crash, etc.)
+const STUCK_SESSION_MS = 24 * 60 * 60 * 1000;
+
 // Lock TTL for checker (2 minutes - longer than check interval)
 const CHECKER_LOCK_TTL_SECONDS = 120;
 
@@ -23,9 +26,9 @@ let isProcessing = false;
  */
 async function acquireCheckerLock(): Promise<{ acquired: boolean; lockValue: string | null }> {
   if (!isRedisReady()) {
-    // Redis unavailable - proceed but log warning
-    logger.warn('[ImportSessionChecker] Redis unavailable, proceeding without distributed lock');
-    return { acquired: true, lockValue: null };
+    // Redis unavailable - skip processing to avoid race conditions with other instances
+    logger.warn('[ImportSessionChecker] Redis unavailable, skipping to prevent race conditions');
+    return { acquired: false, lockValue: null };
   }
 
   try {
@@ -43,9 +46,9 @@ async function acquireCheckerLock(): Promise<{ acquired: boolean; lockValue: str
   } catch (err) {
     logger.warn(
       { error: err instanceof Error ? err.message : 'Unknown error' },
-      '[ImportSessionChecker] Redis error during lock acquisition, proceeding without lock'
+      '[ImportSessionChecker] Redis error during lock acquisition, skipping to prevent race conditions'
     );
-    return { acquired: true, lockValue: null };
+    return { acquired: false, lockValue: null };
   }
 }
 
@@ -119,24 +122,33 @@ async function checkIdleSessions(): Promise<void> {
 
       for (const session of idleSessions) {
         try {
-          // Count unassigned rides for this session
-          const unassignedCount = await prisma.ride.count({
-            where: { importSessionId: session.id, bikeId: null },
-          });
+          // Atomically count unassigned rides and update session in a single query
+          // This prevents race conditions if user assigns bikes between count and update
+          const result = await prisma.$executeRaw`
+            UPDATE "ImportSession"
+            SET
+              status = 'completed',
+              "completedAt" = ${now},
+              "unassignedRideCount" = (
+                SELECT COUNT(*) FROM "Ride"
+                WHERE "importSessionId" = ${session.id} AND "bikeId" IS NULL
+              ),
+              "updatedAt" = ${now}
+            WHERE id = ${session.id} AND status = 'running'
+          `;
 
-          await prisma.importSession.update({
-            where: { id: session.id },
-            data: {
-              status: 'completed',
-              completedAt: now,
-              unassignedRideCount: unassignedCount,
-            },
-          });
+          if (result > 0) {
+            // Fetch the updated count for logging
+            const updated = await prisma.importSession.findUnique({
+              where: { id: session.id },
+              select: { unassignedRideCount: true },
+            });
 
-          logger.info(
-            { sessionId: session.id, unassignedCount },
-            '[ImportSessionChecker] Completed idle import session'
-          );
+            logger.info(
+              { sessionId: session.id, unassignedCount: updated?.unassignedRideCount ?? 0 },
+              '[ImportSessionChecker] Completed idle import session'
+            );
+          }
         } catch (error) {
           logger.error(
             { sessionId: session.id, error: error instanceof Error ? error.message : 'Unknown error' },
@@ -164,6 +176,27 @@ async function checkIdleSessions(): Promise<void> {
       logger.info(
         { count: staleResult.count },
         '[ImportSessionChecker] Completed stale sessions with no activity'
+      );
+    }
+
+    // Clean up stuck sessions (running > 24 hours, likely from worker crash)
+    const stuckCutoff = new Date(now.getTime() - STUCK_SESSION_MS);
+    const stuckResult = await prisma.importSession.updateMany({
+      where: {
+        status: 'running',
+        startedAt: { lte: stuckCutoff },
+      },
+      data: {
+        status: 'failed',
+        completedAt: now,
+        unassignedRideCount: 0,
+      },
+    });
+
+    if (stuckResult.count > 0) {
+      logger.warn(
+        { count: stuckResult.count },
+        '[ImportSessionChecker] Marked stuck sessions as failed (running > 24h)'
       );
     }
   } catch (error) {

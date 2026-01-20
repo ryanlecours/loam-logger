@@ -153,6 +153,9 @@ r.get<Empty, void, Empty, { days?: string; year?: string }>(
 
         const url = `${API_BASE}/rest/backfill/activities?summaryStartTimeInSeconds=${chunkStartSeconds}&summaryEndTimeInSeconds=${chunkEndSeconds}`;
 
+        // Track whether we should advance to the next chunk or retry with adjusted date
+        let advanceToNextChunk = true;
+
         try {
           const backfillRes = await fetch(url, {
             headers: {
@@ -177,24 +180,27 @@ r.get<Empty, void, Empty, { days?: string; year?: string }>(
             const text = await backfillRes.text();
             const minStartDate = extractMinStartDate(text);
             if (minStartDate && minStartDate > currentStartDate) {
+              // Garmin rejected this chunk because it's before the minimum allowed date
+              // Adjust start date and retry (don't advance to next chunk)
               logger.warn(
                 { originalStart: currentStartDate.toISOString(), adjustedStart: minStartDate.toISOString() },
-                'Garmin backfill chunk rejected, adjusting to minimum start date'
+                'Garmin backfill chunk rejected, adjusting to minimum start date and retrying'
               );
               errors.push(
                 `Adjusted start date to ${minStartDate.toISOString()} due to Garmin min start restriction`
               );
               const alignedMinStart = new Date(Math.ceil(minStartDate.getTime() / 1000) * 1000);
               currentStartDate = alignedMinStart;
-              continue;
+              advanceToNextChunk = false; // Retry with adjusted date
+            } else {
+              logger.error(
+                { status: backfillRes.status, response: text },
+                'Garmin backfill chunk failed'
+              );
+              errors.push(
+                `Failed for period ${currentStartDate.toISOString().split('T')[0]}: ${backfillRes.status}`
+              );
             }
-            logger.error(
-              { status: backfillRes.status, response: text },
-              'Garmin backfill chunk failed'
-            );
-            errors.push(
-              `Failed for period ${currentStartDate.toISOString().split('T')[0]}: ${backfillRes.status}`
-            );
           } else {
             const text = await backfillRes.text();
             logger.error(
@@ -208,9 +214,12 @@ r.get<Empty, void, Empty, { days?: string; year?: string }>(
           errors.push(`Error for period ${currentStartDate.toISOString().split('T')[0]}`);
         }
 
-        // Move to next chunk - start at the same timestamp the previous chunk ended
-        // This creates 1-second overlap at boundaries, but Garmin deduplicates by activity ID
-        currentStartDate = new Date(actualChunkEndDate);
+        // Move to next chunk unless we're retrying with an adjusted date
+        // Start at the same timestamp the previous chunk ended (creates 1-second overlap,
+        // but Garmin deduplicates by activity ID)
+        if (advanceToNextChunk) {
+          currentStartDate = new Date(actualChunkEndDate);
+        }
       }
 
       logger.info({ totalChunks }, 'Garmin backfill requests triggered');

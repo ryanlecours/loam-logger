@@ -98,7 +98,7 @@ model Ride {
   user              User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   importSession     ImportSession?  @relation(fields: [importSessionId], references: [id], onDelete: SetNull)
 
-  @@index([importSessionId])
+  @@index([importSessionId, bikeId])
 }
 
 model Bike {
@@ -374,6 +374,7 @@ enum BackfillStatus {
 enum ImportSessionStatus {
   running
   completed
+  failed
 }
 
 model TermsAcceptance {
