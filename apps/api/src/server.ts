@@ -11,6 +11,7 @@ import { resolvers } from './graphql/resolvers';
 import { startWorkers, stopWorkers } from './workers';
 import { getRedisConnection, checkRedisHealth } from './lib/redis';
 import { startEmailScheduler, stopEmailScheduler } from './services/email-scheduler.service';
+import { startImportSessionChecker, stopImportSessionChecker } from './services/import-session-checker.service';
 import { rootLogger, logger } from './lib/logger';
 import {
   runWithRequestContext,
@@ -275,12 +276,16 @@ const startServer = async () => {
   // Start email scheduler (checks for due scheduled emails every minute)
   startEmailScheduler();
 
+  // Start import session checker (checks for idle import sessions every minute)
+  startImportSessionChecker();
+
   app.listen(PORT, HOST, () => {
     logger.info({ port: PORT }, 'LoamLogger backend running (GraphQL at /graphql)');
   });
 
   process.on('SIGTERM', async () => {
     await stopEmailScheduler();
+    await stopImportSessionChecker();
     await stopWorkers();
     await server.stop();
     process.exit(0);

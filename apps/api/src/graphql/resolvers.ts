@@ -715,6 +715,108 @@ export const resolvers = {
 
       return result.filter((g) => !g.isMapped);
     },
+
+    importNotificationState: async (_: unknown, __: unknown, ctx: GraphQLContext) => {
+      const userId = ctx.user?.id;
+      if (!userId) {
+        return {
+          showOverlay: false,
+          sessionId: null,
+          unassignedRideCount: 0,
+          totalImportedCount: 0,
+        };
+      }
+
+      // Find most recent completed, unacknowledged session with unassigned rides
+      const session = await prisma.importSession.findFirst({
+        where: {
+          userId,
+          status: 'completed',
+          userAcknowledgedAt: null,
+          unassignedRideCount: { gt: 0 },
+        },
+        orderBy: { completedAt: 'desc' },
+        select: {
+          id: true,
+          unassignedRideCount: true,
+          _count: {
+            select: { rides: true },
+          },
+        },
+      });
+
+      if (!session) {
+        return {
+          showOverlay: false,
+          sessionId: null,
+          unassignedRideCount: 0,
+          totalImportedCount: 0,
+        };
+      }
+
+      // Get current unassigned count (may have changed since session completed)
+      const currentUnassignedCount = await prisma.ride.count({
+        where: { importSessionId: session.id, bikeId: null },
+      });
+
+      return {
+        showOverlay: currentUnassignedCount > 0,
+        sessionId: session.id,
+        unassignedRideCount: currentUnassignedCount,
+        totalImportedCount: session._count.rides,
+      };
+    },
+
+    unassignedRides: async (
+      _: unknown,
+      { importSessionId, take = 50, after }: { importSessionId: string; take?: number; after?: string | null },
+      ctx: GraphQLContext
+    ) => {
+      const userId = requireUserId(ctx);
+
+      // Verify the session belongs to the user
+      const session = await prisma.importSession.findUnique({
+        where: { id: importSessionId },
+        select: { userId: true },
+      });
+
+      if (!session || session.userId !== userId) {
+        throw new Error('Import session not found');
+      }
+
+      const limit = Math.min(100, Math.max(1, take));
+
+      const [rides, totalCount] = await Promise.all([
+        prisma.ride.findMany({
+          where: { importSessionId, bikeId: null },
+          orderBy: { startTime: 'desc' },
+          take: limit + 1, // Fetch one extra to check if there's more
+          ...(after ? { skip: 1, cursor: { id: after } } : {}),
+          select: {
+            id: true,
+            startTime: true,
+            durationSeconds: true,
+            distanceMiles: true,
+            elevationGainFeet: true,
+            location: true,
+            rideType: true,
+          },
+        }),
+        prisma.ride.count({ where: { importSessionId, bikeId: null } }),
+      ]);
+
+      const hasMore = rides.length > limit;
+      const resultRides = hasMore ? rides.slice(0, -1) : rides;
+
+      return {
+        rides: resultRides.map((r) => ({
+          ...r,
+          startTime: r.startTime.toISOString(),
+        })),
+        totalCount,
+        hasMore,
+      };
+    },
   },
   Mutation: {
     addRide: async (_p: unknown, { input }: { input: AddRideInput }, ctx: GraphQLContext) => {
@@ -1884,6 +1986,108 @@ export const resolvers = {
         where: { id: userId },
         data: updateData,
       });
+    },
+
+    acknowledgeImportOverlay: async (
+      _: unknown,
+      { importSessionId }: { importSessionId: string },
+      ctx: GraphQLContext
+    ) => {
+      const userId = requireUserId(ctx);
+
+      // Verify the session belongs to the user
+      const session = await prisma.importSession.findUnique({
+        where: { id: importSessionId },
+        select: { userId: true },
+      });
+
+      if (!session || session.userId !== userId) {
+        throw new Error('Import session not found');
+      }
+
+      await prisma.importSession.update({
+        where: { id: importSessionId },
+        data: { userAcknowledgedAt: new Date() },
+      });
+
+      return { success: true };
+    },
+
+    assignBikeToRides: async (
+      _: unknown,
+      { rideIds, bikeId }: { rideIds: string[]; bikeId: string },
+      ctx: GraphQLContext
+    ) => {
+      const userId = requireUserId(ctx);
+
+      // Rate limit check
+      const rateLimit = await checkMutationRateLimit('assignBikeToRides', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
+
+      // Verify the bike belongs to the user
+      const bike = await prisma.bike.findUnique({
+        where: { id: bikeId },
+        select: { userId: true },
+      });
+
+      if (!bike || bike.userId !== userId) {
+        throw new Error('Bike not found');
+      }
+
+      // Verify all rides belong to the user and don't already have a bike assigned
+      const rides = await prisma.ride.findMany({
+        where: { id: { in: rideIds } },
+        select: { id: true, userId: true, bikeId: true, durationSeconds: true },
+      });
+
+      if (rides.length !== rideIds.length) {
+        throw new Error('One or more rides not found');
+      }
+
+      for (const ride of rides) {
+        if (ride.userId !== userId) {
+          throw new Error('Unauthorized');
+        }
+        if (ride.bikeId) {
+          throw new Error('One or more rides already have a bike assigned');
+        }
+      }
+
+      // Calculate total hours to add to component wear
+      const totalSeconds = rides.reduce((sum, r) => sum + r.durationSeconds, 0);
+      const totalHours = totalSeconds / 3600;
+
+      // Invalidate prediction cache BEFORE transaction
+      await invalidateBikePrediction(userId, bikeId);
+
+      // Update rides and components in a transaction
+      await prisma.$transaction(async (tx) => {
+        // Assign bike to all rides
+        await tx.ride.updateMany({
+          where: { id: { in: rideIds } },
+          data: { bikeId },
+        });
+
+        // Add hours to bike's components
+        if (totalHours > 0) {
+          await tx.component.updateMany({
+            where: { userId, bikeId },
+            data: { hoursUsed: { increment: totalHours } },
+          });
+        }
+      });
+
+      // Invalidate prediction cache after transaction
+      await invalidateBikePrediction(userId, bikeId);
+
+      return {
+        success: true,
+        updatedCount: rideIds.length,
+      };
     },
   },
 

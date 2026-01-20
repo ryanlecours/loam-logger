@@ -40,6 +40,8 @@ export const MUTATION_RATE_LIMITS = {
   deleteStravaGearMapping: { windowSeconds: 60, maxRequests: 10 },
   /** bulkUpdateComponentBaselines: max 10 requests per minute per user */
   bulkUpdateComponentBaselines: { windowSeconds: 60, maxRequests: 10 },
+  /** assignBikeToRides: max 20 requests per minute per user */
+  assignBikeToRides: { windowSeconds: 60, maxRequests: 20 },
 } as const;
 
 export type MutationRateLimitType = keyof typeof MUTATION_RATE_LIMITS;

@@ -489,6 +489,12 @@ async function processActivityPing(notification: GarminActivityPing): Promise<vo
       autoLocation?.title ?? null
     );
 
+    // Look up running ImportSession for this user (if any)
+    const runningSession = await prisma.importSession.findFirst({
+      where: { userId: userAccount.userId, provider: 'garmin', status: 'running' },
+      select: { id: true },
+    });
+
     // Upsert the ride (create or update if it already exists)
     await prisma.ride.upsert({
       where: {
@@ -505,6 +511,7 @@ async function processActivityPing(notification: GarminActivityPing): Promise<vo
         rideType: activityDetail.activityType,
         notes: activityDetail.activityName ?? null,
         location: autoLocation?.title ?? null,
+        importSessionId: runningSession?.id ?? null,
       },
       update: {
         startTime,
@@ -515,8 +522,17 @@ async function processActivityPing(notification: GarminActivityPing): Promise<vo
         rideType: activityDetail.activityType,
         notes: activityDetail.activityName ?? null,
         ...(locationUpdate !== undefined ? { location: locationUpdate } : {}),
+        // Note: Do NOT update importSessionId - keep original session assignment
       },
     });
+
+    // Update session's lastActivityReceivedAt if there's a running session
+    if (runningSession) {
+      await prisma.importSession.update({
+        where: { id: runningSession.id },
+        data: { lastActivityReceivedAt: new Date() },
+      });
+    }
 
     console.log(`[Garmin Activities PING] Successfully stored ride for activity ${summaryId}`);
   } catch (error) {
@@ -649,6 +665,13 @@ async function processActivityCallback(notification: GarminActivityCallback): Pr
         autoLocation?.title ?? null
       );
 
+      // Look up running ImportSession for this user (if any)
+      // This is done inside the loop to handle potential session changes during long batches
+      const runningSession = await prisma.importSession.findFirst({
+        where: { userId: userAccount.userId, provider: 'garmin', status: 'running' },
+        select: { id: true },
+      });
+
       // Upsert the ride (create or update if it already exists)
       await prisma.ride.upsert({
         where: {
@@ -665,6 +688,7 @@ async function processActivityCallback(notification: GarminActivityCallback): Pr
           rideType: activity.activityType,
           notes: activity.activityName ?? null,
           location: autoLocation?.title ?? null,
+          importSessionId: runningSession?.id ?? null,
         },
         update: {
           startTime,
@@ -675,8 +699,17 @@ async function processActivityCallback(notification: GarminActivityCallback): Pr
           rideType: activity.activityType,
           notes: activity.activityName ?? null,
           ...(locationUpdate !== undefined ? { location: locationUpdate } : {}),
+          // Note: Do NOT update importSessionId - keep original session assignment
         },
       });
+
+      // Update session's lastActivityReceivedAt if there's a running session
+      if (runningSession) {
+        await prisma.importSession.update({
+          where: { id: runningSession.id },
+          data: { lastActivityReceivedAt: new Date() },
+        });
+      }
 
       console.log(`[Garmin Activities Callback] Successfully stored ride for activity ${activity.summaryId}`);
     }

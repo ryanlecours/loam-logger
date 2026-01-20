@@ -30,6 +30,18 @@ r.get<Empty, void, Empty, { days?: string; year?: string }>(
         return sendBadRequest(res, 'Garmin not connected or token expired. Please reconnect your Garmin account.');
       }
 
+      // Check for existing running ImportSession - prevent concurrent backfills
+      const existingImportSession = await prisma.importSession.findFirst({
+        where: { userId, provider: 'garmin', status: 'running' },
+      });
+
+      if (existingImportSession) {
+        return res.status(409).json({
+          error: 'Import already in progress',
+          message: 'A Garmin import is already in progress. Please wait for it to complete before starting another.',
+        });
+      }
+
       // Calculate date range based on year or days parameter
       let startDate: Date;
       let endDate: Date;
@@ -100,6 +112,18 @@ r.get<Empty, void, Empty, { days?: string; year?: string }>(
       const endDateStr = endDate.toISOString().split('T')[0];
 
       logger.info({ startDate: startDateStr, endDate: endDateStr }, 'Triggering Garmin backfill');
+
+      // Create ImportSession to track this backfill's rides
+      const importSession = await prisma.importSession.create({
+        data: {
+          userId,
+          provider: 'garmin',
+          status: 'running',
+          startedAt: new Date(),
+        },
+      });
+
+      logger.info({ importSessionId: importSession.id }, 'Created import session for Garmin backfill');
 
       // Garmin Wellness API: Use the async backfill endpoint
       // This triggers Garmin to send activities via webhooks
@@ -258,6 +282,12 @@ r.get<Empty, void, Empty, { days?: string; year?: string }>(
           }
         }
 
+        // Mark the import session as completed since no new rides will be coming
+        await prisma.importSession.update({
+          where: { id: importSession.id },
+          data: { status: 'completed', completedAt: new Date(), unassignedRideCount: 0 },
+        });
+
         return res.json({
           success: true,
           alreadyCompleted: true,
@@ -266,6 +296,12 @@ r.get<Empty, void, Empty, { days?: string; year?: string }>(
       }
 
       if (totalChunks === 0) {
+        // Mark import session as completed (no rides will come)
+        await prisma.importSession.update({
+          where: { id: importSession.id },
+          data: { status: 'completed', completedAt: new Date(), unassignedRideCount: 0 },
+        });
+
         return res.status(400).json({
           error: 'Failed to trigger backfill',
           message: 'Unable to request historical data from Garmin. Please try again later or select a different time period.',
@@ -310,6 +346,17 @@ r.post<Empty, void, { years: string[] }, Empty>(
     }
 
     try {
+      // Check for existing running ImportSession - prevent concurrent backfills
+      const existingImportSession = await prisma.importSession.findFirst({
+        where: { userId, provider: 'garmin', status: 'running' },
+      });
+
+      if (existingImportSession) {
+        return res.status(409).json({
+          error: 'Import already in progress',
+          message: 'A Garmin import is already in progress. Please wait for it to complete before starting another.',
+        });
+      }
       // Validate all years
       const currentYear = new Date().getFullYear();
       for (const year of years) {
@@ -360,6 +407,18 @@ r.post<Empty, void, { years: string[] }, Empty>(
           skipped: years,
         });
       }
+
+      // Create ImportSession to track this backfill's rides
+      const importSession = await prisma.importSession.create({
+        data: {
+          userId,
+          provider: 'garmin',
+          status: 'running',
+          startedAt: new Date(),
+        },
+      });
+
+      logger.info({ importSessionId: importSession.id }, 'Created import session for Garmin batch backfill');
 
       // Create BackfillRequest records and queue jobs
       const results: Array<{ year: string; status: string; jobId?: string }> = [];

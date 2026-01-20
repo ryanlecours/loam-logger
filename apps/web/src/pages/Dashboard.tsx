@@ -4,8 +4,10 @@ import { useQuery } from '@apollo/client';
 import { RIDES } from '../graphql/rides';
 import { BIKES } from '../graphql/bikes';
 import { UNMAPPED_STRAVA_GEARS } from '../graphql/stravaGear';
+import { useImportNotificationState } from '../graphql/importSession';
 import StravaGearMappingModal from '../components/StravaGearMappingModal';
 import StravaImportModal from '../components/StravaImportModal';
+import { ImportCompleteOverlay } from '../components/ImportCompleteOverlay';
 import RideStatsCard from '../components/RideStatsCard';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useUserTier } from '../hooks/useUserTier';
@@ -69,6 +71,11 @@ export default function Dashboard() {
     skip: !user,
   });
 
+  // Import notification state (for backfill completion overlay)
+  const { data: importNotificationData } = useImportNotificationState({
+    pollInterval: 30000, // Check every 30 seconds
+  });
+
   // Derived data
   const rides = ridesData?.rides ?? [];
   const bikes = bikesData?.bikes ?? [];
@@ -88,6 +95,15 @@ export default function Dashboard() {
   const [isLogServiceOpen, setIsLogServiceOpen] = useState(false);
   const [rideToLink, setRideToLink] = useState<Ride | null>(null);
   const [isStravaImportOpen, setIsStravaImportOpen] = useState(false);
+  const [isImportOverlayOpen, setIsImportOverlayOpen] = useState(false);
+
+  // Show import overlay when notification state indicates we should
+  const importState = importNotificationData?.importNotificationState;
+  useEffect(() => {
+    if (importState?.showOverlay && !isImportOverlayOpen) {
+      setIsImportOverlayOpen(true);
+    }
+  }, [importState?.showOverlay, isImportOverlayOpen]);
 
   // Effects
   useEffect(() => {
@@ -199,6 +215,15 @@ export default function Dashboard() {
           refetchRides();
           setIsStravaImportOpen(false);
         }}
+      />
+
+      {/* Import Complete Overlay */}
+      <ImportCompleteOverlay
+        isOpen={isImportOverlayOpen}
+        onClose={() => setIsImportOverlayOpen(false)}
+        sessionId={importState?.sessionId ?? null}
+        unassignedRideCount={importState?.unassignedRideCount ?? 0}
+        totalImportedCount={importState?.totalImportedCount ?? 0}
       />
     </>
   );

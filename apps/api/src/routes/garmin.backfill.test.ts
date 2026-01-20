@@ -11,6 +11,9 @@ const mockBackfillUpdateMany = jest.fn();
 const mockRideFindMany = jest.fn();
 const mockRideCount = jest.fn();
 const mockUserAccountFindFirst = jest.fn();
+const mockImportSessionFindFirst = jest.fn();
+const mockImportSessionCreate = jest.fn();
+const mockImportSessionUpdate = jest.fn();
 
 jest.mock('../lib/prisma', () => ({
   prisma: {
@@ -25,6 +28,11 @@ jest.mock('../lib/prisma', () => ({
     },
     userAccount: {
       findFirst: mockUserAccountFindFirst,
+    },
+    importSession: {
+      findFirst: mockImportSessionFindFirst,
+      create: mockImportSessionCreate,
+      update: mockImportSessionUpdate,
     },
   },
 }));
@@ -111,6 +119,10 @@ describe('GET /garmin/backfill/fetch', () => {
     // Default: no existing backfill
     mockBackfillFindUnique.mockResolvedValue(null);
     mockBackfillUpsert.mockResolvedValue({});
+    // Default: no existing import session
+    mockImportSessionFindFirst.mockResolvedValue(null);
+    mockImportSessionCreate.mockResolvedValue({ id: 'import-session-1' });
+    mockImportSessionUpdate.mockResolvedValue({});
     // Default: successful Garmin API response
     mockFetch.mockResolvedValue({
       status: 202,
@@ -506,6 +518,9 @@ describe('extractMinStartDate behavior', () => {
     mockGetValidGarminToken.mockResolvedValue('valid-token');
     mockBackfillFindUnique.mockResolvedValue(null);
     mockBackfillUpsert.mockResolvedValue({});
+    mockImportSessionFindFirst.mockResolvedValue(null);
+    mockImportSessionCreate.mockResolvedValue({ id: 'import-session-1' });
+    mockImportSessionUpdate.mockResolvedValue({});
   });
 
   it('should adjust start date when Garmin returns min start time error', async () => {
