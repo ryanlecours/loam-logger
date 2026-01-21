@@ -5,11 +5,7 @@ import { RIDES } from '../graphql/rides';
 import { BIKES } from '../graphql/bikes';
 import { UNMAPPED_STRAVA_GEARS } from '../graphql/stravaGear';
 import { useImportNotificationState } from '../graphql/importSession';
-import {
-  useCalibrationState,
-  useDismissCalibration,
-  useCompleteCalibration,
-} from '../graphql/calibration';
+import { useCalibrationState } from '../graphql/calibration';
 import StravaGearMappingModal from '../components/StravaGearMappingModal';
 import StravaImportModal from '../components/StravaImportModal';
 import { ImportCompleteOverlay } from '../components/ImportCompleteOverlay';
@@ -87,9 +83,7 @@ export default function Dashboard() {
   });
 
   // Calibration state (for first-time component calibration overlay)
-  const { data: calibrationData, refetch: refetchCalibration } = useCalibrationState();
-  const [dismissCalibration] = useDismissCalibration();
-  const [completeCalibration] = useCompleteCalibration();
+  const { data: calibrationData } = useCalibrationState();
 
   // Derived data
   const rides = ridesData?.rides ?? [];
@@ -264,18 +258,10 @@ export default function Dashboard() {
         bikes={bikes}
       />
 
-      {/* Calibration Overlay */}
+      {/* Calibration Overlay - handles dismiss/complete internally */}
       <CalibrationOverlay
         isOpen={isCalibrationOpen}
-        onClose={async () => {
-          await dismissCalibration();
-          setIsCalibrationOpen(false);
-        }}
-        onComplete={async () => {
-          await completeCalibration();
-          await refetchCalibration();
-          setIsCalibrationOpen(false);
-        }}
+        onClose={() => setIsCalibrationOpen(false)}
       />
     </>
   );
