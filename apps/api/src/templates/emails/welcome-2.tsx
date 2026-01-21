@@ -201,6 +201,10 @@ export default function Welcome2Email({
               </span>
             </Text>
 
+            <Text className="ll-p" style={styles.p}>
+              You can always change to conventional hour tracking or back to the predictive algorithm in the settings page.
+            </Text>
+
             <Hr className="ll-hr" style={styles.hr} />
 
             <Heading as="h2" className="ll-h2" style={styles.h2}>

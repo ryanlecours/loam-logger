@@ -49,8 +49,8 @@ export function ImportCompleteOverlay({
   const [acknowledgeOverlay] = useAcknowledgeImportOverlay();
   const [assignBikeToRides] = useAssignBikeToRides();
 
-  const bikes = bikesProp ?? bikesData?.bikes ?? [];
-  const rides = ridesData?.unassignedRides?.rides ?? [];
+  const bikes = useMemo(() => bikesProp ?? bikesData?.bikes ?? [], [bikesProp, bikesData?.bikes]);
+  const rides = useMemo(() => ridesData?.unassignedRides?.rides ?? [], [ridesData?.unassignedRides?.rides]);
   const hasRides = rides.length > 0;
 
   // Reset state when modal opens

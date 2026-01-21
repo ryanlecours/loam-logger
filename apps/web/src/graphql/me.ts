@@ -14,6 +14,7 @@ export const ME_QUERY = gql`
       role
       isFoundingRider
       hoursDisplayPreference
+      predictionMode
     }
   }
 `

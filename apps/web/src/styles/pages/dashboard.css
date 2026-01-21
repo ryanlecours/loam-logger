@@ -1598,7 +1598,7 @@
   }
 
   .modal-dialog {
-    padding: 2rem;
+    padding: 2rem 1rem;
   }
 
   .modal-actions {
@@ -3008,8 +3008,8 @@
 }
 
 .priority-hero-image {
-  width: 100%;
-  max-width: 100%;
+  width: 80%;
+  max-width: 80%;
   height: auto;
   object-fit: contain;
   border-radius: 1rem;
@@ -3487,10 +3487,8 @@
 
 .component-health-header {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  margin-bottom: 0.25rem;
+  flex-direction: column;
+  gap: 0.125rem;
 }
 
 .component-health-title {
@@ -3499,6 +3497,13 @@
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--sage);
+  margin: 0;
+}
+
+.component-health-hint {
+  font-size: 0.75rem;
+  font-style: italic;
+  color: var(--sage-60);
   margin: 0;
 }
 
@@ -3731,6 +3736,67 @@
 .wear-causes-close:hover {
   color: var(--cream);
   background: var(--sage-15);
+}
+
+/* Component Quick Actions */
+.component-detail-actions {
+  display: flex;
+  gap: 0.75rem;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid var(--sage-15);
+  background: rgba(68, 96, 76, 0.1);
+}
+
+.component-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  flex: 1;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--sage-20);
+  border-radius: 0.5rem;
+  background: rgba(30, 34, 32, 0.8);
+  color: var(--cream);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.component-action-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.component-action-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.component-action-good {
+  border-color: var(--sage-40);
+  background: rgba(68, 96, 76, 0.2);
+}
+
+.component-action-good:hover:not(:disabled) {
+  border-color: var(--sage);
+  background: rgba(68, 96, 76, 0.35);
+}
+
+.component-action-good.success {
+  border-color: var(--success);
+  background: rgba(45, 212, 191, 0.15);
+  color: var(--success);
+}
+
+.component-action-service {
+  border-color: var(--sage-30);
+}
+
+.component-action-service:hover:not(:disabled) {
+  border-color: var(--sage);
+  background: rgba(68, 96, 76, 0.15);
 }
 
 /* Component Detail Stats Grid */
@@ -4348,7 +4414,7 @@
 .log-service-modal-content {
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
+  gap: 0.75rem;
 }
 
 .log-service-modal-bike {
@@ -4370,8 +4436,6 @@
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
-  max-height: 320px;
-  overflow-y: auto;
 }
 
 .log-service-item {
@@ -4458,7 +4522,7 @@
 }
 
 .log-service-hint {
-  margin: 0 0 0.75rem;
+  margin: 0 0 0.5rem;
   color: var(--sage);
   font-size: 0.875rem;
 }
@@ -4588,9 +4652,9 @@
   }
 
   .priority-hero-image {
-    width: 100%;
+    width: 80%;
     height: auto;
-    max-height: 120px;
+    max-height: 100px;
     padding: 0.5rem;
   }
 
@@ -4907,5 +4971,332 @@
   background: rgba(94, 148, 126, 0.1);
   border: 1px solid rgba(94, 148, 126, 0.3);
   color: var(--mint);
+}
+
+/* ============================================
+   CALIBRATION OVERLAY
+   ============================================ */
+
+.calibration-overlay-content {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  min-height: 0;
+  flex: 1;
+}
+
+.calibration-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.calibration-progress-bar {
+  height: 6px;
+  background: var(--sage-15);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.calibration-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--mint), var(--sage));
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.calibration-progress-text {
+  font-size: 0.75rem;
+  color: var(--sage);
+  text-align: right;
+}
+
+.calibration-info {
+  background: var(--sage-10);
+  border-radius: 0.5rem;
+  padding: 0.875rem 1rem;
+  flex-shrink: 0;
+}
+
+.calibration-info p {
+  color: var(--sage);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.calibration-info-secondary {
+  background: var(--sage-5);
+  border-radius: 0.5rem;
+  border: var(--sage-40) 1px solid;
+  padding: 0.875rem 1rem;
+  margin-top: 0.5rem !important;
+  font-size: 0.8125rem !important;
+  color: var(--concrete) !important;
+}
+
+.calibration-info-secondary strong {
+  color: var(--sage);
+  font-weight: 600;
+}
+
+.calibration-bikes {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  flex: 1;
+  min-height: 0;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.calibration-bike {
+  background: var(--sage-10);
+  border: 1px solid var(--sage-15);
+  border-radius: 0.75rem;
+  overflow: hidden;
+}
+
+.calibration-bike-done {
+  opacity: 0.7;
+}
+
+.calibration-bike-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.875rem 1rem;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--cream);
+  transition: background 0.15s ease;
+}
+
+.calibration-bike-header:hover {
+  background: var(--sage-15);
+}
+
+.calibration-bike-info {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.calibration-bike-thumb {
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+  border-radius: 0.375rem;
+  flex-shrink: 0;
+}
+
+.calibration-bike-thumb-placeholder {
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--sage-15);
+  border-radius: 0.375rem;
+  color: var(--sage);
+  flex-shrink: 0;
+}
+
+.calibration-bike-name {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  min-width: 0;
+}
+
+.calibration-bike-title {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--cream);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.calibration-bike-count {
+  font-size: 0.75rem;
+  color: var(--sage);
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.calibration-bike-content {
+  padding: 0.75rem 1rem 1rem;
+  border-top: 1px solid var(--sage-15);
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.calibration-bulk-action {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  padding: 0.75rem;
+  background: var(--sage-15);
+  border-radius: 0.5rem;
+}
+
+/* Push month picker and button to the right on desktop */
+.calibration-bulk-action .form-input-sm {
+  margin-left: auto;
+}
+
+.calibration-bulk-label {
+  font-size: 0.8125rem;
+  color: var(--sage);
+  font-weight: 500;
+}
+
+.calibration-components {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-height: 280px;
+  overflow-y: auto;
+  padding-right: 0.25rem;
+}
+
+.calibration-component {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.625rem 0.75rem;
+  background: rgba(30, 34, 32, 0.5);
+  border: 1px solid var(--sage-15);
+  border-radius: 0.5rem;
+}
+
+.calibration-component-checkbox {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  accent-color: var(--mint);
+  cursor: pointer;
+}
+
+.calibration-select-all {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  font-size: 0.875rem;
+  color: var(--sage);
+  white-space: nowrap;
+}
+
+.calibration-select-all input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--mint);
+  cursor: pointer;
+}
+
+.calibration-component-done {
+  opacity: 0.6;
+}
+
+.calibration-component-check {
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--mint);
+  border-radius: 50%;
+  color: var(--forest);
+  flex-shrink: 0;
+}
+
+.calibration-component-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  min-width: 0;
+}
+
+.calibration-component-label {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--cream);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.calibration-component-make {
+  font-size: 0.75rem;
+  color: var(--sage);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.calibration-component-hours {
+  font-size: 0.75rem;
+  color: var(--concrete);
+  flex-shrink: 0;
+}
+
+.calibration-component-status {
+  font-size: 0.75rem;
+  color: var(--mint);
+  font-weight: 500;
+}
+
+.calibration-actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: flex-end;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--sage-10);
+  flex-shrink: 0;
+}
+
+/* Mobile adjustments for calibration */
+@media (max-width: 640px) {
+  .calibration-bulk-action {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .calibration-bulk-action .form-select-sm,
+  .calibration-bulk-action .form-input-sm {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .calibration-component {
+    flex-wrap: wrap;
+  }
+
+  .calibration-component-hours {
+    order: 3;
+    width: 100%;
+    margin-top: 0.25rem;
+    /* checkbox (16px) + gap + status dot (18px) + gap */
+    padding-left: calc(16px + 0.75rem + 18px + 0.75rem);
+  }
+
+  .calibration-actions {
+    flex-direction: column;
+  }
+
+  .calibration-actions button {
+    width: 100%;
+  }
 }
 

@@ -1,14 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { FaChevronRight } from 'react-icons/fa';
+import { useMutation } from '@apollo/client';
+import { FaChevronRight, FaCheck, FaWrench } from 'react-icons/fa';
 import type { ComponentPrediction } from '../../types/prediction';
 import { STATUS_SEVERITY } from '../../types/prediction';
 import { formatComponentLabel } from '../../utils/formatters';
 import { useHoursDisplay } from '../../hooks/useHoursDisplay';
 import { StatusDot } from './StatusDot';
+import { LOG_COMPONENT_SERVICE } from '../../graphql/logComponentService';
+import { BIKES } from '../../graphql/bikes';
 
 interface ComponentHealthPanelProps {
   components: ComponentPrediction[];
   className?: string;
+  onLogService?: (componentId: string) => void;
 }
 
 /**
@@ -87,16 +91,24 @@ function getFactorDefinition(factor: string): string {
 }
 
 /**
- * Overlay for showing component details and wear causes
+ * Overlay for showing component details, wear causes, and quick actions
  */
 interface ComponentDetailOverlayProps {
   component: ComponentPrediction;
   onClose: () => void;
+  onServiceLogged?: () => void;
+  onLogService?: (componentId: string) => void;
 }
 
-function ComponentDetailOverlay({ component, onClose }: ComponentDetailOverlayProps) {
+function ComponentDetailOverlay({ component, onClose, onServiceLogged, onLogService }: ComponentDetailOverlayProps) {
   const makeModel = getMakeModel(component);
   const onCloseRef = useRef(onClose);
+  const [isLogging, setIsLogging] = useState(false);
+  const [logSuccess, setLogSuccess] = useState(false);
+
+  const [logService] = useMutation(LOG_COMPONENT_SERVICE, {
+    refetchQueries: [{ query: BIKES }],
+  });
 
   // Keep ref updated with latest onClose
   useEffect(() => {
@@ -111,6 +123,29 @@ function ComponentDetailOverlay({ component, onClose }: ComponentDetailOverlayPr
     window.addEventListener('keydown', handleEscape);
     return () => window.removeEventListener('keydown', handleEscape);
   }, []);
+
+  const handleInspectGood = async () => {
+    setIsLogging(true);
+    try {
+      await logService({
+        variables: {
+          id: component.componentId,
+          performedAt: new Date().toISOString(),
+        },
+      });
+      setLogSuccess(true);
+      onServiceLogged?.();
+      // Auto-close after a short delay to show success
+      setTimeout(() => {
+        onClose();
+      }, 1000);
+    } catch (err) {
+      console.error('Failed to log inspection:', err);
+      alert('Failed to log inspection. Please try again.');
+    } finally {
+      setIsLogging(false);
+    }
+  };
 
   return (
     <div
@@ -129,6 +164,33 @@ function ComponentDetailOverlay({ component, onClose }: ComponentDetailOverlayPr
           <button className="wear-causes-close" onClick={onClose}>×</button>
         </div>
 
+        {/* Quick Actions */}
+        <div className="component-detail-actions">
+          <button
+            className={`component-action-btn component-action-good ${logSuccess ? 'success' : ''}`}
+            onClick={handleInspectGood}
+            disabled={isLogging || logSuccess}
+            type="button"
+          >
+            <FaCheck size={14} />
+            <span>{logSuccess ? 'Logged!' : isLogging ? 'Logging...' : 'Looks Good'}</span>
+          </button>
+          {onLogService && (
+            <button
+              className="component-action-btn component-action-service"
+              onClick={() => {
+                onClose();
+                onLogService(component.componentId);
+              }}
+              disabled={isLogging}
+              type="button"
+            >
+              <FaWrench size={14} />
+              <span>Log Service</span>
+            </button>
+          )}
+        </div>
+
         {/* Component Stats */}
         <div className="component-detail-stats">
           <div className="component-detail-stat">
@@ -140,16 +202,12 @@ function ComponentDetailOverlay({ component, onClose }: ComponentDetailOverlayPr
             <span className="component-detail-stat-label">Since last service</span>
           </div>
           <div className="component-detail-stat">
-            <span className="component-detail-stat-value">{formatHours(component.currentHours)}</span>
-            <span className="component-detail-stat-label">Total hours</span>
+            <span className="component-detail-stat-value">{formatHours(component.serviceIntervalHours)}</span>
+            <span className="component-detail-stat-label">Service interval</span>
           </div>
           <div className="component-detail-stat">
             <span className="component-detail-stat-value">~{component.ridesRemainingEstimate}</span>
             <span className="component-detail-stat-label">Rides remaining</span>
-          </div>
-          <div className="component-detail-stat">
-            <span className="component-detail-stat-value">{formatHours(component.serviceIntervalHours)}</span>
-            <span className="component-detail-stat-label">Service interval</span>
           </div>
         </div>
 
@@ -192,7 +250,7 @@ function ComponentDetailOverlay({ component, onClose }: ComponentDetailOverlayPr
   );
 }
 
-export function ComponentHealthPanel({ components, className = '' }: ComponentHealthPanelProps) {
+export function ComponentHealthPanel({ components, className = '', onLogService }: ComponentHealthPanelProps) {
   const [selectedComponent, setSelectedComponent] = useState<ComponentPrediction | null>(null);
   const { hoursDisplay } = useHoursDisplay();
 
@@ -219,6 +277,7 @@ export function ComponentHealthPanel({ components, className = '' }: ComponentHe
     <div className={`component-health-panel ${className}`.trim()}>
       <div className="component-health-header">
         <h3 className="component-health-title">Component Health</h3>
+        <p className="component-health-hint">Tap any component for details</p>
       </div>
 
       <div className="component-health-list list-stagger">
@@ -273,6 +332,7 @@ export function ComponentHealthPanel({ components, className = '' }: ComponentHe
         <ComponentDetailOverlay
           component={selectedComponent}
           onClose={() => setSelectedComponent(null)}
+          onLogService={onLogService}
         />
       )}
     </div>

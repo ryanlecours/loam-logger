@@ -7,6 +7,7 @@ import type {
   PredictionStatus,
   ConfidenceLevel,
   PredictionEngineOptions,
+  PredictionMode,
   RideMetrics,
 } from './types';
 import {
@@ -135,13 +136,14 @@ function getRidesSinceDateFromContext(
 /**
  * Generate prediction for a single component.
  *
- * FREE tier: Deterministic (hoursRemaining = baseInterval - hoursSinceService)
- * PRO tier: Adaptive with wear ratio adjustment
+ * Simple mode: Deterministic (hoursRemaining = baseInterval - hoursSinceService)
+ * Predictive mode (PRO only): Adaptive with wear ratio adjustment (when confidence >= MEDIUM)
  */
 function predictComponent(
   component: Component,
   recentRides: RideMetrics[],
   isPro: boolean,
+  predictionMode: PredictionMode,
   ctx: PredictionContext
 ): ComponentPrediction {
   // Get base interval for this component type and location
@@ -157,17 +159,33 @@ function predictComponent(
   const hoursSinceService = calculateTotalHours(ridesSinceService);
   const rideCountSinceService = ridesSinceService.length;
 
+  // Calculate confidence FIRST to decide whether to use adaptive prediction
+  const totalHours = calculateTotalHours(recentRides);
+  const recentWearPerHour = recentRides.length > 0
+    ? calculateWearPerHourRatio(recentRides, component.type)
+    : 0;
+  const hasInsufficientWearData = isPro && recentRides.length > 0 && recentWearPerHour < 0.01;
+  const confidence = hasInsufficientWearData ? 'LOW' : getConfidence(rideCountSinceService, totalHours);
+
   let hoursRemaining: number;
 
-  if (isPro && recentRides.length > 0) {
-    // PRO tier: Adaptive prediction with wear ratio
+  // Only use adaptive prediction when:
+  // 1. User opted into predictive mode
+  // 2. User is PRO (predictive mode requires PRO)
+  // 3. Has recent rides to analyze
+  // 4. Confidence is at least MEDIUM (LOW = insufficient data)
+  const useAdaptivePrediction =
+    predictionMode === 'predictive' &&
+    isPro &&
+    recentRides.length > 0 &&
+    confidence !== 'LOW';
+
+  if (useAdaptivePrediction) {
+    // PRO tier: Adaptive prediction with wear ratio (sufficient data)
     const weights = getComponentWeights(component.type);
 
     // Calculate wear since last service
     const wearSinceService = calculateTotalWear(ridesSinceService, weights);
-
-    // Calculate recent wear per hour ratio
-    const recentWearPerHour = calculateWearPerHourRatio(recentRides, component.type);
 
     // Clamp ratio to valid range
     const clampedRatio = clamp(
@@ -195,17 +213,12 @@ function predictComponent(
     }
     hoursRemaining = Math.max(0, hoursRemaining);
   } else {
-    // FREE tier: Deterministic prediction
+    // FREE tier OR LOW confidence: Deterministic prediction using base intervals
     hoursRemaining = Math.max(0, baseInterval - hoursSinceService);
   }
 
-  // Determine status and confidence
+  // Determine status
   const status = getStatus(hoursRemaining);
-  const totalHours = calculateTotalHours(recentRides);
-  // Force LOW confidence when insufficient wear data for adaptive prediction
-  const hasInsufficientWearData = isPro && recentRides.length > 0 &&
-    calculateWearPerHourRatio(recentRides, component.type) < 0.01;
-  const confidence = hasInsufficientWearData ? 'LOW' : getConfidence(rideCountSinceService, totalHours);
   const ridesRemainingEstimate = estimateRidesRemaining(hoursRemaining, recentRides);
 
   // Generate explanation for Pro tier
@@ -312,7 +325,7 @@ function countByStatus(
 export async function generateBikePredictions(
   options: PredictionEngineOptions
 ): Promise<BikePredictionSummary> {
-  const { userId, bikeId, userRole, forceRefresh } = options;
+  const { userId, bikeId, userRole, predictionMode, forceRefresh } = options;
   const isPro = userRole === 'PRO' || userRole === 'ADMIN';
   const planTier = isPro ? 'PRO' : 'FREE';
 
@@ -323,6 +336,7 @@ export async function generateBikePredictions(
       bikeId,
       algoVersion: ALGO_VERSION,
       planTier,
+      predictionMode,
     });
 
     if (cached) {
@@ -382,7 +396,7 @@ export async function generateBikePredictions(
 
   // Generate predictions for each component (synchronously - no more DB calls)
   const predictions = trackableComponents.map((component) =>
-    predictComponent(component, recentRides, isPro, ctx)
+    predictComponent(component, recentRides, isPro, predictionMode, ctx)
   );
 
   // Build summary
@@ -406,6 +420,7 @@ export async function generateBikePredictions(
       bikeId,
       algoVersion: ALGO_VERSION,
       planTier,
+      predictionMode,
     },
     summary
   );
@@ -419,11 +434,13 @@ export async function generateBikePredictions(
  *
  * @param userId - User ID
  * @param userRole - User role
+ * @param predictionMode - Prediction mode preference
  * @returns Array of bike prediction summaries sorted by urgency
  */
 export async function generateAllBikePredictions(
   userId: string,
-  userRole: UserRole
+  userRole: UserRole,
+  predictionMode: PredictionMode = 'simple'
 ): Promise<BikePredictionSummary[]> {
   // Get all bikes for user
   const bikes = await prisma.bike.findMany({
@@ -438,6 +455,7 @@ export async function generateAllBikePredictions(
         userId,
         bikeId: bike.id,
         userRole,
+        predictionMode,
       }).catch((error) => {
         logError(`PredictionEngine bike ${bike.id}`, error);
         return null;
@@ -478,12 +496,14 @@ export async function generateAllBikePredictions(
  *
  * @param userId - User ID
  * @param userRole - User role
+ * @param predictionMode - Prediction mode preference
  * @returns Priority bike summary or null if no bikes
  */
 export async function getPriorityBike(
   userId: string,
-  userRole: UserRole
+  userRole: UserRole,
+  predictionMode: PredictionMode = 'simple'
 ): Promise<BikePredictionSummary | null> {
-  const predictions = await generateAllBikePredictions(userId, userRole);
+  const predictions = await generateAllBikePredictions(userId, userRole, predictionMode);
   return predictions[0] ?? null;
 }

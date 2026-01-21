@@ -13,6 +13,13 @@ vi.mock('../../hooks/useHoursDisplay', () => ({
   }),
 }));
 
+// Mock Apollo Client useMutation for ComponentDetailOverlay
+const mockLogService = vi.fn().mockResolvedValue({ data: { logComponentService: { id: 'test' } } });
+vi.mock('@apollo/client', () => ({
+  gql: (strings: TemplateStringsArray) => strings.join(''),
+  useMutation: () => [mockLogService, { loading: false }],
+}));
+
 // Factory for creating test components
 const createComponent = (overrides: Partial<ComponentPrediction> = {}): ComponentPrediction => ({
   componentId: `comp-${Math.random().toString(36).slice(2)}`,
@@ -35,6 +42,8 @@ const createComponent = (overrides: Partial<ComponentPrediction> = {}): Componen
 describe('ComponentHealthPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockLogService.mockClear();
+    mockLogService.mockResolvedValue({ data: { logComponentService: { id: 'test' } } });
   });
 
   describe('empty state', () => {
@@ -286,12 +295,10 @@ describe('ComponentHealthPanel', () => {
       expect(screen.getByText('Until next service')).toBeInTheDocument();
       expect(screen.getByText('30.0 hrs')).toBeInTheDocument();
       expect(screen.getByText('Since last service')).toBeInTheDocument();
-      expect(screen.getByText('100.0 hrs')).toBeInTheDocument();
-      expect(screen.getByText('Total hours')).toBeInTheDocument();
-      expect(screen.getByText('~10')).toBeInTheDocument();
-      expect(screen.getByText('Rides remaining')).toBeInTheDocument();
       expect(screen.getByText('80.0 hrs')).toBeInTheDocument();
       expect(screen.getByText('Service interval')).toBeInTheDocument();
+      expect(screen.getByText('~10')).toBeInTheDocument();
+      expect(screen.getByText('Rides remaining')).toBeInTheDocument();
     });
 
     it('displays why text when provided', async () => {

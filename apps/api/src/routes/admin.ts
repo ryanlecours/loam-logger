@@ -11,6 +11,7 @@ import {
   ANNOUNCEMENT_TEMPLATE_VERSION,
 } from '../templates/emails';
 import FoundingRidersEmail, { FOUNDING_RIDERS_TEMPLATE_VERSION } from '../templates/emails/founding-riders';
+import FoundingRidersLaunchEmail, { FOUNDING_RIDERS_LAUNCH_TEMPLATE_VERSION } from '../templates/emails/pre-access';
 import { render } from '@react-email/render';
 import React from 'react';
 import { generateUnsubscribeToken } from '../lib/unsubscribe-token';
@@ -37,6 +38,12 @@ const MAX_SUBJECT_LENGTH = 200;
 function isValidId(id: unknown): id is string {
   return typeof id === 'string' && (UUID_REGEX.test(id) || CUID_REGEX.test(id));
 }
+
+/** Delay helper for rate limiting */
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Delay between emails to respect Resend's 1/second rate limit */
+const EMAIL_SEND_DELAY_MS = 1100; // 1.1 seconds for safety margin
 
 const router = Router();
 
@@ -1003,8 +1010,15 @@ router.post('/email/send', async (req, res) => {
       suppressed: 0,
     };
 
-    // Send emails sequentially to respect provider rate limits
-    for (const recipient of recipients) {
+    // Send emails sequentially with delay to respect provider rate limits
+    for (let i = 0; i < recipients.length; i++) {
+      const recipient = recipients[i];
+
+      // Add delay between emails (except before first)
+      if (i > 0) {
+        await sleep(EMAIL_SEND_DELAY_MS);
+      }
+
       try {
         const unsubscribeToken = generateUnsubscribeToken(recipient.id);
         const unsubscribeUrl = `${API_URL}/api/email/unsubscribe?token=${unsubscribeToken}`;
@@ -1150,7 +1164,14 @@ router.post('/email/founding-riders', async (req, res) => {
     const results = { sent: 0, failed: 0, suppressed: 0 };
     const subject = 'Welcome to Loam Logger, Founding Riders';
 
-    for (const recipient of recipients) {
+    for (let i = 0; i < recipients.length; i++) {
+      const recipient = recipients[i];
+
+      // Add delay between emails (except before first)
+      if (i > 0) {
+        await sleep(EMAIL_SEND_DELAY_MS);
+      }
+
       try {
         const unsubscribeToken = generateUnsubscribeToken(recipient.id);
         const unsubscribeUrl = `${API_URL}/api/email/unsubscribe?token=${unsubscribeToken}`;
@@ -1191,6 +1212,137 @@ router.post('/email/founding-riders', async (req, res) => {
     });
   } catch (error) {
     logError('Admin founding riders email send', error);
+    return sendInternalError(res, 'Failed to send emails');
+  }
+});
+
+// ============================================================================
+// Pre-Access Launch Email Endpoints
+// ============================================================================
+
+/**
+ * POST /api/admin/email/pre-access/preview
+ * Preview the pre-access launch email
+ */
+router.post('/email/pre-access/preview', async (_req, res) => {
+  try {
+    const html = await render(
+      React.createElement(FoundingRidersLaunchEmail, {
+        recipientFirstName: 'Preview',
+        appUrl: FRONTEND_URL,
+        unsubscribeUrl: `${API_URL}/api/email/unsubscribe?token=preview`,
+      })
+    );
+
+    res.json({
+      success: true,
+      subject: 'Founding Riders access is live',
+      html,
+    });
+  } catch (error) {
+    logError('Admin pre-access preview', error);
+    return sendInternalError(res, 'Failed to generate preview');
+  }
+});
+
+/**
+ * POST /api/admin/email/pre-access
+ * Send pre-access launch email to selected recipients
+ */
+router.post('/email/pre-access', async (req, res) => {
+  try {
+    const adminUserId = req.sessionUser?.uid;
+    if (!adminUserId) {
+      return sendUnauthorized(res);
+    }
+
+    const rateLimit = await checkAdminRateLimit('bulkEmail', adminUserId);
+    if (!rateLimit.allowed) {
+      res.setHeader('Retry-After', rateLimit.retryAfter.toString());
+      return res.status(429).json({
+        success: false,
+        error: 'Please wait before sending another bulk email',
+        retryAfter: rateLimit.retryAfter,
+      });
+    }
+
+    const { recipientIds } = req.body;
+
+    if (!Array.isArray(recipientIds) || recipientIds.length === 0) {
+      return sendBadRequest(res, 'At least one recipient is required');
+    }
+
+    if (recipientIds.length > 500) {
+      return sendBadRequest(res, 'Cannot send to more than 500 recipients at once');
+    }
+
+    const invalidIds = recipientIds.filter((id) => !isValidId(id));
+    if (invalidIds.length > 0) {
+      return sendBadRequest(res, 'Invalid recipient ID format');
+    }
+
+    const recipients = await prisma.user.findMany({
+      where: { id: { in: recipientIds } },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        emailUnsubscribed: true,
+      },
+    });
+
+    if (recipients.length === 0) {
+      return sendBadRequest(res, 'No valid recipients found');
+    }
+
+    const results = { sent: 0, failed: 0, suppressed: 0 };
+    const subject = 'Founding Riders access is live';
+
+    for (let i = 0; i < recipients.length; i++) {
+      const recipient = recipients[i];
+
+      // Add delay between emails (except before first)
+      if (i > 0) {
+        await sleep(EMAIL_SEND_DELAY_MS);
+      }
+
+      try {
+        const unsubscribeToken = generateUnsubscribeToken(recipient.id);
+        const unsubscribeUrl = `${API_URL}/api/email/unsubscribe?token=${unsubscribeToken}`;
+        const firstName = recipient.name?.split(' ')[0] || undefined;
+
+        const result = await sendReactEmailWithAudit({
+          to: recipient.email,
+          subject,
+          reactElement: React.createElement(FoundingRidersLaunchEmail, {
+            recipientFirstName: firstName,
+            appUrl: FRONTEND_URL,
+            unsubscribeUrl,
+          }),
+          userId: recipient.id,
+          emailType: 'founding_welcome',
+          triggerSource: 'admin_manual',
+          templateVersion: FOUNDING_RIDERS_LAUNCH_TEMPLATE_VERSION,
+        });
+
+        results[result.status]++;
+      } catch (error) {
+        logError(`Pre-access email to ${recipient.email}`, error);
+        results.failed++;
+      }
+    }
+
+    console.log(
+      `[Admin] Pre-access email sent by ${adminUserId}: ${results.sent} sent, ${results.failed} failed, ${results.suppressed} suppressed`
+    );
+
+    res.json({
+      success: true,
+      results,
+      total: recipients.length,
+    });
+  } catch (error) {
+    logError('Admin pre-access email send', error);
     return sendInternalError(res, 'Failed to send emails');
   }
 });

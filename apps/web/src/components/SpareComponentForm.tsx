@@ -20,10 +20,10 @@ export function SpareComponentForm({ initial, submitting, error, onSubmit, onClo
   const isBikeComponent = mode === 'bike';
 
 
-  // Only reset form when editing a different component, not on every render
+  // Reset form when initial data changes (new component or updated data)
   useEffect(() => {
     setForm(initial);
-  }, [initial.id]);
+  }, [initial]);
 
   const setField = <K extends keyof SpareFormState>(key: K, value: SpareFormState[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));

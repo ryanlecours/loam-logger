@@ -93,3 +93,47 @@
   color: var(--sand);
   margin-bottom: 0.5rem;
 }
+
+/* Form select and input controls */
+.form-select,
+.form-input {
+  background-color: rgba(30, 34, 32, 0.98);
+  border: 1px solid rgba(54, 60, 57, 0.8);
+  color: var(--cream);
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+  transition:
+    border-color var(--duration-short) var(--ease-premium),
+    box-shadow var(--duration-short) var(--ease-premium);
+}
+
+.form-select:focus,
+.form-input:focus {
+  outline: none;
+  border-color: var(--mint);
+  box-shadow: 0 0 0 2px var(--mint-20);
+}
+
+.form-select:disabled,
+.form-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.form-select-sm,
+.form-input-sm {
+  padding: 0.375rem 0.5rem;
+  font-size: 0.8125rem;
+}
+
+/* Month input specific styling */
+input[type="month"].form-input-sm {
+  min-width: 140px;
+}
+
+/* Color scheme for date/month inputs */
+input[type="month"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.8);
+  cursor: pointer;
+}

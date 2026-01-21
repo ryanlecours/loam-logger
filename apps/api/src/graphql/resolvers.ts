@@ -12,6 +12,7 @@ import type {
 import { checkRateLimit, checkMutationRateLimit, checkQueryRateLimit } from '../lib/rate-limit';
 import { enqueueSyncJob, type SyncProvider } from '../lib/queue';
 import { invalidateBikePrediction } from '../services/prediction/cache';
+import { getBaseInterval } from '../services/prediction/config';
 import {
   getApplicableComponents,
   deriveBikeSpec,
@@ -833,6 +834,135 @@ export const resolvers = {
         hasMore,
       };
     },
+
+    calibrationState: async (_: unknown, __: unknown, ctx: GraphQLContext) => {
+      const userId = ctx.user?.id;
+      if (!userId) {
+        return {
+          showOverlay: false,
+          overdueCount: 0,
+          totalComponentCount: 0,
+          bikes: [],
+        };
+      }
+
+      // Get user calibration state
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          onboardingCompleted: true,
+          calibrationCompletedAt: true,
+          calibrationDismissedAt: true,
+          role: true,
+          predictionMode: true,
+        },
+      });
+
+      if (!user) {
+        return {
+          showOverlay: false,
+          overdueCount: 0,
+          totalComponentCount: 0,
+          bikes: [],
+        };
+      }
+
+      // Get bikes with predictions to determine overdue components
+      const bikes = await prisma.bike.findMany({
+        where: { userId },
+        orderBy: { sortOrder: 'asc' },
+        include: { components: true },
+      });
+
+      if (bikes.length === 0) {
+        return {
+          showOverlay: false,
+          overdueCount: 0,
+          totalComponentCount: 0,
+          bikes: [],
+        };
+      }
+
+      // Generate predictions for each bike to get component status
+      const { generateBikePredictions } = await import('../services/prediction');
+      const predictionMode = (user.predictionMode === 'predictive' ? 'predictive' : 'simple') as 'simple' | 'predictive';
+      const bikesWithPredictions = await Promise.all(
+        bikes.map(async (bike) => {
+          try {
+            const predictions = await generateBikePredictions({
+              userId,
+              bikeId: bike.id,
+              userRole: user.role,
+              predictionMode,
+            });
+            return { bike, predictions };
+          } catch {
+            return { bike, predictions: null };
+          }
+        })
+      );
+
+      // Filter to bikes with overdue/due-now components
+      const bikesNeedingCalibration: Array<{
+        bikeId: string;
+        bikeName: string;
+        thumbnailUrl: string | null;
+        components: Array<{
+          componentId: string;
+          componentType: string;
+          location: string;
+          brand: string;
+          model: string;
+          status: string;
+          hoursRemaining: number;
+          ridesRemainingEstimate: number;
+          confidence: string;
+          currentHours: number;
+          serviceIntervalHours: number;
+          hoursSinceService: number;
+          why: string | null;
+          drivers: Array<{ factor: string; contribution: number; label: string }> | null;
+        }>;
+      }> = [];
+
+      let totalOverdue = 0;
+      let totalComponents = 0;
+
+      for (const { bike, predictions } of bikesWithPredictions) {
+        if (!predictions?.components) continue;
+
+        totalComponents += predictions.components.length;
+
+        // Filter to OVERDUE and DUE_NOW components
+        const needsAttention = predictions.components.filter(
+          (c) => c.status === 'OVERDUE' || c.status === 'DUE_NOW'
+        );
+
+        if (needsAttention.length > 0) {
+          totalOverdue += needsAttention.length;
+          bikesNeedingCalibration.push({
+            bikeId: bike.id,
+            bikeName: bike.nickname || `${bike.year || ''} ${bike.manufacturer} ${bike.model}`.trim(),
+            thumbnailUrl: bike.thumbnailUrl,
+            components: needsAttention,
+          });
+        }
+      }
+
+      // Determine if overlay should show
+      const showOverlay =
+        user.onboardingCompleted &&
+        !user.calibrationCompletedAt &&
+        !user.calibrationDismissedAt &&
+        totalOverdue > 0;
+
+      return {
+        showOverlay,
+        overdueCount: totalOverdue,
+        totalComponentCount: totalComponents,
+        bikes: bikesNeedingCalibration,
+      };
+    },
   },
   Mutation: {
     addRide: async (_p: unknown, { input }: { input: AddRideInput }, ctx: GraphQLContext) => {
@@ -1631,6 +1761,50 @@ export const resolvers = {
       return serviceLog;
     },
 
+    snoozeComponent: async (_: unknown, { id }: { id: string }, ctx: GraphQLContext) => {
+      const userId = requireUserId(ctx);
+
+      // Rate limit check
+      const rateLimit = await checkMutationRateLimit('snoozeComponent', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
+
+      // Verify component ownership
+      const existing = await prisma.component.findUnique({
+        where: { id },
+        select: { userId: true, bikeId: true, type: true, location: true, serviceDueAtHours: true },
+      });
+      if (!existing || existing.userId !== userId) {
+        throw new Error('Component not found');
+      }
+
+      // Calculate the new extended interval (50% extension)
+      const currentInterval =
+        existing.serviceDueAtHours ?? getBaseInterval(existing.type, existing.location);
+      const extendedInterval = currentInterval * 1.5;
+
+      // Invalidate prediction cache BEFORE update
+      if (existing.bikeId) {
+        await invalidateBikePrediction(userId, existing.bikeId);
+      }
+
+      // Update component with extended service interval
+      const updated = await prisma.component.update({
+        where: { id },
+        data: { serviceDueAtHours: extendedInterval },
+      });
+
+      // Invalidate prediction cache AFTER update
+      if (existing.bikeId) {
+        await invalidateBikePrediction(userId, existing.bikeId);
+      }
+
+      return updated;
+    },
+
     createStravaGearMapping: async (
       _: unknown,
       { input }: { input: { stravaGearId: string; stravaGearName?: string | null; bikeId: string } },
@@ -1859,13 +2033,8 @@ export const resolvers = {
         if (update.wearPercent < 0 || update.wearPercent > 100) {
           throw new Error(`wearPercent must be between 0 and 100, got ${update.wearPercent}`);
         }
-        // Validate lastServicedAt is not before bike creation
-        if (update.lastServicedAt && component.bike?.createdAt) {
-          const serviceDate = parseISO(update.lastServicedAt);
-          if (!isNaN(serviceDate.getTime()) && serviceDate < component.bike.createdAt) {
-            throw new Error('Service date cannot be before the bike was added');
-          }
-        }
+        // Note: We intentionally allow backdating lastServicedAt before the bike was added
+        // to support calibration of historical service data
       }
 
       // Update all components
@@ -1975,12 +2144,12 @@ export const resolvers = {
 
     updateUserPreferences: async (
       _: unknown,
-      { input }: { input: { hoursDisplayPreference?: string | null } },
+      { input }: { input: { hoursDisplayPreference?: string | null; predictionMode?: string | null } },
       ctx: GraphQLContext
     ) => {
       const userId = requireUserId(ctx);
 
-      const updateData: { hoursDisplayPreference?: string | null } = {};
+      const updateData: { hoursDisplayPreference?: string | null; predictionMode?: string | null } = {};
 
       if (input.hoursDisplayPreference !== undefined) {
         // Input length validation to prevent DoS/excessive storage
@@ -1998,6 +2167,30 @@ export const resolvers = {
           });
         }
         updateData.hoursDisplayPreference = input.hoursDisplayPreference;
+      }
+
+      if (input.predictionMode !== undefined) {
+        // Validate predictionMode value
+        if (input.predictionMode !== null &&
+            input.predictionMode !== 'simple' &&
+            input.predictionMode !== 'predictive') {
+          throw new GraphQLError('Invalid predictionMode value. Must be "simple" or "predictive"', {
+            extensions: { code: 'BAD_USER_INPUT' },
+          });
+        }
+        // Only allow "predictive" for PRO/ADMIN users
+        if (input.predictionMode === 'predictive') {
+          const user = await prisma.user.findUnique({
+            where: { id: userId },
+            select: { role: true },
+          });
+          if (user?.role !== 'PRO' && user?.role !== 'ADMIN') {
+            throw new GraphQLError('Predictive mode is only available for Pro users', {
+              extensions: { code: 'FORBIDDEN' },
+            });
+          }
+        }
+        updateData.predictionMode = input.predictionMode;
       }
 
       if (Object.keys(updateData).length === 0) {
@@ -2119,6 +2312,156 @@ export const resolvers = {
         updatedCount: rideIds.length,
       };
     },
+
+    logBulkComponentService: async (
+      _: unknown,
+      { input }: { input: { componentIds: string[]; performedAt: string } },
+      ctx: GraphQLContext
+    ) => {
+      const userId = requireUserId(ctx);
+
+      // Rate limit check
+      const rateLimit = await checkMutationRateLimit('logBulkComponentService', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
+
+      // Limit batch size
+      const MAX_COMPONENTS_PER_BULK = 50;
+      if (input.componentIds.length > MAX_COMPONENTS_PER_BULK) {
+        throw new GraphQLError(`Cannot log service for more than ${MAX_COMPONENTS_PER_BULK} components at once`, {
+          extensions: { code: 'BAD_USER_INPUT' },
+        });
+      }
+
+      if (input.componentIds.length === 0) {
+        return { success: true, updatedCount: 0 };
+      }
+
+      // Parse and validate service date
+      const serviceDate = parseISO(input.performedAt);
+      if (isNaN(serviceDate.getTime())) {
+        throw new GraphQLError('Invalid date format', {
+          extensions: { code: 'BAD_USER_INPUT' },
+        });
+      }
+      if (serviceDate > new Date()) {
+        throw new GraphQLError('Service date cannot be in the future', {
+          extensions: { code: 'BAD_USER_INPUT' },
+        });
+      }
+
+      // Reject unreasonably old dates (more than 20 years ago)
+      const minReasonableDate = new Date();
+      minReasonableDate.setFullYear(minReasonableDate.getFullYear() - 20);
+      if (serviceDate < minReasonableDate) {
+        throw new GraphQLError('Service date is too far in the past', {
+          extensions: { code: 'BAD_USER_INPUT' },
+        });
+      }
+
+      // Verify ownership of all components and get bike IDs for cache invalidation
+      const components = await prisma.component.findMany({
+        where: { id: { in: input.componentIds } },
+        select: {
+          id: true,
+          userId: true,
+          bikeId: true,
+          hoursUsed: true,
+          bike: { select: { createdAt: true } },
+        },
+      });
+
+      if (components.length !== input.componentIds.length) {
+        throw new GraphQLError('One or more components not found', {
+          extensions: { code: 'NOT_FOUND' },
+        });
+      }
+
+      const bikeIdsToInvalidate = new Set<string>();
+      for (const component of components) {
+        if (component.userId !== userId) {
+          throw new GraphQLError('Unauthorized', {
+            extensions: { code: 'FORBIDDEN' },
+          });
+        }
+        if (component.bikeId) {
+          bikeIdsToInvalidate.add(component.bikeId);
+        }
+        // Note: We intentionally allow backdating service logs before the bike was added
+        // to support calibration of historical service data
+      }
+
+      // Invalidate prediction caches BEFORE transaction
+      for (const bikeId of bikeIdsToInvalidate) {
+        await invalidateBikePrediction(userId, bikeId);
+      }
+
+      // Create service logs and reset hours in transaction
+      await prisma.$transaction(async (tx) => {
+        for (const component of components) {
+          // Create service log
+          await tx.serviceLog.create({
+            data: {
+              componentId: component.id,
+              performedAt: serviceDate,
+              hoursAtService: component.hoursUsed,
+            },
+          });
+
+          // Reset component hours
+          await tx.component.update({
+            where: { id: component.id },
+            data: { hoursUsed: 0 },
+          });
+        }
+      });
+
+      // Invalidate prediction caches after transaction
+      for (const bikeId of bikeIdsToInvalidate) {
+        await invalidateBikePrediction(userId, bikeId);
+      }
+
+      return {
+        success: true,
+        updatedCount: components.length,
+      };
+    },
+
+    dismissCalibration: async (_: unknown, __: unknown, ctx: GraphQLContext) => {
+      const userId = requireUserId(ctx);
+
+      return prisma.user.update({
+        where: { id: userId },
+        data: { calibrationDismissedAt: new Date() },
+      });
+    },
+
+    completeCalibration: async (_: unknown, __: unknown, ctx: GraphQLContext) => {
+      const userId = requireUserId(ctx);
+
+      return prisma.user.update({
+        where: { id: userId },
+        data: {
+          calibrationCompletedAt: new Date(),
+          calibrationDismissedAt: null, // Clear dismissed state if completing
+        },
+      });
+    },
+
+    resetCalibration: async (_: unknown, __: unknown, ctx: GraphQLContext) => {
+      const userId = requireUserId(ctx);
+
+      return prisma.user.update({
+        where: { id: userId },
+        data: {
+          calibrationCompletedAt: null,
+          calibrationDismissedAt: null,
+        },
+      });
+    },
   },
 
   Bike: {
@@ -2150,17 +2493,19 @@ export const resolvers = {
 
       const user = await prisma.user.findUnique({
         where: { id: userId },
-        select: { role: true },
+        select: { role: true, predictionMode: true },
       });
 
       if (!user) return null;
 
       try {
         const { generateBikePredictions } = await import('../services/prediction');
+        const predictionMode = (user.predictionMode === 'predictive' ? 'predictive' : 'simple') as 'simple' | 'predictive';
         return generateBikePredictions({
           userId,
           bikeId: bike.id,
           userRole: user.role,
+          predictionMode,
         });
       } catch (error) {
         logError('Resolver Prediction generation', error);

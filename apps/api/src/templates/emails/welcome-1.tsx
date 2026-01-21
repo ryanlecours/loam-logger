@@ -127,7 +127,7 @@ export default function Welcome1Email({
                 • <span className="ll-emph" style={styles.emph}>Add one bike</span> (the one you ride most).
               </Text>
               <Text className="ll-bullets" style={styles.bullets}>
-                • <span className="ll-emph" style={styles.emph}>Connect Garmin or Strava</span> so rides sync automatically.
+                • <span className="ll-emph" style={styles.emph}>Connect Garmin or Strava (when available)</span> so rides sync automatically.
               </Text>
               <Text className="ll-bullets" style={styles.bullets}>
                 • <span className="ll-emph" style={styles.emph}>Ignore perfection</span>. You can fill in details later.
