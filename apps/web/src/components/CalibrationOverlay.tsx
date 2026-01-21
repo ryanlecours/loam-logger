@@ -52,8 +52,7 @@ export function CalibrationOverlay({ isOpen, onClose }: CalibrationOverlayProps)
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const calibrationState = data?.calibrationState;
-  const bikes = calibrationState?.bikes ?? [];
-  const overdueCount = calibrationState?.overdueCount ?? 0;
+  const bikes = useMemo(() => calibrationState?.bikes ?? [], [calibrationState?.bikes]);
 
   // Calculate progress
   const totalNeedingCalibration = useMemo(() => {
