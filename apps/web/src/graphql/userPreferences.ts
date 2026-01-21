@@ -5,6 +5,7 @@ export const UPDATE_USER_PREFERENCES_MUTATION = gql`
     updateUserPreferences(input: $input) {
       id
       hoursDisplayPreference
+      predictionMode
     }
   }
 `

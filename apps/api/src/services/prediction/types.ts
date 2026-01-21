@@ -10,6 +10,9 @@ export type PredictionStatus = 'ALL_GOOD' | 'DUE_SOON' | 'DUE_NOW' | 'OVERDUE';
 /** Confidence levels */
 export type ConfidenceLevel = 'HIGH' | 'MEDIUM' | 'LOW';
 
+/** Prediction mode preference */
+export type PredictionMode = 'simple' | 'predictive';
+
 /** Wear factor types */
 export type WearFactor = 'hours' | 'distance' | 'climbing' | 'steepness';
 
@@ -79,6 +82,7 @@ export interface PredictionCacheKey {
   bikeId: string;
   algoVersion: string;
   planTier: 'FREE' | 'PRO';
+  predictionMode: PredictionMode;
 }
 
 /** Engine options */
@@ -86,6 +90,7 @@ export interface PredictionEngineOptions {
   userId: string;
   bikeId: string;
   userRole: UserRole;
+  predictionMode: PredictionMode;
   forceRefresh?: boolean;
 }
 

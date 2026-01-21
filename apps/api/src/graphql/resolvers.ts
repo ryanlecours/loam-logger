@@ -12,6 +12,7 @@ import type {
 import { checkRateLimit, checkMutationRateLimit, checkQueryRateLimit } from '../lib/rate-limit';
 import { enqueueSyncJob, type SyncProvider } from '../lib/queue';
 import { invalidateBikePrediction } from '../services/prediction/cache';
+import { getBaseInterval } from '../services/prediction/config';
 import {
   getApplicableComponents,
   deriveBikeSpec,
@@ -853,6 +854,7 @@ export const resolvers = {
           calibrationCompletedAt: true,
           calibrationDismissedAt: true,
           role: true,
+          predictionMode: true,
         },
       });
 
@@ -883,6 +885,7 @@ export const resolvers = {
 
       // Generate predictions for each bike to get component status
       const { generateBikePredictions } = await import('../services/prediction');
+      const predictionMode = (user.predictionMode === 'predictive' ? 'predictive' : 'simple') as 'simple' | 'predictive';
       const bikesWithPredictions = await Promise.all(
         bikes.map(async (bike) => {
           try {
@@ -890,6 +893,7 @@ export const resolvers = {
               userId,
               bikeId: bike.id,
               userRole: user.role,
+              predictionMode,
             });
             return { bike, predictions };
           } catch {
@@ -1757,6 +1761,50 @@ export const resolvers = {
       return serviceLog;
     },
 
+    snoozeComponent: async (_: unknown, { id }: { id: string }, ctx: GraphQLContext) => {
+      const userId = requireUserId(ctx);
+
+      // Rate limit check
+      const rateLimit = await checkMutationRateLimit('snoozeComponent', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
+
+      // Verify component ownership
+      const existing = await prisma.component.findUnique({
+        where: { id },
+        select: { userId: true, bikeId: true, type: true, location: true, serviceDueAtHours: true },
+      });
+      if (!existing || existing.userId !== userId) {
+        throw new Error('Component not found');
+      }
+
+      // Calculate the new extended interval (50% extension)
+      const currentInterval =
+        existing.serviceDueAtHours ?? getBaseInterval(existing.type, existing.location);
+      const extendedInterval = currentInterval * 1.5;
+
+      // Invalidate prediction cache BEFORE update
+      if (existing.bikeId) {
+        await invalidateBikePrediction(userId, existing.bikeId);
+      }
+
+      // Update component with extended service interval
+      const updated = await prisma.component.update({
+        where: { id },
+        data: { serviceDueAtHours: extendedInterval },
+      });
+
+      // Invalidate prediction cache AFTER update
+      if (existing.bikeId) {
+        await invalidateBikePrediction(userId, existing.bikeId);
+      }
+
+      return updated;
+    },
+
     createStravaGearMapping: async (
       _: unknown,
       { input }: { input: { stravaGearId: string; stravaGearName?: string | null; bikeId: string } },
@@ -1985,13 +2033,8 @@ export const resolvers = {
         if (update.wearPercent < 0 || update.wearPercent > 100) {
           throw new Error(`wearPercent must be between 0 and 100, got ${update.wearPercent}`);
         }
-        // Validate lastServicedAt is not before bike creation
-        if (update.lastServicedAt && component.bike?.createdAt) {
-          const serviceDate = parseISO(update.lastServicedAt);
-          if (!isNaN(serviceDate.getTime()) && serviceDate < component.bike.createdAt) {
-            throw new Error('Service date cannot be before the bike was added');
-          }
-        }
+        // Note: We intentionally allow backdating lastServicedAt before the bike was added
+        // to support calibration of historical service data
       }
 
       // Update all components
@@ -2101,12 +2144,12 @@ export const resolvers = {
 
     updateUserPreferences: async (
       _: unknown,
-      { input }: { input: { hoursDisplayPreference?: string | null } },
+      { input }: { input: { hoursDisplayPreference?: string | null; predictionMode?: string | null } },
       ctx: GraphQLContext
     ) => {
       const userId = requireUserId(ctx);
 
-      const updateData: { hoursDisplayPreference?: string | null } = {};
+      const updateData: { hoursDisplayPreference?: string | null; predictionMode?: string | null } = {};
 
       if (input.hoursDisplayPreference !== undefined) {
         // Input length validation to prevent DoS/excessive storage
@@ -2124,6 +2167,30 @@ export const resolvers = {
           });
         }
         updateData.hoursDisplayPreference = input.hoursDisplayPreference;
+      }
+
+      if (input.predictionMode !== undefined) {
+        // Validate predictionMode value
+        if (input.predictionMode !== null &&
+            input.predictionMode !== 'simple' &&
+            input.predictionMode !== 'predictive') {
+          throw new GraphQLError('Invalid predictionMode value. Must be "simple" or "predictive"', {
+            extensions: { code: 'BAD_USER_INPUT' },
+          });
+        }
+        // Only allow "predictive" for PRO/ADMIN users
+        if (input.predictionMode === 'predictive') {
+          const user = await prisma.user.findUnique({
+            where: { id: userId },
+            select: { role: true },
+          });
+          if (user?.role !== 'PRO' && user?.role !== 'ADMIN') {
+            throw new GraphQLError('Predictive mode is only available for Pro users', {
+              extensions: { code: 'FORBIDDEN' },
+            });
+          }
+        }
+        updateData.predictionMode = input.predictionMode;
       }
 
       if (Object.keys(updateData).length === 0) {
@@ -2323,12 +2390,8 @@ export const resolvers = {
         if (component.bikeId) {
           bikeIdsToInvalidate.add(component.bikeId);
         }
-        // Validate service date is not before bike was added
-        if (component.bike?.createdAt && serviceDate < component.bike.createdAt) {
-          throw new GraphQLError('Service date cannot be before the bike was added to your account', {
-            extensions: { code: 'BAD_USER_INPUT' },
-          });
-        }
+        // Note: We intentionally allow backdating service logs before the bike was added
+        // to support calibration of historical service data
       }
 
       // Invalidate prediction caches BEFORE transaction
@@ -2430,17 +2493,19 @@ export const resolvers = {
 
       const user = await prisma.user.findUnique({
         where: { id: userId },
-        select: { role: true },
+        select: { role: true, predictionMode: true },
       });
 
       if (!user) return null;
 
       try {
         const { generateBikePredictions } = await import('../services/prediction');
+        const predictionMode = (user.predictionMode === 'predictive' ? 'predictive' : 'simple') as 'simple' | 'predictive';
         return generateBikePredictions({
           userId,
           bikeId: bike.id,
           userRole: user.role,
+          predictionMode,
         });
       } catch (error) {
         logError('Resolver Prediction generation', error);

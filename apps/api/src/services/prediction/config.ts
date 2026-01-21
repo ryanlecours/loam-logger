@@ -25,13 +25,13 @@ export const DUE_SOON_THRESHOLD_HOURS = 10;
 export const CONFIDENCE_HIGH_MIN_RIDES = 8;
 
 /** Minimum hours for HIGH confidence */
-export const CONFIDENCE_HIGH_MIN_HOURS = 6;
+export const CONFIDENCE_HIGH_MIN_HOURS = 12;
 
 /** Minimum rides for MEDIUM confidence */
 export const CONFIDENCE_MEDIUM_MIN_RIDES = 4;
 
 /** Minimum hours for MEDIUM confidence */
-export const CONFIDENCE_MEDIUM_MIN_HOURS = 3;
+export const CONFIDENCE_MEDIUM_MIN_HOURS = 6;
 
 // =============================================================================
 // Pro Adaptive Limits

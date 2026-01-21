@@ -64,6 +64,15 @@ export const RESET_CALIBRATION = gql`
   }
 `;
 
+export const SNOOZE_COMPONENT = gql`
+  mutation SnoozeComponent($id: ID!) {
+    snoozeComponent(id: $id) {
+      id
+      serviceDueAtHours
+    }
+  }
+`;
+
 export type BikeCalibrationInfo = {
   bikeId: string;
   bikeName: string;
@@ -108,5 +117,14 @@ export function useCompleteCalibration() {
 export function useResetCalibration() {
   return useMutation<{ resetCalibration: { id: string } }>(RESET_CALIBRATION, {
     refetchQueries: [{ query: CALIBRATION_STATE }],
+  });
+}
+
+export function useSnoozeComponent() {
+  return useMutation<
+    { snoozeComponent: { id: string; serviceDueAtHours: number } },
+    { id: string }
+  >(SNOOZE_COMPONENT, {
+    refetchQueries: [{ query: CALIBRATION_STATE }, { query: BIKES }],
   });
 }

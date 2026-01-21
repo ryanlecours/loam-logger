@@ -496,6 +496,7 @@ export const typeDefs = gql`
 
   input UpdateUserPreferencesInput {
     hoursDisplayPreference: String
+    predictionMode: String
   }
 
   type Mutation {
@@ -511,6 +512,7 @@ export const typeDefs = gql`
     deleteComponent(id: ID!): DeleteResult!
     logComponentService(id: ID!, performedAt: String): Component!
     logService(input: LogServiceInput!): ServiceLog!
+    snoozeComponent(id: ID!): Component!
     createStravaGearMapping(input: CreateStravaGearMappingInput!): StravaGearMapping!
     deleteStravaGearMapping(id: ID!): DeleteResult!
     triggerProviderSync(provider: SyncProvider!): TriggerSyncResult!
@@ -546,6 +548,7 @@ export const typeDefs = gql`
     mustChangePassword: Boolean!
     isFoundingRider: Boolean!
     hoursDisplayPreference: String
+    predictionMode: String
   }
 
   input RidesFilterInput {

@@ -34,6 +34,7 @@ describe('prediction cache', () => {
     bikeId: 'bike-123',
     algoVersion: 'v1',
     planTier: 'PRO' as const,
+    predictionMode: 'simple' as const,
   };
 
   beforeEach(() => {
@@ -44,7 +45,7 @@ describe('prediction cache', () => {
   describe('buildCacheKey', () => {
     it('should build correct cache key format', () => {
       const key = buildCacheKey(cacheParams);
-      expect(key).toBe('pred:v1:user:user-123:bike:bike-123:tier:PRO');
+      expect(key).toBe('pred:v1:user:user-123:bike:bike-123:tier:PRO:mode:simple');
     });
 
     it('should differentiate FREE and PRO keys', () => {
@@ -54,6 +55,15 @@ describe('prediction cache', () => {
       expect(proKey).not.toBe(freeKey);
       expect(proKey).toContain(':tier:PRO');
       expect(freeKey).toContain(':tier:FREE');
+    });
+
+    it('should differentiate simple and predictive mode keys', () => {
+      const simpleKey = buildCacheKey({ ...cacheParams, predictionMode: 'simple' });
+      const predictiveKey = buildCacheKey({ ...cacheParams, predictionMode: 'predictive' });
+
+      expect(simpleKey).not.toBe(predictiveKey);
+      expect(simpleKey).toContain(':mode:simple');
+      expect(predictiveKey).toContain(':mode:predictive');
     });
   });
 

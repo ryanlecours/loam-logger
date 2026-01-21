@@ -32,6 +32,8 @@ export const MUTATION_RATE_LIMITS = {
   logService: { windowSeconds: 60, maxRequests: 20 },
   /** logComponentService (reset hours): max 20 requests per minute per user */
   logComponentService: { windowSeconds: 60, maxRequests: 20 },
+  /** logBulkComponentService (calibration): max 20 requests per minute per user */
+  logBulkComponentService: { windowSeconds: 60, maxRequests: 20 },
   /** updateComponent: max 30 requests per minute per user */
   updateComponent: { windowSeconds: 60, maxRequests: 30 },
   /** createStravaGearMapping: max 10 requests per minute per user */
@@ -42,6 +44,8 @@ export const MUTATION_RATE_LIMITS = {
   bulkUpdateComponentBaselines: { windowSeconds: 60, maxRequests: 10 },
   /** assignBikeToRides: max 20 requests per minute per user */
   assignBikeToRides: { windowSeconds: 60, maxRequests: 20 },
+  /** snoozeComponent: max 20 requests per minute per user */
+  snoozeComponent: { windowSeconds: 60, maxRequests: 20 },
 } as const;
 
 /**

@@ -88,3 +88,19 @@
   border-radius: 1rem;
   padding: 1.5rem;
 }
+
+/* Mobile adjustments for modals */
+@media (max-width: 640px) {
+
+  .modal-header {
+    padding: 1rem 0.75rem;
+  }
+
+  .modal-body {
+    padding: 1rem 0.75rem;
+  }
+
+  .modal-actions {
+    padding: 1rem 0.75rem;
+  }
+}

@@ -49,6 +49,10 @@ const mockSendEmailWithAudit = sendEmailWithAudit as jest.MockedFunction<typeof 
 // For now we'll test via the exported functions
 import { startEmailScheduler, stopEmailScheduler } from './email-scheduler.service';
 
+// The service has a 1100ms delay between emails to respect rate limits
+// Tests need to advance timers by (numRecipients - 1) * 1100ms to process all emails
+const EMAIL_DELAY_MS = 1100;
+
 describe('Email Scheduler - Distributed Locking', () => {
   let mockRedis: {
     set: jest.Mock;
@@ -216,7 +220,8 @@ describe('Email Scheduler - Status Transitions', () => {
     (mockPrisma.scheduledEmail.update as jest.Mock).mockResolvedValue({});
 
     startEmailScheduler();
-    await jest.advanceTimersByTimeAsync(0);
+    // Advance by enough time for the delay between 2 emails
+    await jest.advanceTimersByTimeAsync(EMAIL_DELAY_MS);
 
     expect(mockPrisma.scheduledEmail.update).toHaveBeenCalledWith({
       where: { id: 'email-123' },
@@ -329,7 +334,11 @@ describe('Email Scheduler - Batch Processing', () => {
     (mockPrisma.scheduledEmail.update as jest.Mock).mockResolvedValue({});
 
     startEmailScheduler();
-    await jest.advanceTimersByTimeAsync(0);
+    // Advance by enough time for delays between 120 emails (119 delays)
+    // Each batch has (batchSize - 1) delays, so: 49 + 49 + 19 = 117 delays total
+    // But the delay is between emails within a batch, not between batches
+    // So we need: (50-1) + (50-1) + (20-1) = 117 delays
+    await jest.advanceTimersByTimeAsync(117 * EMAIL_DELAY_MS);
 
     // Should have called findMany 3 times (50 + 50 + 20)
     expect(mockPrisma.user.findMany).toHaveBeenCalledTimes(3);
@@ -370,7 +379,9 @@ describe('Email Scheduler - Batch Processing', () => {
     (mockPrisma.scheduledEmail.update as jest.Mock).mockResolvedValue({});
 
     startEmailScheduler();
-    await jest.advanceTimersByTimeAsync(0);
+    // Advance by enough time for delays between 60 emails
+    // 2 batches: (50-1) + (10-1) = 58 delays
+    await jest.advanceTimersByTimeAsync(58 * EMAIL_DELAY_MS);
 
     // Should have sent 60 emails total
     expect(mockSendEmailWithAudit).toHaveBeenCalledTimes(60);
@@ -459,6 +470,8 @@ describe('Email Scheduler - Due Email Processing', () => {
   it('should process max 10 emails per check', async () => {
     const dueEmails = Array.from({ length: 15 }, (_, i) => ({ id: `email-${i}` }));
     (mockPrisma.scheduledEmail.findMany as jest.Mock).mockResolvedValue(dueEmails.slice(0, 10));
+    // Mock transaction to return null (already claimed) to avoid processing
+    (mockPrisma.$transaction as jest.Mock).mockResolvedValue(null);
 
     startEmailScheduler();
     await jest.advanceTimersByTimeAsync(0);

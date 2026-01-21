@@ -6,6 +6,12 @@ import { getRedisConnection, isRedisReady } from '../lib/redis';
 
 const API_URL = process.env.API_URL || 'http://localhost:4000';
 
+/** Delay helper for rate limiting */
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Delay between emails to respect Resend's 1/second rate limit */
+const EMAIL_SEND_DELAY_MS = 1100; // 1.1 seconds for safety margin
+
 // Check for due emails every minute
 const CHECK_INTERVAL_MS = 60 * 1000;
 
@@ -152,8 +158,15 @@ async function processScheduledEmail(scheduledEmailId: string): Promise<void> {
       },
     });
 
-    // Send emails sequentially within batch to respect provider rate limits
-    for (const recipient of recipients) {
+    // Send emails sequentially within batch with delay to respect provider rate limits
+    for (let j = 0; j < recipients.length; j++) {
+      const recipient = recipients[j];
+
+      // Add delay between emails (except before first in each batch)
+      if (j > 0) {
+        await sleep(EMAIL_SEND_DELAY_MS);
+      }
+
       try {
         const unsubscribeToken = generateUnsubscribeToken(recipient.id);
         const unsubscribeUrl = `${API_URL}/api/email/unsubscribe?token=${unsubscribeToken}`;

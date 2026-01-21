@@ -1598,7 +1598,7 @@
   }
 
   .modal-dialog {
-    padding: 2rem;
+    padding: 2rem 1rem;
   }
 
   .modal-actions {
@@ -4981,12 +4981,15 @@
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
+  min-height: 0;
+  flex: 1;
 }
 
 .calibration-progress {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+  flex-shrink: 0;
 }
 
 .calibration-progress-bar {
@@ -5013,6 +5016,7 @@
   background: var(--sage-10);
   border-radius: 0.5rem;
   padding: 0.875rem 1rem;
+  flex-shrink: 0;
 }
 
 .calibration-info p {
@@ -5022,11 +5026,28 @@
   margin: 0;
 }
 
+.calibration-info-secondary {
+  background: var(--sage-5);
+  border-radius: 0.5rem;
+  border: var(--sage-40) 1px solid;
+  padding: 0.875rem 1rem;
+  margin-top: 0.5rem !important;
+  font-size: 0.8125rem !important;
+  color: var(--concrete) !important;
+}
+
+.calibration-info-secondary strong {
+  color: var(--sage);
+  font-weight: 600;
+}
+
 .calibration-bikes {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
-  max-height: 400px;
+  flex: 1;
+  min-height: 0;
+  max-height: 60vh;
   overflow-y: auto;
 }
 
@@ -5128,6 +5149,11 @@
   border-radius: 0.5rem;
 }
 
+/* Push month picker and button to the right on desktop */
+.calibration-bulk-action .form-input-sm {
+  margin-left: auto;
+}
+
 .calibration-bulk-label {
   font-size: 0.8125rem;
   color: var(--sage);
@@ -5138,6 +5164,9 @@
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+  max-height: 280px;
+  overflow-y: auto;
+  padding-right: 0.25rem;
 }
 
 .calibration-component {
@@ -5148,6 +5177,31 @@
   background: rgba(30, 34, 32, 0.5);
   border: 1px solid var(--sage-15);
   border-radius: 0.5rem;
+}
+
+.calibration-component-checkbox {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  accent-color: var(--mint);
+  cursor: pointer;
+}
+
+.calibration-select-all {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  font-size: 0.875rem;
+  color: var(--sage);
+  white-space: nowrap;
+}
+
+.calibration-select-all input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--mint);
+  cursor: pointer;
 }
 
 .calibration-component-done {
@@ -5209,6 +5263,7 @@
   justify-content: flex-end;
   padding-top: 0.5rem;
   border-top: 1px solid var(--sage-10);
+  flex-shrink: 0;
 }
 
 /* Mobile adjustments for calibration */
@@ -5218,8 +5273,10 @@
     align-items: stretch;
   }
 
-  .calibration-bulk-action .form-select-sm {
+  .calibration-bulk-action .form-select-sm,
+  .calibration-bulk-action .form-input-sm {
     width: 100%;
+    margin-left: 0;
   }
 
   .calibration-component {
@@ -5230,7 +5287,8 @@
     order: 3;
     width: 100%;
     margin-top: 0.25rem;
-    padding-left: calc(18px + 0.75rem);
+    /* checkbox (16px) + gap + status dot (18px) + gap */
+    padding-left: calc(16px + 0.75rem + 18px + 0.75rem);
   }
 
   .calibration-actions {

@@ -9,13 +9,14 @@ import ConnectGarminLink from "../components/ConnectGarminLink";
 import ConnectStravaLink from "../components/ConnectStravaLink";
 import GarminImportModal from "../components/GarminImportModal";
 import StravaImportModal from "../components/StravaImportModal";
-import StravaGearMappingModal from "../components/StravaGearMappingModal";
+import StravaBikeMappingOverlay from "../components/StravaBikeMappingOverlay";
 import DataSourceSelector from "../components/DataSourceSelector";
 import DuplicateRidesModal from "../components/DuplicateRidesModal";
 import { UNMAPPED_STRAVA_GEARS } from "../graphql/stravaGear";
 import { useResetCalibration } from "../graphql/calibration";
 import { useCurrentUser } from "../hooks/useCurrentUser";
 import { usePreferences } from "../hooks/usePreferences";
+import { useUserTier } from "../hooks/useUserTier";
 import { getAuthHeaders } from "@/lib/csrf";
 import { UPDATE_USER_PREFERENCES_MUTATION } from "../graphql/userPreferences";
 
@@ -34,6 +35,7 @@ const CONNECTED_ACCOUNTS_QUERY = gql`
 
 export default function Settings() {
   const { user } = useCurrentUser();
+  const { isAdmin } = useUserTier();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [resetCalibration] = useResetCalibration();
@@ -43,10 +45,13 @@ export default function Settings() {
   const { data: unmappedData, refetch: refetchUnmapped } = useQuery(UNMAPPED_STRAVA_GEARS, {
     fetchPolicy: 'cache-and-network',
   });
-  const { hoursDisplay, setHoursDisplay } = usePreferences();
+  const { hoursDisplay, setHoursDisplay, predictionMode, setPredictionMode } = usePreferences();
+  const { isPro } = useUserTier();
   const [savedHoursDisplay, setSavedHoursDisplay] = useState(hoursDisplay);
+  const [savedPredictionMode, setSavedPredictionMode] = useState(predictionMode);
   const [preferenceSaving, setPreferenceSaving] = useState(false);
   const initialPrefSyncedRef = useRef(false);
+  const initialPredictionSyncedRef = useRef(false);
   const [updateUserPreferences] = useMutation(UPDATE_USER_PREFERENCES_MUTATION);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
@@ -97,6 +102,16 @@ export default function Settings() {
       initialPrefSyncedRef.current = true;
     }
   }, [user?.hoursDisplayPreference, setHoursDisplay]);
+
+  // Sync predictionMode preference from database on initial load only
+  useEffect(() => {
+    if (user?.predictionMode && !initialPredictionSyncedRef.current) {
+      const dbPref = user.predictionMode as 'simple' | 'predictive';
+      setSavedPredictionMode(dbPref);
+      setPredictionMode(dbPref);
+      initialPredictionSyncedRef.current = true;
+    }
+  }, [user?.predictionMode, setPredictionMode]);
 
   const accounts = accountsData?.me?.accounts || [];
   const garminAccount = accounts.find((acc: { provider: string; connectedAt: string }) => acc.provider === "garmin");
@@ -237,10 +252,14 @@ export default function Settings() {
     try {
       await updateUserPreferences({
         variables: {
-          input: { hoursDisplayPreference: hoursDisplay },
+          input: {
+            hoursDisplayPreference: hoursDisplay,
+            predictionMode: predictionMode,
+          },
         },
       });
       setSavedHoursDisplay(hoursDisplay);
+      setSavedPredictionMode(predictionMode);
       setSuccessMessage('Preferences saved successfully');
       setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err) {
@@ -250,6 +269,8 @@ export default function Settings() {
       setPreferenceSaving(false);
     }
   };
+
+  const hasUnsavedChanges = hoursDisplay !== savedHoursDisplay || predictionMode !== savedPredictionMode;
 
   const handleDeleteAccount = async () => {
     try {
@@ -332,13 +353,15 @@ export default function Settings() {
                     >
                       Import Previous Rides
                     </button>
-                    <button
-                      onClick={handleDeleteGarminRides}
-                      disabled={garminDeleteLoading}
-                      className="rounded-xl px-3 py-1.5 text-xs font-medium text-orange-200/90 bg-transparent border border-orange-200/40 hover:bg-orange-500/10 hover:border-orange-200/70 hover:text-orange-200 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {garminDeleteLoading ? 'Deleting…' : 'Clear Garmin Rides'}
-                    </button>
+                    {isAdmin && (
+                      <button
+                        onClick={handleDeleteGarminRides}
+                        disabled={garminDeleteLoading}
+                        className="rounded-xl px-3 py-1.5 text-xs font-medium text-orange-200/90 bg-transparent border border-orange-200/40 hover:bg-orange-500/10 hover:border-orange-200/70 hover:text-orange-200 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {garminDeleteLoading ? 'Deleting…' : 'Clear Garmin Rides'}
+                      </button>
+                    )}
                     <button
                       onClick={handleDisconnectGarmin}
                       className="rounded-xl px-3 py-1.5 text-xs font-medium text-red-400/80 bg-surface-2/50 border border-red-400/30 hover:bg-surface-2 hover:text-red-400 hover:border-red-400/50 hover:cursor-pointer transition"
@@ -372,13 +395,15 @@ export default function Settings() {
                     >
                       Import Previous Rides
                     </button>
-                    <button
-                      onClick={handleDeleteStravaRides}
-                      disabled={stravaDeleteLoading}
-                      className="rounded-xl px-3 py-1.5 text-xs font-medium text-orange-200/90 bg-transparent border border-orange-200/40 hover:bg-orange-500/10 hover:border-orange-200/70 hover:text-orange-200 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {stravaDeleteLoading ? 'Deleting…' : 'Clear Strava Rides'}
-                    </button>
+                    {isAdmin && (
+                      <button
+                        onClick={handleDeleteStravaRides}
+                        disabled={stravaDeleteLoading}
+                        className="rounded-xl px-3 py-1.5 text-xs font-medium text-orange-200/90 bg-transparent border border-orange-200/40 hover:bg-orange-500/10 hover:border-orange-200/70 hover:text-orange-200 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {stravaDeleteLoading ? 'Deleting…' : 'Clear Strava Rides'}
+                      </button>
+                    )}
                     <button
                       onClick={handleDisconnectStrava}
                       className="rounded-xl px-3 py-1.5 text-xs font-medium text-red-400/80 bg-surface-2/50 border border-red-400/30 hover:bg-surface-2 hover:text-red-400 hover:border-red-400/50 hover:cursor-pointer transition"
@@ -437,28 +462,52 @@ export default function Settings() {
         )}
 
         {/* Strava Bike Mapping */}
-        {isStravaConnected && (
-          <div className="panel-spaced">
-            <div>
-              <p className="label-section">Strava Integration</p>
-              <h2 className="title-section">Bike Mapping</h2>
-              <p className="text-sm text-muted mt-1">
-                Map your Strava bikes to Loam Logger bikes to track component hours.
-                {(unmappedData?.unmappedStravaGears?.length ?? 0) > 0 && (
-                  <span className="ml-2 text-amber-400">
-                    ({unmappedData.unmappedStravaGears.length} unmapped)
-                  </span>
-                )}
-              </p>
-            </div>
+        <div className="panel-spaced">
+          <div>
+            <p className="label-section">Strava Integration</p>
+            <h2 className="title-section">Bike Mapping</h2>
+            <p className="text-sm text-muted mt-1">
+              {isStravaConnected ? (
+                <>
+                  Map your Strava bikes to Loam Logger bikes to track component hours.
+                  {(unmappedData?.unmappedStravaGears?.length ?? 0) > 0 && (
+                    <span className="ml-2 text-amber-400">
+                      ({unmappedData.unmappedStravaGears.length} unmapped)
+                    </span>
+                  )}
+                </>
+              ) : (
+                'Connect Strava to map your bikes and automatically assign rides.'
+              )}
+            </p>
+          </div>
+          {isStravaConnected ? (
             <button
               onClick={() => setStravaMappingModalOpen(true)}
               className="btn-secondary max-w-md mx-auto"
             >
               Manage Bike Mappings
             </button>
-          </div>
-        )}
+          ) : (
+            <div className="max-w-md mx-auto">
+              {isAdmin ? (
+                <ConnectStravaLink />
+              ) : (
+                <div className="text-center">
+                  <p className="text-sm text-muted mb-2">
+                    Strava connections are temporarily limited.
+                  </p>
+                  <button
+                    disabled
+                    className="btn-secondary opacity-50 cursor-not-allowed"
+                  >
+                    Connect Strava to Enable
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
 
         <div className="panel-spaced">
           <div>
@@ -481,56 +530,108 @@ export default function Settings() {
       <section className="panel-spaced xl:max-w-[calc(50%-0.75rem)]">
         <div>
           <p className="label-section">Preferences</p>
-          <h2 className="title-section">Component hours display</h2>
+          <h2 className="title-section">Display & Predictions</h2>
         </div>
-        <div className="grid gap-3 md:grid-cols-2">
-          <label
-            className={`cursor-pointer rounded-2xl border px-4 py-3 transition ${
-              hoursDisplay === "total"
-                ? "border-primary/60 bg-surface-accent/60"
-                : "border-app/60 bg-surface-2"
-            }`}
-          >
-            <input
-              type="radio"
-              name="hours-mode"
-              value="total"
-              className="mr-2"
-              checked={hoursDisplay === "total"}
-              onChange={() => setHoursDisplay("total")}
-            />
-            Show cumulative hours (e.g. 780h / 800h)
-          </label>
-          <label
-            className={`cursor-pointer rounded-2xl border px-4 py-3 transition ${
-              hoursDisplay === "remaining"
-                ? "border-primary/60 bg-surface-accent/60"
-                : "border-app/60 bg-surface-2"
-            }`}
-          >
-            <input
-              type="radio"
-              name="hours-mode"
-              value="remaining"
-              className="mr-2"
-              checked={hoursDisplay === "remaining"}
-              onChange={() => setHoursDisplay("remaining")}
-            />
-            Show time until next service (e.g. 0h / 50h)
-          </label>
+
+        {/* Prediction Mode - Pro users only */}
+        {isPro && (
+          <div className="space-y-3">
+            <h3 className="text-sm font-medium text-white">Prediction Algorithm</h3>
+            <div className="grid gap-3 md:grid-cols-2">
+              <label
+                className={`cursor-pointer rounded-2xl border px-4 py-3 transition ${
+                  predictionMode === "simple"
+                    ? "border-primary/60 bg-surface-accent/60"
+                    : "border-app/60 bg-surface-2"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="prediction-mode"
+                  value="simple"
+                  className="mr-2"
+                  checked={predictionMode === "simple"}
+                  onChange={() => setPredictionMode("simple")}
+                />
+                Simple (hours-based)
+              </label>
+              <label
+                className={`cursor-pointer rounded-2xl border px-4 py-3 transition ${
+                  predictionMode === "predictive"
+                    ? "border-primary/60 bg-surface-accent/60"
+                    : "border-app/60 bg-surface-2"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="prediction-mode"
+                  value="predictive"
+                  className="mr-2"
+                  checked={predictionMode === "predictive"}
+                  onChange={() => setPredictionMode("predictive")}
+                />
+                Predictive (ride-adjusted)
+              </label>
+            </div>
+            <p className="text-xs text-muted">
+              Predictive mode adjusts service intervals based on your riding intensity and terrain. Still in beta.
+            </p>
+          </div>
+        )}
+
+        {/* Hours Display */}
+        <div className="space-y-3">
+          <h3 className="text-sm font-medium text-white">Component hours display</h3>
+          <div className="grid gap-3 md:grid-cols-2">
+            <label
+              className={`cursor-pointer rounded-2xl border px-4 py-3 transition ${
+                hoursDisplay === "total"
+                  ? "border-primary/60 bg-surface-accent/60"
+                  : "border-app/60 bg-surface-2"
+              }`}
+            >
+              <input
+                type="radio"
+                name="hours-mode"
+                value="total"
+                className="mr-2"
+                checked={hoursDisplay === "total"}
+                onChange={() => setHoursDisplay("total")}
+              />
+              Show cumulative hours (e.g. 780h / 800h)
+            </label>
+            <label
+              className={`cursor-pointer rounded-2xl border px-4 py-3 transition ${
+                hoursDisplay === "remaining"
+                  ? "border-primary/60 bg-surface-accent/60"
+                  : "border-app/60 bg-surface-2"
+              }`}
+            >
+              <input
+                type="radio"
+                name="hours-mode"
+                value="remaining"
+                className="mr-2"
+                checked={hoursDisplay === "remaining"}
+                onChange={() => setHoursDisplay("remaining")}
+              />
+              Show time until next service (e.g. 0h / 50h)
+            </label>
+          </div>
+          <p className="text-xs text-muted">
+            Total hours are always stored. This preference only affects how we display service intervals.
+          </p>
         </div>
-        <p className="text-xs text-muted">
-          Total hours are always stored. This preference only affects how we display service intervals.
-        </p>
+
         <div className="flex items-center gap-3 pt-2">
           <button
             onClick={handleSavePreferences}
-            disabled={preferenceSaving || hoursDisplay === savedHoursDisplay}
+            disabled={preferenceSaving || !hasUnsavedChanges}
             className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {preferenceSaving ? 'Saving...' : 'Save Preferences'}
           </button>
-          {hoursDisplay !== savedHoursDisplay && (
+          {hasUnsavedChanges && (
             <span className="text-xs text-amber-400">Unsaved changes</span>
           )}
         </div>
@@ -618,19 +719,15 @@ export default function Settings() {
         onClose={() => setDuplicatesModalOpen(false)}
       />
 
-      {(unmappedData?.unmappedStravaGears?.length ?? 0) > 0 && (
-        <StravaGearMappingModal
-          open={stravaMappingModalOpen}
-          onClose={() => setStravaMappingModalOpen(false)}
-          onSuccess={() => {
-            refetchUnmapped();
-            setSuccessMessage('Strava bike mapped successfully!');
-            setTimeout(() => setSuccessMessage(null), 5000);
-          }}
-          unmappedGears={unmappedData.unmappedStravaGears}
-          trigger="settings"
-        />
-      )}
+      <StravaBikeMappingOverlay
+        open={stravaMappingModalOpen}
+        onClose={() => setStravaMappingModalOpen(false)}
+        onSuccess={() => {
+          refetchUnmapped();
+          setSuccessMessage('Strava bike mapping updated!');
+          setTimeout(() => setSuccessMessage(null), 5000);
+        }}
+      />
     </div>
   );
 }

@@ -86,7 +86,7 @@ function isValidCachedPrediction(data: unknown): data is BikePredictionSummary {
  * Build cache key string from parameters.
  */
 export function buildCacheKey(params: PredictionCacheKey): string {
-  return `pred:${params.algoVersion}:user:${params.userId}:bike:${params.bikeId}:tier:${params.planTier}`;
+  return `pred:${params.algoVersion}:user:${params.userId}:bike:${params.bikeId}:tier:${params.planTier}:mode:${params.predictionMode}`;
 }
 
 /**
