@@ -13,6 +13,13 @@ vi.mock('../../hooks/useHoursDisplay', () => ({
   }),
 }));
 
+// Mock Apollo Client useMutation for ComponentDetailOverlay
+const mockLogService = vi.fn().mockResolvedValue({ data: { logComponentService: { id: 'test' } } });
+vi.mock('@apollo/client', () => ({
+  gql: (strings: TemplateStringsArray) => strings.join(''),
+  useMutation: () => [mockLogService, { loading: false }],
+}));
+
 // Factory for creating test components
 const createComponent = (overrides: Partial<ComponentPrediction> = {}): ComponentPrediction => ({
   componentId: `comp-${Math.random().toString(36).slice(2)}`,
@@ -35,6 +42,8 @@ const createComponent = (overrides: Partial<ComponentPrediction> = {}): Componen
 describe('ComponentHealthPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockLogService.mockClear();
+    mockLogService.mockResolvedValue({ data: { logComponentService: { id: 'test' } } });
   });
 
   describe('empty state', () => {

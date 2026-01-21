@@ -2286,10 +2286,25 @@ export const resolvers = {
         });
       }
 
+      // Reject unreasonably old dates (more than 20 years ago)
+      const minReasonableDate = new Date();
+      minReasonableDate.setFullYear(minReasonableDate.getFullYear() - 20);
+      if (serviceDate < minReasonableDate) {
+        throw new GraphQLError('Service date is too far in the past', {
+          extensions: { code: 'BAD_USER_INPUT' },
+        });
+      }
+
       // Verify ownership of all components and get bike IDs for cache invalidation
       const components = await prisma.component.findMany({
         where: { id: { in: input.componentIds } },
-        select: { id: true, userId: true, bikeId: true, hoursUsed: true },
+        select: {
+          id: true,
+          userId: true,
+          bikeId: true,
+          hoursUsed: true,
+          bike: { select: { createdAt: true } },
+        },
       });
 
       if (components.length !== input.componentIds.length) {
@@ -2307,6 +2322,12 @@ export const resolvers = {
         }
         if (component.bikeId) {
           bikeIdsToInvalidate.add(component.bikeId);
+        }
+        // Validate service date is not before bike was added
+        if (component.bike?.createdAt && serviceDate < component.bike.createdAt) {
+          throw new GraphQLError('Service date cannot be before the bike was added to your account', {
+            extensions: { code: 'BAD_USER_INPUT' },
+          });
         }
       }
 

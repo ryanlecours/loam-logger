@@ -13,16 +13,18 @@ vi.mock('@apollo/client', () => ({
 
 // Mock the Modal to avoid createPortal issues
 vi.mock('../ui/Modal', () => ({
-  Modal: ({ isOpen, onClose, title, children }: {
+  Modal: ({ isOpen, onClose, title, children, footer }: {
     isOpen: boolean;
     onClose: () => void;
     title: string;
     children: React.ReactNode;
+    footer?: React.ReactNode;
   }) => isOpen ? (
     <div data-testid="modal">
       <h2>{title}</h2>
       <button onClick={onClose} data-testid="modal-close">Close</button>
       {children}
+      {footer && <div data-testid="modal-footer">{footer}</div>}
     </div>
   ) : null,
 }));
