@@ -148,6 +148,17 @@ export async function activateWaitlistUser({
   // Clear the temp password from memory now that we're done with it
   tempPassword = null;
 
+  // 5. Schedule welcome email series (non-blocking - failures are logged but don't affect activation)
+  try {
+    await scheduleWelcomeEmailSeries(user.id, adminUserId);
+  } catch (scheduleErr) {
+    console.error(
+      `[Activation] Failed to schedule welcome emails for ${user.email}:`,
+      scheduleErr instanceof Error ? scheduleErr.message : 'Unknown error'
+    );
+    // Don't block activation - welcome emails are nice-to-have
+  }
+
   return {
     success: true,
     userId: user.id,
@@ -155,4 +166,55 @@ export async function activateWaitlistUser({
     emailQueued: emailSent,
     ...(returnPassword ? { tempPassword: returnPassword } : {}),
   };
+}
+
+/**
+ * Schedule the welcome email series for a newly activated user.
+ * Creates three ScheduledEmail records:
+ * - welcome_1: 1 day after activation
+ * - welcome_2: 3 days after activation
+ * - welcome_3: 7 days after activation
+ */
+async function scheduleWelcomeEmailSeries(userId: string, adminUserId: string): Promise<void> {
+  const now = new Date();
+
+  // Calculate send times
+  const day1 = new Date(now.getTime() + 1 * 24 * 60 * 60 * 1000);
+  const day3 = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
+  const day7 = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+
+  // Create all three scheduled emails
+  await prisma.scheduledEmail.createMany({
+    data: [
+      {
+        subject: 'Quick setup, then forget it exists',
+        messageHtml: '', // Not used for welcome templates - rendered dynamically
+        templateType: 'welcome_1',
+        recipientIds: [userId],
+        recipientCount: 1,
+        scheduledFor: day1,
+        createdBy: adminUserId,
+      },
+      {
+        subject: 'The Mechanic in your Pocket',
+        messageHtml: '',
+        templateType: 'welcome_2',
+        recipientIds: [userId],
+        recipientCount: 1,
+        scheduledFor: day3,
+        createdBy: adminUserId,
+      },
+      {
+        subject: 'One week in — a quick closing note',
+        messageHtml: '',
+        templateType: 'welcome_3',
+        recipientIds: [userId],
+        recipientCount: 1,
+        scheduledFor: day7,
+        createdBy: adminUserId,
+      },
+    ],
+  });
+
+  console.log(`[Activation] Scheduled welcome email series for user ${userId}`);
 }

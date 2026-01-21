@@ -189,7 +189,7 @@ export default function FoundingRidersLaunchEmail({
             </Text>
 
             <Text className="ll-bullets" style={styles.bullets}>
-              • Access to the <strong>predictive maintenance algorithm</strong>
+              • Access to the <span className="ll-emph" style={styles.emph}>predictive maintenance algorithm</span>
             </Text>
 
             <Text className="ll-bullets" style={{ ...styles.bullets, paddingLeft: 32 }}>
@@ -206,8 +206,8 @@ export default function FoundingRidersLaunchEmail({
 
             <Section className="ll-callout" style={styles.callout}>
               <Text className="ll-p" style={{ ...styles.p, marginBottom: 0 }}>
-                A quick note on the predictive side: <strong>I believe this will be a
-                real advantage long term</strong>, especially for privateers and riders
+                A quick note on the predictive side: <span className="ll-emph" style={styles.emph}>I believe this will be a
+                real advantage long term</span>, especially for privateers and riders
                 who log a lot of varied terrain, but it needs more real world
                 data to reach true accuracy.
               </Text>
@@ -227,8 +227,8 @@ export default function FoundingRidersLaunchEmail({
             <Text className="ll-p" style={styles.p}>
               Strava has currently limited me to a single athlete connection
               while they review the app. I have already requested additional
-              access and I expect <strong>Strava connections to open up in the next five
-              to seven days</strong>. I will email you as soon as it is ready.
+              access and I expect <span className="ll-emph" style={styles.emph}>Strava connections to open up in the next five
+              to seven days</span>. I will email you as soon as it is ready.
             </Text>
 
             <Hr className="ll-hr" style={styles.hr} />

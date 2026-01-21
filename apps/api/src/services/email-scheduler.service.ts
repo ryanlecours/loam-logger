@@ -1,10 +1,17 @@
+import * as React from 'react';
+import { render } from '@react-email/render';
 import { prisma } from '../lib/prisma';
 import { sendEmailWithAudit } from './email.service';
 import { getAnnouncementEmailHtml, ANNOUNCEMENT_TEMPLATE_VERSION } from '../templates/emails';
+import Welcome1Email, { WELCOME_1_TEMPLATE_VERSION } from '../templates/emails/welcome-1';
+import Welcome2Email, { WELCOME_2_TEMPLATE_VERSION } from '../templates/emails/welcome-2';
+import Welcome3Email, { WELCOME_3_TEMPLATE_VERSION } from '../templates/emails/welcome-3';
 import { generateUnsubscribeToken } from '../lib/unsubscribe-token';
 import { getRedisConnection, isRedisReady } from '../lib/redis';
+import type { EmailType } from '@prisma/client';
 
 const API_URL = process.env.API_URL || 'http://localhost:4000';
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 /** Delay helper for rate limiting */
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -20,6 +27,79 @@ const RECIPIENT_BATCH_SIZE = 50;
 
 // Lock TTL for scheduler (2 minutes - longer than check interval)
 const SCHEDULER_LOCK_TTL_SECONDS = 120;
+
+/**
+ * Map template type to email type and template version for audit logging.
+ */
+function getEmailTypeAndVersion(templateType: string | null): {
+  emailType: EmailType;
+  templateVersion: string;
+} {
+  switch (templateType) {
+    case 'welcome_1':
+      return { emailType: 'welcome', templateVersion: WELCOME_1_TEMPLATE_VERSION };
+    case 'welcome_2':
+      return { emailType: 'welcome', templateVersion: WELCOME_2_TEMPLATE_VERSION };
+    case 'welcome_3':
+      return { emailType: 'welcome', templateVersion: WELCOME_3_TEMPLATE_VERSION };
+    case 'announcement':
+      return { emailType: 'announcement', templateVersion: ANNOUNCEMENT_TEMPLATE_VERSION };
+    default:
+      return { emailType: 'custom', templateVersion: ANNOUNCEMENT_TEMPLATE_VERSION };
+  }
+}
+
+/**
+ * Render email HTML based on template type.
+ * Welcome templates are rendered from React components; others use announcement template.
+ */
+async function renderEmailHtml(
+  templateType: string | null,
+  subject: string,
+  messageHtml: string,
+  recipientFirstName: string | undefined,
+  unsubscribeUrl: string
+): Promise<string> {
+  switch (templateType) {
+    case 'welcome_1':
+      return render(
+        React.createElement(Welcome1Email, {
+          recipientFirstName,
+          appUrl: FRONTEND_URL,
+          dashboardUrl: `${FRONTEND_URL}/dashboard`,
+          connectUrl: `${FRONTEND_URL}/settings/connections`,
+          unsubscribeUrl,
+        })
+      );
+    case 'welcome_2':
+      return render(
+        React.createElement(Welcome2Email, {
+          recipientFirstName,
+          dashboardUrl: `${FRONTEND_URL}/dashboard`,
+          gearUrl: `${FRONTEND_URL}/gear`,
+          unsubscribeUrl,
+        })
+      );
+    case 'welcome_3':
+      return render(
+        React.createElement(Welcome3Email, {
+          recipientFirstName,
+          settingsUrl: `${FRONTEND_URL}/settings`,
+          dashboardUrl: `${FRONTEND_URL}/dashboard`,
+          gearUrl: `${FRONTEND_URL}/gear`,
+          unsubscribeUrl,
+        })
+      );
+    default:
+      // Announcement and custom templates use the announcement HTML wrapper
+      return getAnnouncementEmailHtml({
+        name: recipientFirstName,
+        subject,
+        messageHtml,
+        unsubscribeUrl,
+      });
+  }
+}
 
 let schedulerInterval: NodeJS.Timeout | null = null;
 let isProcessing = false;
@@ -142,7 +222,8 @@ async function processScheduledEmail(scheduledEmailId: string): Promise<void> {
     return;
   }
 
-  const emailType = scheduledEmail.templateType === 'announcement' ? 'announcement' : 'custom';
+  // Determine email type and template version based on templateType
+  const { emailType, templateVersion } = getEmailTypeAndVersion(scheduledEmail.templateType);
 
   // Process recipients in batches to avoid memory issues with large recipient lists
   for (let i = 0; i < recipientIds.length; i += RECIPIENT_BATCH_SIZE) {
@@ -170,13 +251,16 @@ async function processScheduledEmail(scheduledEmailId: string): Promise<void> {
       try {
         const unsubscribeToken = generateUnsubscribeToken(recipient.id);
         const unsubscribeUrl = `${API_URL}/api/email/unsubscribe?token=${unsubscribeToken}`;
+        const firstName = recipient.name?.split(' ')[0] || undefined;
 
-        const html = await getAnnouncementEmailHtml({
-          name: recipient.name || undefined,
-          subject: scheduledEmail.subject,
-          messageHtml: scheduledEmail.messageHtml,
-          unsubscribeUrl,
-        });
+        // Render HTML based on template type
+        const html = await renderEmailHtml(
+          scheduledEmail.templateType,
+          scheduledEmail.subject,
+          scheduledEmail.messageHtml,
+          firstName,
+          unsubscribeUrl
+        );
 
         const result = await sendEmailWithAudit({
           to: recipient.email,
@@ -185,7 +269,7 @@ async function processScheduledEmail(scheduledEmailId: string): Promise<void> {
           userId: recipient.id,
           emailType,
           triggerSource: 'scheduled',
-          templateVersion: ANNOUNCEMENT_TEMPLATE_VERSION,
+          templateVersion,
         });
 
         results[result.status]++;
