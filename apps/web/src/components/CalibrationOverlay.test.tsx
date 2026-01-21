@@ -8,6 +8,7 @@ import type { ComponentPrediction } from '../types/prediction';
 const mockLogBulkService = vi.fn();
 const mockDismissCalibration = vi.fn();
 const mockCompleteCalibration = vi.fn();
+const mockSnoozeComponent = vi.fn();
 const mockRefetch = vi.fn();
 
 // Store mock data that can be changed per test
@@ -28,6 +29,7 @@ vi.mock('../graphql/calibration', () => ({
   useLogBulkService: vi.fn(() => [mockLogBulkService]),
   useDismissCalibration: vi.fn(() => [mockDismissCalibration]),
   useCompleteCalibration: vi.fn(() => [mockCompleteCalibration]),
+  useSnoozeComponent: vi.fn(() => [mockSnoozeComponent]),
 }));
 
 // Mock the Modal component to avoid portal issues
@@ -81,6 +83,22 @@ vi.mock('./dashboard/StatusDot', () => ({
   StatusDot: ({ status }: { status: string }) => (
     <span data-testid={`status-dot-${status}`} />
   ),
+}));
+
+// Mock react-icons
+vi.mock('react-icons/fa', () => ({
+  FaBellSlash: () => <span data-testid="icon-bell-slash" />,
+  FaBicycle: () => <span data-testid="icon-bicycle" />,
+  FaCheck: () => <span data-testid="icon-check" />,
+  FaChevronDown: () => <span data-testid="icon-chevron-down" />,
+  FaChevronUp: () => <span data-testid="icon-chevron-up" />,
+  FaExclamationTriangle: () => <span data-testid="icon-exclamation" />,
+  FaCheckCircle: () => <span data-testid="icon-check-circle" />,
+}));
+
+// Mock formatters
+vi.mock('../utils/formatters', () => ({
+  formatComponentLabel: (c: ComponentPrediction) => `${c.componentType}${c.location !== 'NONE' ? ` (${c.location})` : ''}`,
 }));
 
 // Factory for creating test components
@@ -141,6 +159,7 @@ describe('CalibrationOverlay', () => {
     mockLogBulkService.mockReset();
     mockDismissCalibration.mockReset();
     mockCompleteCalibration.mockReset();
+    mockSnoozeComponent.mockReset();
     mockRefetch.mockReset();
     mockCalibrationData = null;
     mockLogBulkService.mockResolvedValue({
@@ -151,6 +170,9 @@ describe('CalibrationOverlay', () => {
     });
     mockCompleteCalibration.mockResolvedValue({
       data: { completeCalibration: { id: 'user-1' } },
+    });
+    mockSnoozeComponent.mockResolvedValue({
+      data: { snoozeComponent: { id: 'comp-1', serviceDueAtHours: 100 } },
     });
   });
 
@@ -251,7 +273,7 @@ describe('CalibrationOverlay', () => {
       render(<CalibrationOverlay isOpen={true} onClose={defaultOnClose} />);
 
       // The component details should be visible (bulk action section)
-      expect(screen.getByText('All serviced in:')).toBeInTheDocument();
+      expect(screen.getByText('Serviced in:')).toBeInTheDocument();
     });
 
     it('toggles bike section on click', () => {
@@ -261,38 +283,38 @@ describe('CalibrationOverlay', () => {
       render(<CalibrationOverlay isOpen={true} onClose={defaultOnClose} />);
 
       // Initially expanded
-      expect(screen.getByText('All serviced in:')).toBeInTheDocument();
+      expect(screen.getByText('Serviced in:')).toBeInTheDocument();
 
       // Click to collapse
       fireEvent.click(screen.getByText('Trail Bike'));
 
       // Content should be hidden
-      expect(screen.queryByText('All serviced in:')).not.toBeInTheDocument();
+      expect(screen.queryByText('Serviced in:')).not.toBeInTheDocument();
 
       // Click to expand again
       fireEvent.click(screen.getByText('Trail Bike'));
 
       // Content should be visible again
-      expect(screen.getByText('All serviced in:')).toBeInTheDocument();
+      expect(screen.getByText('Serviced in:')).toBeInTheDocument();
     });
   });
 
   describe('bulk service action', () => {
-    it('renders bulk action with month/year selectors', () => {
+    it('renders bulk action with month input and checkbox', () => {
       const bike = createBike('bike-1', 'Trail Bike', [createComponent('comp-1')]);
       setupCalibrationState([bike]);
 
       render(<CalibrationOverlay isOpen={true} onClose={defaultOnClose} />);
 
-      // Should have month and year dropdowns
-      const selects = screen.getAllByRole('combobox');
-      expect(selects.length).toBe(2);
+      // Should have month input (input type="month" doesn't have a textbox role)
+      const monthInput = document.querySelector('input[type="month"]');
+      expect(monthInput).toBeInTheDocument();
 
       // Should have Apply button
-      expect(screen.getByText('Apply to All (1)')).toBeInTheDocument();
+      expect(screen.getByText(/Apply to All \(1\)/)).toBeInTheDocument();
     });
 
-    it('calls logBulkService with correct data on Apply', async () => {
+    it('marks components as calibrated on Apply and submits on Complete', async () => {
       const bike = createBike('bike-1', 'Trail Bike', [
         createComponent('comp-1'),
         createComponent('comp-2'),
@@ -302,7 +324,15 @@ describe('CalibrationOverlay', () => {
       render(<CalibrationOverlay isOpen={true} onClose={defaultOnClose} />);
 
       // Click Apply button
-      fireEvent.click(screen.getByText('Apply to All (2)'));
+      fireEvent.click(screen.getByText(/Apply to All \(2\)/));
+
+      // Progress should update (components marked locally)
+      await waitFor(() => {
+        expect(screen.getByText('2 of 2 calibrated')).toBeInTheDocument();
+      });
+
+      // Now click Complete Calibration to submit
+      fireEvent.click(screen.getByText('Done'));
 
       await waitFor(() => {
         expect(mockLogBulkService).toHaveBeenCalledTimes(1);
@@ -323,31 +353,14 @@ describe('CalibrationOverlay', () => {
 
       render(<CalibrationOverlay isOpen={true} onClose={defaultOnClose} />);
 
-      fireEvent.click(screen.getByText('Apply to All (1)'));
+      fireEvent.click(screen.getByText(/Apply to All \(1\)/));
 
       await waitFor(() => {
-        expect(screen.getByText(/Logged service for 1 component/)).toBeInTheDocument();
+        expect(screen.getByText(/Marked 1 component as serviced/)).toBeInTheDocument();
       });
     });
 
-    it('shows error message on bulk service failure', async () => {
-      mockLogBulkService.mockRejectedValue(new Error('Network error'));
-
-      const bike = createBike('bike-1', 'Trail Bike', [createComponent('comp-1')]);
-      setupCalibrationState([bike]);
-
-      render(<CalibrationOverlay isOpen={true} onClose={defaultOnClose} />);
-
-      fireEvent.click(screen.getByText('Apply to All (1)'));
-
-      await waitFor(() => {
-        expect(
-          screen.getByText('Failed to log service. Please try again.')
-        ).toBeInTheDocument();
-      });
-    });
-
-    it('updates progress after successful bulk service', async () => {
+    it('updates progress after applying bulk service date', async () => {
       const bike = createBike('bike-1', 'Trail Bike', [
         createComponent('comp-1'),
         createComponent('comp-2'),
@@ -358,7 +371,7 @@ describe('CalibrationOverlay', () => {
 
       expect(screen.getByText('0 of 2 calibrated')).toBeInTheDocument();
 
-      fireEvent.click(screen.getByText('Apply to All (2)'));
+      fireEvent.click(screen.getByText(/Apply to All \(2\)/));
 
       await waitFor(() => {
         expect(screen.getByText('2 of 2 calibrated')).toBeInTheDocument();
@@ -367,7 +380,7 @@ describe('CalibrationOverlay', () => {
   });
 
   describe('individual component actions', () => {
-    it('renders Good button for each uncalibrated component', () => {
+    it('renders Acknowledge and Snooze buttons for each uncalibrated component', () => {
       const bike = createBike('bike-1', 'Trail Bike', [
         createComponent('comp-1'),
         createComponent('comp-2'),
@@ -376,31 +389,50 @@ describe('CalibrationOverlay', () => {
 
       render(<CalibrationOverlay isOpen={true} onClose={defaultOnClose} />);
 
-      const goodButtons = screen.getAllByText('Good');
-      expect(goodButtons).toHaveLength(2);
+      // Use getAllByRole to find buttons specifically (not text in explanation)
+      const acknowledgeButtons = screen.getAllByRole('button', { name: 'Acknowledge' });
+      const snoozeButtons = screen.getAllByRole('button', { name: /Snooze/ });
+      expect(acknowledgeButtons).toHaveLength(2);
+      expect(snoozeButtons).toHaveLength(2);
     });
 
-    it('calls logBulkService with single component on Good click', async () => {
+    it('marks component as calibrated on Acknowledge click', async () => {
+      const bike = createBike('bike-1', 'Trail Bike', [
+        createComponent('comp-1'),
+        createComponent('comp-2'),
+      ]);
+      setupCalibrationState([bike]);
+
+      render(<CalibrationOverlay isOpen={true} onClose={defaultOnClose} />);
+
+      // Click the first Acknowledge button
+      const acknowledgeButtons = screen.getAllByRole('button', { name: 'Acknowledge' });
+      fireEvent.click(acknowledgeButtons[0]);
+
+      // One component should be calibrated, progress should update
+      await waitFor(() => {
+        expect(screen.getByText('Calibrated')).toBeInTheDocument();
+        expect(screen.getByText('1 of 2 calibrated')).toBeInTheDocument();
+      });
+    });
+
+    it('calls snoozeComponent on Snooze click', async () => {
       const bike = createBike('bike-1', 'Trail Bike', [createComponent('comp-1')]);
       setupCalibrationState([bike]);
 
       render(<CalibrationOverlay isOpen={true} onClose={defaultOnClose} />);
 
-      fireEvent.click(screen.getByText('Good'));
+      // Use getByRole to find button specifically
+      fireEvent.click(screen.getByRole('button', { name: /Snooze/ }));
 
       await waitFor(() => {
-        expect(mockLogBulkService).toHaveBeenCalledWith({
-          variables: {
-            input: {
-              componentIds: ['comp-1'],
-              performedAt: expect.any(String),
-            },
-          },
+        expect(mockSnoozeComponent).toHaveBeenCalledWith({
+          variables: { id: 'comp-1' },
         });
       });
     });
 
-    it('shows calibrated state after Good click', async () => {
+    it('shows calibrated state after Snooze click', async () => {
       const bike = createBike('bike-1', 'Trail Bike', [
         createComponent('comp-1'),
         createComponent('comp-2'),
@@ -409,12 +441,10 @@ describe('CalibrationOverlay', () => {
 
       render(<CalibrationOverlay isOpen={true} onClose={defaultOnClose} />);
 
-      // Click the first Good button
-      const goodButtons = screen.getAllByText('Good');
-      fireEvent.click(goodButtons[0]);
+      // Click the first Snooze button
+      const snoozeButtons = screen.getAllByRole('button', { name: /Snooze/ });
+      fireEvent.click(snoozeButtons[0]);
 
-      // When one component is calibrated, it should show "Calibrated" text
-      // and the progress should update to 1 of 2
       await waitFor(() => {
         expect(screen.getByText('Calibrated')).toBeInTheDocument();
         expect(screen.getByText('1 of 2 calibrated')).toBeInTheDocument();
@@ -432,13 +462,27 @@ describe('CalibrationOverlay', () => {
       expect(screen.getByText('Remind Me Later')).toBeInTheDocument();
     });
 
-    it('renders Finish Anyway when components remain', () => {
+    it('renders Complete Calibration when components remain', () => {
       const bike = createBike('bike-1', 'Trail Bike', [createComponent('comp-1')]);
       setupCalibrationState([bike]);
 
       render(<CalibrationOverlay isOpen={true} onClose={defaultOnClose} />);
 
-      expect(screen.getByText('Finish Anyway')).toBeInTheDocument();
+      expect(screen.getByText('Complete Calibration')).toBeInTheDocument();
+    });
+
+    it('renders Done when all components calibrated', async () => {
+      const bike = createBike('bike-1', 'Trail Bike', [createComponent('comp-1')]);
+      setupCalibrationState([bike]);
+
+      render(<CalibrationOverlay isOpen={true} onClose={defaultOnClose} />);
+
+      // Acknowledge the component (use getByRole to find button specifically)
+      fireEvent.click(screen.getByRole('button', { name: 'Acknowledge' }));
+
+      await waitFor(() => {
+        expect(screen.getByText('Done')).toBeInTheDocument();
+      });
     });
 
     it('calls dismissCalibration and onClose on Remind Me Later', async () => {
@@ -456,14 +500,14 @@ describe('CalibrationOverlay', () => {
       });
     });
 
-    it('calls completeCalibration and onClose on Finish Anyway', async () => {
+    it('calls completeCalibration and onClose on Complete Calibration', async () => {
       const onClose = vi.fn();
       const bike = createBike('bike-1', 'Trail Bike', [createComponent('comp-1')]);
       setupCalibrationState([bike]);
 
       render(<CalibrationOverlay isOpen={true} onClose={onClose} />);
 
-      fireEvent.click(screen.getByText('Finish Anyway'));
+      fireEvent.click(screen.getByText('Complete Calibration'));
 
       await waitFor(() => {
         expect(mockCompleteCalibration).toHaveBeenCalled();
@@ -472,36 +516,69 @@ describe('CalibrationOverlay', () => {
     });
   });
 
-  describe('date selection', () => {
-    it('changes bulk date when month dropdown changes', () => {
-      const bike = createBike('bike-1', 'Trail Bike', [createComponent('comp-1')]);
+  describe('component selection', () => {
+    it('has checkboxes for each uncalibrated component', () => {
+      const bike = createBike('bike-1', 'Trail Bike', [
+        createComponent('comp-1'),
+        createComponent('comp-2'),
+      ]);
       setupCalibrationState([bike]);
 
       render(<CalibrationOverlay isOpen={true} onClose={defaultOnClose} />);
 
-      const selects = screen.getAllByRole('combobox');
-      const monthSelect = selects[0];
-
-      // Change to March (index 2)
-      fireEvent.change(monthSelect, { target: { value: '2' } });
-
-      expect(monthSelect).toHaveValue('2');
+      // Each component should have a checkbox (plus the select all checkbox)
+      const checkboxes = screen.getAllByRole('checkbox');
+      // 1 select-all checkbox + 2 component checkboxes = 3 total
+      expect(checkboxes.length).toBe(3);
     });
 
-    it('changes bulk date when year dropdown changes', () => {
+    it('can deselect components from bulk action', async () => {
+      const bike = createBike('bike-1', 'Trail Bike', [
+        createComponent('comp-1'),
+        createComponent('comp-2'),
+      ]);
+      setupCalibrationState([bike]);
+
+      render(<CalibrationOverlay isOpen={true} onClose={defaultOnClose} />);
+
+      // All components are selected by default, so button shows Apply to All (2)
+      expect(screen.getByText(/Apply to All \(2\)/)).toBeInTheDocument();
+
+      // Deselect one component (component checkboxes are after the select-all)
+      const checkboxes = screen.getAllByRole('checkbox');
+      fireEvent.click(checkboxes[1]); // First component checkbox
+
+      // Button should now show Apply to Selected (1)
+      await waitFor(() => {
+        expect(screen.getByText(/Apply to Selected \(1\)/)).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe('date selection', () => {
+    it('has a month input for bulk date selection', () => {
       const bike = createBike('bike-1', 'Trail Bike', [createComponent('comp-1')]);
       setupCalibrationState([bike]);
 
       render(<CalibrationOverlay isOpen={true} onClose={defaultOnClose} />);
 
-      const selects = screen.getAllByRole('combobox');
-      const yearSelect = selects[1];
+      // Should have an input type="month"
+      const monthInput = document.querySelector('input[type="month"]');
+      expect(monthInput).toBeInTheDocument();
+    });
 
-      // Change to a different year
-      const targetYear = new Date().getFullYear() - 1;
-      fireEvent.change(yearSelect, { target: { value: String(targetYear) } });
+    it('can change the bulk date', () => {
+      const bike = createBike('bike-1', 'Trail Bike', [createComponent('comp-1')]);
+      setupCalibrationState([bike]);
 
-      expect(yearSelect).toHaveValue(String(targetYear));
+      render(<CalibrationOverlay isOpen={true} onClose={defaultOnClose} />);
+
+      const monthInput = document.querySelector('input[type="month"]') as HTMLInputElement;
+
+      // Change to a specific month
+      fireEvent.change(monthInput, { target: { value: '2024-06' } });
+
+      expect(monthInput.value).toBe('2024-06');
     });
   });
 });
