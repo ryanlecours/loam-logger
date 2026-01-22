@@ -1729,15 +1729,12 @@ router.post('/email/unified/send', async (req, res) => {
       return sendUnauthorized(res);
     }
 
-    // Log URL configuration for debugging (only in production)
-    if (process.env.NODE_ENV === 'production') {
-      const missingVars: string[] = [];
-      if (FRONTEND_URL.includes('localhost')) missingVars.push('FRONTEND_URL');
-      if (API_URL.includes('localhost')) missingVars.push('API_URL');
-      if (missingVars.length > 0) {
-        console.warn(`[Admin] Warning: Using localhost fallback for: ${missingVars.join(', ')}. Emails will contain localhost URLs.`);
-        // Don't block - just warn. The admin can decide if they want to proceed.
-      }
+    // Validate that we have production URLs configured (not localhost fallbacks)
+    // In production, FRONTEND_URL and API_URL should be set to actual domains
+    const isLocalConfig = FRONTEND_URL.includes('localhost') || API_URL.includes('localhost');
+    if (isLocalConfig && process.env.NODE_ENV === 'production') {
+      console.error('[Admin] Production environment detected but using localhost URLs. Set FRONTEND_URL and API_URL environment variables.');
+      return sendInternalError(res, 'Server configuration error');
     }
 
     // Rate limit
