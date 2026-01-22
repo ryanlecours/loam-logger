@@ -18,7 +18,8 @@
     "prisma:studio": "prisma studio",
     "postinstall": "prisma generate",
     "start": "node dist/server.cjs",
-    "test": "jest"
+    "test": "jest",
+    "email:preview": "node --import tsx scripts/preview-email.tsx"
   },
   "keywords": [],
   "author": "",

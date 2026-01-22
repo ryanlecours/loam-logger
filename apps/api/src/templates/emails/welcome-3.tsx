@@ -13,6 +13,7 @@ import {
   Hr,
 } from "@react-email/components";
 import { sanitizeUserInput } from "../../lib/html";
+import type { TemplateConfig } from "./types";
 
 export const WELCOME_3_TEMPLATE_VERSION = "2.2.0";
 
@@ -335,4 +336,23 @@ const styles: Record<string, React.CSSProperties> = {
     color: TOKENS.faint,
     textDecoration: "underline",
   },
+};
+
+/** Template configuration for admin email UI */
+export const templateConfig: TemplateConfig = {
+  id: "welcome-3",
+  displayName: "Welcome 3 - Follow-up",
+  description: "One-week follow-up with customization tips (send on day 7)",
+  defaultSubject: "One week in — a quick closing note",
+  emailType: "welcome_onboarding",
+  templateVersion: WELCOME_3_TEMPLATE_VERSION,
+  adminVisible: true,
+  parameters: [
+    { key: "recipientFirstName", label: "First Name", type: "text", required: false, autoFill: "recipientFirstName" },
+    { key: "settingsUrl", label: "Settings URL", type: "url", required: false, defaultValue: "${FRONTEND_URL}/settings" },
+    { key: "dashboardUrl", label: "Dashboard URL", type: "url", required: false, defaultValue: "${FRONTEND_URL}/dashboard" },
+    { key: "gearUrl", label: "Gear URL", type: "url", required: false, defaultValue: "${FRONTEND_URL}/gear" },
+    { key: "unsubscribeUrl", label: "Unsubscribe URL", type: "hidden", required: false, autoFill: "unsubscribeUrl" },
+  ],
+  render: (props) => React.createElement(Welcome3Email, props as Welcome3EmailProps),
 };

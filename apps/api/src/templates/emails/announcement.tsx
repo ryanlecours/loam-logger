@@ -12,7 +12,8 @@ import {
   Hr,
 } from "@react-email/components";
 import { render } from "@react-email/render";
-import { sanitizeUserInput } from "../../lib/html";
+import { sanitizeUserInput, escapeHtml } from "../../lib/html";
+import type { TemplateConfig } from "./types";
 
 export const ANNOUNCEMENT_TEMPLATE_VERSION = "2.1.0";
 
@@ -295,3 +296,32 @@ export async function getAnnouncementEmailHtml({
 
   return render(element);
 }
+
+/** Template configuration for admin email UI */
+export const templateConfig: TemplateConfig = {
+  id: "announcement",
+  displayName: "Announcement",
+  description: "Generic announcement with custom message content",
+  defaultSubject: "Announcement from Loam Logger",
+  emailType: "announcement",
+  templateVersion: ANNOUNCEMENT_TEMPLATE_VERSION,
+  adminVisible: true,
+  parameters: [
+    { key: "recipientFirstName", label: "First Name", type: "text", required: false, autoFill: "recipientFirstName" },
+    { key: "subject", label: "Heading", type: "text", required: true, helpText: "The heading shown inside the email card" },
+    { key: "previewText", label: "Preview Text", type: "text", required: false, helpText: "Short preview shown in email clients" },
+    { key: "messageHtml", label: "Message Content", type: "textarea", required: true, helpText: "Plain text - newlines converted to line breaks" },
+    { key: "unsubscribeUrl", label: "Unsubscribe URL", type: "hidden", required: false, autoFill: "unsubscribeUrl" },
+  ],
+  render: (props) => {
+    // Convert messageHtml text to React content
+    const messageHtml = props.messageHtml as string | undefined;
+    const messageContent = messageHtml ? (
+      <div dangerouslySetInnerHTML={{ __html: escapeHtml(messageHtml).replace(/\n/g, "<br>") }} />
+    ) : undefined;
+    return React.createElement(AnnouncementEmail, {
+      ...props,
+      messageContent,
+    } as AnnouncementEmailProps);
+  },
+};

@@ -13,6 +13,7 @@ import {
   Hr,
 } from "@react-email/components";
 import { sanitizeUserInput } from "../../lib/html";
+import type { TemplateConfig } from "./types";
 
 export const FOUNDING_RIDERS_TEMPLATE_VERSION = "1.2.0";
 
@@ -416,4 +417,22 @@ const styles: Record<string, React.CSSProperties> = {
     color: TOKENS.faint,
     textDecoration: "underline",
   },
+};
+
+/** Template configuration for admin email UI */
+export const templateConfig: TemplateConfig = {
+  id: "founding-riders",
+  displayName: "Founding Riders Welcome",
+  description: "Welcome email for founding riders with activation date",
+  defaultSubject: "You're a Founding Rider",
+  emailType: "founding_welcome",
+  templateVersion: FOUNDING_RIDERS_TEMPLATE_VERSION,
+  adminVisible: true,
+  parameters: [
+    { key: "recipientFirstName", label: "First Name", type: "text", required: false, autoFill: "recipientFirstName" },
+    { key: "activationDateText", label: "Activation Date", type: "text", required: true, defaultValue: "January 21, 2026", helpText: "e.g. 'January 21, 2026'" },
+    { key: "appUrl", label: "App URL", type: "url", required: false, defaultValue: "${FRONTEND_URL}" },
+    { key: "unsubscribeUrl", label: "Unsubscribe URL", type: "hidden", required: false, autoFill: "unsubscribeUrl" },
+  ],
+  render: (props) => React.createElement(FoundingRidersEmail, props as FoundingRidersEmailProps),
 };

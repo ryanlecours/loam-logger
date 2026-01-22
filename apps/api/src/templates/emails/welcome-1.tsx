@@ -13,6 +13,7 @@ import {
   Hr,
 } from "@react-email/components";
 import { sanitizeUserInput } from "../../lib/html";
+import type { TemplateConfig } from "./types";
 
 export const WELCOME_1_TEMPLATE_VERSION = "2.2.0";
 
@@ -330,4 +331,22 @@ const styles: Record<string, React.CSSProperties> = {
     color: TOKENS.faint,
     textDecoration: "underline",
   },
+};
+
+/** Template configuration for admin email UI */
+export const templateConfig: TemplateConfig = {
+  id: "welcome-1",
+  displayName: "Welcome 1 - Setup Guide",
+  description: "Initial setup guide with 3-step checklist (send after activation)",
+  defaultSubject: "Quick setup, then forget it exists",
+  emailType: "welcome_onboarding",
+  templateVersion: WELCOME_1_TEMPLATE_VERSION,
+  adminVisible: true,
+  parameters: [
+    { key: "recipientFirstName", label: "First Name", type: "text", required: false, autoFill: "recipientFirstName" },
+    { key: "dashboardUrl", label: "Dashboard URL", type: "url", required: false, defaultValue: "${FRONTEND_URL}/dashboard" },
+    { key: "connectUrl", label: "Connect URL", type: "url", required: false, defaultValue: "${FRONTEND_URL}/settings/connections" },
+    { key: "unsubscribeUrl", label: "Unsubscribe URL", type: "hidden", required: false, autoFill: "unsubscribeUrl" },
+  ],
+  render: (props) => React.createElement(Welcome1Email, props as Welcome1EmailProps),
 };
