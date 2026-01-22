@@ -19,9 +19,9 @@ jest.mock('./email.service', () => ({
   sendEmail: jest.fn().mockResolvedValue('email-id'),
 }));
 
-jest.mock('../templates/emails', () => ({
+jest.mock('../templates/emails/activation', () => ({
   getActivationEmailSubject: jest.fn().mockReturnValue('Activation Subject'),
-  getActivationEmailHtml: jest.fn().mockReturnValue('<p>Activation HTML</p>'),
+  getActivationEmailHtml: jest.fn().mockResolvedValue('<p>Activation HTML</p>'),
 }));
 
 jest.mock('../lib/unsubscribe-token', () => ({
