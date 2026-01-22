@@ -382,6 +382,16 @@ router.post('/users/:userId/demote', async (req, res) => {
       return sendBadRequest(res, 'User is already on waitlist');
     }
 
+    // Prevent demoting the last admin
+    if (user.role === 'ADMIN') {
+      const adminCount = await prisma.user.count({
+        where: { role: 'ADMIN' },
+      });
+      if (adminCount <= 1) {
+        return sendBadRequest(res, 'Cannot demote the last admin user');
+      }
+    }
+
     // Demote user to WAITLIST and clear activation fields
     const updated = await prisma.user.update({
       where: { id: userId },
@@ -569,6 +579,16 @@ router.delete('/users/:userId', async (req, res) => {
 
     if (!user) {
       return sendBadRequest(res, 'User not found');
+    }
+
+    // Prevent deleting the last admin
+    if (user.role === 'ADMIN') {
+      const adminCount = await prisma.user.count({
+        where: { role: 'ADMIN' },
+      });
+      if (adminCount <= 1) {
+        return sendBadRequest(res, 'Cannot delete the last admin user');
+      }
     }
 
     // Delete user (cascades to rides, bikes, etc.)
@@ -853,26 +873,39 @@ router.post('/waitlist/import', async (req, res) => {
 // Email Management Endpoints
 // ============================================================================
 
-const VALID_EMAIL_ROLES: UserRole[] = ['WAITLIST'];
+const VALID_EMAIL_ROLES: UserRole[] = ['WAITLIST', 'FREE', 'PRO', 'ADMIN'];
 
 /**
  * GET /api/admin/email/recipients
  * List users by role with email/name/unsubscribed status for checkbox selection
  * Query params:
- *   - role: UserRole (required)
+ *   - role: UserRole or UserRole[] (required) - can be single or multiple roles
  *   - foundingRider: 'true' | 'false' (optional, filter by founding rider status)
  */
 router.get('/email/recipients', async (req, res) => {
   try {
     const { role, foundingRider } = req.query;
 
-    if (!role || !VALID_EMAIL_ROLES.includes(role as UserRole)) {
+    // Support both single role and array of roles
+    const roles: string[] = Array.isArray(role)
+      ? role.filter((r): r is string => typeof r === 'string')
+      : typeof role === 'string'
+        ? [role]
+        : [];
+
+    if (roles.length === 0) {
       return sendBadRequest(res, `Role must be one of: ${VALID_EMAIL_ROLES.join(', ')}`);
     }
 
+    // Validate all roles
+    const invalidRoles = roles.filter(r => !VALID_EMAIL_ROLES.includes(r as UserRole));
+    if (invalidRoles.length > 0) {
+      return sendBadRequest(res, `Invalid role(s): ${invalidRoles.join(', ')}. Must be one of: ${VALID_EMAIL_ROLES.join(', ')}`);
+    }
+
     // Build where clause with optional founding rider filter
-    const where: { role: UserRole; isFoundingRider?: boolean } = {
-      role: role as UserRole,
+    const where: { role: { in: UserRole[] }; isFoundingRider?: boolean } = {
+      role: { in: roles as UserRole[] },
     };
 
     if (foundingRider === 'true') {
@@ -1362,7 +1395,12 @@ router.get('/email/scheduled', async (req, res) => {
     const skip = (page - 1) * limit;
     const status = req.query.status as string | undefined;
 
-    const where = status ? { status: status as 'pending' | 'processing' | 'sent' | 'cancelled' | 'failed' } : {};
+    // Validate status if provided
+    const validStatuses = ['pending', 'processing', 'sent', 'cancelled', 'failed'] as const;
+    if (status && !validStatuses.includes(status as typeof validStatuses[number])) {
+      return sendBadRequest(res, 'Invalid status filter');
+    }
+    const where = status ? { status: status as typeof validStatuses[number] } : {};
 
     const [emails, total] = await Promise.all([
       prisma.scheduledEmail.findMany({
@@ -1611,6 +1649,28 @@ function buildTemplateProps(
 }
 
 /**
+ * Validate that required template parameters are present and properly typed.
+ * Throws an error if validation fails.
+ */
+function validateTemplateProps(
+  template: TemplateConfig,
+  props: Record<string, unknown>
+): { valid: true } | { valid: false; error: string } {
+  for (const param of template.parameters) {
+    if (param.required) {
+      const value = props[param.key];
+      if (value === undefined || value === null || value === '') {
+        return { valid: false, error: `${param.label} is required` };
+      }
+      if (typeof value !== 'string') {
+        return { valid: false, error: `${param.label} must be a string` };
+      }
+    }
+  }
+  return { valid: true };
+}
+
+/**
  * POST /api/admin/email/unified/preview
  * Preview any email template with provided parameters
  */
@@ -1620,6 +1680,10 @@ router.post('/email/unified/preview', async (req, res) => {
 
     if (!templateId || typeof templateId !== 'string') {
       return sendBadRequest(res, 'templateId is required');
+    }
+
+    if (typeof parameters !== 'object' || Array.isArray(parameters) || parameters === null) {
+      return sendBadRequest(res, 'parameters must be an object');
     }
 
     const template = getTemplateById(templateId);
@@ -1633,6 +1697,12 @@ router.post('/email/unified/preview', async (req, res) => {
       email: 'preview@example.com',
       unsubscribeUrl: '#preview-unsubscribe',
     });
+
+    // Validate required parameters
+    const validation = validateTemplateProps(template, props);
+    if (!validation.valid) {
+      return sendBadRequest(res, validation.error);
+    }
 
     // Render the template
     const html = await render(template.render(props));
@@ -1659,6 +1729,12 @@ router.post('/email/unified/send', async (req, res) => {
       return sendUnauthorized(res);
     }
 
+    // Validate required environment variables for email URLs
+    if (!process.env.FRONTEND_URL || !process.env.API_URL) {
+      console.error('[Admin] Missing required environment variables: FRONTEND_URL or API_URL not set');
+      return sendInternalError(res, 'Server configuration error');
+    }
+
     // Rate limit
     const rateLimit = await checkAdminRateLimit('bulkEmail', adminUserId);
     if (!rateLimit.allowed) {
@@ -1677,9 +1753,25 @@ router.post('/email/unified/send', async (req, res) => {
       return sendBadRequest(res, 'templateId is required');
     }
 
+    if (typeof parameters !== 'object' || Array.isArray(parameters) || parameters === null) {
+      return sendBadRequest(res, 'parameters must be an object');
+    }
+
     const template = getTemplateById(templateId);
     if (!template) {
       return sendBadRequest(res, 'Invalid template ID');
+    }
+
+    // Validate required non-autofilled parameters upfront
+    // (autofilled params like recipientFirstName are filled per-recipient)
+    const testProps = buildTemplateProps(template, parameters, {
+      recipientFirstName: 'Test',
+      email: 'test@example.com',
+      unsubscribeUrl: '#test',
+    });
+    const validation = validateTemplateProps(template, testProps);
+    if (!validation.valid) {
+      return sendBadRequest(res, validation.error);
     }
 
     // Validate recipients
