@@ -424,26 +424,6 @@ describe('Admin Routes - Bulk Operations', () => {
     });
   });
 
-  describe('POST /email/send', () => {
-    const handler = findHandler('post', '/email/send');
-
-    it('should reject more than 500 recipients', async () => {
-      const { req, res } = createMocks();
-      req.body = {
-        userIds: Array.from({ length: 501 }, (_, i) => `user-${i}`),
-        templateType: 'announcement',
-        subject: 'Test',
-        messageHtml: 'Test message',
-      };
-
-      await invokeHandler(handler, req, res);
-
-      expect(mockSendBadRequest).toHaveBeenCalledWith(
-        res,
-        'Cannot send to more than 500 recipients at once'
-      );
-    });
-  });
 });
 
 describe('Admin Routes - Rate Limiting', () => {
@@ -509,30 +489,6 @@ describe('Admin Routes - Rate Limiting', () => {
     });
   });
 
-  describe('POST /email/send', () => {
-    const handler = findHandler('post', '/email/send');
-
-    it('should apply rate limiting for bulk emails', async () => {
-      const { req, res } = createMocks();
-      req.body = {
-        userIds: ['user-1'],
-        templateType: 'announcement',
-        subject: 'Test',
-        messageHtml: 'Test',
-      };
-
-      mockCheckAdminRateLimit.mockResolvedValue({
-        allowed: false,
-        retryAfter: 60,
-        redisAvailable: true,
-      });
-
-      await invokeHandler(handler, req, res);
-
-      expect(mockCheckAdminRateLimit).toHaveBeenCalledWith('bulkEmail', 'admin-123');
-      expect(res.status).toHaveBeenCalledWith(429);
-    });
-  });
 });
 
 describe('Admin Routes - Schedule Validation', () => {
