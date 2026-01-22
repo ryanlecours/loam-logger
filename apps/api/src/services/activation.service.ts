@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import { prisma } from '../lib/prisma';
 import { hashPassword } from '../auth/password.utils';
 import { sendEmail } from './email.service';
-import { getActivationEmailSubject, getActivationEmailHtml } from '../templates/emails';
+import { getActivationEmailSubject, getActivationEmailHtml } from '../templates/emails/activation';
 import { generateUnsubscribeToken } from '../lib/unsubscribe-token';
 import { PASSWORD_REQUIREMENTS } from '@loam/shared';
 

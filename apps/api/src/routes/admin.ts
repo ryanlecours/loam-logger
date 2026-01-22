@@ -5,16 +5,12 @@ import { activateWaitlistUser, generateTempPassword } from '../services/activati
 import { hashPassword } from '../auth/password.utils';
 import { sendEmail, sendEmailWithAudit, sendReactEmailWithAudit } from '../services/email.service';
 import {
-  getActivationEmailSubject,
-  getActivationEmailHtml,
-  getAnnouncementEmailHtml,
-  ANNOUNCEMENT_TEMPLATE_VERSION,
   getTemplateListForAPI,
   getTemplateById,
   type TemplateConfig,
 } from '../templates/emails';
 import FoundingRidersEmail, { FOUNDING_RIDERS_TEMPLATE_VERSION } from '../templates/emails/founding-riders';
-import FoundingRidersLaunchEmail, { FOUNDING_RIDERS_LAUNCH_TEMPLATE_VERSION } from '../templates/emails/pre-access';
+import FoundingRidersLaunchEmail from '../templates/emails/pre-access';
 import { render } from '@react-email/render';
 import React from 'react';
 import { generateUnsubscribeToken } from '../lib/unsubscribe-token';
@@ -23,6 +19,7 @@ import { checkAdminRateLimit } from '../lib/rate-limit';
 import { logError } from '../lib/logger';
 import { escapeHtml } from '../lib/html';
 import type { UserRole } from '@prisma/client';
+import { getActivationEmailHtml, getActivationEmailSubject } from '../templates/emails/activation';
 
 const API_URL = process.env.API_URL || 'http://localhost:4000';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
