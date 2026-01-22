@@ -123,18 +123,16 @@ export default function FoundingRidersPostActivationInfoEmail({
 
             <Text className="ll-p" style={styles.p}>
               Your account is active, and you should be able to log in and start using Loam Logger.
-              I had planned to send this note before launch day, but I ran out of time. I still
-              want you to have the full picture of what is available, what is coming soon, and
-              where your feedback matters most.
+              I want to fill you in on what is live, what is coming next, and where your feedback makes the biggest difference.
             </Text>
 
             <Section className="ll-callout" style={styles.callout}>
               <Text className="ll-p" style={{ ...styles.p, margin: 0 }}>
                 <span className="ll-emph" style={styles.emph}>
-                  Also worth noting:
+                  As you get started:
                 </span>
                 <br />
-                I have a few onboarding emails on the way to help Founding Riders discover all of the
+                I have a few onboarding emails on the way to help you discover all of the
                 functionality built into Loam Logger.
               </Text>
             </Section>
