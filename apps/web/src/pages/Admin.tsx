@@ -954,7 +954,7 @@ export default function Admin() {
 
     try {
       const body: Record<string, unknown> = {
-        userIds: Array.from(selectedRecipients),
+        recipientIds: Array.from(selectedRecipients),
         templateId: selectedTemplateId,
         subject: emailForm.subject,
         parameters: templateParameters,
