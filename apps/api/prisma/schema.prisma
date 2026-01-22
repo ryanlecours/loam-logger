@@ -272,6 +272,7 @@ enum EmailType {
   announcement
   custom
   founding_welcome
+  founding_post_activation_info
 }
 
 enum TriggerSource {
