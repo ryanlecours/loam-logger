@@ -72,6 +72,7 @@ interface ScheduledEmail {
   subject: string;
   scheduledFor: string;
   recipientCount: number;
+  recipientEmails: string[];
   status: 'pending' | 'processing' | 'sent' | 'cancelled' | 'failed';
   createdAt: string;
   sentCount?: number;
@@ -79,6 +80,23 @@ interface ScheduledEmail {
   suppressedCount?: number;
   processedAt?: string;
   errorMessage?: string;
+}
+
+interface TemplateParameter {
+  key: string;
+  label: string;
+  type: 'text' | 'textarea' | 'url' | 'hidden';
+  required: boolean;
+  defaultValue?: string;
+  helpText?: string;
+}
+
+interface EmailTemplate {
+  id: string;
+  displayName: string;
+  description: string;
+  defaultSubject: string;
+  parameters: TemplateParameter[];
 }
 
 export default function Admin() {
@@ -128,10 +146,18 @@ export default function Admin() {
   const [sendResult, setSendResult] = useState<SendResult | null>(null);
   const [showConfirmSend, setShowConfirmSend] = useState(false);
 
+  // Unified email template state
+  const [availableTemplates, setAvailableTemplates] = useState<EmailTemplate[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>('announcement');
+  const [templateParameters, setTemplateParameters] = useState<Record<string, string>>({});
+
   // Scheduled emails state
   const [scheduledEmails, setScheduledEmails] = useState<ScheduledEmail[]>([]);
   const [loadingScheduled, setLoadingScheduled] = useState(false);
   const [cancellingScheduled, setCancellingScheduled] = useState<string | null>(null);
+  const [rescheduleEmail, setRescheduleEmail] = useState<ScheduledEmail | null>(null);
+  const [rescheduleDate, setRescheduleDate] = useState('');
+  const [rescheduling, setRescheduling] = useState(false);
 
   // Individual email modal state
   const [individualEmailTarget, setIndividualEmailTarget] = useState<{
@@ -153,17 +179,6 @@ export default function Admin() {
     skipped: number;
     errors: Array<{ row: number; email: string; reason: string }>;
   } | null>(null);
-
-  // Founding Riders Welcome Email state
-  const [foundingEmailDate, setFoundingEmailDate] = useState('January 21, 2026');
-  const [foundingEmailRecipients, setFoundingEmailRecipients] = useState<EmailRecipient[]>([]);
-  const [selectedFoundingRecipients, setSelectedFoundingRecipients] = useState<Set<string>>(new Set());
-  const [loadingFoundingRecipients, setLoadingFoundingRecipients] = useState(false);
-  const [showFoundingPreview, setShowFoundingPreview] = useState(false);
-  const [foundingPreviewHtml, setFoundingPreviewHtml] = useState('');
-  const [sendingFoundingEmail, setSendingFoundingEmail] = useState(false);
-  const [foundingSendResult, setFoundingSendResult] = useState<SendResult | null>(null);
-  const [showFoundingConfirm, setShowFoundingConfirm] = useState(false);
 
   // User lookup state (for finding userId by email)
   const [lookupEmail, setLookupEmail] = useState('');
@@ -187,8 +202,52 @@ export default function Admin() {
       fetchWaitlist(1);
       fetchUsers(1);
       fetchScheduledEmails();
+      fetchTemplates();
     }
   }, [userLoading, isAdmin]);
+
+  const fetchTemplates = async () => {
+    try {
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/admin/email/templates`, {
+        credentials: 'include',
+      });
+      if (!res.ok) throw new Error('Failed to fetch templates');
+      const data = await res.json();
+      setAvailableTemplates(data.templates);
+      // Set default template if available
+      if (data.templates.length > 0) {
+        const defaultTemplate = data.templates.find((t: EmailTemplate) => t.id === 'announcement') || data.templates[0];
+        setSelectedTemplateId(defaultTemplate.id);
+        setEmailForm(prev => ({ ...prev, subject: defaultTemplate.defaultSubject }));
+        // Initialize parameters with defaults
+        const params: Record<string, string> = {};
+        defaultTemplate.parameters.forEach((p: TemplateParameter) => {
+          if (p.defaultValue) params[p.key] = p.defaultValue;
+        });
+        setTemplateParameters(params);
+      }
+    } catch (err) {
+      console.error('Failed to fetch templates:', err);
+    }
+  };
+
+  const handleTemplateChange = (templateId: string) => {
+    setSelectedTemplateId(templateId);
+    const template = availableTemplates.find(t => t.id === templateId);
+    if (template) {
+      setEmailForm(prev => ({ ...prev, subject: template.defaultSubject }));
+      // Reset parameters to template defaults
+      const params: Record<string, string> = {};
+      template.parameters.forEach(p => {
+        if (p.defaultValue) params[p.key] = p.defaultValue;
+      });
+      setTemplateParameters(params);
+    }
+  };
+
+  const updateTemplateParameter = (key: string, value: string) => {
+    setTemplateParameters(prev => ({ ...prev, [key]: value }));
+  };
 
   const fetchStats = async () => {
     try {
@@ -737,6 +796,45 @@ export default function Admin() {
     }
   };
 
+  const openRescheduleModal = (email: ScheduledEmail) => {
+    setRescheduleEmail(email);
+    // Pre-fill with current scheduled time
+    const currentDate = new Date(email.scheduledFor);
+    setRescheduleDate(currentDate.toISOString().slice(0, 16));
+  };
+
+  const handleReschedule = async () => {
+    if (!rescheduleEmail || !rescheduleDate) return;
+
+    try {
+      setRescheduling(true);
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/admin/email/scheduled/${rescheduleEmail.id}`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: {
+          ...getAuthHeaders(),
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ scheduledFor: new Date(rescheduleDate).toISOString() }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to reschedule email');
+      }
+
+      // Refresh the list and close modal
+      fetchScheduledEmails();
+      setRescheduleEmail(null);
+      setRescheduleDate('');
+    } catch (err) {
+      console.error('Reschedule email failed:', err);
+      alert(err instanceof Error ? err.message : 'Failed to reschedule email');
+    } finally {
+      setRescheduling(false);
+    }
+  };
+
   const getDefaultScheduleTime = () => {
     const now = new Date();
     now.setHours(now.getHours() + 1);
@@ -789,121 +887,6 @@ export default function Admin() {
       fetchEmailRecipients(emailForm.segment);
     }
   }, [isAdmin, emailForm.segment, fetchEmailRecipients]);
-
-  // Founding Riders Email Functions
-  const fetchFoundingRidersRecipients = useCallback(async () => {
-    try {
-      setLoadingFoundingRecipients(true);
-      const res = await fetch(
-        `${import.meta.env.VITE_API_URL}/api/admin/email/recipients?role=WAITLIST&foundingRider=true`,
-        { credentials: 'include' }
-      );
-      if (!res.ok) throw new Error('Failed to fetch recipients');
-      const data = await res.json();
-      const users = data.users || [];
-      setFoundingEmailRecipients(users);
-      // Pre-select all eligible (non-unsubscribed) recipients
-      const eligibleIds = users
-        .filter((u: EmailRecipient) => !u.emailUnsubscribed)
-        .map((u: EmailRecipient) => u.id);
-      setSelectedFoundingRecipients(new Set(eligibleIds));
-    } catch (err) {
-      console.error('Failed to fetch founding riders:', err);
-    } finally {
-      setLoadingFoundingRecipients(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (isAdmin) {
-      fetchFoundingRidersRecipients();
-    }
-  }, [isAdmin, fetchFoundingRidersRecipients]);
-
-  const handleFoundingSelectAll = () => {
-    const eligibleIds = foundingEmailRecipients
-      .filter((u) => !u.emailUnsubscribed)
-      .map((u) => u.id);
-    setSelectedFoundingRecipients(new Set(eligibleIds));
-  };
-
-  const handleFoundingDeselectAll = () => {
-    setSelectedFoundingRecipients(new Set());
-  };
-
-  const toggleFoundingRecipient = (id: string) => {
-    const newSet = new Set(selectedFoundingRecipients);
-    if (newSet.has(id)) {
-      newSet.delete(id);
-    } else {
-      newSet.add(id);
-    }
-    setSelectedFoundingRecipients(newSet);
-  };
-
-  const handleFoundingPreview = async () => {
-    try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/admin/email/founding-riders/preview`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: getAuthHeaders(),
-        body: JSON.stringify({
-          activationDateText: foundingEmailDate,
-        }),
-      });
-      if (!res.ok) throw new Error('Failed to generate preview');
-      const data = await res.json();
-      setFoundingPreviewHtml(data.html);
-      setShowFoundingPreview(true);
-    } catch (err) {
-      console.error('Failed to preview:', err);
-      alert('Failed to generate preview');
-    }
-  };
-
-  const handleFoundingSend = async () => {
-    if (selectedFoundingRecipients.size === 0) {
-      alert('Please select at least one recipient');
-      return;
-    }
-    setShowFoundingConfirm(true);
-  };
-
-  const confirmFoundingSend = async () => {
-    try {
-      setSendingFoundingEmail(true);
-      setShowFoundingConfirm(false);
-
-      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/admin/email/founding-riders`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: getAuthHeaders(),
-        body: JSON.stringify({
-          recipientIds: Array.from(selectedFoundingRecipients),
-          activationDateText: foundingEmailDate,
-        }),
-      });
-
-      if (!res.ok) {
-        const errData = await res.json();
-        throw new Error(errData.error || 'Failed to send emails');
-      }
-
-      const data = await res.json();
-      setFoundingSendResult({
-        sent: data.results.sent,
-        failed: data.results.failed,
-        suppressed: data.results.suppressed,
-        total: data.total,
-      });
-    } catch (err) {
-      console.error('Failed to send founding riders email:', err);
-      alert(err instanceof Error ? err.message : 'Failed to send emails');
-    } finally {
-      setSendingFoundingEmail(false);
-    }
-  };
-
   const handleSelectAll = () => {
     const eligibleIds = emailRecipients
       .filter((u) => !u.emailUnsubscribed)
@@ -927,14 +910,14 @@ export default function Admin() {
 
   const handlePreviewEmail = async () => {
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/admin/email/preview`, {
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/admin/email/unified/preview`, {
         method: 'POST',
         credentials: 'include',
         headers: getAuthHeaders(),
         body: JSON.stringify({
-          templateType: emailForm.templateType,
+          templateId: selectedTemplateId,
           subject: emailForm.subject,
-          messageHtml: emailForm.messageHtml,
+          parameters: templateParameters,
         }),
       });
       if (res.ok) {
@@ -962,23 +945,20 @@ export default function Admin() {
     setSendResult(null);
 
     const isScheduled = !!emailForm.scheduledFor;
-    const endpoint = isScheduled
-      ? `${import.meta.env.VITE_API_URL}/api/admin/email/schedule`
-      : `${import.meta.env.VITE_API_URL}/api/admin/email/send`;
 
     try {
       const body: Record<string, unknown> = {
         userIds: Array.from(selectedRecipients),
-        templateType: emailForm.templateType,
+        templateId: selectedTemplateId,
         subject: emailForm.subject,
-        messageHtml: emailForm.messageHtml,
+        parameters: templateParameters,
       };
 
       if (isScheduled) {
         body.scheduledFor = new Date(emailForm.scheduledFor!).toISOString();
       }
 
-      const res = await fetch(endpoint, {
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/admin/email/unified/send`, {
         method: 'POST',
         credentials: 'include',
         headers: getAuthHeaders(),
@@ -988,11 +968,20 @@ export default function Admin() {
       if (res.ok) {
         if (isScheduled) {
           alert(`Email scheduled for ${new Date(emailForm.scheduledFor!).toLocaleString()}`);
-          setEmailForm({ ...emailForm, subject: '', messageHtml: '', scheduledFor: null });
+          setEmailForm(prev => ({ ...prev, scheduledFor: null }));
+          // Reset parameters to defaults
+          const template = availableTemplates.find(t => t.id === selectedTemplateId);
+          if (template) {
+            setEmailForm(prev => ({ ...prev, subject: template.defaultSubject }));
+            const params: Record<string, string> = {};
+            template.parameters.forEach(p => {
+              if (p.defaultValue) params[p.key] = p.defaultValue;
+            });
+            setTemplateParameters(params);
+          }
           fetchScheduledEmails();
         } else {
           setSendResult({ ...data.results, total: data.total });
-          setEmailForm({ ...emailForm, subject: '', messageHtml: '' });
         }
       } else {
         alert(data.error || `Failed to ${isScheduled ? 'schedule' : 'send'} emails`);
@@ -1182,183 +1171,6 @@ export default function Admin() {
         )}
       </section>
 
-      {/* Founding Riders Welcome Email Section */}
-      <section className="panel-spaced">
-        <div>
-          <p className="label-section">Welcome Email</p>
-          <h2 className="title-section">Founding Riders Welcome</h2>
-          <p className="text-body-muted mt-1">
-            Send the beautifully designed welcome email to founding riders.
-          </p>
-        </div>
-
-        {/* Activation Date */}
-        <div>
-          <label className="label-form">Activation Date Text</label>
-          <input
-            type="text"
-            value={foundingEmailDate}
-            onChange={(e) => setFoundingEmailDate(e.target.value)}
-            className="w-full max-w-xs px-4 py-2 rounded-xl bg-surface-2 border border-app text-white focus:outline-none focus:ring-2 focus:ring-primary"
-            placeholder="January 21, 2026"
-          />
-          <p className="text-xs text-muted mt-1">This appears in the email as the go-live date.</p>
-        </div>
-
-        {/* Recipient List */}
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-sm text-muted">
-              {loadingFoundingRecipients
-                ? 'Loading...'
-                : `${selectedFoundingRecipients.size} of ${foundingEmailRecipients.filter((r) => !r.emailUnsubscribed).length} founding riders selected`}
-            </span>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={handleFoundingSelectAll}
-                className="text-xs text-primary hover:underline"
-              >
-                Select All
-              </button>
-              <button
-                type="button"
-                onClick={handleFoundingDeselectAll}
-                className="text-xs text-muted hover:underline"
-              >
-                Deselect All
-              </button>
-            </div>
-          </div>
-          <div className="max-h-48 overflow-y-auto rounded-xl bg-surface-2 border border-app p-2 space-y-1">
-            {foundingEmailRecipients.map((recipient) => (
-              <label
-                key={recipient.id}
-                className={`flex items-center gap-2 p-2 rounded-lg cursor-pointer hover:bg-surface-1 ${
-                  recipient.emailUnsubscribed ? 'opacity-50 cursor-not-allowed' : ''
-                }`}
-              >
-                <input
-                  type="checkbox"
-                  checked={selectedFoundingRecipients.has(recipient.id)}
-                  onChange={() => toggleFoundingRecipient(recipient.id)}
-                  disabled={recipient.emailUnsubscribed}
-                  className="rounded border-app"
-                />
-                <span className="text-white text-sm">{recipient.email}</span>
-                {recipient.name && (
-                  <span className="text-muted text-sm">({recipient.name})</span>
-                )}
-                {recipient.emailUnsubscribed && (
-                  <span className="text-xs text-danger ml-auto">unsubscribed</span>
-                )}
-              </label>
-            ))}
-            {foundingEmailRecipients.length === 0 && !loadingFoundingRecipients && (
-              <p className="text-center text-muted py-4">No founding riders found</p>
-            )}
-          </div>
-        </div>
-
-        {/* Action Buttons */}
-        <div className="flex flex-wrap gap-3">
-          <button
-            type="button"
-            onClick={handleFoundingPreview}
-            className="px-4 py-2 rounded-xl bg-surface-2 border border-app text-white hover:bg-surface-1 transition-colors"
-          >
-            Preview Email
-          </button>
-          <button
-            type="button"
-            onClick={handleFoundingSend}
-            disabled={sendingFoundingEmail || selectedFoundingRecipients.size === 0}
-            className="px-4 py-2 rounded-xl bg-primary text-black font-medium hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {sendingFoundingEmail ? 'Sending...' : `Send to ${selectedFoundingRecipients.size} Recipients`}
-          </button>
-        </div>
-
-        {/* Send Result */}
-        {foundingSendResult && (
-          <div className="rounded-xl bg-surface-2 border border-app p-4 space-y-2">
-            <p className="text-white font-medium">Email Sent!</p>
-            <div className="text-sm text-muted space-y-1">
-              <p>✓ Sent: {foundingSendResult.sent}</p>
-              {foundingSendResult.suppressed > 0 && (
-                <p>⊘ Suppressed (unsubscribed): {foundingSendResult.suppressed}</p>
-              )}
-              {foundingSendResult.failed > 0 && (
-                <p className="text-danger">✗ Failed: {foundingSendResult.failed}</p>
-              )}
-            </div>
-            <button
-              type="button"
-              onClick={() => setFoundingSendResult(null)}
-              className="text-xs text-muted hover:underline"
-            >
-              Dismiss
-            </button>
-          </div>
-        )}
-      </section>
-
-      {/* Preview Modal */}
-      {showFoundingPreview && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-          <div className="bg-surface-1 border border-app rounded-2xl max-w-3xl w-full max-h-[90vh] overflow-hidden flex flex-col">
-            <div className="flex items-center justify-between p-4 border-b border-app">
-              <h3 className="text-lg font-semibold text-white">Email Preview</h3>
-              <button
-                onClick={() => setShowFoundingPreview(false)}
-                className="text-muted hover:text-white"
-              >
-                ✕
-              </button>
-            </div>
-            <div className="flex-1 overflow-auto p-4">
-              <iframe
-                srcDoc={foundingPreviewHtml}
-                className="w-full h-[600px] rounded-lg border border-app"
-                title="Email Preview"
-              />
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Confirm Send Modal */}
-      {showFoundingConfirm && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-          <div className="bg-surface-1 border border-app rounded-2xl max-w-md w-full p-6 space-y-4">
-            <h3 className="text-lg font-semibold text-white">Confirm Send</h3>
-            <p className="text-muted">
-              You're about to send the Founding Riders Welcome email to{' '}
-              <span className="text-white font-medium">{selectedFoundingRecipients.size}</span> recipients.
-            </p>
-            <p className="text-sm text-muted">
-              Activation date: <span className="text-white">{foundingEmailDate}</span>
-            </p>
-            <div className="flex gap-3 justify-end">
-              <button
-                type="button"
-                onClick={() => setShowFoundingConfirm(false)}
-                className="px-4 py-2 rounded-xl bg-surface-2 border border-app text-white hover:bg-surface-1 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={confirmFoundingSend}
-                className="px-4 py-2 rounded-xl bg-primary text-black font-medium hover:bg-primary/90 transition-colors"
-              >
-                Send Email
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Email Compose Section */}
       <section className="panel-spaced">
         <div>
@@ -1462,21 +1274,24 @@ export default function Admin() {
         </div>
 
         {/* Template Selector */}
-        <div>
+        <div className="space-y-2">
           <label className="label-form">Template</label>
           <select
-            value={emailForm.templateType}
-            onChange={(e) =>
-              setEmailForm({
-                ...emailForm,
-                templateType: e.target.value as 'announcement' | 'custom',
-              })
-            }
+            value={selectedTemplateId}
+            onChange={(e) => handleTemplateChange(e.target.value)}
             className="w-full px-4 py-2 rounded-xl bg-surface-2 border border-app text-white focus:outline-none focus:ring-2 focus:ring-primary"
           >
-            <option value="announcement">Announcement</option>
-            <option value="custom">Custom</option>
+            {availableTemplates.map((template) => (
+              <option key={template.id} value={template.id}>
+                {template.displayName}
+              </option>
+            ))}
           </select>
+          {availableTemplates.find(t => t.id === selectedTemplateId)?.description && (
+            <p className="text-sm text-muted">
+              {availableTemplates.find(t => t.id === selectedTemplateId)?.description}
+            </p>
+          )}
         </div>
 
         {/* Subject */}
@@ -1491,19 +1306,35 @@ export default function Admin() {
           />
         </div>
 
-        {/* Message Body */}
-        <div>
-          <label className="label-form">
-            Message Body (plain text, newlines preserved)
-          </label>
-          <textarea
-            value={emailForm.messageHtml}
-            onChange={(e) => setEmailForm({ ...emailForm, messageHtml: e.target.value })}
-            rows={8}
-            className="w-full px-4 py-2 rounded-xl bg-surface-2 border border-app text-white focus:outline-none focus:ring-2 focus:ring-primary resize-y"
-            placeholder="Your message here..."
-          />
-        </div>
+        {/* Dynamic Template Parameters */}
+        {availableTemplates.find(t => t.id === selectedTemplateId)?.parameters.map((param) => (
+          <div key={param.key}>
+            <label className="label-form">
+              {param.label}
+              {param.required && <span className="text-danger ml-1">*</span>}
+            </label>
+            {param.type === 'textarea' ? (
+              <textarea
+                value={templateParameters[param.key] || ''}
+                onChange={(e) => updateTemplateParameter(param.key, e.target.value)}
+                rows={6}
+                className="w-full px-4 py-2 rounded-xl bg-surface-2 border border-app text-white focus:outline-none focus:ring-2 focus:ring-primary resize-y"
+                placeholder={param.helpText || `Enter ${param.label.toLowerCase()}...`}
+              />
+            ) : (
+              <input
+                type={param.type === 'url' ? 'url' : 'text'}
+                value={templateParameters[param.key] || ''}
+                onChange={(e) => updateTemplateParameter(param.key, e.target.value)}
+                className="w-full px-4 py-2 rounded-xl bg-surface-2 border border-app text-white focus:outline-none focus:ring-2 focus:ring-primary"
+                placeholder={param.helpText || `Enter ${param.label.toLowerCase()}...`}
+              />
+            )}
+            {param.helpText && param.type !== 'textarea' && (
+              <p className="text-xs text-muted mt-1">{param.helpText}</p>
+            )}
+          </div>
+        ))}
 
         {/* Schedule Option */}
         <div className="flex flex-wrap items-center gap-4">
@@ -1536,7 +1367,12 @@ export default function Admin() {
         <div className="flex gap-3">
           <button
             onClick={handlePreviewEmail}
-            disabled={!emailForm.subject || !emailForm.messageHtml}
+            disabled={
+              !emailForm.subject ||
+              (availableTemplates.find(t => t.id === selectedTemplateId)?.parameters
+                .filter(p => p.required)
+                .some(p => !templateParameters[p.key]?.trim()) ?? false)
+            }
             className="rounded-2xl px-4 py-2 text-sm font-medium text-white bg-surface-2 hover:bg-surface-2/80 border border-app transition disabled:opacity-50"
           >
             Preview
@@ -1545,9 +1381,11 @@ export default function Admin() {
             onClick={handleSendEmail}
             disabled={
               !emailForm.subject ||
-              !emailForm.messageHtml ||
               sendingEmail ||
-              selectedRecipients.size === 0
+              selectedRecipients.size === 0 ||
+              (availableTemplates.find(t => t.id === selectedTemplateId)?.parameters
+                .filter(p => p.required)
+                .some(p => !templateParameters[p.key]?.trim()) ?? false)
             }
             className="rounded-2xl px-4 py-2 text-sm font-medium text-black bg-primary hover:bg-primary/90 transition disabled:opacity-50"
           >
@@ -1712,6 +1550,7 @@ export default function Admin() {
                   <tr className="border-b border-app/50">
                     <th className="text-left py-3 px-4 text-muted font-medium">Subject</th>
                     <th className="text-left py-3 px-4 text-muted font-medium">Scheduled For</th>
+                    <th className="text-left py-3 px-4 text-muted font-medium">To</th>
                     <th className="text-left py-3 px-4 text-muted font-medium">Recipients</th>
                     <th className="text-left py-3 px-4 text-muted font-medium">Status</th>
                     <th className="text-right py-3 px-4 text-muted font-medium">Action</th>
@@ -1723,6 +1562,17 @@ export default function Admin() {
                       <td className="py-3 px-4 text-white max-w-xs truncate">{email.subject}</td>
                       <td className="py-3 px-4 text-muted">
                         {new Date(email.scheduledFor).toLocaleString()}
+                      </td>
+                      <td className="py-3 px-4 text-muted max-w-xs">
+                        {email.recipientEmails.length <= 3 ? (
+                          <span className="truncate block" title={email.recipientEmails.join(', ')}>
+                            {email.recipientEmails.join(', ')}
+                          </span>
+                        ) : (
+                          <span title={email.recipientEmails.join(', ')}>
+                            {email.recipientEmails.slice(0, 2).join(', ')} +{email.recipientEmails.length - 2} more
+                          </span>
+                        )}
                       </td>
                       <td className="py-3 px-4 text-muted">{email.recipientCount}</td>
                       <td className="py-3 px-4">
@@ -1749,13 +1599,21 @@ export default function Admin() {
                       </td>
                       <td className="py-3 px-4 text-right">
                         {email.status === 'pending' && (
-                          <button
-                            onClick={() => handleCancelScheduled(email.id)}
-                            disabled={cancellingScheduled === email.id}
-                            className="btn-danger btn-sm"
-                          >
-                            {cancellingScheduled === email.id ? 'Cancelling...' : 'Cancel'}
-                          </button>
+                          <div className="flex gap-2 justify-end">
+                            <button
+                              onClick={() => openRescheduleModal(email)}
+                              className="btn-secondary btn-sm"
+                            >
+                              Reschedule
+                            </button>
+                            <button
+                              onClick={() => handleCancelScheduled(email.id)}
+                              disabled={cancellingScheduled === email.id}
+                              className="btn-danger btn-sm"
+                            >
+                              {cancellingScheduled === email.id ? 'Cancelling...' : 'Cancel'}
+                            </button>
+                          </div>
                         )}
                       </td>
                     </tr>
@@ -1765,6 +1623,58 @@ export default function Admin() {
             </div>
           )}
         </section>
+      )}
+
+      {/* Reschedule Modal */}
+      {rescheduleEmail && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+          <div className="panel w-full max-w-md mx-4">
+            <h3 className="text-lg font-semibold text-white mb-4">Reschedule Email</h3>
+            <div className="space-y-4">
+              <div>
+                <p className="text-sm text-muted mb-1">Subject</p>
+                <p className="text-white">{rescheduleEmail.subject}</p>
+              </div>
+              <div>
+                <p className="text-sm text-muted mb-1">Recipients</p>
+                <p className="text-white text-sm">
+                  {rescheduleEmail.recipientEmails.length <= 5
+                    ? rescheduleEmail.recipientEmails.join(', ')
+                    : `${rescheduleEmail.recipientEmails.slice(0, 4).join(', ')} +${rescheduleEmail.recipientEmails.length - 4} more`}
+                </p>
+              </div>
+              <div>
+                <label className="block text-sm text-muted mb-1">New Scheduled Time</label>
+                <input
+                  type="datetime-local"
+                  value={rescheduleDate}
+                  onChange={(e) => setRescheduleDate(e.target.value)}
+                  min={new Date().toISOString().slice(0, 16)}
+                  className="w-full px-3 py-2 rounded-lg border border-app bg-app text-white focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button
+                  onClick={() => {
+                    setRescheduleEmail(null);
+                    setRescheduleDate('');
+                  }}
+                  className="btn-secondary flex-1"
+                  disabled={rescheduling}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleReschedule}
+                  disabled={rescheduling || !rescheduleDate}
+                  className="btn-primary flex-1"
+                >
+                  {rescheduling ? 'Rescheduling...' : 'Reschedule'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Active Users Table */}

@@ -13,6 +13,7 @@ import {
   Hr,
 } from "@react-email/components";
 import { sanitizeUserInput } from "../../lib/html";
+import type { TemplateConfig } from "./types";
 
 export const WELCOME_2_TEMPLATE_VERSION = "2.4.0";
 
@@ -383,4 +384,22 @@ const styles: Record<string, React.CSSProperties> = {
     color: TOKENS.faint,
     textDecoration: "underline",
   },
+};
+
+/** Template configuration for admin email UI */
+export const templateConfig: TemplateConfig = {
+  id: "welcome-2",
+  displayName: "Welcome 2 - Wear Tracking",
+  description: "Explains how wear tracking works (send on day 3)",
+  defaultSubject: "Loam Logger: The Mechanic in your Pocket",
+  emailType: "welcome_onboarding",
+  templateVersion: WELCOME_2_TEMPLATE_VERSION,
+  adminVisible: true,
+  parameters: [
+    { key: "recipientFirstName", label: "First Name", type: "text", required: false, autoFill: "recipientFirstName" },
+    { key: "gearUrl", label: "Gear URL", type: "url", required: false, defaultValue: "${FRONTEND_URL}/gear" },
+    { key: "dashboardUrl", label: "Dashboard URL", type: "url", required: false, defaultValue: "${FRONTEND_URL}/dashboard" },
+    { key: "unsubscribeUrl", label: "Unsubscribe URL", type: "hidden", required: false, autoFill: "unsubscribeUrl" },
+  ],
+  render: (props) => React.createElement(Welcome2Email, props as Welcome2EmailProps),
 };

@@ -3,15 +3,14 @@ import { prisma } from '../lib/prisma';
 import { requireAdmin } from '../auth/adminMiddleware';
 import { activateWaitlistUser, generateTempPassword } from '../services/activation.service';
 import { hashPassword } from '../auth/password.utils';
-import { sendEmail, sendEmailWithAudit, sendReactEmailWithAudit } from '../services/email.service';
+import { sendEmail, sendReactEmailWithAudit } from '../services/email.service';
 import {
-  getActivationEmailSubject,
-  getActivationEmailHtml,
-  getAnnouncementEmailHtml,
-  ANNOUNCEMENT_TEMPLATE_VERSION,
+  getTemplateListForAPI,
+  getTemplateById,
+  type TemplateConfig,
 } from '../templates/emails';
 import FoundingRidersEmail, { FOUNDING_RIDERS_TEMPLATE_VERSION } from '../templates/emails/founding-riders';
-import FoundingRidersLaunchEmail, { FOUNDING_RIDERS_LAUNCH_TEMPLATE_VERSION } from '../templates/emails/pre-access';
+import FoundingRidersLaunchEmail, { FOUNDING_RIDERS_POST_ACTIVATION_INFO_TEMPLATE_VERSION } from '../templates/emails/pre-access';
 import { render } from '@react-email/render';
 import React from 'react';
 import { generateUnsubscribeToken } from '../lib/unsubscribe-token';
@@ -20,6 +19,7 @@ import { checkAdminRateLimit } from '../lib/rate-limit';
 import { logError } from '../lib/logger';
 import { escapeHtml } from '../lib/html';
 import type { UserRole } from '@prisma/client';
+import { getActivationEmailHtml, getActivationEmailSubject } from '../templates/emails/activation';
 
 const API_URL = process.env.API_URL || 'http://localhost:4000';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
@@ -900,169 +900,6 @@ router.get('/email/recipients', async (req, res) => {
   }
 });
 
-/**
- * POST /api/admin/email/preview
- * Preview rendered email template
- */
-router.post('/email/preview', async (req, res) => {
-  try {
-    const { templateType, subject, messageHtml } = req.body;
-
-    if (!templateType || !['announcement', 'custom'].includes(templateType)) {
-      return sendBadRequest(res, 'Invalid template type');
-    }
-
-    if (!subject || typeof subject !== 'string' || subject.trim().length === 0) {
-      return sendBadRequest(res, 'Subject is required');
-    }
-
-    if (!messageHtml || typeof messageHtml !== 'string') {
-      return sendBadRequest(res, 'Message body is required');
-    }
-
-    // Sanitize and convert newlines to <br> for HTML display
-    const sanitizedMessage = escapeHtml(messageHtml).replace(/\n/g, '<br>');
-
-    const html = getAnnouncementEmailHtml({
-      name: 'Preview User',
-      subject: subject.trim(),
-      messageHtml: sanitizedMessage,
-      unsubscribeUrl: '#preview-unsubscribe',
-    });
-
-    res.json({
-      subject: subject.trim(),
-      html,
-    });
-  } catch (error) {
-    logError('Admin email preview', error);
-    return sendInternalError(res, 'Failed to generate preview');
-  }
-});
-
-/**
- * POST /api/admin/email/send
- * Send bulk email to selected user IDs with audit logging
- */
-router.post('/email/send', async (req, res) => {
-  try {
-    const adminUserId = req.sessionUser?.uid;
-    if (!adminUserId) {
-      return sendUnauthorized(res);
-    }
-
-    // Rate limit bulk emails (1 per minute per admin)
-    const rateLimit = await checkAdminRateLimit('bulkEmail', adminUserId);
-    if (!rateLimit.allowed) {
-      res.setHeader('Retry-After', rateLimit.retryAfter.toString());
-      return res.status(429).json({
-        success: false,
-        error: 'Please wait before sending another bulk email',
-        retryAfter: rateLimit.retryAfter,
-      });
-    }
-
-    const { userIds, templateType, subject, messageHtml } = req.body;
-
-    // Validate inputs
-    if (!Array.isArray(userIds) || userIds.length === 0) {
-      return sendBadRequest(res, 'At least one recipient is required');
-    }
-
-    if (userIds.length > 500) {
-      return sendBadRequest(res, 'Cannot send to more than 500 recipients at once');
-    }
-
-    if (!templateType || !['announcement', 'custom'].includes(templateType)) {
-      return sendBadRequest(res, 'Invalid template type');
-    }
-
-    if (!subject || typeof subject !== 'string' || subject.trim().length === 0) {
-      return sendBadRequest(res, 'Subject is required');
-    }
-
-    if (!messageHtml || typeof messageHtml !== 'string') {
-      return sendBadRequest(res, 'Message body is required');
-    }
-
-    // Get all selected recipients
-    const recipients = await prisma.user.findMany({
-      where: { id: { in: userIds } },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        emailUnsubscribed: true,
-      },
-    });
-
-    if (recipients.length === 0) {
-      return sendBadRequest(res, 'No valid recipients found');
-    }
-
-    // Sanitize and convert newlines
-    const sanitizedMessage = escapeHtml(messageHtml).replace(/\n/g, '<br>');
-    const emailType = templateType === 'announcement' ? 'announcement' : 'custom';
-
-    const results = {
-      sent: 0,
-      failed: 0,
-      suppressed: 0,
-    };
-
-    // Send emails sequentially with delay to respect provider rate limits
-    for (let i = 0; i < recipients.length; i++) {
-      const recipient = recipients[i];
-
-      // Add delay between emails (except before first)
-      if (i > 0) {
-        await sleep(EMAIL_SEND_DELAY_MS);
-      }
-
-      try {
-        const unsubscribeToken = generateUnsubscribeToken(recipient.id);
-        const unsubscribeUrl = `${API_URL}/api/email/unsubscribe?token=${unsubscribeToken}`;
-
-        const html = await getAnnouncementEmailHtml({
-          name: recipient.name || undefined,
-          subject: subject.trim(),
-          messageHtml: sanitizedMessage,
-          unsubscribeUrl,
-        });
-
-        const result = await sendEmailWithAudit({
-          to: recipient.email,
-          subject: subject.trim(),
-          html,
-          userId: recipient.id,
-          emailType,
-          triggerSource: 'admin_manual',
-          templateVersion: ANNOUNCEMENT_TEMPLATE_VERSION,
-        });
-
-        results[result.status]++;
-      } catch (error) {
-        results.failed++;
-        console.error(`[BulkEmail] Failed to send to ${recipient.email}:`, error);
-      }
-    }
-
-    console.log(
-      `[BulkEmail] Admin ${adminUserId} sent ${templateType}: ` +
-        `sent=${results.sent}, failed=${results.failed}, suppressed=${results.suppressed}`
-    );
-
-    res.json({
-      success: true,
-      results,
-      total: recipients.length,
-    });
-  } catch (error) {
-    logError('Admin email send', error);
-    return sendInternalError(res, 'Failed to send emails');
-  }
-});
-
 // ============================================================================
 // Founding Riders Email Endpoints
 // ============================================================================
@@ -1322,7 +1159,7 @@ router.post('/email/pre-access', async (req, res) => {
           userId: recipient.id,
           emailType: 'founding_welcome',
           triggerSource: 'admin_manual',
-          templateVersion: FOUNDING_RIDERS_LAUNCH_TEMPLATE_VERSION,
+          templateVersion: FOUNDING_RIDERS_POST_ACTIVATION_INFO_TEMPLATE_VERSION,
         });
 
         results[result.status]++;
@@ -1537,6 +1374,7 @@ router.get('/email/scheduled', async (req, res) => {
           id: true,
           subject: true,
           scheduledFor: true,
+          recipientIds: true,
           recipientCount: true,
           status: true,
           createdAt: true,
@@ -1550,8 +1388,24 @@ router.get('/email/scheduled', async (req, res) => {
       prisma.scheduledEmail.count({ where }),
     ]);
 
+    // Fetch recipient emails for all scheduled emails
+    const allRecipientIds = [...new Set(emails.flatMap((e) => e.recipientIds))];
+    const users = await prisma.user.findMany({
+      where: { id: { in: allRecipientIds } },
+      select: { id: true, email: true },
+    });
+    const userEmailMap = new Map(users.map((u) => [u.id, u.email]));
+
+    // Add recipient emails to each scheduled email
+    const emailsWithRecipients = emails.map((email) => ({
+      ...email,
+      recipientEmails: email.recipientIds
+        .map((id) => userEmailMap.get(id))
+        .filter((email): email is string => !!email),
+    }));
+
     res.json({
-      emails,
+      emails: emailsWithRecipients,
       pagination: {
         page,
         limit,
@@ -1710,6 +1564,207 @@ router.delete('/email/scheduled/:id', async (req, res) => {
   } catch (error) {
     logError('Admin cancel scheduled email', error);
     return sendInternalError(res, 'Failed to cancel scheduled email');
+  }
+});
+
+// ===== UNIFIED EMAIL TEMPLATE ENDPOINTS =====
+
+/**
+ * GET /api/admin/email/templates
+ * Returns list of available email templates with their parameters
+ */
+router.get('/email/templates', async (_req, res) => {
+  try {
+    const templates = getTemplateListForAPI();
+    res.json({ templates });
+  } catch (error) {
+    logError('Admin get templates', error);
+    return sendInternalError(res, 'Failed to fetch templates');
+  }
+});
+
+/**
+ * Helper to build template props from user-provided parameters
+ */
+function buildTemplateProps(
+  template: TemplateConfig,
+  userParameters: Record<string, string>,
+  autoFillValues: { recipientFirstName?: string; email?: string; unsubscribeUrl?: string }
+): Record<string, unknown> {
+  const props: Record<string, unknown> = {};
+
+  for (const param of template.parameters) {
+    // Auto-fill values take precedence for special fields
+    if (param.autoFill && autoFillValues[param.autoFill] !== undefined) {
+      props[param.key] = autoFillValues[param.autoFill];
+    } else if (userParameters[param.key] !== undefined && userParameters[param.key] !== '') {
+      props[param.key] = userParameters[param.key];
+    } else if (param.defaultValue !== undefined) {
+      // Replace URL placeholders
+      props[param.key] = param.defaultValue
+        .replace('${FRONTEND_URL}', FRONTEND_URL)
+        .replace('${API_URL}', API_URL);
+    }
+  }
+
+  return props;
+}
+
+/**
+ * POST /api/admin/email/unified/preview
+ * Preview any email template with provided parameters
+ */
+router.post('/email/unified/preview', async (req, res) => {
+  try {
+    const { templateId, parameters = {}, subject } = req.body;
+
+    if (!templateId || typeof templateId !== 'string') {
+      return sendBadRequest(res, 'templateId is required');
+    }
+
+    const template = getTemplateById(templateId);
+    if (!template) {
+      return sendBadRequest(res, 'Invalid template ID');
+    }
+
+    // Build props with preview placeholder values
+    const props = buildTemplateProps(template, parameters, {
+      recipientFirstName: 'Preview User',
+      email: 'preview@example.com',
+      unsubscribeUrl: '#preview-unsubscribe',
+    });
+
+    // Render the template
+    const html = await render(template.render(props));
+
+    res.json({
+      success: true,
+      subject: subject || template.defaultSubject,
+      html,
+    });
+  } catch (error) {
+    logError('Admin unified preview', error);
+    return sendInternalError(res, 'Failed to generate preview');
+  }
+});
+
+/**
+ * POST /api/admin/email/unified/send
+ * Send any email template to selected recipients
+ */
+router.post('/email/unified/send', async (req, res) => {
+  try {
+    const adminUserId = req.sessionUser?.uid;
+    if (!adminUserId) {
+      return sendUnauthorized(res);
+    }
+
+    // Rate limit
+    const rateLimit = await checkAdminRateLimit('bulkEmail', adminUserId);
+    if (!rateLimit.allowed) {
+      res.setHeader('Retry-After', rateLimit.retryAfter.toString());
+      return res.status(429).json({
+        success: false,
+        error: 'Please wait before sending another bulk email',
+        retryAfter: rateLimit.retryAfter,
+      });
+    }
+
+    const { templateId, recipientIds, parameters = {}, subject } = req.body;
+
+    // Validate templateId
+    if (!templateId || typeof templateId !== 'string') {
+      return sendBadRequest(res, 'templateId is required');
+    }
+
+    const template = getTemplateById(templateId);
+    if (!template) {
+      return sendBadRequest(res, 'Invalid template ID');
+    }
+
+    // Validate recipients
+    if (!Array.isArray(recipientIds) || recipientIds.length === 0) {
+      return sendBadRequest(res, 'At least one recipient is required');
+    }
+
+    if (recipientIds.length > 500) {
+      return sendBadRequest(res, 'Cannot send to more than 500 recipients at once');
+    }
+
+    // Validate all IDs
+    const invalidIds = recipientIds.filter((id: unknown) => !isValidId(id));
+    if (invalidIds.length > 0) {
+      return sendBadRequest(res, 'Invalid recipient ID format');
+    }
+
+    // Fetch recipients
+    const recipients = await prisma.user.findMany({
+      where: { id: { in: recipientIds } },
+      select: { id: true, email: true, name: true, emailUnsubscribed: true },
+    });
+
+    if (recipients.length === 0) {
+      return sendBadRequest(res, 'No valid recipients found');
+    }
+
+    const emailSubject = subject || template.defaultSubject;
+    const results = { sent: 0, failed: 0, suppressed: 0 };
+
+    // Send emails sequentially with delay
+    for (let i = 0; i < recipients.length; i++) {
+      const recipient = recipients[i];
+      if (i > 0) await sleep(EMAIL_SEND_DELAY_MS);
+
+      try {
+        // Skip unsubscribed users
+        if (recipient.emailUnsubscribed) {
+          results.suppressed++;
+          continue;
+        }
+
+        const unsubscribeToken = generateUnsubscribeToken(recipient.id);
+        const unsubscribeUrl = `${API_URL}/api/email/unsubscribe?token=${unsubscribeToken}`;
+        const firstName = recipient.name?.split(' ')[0] || undefined;
+
+        // Build per-recipient props
+        const props = buildTemplateProps(template, parameters, {
+          recipientFirstName: firstName,
+          email: recipient.email,
+          unsubscribeUrl,
+        });
+
+        const result = await sendReactEmailWithAudit({
+          to: recipient.email,
+          subject: emailSubject,
+          reactElement: template.render(props),
+          userId: recipient.id,
+          emailType: template.emailType,
+          triggerSource: 'admin_manual',
+          templateVersion: template.templateVersion,
+        });
+
+        if (result.status === 'sent') {
+          results.sent++;
+        } else if (result.status === 'suppressed') {
+          results.suppressed++;
+        } else {
+          results.failed++;
+        }
+      } catch (error) {
+        logError(`Unified email to ${recipient.email}`, error);
+        results.failed++;
+      }
+    }
+
+    console.log(
+      `[Admin] Unified email (${templateId}) sent by ${adminUserId}: ` +
+        `${results.sent} sent, ${results.failed} failed, ${results.suppressed} suppressed`
+    );
+
+    res.json({ success: true, results, total: recipients.length });
+  } catch (error) {
+    logError('Admin unified send', error);
+    return sendInternalError(res, 'Failed to send emails');
   }
 });
 

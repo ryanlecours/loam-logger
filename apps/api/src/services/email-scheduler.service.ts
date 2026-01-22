@@ -2,7 +2,7 @@ import * as React from 'react';
 import { render } from '@react-email/render';
 import { prisma } from '../lib/prisma';
 import { sendEmailWithAudit } from './email.service';
-import { getAnnouncementEmailHtml, ANNOUNCEMENT_TEMPLATE_VERSION } from '../templates/emails';
+import { getAnnouncementEmailHtml, ANNOUNCEMENT_TEMPLATE_VERSION } from '../templates/emails/announcement';
 import Welcome1Email, { WELCOME_1_TEMPLATE_VERSION } from '../templates/emails/welcome-1';
 import Welcome2Email, { WELCOME_2_TEMPLATE_VERSION } from '../templates/emails/welcome-2';
 import Welcome3Email, { WELCOME_3_TEMPLATE_VERSION } from '../templates/emails/welcome-3';

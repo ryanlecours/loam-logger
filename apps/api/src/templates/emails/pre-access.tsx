@@ -7,16 +7,18 @@ import {
   Heading,
   Hr,
   Html,
+  Img,
   Link,
   Preview,
   Section,
   Text,
 } from "@react-email/components";
 import { sanitizeUserInput } from "../../lib/html";
+import type { TemplateConfig } from "./types";
 
-export const FOUNDING_RIDERS_LAUNCH_TEMPLATE_VERSION = "1.0.0";
+export const FOUNDING_RIDERS_POST_ACTIVATION_INFO_TEMPLATE_VERSION = "1.0.0";
 
-export type FoundingRidersLaunchEmailProps = {
+export type FoundingRidersPostActivationInfoEmailProps = {
   recipientFirstName?: string;
   appUrl?: string;
   spokesUrl?: string;
@@ -68,13 +70,13 @@ const darkModeStyles = `
   }
 `;
 
-export default function FoundingRidersLaunchEmail({
+export default function FoundingRidersPostActivationInfoEmail({
   recipientFirstName,
   appUrl = "https://loamlogger.app",
   spokesUrl = "https://99spokes.com",
   unsubscribeUrl,
   supportEmail = "ryan.lecours@loamlogger.app",
-}: FoundingRidersLaunchEmailProps) {
+}: FoundingRidersPostActivationInfoEmailProps) {
   const safeName = sanitizeUserInput(recipientFirstName);
   const safeAppUrl = sanitizeUserInput(appUrl, 200);
   const safeSpokesUrl = sanitizeUserInput(spokesUrl, 200);
@@ -82,19 +84,13 @@ export default function FoundingRidersLaunchEmail({
 
   const hello = safeName ? `Hello ${safeName},` : "Hello,";
 
-  const mailIdeaHref = `mailto:${encodeURIComponent(
+  const mailFeedbackHref = `mailto:${encodeURIComponent(
     safeSupportEmail
   )}?subject=${encodeURIComponent("Loam Logger Feedback")}`;
 
   const mailBugHref = `mailto:${encodeURIComponent(
     safeSupportEmail
   )}?subject=${encodeURIComponent("Loam Logger Bug Report")}`;
-
-  const mailShareHref = `mailto:?subject=${encodeURIComponent(
-    "Loam Logger"
-  )}&body=${encodeURIComponent(
-    `I thought you might be interested in this bike maintenance app: ${safeAppUrl}`
-  )}`;
 
   return (
     <Html>
@@ -104,7 +100,7 @@ export default function FoundingRidersLaunchEmail({
         <style dangerouslySetInnerHTML={{ __html: darkModeStyles }} />
       </Head>
 
-      <Preview>{`Your Founding Rider access to Loam Logger opens today.`}</Preview>
+      <Preview>{`A quick overview of what to explore now that your Loam Logger account is live.`}</Preview>
 
       <Body className="ll-body" style={styles.body}>
         <Container className="ll-container" style={styles.container}>
@@ -118,7 +114,7 @@ export default function FoundingRidersLaunchEmail({
           {/* Main Card */}
           <Section className="ll-card" style={styles.card}>
             <Heading className="ll-h1" style={styles.h1}>
-              Founding Riders access to Loam Logger opens today
+              A quick overview now that your account is live
             </Heading>
 
             <Text className="ll-p" style={styles.p}>
@@ -126,33 +122,29 @@ export default function FoundingRidersLaunchEmail({
             </Text>
 
             <Text className="ll-p" style={styles.p}>
-              Today I am opening Loam Logger to you and the rest of the Founding
-              Riders.
+              Your account is active, and you should be able to log in and start using Loam Logger.
+              I want to fill you in on what is live, what is coming next, and where your feedback makes the biggest difference.
             </Text>
 
-            <Text className="ll-p" style={styles.p}>
-              My goal with Loam Logger is simple: help you get out of work, get
-              on your bike, and feel confident that your bike is good to go,
-              without having to think too hard about it.
-            </Text>
-
-            <Text className="ll-p" style={styles.p}>
-              Later today, you will receive a second email with your login
-              details, including a temporary password that you will reset on
-              first login. From there, the app should do most of the explaining
-              on its own.
-            </Text>
-
-            {/* Quick callout */}
             <Section className="ll-callout" style={styles.callout}>
               <Text className="ll-p" style={{ ...styles.p, margin: 0 }}>
                 <span className="ll-emph" style={styles.emph}>
-                  The goal is simple:
+                  As you get started:
                 </span>
                 <br />
-                You should be able to grab your bike after work and head out the
-                door with confidence that it is good to go.
+                I have a few onboarding emails on the way to help you discover all of the
+                functionality built into Loam Logger.
               </Text>
+            </Section>
+
+            {/* Hero image - riding through ferns */}
+            <Section style={styles.imageContainer}>
+              <Img
+                src={`${safeAppUrl}/ridingThroughFerns.jpg`}
+                alt="Mountain biker riding through lush ferns on a forest trail"
+                width="100%"
+                style={styles.heroImage}
+              />
             </Section>
 
             <Hr className="ll-hr" style={styles.hr} />
@@ -162,16 +154,14 @@ export default function FoundingRidersLaunchEmail({
             </Heading>
 
             <Text className="ll-bullets" style={styles.bullets}>
-              • Track all of your bikes in one place, including bike importing
-              from{" "}
+              • Track all of your bikes in one place, including bike importing from{" "}
               <Link href={safeSpokesUrl} className="ll-link" style={styles.link}>
                 99spokes.com
               </Link>
             </Text>
 
             <Text className="ll-bullets" style={styles.bullets}>
-              • Basic hour tracking with set service intervals for a familiar,
-              conventional maintenance experience
+              • Basic hour tracking with set service intervals for a familiar, conventional maintenance experience
             </Text>
 
             <Text className="ll-bullets" style={styles.bullets}>
@@ -179,17 +169,18 @@ export default function FoundingRidersLaunchEmail({
             </Text>
 
             <Text className="ll-bullets" style={styles.bullets}>
-              • Ride stats across multiple timeframes such as year to date, last
-              year, and recent
+              • Ride stats across multiple timeframes such as year to date, last year, and recent
             </Text>
 
             <Text className="ll-bullets" style={styles.bullets}>
-              • A unified view of rides from multiple data providers as they
-              become available
+              • A unified view of rides from multiple data providers as they become available
             </Text>
 
             <Text className="ll-bullets" style={styles.bullets}>
-              • Access to the <span className="ll-emph" style={styles.emph}>predictive maintenance algorithm</span>
+              • Access to the{" "}
+              <span className="ll-emph" style={styles.emph}>
+                predictive maintenance algorithm
+              </span>
             </Text>
 
             <Text className="ll-bullets" style={{ ...styles.bullets, paddingLeft: 32 }}>
@@ -206,9 +197,11 @@ export default function FoundingRidersLaunchEmail({
 
             <Section className="ll-callout" style={styles.callout}>
               <Text className="ll-p" style={{ ...styles.p, marginBottom: 0 }}>
-                A quick note on the predictive side: <span className="ll-emph" style={styles.emph}>I believe this will be a
-                real advantage long term</span>, especially for privateers and riders
-                who log a lot of varied terrain, but it needs more real world
+                A quick note on the predictive side:{" "}
+                <span className="ll-emph" style={styles.emph}>
+                  I believe this will be a real advantage long term
+                </span>
+                , especially for privateers and riders who log a lot of varied terrain, but it needs more real world
                 data to reach true accuracy.
               </Text>
               <Text className="ll-p" style={{ ...styles.p, marginTop: 10, marginBottom: 0 }}>
@@ -225,10 +218,12 @@ export default function FoundingRidersLaunchEmail({
             </Heading>
 
             <Text className="ll-p" style={styles.p}>
-              Strava has currently limited me to a single athlete connection
-              while they review the app. I have already requested additional
-              access and I expect <span className="ll-emph" style={styles.emph}>Strava connections to open up in the next five
-              to seven days</span>. I will email you as soon as it is ready.
+              Strava has currently limited me to a single athlete connection while they review the app.
+              I have already requested additional access and I expect{" "}
+              <span className="ll-emph" style={styles.emph}>
+                Strava connections to open up in the next five to seven days
+              </span>
+              . I will email you as soon as it is ready.
             </Text>
 
             <Hr className="ll-hr" style={styles.hr} />
@@ -238,8 +233,7 @@ export default function FoundingRidersLaunchEmail({
             </Heading>
 
             <Text className="ll-bullets" style={styles.bullets}>
-              • Front and rear brake, rotor, and tire tracking (five to seven
-              days)
+              • Front and rear brake, rotor, and tire tracking (five to seven days)
             </Text>
             <Text className="ll-bullets" style={styles.bullets}>
               • COROS, Suunto, and WHOOP integrations (next two weeks)
@@ -257,6 +251,16 @@ export default function FoundingRidersLaunchEmail({
               • Bike issue diagnostic wizard (April or May)
             </Text>
 
+            {/* Second image - Whistler scene */}
+            <Section style={styles.imageContainer}>
+              <Img
+                src={`${safeAppUrl}/dakotaWhis.jpg`}
+                alt="Mountain biking in Whistler"
+                width="100%"
+                style={styles.heroImage}
+              />
+            </Section>
+
             <Hr className="ll-hr" style={styles.hr} />
 
             <Heading as="h2" className="ll-h2" style={styles.h2}>
@@ -264,31 +268,25 @@ export default function FoundingRidersLaunchEmail({
             </Heading>
 
             <Text className="ll-p" style={styles.p}>
-              I have already received some great ideas, including comparing
-              performance when running different components on the same bike.
-              One example is coil versus air shock performance on the same
-              trail. These problems come with real complexity, including setup
-              differences, riding style, and day to day energy, but I believe
-              there is enough signal to make something genuinely useful over
-              time.
+              I have already received some great ideas, including comparing performance when running different
+              components on the same bike. One example is coil versus air shock performance on the same trail.
+              These problems come with real complexity, including setup differences, riding style, and day to day
+              energy, but I believe there is enough signal to make something genuinely useful over time.
             </Text>
 
             <Text className="ll-p" style={styles.p}>
-              The biggest thing I need from you is simple: go ride. Tell me what
-              feels sticky, confusing, missing, or unintuitive, and what you
-              wish the app did better. Whatever you give me is what I will
-              focus on.
+              The biggest thing I need from you is simple: go ride. Tell me what feels sticky, confusing, missing,
+              or unintuitive, and what you wish the app did better. Whatever you give me is what I will focus on.
             </Text>
 
             <Section style={{ paddingTop: 8, paddingBottom: 12, textAlign: "center" }}>
-              <Button href={mailIdeaHref} className="ll-button" style={styles.button}>
+              <Button href={mailFeedbackHref} className="ll-button" style={styles.button}>
                 💡 Share Feedback
               </Button>
             </Section>
 
             <Text className="ll-p" style={styles.p}>
-              If you find a bug or something feels off, that is just as valuable
-              as feature ideas.
+              If you find a bug or something feels off, that is just as valuable as feature ideas.
             </Text>
 
             <Section style={{ paddingBottom: 12, textAlign: "center" }}>
@@ -297,25 +295,21 @@ export default function FoundingRidersLaunchEmail({
               </Button>
             </Section>
 
-            <Text className="ll-p" style={styles.p}>
-              If you have friends who care deeply about their bikes and would
-              enjoy contributing ideas, you can share{" "}
-              <Link href={safeAppUrl} className="ll-link" style={styles.link}>
-                loamlogger.app
-              </Link>{" "}
-              with them.
-            </Text>
-
-            <Section style={{ paddingBottom: 12, textAlign: "center" }}>
-              <Button href={mailShareHref} className="ll-button" style={styles.button}>
-                🔗 Share Loam Logger
-              </Button>
+            {/* Third image - golden hour */}
+            <Section style={styles.imageContainer}>
+              <Img
+                src={`${safeAppUrl}/goldenHourULine.jpg`}
+                alt="Mountain biker silhouetted against golden hour light"
+                width="100%"
+                style={styles.heroImage}
+              />
             </Section>
 
-
             <Text className="ll-p" style={styles.p}>
-              That's all I have for this update. Hope to catch you out on the trails, and excited to hear how Loam Logger helps you ride more and worry less!
+              That is all I have for this update. I hope to catch you out on the trails, and I am excited to hear
+              how Loam Logger helps you ride more and worry less.
             </Text>
+
             <Text
               className="ll-signature"
               style={{
@@ -420,6 +414,15 @@ const styles: Record<string, React.CSSProperties> = {
     borderColor: TOKENS.border,
     margin: "14px 0 10px",
   },
+  imageContainer: {
+    margin: "16px 0",
+    textAlign: "center" as const,
+  },
+  heroImage: {
+    borderRadius: 12,
+    maxWidth: "100%",
+    height: "auto",
+  },
   button: {
     display: "inline-block",
     backgroundColor: TOKENS.ctaBg,
@@ -447,4 +450,27 @@ const styles: Record<string, React.CSSProperties> = {
     color: TOKENS.faint,
     textDecoration: "underline",
   },
+};
+
+/** Template configuration for admin email UI */
+export const templateConfig: TemplateConfig = {
+  id: "post-activation-info",
+  displayName: "Post-Activation Overview",
+  description: "Post activation overview with current features, limitations, and upcoming roadmap",
+  defaultSubject: "A quick overview now that your account is live",
+  emailType: "founding_post_activation_info",
+  templateVersion: FOUNDING_RIDERS_POST_ACTIVATION_INFO_TEMPLATE_VERSION,
+  adminVisible: true,
+  parameters: [
+    { key: "recipientFirstName", label: "First Name", type: "text", required: false, autoFill: "recipientFirstName" },
+    { key: "appUrl", label: "App URL", type: "url", required: false, defaultValue: "${FRONTEND_URL}" },
+    { key: "spokesUrl", label: "99spokes URL", type: "url", required: false, defaultValue: "https://99spokes.com" },
+    { key: "supportEmail", label: "Support Email", type: "text", required: false, defaultValue: "ryan.lecours@loamlogger.app" },
+    { key: "unsubscribeUrl", label: "Unsubscribe URL", type: "hidden", required: false, autoFill: "unsubscribeUrl" },
+  ],
+  render: (props) =>
+    React.createElement(
+      FoundingRidersPostActivationInfoEmail,
+      props as FoundingRidersPostActivationInfoEmailProps
+    ),
 };

@@ -26,8 +26,8 @@ jest.mock('./email.service', () => ({
 }));
 
 // Mock email templates
-jest.mock('../templates/emails', () => ({
-  getAnnouncementEmailHtml: jest.fn().mockReturnValue('<p>Test Email</p>'),
+jest.mock('../templates/emails/announcement', () => ({
+  getAnnouncementEmailHtml: jest.fn().mockResolvedValue('<p>Test Email</p>'),
   ANNOUNCEMENT_TEMPLATE_VERSION: '1.0.0',
 }));
 
