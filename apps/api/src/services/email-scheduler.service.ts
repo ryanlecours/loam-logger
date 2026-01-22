@@ -37,11 +37,11 @@ function getEmailTypeAndVersion(templateType: string | null): {
 } {
   switch (templateType) {
     case 'welcome_1':
-      return { emailType: 'welcome', templateVersion: WELCOME_1_TEMPLATE_VERSION };
+      return { emailType: 'welcome_series', templateVersion: WELCOME_1_TEMPLATE_VERSION };
     case 'welcome_2':
-      return { emailType: 'welcome', templateVersion: WELCOME_2_TEMPLATE_VERSION };
+      return { emailType: 'welcome_series', templateVersion: WELCOME_2_TEMPLATE_VERSION };
     case 'welcome_3':
-      return { emailType: 'welcome', templateVersion: WELCOME_3_TEMPLATE_VERSION };
+      return { emailType: 'welcome_series', templateVersion: WELCOME_3_TEMPLATE_VERSION };
     case 'announcement':
       return { emailType: 'announcement', templateVersion: ANNOUNCEMENT_TEMPLATE_VERSION };
     default:

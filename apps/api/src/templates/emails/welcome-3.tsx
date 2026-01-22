@@ -344,7 +344,7 @@ export const templateConfig: TemplateConfig = {
   displayName: "Welcome 3 - Follow-up",
   description: "One-week follow-up with customization tips (send on day 7)",
   defaultSubject: "One week in — a quick closing note",
-  emailType: "welcome_onboarding",
+  emailType: "welcome_series",
   templateVersion: WELCOME_3_TEMPLATE_VERSION,
   adminVisible: true,
   parameters: [

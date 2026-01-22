@@ -392,7 +392,7 @@ export const templateConfig: TemplateConfig = {
   displayName: "Welcome 2 - Wear Tracking",
   description: "Explains how wear tracking works (send on day 3)",
   defaultSubject: "Loam Logger: The Mechanic in your Pocket",
-  emailType: "welcome_onboarding",
+  emailType: "welcome_series",
   templateVersion: WELCOME_2_TEMPLATE_VERSION,
   adminVisible: true,
   parameters: [

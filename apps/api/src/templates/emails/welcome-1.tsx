@@ -339,7 +339,7 @@ export const templateConfig: TemplateConfig = {
   displayName: "Welcome 1 - Setup Guide",
   description: "Initial setup guide with 3-step checklist (send after activation)",
   defaultSubject: "Quick setup, then forget it exists",
-  emailType: "welcome_onboarding",
+  emailType: "welcome_series",
   templateVersion: WELCOME_1_TEMPLATE_VERSION,
   adminVisible: true,
   parameters: [
