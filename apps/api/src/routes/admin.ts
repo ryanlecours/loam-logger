@@ -1729,9 +1729,11 @@ router.post('/email/unified/send', async (req, res) => {
       return sendUnauthorized(res);
     }
 
-    // Validate required environment variables for email URLs
-    if (!process.env.FRONTEND_URL || !process.env.API_URL) {
-      console.error('[Admin] Missing required environment variables: FRONTEND_URL or API_URL not set');
+    // Validate that we have production URLs configured (not localhost fallbacks)
+    // In production, FRONTEND_URL and API_URL should be set to actual domains
+    const isLocalConfig = FRONTEND_URL.includes('localhost') || API_URL.includes('localhost');
+    if (isLocalConfig && process.env.NODE_ENV === 'production') {
+      console.error('[Admin] Production environment detected but using localhost URLs. Set FRONTEND_URL and API_URL environment variables.');
       return sendInternalError(res, 'Server configuration error');
     }
 

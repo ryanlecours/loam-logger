@@ -288,11 +288,34 @@ export default function FoundingRidersPostActivationInfoEmail({
             </Heading>
 
             <Text className="ll-p" style={styles.p}>
-              I have already received some great ideas, including comparing performance when running different
-              components on the same bike. One example is coil versus air shock performance on the same trail.
-              These problems come with real complexity, including setup differences, riding style, and day to day
-              energy, but I believe there is enough signal to make something genuinely useful over time.
+              I have received some awesome ideas, keep them coming!
+              </Text>
+            <Text className="ll-p" style={styles.p}>
+              One idea I would like to highlight is performance comparison when running different
+              components on the same bike. Think coil versus air shock performance on the same trail.
+              </Text>
+            <Text className="ll-p" style={styles.p}>
+              Problems like this come with real complexity, but I believe there is enough signal to make a feature like this a reality.
+              Features as complex as this one will take research and conversations with many of you, but I foresee a July or August rollout on this sort of functionality.
             </Text>
+            <Section className="ll-callout" style={styles.callout}>
+            <Text className="ll-p" style={{ ...styles.p, marginBottom: 0 }}>
+              I love this example problem. It falls squarely into Loam Logger's mission of helping riders make
+              data-driven decisions about their bikes. Keep sending me what you think - the good, the bad and the wildly ambitious!
+            </Text>
+          </Section>
+
+          <Hr className="ll-hr" style={styles.hr} />
+
+            {/* Third image - portrait */}
+            <Section style={styles.imageContainer}>
+              <Img
+                src={`https://loamlogger.app/goldenHourULine.jpg`}
+                alt="Golden hour on Unenmployment Line trail"
+                width="60%"
+                style={styles.heroImage}
+              />
+            </Section>
 
             <Text className="ll-p" style={styles.p}>
               The biggest thing I need from you is simple: go ride. Tell me what feels sticky, confusing, missing,
@@ -332,15 +355,6 @@ export default function FoundingRidersPostActivationInfoEmail({
             >
               Ryan
             </Text>
-            {/* Third image - portrait */}
-            <Section style={styles.imageContainer}>
-              <Img
-                src={`https://loamlogger.app/ryanPortrait.jpg`}
-                alt="Ryan LeCours, founder of Loam Logger"
-                width="60%"
-                style={styles.heroImage}
-              />
-            </Section>
           </Section>
 
           {/* Footer */}
