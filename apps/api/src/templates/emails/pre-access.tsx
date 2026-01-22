@@ -70,6 +70,24 @@ const darkModeStyles = `
     .ll-footer { color: ${DARK_TOKENS.footer} !important; }
     .ll-footer-link { color: ${DARK_TOKENS.faint} !important; }
   }
+
+  /* Mobile responsive: stack columns and show image first */
+  @media only screen and (max-width: 600px) {
+    .ll-two-col-row { display: block !important; }
+    .ll-col-bullets, .ll-col-image {
+      display: block !important;
+      width: 100% !important;
+      padding-right: 0 !important;
+      padding-bottom: 16px !important;
+    }
+    /* Use flexbox to reorder: image first on mobile */
+    .ll-two-col-row {
+      display: flex !important;
+      flex-direction: column-reverse !important;
+    }
+    .ll-col-image { order: 2 !important; }
+    .ll-col-bullets { order: 1 !important; }
+  }
 `;
 
 export default function FoundingRidersPostActivationInfoEmail({
@@ -144,9 +162,9 @@ export default function FoundingRidersPostActivationInfoEmail({
               What is ready right now
             </Heading>
 
-            {/* Two-column layout: bullets on left, image on right */}
-            <Row>
-              <Column style={{ width: "60%", verticalAlign: "top", paddingRight: 16 }}>
+            {/* Two-column layout: bullets on left, image on right (stacks on mobile with image first) */}
+            <Row className="ll-two-col-row">
+              <Column className="ll-col-bullets" style={{ width: "60%", verticalAlign: "top", paddingRight: 16 }}>
                 <Text className="ll-bullets" style={styles.bullets}>
                   • Track all of your bikes in one place, including bike importing from{" "}
                   <Link href={safeSpokesUrl} className="ll-link" style={styles.link}>
@@ -189,7 +207,7 @@ export default function FoundingRidersPostActivationInfoEmail({
                   - Estimates how many rides you likely have left before a component deserves attention
                 </Text>
               </Column>
-              <Column style={{ width: "40%", verticalAlign: "top" }}>
+              <Column className="ll-col-image" style={{ width: "40%", verticalAlign: "top" }}>
                 <Img
                   src={`https://loamlogger.app/ridingThroughFerns.jpg`}
                   alt="Mountain biker riding through lush ferns on a forest trail"
