@@ -22,7 +22,6 @@ export const FOUNDING_RIDERS_POST_ACTIVATION_INFO_TEMPLATE_VERSION = "1.0.0";
 
 export type FoundingRidersPostActivationInfoEmailProps = {
   recipientFirstName?: string;
-  appUrl?: string;
   spokesUrl?: string;
   unsubscribeUrl?: string;
   supportEmail?: string;
@@ -92,7 +91,6 @@ const darkModeStyles = `
 
 export default function FoundingRidersPostActivationInfoEmail({
   recipientFirstName,
-  appUrl = "https://loamlogger.app",
   spokesUrl = "https://99spokes.com",
   unsubscribeUrl,
   supportEmail = "ryan.lecours@loamlogger.app",
