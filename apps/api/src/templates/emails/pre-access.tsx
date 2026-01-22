@@ -2,6 +2,7 @@ import * as React from "react";
 import {
   Body,
   Button,
+  Column,
   Container,
   Head,
   Heading,
@@ -10,6 +11,7 @@ import {
   Img,
   Link,
   Preview,
+  Row,
   Section,
   Text,
 } from "@react-email/components";
@@ -78,7 +80,6 @@ export default function FoundingRidersPostActivationInfoEmail({
   supportEmail = "ryan.lecours@loamlogger.app",
 }: FoundingRidersPostActivationInfoEmailProps) {
   const safeName = sanitizeUserInput(recipientFirstName);
-  const safeAppUrl = sanitizeUserInput(appUrl, 200);
   const safeSpokesUrl = sanitizeUserInput(spokesUrl, 200);
   const safeSupportEmail = sanitizeUserInput(supportEmail, 200);
 
@@ -137,63 +138,66 @@ export default function FoundingRidersPostActivationInfoEmail({
               </Text>
             </Section>
 
-            {/* Hero image - riding through ferns */}
-            <Section style={styles.imageContainer}>
-              <Img
-                src={`${safeAppUrl}/ridingThroughFerns.jpg`}
-                alt="Mountain biker riding through lush ferns on a forest trail"
-                width="100%"
-                style={styles.heroImage}
-              />
-            </Section>
-
             <Hr className="ll-hr" style={styles.hr} />
 
             <Heading as="h2" className="ll-h2" style={styles.h2}>
               What is ready right now
             </Heading>
 
-            <Text className="ll-bullets" style={styles.bullets}>
-              • Track all of your bikes in one place, including bike importing from{" "}
-              <Link href={safeSpokesUrl} className="ll-link" style={styles.link}>
-                99spokes.com
-              </Link>
-            </Text>
+            {/* Two-column layout: bullets on left, image on right */}
+            <Row>
+              <Column style={{ width: "60%", verticalAlign: "top", paddingRight: 16 }}>
+                <Text className="ll-bullets" style={styles.bullets}>
+                  • Track all of your bikes in one place, including bike importing from{" "}
+                  <Link href={safeSpokesUrl} className="ll-link" style={styles.link}>
+                    99spokes.com
+                  </Link>
+                </Text>
 
-            <Text className="ll-bullets" style={styles.bullets}>
-              • Basic hour tracking with set service intervals for a familiar, conventional maintenance experience
-            </Text>
+                <Text className="ll-bullets" style={styles.bullets}>
+                  • Basic hour tracking with set service intervals for a familiar, conventional maintenance experience
+                </Text>
 
-            <Text className="ll-bullets" style={styles.bullets}>
-              • Automatic ride importing from Garmin, including backfilled rides
-            </Text>
+                <Text className="ll-bullets" style={styles.bullets}>
+                  • Automatic ride importing from Garmin, including backfilled rides
+                </Text>
 
-            <Text className="ll-bullets" style={styles.bullets}>
-              • Ride stats across multiple timeframes such as year to date, last year, and recent
-            </Text>
+                <Text className="ll-bullets" style={styles.bullets}>
+                  • Ride stats across multiple timeframes such as year to date, last year, and recent
+                </Text>
 
-            <Text className="ll-bullets" style={styles.bullets}>
-              • A unified view of rides from multiple data providers as they become available
-            </Text>
+                <Text className="ll-bullets" style={styles.bullets}>
+                  • A unified view of rides from multiple data providers as they become available
+                </Text>
 
-            <Text className="ll-bullets" style={styles.bullets}>
-              • Access to the{" "}
-              <span className="ll-emph" style={styles.emph}>
-                predictive maintenance algorithm
-              </span>
-            </Text>
+                <Text className="ll-bullets" style={styles.bullets}>
+                  • Access to the{" "}
+                  <span className="ll-emph" style={styles.emph}>
+                    predictive maintenance algorithm
+                  </span>
+                </Text>
 
-            <Text className="ll-bullets" style={{ ...styles.bullets, paddingLeft: 32 }}>
-              - Accounts for XC rides versus steep enduro trails versus road or commute miles
-            </Text>
+                <Text className="ll-bullets" style={{ ...styles.bullets, paddingLeft: 32 }}>
+                  - Accounts for XC rides versus steep enduro trails versus road or commute miles
+                </Text>
 
-            <Text className="ll-bullets" style={{ ...styles.bullets, paddingLeft: 32 }}>
-              - Weights wear differently across components
-            </Text>
+                <Text className="ll-bullets" style={{ ...styles.bullets, paddingLeft: 32 }}>
+                  - Weights wear differently across components
+                </Text>
 
-            <Text className="ll-bullets" style={{ ...styles.bullets, paddingLeft: 32 }}>
-              - Estimates how many rides you likely have left before a component deserves attention
-            </Text>
+                <Text className="ll-bullets" style={{ ...styles.bullets, paddingLeft: 32 }}>
+                  - Estimates how many rides you likely have left before a component deserves attention
+                </Text>
+              </Column>
+              <Column style={{ width: "40%", verticalAlign: "top" }}>
+                <Img
+                  src={`https://loamlogger.app/ridingThroughFerns.jpg`}
+                  alt="Mountain biker riding through lush ferns on a forest trail"
+                  width="100%"
+                  style={styles.heroImage}
+                />
+              </Column>
+            </Row>
 
             <Section className="ll-callout" style={styles.callout}>
               <Text className="ll-p" style={{ ...styles.p, marginBottom: 0 }}>
@@ -254,9 +258,9 @@ export default function FoundingRidersPostActivationInfoEmail({
             {/* Second image - Whistler scene */}
             <Section style={styles.imageContainer}>
               <Img
-                src={`${safeAppUrl}/dakotaWhis.jpg`}
+                src={`https://loamlogger.app/dakotaWhis.jpg`}
                 alt="Mountain biking in Whistler"
-                width="100%"
+                width="60%"
                 style={styles.heroImage}
               />
             </Section>
@@ -295,16 +299,6 @@ export default function FoundingRidersPostActivationInfoEmail({
               </Button>
             </Section>
 
-            {/* Third image - golden hour */}
-            <Section style={styles.imageContainer}>
-              <Img
-                src={`${safeAppUrl}/goldenHourULine.jpg`}
-                alt="Mountain biker silhouetted against golden hour light"
-                width="100%"
-                style={styles.heroImage}
-              />
-            </Section>
-
             <Text className="ll-p" style={styles.p}>
               That is all I have for this update. I hope to catch you out on the trails, and I am excited to hear
               how Loam Logger helps you ride more and worry less.
@@ -322,6 +316,15 @@ export default function FoundingRidersPostActivationInfoEmail({
             >
               Ryan
             </Text>
+            {/* Third image - portrait */}
+            <Section style={styles.imageContainer}>
+              <Img
+                src={`https://loamlogger.app/ryanPortrait.jpg`}
+                alt="Ryan LeCours, founder of Loam Logger"
+                width="60%"
+                style={styles.heroImage}
+              />
+            </Section>
           </Section>
 
           {/* Footer */}
@@ -422,6 +425,8 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 12,
     maxWidth: "100%",
     height: "auto",
+    display: "inline-block",
+    margin: "0 auto",
   },
   button: {
     display: "inline-block",

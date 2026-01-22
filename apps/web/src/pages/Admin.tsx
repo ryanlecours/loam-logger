@@ -45,7 +45,7 @@ interface EmailRecipient {
   isFoundingRider: boolean;
 }
 
-type EmailSegment = 'WAITLIST' | 'WAITLIST_FOUNDING' | 'WAITLIST_REGULAR';
+type EmailSegment = 'WAITLIST' | 'WAITLIST_FOUNDING' | 'WAITLIST_REGULAR' | 'ACTIVE_ALL' | 'ACTIVE_FREE' | 'ACTIVE_PRO';
 
 interface EmailForm {
   segment: EmailSegment;
@@ -131,7 +131,7 @@ export default function Admin() {
 
   // Email compose state
   const [emailForm, setEmailForm] = useState<EmailForm>({
-    segment: 'WAITLIST',
+    segment: 'ACTIVE_ALL',
     templateType: 'announcement',
     subject: '',
     messageHtml: '',
@@ -855,6 +855,12 @@ export default function Admin() {
         return 'role=WAITLIST&foundingRider=true';
       case 'WAITLIST_REGULAR':
         return 'role=WAITLIST&foundingRider=false';
+      case 'ACTIVE_ALL':
+        return 'role=FREE&role=PRO';
+      case 'ACTIVE_FREE':
+        return 'role=FREE';
+      case 'ACTIVE_PRO':
+        return 'role=PRO';
     }
   };
 
@@ -1182,6 +1188,41 @@ export default function Admin() {
         <div className="space-y-2">
           <label className="label-form">Recipients</label>
           <div className="flex flex-wrap gap-4">
+            {/* Active Users */}
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="radio"
+                name="emailSegment"
+                value="ACTIVE_ALL"
+                checked={emailForm.segment === 'ACTIVE_ALL'}
+                onChange={() => setEmailForm({ ...emailForm, segment: 'ACTIVE_ALL' })}
+                className="text-primary"
+              />
+              <span className="text-white">Active Users - All</span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="radio"
+                name="emailSegment"
+                value="ACTIVE_FREE"
+                checked={emailForm.segment === 'ACTIVE_FREE'}
+                onChange={() => setEmailForm({ ...emailForm, segment: 'ACTIVE_FREE' })}
+                className="text-primary"
+              />
+              <span className="text-white">Active Users - Free</span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="radio"
+                name="emailSegment"
+                value="ACTIVE_PRO"
+                checked={emailForm.segment === 'ACTIVE_PRO'}
+                onChange={() => setEmailForm({ ...emailForm, segment: 'ACTIVE_PRO' })}
+                className="text-primary"
+              />
+              <span className="text-white">Active Users - Pro</span>
+            </label>
+            {/* Waitlist */}
             <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="radio"
