@@ -484,7 +484,6 @@ export const templateConfig: TemplateConfig = {
   adminVisible: true,
   parameters: [
     { key: "recipientFirstName", label: "First Name", type: "text", required: false, autoFill: "recipientFirstName" },
-    { key: "appUrl", label: "App URL", type: "url", required: false, defaultValue: "${FRONTEND_URL}" },
     { key: "spokesUrl", label: "99spokes URL", type: "url", required: false, defaultValue: "https://99spokes.com" },
     { key: "supportEmail", label: "Support Email", type: "text", required: false, defaultValue: "ryan.lecours@loamlogger.app" },
     { key: "unsubscribeUrl", label: "Unsubscribe URL", type: "hidden", required: false, autoFill: "unsubscribeUrl" },
