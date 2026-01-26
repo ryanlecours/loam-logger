@@ -453,7 +453,9 @@ describe('Garmin Webhooks', () => {
     });
 
     describe('error handling', () => {
-      it('should return 500 on database error before response sent', async () => {
+      it('should still return 200 even if background processing fails (fire-and-forget pattern)', async () => {
+        // With ACK+enqueue pattern, we return 200 immediately and process in background
+        // Database errors during background processing are logged but don't affect response
         (mockPrisma.userAccount.findUnique as jest.Mock).mockImplementation(() => {
           throw new Error('DB Error');
         });
@@ -469,8 +471,20 @@ describe('Garmin Webhooks', () => {
             }],
           });
 
-        expect(response.status).toBe(500);
-        expect(response.body).toEqual({ error: 'Internal server error' });
+        // Response is 200 OK because we ACK immediately before processing
+        expect(response.status).toBe(200);
+        expect(response.text).toBe('OK');
+
+        // Wait for background processing to complete
+        await new Promise(resolve => setTimeout(resolve, 50));
+
+        // Error should be logged (verified via mock)
+        expect(mockLogger.error).toHaveBeenCalledWith(
+          expect.objectContaining({
+            event: 'garmin_ping_post_response_error',
+          }),
+          expect.stringContaining('Error after response sent')
+        );
       });
     });
   });
