@@ -1942,6 +1942,19 @@ export const resolvers = {
     ) => {
       const userId = requireUserId(ctx);
 
+      // Block Garmin manual sync during partner verification window
+      // This prevents "unprompted pull" errors in Garmin's verification tool
+      if (provider === 'GARMIN' && process.env.GARMIN_VERIFICATION_MODE === 'true') {
+        throw new GraphQLError(
+          'Manual Garmin sync is temporarily disabled during partner verification. Activities will sync automatically via webhooks.',
+          {
+            extensions: {
+              code: 'VERIFICATION_MODE',
+            },
+          }
+        );
+      }
+
       // Convert GraphQL enum to queue provider type
       const providerLower = provider.toLowerCase() as SyncProvider;
 

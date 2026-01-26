@@ -4,7 +4,8 @@ import { acquireLock, releaseLock } from '../lib/rate-limit';
 import { prisma } from '../lib/prisma';
 import { getValidStravaToken } from '../lib/strava-token';
 import { getValidGarminToken } from '../lib/garmin-token';
-import { deriveLocation, shouldApplyAutoLocation } from '../lib/location';
+import { deriveLocation, deriveLocationAsync, shouldApplyAutoLocation } from '../lib/location';
+import { logger } from '../lib/logger';
 import type { SyncJobData, SyncJobName, SyncProvider } from '../lib/queue/sync.queue';
 import type { Prisma } from '@prisma/client';
 
@@ -345,6 +346,13 @@ async function upsertStravaActivity(userId: string, activity: StravaActivity): P
 // ============================================================================
 
 async function syncGarminLatest(userId: string): Promise<void> {
+  // Guard: Block unprompted pulls during Garmin verification
+  // This prevents calling GET /rest/activities which Garmin flags as "unprompted pull"
+  if (process.env.GARMIN_VERIFICATION_MODE === 'true') {
+    logger.warn({ userId }, '[SyncWorker] syncGarminLatest blocked during verification mode');
+    return;
+  }
+
   const accessToken = await getValidGarminToken(userId);
 
   if (!accessToken) {
@@ -388,36 +396,75 @@ async function syncGarminLatest(userId: string): Promise<void> {
 }
 
 async function syncGarminActivity(userId: string, activityId: string): Promise<void> {
+  logger.info({
+    event: 'garmin_pull_start',
+    userId,
+    activityId,
+  }, '[SyncWorker] Starting Garmin activity pull');
+
   const accessToken = await getValidGarminToken(userId);
 
   if (!accessToken) {
+    logger.error({
+      event: 'garmin_pull_error',
+      userId,
+      activityId,
+      error: 'no_valid_token',
+    }, '[SyncWorker] No valid Garmin token');
     throw new Error('No valid Garmin token available');
   }
 
-  const response = await fetch(
-    `${GARMIN_API_BASE}/rest/activityFile/${activityId}`,
-    {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        Accept: 'application/json',
-      },
+  try {
+    const response = await fetch(
+      `${GARMIN_API_BASE}/rest/activityFile/${activityId}`,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: 'application/json',
+        },
+      }
+    );
+
+    if (!response.ok) {
+      const text = await response.text();
+      logger.error({
+        event: 'garmin_pull_error',
+        userId,
+        activityId,
+        status: response.status,
+        response: text,
+      }, '[SyncWorker] Garmin API error');
+      throw new Error(`Garmin API error: ${response.status} ${text}`);
     }
-  );
 
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Garmin API error: ${response.status} ${text}`);
+    const activity = (await response.json()) as GarminActivity;
+    const typeLower = activity.activityType.toLowerCase().replace(/\s+/g, '_');
+
+    if (!GARMIN_CYCLING_TYPES.includes(typeLower)) {
+      logger.debug({
+        activityId,
+        activityType: activity.activityType,
+      }, '[SyncWorker] Skipping non-cycling activity');
+      return;
+    }
+
+    await upsertGarminActivity(userId, activity);
+
+    logger.info({
+      event: 'garmin_pull_success',
+      userId,
+      activityId,
+      activityType: activity.activityType,
+    }, '[SyncWorker] Garmin activity pull complete');
+  } catch (error) {
+    logger.error({
+      event: 'garmin_pull_error',
+      userId,
+      activityId,
+      error: error instanceof Error ? error.message : String(error),
+    }, '[SyncWorker] Garmin activity pull failed');
+    throw error;
   }
-
-  const activity = (await response.json()) as GarminActivity;
-  const typeLower = activity.activityType.toLowerCase().replace(/\s+/g, '_');
-
-  if (!GARMIN_CYCLING_TYPES.includes(typeLower)) {
-    console.log(`[SyncWorker] Skipping non-cycling activity: ${activity.activityType}`);
-    return;
-  }
-
-  await upsertGarminActivity(userId, activity);
 }
 
 async function upsertGarminActivity(userId: string, activity: GarminActivity): Promise<void> {
@@ -432,7 +479,8 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
 
   const startTime = new Date(activity.startTimeInSeconds * 1000);
 
-  const autoLocation = deriveLocation({
+  // Use async version for reverse geocoding (matching webhook behavior)
+  const autoLocation = await deriveLocationAsync({
     city: activity.locationName ?? null,
     state: null,
     country: null,
@@ -445,7 +493,13 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
     select: { location: true },
   });
 
-  const locationUpdate = shouldApplyAutoLocation(existing?.location ?? null, autoLocation);
+  const locationUpdate = shouldApplyAutoLocation(existing?.location ?? null, autoLocation?.title ?? null);
+
+  // Look up running ImportSession for this user (if any)
+  const runningSession = await prisma.importSession.findFirst({
+    where: { userId, provider: 'garmin', status: 'running' },
+    select: { id: true },
+  });
 
   await prisma.ride.upsert({
     where: { garminActivityId: activity.summaryId },
@@ -459,7 +513,8 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
       averageHr: activity.averageHeartRateInBeatsPerMinute ?? null,
       rideType: activity.activityType,
       notes: activity.activityName ?? null,
-      location: autoLocation,
+      location: autoLocation?.title ?? null,
+      importSessionId: runningSession?.id ?? null,
     },
     update: {
       startTime,
@@ -473,7 +528,15 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
     },
   });
 
-  console.log(`[SyncWorker] Upserted Garmin activity ${activity.summaryId}`);
+  // Update session's lastActivityReceivedAt if there's a running session
+  if (runningSession) {
+    await prisma.importSession.update({
+      where: { id: runningSession.id },
+      data: { lastActivityReceivedAt: new Date() },
+    });
+  }
+
+  logger.debug({ summaryId: activity.summaryId }, '[SyncWorker] Upserted Garmin activity');
 }
 
 // ============================================================================
