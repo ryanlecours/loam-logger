@@ -309,6 +309,12 @@ r.post<Empty, void, GarminPingPayload>(
       if (!res.headersSent) {
         return res.status(500).json({ error: 'Internal server error' });
       }
+      // Error occurred after 200 OK was sent - log explicitly for visibility
+      logger.error({
+        event: 'garmin_ping_post_response_error',
+        requestId,
+        error: error instanceof Error ? error.message : String(error),
+      }, '[Garmin PING] Error after response sent (200 OK already returned to Garmin)');
     }
   }
 );
