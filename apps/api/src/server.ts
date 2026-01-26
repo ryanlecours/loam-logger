@@ -21,11 +21,13 @@ import {
 
 import authGarmin from './routes/auth.garmin';
 import authStrava from './routes/auth.strava';
+import authWhoop from './routes/auth.whoop';
 import { createDataLoaders, type DataLoaders } from './graphql/dataloaders';
 import webhooksGarmin from './routes/webhooks.garmin';
 import webhooksStrava from './routes/webhooks.strava';
 import garminBackfill from './routes/garmin.backfill';
 import stravaBackfill from './routes/strava.backfill';
+import whoopBackfill from './routes/whoop.backfill';
 import backfillHistory from './routes/backfill.history';
 import dataSourceRouter from './routes/data-source';
 import duplicatesRouter from './routes/duplicates';
@@ -221,9 +223,11 @@ const startServer = async () => {
   app.use('/auth', mobileAuthRouter);
   app.use('/auth', authGarmin);
   app.use('/auth', authStrava);
+  app.use('/auth', authWhoop);
 
   app.use('/api', garminBackfill);
   app.use('/api', stravaBackfill);
+  app.use('/api', whoopBackfill);
   app.use('/api', backfillHistory);
   app.use('/api', dataSourceRouter);
   app.use('/api', duplicatesRouter);
