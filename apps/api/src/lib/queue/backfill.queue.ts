@@ -84,13 +84,13 @@ export async function enqueueBackfillJob(
 
   try {
     await queue.add('backfillYear', data, { jobId });
-    console.log(`[BackfillQueue] Enqueued job ${jobId}`);
+    logger.info({ jobId, userId: data.userId, year: data.year }, '[BackfillQueue] Enqueued backfill job');
     return { status: 'queued', jobId };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
 
     if (message.includes('Job') && message.includes('already exists')) {
-      console.log(`[BackfillQueue] Job ${jobId} already exists (duplicate rejected)`);
+      logger.debug({ jobId }, '[BackfillQueue] Backfill job already exists (duplicate rejected)');
       return { status: 'already_queued', jobId };
     }
 

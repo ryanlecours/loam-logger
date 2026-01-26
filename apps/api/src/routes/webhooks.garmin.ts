@@ -150,6 +150,12 @@ r.post<Empty, void, { userPermissionsChange?: Array<{
  * 1. Garmin retries failed webhook deliveries (no 200 = retry)
  * 2. Activities will be picked up on next sync or backfill
  * 3. The alternative (blocking until enqueue) risks Garmin timeout and retry storms
+ *
+ * MONITORING: All enqueue failures emit structured log events for alerting:
+ * - garmin_ping_enqueue_failed: Failed to enqueue activity job
+ * - garmin_callback_enqueue_failed: Failed to enqueue callback job
+ * - garmin_ping_batch_complete / garmin_callback_batch_complete: Summary with failed count
+ * Set up alerts on these events to detect elevated failure rates.
  */
 type GarminActivityPing = {
   userId: string;
@@ -231,10 +237,34 @@ r.post<Empty, void, GarminPingPayload>(
           return { status: result.status, jobId: result.jobId };
         });
 
-        // Non-blocking - don't await, but log completion
+        // Non-blocking - don't await, but log completion and failures
         Promise.allSettled(enqueuePromises).then((results) => {
-          const queued = results.filter(r => r.status === 'fulfilled').length;
-          logger.debug({ requestId, queued, total: results.length }, '[Garmin PING] Callback batch enqueue complete');
+          const fulfilled = results.filter(r => r.status === 'fulfilled');
+          const rejected = results.filter(r => r.status === 'rejected') as PromiseRejectedResult[];
+
+          logger.info({
+            event: 'garmin_callback_batch_complete',
+            requestId,
+            queued: fulfilled.length,
+            failed: rejected.length,
+            total: results.length,
+          }, '[Garmin PING] Callback batch enqueue complete');
+
+          // Log each failure for alerting/monitoring
+          for (const failure of rejected) {
+            logger.error({
+              event: 'garmin_callback_enqueue_failed',
+              requestId,
+              error: failure.reason instanceof Error ? failure.reason.message : String(failure.reason),
+            }, '[Garmin PING] Failed to enqueue callback job - activity may need manual recovery');
+          }
+        }).catch((err) => {
+          // Catch any errors in the .then() handler itself
+          logger.error({
+            event: 'garmin_callback_batch_handler_error',
+            requestId,
+            error: err instanceof Error ? err.message : String(err),
+          }, '[Garmin PING] Error in callback batch completion handler');
         });
 
         return;
@@ -291,10 +321,34 @@ r.post<Empty, void, GarminPingPayload>(
           return { status: result.status, summaryId, jobId: result.jobId };
         });
 
-        // Non-blocking - don't await, but log completion
+        // Non-blocking - don't await, but log completion and failures
         Promise.allSettled(enqueuePromises).then((results) => {
-          const queued = results.filter(r => r.status === 'fulfilled').length;
-          logger.debug({ requestId, queued, total: results.length }, '[Garmin PING] Activity batch enqueue complete');
+          const fulfilled = results.filter(r => r.status === 'fulfilled');
+          const rejected = results.filter(r => r.status === 'rejected') as PromiseRejectedResult[];
+
+          logger.info({
+            event: 'garmin_ping_batch_complete',
+            requestId,
+            queued: fulfilled.length,
+            failed: rejected.length,
+            total: results.length,
+          }, '[Garmin PING] Activity batch enqueue complete');
+
+          // Log each failure for alerting/monitoring
+          for (const failure of rejected) {
+            logger.error({
+              event: 'garmin_ping_enqueue_failed',
+              requestId,
+              error: failure.reason instanceof Error ? failure.reason.message : String(failure.reason),
+            }, '[Garmin PING] Failed to enqueue activity job - activity may need manual recovery');
+          }
+        }).catch((err) => {
+          // Catch any errors in the .then() handler itself
+          logger.error({
+            event: 'garmin_ping_batch_handler_error',
+            requestId,
+            error: err instanceof Error ? err.message : String(err),
+          }, '[Garmin PING] Error in activity batch completion handler');
         });
 
         return;

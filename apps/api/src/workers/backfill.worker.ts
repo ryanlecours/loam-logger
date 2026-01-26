@@ -11,6 +11,10 @@ import type { BackfillJobData, BackfillJobName } from '../lib/queue/backfill.que
 // Garmin API limits backfill requests to 30-day chunks
 const CHUNK_DAYS = 30;
 
+// Minimum year for backfill requests (Garmin Connect launched in 2008,
+// but most meaningful cycling data starts later; 2000 provides headroom)
+const MIN_BACKFILL_YEAR = 2000;
+
 // Cycling activity types for Garmin (used in callback processing)
 const GARMIN_CYCLING_TYPES = [
   'cycling',
@@ -158,8 +162,10 @@ async function processGarminBackfill(userId: string, year: string): Promise<void
     endDate = new Date(); // Now
   } else {
     const yearNum = parseInt(year, 10);
-    if (isNaN(yearNum) || yearNum < 2000 || yearNum > currentYear) {
-      throw new Error(`Invalid year: ${year}`);
+    if (isNaN(yearNum) || yearNum < MIN_BACKFILL_YEAR || yearNum > currentYear) {
+      throw new Error(
+        `Invalid year: ${year}. Must be a number between ${MIN_BACKFILL_YEAR} and ${currentYear}, or "ytd".`
+      );
     }
     startDate = new Date(yearNum, 0, 1); // Jan 1 00:00:00
     endDate = new Date(yearNum, 11, 31, 23, 59, 59); // Dec 31 23:59:59
