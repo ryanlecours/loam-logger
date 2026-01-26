@@ -117,6 +117,8 @@ export default function StravaIntegrationLiveEmail({
 
             <Text className="ll-p" style={styles.p}>
               Strava integration is now available for all Loam Logger users.
+              </Text>
+              <Text className="ll-p" style={styles.p}>
               If you use Strava directly, or your device uploads to Strava
               (Garmin, Suunto, COROS, WHOOP, and others), your rides can now flow
               into Loam Logger automatically.
