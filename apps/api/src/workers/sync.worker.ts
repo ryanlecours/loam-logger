@@ -4,11 +4,11 @@ import { acquireLock, releaseLock } from '../lib/rate-limit';
 import { prisma } from '../lib/prisma';
 import { getValidStravaToken } from '../lib/strava-token';
 import { getValidGarminToken } from '../lib/garmin-token';
-import { deriveLocation, shouldApplyAutoLocation } from '../lib/location';
+import { deriveLocation, deriveLocationAsync, shouldApplyAutoLocation } from '../lib/location';
+import { logger } from '../lib/logger';
+import { config } from '../config/env';
 import type { SyncJobData, SyncJobName, SyncProvider } from '../lib/queue/sync.queue';
 import type { Prisma } from '@prisma/client';
-
-const GARMIN_API_BASE = process.env.GARMIN_API_BASE || 'https://apis.garmin.com/wellness-api';
 
 // Retry delay when lock acquisition fails (30 seconds)
 const LOCK_RETRY_DELAY = 30 * 1000;
@@ -95,13 +95,13 @@ async function processSyncJob(job: Job<SyncJobData, void, SyncJobName>): Promise
   const { userId, provider } = job.data;
   const jobName = job.name;
 
-  console.log(`[SyncWorker] Processing ${jobName} for user ${userId}, provider ${provider}`);
+  logger.info({ jobName, userId, provider }, '[SyncWorker] Processing job');
 
   // Acquire distributed lock to prevent concurrent syncs
   const lockResult = await acquireLock('sync', provider, userId);
 
   if (!lockResult.acquired) {
-    console.log(`[SyncWorker] Could not acquire lock for ${provider}:${userId}, delaying job`);
+    logger.debug({ provider, userId }, '[SyncWorker] Could not acquire lock, delaying job');
     // Delay the job and retry
     throw new DelayedError(`Lock not available, retrying in ${LOCK_RETRY_DELAY / 1000}s`);
   }
@@ -123,7 +123,7 @@ async function processSyncJob(job: Job<SyncJobData, void, SyncJobName>): Promise
   } finally {
     // Always release the lock
     await releaseLock(lockResult.lockKey, lockResult.lockValue);
-    console.log(`[SyncWorker] Released lock for ${provider}:${userId}`);
+    logger.debug({ provider, userId }, '[SyncWorker] Released lock');
   }
 }
 
@@ -132,7 +132,7 @@ async function processSyncJob(job: Job<SyncJobData, void, SyncJobName>): Promise
  * Fetches recent activities (last 30 days) and upserts them.
  */
 async function syncLatestActivities(userId: string, provider: SyncProvider): Promise<void> {
-  console.log(`[SyncWorker] Syncing latest activities for ${provider}`);
+  logger.info({ provider }, '[SyncWorker] Syncing latest activities');
 
   switch (provider) {
     case 'strava':
@@ -142,7 +142,7 @@ async function syncLatestActivities(userId: string, provider: SyncProvider): Pro
       await syncGarminLatest(userId);
       break;
     case 'suunto':
-      console.log(`[SyncWorker] Suunto sync not yet implemented`);
+      logger.warn({ provider: 'suunto' }, '[SyncWorker] Suunto sync not yet implemented');
       break;
     default:
       throw new Error(`Unknown provider: ${provider}`);
@@ -157,7 +157,7 @@ async function syncSingleActivity(
   provider: SyncProvider,
   activityId: string
 ): Promise<void> {
-  console.log(`[SyncWorker] Syncing single activity ${activityId} from ${provider}`);
+  logger.info({ activityId, provider }, '[SyncWorker] Syncing single activity');
 
   switch (provider) {
     case 'strava':
@@ -167,7 +167,7 @@ async function syncSingleActivity(
       await syncGarminActivity(userId, activityId);
       break;
     case 'suunto':
-      console.log(`[SyncWorker] Suunto sync not yet implemented`);
+      logger.warn({ provider: 'suunto' }, '[SyncWorker] Suunto sync not yet implemented');
       break;
     default:
       throw new Error(`Unknown provider: ${provider}`);
@@ -207,20 +207,20 @@ async function syncStravaLatest(userId: string): Promise<void> {
   }
 
   const activities = (await response.json()) as StravaActivity[];
-  console.log(`[SyncWorker] Fetched ${activities.length} Strava activities`);
+  logger.debug({ count: activities.length }, '[SyncWorker] Fetched Strava activities');
 
   // Filter to cycling activities
   const cyclingActivities = activities.filter((a) =>
     STRAVA_CYCLING_TYPES.includes(a.sport_type)
   );
 
-  console.log(`[SyncWorker] Processing ${cyclingActivities.length} cycling activities`);
+  logger.debug({ count: cyclingActivities.length }, '[SyncWorker] Processing cycling activities');
 
   for (const activity of cyclingActivities) {
     await upsertStravaActivity(userId, activity);
   }
 
-  console.log(`[SyncWorker] Strava sync complete for user ${userId}`);
+  logger.info({ userId, count: cyclingActivities.length }, '[SyncWorker] Strava sync complete');
 }
 
 async function syncStravaActivity(userId: string, activityId: string): Promise<void> {
@@ -248,7 +248,7 @@ async function syncStravaActivity(userId: string, activityId: string): Promise<v
   const activity = (await response.json()) as StravaActivity;
 
   if (!STRAVA_CYCLING_TYPES.includes(activity.sport_type)) {
-    console.log(`[SyncWorker] Skipping non-cycling activity: ${activity.sport_type}`);
+    logger.debug({ activityId, sportType: activity.sport_type }, '[SyncWorker] Skipping non-cycling activity');
     return;
   }
 
@@ -337,7 +337,7 @@ async function upsertStravaActivity(userId: string, activity: StravaActivity): P
     );
   });
 
-  console.log(`[SyncWorker] Upserted Strava activity ${activity.id}`);
+  logger.debug({ stravaActivityId: activity.id }, '[SyncWorker] Upserted Strava activity');
 }
 
 // ============================================================================
@@ -345,6 +345,13 @@ async function upsertStravaActivity(userId: string, activity: StravaActivity): P
 // ============================================================================
 
 async function syncGarminLatest(userId: string): Promise<void> {
+  // Guard: Block unprompted pulls during Garmin verification
+  // This prevents calling GET /rest/activities which Garmin flags as "unprompted pull"
+  if (config.garminVerificationMode) {
+    logger.warn({ userId }, '[SyncWorker] syncGarminLatest blocked during verification mode');
+    return;
+  }
+
   const accessToken = await getValidGarminToken(userId);
 
   if (!accessToken) {
@@ -355,7 +362,7 @@ async function syncGarminLatest(userId: string): Promise<void> {
   const thirtyDaysAgo = Math.floor((Date.now() - 30 * 24 * 60 * 60 * 1000) / 1000);
   const now = Math.floor(Date.now() / 1000);
 
-  const url = `${GARMIN_API_BASE}/rest/activities?uploadStartTimeInSeconds=${thirtyDaysAgo}&uploadEndTimeInSeconds=${now}`;
+  const url = `${config.garminApiBase}/rest/activities?uploadStartTimeInSeconds=${thirtyDaysAgo}&uploadEndTimeInSeconds=${now}`;
 
   const response = await fetch(url, {
     headers: {
@@ -370,7 +377,7 @@ async function syncGarminLatest(userId: string): Promise<void> {
   }
 
   const activities = (await response.json()) as GarminActivity[];
-  console.log(`[SyncWorker] Fetched ${activities.length} Garmin activities`);
+  logger.debug({ count: activities.length }, '[SyncWorker] Fetched Garmin activities');
 
   // Filter to cycling activities
   const cyclingActivities = activities.filter((a) => {
@@ -378,46 +385,85 @@ async function syncGarminLatest(userId: string): Promise<void> {
     return GARMIN_CYCLING_TYPES.includes(typeLower);
   });
 
-  console.log(`[SyncWorker] Processing ${cyclingActivities.length} cycling activities`);
+  logger.debug({ count: cyclingActivities.length }, '[SyncWorker] Processing cycling activities');
 
   for (const activity of cyclingActivities) {
     await upsertGarminActivity(userId, activity);
   }
 
-  console.log(`[SyncWorker] Garmin sync complete for user ${userId}`);
+  logger.info({ userId, count: cyclingActivities.length }, '[SyncWorker] Garmin sync complete');
 }
 
 async function syncGarminActivity(userId: string, activityId: string): Promise<void> {
+  logger.info({
+    event: 'garmin_pull_start',
+    userId,
+    activityId,
+  }, '[SyncWorker] Starting Garmin activity pull');
+
   const accessToken = await getValidGarminToken(userId);
 
   if (!accessToken) {
+    logger.error({
+      event: 'garmin_pull_error',
+      userId,
+      activityId,
+      error: 'no_valid_token',
+    }, '[SyncWorker] No valid Garmin token');
     throw new Error('No valid Garmin token available');
   }
 
-  const response = await fetch(
-    `${GARMIN_API_BASE}/rest/activityFile/${activityId}`,
-    {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        Accept: 'application/json',
-      },
+  try {
+    const response = await fetch(
+      `${config.garminApiBase}/rest/activityFile/${activityId}`,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: 'application/json',
+        },
+      }
+    );
+
+    if (!response.ok) {
+      const text = await response.text();
+      logger.error({
+        event: 'garmin_pull_error',
+        userId,
+        activityId,
+        status: response.status,
+        response: text,
+      }, '[SyncWorker] Garmin API error');
+      throw new Error(`Garmin API error: ${response.status} ${text}`);
     }
-  );
 
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Garmin API error: ${response.status} ${text}`);
+    const activity = (await response.json()) as GarminActivity;
+    const typeLower = activity.activityType.toLowerCase().replace(/\s+/g, '_');
+
+    if (!GARMIN_CYCLING_TYPES.includes(typeLower)) {
+      logger.debug({
+        activityId,
+        activityType: activity.activityType,
+      }, '[SyncWorker] Skipping non-cycling activity');
+      return;
+    }
+
+    await upsertGarminActivity(userId, activity);
+
+    logger.info({
+      event: 'garmin_pull_success',
+      userId,
+      activityId,
+      activityType: activity.activityType,
+    }, '[SyncWorker] Garmin activity pull complete');
+  } catch (error) {
+    logger.error({
+      event: 'garmin_pull_error',
+      userId,
+      activityId,
+      error: error instanceof Error ? error.message : String(error),
+    }, '[SyncWorker] Garmin activity pull failed');
+    throw error;
   }
-
-  const activity = (await response.json()) as GarminActivity;
-  const typeLower = activity.activityType.toLowerCase().replace(/\s+/g, '_');
-
-  if (!GARMIN_CYCLING_TYPES.includes(typeLower)) {
-    console.log(`[SyncWorker] Skipping non-cycling activity: ${activity.activityType}`);
-    return;
-  }
-
-  await upsertGarminActivity(userId, activity);
 }
 
 async function upsertGarminActivity(userId: string, activity: GarminActivity): Promise<void> {
@@ -432,7 +478,8 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
 
   const startTime = new Date(activity.startTimeInSeconds * 1000);
 
-  const autoLocation = deriveLocation({
+  // Use async version for reverse geocoding (matching webhook behavior)
+  const autoLocation = await deriveLocationAsync({
     city: activity.locationName ?? null,
     state: null,
     country: null,
@@ -445,7 +492,13 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
     select: { location: true },
   });
 
-  const locationUpdate = shouldApplyAutoLocation(existing?.location ?? null, autoLocation);
+  const locationUpdate = shouldApplyAutoLocation(existing?.location ?? null, autoLocation?.title ?? null);
+
+  // Look up running ImportSession for this user (if any)
+  const runningSession = await prisma.importSession.findFirst({
+    where: { userId, provider: 'garmin', status: 'running' },
+    select: { id: true },
+  });
 
   await prisma.ride.upsert({
     where: { garminActivityId: activity.summaryId },
@@ -459,7 +512,8 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
       averageHr: activity.averageHeartRateInBeatsPerMinute ?? null,
       rideType: activity.activityType,
       notes: activity.activityName ?? null,
-      location: autoLocation,
+      location: autoLocation?.title ?? null,
+      importSessionId: runningSession?.id ?? null,
     },
     update: {
       startTime,
@@ -473,7 +527,15 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
     },
   });
 
-  console.log(`[SyncWorker] Upserted Garmin activity ${activity.summaryId}`);
+  // Update session's lastActivityReceivedAt if there's a running session
+  if (runningSession) {
+    await prisma.importSession.update({
+      where: { id: runningSession.id },
+      data: { lastActivityReceivedAt: new Date() },
+    });
+  }
+
+  logger.debug({ summaryId: activity.summaryId }, '[SyncWorker] Upserted Garmin activity');
 }
 
 // ============================================================================
@@ -558,18 +620,18 @@ export function createSyncWorker(): Worker<SyncJobData, void, SyncJobName> {
   );
 
   syncWorker.on('completed', (job) => {
-    console.log(`[SyncWorker] Job ${job.id} (${job.name}) completed`);
+    logger.info({ jobId: job.id, jobName: job.name }, '[SyncWorker] Job completed');
   });
 
   syncWorker.on('failed', (job, err) => {
-    console.error(`[SyncWorker] Job ${job?.id} (${job?.name}) failed:`, err.message);
+    logger.error({ jobId: job?.id, jobName: job?.name, error: err.message }, '[SyncWorker] Job failed');
   });
 
   syncWorker.on('error', (err) => {
-    console.error('[SyncWorker] Worker error:', err.message);
+    logger.error({ error: err.message }, '[SyncWorker] Worker error');
   });
 
-  console.log('[SyncWorker] Started');
+  logger.info('[SyncWorker] Started');
   return syncWorker;
 }
 
@@ -580,6 +642,6 @@ export async function closeSyncWorker(): Promise<void> {
   if (syncWorker) {
     await syncWorker.close();
     syncWorker = null;
-    console.log('[SyncWorker] Stopped');
+    logger.info('[SyncWorker] Stopped');
   }
 }

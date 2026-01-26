@@ -8,6 +8,7 @@ import { templateConfig as welcome3Config } from './welcome-3';
 import { templateConfig as announcementConfig } from './announcement';
 import { templateConfig as foundingRidersConfig } from './founding-riders';
 import { templateConfig as preAccessConfig } from './pre-access';
+import { templateConfig as stravaEnabledConfig } from './strava-enabled';
 // Note: activation template excluded - it's system-triggered, not admin-sendable
 
 import type { TemplateConfig, TemplateConfigDTO } from './types';
@@ -20,6 +21,7 @@ const allTemplates: TemplateConfig[] = [
   announcementConfig,
   foundingRidersConfig,
   preAccessConfig,
+  stravaEnabledConfig,
 ];
 
 /** Templates visible in admin UI (excludes system-only templates) */

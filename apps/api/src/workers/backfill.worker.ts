@@ -3,20 +3,84 @@ import { getQueueConnection } from '../lib/queue/connection';
 import { acquireLock, releaseLock } from '../lib/rate-limit';
 import { prisma } from '../lib/prisma';
 import { getValidGarminToken } from '../lib/garmin-token';
+import { deriveLocationAsync, shouldApplyAutoLocation } from '../lib/location';
 import { logError, logger } from '../lib/logger';
+import { config } from '../config/env';
 import type { BackfillJobData, BackfillJobName } from '../lib/queue/backfill.queue';
-
-const GARMIN_API_BASE = process.env.GARMIN_API_BASE || 'https://apis.garmin.com/wellness-api';
 
 // Garmin API limits backfill requests to 30-day chunks
 const CHUNK_DAYS = 30;
 
+// Minimum year for backfill requests (Garmin Connect launched in 2008,
+// but most meaningful cycling data starts later; 2000 provides headroom)
+const MIN_BACKFILL_YEAR = 2000;
+
+// Cycling activity types for Garmin (used in callback processing)
+const GARMIN_CYCLING_TYPES = [
+  'cycling',
+  'bmx',
+  'cyclocross',
+  'downhill_biking',
+  'e_bike_fitness',
+  'e_bike_mountain',
+  'e_enduro_mtb',
+  'enduro_mtb',
+  'gravel_cycling',
+  'indoor_cycling',
+  'mountain_biking',
+  'recumbent_cycling',
+  'road_biking',
+  'track_cycling',
+  'virtual_ride',
+  'handcycling',
+  'indoor_handcycling',
+];
+
+// Garmin activity type from callback URL response
+type GarminActivityDetail = {
+  summaryId: string;
+  activityId?: number;
+  activityType: string;
+  activityName?: string;
+  startTimeInSeconds: number;
+  startTimeOffsetInSeconds?: number;
+  durationInSeconds: number;
+  distanceInMeters?: number;
+  elevationGainInMeters?: number;
+  totalElevationGainInMeters?: number;
+  averageHeartRateInBeatsPerMinute?: number;
+  maxHeartRateInBeatsPerMinute?: number;
+  locationName?: string;
+  startLatitudeInDegrees?: number;
+  startLongitudeInDegrees?: number;
+  beginLatitude?: number;
+  beginLongitude?: number;
+  [key: string]: unknown;
+};
+
 /**
  * Process a backfill job.
- * Triggers Garmin API backfill requests which deliver activities via webhooks.
+ * Handles both backfillYear (triggers Garmin API) and processCallback (processes callback URL).
  */
 async function processBackfillJob(job: Job<BackfillJobData, void, BackfillJobName>): Promise<void> {
-  const { userId, provider, year } = job.data;
+  const { userId, provider, year, callbackURL } = job.data;
+
+  // Handle processCallback job type
+  if (job.name === 'processCallback' && callbackURL) {
+    logger.info({
+      event: 'garmin_callback_start',
+      userId,
+      jobId: job.id,
+    }, '[BackfillWorker] Processing callback job');
+
+    await processGarminCallback(userId, callbackURL);
+    return;
+  }
+
+  // Handle backfillYear job type
+  if (!year) {
+    throw new Error('backfillYear job requires year field');
+  }
 
   logger.info({ provider, year, userId, jobId: job.id }, 'Processing backfill job');
 
@@ -98,8 +162,10 @@ async function processGarminBackfill(userId: string, year: string): Promise<void
     endDate = new Date(); // Now
   } else {
     const yearNum = parseInt(year, 10);
-    if (isNaN(yearNum) || yearNum < 2000 || yearNum > currentYear) {
-      throw new Error(`Invalid year: ${year}`);
+    if (isNaN(yearNum) || yearNum < MIN_BACKFILL_YEAR || yearNum > currentYear) {
+      throw new Error(
+        `Invalid year: ${year}. Must be a number between ${MIN_BACKFILL_YEAR} and ${currentYear}, or "ytd".`
+      );
     }
     startDate = new Date(yearNum, 0, 1); // Jan 1 00:00:00
     endDate = new Date(yearNum, 11, 31, 23, 59, 59); // Dec 31 23:59:59
@@ -129,7 +195,7 @@ async function processGarminBackfill(userId: string, year: string): Promise<void
       'Triggering Garmin backfill chunk'
     );
 
-    const url = `${GARMIN_API_BASE}/rest/backfill/activities?summaryStartTimeInSeconds=${chunkStartSeconds}&summaryEndTimeInSeconds=${chunkEndSeconds}`;
+    const url = `${config.garminApiBase}/rest/backfill/activities?summaryStartTimeInSeconds=${chunkStartSeconds}&summaryEndTimeInSeconds=${chunkEndSeconds}`;
 
     try {
       const response = await fetch(url, {
@@ -215,6 +281,158 @@ async function processGarminBackfill(userId: string, year: string): Promise<void
 
   // Note: Status will be updated to 'completed' by the webhook handler
   // when all activities have been delivered
+}
+
+/**
+ * Process a Garmin callback URL (used for backfill webhook responses).
+ * Fetches activities from the callback URL and upserts them.
+ */
+async function processGarminCallback(userId: string, callbackURL: string): Promise<void> {
+  const accessToken = await getValidGarminToken(userId);
+
+  if (!accessToken) {
+    logger.error({
+      event: 'garmin_callback_error',
+      userId,
+      error: 'no_valid_token',
+    }, '[BackfillWorker] No valid Garmin token for callback');
+    throw new Error('Garmin token expired or not connected');
+  }
+
+  logger.info({
+    event: 'garmin_callback_fetch_start',
+    userId,
+  }, '[BackfillWorker] Fetching from Garmin callback URL');
+
+  // Fetch activities from the callback URL
+  const callbackRes = await fetch(callbackURL, {
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Accept': 'application/json',
+    },
+  });
+
+  if (!callbackRes.ok) {
+    const text = await callbackRes.text();
+    logger.error({
+      event: 'garmin_callback_error',
+      userId,
+      status: callbackRes.status,
+      response: text,
+    }, '[BackfillWorker] Failed to fetch from callback URL');
+    throw new Error(`Garmin callback fetch failed: ${callbackRes.status}`);
+  }
+
+  const activities = (await callbackRes.json()) as GarminActivityDetail[];
+
+  if (!Array.isArray(activities)) {
+    logger.error({
+      event: 'garmin_callback_error',
+      userId,
+      response: activities,
+    }, '[BackfillWorker] Unexpected response format from callback URL');
+    throw new Error('Unexpected response format from callback URL');
+  }
+
+  logger.info({
+    event: 'garmin_callback_activities_fetched',
+    userId,
+    count: activities.length,
+  }, '[BackfillWorker] Fetched activities from callback URL');
+
+  // Look up running ImportSession for this user once before processing the batch
+  const runningSession = await prisma.importSession.findFirst({
+    where: { userId, provider: 'garmin', status: 'running' },
+    select: { id: true },
+  });
+
+  let processedActivityCount = 0;
+
+  for (const activity of activities) {
+    const activityTypeLower = activity.activityType.toLowerCase().replace(/\s+/g, '_');
+    if (!GARMIN_CYCLING_TYPES.includes(activityTypeLower)) {
+      logger.debug({
+        activityType: activity.activityType,
+        summaryId: activity.summaryId,
+      }, '[BackfillWorker] Skipping non-cycling activity');
+      continue;
+    }
+
+    // Convert activity to Ride format
+    const distanceMiles = activity.distanceInMeters
+      ? activity.distanceInMeters * 0.000621371
+      : 0;
+
+    const elevationGainFeet = (activity.totalElevationGainInMeters ?? activity.elevationGainInMeters)
+      ? (activity.totalElevationGainInMeters ?? activity.elevationGainInMeters)! * 3.28084
+      : 0;
+
+    const startTime = new Date(activity.startTimeInSeconds * 1000);
+
+    const autoLocation = await deriveLocationAsync({
+      city: activity.locationName ?? null,
+      state: null,
+      country: null,
+      lat: activity.startLatitudeInDegrees ?? activity.beginLatitude ?? null,
+      lon: activity.startLongitudeInDegrees ?? activity.beginLongitude ?? null,
+    });
+
+    const existingRide = await prisma.ride.findUnique({
+      where: { garminActivityId: activity.summaryId },
+      select: { location: true },
+    });
+
+    const locationUpdate = shouldApplyAutoLocation(
+      existingRide?.location ?? null,
+      autoLocation?.title ?? null
+    );
+
+    // Upsert the ride
+    await prisma.ride.upsert({
+      where: { garminActivityId: activity.summaryId },
+      create: {
+        userId,
+        garminActivityId: activity.summaryId,
+        startTime,
+        durationSeconds: activity.durationInSeconds,
+        distanceMiles,
+        elevationGainFeet,
+        averageHr: activity.averageHeartRateInBeatsPerMinute ?? null,
+        rideType: activity.activityType,
+        notes: activity.activityName ?? null,
+        location: autoLocation?.title ?? null,
+        importSessionId: runningSession?.id ?? null,
+      },
+      update: {
+        startTime,
+        durationSeconds: activity.durationInSeconds,
+        distanceMiles,
+        elevationGainFeet,
+        averageHr: activity.averageHeartRateInBeatsPerMinute ?? null,
+        rideType: activity.activityType,
+        notes: activity.activityName ?? null,
+        ...(locationUpdate !== undefined ? { location: locationUpdate } : {}),
+      },
+    });
+
+    processedActivityCount++;
+    logger.debug({ summaryId: activity.summaryId }, '[BackfillWorker] Upserted ride from callback');
+  }
+
+  // Update session's lastActivityReceivedAt once after processing the batch
+  if (runningSession && processedActivityCount > 0) {
+    await prisma.importSession.update({
+      where: { id: runningSession.id },
+      data: { lastActivityReceivedAt: new Date() },
+    });
+  }
+
+  logger.info({
+    event: 'garmin_callback_success',
+    userId,
+    processedCount: processedActivityCount,
+    totalCount: activities.length,
+  }, '[BackfillWorker] Callback processing complete');
 }
 
 /**

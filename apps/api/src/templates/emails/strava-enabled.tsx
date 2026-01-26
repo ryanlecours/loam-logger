@@ -1,32 +1,32 @@
 import * as React from "react";
 import {
   Body,
+  Button,
   Container,
   Head,
   Heading,
+  Hr,
   Html,
+  Img,
   Link,
   Preview,
   Section,
   Text,
-  Button,
-  Hr,
 } from "@react-email/components";
 import { sanitizeUserInput } from "../../lib/html";
 import type { TemplateConfig } from "./types";
 
-export const WELCOME_2_TEMPLATE_VERSION = "2.4.0";
+export const STRAVA_INTEGRATION_LIVE_TEMPLATE_VERSION = "1.0.1";
 
-export type Welcome2EmailProps = {
+export type StravaIntegrationLiveEmailProps = {
   recipientFirstName?: string;
-  gearUrl?: string;
-  dashboardUrl?: string;
-  supportEmail?: string;
+  settingsUrl?: string;
+  stravaConnectUrl?: string;
   unsubscribeUrl?: string;
+  supportEmail?: string;
 };
 
 const TOKENS = {
-  // Light mode (default)
   bg: "#FBFAF2",
   card: "#F4F7F5",
   border: "#D4DDD9",
@@ -41,7 +41,6 @@ const TOKENS = {
 };
 
 const DARK_TOKENS = {
-  // Dark mode
   bg: "#0B0F0E",
   card: "#121816",
   border: "#26302D",
@@ -66,20 +65,28 @@ const darkModeStyles = `
     .ll-button { background-color: ${DARK_TOKENS.ctaBg} !important; color: ${DARK_TOKENS.ctaText} !important; }
     .ll-footer { color: ${DARK_TOKENS.footer} !important; }
     .ll-footer-link { color: ${DARK_TOKENS.faint} !important; }
-    .ll-chip { background-color: ${DARK_TOKENS.subCard} !important; border-color: ${DARK_TOKENS.subBorder} !important; color: ${DARK_TOKENS.text} !important; }
   }
 `;
 
-export default function Welcome2Email({
+export default function StravaIntegrationLiveEmail({
   recipientFirstName,
-  gearUrl = "https://loamlogger.app/gear",
-  dashboardUrl = "https://loamlogger.app/dashboard",
-  supportEmail = "ryan.lecours@loamlogger.app",
+  settingsUrl = "https://loamlogger.app/settings",
   unsubscribeUrl,
-}: Welcome2EmailProps) {
-  // Sanitize user-provided input
+  supportEmail = "ryan.lecours@loamlogger.app",
+}: StravaIntegrationLiveEmailProps) {
   const safeName = sanitizeUserInput(recipientFirstName);
-  const greeting = safeName ? `Hi ${safeName},` : "Hi there,";
+  const safeSettingsUrl = sanitizeUserInput(settingsUrl, 200);
+  const safeSupportEmail = sanitizeUserInput(supportEmail, 200);
+
+  const hello = safeName ? `Hello ${safeName},` : "Hello,";
+
+  const mailFeedbackHref = `mailto:${encodeURIComponent(
+    safeSupportEmail
+  )}?subject=${encodeURIComponent("Strava Integration Feedback")}`;
+
+  const mailBugHref = `mailto:${encodeURIComponent(
+    safeSupportEmail
+  )}?subject=${encodeURIComponent("Strava Integration Bug Report")}`;
 
   return (
     <Html>
@@ -89,189 +96,167 @@ export default function Welcome2Email({
         <style dangerouslySetInnerHTML={{ __html: darkModeStyles }} />
       </Head>
 
-      <Preview>
-        Loam Logger is your mechanic in your pocket — here is how wear tracking works.
-      </Preview>
+      <Preview>{`Strava integration is live — fully automated ride importing and bike linking.`}</Preview>
 
       <Body className="ll-body" style={styles.body}>
         <Container className="ll-container" style={styles.container}>
-          {/* Brand */}
           <Section style={{ padding: "8px 6px 14px 6px" }}>
             <Text className="ll-brand" style={styles.brand}>
               LoamLogger
             </Text>
           </Section>
 
-          {/* Main Card */}
           <Section className="ll-card" style={styles.card}>
             <Heading className="ll-h1" style={styles.h1}>
-              Loam Logger: The Mechanic in your Pocket
+              Strava integration is live for everyone
             </Heading>
 
-            <Text className="ll-p" style={styles.p}>{greeting}</Text>
+            <Text className="ll-p" style={styles.p}>
+              {hello}
+            </Text>
 
             <Text className="ll-p" style={styles.p}>
-              Three days in, this is the simplest way to think about Loam Logger:
-              <span className="ll-emph" style={styles.emph}> it is a mechanic in your pocket.</span>
+              Strava integration is now available for all Loam Logger users.
+              If you use Strava directly, or your device uploads to Strava
+              (Garmin, Suunto, COROS, WHOOP, and others), your rides can now flow
+              into Loam Logger automatically.
             </Text>
 
             <Section className="ll-callout" style={styles.callout}>
               <Text className="ll-p" style={{ ...styles.p, margin: 0 }}>
-                The end-state I am aiming for is you saying:
-                <br />
                 <span className="ll-emph" style={styles.emph}>
-                  “I do not feel the need to track wear or maintenance anymore. Loam Logger does that for me.”
+                  The big win:
                 </span>
-              </Text>
-            </Section>
-
-            <Text className="ll-p" style={styles.p}>
-              Not to nag you. Not to add chores. Just to make it easy to answer one question:
-            </Text>
-
-            <Text className="ll-p" style={styles.p}>
-              <span className="ll-emph" style={styles.emph}> “Is my bike all set to ride?”</span>
-            </Text>
-
-            <Hr className="ll-hr" style={styles.hr} />
-
-            <Heading as="h2" className="ll-h2" style={styles.h2}>
-              What you should be able to trust
-            </Heading>
-
-            <Text className="ll-bullets" style={styles.bullets}>
-              • <span className="ll-emph" style={styles.emph}>Confidence:</span> your bike is ready right now.
-            </Text>
-            <Text className="ll-bullets" style={styles.bullets}>
-              • <span className="ll-emph" style={styles.emph}>Runway:</span> how long until something needs attention.
-            </Text>
-            <Text className="ll-bullets" style={styles.bullets}>
-              • <span className="ll-emph" style={styles.emph}>Early warnings:</span> before small issues become expensive.
-            </Text>
-
-            <Hr className="ll-hr" style={styles.hr} />
-
-            <Heading as="h2" className="ll-h2" style={styles.h2}>
-              What Loam Logger is doing behind the scenes
-            </Heading>
-
-            <Text className="ll-p" style={styles.p}>
-              Each ride adds wear to different components. Loam Logger weighs rides using signals like
-              distance, elevation change. Not all rides stress your bike the same way.
-            </Text>
-
-            <Text className="ll-p" style={styles.p}>
-              That is why guidance shows up as{" "}
-              <span className="ll-emph" style={styles.emph}>“check this in ~X rides”</span>{" "}
-              instead of raw hour math.
-            </Text>
-
-            {/* NEW SECTION */}
-            <Hr className="ll-hr" style={styles.hr} />
-
-            <Heading as="h2" className="ll-h2" style={styles.h2}>
-              Seeing wear, ride by ride
-            </Heading>
-
-            <Text className="ll-p" style={styles.p}>
-              You can click into any component directly from the dashboard to see how individual rides
-              are contributing wear to it.
-            </Text>
-
-            <Section className="ll-callout" style={styles.callout}>
-              <Text className="ll-p" style={{ ...styles.p, margin: 0 }}>
-                Not all rides stress your bike the same way.
-                <br /><br />
-                • A bike park day should not wear your drivetrain like an XC race.
                 <br />
-                • A gravel path ride does not stress suspension and pivot bearings like a steep, chunky tech trail.
+                Select the bike you used in Strava and Loam Logger will
+                automatically attach that ride to the correct bike — no manual
+                cleanup required.
               </Text>
             </Section>
 
-            <Text className="ll-p" style={styles.p}>
-              That difference is exactly what the wear algorithm is trying to capture.
-            </Text>
-
-            <Text className="ll-p" style={styles.p}>
-              Clicking into a component lets you sanity-check the logic.
-            </Text>
-
-            <Text className="ll-p" style={styles.p}>
-              <span className="ll-emph" style={styles.emph}>
-                “Yeah, that ride should have hit my brakes harder than my chain.”
-              </span>
-            </Text>
-
-            <Text className="ll-p" style={styles.p}>
-              You can always change to conventional hour tracking or back to the predictive algorithm in the settings page.
-            </Text>
+            <Section style={styles.imageContainer}>
+              <Img
+                src="https://loamlogger.app/LiebWhisRockRoll.jpg"
+                alt="Mountain biker riding through lush ferns"
+                width="60%"
+                style={styles.heroImage}
+              />
+            </Section>
 
             <Hr className="ll-hr" style={styles.hr} />
 
             <Heading as="h2" className="ll-h2" style={styles.h2}>
-              If something feels off, tell me in one sentence (or more, more is better)
+              How it works
             </Heading>
 
+            <Text className="ll-bullets" style={styles.bullets}>
+              • Connect Strava once in{" "}
+              <Link href={safeSettingsUrl} className="ll-link" style={styles.link}>
+                Settings → Integrations
+              </Link>
+            </Text>
+
+            <Text className="ll-bullets" style={styles.bullets}>
+              • New rides usually appear in Loam Logger{" "}
+              <span className="ll-emph" style={styles.emph}>
+                within a few seconds
+              </span>{" "}
+              after Strava finishes processing the activity
+            </Text>
+
+            <Text className="ll-bullets" style={styles.bullets}>
+              • If you select the bike you used in Strava, Loam Logger will
+              automatically link the ride to that bike
+            </Text>
+
+            <Text className="ll-bullets" style={{ ...styles.bullets, paddingLeft: 32 }}>
+              – This requires a{" "}
+              <span className="ll-emph" style={styles.emph}>
+                one-time bike name mapping
+              </span>{" "}
+              between Strava and Loam Logger
+            </Text>
+
             <Text className="ll-p" style={styles.p}>
-              The most helpful feedback is exactly your opinion of how the app should behave:
-              <span className="ll-emph" style={styles.emph}> bike + component + expectation</span>.
+              Once mapped, everything is fully automatic — no manual ride editing required.
             </Text>
 
             <Section style={{ paddingTop: 8, paddingBottom: 12, textAlign: "center" }}>
-              <Button
-                href={`mailto:${supportEmail}?subject=${encodeURIComponent(
-                  "Loam Logger wear feedback"
-                )}`}
-                className="ll-button"
-                style={styles.button}
-              >
-                ✉️ Send feedback
+              <Button href={safeSettingsUrl} className="ll-button" style={styles.button}>
+                🔗 Connect Strava
               </Button>
             </Section>
 
             <Hr className="ll-hr" style={styles.hr} />
 
             <Heading as="h2" className="ll-h2" style={styles.h2}>
-              Where to check things
+              Using multiple providers?
             </Heading>
 
             <Text className="ll-p" style={styles.p}>
-              For a quick answer, the dashboard is the simplest view.
-              If you ever want details or tuning controls, that’s what the Gear section is for.
+              If you import rides from both Garmin and Strava, Loam Logger can
+              detect duplicate rides automatically.
+              To clean things up, head to{" "}
+              <Link href={safeSettingsUrl} className="ll-link" style={styles.link}>
+                Settings
+              </Link>{" "}
+              and run{" "}
+              <span className="ll-emph" style={styles.emph}>
+                Scan for duplicate rides
+              </span>
+              .
             </Text>
 
-            <Section style={{ paddingTop: 8, textAlign: "center" }}>
-              <Button href={dashboardUrl} className="ll-button" style={styles.button}>
-                Open the dashboard
+            <Section className="ll-callout" style={styles.callout}>
+              <Text className="ll-p" style={{ ...styles.p, marginBottom: 0 }}>
+                Feedback on this integration is especially helpful — edge cases,
+                timing issues, or bike matching quirks all help make this better.
+              </Text>
+            </Section>
+
+            <Section style={{ paddingTop: 8, paddingBottom: 12, textAlign: "center" }}>
+              <Button href={mailFeedbackHref} className="ll-button" style={styles.button}>
+                💡 Share Feedback
               </Button>
             </Section>
 
-            <Text className="ll-p" style={{ ...styles.p, textAlign: "center" }}>
-              Or dive deeper in{" "}
-              <Link href={gearUrl} className="ll-link" style={styles.link}>
-                Gear
-              </Link>
-              .
+            <Section style={{ paddingBottom: 12, textAlign: "center" }}>
+              <Button href={mailBugHref} className="ll-button" style={styles.button}>
+                🐛 Report a Bug
+              </Button>
+            </Section>
+
+            <Text className="ll-p" style={styles.p}>
+              This gets Loam Logger much closer to the “set it and forget it”
+              experience — ride, sync, and let the system take care of the rest.
             </Text>
 
             <Text
               className="ll-signature"
               style={{
                 ...styles.p,
-                marginTop: 10,
+                marginTop: 14,
                 marginBottom: 0,
                 color: TOKENS.text,
                 fontWeight: 800,
               }}
             >
-              – Ryan
+              Ryan LeCours
+            </Text>
+
+            <Text className="ll-p" style={{ ...styles.p, marginBottom: 0 }}>
+              Founder, Loam Logger
+            </Text>
+
+            <Text className="ll-p" style={{ ...styles.p, marginBottom: 0 }}>
+              Loam Labs LLC
             </Text>
           </Section>
 
-          {/* Footer */}
           <Section style={styles.footer}>
             <Text className="ll-footer" style={{ ...styles.footerText, marginBottom: 0 }}>
-              Loam Logger • You&apos;re receiving this because you signed up for early access.
+              Loam Logger is a product of Loam Labs LLC. You are receiving this
+              because you signed up for beta access.
             </Text>
 
             {unsubscribeUrl ? (
@@ -293,7 +278,8 @@ const styles: Record<string, React.CSSProperties> = {
     margin: 0,
     padding: 0,
     backgroundColor: TOKENS.bg,
-    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif',
+    fontFamily:
+      '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif',
   },
   container: {
     width: "100%",
@@ -357,6 +343,17 @@ const styles: Record<string, React.CSSProperties> = {
     borderColor: TOKENS.border,
     margin: "14px 0 10px",
   },
+  imageContainer: {
+    margin: "16px 0",
+    textAlign: "center" as const,
+  },
+  heroImage: {
+    borderRadius: 12,
+    maxWidth: "100%",
+    height: "auto",
+    display: "inline-block",
+    margin: "0 auto",
+  },
   button: {
     display: "inline-block",
     backgroundColor: TOKENS.ctaBg,
@@ -388,18 +385,20 @@ const styles: Record<string, React.CSSProperties> = {
 
 /** Template configuration for admin email UI */
 export const templateConfig: TemplateConfig = {
-  id: "welcome-2",
-  displayName: "Welcome 2 - Wear Tracking",
-  description: "Explains how wear tracking works (send on day 3)",
-  defaultSubject: "Loam Logger: The Mechanic in your Pocket",
-  emailType: "welcome_series",
-  templateVersion: WELCOME_2_TEMPLATE_VERSION,
+  id: "strava-integration-live",
+  displayName: "Strava Integration Live",
+  description:
+    "Announces Strava integration, real-time ride importing, auto bike linking, and duplicate detection",
+  defaultSubject: "Strava integration is live for everyone",
+  emailType: "strava_integration_live",
+  templateVersion: STRAVA_INTEGRATION_LIVE_TEMPLATE_VERSION,
   adminVisible: true,
   parameters: [
     { key: "recipientFirstName", label: "First Name", type: "text", required: false, autoFill: "recipientFirstName" },
-    { key: "gearUrl", label: "Gear URL", type: "url", required: false, defaultValue: "${FRONTEND_URL}/gear" },
-    { key: "dashboardUrl", label: "Dashboard URL", type: "url", required: false, defaultValue: "${FRONTEND_URL}/dashboard" },
+    { key: "settingsUrl", label: "Settings URL", type: "url", required: false, defaultValue: "https://loamlogger.app/settings" },
+    { key: "supportEmail", label: "Support Email", type: "text", required: false, defaultValue: "ryan.lecours@loamlogger.app" },
     { key: "unsubscribeUrl", label: "Unsubscribe URL", type: "hidden", required: false, autoFill: "unsubscribeUrl" },
   ],
-  render: (props) => React.createElement(Welcome2Email, props as Welcome2EmailProps),
+  render: (props) =>
+    React.createElement(StravaIntegrationLiveEmail, props as StravaIntegrationLiveEmailProps),
 };

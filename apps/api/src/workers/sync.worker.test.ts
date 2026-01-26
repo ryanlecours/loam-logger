@@ -46,6 +46,13 @@ jest.mock('../lib/location', () => ({
   shouldApplyAutoLocation: jest.fn().mockReturnValue(undefined),
 }));
 
+jest.mock('../config/env', () => ({
+  config: {
+    garminVerificationMode: false,
+    garminApiBase: 'https://apis.garmin.com/wellness-api',
+  },
+}));
+
 // Mock global fetch
 global.fetch = jest.fn();
 

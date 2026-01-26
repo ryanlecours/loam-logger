@@ -21,6 +21,7 @@ import {
   CURRENT_TERMS_VERSION,
 } from '@loam/shared';
 import { logError } from '../lib/logger';
+import { config } from '../config/env';
 import type { AcquisitionCondition, BaselineMethod, BaselineConfidence } from '@prisma/client';
 import { getBikeById, isSpokesConfigured } from '../services/spokes';
 import { parseISO } from 'date-fns';
@@ -1941,6 +1942,19 @@ export const resolvers = {
       ctx: GraphQLContext
     ) => {
       const userId = requireUserId(ctx);
+
+      // Block Garmin manual sync during partner verification window
+      // This prevents "unprompted pull" errors in Garmin's verification tool
+      if (provider === 'GARMIN' && config.garminVerificationMode) {
+        throw new GraphQLError(
+          'Manual Garmin sync is temporarily disabled during partner verification. Activities will sync automatically via webhooks.',
+          {
+            extensions: {
+              code: 'VERIFICATION_MODE',
+            },
+          }
+        );
+      }
 
       // Convert GraphQL enum to queue provider type
       const providerLower = provider.toLowerCase() as SyncProvider;
