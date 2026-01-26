@@ -34,10 +34,12 @@ import express, { type Express } from 'express';
 import request from 'supertest';
 import garminWebhooksRouter from './webhooks.garmin';
 import { prisma } from '../lib/prisma';
+import { logger } from '../lib/logger';
 import { enqueueSyncJob } from '../lib/queue/sync.queue';
 import { enqueueCallbackJob } from '../lib/queue/backfill.queue';
 
 const mockPrisma = prisma as jest.Mocked<typeof prisma>;
+const mockLogger = logger as jest.Mocked<typeof logger>;
 const mockEnqueueSyncJob = enqueueSyncJob as jest.MockedFunction<typeof enqueueSyncJob>;
 const mockEnqueueCallbackJob = enqueueCallbackJob as jest.MockedFunction<typeof enqueueCallbackJob>;
 
@@ -478,12 +480,13 @@ describe('Garmin Webhooks', () => {
         // Wait for background processing to complete
         await new Promise(resolve => setTimeout(resolve, 50));
 
-        // Error should be logged (verified via mock)
+        // Error should be logged via the enqueue failure monitoring
         expect(mockLogger.error).toHaveBeenCalledWith(
           expect.objectContaining({
-            event: 'garmin_ping_post_response_error',
+            event: 'garmin_ping_enqueue_failed',
+            error: 'DB Error',
           }),
-          expect.stringContaining('Error after response sent')
+          expect.stringContaining('Failed to enqueue activity job')
         );
       });
     });
