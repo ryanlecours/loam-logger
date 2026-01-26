@@ -48,11 +48,9 @@ const apiBase =
 
 export default function Dashboard() {
   const user = useCurrentUser().user;
-  const { isPro, isAdmin } = useUserTier();
+  const { isPro } = useUserTier();
   const { isStravaConnected } = useConnectedAccounts();
 
-  // Strava connections temporarily disabled for non-admin users
-  const isStravaDisabled = !isAdmin;
 
   // Queries
   const {
@@ -149,11 +147,10 @@ export default function Dashboard() {
   const handleStravaBackfill = () => {
     if (isStravaConnected) {
       setIsStravaImportOpen(true);
-    } else if (!isStravaDisabled) {
-      // Redirect to Strava OAuth (only if not disabled)
+    } else {
+      // Redirect to Strava OAuth
       window.location.href = `${apiBase}/auth/strava/start`;
     }
-    // If Strava is disabled and not connected, do nothing (button should be hidden/disabled by PriorityBikeHero)
   };
 
   return (
@@ -168,7 +165,6 @@ export default function Dashboard() {
             onLogService={handleLogService}
             onStravaBackfill={handleStravaBackfill}
             isStravaConnected={isStravaConnected}
-            isStravaDisabled={isStravaDisabled}
             loading={bikesLoading}
             rides={rides}
           />

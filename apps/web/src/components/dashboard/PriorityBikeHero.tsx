@@ -16,7 +16,6 @@ interface PriorityBikeHeroProps {
   onLogService: (componentId?: string) => void;
   onStravaBackfill?: () => void;
   isStravaConnected?: boolean;
-  isStravaDisabled?: boolean;
   loading?: boolean;
   rides?: BikeRide[];
 }
@@ -28,7 +27,6 @@ export function PriorityBikeHero({
   onLogService,
   onStravaBackfill,
   isStravaConnected = false,
-  isStravaDisabled = false,
   loading = false,
   rides = [],
 }: PriorityBikeHeroProps) {
@@ -201,21 +199,14 @@ export function PriorityBikeHero({
                   Log a ride
                 </Link>
                 <span className="empty-cta-divider">or</span>
-                {isStravaDisabled && !isStravaConnected ? (
-                  <span className="empty-cta-link empty-cta-strava empty-cta-disabled" title="Strava connections temporarily unavailable">
-                    <FaStrava size={14} />
-                    Strava Unavailable
-                  </span>
-                ) : (
-                  <button
-                    type="button"
-                    className="empty-cta-link empty-cta-strava"
-                    onClick={onStravaBackfill}
-                  >
-                    <FaStrava size={14} />
-                    {isStravaConnected ? 'Backfill from Strava' : 'Connect Strava'}
-                  </button>
-                )}
+                <button
+                  type="button"
+                  className="empty-cta-link empty-cta-strava"
+                  onClick={onStravaBackfill}
+                >
+                  <FaStrava size={14} />
+                  {isStravaConnected ? 'Backfill from Strava' : 'Connect Strava'}
+                </button>
               </div>
             </div>
           )}

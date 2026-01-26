@@ -4,7 +4,6 @@ import { useApolloClient, useQuery, gql } from '@apollo/client';
 import { FaMountain, FaStrava, FaCog, FaCheck } from 'react-icons/fa';
 import { ME_QUERY } from '../graphql/me';
 import { useCurrentUser } from '../hooks/useCurrentUser';
-import { useUserTier } from '../hooks/useUserTier';
 import { Button } from '@/components/ui';
 import { getAuthHeaders } from '@/lib/csrf';
 import { BikeSearch, type SpokesSearchResult } from '@/components/BikeSearch';
@@ -87,13 +86,10 @@ export default function Onboarding() {
   const navigate = useNavigate();
   const apollo = useApolloClient();
   const { user } = useCurrentUser();
-  const { isAdmin } = useUserTier();
   const [searchParams] = useSearchParams();
   const { data: accountsData, refetch: refetchAccounts } = useQuery(CONNECTED_ACCOUNTS_QUERY);
   const { getBikeDetails, isLoading: loadingBikeDetails } = useSpokes();
 
-  // Strava connections temporarily disabled for non-admin users
-  const isStravaDisabled = !isAdmin;
   const [showManualBikeEntry, setShowManualBikeEntry] = useState(false);
   const [spokesDetails, setSpokesDetails] = useState<SpokesBikeDetails | null>(null);
   const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null);
@@ -779,23 +775,6 @@ export default function Onboarding() {
                       <span className="text-xs text-success">Ready</span>
                     </div>
                   </div>
-                ) : isStravaDisabled ? (
-                  <div className="w-full">
-                    <div className="w-full rounded-2xl border border-sage-20 bg-surface-2/30 px-4 py-4 opacity-60">
-                      <div className="flex items-center justify-between gap-4">
-                        <div className="flex items-center gap-3">
-                          <FaStrava className="text-lg text-muted" />
-                          <div className="text-left">
-                            <p className="font-semibold text-muted">Strava</p>
-                            <p className="text-xs text-muted">Temporarily unavailable</p>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                    <p className="text-xs text-concrete mt-2 text-center px-2">
-                      We're awaiting an athlete limit increase from Strava. You'll receive an email when connections are re-enabled.
-                    </p>
-                  </div>
                 ) : (
                   <button
                     onClick={handleConnectStrava}
@@ -884,7 +863,7 @@ export default function Onboarding() {
                   <ImportRidesForm
                     connectedProviders={accounts
                       .filter((a: { provider: string }) =>
-                        (a.provider === 'strava' && !isStravaDisabled) || a.provider === 'garmin'
+                        a.provider === 'strava' || a.provider === 'garmin'
                       )
                       .map((a: { provider: string }) => a.provider as 'strava' | 'garmin')}
                   />
