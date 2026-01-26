@@ -490,21 +490,7 @@ export default function Settings() {
             </button>
           ) : (
             <div className="max-w-md mx-auto">
-              {isAdmin ? (
-                <ConnectStravaLink />
-              ) : (
-                <div className="text-center">
-                  <p className="text-sm text-muted mb-2">
-                    Strava connections are temporarily limited.
-                  </p>
-                  <button
-                    disabled
-                    className="btn-secondary opacity-50 cursor-not-allowed"
-                  >
-                    Connect Strava to Enable
-                  </button>
-                </div>
-              )}
+              <ConnectStravaLink />
             </div>
           )}
         </div>
