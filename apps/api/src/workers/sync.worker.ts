@@ -95,13 +95,13 @@ async function processSyncJob(job: Job<SyncJobData, void, SyncJobName>): Promise
   const { userId, provider } = job.data;
   const jobName = job.name;
 
-  console.log(`[SyncWorker] Processing ${jobName} for user ${userId}, provider ${provider}`);
+  logger.info({ jobName, userId, provider }, '[SyncWorker] Processing job');
 
   // Acquire distributed lock to prevent concurrent syncs
   const lockResult = await acquireLock('sync', provider, userId);
 
   if (!lockResult.acquired) {
-    console.log(`[SyncWorker] Could not acquire lock for ${provider}:${userId}, delaying job`);
+    logger.debug({ provider, userId }, '[SyncWorker] Could not acquire lock, delaying job');
     // Delay the job and retry
     throw new DelayedError(`Lock not available, retrying in ${LOCK_RETRY_DELAY / 1000}s`);
   }
@@ -123,7 +123,7 @@ async function processSyncJob(job: Job<SyncJobData, void, SyncJobName>): Promise
   } finally {
     // Always release the lock
     await releaseLock(lockResult.lockKey, lockResult.lockValue);
-    console.log(`[SyncWorker] Released lock for ${provider}:${userId}`);
+    logger.debug({ provider, userId }, '[SyncWorker] Released lock');
   }
 }
 
@@ -132,7 +132,7 @@ async function processSyncJob(job: Job<SyncJobData, void, SyncJobName>): Promise
  * Fetches recent activities (last 30 days) and upserts them.
  */
 async function syncLatestActivities(userId: string, provider: SyncProvider): Promise<void> {
-  console.log(`[SyncWorker] Syncing latest activities for ${provider}`);
+  logger.info({ provider }, '[SyncWorker] Syncing latest activities');
 
   switch (provider) {
     case 'strava':
@@ -142,7 +142,7 @@ async function syncLatestActivities(userId: string, provider: SyncProvider): Pro
       await syncGarminLatest(userId);
       break;
     case 'suunto':
-      console.log(`[SyncWorker] Suunto sync not yet implemented`);
+      logger.warn({ provider: 'suunto' }, '[SyncWorker] Suunto sync not yet implemented');
       break;
     default:
       throw new Error(`Unknown provider: ${provider}`);
@@ -157,7 +157,7 @@ async function syncSingleActivity(
   provider: SyncProvider,
   activityId: string
 ): Promise<void> {
-  console.log(`[SyncWorker] Syncing single activity ${activityId} from ${provider}`);
+  logger.info({ activityId, provider }, '[SyncWorker] Syncing single activity');
 
   switch (provider) {
     case 'strava':
@@ -167,7 +167,7 @@ async function syncSingleActivity(
       await syncGarminActivity(userId, activityId);
       break;
     case 'suunto':
-      console.log(`[SyncWorker] Suunto sync not yet implemented`);
+      logger.warn({ provider: 'suunto' }, '[SyncWorker] Suunto sync not yet implemented');
       break;
     default:
       throw new Error(`Unknown provider: ${provider}`);
@@ -207,20 +207,20 @@ async function syncStravaLatest(userId: string): Promise<void> {
   }
 
   const activities = (await response.json()) as StravaActivity[];
-  console.log(`[SyncWorker] Fetched ${activities.length} Strava activities`);
+  logger.debug({ count: activities.length }, '[SyncWorker] Fetched Strava activities');
 
   // Filter to cycling activities
   const cyclingActivities = activities.filter((a) =>
     STRAVA_CYCLING_TYPES.includes(a.sport_type)
   );
 
-  console.log(`[SyncWorker] Processing ${cyclingActivities.length} cycling activities`);
+  logger.debug({ count: cyclingActivities.length }, '[SyncWorker] Processing cycling activities');
 
   for (const activity of cyclingActivities) {
     await upsertStravaActivity(userId, activity);
   }
 
-  console.log(`[SyncWorker] Strava sync complete for user ${userId}`);
+  logger.info({ userId, count: cyclingActivities.length }, '[SyncWorker] Strava sync complete');
 }
 
 async function syncStravaActivity(userId: string, activityId: string): Promise<void> {
@@ -248,7 +248,7 @@ async function syncStravaActivity(userId: string, activityId: string): Promise<v
   const activity = (await response.json()) as StravaActivity;
 
   if (!STRAVA_CYCLING_TYPES.includes(activity.sport_type)) {
-    console.log(`[SyncWorker] Skipping non-cycling activity: ${activity.sport_type}`);
+    logger.debug({ activityId, sportType: activity.sport_type }, '[SyncWorker] Skipping non-cycling activity');
     return;
   }
 
@@ -337,7 +337,7 @@ async function upsertStravaActivity(userId: string, activity: StravaActivity): P
     );
   });
 
-  console.log(`[SyncWorker] Upserted Strava activity ${activity.id}`);
+  logger.debug({ stravaActivityId: activity.id }, '[SyncWorker] Upserted Strava activity');
 }
 
 // ============================================================================
@@ -377,7 +377,7 @@ async function syncGarminLatest(userId: string): Promise<void> {
   }
 
   const activities = (await response.json()) as GarminActivity[];
-  console.log(`[SyncWorker] Fetched ${activities.length} Garmin activities`);
+  logger.debug({ count: activities.length }, '[SyncWorker] Fetched Garmin activities');
 
   // Filter to cycling activities
   const cyclingActivities = activities.filter((a) => {
@@ -385,13 +385,13 @@ async function syncGarminLatest(userId: string): Promise<void> {
     return GARMIN_CYCLING_TYPES.includes(typeLower);
   });
 
-  console.log(`[SyncWorker] Processing ${cyclingActivities.length} cycling activities`);
+  logger.debug({ count: cyclingActivities.length }, '[SyncWorker] Processing cycling activities');
 
   for (const activity of cyclingActivities) {
     await upsertGarminActivity(userId, activity);
   }
 
-  console.log(`[SyncWorker] Garmin sync complete for user ${userId}`);
+  logger.info({ userId, count: cyclingActivities.length }, '[SyncWorker] Garmin sync complete');
 }
 
 async function syncGarminActivity(userId: string, activityId: string): Promise<void> {
@@ -620,18 +620,18 @@ export function createSyncWorker(): Worker<SyncJobData, void, SyncJobName> {
   );
 
   syncWorker.on('completed', (job) => {
-    console.log(`[SyncWorker] Job ${job.id} (${job.name}) completed`);
+    logger.info({ jobId: job.id, jobName: job.name }, '[SyncWorker] Job completed');
   });
 
   syncWorker.on('failed', (job, err) => {
-    console.error(`[SyncWorker] Job ${job?.id} (${job?.name}) failed:`, err.message);
+    logger.error({ jobId: job?.id, jobName: job?.name, error: err.message }, '[SyncWorker] Job failed');
   });
 
   syncWorker.on('error', (err) => {
-    console.error('[SyncWorker] Worker error:', err.message);
+    logger.error({ error: err.message }, '[SyncWorker] Worker error');
   });
 
-  console.log('[SyncWorker] Started');
+  logger.info('[SyncWorker] Started');
   return syncWorker;
 }
 
@@ -642,6 +642,6 @@ export async function closeSyncWorker(): Promise<void> {
   if (syncWorker) {
     await syncWorker.close();
     syncWorker = null;
-    console.log('[SyncWorker] Stopped');
+    logger.info('[SyncWorker] Stopped');
   }
 }
