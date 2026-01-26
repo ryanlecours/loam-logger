@@ -5,9 +5,8 @@ import { prisma } from '../lib/prisma';
 import { getValidGarminToken } from '../lib/garmin-token';
 import { deriveLocationAsync, shouldApplyAutoLocation } from '../lib/location';
 import { logError, logger } from '../lib/logger';
+import { config } from '../config/env';
 import type { BackfillJobData, BackfillJobName } from '../lib/queue/backfill.queue';
-
-const GARMIN_API_BASE = process.env.GARMIN_API_BASE || 'https://apis.garmin.com/wellness-api';
 
 // Garmin API limits backfill requests to 30-day chunks
 const CHUNK_DAYS = 30;
@@ -190,7 +189,7 @@ async function processGarminBackfill(userId: string, year: string): Promise<void
       'Triggering Garmin backfill chunk'
     );
 
-    const url = `${GARMIN_API_BASE}/rest/backfill/activities?summaryStartTimeInSeconds=${chunkStartSeconds}&summaryEndTimeInSeconds=${chunkEndSeconds}`;
+    const url = `${config.garminApiBase}/rest/backfill/activities?summaryStartTimeInSeconds=${chunkStartSeconds}&summaryEndTimeInSeconds=${chunkEndSeconds}`;
 
     try {
       const response = await fetch(url, {

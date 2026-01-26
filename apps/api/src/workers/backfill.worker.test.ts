@@ -53,6 +53,13 @@ jest.mock('../lib/logger', () => ({
   logError: jest.fn(),
 }));
 
+jest.mock('../config/env', () => ({
+  config: {
+    garminVerificationMode: false,
+    garminApiBase: 'https://apis.garmin.com/wellness-api',
+  },
+}));
+
 // Mock global fetch
 global.fetch = jest.fn();
 

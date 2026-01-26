@@ -142,6 +142,14 @@ r.post<Empty, void, { userPermissionsChange?: Array<{
  * Garmin sends TWO different payload formats:
  * 1. activityDetails: [{ userId, summaryId, userAccessToken, ... }]
  * 2. activities: [{ userId, callbackURL }] - used for backfill responses
+ *
+ * DESIGN NOTE: Fire-and-Forget Pattern
+ * We respond with 200 OK immediately (Garmin requires response within 30 seconds)
+ * then enqueue jobs in a non-blocking manner. If the process crashes before
+ * promises settle, some jobs may not be enqueued. This is acceptable because:
+ * 1. Garmin retries failed webhook deliveries (no 200 = retry)
+ * 2. Activities will be picked up on next sync or backfill
+ * 3. The alternative (blocking until enqueue) risks Garmin timeout and retry storms
  */
 type GarminActivityPing = {
   userId: string;

@@ -6,10 +6,9 @@ import { getValidStravaToken } from '../lib/strava-token';
 import { getValidGarminToken } from '../lib/garmin-token';
 import { deriveLocation, deriveLocationAsync, shouldApplyAutoLocation } from '../lib/location';
 import { logger } from '../lib/logger';
+import { config } from '../config/env';
 import type { SyncJobData, SyncJobName, SyncProvider } from '../lib/queue/sync.queue';
 import type { Prisma } from '@prisma/client';
-
-const GARMIN_API_BASE = process.env.GARMIN_API_BASE || 'https://apis.garmin.com/wellness-api';
 
 // Retry delay when lock acquisition fails (30 seconds)
 const LOCK_RETRY_DELAY = 30 * 1000;
@@ -348,7 +347,7 @@ async function upsertStravaActivity(userId: string, activity: StravaActivity): P
 async function syncGarminLatest(userId: string): Promise<void> {
   // Guard: Block unprompted pulls during Garmin verification
   // This prevents calling GET /rest/activities which Garmin flags as "unprompted pull"
-  if (process.env.GARMIN_VERIFICATION_MODE === 'true') {
+  if (config.garminVerificationMode) {
     logger.warn({ userId }, '[SyncWorker] syncGarminLatest blocked during verification mode');
     return;
   }
@@ -363,7 +362,7 @@ async function syncGarminLatest(userId: string): Promise<void> {
   const thirtyDaysAgo = Math.floor((Date.now() - 30 * 24 * 60 * 60 * 1000) / 1000);
   const now = Math.floor(Date.now() / 1000);
 
-  const url = `${GARMIN_API_BASE}/rest/activities?uploadStartTimeInSeconds=${thirtyDaysAgo}&uploadEndTimeInSeconds=${now}`;
+  const url = `${config.garminApiBase}/rest/activities?uploadStartTimeInSeconds=${thirtyDaysAgo}&uploadEndTimeInSeconds=${now}`;
 
   const response = await fetch(url, {
     headers: {
@@ -416,7 +415,7 @@ async function syncGarminActivity(userId: string, activityId: string): Promise<v
 
   try {
     const response = await fetch(
-      `${GARMIN_API_BASE}/rest/activityFile/${activityId}`,
+      `${config.garminApiBase}/rest/activityFile/${activityId}`,
       {
         headers: {
           Authorization: `Bearer ${accessToken}`,
