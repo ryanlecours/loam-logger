@@ -6,6 +6,7 @@ export const RIDES = gql`
       id
       garminActivityId
       stravaActivityId
+      whoopWorkoutId
       startTime
       durationSeconds
       distanceMiles

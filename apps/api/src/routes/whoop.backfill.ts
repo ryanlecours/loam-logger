@@ -307,7 +307,7 @@ r.get<Empty, void, Empty, { year?: string }>(
       return sendInternalError(res, 'Failed to fetch workouts');
     } finally {
       // Always release the lock
-      await releaseLock('backfill', 'whoop', userId, lockResult.lockValue);
+      await releaseLock(lockResult.lockKey, lockResult.lockValue);
     }
   }
 );
