@@ -119,7 +119,23 @@ PORT=4000
 
 DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/DBNAME?sslmode=require"
 CORS_ORIGIN="http://localhost:5173"
-{Other Secrets will be needed}
+FRONTEND_URL="http://localhost:5173"
+
+# Redis (required for job queues and rate limiting)
+REDIS_URL="redis://localhost:6379"
+
+# Garmin Connect API
+GARMIN_CONSUMER_KEY="your-garmin-consumer-key"
+GARMIN_CONSUMER_SECRET="your-garmin-consumer-secret"
+
+# Strava API
+STRAVA_CLIENT_ID="your-strava-client-id"
+STRAVA_CLIENT_SECRET="your-strava-client-secret"
+STRAVA_WEBHOOK_VERIFY_TOKEN="your-webhook-verify-token"
+
+# WHOOP API
+WHOOP_CLIENT_ID="your-whoop-client-id"
+WHOOP_CLIENT_SECRET="your-whoop-client-secret"
 ```
 
 #### Frontend (`apps/web/.env`)
@@ -201,11 +217,26 @@ Runs all 400+ unit tests with Vitest.
 - **Light/Dark Theming** — Premium dark theme with obsidian + forest tones
 - **Modular CSS Architecture** — Refactored styling system with design tokens
 - **Drag & Drop Bike Sorting** — Reorder bikes on dashboard
-- **Comprehensive Test Coverage** — 400+ unit tests across components
+- **Comprehensive Test Coverage** — 700+ unit tests across components
+
+### 🔗 Data Source Integrations
+
+Loam Logger connects to popular fitness platforms to automatically import your rides:
+
+| Platform | Features |
+|----------|----------|
+| **Garmin Connect** | OAuth integration, webhook-based real-time sync, historical backfill with import sessions |
+| **Strava** | OAuth integration, webhook-based real-time sync, gear mapping to bikes, historical backfill |
+| **WHOOP** | OAuth integration, webhook-based real-time sync, Cycling + Mountain Biking support, API v2 with UUID workout IDs |
+
+**Key capabilities:**
+- **Real-time sync** — Webhooks push new activities as they're recorded
+- **Historical backfill** — Import past rides by year or YTD with incremental checkpointing
+- **Cross-provider duplicate detection** — Avoid importing the same ride from multiple sources
+- **Automatic bike assignment** — Strava gear IDs map to your bikes; single-bike users get auto-assignment
+- **Component hour tracking** — Ride duration automatically updates component wear metrics
 
 ### 🔜 Coming Soon
-- Garmin OAuth integration
-- Strava OAuth integration
 - Analytics dashboard with ride insights
 - Mobile app features (ride sync, gear tracking, offline support)
 

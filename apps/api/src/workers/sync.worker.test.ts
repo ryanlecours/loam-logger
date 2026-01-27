@@ -41,6 +41,10 @@ jest.mock('../lib/garmin-token', () => ({
   getValidGarminToken: jest.fn(),
 }));
 
+jest.mock('../lib/whoop-token', () => ({
+  getValidWhoopToken: jest.fn(),
+}));
+
 jest.mock('../lib/location', () => ({
   deriveLocation: jest.fn().mockReturnValue('Derived Location'),
   shouldApplyAutoLocation: jest.fn().mockReturnValue(undefined),
@@ -62,12 +66,14 @@ import { acquireLock, releaseLock } from '../lib/rate-limit';
 import { prisma } from '../lib/prisma';
 import { getValidStravaToken } from '../lib/strava-token';
 import { getValidGarminToken } from '../lib/garmin-token';
+import { getValidWhoopToken } from '../lib/whoop-token';
 
 const MockedWorker = Worker as jest.MockedClass<typeof Worker>;
 const mockAcquireLock = acquireLock as jest.MockedFunction<typeof acquireLock>;
 const mockReleaseLock = releaseLock as jest.MockedFunction<typeof releaseLock>;
 const mockPrisma = prisma as jest.Mocked<typeof prisma>;
 const mockGetValidStravaToken = getValidStravaToken as jest.MockedFunction<typeof getValidStravaToken>;
+const mockGetValidWhoopToken = getValidWhoopToken as jest.MockedFunction<typeof getValidWhoopToken>;
 const mockGetValidGarminToken = getValidGarminToken as jest.MockedFunction<typeof getValidGarminToken>;
 const mockFetch = global.fetch as jest.MockedFunction<typeof fetch>;
 
@@ -340,6 +346,153 @@ describe('processSyncJob (via worker processor)', () => {
       });
     });
 
+    it('should sync WHOOP workouts', async () => {
+      mockAcquireLock.mockResolvedValue({
+        acquired: true,
+        lockKey: 'lock:whoop:user123',
+        lockValue: 'value123',
+        redisAvailable: true,
+      });
+      mockGetValidWhoopToken.mockResolvedValue('valid-whoop-token');
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          records: [],
+          next_token: undefined,
+        }),
+      } as Response);
+
+      await processSyncJob({
+        name: 'syncLatest',
+        data: { userId: 'user123', provider: 'whoop' },
+      });
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringContaining('api.prod.whoop.com'),
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            Authorization: 'Bearer valid-whoop-token',
+          }),
+        })
+      );
+    });
+
+    it('should throw when WHOOP token is not available', async () => {
+      mockAcquireLock.mockResolvedValue({
+        acquired: true,
+        lockKey: 'lock:whoop:user123',
+        lockValue: 'value123',
+        redisAvailable: true,
+      });
+      mockGetValidWhoopToken.mockResolvedValue(null);
+
+      await expect(
+        processSyncJob({
+          name: 'syncLatest',
+          data: { userId: 'user123', provider: 'whoop' },
+        })
+      ).rejects.toThrow('No valid WHOOP token available');
+    });
+
+    it('should filter WHOOP workouts to cycling only', async () => {
+      mockAcquireLock.mockResolvedValue({
+        acquired: true,
+        lockKey: 'lock:whoop:user123',
+        lockValue: 'value123',
+        redisAvailable: true,
+      });
+      mockGetValidWhoopToken.mockResolvedValue('valid-whoop-token');
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          records: [
+            {
+              id: 1,
+              user_id: 123,
+              start: '2024-01-01T10:00:00Z',
+              end: '2024-01-01T11:00:00Z',
+              sport_id: 1, // Cycling
+              score_state: 'SCORED',
+              score: {
+                strain: 10,
+                average_heart_rate: 140,
+                max_heart_rate: 170,
+                kilojoule: 500,
+                distance_meter: 20000,
+              },
+            },
+            {
+              id: 2,
+              user_id: 123,
+              start: '2024-01-02T10:00:00Z',
+              end: '2024-01-02T10:30:00Z',
+              sport_id: 0, // Running
+              score_state: 'SCORED',
+              score: {
+                strain: 8,
+                average_heart_rate: 150,
+              },
+            },
+          ],
+          next_token: undefined,
+        }),
+      } as Response);
+
+      mockPrisma.$transaction.mockImplementation(async (cb) => {
+        const tx = {
+          ride: {
+            findUnique: jest.fn().mockResolvedValue(null),
+            upsert: jest.fn().mockResolvedValue({ bikeId: null, durationSeconds: 3600 }),
+          },
+          component: { updateMany: jest.fn() },
+        };
+        return cb(tx);
+      });
+      (mockPrisma.bike.findMany as jest.Mock).mockResolvedValue([]);
+
+      await processSyncJob({
+        name: 'syncLatest',
+        data: { userId: 'user123', provider: 'whoop' },
+      });
+
+      // Transaction should only be called once for the cycling workout
+      expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1);
+    });
+
+    it('should skip unscorable WHOOP workouts', async () => {
+      mockAcquireLock.mockResolvedValue({
+        acquired: true,
+        lockKey: 'lock:whoop:user123',
+        lockValue: 'value123',
+        redisAvailable: true,
+      });
+      mockGetValidWhoopToken.mockResolvedValue('valid-whoop-token');
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          records: [
+            {
+              id: 1,
+              user_id: 123,
+              start: '2024-01-01T10:00:00Z',
+              end: '2024-01-01T11:00:00Z',
+              sport_id: 1, // Cycling
+              score_state: 'UNSCORABLE',
+            },
+          ],
+          next_token: undefined,
+        }),
+      } as Response);
+
+      await processSyncJob({
+        name: 'syncLatest',
+        data: { userId: 'user123', provider: 'whoop' },
+      });
+
+      // Transaction should not be called for unscorable workout
+      expect(mockPrisma.$transaction).not.toHaveBeenCalled();
+    });
+
     it('should throw for unknown provider', async () => {
       mockAcquireLock.mockResolvedValue({
         acquired: true,
@@ -437,6 +590,89 @@ describe('processSyncJob (via worker processor)', () => {
       });
 
       // Should not call prisma.$transaction for non-cycling activity
+      expect(mockPrisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('should sync single WHOOP workout', async () => {
+      mockAcquireLock.mockResolvedValue({
+        acquired: true,
+        lockKey: 'lock:whoop:user123',
+        lockValue: 'value123',
+        redisAvailable: true,
+      });
+      mockGetValidWhoopToken.mockResolvedValue('valid-whoop-token');
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          id: 99999,
+          user_id: 123,
+          start: '2024-01-01T10:00:00Z',
+          end: '2024-01-01T11:00:00Z',
+          sport_id: 1, // Cycling
+          score_state: 'SCORED',
+          score: {
+            strain: 12,
+            average_heart_rate: 145,
+            max_heart_rate: 175,
+            distance_meter: 25000,
+            altitude_gain_meter: 300,
+          },
+        }),
+      } as Response);
+
+      mockPrisma.$transaction.mockImplementation(async (cb) => {
+        const tx = {
+          ride: {
+            findUnique: jest.fn().mockResolvedValue(null),
+            upsert: jest.fn().mockResolvedValue({ bikeId: null, durationSeconds: 3600 }),
+          },
+          component: { updateMany: jest.fn() },
+        };
+        return cb(tx);
+      });
+      (mockPrisma.bike.findMany as jest.Mock).mockResolvedValue([]);
+
+      await processSyncJob({
+        name: 'syncActivity',
+        data: { userId: 'user123', provider: 'whoop', activityId: '99999' },
+      });
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://api.prod.whoop.com/developer/v2/activity/workout/99999',
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            Authorization: 'Bearer valid-whoop-token',
+          }),
+        })
+      );
+    });
+
+    it('should skip non-cycling WHOOP workout', async () => {
+      mockAcquireLock.mockResolvedValue({
+        acquired: true,
+        lockKey: 'lock:whoop:user123',
+        lockValue: 'value123',
+        redisAvailable: true,
+      });
+      mockGetValidWhoopToken.mockResolvedValue('valid-whoop-token');
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          id: 88888,
+          user_id: 123,
+          start: '2024-01-01T10:00:00Z',
+          end: '2024-01-01T10:30:00Z',
+          sport_id: 0, // Running
+          score_state: 'SCORED',
+        }),
+      } as Response);
+
+      await processSyncJob({
+        name: 'syncActivity',
+        data: { userId: 'user123', provider: 'whoop', activityId: '88888' },
+      });
+
+      // Should not call prisma.$transaction for non-cycling workout
       expect(mockPrisma.$transaction).not.toHaveBeenCalled();
     });
   });

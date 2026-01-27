@@ -11,7 +11,7 @@ const COMPLETED_JOBS_TO_KEEP = 10;
 const FAILED_JOBS_TO_KEEP = 50;
 const HIGH_PRIORITY = 1;
 
-export type SyncProvider = 'strava' | 'garmin' | 'suunto';
+export type SyncProvider = 'strava' | 'garmin' | 'whoop' | 'suunto';
 
 export type SyncJobName =
   | 'syncLatest'

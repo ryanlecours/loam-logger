@@ -4,11 +4,19 @@ import { acquireLock, releaseLock } from '../lib/rate-limit';
 import { prisma } from '../lib/prisma';
 import { getValidStravaToken } from '../lib/strava-token';
 import { getValidGarminToken } from '../lib/garmin-token';
+import { getValidWhoopToken } from '../lib/whoop-token';
 import { deriveLocation, deriveLocationAsync, shouldApplyAutoLocation } from '../lib/location';
 import { logger } from '../lib/logger';
 import { config } from '../config/env';
 import type { SyncJobData, SyncJobName, SyncProvider } from '../lib/queue/sync.queue';
 import type { Prisma } from '@prisma/client';
+import {
+  WHOOP_API_BASE,
+  isWhoopCyclingWorkout,
+  getWhoopRideType,
+  type WhoopWorkout,
+  type WhoopPaginatedResponse,
+} from '../types/whoop';
 
 // Retry delay when lock acquisition fails (30 seconds)
 const LOCK_RETRY_DELAY = 30 * 1000;
@@ -141,6 +149,9 @@ async function syncLatestActivities(userId: string, provider: SyncProvider): Pro
     case 'garmin':
       await syncGarminLatest(userId);
       break;
+    case 'whoop':
+      await syncWhoopLatest(userId);
+      break;
     case 'suunto':
       logger.warn({ provider: 'suunto' }, '[SyncWorker] Suunto sync not yet implemented');
       break;
@@ -165,6 +176,9 @@ async function syncSingleActivity(
       break;
     case 'garmin':
       await syncGarminActivity(userId, activityId);
+      break;
+    case 'whoop':
+      await syncWhoopActivity(userId, activityId);
       break;
     case 'suunto':
       logger.warn({ provider: 'suunto' }, '[SyncWorker] Suunto sync not yet implemented');
@@ -536,6 +550,162 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
   }
 
   logger.debug({ summaryId: activity.summaryId }, '[SyncWorker] Upserted Garmin activity');
+}
+
+// ============================================================================
+// WHOOP SYNC
+// ============================================================================
+
+async function syncWhoopLatest(userId: string): Promise<void> {
+  const accessToken = await getValidWhoopToken(userId);
+
+  if (!accessToken) {
+    throw new Error('No valid WHOOP token available');
+  }
+
+  // Fetch workouts from the last 30 days
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const now = new Date();
+
+  const url = new URL(`${WHOOP_API_BASE}/activity/workout`);
+  url.searchParams.set('start', thirtyDaysAgo.toISOString());
+  url.searchParams.set('end', now.toISOString());
+  url.searchParams.set('limit', '25');
+
+  const response = await fetch(url.toString(), {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Accept: 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`WHOOP API error: ${response.status} ${text}`);
+  }
+
+  const data = (await response.json()) as WhoopPaginatedResponse<WhoopWorkout>;
+  logger.debug({ count: data.records.length }, '[SyncWorker] Fetched WHOOP workouts');
+
+  // Filter to cycling workouts using sport_name and sport_id
+  const cyclingWorkouts = data.records.filter(isWhoopCyclingWorkout);
+
+  logger.debug({ count: cyclingWorkouts.length }, '[SyncWorker] Processing cycling workouts');
+
+  for (const workout of cyclingWorkouts) {
+    await upsertWhoopActivity(userId, workout);
+  }
+
+  logger.info({ userId, count: cyclingWorkouts.length }, '[SyncWorker] WHOOP sync complete');
+}
+
+async function syncWhoopActivity(userId: string, workoutId: string): Promise<void> {
+  const accessToken = await getValidWhoopToken(userId);
+
+  if (!accessToken) {
+    throw new Error('No valid WHOOP token available');
+  }
+
+  const response = await fetch(
+    `${WHOOP_API_BASE}/activity/workout/${workoutId}`,
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: 'application/json',
+      },
+    }
+  );
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`WHOOP API error: ${response.status} ${text}`);
+  }
+
+  const workout = (await response.json()) as WhoopWorkout;
+
+  if (!isWhoopCyclingWorkout(workout)) {
+    logger.debug({ workoutId, sportId: workout.sport_id, sportName: workout.sport_name }, '[SyncWorker] Skipping non-cycling workout');
+    return;
+  }
+
+  await upsertWhoopActivity(userId, workout);
+}
+
+async function upsertWhoopActivity(userId: string, workout: WhoopWorkout): Promise<void> {
+  // Skip unscorable workouts
+  if (workout.score_state === 'UNSCORABLE') {
+    logger.debug({ whoopWorkoutId: workout.id }, '[SyncWorker] Skipping unscorable workout');
+    return;
+  }
+
+  const startTime = new Date(workout.start);
+  const endTime = new Date(workout.end);
+  const durationSeconds = Math.round((endTime.getTime() - startTime.getTime()) / 1000);
+
+  const distanceMiles = workout.score?.distance_meter
+    ? workout.score.distance_meter * 0.000621371
+    : 0;
+  const elevationGainFeet = workout.score?.altitude_gain_meter
+    ? workout.score.altitude_gain_meter * 3.28084
+    : 0;
+
+  // Auto-assign bike if user has exactly one bike (WHOOP has no gear tagging)
+  let bikeId: string | null = null;
+  const userBikes = await prisma.bike.findMany({
+    where: { userId },
+    select: { id: true },
+  });
+  if (userBikes.length === 1) {
+    bikeId = userBikes[0].id;
+  }
+
+  // Get ride type based on sport (Cycling vs Mountain Bike)
+  const rideType = getWhoopRideType(workout);
+
+  await prisma.$transaction(async (tx) => {
+    const existing = await tx.ride.findUnique({
+      where: { whoopWorkoutId: workout.id },
+      select: { durationSeconds: true, bikeId: true },
+    });
+
+    const ride = await tx.ride.upsert({
+      where: { whoopWorkoutId: workout.id },
+      create: {
+        userId,
+        whoopWorkoutId: workout.id,
+        startTime,
+        durationSeconds,
+        distanceMiles,
+        elevationGainFeet,
+        averageHr: workout.score?.average_heart_rate
+          ? Math.round(workout.score.average_heart_rate)
+          : null,
+        rideType,
+        bikeId,
+      },
+      update: {
+        startTime,
+        durationSeconds,
+        distanceMiles,
+        elevationGainFeet,
+        averageHr: workout.score?.average_heart_rate
+          ? Math.round(workout.score.average_heart_rate)
+          : null,
+        rideType,
+        bikeId,
+      },
+    });
+
+    // Sync component hours
+    await syncBikeComponentHours(
+      tx,
+      userId,
+      { bikeId: existing?.bikeId ?? null, durationSeconds: existing?.durationSeconds ?? null },
+      { bikeId: ride.bikeId ?? null, durationSeconds: ride.durationSeconds }
+    );
+  });
+
+  logger.debug({ whoopWorkoutId: workout.id }, '[SyncWorker] Upserted WHOOP workout');
 }
 
 // ============================================================================

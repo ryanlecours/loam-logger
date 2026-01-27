@@ -2,13 +2,16 @@ import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, gql } from "@apollo/client";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { FaMountain, FaGoogle, FaStrava } from "react-icons/fa";
+import { TbActivityHeartbeat } from "react-icons/tb";
 import { formatDistanceToNow } from "date-fns";
 import ThemeToggle from "../components/ThemeToggleButton";
 import DeleteAccountModal from "../components/DeleteAccountModal";
 import ConnectGarminLink from "../components/ConnectGarminLink";
 import ConnectStravaLink from "../components/ConnectStravaLink";
+import ConnectWhoopLink from "../components/ConnectWhoopLink";
 import GarminImportModal from "../components/GarminImportModal";
 import StravaImportModal from "../components/StravaImportModal";
+import WhoopImportModal from "../components/WhoopImportModal";
 import StravaBikeMappingOverlay from "../components/StravaBikeMappingOverlay";
 import DataSourceSelector from "../components/DataSourceSelector";
 import DuplicateRidesModal from "../components/DuplicateRidesModal";
@@ -56,11 +59,13 @@ export default function Settings() {
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [stravaImportModalOpen, setStravaImportModalOpen] = useState(false);
+  const [whoopImportModalOpen, setWhoopImportModalOpen] = useState(false);
   const [duplicatesModalOpen, setDuplicatesModalOpen] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [activeDataSource, setActiveDataSource] = useState<'garmin' | 'strava' | null>(null);
+  const [activeDataSource, setActiveDataSource] = useState<'garmin' | 'strava' | 'whoop' | null>(null);
   const [stravaDeleteLoading, setStravaDeleteLoading] = useState(false);
   const [garminDeleteLoading, setGarminDeleteLoading] = useState(false);
+  const [whoopDeleteLoading, setWhoopDeleteLoading] = useState(false);
   const [stravaMappingModalOpen, setStravaMappingModalOpen] = useState(false);
 
   // Check for OAuth connection callbacks
@@ -78,6 +83,17 @@ export default function Settings() {
         setSuccessMessage('Strava connected! Choose your active data source below.');
       } else {
         setSuccessMessage('Strava connected successfully!');
+      }
+      setTimeout(() => setSuccessMessage(null), 8000);
+      setSearchParams({});
+    }
+
+    if (searchParams.get('whoop') === 'connected') {
+      refetchAccounts();
+      if (searchParams.get('prompt') === 'choose-source') {
+        setSuccessMessage('WHOOP connected! Choose your active data source below.');
+      } else {
+        setSuccessMessage('WHOOP connected successfully!');
       }
       setTimeout(() => setSuccessMessage(null), 8000);
       setSearchParams({});
@@ -116,8 +132,10 @@ export default function Settings() {
   const accounts = accountsData?.me?.accounts || [];
   const garminAccount = accounts.find((acc: { provider: string; connectedAt: string }) => acc.provider === "garmin");
   const stravaAccount = accounts.find((acc: { provider: string; connectedAt: string }) => acc.provider === "strava");
+  const whoopAccount = accounts.find((acc: { provider: string; connectedAt: string }) => acc.provider === "whoop");
   const isGarminConnected = !!garminAccount;
   const isStravaConnected = !!stravaAccount;
+  const isWhoopConnected = !!whoopAccount;
 
   const handleDisconnectGarmin = async () => {
     if (!confirm('Disconnect Garmin? Your synced rides will remain, but new activities will not sync.')) {
@@ -165,7 +183,30 @@ export default function Settings() {
     }
   };
 
-  const handleDataSourceSelect = async (provider: 'garmin' | 'strava') => {
+  const handleDisconnectWhoop = async () => {
+    if (!confirm('Disconnect WHOOP? Your synced rides will remain, but new workouts will not sync.')) {
+      return;
+    }
+
+    try {
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/auth/whoop/disconnect`, {
+        method: 'DELETE',
+        credentials: 'include',
+        headers: getAuthHeaders(),
+      });
+
+      if (!res.ok) throw new Error('Failed to disconnect');
+
+      await refetchAccounts();
+      setSuccessMessage('WHOOP disconnected successfully');
+      setTimeout(() => setSuccessMessage(null), 3000);
+    } catch (err) {
+      console.error('Failed to disconnect WHOOP:', err);
+      alert('Failed to disconnect WHOOP. Please try again.');
+    }
+  };
+
+  const handleDataSourceSelect = async (provider: 'garmin' | 'strava' | 'whoop') => {
     try {
       const res = await fetch(`${import.meta.env.VITE_API_URL}/api/data-source/preference`, {
         method: 'POST',
@@ -244,6 +285,36 @@ export default function Settings() {
       alert('Failed to delete Garmin rides. Please try again.');
     } finally {
       setGarminDeleteLoading(false);
+    }
+  };
+
+  const handleDeleteWhoopRides = async () => {
+    if (!confirm('Delete ALL rides imported from WHOOP? This also removes the hours added to your bikes from those rides.')) {
+      return;
+    }
+
+    setWhoopDeleteLoading(true);
+    try {
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/whoop/testing/delete-imported-rides`, {
+        method: 'DELETE',
+        credentials: 'include',
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) throw new Error('Failed to delete WHOOP rides');
+
+      const data = await res.json();
+      const deleted = Number(data.deletedRides || 0);
+      const message =
+        deleted > 0
+          ? `Deleted ${deleted} WHOOP ride${deleted === 1 ? '' : 's'} and reset component hours.`
+          : 'No WHOOP rides found to delete.';
+      setSuccessMessage(message);
+      setTimeout(() => setSuccessMessage(null), 6000);
+    } catch (err) {
+      console.error('Failed to delete WHOOP rides:', err);
+      alert('Failed to delete WHOOP rides. Please try again.');
+    } finally {
+      setWhoopDeleteLoading(false);
     }
   };
 
@@ -417,6 +488,48 @@ export default function Settings() {
               <ConnectStravaLink />
             )}
 
+            {/* WHOOP */}
+            {isWhoopConnected ? (
+              <div className="w-full rounded-2xl border border-app/70 bg-surface-2 px-4 py-3">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <TbActivityHeartbeat className="text-lg" style={{ color: '#00FF87' }} />
+                    <div>
+                      <p className="font-semibold">WHOOP</p>
+                      <p className="text-xs text-muted">
+                        Connected {formatDistanceToNow(new Date(whoopAccount.connectedAt))} ago
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setWhoopImportModalOpen(true)}
+                      className="rounded-xl px-3 py-1.5 text-xs font-medium text-[#00FF87]/80 bg-surface-2/50 border border-[#00FF87]/30 hover:bg-surface-2 hover:text-[#00FF87] hover:border-[#00FF87]/50 hover:cursor-pointer transition"
+                    >
+                      Import Previous Rides
+                    </button>
+                    {isAdmin && (
+                      <button
+                        onClick={handleDeleteWhoopRides}
+                        disabled={whoopDeleteLoading}
+                        className="rounded-xl px-3 py-1.5 text-xs font-medium text-orange-200/90 bg-transparent border border-orange-200/40 hover:bg-orange-500/10 hover:border-orange-200/70 hover:text-orange-200 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {whoopDeleteLoading ? 'Deleting…' : 'Clear WHOOP Rides'}
+                      </button>
+                    )}
+                    <button
+                      onClick={handleDisconnectWhoop}
+                      className="rounded-xl px-3 py-1.5 text-xs font-medium text-red-400/80 bg-surface-2/50 border border-red-400/30 hover:bg-surface-2 hover:text-red-400 hover:border-red-400/50 hover:cursor-pointer transition"
+                    >
+                      Disconnect
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <ConnectWhoopLink />
+            )}
+
             {/* Suunto - Coming Soon */}
             <div className="w-full rounded-2xl border border-app/70 bg-surface-2/50 px-4 py-3 opacity-50">
               <div className="flex items-center justify-between gap-4">
@@ -430,13 +543,14 @@ export default function Settings() {
           </div>
         </div>
 
-        {/* Data Source Selector - only show when both Garmin and Strava are connected */}
-        {(isGarminConnected && isStravaConnected) && (
+        {/* Data Source Selector - only show when multiple providers are connected */}
+        {([isGarminConnected, isStravaConnected, isWhoopConnected].filter(Boolean).length >= 2) && (
           <div className="panel">
             <DataSourceSelector
               currentSource={activeDataSource}
               hasGarmin={isGarminConnected}
               hasStrava={isStravaConnected}
+              hasWhoop={isWhoopConnected}
               onSelect={handleDataSourceSelect}
             />
           </div>
@@ -693,6 +807,18 @@ export default function Settings() {
         onClose={() => setStravaImportModalOpen(false)}
         onSuccess={() => {
           setSuccessMessage('Rides imported from Strava successfully!');
+          setTimeout(() => setSuccessMessage(null), 8000);
+        }}
+        onDuplicatesFound={() => {
+          setDuplicatesModalOpen(true);
+        }}
+      />
+
+      <WhoopImportModal
+        open={whoopImportModalOpen}
+        onClose={() => setWhoopImportModalOpen(false)}
+        onSuccess={() => {
+          setSuccessMessage('Rides imported from WHOOP successfully!');
           setTimeout(() => setSuccessMessage(null), 8000);
         }}
         onDuplicatesFound={() => {

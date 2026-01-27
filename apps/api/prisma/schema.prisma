@@ -25,6 +25,7 @@ model User {
   onboardingCompleted Boolean             @default(false)
   activeDataSource    AuthProvider?
   stravaUserId        String?             @unique
+  whoopUserId         String?             @unique
   role                UserRole            @default(WAITLIST)
   mustChangePassword  Boolean             @default(false)
   activatedAt         DateTime?
@@ -94,6 +95,7 @@ model Ride {
   isDuplicate       Boolean         @default(false)
   stravaActivityId  String?         @unique
   stravaGearId      String?
+  whoopWorkoutId    String?         @unique
   importSessionId   String?
   bike              Bike?           @relation(fields: [bikeId], references: [id])
   duplicateOf       Ride?           @relation("DuplicateRides", fields: [duplicateOfId], references: [id], onDelete: SetNull)
@@ -207,6 +209,7 @@ enum AuthProvider {
   garmin
   google
   strava
+  whoop
 }
 
 enum UserRole {

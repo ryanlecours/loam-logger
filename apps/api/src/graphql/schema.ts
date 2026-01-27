@@ -66,6 +66,7 @@ export const typeDefs = gql`
   enum SyncProvider {
     STRAVA
     GARMIN
+    WHOOP
     SUUNTO
   }
 
