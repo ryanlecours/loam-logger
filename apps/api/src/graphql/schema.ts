@@ -106,6 +106,7 @@ export const typeDefs = gql`
     userId: ID!
     garminActivityId: String
     stravaActivityId: String
+    whoopWorkoutId: String
     stravaGearId: String
     startTime: String!
     durationSeconds: Int!

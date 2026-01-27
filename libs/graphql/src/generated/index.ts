@@ -263,6 +263,7 @@ export type Ride = {
   startTime: Scalars['String']['output'];
   stravaActivityId?: Maybe<Scalars['String']['output']>;
   stravaGearId?: Maybe<Scalars['String']['output']>;
+  whoopWorkoutId?: Maybe<Scalars['String']['output']>;
   trailSystem?: Maybe<Scalars['String']['output']>;
   updatedAt: Scalars['String']['output'];
   userId: Scalars['ID']['output'];
@@ -441,7 +442,7 @@ export type RidesQueryVariables = Exact<{
 }>;
 
 
-export type RidesQuery = { __typename?: 'Query', rides: Array<{ __typename?: 'Ride', id: string, garminActivityId?: string | null, stravaActivityId?: string | null, startTime: string, durationSeconds: number, distanceMiles: number, elevationGainFeet: number, averageHr?: number | null, rideType: string, bikeId?: string | null, notes?: string | null, trailSystem?: string | null, location?: string | null }> };
+export type RidesQuery = { __typename?: 'Query', rides: Array<{ __typename?: 'Ride', id: string, garminActivityId?: string | null, stravaActivityId?: string | null, whoopWorkoutId?: string | null, startTime: string, durationSeconds: number, distanceMiles: number, elevationGainFeet: number, averageHr?: number | null, rideType: string, bikeId?: string | null, notes?: string | null, trailSystem?: string | null, location?: string | null }> };
 
 export type UnmappedStravaGearsQueryVariables = Exact<{ [key: string]: never; }>;
 
@@ -1005,6 +1006,7 @@ export const RidesDocument = gql`
     id
     garminActivityId
     stravaActivityId
+    whoopWorkoutId
     startTime
     durationSeconds
     distanceMiles

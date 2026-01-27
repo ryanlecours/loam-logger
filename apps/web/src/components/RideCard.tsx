@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { FaMountain, FaPencilAlt, FaStrava } from 'react-icons/fa';
 import { useMutation } from '@apollo/client';
 import { UPDATE_RIDE } from '../graphql/updateRide';
@@ -9,10 +9,19 @@ import EditRideModal from './EditRideModal';
 import { fmtDateTime, fmtDuration, fmtMiles, fmtFeet } from '../lib/format';
 import { Badge, Select } from './ui';
 
+const WhoopLogo = () => (
+  <img
+    src="/logos/WHOOP_Circle_Teal.png"
+    alt="WHOOP"
+    style={{ width: '1em', height: '1em', objectFit: 'contain' }}
+  />
+);
+
 type Ride = {
   id: string;
   garminActivityId?: string | null;
   stravaActivityId?: string | null;
+  whoopWorkoutId?: string | null;
   startTime: string | number | Date;
   durationSeconds: number;
   distanceMiles: number;
@@ -37,21 +46,23 @@ type RideCardProps = {
   bikes?: Bike[];
 };
 
-type RideSource = 'garmin' | 'strava' | 'manual';
+type RideSource = 'garmin' | 'strava' | 'whoop' | 'manual';
 
 const getRideSource = (ride: Ride): RideSource => {
   if (ride.garminActivityId) return 'garmin';
   if (ride.stravaActivityId) return 'strava';
+  if (ride.whoopWorkoutId) return 'whoop';
   return 'manual';
 };
 
 const SOURCE_BADGES: Record<
   RideSource,
-  { label: string; color: string; Icon: typeof FaMountain }
+  { label: string; color: string; icon: ReactNode }
 > = {
-  garmin: { label: 'Garmin', color: '#11A9ED', Icon: FaMountain },
-  strava: { label: 'Strava', color: '#FC4C02', Icon: FaStrava },
-  manual: { label: 'Manual', color: '#9CA3AF', Icon: FaPencilAlt },
+  garmin: { label: 'Garmin', color: '#11A9ED', icon: <FaMountain /> },
+  strava: { label: 'Strava', color: '#FC4C02', icon: <FaStrava /> },
+  whoop: { label: 'WHOOP', color: '#00FF87', icon: <WhoopLogo /> },
+  manual: { label: 'Manual', color: '#9CA3AF', icon: <FaPencilAlt /> },
 };
 
 const formatTitle = (ride: Ride) => {
@@ -112,13 +123,15 @@ export default function RideCard({ ride, bikes = [] }: RideCardProps) {
               <Badge
                 variant="custom"
                 color={sourceBadge.color}
-                icon={<sourceBadge.Icon />}
+                icon={sourceBadge.icon}
                 title={
                   source === 'garmin'
                     ? 'From Garmin Connect'
                     : source === 'strava'
                       ? 'From Strava'
-                      : 'Manual entry'
+                      : source === 'whoop'
+                        ? 'From WHOOP'
+                        : 'Manual entry'
                 }
               >
                 {sourceBadge.label}

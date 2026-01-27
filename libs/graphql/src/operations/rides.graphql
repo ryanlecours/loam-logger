@@ -3,6 +3,7 @@ query Rides($take: Int, $after: ID, $filter: RidesFilterInput) {
     id
     garminActivityId
     stravaActivityId
+    whoopWorkoutId
     startTime
     durationSeconds
     distanceMiles

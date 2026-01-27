@@ -12,6 +12,7 @@ interface Ride {
   location?: string | null;
   stravaActivityId?: string | null;
   garminActivityId?: string | null;
+  whoopWorkoutId?: string | null;
   bikeId?: string | null;
 }
 

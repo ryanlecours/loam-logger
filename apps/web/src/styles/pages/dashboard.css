@@ -4336,6 +4336,11 @@
   color: var(--sage);
 }
 
+.source-badge-whoop {
+  background: rgba(0, 255, 135, 0.15);
+  color: #00FF87;
+}
+
 /* Ride Stats Card Compact */
 .ride-stats-compact {
   flex: 1;
