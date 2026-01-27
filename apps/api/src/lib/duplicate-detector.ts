@@ -8,6 +8,7 @@ export interface DuplicateCandidate {
   elevationGainFeet: number;
   garminActivityId: string | null;
   stravaActivityId: string | null;
+  whoopWorkoutId: string | null;
 }
 
 /**
@@ -17,10 +18,34 @@ export function isDuplicateActivity(
   newRide: DuplicateCandidate,
   existingRide: DuplicateCandidate
 ): boolean {
+  // Count providers for each ride
+  const newProviders = [
+    newRide.garminActivityId,
+    newRide.stravaActivityId,
+    newRide.whoopWorkoutId,
+  ].filter(Boolean);
+
+  const existingProviders = [
+    existingRide.garminActivityId,
+    existingRide.stravaActivityId,
+    existingRide.whoopWorkoutId,
+  ].filter(Boolean);
+
+  // Each ride should have exactly one provider
+  if (newProviders.length !== 1 || existingProviders.length !== 1) return false;
+
   // Must be from different providers
+  const newIsGarmin = !!newRide.garminActivityId;
+  const newIsStrava = !!newRide.stravaActivityId;
+  const newIsWhoop = !!newRide.whoopWorkoutId;
+  const existingIsGarmin = !!existingRide.garminActivityId;
+  const existingIsStrava = !!existingRide.stravaActivityId;
+  const existingIsWhoop = !!existingRide.whoopWorkoutId;
+
   const differentProviders =
-    (newRide.garminActivityId && existingRide.stravaActivityId) ||
-    (newRide.stravaActivityId && existingRide.garminActivityId);
+    (newIsGarmin && !existingIsGarmin) ||
+    (newIsStrava && !existingIsStrava) ||
+    (newIsWhoop && !existingIsWhoop);
 
   if (!differentProviders) return false;
 
@@ -29,7 +54,7 @@ export function isDuplicateActivity(
   const existingDate = existingRide.startTime.toISOString().split('T')[0];
   if (newDate !== existingDate) return false;
 
-  // Note: Duration check removed - Strava and Garmin report different durations for the same ride
+  // Note: Duration check removed - providers report different durations for the same ride
 
   // Distance threshold: within 5% or 0.1 miles (whichever is larger)
   const distanceDiff = Math.abs(newRide.distanceMiles - existingRide.distanceMiles);
@@ -69,15 +94,22 @@ export async function findPotentialDuplicates(
       },
       // Exclude rides that are already marked as duplicates
       isDuplicate: false,
-      // Must be from different provider
+      // Must be from a single provider (Garmin, Strava, or WHOOP only)
       OR: [
         {
           garminActivityId: { not: null },
           stravaActivityId: null,
+          whoopWorkoutId: null,
         },
         {
           stravaActivityId: { not: null },
           garminActivityId: null,
+          whoopWorkoutId: null,
+        },
+        {
+          whoopWorkoutId: { not: null },
+          garminActivityId: null,
+          stravaActivityId: null,
         },
       ],
     },
@@ -89,6 +121,7 @@ export async function findPotentialDuplicates(
       elevationGainFeet: true,
       garminActivityId: true,
       stravaActivityId: true,
+      whoopWorkoutId: true,
     },
   });
 

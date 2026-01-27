@@ -1,22 +1,29 @@
 /**
  * WHOOP API Type Definitions
- * Based on WHOOP Developer API v1
+ * Based on WHOOP Developer API v2
  * https://developer.whoop.com/api/
+ *
+ * v2 Changes:
+ * - Workout ID is now UUID string (was: number in v1)
+ * - Added activity_v1_id for backwards compatibility
+ * - Added sport_name field
  */
 
 /**
- * WHOOP Workout from the Activity API
- * GET /developer/v1/activity/workout
+ * WHOOP Workout from the Activity API v2
+ * GET /developer/v2/activity/workout
  */
 export type WhoopWorkout = {
-  id: number;
+  id: string;                 // v2: UUID string (was: number in v1)
+  activity_v1_id?: number;    // v2: backwards compat with v1 ID
   user_id: number;
   created_at: string;
   updated_at: string;
   start: string;              // ISO 8601 datetime
   end: string;                // ISO 8601 datetime
   timezone_offset: string;
-  sport_id: number;           // 1 = Cycling/Bicycle
+  sport_id: number;           // 1 = Cycling, 57 = Mountain Biking
+  sport_name?: string;        // v2: "Cycling", "Mountain Biking", etc.
   score_state: 'SCORED' | 'PENDING_SCORE' | 'UNSCORABLE';
   score?: WhoopWorkoutScore;
 };
@@ -44,7 +51,7 @@ export type WhoopZoneDuration = {
 
 /**
  * WHOOP User Profile
- * GET /developer/v1/user/profile/basic
+ * GET /developer/v2/user/profile/basic
  */
 export type WhoopUserProfile = {
   user_id: number;
@@ -74,14 +81,58 @@ export type WhoopTokenResponse = {
 
 /**
  * Cycling sport IDs in WHOOP
- * 1 = Cycling/Bicycle (main one)
+ * 1 = Cycling/Bicycle
+ * 57 = Mountain Biking
  */
-export const WHOOP_CYCLING_SPORT_IDS = [1] as const;
+export const WHOOP_CYCLING_SPORT_IDS = [1, 57] as const;
 
 /**
- * WHOOP API Base URL
+ * Sport names that indicate cycling-related activities
+ * Used for resilient filtering when sport_id may not be reliable
  */
-export const WHOOP_API_BASE = 'https://api.prod.whoop.com/developer/v1';
+export const WHOOP_CYCLING_SPORT_NAMES = [
+  'cycling',
+  'bicycle',
+  'mountain biking',
+  'mtb',
+  'bike',
+  'gravel',
+] as const;
+
+/**
+ * Check if a workout is cycling-related
+ * Uses sport_name first (more reliable), falls back to sport_id
+ */
+export function isWhoopCyclingWorkout(workout: WhoopWorkout): boolean {
+  // Primary: check sport_name (case-insensitive)
+  if (workout.sport_name) {
+    const nameLower = workout.sport_name.toLowerCase();
+    if (WHOOP_CYCLING_SPORT_NAMES.some((n) => nameLower.includes(n))) {
+      return true;
+    }
+  }
+  // Fallback: check sport_id
+  return WHOOP_CYCLING_SPORT_IDS.includes(workout.sport_id as 1 | 57);
+}
+
+/**
+ * Get the ride type based on workout sport
+ * Returns "Mountain Bike" for MTB activities, "Cycling" otherwise
+ */
+export function getWhoopRideType(workout: WhoopWorkout): string {
+  if (
+    workout.sport_id === 57 ||
+    workout.sport_name?.toLowerCase().includes('mountain')
+  ) {
+    return 'Mountain Bike';
+  }
+  return 'Cycling';
+}
+
+/**
+ * WHOOP API Base URL (v2)
+ */
+export const WHOOP_API_BASE = 'https://api.prod.whoop.com/developer/v2';
 
 /**
  * WHOOP OAuth URLs

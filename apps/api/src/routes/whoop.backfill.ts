@@ -3,10 +3,13 @@ import { getValidWhoopToken } from '../lib/whoop-token';
 import { subDays } from 'date-fns';
 import { prisma } from '../lib/prisma';
 import { sendBadRequest, sendUnauthorized, sendInternalError } from '../lib/api-response';
-import { logError } from '../lib/logger';
+import { logError, logger } from '../lib/logger';
+import { acquireLock, releaseLock } from '../lib/rate-limit';
+import { findPotentialDuplicates, type DuplicateCandidate } from '../lib/duplicate-detector';
 import {
   WHOOP_API_BASE,
-  WHOOP_CYCLING_SPORT_IDS,
+  isWhoopCyclingWorkout,
+  getWhoopRideType,
   type WhoopWorkout,
   type WhoopPaginatedResponse,
 } from '../types/whoop';
@@ -20,6 +23,13 @@ const MIN_BACKFILL_YEAR = 2015;
 /**
  * Fetch historical workouts from WHOOP for a given time period
  * Returns activities that have been imported
+ *
+ * Enhancements:
+ * - Uses v2 API with UUID workout IDs
+ * - Supports Mountain Biking (sport_id=57) and sport_name filtering
+ * - Incremental YTD backfill with checkpointing
+ * - Cross-provider duplicate detection
+ * - Distributed locking to prevent concurrent backfills
  */
 r.get<Empty, void, Empty, { year?: string }>(
   '/whoop/backfill/fetch',
@@ -27,6 +37,12 @@ r.get<Empty, void, Empty, { year?: string }>(
     const userId = req.user?.id || req.sessionUser?.uid;
     if (!userId) {
       return sendUnauthorized(res, 'Not authenticated');
+    }
+
+    // Acquire lock to prevent concurrent backfills
+    const lockResult = await acquireLock('backfill', 'whoop', userId);
+    if (!lockResult.acquired) {
+      return sendBadRequest(res, 'A WHOOP backfill is already in progress. Please wait for it to complete.');
     }
 
     try {
@@ -37,8 +53,18 @@ r.get<Empty, void, Empty, { year?: string }>(
       let endDate: Date;
 
       if (yearParam === 'ytd') {
-        // Year-to-date: Jan 1 of current year to now
-        startDate = new Date(currentYear, 0, 1); // Jan 1
+        // Check for existing checkpoint for incremental YTD backfill
+        const existingYtd = await prisma.backfillRequest.findUnique({
+          where: { userId_provider_year: { userId, provider: 'whoop', year: 'ytd' } },
+        });
+
+        if (existingYtd?.backfilledUpTo && existingYtd.status === 'completed') {
+          // Resume from last checkpoint + 1 second
+          startDate = new Date(existingYtd.backfilledUpTo.getTime() + 1000);
+          logger.info({ userId, startDate: startDate.toISOString() }, '[WHOOP Backfill] Resuming YTD from checkpoint');
+        } else {
+          startDate = new Date(currentYear, 0, 1); // Jan 1
+        }
         endDate = new Date(); // Now
       } else {
         // Specific year: Jan 1 to Dec 31
@@ -50,6 +76,20 @@ r.get<Empty, void, Empty, { year?: string }>(
         endDate = new Date(year, 11, 31, 23, 59, 59); // Dec 31 end of day
       }
 
+      // If start date is after end date (already fully backfilled), return early
+      if (startDate >= endDate) {
+        return res.json({
+          success: true,
+          message: 'YTD backfill is already up to date.',
+          totalWorkouts: 0,
+          cyclingWorkouts: 0,
+          imported: 0,
+          skipped: 0,
+          duplicatesDetected: 0,
+          autoAssignedBike: false,
+        });
+      }
+
       // Get valid OAuth token
       const accessToken = await getValidWhoopToken(userId);
 
@@ -57,10 +97,12 @@ r.get<Empty, void, Empty, { year?: string }>(
         return sendBadRequest(res, 'WHOOP not connected or token expired. Please reconnect your WHOOP account.');
       }
 
-      console.log(`[WHOOP Backfill] Fetching ${yearParam || currentYear} workouts from ${startDate.toISOString()} to ${endDate.toISOString()}`);
+      logger.info(
+        { userId, yearParam: yearParam || currentYear, startDate: startDate.toISOString(), endDate: endDate.toISOString() },
+        '[WHOOP Backfill] Starting fetch'
+      );
 
-      // Fetch workouts from WHOOP API
-      // https://developer.whoop.com/api/#tag/Workout
+      // Fetch workouts from WHOOP API v2
       const workouts: WhoopWorkout[] = [];
       let nextToken: string | undefined;
       let pageCount = 0;
@@ -84,7 +126,7 @@ r.get<Empty, void, Empty, { year?: string }>(
 
         if (!workoutsRes.ok) {
           const text = await workoutsRes.text();
-          console.error(`[WHOOP Backfill] Failed to fetch workouts: ${workoutsRes.status} ${text}`);
+          logger.error({ status: workoutsRes.status, text }, '[WHOOP Backfill] Failed to fetch workouts');
           throw new Error(`Failed to fetch workouts: ${workoutsRes.status}`);
         }
 
@@ -93,26 +135,25 @@ r.get<Empty, void, Empty, { year?: string }>(
         nextToken = page.next_token;
         pageCount++;
 
-        console.log(`[WHOOP Backfill] Fetched page ${pageCount}: ${page.records.length} workouts`);
+        logger.debug({ pageCount, recordsOnPage: page.records.length }, '[WHOOP Backfill] Fetched page');
 
         if (pageCount >= maxPages) {
-          console.warn('[WHOOP Backfill] Reached page limit (50), stopping pagination');
+          logger.warn({ maxPages }, '[WHOOP Backfill] Reached page limit, stopping pagination');
           break;
         }
       } while (nextToken);
 
-      console.log(`[WHOOP Backfill] Total workouts fetched: ${workouts.length}`);
+      logger.info({ totalWorkouts: workouts.length }, '[WHOOP Backfill] Total workouts fetched');
 
-      // Filter cycling workouts only
-      const cyclingWorkouts = workouts.filter((w) =>
-        WHOOP_CYCLING_SPORT_IDS.includes(w.sport_id as typeof WHOOP_CYCLING_SPORT_IDS[number])
-      );
+      // Filter cycling workouts using sport_name and sport_id
+      const cyclingWorkouts = workouts.filter(isWhoopCyclingWorkout);
 
-      console.log(`[WHOOP Backfill] Cycling workouts: ${cyclingWorkouts.length}`);
+      logger.info({ cyclingWorkouts: cyclingWorkouts.length }, '[WHOOP Backfill] Cycling workouts found');
 
       // Import each cycling workout
       let importedCount = 0;
       let skippedCount = 0;
+      let duplicatesDetected = 0;
 
       // Check if user has exactly one bike (auto-assign for WHOOP since it has no gear tagging)
       const userBikes = await prisma.bike.findMany({
@@ -122,9 +163,9 @@ r.get<Empty, void, Empty, { year?: string }>(
       const autoAssignBikeId = userBikes.length === 1 ? userBikes[0].id : null;
 
       for (const workout of cyclingWorkouts) {
-        // Check if workout already exists
+        // Check if workout already exists by WHOOP ID
         const existing = await prisma.ride.findUnique({
-          where: { whoopWorkoutId: workout.id.toString() },
+          where: { whoopWorkoutId: workout.id },
         });
 
         if (existing) {
@@ -134,7 +175,7 @@ r.get<Empty, void, Empty, { year?: string }>(
 
         // Skip unscorable workouts (no data available)
         if (workout.score_state === 'UNSCORABLE') {
-          console.log(`[WHOOP Backfill] Skipping unscorable workout ${workout.id}`);
+          logger.debug({ workoutId: workout.id }, '[WHOOP Backfill] Skipping unscorable workout');
           skippedCount++;
           continue;
         }
@@ -153,11 +194,37 @@ r.get<Empty, void, Empty, { year?: string }>(
           ? workout.score.altitude_gain_meter * 3.28084
           : 0;
 
+        // Check for cross-provider duplicates
+        const duplicateCandidate: DuplicateCandidate = {
+          id: '',
+          startTime,
+          durationSeconds,
+          distanceMiles,
+          elevationGainFeet,
+          garminActivityId: null,
+          stravaActivityId: null,
+          whoopWorkoutId: workout.id,
+        };
+
+        const duplicate = await findPotentialDuplicates(userId, duplicateCandidate, prisma);
+        if (duplicate) {
+          logger.info(
+            { workoutId: workout.id, duplicateRideId: duplicate.id },
+            '[WHOOP Backfill] Skipping duplicate of existing ride'
+          );
+          duplicatesDetected++;
+          skippedCount++;
+          continue;
+        }
+
+        // Get ride type based on sport
+        const rideType = getWhoopRideType(workout);
+
         await prisma.$transaction(async (tx) => {
           await tx.ride.create({
             data: {
               userId,
-              whoopWorkoutId: workout.id.toString(),
+              whoopWorkoutId: workout.id,
               startTime,
               durationSeconds,
               distanceMiles,
@@ -165,7 +232,7 @@ r.get<Empty, void, Empty, { year?: string }>(
               averageHr: workout.score?.average_heart_rate
                 ? Math.round(workout.score.average_heart_rate)
                 : null,
-              rideType: 'Cycling', // WHOOP sport_id 1 = Cycling
+              rideType,
               bikeId: autoAssignBikeId,
             },
           });
@@ -182,16 +249,20 @@ r.get<Empty, void, Empty, { year?: string }>(
         importedCount++;
       }
 
-      console.log(`[WHOOP Backfill] Imported: ${importedCount}, Skipped (existing/unscorable): ${skippedCount}`);
+      logger.info(
+        { imported: importedCount, skipped: skippedCount, duplicatesDetected },
+        '[WHOOP Backfill] Import complete'
+      );
 
-      // Track backfill request in database
+      // Track backfill request in database with checkpoint
       const yearKey = yearParam || 'ytd';
       try {
         await prisma.backfillRequest.upsert({
           where: { userId_provider_year: { userId, provider: 'whoop', year: yearKey } },
           update: {
             status: 'completed',
-            ridesFound: importedCount,
+            ridesFound: { increment: importedCount },
+            backfilledUpTo: endDate, // Checkpoint for incremental backfill
             completedAt: new Date(),
             updatedAt: new Date(),
           },
@@ -201,6 +272,7 @@ r.get<Empty, void, Empty, { year?: string }>(
             year: yearKey,
             status: 'completed',
             ridesFound: importedCount,
+            backfilledUpTo: endDate,
             completedAt: new Date(),
           },
         });
@@ -216,6 +288,7 @@ r.get<Empty, void, Empty, { year?: string }>(
         cyclingWorkouts: cyclingWorkouts.length,
         imported: importedCount,
         skipped: skippedCount,
+        duplicatesDetected,
         autoAssignedBike: autoAssignBikeId !== null,
       });
     } catch (error) {
@@ -232,6 +305,9 @@ r.get<Empty, void, Empty, { year?: string }>(
       }
       logError('WHOOP Backfill', error);
       return sendInternalError(res, 'Failed to fetch workouts');
+    } finally {
+      // Always release the lock
+      await releaseLock('backfill', 'whoop', userId, lockResult.lockValue);
     }
   }
 );
@@ -277,10 +353,17 @@ r.get<Empty, void, Empty, Empty>(
         },
       });
 
+      // Get backfill checkpoint info
+      const ytdBackfill = await prisma.backfillRequest.findUnique({
+        where: { userId_provider_year: { userId, provider: 'whoop', year: 'ytd' } },
+        select: { status: true, backfilledUpTo: true, ridesFound: true, completedAt: true },
+      });
+
       return res.json({
         success: true,
         recentRides: recentWhoopRides,
         totalWhoopRides,
+        ytdBackfill,
         message: `Found ${recentWhoopRides.length} recent WHOOP rides (last 30 days), ${totalWhoopRides} total`,
       });
     } catch (error) {
@@ -345,6 +428,11 @@ r.delete<Empty, void, Empty>(
             userId,
             whoopWorkoutId: { not: null },
           },
+        });
+
+        // Reset backfill checkpoint
+        await tx.backfillRequest.deleteMany({
+          where: { userId, provider: 'whoop' },
         });
       });
 

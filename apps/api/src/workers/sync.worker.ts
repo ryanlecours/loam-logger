@@ -12,7 +12,8 @@ import type { SyncJobData, SyncJobName, SyncProvider } from '../lib/queue/sync.q
 import type { Prisma } from '@prisma/client';
 import {
   WHOOP_API_BASE,
-  WHOOP_CYCLING_SPORT_IDS,
+  isWhoopCyclingWorkout,
+  getWhoopRideType,
   type WhoopWorkout,
   type WhoopPaginatedResponse,
 } from '../types/whoop';
@@ -586,10 +587,8 @@ async function syncWhoopLatest(userId: string): Promise<void> {
   const data = (await response.json()) as WhoopPaginatedResponse<WhoopWorkout>;
   logger.debug({ count: data.records.length }, '[SyncWorker] Fetched WHOOP workouts');
 
-  // Filter to cycling workouts
-  const cyclingWorkouts = data.records.filter((w) =>
-    WHOOP_CYCLING_SPORT_IDS.includes(w.sport_id as typeof WHOOP_CYCLING_SPORT_IDS[number])
-  );
+  // Filter to cycling workouts using sport_name and sport_id
+  const cyclingWorkouts = data.records.filter(isWhoopCyclingWorkout);
 
   logger.debug({ count: cyclingWorkouts.length }, '[SyncWorker] Processing cycling workouts');
 
@@ -624,8 +623,8 @@ async function syncWhoopActivity(userId: string, workoutId: string): Promise<voi
 
   const workout = (await response.json()) as WhoopWorkout;
 
-  if (!WHOOP_CYCLING_SPORT_IDS.includes(workout.sport_id as typeof WHOOP_CYCLING_SPORT_IDS[number])) {
-    logger.debug({ workoutId, sportId: workout.sport_id }, '[SyncWorker] Skipping non-cycling workout');
+  if (!isWhoopCyclingWorkout(workout)) {
+    logger.debug({ workoutId, sportId: workout.sport_id, sportName: workout.sport_name }, '[SyncWorker] Skipping non-cycling workout');
     return;
   }
 
@@ -660,17 +659,20 @@ async function upsertWhoopActivity(userId: string, workout: WhoopWorkout): Promi
     bikeId = userBikes[0].id;
   }
 
+  // Get ride type based on sport (Cycling vs Mountain Bike)
+  const rideType = getWhoopRideType(workout);
+
   await prisma.$transaction(async (tx) => {
     const existing = await tx.ride.findUnique({
-      where: { whoopWorkoutId: workout.id.toString() },
+      where: { whoopWorkoutId: workout.id },
       select: { durationSeconds: true, bikeId: true },
     });
 
     const ride = await tx.ride.upsert({
-      where: { whoopWorkoutId: workout.id.toString() },
+      where: { whoopWorkoutId: workout.id },
       create: {
         userId,
-        whoopWorkoutId: workout.id.toString(),
+        whoopWorkoutId: workout.id,
         startTime,
         durationSeconds,
         distanceMiles,
@@ -678,7 +680,7 @@ async function upsertWhoopActivity(userId: string, workout: WhoopWorkout): Promi
         averageHr: workout.score?.average_heart_rate
           ? Math.round(workout.score.average_heart_rate)
           : null,
-        rideType: 'Cycling',
+        rideType,
         bikeId,
       },
       update: {
@@ -689,7 +691,7 @@ async function upsertWhoopActivity(userId: string, workout: WhoopWorkout): Promi
         averageHr: workout.score?.average_heart_rate
           ? Math.round(workout.score.average_heart_rate)
           : null,
-        rideType: 'Cycling',
+        rideType,
         bikeId,
       },
     });

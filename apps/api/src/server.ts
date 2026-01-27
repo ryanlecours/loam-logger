@@ -25,6 +25,7 @@ import authWhoop from './routes/auth.whoop';
 import { createDataLoaders, type DataLoaders } from './graphql/dataloaders';
 import webhooksGarmin from './routes/webhooks.garmin';
 import webhooksStrava from './routes/webhooks.strava';
+import webhooksWhoop from './routes/webhooks.whoop';
 import garminBackfill from './routes/garmin.backfill';
 import stravaBackfill from './routes/strava.backfill';
 import whoopBackfill from './routes/whoop.backfill';
@@ -238,6 +239,7 @@ const startServer = async () => {
 
   app.use(webhooksGarmin);
   app.use(webhooksStrava);
+  app.use('/webhooks', webhooksWhoop);
 
   app.use('/onboarding', onboardingRouter);
   app.use(garminTest);
