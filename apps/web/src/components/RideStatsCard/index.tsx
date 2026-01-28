@@ -17,12 +17,17 @@ import HeartRateSection from './sections/HeartRateSection';
 import LocationSection from './sections/LocationSection';
 import BikeUsageSection from './sections/BikeUsageSection';
 
-import { useRideStats, buildBikeNameMap } from './hooks/useRideStats';
+import { useRideStats, useRideStatsForRides, useRideStatsForYear, buildBikeNameMap, getYearsWithRides } from './hooks/useRideStats';
 import { RIDES } from '../../graphql/rides';
 import { BIKES } from '../../graphql/bikes';
 import type { Ride } from '../../models/Ride';
-import type { Timeframe } from './types';
+import type { Timeframe, PresetTimeframe } from './types';
 import { EMPTY_STATS } from './types';
+
+/** Check if a timeframe is a preset (not a year number) */
+const isPresetTimeframe = (tf: Timeframe): tf is PresetTimeframe => {
+  return typeof tf === 'string';
+};
 
 type BikeSummary = {
   id: string;
@@ -31,14 +36,20 @@ type BikeSummary = {
   model: string;
 };
 
-const MAX_RIDES_FOR_STATS = 200;
+// 400 rides accounts for ~1 ride/day for a year plus some twice-a-day rides
+const MAX_RIDES_FOR_STATS = 400;
 
 interface RideStatsCardProps {
   showHeading?: boolean;
+  /** When provided, uses these rides instead of fetching. Hides timeframe dropdown. */
+  rides?: Ride[];
+  /** Label describing the external filter (e.g., "Last 30 days", "2024") */
+  filterLabel?: string;
 }
 
-export default function RideStatsCard({ showHeading = true }: RideStatsCardProps) {
+export default function RideStatsCard({ showHeading = true, rides: externalRides, filterLabel }: RideStatsCardProps) {
   const [selectedTf, setSelectedTf] = useState<Timeframe>('YTD');
+  const isExternalMode = externalRides !== undefined;
 
   const {
     data: ridesData,
@@ -47,6 +58,7 @@ export default function RideStatsCard({ showHeading = true }: RideStatsCardProps
   } = useQuery<{ rides: Ride[] }>(RIDES, {
     variables: { take: MAX_RIDES_FOR_STATS },
     fetchPolicy: 'cache-first',
+    skip: isExternalMode,
   });
 
   const { data: bikesData } = useQuery<{ bikes: BikeSummary[] }>(BIKES, {
@@ -58,21 +70,57 @@ export default function RideStatsCard({ showHeading = true }: RideStatsCardProps
     [bikesData?.bikes]
   );
 
-  const stats = useRideStats({
-    rides: ridesData?.rides ?? [],
+  const allRides = useMemo(
+    () => ridesData?.rides ?? [],
+    [ridesData?.rides]
+  );
+
+  // Stats from internal timeframe-based fetching (presets only)
+  const internalStats = useRideStats({
+    rides: allRides,
     bikeNameMap: bikeNames,
   });
 
-  const selectedStats = stats[selectedTf] ?? EMPTY_STATS;
-  const hasRides = (ridesData?.rides?.length ?? 0) > 0;
+  // Stats from externally provided rides
+  const externalStats = useRideStatsForRides({
+    rides: externalRides ?? [],
+    bikeNameMap: bikeNames,
+  });
+
+  // Stats for a specific year (when a year is selected)
+  const selectedYear = typeof selectedTf === 'number' ? selectedTf : null;
+  const yearStats = useRideStatsForYear(allRides, bikeNames, selectedYear ?? 0);
+
+  // Get available years for the dropdown
+  const availableYears = useMemo(
+    () => getYearsWithRides(allRides),
+    [allRides]
+  );
+
+  // Determine which stats to show
+  const selectedStats = useMemo(() => {
+    if (isExternalMode) return externalStats;
+    if (selectedYear !== null) return yearStats;
+    if (isPresetTimeframe(selectedTf)) return internalStats[selectedTf] ?? EMPTY_STATS;
+    return EMPTY_STATS;
+  }, [isExternalMode, externalStats, selectedYear, yearStats, selectedTf, internalStats]);
+
+  const hasRides = isExternalMode ? (externalRides?.length ?? 0) > 0 : allRides.length > 0;
 
   return (
     <div className="ride-stats-card">
       {/* Header with title and dropdown */}
       <div className="stats-header">
         {showHeading && <h2 className="stats-title">Ride Stats</h2>}
-        {hasRides && (
-          <TimeframeDropdown selected={selectedTf} onSelect={setSelectedTf} />
+        {hasRides && !isExternalMode && (
+          <TimeframeDropdown
+            selected={selectedTf}
+            onSelect={setSelectedTf}
+            availableYears={availableYears}
+          />
+        )}
+        {hasRides && isExternalMode && filterLabel && (
+          <span className="text-sm text-muted">{filterLabel}</span>
         )}
       </div>
 
@@ -86,7 +134,7 @@ export default function RideStatsCard({ showHeading = true }: RideStatsCardProps
         )}
 
         {/* Loading state */}
-        {ridesLoading && !hasRides ? (
+        {!isExternalMode && ridesLoading && !hasRides ? (
           <div className="stats-skeleton" />
         ) : !hasRides ? (
           <div className="stats-empty">Log rides to unlock your stats.</div>

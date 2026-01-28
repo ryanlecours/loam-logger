@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import type { Ride } from '../../../models/Ride';
 import type {
-  Timeframe,
+  PresetTimeframe,
   RideStats,
   RideStatsByTimeframe,
   RideCountStats,
@@ -15,7 +15,7 @@ import type {
 
 const DAYS_MS = 24 * 60 * 60 * 1000;
 const SECONDS_TO_HOURS = 1 / 3600;
-const TIMEFRAMES: Timeframe[] = ['1w', '1m', '3m', 'YTD', 'ALL'];
+const PRESET_TIMEFRAMES: PresetTimeframe[] = ['1w', '1m', '3m', 'YTD', 'ALL'];
 
 // Parse startTime to milliseconds
 const parseStartTime = (value: Ride['startTime']): number | null => {
@@ -64,13 +64,60 @@ export function useRideStats({ rides, bikeNameMap }: UseRideStatsOptions): RideS
   );
 }
 
+/** Compute stats for a given set of rides without timeframe filtering */
+export function useRideStatsForRides({ rides, bikeNameMap }: UseRideStatsOptions): RideStats {
+  return useMemo(
+    () => computeStatsForTimeframe(rides, bikeNameMap, rides),
+    [rides, bikeNameMap]
+  );
+}
+
+/** Compute stats for a specific year */
+export function useRideStatsForYear(
+  rides: Ride[],
+  bikeNameMap: Map<string, string>,
+  year: number
+): RideStats {
+  return useMemo(() => {
+    const yearStart = new Date(year, 0, 1).getTime();
+    const yearEnd = new Date(year, 11, 31, 23, 59, 59, 999).getTime();
+
+    const filteredRides = rides.filter((r) => {
+      const ts = parseStartTime(r.startTime);
+      return ts !== null && ts >= yearStart && ts <= yearEnd;
+    });
+
+    return computeStatsForTimeframe(filteredRides, bikeNameMap, rides);
+  }, [rides, bikeNameMap, year]);
+}
+
+/** Get unique years that have ride data */
+export function getYearsWithRides(rides: Ride[]): number[] {
+  const years = new Set<number>();
+  const currentYear = new Date().getFullYear();
+
+  for (const ride of rides) {
+    const ts = parseStartTime(ride.startTime);
+    if (ts !== null) {
+      const year = new Date(ts).getFullYear();
+      // Only include past years (not current year, which is covered by YTD)
+      if (year < currentYear) {
+        years.add(year);
+      }
+    }
+  }
+
+  // Sort descending (most recent first)
+  return Array.from(years).sort((a, b) => b - a);
+}
+
 function computeAllStats(
   rides: Ride[],
   bikeNameMap: Map<string, string>
 ): RideStatsByTimeframe {
   const now = Date.now();
 
-  const thresholds: Record<Timeframe, number> = {
+  const thresholds: Record<PresetTimeframe, number> = {
     '1w': now - 7 * DAYS_MS,
     '1m': now - 30 * DAYS_MS,
     '3m': now - 90 * DAYS_MS,
@@ -80,7 +127,7 @@ function computeAllStats(
 
   const result = {} as RideStatsByTimeframe;
 
-  for (const tf of TIMEFRAMES) {
+  for (const tf of PRESET_TIMEFRAMES) {
     const threshold = thresholds[tf];
     const filteredRides = rides.filter((r) => {
       const ts = parseStartTime(r.startTime);
