@@ -79,8 +79,9 @@ export function useRideStatsForYear(
   year: number
 ): RideStats {
   return useMemo(() => {
-    const yearStart = new Date(year, 0, 1).getTime();
-    const yearEnd = new Date(year, 11, 31, 23, 59, 59, 999).getTime();
+    // Use Date.UTC to create UTC timestamps to avoid timezone issues
+    const yearStart = Date.UTC(year, 0, 1, 0, 0, 0, 0);
+    const yearEnd = Date.UTC(year, 11, 31, 23, 59, 59, 999);
 
     const filteredRides = rides.filter((r) => {
       const ts = parseStartTime(r.startTime);

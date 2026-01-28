@@ -19,6 +19,9 @@ type Bike = {
 
 type DateRange = '30days' | '3months' | '6months' | '1year' | number;
 
+const EMPTY_RIDES: Ride[] = [];
+const EMPTY_BIKES: Bike[] = [];
+
 const getYearOptions = (): number[] => {
   const currentYear = new Date().getFullYear();
   const years: number[] = [];
@@ -41,8 +44,9 @@ const getDateRangeLabel = (range: DateRange): string => {
 const getDateRangeFilter = (range: DateRange) => {
   // If range is a year number, filter for that specific year
   if (typeof range === 'number') {
-    const startDate = new Date(range, 0, 1, 0, 0, 0, 0); // Jan 1 of that year
-    const endDate = new Date(range, 11, 31, 23, 59, 59, 999); // Dec 31 of that year
+    // Use Date.UTC to create UTC timestamps to avoid timezone issues
+    const startDate = new Date(Date.UTC(range, 0, 1, 0, 0, 0, 0)); // Jan 1 00:00:00 UTC
+    const endDate = new Date(Date.UTC(range, 11, 31, 23, 59, 59, 999)); // Dec 31 23:59:59.999 UTC
     return {
       startDate: startDate.toISOString(),
       endDate: endDate.toISOString(),
@@ -93,8 +97,8 @@ export default function RidesPage() {
   const { data: bikesData } = useQuery<{ bikes: Bike[] }>(BIKES, {
     fetchPolicy: 'cache-and-network',
   });
-  const rides = data?.rides ?? [];
-  const bikes = bikesData?.bikes ?? [];
+  const rides = data?.rides ?? EMPTY_RIDES;
+  const bikes = bikesData?.bikes ?? EMPTY_BIKES;
 
   return (
     <div className="page-container space-y-6">

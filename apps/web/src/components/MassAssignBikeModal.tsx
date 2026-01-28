@@ -60,17 +60,16 @@ export function MassAssignBikeModal({
       if (ride.bikeId) return false;
 
       // Date range filter
+      // Append time component to avoid timezone parsing inconsistencies with YYYY-MM-DD format
       if (startDate) {
         const rideDate = new Date(ride.startTime);
-        const filterStart = new Date(startDate);
-        filterStart.setHours(0, 0, 0, 0);
+        const filterStart = new Date(startDate + 'T00:00:00');
         if (rideDate < filterStart) return false;
       }
 
       if (endDate) {
         const rideDate = new Date(ride.startTime);
-        const filterEnd = new Date(endDate);
-        filterEnd.setHours(23, 59, 59, 999);
+        const filterEnd = new Date(endDate + 'T23:59:59.999');
         if (rideDate > filterEnd) return false;
       }
 
@@ -102,7 +101,8 @@ export function MassAssignBikeModal({
 
       // Call onSuccess to trigger refetch in parent
       onSuccess?.();
-    } catch {
+    } catch (err) {
+      console.error('Failed to assign bikes:', err);
       setError('Failed to assign rides. Please try again.');
     } finally {
       setIsSubmitting(false);
@@ -118,6 +118,9 @@ export function MassAssignBikeModal({
   ];
 
   const selectedBike = bikes.find((b) => b.id === selectedBikeId);
+
+  // Validate date range (start should not be after end)
+  const isInvalidDateRange = startDate && endDate && new Date(startDate) > new Date(endDate);
 
   return (
     <Modal
@@ -215,7 +218,11 @@ export function MassAssignBikeModal({
 
             {/* Preview */}
             <div className="pt-3 border-t border-app/30">
-              {filteredRides.length === 0 ? (
+              {isInvalidDateRange ? (
+                <p className="text-sm text-warning">
+                  Start date must be before end date.
+                </p>
+              ) : filteredRides.length === 0 ? (
                 <p className="text-sm text-muted">
                   No unassigned rides match your filters.
                 </p>
@@ -254,7 +261,7 @@ export function MassAssignBikeModal({
               <Button
                 variant="primary"
                 onClick={handleAssign}
-                disabled={!selectedBikeId || filteredRides.length === 0 || isSubmitting}
+                disabled={!selectedBikeId || filteredRides.length === 0 || isSubmitting || isInvalidDateRange}
               >
                 {isSubmitting ? 'Assigning...' : `Assign ${filteredRides.length} Ride${filteredRides.length !== 1 ? 's' : ''}`}
               </Button>
