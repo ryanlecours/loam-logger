@@ -4,23 +4,11 @@ import { Link } from "react-router-dom";
 import { useState } from "react";
 import AddRideForm from "../components/AddRideForm";
 import RideCard from "../components/RideCard";
+import RideStatsCard from "../components/RideStatsCard";
+import { MassAssignBikeModal } from "../components/MassAssignBikeModal";
 import { RIDES } from '../graphql/rides';
 import { BIKES } from '../graphql/bikes';
-
-type Ride = {
-  id: string;
-  garminActivityId?: string | null;
-  startTime: string | number;
-  durationSeconds: number;
-  distanceMiles: number;
-  elevationGainFeet: number;
-  averageHr?: number | null;
-  rideType: string;
-  bikeId?: string | null;
-  notes?: string | null;
-  trailSystem?: string | null;
-  location?: string | null;
-};
+import type { Ride } from '../models/Ride';
 
 type Bike = {
   id: string;
@@ -29,10 +17,41 @@ type Bike = {
   model: string;
 };
 
-type DateRange = 'all' | '30days' | '3months' | '6months' | '1year';
+type DateRange = '30days' | '3months' | '6months' | '1year' | number;
+
+const EMPTY_RIDES: Ride[] = [];
+const EMPTY_BIKES: Bike[] = [];
+
+const getYearOptions = (): number[] => {
+  const currentYear = new Date().getFullYear();
+  const years: number[] = [];
+  for (let year = currentYear; year >= 2020; year--) {
+    years.push(year);
+  }
+  return years;
+};
+
+const getDateRangeLabel = (range: DateRange): string => {
+  if (typeof range === 'number') return String(range);
+  switch (range) {
+    case '30days': return 'Last 30 days';
+    case '3months': return 'Last 3 months';
+    case '6months': return 'Last 6 months';
+    case '1year': return 'Last year';
+  }
+};
 
 const getDateRangeFilter = (range: DateRange) => {
-  if (range === 'all') return null;
+  // If range is a year number, filter for that specific year
+  if (typeof range === 'number') {
+    // Use Date.UTC to create UTC timestamps to avoid timezone issues
+    const startDate = new Date(Date.UTC(range, 0, 1, 0, 0, 0, 0)); // Jan 1 00:00:00 UTC
+    const endDate = new Date(Date.UTC(range, 11, 31, 23, 59, 59, 999)); // Dec 31 23:59:59.999 UTC
+    return {
+      startDate: startDate.toISOString(),
+      endDate: endDate.toISOString(),
+    };
+  }
 
   const now = new Date();
 
@@ -67,6 +86,7 @@ const getDateRangeFilter = (range: DateRange) => {
 
 export default function RidesPage() {
   const [dateRange, setDateRange] = useState<DateRange>('30days');
+  const [showMassAssignModal, setShowMassAssignModal] = useState(false);
 
   const { data, refetch, loading, error } = useQuery<{ rides: Ride[] }>(RIDES, {
     fetchPolicy: 'cache-and-network',
@@ -77,8 +97,8 @@ export default function RidesPage() {
   const { data: bikesData } = useQuery<{ bikes: Bike[] }>(BIKES, {
     fetchPolicy: 'cache-and-network',
   });
-  const rides = data?.rides ?? [];
-  const bikes = bikesData?.bikes ?? [];
+  const rides = data?.rides ?? EMPTY_RIDES;
+  const bikes = bikesData?.bikes ?? EMPTY_BIKES;
 
   return (
     <div className="page-container space-y-6">
@@ -102,103 +122,124 @@ export default function RidesPage() {
         <AddRideForm onAdded={() => refetch()} />
       </section>
 
-      <section className="panel">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="label-section">Ride history</p>
-            <h3 className="title-section">All rides</h3>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <section className="panel lg:col-span-2">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="label-section">Ride history</p>
+              <h3 className="title-section">All rides</h3>
+            </div>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setShowMassAssignModal(true)}
+                className="btn-outline text-sm px-3 py-1.5"
+                type="button"
+              >
+                Mass Assign Bike
+              </button>
+              <Link to="/gear" className="text-sm text-muted underline hover:text-primary">
+                Manage bikes
+              </Link>
+            </div>
           </div>
-          <Link to="/gear" className="text-sm text-muted underline hover:text-primary">
-            Assign bikes
-          </Link>
-        </div>
 
-        <div className="mb-4 p-4 rounded-2xl bg-surface-2/50 border border-app/50">
-          <p className="label-section mb-3">Filter by date</p>
-          <div className="flex flex-wrap gap-4">
-            <label className="flex items-center gap-2 cursor-pointer text-sm text-white hover:text-primary transition-colors">
-              <input
-                type="radio"
-                name="dateRange"
-                checked={dateRange === '30days'}
-                onChange={() => setDateRange('30days')}
-                className="w-4 h-4 border-app/50 bg-surface-2 text-primary focus:ring-primary focus:ring-offset-0"
-              />
-              <span>Last 30 days</span>
-            </label>
-            <label className="flex items-center gap-2 cursor-pointer text-sm text-white hover:text-primary transition-colors">
-              <input
-                type="radio"
-                name="dateRange"
-                checked={dateRange === '3months'}
-                onChange={() => setDateRange('3months')}
-                className="w-4 h-4 border-app/50 bg-surface-2 text-primary focus:ring-primary focus:ring-offset-0"
-              />
-              <span>Last 3 months</span>
-            </label>
-            <label className="flex items-center gap-2 cursor-pointer text-sm text-white hover:text-primary transition-colors">
-              <input
-                type="radio"
-                name="dateRange"
-                checked={dateRange === '6months'}
-                onChange={() => setDateRange('6months')}
-                className="w-4 h-4 border-app/50 bg-surface-2 text-primary focus:ring-primary focus:ring-offset-0"
-              />
-              <span>Last 6 months</span>
-            </label>
-            <label className="flex items-center gap-2 cursor-pointer text-sm text-white hover:text-primary transition-colors">
-              <input
-                type="radio"
-                name="dateRange"
-                checked={dateRange === '1year'}
-                onChange={() => setDateRange('1year')}
-                className="w-4 h-4 border-app/50 bg-surface-2 text-primary focus:ring-primary focus:ring-offset-0"
-              />
-              <span>Last year</span>
-            </label>
-            <label className="flex items-center gap-2 cursor-pointer text-sm text-white hover:text-primary transition-colors">
-              <input
-                type="radio"
-                name="dateRange"
-                checked={dateRange === 'all'}
-                onChange={() => setDateRange('all')}
-                className="w-4 h-4 border-app/50 bg-surface-2 text-primary focus:ring-primary focus:ring-offset-0"
-              />
-              <span>All time</span>
-            </label>
-          </div>
-          {dateRange !== 'all' && (
+          <div className="mb-4 p-4 rounded-2xl bg-surface-2/50 border border-app/50">
+            <p className="label-section mb-3">Filter by date</p>
+            <div className="flex flex-wrap gap-4">
+              <label className="flex items-center gap-2 cursor-pointer text-sm text-white hover:text-primary transition-colors">
+                <input
+                  type="radio"
+                  name="dateRange"
+                  checked={dateRange === '30days'}
+                  onChange={() => setDateRange('30days')}
+                  className="w-4 h-4 border-app/50 bg-surface-2 text-primary focus:ring-primary focus:ring-offset-0"
+                />
+                <span>Last 30 days</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer text-sm text-white hover:text-primary transition-colors">
+                <input
+                  type="radio"
+                  name="dateRange"
+                  checked={dateRange === '3months'}
+                  onChange={() => setDateRange('3months')}
+                  className="w-4 h-4 border-app/50 bg-surface-2 text-primary focus:ring-primary focus:ring-offset-0"
+                />
+                <span>Last 3 months</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer text-sm text-white hover:text-primary transition-colors">
+                <input
+                  type="radio"
+                  name="dateRange"
+                  checked={dateRange === '6months'}
+                  onChange={() => setDateRange('6months')}
+                  className="w-4 h-4 border-app/50 bg-surface-2 text-primary focus:ring-primary focus:ring-offset-0"
+                />
+                <span>Last 6 months</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer text-sm text-white hover:text-primary transition-colors">
+                <input
+                  type="radio"
+                  name="dateRange"
+                  checked={dateRange === '1year'}
+                  onChange={() => setDateRange('1year')}
+                  className="w-4 h-4 border-app/50 bg-surface-2 text-primary focus:ring-primary focus:ring-offset-0"
+                />
+                <span>Last year</span>
+              </label>
+              <select
+                value={typeof dateRange === 'number' ? dateRange : ''}
+                onChange={(e) => setDateRange(Number(e.target.value))}
+                className="px-3 py-1.5 rounded-lg border border-app/50 bg-surface-2 text-sm text-white focus:ring-primary focus:border-primary cursor-pointer"
+              >
+                <option value="" disabled>Select year</option>
+                {getYearOptions().map((year) => (
+                  <option key={year} value={year}>{year}</option>
+                ))}
+              </select>
+            </div>
             <p className="mt-3 text-xs text-muted">
               Showing {rides.length} ride{rides.length !== 1 ? 's' : ''} in selected range
             </p>
+          </div>
+
+          {loading && (
+            <div className="space-y-3">
+              {Array.from({ length: 3 }).map((_, idx) => (
+                <div key={idx} className="h-20 rounded-2xl bg-surface-2/80 animate-pulse" />
+              ))}
+            </div>
           )}
-        </div>
 
-        {loading && (
-          <div className="space-y-3">
-            {Array.from({ length: 3 }).map((_, idx) => (
-              <div key={idx} className="h-20 rounded-2xl bg-surface-2/80 animate-pulse" />
-            ))}
-          </div>
-        )}
+          {error && <div className="text-sm text-danger">Couldn't load rides. {error.message}</div>}
 
-        {error && <div className="text-sm text-danger">Couldn't load rides. {error.message}</div>}
+          {!loading && !error && rides.length === 0 && (
+            <div className="rounded-xl border border-dashed border-app/50 px-4 py-6 text-center text-sm text-muted">
+              No rides logged yet. Start with the form above or{' '}
+              <span className="text-accent">connect your Garmin account in Settings.</span>
+            </div>
+          )}
 
-        {!loading && !error && rides.length === 0 && (
-          <div className="rounded-xl border border-dashed border-app/50 px-4 py-6 text-center text-sm text-muted">
-            No rides logged yet. Start with the form above or{' '}
-            <span className="text-accent">connect your Garmin account in Settings.</span>
-          </div>
-        )}
+          {!loading && !error && rides.length > 0 && (
+            <ul className="grid gap-3">
+              {rides.map((ride: Ride) => (
+                <RideCard key={ride.id} ride={ride} bikes={bikes} />
+              ))}
+            </ul>
+          )}
+        </section>
 
-        {!loading && !error && rides.length > 0 && (
-          <ul className="grid gap-3">
-            {rides.map((ride: Ride) => (
-              <RideCard key={ride.id} ride={ride} bikes={bikes} />
-            ))}
-          </ul>
-        )}
-      </section>
+        <aside className="lg:col-span-1">
+          <RideStatsCard rides={rides} filterLabel={getDateRangeLabel(dateRange)} />
+        </aside>
+      </div>
+
+      <MassAssignBikeModal
+        isOpen={showMassAssignModal}
+        onClose={() => setShowMassAssignModal(false)}
+        rides={rides}
+        bikes={bikes}
+        onSuccess={() => refetch()}
+      />
     </div>
   );
 }

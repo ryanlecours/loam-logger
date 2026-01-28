@@ -10,4 +10,7 @@ export interface Ride {
   notes?: string | null;
   trailSystem?: string | null;
   location?: string | null;
+  stravaActivityId?: string | null;
+  garminActivityId?: string | null;
+  whoopWorkoutId?: string | null;
 }
