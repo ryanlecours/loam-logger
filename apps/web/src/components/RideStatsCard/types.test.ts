@@ -7,13 +7,11 @@ describe('Timeframe type', () => {
     const tf2: Timeframe = '1m';
     const tf3: Timeframe = '3m';
     const tf4: Timeframe = 'YTD';
-    const tf5: Timeframe = 'ALL';
 
     expect(tf1).toBe('1w');
     expect(tf2).toBe('1m');
     expect(tf3).toBe('3m');
     expect(tf4).toBe('YTD');
-    expect(tf5).toBe('ALL');
   });
 
   it('accepts number values for years', () => {
@@ -36,13 +34,11 @@ describe('PresetTimeframe type', () => {
     const tf2: PresetTimeframe = '1m';
     const tf3: PresetTimeframe = '3m';
     const tf4: PresetTimeframe = 'YTD';
-    const tf5: PresetTimeframe = 'ALL';
 
     expect(tf1).toBe('1w');
     expect(tf2).toBe('1m');
     expect(tf3).toBe('3m');
     expect(tf4).toBe('YTD');
-    expect(tf5).toBe('ALL');
   });
 
   // Note: Cannot test that numbers are rejected at runtime, but TypeScript will catch this

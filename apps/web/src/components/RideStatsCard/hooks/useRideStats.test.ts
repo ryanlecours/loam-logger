@@ -202,7 +202,6 @@ describe('useRideStats', () => {
     expect(result.current).toHaveProperty('1m');
     expect(result.current).toHaveProperty('3m');
     expect(result.current).toHaveProperty('YTD');
-    expect(result.current).toHaveProperty('ALL');
   });
 
   it('filters rides correctly for 1 week timeframe', () => {

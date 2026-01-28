@@ -1,6 +1,6 @@
 // Timeframes for ride statistics
 // Can be a preset timeframe or a specific year (as a number)
-export type Timeframe = '1w' | '1m' | '3m' | 'YTD' | 'ALL' | number;
+export type Timeframe = '1w' | '1m' | '3m' | 'YTD' | number;
 
 // Bike time breakdown
 export interface BikeTimeData {
@@ -72,7 +72,7 @@ export interface RideStats {
 }
 
 // Preset timeframe values (excludes year numbers)
-export type PresetTimeframe = '1w' | '1m' | '3m' | 'YTD' | 'ALL';
+export type PresetTimeframe = '1w' | '1m' | '3m' | 'YTD';
 
 // Stats by timeframe (presets only - years are computed on demand)
 export type RideStatsByTimeframe = Record<PresetTimeframe, RideStats>;

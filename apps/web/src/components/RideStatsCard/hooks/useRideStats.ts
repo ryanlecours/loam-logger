@@ -15,7 +15,7 @@ import type {
 
 const DAYS_MS = 24 * 60 * 60 * 1000;
 const SECONDS_TO_HOURS = 1 / 3600;
-const PRESET_TIMEFRAMES: PresetTimeframe[] = ['1w', '1m', '3m', 'YTD', 'ALL'];
+const PRESET_TIMEFRAMES: PresetTimeframe[] = ['1w', '1m', '3m', 'YTD'];
 
 // Parse startTime to milliseconds
 const parseStartTime = (value: Ride['startTime']): number | null => {
@@ -123,7 +123,6 @@ function computeAllStats(
     '1m': now - 30 * DAYS_MS,
     '3m': now - 90 * DAYS_MS,
     'YTD': new Date(new Date().getFullYear(), 0, 1).getTime(),
-    'ALL': 0,
   };
 
   const result = {} as RideStatsByTimeframe;
