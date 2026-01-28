@@ -120,7 +120,7 @@ export function MassAssignBikeModal({
   const selectedBike = bikes.find((b) => b.id === selectedBikeId);
 
   // Validate date range (start should not be after end)
-  const isInvalidDateRange = startDate && endDate && new Date(startDate) > new Date(endDate);
+  const isInvalidDateRange = !!(startDate && endDate && new Date(startDate) > new Date(endDate));
 
   return (
     <Modal
