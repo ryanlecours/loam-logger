@@ -15,6 +15,8 @@ export const ME_QUERY = gql`
       isFoundingRider
       hoursDisplayPreference
       predictionMode
+      pairedComponentMigrationSeenAt
+      createdAt
     }
   }
 `

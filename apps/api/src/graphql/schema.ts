@@ -143,6 +143,11 @@ export const typeDefs = gql`
     serviceLogs: [ServiceLog!]!
     createdAt: String!
     updatedAt: String!
+    # Front/rear pairing support
+    pairGroupId: String
+    retiredAt: String
+    replacedById: ID
+    pairedComponent: Component
   }
 
   type ServiceLog {
@@ -346,6 +351,7 @@ export const typeDefs = gql`
     seatpost: BikeComponentInput
     wheels: BikeComponentInput
     pivotBearings: BikeComponentInput
+    pairedComponentConfigs: [PairedComponentConfigInput!]
   }
 
   input UpdateBikeInput {
@@ -501,6 +507,39 @@ export const typeDefs = gql`
     predictionMode: String
   }
 
+  # Paired component configuration for bike import
+  input PairedComponentSpecInput {
+    brand: String!
+    model: String!
+  }
+
+  input PairedComponentConfigInput {
+    type: ComponentType!
+    useSameSpec: Boolean!
+    frontSpec: PairedComponentSpecInput
+    rearSpec: PairedComponentSpecInput
+  }
+
+  # Component replacement
+  input ReplaceComponentInput {
+    componentId: ID!
+    newBrand: String!
+    newModel: String!
+    alsoReplacePair: Boolean
+    pairBrand: String
+    pairModel: String
+  }
+
+  type ReplaceComponentResult {
+    replacedComponents: [Component!]!
+    newComponents: [Component!]!
+  }
+
+  type MigratePairedComponentsResult {
+    migratedCount: Int!
+    components: [Component!]!
+  }
+
   type Mutation {
     addRide(input: AddRideInput!): Ride!
     updateRide(id: ID!, input: UpdateRideInput!): Ride!
@@ -527,6 +566,9 @@ export const typeDefs = gql`
     dismissCalibration: User!
     completeCalibration: User!
     resetCalibration: User!
+    markPairedComponentMigrationSeen: User!
+    replaceComponent(input: ReplaceComponentInput!): ReplaceComponentResult!
+    migratePairedComponents: MigratePairedComponentsResult!
   }
 
   type ConnectedAccount {
@@ -551,6 +593,8 @@ export const typeDefs = gql`
     isFoundingRider: Boolean!
     hoursDisplayPreference: String
     predictionMode: String
+    pairedComponentMigrationSeenAt: String
+    createdAt: String!
   }
 
   input RidesFilterInput {

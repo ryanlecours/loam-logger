@@ -36,6 +36,7 @@ model User {
   predictionMode         String?          @default("simple")
   calibrationCompletedAt DateTime?
   calibrationDismissedAt DateTime?
+  pairedComponentMigrationSeenAt DateTime?
   bikes               Bike[]
   components          Component[]
   tokens              OauthToken[]
@@ -181,13 +182,24 @@ model Component {
   baselineSetAt         DateTime?
   lastServicedAt        DateTime?
   userId                String
+
+  // Front/rear pairing support
+  pairGroupId           String?
+  retiredAt             DateTime?
+  replacedById          String?            @unique
+
   bike                  Bike?              @relation(fields: [bikeId], references: [id])
   user                  User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   serviceLogs           ServiceLog[]
 
+  // Self-referential relation for replacement chain
+  replacedBy            Component?         @relation("ComponentReplacement", fields: [replacedById], references: [id])
+  replaces              Component?         @relation("ComponentReplacement")
+
   @@unique([bikeId, type, location], name: "unique_component_per_bike")
   @@index([userId])
   @@index([bikeId])
+  @@index([pairGroupId])
 }
 
 model ServiceLog {
