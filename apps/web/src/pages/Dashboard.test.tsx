@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 
 // Test the migration logic patterns from Dashboard.tsx
 // Since these are defined inline in the component, we test the logic patterns
