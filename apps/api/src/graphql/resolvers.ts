@@ -2710,6 +2710,15 @@ export const resolvers = {
       const userId = requireUserId(ctx);
       await checkMutationRateLimit(userId);
 
+      // Idempotency check: if user already has any paired components, skip migration
+      // This prevents race conditions when multiple tabs trigger migration simultaneously
+      const existingPairedComponent = await prisma.component.findFirst({
+        where: { userId, pairGroupId: { not: null } },
+      });
+      if (existingPairedComponent) {
+        return { migratedCount: 0, components: [] };
+      }
+
       // Find all paired-type components for this user with location=NONE (old format)
       const unpairedComponents = await prisma.component.findMany({
         where: {

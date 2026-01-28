@@ -3,7 +3,9 @@ jest.mock('../../lib/prisma', () => ({
   prisma: {
     component: {
       findUnique: jest.fn(),
+      findFirst: jest.fn(),
       findMany: jest.fn(),
+      create: jest.fn(),
       update: jest.fn(),
       updateMany: jest.fn(),
     },
@@ -18,6 +20,9 @@ jest.mock('../../lib/prisma', () => ({
     termsAcceptance: {
       findUnique: jest.fn(),
       upsert: jest.fn(),
+    },
+    user: {
+      update: jest.fn(),
     },
     $transaction: jest.fn(),
   },
@@ -791,6 +796,387 @@ describe('GraphQL Resolvers', () => {
           },
         },
       });
+    });
+  });
+
+  describe('markPairedComponentMigrationSeen', () => {
+    const mutation = resolvers.Mutation.markPairedComponentMigrationSeen;
+
+    it('should throw Unauthorized when user is not authenticated', async () => {
+      const ctx = createMockContext(null);
+
+      await expect(mutation({}, {}, ctx as never)).rejects.toThrow('Unauthorized');
+
+      expect(mockPrisma.user.update).not.toHaveBeenCalled();
+    });
+
+    it('should update user with pairedComponentMigrationSeenAt timestamp', async () => {
+      const ctx = createMockContext('user-123');
+      const mockUser = {
+        id: 'user-123',
+        pairedComponentMigrationSeenAt: new Date(),
+      };
+
+      mockPrisma.user.update.mockResolvedValue(mockUser as never);
+
+      const result = await mutation({}, {}, ctx as never);
+
+      expect(mockPrisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'user-123' },
+        data: {
+          pairedComponentMigrationSeenAt: expect.any(Date),
+        },
+      });
+      expect(result).toEqual(mockUser);
+    });
+  });
+
+  describe('migratePairedComponents', () => {
+    const mutation = resolvers.Mutation.migratePairedComponents;
+
+    it('should throw Unauthorized when user is not authenticated', async () => {
+      const ctx = createMockContext(null);
+
+      await expect(mutation({}, {}, ctx as never)).rejects.toThrow('Unauthorized');
+    });
+
+    it('should return empty result when user already has paired components (idempotency)', async () => {
+      const ctx = createMockContext('user-123');
+      // User already has a component with pairGroupId set
+      mockPrisma.component.findFirst.mockResolvedValue({
+        id: 'comp-existing',
+        pairGroupId: 'existing-pair',
+      } as never);
+
+      const result = await mutation({}, {}, ctx as never);
+
+      expect(result).toEqual({ migratedCount: 0, components: [] });
+      // Should not proceed to findMany for unpaired components
+      expect(mockPrisma.component.findMany).not.toHaveBeenCalled();
+    });
+
+    it('should return empty result when no unpaired components exist', async () => {
+      const ctx = createMockContext('user-123');
+      // No existing paired components (idempotency check passes)
+      mockPrisma.component.findFirst.mockResolvedValue(null);
+      mockPrisma.component.findMany.mockResolvedValue([]);
+
+      const result = await mutation({}, {}, ctx as never);
+
+      expect(result).toEqual({ migratedCount: 0, components: [] });
+    });
+
+    it('should migrate unpaired TIRES components to FRONT/REAR pairs', async () => {
+      const ctx = createMockContext('user-123');
+      const unpairedComponent = {
+        id: 'comp-1',
+        type: 'TIRES',
+        location: 'NONE',
+        brand: 'Maxxis',
+        model: 'Minion DHF',
+        bikeId: 'bike-1',
+        userId: 'user-123',
+        hoursUsed: 50,
+        serviceDueAtHours: 100,
+        installedAt: new Date(),
+        isStock: false,
+        baselineWearPercent: 0,
+        baselineMethod: 'DEFAULT',
+        baselineConfidence: 'HIGH',
+        baselineSetAt: new Date(),
+        lastServicedAt: null,
+        retiredAt: null,
+      };
+
+      const newRearComponent = {
+        ...unpairedComponent,
+        id: 'comp-2',
+        location: 'REAR',
+        pairGroupId: 'pair-123',
+      };
+
+      // No existing paired components (idempotency check passes)
+      mockPrisma.component.findFirst.mockResolvedValue(null);
+      mockPrisma.component.findMany
+        .mockResolvedValueOnce([unpairedComponent] as never) // First call - find unpaired
+        .mockResolvedValueOnce([{ ...unpairedComponent, location: 'FRONT', pairGroupId: 'pair-123' }] as never); // Second call - refetch updated
+
+      mockPrisma.$transaction.mockImplementation(async (fn) => {
+        if (typeof fn === 'function') {
+          const mockTx = {
+            component: {
+              update: jest.fn().mockResolvedValue({ ...unpairedComponent, location: 'FRONT', pairGroupId: 'pair-123' }),
+              create: jest.fn().mockResolvedValue(newRearComponent),
+            },
+          };
+          return fn(mockTx);
+        }
+        return [];
+      });
+
+      const result = await mutation({}, {}, ctx as never);
+
+      expect(result.migratedCount).toBe(1);
+      expect(mockPrisma.component.findFirst).toHaveBeenCalledWith({
+        where: { userId: 'user-123', pairGroupId: { not: null } },
+      });
+      expect(mockPrisma.component.findMany).toHaveBeenCalledWith({
+        where: {
+          userId: 'user-123',
+          type: { in: ['TIRES', 'BRAKE_PAD', 'BRAKE_ROTOR', 'BRAKES'] },
+          location: 'NONE',
+          retiredAt: null,
+        },
+      });
+    });
+
+    it('should migrate multiple component types', async () => {
+      const ctx = createMockContext('user-123');
+      const unpairedComponents = [
+        { id: 'comp-1', type: 'TIRES', location: 'NONE', brand: 'Maxxis', model: 'DHF', bikeId: 'bike-1', userId: 'user-123', hoursUsed: 50, retiredAt: null },
+        { id: 'comp-2', type: 'BRAKE_PAD', location: 'NONE', brand: 'Shimano', model: 'B01S', bikeId: 'bike-1', userId: 'user-123', hoursUsed: 20, retiredAt: null },
+      ];
+
+      // No existing paired components (idempotency check passes)
+      mockPrisma.component.findFirst.mockResolvedValue(null);
+      mockPrisma.component.findMany
+        .mockResolvedValueOnce(unpairedComponents as never)
+        .mockResolvedValueOnce(unpairedComponents.map(c => ({ ...c, location: 'FRONT', pairGroupId: `pair-${c.id}` })) as never);
+
+      mockPrisma.$transaction.mockImplementation(async (fn) => {
+        if (typeof fn === 'function') {
+          const mockTx = {
+            component: {
+              update: jest.fn().mockImplementation(({ where }) => {
+                const comp = unpairedComponents.find(c => c.id === where.id);
+                return Promise.resolve({ ...comp, location: 'FRONT', pairGroupId: `pair-${where.id}` });
+              }),
+              create: jest.fn().mockImplementation(({ data }) => {
+                return Promise.resolve({ ...data, id: `new-${data.pairGroupId}` });
+              }),
+            },
+          };
+          return fn(mockTx);
+        }
+        return [];
+      });
+
+      const result = await mutation({}, {}, ctx as never);
+
+      expect(result.migratedCount).toBe(2);
+    });
+  });
+
+  describe('replaceComponent', () => {
+    const mutation = resolvers.Mutation.replaceComponent;
+
+    it('should throw Unauthorized when user is not authenticated', async () => {
+      const ctx = createMockContext(null);
+
+      await expect(
+        mutation({}, { input: { componentId: 'comp-1', newBrand: 'Maxxis', newModel: 'Assegai' } }, ctx as never)
+      ).rejects.toThrow('Unauthorized');
+    });
+
+    it('should throw NOT_FOUND when component does not exist', async () => {
+      const ctx = createMockContext('user-123');
+      mockPrisma.component.findFirst.mockResolvedValue(null);
+
+      await expect(
+        mutation({}, { input: { componentId: 'comp-1', newBrand: 'Maxxis', newModel: 'Assegai' } }, ctx as never)
+      ).rejects.toThrow('Component not found');
+    });
+
+    it('should throw NOT_FOUND when component belongs to different user', async () => {
+      const ctx = createMockContext('user-123');
+      // findFirst with userId filter returns null when component belongs to different user
+      mockPrisma.component.findFirst.mockResolvedValue(null);
+
+      await expect(
+        mutation({}, { input: { componentId: 'comp-1', newBrand: 'Maxxis', newModel: 'Assegai' } }, ctx as never)
+      ).rejects.toThrow('Component not found');
+    });
+
+    it('should retire old component and create new one', async () => {
+      const ctx = createMockContext('user-123');
+      const existingComponent = {
+        id: 'comp-1',
+        type: 'TIRES',
+        location: 'FRONT',
+        brand: 'Maxxis',
+        model: 'Minion DHF',
+        bikeId: 'bike-1',
+        userId: 'user-123',
+        pairGroupId: 'pair-123',
+      };
+
+      mockPrisma.component.findFirst.mockResolvedValue(existingComponent as never);
+
+      const retiredComponent = { ...existingComponent, retiredAt: new Date() };
+      const newComponent = {
+        id: 'comp-new',
+        type: 'TIRES',
+        location: 'FRONT',
+        brand: 'Maxxis',
+        model: 'Assegai',
+        bikeId: 'bike-1',
+        userId: 'user-123',
+        pairGroupId: 'new-pair-123',
+        hoursUsed: 0,
+      };
+
+      mockPrisma.$transaction.mockImplementation(async (fn) => {
+        if (typeof fn === 'function') {
+          const mockTx = {
+            component: {
+              update: jest.fn()
+                .mockResolvedValueOnce(retiredComponent) // retire old
+                .mockResolvedValueOnce({ ...retiredComponent, replacedById: newComponent.id }), // set replacedById
+              create: jest.fn().mockResolvedValue(newComponent),
+              findFirst: jest.fn().mockResolvedValue(null), // no paired component (alsoReplacePair not set)
+            },
+          };
+          return fn(mockTx);
+        }
+        return [];
+      });
+
+      const result = await mutation(
+        {},
+        { input: { componentId: 'comp-1', newBrand: 'Maxxis', newModel: 'Assegai' } },
+        ctx as never
+      );
+
+      expect(result.replacedComponents).toHaveLength(1);
+      expect(result.newComponents).toHaveLength(1);
+    });
+
+    it('should replace paired component when alsoReplacePair is true', async () => {
+      const ctx = createMockContext('user-123');
+      const existingComponent = {
+        id: 'comp-1',
+        type: 'TIRES',
+        location: 'FRONT',
+        brand: 'Maxxis',
+        model: 'Minion DHF',
+        bikeId: 'bike-1',
+        userId: 'user-123',
+        pairGroupId: 'pair-123',
+      };
+
+      const pairedComponent = {
+        id: 'comp-2',
+        type: 'TIRES',
+        location: 'REAR',
+        brand: 'Maxxis',
+        model: 'Minion DHR II',
+        bikeId: 'bike-1',
+        userId: 'user-123',
+        pairGroupId: 'pair-123',
+      };
+
+      mockPrisma.component.findFirst.mockResolvedValue(existingComponent as never);
+
+      mockPrisma.$transaction.mockImplementation(async (fn) => {
+        if (typeof fn === 'function') {
+          const mockTx = {
+            component: {
+              update: jest.fn().mockImplementation(({ where }) => {
+                if (where.id === 'comp-1') {
+                  return Promise.resolve({ ...existingComponent, retiredAt: new Date() });
+                }
+                if (where.id === 'comp-2') {
+                  return Promise.resolve({ ...pairedComponent, retiredAt: new Date() });
+                }
+                return Promise.resolve({});
+              }),
+              create: jest.fn().mockImplementation(({ data }) => {
+                return Promise.resolve({
+                  id: `new-${data.location}`,
+                  ...data,
+                });
+              }),
+              findFirst: jest.fn().mockResolvedValue(pairedComponent), // paired component exists
+            },
+          };
+          return fn(mockTx);
+        }
+        return [];
+      });
+
+      const result = await mutation(
+        {},
+        {
+          input: {
+            componentId: 'comp-1',
+            newBrand: 'Maxxis',
+            newModel: 'Assegai',
+            alsoReplacePair: true,
+            pairBrand: 'Maxxis',
+            pairModel: 'Dissector',
+          },
+        },
+        ctx as never
+      );
+
+      expect(result.replacedComponents).toHaveLength(2);
+      expect(result.newComponents).toHaveLength(2);
+    });
+  });
+
+  describe('Component.pairedComponent resolver', () => {
+    const resolver = resolvers.Component.pairedComponent;
+
+    it('should return null when component has no pairGroupId', async () => {
+      const component = { id: 'comp-1', pairGroupId: null };
+
+      const result = await resolver(component as never);
+
+      expect(result).toBeNull();
+      expect(mockPrisma.component.findFirst).not.toHaveBeenCalled();
+    });
+
+    it('should find paired component by pairGroupId', async () => {
+      const component = { id: 'comp-1', pairGroupId: 'pair-123' };
+      const pairedComponent = { id: 'comp-2', pairGroupId: 'pair-123', location: 'REAR' };
+
+      mockPrisma.component.findFirst.mockResolvedValue(pairedComponent as never);
+
+      const result = await resolver(component as never);
+
+      expect(mockPrisma.component.findFirst).toHaveBeenCalledWith({
+        where: {
+          pairGroupId: 'pair-123',
+          id: { not: 'comp-1' },
+          retiredAt: null,
+        },
+      });
+      expect(result).toEqual(pairedComponent);
+    });
+  });
+
+  describe('User.pairedComponentMigrationSeenAt resolver', () => {
+    const resolver = resolvers.User.pairedComponentMigrationSeenAt;
+
+    it('should return null when not set', () => {
+      const result = resolver({ pairedComponentMigrationSeenAt: null });
+      expect(result).toBeNull();
+    });
+
+    it('should return ISO string when set', () => {
+      const date = new Date('2026-01-28T12:00:00Z');
+      const result = resolver({ pairedComponentMigrationSeenAt: date });
+      expect(result).toBe('2026-01-28T12:00:00.000Z');
+    });
+  });
+
+  describe('User.createdAt resolver', () => {
+    const resolver = resolvers.User.createdAt;
+
+    it('should return ISO string', () => {
+      const date = new Date('2026-01-15T10:00:00Z');
+      const result = resolver({ createdAt: date });
+      expect(result).toBe('2026-01-15T10:00:00.000Z');
     });
   });
 });
