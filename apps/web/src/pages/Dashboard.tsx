@@ -1,15 +1,18 @@
 // src/pages/Dashboard.tsx
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useQuery } from '@apollo/client';
+import { useNavigate } from 'react-router-dom';
 import { RIDES } from '../graphql/rides';
 import { BIKES } from '../graphql/bikes';
 import { UNMAPPED_STRAVA_GEARS } from '../graphql/stravaGear';
 import { useImportNotificationState } from '../graphql/importSession';
 import { useCalibrationState } from '../graphql/calibration';
+import { useMarkPairedComponentMigrationSeen, useMigratePairedComponents } from '../graphql/userPreferences';
 import StravaGearMappingModal from '../components/StravaGearMappingModal';
 import StravaImportModal from '../components/StravaImportModal';
 import { ImportCompleteOverlay } from '../components/ImportCompleteOverlay';
 import { CalibrationOverlay } from '../components/CalibrationOverlay';
+import { PairedComponentMigrationNotice } from '../components/PairedComponentMigrationNotice';
 import RideStatsCard from '../components/RideStatsCard';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useUserTier } from '../hooks/useUserTier';
@@ -23,6 +26,10 @@ import {
   LogServiceModal,
   LinkBikeModal,
 } from '../components/dashboard';
+
+// Cutoff date for showing migration notice - users created after this date
+// get paired components by default and don't need to see the notice
+const MIGRATION_CUTOFF_DATE = new Date('2026-01-29T23:59:59Z');
 
 interface Ride {
   id: string;
@@ -47,10 +54,12 @@ const apiBase =
   (import.meta.env.DEV ? 'http://localhost:4000' : '');
 
 export default function Dashboard() {
-  const user = useCurrentUser().user;
+  const { user, refetch: refetchUser } = useCurrentUser();
   const { isPro } = useUserTier();
   const { isStravaConnected } = useConnectedAccounts();
-
+  const navigate = useNavigate();
+  const [markMigrationSeen] = useMarkPairedComponentMigrationSeen();
+  const [migratePairedComponents] = useMigratePairedComponents();
 
   // Queries
   const {
@@ -65,6 +74,7 @@ export default function Dashboard() {
   const {
     data: bikesData,
     loading: bikesLoading,
+    refetch: refetchBikes,
   } = useQuery<{ bikes: BikeWithPredictions[] }>(BIKES, {
     fetchPolicy: 'cache-and-network',
   });
@@ -105,6 +115,67 @@ export default function Dashboard() {
   const [isStravaImportOpen, setIsStravaImportOpen] = useState(false);
   const [isImportOverlayOpen, setIsImportOverlayOpen] = useState(false);
   const [isCalibrationOpen, setIsCalibrationOpen] = useState(false);
+  const [isMigrationNoticeOpen, setIsMigrationNoticeOpen] = useState(false);
+  const [hasMigrationRun, setHasMigrationRun] = useState(false);
+
+  // Run paired component migration on first dashboard load for users created before cutoff
+  // This runs independently of the notice - migration happens regardless
+  useEffect(() => {
+    if (!user || hasMigrationRun) return;
+
+    // Only run for users created on or before the cutoff date
+    const userCreatedAt = user.createdAt ? new Date(user.createdAt) : null;
+    if (!userCreatedAt || userCreatedAt > MIGRATION_CUTOFF_DATE) return;
+
+    setHasMigrationRun(true);
+    migratePairedComponents()
+      .then(() => {
+        // Refetch bikes to get updated components
+        refetchBikes();
+      })
+      .catch(() => {
+        // Silent fail - migration is best-effort and idempotent
+        // User can still use the app normally, migration will retry on next load
+      });
+  }, [user, hasMigrationRun, migratePairedComponents, refetchBikes]);
+
+  // Determine if we should show the paired component migration notice
+  const shouldShowMigrationNotice = useMemo(() => {
+    if (!user) return false;
+    // Only show to users created on or before the cutoff date
+    const userCreatedAt = user.createdAt ? new Date(user.createdAt) : null;
+    if (!userCreatedAt || userCreatedAt > MIGRATION_CUTOFF_DATE) return false;
+    // Only show if they haven't dismissed it yet
+    if (user.pairedComponentMigrationSeenAt) return false;
+    return true;
+  }, [user]);
+
+  // Show migration notice when conditions are met
+  // Only show after other overlays are closed (import, calibration)
+  useEffect(() => {
+    if (
+      shouldShowMigrationNotice &&
+      !isMigrationNoticeOpen &&
+      !isImportOverlayOpen &&
+      !isCalibrationOpen
+    ) {
+      setIsMigrationNoticeOpen(true);
+    }
+  }, [shouldShowMigrationNotice, isMigrationNoticeOpen, isImportOverlayOpen, isCalibrationOpen]);
+
+  // Handle migration notice dismissal
+  const handleMigrationDismiss = async (reviewNow: boolean) => {
+    try {
+      await markMigrationSeen();
+      refetchUser();
+    } catch (err) {
+      console.error('Failed to mark migration seen:', err);
+    }
+    setIsMigrationNoticeOpen(false);
+    if (reviewNow) {
+      navigate('/gear');
+    }
+  };
 
   // Show import overlay when notification state indicates we should
   const importState = importNotificationData?.importNotificationState;
@@ -258,6 +329,13 @@ export default function Dashboard() {
       <CalibrationOverlay
         isOpen={isCalibrationOpen}
         onClose={() => setIsCalibrationOpen(false)}
+      />
+
+      {/* Paired Component Migration Notice - one-time for existing users */}
+      <PairedComponentMigrationNotice
+        isOpen={isMigrationNoticeOpen}
+        onReviewNow={() => handleMigrationDismiss(true)}
+        onMaybeLater={() => handleMigrationDismiss(false)}
       />
     </>
   );

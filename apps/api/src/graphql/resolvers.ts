@@ -16,10 +16,12 @@ import { getBaseInterval } from '../services/prediction/config';
 import {
   getApplicableComponents,
   deriveBikeSpec,
+  requiresPairing,
   type BikeSpec,
   type SpokesComponents,
   CURRENT_TERMS_VERSION,
 } from '@loam/shared';
+import { createId } from '@paralleldrive/cuid2';
 import { logError } from '../lib/logger';
 import { config } from '../config/env';
 import type { AcquisitionCondition, BaselineMethod, BaselineConfidence } from '@prisma/client';
@@ -85,6 +87,28 @@ export type SpokesComponentsInputGQL = {
   seatpost?: SpokesComponentInputGQL | null;
 };
 
+// Paired component configuration for front/rear differentiation
+type PairedComponentSpecInputGQL = {
+  brand: string;
+  model: string;
+};
+
+export type PairedComponentConfigInputGQL = {
+  type: ComponentType;
+  useSameSpec: boolean;
+  frontSpec?: PairedComponentSpecInputGQL | null;
+  rearSpec?: PairedComponentSpecInputGQL | null;
+};
+
+type ReplaceComponentInputGQL = {
+  componentId: string;
+  newBrand: string;
+  newModel: string;
+  alsoReplacePair?: boolean | null;
+  pairBrand?: string | null;
+  pairModel?: string | null;
+};
+
 type AddBikeInputGQL = {
   nickname?: string | null;
   manufacturer: string;
@@ -118,6 +142,7 @@ type AddBikeInputGQL = {
   seatpost?: BikeComponentInputGQL | null;
   wheels?: BikeComponentInputGQL | null;
   pivotBearings?: BikeComponentInputGQL | null;
+  pairedComponentConfigs?: PairedComponentConfigInputGQL[] | null;
 };
 
 type ComponentBaselineInputGQL = {
@@ -388,9 +413,18 @@ export async function buildBikeComponents(
     acquisitionCondition: AcquisitionCondition;
     spokesComponents?: SpokesComponentsInputGQL | null;
     userOverrides?: Partial<Record<BikeComponentKey, BikeComponentInputGQL | null>>;
+    pairedComponentConfigs?: PairedComponentConfigInputGQL[] | null;
   }
 ): Promise<void> {
-  const { bikeId, userId, bikeSpec, acquisitionCondition, spokesComponents, userOverrides } = opts;
+  const { bikeId, userId, bikeSpec, acquisitionCondition, spokesComponents, userOverrides, pairedComponentConfigs } = opts;
+
+  // Build a map of paired component configs by type for easy lookup
+  const pairedConfigsByType: Map<string, PairedComponentConfigInputGQL> = new Map();
+  if (pairedComponentConfigs) {
+    for (const config of pairedComponentConfigs) {
+      pairedConfigsByType.set(config.type, config);
+    }
+  }
 
   // Always start at 0% baseline - ride backfill + service dates provide accuracy
   // acquisitionCondition now indicates stock vs swapped components, not wear state
@@ -481,21 +515,87 @@ export async function buildBikeComponents(
       }
     }
 
-    componentsToCreate.push({
-      type: type as ComponentType,
-      bikeId,
-      userId,
-      brand,
-      model,
-      notes,
-      isStock,
-      hoursUsed: 0,
-      installedAt: baselineSetAt,
-      baselineWearPercent,
-      baselineMethod,
-      baselineConfidence,
-      baselineSetAt,
-    });
+    // Check if this component type requires front/rear pairing
+    if (requiresPairing(type)) {
+      const pairGroupId = createId();
+      const pairedConfig = pairedConfigsByType.get(type);
+
+      // Determine front and rear specs
+      let frontBrand = brand;
+      let frontModel = model;
+      let rearBrand = brand;
+      let rearModel = model;
+
+      if (pairedConfig) {
+        if (!pairedConfig.useSameSpec) {
+          // User wants different specs for front and rear
+          if (pairedConfig.frontSpec) {
+            frontBrand = pairedConfig.frontSpec.brand;
+            frontModel = pairedConfig.frontSpec.model;
+          }
+          if (pairedConfig.rearSpec) {
+            rearBrand = pairedConfig.rearSpec.brand;
+            rearModel = pairedConfig.rearSpec.model;
+          }
+        }
+        // If useSameSpec is true, use the same brand/model for both (already set)
+      }
+
+      // Create FRONT component
+      componentsToCreate.push({
+        type: type as ComponentType,
+        location: 'FRONT' as ComponentLocation,
+        bikeId,
+        userId,
+        brand: frontBrand,
+        model: frontModel,
+        notes,
+        isStock,
+        hoursUsed: 0,
+        installedAt: baselineSetAt,
+        baselineWearPercent,
+        baselineMethod,
+        baselineConfidence,
+        baselineSetAt,
+        pairGroupId,
+      });
+
+      // Create REAR component
+      componentsToCreate.push({
+        type: type as ComponentType,
+        location: 'REAR' as ComponentLocation,
+        bikeId,
+        userId,
+        brand: rearBrand,
+        model: rearModel,
+        notes,
+        isStock,
+        hoursUsed: 0,
+        installedAt: baselineSetAt,
+        baselineWearPercent,
+        baselineMethod,
+        baselineConfidence,
+        baselineSetAt,
+        pairGroupId,
+      });
+    } else {
+      // Non-paired component - create single instance
+      componentsToCreate.push({
+        type: type as ComponentType,
+        bikeId,
+        userId,
+        brand,
+        model,
+        notes,
+        isStock,
+        hoursUsed: 0,
+        installedAt: baselineSetAt,
+        baselineWearPercent,
+        baselineMethod,
+        baselineConfidence,
+        baselineSetAt,
+      });
+    }
   }
 
   // Batch create all components
@@ -1377,6 +1477,7 @@ export const resolvers = {
             wheels: input.wheels,
             pivotBearings: input.pivotBearings,
           },
+          pairedComponentConfigs: input.pairedComponentConfigs,
         });
 
         return tx.bike.findUnique({
@@ -2476,6 +2577,223 @@ export const resolvers = {
         },
       });
     },
+
+    markPairedComponentMigrationSeen: async (_: unknown, __: unknown, ctx: GraphQLContext) => {
+      const userId = requireUserId(ctx);
+
+      return prisma.user.update({
+        where: { id: userId },
+        data: {
+          pairedComponentMigrationSeenAt: new Date(),
+        },
+      });
+    },
+
+    replaceComponent: async (
+      _: unknown,
+      { input }: { input: ReplaceComponentInputGQL },
+      ctx: GraphQLContext
+    ) => {
+      const userId = requireUserId(ctx);
+      await checkMutationRateLimit(userId);
+
+      const { componentId, newBrand, newModel, alsoReplacePair, pairBrand, pairModel } = input;
+
+      // Find the component to replace
+      const existingComponent = await prisma.component.findFirst({
+        where: { id: componentId, userId },
+      });
+
+      if (!existingComponent) {
+        throw new GraphQLError('Component not found', { extensions: { code: 'NOT_FOUND' } });
+      }
+
+      const replacedComponents: ComponentModel[] = [];
+      const newComponents: ComponentModel[] = [];
+
+      await prisma.$transaction(async (tx) => {
+        const now = new Date();
+        const newPairGroupId = createId();
+
+        // Retire the existing component
+        // Set bikeId to null to avoid unique constraint violation when creating replacement
+        const retired = await tx.component.update({
+          where: { id: componentId },
+          data: { retiredAt: now, bikeId: null },
+        });
+        replacedComponents.push(retired);
+
+        // Create the new component
+        const newComponent = await tx.component.create({
+          data: {
+            type: existingComponent.type,
+            location: existingComponent.location,
+            bikeId: existingComponent.bikeId,
+            userId,
+            brand: newBrand,
+            model: newModel,
+            isStock: false,
+            hoursUsed: 0,
+            installedAt: now,
+            baselineWearPercent: 0,
+            baselineMethod: 'DEFAULT',
+            baselineConfidence: 'HIGH',
+            baselineSetAt: now,
+            pairGroupId: requiresPairing(existingComponent.type) ? newPairGroupId : null,
+          },
+        });
+        newComponents.push(newComponent);
+
+        // Update the old component to point to the replacement
+        await tx.component.update({
+          where: { id: componentId },
+          data: { replacedById: newComponent.id },
+        });
+
+        // Handle paired component replacement if requested
+        if (alsoReplacePair && existingComponent.pairGroupId) {
+          // Find the paired component
+          const pairedComponent = await tx.component.findFirst({
+            where: {
+              pairGroupId: existingComponent.pairGroupId,
+              id: { not: componentId },
+              retiredAt: null,
+            },
+          });
+
+          if (pairedComponent) {
+            // Retire the paired component
+            // Set bikeId to null to avoid unique constraint violation when creating replacement
+            const retiredPair = await tx.component.update({
+              where: { id: pairedComponent.id },
+              data: { retiredAt: now, bikeId: null },
+            });
+            replacedComponents.push(retiredPair);
+
+            // Create the new paired component
+            const newPairedComponent = await tx.component.create({
+              data: {
+                type: pairedComponent.type,
+                location: pairedComponent.location,
+                bikeId: pairedComponent.bikeId,
+                userId,
+                brand: pairBrand || newBrand,
+                model: pairModel || newModel,
+                isStock: false,
+                hoursUsed: 0,
+                installedAt: now,
+                baselineWearPercent: 0,
+                baselineMethod: 'DEFAULT',
+                baselineConfidence: 'HIGH',
+                baselineSetAt: now,
+                pairGroupId: newPairGroupId,
+              },
+            });
+            newComponents.push(newPairedComponent);
+
+            // Update the old paired component to point to the replacement
+            await tx.component.update({
+              where: { id: pairedComponent.id },
+              data: { replacedById: newPairedComponent.id },
+            });
+          }
+        }
+
+        // Invalidate prediction cache for affected bikes
+        if (existingComponent.bikeId) {
+          await invalidateBikePrediction(existingComponent.bikeId);
+        }
+      });
+
+      return { replacedComponents, newComponents };
+    },
+
+    migratePairedComponents: async (_: unknown, __: unknown, ctx: GraphQLContext) => {
+      const userId = requireUserId(ctx);
+      await checkMutationRateLimit(userId);
+
+      // Idempotency check: if user already has any paired components, skip migration
+      // This prevents race conditions when multiple tabs trigger migration simultaneously
+      const existingPairedComponent = await prisma.component.findFirst({
+        where: { userId, pairGroupId: { not: null } },
+      });
+      if (existingPairedComponent) {
+        return { migratedCount: 0, components: [] };
+      }
+
+      // Find all paired-type components for this user with location=NONE (old format)
+      const unpairedComponents = await prisma.component.findMany({
+        where: {
+          userId,
+          type: { in: ['TIRES', 'BRAKE_PAD', 'BRAKE_ROTOR', 'BRAKES'] },
+          location: 'NONE',
+          retiredAt: null,
+        },
+      });
+
+      if (unpairedComponents.length === 0) {
+        return { migratedCount: 0, components: [] };
+      }
+
+      const allNewComponents: ComponentModel[] = [];
+
+      // Process each unpaired component
+      await prisma.$transaction(async (tx) => {
+        for (const component of unpairedComponents) {
+          const pairGroupId = createId();
+
+          // Update existing component to be FRONT with pairGroupId
+          await tx.component.update({
+            where: { id: component.id },
+            data: {
+              location: 'FRONT',
+              pairGroupId,
+            },
+          });
+
+          // Create REAR copy with same wear state
+          const rearComponent = await tx.component.create({
+            data: {
+              type: component.type,
+              brand: component.brand,
+              model: component.model,
+              location: 'REAR',
+              pairGroupId,
+              bikeId: component.bikeId,
+              userId: component.userId,
+              hoursUsed: component.hoursUsed,
+              serviceIntervalHours: component.serviceIntervalHours,
+              installedAt: component.installedAt,
+              isStock: component.isStock,
+              baselineWearPercent: component.baselineWearPercent,
+              baselineMethod: component.baselineMethod,
+              baselineConfidence: component.baselineConfidence,
+              baselineSetAt: component.baselineSetAt,
+              lastServicedAt: component.lastServicedAt,
+            },
+          });
+
+          allNewComponents.push(rearComponent);
+
+          // Invalidate prediction cache for the bike
+          if (component.bikeId) {
+            await invalidateBikePrediction(component.bikeId);
+          }
+        }
+      });
+
+      // Refetch the updated FRONT components
+      const updatedFrontComponents = await prisma.component.findMany({
+        where: {
+          id: { in: unpairedComponents.map((c) => c.id) },
+        },
+      });
+
+      return {
+        migratedCount: unpairedComponents.length,
+        components: [...updatedFrontComponents, ...allNewComponents],
+      };
+    },
   },
 
   Bike: {
@@ -2534,6 +2852,16 @@ export const resolvers = {
       component.location ?? 'NONE',
     serviceLogs: (component: ComponentModel, _args: unknown, ctx: GraphQLContext) =>
       ctx.loaders.serviceLogsByComponentId.load(component.id),
+    pairedComponent: async (component: ComponentModel) => {
+      if (!component.pairGroupId) return null;
+      return prisma.component.findFirst({
+        where: {
+          pairGroupId: component.pairGroupId,
+          id: { not: component.id },
+          retiredAt: null,
+        },
+      });
+    },
   },
 
   User: {
@@ -2562,5 +2890,8 @@ export const resolvers = {
       });
       return !!acceptance;
     },
+    pairedComponentMigrationSeenAt: (parent: { pairedComponentMigrationSeenAt?: Date | null }) =>
+      parent.pairedComponentMigrationSeenAt?.toISOString() ?? null,
+    createdAt: (parent: { createdAt: Date }) => parent.createdAt.toISOString(),
   },
 };

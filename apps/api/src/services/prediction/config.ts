@@ -124,8 +124,8 @@ export const BASE_INTERVALS_HOURS: Partial<
   Record<ComponentType, number | LocationBasedInterval>
 > = {
   BRAKE_PAD: { front: 40, rear: 35 },
-  BRAKE_ROTOR: 200,
-  BRAKES: 100, // bleed interval
+  BRAKE_ROTOR: { front: 200, rear: 200 },
+  BRAKES: { front: 100, rear: 100 }, // bleed interval - same for both but now paired
   CHAIN: 70,
   CASSETTE: 200,
   TIRES: { front: 120, rear: 100 },

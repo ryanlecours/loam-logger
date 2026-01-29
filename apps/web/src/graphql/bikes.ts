@@ -48,11 +48,13 @@ export const BIKES = gql`
       components {
         id
         type
+        location
         brand
         model
         hoursUsed
         serviceDueAtHours
         updatedAt
+        pairGroupId
       }
       predictions {
         bikeId

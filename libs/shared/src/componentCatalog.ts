@@ -40,9 +40,18 @@ export interface ComponentDefinition {
   isApplicable: (spec: BikeSpec) => boolean;
   /** Whether this component supports FRONT/REAR location */
   supportsLocation?: boolean;
+  /** Whether this component REQUIRES front/rear pairing (creates pairs on import) */
+  requiresPairing?: boolean;
   /** 99Spokes API key for this component (null if not available from 99Spokes) */
   spokesKey?: string | null;
 }
+
+/**
+ * Component types that require front/rear pairing.
+ * When importing a bike, these will create two components (FRONT + REAR).
+ */
+export const PAIRED_COMPONENT_TYPES = ['TIRES', 'BRAKE_PAD', 'BRAKE_ROTOR', 'BRAKES'] as const;
+export type PairedComponentType = (typeof PAIRED_COMPONENT_TYPES)[number];
 
 // ============================================================================
 // Component Catalog - THE SINGLE SOURCE OF TRUTH
@@ -121,6 +130,8 @@ export const COMPONENT_CATALOG: ComponentDefinition[] = [
     serviceIntervalHours: 100,
     defaultBaselineWearPercent: 50,
     isApplicable: () => true,
+    supportsLocation: true,
+    requiresPairing: true,
     spokesKey: 'brakes',
   },
   {
@@ -131,6 +142,7 @@ export const COMPONENT_CATALOG: ComponentDefinition[] = [
     defaultBaselineWearPercent: 50,
     isApplicable: (spec) => spec.brakeType === 'disc',
     supportsLocation: true,
+    requiresPairing: true,
   },
   {
     type: 'BRAKE_ROTOR',
@@ -140,6 +152,7 @@ export const COMPONENT_CATALOG: ComponentDefinition[] = [
     defaultBaselineWearPercent: 50,
     isApplicable: (spec) => spec.brakeType === 'disc',
     supportsLocation: true,
+    requiresPairing: true,
     spokesKey: 'discRotors',
   },
 
@@ -172,6 +185,7 @@ export const COMPONENT_CATALOG: ComponentDefinition[] = [
     defaultBaselineWearPercent: 50,
     isApplicable: () => true,
     supportsLocation: true,
+    requiresPairing: true,
     spokesKey: 'tires',
   },
 
@@ -307,4 +321,19 @@ export function getAllCategories(): ComponentCategory[] {
     categories.add(component.category);
   }
   return Array.from(categories);
+}
+
+/**
+ * Check if a component type requires front/rear pairing.
+ */
+export function requiresPairing(type: string): boolean {
+  const component = getComponentByType(type);
+  return component?.requiresPairing === true;
+}
+
+/**
+ * Get all component definitions that require front/rear pairing.
+ */
+export function getPairedComponentDefinitions(): ComponentDefinition[] {
+  return COMPONENT_CATALOG.filter((c) => c.requiresPairing === true);
 }
