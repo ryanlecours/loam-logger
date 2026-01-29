@@ -16,7 +16,7 @@ type SpareFormProps = {
 export function SpareComponentForm({ initial, submitting, error, onSubmit, onClose, mode = 'spare' }: SpareFormProps) {
   const [form, setForm] = useState<SpareFormState>(initial);
 
-  const spareTypeOptions: SpareFormState['type'][] = ['FORK', 'SHOCK', 'DROPPER', 'WHEELS'];
+  const spareTypeOptions: SpareFormState['type'][] = ['FORK', 'SHOCK', 'DROPPER', 'WHEEL_HUBS'];
   const isBikeComponent = mode === 'bike';
 
 

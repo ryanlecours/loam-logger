@@ -223,7 +223,7 @@ const componentLabelMap: Partial<Record<ComponentType, string>> = {
   FORK: 'Fork',
   SHOCK: 'Shock',
   DROPPER: 'Dropper Post',
-  WHEELS: 'Wheelset',
+  WHEEL_HUBS: 'Wheel Hubs',
   PIVOT_BEARINGS: 'Pivot Bearings',
 };
 
@@ -231,7 +231,7 @@ const REQUIRED_BIKE_COMPONENTS = [
   ['fork', ComponentTypeEnum.FORK],
   ['shock', ComponentTypeEnum.SHOCK],
   ['seatpost', ComponentTypeEnum.SEATPOST],
-  ['wheels', ComponentTypeEnum.WHEELS],
+  ['wheels', ComponentTypeEnum.WHEEL_HUBS],
   ['pivotBearings', ComponentTypeEnum.PIVOT_BEARINGS],
 ] as const;
 
@@ -455,7 +455,7 @@ export async function buildBikeComponents(
           fork: 'FORK',
           shock: 'SHOCK',
           seatpost: 'SEATPOST',
-          wheels: 'WHEELS',
+          wheels: 'WHEEL_HUBS',
           pivotBearings: 'PIVOT_BEARINGS',
         };
         const componentType = typeMap[key];
@@ -1863,7 +1863,11 @@ export const resolvers = {
       return serviceLog;
     },
 
-    snoozeComponent: async (_: unknown, { id }: { id: string }, ctx: GraphQLContext) => {
+    snoozeComponent: async (
+      _: unknown,
+      { id, hours }: { id: string; hours?: number },
+      ctx: GraphQLContext
+    ) => {
       const userId = requireUserId(ctx);
 
       // Rate limit check
@@ -1883,10 +1887,17 @@ export const resolvers = {
         throw new Error('Component not found');
       }
 
-      // Calculate the new extended interval (50% extension)
+      // Get current interval
       const currentInterval =
         existing.serviceDueAtHours ?? getBaseInterval(existing.type, existing.location);
-      const extendedInterval = currentInterval * 1.5;
+
+      // Calculate snooze amount:
+      // - If hours provided: use that value (clamped between 1 and 400)
+      // - If no hours: use current interval (recommended snooze)
+      const snoozeHours =
+        hours != null ? Math.min(400, Math.max(1, hours)) : currentInterval;
+
+      const extendedInterval = currentInterval + snoozeHours;
 
       // Invalidate prediction cache BEFORE update
       if (existing.bikeId) {
@@ -2841,7 +2852,7 @@ export const resolvers = {
     seatpost: (bike: Bike & { components?: ComponentModel[] }) =>
       pickComponent(bike, ComponentTypeEnum.SEATPOST),
     wheels: (bike: Bike & { components?: ComponentModel[] }) =>
-      pickComponent(bike, ComponentTypeEnum.WHEELS),
+      pickComponent(bike, ComponentTypeEnum.WHEEL_HUBS),
     pivotBearings: (bike: Bike & { components?: ComponentModel[] }) =>
       pickComponent(bike, ComponentTypeEnum.PIVOT_BEARINGS),
     predictions: async (bike: Bike, _args: unknown, ctx: GraphQLContext) => {

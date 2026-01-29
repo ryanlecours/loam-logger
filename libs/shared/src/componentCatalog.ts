@@ -114,7 +114,7 @@ export const COMPONENT_CATALOG: ComponentDefinition[] = [
     type: 'REAR_DERAILLEUR',
     displayName: 'Rear Derailleur',
     category: 'DRIVETRAIN',
-    serviceIntervalHours: 300,
+    serviceIntervalHours: 200, // cable/housing replacement
     defaultBaselineWearPercent: 50,
     isApplicable: () => true,
     spokesKey: 'rearDerailleur',
@@ -160,13 +160,13 @@ export const COMPONENT_CATALOG: ComponentDefinition[] = [
   // WHEELS
   // ---------------------------------------------------------------------------
   {
-    type: 'WHEELS',
-    displayName: 'Wheels',
+    type: 'WHEEL_HUBS',
+    displayName: 'Wheel Hubs',
     category: 'WHEELS',
-    serviceIntervalHours: 300,
+    serviceIntervalHours: 250,
     defaultBaselineWearPercent: 50,
     isApplicable: () => true,
-    spokesKey: 'wheels',
+    spokesKey: 'wheels', // keep spokesKey for 99spokes import compatibility
   },
   {
     type: 'RIMS',

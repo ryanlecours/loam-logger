@@ -14,10 +14,10 @@ vi.mock('../../hooks/useHoursDisplay', () => ({
 }));
 
 // Mock Apollo Client useMutation for ComponentDetailOverlay
-const mockLogService = vi.fn().mockResolvedValue({ data: { logComponentService: { id: 'test' } } });
+const mockSnoozeComponent = vi.fn().mockResolvedValue({ data: { snoozeComponent: { id: 'test', serviceDueAtHours: 100 } } });
 vi.mock('@apollo/client', () => ({
   gql: (strings: TemplateStringsArray) => strings.join(''),
-  useMutation: () => [mockLogService, { loading: false }],
+  useMutation: () => [mockSnoozeComponent, { loading: false }],
 }));
 
 // Factory for creating test components
@@ -42,8 +42,8 @@ const createComponent = (overrides: Partial<ComponentPrediction> = {}): Componen
 describe('ComponentHealthPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockLogService.mockClear();
-    mockLogService.mockResolvedValue({ data: { logComponentService: { id: 'test' } } });
+    mockSnoozeComponent.mockClear();
+    mockSnoozeComponent.mockResolvedValue({ data: { snoozeComponent: { id: 'test', serviceDueAtHours: 100 } } });
   });
 
   describe('empty state', () => {
@@ -72,7 +72,7 @@ describe('ComponentHealthPanel', () => {
 
       expect(screen.getByText('Fork')).toBeInTheDocument();
       expect(screen.getByText('Rear Shock')).toBeInTheDocument();
-      expect(screen.getByText('Brakes (Front)')).toBeInTheDocument();
+      expect(screen.getByText('Front Brake')).toBeInTheDocument();
     });
 
     it('displays make/model for each component', () => {
@@ -132,7 +132,7 @@ describe('ComponentHealthPanel', () => {
 
       render(<ComponentHealthPanel components={components} />);
 
-      expect(screen.getByText('25.3 hrs since service')).toBeInTheDocument();
+      expect(screen.getByText(/25\.3 hrs since service/)).toBeInTheDocument();
     });
 
     it('displays rides remaining estimate', () => {
@@ -142,7 +142,7 @@ describe('ComponentHealthPanel', () => {
 
       render(<ComponentHealthPanel components={components} />);
 
-      expect(screen.getByText('~15 rides')).toBeInTheDocument();
+      expect(screen.getByText(/~15 rides/)).toBeInTheDocument();
     });
   });
 
@@ -173,7 +173,7 @@ describe('ComponentHealthPanel', () => {
       const buttons = screen.getAllByRole('button');
       // Should be sorted by hours remaining: 10, 30, 50
       expect(buttons[0]).toHaveTextContent('Rear Shock'); // 10 hours
-      expect(buttons[1]).toHaveTextContent('Brakes'); // 30 hours
+      expect(buttons[1]).toHaveTextContent('Brake'); // 30 hours
       expect(buttons[2]).toHaveTextContent('Fork'); // 50 hours
     });
   });
@@ -478,6 +478,231 @@ describe('ComponentHealthPanel', () => {
       );
 
       expect(container.querySelector('.component-health-panel.custom-class')).toBeInTheDocument();
+    });
+  });
+
+  describe('snooze functionality', () => {
+    it('shows Looks Good and Log Service buttons initially', async () => {
+      const user = userEvent.setup();
+      const onLogService = vi.fn();
+      const components = [createComponent({})];
+
+      render(<ComponentHealthPanel components={components} onLogService={onLogService} />);
+      await user.click(screen.getByRole('button'));
+
+      expect(screen.getByText('Looks Good')).toBeInTheDocument();
+      expect(screen.getByText('Log Service')).toBeInTheDocument();
+    });
+
+    it('does not show snooze options before clicking Looks Good', async () => {
+      const user = userEvent.setup();
+      const components = [createComponent({ serviceIntervalHours: 100 })];
+
+      render(<ComponentHealthPanel components={components} />);
+      await user.click(screen.getByRole('button'));
+
+      expect(screen.queryByText('Snooze 100h')).not.toBeInTheDocument();
+      expect(screen.queryByText('custom duration')).not.toBeInTheDocument();
+    });
+
+    it('shows snooze options after clicking Looks Good', async () => {
+      const user = userEvent.setup();
+      const components = [createComponent({ serviceIntervalHours: 100 })];
+
+      render(<ComponentHealthPanel components={components} />);
+      await user.click(screen.getByRole('button'));
+      await user.click(screen.getByText('Looks Good'));
+
+      expect(screen.getByText('Snooze 100h')).toBeInTheDocument();
+      expect(screen.getByText('custom duration')).toBeInTheDocument();
+    });
+
+    it('keeps Looks Good button in active state after clicking', async () => {
+      const user = userEvent.setup();
+      const components = [createComponent({})];
+
+      render(<ComponentHealthPanel components={components} />);
+      await user.click(screen.getByRole('button'));
+      await user.click(screen.getByText('Looks Good'));
+
+      const looksGoodButton = screen.getByText('Looks Good').closest('button');
+      expect(looksGoodButton).toHaveClass('active');
+    });
+
+    it('still shows Log Service button after clicking Looks Good', async () => {
+      const user = userEvent.setup();
+      const onLogService = vi.fn();
+      const components = [createComponent({})];
+
+      render(<ComponentHealthPanel components={components} onLogService={onLogService} />);
+      await user.click(screen.getByRole('button'));
+      await user.click(screen.getByText('Looks Good'));
+
+      expect(screen.getByText('Log Service')).toBeInTheDocument();
+    });
+
+    it('calls snoozeComponent with recommended hours when clicking snooze button', async () => {
+      const user = userEvent.setup();
+      const components = [createComponent({ serviceIntervalHours: 150 })];
+
+      render(<ComponentHealthPanel components={components} />);
+      await user.click(screen.getByRole('button'));
+      await user.click(screen.getByText('Looks Good'));
+      await user.click(screen.getByText('Snooze 150h'));
+
+      expect(mockSnoozeComponent).toHaveBeenCalledWith({
+        variables: {
+          id: expect.any(String),
+          hours: 150,
+        },
+      });
+    });
+
+    it('shows custom input when clicking custom duration link', async () => {
+      const user = userEvent.setup();
+      const components = [createComponent({})];
+
+      render(<ComponentHealthPanel components={components} />);
+      await user.click(screen.getByRole('button'));
+      await user.click(screen.getByText('Looks Good'));
+      await user.click(screen.getByText('custom duration'));
+
+      expect(screen.getByPlaceholderText('Hours')).toBeInTheDocument();
+      expect(screen.getByText('Apply')).toBeInTheDocument();
+    });
+
+    it('calls snoozeComponent with custom hours when applying', async () => {
+      const user = userEvent.setup();
+      const components = [createComponent({})];
+
+      render(<ComponentHealthPanel components={components} />);
+      await user.click(screen.getByRole('button'));
+      await user.click(screen.getByText('Looks Good'));
+      await user.click(screen.getByText('custom duration'));
+
+      const input = screen.getByPlaceholderText('Hours');
+      await user.type(input, '75');
+      await user.click(screen.getByText('Apply'));
+
+      expect(mockSnoozeComponent).toHaveBeenCalledWith({
+        variables: {
+          id: expect.any(String),
+          hours: 75,
+        },
+      });
+    });
+
+    it('disables Apply button when custom hours is empty', async () => {
+      const user = userEvent.setup();
+      const components = [createComponent({})];
+
+      render(<ComponentHealthPanel components={components} />);
+      await user.click(screen.getByRole('button'));
+      await user.click(screen.getByText('Looks Good'));
+      await user.click(screen.getByText('custom duration'));
+
+      const applyButton = screen.getByText('Apply');
+      expect(applyButton).toBeDisabled();
+    });
+
+    it('disables Apply button when custom hours exceeds 400', async () => {
+      const user = userEvent.setup();
+      const components = [createComponent({})];
+
+      render(<ComponentHealthPanel components={components} />);
+      await user.click(screen.getByRole('button'));
+      await user.click(screen.getByText('Looks Good'));
+      await user.click(screen.getByText('custom duration'));
+
+      const input = screen.getByPlaceholderText('Hours');
+      await user.type(input, '500');
+
+      const applyButton = screen.getByText('Apply');
+      expect(applyButton).toBeDisabled();
+    });
+
+    it('disables Apply button when custom hours is less than 1', async () => {
+      const user = userEvent.setup();
+      const components = [createComponent({})];
+
+      render(<ComponentHealthPanel components={components} />);
+      await user.click(screen.getByRole('button'));
+      await user.click(screen.getByText('Looks Good'));
+      await user.click(screen.getByText('custom duration'));
+
+      const input = screen.getByPlaceholderText('Hours');
+      await user.type(input, '0');
+
+      const applyButton = screen.getByText('Apply');
+      expect(applyButton).toBeDisabled();
+    });
+
+    it('shows Snoozed! on success', async () => {
+      const user = userEvent.setup();
+      const components = [createComponent({ serviceIntervalHours: 100 })];
+
+      render(<ComponentHealthPanel components={components} />);
+      await user.click(screen.getByRole('button'));
+      await user.click(screen.getByText('Looks Good'));
+      await user.click(screen.getByText('Snooze 100h'));
+
+      await waitFor(() => {
+        expect(screen.getByText('Snoozed!')).toBeInTheDocument();
+      });
+    });
+
+    it('hides snooze options after successful snooze', async () => {
+      const user = userEvent.setup();
+      const components = [createComponent({ serviceIntervalHours: 100 })];
+
+      render(<ComponentHealthPanel components={components} />);
+      await user.click(screen.getByRole('button'));
+      await user.click(screen.getByText('Looks Good'));
+      await user.click(screen.getByText('Snooze 100h'));
+
+      await waitFor(() => {
+        expect(screen.queryByText('Snooze 100h')).not.toBeInTheDocument();
+        expect(screen.queryByText('custom duration')).not.toBeInTheDocument();
+      });
+    });
+
+    it('uses default 50h when serviceIntervalHours is null', async () => {
+      const user = userEvent.setup();
+      const components = [createComponent({ serviceIntervalHours: null as unknown as number })];
+
+      render(<ComponentHealthPanel components={components} />);
+      await user.click(screen.getByRole('button'));
+      await user.click(screen.getByText('Looks Good'));
+
+      expect(screen.getByText('Snooze 50h')).toBeInTheDocument();
+    });
+
+    it('calls onLogService and closes modal when clicking Log Service', async () => {
+      const user = userEvent.setup();
+      const onLogService = vi.fn();
+      const components = [createComponent({ componentId: 'test-component-id' })];
+
+      render(<ComponentHealthPanel components={components} onLogService={onLogService} />);
+      await user.click(screen.getByRole('button'));
+      await user.click(screen.getByText('Log Service'));
+
+      expect(onLogService).toHaveBeenCalledWith('test-component-id');
+      await waitFor(() => {
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      });
+    });
+
+    it('can still click Log Service after clicking Looks Good', async () => {
+      const user = userEvent.setup();
+      const onLogService = vi.fn();
+      const components = [createComponent({ componentId: 'test-component-id' })];
+
+      render(<ComponentHealthPanel components={components} onLogService={onLogService} />);
+      await user.click(screen.getByRole('button'));
+      await user.click(screen.getByText('Looks Good'));
+      await user.click(screen.getByText('Log Service'));
+
+      expect(onLogService).toHaveBeenCalledWith('test-component-id');
     });
   });
 });

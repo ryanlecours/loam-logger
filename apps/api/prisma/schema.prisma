@@ -246,7 +246,7 @@ enum ComponentType {
   BRAKES
   DRIVETRAIN
   TIRES
-  WHEELS
+  WHEEL_HUBS @map("WHEELS")
   DROPPER
   PEDALS
   CHAIN

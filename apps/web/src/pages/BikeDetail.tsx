@@ -44,6 +44,7 @@ type ComponentDto = {
   baselineMethod?: string | null;
   baselineConfidence?: string | null;
   lastServicedAt?: string | null;
+  location?: string | null;
 };
 
 type BikeDto = {

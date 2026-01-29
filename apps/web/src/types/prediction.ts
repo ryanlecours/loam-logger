@@ -13,13 +13,14 @@ export type ComponentType =
   | 'CHAIN'
   | 'CASSETTE'
   | 'CHAINRING'
-  | 'WHEELS'
+  | 'WHEEL_HUBS'
   | 'DROPPER'
   | 'PIVOT_BEARINGS'
   | 'BRAKE_PAD'
   | 'BRAKE_ROTOR'
   | 'HEADSET'
-  | 'BOTTOM_BRACKET';
+  | 'BOTTOM_BRACKET'
+  | 'REAR_DERAILLEUR';
 
 export type ComponentLocation = 'FRONT' | 'REAR' | 'NONE';
 

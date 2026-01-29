@@ -73,7 +73,7 @@ function formatBaselineMethod(method: string | null | undefined): string {
   return labels[method] || method;
 }
 
-function truncateLabel(label: string, maxLength: number = 40): string {
+function truncateLabel(label: string, maxLength: number = 28): string {
   if (label.length <= maxLength) return label;
   return label.slice(0, maxLength).trim() + '...';
 }
@@ -127,28 +127,28 @@ export function ComponentDetailRow({
           </span>
         </div>
 
-        <div className="component-detail-metrics">
-          {hoursDisplay === 'total' ? (
-            prediction?.hoursSinceService != null && prediction?.serviceIntervalHours != null && (
-              <>
-                <span className="component-detail-hours">
-                  {formatHours(prediction.hoursSinceService)} / {prediction.serviceIntervalHours}h
-                </span>
-              </>
-            )
-          ) : (
-            hoursRemaining != null && (
-              <>
-                <span className="component-detail-hours">
-                  {formatHours(hoursRemaining)}
-                </span>
-                <span className="component-detail-hours-label">left</span>
-              </>
-            )
-          )}
-        </div>
-
         <div className="component-detail-actions">
+          <div className="component-detail-metrics">
+            {hoursDisplay === 'total' ? (
+              prediction?.hoursSinceService != null && prediction?.serviceIntervalHours != null && (
+                <>
+                  <span className="component-detail-hours">
+                    {formatHours(prediction.hoursSinceService)} / {prediction.serviceIntervalHours}h
+                  </span>
+                </>
+              )
+            ) : (
+              hoursRemaining != null && (
+                <>
+                  <span className="component-detail-hours">
+                    {formatHours(hoursRemaining)}
+                  </span>
+                  <span className="component-detail-hours-label">left</span>
+                </>
+              )
+            )}
+          </div>
+
           <button
             type="button"
             className="component-detail-edit-btn"
@@ -161,9 +161,14 @@ export function ComponentDetailRow({
             <FaPencilAlt size={10} />
             Edit
           </button>
-        </div>
 
-        <FaChevronDown size={14} className="component-detail-chevron" />
+          <span className="component-detail-toggle">
+            <span className="component-detail-toggle-label">
+              {isExpanded ? 'Less' : 'More'}
+            </span>
+            <FaChevronDown size={12} className="component-detail-chevron" />
+          </span>
+        </div>
       </div>
 
       <AnimatePresence>
