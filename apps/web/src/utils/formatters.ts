@@ -97,7 +97,7 @@ interface ComponentLabelable {
 }
 
 /**
- * Format a component label with optional location (e.g., "Fork", "Brakes (Front)")
+ * Format a component label with optional location (e.g., "Fork", "Front Brakes")
  */
 export function formatComponentLabel(component: ComponentLabelable): string {
   const baseLabel = COMPONENT_LABELS[component.componentType] ?? component.componentType;
@@ -105,7 +105,7 @@ export function formatComponentLabel(component: ComponentLabelable): string {
   const locationLabel = LOCATION_LABELS[location] ?? '';
 
   if (locationLabel && location !== 'NONE') {
-    return `${baseLabel} (${locationLabel})`;
+    return `${locationLabel} ${baseLabel}`;
   }
   return baseLabel;
 }

@@ -11,7 +11,7 @@ describe('COMPONENT_LABELS', () => {
   });
 
   it('has label for BRAKES', () => {
-    expect(COMPONENT_LABELS.BRAKES).toBe('Brakes');
+    expect(COMPONENT_LABELS.BRAKES).toBe('Brake');
   });
 
   it('has label for DRIVETRAIN', () => {
@@ -19,7 +19,7 @@ describe('COMPONENT_LABELS', () => {
   });
 
   it('has label for TIRES', () => {
-    expect(COMPONENT_LABELS.TIRES).toBe('Tires');
+    expect(COMPONENT_LABELS.TIRES).toBe('Tire');
   });
 
   it('has label for CHAIN', () => {
@@ -51,7 +51,7 @@ describe('COMPONENT_LABELS', () => {
   });
 
   it('has label for BRAKE_ROTOR', () => {
-    expect(COMPONENT_LABELS.BRAKE_ROTOR).toBe('Brake Rotors');
+    expect(COMPONENT_LABELS.BRAKE_ROTOR).toBe('Brake Rotor');
   });
 
   it('has label for HEADSET', () => {

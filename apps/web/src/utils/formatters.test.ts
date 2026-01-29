@@ -182,19 +182,19 @@ describe('formatComponentLabel', () => {
 
   it('formats components with FRONT location', () => {
     expect(formatComponentLabel(createComponent('BRAKES', 'FRONT'))).toBe(
-      'Brakes (Front)'
+      'Front Brake'
     );
     expect(formatComponentLabel(createComponent('BRAKE_PAD', 'FRONT'))).toBe(
-      'Brake Pads (Front)'
+      'Front Brake Pads'
     );
   });
 
   it('formats components with REAR location', () => {
     expect(formatComponentLabel(createComponent('BRAKES', 'REAR'))).toBe(
-      'Brakes (Rear)'
+      'Rear Brake'
     );
     expect(formatComponentLabel(createComponent('TIRES', 'REAR'))).toBe(
-      'Tires (Rear)'
+      'Rear Tire'
     );
   });
 
@@ -206,7 +206,7 @@ describe('formatComponentLabel', () => {
 
   it('handles unknown types with locations', () => {
     expect(formatComponentLabel(createComponent('CUSTOM', 'FRONT'))).toBe(
-      'CUSTOM (Front)'
+      'Front CUSTOM'
     );
   });
 });
