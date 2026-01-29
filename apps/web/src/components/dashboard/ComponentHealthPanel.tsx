@@ -6,7 +6,7 @@ import { STATUS_SEVERITY } from '../../types/prediction';
 import { formatComponentLabel } from '../../utils/formatters';
 import { useHoursDisplay } from '../../hooks/useHoursDisplay';
 import { StatusDot } from './StatusDot';
-import { LOG_COMPONENT_SERVICE } from '../../graphql/logComponentService';
+import { SNOOZE_COMPONENT } from '../../graphql/calibration';
 import { BIKES } from '../../graphql/bikes';
 
 interface ComponentHealthPanelProps {
@@ -103,10 +103,13 @@ interface ComponentDetailOverlayProps {
 function ComponentDetailOverlay({ component, onClose, onServiceLogged, onLogService }: ComponentDetailOverlayProps) {
   const makeModel = getMakeModel(component);
   const onCloseRef = useRef(onClose);
-  const [isLogging, setIsLogging] = useState(false);
-  const [logSuccess, setLogSuccess] = useState(false);
+  const [isSnoozing, setIsSnoozing] = useState(false);
+  const [snoozeSuccess, setSnoozeSuccess] = useState(false);
+  const [showSnoozeOptions, setShowSnoozeOptions] = useState(false);
+  const [showCustomInput, setShowCustomInput] = useState(false);
+  const [customHours, setCustomHours] = useState('');
 
-  const [logService] = useMutation(LOG_COMPONENT_SERVICE, {
+  const [snoozeComponent] = useMutation(SNOOZE_COMPONENT, {
     refetchQueries: [{ query: BIKES }],
   });
 
@@ -124,27 +127,34 @@ function ComponentDetailOverlay({ component, onClose, onServiceLogged, onLogServ
     return () => window.removeEventListener('keydown', handleEscape);
   }, []);
 
-  const handleInspectGood = async () => {
-    setIsLogging(true);
+  const handleSnooze = async (hours?: number) => {
+    setIsSnoozing(true);
     try {
-      await logService({
+      await snoozeComponent({
         variables: {
           id: component.componentId,
-          performedAt: new Date().toISOString(),
+          hours,
         },
       });
-      setLogSuccess(true);
+      setSnoozeSuccess(true);
       onServiceLogged?.();
       // Auto-close after a short delay to show success
       setTimeout(() => {
         onClose();
       }, 1000);
     } catch (err) {
-      console.error('Failed to log inspection:', err);
-      alert('Failed to log inspection. Please try again.');
+      console.error('Failed to snooze component:', err);
+      alert('Failed to snooze component. Please try again.');
     } finally {
-      setIsLogging(false);
+      setIsSnoozing(false);
     }
+  };
+
+  // Recommended snooze hours = service interval
+  const recommendedHours = component.serviceIntervalHours ?? 50;
+
+  const handleLooksGoodClick = () => {
+    setShowSnoozeOptions(true);
   };
 
   return (
@@ -164,17 +174,18 @@ function ComponentDetailOverlay({ component, onClose, onServiceLogged, onLogServ
           <button className="wear-causes-close" onClick={onClose}>×</button>
         </div>
 
-        {/* Quick Actions */}
+        {/* Quick Actions - Tab-like buttons */}
         <div className="component-detail-actions">
           <button
-            className={`component-action-btn component-action-good ${logSuccess ? 'success' : ''}`}
-            onClick={handleInspectGood}
-            disabled={isLogging || logSuccess}
+            className={`component-action-btn component-action-good ${showSnoozeOptions ? 'active' : ''} ${snoozeSuccess ? 'success' : ''}`}
+            onClick={handleLooksGoodClick}
+            disabled={isSnoozing || snoozeSuccess}
             type="button"
           >
             <FaCheck size={14} />
-            <span>{logSuccess ? 'Logged!' : isLogging ? 'Logging...' : 'Looks Good'}</span>
+            <span>{snoozeSuccess ? 'Snoozed!' : 'Looks Good'}</span>
           </button>
+
           {onLogService && (
             <button
               className="component-action-btn component-action-service"
@@ -182,7 +193,7 @@ function ComponentDetailOverlay({ component, onClose, onServiceLogged, onLogServ
                 onClose();
                 onLogService(component.componentId);
               }}
-              disabled={isLogging}
+              disabled={isSnoozing || snoozeSuccess}
               type="button"
             >
               <FaWrench size={14} />
@@ -190,6 +201,60 @@ function ComponentDetailOverlay({ component, onClose, onServiceLogged, onLogServ
             </button>
           )}
         </div>
+
+        {/* Snooze options - only shown after clicking Looks Good */}
+        {showSnoozeOptions && !snoozeSuccess && (
+          <div className="component-snooze-section">
+            <div className="component-snooze-options">
+              <button
+                type="button"
+                className="component-snooze-option"
+                onClick={() => handleSnooze(recommendedHours)}
+                disabled={isSnoozing}
+              >
+                {isSnoozing ? 'Snoozing...' : `Snooze ${recommendedHours}h`}
+              </button>
+              <span className="component-snooze-divider">or</span>
+              {!showCustomInput ? (
+                <button
+                  type="button"
+                  className="component-snooze-link"
+                  onClick={() => setShowCustomInput(true)}
+                  disabled={isSnoozing}
+                >
+                  custom duration
+                </button>
+              ) : (
+                <div className="component-snooze-custom">
+                  <input
+                    type="number"
+                    min="1"
+                    max="400"
+                    placeholder="Hours"
+                    value={customHours}
+                    onChange={(e) => setCustomHours(e.target.value)}
+                    className="component-snooze-input"
+                    autoFocus
+                  />
+                  <span className="component-snooze-unit">h</span>
+                  <button
+                    className="component-snooze-apply"
+                    onClick={() => handleSnooze(Number(customHours))}
+                    disabled={
+                      isSnoozing ||
+                      !customHours ||
+                      Number(customHours) < 1 ||
+                      Number(customHours) > 400
+                    }
+                    type="button"
+                  >
+                    Apply
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Component Stats */}
         <div className="component-detail-stats">
@@ -305,7 +370,7 @@ export function ComponentHealthPanel({ components, className = '', onLogService 
                       {formatHours(component.hoursSinceService)} / {component.serviceIntervalHours}h
                     </span>
                     <span className="component-health-hours-secondary">
-                      {formatHours(component.hoursRemaining)} remaining
+                      {formatHours(component.hoursRemaining)} remaining · ~{component.ridesRemainingEstimate} rides
                     </span>
                   </>
                 ) : (
@@ -314,13 +379,10 @@ export function ComponentHealthPanel({ components, className = '', onLogService 
                       {formatHours(component.hoursRemaining)} remaining
                     </span>
                     <span className="component-health-hours-secondary">
-                      {formatHours(component.hoursSinceService)} since service
+                      {formatHours(component.hoursSinceService)} since service · ~{component.ridesRemainingEstimate} rides
                     </span>
                   </>
                 )}
-                <span className="component-health-rides">
-                  ~{component.ridesRemainingEstimate} rides
-                </span>
               </div>
               <FaChevronRight className="component-health-chevron" size={12} />
             </button>

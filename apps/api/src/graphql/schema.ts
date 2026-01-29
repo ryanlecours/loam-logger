@@ -553,7 +553,7 @@ export const typeDefs = gql`
     deleteComponent(id: ID!): DeleteResult!
     logComponentService(id: ID!, performedAt: String): Component!
     logService(input: LogServiceInput!): ServiceLog!
-    snoozeComponent(id: ID!): Component!
+    snoozeComponent(id: ID!, hours: Float): Component!
     createStravaGearMapping(input: CreateStravaGearMappingInput!): StravaGearMapping!
     deleteStravaGearMapping(id: ID!): DeleteResult!
     triggerProviderSync(provider: SyncProvider!): TriggerSyncResult!

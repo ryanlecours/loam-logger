@@ -1863,7 +1863,11 @@ export const resolvers = {
       return serviceLog;
     },
 
-    snoozeComponent: async (_: unknown, { id }: { id: string }, ctx: GraphQLContext) => {
+    snoozeComponent: async (
+      _: unknown,
+      { id, hours }: { id: string; hours?: number },
+      ctx: GraphQLContext
+    ) => {
       const userId = requireUserId(ctx);
 
       // Rate limit check
@@ -1883,10 +1887,17 @@ export const resolvers = {
         throw new Error('Component not found');
       }
 
-      // Calculate the new extended interval (50% extension)
+      // Get current interval
       const currentInterval =
         existing.serviceDueAtHours ?? getBaseInterval(existing.type, existing.location);
-      const extendedInterval = currentInterval * 1.5;
+
+      // Calculate snooze amount:
+      // - If hours provided: use that value (clamped between 1 and 400)
+      // - If no hours: use current interval (recommended snooze)
+      const snoozeHours =
+        hours != null ? Math.min(400, Math.max(1, hours)) : currentInterval;
+
+      const extendedInterval = currentInterval + snoozeHours;
 
       // Invalidate prediction cache BEFORE update
       if (existing.bikeId) {

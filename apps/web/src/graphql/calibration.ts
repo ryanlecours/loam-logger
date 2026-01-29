@@ -65,8 +65,8 @@ export const RESET_CALIBRATION = gql`
 `;
 
 export const SNOOZE_COMPONENT = gql`
-  mutation SnoozeComponent($id: ID!) {
-    snoozeComponent(id: $id) {
+  mutation SnoozeComponent($id: ID!, $hours: Float) {
+    snoozeComponent(id: $id, hours: $hours) {
       id
       serviceDueAtHours
     }
@@ -123,7 +123,7 @@ export function useResetCalibration() {
 export function useSnoozeComponent() {
   return useMutation<
     { snoozeComponent: { id: string; serviceDueAtHours: number } },
-    { id: string }
+    { id: string; hours?: number }
   >(SNOOZE_COMPONENT, {
     refetchQueries: [{ query: CALIBRATION_STATE }, { query: BIKES }],
   });
