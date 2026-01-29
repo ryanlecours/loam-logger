@@ -12,7 +12,7 @@ import type { CodegenConfig } from "@graphql-codegen/cli";
  * (production APIs have introspection disabled for security).
  */
 const config: CodegenConfig = {
-  schema: process.env.GRAPHQL_SCHEMA_URL || "http://localhost:4000/graphql",
+  schema: process.env.GRAPHQL_SCHEMA_URL || "../../apps/api/src/graphql/schema.ts",
   documents: ["src/**/*.graphql"],
   generates: {
     "src/generated/index.ts": {

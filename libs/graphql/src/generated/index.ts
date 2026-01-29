@@ -17,15 +17,56 @@ export type Scalars = {
   Float: { input: number; output: number; }
 };
 
+export type AcceptTermsInput = {
+  termsVersion: Scalars['String']['input'];
+};
+
+export type AcceptTermsResult = {
+  __typename?: 'AcceptTermsResult';
+  acceptedAt: Scalars['String']['output'];
+  success: Scalars['Boolean']['output'];
+};
+
+export type AcknowledgeResult = {
+  __typename?: 'AcknowledgeResult';
+  success: Scalars['Boolean']['output'];
+};
+
+export enum AcquisitionCondition {
+  Mixed = 'MIXED',
+  New = 'NEW',
+  Used = 'USED'
+}
+
 export type AddBikeInput = {
-  dropper?: InputMaybe<BikeComponentInput>;
+  acquisitionCondition?: InputMaybe<AcquisitionCondition>;
+  batteryWh?: InputMaybe<Scalars['Int']['input']>;
+  buildKind?: InputMaybe<Scalars['String']['input']>;
+  category?: InputMaybe<Scalars['String']['input']>;
+  family?: InputMaybe<Scalars['String']['input']>;
   fork?: InputMaybe<BikeComponentInput>;
+  frameMaterial?: InputMaybe<Scalars['String']['input']>;
+  gender?: InputMaybe<Scalars['String']['input']>;
+  hangerStandard?: InputMaybe<Scalars['String']['input']>;
+  isEbike?: InputMaybe<Scalars['Boolean']['input']>;
+  isFrameset?: InputMaybe<Scalars['Boolean']['input']>;
   manufacturer: Scalars['String']['input'];
   model: Scalars['String']['input'];
+  motorMaker?: InputMaybe<Scalars['String']['input']>;
+  motorModel?: InputMaybe<Scalars['String']['input']>;
+  motorPowerW?: InputMaybe<Scalars['Int']['input']>;
+  motorTorqueNm?: InputMaybe<Scalars['Int']['input']>;
   nickname?: InputMaybe<Scalars['String']['input']>;
   notes?: InputMaybe<Scalars['String']['input']>;
+  pairedComponentConfigs?: InputMaybe<Array<PairedComponentConfigInput>>;
   pivotBearings?: InputMaybe<BikeComponentInput>;
+  seatpost?: InputMaybe<BikeComponentInput>;
   shock?: InputMaybe<BikeComponentInput>;
+  spokesComponents?: InputMaybe<SpokesComponentsInput>;
+  spokesId?: InputMaybe<Scalars['String']['input']>;
+  spokesUrl?: InputMaybe<Scalars['String']['input']>;
+  subcategory?: InputMaybe<Scalars['String']['input']>;
+  thumbnailUrl?: InputMaybe<Scalars['String']['input']>;
   travelForkMm?: InputMaybe<Scalars['Int']['input']>;
   travelShockMm?: InputMaybe<Scalars['Int']['input']>;
   wheels?: InputMaybe<BikeComponentInput>;
@@ -36,6 +77,7 @@ export type AddComponentInput = {
   brand?: InputMaybe<Scalars['String']['input']>;
   hoursUsed?: InputMaybe<Scalars['Float']['input']>;
   isStock?: InputMaybe<Scalars['Boolean']['input']>;
+  location?: InputMaybe<ComponentLocation>;
   model?: InputMaybe<Scalars['String']['input']>;
   notes?: InputMaybe<Scalars['String']['input']>;
   serviceDueAtHours?: InputMaybe<Scalars['Float']['input']>;
@@ -55,24 +97,64 @@ export type AddRideInput = {
   trailSystem?: InputMaybe<Scalars['String']['input']>;
 };
 
+export enum BaselineConfidence {
+  High = 'HIGH',
+  Low = 'LOW',
+  Medium = 'MEDIUM'
+}
+
+export enum BaselineMethod {
+  Dates = 'DATES',
+  Default = 'DEFAULT',
+  Slider = 'SLIDER'
+}
+
 export type Bike = {
   __typename?: 'Bike';
+  acquisitionCondition?: Maybe<AcquisitionCondition>;
+  batteryWh?: Maybe<Scalars['Int']['output']>;
+  buildKind?: Maybe<Scalars['String']['output']>;
+  category?: Maybe<Scalars['String']['output']>;
   components: Array<Component>;
   createdAt: Scalars['String']['output'];
-  dropper?: Maybe<Component>;
+  family?: Maybe<Scalars['String']['output']>;
   fork?: Maybe<Component>;
+  frameMaterial?: Maybe<Scalars['String']['output']>;
+  gender?: Maybe<Scalars['String']['output']>;
+  hangerStandard?: Maybe<Scalars['String']['output']>;
   id: Scalars['ID']['output'];
+  isEbike?: Maybe<Scalars['Boolean']['output']>;
+  isFrameset?: Maybe<Scalars['Boolean']['output']>;
   manufacturer: Scalars['String']['output'];
   model: Scalars['String']['output'];
+  motorMaker?: Maybe<Scalars['String']['output']>;
+  motorModel?: Maybe<Scalars['String']['output']>;
+  motorPowerW?: Maybe<Scalars['Int']['output']>;
+  motorTorqueNm?: Maybe<Scalars['Int']['output']>;
   nickname?: Maybe<Scalars['String']['output']>;
   notes?: Maybe<Scalars['String']['output']>;
   pivotBearings?: Maybe<Component>;
+  predictions?: Maybe<BikePredictionSummary>;
+  seatpost?: Maybe<Component>;
   shock?: Maybe<Component>;
+  sortOrder: Scalars['Int']['output'];
+  spokesId?: Maybe<Scalars['String']['output']>;
+  spokesUrl?: Maybe<Scalars['String']['output']>;
+  subcategory?: Maybe<Scalars['String']['output']>;
+  thumbnailUrl?: Maybe<Scalars['String']['output']>;
   travelForkMm?: Maybe<Scalars['Int']['output']>;
   travelShockMm?: Maybe<Scalars['Int']['output']>;
   updatedAt: Scalars['String']['output'];
   wheels?: Maybe<Component>;
   year?: Maybe<Scalars['Int']['output']>;
+};
+
+export type BikeCalibrationInfo = {
+  __typename?: 'BikeCalibrationInfo';
+  bikeId: Scalars['ID']['output'];
+  bikeName: Scalars['String']['output'];
+  components: Array<ComponentPrediction>;
+  thumbnailUrl?: Maybe<Scalars['String']['output']>;
 };
 
 export type BikeComponentInput = {
@@ -82,8 +164,54 @@ export type BikeComponentInput = {
   notes?: InputMaybe<Scalars['String']['input']>;
 };
 
+export type BikePredictionSummary = {
+  __typename?: 'BikePredictionSummary';
+  algoVersion: Scalars['String']['output'];
+  bikeId: Scalars['ID']['output'];
+  bikeName: Scalars['String']['output'];
+  components: Array<ComponentPrediction>;
+  dueNowCount: Scalars['Int']['output'];
+  dueSoonCount: Scalars['Int']['output'];
+  generatedAt: Scalars['String']['output'];
+  overallStatus: PredictionStatus;
+  priorityComponent?: Maybe<ComponentPrediction>;
+};
+
+export type BulkAssignResult = {
+  __typename?: 'BulkAssignResult';
+  success: Scalars['Boolean']['output'];
+  updatedCount: Scalars['Int']['output'];
+};
+
+export type BulkServiceLogInput = {
+  componentIds: Array<Scalars['ID']['input']>;
+  performedAt: Scalars['String']['input'];
+};
+
+export type BulkServiceResult = {
+  __typename?: 'BulkServiceResult';
+  success: Scalars['Boolean']['output'];
+  updatedCount: Scalars['Int']['output'];
+};
+
+export type BulkUpdateBaselinesInput = {
+  updates: Array<ComponentBaselineInput>;
+};
+
+export type CalibrationState = {
+  __typename?: 'CalibrationState';
+  bikes: Array<BikeCalibrationInfo>;
+  overdueCount: Scalars['Int']['output'];
+  showOverlay: Scalars['Boolean']['output'];
+  totalComponentCount: Scalars['Int']['output'];
+};
+
 export type Component = {
   __typename?: 'Component';
+  baselineConfidence: BaselineConfidence;
+  baselineMethod: BaselineMethod;
+  baselineSetAt?: Maybe<Scalars['String']['output']>;
+  baselineWearPercent?: Maybe<Scalars['Int']['output']>;
   bikeId?: Maybe<Scalars['ID']['output']>;
   brand: Scalars['String']['output'];
   createdAt: Scalars['String']['output'];
@@ -92,11 +220,25 @@ export type Component = {
   installedAt?: Maybe<Scalars['String']['output']>;
   isSpare: Scalars['Boolean']['output'];
   isStock: Scalars['Boolean']['output'];
+  lastServicedAt?: Maybe<Scalars['String']['output']>;
+  location: ComponentLocation;
   model: Scalars['String']['output'];
   notes?: Maybe<Scalars['String']['output']>;
+  pairGroupId?: Maybe<Scalars['String']['output']>;
+  pairedComponent?: Maybe<Component>;
+  replacedById?: Maybe<Scalars['ID']['output']>;
+  retiredAt?: Maybe<Scalars['String']['output']>;
   serviceDueAtHours?: Maybe<Scalars['Float']['output']>;
+  serviceLogs: Array<ServiceLog>;
   type: ComponentType;
   updatedAt: Scalars['String']['output'];
+};
+
+export type ComponentBaselineInput = {
+  componentId: Scalars['ID']['input'];
+  lastServicedAt?: InputMaybe<Scalars['String']['input']>;
+  method: BaselineMethod;
+  wearPercent: Scalars['Int']['input'];
 };
 
 export type ComponentFilterInput = {
@@ -105,19 +247,60 @@ export type ComponentFilterInput = {
   types?: InputMaybe<Array<ComponentType>>;
 };
 
+export enum ComponentLocation {
+  Front = 'FRONT',
+  None = 'NONE',
+  Rear = 'REAR'
+}
+
+export type ComponentPrediction = {
+  __typename?: 'ComponentPrediction';
+  brand: Scalars['String']['output'];
+  componentId: Scalars['ID']['output'];
+  componentType: ComponentType;
+  confidence: ConfidenceLevel;
+  currentHours: Scalars['Float']['output'];
+  drivers?: Maybe<Array<WearDriver>>;
+  hoursRemaining: Scalars['Float']['output'];
+  hoursSinceService: Scalars['Float']['output'];
+  location: ComponentLocation;
+  model: Scalars['String']['output'];
+  ridesRemainingEstimate: Scalars['Int']['output'];
+  serviceIntervalHours: Scalars['Float']['output'];
+  status: PredictionStatus;
+  why?: Maybe<Scalars['String']['output']>;
+};
+
 export enum ComponentType {
+  BottomBracket = 'BOTTOM_BRACKET',
   Brakes = 'BRAKES',
+  BrakePad = 'BRAKE_PAD',
+  BrakeRotor = 'BRAKE_ROTOR',
   Cassette = 'CASSETTE',
   Chain = 'CHAIN',
+  Crank = 'CRANK',
   Drivetrain = 'DRIVETRAIN',
   Dropper = 'DROPPER',
   Fork = 'FORK',
+  Handlebar = 'HANDLEBAR',
+  Headset = 'HEADSET',
   Other = 'OTHER',
   Pedals = 'PEDALS',
   PivotBearings = 'PIVOT_BEARINGS',
+  RearDerailleur = 'REAR_DERAILLEUR',
+  Rims = 'RIMS',
+  Saddle = 'SADDLE',
+  Seatpost = 'SEATPOST',
   Shock = 'SHOCK',
+  Stem = 'STEM',
   Tires = 'TIRES',
-  Wheels = 'WHEELS'
+  WheelHubs = 'WHEEL_HUBS'
+}
+
+export enum ConfidenceLevel {
+  High = 'HIGH',
+  Low = 'LOW',
+  Medium = 'MEDIUM'
 }
 
 export type ConnectedAccount = {
@@ -144,19 +327,66 @@ export type DeleteRideResult = {
   ok: Scalars['Boolean']['output'];
 };
 
+export type ImportNotificationState = {
+  __typename?: 'ImportNotificationState';
+  sessionId?: Maybe<Scalars['ID']['output']>;
+  showOverlay: Scalars['Boolean']['output'];
+  totalImportedCount: Scalars['Int']['output'];
+  unassignedRideCount: Scalars['Int']['output'];
+};
+
+export type LogServiceInput = {
+  componentId: Scalars['ID']['input'];
+  notes?: InputMaybe<Scalars['String']['input']>;
+  performedAt?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type MigratePairedComponentsResult = {
+  __typename?: 'MigratePairedComponentsResult';
+  components: Array<Component>;
+  migratedCount: Scalars['Int']['output'];
+};
+
 export type Mutation = {
   __typename?: 'Mutation';
+  acceptTerms: AcceptTermsResult;
+  acknowledgeImportOverlay: AcknowledgeResult;
   addBike: Bike;
   addComponent: Component;
   addRide: Ride;
+  assignBikeToRides: BulkAssignResult;
+  bulkUpdateComponentBaselines: Array<Component>;
+  completeCalibration: User;
   createStravaGearMapping: StravaGearMapping;
+  deleteBike: DeleteResult;
   deleteComponent: DeleteResult;
   deleteRide: DeleteRideResult;
   deleteStravaGearMapping: DeleteResult;
+  dismissCalibration: User;
+  logBulkComponentService: BulkServiceResult;
   logComponentService: Component;
+  logService: ServiceLog;
+  markPairedComponentMigrationSeen: User;
+  migratePairedComponents: MigratePairedComponentsResult;
+  replaceComponent: ReplaceComponentResult;
+  resetCalibration: User;
+  snoozeComponent: Component;
+  triggerProviderSync: TriggerSyncResult;
   updateBike: Bike;
+  updateBikesOrder: Array<Bike>;
   updateComponent: Component;
   updateRide: Ride;
+  updateUserPreferences: User;
+};
+
+
+export type MutationAcceptTermsArgs = {
+  input: AcceptTermsInput;
+};
+
+
+export type MutationAcknowledgeImportOverlayArgs = {
+  importSessionId: Scalars['ID']['input'];
 };
 
 
@@ -176,8 +406,24 @@ export type MutationAddRideArgs = {
 };
 
 
+export type MutationAssignBikeToRidesArgs = {
+  bikeId: Scalars['ID']['input'];
+  rideIds: Array<Scalars['ID']['input']>;
+};
+
+
+export type MutationBulkUpdateComponentBaselinesArgs = {
+  input: BulkUpdateBaselinesInput;
+};
+
+
 export type MutationCreateStravaGearMappingArgs = {
   input: CreateStravaGearMappingInput;
+};
+
+
+export type MutationDeleteBikeArgs = {
+  id: Scalars['ID']['input'];
 };
 
 
@@ -196,14 +442,46 @@ export type MutationDeleteStravaGearMappingArgs = {
 };
 
 
+export type MutationLogBulkComponentServiceArgs = {
+  input: BulkServiceLogInput;
+};
+
+
 export type MutationLogComponentServiceArgs = {
   id: Scalars['ID']['input'];
+  performedAt?: InputMaybe<Scalars['String']['input']>;
+};
+
+
+export type MutationLogServiceArgs = {
+  input: LogServiceInput;
+};
+
+
+export type MutationReplaceComponentArgs = {
+  input: ReplaceComponentInput;
+};
+
+
+export type MutationSnoozeComponentArgs = {
+  hours?: InputMaybe<Scalars['Float']['input']>;
+  id: Scalars['ID']['input'];
+};
+
+
+export type MutationTriggerProviderSyncArgs = {
+  provider: SyncProvider;
 };
 
 
 export type MutationUpdateBikeArgs = {
   id: Scalars['ID']['input'];
   input: UpdateBikeInput;
+};
+
+
+export type MutationUpdateBikesOrderArgs = {
+  bikeIds: Array<Scalars['ID']['input']>;
 };
 
 
@@ -218,14 +496,41 @@ export type MutationUpdateRideArgs = {
   input: UpdateRideInput;
 };
 
+
+export type MutationUpdateUserPreferencesArgs = {
+  input: UpdateUserPreferencesInput;
+};
+
+export type PairedComponentConfigInput = {
+  frontSpec?: InputMaybe<PairedComponentSpecInput>;
+  rearSpec?: InputMaybe<PairedComponentSpecInput>;
+  type: ComponentType;
+  useSameSpec: Scalars['Boolean']['input'];
+};
+
+export type PairedComponentSpecInput = {
+  brand: Scalars['String']['input'];
+  model: Scalars['String']['input'];
+};
+
+export enum PredictionStatus {
+  AllGood = 'ALL_GOOD',
+  DueNow = 'DUE_NOW',
+  DueSoon = 'DUE_SOON',
+  Overdue = 'OVERDUE'
+}
+
 export type Query = {
   __typename?: 'Query';
   bikes: Array<Bike>;
+  calibrationState?: Maybe<CalibrationState>;
   components: Array<Component>;
+  importNotificationState?: Maybe<ImportNotificationState>;
   me?: Maybe<User>;
   rideTypes: Array<RideType>;
   rides: Array<Ride>;
   stravaGearMappings: Array<StravaGearMapping>;
+  unassignedRides: UnassignedRidesPage;
   unmappedStravaGears: Array<StravaGearInfo>;
   user?: Maybe<User>;
 };
@@ -243,8 +548,30 @@ export type QueryRidesArgs = {
 };
 
 
+export type QueryUnassignedRidesArgs = {
+  after?: InputMaybe<Scalars['ID']['input']>;
+  importSessionId: Scalars['ID']['input'];
+  take?: InputMaybe<Scalars['Int']['input']>;
+};
+
+
 export type QueryUserArgs = {
   id: Scalars['ID']['input'];
+};
+
+export type ReplaceComponentInput = {
+  alsoReplacePair?: InputMaybe<Scalars['Boolean']['input']>;
+  componentId: Scalars['ID']['input'];
+  newBrand: Scalars['String']['input'];
+  newModel: Scalars['String']['input'];
+  pairBrand?: InputMaybe<Scalars['String']['input']>;
+  pairModel?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type ReplaceComponentResult = {
+  __typename?: 'ReplaceComponentResult';
+  newComponents: Array<Component>;
+  replacedComponents: Array<Component>;
 };
 
 export type Ride = {
@@ -263,10 +590,10 @@ export type Ride = {
   startTime: Scalars['String']['output'];
   stravaActivityId?: Maybe<Scalars['String']['output']>;
   stravaGearId?: Maybe<Scalars['String']['output']>;
-  whoopWorkoutId?: Maybe<Scalars['String']['output']>;
   trailSystem?: Maybe<Scalars['String']['output']>;
   updatedAt: Scalars['String']['output'];
   userId: Scalars['ID']['output'];
+  whoopWorkoutId?: Maybe<Scalars['String']['output']>;
 };
 
 export enum RideType {
@@ -281,6 +608,43 @@ export enum RideType {
 export type RidesFilterInput = {
   endDate?: InputMaybe<Scalars['String']['input']>;
   startDate?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type ServiceLog = {
+  __typename?: 'ServiceLog';
+  componentId: Scalars['ID']['output'];
+  createdAt: Scalars['String']['output'];
+  hoursAtService: Scalars['Float']['output'];
+  id: Scalars['ID']['output'];
+  notes?: Maybe<Scalars['String']['output']>;
+  performedAt: Scalars['String']['output'];
+};
+
+export type SpokesComponentInput = {
+  description?: InputMaybe<Scalars['String']['input']>;
+  kind?: InputMaybe<Scalars['String']['input']>;
+  maker?: InputMaybe<Scalars['String']['input']>;
+  model?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type SpokesComponentsInput = {
+  bottomBracket?: InputMaybe<SpokesComponentInput>;
+  brakes?: InputMaybe<SpokesComponentInput>;
+  cassette?: InputMaybe<SpokesComponentInput>;
+  chain?: InputMaybe<SpokesComponentInput>;
+  crank?: InputMaybe<SpokesComponentInput>;
+  discRotors?: InputMaybe<SpokesComponentInput>;
+  fork?: InputMaybe<SpokesComponentInput>;
+  handlebar?: InputMaybe<SpokesComponentInput>;
+  headset?: InputMaybe<SpokesComponentInput>;
+  rearDerailleur?: InputMaybe<SpokesComponentInput>;
+  rearShock?: InputMaybe<SpokesComponentInput>;
+  rims?: InputMaybe<SpokesComponentInput>;
+  saddle?: InputMaybe<SpokesComponentInput>;
+  seatpost?: InputMaybe<SpokesComponentInput>;
+  stem?: InputMaybe<SpokesComponentInput>;
+  tires?: InputMaybe<SpokesComponentInput>;
+  wheels?: InputMaybe<SpokesComponentInput>;
 };
 
 export type StravaGearInfo = {
@@ -301,15 +665,72 @@ export type StravaGearMapping = {
   stravaGearName?: Maybe<Scalars['String']['output']>;
 };
 
+export enum SyncProvider {
+  Garmin = 'GARMIN',
+  Strava = 'STRAVA',
+  Suunto = 'SUUNTO',
+  Whoop = 'WHOOP'
+}
+
+export type TriggerSyncResult = {
+  __typename?: 'TriggerSyncResult';
+  jobId?: Maybe<Scalars['String']['output']>;
+  message: Scalars['String']['output'];
+  retryAfter?: Maybe<Scalars['Int']['output']>;
+  status: TriggerSyncStatus;
+};
+
+export enum TriggerSyncStatus {
+  AlreadyQueued = 'ALREADY_QUEUED',
+  Queued = 'QUEUED',
+  RateLimited = 'RATE_LIMITED'
+}
+
+export type UnassignedRide = {
+  __typename?: 'UnassignedRide';
+  distanceMiles: Scalars['Float']['output'];
+  durationSeconds: Scalars['Int']['output'];
+  elevationGainFeet: Scalars['Float']['output'];
+  id: Scalars['ID']['output'];
+  location?: Maybe<Scalars['String']['output']>;
+  rideType: Scalars['String']['output'];
+  startTime: Scalars['String']['output'];
+};
+
+export type UnassignedRidesPage = {
+  __typename?: 'UnassignedRidesPage';
+  hasMore: Scalars['Boolean']['output'];
+  rides: Array<UnassignedRide>;
+  totalCount: Scalars['Int']['output'];
+};
+
 export type UpdateBikeInput = {
-  dropper?: InputMaybe<BikeComponentInput>;
+  batteryWh?: InputMaybe<Scalars['Int']['input']>;
+  buildKind?: InputMaybe<Scalars['String']['input']>;
+  category?: InputMaybe<Scalars['String']['input']>;
+  family?: InputMaybe<Scalars['String']['input']>;
   fork?: InputMaybe<BikeComponentInput>;
+  frameMaterial?: InputMaybe<Scalars['String']['input']>;
+  gender?: InputMaybe<Scalars['String']['input']>;
+  hangerStandard?: InputMaybe<Scalars['String']['input']>;
+  isEbike?: InputMaybe<Scalars['Boolean']['input']>;
+  isFrameset?: InputMaybe<Scalars['Boolean']['input']>;
   manufacturer?: InputMaybe<Scalars['String']['input']>;
   model?: InputMaybe<Scalars['String']['input']>;
+  motorMaker?: InputMaybe<Scalars['String']['input']>;
+  motorModel?: InputMaybe<Scalars['String']['input']>;
+  motorPowerW?: InputMaybe<Scalars['Int']['input']>;
+  motorTorqueNm?: InputMaybe<Scalars['Int']['input']>;
   nickname?: InputMaybe<Scalars['String']['input']>;
   notes?: InputMaybe<Scalars['String']['input']>;
   pivotBearings?: InputMaybe<BikeComponentInput>;
+  seatpost?: InputMaybe<BikeComponentInput>;
   shock?: InputMaybe<BikeComponentInput>;
+  spokesComponents?: InputMaybe<SpokesComponentsInput>;
+  spokesId?: InputMaybe<Scalars['String']['input']>;
+  spokesUrl?: InputMaybe<Scalars['String']['input']>;
+  subcategory?: InputMaybe<Scalars['String']['input']>;
+  thumbnailUrl?: InputMaybe<Scalars['String']['input']>;
   travelForkMm?: InputMaybe<Scalars['Int']['input']>;
   travelShockMm?: InputMaybe<Scalars['Int']['input']>;
   wheels?: InputMaybe<BikeComponentInput>;
@@ -320,6 +741,7 @@ export type UpdateComponentInput = {
   brand?: InputMaybe<Scalars['String']['input']>;
   hoursUsed?: InputMaybe<Scalars['Float']['input']>;
   isStock?: InputMaybe<Scalars['Boolean']['input']>;
+  location?: InputMaybe<ComponentLocation>;
   model?: InputMaybe<Scalars['String']['input']>;
   notes?: InputMaybe<Scalars['String']['input']>;
   serviceDueAtHours?: InputMaybe<Scalars['Float']['input']>;
@@ -338,18 +760,45 @@ export type UpdateRideInput = {
   trailSystem?: InputMaybe<Scalars['String']['input']>;
 };
 
+export type UpdateUserPreferencesInput = {
+  hoursDisplayPreference?: InputMaybe<Scalars['String']['input']>;
+  predictionMode?: InputMaybe<Scalars['String']['input']>;
+};
+
 export type User = {
   __typename?: 'User';
   accounts: Array<ConnectedAccount>;
   activeDataSource?: Maybe<Scalars['String']['output']>;
   age?: Maybe<Scalars['Int']['output']>;
   avatarUrl?: Maybe<Scalars['String']['output']>;
+  createdAt: Scalars['String']['output'];
   email: Scalars['String']['output'];
+  hasAcceptedCurrentTerms: Scalars['Boolean']['output'];
+  hoursDisplayPreference?: Maybe<Scalars['String']['output']>;
   id: Scalars['ID']['output'];
+  isFoundingRider: Scalars['Boolean']['output'];
   location?: Maybe<Scalars['String']['output']>;
+  mustChangePassword: Scalars['Boolean']['output'];
   name?: Maybe<Scalars['String']['output']>;
   onboardingCompleted: Scalars['Boolean']['output'];
+  pairedComponentMigrationSeenAt?: Maybe<Scalars['String']['output']>;
+  predictionMode?: Maybe<Scalars['String']['output']>;
   rides: Array<Ride>;
+  role: UserRole;
+};
+
+export enum UserRole {
+  Admin = 'ADMIN',
+  Free = 'FREE',
+  Pro = 'PRO',
+  Waitlist = 'WAITLIST'
+}
+
+export type WearDriver = {
+  __typename?: 'WearDriver';
+  contribution: Scalars['Int']['output'];
+  factor: Scalars['String']['output'];
+  label: Scalars['String']['output'];
 };
 
 export type BikeFieldsFragment = { __typename?: 'Bike', id: string, nickname?: string | null, manufacturer: string, model: string, year?: number | null, travelForkMm?: number | null, travelShockMm?: number | null, notes?: string | null, createdAt: string, updatedAt: string, components: Array<{ __typename?: 'Component', id: string, type: ComponentType, brand: string, model: string, notes?: string | null, isStock: boolean, bikeId?: string | null, hoursUsed: number, serviceDueAtHours?: number | null }> };
@@ -666,7 +1115,7 @@ export const GearDocument = gql`
     ...BikeFields
   }
   spareComponents: components(
-    filter: {onlySpare: true, types: [FORK, SHOCK, DROPPER, WHEELS]}
+    filter: {onlySpare: true, types: [FORK, SHOCK, DROPPER, WHEEL_HUBS]}
   ) {
     ...ComponentFields
   }
