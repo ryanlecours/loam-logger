@@ -760,11 +760,7 @@ export const resolvers = {
       }
 
       if (filter.types?.length) {
-        // Map WHEEL_HUBS back to WHEELS for database query (Prisma @map)
-        const mappedTypes = filter.types.map((t: string) =>
-          t === 'WHEEL_HUBS' ? 'WHEELS' : t
-        ) as ComponentTypeLiteral[];
-        where.type = { in: mappedTypes };
+        where.type = { in: filter.types as ComponentTypeLiteral[] };
       }
 
       return prisma.component.findMany({

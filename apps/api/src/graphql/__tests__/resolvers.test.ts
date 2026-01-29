@@ -1212,7 +1212,7 @@ describe('GraphQL Resolvers', () => {
       mockPrisma.component.findMany.mockResolvedValue([]);
     });
 
-    it('should map WHEEL_HUBS to WHEELS in type filter for database query', async () => {
+    it('should pass WHEEL_HUBS to Prisma (Prisma handles @map internally)', async () => {
       const ctx = createMockContext('user-123');
 
       await query(
@@ -1224,7 +1224,7 @@ describe('GraphQL Resolvers', () => {
       expect(mockPrisma.component.findMany).toHaveBeenCalledWith({
         where: {
           userId: 'user-123',
-          type: { in: ['WHEELS', 'FORK'] },
+          type: { in: ['WHEEL_HUBS', 'FORK'] },
         },
         orderBy: { createdAt: 'desc' },
       });
@@ -1261,7 +1261,7 @@ describe('GraphQL Resolvers', () => {
         where: {
           userId: 'user-123',
           bikeId: null,
-          type: { in: ['FORK', 'SHOCK', 'DROPPER', 'WHEELS'] },
+          type: { in: ['FORK', 'SHOCK', 'DROPPER', 'WHEEL_HUBS'] },
         },
         orderBy: { createdAt: 'desc' },
       });
