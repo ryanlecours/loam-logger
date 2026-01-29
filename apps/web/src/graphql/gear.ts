@@ -108,7 +108,7 @@ export const GEAR_QUERY = gql`
       ...BikeFields
     }
     spareComponents: components(
-      filter: { onlySpare: true, types: [FORK, SHOCK, DROPPER, WHEELS] }
+      filter: { onlySpare: true, types: [FORK, SHOCK, DROPPER, WHEEL_HUBS] }
     ) {
       ...ComponentFields
     }

@@ -78,7 +78,7 @@ export const ALL_COMPONENT_TYPES = [
   { key: 'handlebar', label: 'Handlebar', spokesKey: 'handlebar', dbType: 'HANDLEBAR' },
   { key: 'saddle', label: 'Saddle', spokesKey: 'saddle', dbType: 'SADDLE' },
   { key: 'seatpost', label: 'Seatpost', spokesKey: 'seatpost', dbType: 'SEATPOST' },
-  { key: 'wheels', label: 'Wheels', spokesKey: 'wheels', dbType: 'WHEELS' },
+  { key: 'wheels', label: 'Wheel Hubs', spokesKey: 'wheels', dbType: 'WHEEL_HUBS' },
   { key: 'pivotBearings', label: 'Pivot Bearings', spokesKey: null, dbType: 'PIVOT_BEARINGS' },
 ] as const;
 
@@ -123,7 +123,7 @@ export interface BikeFormValues {
 
 export interface SpareFormState {
   id?: string;
-  type: 'FORK' | 'SHOCK' | 'DROPPER' | 'WHEELS';
+  type: 'FORK' | 'SHOCK' | 'DROPPER' | 'WHEEL_HUBS';
   brand: string;
   model: string;
   notes: string;
@@ -140,7 +140,7 @@ export const BIKE_COMPONENT_SECTIONS: ReadonlyArray<{
   { key: 'fork', label: 'Fork', type: 'FORK' },
   { key: 'shock', label: 'Shock', type: 'SHOCK' },
   { key: 'dropper', label: 'Dropper Post', type: 'DROPPER' },
-  { key: 'wheels', label: 'Wheels', type: 'WHEELS' },
+  { key: 'wheels', label: 'Wheel Hubs', type: 'WHEEL_HUBS' },
   { key: 'pivotBearings', label: 'Pivot Bearings', type: 'PIVOT_BEARINGS' },
 ];
 

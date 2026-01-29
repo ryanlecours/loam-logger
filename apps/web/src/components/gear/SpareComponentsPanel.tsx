@@ -29,7 +29,7 @@ const COMPONENT_ICONS: Record<string, React.ReactNode> = {
   FORK: <GiSuspensionBridge size={16} />,
   SHOCK: <MdOutlineElectricBolt size={16} />,
   DROPPER: <TbArrowAutofitHeight size={16} />,
-  WHEELS: <GiCarWheel size={16} />,
+  WHEEL_HUBS: <GiCarWheel size={16} />,
 };
 
 export function SpareComponentsPanel({

@@ -99,6 +99,12 @@ export const COMPONENT_WEIGHTS: Partial<Record<ComponentType, ComponentWearWeigh
   PIVOT_BEARINGS: { wH: 1.0, wD: 0.2, wC: 0.8, wV: 0.5 },
   HEADSET: { wH: 0.9, wD: 0.2, wC: 0.3, wV: 0.7 },
   BOTTOM_BRACKET: { wH: 1.0, wD: 0.8, wC: 0.5, wV: 0.1 },
+
+  // Wheel hub bearings - primarily hours-based
+  WHEEL_HUBS: { wH: 1.0, wD: 0.2, wC: 0.1, wV: 0.1 },
+
+  // Rear derailleur cable/housing - hours only, terrain doesn't matter
+  REAR_DERAILLEUR: { wH: 1.0, wD: 0.0, wC: 0.0, wV: 0.0 },
 };
 
 /** Default weights for component types not in the map */
@@ -136,6 +142,8 @@ export const BASE_INTERVALS_HOURS: Partial<
   PIVOT_BEARINGS: 250,
   HEADSET: 250,
   BOTTOM_BRACKET: 250,
+  WHEEL_HUBS: 250, // hub bearing service
+  REAR_DERAILLEUR: 200, // cable/housing replacement
 };
 
 /** Default interval for component types not in the map */

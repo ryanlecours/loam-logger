@@ -17,7 +17,7 @@ export const typeDefs = gql`
     BRAKES
     DRIVETRAIN
     TIRES
-    WHEELS
+    WHEEL_HUBS
     DROPPER
     PEDALS
     CHAIN

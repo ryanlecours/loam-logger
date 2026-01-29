@@ -1,6 +1,9 @@
 import {
   BASE_INTERVALS_HOURS,
+  COMPONENT_WEIGHTS,
   getBaseInterval,
+  getComponentWeights,
+  isTrackableComponent,
   DEFAULT_INTERVAL_HOURS,
   type LocationBasedInterval,
 } from '../config';
@@ -46,6 +49,14 @@ describe('prediction config', () => {
       expect(BASE_INTERVALS_HOURS.CHAIN).toBe(70);
       expect(BASE_INTERVALS_HOURS.CASSETTE).toBe(200);
       expect(BASE_INTERVALS_HOURS.DROPPER).toBe(150);
+    });
+
+    it('should have interval for WHEEL_HUBS (hub bearing service)', () => {
+      expect(BASE_INTERVALS_HOURS.WHEEL_HUBS).toBe(250);
+    });
+
+    it('should have interval for REAR_DERAILLEUR (cable/housing replacement)', () => {
+      expect(BASE_INTERVALS_HOURS.REAR_DERAILLEUR).toBe(200);
     });
   });
 
@@ -113,6 +124,16 @@ describe('prediction config', () => {
       it('should return same interval regardless of location for CHAIN', () => {
         expect(getBaseInterval('CHAIN' as ComponentType, 'NONE' as ComponentLocation)).toBe(70);
       });
+
+      it('should return same interval regardless of location for WHEEL_HUBS', () => {
+        expect(getBaseInterval('WHEEL_HUBS' as ComponentType, 'FRONT' as ComponentLocation)).toBe(250);
+        expect(getBaseInterval('WHEEL_HUBS' as ComponentType, 'REAR' as ComponentLocation)).toBe(250);
+        expect(getBaseInterval('WHEEL_HUBS' as ComponentType, 'NONE' as ComponentLocation)).toBe(250);
+      });
+
+      it('should return same interval regardless of location for REAR_DERAILLEUR', () => {
+        expect(getBaseInterval('REAR_DERAILLEUR' as ComponentType, 'NONE' as ComponentLocation)).toBe(200);
+      });
     });
 
     describe('for unknown component types', () => {
@@ -138,6 +159,81 @@ describe('prediction config', () => {
       const rearInterval = getBaseInterval('TIRES' as ComponentType, 'REAR' as ComponentLocation);
 
       expect(rearInterval).toBeLessThan(frontInterval);
+    });
+  });
+
+  describe('COMPONENT_WEIGHTS', () => {
+    it('should have weights for WHEEL_HUBS (primarily hours-based)', () => {
+      const weights = COMPONENT_WEIGHTS.WHEEL_HUBS;
+
+      expect(weights).toBeDefined();
+      expect(weights!.wH).toBe(1.0); // hours weight
+      expect(weights!.wD).toBe(0.2); // low distance weight
+      expect(weights!.wC).toBe(0.1); // low climbing weight
+      expect(weights!.wV).toBe(0.1); // low steepness weight
+    });
+
+    it('should have weights for REAR_DERAILLEUR (hours-only)', () => {
+      const weights = COMPONENT_WEIGHTS.REAR_DERAILLEUR;
+
+      expect(weights).toBeDefined();
+      expect(weights!.wH).toBe(1.0); // hours weight
+      expect(weights!.wD).toBe(0.0); // no distance sensitivity
+      expect(weights!.wC).toBe(0.0); // no climbing sensitivity
+      expect(weights!.wV).toBe(0.0); // no steepness sensitivity
+    });
+  });
+
+  describe('isTrackableComponent', () => {
+    it('should return true for WHEEL_HUBS', () => {
+      expect(isTrackableComponent('WHEEL_HUBS' as ComponentType)).toBe(true);
+    });
+
+    it('should return true for REAR_DERAILLEUR', () => {
+      expect(isTrackableComponent('REAR_DERAILLEUR' as ComponentType)).toBe(true);
+    });
+
+    it('should return true for other trackable components', () => {
+      expect(isTrackableComponent('FORK' as ComponentType)).toBe(true);
+      expect(isTrackableComponent('SHOCK' as ComponentType)).toBe(true);
+      expect(isTrackableComponent('BRAKE_PAD' as ComponentType)).toBe(true);
+      expect(isTrackableComponent('CHAIN' as ComponentType)).toBe(true);
+    });
+
+    it('should return false for non-trackable components', () => {
+      expect(isTrackableComponent('STEM' as ComponentType)).toBe(false);
+      expect(isTrackableComponent('HANDLEBAR' as ComponentType)).toBe(false);
+      expect(isTrackableComponent('SADDLE' as ComponentType)).toBe(false);
+      expect(isTrackableComponent('RIMS' as ComponentType)).toBe(false);
+    });
+  });
+
+  describe('getComponentWeights', () => {
+    it('should return weights for WHEEL_HUBS', () => {
+      const weights = getComponentWeights('WHEEL_HUBS' as ComponentType);
+
+      expect(weights.wH).toBe(1.0);
+      expect(weights.wD).toBe(0.2);
+      expect(weights.wC).toBe(0.1);
+      expect(weights.wV).toBe(0.1);
+    });
+
+    it('should return weights for REAR_DERAILLEUR', () => {
+      const weights = getComponentWeights('REAR_DERAILLEUR' as ComponentType);
+
+      expect(weights.wH).toBe(1.0);
+      expect(weights.wD).toBe(0.0);
+      expect(weights.wC).toBe(0.0);
+      expect(weights.wV).toBe(0.0);
+    });
+
+    it('should return default weights for unknown component type', () => {
+      const weights = getComponentWeights('UNKNOWN' as ComponentType);
+
+      expect(weights.wH).toBe(1.0);
+      expect(weights.wD).toBe(0.5);
+      expect(weights.wC).toBe(0.3);
+      expect(weights.wV).toBe(0.2);
     });
   });
 });

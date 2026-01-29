@@ -128,7 +128,7 @@ export interface BikeFormValues {
 
 export interface SpareFormState {
   id?: string;
-  type: 'FORK' | 'SHOCK' | 'DROPPER' | 'WHEELS';
+  type: 'FORK' | 'SHOCK' | 'DROPPER' | 'WHEEL_HUBS';
   brand: string;
   model: string;
   notes: string;
@@ -153,7 +153,7 @@ export const BIKE_COMPONENT_SECTIONS: ReadonlyArray<{
   // Brakes
   { key: 'brakes', label: 'Brakes', type: 'BRAKES' },
   // Wheels
-  { key: 'wheels', label: 'Wheels', type: 'WHEELS' },
+  { key: 'wheels', label: 'Wheel Hubs', type: 'WHEEL_HUBS' },
   { key: 'rims', label: 'Rims', type: 'RIMS' },
   { key: 'tires', label: 'Tires', type: 'TIRES' },
   // Cockpit

@@ -172,4 +172,73 @@ describe('componentCatalog', () => {
       }
     });
   });
+
+  describe('WHEEL_HUBS component definition', () => {
+    it('should have WHEEL_HUBS in catalog', () => {
+      const def = getComponentByType('WHEEL_HUBS');
+
+      expect(def).toBeDefined();
+      expect(def?.displayName).toBe('Wheel Hubs');
+      expect(def?.category).toBe('WHEELS');
+    });
+
+    it('should have correct service interval for hub bearing service', () => {
+      const def = getComponentByType('WHEEL_HUBS');
+
+      expect(def?.serviceIntervalHours).toBe(250);
+    });
+
+    it('should map to wheels spokesKey for 99spokes import compatibility', () => {
+      const def = getComponentByType('WHEEL_HUBS');
+
+      expect(def?.spokesKey).toBe('wheels');
+    });
+
+    it('should be applicable to all bikes', () => {
+      const def = getComponentByType('WHEEL_HUBS');
+
+      expect(def?.isApplicable({ hasFrontSuspension: false, hasRearSuspension: false })).toBe(true);
+      expect(def?.isApplicable({ hasFrontSuspension: true, hasRearSuspension: true })).toBe(true);
+    });
+
+    it('should not require pairing', () => {
+      const def = getComponentByType('WHEEL_HUBS');
+
+      expect(def?.requiresPairing).not.toBe(true);
+    });
+  });
+
+  describe('REAR_DERAILLEUR component definition', () => {
+    it('should have REAR_DERAILLEUR in catalog', () => {
+      const def = getComponentByType('REAR_DERAILLEUR');
+
+      expect(def).toBeDefined();
+      expect(def?.displayName).toBe('Rear Derailleur');
+      expect(def?.category).toBe('DRIVETRAIN');
+    });
+
+    it('should have correct service interval for cable/housing replacement', () => {
+      const def = getComponentByType('REAR_DERAILLEUR');
+
+      expect(def?.serviceIntervalHours).toBe(200);
+    });
+
+    it('should map to rearDerailleur spokesKey', () => {
+      const def = getComponentByType('REAR_DERAILLEUR');
+
+      expect(def?.spokesKey).toBe('rearDerailleur');
+    });
+
+    it('should be applicable to all bikes', () => {
+      const def = getComponentByType('REAR_DERAILLEUR');
+
+      expect(def?.isApplicable({ hasFrontSuspension: false, hasRearSuspension: false })).toBe(true);
+    });
+
+    it('should not require pairing', () => {
+      const def = getComponentByType('REAR_DERAILLEUR');
+
+      expect(def?.requiresPairing).not.toBe(true);
+    });
+  });
 });

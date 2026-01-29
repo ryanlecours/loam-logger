@@ -223,7 +223,7 @@ const componentLabelMap: Partial<Record<ComponentType, string>> = {
   FORK: 'Fork',
   SHOCK: 'Shock',
   DROPPER: 'Dropper Post',
-  WHEELS: 'Wheelset',
+  WHEEL_HUBS: 'Wheel Hubs',
   PIVOT_BEARINGS: 'Pivot Bearings',
 };
 
@@ -231,7 +231,7 @@ const REQUIRED_BIKE_COMPONENTS = [
   ['fork', ComponentTypeEnum.FORK],
   ['shock', ComponentTypeEnum.SHOCK],
   ['seatpost', ComponentTypeEnum.SEATPOST],
-  ['wheels', ComponentTypeEnum.WHEELS],
+  ['wheels', ComponentTypeEnum.WHEEL_HUBS],
   ['pivotBearings', ComponentTypeEnum.PIVOT_BEARINGS],
 ] as const;
 
@@ -455,7 +455,7 @@ export async function buildBikeComponents(
           fork: 'FORK',
           shock: 'SHOCK',
           seatpost: 'SEATPOST',
-          wheels: 'WHEELS',
+          wheels: 'WHEEL_HUBS',
           pivotBearings: 'PIVOT_BEARINGS',
         };
         const componentType = typeMap[key];
@@ -2852,7 +2852,7 @@ export const resolvers = {
     seatpost: (bike: Bike & { components?: ComponentModel[] }) =>
       pickComponent(bike, ComponentTypeEnum.SEATPOST),
     wheels: (bike: Bike & { components?: ComponentModel[] }) =>
-      pickComponent(bike, ComponentTypeEnum.WHEELS),
+      pickComponent(bike, ComponentTypeEnum.WHEEL_HUBS),
     pivotBearings: (bike: Bike & { components?: ComponentModel[] }) =>
       pickComponent(bike, ComponentTypeEnum.PIVOT_BEARINGS),
     predictions: async (bike: Bike, _args: unknown, ctx: GraphQLContext) => {

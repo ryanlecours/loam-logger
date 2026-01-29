@@ -11,7 +11,7 @@ export const COMPONENT_LABELS: Record<string, string> = {
   CHAIN: 'Chain',
   CASSETTE: 'Cassette',
   CHAINRING: 'Chainring',
-  WHEELS: 'Wheels',
+  WHEEL_HUBS: 'Wheel Hubs',
   RIMS: 'Rims',
   DROPPER: 'Dropper Post',
   PIVOT_BEARINGS: 'Pivot Bearings',

@@ -34,8 +34,8 @@ describe('COMPONENT_LABELS', () => {
     expect(COMPONENT_LABELS.CHAINRING).toBe('Chainring');
   });
 
-  it('has label for WHEELS', () => {
-    expect(COMPONENT_LABELS.WHEELS).toBe('Wheels');
+  it('has label for WHEEL_HUBS', () => {
+    expect(COMPONENT_LABELS.WHEEL_HUBS).toBe('Wheel Hubs');
   });
 
   it('has label for DROPPER', () => {
