@@ -2616,9 +2616,10 @@ export const resolvers = {
         const newPairGroupId = createId();
 
         // Retire the existing component
+        // Set bikeId to null to avoid unique constraint violation when creating replacement
         const retired = await tx.component.update({
           where: { id: componentId },
-          data: { retiredAt: now },
+          data: { retiredAt: now, bikeId: null },
         });
         replacedComponents.push(retired);
 
@@ -2662,9 +2663,10 @@ export const resolvers = {
 
           if (pairedComponent) {
             // Retire the paired component
+            // Set bikeId to null to avoid unique constraint violation when creating replacement
             const retiredPair = await tx.component.update({
               where: { id: pairedComponent.id },
-              data: { retiredAt: now },
+              data: { retiredAt: now, bikeId: null },
             });
             replacedComponents.push(retiredPair);
 

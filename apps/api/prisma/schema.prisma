@@ -196,7 +196,10 @@ model Component {
   replacedBy            Component?         @relation("ComponentReplacement", fields: [replacedById], references: [id])
   replaces              Component?         @relation("ComponentReplacement")
 
-  @@unique([bikeId, type, location], name: "unique_component_per_bike")
+  // Unique constraint: one active component per bike/type/location combination
+  // Note: Retired components (retiredAt != null) should have bikeId set to null
+  // to avoid constraint violations when replacing components
+  @@unique([bikeId, type, location], name: "unique_active_component_per_bike_location")
   @@index([userId])
   @@index([bikeId])
   @@index([pairGroupId])

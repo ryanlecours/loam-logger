@@ -129,13 +129,13 @@ export default function Dashboard() {
 
     setHasMigrationRun(true);
     migratePairedComponents()
-      .then((result) => {
-        console.log('Migration completed:', result?.data?.migratePairedComponents);
+      .then(() => {
         // Refetch bikes to get updated components
         refetchBikes();
       })
-      .catch((err) => {
-        console.error('Failed to migrate paired components:', err);
+      .catch(() => {
+        // Silent fail - migration is best-effort and idempotent
+        // User can still use the app normally, migration will retry on next load
       });
   }, [user, hasMigrationRun, migratePairedComponents, refetchBikes]);
 
