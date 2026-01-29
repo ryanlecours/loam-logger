@@ -304,6 +304,35 @@ describe('BikeOverviewCard', () => {
       expect(statusDots[1]).toHaveAttribute('data-testid', 'status-dot-DUE_SOON');
       expect(statusDots[2]).toHaveAttribute('data-testid', 'status-dot-ALL_GOOD');
     });
+
+    it('renders component labels with location when present', () => {
+      const components = [
+        createComponent({ componentId: '1', componentType: 'BRAKES', location: 'FRONT' as ComponentLocation, status: 'DUE_SOON', hoursRemaining: 10 }),
+        createComponent({ componentId: '2', componentType: 'BRAKES', location: 'REAR' as ComponentLocation, status: 'ALL_GOOD', hoursRemaining: 20 }),
+      ];
+
+      renderWithRouter(
+        <BikeOverviewCard
+          {...defaultProps}
+          bike={createBike({
+            predictions: {
+              bikeId: 'bike-1',
+              bikeName: 'Test',
+              components,
+              priorityComponent: components[0],
+              overallStatus: 'DUE_SOON' as PredictionStatus,
+              dueNowCount: 0,
+              dueSoonCount: 1,
+              generatedAt: new Date().toISOString(),
+            },
+          })}
+        />
+      );
+
+      // Mock formatComponentLabel adds location in parentheses
+      expect(screen.getByText('BRAKES (FRONT)')).toBeInTheDocument();
+      expect(screen.getByText('BRAKES (REAR)')).toBeInTheDocument();
+    });
   });
 
   describe('notes', () => {
