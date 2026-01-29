@@ -8,7 +8,6 @@ import { showBikeCreatedToast } from '@/utils/toastHelpers';
 import { BIKE_COMPONENT_SECTIONS, type BikeComponentSection, type BikeFormValues, type GearComponentState, type SpareFormState } from '@/models/BikeComponents';
 import {
   ADD_BIKE,
-  UPDATE_BIKE,
   DELETE_BIKE,
   GEAR_QUERY,
   ADD_COMPONENT,
@@ -116,9 +115,7 @@ const createBikeFormState = (bike?: BikeDto): BikeFormValues => ({
   ),
 });
 
-type ModalState =
-  | { mode: 'create'; bike?: undefined }
-  | { mode: 'edit'; bike: BikeDto };
+// Bike modal is now create-only (edit navigates to detail page)
 
 type SpareModalState =
   | { mode: 'create'; component?: undefined }
@@ -135,11 +132,7 @@ export default function Gear() {
     refetchQueries: [{ query: GEAR_QUERY }],
     awaitRefetchQueries: true,
   });
-  const [updateBikeMutation, updateBikeState] = useMutation(UPDATE_BIKE, {
-    refetchQueries: [{ query: GEAR_QUERY }],
-    awaitRefetchQueries: true,
-  });
-  const [deleteBikeMutation, deleteBikeState] = useMutation(DELETE_BIKE, {
+    const [deleteBikeMutation, deleteBikeState] = useMutation(DELETE_BIKE, {
     refetchQueries: [{ query: GEAR_QUERY }],
     awaitRefetchQueries: true,
   });
@@ -159,17 +152,17 @@ export default function Gear() {
   const bikes = data?.bikes ?? [];
   const spareComponents = data?.spareComponents ?? [];
 
-  const [bikeModal, setBikeModal] = useState<ModalState | null>(null);
+  const [showBikeModal, setShowBikeModal] = useState(false);
   const [spareModal, setSpareModal] = useState<SpareModalState | null>(null);
   const [bikeFormError, setBikeFormError] = useState<string | null>(null);
   const [spareFormError, setSpareFormError] = useState<string | null>(null);
   const [serviceModalBike, setServiceModalBike] = useState<BikeDto | null>(null);
 
-  const busyBike = addBikeState.loading || updateBikeState.loading;
+  const busyBike = addBikeState.loading;
   const busySpare = addComponentState.loading || updateComponentState.loading;
 
   const closeBikeModal = () => {
-    setBikeModal(null);
+    setShowBikeModal(false);
     setBikeFormError(null);
   };
   const closeSpareModal = () => {
@@ -177,7 +170,7 @@ export default function Gear() {
     setSpareFormError(null);
   };
 
-  const handleBikeSubmit = async (form: BikeFormValues, bikeId?: string) => {
+  const handleBikeSubmit = async (form: BikeFormValues) => {
     setBikeFormError(null);
 
     if (!form.manufacturer.trim()) {
@@ -243,29 +236,17 @@ export default function Gear() {
     };
 
     let failed = false;
-    let createdBikeId: string | null = null;
-
-    if (bikeId) {
-      await updateBikeMutation({ variables: { id: bikeId, input: payload } }).catch((err) => {
-        failed = true;
-        setBikeFormError(err.message);
-      });
-    } else {
-      const result = await addBikeMutation({ variables: { input: payload } }).catch((err) => {
-        failed = true;
-        setBikeFormError(err.message);
-        return null;
-      });
-      if (result?.data?.addBike?.id) {
-        createdBikeId = result.data.addBike.id;
-      }
-    }
+    const result = await addBikeMutation({ variables: { input: payload } }).catch((err) => {
+      failed = true;
+      setBikeFormError(err.message);
+      return null;
+    });
 
     if (!failed) {
       closeBikeModal();
       // Show success toast for newly created bikes
-      if (createdBikeId) {
-        showBikeCreatedToast(createdBikeId, navigate);
+      if (result?.data?.addBike?.id) {
+        showBikeCreatedToast(result.data.addBike.id, navigate);
       }
     }
   };
@@ -309,12 +290,11 @@ export default function Gear() {
     if (!failed) closeSpareModal();
   };
 
-  const currentBike = bikeModal?.mode === 'edit' ? bikeModal.bike : undefined;
-  const currentSpare = spareModal?.mode === 'edit' ? spareModal.component : undefined;
+    const currentSpare = spareModal?.mode === 'edit' ? spareModal.component : undefined;
 
   const initialBikeState = useMemo(
-    () => createBikeFormState(currentBike),
-    [currentBike]
+    () => createBikeFormState(undefined),
+    []
   );
 
   const initialSpareState: SpareFormState = useMemo(() => {
@@ -363,7 +343,7 @@ export default function Gear() {
       <GearPageHeader
         onAddBike={() => {
           setBikeFormError(null);
-          setBikeModal({ mode: 'create' });
+          setShowBikeModal(true);
         }}
         onAddSpare={() => {
           setSpareFormError(null);
@@ -414,10 +394,7 @@ export default function Gear() {
             <BikeOverviewCard
               key={bike.id}
               bike={bike}
-              onEdit={() => {
-                setBikeFormError(null);
-                setBikeModal({ mode: 'edit', bike });
-              }}
+              onEdit={() => navigate(`/gear/${bike.id}`)}
               onDelete={() => handleDeleteBike(bike)}
               onLogService={() => setServiceModalBike(bike)}
               isDeleting={deleteBikeState.loading}
@@ -444,18 +421,18 @@ export default function Gear() {
 
       {/* Bike Form Modal */}
       <Modal
-        isOpen={!!bikeModal}
+        isOpen={showBikeModal}
         onClose={closeBikeModal}
-        title={bikeModal?.mode === 'edit' ? 'Edit Bike' : 'Add Bike'}
+        title="Add Bike"
         size="xl"
       >
-        {bikeModal && (
+        {showBikeModal && (
           <BikeForm
-            mode={bikeModal.mode}
+            mode="create"
             initial={initialBikeState}
             submitting={busyBike}
             error={bikeFormError}
-            onSubmit={(form) => handleBikeSubmit(form, currentBike?.id)}
+            onSubmit={(form) => handleBikeSubmit(form)}
             onClose={closeBikeModal}
           />
         )}

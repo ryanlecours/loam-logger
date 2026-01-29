@@ -376,6 +376,8 @@
   border: 1px solid var(--sage-20);
   border-radius: 0.5rem;
   background: rgba(30, 34, 32, 0.4);
+  min-width: 0;
+  overflow: hidden;
 }
 
 .bike-card-health-info {
@@ -388,6 +390,8 @@
 .bike-card-health-label {
   color: var(--cream);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .bike-card-health-make {
