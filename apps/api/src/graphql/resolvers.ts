@@ -2581,6 +2581,14 @@ export const resolvers = {
     markPairedComponentMigrationSeen: async (_: unknown, __: unknown, ctx: GraphQLContext) => {
       const userId = requireUserId(ctx);
 
+      // Rate limit check
+      const rateLimit = await checkMutationRateLimit('markPairedComponentMigrationSeen', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
+
       return prisma.user.update({
         where: { id: userId },
         data: {
@@ -2595,7 +2603,14 @@ export const resolvers = {
       ctx: GraphQLContext
     ) => {
       const userId = requireUserId(ctx);
-      await checkMutationRateLimit(userId);
+
+      // Rate limit check
+      const rateLimit = await checkMutationRateLimit('replaceComponent', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
 
       const { componentId, newBrand, newModel, alsoReplacePair, pairBrand, pairModel } = input;
 
@@ -2710,7 +2725,14 @@ export const resolvers = {
 
     migratePairedComponents: async (_: unknown, __: unknown, ctx: GraphQLContext) => {
       const userId = requireUserId(ctx);
-      await checkMutationRateLimit(userId);
+
+      // Rate limit check
+      const rateLimit = await checkMutationRateLimit('migratePairedComponents', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
 
       // Idempotency check: if user already has any paired components, skip migration
       // This prevents race conditions when multiple tabs trigger migration simultaneously
