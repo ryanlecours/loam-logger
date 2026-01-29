@@ -28,6 +28,7 @@ type ComponentDto = {
   bikeId?: string | null;
   hoursUsed?: number | null;
   serviceDueAtHours?: number | null;
+  location?: string | null;
 };
 
 type BikeDto = {

@@ -20,6 +20,7 @@ type ComponentDto = {
   baselineMethod?: string | null;
   baselineConfidence?: string | null;
   lastServicedAt?: string | null;
+  location?: string | null;
 };
 
 type ComponentPrediction = {
@@ -96,7 +97,7 @@ export function ComponentDetailRow({
   const brandModel = hasRealBrandModel ? `${brand} ${model}`.trim() : '';
 
   // Show brand/model if available, otherwise fall back to type label (truncated for display)
-  const fullLabel = brandModel || formatComponentLabel(prediction || { componentType: component.type, location: null });
+  const fullLabel = brandModel || formatComponentLabel(prediction || { componentType: component.type, location: component.location });
   const componentLabel = truncateLabel(fullLabel);
 
   return (
@@ -121,7 +122,7 @@ export function ComponentDetailRow({
         <div className="component-detail-info">
           <h4 className="component-detail-name">{componentLabel}</h4>
           <span className="component-detail-type">
-            {formatComponentLabel({ componentType: component.type, location: prediction?.location })}
+            {formatComponentLabel({ componentType: component.type, location: prediction?.location ?? component.location })}
             {component.isStock ? ' · Stock' : ' · Aftermarket'}
           </span>
         </div>

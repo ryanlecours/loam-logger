@@ -44,6 +44,7 @@ describe('ComponentDetailRow', () => {
     notes: null,
     hoursUsed: 45.5,
     serviceDueAtHours: 50,
+    location: null,
     ...overrides,
   });
 
@@ -86,11 +87,50 @@ describe('ComponentDetailRow', () => {
       expect(typeElement).toHaveTextContent('FORK');
     });
 
-    it('renders location when present', () => {
+    it('renders location from prediction when present', () => {
       render(
         <ComponentDetailRow
           {...defaultProps}
           prediction={createPrediction({ location: 'FRONT' })}
+        />
+      );
+
+      const typeElement = document.querySelector('.component-detail-type');
+      expect(typeElement).toHaveTextContent('FRONT');
+    });
+
+    it('renders location from component when no prediction', () => {
+      render(
+        <ComponentDetailRow
+          {...defaultProps}
+          prediction={null}
+          component={createComponent({ location: 'REAR' })}
+        />
+      );
+
+      const typeElement = document.querySelector('.component-detail-type');
+      expect(typeElement).toHaveTextContent('REAR');
+    });
+
+    it('falls back to component location when prediction location is null', () => {
+      render(
+        <ComponentDetailRow
+          {...defaultProps}
+          prediction={createPrediction({ location: null })}
+          component={createComponent({ location: 'FRONT' })}
+        />
+      );
+
+      const typeElement = document.querySelector('.component-detail-type');
+      expect(typeElement).toHaveTextContent('FRONT');
+    });
+
+    it('prefers prediction location over component location', () => {
+      render(
+        <ComponentDetailRow
+          {...defaultProps}
+          prediction={createPrediction({ location: 'FRONT' })}
+          component={createComponent({ location: 'REAR' })}
         />
       );
 
@@ -353,6 +393,20 @@ describe('ComponentDetailRow', () => {
       // FORK appears in both name and type elements
       const nameElement = document.querySelector('.component-detail-name');
       expect(nameElement).toHaveTextContent('FORK');
+    });
+
+    it('uses component location in label when no brand/model and no prediction', () => {
+      render(
+        <ComponentDetailRow
+          {...defaultProps}
+          prediction={null}
+          component={createComponent({ brand: '', model: '', type: 'BRAKES', location: 'FRONT' })}
+        />
+      );
+
+      // Should show "BRAKES (FRONT)" from formatComponentLabel mock
+      const nameElement = document.querySelector('.component-detail-name');
+      expect(nameElement).toHaveTextContent('BRAKES (FRONT)');
     });
 
     it('uses component hoursUsed when no prediction currentHours', () => {

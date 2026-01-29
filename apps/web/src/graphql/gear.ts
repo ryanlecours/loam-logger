@@ -16,6 +16,7 @@ export const COMPONENT_FIELDS = gql`
     baselineConfidence
     baselineSetAt
     lastServicedAt
+    location
   }
 `;
 
