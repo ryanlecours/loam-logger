@@ -2758,51 +2758,62 @@ export const resolvers = {
       }
 
       const allNewComponents: ComponentModel[] = [];
+      const bikeIdsToInvalidate = new Set<string>();
 
-      // Process each unpaired component
-      await prisma.$transaction(async (tx) => {
-        for (const component of unpairedComponents) {
-          const pairGroupId = createId();
+      // Process each unpaired component with extended timeout
+      await prisma.$transaction(
+        async (tx) => {
+          for (const component of unpairedComponents) {
+            const pairGroupId = createId();
 
-          // Update existing component to be FRONT with pairGroupId
-          await tx.component.update({
-            where: { id: component.id },
-            data: {
-              location: 'FRONT',
-              pairGroupId,
-            },
-          });
+            // Update existing component to be FRONT with pairGroupId
+            await tx.component.update({
+              where: { id: component.id },
+              data: {
+                location: 'FRONT',
+                pairGroupId,
+              },
+            });
 
-          // Create REAR copy with same wear state
-          const rearComponent = await tx.component.create({
-            data: {
-              type: component.type,
-              brand: component.brand,
-              model: component.model,
-              location: 'REAR',
-              pairGroupId,
-              bikeId: component.bikeId,
-              userId: component.userId,
-              hoursUsed: component.hoursUsed,
-              serviceIntervalHours: component.serviceIntervalHours,
-              installedAt: component.installedAt,
-              isStock: component.isStock,
-              baselineWearPercent: component.baselineWearPercent,
-              baselineMethod: component.baselineMethod,
-              baselineConfidence: component.baselineConfidence,
-              baselineSetAt: component.baselineSetAt,
-              lastServicedAt: component.lastServicedAt,
-            },
-          });
+            // Create REAR copy with same wear state
+            const rearComponent = await tx.component.create({
+              data: {
+                type: component.type,
+                brand: component.brand,
+                model: component.model,
+                location: 'REAR',
+                pairGroupId,
+                bikeId: component.bikeId,
+                userId: component.userId,
+                hoursUsed: component.hoursUsed,
+                serviceIntervalHours: component.serviceIntervalHours,
+                installedAt: component.installedAt,
+                isStock: component.isStock,
+                baselineWearPercent: component.baselineWearPercent,
+                baselineMethod: component.baselineMethod,
+                baselineConfidence: component.baselineConfidence,
+                baselineSetAt: component.baselineSetAt,
+                lastServicedAt: component.lastServicedAt,
+              },
+            });
 
-          allNewComponents.push(rearComponent);
+            allNewComponents.push(rearComponent);
 
-          // Invalidate prediction cache for the bike
-          if (component.bikeId) {
-            await invalidateBikePrediction(component.bikeId);
+            // Collect bike IDs for cache invalidation (done outside transaction)
+            if (component.bikeId) {
+              bikeIdsToInvalidate.add(component.bikeId);
+            }
           }
+        },
+        {
+          timeout: 30000, // 30 seconds for large migrations
         }
-      });
+      );
+
+      // Invalidate prediction caches outside the transaction
+      for (const bikeId of bikeIdsToInvalidate) {
+        await invalidateBikePrediction(bikeId);
+      }
 
       // Refetch the updated FRONT components
       const updatedFrontComponents = await prisma.component.findMany({
