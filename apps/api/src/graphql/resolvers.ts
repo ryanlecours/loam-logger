@@ -760,7 +760,11 @@ export const resolvers = {
       }
 
       if (filter.types?.length) {
-        where.type = { in: filter.types };
+        // Map WHEEL_HUBS back to WHEELS for database query (Prisma @map)
+        const mappedTypes = filter.types.map((t: string) =>
+          t === 'WHEEL_HUBS' ? 'WHEELS' : t
+        ) as ComponentTypeLiteral[];
+        where.type = { in: mappedTypes };
       }
 
       return prisma.component.findMany({
@@ -2892,6 +2896,9 @@ export const resolvers = {
 
   Component: {
     isSpare: (component: ComponentModel) => component.bikeId == null,
+    // Map legacy WHEELS database value to WHEEL_HUBS for GraphQL
+    type: (component: ComponentModel & { type: string }) =>
+      component.type === 'WHEELS' ? 'WHEEL_HUBS' : component.type,
     location: (component: ComponentModel & { location?: string }) =>
       component.location ?? 'NONE',
     serviceLogs: (component: ComponentModel, _args: unknown, ctx: GraphQLContext) =>

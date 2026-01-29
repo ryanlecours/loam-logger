@@ -3513,6 +3513,12 @@
   padding-right: 0.25rem;
 }
 
+@media (max-width: 640px) {
+  .component-health-list {
+    grid-template-columns: 1fr;
+  }
+}
+
 .component-health-row {
   display: flex;
   align-items: center;

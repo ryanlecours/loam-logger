@@ -361,7 +361,7 @@
   }
 }
 
-@media (max-width: 900px) {
+@media (max-width: 640px) {
   .bike-card-health-grid {
     grid-template-columns: 1fr;
   }

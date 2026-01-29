@@ -1179,4 +1179,110 @@ describe('GraphQL Resolvers', () => {
       expect(result).toBe('2026-01-15T10:00:00.000Z');
     });
   });
+
+  describe('Component.type resolver (WHEELS to WHEEL_HUBS mapping)', () => {
+    const resolver = resolvers.Component.type;
+
+    it('should map WHEELS to WHEEL_HUBS for backward compatibility', () => {
+      const component = { type: 'WHEELS' };
+      const result = resolver(component as never);
+      expect(result).toBe('WHEEL_HUBS');
+    });
+
+    it('should pass through WHEEL_HUBS unchanged', () => {
+      const component = { type: 'WHEEL_HUBS' };
+      const result = resolver(component as never);
+      expect(result).toBe('WHEEL_HUBS');
+    });
+
+    it('should pass through other component types unchanged', () => {
+      const types = ['FORK', 'SHOCK', 'BRAKES', 'TIRES', 'CHAIN', 'CASSETTE', 'DROPPER'];
+      types.forEach(type => {
+        const component = { type };
+        const result = resolver(component as never);
+        expect(result).toBe(type);
+      });
+    });
+  });
+
+  describe('Query.components (type filter mapping)', () => {
+    const query = resolvers.Query.components;
+
+    beforeEach(() => {
+      mockPrisma.component.findMany.mockResolvedValue([]);
+    });
+
+    it('should map WHEEL_HUBS to WHEELS in type filter for database query', async () => {
+      const ctx = createMockContext('user-123');
+
+      await query(
+        {},
+        { filter: { types: ['WHEEL_HUBS', 'FORK'] } },
+        ctx as never
+      );
+
+      expect(mockPrisma.component.findMany).toHaveBeenCalledWith({
+        where: {
+          userId: 'user-123',
+          type: { in: ['WHEELS', 'FORK'] },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+    });
+
+    it('should pass through other types unchanged in filter', async () => {
+      const ctx = createMockContext('user-123');
+
+      await query(
+        {},
+        { filter: { types: ['FORK', 'SHOCK', 'CHAIN'] } },
+        ctx as never
+      );
+
+      expect(mockPrisma.component.findMany).toHaveBeenCalledWith({
+        where: {
+          userId: 'user-123',
+          type: { in: ['FORK', 'SHOCK', 'CHAIN'] },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+    });
+
+    it('should handle filter with onlySpare and types including WHEEL_HUBS', async () => {
+      const ctx = createMockContext('user-123');
+
+      await query(
+        {},
+        { filter: { onlySpare: true, types: ['FORK', 'SHOCK', 'DROPPER', 'WHEEL_HUBS'] } },
+        ctx as never
+      );
+
+      expect(mockPrisma.component.findMany).toHaveBeenCalledWith({
+        where: {
+          userId: 'user-123',
+          bikeId: null,
+          type: { in: ['FORK', 'SHOCK', 'DROPPER', 'WHEELS'] },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+    });
+
+    it('should work without type filter', async () => {
+      const ctx = createMockContext('user-123');
+
+      await query(
+        {},
+        { filter: { onlySpare: true } },
+        ctx as never
+      );
+
+      expect(mockPrisma.component.findMany).toHaveBeenCalledWith({
+        where: {
+          userId: 'user-123',
+          bikeId: null,
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+    });
+  });
 });
