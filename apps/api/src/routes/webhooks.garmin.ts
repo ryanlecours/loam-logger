@@ -64,7 +64,7 @@ r.post<Empty, void, { deregistrations?: Array<{ userId: string }> }>(
       }
 
       // Return 200 OK immediately (Garmin requires this)
-      return res.status(200).send('OK');
+      return res.status(200).json({ acknowledged: true });
     } catch (error) {
       logError('Garmin Deregistration', error);
       return res.status(500).json({ error: 'Internal server error' });
@@ -123,7 +123,7 @@ r.post<Empty, void, { userPermissionsChange?: Array<{
       }
 
       // Return 200 OK immediately (Garmin requires this)
-      return res.status(200).send('OK');
+      return res.status(200).json({ acknowledged: true });
     } catch (error) {
       logError('Garmin Permissions', error);
       return res.status(500).json({ error: 'Internal server error' });
@@ -172,6 +172,8 @@ type GarminActivityCallback = {
 };
 
 type GarminPingPayload = {
+  requestType?: 'ping' | 'pull';
+  summaryType?: string;
   activityDetails?: GarminActivityPing[];
   activities?: GarminActivityCallback[];
 };
@@ -186,7 +188,33 @@ r.post<Empty, void, GarminPingPayload>(
     logger.debug({ requestId, headers: req.headers, body: req.body }, '[Garmin PING Webhook] Incoming request');
 
     try {
-      const { activityDetails, activities } = req.body;
+      const { requestType, summaryType, activityDetails, activities } = req.body;
+
+      // Handle explicit ping requests - acknowledge immediately with no side effects
+      if (requestType === 'ping') {
+        logger.info({
+          event: 'garmin_ping_acknowledged',
+          requestId,
+          summaryType,
+        }, '[Garmin PING] Acknowledged ping request');
+
+        return res.status(200).json({ acknowledged: true });
+      }
+
+      // Handle pull requests - validation probes from Garmin
+      if (requestType === 'pull') {
+        logger.info({
+          event: 'garmin_pull_acknowledged',
+          requestId,
+          summaryType,
+        }, '[Garmin PULL] Acknowledged pull request (validation probe)');
+
+        // Return valid schema even for empty/zero-width time windows
+        return res.status(200).json({
+          activities: [],
+          acknowledged: true,
+        });
+      }
 
       // Handle the "activities" format with callbackURL (used for backfill)
       if (activities && Array.isArray(activities) && activities.length > 0) {
@@ -197,7 +225,7 @@ r.post<Empty, void, GarminPingPayload>(
         }, '[Garmin PING] Received callback notification(s)');
 
         // IMPORTANT: Respond with 200 OK immediately (Garmin requires this within 30 seconds)
-        res.status(200).send('OK');
+        res.status(200).json({ acknowledged: true });
 
         // Fire-and-forget: Enqueue jobs for background processing
         // Using Promise.allSettled to not block on any failures
@@ -273,14 +301,16 @@ r.post<Empty, void, GarminPingPayload>(
       // Handle the "activityDetails" format with summaryId (PING mode)
       if (activityDetails && Array.isArray(activityDetails) && activityDetails.length > 0) {
         logger.info({
-          event: 'garmin_ping_received',
+          event: 'garmin_activity_notification',
           requestId,
+          requestType: requestType || 'upload',
+          summaryType,
           notificationCount: activityDetails.length,
           summaryIds: activityDetails.map(n => n.summaryId),
-        }, '[Garmin PING] Received activity notification(s)');
+        }, '[Garmin] Received activity notification(s)');
 
         // IMPORTANT: Respond with 200 OK immediately (Garmin requires this within 30 seconds)
-        res.status(200).send('OK');
+        res.status(200).json({ acknowledged: true });
 
         // Fire-and-forget: Enqueue jobs for background processing
         const enqueuePromises = activityDetails.map(async (notification) => {

@@ -90,7 +90,7 @@ describe('Garmin Webhooks', () => {
         });
 
       expect(response.status).toBe(200);
-      expect(response.text).toBe('OK');
+      expect(response.body).toEqual({ acknowledged: true });
       expect(mockPrisma.$transaction).toHaveBeenCalled();
     });
 
@@ -104,7 +104,7 @@ describe('Garmin Webhooks', () => {
         });
 
       expect(response.status).toBe(200);
-      expect(response.text).toBe('OK');
+      expect(response.body).toEqual({ acknowledged: true });
       expect(mockPrisma.$transaction).not.toHaveBeenCalled();
     });
 
@@ -181,7 +181,7 @@ describe('Garmin Webhooks', () => {
         });
 
       expect(response.status).toBe(200);
-      expect(response.text).toBe('OK');
+      expect(response.body).toEqual({ acknowledged: true });
     });
 
     it('should return 200 OK for permissions change with unknown user', async () => {
@@ -199,7 +199,7 @@ describe('Garmin Webhooks', () => {
         });
 
       expect(response.status).toBe(200);
-      expect(response.text).toBe('OK');
+      expect(response.body).toEqual({ acknowledged: true });
     });
 
     it('should handle revoked ACTIVITY_EXPORT permission', async () => {
@@ -221,7 +221,7 @@ describe('Garmin Webhooks', () => {
         });
 
       expect(response.status).toBe(200);
-      expect(response.text).toBe('OK');
+      expect(response.body).toEqual({ acknowledged: true });
     });
 
     it('should return 500 on database error', async () => {
@@ -244,6 +244,78 @@ describe('Garmin Webhooks', () => {
   });
 
   describe('POST /webhooks/garmin/activities-ping', () => {
+    describe('requestType: ping', () => {
+      it('should return 200 JSON immediately without enqueuing jobs', async () => {
+        const response = await request(app)
+          .post('/webhooks/garmin/activities-ping')
+          .send({ requestType: 'ping', summaryType: 'CONNECT_ACTIVITY' });
+
+        expect(response.status).toBe(200);
+        expect(response.body).toEqual({ acknowledged: true });
+        expect(mockEnqueueSyncJob).not.toHaveBeenCalled();
+        expect(mockEnqueueCallbackJob).not.toHaveBeenCalled();
+      });
+
+      it('should log ping acknowledgment with summaryType', async () => {
+        await request(app)
+          .post('/webhooks/garmin/activities-ping')
+          .send({ requestType: 'ping', summaryType: 'CONNECT_ACTIVITY' });
+
+        expect(mockLogger.info).toHaveBeenCalledWith(
+          expect.objectContaining({
+            event: 'garmin_ping_acknowledged',
+            summaryType: 'CONNECT_ACTIVITY',
+          }),
+          expect.stringContaining('Acknowledged ping request')
+        );
+      });
+
+      it('should handle ping without summaryType', async () => {
+        const response = await request(app)
+          .post('/webhooks/garmin/activities-ping')
+          .send({ requestType: 'ping' });
+
+        expect(response.status).toBe(200);
+        expect(response.body).toEqual({ acknowledged: true });
+      });
+    });
+
+    describe('requestType: pull', () => {
+      it('should return 200 with empty activities for pull requests', async () => {
+        const response = await request(app)
+          .post('/webhooks/garmin/activities-ping')
+          .send({ requestType: 'pull', summaryType: 'CONNECT_ACTIVITY' });
+
+        expect(response.status).toBe(200);
+        expect(response.body).toEqual({ activities: [], acknowledged: true });
+        expect(mockEnqueueSyncJob).not.toHaveBeenCalled();
+        expect(mockEnqueueCallbackJob).not.toHaveBeenCalled();
+      });
+
+      it('should log pull acknowledgment with summaryType', async () => {
+        await request(app)
+          .post('/webhooks/garmin/activities-ping')
+          .send({ requestType: 'pull', summaryType: 'CONNECT_ACTIVITY' });
+
+        expect(mockLogger.info).toHaveBeenCalledWith(
+          expect.objectContaining({
+            event: 'garmin_pull_acknowledged',
+            summaryType: 'CONNECT_ACTIVITY',
+          }),
+          expect.stringContaining('Acknowledged pull request')
+        );
+      });
+
+      it('should handle pull without summaryType', async () => {
+        const response = await request(app)
+          .post('/webhooks/garmin/activities-ping')
+          .send({ requestType: 'pull' });
+
+        expect(response.status).toBe(200);
+        expect(response.body).toEqual({ activities: [], acknowledged: true });
+      });
+    });
+
     describe('activityDetails format (PING mode)', () => {
       it('should return 200 immediately and enqueue sync job for known user', async () => {
         (mockPrisma.userAccount.findUnique as jest.Mock).mockResolvedValue({
@@ -266,7 +338,7 @@ describe('Garmin Webhooks', () => {
           });
 
         expect(response.status).toBe(200);
-        expect(response.text).toBe('OK');
+        expect(response.body).toEqual({ acknowledged: true });
 
         // Wait a tick for the fire-and-forget promises to resolve
         await new Promise(resolve => setImmediate(resolve));
@@ -293,7 +365,7 @@ describe('Garmin Webhooks', () => {
           });
 
         expect(response.status).toBe(200);
-        expect(response.text).toBe('OK');
+        expect(response.body).toEqual({ acknowledged: true });
 
         await new Promise(resolve => setImmediate(resolve));
 
@@ -362,7 +434,7 @@ describe('Garmin Webhooks', () => {
           });
 
         expect(response.status).toBe(200);
-        expect(response.text).toBe('OK');
+        expect(response.body).toEqual({ acknowledged: true });
 
         await new Promise(resolve => setImmediate(resolve));
 
@@ -386,7 +458,7 @@ describe('Garmin Webhooks', () => {
           });
 
         expect(response.status).toBe(200);
-        expect(response.text).toBe('OK');
+        expect(response.body).toEqual({ acknowledged: true });
 
         await new Promise(resolve => setImmediate(resolve));
 
@@ -475,7 +547,7 @@ describe('Garmin Webhooks', () => {
 
         // Response is 200 OK because we ACK immediately before processing
         expect(response.status).toBe(200);
-        expect(response.text).toBe('OK');
+        expect(response.body).toEqual({ acknowledged: true });
 
         // Wait for background processing to complete
         await new Promise(resolve => setTimeout(resolve, 50));
