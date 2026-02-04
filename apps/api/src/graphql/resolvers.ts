@@ -752,6 +752,18 @@ export const resolvers = {
 
       // Apply bike filter if provided
       if (filter?.bikeId) {
+        // Verify bike belongs to user to prevent unauthorized data access
+        const bike = await prisma.bike.findUnique({
+          where: { id: filter.bikeId },
+          select: { userId: true },
+        });
+
+        if (!bike || bike.userId !== ctx.user.id) {
+          throw new GraphQLError('Bike not found', {
+            extensions: { code: 'NOT_FOUND' },
+          });
+        }
+
         whereClause.bikeId = filter.bikeId;
       }
 
