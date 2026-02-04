@@ -402,7 +402,7 @@ describe('BikeServicePreferencesEditor', () => {
       fireEvent.click(saveButton);
 
       await waitFor(() => {
-        expect(screen.getByText('Failed to save preferences. Please try again.')).toBeInTheDocument();
+        expect(screen.getByText('Failed to save preferences: Network error')).toBeInTheDocument();
       });
     });
   });

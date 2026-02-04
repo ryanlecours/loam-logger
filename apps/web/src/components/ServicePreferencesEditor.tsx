@@ -147,8 +147,8 @@ export default function ServicePreferencesEditor({ onSaved, compact = false }: S
       setTimeout(() => setSuccess(false), 3000);
       onSaved?.();
     } catch (err) {
-      setError('Failed to save preferences. Please try again.');
-      console.error(err);
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      setError(`Failed to save preferences: ${message}`);
     }
   };
 
