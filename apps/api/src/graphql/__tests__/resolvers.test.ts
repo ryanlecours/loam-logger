@@ -1425,20 +1425,36 @@ describe('GraphQL Resolvers', () => {
     });
 
     describe('happy path', () => {
+      // Create a mock transaction client that tracks calls
+      const mockTxDeleteMany = jest.fn().mockResolvedValue({ count: 0 });
+      const mockTxUpsert = jest.fn();
+
       beforeEach(() => {
         mockPrisma.bike.findUnique.mockResolvedValue({
           id: 'bike-1',
           userId: 'user-123',
         } as never);
-        (mockPrisma.bikeServicePreference as unknown as { deleteMany: jest.Mock }).deleteMany.mockResolvedValue({ count: 0 });
+
+        // Reset transaction mocks
+        mockTxDeleteMany.mockClear().mockResolvedValue({ count: 0 });
+        mockTxUpsert.mockClear();
+
+        // Mock $transaction to execute the callback with a mock tx client
+        mockPrisma.$transaction.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) => {
+          const mockTx = {
+            bikeServicePreference: {
+              deleteMany: mockTxDeleteMany,
+              upsert: mockTxUpsert,
+            },
+          };
+          return callback(mockTx);
+        });
       });
 
       it('should upsert preferences and delete removed ones', async () => {
         const ctx = createMockContext('user-123');
-        const mockResult = [
-          { id: 'pref-1', componentType: 'FORK', trackingEnabled: true, customInterval: 50 },
-        ];
-        mockPrisma.$transaction.mockResolvedValue(mockResult);
+        const mockResult = { id: 'pref-1', componentType: 'FORK', trackingEnabled: true, customInterval: 50 };
+        mockTxUpsert.mockResolvedValue(mockResult);
 
         const result = await mutation(
           {},
@@ -1453,17 +1469,35 @@ describe('GraphQL Resolvers', () => {
           ctx as never
         );
 
-        // Should delete preferences not in input
-        expect((mockPrisma.bikeServicePreference as unknown as { deleteMany: jest.Mock }).deleteMany).toHaveBeenCalledWith({
+        // Should delete preferences not in input (within transaction)
+        expect(mockTxDeleteMany).toHaveBeenCalledWith({
           where: {
             bikeId: 'bike-1',
             componentType: { notIn: ['FORK'] },
           },
         });
 
-        // Should upsert the preferences
-        expect(mockPrisma.$transaction).toHaveBeenCalled();
-        expect(result).toEqual(mockResult);
+        // Should upsert the preferences (within transaction)
+        expect(mockTxUpsert).toHaveBeenCalledWith({
+          where: {
+            bikeId_componentType: {
+              bikeId: 'bike-1',
+              componentType: 'FORK',
+            },
+          },
+          create: {
+            bikeId: 'bike-1',
+            componentType: 'FORK',
+            trackingEnabled: true,
+            customInterval: 50,
+          },
+          update: {
+            trackingEnabled: true,
+            customInterval: 50,
+          },
+        });
+
+        expect(result).toEqual([mockResult]);
       });
 
       it('should return empty array when no preferences provided', async () => {
@@ -1480,20 +1514,22 @@ describe('GraphQL Resolvers', () => {
           ctx as never
         );
 
-        // Should delete all existing preferences
-        expect((mockPrisma.bikeServicePreference as unknown as { deleteMany: jest.Mock }).deleteMany).toHaveBeenCalledWith({
+        // Should delete all existing preferences (within transaction)
+        expect(mockTxDeleteMany).toHaveBeenCalledWith({
           where: {
             bikeId: 'bike-1',
             componentType: { notIn: [] },
           },
         });
 
+        // Should not upsert anything
+        expect(mockTxUpsert).not.toHaveBeenCalled();
+
         expect(result).toEqual([]);
       });
 
       it('should invalidate prediction cache after update', async () => {
         const ctx = createMockContext('user-123');
-        mockPrisma.$transaction.mockResolvedValue([]);
 
         await mutation(
           {},
@@ -1511,10 +1547,8 @@ describe('GraphQL Resolvers', () => {
 
       it('should handle null custom interval', async () => {
         const ctx = createMockContext('user-123');
-        const mockResult = [
-          { id: 'pref-1', componentType: 'FORK', trackingEnabled: false, customInterval: null },
-        ];
-        mockPrisma.$transaction.mockResolvedValue(mockResult);
+        const mockResult = { id: 'pref-1', componentType: 'FORK', trackingEnabled: false, customInterval: null };
+        mockTxUpsert.mockResolvedValue(mockResult);
 
         const result = await mutation(
           {},
@@ -1529,7 +1563,27 @@ describe('GraphQL Resolvers', () => {
           ctx as never
         );
 
-        expect(result).toEqual(mockResult);
+        // Should upsert with null customInterval
+        expect(mockTxUpsert).toHaveBeenCalledWith({
+          where: {
+            bikeId_componentType: {
+              bikeId: 'bike-1',
+              componentType: 'FORK',
+            },
+          },
+          create: {
+            bikeId: 'bike-1',
+            componentType: 'FORK',
+            trackingEnabled: false,
+            customInterval: null,
+          },
+          update: {
+            trackingEnabled: false,
+            customInterval: null,
+          },
+        });
+
+        expect(result).toEqual([mockResult]);
       });
     });
   });

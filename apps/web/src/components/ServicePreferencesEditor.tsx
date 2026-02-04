@@ -103,11 +103,32 @@ export default function ServicePreferencesEditor({ onSaved, compact = false }: S
   };
 
   const handleIntervalChange = (componentType: string, value: string) => {
-    const numValue = value === '' ? null : parseFloat(value);
+    // Handle empty input - reset to null (use default)
+    if (value === '') {
+      setPreferences((prev) =>
+        prev.map((p) =>
+          p.componentType === componentType
+            ? { ...p, customInterval: null, hasCustomInterval: false }
+            : p
+        )
+      );
+      setHasChanges(true);
+      setSuccess(false);
+      return;
+    }
+
+    // Validate numeric input
+    const numValue = parseFloat(value);
+    if (isNaN(numValue) || numValue <= 0 || numValue > 1000) {
+      // Invalid input - don't update state, let the input show the invalid value
+      // but don't propagate it. The HTML input validation will show an error.
+      return;
+    }
+
     setPreferences((prev) =>
       prev.map((p) =>
         p.componentType === componentType
-          ? { ...p, customInterval: numValue, hasCustomInterval: numValue !== null }
+          ? { ...p, customInterval: numValue, hasCustomInterval: true }
           : p
       )
     );

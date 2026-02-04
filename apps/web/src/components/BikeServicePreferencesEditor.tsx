@@ -181,7 +181,31 @@ export default function BikeServicePreferencesEditor({
   };
 
   const handleIntervalChange = (componentType: string, value: string) => {
-    const numValue = value === '' ? null : parseFloat(value);
+    // Handle empty input - reset to null (use default)
+    if (value === '') {
+      setPreferences((prev) =>
+        prev.map((p) => {
+          if (p.componentType !== componentType || !p.hasOverride) return p;
+          return {
+            ...p,
+            overrideCustomInterval: null,
+            effectiveCustomInterval: null,
+          };
+        })
+      );
+      setHasChanges(true);
+      setSuccess(false);
+      return;
+    }
+
+    // Validate numeric input
+    const numValue = parseFloat(value);
+    if (isNaN(numValue) || numValue <= 0 || numValue > 1000) {
+      // Invalid input - don't update state, let the input show the invalid value
+      // but don't propagate it. The HTML input validation will show an error.
+      return;
+    }
+
     setPreferences((prev) =>
       prev.map((p) => {
         if (p.componentType !== componentType || !p.hasOverride) return p;

@@ -2483,23 +2483,22 @@ export const resolvers = {
       // Validate preferences
       validateServicePreferences(input.preferences);
 
-      // Get the component types being set as overrides
-      const overrideTypes = new Set(input.preferences.map(p => p.componentType));
+      // Wrap delete and upsert in a single transaction to prevent race conditions
+      const results = await prisma.$transaction(async (tx) => {
+        // Delete any existing bike preferences that are NOT in the input
+        // (i.e., user removed the override and wants to use global default)
+        await tx.bikeServicePreference.deleteMany({
+          where: {
+            bikeId: input.bikeId,
+            componentType: { notIn: input.preferences.map(p => p.componentType) },
+          },
+        });
 
-      // Delete any existing bike preferences that are NOT in the input
-      // (i.e., user removed the override and wants to use global default)
-      await prisma.bikeServicePreference.deleteMany({
-        where: {
-          bikeId: input.bikeId,
-          componentType: { notIn: input.preferences.map(p => p.componentType) },
-        },
-      });
-
-      // Upsert all preferences that have overrides
-      const results = input.preferences.length > 0
-        ? await prisma.$transaction(
+        // Upsert all preferences that have overrides
+        if (input.preferences.length > 0) {
+          return Promise.all(
             input.preferences.map(pref =>
-              prisma.bikeServicePreference.upsert({
+              tx.bikeServicePreference.upsert({
                 where: {
                   bikeId_componentType: {
                     bikeId: input.bikeId,
@@ -2518,8 +2517,10 @@ export const resolvers = {
                 },
               })
             )
-          )
-        : [];
+          );
+        }
+        return [];
+      });
 
       // Invalidate prediction cache for this bike
       const { invalidateBikePrediction } = await import('../services/prediction/cache');
