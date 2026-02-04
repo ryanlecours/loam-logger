@@ -258,6 +258,30 @@ const requireUserId = (ctx: GraphQLContext) => {
   return id;
 };
 
+/**
+ * Validate service preference inputs.
+ * Throws GraphQLError if component type is invalid or custom interval is out of range.
+ */
+const validateServicePreferences = (
+  preferences: Array<{ componentType: ComponentTypeLiteral; customInterval?: number | null }>
+) => {
+  const validComponentTypes = Object.values(ComponentTypeEnum);
+  for (const pref of preferences) {
+    if (!validComponentTypes.includes(pref.componentType as ComponentTypeEnum)) {
+      throw new GraphQLError(`Invalid component type: ${pref.componentType}`, {
+        extensions: { code: 'BAD_USER_INPUT' },
+      });
+    }
+    if (pref.customInterval !== null && pref.customInterval !== undefined) {
+      if (pref.customInterval <= 0 || pref.customInterval > 1000) {
+        throw new GraphQLError(`Invalid custom interval for ${pref.componentType}. Must be between 1 and 1000 hours.`, {
+          extensions: { code: 'BAD_USER_INPUT' },
+        });
+      }
+    }
+  }
+};
+
 const normalizeBikeComponentInput = (
   type: ComponentType,
   input?: BikeComponentInputGQL | null
@@ -2384,24 +2408,7 @@ export const resolvers = {
       }
 
       // Validate preferences
-      const validComponentTypes = Object.values(ComponentTypeEnum);
-      for (const pref of input.preferences) {
-        // Validate component type
-        if (!validComponentTypes.includes(pref.componentType as ComponentTypeEnum)) {
-          throw new GraphQLError(`Invalid component type: ${pref.componentType}`, {
-            extensions: { code: 'BAD_USER_INPUT' },
-          });
-        }
-
-        // Validate custom interval if provided
-        if (pref.customInterval !== null && pref.customInterval !== undefined) {
-          if (pref.customInterval <= 0 || pref.customInterval > 1000) {
-            throw new GraphQLError(`Invalid custom interval for ${pref.componentType}. Must be between 1 and 1000 hours.`, {
-              extensions: { code: 'BAD_USER_INPUT' },
-            });
-          }
-        }
-      }
+      validateServicePreferences(input.preferences);
 
       // Upsert all preferences in a transaction
       const results = await prisma.$transaction(
@@ -2462,24 +2469,7 @@ export const resolvers = {
       }
 
       // Validate preferences
-      const validComponentTypes = Object.values(ComponentTypeEnum);
-      for (const pref of input.preferences) {
-        // Validate component type
-        if (!validComponentTypes.includes(pref.componentType as ComponentTypeEnum)) {
-          throw new GraphQLError(`Invalid component type: ${pref.componentType}`, {
-            extensions: { code: 'BAD_USER_INPUT' },
-          });
-        }
-
-        // Validate custom interval if provided
-        if (pref.customInterval !== null && pref.customInterval !== undefined) {
-          if (pref.customInterval <= 0 || pref.customInterval > 1000) {
-            throw new GraphQLError(`Invalid custom interval for ${pref.componentType}. Must be between 1 and 1000 hours.`, {
-              extensions: { code: 'BAD_USER_INPUT' },
-            });
-          }
-        }
-      }
+      validateServicePreferences(input.preferences);
 
       // Get the component types being set as overrides
       const overrideTypes = new Set(input.preferences.map(p => p.componentType));

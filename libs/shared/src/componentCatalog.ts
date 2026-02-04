@@ -119,6 +119,14 @@ export const COMPONENT_CATALOG: ComponentDefinition[] = [
     isApplicable: () => true,
     spokesKey: 'rearDerailleur',
   },
+  {
+    type: 'DRIVETRAIN',
+    displayName: 'Drivetrain Clean/Lube',
+    category: 'DRIVETRAIN',
+    serviceIntervalHours: 6,
+    defaultBaselineWearPercent: 0, // resets after each service
+    isApplicable: () => true,
+  },
 
   // ---------------------------------------------------------------------------
   // BRAKES
