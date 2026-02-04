@@ -567,5 +567,122 @@ describe('prediction engine', () => {
       expect(result.overallStatus).toBe('ALL_GOOD');
       expect(result.priorityComponent).toBeNull();
     });
+
+    it('should apply complete preference priority chain correctly', async () => {
+      // Integration test: verify priority chain
+      // Priority (highest to lowest):
+      // 1. Component serviceDueAtHours (FORK has 50h override)
+      // 2. Bike-level preference (CHAIN has 30h bike override, CASSETTE has bike preference)
+      // 3. Global preference (DRIVETRAIN has 20h global preference)
+      // 4. System default (BRAKE_PAD uses system default of 40h)
+
+      // Global preferences
+      (prisma.userServicePreference as unknown as { findMany: jest.Mock }).findMany.mockResolvedValue([
+        { componentType: 'CHAIN', trackingEnabled: true, customInterval: 50 }, // Will be overridden by bike
+        { componentType: 'DRIVETRAIN', trackingEnabled: true, customInterval: 20 }, // Used (no bike override)
+        { componentType: 'CASSETTE', trackingEnabled: false, customInterval: null }, // Will be overridden by bike
+      ]);
+
+      // Bike-level preferences (override global)
+      (prisma.bikeServicePreference as unknown as { findMany: jest.Mock }).findMany.mockResolvedValue([
+        { componentType: 'CHAIN', trackingEnabled: true, customInterval: 30 }, // Overrides global 50h
+        { componentType: 'CASSETTE', trackingEnabled: true, customInterval: 100 }, // Overrides global disabled
+      ]);
+
+      // Bike with multiple components at different priority levels
+      const multiComponentBike = {
+        ...mockBike,
+        components: [
+          {
+            id: 'comp-fork',
+            type: 'FORK',
+            location: 'NONE',
+            brand: 'Fox',
+            model: '36',
+            hoursUsed: 30,
+            serviceDueAtHours: 50, // Component-level override (highest priority)
+          },
+          {
+            id: 'comp-chain',
+            type: 'CHAIN',
+            location: 'NONE',
+            brand: 'SRAM',
+            model: 'XX1',
+            hoursUsed: 20,
+            serviceDueAtHours: null, // Uses bike preference (30h)
+          },
+          {
+            id: 'comp-drivetrain',
+            type: 'DRIVETRAIN',
+            location: 'NONE',
+            brand: 'SRAM',
+            model: 'XX1 Eagle',
+            hoursUsed: 5,
+            serviceDueAtHours: null, // Uses global preference (20h)
+          },
+          {
+            id: 'comp-cassette',
+            type: 'CASSETTE',
+            location: 'NONE',
+            brand: 'SRAM',
+            model: 'XG-1299',
+            hoursUsed: 50,
+            serviceDueAtHours: null, // Uses bike preference (100h, tracking enabled)
+          },
+          {
+            id: 'comp-brakepad',
+            type: 'BRAKE_PAD',
+            location: 'FRONT',
+            brand: 'SRAM',
+            model: 'Guide',
+            hoursUsed: 10,
+            serviceDueAtHours: null, // Uses system default (40h for front)
+          },
+        ],
+      };
+
+      (prisma.bike.findUnique as jest.Mock).mockResolvedValue(multiComponentBike);
+      (prisma.ride.findMany as jest.Mock).mockResolvedValue([]);
+      (prisma.serviceLog.findMany as jest.Mock).mockResolvedValue([]);
+      (prisma.ride.findFirst as jest.Mock).mockResolvedValue({
+        startTime: new Date('2024-01-01'),
+      });
+
+      const result = await generateBikePredictions({
+        userId: 'user-123',
+        bikeId: 'bike-123',
+        userRole: 'FREE',
+      });
+
+      // All 5 components should be included (none disabled by final preference)
+      expect(result.components).toHaveLength(5);
+
+      // Verify each priority level is applied correctly
+      const forkPrediction = result.components.find(c => c.componentType === 'FORK');
+      const chainPrediction = result.components.find(c => c.componentType === 'CHAIN');
+      const drivetrainPrediction = result.components.find(c => c.componentType === 'DRIVETRAIN');
+      const cassettePrediction = result.components.find(c => c.componentType === 'CASSETTE');
+      const brakePadPrediction = result.components.find(c => c.componentType === 'BRAKE_PAD');
+
+      // Priority 1: Component serviceDueAtHours (50h)
+      expect(forkPrediction).toBeDefined();
+      expect(forkPrediction!.serviceIntervalHours).toBe(50);
+
+      // Priority 2: Bike-level preference (30h overrides global 50h)
+      expect(chainPrediction).toBeDefined();
+      expect(chainPrediction!.serviceIntervalHours).toBe(30);
+
+      // Priority 3: Global preference (20h, no bike override)
+      expect(drivetrainPrediction).toBeDefined();
+      expect(drivetrainPrediction!.serviceIntervalHours).toBe(20);
+
+      // Priority 2: Bike-level preference (100h, tracking enabled despite global disabled)
+      expect(cassettePrediction).toBeDefined();
+      expect(cassettePrediction!.serviceIntervalHours).toBe(100);
+
+      // Priority 4: System default (40h for front brake pad)
+      expect(brakePadPrediction).toBeDefined();
+      expect(brakePadPrediction!.serviceIntervalHours).toBe(40);
+    });
   });
 });
