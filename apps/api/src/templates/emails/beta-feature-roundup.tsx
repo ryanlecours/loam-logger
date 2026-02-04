@@ -21,7 +21,6 @@ export const BETA_FEATURE_ROUNDUP_TEMPLATE_VERSION = "1.0.1";
 export type BetaFeatureRoundupEmailProps = {
   recipientFirstName?: string;
 
-  settingsUrl?: string;
   integrationsUrl?: string;
   servicePrefsUrl?: string;
   ridesUrl?: string;
@@ -82,7 +81,6 @@ const darkModeStyles = `
 
 export default function BetaFeatureRoundupEmail({
   recipientFirstName,
-  settingsUrl = "https://loamlogger.app/settings",
   integrationsUrl = "https://loamlogger.app/settings#integrations",
   servicePrefsUrl = "https://loamlogger.app/settings#service-tracking",
   ridesUrl = "https://loamlogger.app/rides",
@@ -97,7 +95,6 @@ export default function BetaFeatureRoundupEmail({
   const safeName = sanitizeUserInput(recipientFirstName);
   const safeSupportEmail = sanitizeUserInput(supportEmail, 200);
 
-  const safeSettingsUrl = sanitizeUserInput(settingsUrl, 200);
   const safeIntegrationsUrl = sanitizeUserInput(integrationsUrl, 200);
   const safeServicePrefsUrl = sanitizeUserInput(servicePrefsUrl, 200);
   const safeRidesUrl = sanitizeUserInput(ridesUrl, 200);
