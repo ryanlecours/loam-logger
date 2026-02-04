@@ -9,7 +9,7 @@ import { templateConfig as announcementConfig } from './announcement';
 import { templateConfig as foundingRidersConfig } from './founding-riders';
 import { templateConfig as preAccessConfig } from './pre-access';
 import { templateConfig as stravaEnabledConfig } from './strava-enabled';
-import { templateConfig as whoopEnabledConfig } from './whoop-enabled';
+import { templateConfig as betaFeatureRoundupConfig } from './whoop-enabled';
 // Note: activation template excluded - it's system-triggered, not admin-sendable
 
 import type { TemplateConfig, TemplateConfigDTO } from './types';
@@ -23,7 +23,7 @@ const allTemplates: TemplateConfig[] = [
   foundingRidersConfig,
   preAccessConfig,
   stravaEnabledConfig,
-  whoopEnabledConfig,
+  betaFeatureRoundupConfig,
 ];
 
 /** Templates visible in admin UI (excludes system-only templates) */

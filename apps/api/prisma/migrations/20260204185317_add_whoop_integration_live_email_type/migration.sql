@@ -1,2 +1,2 @@
 -- AlterEnum
-ALTER TYPE "public"."EmailType" ADD VALUE 'whoop_integration_live';
+ALTER TYPE "public"."EmailType" ADD VALUE 'beta_feature_roundup';

@@ -243,7 +243,7 @@ export default function ServicePreferencesEditor({ onSaved, compact = false }: S
                 {categoryPrefs.map((pref) => (
                   <div
                     key={pref.componentType}
-                    className={`w-[75%] p-3 rounded-xl border transition ${
+                    className={`w-full md:w-[75%] p-3 rounded-xl border transition ${
                       pref.trackingEnabled
                         ? 'border-app/70 bg-surface-2'
                         : 'border-app/30 bg-surface-2/30 opacity-60'
