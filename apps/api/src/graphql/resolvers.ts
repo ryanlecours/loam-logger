@@ -435,7 +435,6 @@ export async function buildBikeComponents(
     bikeId: string;
     userId: string;
     bikeSpec: BikeSpec;
-    acquisitionCondition: AcquisitionCondition;
     spokesComponents?: SpokesComponentsInputGQL | null;
     userOverrides?: Partial<Record<BikeComponentKey, BikeComponentInputGQL | null>>;
     pairedComponentConfigs?: PairedComponentConfigInputGQL[] | null;
@@ -452,7 +451,6 @@ export async function buildBikeComponents(
   }
 
   // Always start at 0% baseline - ride backfill + service dates provide accuracy
-  // acquisitionCondition now indicates stock vs swapped components, not wear state
   const baselineWearPercent = 0;
   const baselineMethod: BaselineMethod = 'DEFAULT';
   const baselineConfidence: BaselineConfidence = 'LOW';  // Until refined by user
@@ -1538,12 +1536,11 @@ export const resolvers = {
           },
         });
 
-        // Build components dynamically based on BikeSpec and acquisition condition
+        // Build components dynamically based on BikeSpec
         await buildBikeComponents(tx, {
           bikeId: bike.id,
           userId,
           bikeSpec,
-          acquisitionCondition,
           spokesComponents: input.spokesComponents,
           userOverrides: {
             fork: input.fork,

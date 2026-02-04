@@ -65,7 +65,7 @@ export default function ServicePreferencesEditor({ onSaved, compact = false }: S
   const [hasChanges, setHasChanges] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
-  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
+  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set([CATEGORY_ORDER[0]]));
 
   const toggleCategory = (category: string) => {
     setExpandedCategories((prev) => {
