@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useQuery, useMutation } from '@apollo/client';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import {
   FaArrowLeft,
   FaBicycle,
@@ -9,6 +9,9 @@ import {
   FaWrench,
   FaExternalLinkAlt,
   FaCog,
+  FaChevronDown,
+  FaChevronUp,
+  FaSlidersH,
 } from 'react-icons/fa';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
@@ -29,6 +32,7 @@ import {
 } from '@/models/BikeComponents';
 import { getComponentLabel } from '@/constants/componentLabels';
 import type { BikePredictionSummary, ComponentPrediction, PredictionStatus } from '@/types/prediction';
+import BikeServicePreferencesEditor from '@/components/BikeServicePreferencesEditor';
 
 type ComponentDto = {
   id: string;
@@ -45,6 +49,13 @@ type ComponentDto = {
   baselineConfidence?: string | null;
   lastServicedAt?: string | null;
   location?: string | null;
+};
+
+type BikeServicePreferenceDto = {
+  id: string;
+  componentType: string;
+  trackingEnabled: boolean;
+  customInterval: number | null;
 };
 
 type BikeDto = {
@@ -75,6 +86,7 @@ type BikeDto = {
   batteryWh?: number | null;
   components: ComponentDto[];
   predictions?: BikePredictionSummary | null;
+  servicePreferences?: BikeServicePreferenceDto[];
 };
 
 export default function BikeDetail() {
@@ -146,6 +158,9 @@ export default function BikeDetail() {
   const [spokesImages, setSpokesImages] = useState<Array<{ url: string; colorKey?: string }>>([]);
   const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null);
   const [imageFormError, setImageFormError] = useState<string | null>(null);
+
+  // Service tracking section state
+  const [serviceTrackingExpanded, setServiceTrackingExpanded] = useState(false);
 
   // Handle opening the edit image modal
   const handleEditImageOpen = async () => {
@@ -415,6 +430,45 @@ export default function BikeDetail() {
             </p>
           </div>
         )}
+      </section>
+
+      {/* Service Tracking Preferences */}
+      <section className="bike-detail-section">
+        <button
+          type="button"
+          onClick={() => setServiceTrackingExpanded(!serviceTrackingExpanded)}
+          className="w-full flex items-center justify-between text-left"
+        >
+          <div className="flex items-center gap-2">
+            <FaSlidersH size={14} className="text-muted" />
+            <h3 className="bike-detail-section-title" style={{ marginBottom: 0 }}>
+              Service Tracking
+            </h3>
+          </div>
+          {serviceTrackingExpanded ? (
+            <FaChevronUp size={14} className="text-muted" />
+          ) : (
+            <FaChevronDown size={14} className="text-muted" />
+          )}
+        </button>
+        <AnimatePresence>
+          {serviceTrackingExpanded && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="overflow-hidden"
+            >
+              <div className="pt-4">
+                <BikeServicePreferencesEditor
+                  bikeId={bike.id}
+                  bikeServicePreferences={bike.servicePreferences ?? []}
+                />
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </section>
 
       {/* Notes */}

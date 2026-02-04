@@ -3,7 +3,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { useQuery } from '@apollo/client';
 import { useNavigate } from 'react-router-dom';
 import { RIDES } from '../graphql/rides';
-import { BIKES } from '../graphql/bikes';
+import { BIKES, BIKES_LIGHT } from '../graphql/bikes';
 import { UNMAPPED_STRAVA_GEARS } from '../graphql/stravaGear';
 import { useImportNotificationState } from '../graphql/importSession';
 import { useCalibrationState } from '../graphql/calibration';
@@ -71,13 +71,31 @@ export default function Dashboard() {
     fetchPolicy: 'cache-first',
   });
 
+  // First load bikes without predictions (fast)
   const {
-    data: bikesData,
-    loading: bikesLoading,
-    refetch: refetchBikes,
-  } = useQuery<{ bikes: BikeWithPredictions[] }>(BIKES, {
+    data: bikesLightData,
+    loading: bikesLightLoading,
+    refetch: refetchBikesLight,
+  } = useQuery<{ bikes: BikeWithPredictions[] }>(BIKES_LIGHT, {
     fetchPolicy: 'cache-and-network',
   });
+
+  // Then load predictions in the background
+  const {
+    data: bikesFullData,
+    refetch: refetchBikesFull,
+  } = useQuery<{ bikes: BikeWithPredictions[] }>(BIKES, {
+    fetchPolicy: 'cache-and-network',
+    skip: !bikesLightData, // Only fetch once we have the light data
+  });
+
+  // Use full data if available, otherwise fall back to light data
+  const bikesData = bikesFullData || bikesLightData;
+  const bikesLoading = bikesLightLoading;
+  const refetchBikes = async () => {
+    await refetchBikesLight();
+    await refetchBikesFull();
+  };
 
   const { data: unmappedData } = useQuery(UNMAPPED_STRAVA_GEARS, {
     pollInterval: 60000,

@@ -230,6 +230,7 @@ export const typeDefs = gql`
     pivotBearings: Component
     components: [Component!]!
     predictions: BikePredictionSummary
+    servicePreferences: [BikeServicePreference!]!
     createdAt: String!
     updatedAt: String!
   }
@@ -507,6 +508,51 @@ export const typeDefs = gql`
     predictionMode: String
   }
 
+  # Service Preferences
+  type UserServicePreference {
+    id: ID!
+    componentType: ComponentType!
+    trackingEnabled: Boolean!
+    customInterval: Float
+  }
+
+  type ServicePreferenceDefault {
+    componentType: ComponentType!
+    displayName: String!
+    defaultInterval: Float!
+    defaultIntervalFront: Float
+    defaultIntervalRear: Float
+  }
+
+  input ServicePreferenceInput {
+    componentType: ComponentType!
+    trackingEnabled: Boolean!
+    customInterval: Float
+  }
+
+  input UpdateServicePreferencesInput {
+    preferences: [ServicePreferenceInput!]!
+  }
+
+  # Per-bike service preferences (overrides global)
+  type BikeServicePreference {
+    id: ID!
+    componentType: ComponentType!
+    trackingEnabled: Boolean!
+    customInterval: Float
+  }
+
+  input BikeServicePreferenceInput {
+    componentType: ComponentType!
+    trackingEnabled: Boolean!
+    customInterval: Float
+  }
+
+  input UpdateBikeServicePreferencesInput {
+    bikeId: ID!
+    preferences: [BikeServicePreferenceInput!]!
+  }
+
   # Paired component configuration for bike import
   input PairedComponentSpecInput {
     brand: String!
@@ -569,6 +615,8 @@ export const typeDefs = gql`
     markPairedComponentMigrationSeen: User!
     replaceComponent(input: ReplaceComponentInput!): ReplaceComponentResult!
     migratePairedComponents: MigratePairedComponentsResult!
+    updateServicePreferences(input: UpdateServicePreferencesInput!): [UserServicePreference!]!
+    updateBikeServicePreferences(input: UpdateBikeServicePreferencesInput!): [BikeServicePreference!]!
   }
 
   type ConnectedAccount {
@@ -594,6 +642,7 @@ export const typeDefs = gql`
     hoursDisplayPreference: String
     predictionMode: String
     pairedComponentMigrationSeenAt: String
+    servicePreferences: [UserServicePreference!]!
     createdAt: String!
   }
 
@@ -614,5 +663,6 @@ export const typeDefs = gql`
     importNotificationState: ImportNotificationState
     unassignedRides(importSessionId: ID!, take: Int = 50, after: ID): UnassignedRidesPage!
     calibrationState: CalibrationState
+    servicePreferenceDefaults: [ServicePreferenceDefault!]!
   }
 `;

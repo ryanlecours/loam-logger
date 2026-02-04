@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useApolloClient, useQuery, gql } from '@apollo/client';
-import { FaMountain, FaStrava, FaCog, FaCheck } from 'react-icons/fa';
+import { FaMountain, FaStrava, FaCog, FaCheck, FaChevronDown, FaChevronUp, FaClock } from 'react-icons/fa';
 import { ME_QUERY } from '../graphql/me';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { Button } from '@/components/ui';
@@ -12,6 +12,7 @@ import { useSpokes, type SpokesBikeDetails } from '@/hooks/useSpokes';
 import { TermsAcceptanceStep } from '@/components/TermsAcceptanceStep';
 import { ServiceHistoryForm } from '@/components/onboarding/ServiceHistoryForm';
 import { ImportRidesForm } from '@/components/onboarding/ImportRidesForm';
+import ServicePreferencesEditor from '@/components/ServicePreferencesEditor';
 import {
   toSpokesInput,
   isValidImageUrl,
@@ -96,6 +97,7 @@ export default function Onboarding() {
 
   // Step 7: Personalization state
   const [bikeId, setBikeId] = useState<string | null>(null);
+  const [showServicePrefs, setShowServicePrefs] = useState(false);
 
   // Get bike image URL with fallback to images array, validated for security
   const getBikeImageUrl = () => {
@@ -887,6 +889,36 @@ export default function Onboarding() {
                     </div>
                   </div>
                 </button>
+
+                {/* 4. Configure Service Tracking - Collapsible */}
+                <div className="w-full rounded-lg border-2 border-app overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => setShowServicePrefs(!showServicePrefs)}
+                    className="w-full p-4 flex items-center justify-between bg-surface hover:bg-surface-hover transition-colors text-left"
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center shrink-0">
+                        <FaClock className="text-primary" />
+                      </div>
+                      <div className="flex-1">
+                        <span className="font-medium text-primary">Configure service tracking</span>
+                        <div className="text-sm text-muted">Choose which components to track</div>
+                      </div>
+                    </div>
+                    {showServicePrefs ? (
+                      <FaChevronUp className="w-4 h-4 text-muted shrink-0" />
+                    ) : (
+                      <FaChevronDown className="w-4 h-4 text-muted shrink-0" />
+                    )}
+                  </button>
+
+                  {showServicePrefs && (
+                    <div className="p-4 border-t border-app bg-surface-2">
+                      <ServicePreferencesEditor compact={true} />
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Primary CTA */}

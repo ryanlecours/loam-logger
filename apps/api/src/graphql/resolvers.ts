@@ -12,7 +12,7 @@ import type {
 import { checkRateLimit, checkMutationRateLimit, checkQueryRateLimit } from '../lib/rate-limit';
 import { enqueueSyncJob, type SyncProvider } from '../lib/queue';
 import { invalidateBikePrediction } from '../services/prediction/cache';
-import { getBaseInterval } from '../services/prediction/config';
+import { getBaseInterval, BASE_INTERVALS_HOURS, DEFAULT_INTERVAL_HOURS } from '../services/prediction/config';
 import {
   getApplicableComponents,
   deriveBikeSpec,
@@ -20,6 +20,7 @@ import {
   type BikeSpec,
   type SpokesComponents,
   CURRENT_TERMS_VERSION,
+  COMPONENT_CATALOG,
 } from '@loam/shared';
 import { createId } from '@paralleldrive/cuid2';
 import { logError } from '../lib/logger';
@@ -1063,6 +1064,38 @@ export const resolvers = {
         totalComponentCount: totalComponents,
         bikes: bikesNeedingCalibration,
       };
+    },
+
+    servicePreferenceDefaults: () => {
+      // Get all trackable component types with their default intervals
+      // Use COMPONENT_CATALOG for display names and BASE_INTERVALS_HOURS for intervals
+      const trackableTypes = Object.keys(BASE_INTERVALS_HOURS) as ComponentTypeLiteral[];
+
+      return trackableTypes.map((componentType) => {
+        const interval = BASE_INTERVALS_HOURS[componentType];
+        const catalogEntry = COMPONENT_CATALOG.find(c => c.type === componentType);
+        const displayName = catalogEntry?.displayName ?? componentType.replace(/_/g, ' ');
+
+        if (typeof interval === 'object') {
+          // Location-based interval (has front/rear)
+          return {
+            componentType,
+            displayName,
+            defaultInterval: interval.front, // Use front as the "main" interval
+            defaultIntervalFront: interval.front,
+            defaultIntervalRear: interval.rear,
+          };
+        } else {
+          // Single interval value
+          return {
+            componentType,
+            displayName,
+            defaultInterval: interval ?? DEFAULT_INTERVAL_HOURS,
+            defaultIntervalFront: null,
+            defaultIntervalRear: null,
+          };
+        }
+      });
     },
   },
   Mutation: {
@@ -2329,6 +2362,164 @@ export const resolvers = {
       });
     },
 
+    updateServicePreferences: async (
+      _: unknown,
+      { input }: { input: { preferences: Array<{ componentType: ComponentTypeLiteral; trackingEnabled: boolean; customInterval?: number | null }> } },
+      ctx: GraphQLContext
+    ) => {
+      const userId = requireUserId(ctx);
+
+      // Rate limit check
+      const rateLimit = await checkMutationRateLimit('updateServicePreferences', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
+
+      // Validate preferences
+      const validComponentTypes = Object.values(ComponentTypeEnum);
+      for (const pref of input.preferences) {
+        // Validate component type
+        if (!validComponentTypes.includes(pref.componentType as ComponentTypeEnum)) {
+          throw new GraphQLError(`Invalid component type: ${pref.componentType}`, {
+            extensions: { code: 'BAD_USER_INPUT' },
+          });
+        }
+
+        // Validate custom interval if provided
+        if (pref.customInterval !== null && pref.customInterval !== undefined) {
+          if (pref.customInterval <= 0 || pref.customInterval > 1000) {
+            throw new GraphQLError(`Invalid custom interval for ${pref.componentType}. Must be between 1 and 1000 hours.`, {
+              extensions: { code: 'BAD_USER_INPUT' },
+            });
+          }
+        }
+      }
+
+      // Upsert all preferences in a transaction
+      const results = await prisma.$transaction(
+        input.preferences.map(pref =>
+          prisma.userServicePreference.upsert({
+            where: {
+              userId_componentType: {
+                userId,
+                componentType: pref.componentType,
+              },
+            },
+            create: {
+              userId,
+              componentType: pref.componentType,
+              trackingEnabled: pref.trackingEnabled,
+              customInterval: pref.customInterval ?? null,
+            },
+            update: {
+              trackingEnabled: pref.trackingEnabled,
+              customInterval: pref.customInterval ?? null,
+            },
+          })
+        )
+      );
+
+      // Invalidate prediction cache for all user's bikes
+      const { invalidateUserPredictions } = await import('../services/prediction/cache');
+      await invalidateUserPredictions(userId);
+
+      return results;
+    },
+
+    updateBikeServicePreferences: async (
+      _: unknown,
+      { input }: { input: { bikeId: string; preferences: Array<{ componentType: ComponentTypeLiteral; trackingEnabled: boolean; customInterval?: number | null }> } },
+      ctx: GraphQLContext
+    ) => {
+      const userId = requireUserId(ctx);
+
+      // Rate limit check
+      const rateLimit = await checkMutationRateLimit('updateBikeServicePreferences', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
+
+      // Verify bike belongs to user
+      const bike = await prisma.bike.findUnique({
+        where: { id: input.bikeId },
+        select: { userId: true },
+      });
+
+      if (!bike || bike.userId !== userId) {
+        throw new GraphQLError('Bike not found', {
+          extensions: { code: 'NOT_FOUND' },
+        });
+      }
+
+      // Validate preferences
+      const validComponentTypes = Object.values(ComponentTypeEnum);
+      for (const pref of input.preferences) {
+        // Validate component type
+        if (!validComponentTypes.includes(pref.componentType as ComponentTypeEnum)) {
+          throw new GraphQLError(`Invalid component type: ${pref.componentType}`, {
+            extensions: { code: 'BAD_USER_INPUT' },
+          });
+        }
+
+        // Validate custom interval if provided
+        if (pref.customInterval !== null && pref.customInterval !== undefined) {
+          if (pref.customInterval <= 0 || pref.customInterval > 1000) {
+            throw new GraphQLError(`Invalid custom interval for ${pref.componentType}. Must be between 1 and 1000 hours.`, {
+              extensions: { code: 'BAD_USER_INPUT' },
+            });
+          }
+        }
+      }
+
+      // Get the component types being set as overrides
+      const overrideTypes = new Set(input.preferences.map(p => p.componentType));
+
+      // Delete any existing bike preferences that are NOT in the input
+      // (i.e., user removed the override and wants to use global default)
+      await prisma.bikeServicePreference.deleteMany({
+        where: {
+          bikeId: input.bikeId,
+          componentType: { notIn: input.preferences.map(p => p.componentType) },
+        },
+      });
+
+      // Upsert all preferences that have overrides
+      const results = input.preferences.length > 0
+        ? await prisma.$transaction(
+            input.preferences.map(pref =>
+              prisma.bikeServicePreference.upsert({
+                where: {
+                  bikeId_componentType: {
+                    bikeId: input.bikeId,
+                    componentType: pref.componentType,
+                  },
+                },
+                create: {
+                  bikeId: input.bikeId,
+                  componentType: pref.componentType,
+                  trackingEnabled: pref.trackingEnabled,
+                  customInterval: pref.customInterval ?? null,
+                },
+                update: {
+                  trackingEnabled: pref.trackingEnabled,
+                  customInterval: pref.customInterval ?? null,
+                },
+              })
+            )
+          )
+        : [];
+
+      // Invalidate prediction cache for this bike
+      const { invalidateBikePrediction } = await import('../services/prediction/cache');
+      await invalidateBikePrediction(userId, input.bikeId);
+
+      return results;
+    },
+
     acknowledgeImportOverlay: async (
       _: unknown,
       { importSessionId }: { importSessionId: string },
@@ -2888,6 +3079,14 @@ export const resolvers = {
         return null;
       }
     },
+    servicePreferences: async (bike: Bike & { servicePreferences?: unknown[] }) => {
+      // Return pre-loaded preferences if available
+      if (bike.servicePreferences) return bike.servicePreferences;
+      // Otherwise fetch from database
+      return prisma.bikeServicePreference.findMany({
+        where: { bikeId: bike.id },
+      });
+    },
   },
 
   Component: {
@@ -2940,5 +3139,10 @@ export const resolvers = {
     pairedComponentMigrationSeenAt: (parent: { pairedComponentMigrationSeenAt?: Date | null }) =>
       parent.pairedComponentMigrationSeenAt?.toISOString() ?? null,
     createdAt: (parent: { createdAt: Date }) => parent.createdAt.toISOString(),
+    servicePreferences: async (parent: { id: string }) => {
+      return prisma.userServicePreference.findMany({
+        where: { userId: parent.id },
+      });
+    },
   },
 };

@@ -24,6 +24,11 @@ jest.mock('../../lib/prisma', () => ({
     user: {
       update: jest.fn(),
     },
+    bikeServicePreference: {
+      findMany: jest.fn(),
+      upsert: jest.fn(),
+      deleteMany: jest.fn(),
+    },
     $transaction: jest.fn(),
   },
 }));
@@ -1283,6 +1288,279 @@ describe('GraphQL Resolvers', () => {
         },
         orderBy: { createdAt: 'desc' },
       });
+    });
+  });
+
+  describe('updateBikeServicePreferences', () => {
+    const mutation = resolvers.Mutation.updateBikeServicePreferences;
+
+    describe('authorization', () => {
+      it('should throw Unauthorized when user is not authenticated', async () => {
+        const ctx = createMockContext(null);
+
+        await expect(
+          mutation(
+            {},
+            { input: { bikeId: 'bike-1', preferences: [] } },
+            ctx as never
+          )
+        ).rejects.toThrow('Unauthorized');
+      });
+
+      it('should throw when bike not found', async () => {
+        const ctx = createMockContext('user-123');
+        mockPrisma.bike.findUnique.mockResolvedValue(null);
+
+        await expect(
+          mutation(
+            {},
+            { input: { bikeId: 'bike-1', preferences: [] } },
+            ctx as never
+          )
+        ).rejects.toThrow('Bike not found');
+      });
+
+      it('should throw when bike belongs to different user', async () => {
+        const ctx = createMockContext('user-123');
+        mockPrisma.bike.findUnique.mockResolvedValue({
+          id: 'bike-1',
+          userId: 'other-user',
+        } as never);
+
+        await expect(
+          mutation(
+            {},
+            { input: { bikeId: 'bike-1', preferences: [] } },
+            ctx as never
+          )
+        ).rejects.toThrow('Bike not found');
+      });
+    });
+
+    describe('rate limiting', () => {
+      it('should throw when rate limited', async () => {
+        const ctx = createMockContext('user-123');
+        mockCheckMutationRateLimit.mockResolvedValue({
+          allowed: false,
+          retryAfter: 60,
+        });
+
+        await expect(
+          mutation(
+            {},
+            { input: { bikeId: 'bike-1', preferences: [] } },
+            ctx as never
+          )
+        ).rejects.toThrow('Rate limit exceeded');
+      });
+    });
+
+    describe('validation', () => {
+      beforeEach(() => {
+        mockPrisma.bike.findUnique.mockResolvedValue({
+          id: 'bike-1',
+          userId: 'user-123',
+        } as never);
+      });
+
+      it('should reject invalid component type', async () => {
+        const ctx = createMockContext('user-123');
+
+        await expect(
+          mutation(
+            {},
+            {
+              input: {
+                bikeId: 'bike-1',
+                preferences: [
+                  { componentType: 'INVALID_TYPE', trackingEnabled: true },
+                ],
+              },
+            },
+            ctx as never
+          )
+        ).rejects.toThrow('Invalid component type');
+      });
+
+      it('should reject custom interval <= 0', async () => {
+        const ctx = createMockContext('user-123');
+
+        await expect(
+          mutation(
+            {},
+            {
+              input: {
+                bikeId: 'bike-1',
+                preferences: [
+                  { componentType: 'FORK', trackingEnabled: true, customInterval: 0 },
+                ],
+              },
+            },
+            ctx as never
+          )
+        ).rejects.toThrow('Invalid custom interval');
+      });
+
+      it('should reject custom interval > 1000', async () => {
+        const ctx = createMockContext('user-123');
+
+        await expect(
+          mutation(
+            {},
+            {
+              input: {
+                bikeId: 'bike-1',
+                preferences: [
+                  { componentType: 'FORK', trackingEnabled: true, customInterval: 1001 },
+                ],
+              },
+            },
+            ctx as never
+          )
+        ).rejects.toThrow('Invalid custom interval');
+      });
+    });
+
+    describe('happy path', () => {
+      beforeEach(() => {
+        mockPrisma.bike.findUnique.mockResolvedValue({
+          id: 'bike-1',
+          userId: 'user-123',
+        } as never);
+        (mockPrisma.bikeServicePreference as unknown as { deleteMany: jest.Mock }).deleteMany.mockResolvedValue({ count: 0 });
+      });
+
+      it('should upsert preferences and delete removed ones', async () => {
+        const ctx = createMockContext('user-123');
+        const mockResult = [
+          { id: 'pref-1', componentType: 'FORK', trackingEnabled: true, customInterval: 50 },
+        ];
+        mockPrisma.$transaction.mockResolvedValue(mockResult);
+
+        const result = await mutation(
+          {},
+          {
+            input: {
+              bikeId: 'bike-1',
+              preferences: [
+                { componentType: 'FORK', trackingEnabled: true, customInterval: 50 },
+              ],
+            },
+          },
+          ctx as never
+        );
+
+        // Should delete preferences not in input
+        expect((mockPrisma.bikeServicePreference as unknown as { deleteMany: jest.Mock }).deleteMany).toHaveBeenCalledWith({
+          where: {
+            bikeId: 'bike-1',
+            componentType: { notIn: ['FORK'] },
+          },
+        });
+
+        // Should upsert the preferences
+        expect(mockPrisma.$transaction).toHaveBeenCalled();
+        expect(result).toEqual(mockResult);
+      });
+
+      it('should return empty array when no preferences provided', async () => {
+        const ctx = createMockContext('user-123');
+
+        const result = await mutation(
+          {},
+          {
+            input: {
+              bikeId: 'bike-1',
+              preferences: [],
+            },
+          },
+          ctx as never
+        );
+
+        // Should delete all existing preferences
+        expect((mockPrisma.bikeServicePreference as unknown as { deleteMany: jest.Mock }).deleteMany).toHaveBeenCalledWith({
+          where: {
+            bikeId: 'bike-1',
+            componentType: { notIn: [] },
+          },
+        });
+
+        expect(result).toEqual([]);
+      });
+
+      it('should invalidate prediction cache after update', async () => {
+        const ctx = createMockContext('user-123');
+        mockPrisma.$transaction.mockResolvedValue([]);
+
+        await mutation(
+          {},
+          {
+            input: {
+              bikeId: 'bike-1',
+              preferences: [],
+            },
+          },
+          ctx as never
+        );
+
+        expect(invalidateBikePrediction).toHaveBeenCalledWith('user-123', 'bike-1');
+      });
+
+      it('should handle null custom interval', async () => {
+        const ctx = createMockContext('user-123');
+        const mockResult = [
+          { id: 'pref-1', componentType: 'FORK', trackingEnabled: false, customInterval: null },
+        ];
+        mockPrisma.$transaction.mockResolvedValue(mockResult);
+
+        const result = await mutation(
+          {},
+          {
+            input: {
+              bikeId: 'bike-1',
+              preferences: [
+                { componentType: 'FORK', trackingEnabled: false, customInterval: null },
+              ],
+            },
+          },
+          ctx as never
+        );
+
+        expect(result).toEqual(mockResult);
+      });
+    });
+  });
+
+  describe('Bike.servicePreferences', () => {
+    const resolver = resolvers.Bike.servicePreferences;
+
+    it('should return pre-loaded servicePreferences if available', async () => {
+      const bike = {
+        id: 'bike-1',
+        servicePreferences: [
+          { id: 'pref-1', componentType: 'FORK', trackingEnabled: true },
+        ],
+      };
+
+      const result = await resolver(bike as never, {}, {} as never);
+
+      expect(result).toEqual(bike.servicePreferences);
+      expect((mockPrisma.bikeServicePreference as unknown as { findMany: jest.Mock }).findMany).not.toHaveBeenCalled();
+    });
+
+    it('should fetch from database if not pre-loaded', async () => {
+      const bike = { id: 'bike-1' };
+      const mockPrefs = [
+        { id: 'pref-1', componentType: 'FORK', trackingEnabled: true },
+      ];
+      (mockPrisma.bikeServicePreference as unknown as { findMany: jest.Mock }).findMany.mockResolvedValue(mockPrefs);
+
+      const result = await resolver(bike as never, {}, {} as never);
+
+      expect((mockPrisma.bikeServicePreference as unknown as { findMany: jest.Mock }).findMany).toHaveBeenCalledWith({
+        where: { bikeId: 'bike-1' },
+      });
+      expect(result).toEqual(mockPrefs);
     });
   });
 });

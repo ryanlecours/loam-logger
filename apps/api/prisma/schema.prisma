@@ -47,6 +47,7 @@ model User {
   termsAcceptances    TermsAcceptance[]
   backfillRequests    BackfillRequest[]
   importSessions      ImportSession[]
+  servicePreferences  UserServicePreference[]
 }
 
 model OauthToken {
@@ -142,6 +143,7 @@ model Bike {
   components           Component[]
   Ride                 Ride[]
   stravaGearMappings   StravaGearMapping[]
+  servicePreferences   BikeServicePreference[]
 
   @@index([spokesId])
 }
@@ -432,4 +434,32 @@ model ImportSession {
   @@index([userId])
   @@index([userId, provider, status])
   @@index([status, lastActivityReceivedAt])
+}
+
+model UserServicePreference {
+  id              String        @id @default(uuid())
+  userId          String
+  componentType   ComponentType
+  trackingEnabled Boolean       @default(true)
+  customInterval  Float?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, componentType])
+  @@index([userId])
+}
+
+model BikeServicePreference {
+  id              String        @id @default(uuid())
+  bikeId          String
+  componentType   ComponentType
+  trackingEnabled Boolean       @default(true)
+  customInterval  Float?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  bike            Bike          @relation(fields: [bikeId], references: [id], onDelete: Cascade)
+
+  @@unique([bikeId, componentType])
+  @@index([bikeId])
 }

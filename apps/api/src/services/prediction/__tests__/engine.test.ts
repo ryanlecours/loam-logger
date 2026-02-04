@@ -17,6 +17,12 @@ jest.mock('../../../lib/prisma', () => ({
     component: {
       findMany: jest.fn(),
     },
+    userServicePreference: {
+      findMany: jest.fn(),
+    },
+    bikeServicePreference: {
+      findMany: jest.fn(),
+    },
   },
 }));
 
@@ -40,6 +46,9 @@ describe('prediction engine', () => {
     clearMemoryCache();
     // Re-set the default return value for isRedisReady after reset
     mockIsRedisReady.mockReturnValue(false);
+    // Default: no service preferences set (all components enabled with default intervals)
+    (prisma.userServicePreference as unknown as { findMany: jest.Mock }).findMany.mockResolvedValue([]);
+    (prisma.bikeServicePreference as unknown as { findMany: jest.Mock }).findMany.mockResolvedValue([]);
   });
 
   const mockBike = {
@@ -344,6 +353,219 @@ describe('prediction engine', () => {
       });
 
       expect(result.components[0].confidence).toBe('LOW');
+    });
+  });
+
+  describe('service preferences', () => {
+    beforeEach(() => {
+      // Default: no preferences set
+      (prisma.userServicePreference as unknown as { findMany: jest.Mock }).findMany.mockResolvedValue([]);
+      (prisma.bikeServicePreference as unknown as { findMany: jest.Mock }).findMany.mockResolvedValue([]);
+    });
+
+    it('should exclude components when global user preference disables tracking', async () => {
+      // User has disabled CHAIN tracking globally
+      (prisma.userServicePreference as unknown as { findMany: jest.Mock }).findMany.mockResolvedValue([
+        { componentType: 'CHAIN', trackingEnabled: false, customInterval: null },
+      ]);
+
+      (prisma.bike.findUnique as jest.Mock).mockResolvedValue(mockBike);
+      (prisma.ride.findMany as jest.Mock).mockResolvedValue([]);
+      (prisma.serviceLog.findMany as jest.Mock).mockResolvedValue([]);
+      (prisma.ride.findFirst as jest.Mock).mockResolvedValue({
+        startTime: new Date('2024-01-01'),
+      });
+
+      const result = await generateBikePredictions({
+        userId: 'user-123',
+        bikeId: 'bike-123',
+        userRole: 'FREE',
+      });
+
+      // CHAIN should be excluded, only FORK should remain
+      expect(result.components).toHaveLength(1);
+      expect(result.components[0].componentType).toBe('FORK');
+    });
+
+    it('should use custom interval from global user preference', async () => {
+      // User has set custom interval for FORK
+      (prisma.userServicePreference as unknown as { findMany: jest.Mock }).findMany.mockResolvedValue([
+        { componentType: 'FORK', trackingEnabled: true, customInterval: 100 }, // Custom: 100h instead of default 50h
+      ]);
+
+      const forkOnlyBike = {
+        ...mockBike,
+        components: [mockBike.components[1]], // Just the fork (no serviceDueAtHours override)
+      };
+      // Remove the component-level override
+      forkOnlyBike.components[0] = { ...forkOnlyBike.components[0], serviceDueAtHours: null };
+
+      (prisma.bike.findUnique as jest.Mock).mockResolvedValue(forkOnlyBike);
+      (prisma.ride.findMany as jest.Mock).mockResolvedValue([]);
+      (prisma.serviceLog.findMany as jest.Mock).mockResolvedValue([]);
+      (prisma.ride.findFirst as jest.Mock).mockResolvedValue({
+        startTime: new Date('2024-01-01'),
+      });
+
+      const result = await generateBikePredictions({
+        userId: 'user-123',
+        bikeId: 'bike-123',
+        userRole: 'FREE',
+      });
+
+      // Service interval should be the custom 100h
+      expect(result.components[0].serviceIntervalHours).toBe(100);
+    });
+
+    it('should override global preference with bike-specific preference', async () => {
+      // Global: CHAIN tracking disabled
+      (prisma.userServicePreference as unknown as { findMany: jest.Mock }).findMany.mockResolvedValue([
+        { componentType: 'CHAIN', trackingEnabled: false, customInterval: null },
+      ]);
+
+      // Bike override: CHAIN tracking enabled for this bike
+      (prisma.bikeServicePreference as unknown as { findMany: jest.Mock }).findMany.mockResolvedValue([
+        { componentType: 'CHAIN', trackingEnabled: true, customInterval: null },
+      ]);
+
+      (prisma.bike.findUnique as jest.Mock).mockResolvedValue(mockBike);
+      (prisma.ride.findMany as jest.Mock).mockResolvedValue([]);
+      (prisma.serviceLog.findMany as jest.Mock).mockResolvedValue([]);
+      (prisma.ride.findFirst as jest.Mock).mockResolvedValue({
+        startTime: new Date('2024-01-01'),
+      });
+
+      const result = await generateBikePredictions({
+        userId: 'user-123',
+        bikeId: 'bike-123',
+        userRole: 'FREE',
+      });
+
+      // CHAIN should be included because bike override enables it
+      expect(result.components).toHaveLength(2);
+      const chainComponent = result.components.find(c => c.componentType === 'CHAIN');
+      expect(chainComponent).toBeDefined();
+    });
+
+    it('should use bike-specific custom interval over global custom interval', async () => {
+      // Global: CHAIN with 50h custom interval
+      (prisma.userServicePreference as unknown as { findMany: jest.Mock }).findMany.mockResolvedValue([
+        { componentType: 'CHAIN', trackingEnabled: true, customInterval: 50 },
+      ]);
+
+      // Bike override: CHAIN with 30h custom interval
+      (prisma.bikeServicePreference as unknown as { findMany: jest.Mock }).findMany.mockResolvedValue([
+        { componentType: 'CHAIN', trackingEnabled: true, customInterval: 30 },
+      ]);
+
+      const chainOnlyBike = {
+        ...mockBike,
+        components: [mockBike.components[0]], // Just the chain
+      };
+
+      (prisma.bike.findUnique as jest.Mock).mockResolvedValue(chainOnlyBike);
+      (prisma.ride.findMany as jest.Mock).mockResolvedValue([]);
+      (prisma.serviceLog.findMany as jest.Mock).mockResolvedValue([]);
+      (prisma.ride.findFirst as jest.Mock).mockResolvedValue({
+        startTime: new Date('2024-01-01'),
+      });
+
+      const result = await generateBikePredictions({
+        userId: 'user-123',
+        bikeId: 'bike-123',
+        userRole: 'FREE',
+      });
+
+      // Service interval should be the bike-specific 30h, not global 50h
+      expect(result.components[0].serviceIntervalHours).toBe(30);
+    });
+
+    it('should disable tracking when bike preference disables but global enables', async () => {
+      // Global: FORK tracking enabled
+      (prisma.userServicePreference as unknown as { findMany: jest.Mock }).findMany.mockResolvedValue([
+        { componentType: 'FORK', trackingEnabled: true, customInterval: null },
+      ]);
+
+      // Bike override: FORK tracking disabled for this bike
+      (prisma.bikeServicePreference as unknown as { findMany: jest.Mock }).findMany.mockResolvedValue([
+        { componentType: 'FORK', trackingEnabled: false, customInterval: null },
+      ]);
+
+      (prisma.bike.findUnique as jest.Mock).mockResolvedValue(mockBike);
+      (prisma.ride.findMany as jest.Mock).mockResolvedValue([]);
+      (prisma.serviceLog.findMany as jest.Mock).mockResolvedValue([]);
+      (prisma.ride.findFirst as jest.Mock).mockResolvedValue({
+        startTime: new Date('2024-01-01'),
+      });
+
+      const result = await generateBikePredictions({
+        userId: 'user-123',
+        bikeId: 'bike-123',
+        userRole: 'FREE',
+      });
+
+      // FORK should be excluded (bike override disables it), only CHAIN should remain
+      expect(result.components).toHaveLength(1);
+      expect(result.components[0].componentType).toBe('CHAIN');
+    });
+
+    it('should use component-level serviceDueAtHours over all preferences', async () => {
+      // Global: FORK with 100h custom interval
+      (prisma.userServicePreference as unknown as { findMany: jest.Mock }).findMany.mockResolvedValue([
+        { componentType: 'FORK', trackingEnabled: true, customInterval: 100 },
+      ]);
+
+      // Bike override: FORK with 80h custom interval
+      (prisma.bikeServicePreference as unknown as { findMany: jest.Mock }).findMany.mockResolvedValue([
+        { componentType: 'FORK', trackingEnabled: true, customInterval: 80 },
+      ]);
+
+      // Component has serviceDueAtHours set to 50
+      const forkWithOverride = {
+        ...mockBike,
+        components: [{ ...mockBike.components[1], serviceDueAtHours: 50 }],
+      };
+
+      (prisma.bike.findUnique as jest.Mock).mockResolvedValue(forkWithOverride);
+      (prisma.ride.findMany as jest.Mock).mockResolvedValue([]);
+      (prisma.serviceLog.findMany as jest.Mock).mockResolvedValue([]);
+      (prisma.ride.findFirst as jest.Mock).mockResolvedValue({
+        startTime: new Date('2024-01-01'),
+      });
+
+      const result = await generateBikePredictions({
+        userId: 'user-123',
+        bikeId: 'bike-123',
+        userRole: 'FREE',
+      });
+
+      // Component-level serviceDueAtHours (50) takes priority over all preferences
+      expect(result.components[0].serviceIntervalHours).toBe(50);
+    });
+
+    it('should return empty components array when all are disabled', async () => {
+      // Global: both components disabled
+      (prisma.userServicePreference as unknown as { findMany: jest.Mock }).findMany.mockResolvedValue([
+        { componentType: 'CHAIN', trackingEnabled: false, customInterval: null },
+        { componentType: 'FORK', trackingEnabled: false, customInterval: null },
+      ]);
+
+      (prisma.bike.findUnique as jest.Mock).mockResolvedValue(mockBike);
+      (prisma.ride.findMany as jest.Mock).mockResolvedValue([]);
+      (prisma.serviceLog.findMany as jest.Mock).mockResolvedValue([]);
+      (prisma.ride.findFirst as jest.Mock).mockResolvedValue({
+        startTime: new Date('2024-01-01'),
+      });
+
+      const result = await generateBikePredictions({
+        userId: 'user-123',
+        bikeId: 'bike-123',
+        userRole: 'FREE',
+      });
+
+      expect(result.components).toHaveLength(0);
+      expect(result.overallStatus).toBe('ALL_GOOD');
+      expect(result.priorityComponent).toBeNull();
     });
   });
 });
