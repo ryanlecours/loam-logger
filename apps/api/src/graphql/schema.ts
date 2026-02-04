@@ -649,6 +649,7 @@ export const typeDefs = gql`
   input RidesFilterInput {
     startDate: String
     endDate: String
+    bikeId: ID
   }
 
   type Query {

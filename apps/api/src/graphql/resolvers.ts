@@ -682,6 +682,7 @@ const ALLOWED_RIDE_TYPES = [
 type RidesFilterInput = {
   startDate?: string | null;
   endDate?: string | null;
+  bikeId?: string | null;
 };
 
 type RidesArgs = {
@@ -723,6 +724,11 @@ export const resolvers = {
         if (filter.endDate) {
           whereClause.startTime.lte = new Date(filter.endDate);
         }
+      }
+
+      // Apply bike filter if provided
+      if (filter?.bikeId) {
+        whereClause.bikeId = filter.bikeId;
       }
 
       return prisma.ride.findMany({
