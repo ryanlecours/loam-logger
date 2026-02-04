@@ -22,6 +22,7 @@ import { usePreferences } from "../hooks/usePreferences";
 import { useUserTier } from "../hooks/useUserTier";
 import { getAuthHeaders } from "@/lib/csrf";
 import { UPDATE_USER_PREFERENCES_MUTATION } from "../graphql/userPreferences";
+import ServicePreferencesEditor from "../components/ServicePreferencesEditor";
 
 const CONNECTED_ACCOUNTS_QUERY = gql`
   query ConnectedAccounts {
@@ -735,6 +736,17 @@ export default function Settings() {
             <span className="text-xs text-amber-400">Unsaved changes</span>
           )}
         </div>
+      </section>
+
+      <section className="panel-spaced">
+        <div>
+          <p className="label-section">Service Tracking</p>
+          <h2 className="title-section">Component Service Intervals</h2>
+          <p className="text-sm text-muted mt-1">
+            Configure which components to track and customize service intervals. These settings apply to all your bikes.
+          </p>
+        </div>
+        <ServicePreferencesEditor />
       </section>
 
       <section className="panel-spaced xl:max-w-[calc(50%-0.75rem)]">

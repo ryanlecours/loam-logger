@@ -44,6 +44,15 @@ import {
 } from './window';
 
 /**
+ * Effective service preference for a component type.
+ * Resolved from: per-bike override > global user preference > system default
+ */
+type EffectiveServicePreference = {
+  trackingEnabled: boolean;
+  customInterval: number | null;
+};
+
+/**
  * Pre-fetched context for batch prediction to avoid N+1 queries.
  */
 type PredictionContext = {
@@ -55,6 +64,8 @@ type PredictionContext = {
   bikeCreatedAt: Date;
   /** All rides for the bike, ordered by startTime ascending */
   allRides: RideMetrics[];
+  /** Map of componentType -> effective service preference (bike override > global > system default) */
+  effectivePreferences: Map<string, EffectiveServicePreference>;
 };
 
 /**
@@ -147,8 +158,11 @@ function predictComponent(
   ctx: PredictionContext
 ): ComponentPrediction {
   // Get base interval for this component type and location
+  // Priority: component-specific override > effective preference (bike > global) > system default
+  const effectivePref = ctx.effectivePreferences.get(component.type);
   const baseInterval =
     component.serviceDueAtHours ??
+    effectivePref?.customInterval ??
     getBaseInterval(component.type, component.location);
 
   // Get last service date from pre-fetched context
@@ -354,10 +368,51 @@ export async function generateBikePredictions(
     throw new Error('Not found');
   }
 
-  // Filter to trackable components only
-  const trackableComponents = bike.components.filter((c) =>
-    isTrackableComponent(c.type)
-  );
+  // Fetch global user preferences and per-bike preferences (sequential to reduce connection pressure)
+  const globalPreferences = await prisma.userServicePreference.findMany({
+    where: { userId },
+  });
+
+  const bikePreferences = await prisma.bikeServicePreference.findMany({
+    where: { bikeId },
+  });
+
+  // Build preference maps
+  const globalPrefMap = new Map<string, EffectiveServicePreference>();
+  for (const pref of globalPreferences) {
+    globalPrefMap.set(pref.componentType, {
+      trackingEnabled: pref.trackingEnabled,
+      customInterval: pref.customInterval,
+    });
+  }
+
+  const bikePrefMap = new Map<string, EffectiveServicePreference>();
+  for (const pref of bikePreferences) {
+    bikePrefMap.set(pref.componentType, {
+      trackingEnabled: pref.trackingEnabled,
+      customInterval: pref.customInterval,
+    });
+  }
+
+  // Merge preferences: per-bike override > global > system default (enabled, no custom interval)
+  const effectivePreferencesMap = new Map<string, EffectiveServicePreference>();
+  // First apply global preferences
+  for (const [type, pref] of globalPrefMap) {
+    effectivePreferencesMap.set(type, pref);
+  }
+  // Then apply bike-specific overrides (takes priority)
+  for (const [type, pref] of bikePrefMap) {
+    effectivePreferencesMap.set(type, pref);
+  }
+
+  // Filter to trackable components only, respecting effective preferences
+  const trackableComponents = bike.components.filter((c) => {
+    if (!isTrackableComponent(c.type)) return false;
+    // Check if tracking is disabled for this component type
+    const pref = effectivePreferencesMap.get(c.type);
+    // Default to enabled if no preference is set
+    return pref?.trackingEnabled !== false;
+  });
 
   // Batch fetch all data needed for predictions to avoid N+1 queries
   const componentIds = trackableComponents.map((c) => c.id);
@@ -392,6 +447,7 @@ export async function generateBikePredictions(
     firstRideDate,
     bikeCreatedAt: bike.createdAt,
     allRides,
+    effectivePreferences: effectivePreferencesMap,
   };
 
   // Generate predictions for each component (synchronously - no more DB calls)

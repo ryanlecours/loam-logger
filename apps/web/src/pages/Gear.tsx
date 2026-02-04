@@ -10,6 +10,7 @@ import {
   ADD_BIKE,
   DELETE_BIKE,
   GEAR_QUERY,
+  GEAR_QUERY_LIGHT,
   ADD_COMPONENT,
   UPDATE_COMPONENT,
   DELETE_COMPONENT,
@@ -123,29 +124,45 @@ type SpareModalState =
 
 export default function Gear() {
   const navigate = useNavigate();
-  const { data, loading, error } = useQuery<{ bikes: BikeDto[]; spareComponents: ComponentDto[] }>(
-    GEAR_QUERY,
+
+  // First load bikes without predictions (fast)
+  const { data: lightData, loading: lightLoading, error: lightError } = useQuery<{ bikes: BikeDto[]; spareComponents: ComponentDto[] }>(
+    GEAR_QUERY_LIGHT,
     { fetchPolicy: 'cache-and-network' }
   );
 
+  // Then load predictions in the background
+  const { data: fullData } = useQuery<{ bikes: BikeDto[]; spareComponents: ComponentDto[] }>(
+    GEAR_QUERY,
+    {
+      fetchPolicy: 'cache-and-network',
+      skip: !lightData, // Only fetch once we have the light data
+    }
+  );
+
+  // Use full data if available, otherwise fall back to light data
+  const data = fullData || lightData;
+  const loading = lightLoading;
+  const error = lightError;
+
   const [addBikeMutation, addBikeState] = useMutation(ADD_BIKE, {
-    refetchQueries: [{ query: GEAR_QUERY }],
+    refetchQueries: [{ query: GEAR_QUERY_LIGHT }, { query: GEAR_QUERY }],
     awaitRefetchQueries: true,
   });
     const [deleteBikeMutation, deleteBikeState] = useMutation(DELETE_BIKE, {
-    refetchQueries: [{ query: GEAR_QUERY }],
+    refetchQueries: [{ query: GEAR_QUERY_LIGHT }, { query: GEAR_QUERY }],
     awaitRefetchQueries: true,
   });
   const [addComponentMutation, addComponentState] = useMutation(ADD_COMPONENT, {
-    refetchQueries: [{ query: GEAR_QUERY }],
+    refetchQueries: [{ query: GEAR_QUERY_LIGHT }, { query: GEAR_QUERY }],
     awaitRefetchQueries: true,
   });
   const [updateComponentMutation, updateComponentState] = useMutation(UPDATE_COMPONENT, {
-    refetchQueries: [{ query: GEAR_QUERY }],
+    refetchQueries: [{ query: GEAR_QUERY_LIGHT }, { query: GEAR_QUERY }],
     awaitRefetchQueries: true,
   });
   const [deleteComponentMutation, deleteComponentState] = useMutation(DELETE_COMPONENT, {
-    refetchQueries: [{ query: GEAR_QUERY }],
+    refetchQueries: [{ query: GEAR_QUERY_LIGHT }, { query: GEAR_QUERY }],
     awaitRefetchQueries: true,
   });
 

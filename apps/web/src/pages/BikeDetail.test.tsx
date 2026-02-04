@@ -108,6 +108,27 @@ vi.mock('@/graphql/gear', () => ({
   UPDATE_COMPONENT: 'UPDATE_COMPONENT',
 }));
 
+vi.mock('react-icons/fa', () => ({
+  FaArrowLeft: () => <span>FaArrowLeft</span>,
+  FaBicycle: () => <span>FaBicycle</span>,
+  FaPencilAlt: () => <span>FaPencilAlt</span>,
+  FaWrench: () => <span>FaWrench</span>,
+  FaExternalLinkAlt: () => <span>FaExternalLinkAlt</span>,
+  FaCog: () => <span>FaCog</span>,
+  FaChevronDown: () => <span>FaChevronDown</span>,
+  FaChevronUp: () => <span>FaChevronUp</span>,
+  FaSlidersH: () => <span>FaSlidersH</span>,
+}));
+
+vi.mock('@/components/BikeServicePreferencesEditor', () => ({
+  default: ({ bikeId, onSaved }: { bikeId: string; onSaved?: () => void }) => (
+    <div data-testid="bike-service-preferences-editor">
+      Service Preferences for {bikeId}
+      <button onClick={onSaved}>Trigger onSaved</button>
+    </div>
+  ),
+}));
+
 vi.mock('@/models/BikeComponents', () => ({
   BIKE_COMPONENT_SECTIONS: [
     { key: 'fork', type: 'FORK', label: 'Fork' },

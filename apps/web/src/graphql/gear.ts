@@ -59,6 +59,46 @@ export const PREDICTION_FIELDS = gql`
   }
 `;
 
+// Light bike fields - no predictions, for fast initial loading
+export const BIKE_FIELDS_LIGHT = gql`
+  fragment BikeFieldsLight on Bike {
+    id
+    nickname
+    manufacturer
+    model
+    year
+    travelForkMm
+    travelShockMm
+    notes
+    spokesId
+    # 99spokes metadata
+    spokesUrl
+    thumbnailUrl
+    family
+    category
+    subcategory
+    buildKind
+    isFrameset
+    isEbike
+    gender
+    frameMaterial
+    hangerStandard
+    # E-bike motor/battery specs
+    motorMaker
+    motorModel
+    motorPowerW
+    motorTorqueNm
+    batteryWh
+    acquisitionCondition
+    components {
+      ...ComponentFields
+    }
+    createdAt
+    updatedAt
+  }
+  ${COMPONENT_FIELDS}
+`;
+
 export const BIKE_FIELDS = gql`
   fragment BikeFields on Bike {
     id
@@ -95,6 +135,12 @@ export const BIKE_FIELDS = gql`
     predictions {
       ...PredictionFields
     }
+    servicePreferences {
+      id
+      componentType
+      trackingEnabled
+      customInterval
+    }
     createdAt
     updatedAt
   }
@@ -102,6 +148,22 @@ export const BIKE_FIELDS = gql`
   ${PREDICTION_FIELDS}
 `;
 
+// Fast gear query without predictions - use for initial load
+export const GEAR_QUERY_LIGHT = gql`
+  query GearLight {
+    bikes {
+      ...BikeFieldsLight
+    }
+    spareComponents: components(
+      filter: { onlySpare: true, types: [FORK, SHOCK, DROPPER, WHEEL_HUBS] }
+    ) {
+      ...ComponentFields
+    }
+  }
+  ${BIKE_FIELDS_LIGHT}
+`;
+
+// Full gear query with predictions - use when predictions are needed
 export const GEAR_QUERY = gql`
   query Gear {
     bikes {

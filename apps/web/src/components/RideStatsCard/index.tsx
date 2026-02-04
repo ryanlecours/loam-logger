@@ -9,6 +9,7 @@ import {
 } from 'react-icons/fa';
 
 import TimeframeDropdown from './TimeframeDropdown';
+import BikeFilterDropdown from './BikeFilterDropdown';
 import StatsSummary from './StatsSummary';
 import ExpandableSection from './ExpandableSection';
 import RideCountSection from './sections/RideCountSection';
@@ -49,6 +50,7 @@ interface RideStatsCardProps {
 
 export default function RideStatsCard({ showHeading = true, rides: externalRides, filterLabel }: RideStatsCardProps) {
   const [selectedTf, setSelectedTf] = useState<Timeframe>('YTD');
+  const [selectedBikeId, setSelectedBikeId] = useState<string | null>(null);
   const isExternalMode = externalRides !== undefined;
 
   const {
@@ -56,7 +58,10 @@ export default function RideStatsCard({ showHeading = true, rides: externalRides
     loading: ridesLoading,
     error: ridesError,
   } = useQuery<{ rides: Ride[] }>(RIDES, {
-    variables: { take: MAX_RIDES_FOR_STATS },
+    variables: {
+      take: MAX_RIDES_FOR_STATS,
+      filter: selectedBikeId ? { bikeId: selectedBikeId } : undefined,
+    },
     fetchPolicy: 'cache-first',
     skip: isExternalMode,
   });
@@ -97,6 +102,15 @@ export default function RideStatsCard({ showHeading = true, rides: externalRides
     [allRides]
   );
 
+  // Build bike options for dropdown
+  const bikeOptions = useMemo(() => {
+    if (!bikesData?.bikes) return [];
+    return bikesData.bikes.map((bike) => ({
+      id: bike.id,
+      name: bike.nickname?.trim() || `${bike.manufacturer} ${bike.model}`.trim() || 'Bike',
+    }));
+  }, [bikesData?.bikes]);
+
   // Determine which stats to show
   const selectedStats = useMemo(() => {
     if (isExternalMode) return externalStats;
@@ -109,15 +123,24 @@ export default function RideStatsCard({ showHeading = true, rides: externalRides
 
   return (
     <div className="ride-stats-card">
-      {/* Header with title and dropdown */}
+      {/* Header with title and dropdowns */}
       <div className="stats-header">
         {showHeading && <h2 className="stats-title">Ride Stats</h2>}
         {hasRides && !isExternalMode && (
-          <TimeframeDropdown
-            selected={selectedTf}
-            onSelect={setSelectedTf}
-            availableYears={availableYears}
-          />
+          <div className="stats-filters">
+            {bikeOptions.length > 1 && (
+              <BikeFilterDropdown
+                bikes={bikeOptions}
+                selected={selectedBikeId}
+                onSelect={setSelectedBikeId}
+              />
+            )}
+            <TimeframeDropdown
+              selected={selectedTf}
+              onSelect={setSelectedTf}
+              availableYears={availableYears}
+            />
+          </div>
         )}
         {hasRides && isExternalMode && filterLabel && (
           <span className="text-sm text-muted">{filterLabel}</span>

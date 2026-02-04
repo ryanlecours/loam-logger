@@ -9,6 +9,58 @@ export const UPDATE_BIKES_ORDER = gql`
   }
 `;
 
+// Light query without predictions - loads fast for initial render
+export const BIKES_LIGHT = gql`
+  query BikesLight {
+    bikes {
+      id
+      nickname
+      manufacturer
+      model
+      thumbnailUrl
+      travelForkMm
+      travelShockMm
+      notes
+      sortOrder
+      fork {
+        id
+        brand
+        model
+        hoursUsed
+        serviceDueAtHours
+        updatedAt
+      }
+      shock {
+        id
+        brand
+        model
+        hoursUsed
+        serviceDueAtHours
+        updatedAt
+      }
+      pivotBearings {
+        id
+        brand
+        model
+        hoursUsed
+        serviceDueAtHours
+        updatedAt
+      }
+      components {
+        id
+        type
+        location
+        brand
+        model
+        hoursUsed
+        serviceDueAtHours
+        updatedAt
+        pairGroupId
+      }
+    }
+  }
+`;
+
 export const BIKES = gql`
   query Bikes {
     bikes {
