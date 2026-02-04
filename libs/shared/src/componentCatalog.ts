@@ -133,7 +133,7 @@ export const COMPONENT_CATALOG: ComponentDefinition[] = [
   // ---------------------------------------------------------------------------
   {
     type: 'BRAKES',
-    displayName: 'Brakes',
+    displayName: 'Brake Fluid',
     category: 'BRAKES',
     serviceIntervalHours: 100,
     defaultBaselineWearPercent: 50,

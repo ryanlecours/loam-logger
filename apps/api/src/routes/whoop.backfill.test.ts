@@ -121,12 +121,6 @@ const sampleCyclingWorkout = {
   },
 };
 
-const sampleMtbWorkout = {
-  ...sampleCyclingWorkout,
-  id: 'b2c3d4e5-f6a7-8901-bcde-f23456789012',
-  sport_id: 57, // Mountain Biking
-  sport_name: 'Mountain Biking',
-};
 
 const sampleRunWorkout = {
   ...sampleCyclingWorkout,

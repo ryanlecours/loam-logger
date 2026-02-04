@@ -5,7 +5,7 @@
 export const COMPONENT_LABELS: Record<string, string> = {
   FORK: 'Fork',
   SHOCK: 'Rear Shock',
-  BRAKES: 'Brake',
+  BRAKES: 'Brake Fluid',
   DRIVETRAIN: 'Drivetrain',
   TIRES: 'Tire',
   CHAIN: 'Chain',

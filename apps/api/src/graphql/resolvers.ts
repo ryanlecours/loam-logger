@@ -441,7 +441,7 @@ export async function buildBikeComponents(
     pairedComponentConfigs?: PairedComponentConfigInputGQL[] | null;
   }
 ): Promise<void> {
-  const { bikeId, userId, bikeSpec, acquisitionCondition, spokesComponents, userOverrides, pairedComponentConfigs } = opts;
+  const { bikeId, userId, bikeSpec, spokesComponents, userOverrides, pairedComponentConfigs } = opts;
 
   // Build a map of paired component configs by type for easy lookup
   const pairedConfigsByType: Map<string, PairedComponentConfigInputGQL> = new Map();

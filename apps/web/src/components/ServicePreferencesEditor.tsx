@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation } from '@apollo/client';
-import { FaToggleOn, FaToggleOff, FaExclamationTriangle } from 'react-icons/fa';
+import { FaToggleOn, FaToggleOff, FaExclamationTriangle, FaChevronDown, FaChevronRight } from 'react-icons/fa';
 import {
   SERVICE_PREFERENCE_DEFAULTS_QUERY,
   USER_SERVICE_PREFERENCES_QUERY,
@@ -65,6 +65,19 @@ export default function ServicePreferencesEditor({ onSaved, compact = false }: S
   const [hasChanges, setHasChanges] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
+
+  const toggleCategory = (category: string) => {
+    setExpandedCategories((prev) => {
+      const next = new Set(prev);
+      if (next.has(category)) {
+        next.delete(category);
+      } else {
+        next.add(category);
+      }
+      return next;
+    });
+  };
 
   // Merge defaults with user preferences
   useEffect(() => {
@@ -181,7 +194,7 @@ export default function ServicePreferencesEditor({ onSaved, compact = false }: S
   const allDisabled = preferences.length > 0 && preferences.every((p) => !p.trackingEnabled);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {error && (
         <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-sm text-red-400">
           {error}
@@ -195,79 +208,102 @@ export default function ServicePreferencesEditor({ onSaved, compact = false }: S
         </div>
       )}
 
+      <div className="space-y-3 max-h-[280px] overflow-y-auto pr-1">
       {CATEGORY_ORDER.map((category) => {
         const types = CATEGORIES[category];
         const categoryPrefs = preferences.filter((p) => types.includes(p.componentType));
         if (categoryPrefs.length === 0) return null;
 
+        const isExpanded = expandedCategories.has(category);
+        const enabledCount = categoryPrefs.filter((p) => p.trackingEnabled).length;
+
         return (
-          <div key={category} className="space-y-3">
-            <h4 className="text-xs font-medium text-muted uppercase tracking-wider">
-              {CATEGORY_LABELS[category]}
-            </h4>
-            <div className="space-y-2">
-              {categoryPrefs.map((pref) => (
-                <div
-                  key={pref.componentType}
-                  className={`p-3 rounded-xl border transition ${
-                    pref.trackingEnabled
-                      ? 'border-app/70 bg-surface-2'
-                      : 'border-app/30 bg-surface-2/30 opacity-60'
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-4">
-                    <div className="flex-1 min-w-0">
-                      <span className="font-medium text-sm text-white">{pref.displayName}</span>
-                      {pref.defaultIntervalFront != null && pref.defaultIntervalRear != null && (
-                        <span className="text-xs text-muted ml-2">
-                          (F: {pref.defaultIntervalFront}h / R: {pref.defaultIntervalRear}h)
-                        </span>
-                      )}
+          <div key={category} className="rounded-xl border border-app/50 overflow-hidden">
+            <button
+              onClick={() => toggleCategory(category)}
+              className="w-full flex items-center justify-between gap-3 px-4 py-3 bg-surface-2 hover:bg-surface-2/80 transition"
+            >
+              <div className="flex items-center gap-2">
+                {isExpanded ? (
+                  <FaChevronDown className="text-xs text-muted" />
+                ) : (
+                  <FaChevronRight className="text-xs text-muted" />
+                )}
+                <span className="text-sm font-medium text-white">
+                  {CATEGORY_LABELS[category]}
+                </span>
+              </div>
+              <span className="text-xs text-muted">
+                {enabledCount}/{categoryPrefs.length} tracked
+              </span>
+            </button>
+
+            {isExpanded && (
+              <div className="p-3 space-y-2 bg-surface-1/50 flex flex-col items-end">
+                {categoryPrefs.map((pref) => (
+                  <div
+                    key={pref.componentType}
+                    className={`w-[75%] p-3 rounded-xl border transition ${
+                      pref.trackingEnabled
+                        ? 'border-app/70 bg-surface-2'
+                        : 'border-app/30 bg-surface-2/30 opacity-60'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="flex-1 min-w-0">
+                        <span className="font-medium text-sm text-white">{pref.displayName}</span>
+                        {pref.defaultIntervalFront != null && pref.defaultIntervalRear != null && (
+                          <span className="text-xs text-muted ml-2">
+                            (F: {pref.defaultIntervalFront}h / R: {pref.defaultIntervalRear}h)
+                          </span>
+                        )}
+                      </div>
+
+                      <button
+                        onClick={() => handleToggleTracking(pref.componentType)}
+                        className="flex items-center gap-1 text-sm shrink-0"
+                        title={pref.trackingEnabled ? 'Disable tracking' : 'Enable tracking'}
+                      >
+                        {pref.trackingEnabled ? (
+                          <FaToggleOn className="text-2xl text-primary" />
+                        ) : (
+                          <FaToggleOff className="text-2xl text-muted" />
+                        )}
+                      </button>
                     </div>
 
-                    <button
-                      onClick={() => handleToggleTracking(pref.componentType)}
-                      className="flex items-center gap-1 text-sm shrink-0"
-                      title={pref.trackingEnabled ? 'Disable tracking' : 'Enable tracking'}
-                    >
-                      {pref.trackingEnabled ? (
-                        <FaToggleOn className="text-2xl text-primary" />
-                      ) : (
-                        <FaToggleOff className="text-2xl text-muted" />
-                      )}
-                    </button>
+                    {pref.trackingEnabled && !compact && (
+                      <div className="mt-3 flex items-center gap-3 flex-wrap">
+                        <label className="text-xs text-muted">Service interval:</label>
+                        <input
+                          type="number"
+                          min="1"
+                          max="1000"
+                          step="1"
+                          placeholder={String(pref.defaultInterval)}
+                          value={pref.customInterval ?? ''}
+                          onChange={(e) => handleIntervalChange(pref.componentType, e.target.value)}
+                          className="w-20 text-sm rounded-lg border border-app/50 bg-surface-1 px-2 py-1 text-white placeholder-muted/60 focus:border-primary focus:outline-none"
+                        />
+                        <span className="text-xs text-muted">hours</span>
+                        {pref.hasCustomInterval && (
+                          <button
+                            onClick={() => handleResetToDefault(pref.componentType)}
+                            className="text-xs text-primary hover:underline"
+                          >
+                            Reset to default
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </div>
-
-                  {pref.trackingEnabled && !compact && (
-                    <div className="mt-3 flex items-center gap-3 flex-wrap">
-                      <label className="text-xs text-muted">Service interval:</label>
-                      <input
-                        type="number"
-                        min="1"
-                        max="1000"
-                        step="1"
-                        placeholder={String(pref.defaultInterval)}
-                        value={pref.customInterval ?? ''}
-                        onChange={(e) => handleIntervalChange(pref.componentType, e.target.value)}
-                        className="w-20 text-sm rounded-lg border border-app/50 bg-surface-1 px-2 py-1 text-white placeholder-muted/60 focus:border-primary focus:outline-none"
-                      />
-                      <span className="text-xs text-muted">hours</span>
-                      {pref.hasCustomInterval && (
-                        <button
-                          onClick={() => handleResetToDefault(pref.componentType)}
-                          className="text-xs text-primary hover:underline"
-                        >
-                          Reset to default
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
         );
       })}
+      </div>
 
       <div className="flex items-center gap-3 pt-4 border-t border-app/50">
         <button

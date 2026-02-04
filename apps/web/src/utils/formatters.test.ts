@@ -182,7 +182,7 @@ describe('formatComponentLabel', () => {
 
   it('formats components with FRONT location', () => {
     expect(formatComponentLabel(createComponent('BRAKES', 'FRONT'))).toBe(
-      'Front Brake'
+      'Front Brake Fluid'
     );
     expect(formatComponentLabel(createComponent('BRAKE_PAD', 'FRONT'))).toBe(
       'Front Brake Pads'
@@ -191,7 +191,7 @@ describe('formatComponentLabel', () => {
 
   it('formats components with REAR location', () => {
     expect(formatComponentLabel(createComponent('BRAKES', 'REAR'))).toBe(
-      'Rear Brake'
+      'Rear Brake Fluid'
     );
     expect(formatComponentLabel(createComponent('TIRES', 'REAR'))).toBe(
       'Rear Tire'

@@ -39,6 +39,6 @@ export function getTemplateListForAPI(): TemplateConfigDTO[] {
     displayName: t.displayName,
     description: t.description,
     defaultSubject: t.defaultSubject,
-    parameters: t.parameters.filter(p => p.type !== 'hidden').map(({ autoFill, ...rest }) => rest),
+    parameters: t.parameters.filter(p => p.type !== 'hidden').map(({ autoFill: _autoFill, ...rest }) => rest),
   }));
 }

@@ -626,6 +626,17 @@ export default function Settings() {
             </div>
           </dl>
         </div>
+
+        <div className="panel-spaced">
+          <div>
+            <p className="label-section">Service Tracking</p>
+            <h2 className="title-section">Component Service Intervals</h2>
+            <p className="text-sm text-muted mt-1">
+              Configure which components to track and customize service intervals. These settings apply to all your bikes.
+            </p>
+          </div>
+          <ServicePreferencesEditor />
+        </div>
       </section>
 
       <section className="panel-spaced xl:max-w-[calc(50%-0.75rem)]">
@@ -634,119 +645,108 @@ export default function Settings() {
           <h2 className="title-section">Display & Predictions</h2>
         </div>
 
-        {/* Prediction Mode - Pro users only */}
-        {isPro && (
+          {/* Prediction Mode - Pro users only */}
+          {isPro && (
+            <div className="space-y-3">
+              <h3 className="text-sm font-medium text-white">Prediction Algorithm</h3>
+              <div className="grid gap-3 md:grid-cols-2">
+                <label
+                  className={`cursor-pointer rounded-2xl border px-4 py-3 transition ${
+                    predictionMode === "simple"
+                      ? "border-primary/60 bg-surface-accent/60"
+                      : "border-app/60 bg-surface-2"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="prediction-mode"
+                    value="simple"
+                    className="mr-2"
+                    checked={predictionMode === "simple"}
+                    onChange={() => setPredictionMode("simple")}
+                  />
+                  Simple (hours-based)
+                </label>
+                <label
+                  className={`cursor-pointer rounded-2xl border px-4 py-3 transition ${
+                    predictionMode === "predictive"
+                      ? "border-primary/60 bg-surface-accent/60"
+                      : "border-app/60 bg-surface-2"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="prediction-mode"
+                    value="predictive"
+                    className="mr-2"
+                    checked={predictionMode === "predictive"}
+                    onChange={() => setPredictionMode("predictive")}
+                  />
+                  Predictive (ride-adjusted)
+                </label>
+              </div>
+              <p className="text-xs text-muted">
+                Predictive mode adjusts service intervals based on your riding intensity and terrain. Still in beta.
+              </p>
+            </div>
+          )}
+
+          {/* Hours Display */}
           <div className="space-y-3">
-            <h3 className="text-sm font-medium text-white">Prediction Algorithm</h3>
+            <h3 className="text-sm font-medium text-white">Component hours display</h3>
             <div className="grid gap-3 md:grid-cols-2">
               <label
                 className={`cursor-pointer rounded-2xl border px-4 py-3 transition ${
-                  predictionMode === "simple"
+                  hoursDisplay === "total"
                     ? "border-primary/60 bg-surface-accent/60"
                     : "border-app/60 bg-surface-2"
                 }`}
               >
                 <input
                   type="radio"
-                  name="prediction-mode"
-                  value="simple"
+                  name="hours-mode"
+                  value="total"
                   className="mr-2"
-                  checked={predictionMode === "simple"}
-                  onChange={() => setPredictionMode("simple")}
+                  checked={hoursDisplay === "total"}
+                  onChange={() => setHoursDisplay("total")}
                 />
-                Simple (hours-based)
+                Show cumulative hours (e.g. 780h / 800h)
               </label>
               <label
                 className={`cursor-pointer rounded-2xl border px-4 py-3 transition ${
-                  predictionMode === "predictive"
+                  hoursDisplay === "remaining"
                     ? "border-primary/60 bg-surface-accent/60"
                     : "border-app/60 bg-surface-2"
                 }`}
               >
                 <input
                   type="radio"
-                  name="prediction-mode"
-                  value="predictive"
+                  name="hours-mode"
+                  value="remaining"
                   className="mr-2"
-                  checked={predictionMode === "predictive"}
-                  onChange={() => setPredictionMode("predictive")}
+                  checked={hoursDisplay === "remaining"}
+                  onChange={() => setHoursDisplay("remaining")}
                 />
-                Predictive (ride-adjusted)
+                Show time until next service (e.g. 0h / 50h)
               </label>
             </div>
             <p className="text-xs text-muted">
-              Predictive mode adjusts service intervals based on your riding intensity and terrain. Still in beta.
+              Total hours are always stored. This preference only affects how we display service intervals.
             </p>
           </div>
-        )}
 
-        {/* Hours Display */}
-        <div className="space-y-3">
-          <h3 className="text-sm font-medium text-white">Component hours display</h3>
-          <div className="grid gap-3 md:grid-cols-2">
-            <label
-              className={`cursor-pointer rounded-2xl border px-4 py-3 transition ${
-                hoursDisplay === "total"
-                  ? "border-primary/60 bg-surface-accent/60"
-                  : "border-app/60 bg-surface-2"
-              }`}
+          <div className="flex items-center gap-3 pt-2">
+            <button
+              onClick={handleSavePreferences}
+              disabled={preferenceSaving || !hasUnsavedChanges}
+              className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <input
-                type="radio"
-                name="hours-mode"
-                value="total"
-                className="mr-2"
-                checked={hoursDisplay === "total"}
-                onChange={() => setHoursDisplay("total")}
-              />
-              Show cumulative hours (e.g. 780h / 800h)
-            </label>
-            <label
-              className={`cursor-pointer rounded-2xl border px-4 py-3 transition ${
-                hoursDisplay === "remaining"
-                  ? "border-primary/60 bg-surface-accent/60"
-                  : "border-app/60 bg-surface-2"
-              }`}
-            >
-              <input
-                type="radio"
-                name="hours-mode"
-                value="remaining"
-                className="mr-2"
-                checked={hoursDisplay === "remaining"}
-                onChange={() => setHoursDisplay("remaining")}
-              />
-              Show time until next service (e.g. 0h / 50h)
-            </label>
+              {preferenceSaving ? 'Saving...' : 'Save Preferences'}
+            </button>
+            {hasUnsavedChanges && (
+              <span className="text-xs text-amber-400">Unsaved changes</span>
+            )}
           </div>
-          <p className="text-xs text-muted">
-            Total hours are always stored. This preference only affects how we display service intervals.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-3 pt-2">
-          <button
-            onClick={handleSavePreferences}
-            disabled={preferenceSaving || !hasUnsavedChanges}
-            className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {preferenceSaving ? 'Saving...' : 'Save Preferences'}
-          </button>
-          {hasUnsavedChanges && (
-            <span className="text-xs text-amber-400">Unsaved changes</span>
-          )}
-        </div>
-      </section>
-
-      <section className="panel-spaced">
-        <div>
-          <p className="label-section">Service Tracking</p>
-          <h2 className="title-section">Component Service Intervals</h2>
-          <p className="text-sm text-muted mt-1">
-            Configure which components to track and customize service intervals. These settings apply to all your bikes.
-          </p>
-        </div>
-        <ServicePreferencesEditor />
       </section>
 
       <section className="panel-spaced xl:max-w-[calc(50%-0.75rem)]">
