@@ -14,6 +14,9 @@ jest.mock('../../lib/prisma', () => ({
       findUnique: jest.fn(),
       update: jest.fn(),
     },
+    ride: {
+      findMany: jest.fn(),
+    },
     serviceLog: {
       create: jest.fn(),
     },
@@ -1561,6 +1564,114 @@ describe('GraphQL Resolvers', () => {
         where: { bikeId: 'bike-1' },
       });
       expect(result).toEqual(mockPrefs);
+    });
+  });
+
+  describe('rides query with bikeId filter', () => {
+    const query = resolvers.Query.rides;
+
+    it('should throw Unauthorized when user is not authenticated', async () => {
+      const ctx = createMockContext(null);
+
+      await expect(
+        query({}, { take: 10 }, ctx as never)
+      ).rejects.toThrow('Unauthorized');
+
+      expect(mockPrisma.ride.findMany).not.toHaveBeenCalled();
+    });
+
+    it('should filter rides by bike owned by user', async () => {
+      const ctx = createMockContext('user-123');
+      const mockRides = [
+        { id: 'ride-1', userId: 'user-123', bikeId: 'bike-1' },
+        { id: 'ride-2', userId: 'user-123', bikeId: 'bike-1' },
+      ];
+
+      // Mock bike ownership check
+      mockPrisma.bike.findUnique.mockResolvedValue({
+        id: 'bike-1',
+        userId: 'user-123',
+      } as never);
+
+      mockPrisma.ride.findMany.mockResolvedValue(mockRides as never);
+
+      const result = await query(
+        {},
+        { take: 10, filter: { bikeId: 'bike-1' } },
+        ctx as never
+      );
+
+      expect(mockPrisma.bike.findUnique).toHaveBeenCalledWith({
+        where: { id: 'bike-1' },
+        select: { userId: true },
+      });
+      expect(mockPrisma.ride.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            userId: 'user-123',
+            bikeId: 'bike-1',
+          }),
+        })
+      );
+      expect(result).toEqual(mockRides);
+    });
+
+    it('should reject bike not owned by user', async () => {
+      const ctx = createMockContext('user-123');
+
+      // Mock bike owned by different user
+      mockPrisma.bike.findUnique.mockResolvedValue({
+        id: 'bike-1',
+        userId: 'other-user',
+      } as never);
+
+      await expect(
+        query({}, { take: 10, filter: { bikeId: 'bike-1' } }, ctx as never)
+      ).rejects.toThrow('Bike not found');
+
+      expect(mockPrisma.bike.findUnique).toHaveBeenCalledWith({
+        where: { id: 'bike-1' },
+        select: { userId: true },
+      });
+      expect(mockPrisma.ride.findMany).not.toHaveBeenCalled();
+    });
+
+    it('should reject non-existent bike', async () => {
+      const ctx = createMockContext('user-123');
+
+      // Mock bike not found
+      mockPrisma.bike.findUnique.mockResolvedValue(null);
+
+      await expect(
+        query({}, { take: 10, filter: { bikeId: 'non-existent-bike' } }, ctx as never)
+      ).rejects.toThrow('Bike not found');
+
+      expect(mockPrisma.bike.findUnique).toHaveBeenCalledWith({
+        where: { id: 'non-existent-bike' },
+        select: { userId: true },
+      });
+      expect(mockPrisma.ride.findMany).not.toHaveBeenCalled();
+    });
+
+    it('should work without bikeId filter', async () => {
+      const ctx = createMockContext('user-123');
+      const mockRides = [
+        { id: 'ride-1', userId: 'user-123' },
+        { id: 'ride-2', userId: 'user-123' },
+      ];
+
+      mockPrisma.ride.findMany.mockResolvedValue(mockRides as never);
+
+      const result = await query({}, { take: 10 }, ctx as never);
+
+      // Should not check bike ownership when no filter
+      expect(mockPrisma.bike.findUnique).not.toHaveBeenCalled();
+      expect(mockPrisma.ride.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { userId: 'user-123' },
+        })
+      );
+      expect(result).toEqual(mockRides);
     });
   });
 });
