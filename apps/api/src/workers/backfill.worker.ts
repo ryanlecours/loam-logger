@@ -247,7 +247,6 @@ async function processGarminBackfill(userId: string, year: string): Promise<void
   );
 
   // Check if ALL chunks returned 409 - means backfill was already completed
-  const totalAttempted = totalChunks + duplicateChunks + errors.length;
   const allDuplicates = duplicateChunks > 0 && totalChunks === 0 && errors.length === 0;
 
   if (allDuplicates) {

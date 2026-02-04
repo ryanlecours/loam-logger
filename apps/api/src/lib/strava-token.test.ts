@@ -265,9 +265,9 @@ describe('strava-token', () => {
         });
 
         const newExpiresAt = Math.floor(Date.now() / 1000) + 3600;
-        let fetchCallCount = 0;
+        let _fetchCallCount = 0;
         mockFetch.mockImplementation(async () => {
-          fetchCallCount++;
+          _fetchCallCount++;
           // Simulate network delay
           await new Promise((resolve) => setTimeout(resolve, 50));
           return {

@@ -11,7 +11,7 @@ describe('COMPONENT_LABELS', () => {
   });
 
   it('has label for BRAKES', () => {
-    expect(COMPONENT_LABELS.BRAKES).toBe('Brake');
+    expect(COMPONENT_LABELS.BRAKES).toBe('Brake Fluid');
   });
 
   it('has label for DRIVETRAIN', () => {

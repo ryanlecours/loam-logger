@@ -72,7 +72,7 @@ describe('ComponentHealthPanel', () => {
 
       expect(screen.getByText('Fork')).toBeInTheDocument();
       expect(screen.getByText('Rear Shock')).toBeInTheDocument();
-      expect(screen.getByText('Front Brake')).toBeInTheDocument();
+      expect(screen.getByText('Front Brake Fluid')).toBeInTheDocument();
     });
 
     it('displays make/model for each component', () => {
@@ -173,7 +173,7 @@ describe('ComponentHealthPanel', () => {
       const buttons = screen.getAllByRole('button');
       // Should be sorted by hours remaining: 10, 30, 50
       expect(buttons[0]).toHaveTextContent('Rear Shock'); // 10 hours
-      expect(buttons[1]).toHaveTextContent('Brake'); // 30 hours
+      expect(buttons[1]).toHaveTextContent('Brake Fluid'); // 30 hours
       expect(buttons[2]).toHaveTextContent('Fork'); // 50 hours
     });
   });

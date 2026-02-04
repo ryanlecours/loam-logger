@@ -9,6 +9,7 @@ import { templateConfig as announcementConfig } from './announcement';
 import { templateConfig as foundingRidersConfig } from './founding-riders';
 import { templateConfig as preAccessConfig } from './pre-access';
 import { templateConfig as stravaEnabledConfig } from './strava-enabled';
+import { templateConfig as betaFeatureRoundupConfig } from './beta-feature-roundup';
 // Note: activation template excluded - it's system-triggered, not admin-sendable
 
 import type { TemplateConfig, TemplateConfigDTO } from './types';
@@ -22,6 +23,7 @@ const allTemplates: TemplateConfig[] = [
   foundingRidersConfig,
   preAccessConfig,
   stravaEnabledConfig,
+  betaFeatureRoundupConfig,
 ];
 
 /** Templates visible in admin UI (excludes system-only templates) */
@@ -39,6 +41,6 @@ export function getTemplateListForAPI(): TemplateConfigDTO[] {
     displayName: t.displayName,
     description: t.description,
     defaultSubject: t.defaultSubject,
-    parameters: t.parameters.filter(p => p.type !== 'hidden').map(({ autoFill, ...rest }) => rest),
+    parameters: t.parameters.filter(p => p.type !== 'hidden').map(({ autoFill: _autoFill, ...rest }) => rest),
   }));
 }

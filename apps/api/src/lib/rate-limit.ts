@@ -52,6 +52,10 @@ export const MUTATION_RATE_LIMITS = {
   replaceComponent: { windowSeconds: 60, maxRequests: 20 },
   /** markPairedComponentMigrationSeen: max 10 requests per minute per user */
   markPairedComponentMigrationSeen: { windowSeconds: 60, maxRequests: 10 },
+  /** updateServicePreferences: max 10 requests per minute per user */
+  updateServicePreferences: { windowSeconds: 60, maxRequests: 10 },
+  /** updateBikeServicePreferences: max 10 requests per minute per user */
+  updateBikeServicePreferences: { windowSeconds: 60, maxRequests: 10 },
 } as const;
 
 /**
