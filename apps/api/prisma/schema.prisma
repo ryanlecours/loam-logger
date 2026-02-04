@@ -294,6 +294,7 @@ enum EmailType {
   founding_welcome
   founding_post_activation_info
   strava_integration_live
+  whoop_integration_live
 }
 
 enum TriggerSource {

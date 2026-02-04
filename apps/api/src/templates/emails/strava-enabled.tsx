@@ -138,7 +138,7 @@ export default function StravaIntegrationLiveEmail({
 
             <Section style={styles.imageContainer}>
               <Img
-                src="https://loamlogger.app/LiebWhisRockRoll.jpg"
+                src="https://loamlogger.app/RyanAbenaki.jpg"
                 alt="Mountain biker riding through lush ferns"
                 width="60%"
                 style={styles.heroImage}
