@@ -345,3 +345,23 @@ export function requiresPairing(type: string): boolean {
 export function getPairedComponentDefinitions(): ComponentDefinition[] {
   return COMPONENT_CATALOG.filter((c) => c.requiresPairing === true);
 }
+
+/**
+ * Derive the slot key for a component type + location combination.
+ * This is the canonical slot identifier used in BikeComponentInstall.
+ * Examples: "FORK_NONE", "TIRES_FRONT", "BRAKES_REAR"
+ */
+export function getSlotKey(type: string, location: string): string {
+  return `${type}_${location}`;
+}
+
+/**
+ * Parse a slot key back into type and location.
+ */
+export function parseSlotKey(slotKey: string): { type: string; location: string } {
+  const lastUnderscore = slotKey.lastIndexOf('_');
+  return {
+    type: slotKey.substring(0, lastUnderscore),
+    location: slotKey.substring(lastUnderscore + 1),
+  };
+}

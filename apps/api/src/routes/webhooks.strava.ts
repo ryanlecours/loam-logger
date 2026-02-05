@@ -3,6 +3,7 @@ import type { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { getValidStravaToken } from '../lib/strava-token';
 import { deriveLocationAsync, shouldApplyAutoLocation } from '../lib/location';
+import { incrementBikeComponentHours, decrementBikeComponentHours } from '../lib/component-hours';
 import { logError } from '../lib/logger';
 
 type Empty = Record<string, never>;
@@ -196,37 +197,18 @@ async function syncBikeComponentHours(
   const hoursDiff = nextHours - prevHours;
 
   if (prevBikeId) {
-    if (bikeChanged && prevHours > 0) {
-      await tx.component.updateMany({
-        where: { userId, bikeId: prevBikeId },
-        data: { hoursUsed: { decrement: prevHours } },
-      });
-    } else if (!bikeChanged && hoursDiff < 0) {
-      await tx.component.updateMany({
-        where: { userId, bikeId: prevBikeId },
-        data: { hoursUsed: { decrement: Math.abs(hoursDiff) } },
-      });
-    }
-
-    if (bikeChanged || hoursDiff < 0) {
-      await tx.component.updateMany({
-        where: { userId, bikeId: prevBikeId, hoursUsed: { lt: 0 } },
-        data: { hoursUsed: 0 },
-      });
+    if (bikeChanged) {
+      await decrementBikeComponentHours(tx, { userId, bikeId: prevBikeId, hoursDelta: prevHours });
+    } else if (hoursDiff < 0) {
+      await decrementBikeComponentHours(tx, { userId, bikeId: prevBikeId, hoursDelta: Math.abs(hoursDiff) });
     }
   }
 
   if (nextBikeId) {
-    if (bikeChanged && nextHours > 0) {
-      await tx.component.updateMany({
-        where: { userId, bikeId: nextBikeId },
-        data: { hoursUsed: { increment: nextHours } },
-      });
-    } else if (!bikeChanged && hoursDiff > 0) {
-      await tx.component.updateMany({
-        where: { userId, bikeId: nextBikeId },
-        data: { hoursUsed: { increment: hoursDiff } },
-      });
+    if (bikeChanged) {
+      await incrementBikeComponentHours(tx, { userId, bikeId: nextBikeId, hoursDelta: nextHours });
+    } else if (hoursDiff > 0) {
+      await incrementBikeComponentHours(tx, { userId, bikeId: nextBikeId, hoursDelta: hoursDiff });
     }
   }
 }

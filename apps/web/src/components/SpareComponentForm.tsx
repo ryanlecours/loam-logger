@@ -1,7 +1,35 @@
 import { useState, useEffect } from "react";
 import { Button } from "./ui";
-import type { SpareFormState } from "@/models/BikeComponents";
+import type { SpareFormState, SpareComponentType } from "@/models/BikeComponents";
 import { getComponentLabel } from "@/constants/componentLabels";
+
+const SPARE_TYPE_OPTIONS: { value: SpareComponentType; label: string }[] = [
+  { value: 'FORK', label: 'Fork' },
+  { value: 'SHOCK', label: 'Rear Shock' },
+  { value: 'CHAIN', label: 'Chain' },
+  { value: 'CASSETTE', label: 'Cassette' },
+  { value: 'CRANK', label: 'Crankset' },
+  { value: 'REAR_DERAILLEUR', label: 'Rear Derailleur' },
+  { value: 'DRIVETRAIN', label: 'Drivetrain Clean/Lube' },
+  { value: 'BRAKES', label: 'Brake Fluid' },
+  { value: 'BRAKE_PAD', label: 'Brake Pads' },
+  { value: 'BRAKE_ROTOR', label: 'Brake Rotors' },
+  { value: 'WHEEL_HUBS', label: 'Wheel Hubs' },
+  { value: 'RIMS', label: 'Rims' },
+  { value: 'TIRES', label: 'Tires' },
+  { value: 'STEM', label: 'Stem' },
+  { value: 'HANDLEBAR', label: 'Handlebar' },
+  { value: 'SADDLE', label: 'Saddle' },
+  { value: 'SEATPOST', label: 'Seatpost' },
+  { value: 'DROPPER', label: 'Dropper Post' },
+  { value: 'PEDALS', label: 'Pedals' },
+  { value: 'PIVOT_BEARINGS', label: 'Pivot Bearings' },
+  { value: 'HEADSET', label: 'Headset' },
+  { value: 'BOTTOM_BRACKET', label: 'Bottom Bracket' },
+  { value: 'OTHER', label: 'Other' },
+];
+
+const PAIRED_TYPES: SpareComponentType[] = ['TIRES', 'BRAKE_PAD', 'BRAKE_ROTOR', 'BRAKES'];
 
 type SpareFormProps = {
   initial: SpareFormState;
@@ -16,9 +44,8 @@ type SpareFormProps = {
 export function SpareComponentForm({ initial, submitting, error, onSubmit, onClose, mode = 'spare' }: SpareFormProps) {
   const [form, setForm] = useState<SpareFormState>(initial);
 
-  const spareTypeOptions: SpareFormState['type'][] = ['FORK', 'SHOCK', 'DROPPER', 'WHEEL_HUBS'];
   const isBikeComponent = mode === 'bike';
-
+  const requiresLocation = PAIRED_TYPES.includes(form.type);
 
   // Reset form when initial data changes (new component or updated data)
   useEffect(() => {
@@ -27,6 +54,15 @@ export function SpareComponentForm({ initial, submitting, error, onSubmit, onClo
 
   const setField = <K extends keyof SpareFormState>(key: K, value: SpareFormState[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const handleTypeChange = (newType: SpareComponentType) => {
+    const isPaired = PAIRED_TYPES.includes(newType);
+    setForm((prev) => ({
+      ...prev,
+      type: newType,
+      location: isPaired ? (prev.location ?? 'FRONT') : undefined,
+    }));
   };
 
   const handleSubmit = (evt: React.FormEvent) => {
@@ -47,17 +83,30 @@ export function SpareComponentForm({ initial, submitting, error, onSubmit, onClo
           <select
             className="max-w-auto rounded-lg border border-app bg-app px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[rgb(var(--ring))]"
             value={form.type}
-            onChange={(e) => setField('type', e.target.value as SpareFormState['type'])}
+            onChange={(e) => handleTypeChange(e.target.value as SpareComponentType)}
             disabled={!!form.id}
           >
-            {spareTypeOptions.map((type) => (
-              <option value={type} key={type}>
-                {type}
+            {SPARE_TYPE_OPTIONS.map((opt) => (
+              <option value={opt.value} key={opt.value}>
+                {opt.label}
               </option>
             ))}
           </select>
         )}
       </label>
+      {requiresLocation && (
+        <label className="flex flex-col gap-2 text-sm">
+          <span className="label-muted">Location</span>
+          <select
+            className="max-w-auto rounded-lg border border-app bg-app px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[rgb(var(--ring))]"
+            value={form.location ?? 'FRONT'}
+            onChange={(e) => setField('location', e.target.value as 'FRONT' | 'REAR')}
+          >
+            <option value="FRONT">Front</option>
+            <option value="REAR">Rear</option>
+          </select>
+        </label>
+      )}
       <div className="grid gap-3 md:grid-cols-2">
         <input
           className="max-w-auto rounded-lg border border-app bg-app px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[rgb(var(--ring))]"

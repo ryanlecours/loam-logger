@@ -126,15 +126,41 @@ export interface BikeFormValues {
   components: Record<BikeComponentKey, GearComponentState>;
 }
 
+export type SpareComponentType =
+  | 'FORK'
+  | 'SHOCK'
+  | 'CHAIN'
+  | 'CASSETTE'
+  | 'CRANK'
+  | 'REAR_DERAILLEUR'
+  | 'DRIVETRAIN'
+  | 'BRAKES'
+  | 'BRAKE_PAD'
+  | 'BRAKE_ROTOR'
+  | 'WHEEL_HUBS'
+  | 'RIMS'
+  | 'TIRES'
+  | 'STEM'
+  | 'HANDLEBAR'
+  | 'SADDLE'
+  | 'SEATPOST'
+  | 'DROPPER'
+  | 'PEDALS'
+  | 'PIVOT_BEARINGS'
+  | 'HEADSET'
+  | 'BOTTOM_BRACKET'
+  | 'OTHER';
+
 export interface SpareFormState {
   id?: string;
-  type: 'FORK' | 'SHOCK' | 'DROPPER' | 'WHEEL_HUBS';
+  type: SpareComponentType;
   brand: string;
   model: string;
   notes: string;
   isStock: boolean;
   hoursUsed: string;
   serviceDueAtHours: string;
+  location?: 'FRONT' | 'REAR';
 };
 
 export const BIKE_COMPONENT_SECTIONS: ReadonlyArray<{

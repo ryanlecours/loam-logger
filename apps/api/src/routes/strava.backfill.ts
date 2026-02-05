@@ -4,6 +4,7 @@ import { subDays } from 'date-fns';
 import { prisma } from '../lib/prisma';
 import { formatLatLon, reverseGeocode } from '../lib/location';
 import { sendBadRequest, sendUnauthorized, sendNotFound, sendInternalError } from '../lib/api-response';
+import { incrementBikeComponentHours, decrementBikeComponentHours } from '../lib/component-hours';
 import { logError } from '../lib/logger';
 
 type Empty = Record<string, never>;
@@ -189,11 +190,8 @@ r.get<Empty, void, Empty, { year?: string }>(
             },
           });
 
-          if (bikeId && durationHours > 0) {
-            await tx.component.updateMany({
-              where: { userId, bikeId },
-              data: { hoursUsed: { increment: durationHours } },
-            });
+          if (bikeId) {
+            await incrementBikeComponentHours(tx, { userId, bikeId, hoursDelta: durationHours });
           }
 
           return createdRide;
@@ -476,15 +474,7 @@ r.delete<Empty, void, Empty>(
 
       await prisma.$transaction(async (tx) => {
         for (const [bikeId, hours] of hoursByBike.entries()) {
-          if (hours <= 0) continue;
-          await tx.component.updateMany({
-            where: { userId, bikeId },
-            data: { hoursUsed: { decrement: hours } },
-          });
-          await tx.component.updateMany({
-            where: { userId, bikeId, hoursUsed: { lt: 0 } },
-            data: { hoursUsed: 0 },
-          });
+          await decrementBikeComponentHours(tx, { userId, bikeId, hoursDelta: hours });
         }
 
         await tx.ride.deleteMany({

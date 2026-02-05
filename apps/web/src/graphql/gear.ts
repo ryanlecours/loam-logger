@@ -17,6 +17,7 @@ export const COMPONENT_FIELDS = gql`
     baselineSetAt
     lastServicedAt
     location
+    status
   }
 `;
 
@@ -154,9 +155,7 @@ export const GEAR_QUERY_LIGHT = gql`
     bikes {
       ...BikeFieldsLight
     }
-    spareComponents: components(
-      filter: { onlySpare: true, types: [FORK, SHOCK, DROPPER, WHEEL_HUBS] }
-    ) {
+    spareComponents: components(filter: { onlySpare: true }) {
       ...ComponentFields
     }
   }
@@ -169,9 +168,7 @@ export const GEAR_QUERY = gql`
     bikes {
       ...BikeFields
     }
-    spareComponents: components(
-      filter: { onlySpare: true, types: [FORK, SHOCK, DROPPER, WHEEL_HUBS] }
-    ) {
+    spareComponents: components(filter: { onlySpare: true }) {
       ...ComponentFields
     }
   }
@@ -236,6 +233,34 @@ export const BULK_UPDATE_BASELINES = gql`
   mutation BulkUpdateBaselines($input: BulkUpdateBaselinesInput!) {
     bulkUpdateComponentBaselines(input: $input) {
       ...ComponentFields
+    }
+  }
+  ${COMPONENT_FIELDS}
+`;
+
+export const INSTALL_COMPONENT = gql`
+  mutation InstallComponent($input: InstallComponentInput!) {
+    installComponent(input: $input) {
+      installedComponent {
+        ...ComponentFields
+      }
+      displacedComponent {
+        ...ComponentFields
+      }
+    }
+  }
+  ${COMPONENT_FIELDS}
+`;
+
+export const SWAP_COMPONENTS = gql`
+  mutation SwapComponents($input: SwapComponentsInput!) {
+    swapComponents(input: $input) {
+      componentA {
+        ...ComponentFields
+      }
+      componentB {
+        ...ComponentFields
+      }
     }
   }
   ${COMPONENT_FIELDS}

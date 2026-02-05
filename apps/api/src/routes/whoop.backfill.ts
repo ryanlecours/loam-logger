@@ -3,6 +3,7 @@ import { getValidWhoopToken } from '../lib/whoop-token';
 import { subDays } from 'date-fns';
 import { prisma } from '../lib/prisma';
 import { sendBadRequest, sendUnauthorized, sendInternalError } from '../lib/api-response';
+import { incrementBikeComponentHours, decrementBikeComponentHours } from '../lib/component-hours';
 import { logError, logger } from '../lib/logger';
 import { acquireLock, releaseLock } from '../lib/rate-limit';
 import { findPotentialDuplicates, type DuplicateCandidate } from '../lib/duplicate-detector';
@@ -238,11 +239,8 @@ r.get<Empty, void, Empty, { year?: string }>(
           });
 
           // Update component hours if bike is assigned
-          if (autoAssignBikeId && durationHours > 0) {
-            await tx.component.updateMany({
-              where: { userId, bikeId: autoAssignBikeId },
-              data: { hoursUsed: { increment: durationHours } },
-            });
+          if (autoAssignBikeId) {
+            await incrementBikeComponentHours(tx, { userId, bikeId: autoAssignBikeId, hoursDelta: durationHours });
           }
         });
 
@@ -412,15 +410,7 @@ r.delete<Empty, void, Empty>(
 
       await prisma.$transaction(async (tx) => {
         for (const [bikeId, hours] of hoursByBike.entries()) {
-          if (hours <= 0) continue;
-          await tx.component.updateMany({
-            where: { userId, bikeId },
-            data: { hoursUsed: { decrement: hours } },
-          });
-          await tx.component.updateMany({
-            where: { userId, bikeId, hoursUsed: { lt: 0 } },
-            data: { hoursUsed: 0 },
-          });
+          await decrementBikeComponentHours(tx, { userId, bikeId, hoursDelta: hours });
         }
 
         await tx.ride.deleteMany({

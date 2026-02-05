@@ -18,6 +18,8 @@ import { Modal } from '@/components/ui/Modal';
 import { StatusPill } from '@/components/dashboard/StatusPill';
 import { LogServiceModal } from '@/components/dashboard/LogServiceModal';
 import { ComponentDetailRow } from '@/components/gear/ComponentDetailRow';
+import { ReplaceComponentModal } from '@/components/gear/ReplaceComponentModal';
+import { SwapComponentModal } from '@/components/gear/SwapComponentModal';
 import { BikeSpecsGrid, EbikeSpecsGrid } from '@/components/gear/BikeSpecsGrid';
 import { SpareComponentForm } from '@/components/SpareComponentForm';
 import { BikeImageSelector } from '@/components/BikeImageSelector';
@@ -93,7 +95,7 @@ export default function BikeDetail() {
   const { bikeId } = useParams<{ bikeId: string }>();
   const navigate = useNavigate();
 
-  const { data, loading, error } = useQuery<{ bikes: BikeDto[] }>(GEAR_QUERY, {
+  const { data, loading, error } = useQuery<{ bikes: BikeDto[]; spareComponents: ComponentDto[] }>(GEAR_QUERY, {
     fetchPolicy: 'cache-first',
   });
 
@@ -109,6 +111,13 @@ export default function BikeDetail() {
 
   const bike = data?.bikes?.find((b) => b.id === bikeId);
   const predictions = bike?.predictions;
+  const allBikes = data?.bikes ?? [];
+  const spareComponents = data?.spareComponents ?? [];
+  const otherBikes = useMemo(
+    () => allBikes.filter((b) => b.id !== bikeId),
+    [allBikes, bikeId],
+  );
+  const hasMultipleBikes = allBikes.length > 1;
 
   // Sort components by prediction status (most urgent first)
   const sortedComponents = useMemo(() => {
@@ -158,6 +167,10 @@ export default function BikeDetail() {
   const [spokesImages, setSpokesImages] = useState<Array<{ url: string; colorKey?: string }>>([]);
   const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null);
   const [imageFormError, setImageFormError] = useState<string | null>(null);
+
+  // Replace / swap modal state
+  const [replacingComponent, setReplacingComponent] = useState<ComponentDto | null>(null);
+  const [swappingComponent, setSwappingComponent] = useState<ComponentDto | null>(null);
 
   // Service tracking section state
   const [serviceTrackingExpanded, setServiceTrackingExpanded] = useState(false);
@@ -220,6 +233,7 @@ export default function BikeDetail() {
       isStock: form.isStock,
       hoursUsed: Number.isNaN(hoursUsed) ? undefined : hoursUsed,
       serviceDueAtHours: Number.isNaN(serviceDue ?? 0) ? undefined : serviceDue,
+      location: form.location ?? undefined,
     };
 
     try {
@@ -418,6 +432,9 @@ export default function BikeDetail() {
                   component={component}
                   prediction={prediction}
                   onEdit={() => setEditingComponent(component)}
+                  onReplace={() => setReplacingComponent(component)}
+                  onSwap={() => setSwappingComponent(component)}
+                  showSwap={hasMultipleBikes}
                 />
               );
             })}
@@ -593,6 +610,7 @@ export default function BikeDetail() {
               isStock: editingComponent.isStock,
               hoursUsed: String(editingComponent.hoursUsed ?? ''),
               serviceDueAtHours: String(editingComponent.serviceDueAtHours ?? ''),
+              location: (editingComponent.location as 'FRONT' | 'REAR' | undefined) ?? undefined,
             }}
             onSubmit={handleComponentSubmit}
             onClose={() => {
@@ -656,6 +674,36 @@ export default function BikeDetail() {
           </div>
         </div>
       </Modal>
+
+      {/* Replace Component Modal */}
+      {replacingComponent && bike && (
+        <ReplaceComponentModal
+          isOpen={!!replacingComponent}
+          onClose={() => setReplacingComponent(null)}
+          bikeId={bike.id}
+          bikeName={bikeName}
+          component={replacingComponent}
+          spareComponents={spareComponents}
+          hasMultipleBikes={hasMultipleBikes}
+          onSwapInstead={() => {
+            const comp = replacingComponent;
+            setReplacingComponent(null);
+            setSwappingComponent(comp);
+          }}
+        />
+      )}
+
+      {/* Swap Component Modal */}
+      {swappingComponent && bike && (
+        <SwapComponentModal
+          isOpen={!!swappingComponent}
+          onClose={() => setSwappingComponent(null)}
+          bikeId={bike.id}
+          bikeName={bikeName}
+          component={swappingComponent}
+          otherBikes={otherBikes}
+        />
+      )}
     </motion.div>
   );
 }

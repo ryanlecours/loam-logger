@@ -1,6 +1,6 @@
-import { FaPlus, FaBoxOpen } from 'react-icons/fa';
+import { FaPlus, FaBoxOpen, FaWrench, FaHandPaper, FaCompactDisc } from 'react-icons/fa';
 import { MdOutlineElectricBolt } from 'react-icons/md';
-import { GiCarWheel, GiSuspensionBridge } from 'react-icons/gi';
+import { GiCarWheel, GiSuspensionBridge, GiChainLink, GiGears } from 'react-icons/gi';
 import { TbArrowAutofitHeight } from 'react-icons/tb';
 import { Button } from '../ui/Button';
 
@@ -10,6 +10,7 @@ type ComponentDto = {
   brand: string;
   model: string;
   notes?: string | null;
+  location?: string | null;
   isStock: boolean;
   bikeId?: string | null;
   hoursUsed?: number | null;
@@ -30,6 +31,51 @@ const COMPONENT_ICONS: Record<string, React.ReactNode> = {
   SHOCK: <MdOutlineElectricBolt size={16} />,
   DROPPER: <TbArrowAutofitHeight size={16} />,
   WHEEL_HUBS: <GiCarWheel size={16} />,
+  CHAIN: <GiChainLink size={16} />,
+  CASSETTE: <GiGears size={16} />,
+  CRANK: <GiGears size={16} />,
+  REAR_DERAILLEUR: <GiGears size={16} />,
+  DRIVETRAIN: <GiGears size={16} />,
+  BRAKES: <FaHandPaper size={16} />,
+  BRAKE_PAD: <FaHandPaper size={16} />,
+  BRAKE_ROTOR: <FaCompactDisc size={16} />,
+  TIRES: <GiCarWheel size={16} />,
+  RIMS: <GiCarWheel size={16} />,
+  STEM: <FaWrench size={16} />,
+  HANDLEBAR: <FaWrench size={16} />,
+  SADDLE: <FaWrench size={16} />,
+  SEATPOST: <FaWrench size={16} />,
+  PEDALS: <FaWrench size={16} />,
+  PIVOT_BEARINGS: <FaWrench size={16} />,
+  HEADSET: <FaWrench size={16} />,
+  BOTTOM_BRACKET: <FaWrench size={16} />,
+  OTHER: <FaBoxOpen size={16} />,
+};
+
+const COMPONENT_LABELS: Record<string, string> = {
+  FORK: 'Fork',
+  SHOCK: 'Rear Shock',
+  DROPPER: 'Dropper Post',
+  WHEEL_HUBS: 'Wheel Hubs',
+  CHAIN: 'Chain',
+  CASSETTE: 'Cassette',
+  CRANK: 'Crankset',
+  REAR_DERAILLEUR: 'Rear Derailleur',
+  DRIVETRAIN: 'Drivetrain',
+  BRAKES: 'Brake Fluid',
+  BRAKE_PAD: 'Brake Pads',
+  BRAKE_ROTOR: 'Brake Rotors',
+  TIRES: 'Tires',
+  RIMS: 'Rims',
+  STEM: 'Stem',
+  HANDLEBAR: 'Handlebar',
+  SADDLE: 'Saddle',
+  SEATPOST: 'Seatpost',
+  PEDALS: 'Pedals',
+  PIVOT_BEARINGS: 'Pivot Bearings',
+  HEADSET: 'Headset',
+  BOTTOM_BRACKET: 'Bottom Bracket',
+  OTHER: 'Other',
 };
 
 export function SpareComponentsPanel({
@@ -57,7 +103,7 @@ export function SpareComponentsPanel({
         <div className="spares-panel-empty">
           <FaBoxOpen size={32} className="spares-panel-empty-icon" />
           <p className="spares-panel-empty-text">
-            Track spare forks, shocks, wheels, or droppers so you always know what's on deck.
+            Track spare components so you always know what's on deck for your next swap.
           </p>
           <Button variant="secondary" size="sm" onClick={onAdd}>
             <FaPlus size={10} className="icon-left" />
@@ -85,7 +131,12 @@ export function SpareComponentsPanel({
                   {COMPONENT_ICONS[component.type] || <FaBoxOpen size={16} />}
                 </div>
                 <div className="spare-row-content">
-                  <p className="spare-row-type">{component.type}</p>
+                  <p className="spare-row-type">
+                    {COMPONENT_LABELS[component.type] || component.type}
+                    {component.location && component.location !== 'NONE' && (
+                      <span className="spare-row-location"> ({component.location.toLowerCase()})</span>
+                    )}
+                  </p>
                   <p className="spare-row-name">
                     {component.isStock
                       ? 'Stock spec'

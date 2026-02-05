@@ -88,6 +88,12 @@ export const typeDefs = gql`
     HIGH
   }
 
+  enum ComponentStatus {
+    INVENTORY
+    INSTALLED
+    RETIRED
+  }
+
   enum TriggerSyncStatus {
     QUEUED
     ALREADY_QUEUED
@@ -135,6 +141,7 @@ export const typeDefs = gql`
     isStock: Boolean!
     bikeId: ID
     isSpare: Boolean!
+    status: ComponentStatus!
     baselineWearPercent: Int
     baselineMethod: BaselineMethod!
     baselineConfidence: BaselineConfidence!
@@ -586,6 +593,50 @@ export const typeDefs = gql`
     components: [Component!]!
   }
 
+  # Component install/swap types
+  input NewComponentInput {
+    brand: String!
+    model: String!
+    isStock: Boolean
+  }
+
+  input InstallComponentInput {
+    bikeId: ID!
+    slotKey: String!
+    # Provide EITHER existingComponentId (install a spare) OR newComponent (create new part)
+    existingComponentId: ID
+    newComponent: NewComponentInput
+    # If true and the component type requires pairing, also replace the paired slot
+    alsoReplacePair: Boolean
+    pairNewComponent: NewComponentInput
+  }
+
+  type InstallComponentResult {
+    installedComponent: Component!
+    displacedComponent: Component
+  }
+
+  input SwapComponentsInput {
+    bikeIdA: ID!
+    slotKeyA: String!
+    bikeIdB: ID!
+    slotKeyB: String!
+  }
+
+  type SwapComponentsResult {
+    componentA: Component!
+    componentB: Component!
+  }
+
+  type BikeComponentInstall {
+    id: ID!
+    bikeId: ID!
+    componentId: ID!
+    slotKey: String!
+    installedAt: String!
+    removedAt: String
+  }
+
   type Mutation {
     addRide(input: AddRideInput!): Ride!
     updateRide(id: ID!, input: UpdateRideInput!): Ride!
@@ -614,6 +665,8 @@ export const typeDefs = gql`
     resetCalibration: User!
     markPairedComponentMigrationSeen: User!
     replaceComponent(input: ReplaceComponentInput!): ReplaceComponentResult!
+    installComponent(input: InstallComponentInput!): InstallComponentResult!
+    swapComponents(input: SwapComponentsInput!): SwapComponentsResult!
     migratePairedComponents: MigratePairedComponentsResult!
     updateServicePreferences(input: UpdateServicePreferencesInput!): [UserServicePreference!]!
     updateBikeServicePreferences(input: UpdateBikeServicePreferencesInput!): [BikeServicePreference!]!

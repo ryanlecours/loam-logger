@@ -48,6 +48,7 @@ model User {
   backfillRequests    BackfillRequest[]
   importSessions      ImportSession[]
   servicePreferences  UserServicePreference[]
+  componentInstalls   BikeComponentInstall[]
 }
 
 model OauthToken {
@@ -144,6 +145,7 @@ model Bike {
   Ride                 Ride[]
   stravaGearMappings   StravaGearMapping[]
   servicePreferences   BikeServicePreference[]
+  installs             BikeComponentInstall[]
 
   @@index([spokesId])
 }
@@ -184,6 +186,7 @@ model Component {
   baselineSetAt         DateTime?
   lastServicedAt        DateTime?
   userId                String
+  status                ComponentStatus    @default(INSTALLED)
 
   // Front/rear pairing support
   pairGroupId           String?
@@ -193,6 +196,7 @@ model Component {
   bike                  Bike?              @relation(fields: [bikeId], references: [id])
   user                  User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   serviceLogs           ServiceLog[]
+  installs              BikeComponentInstall[]
 
   // Self-referential relation for replacement chain
   replacedBy            Component?         @relation("ComponentReplacement", fields: [replacedById], references: [id])
@@ -205,6 +209,28 @@ model Component {
   @@index([userId])
   @@index([bikeId])
   @@index([pairGroupId])
+}
+
+model BikeComponentInstall {
+  id          String    @id @default(uuid())
+  userId      String
+  bikeId      String
+  componentId String
+  slotKey     String
+  installedAt DateTime  @default(now())
+  removedAt   DateTime?
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bike      Bike      @relation(fields: [bikeId], references: [id], onDelete: Cascade)
+  component Component @relation(fields: [componentId], references: [id], onDelete: Cascade)
+
+  // Partial unique indexes added via raw SQL in migration:
+  // - (bikeId, slotKey) WHERE removedAt IS NULL
+  // - (componentId) WHERE removedAt IS NULL
+  @@index([userId])
+  @@index([bikeId])
+  @@index([componentId])
+  @@index([bikeId, removedAt])
 }
 
 model ServiceLog {
@@ -284,6 +310,12 @@ enum BaselineConfidence {
   LOW
   MEDIUM
   HIGH
+}
+
+enum ComponentStatus {
+  INVENTORY
+  INSTALLED
+  RETIRED
 }
 
 enum EmailType {
