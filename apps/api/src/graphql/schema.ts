@@ -94,6 +94,11 @@ export const typeDefs = gql`
     RETIRED
   }
 
+  enum BikeNoteType {
+    MANUAL
+    SWAP
+  }
+
   enum TriggerSyncStatus {
     QUEUED
     ALREADY_QUEUED
@@ -609,11 +614,14 @@ export const typeDefs = gql`
     # If true and the component type requires pairing, also replace the paired slot
     alsoReplacePair: Boolean
     pairNewComponent: NewComponentInput
+    # Optional note text for creating a SWAP note with before/after snapshots
+    noteText: String
   }
 
   type InstallComponentResult {
     installedComponent: Component!
     displacedComponent: Component
+    note: BikeNote
   }
 
   input SwapComponentsInput {
@@ -621,11 +629,15 @@ export const typeDefs = gql`
     slotKeyA: String!
     bikeIdB: ID!
     slotKeyB: String!
+    # Optional note text for creating SWAP notes with before/after snapshots
+    noteText: String
   }
 
   type SwapComponentsResult {
     componentA: Component!
     componentB: Component!
+    noteA: BikeNote
+    noteB: BikeNote
   }
 
   type BikeComponentInstall {
@@ -635,6 +647,72 @@ export const typeDefs = gql`
     slotKey: String!
     installedAt: String!
     removedAt: String
+  }
+
+  # Snapshot types for immutable setup history
+  type SettingSnapshot {
+    key: String!
+    value: String!
+    unit: String
+    label: String!
+  }
+
+  type ComponentSnapshot {
+    componentId: ID!
+    brand: String!
+    model: String!
+    isStock: Boolean!
+    hoursUsed: Float!
+    serviceDueAtHours: Float
+    settings: [SettingSnapshot!]!
+  }
+
+  type SlotSnapshot {
+    slotKey: String!
+    componentType: String!
+    location: String!
+    component: ComponentSnapshot
+  }
+
+  type BikeSpecsSnapshot {
+    travelForkMm: Int
+    travelShockMm: Int
+    isEbike: Boolean!
+    batteryWh: Int
+    motorPowerW: Int
+    motorTorqueNm: Int
+    motorMaker: String
+    motorModel: String
+  }
+
+  type SetupSnapshot {
+    capturedAt: String!
+    bikeSpecs: BikeSpecsSnapshot!
+    slots: [SlotSnapshot!]!
+  }
+
+  type BikeNote {
+    id: ID!
+    bikeId: ID!
+    userId: ID!
+    text: String!
+    noteType: BikeNoteType!
+    createdAt: String!
+    snapshot: SetupSnapshot
+    snapshotBefore: SetupSnapshot
+    snapshotAfter: SetupSnapshot
+    installEventId: ID
+  }
+
+  type BikeNotesPage {
+    items: [BikeNote!]!
+    totalCount: Int!
+    hasMore: Boolean!
+  }
+
+  input AddBikeNoteInput {
+    bikeId: ID!
+    text: String!
   }
 
   type Mutation {
@@ -670,6 +748,8 @@ export const typeDefs = gql`
     migratePairedComponents: MigratePairedComponentsResult!
     updateServicePreferences(input: UpdateServicePreferencesInput!): [UserServicePreference!]!
     updateBikeServicePreferences(input: UpdateBikeServicePreferencesInput!): [BikeServicePreference!]!
+    addBikeNote(input: AddBikeNoteInput!): BikeNote!
+    deleteBikeNote(id: ID!): DeleteResult!
   }
 
   type ConnectedAccount {
@@ -718,5 +798,6 @@ export const typeDefs = gql`
     unassignedRides(importSessionId: ID!, take: Int = 50, after: ID): UnassignedRidesPage!
     calibrationState: CalibrationState
     servicePreferenceDefaults: [ServicePreferenceDefault!]!
+    bikeNotes(bikeId: ID!, take: Int = 20, after: ID): BikeNotesPage!
   }
 `;

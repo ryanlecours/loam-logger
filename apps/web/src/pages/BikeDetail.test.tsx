@@ -106,6 +106,9 @@ vi.mock('@/graphql/gear', () => ({
   GEAR_QUERY: 'GEAR_QUERY',
   UPDATE_BIKE: 'UPDATE_BIKE',
   UPDATE_COMPONENT: 'UPDATE_COMPONENT',
+  BIKE_NOTES_QUERY: 'BIKE_NOTES_QUERY',
+  ADD_BIKE_NOTE: 'ADD_BIKE_NOTE',
+  DELETE_BIKE_NOTE: 'DELETE_BIKE_NOTE',
 }));
 
 vi.mock('react-icons/fa', () => ({
@@ -118,6 +121,10 @@ vi.mock('react-icons/fa', () => ({
   FaChevronDown: () => <span>FaChevronDown</span>,
   FaChevronUp: () => <span>FaChevronUp</span>,
   FaSlidersH: () => <span>FaSlidersH</span>,
+  FaStickyNote: () => <span>FaStickyNote</span>,
+  FaPlus: () => <span>FaPlus</span>,
+  FaTrash: () => <span>FaTrash</span>,
+  FaExclamationTriangle: () => <span>FaExclamationTriangle</span>,
 }));
 
 vi.mock('@/components/BikeServicePreferencesEditor', () => ({
@@ -127,6 +134,24 @@ vi.mock('@/components/BikeServicePreferencesEditor', () => ({
       <button onClick={onSaved}>Trigger onSaved</button>
     </div>
   ),
+}));
+
+vi.mock('@/components/gear/BikeNotesSection', () => ({
+  BikeNotesSection: ({ bikeId, onAddNote }: { bikeId: string; onAddNote: () => void }) => (
+    <div data-testid="bike-notes-section">
+      Notes for {bikeId}
+      <button onClick={onAddNote}>Add Note</button>
+    </div>
+  ),
+}));
+
+vi.mock('@/components/gear/AddBikeNoteModal', () => ({
+  AddBikeNoteModal: ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) =>
+    isOpen ? (
+      <div data-testid="add-bike-note-modal">
+        <button onClick={onClose}>Close</button>
+      </div>
+    ) : null,
 }));
 
 vi.mock('@/models/BikeComponents', () => ({

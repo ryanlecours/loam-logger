@@ -49,6 +49,7 @@ model User {
   importSessions      ImportSession[]
   servicePreferences  UserServicePreference[]
   componentInstalls   BikeComponentInstall[]
+  bikeNotes           BikeNote[]
 }
 
 model OauthToken {
@@ -146,6 +147,7 @@ model Bike {
   stravaGearMappings   StravaGearMapping[]
   servicePreferences   BikeServicePreference[]
   installs             BikeComponentInstall[]
+  bikeNotes            BikeNote[]
 
   @@index([spokesId])
 }
@@ -223,6 +225,7 @@ model BikeComponentInstall {
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   bike      Bike      @relation(fields: [bikeId], references: [id], onDelete: Cascade)
   component Component @relation(fields: [componentId], references: [id], onDelete: Cascade)
+  note      BikeNote?
 
   // Partial unique indexes added via raw SQL in migration:
   // - (bikeId, slotKey) WHERE removedAt IS NULL
@@ -316,6 +319,11 @@ enum ComponentStatus {
   INVENTORY
   INSTALLED
   RETIRED
+}
+
+enum BikeNoteType {
+  MANUAL // User-created note with single snapshot
+  SWAP   // Auto-created during component swap/replace
 }
 
 enum EmailType {
@@ -495,4 +503,29 @@ model BikeServicePreference {
 
   @@unique([bikeId, componentType])
   @@index([bikeId])
+}
+
+model BikeNote {
+  id             String       @id @default(uuid())
+  bikeId         String
+  userId         String
+  text           String       @db.Text
+  noteType       BikeNoteType @default(MANUAL)
+  createdAt      DateTime     @default(now())
+
+  // JSON snapshots (immutable once created)
+  snapshot       Json? // For MANUAL notes
+  snapshotBefore Json? // For SWAP notes
+  snapshotAfter  Json? // For SWAP notes
+
+  // Link to install event (for SWAP notes)
+  installEventId String? @unique
+
+  bike         Bike                  @relation(fields: [bikeId], references: [id], onDelete: Cascade)
+  user         User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  installEvent BikeComponentInstall? @relation(fields: [installEventId], references: [id], onDelete: SetNull)
+
+  @@index([bikeId])
+  @@index([userId])
+  @@index([bikeId, createdAt])
 }

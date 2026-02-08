@@ -57,6 +57,7 @@ export function ReplaceComponentModal({
   const [selectedSpareId, setSelectedSpareId] = useState<string | null>(null);
   const [newBrand, setNewBrand] = useState('');
   const [newModel, setNewModel] = useState('');
+  const [noteText, setNoteText] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   // ---- derived ------------------------------------------------------------
@@ -85,6 +86,7 @@ export function ReplaceComponentModal({
       setSelectedSpareId(null);
       setNewBrand('');
       setNewModel('');
+      setNoteText('');
       setError(null);
     }
   }, [isOpen, matchingSpares.length]);
@@ -100,6 +102,8 @@ export function ReplaceComponentModal({
     setError(null);
 
     try {
+      const trimmedNoteText = noteText.trim() || null;
+
       if (activeTab === 'spare') {
         await installComponent({
           variables: {
@@ -107,6 +111,7 @@ export function ReplaceComponentModal({
               bikeId,
               slotKey,
               existingComponentId: selectedSpareId,
+              noteText: trimmedNoteText,
             },
           },
         });
@@ -120,6 +125,7 @@ export function ReplaceComponentModal({
                 brand: newBrand.trim(),
                 model: newModel.trim(),
               },
+              noteText: trimmedNoteText,
             },
           },
         });
@@ -141,6 +147,7 @@ export function ReplaceComponentModal({
     installComponent,
     newBrand,
     newModel,
+    noteText,
     onClose,
     selectedSpareId,
     slotKey,
@@ -306,6 +313,30 @@ export function ReplaceComponentModal({
             </div>
           </div>
         )}
+
+        {/* Note textarea */}
+        <div className="flex flex-col gap-1">
+          <label
+            htmlFor="replace-note"
+            className="text-xs font-medium text-muted"
+          >
+            Note (optional)
+          </label>
+          <textarea
+            id="replace-note"
+            value={noteText}
+            onChange={(e) => setNoteText(e.target.value)}
+            placeholder="Why are you making this change?"
+            rows={2}
+            maxLength={2000}
+            className="rounded-md border border-app bg-surface px-3 py-2 text-sm text-app placeholder:text-muted focus:border-forest focus:outline-none focus:ring-1 focus:ring-forest resize-none"
+          />
+          {noteText.length > 0 && (
+            <span className="text-xs text-muted text-right">
+              {noteText.length}/2000
+            </span>
+          )}
+        </div>
 
         {/* Error */}
         {error && (

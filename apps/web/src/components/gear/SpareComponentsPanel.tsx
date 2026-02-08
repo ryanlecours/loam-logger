@@ -1,6 +1,6 @@
-import { FaPlus, FaBoxOpen, FaWrench, FaHandPaper, FaCompactDisc } from 'react-icons/fa';
+import { FaPlus, FaBoxOpen, FaWrench, FaHandPaper, FaCompactDisc, FaLink } from 'react-icons/fa';
 import { MdOutlineElectricBolt } from 'react-icons/md';
-import { GiCarWheel, GiSuspensionBridge, GiChainLink, GiGears } from 'react-icons/gi';
+import { GiCarWheel, GiSuspensionBridge, GiGears } from 'react-icons/gi';
 import { TbArrowAutofitHeight } from 'react-icons/tb';
 import { Button } from '../ui/Button';
 
@@ -31,7 +31,7 @@ const COMPONENT_ICONS: Record<string, React.ReactNode> = {
   SHOCK: <MdOutlineElectricBolt size={16} />,
   DROPPER: <TbArrowAutofitHeight size={16} />,
   WHEEL_HUBS: <GiCarWheel size={16} />,
-  CHAIN: <GiChainLink size={16} />,
+  CHAIN: <FaLink size={16} />,
   CASSETTE: <GiGears size={16} />,
   CRANK: <GiGears size={16} />,
   REAR_DERAILLEUR: <GiGears size={16} />,

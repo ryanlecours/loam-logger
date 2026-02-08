@@ -31,6 +31,8 @@ import type { AcquisitionCondition, BaselineMethod, BaselineConfidence } from '@
 import { getBikeById, isSpokesConfigured } from '../services/spokes';
 import { parseISO } from 'date-fns';
 import { incrementBikeComponentHours, decrementBikeComponentHours } from '../lib/component-hours';
+import { captureSetupSnapshot } from '../lib/capture-snapshot';
+import type { SetupSnapshot } from '@loam/shared';
 
 type ComponentType = ComponentTypeLiteral;
 
@@ -126,6 +128,7 @@ type InstallComponentInputGQL = {
   newComponent?: NewComponentInputGQL | null;
   alsoReplacePair?: boolean | null;
   pairNewComponent?: NewComponentInputGQL | null;
+  noteText?: string | null;
 };
 
 type SwapComponentsInputGQL = {
@@ -133,6 +136,12 @@ type SwapComponentsInputGQL = {
   slotKeyA: string;
   bikeIdB: string;
   slotKeyB: string;
+  noteText?: string | null;
+};
+
+type AddBikeNoteInputGQL = {
+  bikeId: string;
+  text: string;
 };
 
 type AddBikeInputGQL = {
@@ -670,6 +679,16 @@ export async function buildBikeComponents(
         })),
         skipDuplicates: true,
       });
+
+      // Create initial service logs so predictions start from installation date
+      await tx.serviceLog.createMany({
+        data: createdComponents.map((c) => ({
+          componentId: c.id,
+          performedAt: c.installedAt ?? c.createdAt,
+          hoursAtService: 0,
+        })),
+        skipDuplicates: true,
+      });
     }
   }
 }
@@ -1179,6 +1198,58 @@ export const resolvers = {
           };
         }
       });
+    },
+
+    bikeNotes: async (
+      _: unknown,
+      { bikeId, take = 20, after }: { bikeId: string; take?: number; after?: string | null },
+      ctx: GraphQLContext
+    ) => {
+      const userId = requireUserId(ctx);
+
+      // Validate bike ownership
+      const bike = await prisma.bike.findFirst({ where: { id: bikeId, userId } });
+      if (!bike) {
+        throw new GraphQLError('Bike not found', { extensions: { code: 'NOT_FOUND' } });
+      }
+
+      const limit = Math.min(100, Math.max(1, take));
+
+      const [notes, totalCount] = await Promise.all([
+        prisma.bikeNote.findMany({
+          where: { bikeId },
+          orderBy: { createdAt: 'desc' },
+          take: limit + 1,
+          ...(after ? { skip: 1, cursor: { id: after } } : {}),
+        }),
+        prisma.bikeNote.count({ where: { bikeId } }),
+      ]);
+
+      const hasMore = notes.length > limit;
+      const resultNotes = hasMore ? notes.slice(0, -1) : notes;
+
+      return {
+        items: resultNotes.map((note: {
+          id: string;
+          bikeId: string;
+          userId: string;
+          text: string;
+          noteType: string;
+          createdAt: Date;
+          snapshot: unknown;
+          snapshotBefore: unknown;
+          snapshotAfter: unknown;
+          installEventId: string | null;
+        }) => ({
+          ...note,
+          createdAt: note.createdAt.toISOString(),
+          snapshot: note.snapshot as SetupSnapshot | null,
+          snapshotBefore: note.snapshotBefore as SetupSnapshot | null,
+          snapshotAfter: note.snapshotAfter as SetupSnapshot | null,
+        })),
+        totalCount,
+        hasMore,
+      };
     },
   },
   Mutation: {
@@ -1765,6 +1836,15 @@ export const resolvers = {
                 componentId: created.id,
                 slotKey: getSlotKey(type, location),
                 installedAt: now,
+              },
+            });
+
+            // Create initial service log so predictions start from installation date
+            await tx.serviceLog.create({
+              data: {
+                componentId: created.id,
+                performedAt: now,
+                hoursAtService: 0,
               },
             });
           }
@@ -2549,6 +2629,80 @@ export const resolvers = {
       return results;
     },
 
+    addBikeNote: async (
+      _: unknown,
+      { input }: { input: AddBikeNoteInputGQL },
+      ctx: GraphQLContext
+    ) => {
+      const userId = requireUserId(ctx);
+
+      const rateLimit = await checkMutationRateLimit('addBikeNote', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
+
+      // Validate bike ownership
+      const bike = await prisma.bike.findFirst({ where: { id: input.bikeId, userId } });
+      if (!bike) {
+        throw new GraphQLError('Bike not found', { extensions: { code: 'NOT_FOUND' } });
+      }
+
+      const text = cleanText(input.text, MAX_NOTES_LEN);
+      if (!text) {
+        throw new GraphQLError('Note text is required', { extensions: { code: 'BAD_USER_INPUT' } });
+      }
+
+      // Capture snapshot and create note in transaction
+      const note = await prisma.$transaction(async (tx) => {
+        const snapshot = await captureSetupSnapshot(input.bikeId, tx);
+
+        return (tx as typeof prisma).bikeNote.create({
+          data: {
+            bikeId: input.bikeId,
+            userId,
+            text,
+            noteType: 'MANUAL',
+            snapshot: snapshot as unknown as Prisma.InputJsonValue,
+          },
+        });
+      });
+
+      return {
+        ...note,
+        createdAt: note.createdAt.toISOString(),
+        snapshot: note.snapshot as SetupSnapshot | null,
+        snapshotBefore: null,
+        snapshotAfter: null,
+      };
+    },
+
+    deleteBikeNote: async (
+      _: unknown,
+      { id }: { id: string },
+      ctx: GraphQLContext
+    ) => {
+      const userId = requireUserId(ctx);
+
+      const rateLimit = await checkMutationRateLimit('deleteBikeNote', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
+
+      // Validate note ownership
+      const note = await prisma.bikeNote.findFirst({ where: { id, userId } });
+      if (!note) {
+        throw new GraphQLError('Note not found', { extensions: { code: 'NOT_FOUND' } });
+      }
+
+      await prisma.bikeNote.delete({ where: { id } });
+
+      return { ok: true, id };
+    },
+
     acknowledgeImportOverlay: async (
       _: unknown,
       { importSessionId }: { importSessionId: string },
@@ -2885,6 +3039,15 @@ export const resolvers = {
         });
         newComponents.push(newComponent);
 
+        // Create initial service log so predictions start from installation date
+        await tx.serviceLog.create({
+          data: {
+            componentId: newComponent.id,
+            performedAt: now,
+            hoursAtService: 0,
+          },
+        });
+
         // Update the old component to point to the replacement
         await tx.component.update({
           where: { id: componentId },
@@ -2932,6 +3095,15 @@ export const resolvers = {
             });
             newComponents.push(newPairedComponent);
 
+            // Create initial service log for paired component
+            await tx.serviceLog.create({
+              data: {
+                componentId: newPairedComponent.id,
+                performedAt: now,
+                hoursAtService: 0,
+              },
+            });
+
             // Update the old paired component to point to the replacement
             await tx.component.update({
               where: { id: pairedComponent.id },
@@ -2963,7 +3135,10 @@ export const resolvers = {
         });
       }
 
-      const { bikeId, slotKey, existingComponentId, newComponent, alsoReplacePair, pairNewComponent } = input;
+      const { bikeId, slotKey, existingComponentId, newComponent, alsoReplacePair, pairNewComponent, noteText } = input;
+
+      // Clean noteText if provided
+      const cleanedNoteText = noteText ? cleanText(noteText, MAX_NOTES_LEN) : null;
 
       // Must provide exactly one of existingComponentId or newComponent
       if (!existingComponentId && !newComponent) {
@@ -3003,10 +3178,17 @@ export const resolvers = {
 
       let installedComponent: ComponentModel | null = null;
       let displacedComponent: ComponentModel | null = null;
+      let createdNote: { id: string; bikeId: string; userId: string; text: string; noteType: string; createdAt: Date; snapshot: unknown; snapshotBefore: unknown; snapshotAfter: unknown; installEventId: string | null } | null = null;
       const bikesToInvalidate = new Set<string>([bikeId]);
 
       await prisma.$transaction(async (tx) => {
         const now = new Date();
+
+        // Capture snapshot BEFORE the change if noteText is provided
+        let snapshotBefore: SetupSnapshot | null = null;
+        if (cleanedNoteText) {
+          snapshotBefore = await captureSetupSnapshot(bikeId, tx);
+        }
 
         // 1. If the incoming component is currently installed somewhere, uninstall it
         if (existingComponent && existingComponent.bikeId) {
@@ -3073,6 +3255,15 @@ export const resolvers = {
               baselineConfidence: 'HIGH',
               baselineSetAt: now,
               status: 'INSTALLED',
+            },
+          });
+
+          // Create initial service log so predictions start from installation date
+          await tx.serviceLog.create({
+            data: {
+              componentId: componentToInstall.id,
+              performedAt: now,
+              hoursAtService: 0,
             },
           });
 
@@ -3162,6 +3353,15 @@ export const resolvers = {
               },
             });
 
+            // Create initial service log for paired component
+            await tx.serviceLog.create({
+              data: {
+                componentId: pairedComponent.id,
+                performedAt: now,
+                hoursAtService: 0,
+              },
+            });
+
             // Update the primary installed component with the pair group
             await tx.component.update({
               where: { id: componentToInstall.id },
@@ -3187,6 +3387,29 @@ export const resolvers = {
             }
           }
         }
+
+        // Create note with before/after snapshots if noteText was provided
+        if (cleanedNoteText && snapshotBefore) {
+          const snapshotAfter = await captureSetupSnapshot(bikeId, tx);
+
+          // Get the install record we just created to link the note
+          const installRecord = await tx.bikeComponentInstall.findFirst({
+            where: { componentId: installedComponent!.id, removedAt: null },
+            orderBy: { installedAt: 'desc' },
+          });
+
+          createdNote = await (tx as typeof prisma).bikeNote.create({
+            data: {
+              bikeId,
+              userId,
+              text: cleanedNoteText,
+              noteType: 'SWAP',
+              snapshotBefore: snapshotBefore as unknown as Prisma.InputJsonValue,
+              snapshotAfter: snapshotAfter as unknown as Prisma.InputJsonValue,
+              installEventId: installRecord?.id ?? null,
+            },
+          });
+        }
       });
 
       // Invalidate prediction caches for all affected bikes
@@ -3194,9 +3417,38 @@ export const resolvers = {
         await invalidateBikePrediction(userId, affectedBikeId);
       }
 
+      let formattedNote = null;
+      if (createdNote) {
+        const note = createdNote as {
+          id: string;
+          bikeId: string;
+          userId: string;
+          text: string;
+          noteType: string;
+          createdAt: Date;
+          snapshot: unknown;
+          snapshotBefore: unknown;
+          snapshotAfter: unknown;
+          installEventId: string | null;
+        };
+        formattedNote = {
+          id: note.id,
+          bikeId: note.bikeId,
+          userId: note.userId,
+          text: note.text,
+          noteType: note.noteType,
+          createdAt: note.createdAt.toISOString(),
+          snapshot: null,
+          snapshotBefore: note.snapshotBefore as SetupSnapshot | null,
+          snapshotAfter: note.snapshotAfter as SetupSnapshot | null,
+          installEventId: note.installEventId,
+        };
+      }
+
       return {
         installedComponent: installedComponent!,
         displacedComponent,
+        note: formattedNote,
       };
     },
 
@@ -3214,7 +3466,10 @@ export const resolvers = {
         });
       }
 
-      const { bikeIdA, slotKeyA, bikeIdB, slotKeyB } = input;
+      const { bikeIdA, slotKeyA, bikeIdB, slotKeyB, noteText } = input;
+
+      // Clean noteText if provided
+      const cleanedNoteText = noteText ? cleanText(noteText, MAX_NOTES_LEN) : null;
 
       // Validate both bikes belong to user
       const [bikeA, bikeB] = await Promise.all([
@@ -3238,9 +3493,33 @@ export const resolvers = {
 
       let componentA: ComponentModel | null = null;
       let componentB: ComponentModel | null = null;
+      type BikeNoteRecord = {
+        id: string;
+        bikeId: string;
+        userId: string;
+        text: string;
+        noteType: string;
+        createdAt: Date;
+        snapshot: unknown;
+        snapshotBefore: unknown;
+        snapshotAfter: unknown;
+        installEventId: string | null;
+      };
+      let createdNoteA: BikeNoteRecord | null = null;
+      let createdNoteB: BikeNoteRecord | null = null;
 
       await prisma.$transaction(async (tx) => {
         const now = new Date();
+
+        // Capture snapshots BEFORE the swap if noteText is provided
+        let snapshotBeforeA: SetupSnapshot | null = null;
+        let snapshotBeforeB: SetupSnapshot | null = null;
+        if (cleanedNoteText) {
+          [snapshotBeforeA, snapshotBeforeB] = await Promise.all([
+            captureSetupSnapshot(bikeIdA, tx),
+            captureSetupSnapshot(bikeIdB, tx),
+          ]);
+        }
 
         // Find active installs for both slots
         const [installA, installB] = await Promise.all([
@@ -3308,6 +3587,40 @@ export const resolvers = {
             },
           }),
         ]);
+
+        // Create notes with before/after snapshots for both bikes if noteText was provided
+        if (cleanedNoteText && snapshotBeforeA && snapshotBeforeB) {
+          const [snapshotAfterA, snapshotAfterB] = await Promise.all([
+            captureSetupSnapshot(bikeIdA, tx),
+            captureSetupSnapshot(bikeIdB, tx),
+          ]);
+
+          const [noteA, noteB] = await Promise.all([
+            (tx as typeof prisma).bikeNote.create({
+              data: {
+                bikeId: bikeIdA,
+                userId,
+                text: cleanedNoteText,
+                noteType: 'SWAP',
+                snapshotBefore: snapshotBeforeA as unknown as Prisma.InputJsonValue,
+                snapshotAfter: snapshotAfterA as unknown as Prisma.InputJsonValue,
+              },
+            }),
+            (tx as typeof prisma).bikeNote.create({
+              data: {
+                bikeId: bikeIdB,
+                userId,
+                text: cleanedNoteText,
+                noteType: 'SWAP',
+                snapshotBefore: snapshotBeforeB as unknown as Prisma.InputJsonValue,
+                snapshotAfter: snapshotAfterB as unknown as Prisma.InputJsonValue,
+              },
+            }),
+          ]);
+
+          createdNoteA = noteA as BikeNoteRecord;
+          createdNoteB = noteB as BikeNoteRecord;
+        }
       });
 
       // Invalidate prediction caches for both bikes
@@ -3316,9 +3629,27 @@ export const resolvers = {
         invalidateBikePrediction(userId, bikeIdB),
       ]);
 
+      const formatNote = (note: BikeNoteRecord | null) => {
+        if (!note) return null;
+        return {
+          id: note.id,
+          bikeId: note.bikeId,
+          userId: note.userId,
+          text: note.text,
+          noteType: note.noteType,
+          createdAt: note.createdAt.toISOString(),
+          snapshot: null,
+          snapshotBefore: note.snapshotBefore as SetupSnapshot | null,
+          snapshotAfter: note.snapshotAfter as SetupSnapshot | null,
+          installEventId: note.installEventId,
+        };
+      };
+
       return {
         componentA: componentA!,
         componentB: componentB!,
+        noteA: formatNote(createdNoteA),
+        noteB: formatNote(createdNoteB),
       };
     },
 

@@ -60,6 +60,10 @@ export const MUTATION_RATE_LIMITS = {
   installComponent: { windowSeconds: 60, maxRequests: 20 },
   /** swapComponents: max 20 requests per minute per user */
   swapComponents: { windowSeconds: 60, maxRequests: 20 },
+  /** addBikeNote: max 20 requests per minute per user */
+  addBikeNote: { windowSeconds: 60, maxRequests: 20 },
+  /** deleteBikeNote: max 20 requests per minute per user */
+  deleteBikeNote: { windowSeconds: 60, maxRequests: 20 },
 } as const;
 
 /**

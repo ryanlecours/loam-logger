@@ -235,6 +235,7 @@ describe('SwapComponentModal', () => {
               slotKeyA: 'FORK_NONE',
               bikeIdB: 'bike-2',
               slotKeyB: 'FORK_NONE',
+              noteText: null,
             },
           },
         });

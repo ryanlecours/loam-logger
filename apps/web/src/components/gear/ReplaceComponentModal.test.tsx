@@ -249,6 +249,7 @@ describe('ReplaceComponentModal', () => {
               bikeId: 'bike-1',
               slotKey: 'FORK_NONE',
               existingComponentId: 'spare-1',
+              noteText: null,
             },
           },
         });
@@ -274,6 +275,7 @@ describe('ReplaceComponentModal', () => {
               bikeId: 'bike-1',
               slotKey: 'FORK_NONE',
               newComponent: { brand: 'Fox', model: '38 Factory' },
+              noteText: null,
             },
           },
         });

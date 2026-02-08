@@ -50,6 +50,7 @@ export function SwapComponentModal({
   otherBikes,
 }: SwapComponentModalProps) {
   const [swappingTargetId, setSwappingTargetId] = useState<string | null>(null);
+  const [noteText, setNoteText] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   const [swapComponents] = useMutation(SWAP_COMPONENTS, {
@@ -86,6 +87,8 @@ export function SwapComponentModal({
     const slotKeyB = getSlotKey(targetComponent.type, targetComponent.location ?? 'NONE');
 
     try {
+      const trimmedNoteText = noteText.trim() || null;
+
       await swapComponents({
         variables: {
           input: {
@@ -93,6 +96,7 @@ export function SwapComponentModal({
             slotKeyA,
             bikeIdB: targetBike.id,
             slotKeyB,
+            noteText: trimmedNoteText,
           },
         },
       });
@@ -119,6 +123,30 @@ export function SwapComponentModal({
         <p className="text-sm text-amber-300">
           Compatibility is not validated. Ensure both components fit their destination bikes.
         </p>
+      </div>
+
+      {/* Note textarea */}
+      <div className="mb-4 flex flex-col gap-1">
+        <label
+          htmlFor="swap-note"
+          className="text-xs font-medium text-muted"
+        >
+          Note (optional)
+        </label>
+        <textarea
+          id="swap-note"
+          value={noteText}
+          onChange={(e) => setNoteText(e.target.value)}
+          placeholder="Why are you making this swap?"
+          rows={2}
+          maxLength={2000}
+          className="rounded-md border border-app bg-surface px-3 py-2 text-sm text-app placeholder:text-muted focus:border-forest focus:outline-none focus:ring-1 focus:ring-forest resize-none"
+        />
+        {noteText.length > 0 && (
+          <span className="text-xs text-muted text-right">
+            {noteText.length}/2000
+          </span>
+        )}
       </div>
 
       {/* Error message */}

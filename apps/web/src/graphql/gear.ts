@@ -238,6 +238,53 @@ export const BULK_UPDATE_BASELINES = gql`
   ${COMPONENT_FIELDS}
 `;
 
+export const BIKE_NOTE_FIELDS = gql`
+  fragment BikeNoteFields on BikeNote {
+    id
+    bikeId
+    userId
+    text
+    noteType
+    createdAt
+    installEventId
+  }
+`;
+
+export const SETUP_SNAPSHOT_FIELDS = gql`
+  fragment SetupSnapshotFields on SetupSnapshot {
+    capturedAt
+    bikeSpecs {
+      travelForkMm
+      travelShockMm
+      isEbike
+      batteryWh
+      motorPowerW
+      motorTorqueNm
+      motorMaker
+      motorModel
+    }
+    slots {
+      slotKey
+      componentType
+      location
+      component {
+        componentId
+        brand
+        model
+        isStock
+        hoursUsed
+        serviceDueAtHours
+        settings {
+          key
+          value
+          unit
+          label
+        }
+      }
+    }
+  }
+`;
+
 export const INSTALL_COMPONENT = gql`
   mutation InstallComponent($input: InstallComponentInput!) {
     installComponent(input: $input) {
@@ -247,9 +294,13 @@ export const INSTALL_COMPONENT = gql`
       displacedComponent {
         ...ComponentFields
       }
+      note {
+        ...BikeNoteFields
+      }
     }
   }
   ${COMPONENT_FIELDS}
+  ${BIKE_NOTE_FIELDS}
 `;
 
 export const SWAP_COMPONENTS = gql`
@@ -261,7 +312,59 @@ export const SWAP_COMPONENTS = gql`
       componentB {
         ...ComponentFields
       }
+      noteA {
+        ...BikeNoteFields
+      }
+      noteB {
+        ...BikeNoteFields
+      }
     }
   }
   ${COMPONENT_FIELDS}
+  ${BIKE_NOTE_FIELDS}
+`;
+
+export const BIKE_NOTES_QUERY = gql`
+  query BikeNotes($bikeId: ID!, $take: Int, $after: ID) {
+    bikeNotes(bikeId: $bikeId, take: $take, after: $after) {
+      items {
+        ...BikeNoteFields
+        snapshot {
+          ...SetupSnapshotFields
+        }
+        snapshotBefore {
+          ...SetupSnapshotFields
+        }
+        snapshotAfter {
+          ...SetupSnapshotFields
+        }
+      }
+      totalCount
+      hasMore
+    }
+  }
+  ${BIKE_NOTE_FIELDS}
+  ${SETUP_SNAPSHOT_FIELDS}
+`;
+
+export const ADD_BIKE_NOTE = gql`
+  mutation AddBikeNote($input: AddBikeNoteInput!) {
+    addBikeNote(input: $input) {
+      ...BikeNoteFields
+      snapshot {
+        ...SetupSnapshotFields
+      }
+    }
+  }
+  ${BIKE_NOTE_FIELDS}
+  ${SETUP_SNAPSHOT_FIELDS}
+`;
+
+export const DELETE_BIKE_NOTE = gql`
+  mutation DeleteBikeNote($id: ID!) {
+    deleteBikeNote(id: $id) {
+      ok
+      id
+    }
+  }
 `;

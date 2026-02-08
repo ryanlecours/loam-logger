@@ -21,6 +21,8 @@ import { ComponentDetailRow } from '@/components/gear/ComponentDetailRow';
 import { ReplaceComponentModal } from '@/components/gear/ReplaceComponentModal';
 import { SwapComponentModal } from '@/components/gear/SwapComponentModal';
 import { BikeSpecsGrid, EbikeSpecsGrid } from '@/components/gear/BikeSpecsGrid';
+import { BikeNotesSection } from '@/components/gear/BikeNotesSection';
+import { AddBikeNoteModal } from '@/components/gear/AddBikeNoteModal';
 import { SpareComponentForm } from '@/components/SpareComponentForm';
 import { BikeImageSelector } from '@/components/BikeImageSelector';
 import { useSpokes } from '@/hooks/useSpokes';
@@ -174,6 +176,9 @@ export default function BikeDetail() {
 
   // Service tracking section state
   const [serviceTrackingExpanded, setServiceTrackingExpanded] = useState(false);
+
+  // Add note modal state
+  const [addNoteModalOpen, setAddNoteModalOpen] = useState(false);
 
   // Handle opening the edit image modal
   const handleEditImageOpen = async () => {
@@ -488,6 +493,14 @@ export default function BikeDetail() {
         </AnimatePresence>
       </section>
 
+      {/* Bike Notes (with snapshots) */}
+      <section className="bike-detail-section">
+        <BikeNotesSection
+          bikeId={bike.id}
+          onAddNote={() => setAddNoteModalOpen(true)}
+        />
+      </section>
+
       {/* Notes */}
       {bike.notes && (
         <section className="bike-detail-section">
@@ -702,6 +715,16 @@ export default function BikeDetail() {
           bikeName={bikeName}
           component={swappingComponent}
           otherBikes={otherBikes}
+        />
+      )}
+
+      {/* Add Bike Note Modal */}
+      {bike && (
+        <AddBikeNoteModal
+          isOpen={addNoteModalOpen}
+          onClose={() => setAddNoteModalOpen(false)}
+          bikeId={bike.id}
+          bikeName={bikeName}
         />
       )}
     </motion.div>

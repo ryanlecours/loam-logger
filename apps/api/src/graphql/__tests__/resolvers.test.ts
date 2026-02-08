@@ -1049,6 +1049,9 @@ describe('GraphQL Resolvers', () => {
               create: jest.fn().mockResolvedValue(newComponent),
               findFirst: jest.fn().mockResolvedValue(null), // no paired component (alsoReplacePair not set)
             },
+            serviceLog: {
+              create: jest.fn().mockResolvedValue({ id: 'log-1' }),
+            },
           };
           return fn(mockTx);
         }
@@ -1111,6 +1114,9 @@ describe('GraphQL Resolvers', () => {
                 });
               }),
               findFirst: jest.fn().mockResolvedValue(pairedComponent), // paired component exists
+            },
+            serviceLog: {
+              create: jest.fn().mockResolvedValue({ id: 'log-1' }),
             },
           };
           return fn(mockTx);
@@ -1753,6 +1759,9 @@ describe('GraphQL Resolvers', () => {
         findFirst: jest.fn(),
         create: jest.fn(),
         update: jest.fn(),
+      },
+      serviceLog: {
+        create: jest.fn().mockResolvedValue({ id: 'log-1' }),
       },
     });
 
