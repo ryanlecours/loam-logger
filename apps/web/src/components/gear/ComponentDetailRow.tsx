@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { FaChevronDown, FaPencilAlt } from 'react-icons/fa';
+import { FaChevronDown, FaPencilAlt, FaExchangeAlt, FaSyncAlt } from 'react-icons/fa';
 import { StatusDot } from '../dashboard/StatusDot';
 import type { PredictionStatus } from '../../types/prediction';
 import { formatComponentLabel } from '../../utils/formatters';
@@ -42,6 +42,9 @@ interface ComponentDetailRowProps {
   component: ComponentDto;
   prediction?: ComponentPrediction | null;
   onEdit: () => void;
+  onReplace?: () => void;
+  onSwap?: () => void;
+  showSwap?: boolean;
 }
 
 function formatHours(hours: number | null | undefined): string {
@@ -82,6 +85,9 @@ export function ComponentDetailRow({
   component,
   prediction,
   onEdit,
+  onReplace,
+  onSwap,
+  showSwap = false,
 }: ComponentDetailRowProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const { hoursDisplay } = useHoursDisplay();
@@ -275,6 +281,32 @@ export function ComponentDetailRow({
                 <div className="component-detail-notes">
                   <span className="component-detail-field-label">Notes</span>
                   <p className="component-detail-notes-text">{component.notes}</p>
+                </div>
+              )}
+
+              {/* Replace / Swap actions */}
+              {(onReplace || (showSwap && onSwap)) && (
+                <div className="component-detail-swap-actions">
+                  {onReplace && (
+                    <button
+                      type="button"
+                      className="component-detail-action-btn"
+                      onClick={(e) => { e.stopPropagation(); onReplace(); }}
+                    >
+                      <FaExchangeAlt size={11} />
+                      Replace
+                    </button>
+                  )}
+                  {showSwap && onSwap && (
+                    <button
+                      type="button"
+                      className="component-detail-action-btn"
+                      onClick={(e) => { e.stopPropagation(); onSwap(); }}
+                    >
+                      <FaSyncAlt size={11} />
+                      Swap with another bike
+                    </button>
+                  )}
                 </div>
               )}
             </div>

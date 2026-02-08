@@ -289,6 +289,7 @@ export default function Gear() {
       isStock: form.isStock,
       hoursUsed: Number.isNaN(hoursUsed) ? undefined : hoursUsed,
       serviceDueAtHours: Number.isNaN(serviceDue ?? 0) ? undefined : serviceDue,
+      location: form.location ?? undefined,
     };
 
     let failed = false;
@@ -336,6 +337,7 @@ export default function Gear() {
       hoursUsed: currentSpare.hoursUsed != null ? String(currentSpare.hoursUsed) : '',
       serviceDueAtHours:
         currentSpare.serviceDueAtHours != null ? String(currentSpare.serviceDueAtHours) : '',
+      location: (currentSpare.location as 'FRONT' | 'REAR' | undefined) ?? undefined,
     };
   }, [currentSpare]);
 

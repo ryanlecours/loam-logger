@@ -12,6 +12,7 @@ jest.mock('../../lib/prisma', () => ({
     bike: {
       findMany: jest.fn(),
       findUnique: jest.fn(),
+      findFirst: jest.fn(),
       update: jest.fn(),
     },
     ride: {
@@ -31,6 +32,11 @@ jest.mock('../../lib/prisma', () => ({
       findMany: jest.fn(),
       upsert: jest.fn(),
       deleteMany: jest.fn(),
+    },
+    bikeComponentInstall: {
+      findFirst: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
     },
     $transaction: jest.fn(),
   },
@@ -1043,6 +1049,9 @@ describe('GraphQL Resolvers', () => {
               create: jest.fn().mockResolvedValue(newComponent),
               findFirst: jest.fn().mockResolvedValue(null), // no paired component (alsoReplacePair not set)
             },
+            serviceLog: {
+              create: jest.fn().mockResolvedValue({ id: 'log-1' }),
+            },
           };
           return fn(mockTx);
         }
@@ -1105,6 +1114,9 @@ describe('GraphQL Resolvers', () => {
                 });
               }),
               findFirst: jest.fn().mockResolvedValue(pairedComponent), // paired component exists
+            },
+            serviceLog: {
+              create: jest.fn().mockResolvedValue({ id: 'log-1' }),
             },
           };
           return fn(mockTx);
@@ -1726,6 +1738,550 @@ describe('GraphQL Resolvers', () => {
         })
       );
       expect(result).toEqual(mockRides);
+    });
+  });
+
+  // =========================================================================
+  // installComponent
+  // =========================================================================
+  describe('installComponent', () => {
+    const mutation = resolvers.Mutation.installComponent;
+
+    // Helper to create a mock transaction client matching the Prisma mock shape
+    const createMockTx = () => ({
+      component: {
+        findFirst: jest.fn(),
+        create: jest.fn(),
+        update: jest.fn(),
+        updateMany: jest.fn(),
+      },
+      bikeComponentInstall: {
+        findFirst: jest.fn(),
+        create: jest.fn(),
+        update: jest.fn(),
+      },
+      serviceLog: {
+        create: jest.fn().mockResolvedValue({ id: 'log-1' }),
+      },
+    });
+
+    describe('authorization', () => {
+      it('should throw Unauthorized when user is not authenticated', async () => {
+        const ctx = createMockContext(null);
+
+        await expect(
+          mutation(
+            {},
+            { input: { bikeId: 'bike-1', slotKey: 'FORK_NONE', newComponent: { brand: 'Fox', model: '36' } } },
+            ctx as never
+          )
+        ).rejects.toThrow('Unauthorized');
+      });
+    });
+
+    describe('validation', () => {
+      it('should reject when neither existingComponentId nor newComponent provided', async () => {
+        const ctx = createMockContext('user-123');
+
+        await expect(
+          mutation(
+            {},
+            { input: { bikeId: 'bike-1', slotKey: 'FORK_NONE' } },
+            ctx as never
+          )
+        ).rejects.toThrow('Must provide either existingComponentId or newComponent');
+      });
+
+      it('should reject when both existingComponentId and newComponent provided', async () => {
+        const ctx = createMockContext('user-123');
+
+        await expect(
+          mutation(
+            {},
+            {
+              input: {
+                bikeId: 'bike-1',
+                slotKey: 'FORK_NONE',
+                existingComponentId: 'comp-1',
+                newComponent: { brand: 'Fox', model: '36' },
+              },
+            },
+            ctx as never
+          )
+        ).rejects.toThrow('Provide only one of existingComponentId or newComponent');
+      });
+
+      it('should reject when bike is not found', async () => {
+        const ctx = createMockContext('user-123');
+        (mockPrisma.bike.findFirst as jest.Mock).mockResolvedValue(null);
+
+        await expect(
+          mutation(
+            {},
+            { input: { bikeId: 'bike-1', slotKey: 'FORK_NONE', newComponent: { brand: 'Fox', model: '36' } } },
+            ctx as never
+          )
+        ).rejects.toThrow('Bike not found');
+      });
+
+      it('should reject when existing component type does not match slot', async () => {
+        const ctx = createMockContext('user-123');
+        (mockPrisma.bike.findFirst as jest.Mock).mockResolvedValue({ id: 'bike-1', userId: 'user-123' });
+        mockPrisma.component.findFirst.mockResolvedValue({
+          id: 'comp-1',
+          userId: 'user-123',
+          type: 'SHOCK', // SHOCK != FORK
+          bikeId: null,
+        } as never);
+
+        await expect(
+          mutation(
+            {},
+            { input: { bikeId: 'bike-1', slotKey: 'FORK_NONE', existingComponentId: 'comp-1' } },
+            ctx as never
+          )
+        ).rejects.toThrow('Component type does not match slot');
+      });
+
+      it('should reject when existing component is not owned by user', async () => {
+        const ctx = createMockContext('user-123');
+        (mockPrisma.bike.findFirst as jest.Mock).mockResolvedValue({ id: 'bike-1', userId: 'user-123' });
+        // findFirst with { id, userId } returns null because different user
+        mockPrisma.component.findFirst.mockResolvedValue(null);
+
+        await expect(
+          mutation(
+            {},
+            { input: { bikeId: 'bike-1', slotKey: 'FORK_NONE', existingComponentId: 'comp-1' } },
+            ctx as never
+          )
+        ).rejects.toThrow('Component not found');
+      });
+    });
+
+    describe('install spare onto occupied slot', () => {
+      it('should displace current component and install spare', async () => {
+        const ctx = createMockContext('user-123');
+        const mockTx = createMockTx();
+
+        // Bike exists
+        (mockPrisma.bike.findFirst as jest.Mock).mockResolvedValue({ id: 'bike-1', userId: 'user-123' });
+
+        // Existing spare component (INVENTORY, no bikeId)
+        const spareComponent = {
+          id: 'spare-1',
+          userId: 'user-123',
+          type: 'FORK',
+          bikeId: null,
+          status: 'INVENTORY',
+        };
+        mockPrisma.component.findFirst.mockResolvedValue(spareComponent as never);
+
+        // Transaction: current install exists on the slot
+        const currentInstall = { id: 'install-1', componentId: 'old-comp-1', bikeId: 'bike-1', slotKey: 'FORK_NONE' };
+        mockTx.bikeComponentInstall.findFirst.mockResolvedValue(currentInstall as never);
+
+        // Displaced component update
+        const displacedComp = { id: 'old-comp-1', bikeId: null, status: 'INVENTORY' };
+        mockTx.component.update
+          .mockResolvedValueOnce(displacedComp as never) // displaced component
+          .mockResolvedValueOnce({ ...spareComponent, bikeId: 'bike-1', status: 'INSTALLED' } as never); // spare installed
+
+        mockTx.bikeComponentInstall.update.mockResolvedValue({} as never);
+        mockTx.bikeComponentInstall.create.mockResolvedValue({} as never);
+
+        mockPrisma.$transaction.mockImplementation(async (fn) => {
+          if (typeof fn === 'function') return fn(mockTx);
+          return [];
+        });
+
+        const result = await mutation(
+          {},
+          { input: { bikeId: 'bike-1', slotKey: 'FORK_NONE', existingComponentId: 'spare-1' } },
+          ctx as never
+        );
+
+        // Should close the current install
+        expect(mockTx.bikeComponentInstall.update).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: { id: 'install-1' },
+            data: expect.objectContaining({ removedAt: expect.any(Date) }),
+          })
+        );
+
+        // Displaced component becomes INVENTORY
+        expect(mockTx.component.update).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: { id: 'old-comp-1' },
+            data: expect.objectContaining({ bikeId: null, status: 'INVENTORY' }),
+          })
+        );
+
+        // New install record created
+        expect(mockTx.bikeComponentInstall.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({
+              userId: 'user-123',
+              bikeId: 'bike-1',
+              componentId: 'spare-1',
+              slotKey: 'FORK_NONE',
+            }),
+          })
+        );
+
+        // Prediction cache invalidated
+        expect(invalidateBikePrediction).toHaveBeenCalledWith('user-123', 'bike-1');
+
+        expect(result.displacedComponent).toBeTruthy();
+        expect(result.installedComponent).toBeTruthy();
+      });
+    });
+
+    describe('install new component onto occupied slot', () => {
+      it('should retire current component and create new one', async () => {
+        const ctx = createMockContext('user-123');
+        const mockTx = createMockTx();
+
+        (mockPrisma.bike.findFirst as jest.Mock).mockResolvedValue({ id: 'bike-1', userId: 'user-123' });
+
+        // Current install exists
+        const currentInstall = { id: 'install-1', componentId: 'old-comp-1', bikeId: 'bike-1', slotKey: 'FORK_NONE' };
+        mockTx.bikeComponentInstall.findFirst.mockResolvedValue(currentInstall as never);
+
+        // Displaced component is RETIRED when using newComponent
+        const retiredComp = { id: 'old-comp-1', bikeId: null, status: 'RETIRED' };
+        mockTx.component.update
+          .mockResolvedValueOnce(retiredComp as never) // displaced → RETIRED
+          .mockResolvedValueOnce({} as never); // replacedById update
+
+        const newComp = { id: 'new-comp-1', type: 'FORK', brand: 'Fox', model: '36', status: 'INSTALLED', bikeId: 'bike-1' };
+        mockTx.component.create.mockResolvedValue(newComp as never);
+
+        mockTx.bikeComponentInstall.update.mockResolvedValue({} as never);
+        mockTx.bikeComponentInstall.create.mockResolvedValue({} as never);
+
+        mockPrisma.$transaction.mockImplementation(async (fn) => {
+          if (typeof fn === 'function') return fn(mockTx);
+          return [];
+        });
+
+        const result = await mutation(
+          {},
+          { input: { bikeId: 'bike-1', slotKey: 'FORK_NONE', newComponent: { brand: 'Fox', model: '36' } } },
+          ctx as never
+        );
+
+        // Displaced component should be RETIRED
+        expect(mockTx.component.update).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: { id: 'old-comp-1' },
+            data: expect.objectContaining({ status: 'RETIRED', retiredAt: expect.any(Date) }),
+          })
+        );
+
+        // New component created with INSTALLED status
+        expect(mockTx.component.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({
+              brand: 'Fox',
+              model: '36',
+              status: 'INSTALLED',
+              bikeId: 'bike-1',
+              type: 'FORK',
+            }),
+          })
+        );
+
+        // replacedById set on displaced component
+        expect(mockTx.component.update).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: { id: 'old-comp-1' },
+            data: expect.objectContaining({ replacedById: 'new-comp-1' }),
+          })
+        );
+
+        expect(result.installedComponent).toEqual(newComp);
+        expect(result.displacedComponent).toEqual(retiredComp);
+      });
+    });
+
+    describe('install component from another bike', () => {
+      it('should uninstall from source bike and install on target bike', async () => {
+        const ctx = createMockContext('user-123');
+        const mockTx = createMockTx();
+
+        (mockPrisma.bike.findFirst as jest.Mock).mockResolvedValue({ id: 'bike-2', userId: 'user-123' });
+
+        // Existing component is installed on bike-1
+        const existingComp = {
+          id: 'comp-1',
+          userId: 'user-123',
+          type: 'FORK',
+          bikeId: 'bike-1',
+          status: 'INSTALLED',
+        };
+        mockPrisma.component.findFirst.mockResolvedValue(existingComp as never);
+
+        // Source install found for the existing component
+        const sourceInstall = { id: 'source-install-1', componentId: 'comp-1', bikeId: 'bike-1' };
+        mockTx.bikeComponentInstall.findFirst
+          .mockResolvedValueOnce(sourceInstall as never) // source install for existing component
+          .mockResolvedValueOnce(null as never); // no current install on target slot
+
+        mockTx.bikeComponentInstall.update.mockResolvedValue({} as never);
+        mockTx.component.update
+          .mockResolvedValueOnce({ ...existingComp, bikeId: null, status: 'INVENTORY' } as never) // uninstall from source
+          .mockResolvedValueOnce({ ...existingComp, bikeId: 'bike-2', status: 'INSTALLED' } as never); // install on target
+        mockTx.bikeComponentInstall.create.mockResolvedValue({} as never);
+
+        mockPrisma.$transaction.mockImplementation(async (fn) => {
+          if (typeof fn === 'function') return fn(mockTx);
+          return [];
+        });
+
+        await mutation(
+          {},
+          { input: { bikeId: 'bike-2', slotKey: 'FORK_NONE', existingComponentId: 'comp-1' } },
+          ctx as never
+        );
+
+        // Source install should be closed
+        expect(mockTx.bikeComponentInstall.update).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: { id: 'source-install-1' },
+            data: expect.objectContaining({ removedAt: expect.any(Date) }),
+          })
+        );
+
+        // Both bikes' prediction caches invalidated
+        expect(invalidateBikePrediction).toHaveBeenCalledWith('user-123', 'bike-1');
+        expect(invalidateBikePrediction).toHaveBeenCalledWith('user-123', 'bike-2');
+      });
+    });
+  });
+
+  // =========================================================================
+  // swapComponents
+  // =========================================================================
+  describe('swapComponents', () => {
+    const mutation = resolvers.Mutation.swapComponents;
+
+    const createMockTx = () => ({
+      component: {
+        update: jest.fn(),
+      },
+      bikeComponentInstall: {
+        findFirst: jest.fn(),
+        create: jest.fn(),
+        update: jest.fn(),
+      },
+    });
+
+    describe('authorization', () => {
+      it('should throw Unauthorized when user is not authenticated', async () => {
+        const ctx = createMockContext(null);
+
+        await expect(
+          mutation(
+            {},
+            {
+              input: {
+                bikeIdA: 'bike-1',
+                slotKeyA: 'FORK_NONE',
+                bikeIdB: 'bike-2',
+                slotKeyB: 'FORK_NONE',
+              },
+            },
+            ctx as never
+          )
+        ).rejects.toThrow('Unauthorized');
+      });
+    });
+
+    describe('validation', () => {
+      it('should reject when first bike is not found', async () => {
+        const ctx = createMockContext('user-123');
+        (mockPrisma.bike.findFirst as jest.Mock).mockResolvedValue(null);
+
+        await expect(
+          mutation(
+            {},
+            {
+              input: {
+                bikeIdA: 'bike-1',
+                slotKeyA: 'FORK_NONE',
+                bikeIdB: 'bike-2',
+                slotKeyB: 'FORK_NONE',
+              },
+            },
+            ctx as never
+          )
+        ).rejects.toThrow('bike not found');
+      });
+
+      it('should reject when component types do not match', async () => {
+        const ctx = createMockContext('user-123');
+        (mockPrisma.bike.findFirst as jest.Mock)
+          .mockResolvedValueOnce({ id: 'bike-1', userId: 'user-123' })
+          .mockResolvedValueOnce({ id: 'bike-2', userId: 'user-123' });
+
+        await expect(
+          mutation(
+            {},
+            {
+              input: {
+                bikeIdA: 'bike-1',
+                slotKeyA: 'FORK_NONE',
+                bikeIdB: 'bike-2',
+                slotKeyB: 'SHOCK_NONE', // Different type
+              },
+            },
+            ctx as never
+          )
+        ).rejects.toThrow('Cannot swap components of different types');
+      });
+    });
+
+    describe('happy path', () => {
+      it('should swap same-type components between two bikes', async () => {
+        const ctx = createMockContext('user-123');
+        const mockTx = createMockTx();
+
+        (mockPrisma.bike.findFirst as jest.Mock)
+          .mockResolvedValueOnce({ id: 'bike-1', userId: 'user-123' })
+          .mockResolvedValueOnce({ id: 'bike-2', userId: 'user-123' });
+
+        const installA = { id: 'install-a', componentId: 'comp-a', bikeId: 'bike-1', slotKey: 'FORK_NONE' };
+        const installB = { id: 'install-b', componentId: 'comp-b', bikeId: 'bike-2', slotKey: 'FORK_NONE' };
+
+        mockTx.bikeComponentInstall.findFirst
+          .mockResolvedValueOnce(installA as never)
+          .mockResolvedValueOnce(installB as never);
+
+        const updatedA = { id: 'comp-a', bikeId: 'bike-2', type: 'FORK', location: 'NONE' };
+        const updatedB = { id: 'comp-b', bikeId: 'bike-1', type: 'FORK', location: 'NONE' };
+        mockTx.component.update
+          .mockResolvedValueOnce(updatedA as never)
+          .mockResolvedValueOnce(updatedB as never);
+
+        mockTx.bikeComponentInstall.update.mockResolvedValue({} as never);
+        mockTx.bikeComponentInstall.create.mockResolvedValue({} as never);
+
+        mockPrisma.$transaction.mockImplementation(async (fn) => {
+          if (typeof fn === 'function') return fn(mockTx);
+          return [];
+        });
+
+        const result = await mutation(
+          {},
+          {
+            input: {
+              bikeIdA: 'bike-1',
+              slotKeyA: 'FORK_NONE',
+              bikeIdB: 'bike-2',
+              slotKeyB: 'FORK_NONE',
+            },
+          },
+          ctx as never
+        );
+
+        // Both installs should be closed
+        expect(mockTx.bikeComponentInstall.update).toHaveBeenCalledTimes(2);
+
+        // Component A now on bike B
+        expect(mockTx.component.update).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: { id: 'comp-a' },
+            data: expect.objectContaining({ bikeId: 'bike-2' }),
+          })
+        );
+
+        // Component B now on bike A
+        expect(mockTx.component.update).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: { id: 'comp-b' },
+            data: expect.objectContaining({ bikeId: 'bike-1' }),
+          })
+        );
+
+        // Two new install records created
+        expect(mockTx.bikeComponentInstall.create).toHaveBeenCalledTimes(2);
+
+        // Prediction caches invalidated for both bikes
+        expect(invalidateBikePrediction).toHaveBeenCalledWith('user-123', 'bike-1');
+        expect(invalidateBikePrediction).toHaveBeenCalledWith('user-123', 'bike-2');
+
+        expect(result.componentA).toEqual(updatedA);
+        expect(result.componentB).toEqual(updatedB);
+      });
+
+      it('should reject when slot A has no component installed', async () => {
+        const ctx = createMockContext('user-123');
+        const mockTx = createMockTx();
+
+        (mockPrisma.bike.findFirst as jest.Mock)
+          .mockResolvedValueOnce({ id: 'bike-1', userId: 'user-123' })
+          .mockResolvedValueOnce({ id: 'bike-2', userId: 'user-123' });
+
+        // No install found for slot A
+        mockTx.bikeComponentInstall.findFirst
+          .mockResolvedValueOnce(null)
+          .mockResolvedValueOnce({ id: 'install-b' } as never);
+
+        mockPrisma.$transaction.mockImplementation(async (fn) => {
+          if (typeof fn === 'function') return fn(mockTx);
+          return [];
+        });
+
+        await expect(
+          mutation(
+            {},
+            {
+              input: {
+                bikeIdA: 'bike-1',
+                slotKeyA: 'FORK_NONE',
+                bikeIdB: 'bike-2',
+                slotKeyB: 'FORK_NONE',
+              },
+            },
+            ctx as never
+          )
+        ).rejects.toThrow('No component installed in the first slot');
+      });
+
+      it('should reject when slot B has no component installed', async () => {
+        const ctx = createMockContext('user-123');
+        const mockTx = createMockTx();
+
+        (mockPrisma.bike.findFirst as jest.Mock)
+          .mockResolvedValueOnce({ id: 'bike-1', userId: 'user-123' })
+          .mockResolvedValueOnce({ id: 'bike-2', userId: 'user-123' });
+
+        // Install found for A, but not for B
+        mockTx.bikeComponentInstall.findFirst
+          .mockResolvedValueOnce({ id: 'install-a' } as never)
+          .mockResolvedValueOnce(null);
+
+        mockPrisma.$transaction.mockImplementation(async (fn) => {
+          if (typeof fn === 'function') return fn(mockTx);
+          return [];
+        });
+
+        await expect(
+          mutation(
+            {},
+            {
+              input: {
+                bikeIdA: 'bike-1',
+                slotKeyA: 'FORK_NONE',
+                bikeIdB: 'bike-2',
+                slotKeyB: 'FORK_NONE',
+              },
+            },
+            ctx as never
+          )
+        ).rejects.toThrow('No component installed in the second slot');
+      });
     });
   });
 });

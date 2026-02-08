@@ -17,6 +17,8 @@ import {
   getApplicableComponents,
   deriveBikeSpec,
   requiresPairing,
+  getSlotKey,
+  parseSlotKey,
   type BikeSpec,
   type SpokesComponents,
   CURRENT_TERMS_VERSION,
@@ -28,6 +30,9 @@ import { config } from '../config/env';
 import type { AcquisitionCondition, BaselineMethod, BaselineConfidence } from '@prisma/client';
 import { getBikeById, isSpokesConfigured } from '../services/spokes';
 import { parseISO } from 'date-fns';
+import { incrementBikeComponentHours, decrementBikeComponentHours } from '../lib/component-hours';
+import { captureSetupSnapshot } from '../lib/capture-snapshot';
+import type { SetupSnapshot } from '@loam/shared';
 
 type ComponentType = ComponentTypeLiteral;
 
@@ -108,6 +113,35 @@ type ReplaceComponentInputGQL = {
   alsoReplacePair?: boolean | null;
   pairBrand?: string | null;
   pairModel?: string | null;
+};
+
+type NewComponentInputGQL = {
+  brand: string;
+  model: string;
+  isStock?: boolean | null;
+};
+
+type InstallComponentInputGQL = {
+  bikeId: string;
+  slotKey: string;
+  existingComponentId?: string | null;
+  newComponent?: NewComponentInputGQL | null;
+  alsoReplacePair?: boolean | null;
+  pairNewComponent?: NewComponentInputGQL | null;
+  noteText?: string | null;
+};
+
+type SwapComponentsInputGQL = {
+  bikeIdA: string;
+  slotKeyA: string;
+  bikeIdB: string;
+  slotKeyB: string;
+  noteText?: string | null;
+};
+
+type AddBikeNoteInputGQL = {
+  bikeId: string;
+  text: string;
 };
 
 type AddBikeInputGQL = {
@@ -628,6 +662,34 @@ export async function buildBikeComponents(
       data: componentsToCreate,
       skipDuplicates: true,
     });
+
+    // Create BikeComponentInstall records for all newly created components
+    const createdComponents = await tx.component.findMany({
+      where: { bikeId, userId, retiredAt: null },
+      select: { id: true, type: true, location: true, installedAt: true, createdAt: true },
+    });
+    if (createdComponents.length > 0) {
+      await tx.bikeComponentInstall.createMany({
+        data: createdComponents.map((c) => ({
+          userId,
+          bikeId,
+          componentId: c.id,
+          slotKey: getSlotKey(c.type, c.location),
+          installedAt: c.installedAt ?? c.createdAt,
+        })),
+        skipDuplicates: true,
+      });
+
+      // Create initial service logs so predictions start from installation date
+      await tx.serviceLog.createMany({
+        data: createdComponents.map((c) => ({
+          componentId: c.id,
+          performedAt: c.installedAt ?? c.createdAt,
+          hoursAtService: 0,
+        })),
+        skipDuplicates: true,
+      });
+    }
   }
 }
 
@@ -1137,6 +1199,58 @@ export const resolvers = {
         }
       });
     },
+
+    bikeNotes: async (
+      _: unknown,
+      { bikeId, take = 20, after }: { bikeId: string; take?: number; after?: string | null },
+      ctx: GraphQLContext
+    ) => {
+      const userId = requireUserId(ctx);
+
+      // Validate bike ownership
+      const bike = await prisma.bike.findFirst({ where: { id: bikeId, userId } });
+      if (!bike) {
+        throw new GraphQLError('Bike not found', { extensions: { code: 'NOT_FOUND' } });
+      }
+
+      const limit = Math.min(100, Math.max(1, take));
+
+      const [notes, totalCount] = await Promise.all([
+        prisma.bikeNote.findMany({
+          where: { bikeId },
+          orderBy: { createdAt: 'desc' },
+          take: limit + 1,
+          ...(after ? { skip: 1, cursor: { id: after } } : {}),
+        }),
+        prisma.bikeNote.count({ where: { bikeId } }),
+      ]);
+
+      const hasMore = notes.length > limit;
+      const resultNotes = hasMore ? notes.slice(0, -1) : notes;
+
+      return {
+        items: resultNotes.map((note: {
+          id: string;
+          bikeId: string;
+          userId: string;
+          text: string;
+          noteType: string;
+          createdAt: Date;
+          snapshot: unknown;
+          snapshotBefore: unknown;
+          snapshotAfter: unknown;
+          installEventId: string | null;
+        }) => ({
+          ...note,
+          createdAt: note.createdAt.toISOString(),
+          snapshot: note.snapshot as SetupSnapshot | null,
+          snapshotBefore: note.snapshotBefore as SetupSnapshot | null,
+          snapshotAfter: note.snapshotAfter as SetupSnapshot | null,
+        })),
+        totalCount,
+        hasMore,
+      };
+    },
   },
   Mutation: {
     addRide: async (_p: unknown, { input }: { input: AddRideInput }, ctx: GraphQLContext) => {
@@ -1206,11 +1320,8 @@ export const resolvers = {
 
       const ride = await prisma.$transaction(async (tx) => {
         const newRide = await tx.ride.create({ data: rideData });
-        if (bikeId && hoursDelta > 0) {
-          await tx.component.updateMany({
-            where: { bikeId, userId },
-            data: { hoursUsed: { increment: hoursDelta } },
-          });
+        if (bikeId) {
+          await incrementBikeComponentHours(tx, { userId, bikeId, hoursDelta });
         }
         return newRide;
       });
@@ -1251,15 +1362,8 @@ export const resolvers = {
       }
 
       await prisma.$transaction(async (tx) => {
-        if (ride.bikeId && hoursDelta > 0) {
-          await tx.component.updateMany({
-            where: { userId, bikeId: ride.bikeId },
-            data: { hoursUsed: { decrement: hoursDelta } },
-          });
-          await tx.component.updateMany({
-            where: { userId, bikeId: ride.bikeId, hoursUsed: { lt: 0 } },
-            data: { hoursUsed: 0 },
-          });
+        if (ride.bikeId) {
+          await decrementBikeComponentHours(tx, { userId, bikeId: ride.bikeId, hoursDelta });
         }
 
         await tx.ride.delete({ where: { id } });
@@ -1392,38 +1496,19 @@ export const resolvers = {
         if (bikeChanged || durationChanged) {
           // Remove hours from the old bike when it loses the ride or when hours shrink
           if (existing.bikeId) {
-            if (bikeChanged && hoursBefore > 0) {
-              await tx.component.updateMany({
-                where: { userId, bikeId: existing.bikeId },
-                data: { hoursUsed: { decrement: hoursBefore } },
-              });
-            } else if (!bikeChanged && durationChanged && hoursDiff < 0) {
-              await tx.component.updateMany({
-                where: { userId, bikeId: existing.bikeId },
-                data: { hoursUsed: { decrement: Math.abs(hoursDiff) } },
-              });
-            }
-
-            if (bikeChanged || (durationChanged && hoursDiff < 0)) {
-              await tx.component.updateMany({
-                where: { userId, bikeId: existing.bikeId, hoursUsed: { lt: 0 } },
-                data: { hoursUsed: 0 },
-              });
+            if (bikeChanged) {
+              await decrementBikeComponentHours(tx, { userId, bikeId: existing.bikeId, hoursDelta: hoursBefore });
+            } else if (durationChanged && hoursDiff < 0) {
+              await decrementBikeComponentHours(tx, { userId, bikeId: existing.bikeId, hoursDelta: Math.abs(hoursDiff) });
             }
           }
 
           // Add hours to the new/current bike when appropriate
           if (nextBikeId) {
-            if (bikeChanged && hoursAfter > 0) {
-              await tx.component.updateMany({
-                where: { userId, bikeId: nextBikeId },
-                data: { hoursUsed: { increment: hoursAfter } },
-              });
-            } else if (!bikeChanged && durationChanged && hoursDiff > 0) {
-              await tx.component.updateMany({
-                where: { userId, bikeId: nextBikeId },
-                data: { hoursUsed: { increment: hoursDiff } },
-              });
+            if (bikeChanged) {
+              await incrementBikeComponentHours(tx, { userId, bikeId: nextBikeId, hoursDelta: hoursAfter });
+            } else if (durationChanged && hoursDiff > 0) {
+              await incrementBikeComponentHours(tx, { userId, bikeId: nextBikeId, hoursDelta: hoursDiff });
             }
           }
         }
@@ -1725,16 +1810,49 @@ export const resolvers = {
       }
 
       try {
-        return await prisma.component.create({
-          data: {
-            ...normalizeLooseComponentInput(type, input),
-            type,
-            location: input.location ?? 'NONE',
-            bikeId: bikeId ?? null,
-            userId,
-            installedAt: new Date(),
-          },
+        const now = new Date();
+        const location = input.location ?? 'NONE';
+        const status = bikeId ? 'INSTALLED' : 'INVENTORY';
+
+        const component = await prisma.$transaction(async (tx) => {
+          const created = await tx.component.create({
+            data: {
+              ...normalizeLooseComponentInput(type, input),
+              type,
+              location,
+              bikeId: bikeId ?? null,
+              userId,
+              installedAt: bikeId ? now : null,
+              status,
+            },
+          });
+
+          // Create install record if component is being installed on a bike
+          if (bikeId) {
+            await tx.bikeComponentInstall.create({
+              data: {
+                userId,
+                bikeId,
+                componentId: created.id,
+                slotKey: getSlotKey(type, location),
+                installedAt: now,
+              },
+            });
+
+            // Create initial service log so predictions start from installation date
+            await tx.serviceLog.create({
+              data: {
+                componentId: created.id,
+                performedAt: now,
+                hoursAtService: 0,
+              },
+            });
+          }
+
+          return created;
         });
+
+        return component;
       } catch (error) {
         // Handle race condition: component was created between validation and insert
         if (error instanceof Error && error.message.includes('Unique constraint')) {
@@ -2047,12 +2165,7 @@ export const resolvers = {
           const totalSeconds = ridesToUpdate.reduce((sum, r) => sum + r.durationSeconds, 0);
           const totalHours = totalSeconds / 3600;
 
-          if (totalHours > 0) {
-            await tx.component.updateMany({
-              where: { userId, bikeId: input.bikeId },
-              data: { hoursUsed: { increment: totalHours } },
-            });
-          }
+          await incrementBikeComponentHours(tx, { userId, bikeId: input.bikeId, hoursDelta: totalHours });
         }
 
         return newMapping;
@@ -2099,17 +2212,7 @@ export const resolvers = {
           data: { bikeId: null },
         });
 
-        if (totalHours > 0) {
-          await tx.component.updateMany({
-            where: { userId, bikeId: mapping.bikeId },
-            data: { hoursUsed: { decrement: totalHours } },
-          });
-
-          await tx.component.updateMany({
-            where: { userId, bikeId: mapping.bikeId, hoursUsed: { lt: 0 } },
-            data: { hoursUsed: 0 },
-          });
-        }
+        await decrementBikeComponentHours(tx, { userId, bikeId: mapping.bikeId, hoursDelta: totalHours });
 
         await tx.stravaGearMapping.delete({ where: { id } });
       });
@@ -2526,6 +2629,80 @@ export const resolvers = {
       return results;
     },
 
+    addBikeNote: async (
+      _: unknown,
+      { input }: { input: AddBikeNoteInputGQL },
+      ctx: GraphQLContext
+    ) => {
+      const userId = requireUserId(ctx);
+
+      const rateLimit = await checkMutationRateLimit('addBikeNote', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
+
+      // Validate bike ownership
+      const bike = await prisma.bike.findFirst({ where: { id: input.bikeId, userId } });
+      if (!bike) {
+        throw new GraphQLError('Bike not found', { extensions: { code: 'NOT_FOUND' } });
+      }
+
+      const text = cleanText(input.text, MAX_NOTES_LEN);
+      if (!text) {
+        throw new GraphQLError('Note text is required', { extensions: { code: 'BAD_USER_INPUT' } });
+      }
+
+      // Capture snapshot and create note in transaction
+      const note = await prisma.$transaction(async (tx) => {
+        const snapshot = await captureSetupSnapshot(input.bikeId, tx);
+
+        return (tx as typeof prisma).bikeNote.create({
+          data: {
+            bikeId: input.bikeId,
+            userId,
+            text,
+            noteType: 'MANUAL',
+            snapshot: snapshot as unknown as Prisma.InputJsonValue,
+          },
+        });
+      });
+
+      return {
+        ...note,
+        createdAt: note.createdAt.toISOString(),
+        snapshot: note.snapshot as SetupSnapshot | null,
+        snapshotBefore: null,
+        snapshotAfter: null,
+      };
+    },
+
+    deleteBikeNote: async (
+      _: unknown,
+      { id }: { id: string },
+      ctx: GraphQLContext
+    ) => {
+      const userId = requireUserId(ctx);
+
+      const rateLimit = await checkMutationRateLimit('deleteBikeNote', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
+
+      // Validate note ownership
+      const note = await prisma.bikeNote.findFirst({ where: { id, userId } });
+      if (!note) {
+        throw new GraphQLError('Note not found', { extensions: { code: 'NOT_FOUND' } });
+      }
+
+      await prisma.bikeNote.delete({ where: { id } });
+
+      return { ok: true, id };
+    },
+
     acknowledgeImportOverlay: async (
       _: unknown,
       { importSessionId }: { importSessionId: string },
@@ -2619,12 +2796,7 @@ export const resolvers = {
         });
 
         // Add hours to bike's components
-        if (totalHours > 0) {
-          await tx.component.updateMany({
-            where: { userId, bikeId },
-            data: { hoursUsed: { increment: totalHours } },
-          });
-        }
+        await incrementBikeComponentHours(tx, { userId, bikeId, hoursDelta: totalHours });
       });
 
       // Invalidate prediction cache after transaction
@@ -2867,6 +3039,15 @@ export const resolvers = {
         });
         newComponents.push(newComponent);
 
+        // Create initial service log so predictions start from installation date
+        await tx.serviceLog.create({
+          data: {
+            componentId: newComponent.id,
+            performedAt: now,
+            hoursAtService: 0,
+          },
+        });
+
         // Update the old component to point to the replacement
         await tx.component.update({
           where: { id: componentId },
@@ -2914,6 +3095,15 @@ export const resolvers = {
             });
             newComponents.push(newPairedComponent);
 
+            // Create initial service log for paired component
+            await tx.serviceLog.create({
+              data: {
+                componentId: newPairedComponent.id,
+                performedAt: now,
+                hoursAtService: 0,
+              },
+            });
+
             // Update the old paired component to point to the replacement
             await tx.component.update({
               where: { id: pairedComponent.id },
@@ -2924,11 +3114,543 @@ export const resolvers = {
 
         // Invalidate prediction cache for affected bikes
         if (existingComponent.bikeId) {
-          await invalidateBikePrediction(existingComponent.bikeId);
+          await invalidateBikePrediction(userId, existingComponent.bikeId);
         }
       });
 
       return { replacedComponents, newComponents };
+    },
+
+    installComponent: async (
+      _: unknown,
+      { input }: { input: InstallComponentInputGQL },
+      ctx: GraphQLContext
+    ) => {
+      const userId = requireUserId(ctx);
+
+      const rateLimit = await checkMutationRateLimit('installComponent', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
+
+      const { bikeId, slotKey, existingComponentId, newComponent, alsoReplacePair, pairNewComponent, noteText } = input;
+
+      // Clean noteText if provided
+      const cleanedNoteText = noteText ? cleanText(noteText, MAX_NOTES_LEN) : null;
+
+      // Must provide exactly one of existingComponentId or newComponent
+      if (!existingComponentId && !newComponent) {
+        throw new GraphQLError('Must provide either existingComponentId or newComponent', {
+          extensions: { code: 'BAD_USER_INPUT' },
+        });
+      }
+      if (existingComponentId && newComponent) {
+        throw new GraphQLError('Provide only one of existingComponentId or newComponent', {
+          extensions: { code: 'BAD_USER_INPUT' },
+        });
+      }
+
+      const { type: slotType, location: slotLocation } = parseSlotKey(slotKey);
+
+      // Validate bike ownership
+      const bike = await prisma.bike.findFirst({ where: { id: bikeId, userId } });
+      if (!bike) {
+        throw new GraphQLError('Bike not found', { extensions: { code: 'NOT_FOUND' } });
+      }
+
+      // If installing an existing component, validate it
+      let existingComponent: ComponentModel | null = null;
+      if (existingComponentId) {
+        existingComponent = await prisma.component.findFirst({
+          where: { id: existingComponentId, userId },
+        });
+        if (!existingComponent) {
+          throw new GraphQLError('Component not found', { extensions: { code: 'NOT_FOUND' } });
+        }
+        if (existingComponent.type !== slotType) {
+          throw new GraphQLError('Component type does not match slot', {
+            extensions: { code: 'BAD_USER_INPUT' },
+          });
+        }
+      }
+
+      let installedComponent: ComponentModel | null = null;
+      let displacedComponent: ComponentModel | null = null;
+      let createdNote: { id: string; bikeId: string; userId: string; text: string; noteType: string; createdAt: Date; snapshot: unknown; snapshotBefore: unknown; snapshotAfter: unknown; installEventId: string | null } | null = null;
+      const bikesToInvalidate = new Set<string>([bikeId]);
+
+      await prisma.$transaction(async (tx) => {
+        const now = new Date();
+
+        // Capture snapshot BEFORE the change if noteText is provided
+        let snapshotBefore: SetupSnapshot | null = null;
+        if (cleanedNoteText) {
+          snapshotBefore = await captureSetupSnapshot(bikeId, tx);
+        }
+
+        // 1. If the incoming component is currently installed somewhere, uninstall it
+        if (existingComponent && existingComponent.bikeId) {
+          const sourceInstall = await tx.bikeComponentInstall.findFirst({
+            where: { componentId: existingComponent.id, removedAt: null },
+          });
+          if (sourceInstall) {
+            await tx.bikeComponentInstall.update({
+              where: { id: sourceInstall.id },
+              data: { removedAt: now },
+            });
+            if (sourceInstall.bikeId !== bikeId) {
+              bikesToInvalidate.add(sourceInstall.bikeId);
+            }
+          }
+          await tx.component.update({
+            where: { id: existingComponent.id },
+            data: { bikeId: null, status: 'INVENTORY' },
+          });
+        }
+
+        // 2. Close current install on target slot (displace current component)
+        const currentInstall = await tx.bikeComponentInstall.findFirst({
+          where: { bikeId, slotKey, removedAt: null },
+        });
+        if (currentInstall) {
+          await tx.bikeComponentInstall.update({
+            where: { id: currentInstall.id },
+            data: { removedAt: now },
+          });
+
+          if (newComponent) {
+            // Fresh replacement: retire the old component
+            displacedComponent = await tx.component.update({
+              where: { id: currentInstall.componentId },
+              data: { bikeId: null, status: 'RETIRED', retiredAt: now },
+            });
+          } else {
+            // Swapping with existing spare: displaced component becomes inventory
+            displacedComponent = await tx.component.update({
+              where: { id: currentInstall.componentId },
+              data: { bikeId: null, status: 'INVENTORY', installedAt: null },
+            });
+          }
+        }
+
+        // 3. Create or use existing component
+        let componentToInstall: ComponentModel;
+
+        if (newComponent) {
+          componentToInstall = await tx.component.create({
+            data: {
+              type: slotType as ComponentTypeLiteral,
+              location: slotLocation as ComponentLocation,
+              bikeId,
+              userId,
+              brand: newComponent.brand,
+              model: newComponent.model,
+              isStock: newComponent.isStock ?? false,
+              hoursUsed: 0,
+              installedAt: now,
+              baselineWearPercent: 0,
+              baselineMethod: 'DEFAULT',
+              baselineConfidence: 'HIGH',
+              baselineSetAt: now,
+              status: 'INSTALLED',
+            },
+          });
+
+          // Create initial service log so predictions start from installation date
+          await tx.serviceLog.create({
+            data: {
+              componentId: componentToInstall.id,
+              performedAt: now,
+              hoursAtService: 0,
+            },
+          });
+
+          // Set replacedById chain if we displaced a component
+          if (displacedComponent) {
+            await tx.component.update({
+              where: { id: displacedComponent.id },
+              data: { replacedById: componentToInstall.id },
+            });
+          }
+        } else {
+          // Update the existing component to be installed on target bike
+          componentToInstall = await tx.component.update({
+            where: { id: existingComponent!.id },
+            data: {
+              bikeId,
+              status: 'INSTALLED',
+              installedAt: now,
+              location: slotLocation as ComponentLocation,
+            },
+          });
+        }
+
+        // 4. Create new install record
+        await tx.bikeComponentInstall.create({
+          data: {
+            userId,
+            bikeId,
+            componentId: componentToInstall.id,
+            slotKey,
+            installedAt: now,
+          },
+        });
+
+        installedComponent = componentToInstall;
+
+        // 5. Handle paired component if requested
+        if (alsoReplacePair && requiresPairing(slotType)) {
+          const pairedLocation = slotLocation === 'FRONT' ? 'REAR' : 'FRONT';
+          const pairedSlotKey = getSlotKey(slotType, pairedLocation);
+
+          // Close current install on paired slot
+          const pairedInstall = await tx.bikeComponentInstall.findFirst({
+            where: { bikeId, slotKey: pairedSlotKey, removedAt: null },
+          });
+          if (pairedInstall) {
+            await tx.bikeComponentInstall.update({
+              where: { id: pairedInstall.id },
+              data: { removedAt: now },
+            });
+
+            if (pairNewComponent || newComponent) {
+              // Retire the paired component
+              await tx.component.update({
+                where: { id: pairedInstall.componentId },
+                data: { bikeId: null, status: 'RETIRED', retiredAt: now },
+              });
+            } else {
+              await tx.component.update({
+                where: { id: pairedInstall.componentId },
+                data: { bikeId: null, status: 'INVENTORY', installedAt: null },
+              });
+            }
+          }
+
+          // Create new paired component
+          const pairSpec = pairNewComponent || newComponent;
+          if (pairSpec) {
+            const newPairGroupId = createId();
+            const pairedComponent = await tx.component.create({
+              data: {
+                type: slotType as ComponentTypeLiteral,
+                location: pairedLocation as ComponentLocation,
+                bikeId,
+                userId,
+                brand: pairSpec.brand,
+                model: pairSpec.model,
+                isStock: pairSpec.isStock ?? false,
+                hoursUsed: 0,
+                installedAt: now,
+                baselineWearPercent: 0,
+                baselineMethod: 'DEFAULT',
+                baselineConfidence: 'HIGH',
+                baselineSetAt: now,
+                status: 'INSTALLED',
+                pairGroupId: newPairGroupId,
+              },
+            });
+
+            // Create initial service log for paired component
+            await tx.serviceLog.create({
+              data: {
+                componentId: pairedComponent.id,
+                performedAt: now,
+                hoursAtService: 0,
+              },
+            });
+
+            // Update the primary installed component with the pair group
+            await tx.component.update({
+              where: { id: componentToInstall.id },
+              data: { pairGroupId: newPairGroupId },
+            });
+
+            await tx.bikeComponentInstall.create({
+              data: {
+                userId,
+                bikeId,
+                componentId: pairedComponent.id,
+                slotKey: pairedSlotKey,
+                installedAt: now,
+              },
+            });
+
+            // Set replacedById chain for paired component
+            if (pairedInstall) {
+              await tx.component.update({
+                where: { id: pairedInstall.componentId },
+                data: { replacedById: pairedComponent.id },
+              });
+            }
+          }
+        }
+
+        // Create note with before/after snapshots if noteText was provided
+        if (cleanedNoteText && snapshotBefore) {
+          const snapshotAfter = await captureSetupSnapshot(bikeId, tx);
+
+          // Get the install record we just created to link the note
+          const installRecord = await tx.bikeComponentInstall.findFirst({
+            where: { componentId: installedComponent!.id, removedAt: null },
+            orderBy: { installedAt: 'desc' },
+          });
+
+          createdNote = await (tx as typeof prisma).bikeNote.create({
+            data: {
+              bikeId,
+              userId,
+              text: cleanedNoteText,
+              noteType: 'SWAP',
+              snapshotBefore: snapshotBefore as unknown as Prisma.InputJsonValue,
+              snapshotAfter: snapshotAfter as unknown as Prisma.InputJsonValue,
+              installEventId: installRecord?.id ?? null,
+            },
+          });
+        }
+      });
+
+      // Invalidate prediction caches for all affected bikes
+      for (const affectedBikeId of bikesToInvalidate) {
+        await invalidateBikePrediction(userId, affectedBikeId);
+      }
+
+      let formattedNote = null;
+      if (createdNote) {
+        const note = createdNote as {
+          id: string;
+          bikeId: string;
+          userId: string;
+          text: string;
+          noteType: string;
+          createdAt: Date;
+          snapshot: unknown;
+          snapshotBefore: unknown;
+          snapshotAfter: unknown;
+          installEventId: string | null;
+        };
+        formattedNote = {
+          id: note.id,
+          bikeId: note.bikeId,
+          userId: note.userId,
+          text: note.text,
+          noteType: note.noteType,
+          createdAt: note.createdAt.toISOString(),
+          snapshot: null,
+          snapshotBefore: note.snapshotBefore as SetupSnapshot | null,
+          snapshotAfter: note.snapshotAfter as SetupSnapshot | null,
+          installEventId: note.installEventId,
+        };
+      }
+
+      return {
+        installedComponent: installedComponent!,
+        displacedComponent,
+        note: formattedNote,
+      };
+    },
+
+    swapComponents: async (
+      _: unknown,
+      { input }: { input: SwapComponentsInputGQL },
+      ctx: GraphQLContext
+    ) => {
+      const userId = requireUserId(ctx);
+
+      const rateLimit = await checkMutationRateLimit('swapComponents', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
+
+      const { bikeIdA, slotKeyA, bikeIdB, slotKeyB, noteText } = input;
+
+      // Clean noteText if provided
+      const cleanedNoteText = noteText ? cleanText(noteText, MAX_NOTES_LEN) : null;
+
+      // Validate both bikes belong to user
+      const [bikeA, bikeB] = await Promise.all([
+        prisma.bike.findFirst({ where: { id: bikeIdA, userId } }),
+        prisma.bike.findFirst({ where: { id: bikeIdB, userId } }),
+      ]);
+      if (!bikeA) {
+        throw new GraphQLError('First bike not found', { extensions: { code: 'NOT_FOUND' } });
+      }
+      if (!bikeB) {
+        throw new GraphQLError('Second bike not found', { extensions: { code: 'NOT_FOUND' } });
+      }
+
+      const { type: typeA } = parseSlotKey(slotKeyA);
+      const { type: typeB } = parseSlotKey(slotKeyB);
+      if (typeA !== typeB) {
+        throw new GraphQLError('Cannot swap components of different types', {
+          extensions: { code: 'BAD_USER_INPUT' },
+        });
+      }
+
+      let componentA: ComponentModel | null = null;
+      let componentB: ComponentModel | null = null;
+      type BikeNoteRecord = {
+        id: string;
+        bikeId: string;
+        userId: string;
+        text: string;
+        noteType: string;
+        createdAt: Date;
+        snapshot: unknown;
+        snapshotBefore: unknown;
+        snapshotAfter: unknown;
+        installEventId: string | null;
+      };
+      let createdNoteA: BikeNoteRecord | null = null;
+      let createdNoteB: BikeNoteRecord | null = null;
+
+      await prisma.$transaction(async (tx) => {
+        const now = new Date();
+
+        // Capture snapshots BEFORE the swap if noteText is provided
+        let snapshotBeforeA: SetupSnapshot | null = null;
+        let snapshotBeforeB: SetupSnapshot | null = null;
+        if (cleanedNoteText) {
+          [snapshotBeforeA, snapshotBeforeB] = await Promise.all([
+            captureSetupSnapshot(bikeIdA, tx),
+            captureSetupSnapshot(bikeIdB, tx),
+          ]);
+        }
+
+        // Find active installs for both slots
+        const [installA, installB] = await Promise.all([
+          tx.bikeComponentInstall.findFirst({ where: { bikeId: bikeIdA, slotKey: slotKeyA, removedAt: null } }),
+          tx.bikeComponentInstall.findFirst({ where: { bikeId: bikeIdB, slotKey: slotKeyB, removedAt: null } }),
+        ]);
+
+        if (!installA) {
+          throw new GraphQLError('No component installed in the first slot', {
+            extensions: { code: 'BAD_USER_INPUT' },
+          });
+        }
+        if (!installB) {
+          throw new GraphQLError('No component installed in the second slot', {
+            extensions: { code: 'BAD_USER_INPUT' },
+          });
+        }
+
+        // Close both installs
+        await Promise.all([
+          tx.bikeComponentInstall.update({ where: { id: installA.id }, data: { removedAt: now } }),
+          tx.bikeComponentInstall.update({ where: { id: installB.id }, data: { removedAt: now } }),
+        ]);
+
+        // Parse locations for the swap
+        const { location: locationA } = parseSlotKey(slotKeyA);
+        const { location: locationB } = parseSlotKey(slotKeyB);
+
+        // Update component A → goes to bike B / slot B
+        componentA = await tx.component.update({
+          where: { id: installA.componentId },
+          data: {
+            bikeId: bikeIdB,
+            location: locationB as ComponentLocation,
+          },
+        });
+
+        // Update component B → goes to bike A / slot A
+        componentB = await tx.component.update({
+          where: { id: installB.componentId },
+          data: {
+            bikeId: bikeIdA,
+            location: locationA as ComponentLocation,
+          },
+        });
+
+        // Create new install records (A in slot B, B in slot A)
+        await Promise.all([
+          tx.bikeComponentInstall.create({
+            data: {
+              userId,
+              bikeId: bikeIdB,
+              componentId: installA.componentId,
+              slotKey: slotKeyB,
+              installedAt: now,
+            },
+          }),
+          tx.bikeComponentInstall.create({
+            data: {
+              userId,
+              bikeId: bikeIdA,
+              componentId: installB.componentId,
+              slotKey: slotKeyA,
+              installedAt: now,
+            },
+          }),
+        ]);
+
+        // Create notes with before/after snapshots for both bikes if noteText was provided
+        if (cleanedNoteText && snapshotBeforeA && snapshotBeforeB) {
+          const [snapshotAfterA, snapshotAfterB] = await Promise.all([
+            captureSetupSnapshot(bikeIdA, tx),
+            captureSetupSnapshot(bikeIdB, tx),
+          ]);
+
+          const [noteA, noteB] = await Promise.all([
+            (tx as typeof prisma).bikeNote.create({
+              data: {
+                bikeId: bikeIdA,
+                userId,
+                text: cleanedNoteText,
+                noteType: 'SWAP',
+                snapshotBefore: snapshotBeforeA as unknown as Prisma.InputJsonValue,
+                snapshotAfter: snapshotAfterA as unknown as Prisma.InputJsonValue,
+              },
+            }),
+            (tx as typeof prisma).bikeNote.create({
+              data: {
+                bikeId: bikeIdB,
+                userId,
+                text: cleanedNoteText,
+                noteType: 'SWAP',
+                snapshotBefore: snapshotBeforeB as unknown as Prisma.InputJsonValue,
+                snapshotAfter: snapshotAfterB as unknown as Prisma.InputJsonValue,
+              },
+            }),
+          ]);
+
+          createdNoteA = noteA as BikeNoteRecord;
+          createdNoteB = noteB as BikeNoteRecord;
+        }
+      });
+
+      // Invalidate prediction caches for both bikes
+      await Promise.all([
+        invalidateBikePrediction(userId, bikeIdA),
+        invalidateBikePrediction(userId, bikeIdB),
+      ]);
+
+      const formatNote = (note: BikeNoteRecord | null) => {
+        if (!note) return null;
+        return {
+          id: note.id,
+          bikeId: note.bikeId,
+          userId: note.userId,
+          text: note.text,
+          noteType: note.noteType,
+          createdAt: note.createdAt.toISOString(),
+          snapshot: null,
+          snapshotBefore: note.snapshotBefore as SetupSnapshot | null,
+          snapshotAfter: note.snapshotAfter as SetupSnapshot | null,
+          installEventId: note.installEventId,
+        };
+      };
+
+      return {
+        componentA: componentA!,
+        componentB: componentB!,
+        noteA: formatNote(createdNoteA),
+        noteB: formatNote(createdNoteB),
+      };
     },
 
     migratePairedComponents: async (_: unknown, __: unknown, ctx: GraphQLContext) => {
@@ -3020,7 +3742,7 @@ export const resolvers = {
 
       // Invalidate prediction caches outside the transaction
       for (const bikeId of bikeIdsToInvalidate) {
-        await invalidateBikePrediction(bikeId);
+        await invalidateBikePrediction(userId, bikeId);
       }
 
       // Refetch the updated FRONT components
@@ -3096,7 +3818,15 @@ export const resolvers = {
   },
 
   Component: {
-    isSpare: (component: ComponentModel) => component.bikeId == null,
+    isSpare: (component: ComponentModel & { status?: string }) =>
+      component.status === 'INVENTORY' || (component.status == null && component.bikeId == null),
+    status: (component: ComponentModel & { status?: string }) => {
+      if (component.status) return component.status;
+      // Fallback for rows without status (pre-migration)
+      if (component.retiredAt) return 'RETIRED';
+      if (component.bikeId == null) return 'INVENTORY';
+      return 'INSTALLED';
+    },
     // Map legacy WHEELS database value to WHEEL_HUBS for GraphQL
     type: (component: ComponentModel & { type: string }) =>
       component.type === 'WHEELS' ? 'WHEEL_HUBS' : component.type,

@@ -48,6 +48,8 @@ model User {
   backfillRequests    BackfillRequest[]
   importSessions      ImportSession[]
   servicePreferences  UserServicePreference[]
+  componentInstalls   BikeComponentInstall[]
+  bikeNotes           BikeNote[]
 }
 
 model OauthToken {
@@ -144,6 +146,8 @@ model Bike {
   Ride                 Ride[]
   stravaGearMappings   StravaGearMapping[]
   servicePreferences   BikeServicePreference[]
+  installs             BikeComponentInstall[]
+  bikeNotes            BikeNote[]
 
   @@index([spokesId])
 }
@@ -184,6 +188,7 @@ model Component {
   baselineSetAt         DateTime?
   lastServicedAt        DateTime?
   userId                String
+  status                ComponentStatus    @default(INSTALLED)
 
   // Front/rear pairing support
   pairGroupId           String?
@@ -193,6 +198,7 @@ model Component {
   bike                  Bike?              @relation(fields: [bikeId], references: [id])
   user                  User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   serviceLogs           ServiceLog[]
+  installs              BikeComponentInstall[]
 
   // Self-referential relation for replacement chain
   replacedBy            Component?         @relation("ComponentReplacement", fields: [replacedById], references: [id])
@@ -205,6 +211,29 @@ model Component {
   @@index([userId])
   @@index([bikeId])
   @@index([pairGroupId])
+}
+
+model BikeComponentInstall {
+  id          String    @id @default(uuid())
+  userId      String
+  bikeId      String
+  componentId String
+  slotKey     String
+  installedAt DateTime  @default(now())
+  removedAt   DateTime?
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bike      Bike      @relation(fields: [bikeId], references: [id], onDelete: Cascade)
+  component Component @relation(fields: [componentId], references: [id], onDelete: Cascade)
+  note      BikeNote?
+
+  // Partial unique indexes added via raw SQL in migration:
+  // - (bikeId, slotKey) WHERE removedAt IS NULL
+  // - (componentId) WHERE removedAt IS NULL
+  @@index([userId])
+  @@index([bikeId])
+  @@index([componentId])
+  @@index([bikeId, removedAt])
 }
 
 model ServiceLog {
@@ -284,6 +313,17 @@ enum BaselineConfidence {
   LOW
   MEDIUM
   HIGH
+}
+
+enum ComponentStatus {
+  INVENTORY
+  INSTALLED
+  RETIRED
+}
+
+enum BikeNoteType {
+  MANUAL // User-created note with single snapshot
+  SWAP   // Auto-created during component swap/replace
 }
 
 enum EmailType {
@@ -463,4 +503,29 @@ model BikeServicePreference {
 
   @@unique([bikeId, componentType])
   @@index([bikeId])
+}
+
+model BikeNote {
+  id             String       @id @default(uuid())
+  bikeId         String
+  userId         String
+  text           String       @db.Text
+  noteType       BikeNoteType @default(MANUAL)
+  createdAt      DateTime     @default(now())
+
+  // JSON snapshots (immutable once created)
+  snapshot       Json? // For MANUAL notes
+  snapshotBefore Json? // For SWAP notes
+  snapshotAfter  Json? // For SWAP notes
+
+  // Link to install event (for SWAP notes)
+  installEventId String? @unique
+
+  bike         Bike                  @relation(fields: [bikeId], references: [id], onDelete: Cascade)
+  user         User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  installEvent BikeComponentInstall? @relation(fields: [installEventId], references: [id], onDelete: SetNull)
+
+  @@index([bikeId])
+  @@index([userId])
+  @@index([bikeId, createdAt])
 }
