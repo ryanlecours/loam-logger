@@ -1,0 +1,6 @@
+mutation AcceptTerms($input: AcceptTermsInput!) {
+  acceptTerms(input: $input) {
+    success
+    acceptedAt
+  }
+}

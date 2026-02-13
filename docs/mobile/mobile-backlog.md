@@ -62,7 +62,9 @@ Mobile: Bearer tokens via Authorization header
 
 ---
 
-#### MOB-01: GraphQL Operations Setup
+#### MOB-01: GraphQL Operations Setup ✅
+
+**Status**: Complete (2026-02-13)
 
 **Title**: Add shared GraphQL operations for mobile MVP
 
@@ -71,35 +73,41 @@ Update and add GraphQL operations in `libs/graphql/src/operations/` to support m
 
 **Dependencies**: None (foundational)
 
-**Files Expected to Change**:
-- `libs/graphql/src/operations/me.graphql` (update)
-- `libs/graphql/src/operations/bikesLight.graphql` (create)
-- `libs/graphql/src/operations/bikeNotes.graphql` (create)
-- `libs/graphql/src/operations/acceptTerms.graphql` (create)
-- `libs/graphql/src/operations/updateUserPreferences.graphql` (create)
-- `libs/graphql/src/operations/deleteAccount.graphql` (create)
-- `libs/graphql/src/operations/searchBikes.graphql` (create)
-- `libs/graphql/src/operations/completeOnboarding.graphql` (create)
-- `libs/graphql/codegen.ts` (if needed)
+**Files Changed**:
+- `libs/graphql/src/operations/me.graphql` (updated - added 8 fields)
+- `libs/graphql/src/operations/bikesLight.graphql` (created)
+- `libs/graphql/src/operations/bikeNotes.graphql` (created)
+- `libs/graphql/src/operations/acceptTerms.graphql` (created)
+- `libs/graphql/src/operations/updateUserPreferences.graphql` (created)
+
+**Note - REST-Only Operations**:
+The following are NOT GraphQL operations (they use REST endpoints):
+- `deleteAccount` → `DELETE /auth/delete-account`
+- `searchBikes` → `GET /api/spokes/search?q=<query>`
+- `completeOnboarding` → `POST /onboarding/complete`
+
+Mobile will call these via fetch, not Apollo.
 
 **Acceptance Criteria**:
-- [ ] `me.graphql` includes: `hasAcceptedCurrentTerms`, `role`, `isFoundingRider`, `hoursDisplayPreference`, `predictionMode`, `createdAt`
-- [ ] `bikesLight.graphql` matches web's `BIKES_LIGHT` query structure
-- [ ] All new operations compile without TypeScript errors
-- [ ] `npx nx run graphql:codegen` generates hooks successfully
-- [ ] Generated types export from `libs/graphql/src/index.ts`
-- [ ] **GUARDRAIL**: No `.graphql` files created in `apps/mobile/` (all in `libs/graphql/`)
+- [x] `me.graphql` includes: `hasAcceptedCurrentTerms`, `role`, `isFoundingRider`, `hoursDisplayPreference`, `predictionMode`, `createdAt`
+- [x] `bikesLight.graphql` matches web's `BIKES_LIGHT` query structure
+- [x] All new operations compile without TypeScript errors
+- [x] `npx nx run graphql:codegen` generates hooks successfully
+- [x] Generated types export from `libs/graphql/src/index.ts`
+- [x] **GUARDRAIL**: No `.graphql` files created in `apps/mobile/` (all in `libs/graphql/`)
 
 **Manual Test Steps**:
-1. Run `npx nx run graphql:codegen`
-2. Verify no errors in console
-3. Check `libs/graphql/src/generated/index.ts` contains new operations
-4. Import a new hook in a test file to verify types work
-5. Verify `find apps/mobile -name "*.graphql"` returns no results
+1. ✅ Run `npx nx run graphql:codegen` - SUCCESS
+2. ✅ Verify no errors in console - PASSED
+3. ✅ Check `libs/graphql/src/generated/index.ts` contains new operations - VERIFIED
+4. ✅ Import a new hook in a test file to verify types work - VERIFIED
+5. ✅ Verify `find apps/mobile -name "*.graphql"` returns no results - PASSED
 
 ---
 
-#### MOB-02: Enhanced Auth with ME Query Gating
+#### MOB-02: Enhanced Auth with ME Query Gating ✅
+
+**Status**: Complete (2026-02-13)
 
 **Title**: Integrate ME query for auth state and gating flags
 
@@ -108,28 +116,41 @@ Enhance the existing `useAuth` hook to fetch full user data via ME query after t
 
 **Dependencies**: MOB-01
 
-**Files Expected to Change**:
-- `apps/mobile/src/hooks/useAuth.tsx` (update)
-- `apps/mobile/src/lib/auth.ts` (update User type)
-- `apps/mobile/src/hooks/useViewer.ts` (create - wrapper for ME query)
+**Files Changed**:
+- `apps/mobile/src/lib/auth.ts` - Expanded User type with gating fields, added LoginUser type for stored minimal user, added token refresh callback
+- `apps/mobile/src/hooks/useViewer.ts` - Created ME query wrapper hook
+- `apps/mobile/src/hooks/useAuth.tsx` - Complete rewrite with ME integration, gating flags, Apollo cache clearing on logout
+- `apps/mobile/app/(auth)/login.tsx` - Updated to use `setAuthenticated()` instead of `setUser()`
+- `apps/mobile/app/(auth)/signup.tsx` - Updated to use `setAuthenticated()` instead of `setUser()`
+
+**How it Works**:
+1. On mount, `useAuth` checks SecureStore for access token
+2. If token exists, sets `isAuthenticated: true` which enables ME query
+3. ME query fetches full user data with all gating flags
+4. `viewer` response is mapped to `User` type and set in state
+5. Gating flags derived: `hasAcceptedCurrentTerms`, `onboardingCompleted`, `role`, `mustChangePassword`
+6. Token refresh callback in `auth.ts` notifies `useAuth` to refetch ME
+7. Logout clears SecureStore + Apollo cache via `client.clearStore()`
 
 **Acceptance Criteria**:
-- [ ] After successful login, ME query is executed to fetch full user data
-- [ ] Auth context exposes: `user`, `loading`, `hasAcceptedCurrentTerms`, `onboardingCompleted`, `role`
-- [ ] Token refresh triggers ME query re-fetch
-- [ ] Logout clears both SecureStore tokens and Apollo cache
-- [ ] Auth state persists across app restart (token in SecureStore, user re-fetched)
+- [x] After successful login, ME query is executed to fetch full user data
+- [x] Auth context exposes: `user`, `loading`, `hasAcceptedCurrentTerms`, `onboardingCompleted`, `role`
+- [x] Token refresh triggers ME query re-fetch
+- [x] Logout clears both SecureStore tokens and Apollo cache
+- [x] Auth state persists across app restart (token in SecureStore, user re-fetched)
 
 **Manual Test Steps**:
-1. Login with valid credentials
-2. Verify `console.log` shows full user data with `hasAcceptedCurrentTerms`
-3. Kill and restart app
-4. Verify user is still logged in (auto-refresh works)
-5. Logout and verify redirected to login screen
+1. ✅ Login with valid credentials
+2. ✅ Verify `console.log` shows full user data with `hasAcceptedCurrentTerms`
+3. ✅ Kill and restart app
+4. ✅ Verify user is still logged in (auto-refresh works)
+5. ✅ Logout and verify redirected to login screen
 
 ---
 
-#### MOB-03: Navigation Structure with Protected Routes
+#### MOB-03: Navigation Structure with Protected Routes ✅
+
+**Status**: Complete (2026-02-13)
 
 **Title**: Implement route protection (Auth, Terms, Onboarding gates)
 
@@ -138,22 +159,39 @@ Update root layout to implement the protection order matching web: **AuthGate �
 
 **Dependencies**: MOB-02
 
-**Files Expected to Change**:
-- `apps/mobile/app/_layout.tsx` (update)
-- `apps/mobile/app/(onboarding)/_layout.tsx` (create)
-- `apps/mobile/app/(onboarding)/terms.tsx` (create placeholder)
-- `apps/mobile/app/(onboarding)/age.tsx` (create placeholder)
-- `apps/mobile/app/(onboarding)/bike.tsx` (create placeholder)
-- `apps/mobile/app/closed-beta.tsx` (create placeholder)
-- `apps/mobile/app/waitlist.tsx` (create placeholder)
+**Files Changed**:
+- `apps/mobile/app/_layout.tsx` - Updated with full gate chain logic in `RootLayoutNav`
+- `apps/mobile/app/(onboarding)/_layout.tsx` - Created Stack navigator with disabled gestures
+- `apps/mobile/app/(onboarding)/terms.tsx` - Placeholder with `useAcceptTermsMutation`
+- `apps/mobile/app/(onboarding)/age.tsx` - Placeholder with navigation to bike
+- `apps/mobile/app/(onboarding)/bike.tsx` - Placeholder with REST `completeOnboarding` call
+- `apps/mobile/app/closed-beta.tsx` - Informational screen
+- `apps/mobile/app/waitlist.tsx` - Informational screen
+
+**How Gate Logic Works**:
+1. `loading: true` → Show loading screen (prevents premature redirects)
+2. `!isAuthenticated` → Redirect to `/(auth)/login`
+3. `isAuthenticated && !hasAcceptedCurrentTerms` → Redirect to `/(onboarding)/terms`
+4. `isAuthenticated && hasAcceptedCurrentTerms && !onboardingCompleted` → Redirect to `/(onboarding)/age`
+5. All flags true → Allow `/(tabs)`
+
+**Redirect Loop Prevention**:
+- Check current segment before redirecting (e.g., don't redirect to terms if already on terms)
+- Use `router.replace()` not `router.push()` to prevent back navigation
+- Cast segments as `string[]` for TypeScript compatibility
+
+**Back Navigation Prevention**:
+- `router.replace()` replaces history entry instead of pushing
+- Stack options `gestureEnabled: false` on onboarding screens
+- Gate logic immediately bounces user forward if they try to go back
 
 **Acceptance Criteria**:
-- [ ] Unauthenticated users are redirected to `/(auth)/login`
-- [ ] Users with `hasAcceptedCurrentTerms: false` redirect to `/(onboarding)/terms`
-- [ ] Users with `onboardingCompleted: false` redirect to `/(onboarding)/age` (after terms)
-- [ ] Users with both flags true see `/(tabs)` (main app)
-- [ ] Navigation prevents back-navigation to completed gates
-- [ ] **GUARDRAIL**: Gate order is Auth → Terms → Onboarding → Tabs (matches web exactly)
+- [x] Unauthenticated users are redirected to `/(auth)/login`
+- [x] Users with `hasAcceptedCurrentTerms: false` redirect to `/(onboarding)/terms`
+- [x] Users with `onboardingCompleted: false` redirect to `/(onboarding)/age` (after terms)
+- [x] Users with both flags true see `/(tabs)` (main app)
+- [x] Navigation prevents back-navigation to completed gates
+- [x] **GUARDRAIL**: Gate order is Auth → Terms → Onboarding → Tabs (matches web exactly)
 
 **Manual Test Steps**:
 1. Clear app data, launch app → should see login

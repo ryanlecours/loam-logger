@@ -17,7 +17,7 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const router = useRouter();
-  const { setUser } = useAuth();
+  const { setAuthenticated } = useAuth();
 
   async function handleLogin() {
     if (!email || !password) {
@@ -30,9 +30,8 @@ export default function LoginScreen() {
     setLoading(false);
 
     if (result.success) {
-      const { getStoredUser } = await import('../../src/lib/auth');
-      const user = await getStoredUser();
-      setUser(user);
+      // Set authenticated - this triggers ME query to fetch full user data
+      setAuthenticated(true);
       router.replace('/(tabs)');
     } else {
       Alert.alert('Login Failed', result.error || 'Please try again');

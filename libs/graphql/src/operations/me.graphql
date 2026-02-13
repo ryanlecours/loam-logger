@@ -5,7 +5,15 @@ query Me {
     name
     avatarUrl
     onboardingCompleted
+    hasAcceptedCurrentTerms
     location
     age
+    role
+    mustChangePassword
+    isFoundingRider
+    hoursDisplayPreference
+    predictionMode
+    pairedComponentMigrationSeenAt
+    createdAt
   }
 }

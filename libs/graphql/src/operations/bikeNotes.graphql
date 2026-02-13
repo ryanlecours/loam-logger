@@ -1,0 +1,15 @@
+query BikeNotes($bikeId: ID!, $take: Int, $after: ID) {
+  bikeNotes(bikeId: $bikeId, take: $take, after: $after) {
+    items {
+      id
+      bikeId
+      userId
+      text
+      noteType
+      createdAt
+      installEventId
+    }
+    totalCount
+    hasMore
+  }
+}

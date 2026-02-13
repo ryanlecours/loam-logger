@@ -73,6 +73,11 @@ export type AddBikeInput = {
   year: Scalars['Int']['input'];
 };
 
+export type AddBikeNoteInput = {
+  bikeId: Scalars['ID']['input'];
+  text: Scalars['String']['input'];
+};
+
 export type AddComponentInput = {
   brand?: InputMaybe<Scalars['String']['input']>;
   hoursUsed?: InputMaybe<Scalars['Float']['input']>;
@@ -136,6 +141,7 @@ export type Bike = {
   pivotBearings?: Maybe<Component>;
   predictions?: Maybe<BikePredictionSummary>;
   seatpost?: Maybe<Component>;
+  servicePreferences: Array<BikeServicePreference>;
   shock?: Maybe<Component>;
   sortOrder: Scalars['Int']['output'];
   spokesId?: Maybe<Scalars['String']['output']>;
@@ -164,6 +170,42 @@ export type BikeComponentInput = {
   notes?: InputMaybe<Scalars['String']['input']>;
 };
 
+export type BikeComponentInstall = {
+  __typename?: 'BikeComponentInstall';
+  bikeId: Scalars['ID']['output'];
+  componentId: Scalars['ID']['output'];
+  id: Scalars['ID']['output'];
+  installedAt: Scalars['String']['output'];
+  removedAt?: Maybe<Scalars['String']['output']>;
+  slotKey: Scalars['String']['output'];
+};
+
+export type BikeNote = {
+  __typename?: 'BikeNote';
+  bikeId: Scalars['ID']['output'];
+  createdAt: Scalars['String']['output'];
+  id: Scalars['ID']['output'];
+  installEventId?: Maybe<Scalars['ID']['output']>;
+  noteType: BikeNoteType;
+  snapshot?: Maybe<SetupSnapshot>;
+  snapshotAfter?: Maybe<SetupSnapshot>;
+  snapshotBefore?: Maybe<SetupSnapshot>;
+  text: Scalars['String']['output'];
+  userId: Scalars['ID']['output'];
+};
+
+export enum BikeNoteType {
+  Manual = 'MANUAL',
+  Swap = 'SWAP'
+}
+
+export type BikeNotesPage = {
+  __typename?: 'BikeNotesPage';
+  hasMore: Scalars['Boolean']['output'];
+  items: Array<BikeNote>;
+  totalCount: Scalars['Int']['output'];
+};
+
 export type BikePredictionSummary = {
   __typename?: 'BikePredictionSummary';
   algoVersion: Scalars['String']['output'];
@@ -175,6 +217,32 @@ export type BikePredictionSummary = {
   generatedAt: Scalars['String']['output'];
   overallStatus: PredictionStatus;
   priorityComponent?: Maybe<ComponentPrediction>;
+};
+
+export type BikeServicePreference = {
+  __typename?: 'BikeServicePreference';
+  componentType: ComponentType;
+  customInterval?: Maybe<Scalars['Float']['output']>;
+  id: Scalars['ID']['output'];
+  trackingEnabled: Scalars['Boolean']['output'];
+};
+
+export type BikeServicePreferenceInput = {
+  componentType: ComponentType;
+  customInterval?: InputMaybe<Scalars['Float']['input']>;
+  trackingEnabled: Scalars['Boolean']['input'];
+};
+
+export type BikeSpecsSnapshot = {
+  __typename?: 'BikeSpecsSnapshot';
+  batteryWh?: Maybe<Scalars['Int']['output']>;
+  isEbike: Scalars['Boolean']['output'];
+  motorMaker?: Maybe<Scalars['String']['output']>;
+  motorModel?: Maybe<Scalars['String']['output']>;
+  motorPowerW?: Maybe<Scalars['Int']['output']>;
+  motorTorqueNm?: Maybe<Scalars['Int']['output']>;
+  travelForkMm?: Maybe<Scalars['Int']['output']>;
+  travelShockMm?: Maybe<Scalars['Int']['output']>;
 };
 
 export type BulkAssignResult = {
@@ -230,6 +298,7 @@ export type Component = {
   retiredAt?: Maybe<Scalars['String']['output']>;
   serviceDueAtHours?: Maybe<Scalars['Float']['output']>;
   serviceLogs: Array<ServiceLog>;
+  status: ComponentStatus;
   type: ComponentType;
   updatedAt: Scalars['String']['output'];
 };
@@ -270,6 +339,23 @@ export type ComponentPrediction = {
   status: PredictionStatus;
   why?: Maybe<Scalars['String']['output']>;
 };
+
+export type ComponentSnapshot = {
+  __typename?: 'ComponentSnapshot';
+  brand: Scalars['String']['output'];
+  componentId: Scalars['ID']['output'];
+  hoursUsed: Scalars['Float']['output'];
+  isStock: Scalars['Boolean']['output'];
+  model: Scalars['String']['output'];
+  serviceDueAtHours?: Maybe<Scalars['Float']['output']>;
+  settings: Array<SettingSnapshot>;
+};
+
+export enum ComponentStatus {
+  Installed = 'INSTALLED',
+  Inventory = 'INVENTORY',
+  Retired = 'RETIRED'
+}
 
 export enum ComponentType {
   BottomBracket = 'BOTTOM_BRACKET',
@@ -335,6 +421,23 @@ export type ImportNotificationState = {
   unassignedRideCount: Scalars['Int']['output'];
 };
 
+export type InstallComponentInput = {
+  alsoReplacePair?: InputMaybe<Scalars['Boolean']['input']>;
+  bikeId: Scalars['ID']['input'];
+  existingComponentId?: InputMaybe<Scalars['ID']['input']>;
+  newComponent?: InputMaybe<NewComponentInput>;
+  noteText?: InputMaybe<Scalars['String']['input']>;
+  pairNewComponent?: InputMaybe<NewComponentInput>;
+  slotKey: Scalars['String']['input'];
+};
+
+export type InstallComponentResult = {
+  __typename?: 'InstallComponentResult';
+  displacedComponent?: Maybe<Component>;
+  installedComponent: Component;
+  note?: Maybe<BikeNote>;
+};
+
 export type LogServiceInput = {
   componentId: Scalars['ID']['input'];
   notes?: InputMaybe<Scalars['String']['input']>;
@@ -352,6 +455,7 @@ export type Mutation = {
   acceptTerms: AcceptTermsResult;
   acknowledgeImportOverlay: AcknowledgeResult;
   addBike: Bike;
+  addBikeNote: BikeNote;
   addComponent: Component;
   addRide: Ride;
   assignBikeToRides: BulkAssignResult;
@@ -359,10 +463,12 @@ export type Mutation = {
   completeCalibration: User;
   createStravaGearMapping: StravaGearMapping;
   deleteBike: DeleteResult;
+  deleteBikeNote: DeleteResult;
   deleteComponent: DeleteResult;
   deleteRide: DeleteRideResult;
   deleteStravaGearMapping: DeleteResult;
   dismissCalibration: User;
+  installComponent: InstallComponentResult;
   logBulkComponentService: BulkServiceResult;
   logComponentService: Component;
   logService: ServiceLog;
@@ -371,11 +477,14 @@ export type Mutation = {
   replaceComponent: ReplaceComponentResult;
   resetCalibration: User;
   snoozeComponent: Component;
+  swapComponents: SwapComponentsResult;
   triggerProviderSync: TriggerSyncResult;
   updateBike: Bike;
+  updateBikeServicePreferences: Array<BikeServicePreference>;
   updateBikesOrder: Array<Bike>;
   updateComponent: Component;
   updateRide: Ride;
+  updateServicePreferences: Array<UserServicePreference>;
   updateUserPreferences: User;
 };
 
@@ -392,6 +501,11 @@ export type MutationAcknowledgeImportOverlayArgs = {
 
 export type MutationAddBikeArgs = {
   input: AddBikeInput;
+};
+
+
+export type MutationAddBikeNoteArgs = {
+  input: AddBikeNoteInput;
 };
 
 
@@ -427,6 +541,11 @@ export type MutationDeleteBikeArgs = {
 };
 
 
+export type MutationDeleteBikeNoteArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
 export type MutationDeleteComponentArgs = {
   id: Scalars['ID']['input'];
 };
@@ -439,6 +558,11 @@ export type MutationDeleteRideArgs = {
 
 export type MutationDeleteStravaGearMappingArgs = {
   id: Scalars['ID']['input'];
+};
+
+
+export type MutationInstallComponentArgs = {
+  input: InstallComponentInput;
 };
 
 
@@ -469,6 +593,11 @@ export type MutationSnoozeComponentArgs = {
 };
 
 
+export type MutationSwapComponentsArgs = {
+  input: SwapComponentsInput;
+};
+
+
 export type MutationTriggerProviderSyncArgs = {
   provider: SyncProvider;
 };
@@ -477,6 +606,11 @@ export type MutationTriggerProviderSyncArgs = {
 export type MutationUpdateBikeArgs = {
   id: Scalars['ID']['input'];
   input: UpdateBikeInput;
+};
+
+
+export type MutationUpdateBikeServicePreferencesArgs = {
+  input: UpdateBikeServicePreferencesInput;
 };
 
 
@@ -497,8 +631,19 @@ export type MutationUpdateRideArgs = {
 };
 
 
+export type MutationUpdateServicePreferencesArgs = {
+  input: UpdateServicePreferencesInput;
+};
+
+
 export type MutationUpdateUserPreferencesArgs = {
   input: UpdateUserPreferencesInput;
+};
+
+export type NewComponentInput = {
+  brand: Scalars['String']['input'];
+  isStock?: InputMaybe<Scalars['Boolean']['input']>;
+  model: Scalars['String']['input'];
 };
 
 export type PairedComponentConfigInput = {
@@ -522,6 +667,7 @@ export enum PredictionStatus {
 
 export type Query = {
   __typename?: 'Query';
+  bikeNotes: BikeNotesPage;
   bikes: Array<Bike>;
   calibrationState?: Maybe<CalibrationState>;
   components: Array<Component>;
@@ -529,10 +675,18 @@ export type Query = {
   me?: Maybe<User>;
   rideTypes: Array<RideType>;
   rides: Array<Ride>;
+  servicePreferenceDefaults: Array<ServicePreferenceDefault>;
   stravaGearMappings: Array<StravaGearMapping>;
   unassignedRides: UnassignedRidesPage;
   unmappedStravaGears: Array<StravaGearInfo>;
   user?: Maybe<User>;
+};
+
+
+export type QueryBikeNotesArgs = {
+  after?: InputMaybe<Scalars['ID']['input']>;
+  bikeId: Scalars['ID']['input'];
+  take?: InputMaybe<Scalars['Int']['input']>;
 };
 
 
@@ -606,6 +760,7 @@ export enum RideType {
 }
 
 export type RidesFilterInput = {
+  bikeId?: InputMaybe<Scalars['ID']['input']>;
   endDate?: InputMaybe<Scalars['String']['input']>;
   startDate?: InputMaybe<Scalars['String']['input']>;
 };
@@ -618,6 +773,44 @@ export type ServiceLog = {
   id: Scalars['ID']['output'];
   notes?: Maybe<Scalars['String']['output']>;
   performedAt: Scalars['String']['output'];
+};
+
+export type ServicePreferenceDefault = {
+  __typename?: 'ServicePreferenceDefault';
+  componentType: ComponentType;
+  defaultInterval: Scalars['Float']['output'];
+  defaultIntervalFront?: Maybe<Scalars['Float']['output']>;
+  defaultIntervalRear?: Maybe<Scalars['Float']['output']>;
+  displayName: Scalars['String']['output'];
+};
+
+export type ServicePreferenceInput = {
+  componentType: ComponentType;
+  customInterval?: InputMaybe<Scalars['Float']['input']>;
+  trackingEnabled: Scalars['Boolean']['input'];
+};
+
+export type SettingSnapshot = {
+  __typename?: 'SettingSnapshot';
+  key: Scalars['String']['output'];
+  label: Scalars['String']['output'];
+  unit?: Maybe<Scalars['String']['output']>;
+  value: Scalars['String']['output'];
+};
+
+export type SetupSnapshot = {
+  __typename?: 'SetupSnapshot';
+  bikeSpecs: BikeSpecsSnapshot;
+  capturedAt: Scalars['String']['output'];
+  slots: Array<SlotSnapshot>;
+};
+
+export type SlotSnapshot = {
+  __typename?: 'SlotSnapshot';
+  component?: Maybe<ComponentSnapshot>;
+  componentType: Scalars['String']['output'];
+  location: Scalars['String']['output'];
+  slotKey: Scalars['String']['output'];
 };
 
 export type SpokesComponentInput = {
@@ -663,6 +856,22 @@ export type StravaGearMapping = {
   id: Scalars['ID']['output'];
   stravaGearId: Scalars['String']['output'];
   stravaGearName?: Maybe<Scalars['String']['output']>;
+};
+
+export type SwapComponentsInput = {
+  bikeIdA: Scalars['ID']['input'];
+  bikeIdB: Scalars['ID']['input'];
+  noteText?: InputMaybe<Scalars['String']['input']>;
+  slotKeyA: Scalars['String']['input'];
+  slotKeyB: Scalars['String']['input'];
+};
+
+export type SwapComponentsResult = {
+  __typename?: 'SwapComponentsResult';
+  componentA: Component;
+  componentB: Component;
+  noteA?: Maybe<BikeNote>;
+  noteB?: Maybe<BikeNote>;
 };
 
 export enum SyncProvider {
@@ -737,6 +946,11 @@ export type UpdateBikeInput = {
   year?: InputMaybe<Scalars['Int']['input']>;
 };
 
+export type UpdateBikeServicePreferencesInput = {
+  bikeId: Scalars['ID']['input'];
+  preferences: Array<BikeServicePreferenceInput>;
+};
+
 export type UpdateComponentInput = {
   brand?: InputMaybe<Scalars['String']['input']>;
   hoursUsed?: InputMaybe<Scalars['Float']['input']>;
@@ -758,6 +972,10 @@ export type UpdateRideInput = {
   rideType?: InputMaybe<Scalars['String']['input']>;
   startTime?: InputMaybe<Scalars['String']['input']>;
   trailSystem?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type UpdateServicePreferencesInput = {
+  preferences: Array<ServicePreferenceInput>;
 };
 
 export type UpdateUserPreferencesInput = {
@@ -785,6 +1003,7 @@ export type User = {
   predictionMode?: Maybe<Scalars['String']['output']>;
   rides: Array<Ride>;
   role: UserRole;
+  servicePreferences: Array<UserServicePreference>;
 };
 
 export enum UserRole {
@@ -793,6 +1012,14 @@ export enum UserRole {
   Pro = 'PRO',
   Waitlist = 'WAITLIST'
 }
+
+export type UserServicePreference = {
+  __typename?: 'UserServicePreference';
+  componentType: ComponentType;
+  customInterval?: Maybe<Scalars['Float']['output']>;
+  id: Scalars['ID']['output'];
+  trackingEnabled: Scalars['Boolean']['output'];
+};
 
 export type WearDriver = {
   __typename?: 'WearDriver';
@@ -805,6 +1032,13 @@ export type BikeFieldsFragment = { __typename?: 'Bike', id: string, nickname?: s
 
 export type ComponentFieldsFragment = { __typename?: 'Component', id: string, type: ComponentType, brand: string, model: string, notes?: string | null, isStock: boolean, bikeId?: string | null, hoursUsed: number, serviceDueAtHours?: number | null };
 
+export type AcceptTermsMutationVariables = Exact<{
+  input: AcceptTermsInput;
+}>;
+
+
+export type AcceptTermsMutation = { __typename?: 'Mutation', acceptTerms: { __typename?: 'AcceptTermsResult', success: boolean, acceptedAt: string } };
+
 export type AddRideMutationVariables = Exact<{
   input: AddRideInput;
 }>;
@@ -812,10 +1046,24 @@ export type AddRideMutationVariables = Exact<{
 
 export type AddRideMutation = { __typename?: 'Mutation', addRide: { __typename?: 'Ride', id: string, startTime: string, durationSeconds: number, distanceMiles: number, elevationGainFeet: number, averageHr?: number | null, rideType: string, bikeId?: string | null, notes?: string | null, trailSystem?: string | null, location?: string | null } };
 
+export type BikeNotesQueryVariables = Exact<{
+  bikeId: Scalars['ID']['input'];
+  take?: InputMaybe<Scalars['Int']['input']>;
+  after?: InputMaybe<Scalars['ID']['input']>;
+}>;
+
+
+export type BikeNotesQuery = { __typename?: 'Query', bikeNotes: { __typename?: 'BikeNotesPage', totalCount: number, hasMore: boolean, items: Array<{ __typename?: 'BikeNote', id: string, bikeId: string, userId: string, text: string, noteType: BikeNoteType, createdAt: string, installEventId?: string | null }> } };
+
 export type BikesQueryVariables = Exact<{ [key: string]: never; }>;
 
 
 export type BikesQuery = { __typename?: 'Query', bikes: Array<{ __typename?: 'Bike', id: string, nickname?: string | null, manufacturer: string, model: string, travelForkMm?: number | null, travelShockMm?: number | null, notes?: string | null, fork?: { __typename?: 'Component', id: string, brand: string, model: string, hoursUsed: number, serviceDueAtHours?: number | null } | null, shock?: { __typename?: 'Component', id: string, brand: string, model: string, hoursUsed: number, serviceDueAtHours?: number | null } | null, pivotBearings?: { __typename?: 'Component', id: string, brand: string, model: string, hoursUsed: number, serviceDueAtHours?: number | null } | null, components: Array<{ __typename?: 'Component', id: string, type: ComponentType, brand: string, model: string, hoursUsed: number, serviceDueAtHours?: number | null }> }> };
+
+export type BikesLightQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type BikesLightQuery = { __typename?: 'Query', bikes: Array<{ __typename?: 'Bike', id: string, nickname?: string | null, manufacturer: string, model: string, thumbnailUrl?: string | null, travelForkMm?: number | null, travelShockMm?: number | null, notes?: string | null, sortOrder: number, fork?: { __typename?: 'Component', id: string, brand: string, model: string, hoursUsed: number, serviceDueAtHours?: number | null, updatedAt: string } | null, shock?: { __typename?: 'Component', id: string, brand: string, model: string, hoursUsed: number, serviceDueAtHours?: number | null, updatedAt: string } | null, pivotBearings?: { __typename?: 'Component', id: string, brand: string, model: string, hoursUsed: number, serviceDueAtHours?: number | null, updatedAt: string } | null, components: Array<{ __typename?: 'Component', id: string, type: ComponentType, location: ComponentLocation, brand: string, model: string, hoursUsed: number, serviceDueAtHours?: number | null, updatedAt: string, pairGroupId?: string | null }> }> };
 
 export type DeleteRideMutationVariables = Exact<{
   id: Scalars['ID']['input'];
@@ -877,7 +1125,7 @@ export type LogComponentServiceMutation = { __typename?: 'Mutation', logComponen
 export type MeQueryVariables = Exact<{ [key: string]: never; }>;
 
 
-export type MeQuery = { __typename?: 'Query', me?: { __typename?: 'User', id: string, email: string, name?: string | null, avatarUrl?: string | null, onboardingCompleted: boolean, location?: string | null, age?: number | null } | null };
+export type MeQuery = { __typename?: 'Query', me?: { __typename?: 'User', id: string, email: string, name?: string | null, avatarUrl?: string | null, onboardingCompleted: boolean, hasAcceptedCurrentTerms: boolean, location?: string | null, age?: number | null, role: UserRole, mustChangePassword: boolean, isFoundingRider: boolean, hoursDisplayPreference?: string | null, predictionMode?: string | null, pairedComponentMigrationSeenAt?: string | null, createdAt: string } | null };
 
 export type RideTypesQueryVariables = Exact<{ [key: string]: never; }>;
 
@@ -925,6 +1173,13 @@ export type UpdateRideMutationVariables = Exact<{
 
 export type UpdateRideMutation = { __typename?: 'Mutation', updateRide: { __typename?: 'Ride', id: string, startTime: string, durationSeconds: number, distanceMiles: number, elevationGainFeet: number, averageHr?: number | null, rideType: string, bikeId?: string | null, notes?: string | null, trailSystem?: string | null, location?: string | null, updatedAt: string } };
 
+export type UpdateUserPreferencesMutationVariables = Exact<{
+  input: UpdateUserPreferencesInput;
+}>;
+
+
+export type UpdateUserPreferencesMutation = { __typename?: 'Mutation', updateUserPreferences: { __typename?: 'User', id: string, hoursDisplayPreference?: string | null, predictionMode?: string | null } };
+
 export const ComponentFieldsFragmentDoc = gql`
     fragment ComponentFields on Component {
   id
@@ -955,6 +1210,40 @@ export const BikeFieldsFragmentDoc = gql`
   updatedAt
 }
     ${ComponentFieldsFragmentDoc}`;
+export const AcceptTermsDocument = gql`
+    mutation AcceptTerms($input: AcceptTermsInput!) {
+  acceptTerms(input: $input) {
+    success
+    acceptedAt
+  }
+}
+    `;
+export type AcceptTermsMutationFn = Apollo.MutationFunction<AcceptTermsMutation, AcceptTermsMutationVariables>;
+
+/**
+ * __useAcceptTermsMutation__
+ *
+ * To run a mutation, you first call `useAcceptTermsMutation` within a React component and pass it any options that fit your needs.
+ * When your component renders, `useAcceptTermsMutation` returns a tuple that includes:
+ * - A mutate function that you can call at any time to execute the mutation
+ * - An object with fields that represent the current status of the mutation's execution
+ *
+ * @param baseOptions options that will be passed into the mutation, supported options are listed on: https://www.apollographql.com/docs/react/api/react-hooks/#options-2;
+ *
+ * @example
+ * const [acceptTermsMutation, { data, loading, error }] = useAcceptTermsMutation({
+ *   variables: {
+ *      input: // value for 'input'
+ *   },
+ * });
+ */
+export function useAcceptTermsMutation(baseOptions?: Apollo.MutationHookOptions<AcceptTermsMutation, AcceptTermsMutationVariables>) {
+        const options = {...defaultOptions, ...baseOptions}
+        return Apollo.useMutation<AcceptTermsMutation, AcceptTermsMutationVariables>(AcceptTermsDocument, options);
+      }
+export type AcceptTermsMutationHookResult = ReturnType<typeof useAcceptTermsMutation>;
+export type AcceptTermsMutationResult = Apollo.MutationResult<AcceptTermsMutation>;
+export type AcceptTermsMutationOptions = Apollo.BaseMutationOptions<AcceptTermsMutation, AcceptTermsMutationVariables>;
 export const AddRideDocument = gql`
     mutation AddRide($input: AddRideInput!) {
   addRide(input: $input) {
@@ -998,6 +1287,61 @@ export function useAddRideMutation(baseOptions?: Apollo.MutationHookOptions<AddR
 export type AddRideMutationHookResult = ReturnType<typeof useAddRideMutation>;
 export type AddRideMutationResult = Apollo.MutationResult<AddRideMutation>;
 export type AddRideMutationOptions = Apollo.BaseMutationOptions<AddRideMutation, AddRideMutationVariables>;
+export const BikeNotesDocument = gql`
+    query BikeNotes($bikeId: ID!, $take: Int, $after: ID) {
+  bikeNotes(bikeId: $bikeId, take: $take, after: $after) {
+    items {
+      id
+      bikeId
+      userId
+      text
+      noteType
+      createdAt
+      installEventId
+    }
+    totalCount
+    hasMore
+  }
+}
+    `;
+
+/**
+ * __useBikeNotesQuery__
+ *
+ * To run a query within a React component, call `useBikeNotesQuery` and pass it any options that fit your needs.
+ * When your component renders, `useBikeNotesQuery` returns an object from Apollo Client that contains loading, error, and data properties
+ * you can use to render your UI.
+ *
+ * @param baseOptions options that will be passed into the query, supported options are listed on: https://www.apollographql.com/docs/react/api/react-hooks/#options;
+ *
+ * @example
+ * const { data, loading, error } = useBikeNotesQuery({
+ *   variables: {
+ *      bikeId: // value for 'bikeId'
+ *      take: // value for 'take'
+ *      after: // value for 'after'
+ *   },
+ * });
+ */
+export function useBikeNotesQuery(baseOptions: Apollo.QueryHookOptions<BikeNotesQuery, BikeNotesQueryVariables> & ({ variables: BikeNotesQueryVariables; skip?: boolean; } | { skip: boolean; }) ) {
+        const options = {...defaultOptions, ...baseOptions}
+        return Apollo.useQuery<BikeNotesQuery, BikeNotesQueryVariables>(BikeNotesDocument, options);
+      }
+export function useBikeNotesLazyQuery(baseOptions?: Apollo.LazyQueryHookOptions<BikeNotesQuery, BikeNotesQueryVariables>) {
+          const options = {...defaultOptions, ...baseOptions}
+          return Apollo.useLazyQuery<BikeNotesQuery, BikeNotesQueryVariables>(BikeNotesDocument, options);
+        }
+// @ts-ignore
+export function useBikeNotesSuspenseQuery(baseOptions?: Apollo.SuspenseQueryHookOptions<BikeNotesQuery, BikeNotesQueryVariables>): Apollo.UseSuspenseQueryResult<BikeNotesQuery, BikeNotesQueryVariables>;
+export function useBikeNotesSuspenseQuery(baseOptions?: Apollo.SkipToken | Apollo.SuspenseQueryHookOptions<BikeNotesQuery, BikeNotesQueryVariables>): Apollo.UseSuspenseQueryResult<BikeNotesQuery | undefined, BikeNotesQueryVariables>;
+export function useBikeNotesSuspenseQuery(baseOptions?: Apollo.SkipToken | Apollo.SuspenseQueryHookOptions<BikeNotesQuery, BikeNotesQueryVariables>) {
+          const options = baseOptions === Apollo.skipToken ? baseOptions : {...defaultOptions, ...baseOptions}
+          return Apollo.useSuspenseQuery<BikeNotesQuery, BikeNotesQueryVariables>(BikeNotesDocument, options);
+        }
+export type BikeNotesQueryHookResult = ReturnType<typeof useBikeNotesQuery>;
+export type BikeNotesLazyQueryHookResult = ReturnType<typeof useBikeNotesLazyQuery>;
+export type BikeNotesSuspenseQueryHookResult = ReturnType<typeof useBikeNotesSuspenseQuery>;
+export type BikeNotesQueryResult = Apollo.QueryResult<BikeNotesQuery, BikeNotesQueryVariables>;
 export const BikesDocument = gql`
     query Bikes {
   bikes {
@@ -1075,6 +1419,91 @@ export type BikesQueryHookResult = ReturnType<typeof useBikesQuery>;
 export type BikesLazyQueryHookResult = ReturnType<typeof useBikesLazyQuery>;
 export type BikesSuspenseQueryHookResult = ReturnType<typeof useBikesSuspenseQuery>;
 export type BikesQueryResult = Apollo.QueryResult<BikesQuery, BikesQueryVariables>;
+export const BikesLightDocument = gql`
+    query BikesLight {
+  bikes {
+    id
+    nickname
+    manufacturer
+    model
+    thumbnailUrl
+    travelForkMm
+    travelShockMm
+    notes
+    sortOrder
+    fork {
+      id
+      brand
+      model
+      hoursUsed
+      serviceDueAtHours
+      updatedAt
+    }
+    shock {
+      id
+      brand
+      model
+      hoursUsed
+      serviceDueAtHours
+      updatedAt
+    }
+    pivotBearings {
+      id
+      brand
+      model
+      hoursUsed
+      serviceDueAtHours
+      updatedAt
+    }
+    components {
+      id
+      type
+      location
+      brand
+      model
+      hoursUsed
+      serviceDueAtHours
+      updatedAt
+      pairGroupId
+    }
+  }
+}
+    `;
+
+/**
+ * __useBikesLightQuery__
+ *
+ * To run a query within a React component, call `useBikesLightQuery` and pass it any options that fit your needs.
+ * When your component renders, `useBikesLightQuery` returns an object from Apollo Client that contains loading, error, and data properties
+ * you can use to render your UI.
+ *
+ * @param baseOptions options that will be passed into the query, supported options are listed on: https://www.apollographql.com/docs/react/api/react-hooks/#options;
+ *
+ * @example
+ * const { data, loading, error } = useBikesLightQuery({
+ *   variables: {
+ *   },
+ * });
+ */
+export function useBikesLightQuery(baseOptions?: Apollo.QueryHookOptions<BikesLightQuery, BikesLightQueryVariables>) {
+        const options = {...defaultOptions, ...baseOptions}
+        return Apollo.useQuery<BikesLightQuery, BikesLightQueryVariables>(BikesLightDocument, options);
+      }
+export function useBikesLightLazyQuery(baseOptions?: Apollo.LazyQueryHookOptions<BikesLightQuery, BikesLightQueryVariables>) {
+          const options = {...defaultOptions, ...baseOptions}
+          return Apollo.useLazyQuery<BikesLightQuery, BikesLightQueryVariables>(BikesLightDocument, options);
+        }
+// @ts-ignore
+export function useBikesLightSuspenseQuery(baseOptions?: Apollo.SuspenseQueryHookOptions<BikesLightQuery, BikesLightQueryVariables>): Apollo.UseSuspenseQueryResult<BikesLightQuery, BikesLightQueryVariables>;
+export function useBikesLightSuspenseQuery(baseOptions?: Apollo.SkipToken | Apollo.SuspenseQueryHookOptions<BikesLightQuery, BikesLightQueryVariables>): Apollo.UseSuspenseQueryResult<BikesLightQuery | undefined, BikesLightQueryVariables>;
+export function useBikesLightSuspenseQuery(baseOptions?: Apollo.SkipToken | Apollo.SuspenseQueryHookOptions<BikesLightQuery, BikesLightQueryVariables>) {
+          const options = baseOptions === Apollo.skipToken ? baseOptions : {...defaultOptions, ...baseOptions}
+          return Apollo.useSuspenseQuery<BikesLightQuery, BikesLightQueryVariables>(BikesLightDocument, options);
+        }
+export type BikesLightQueryHookResult = ReturnType<typeof useBikesLightQuery>;
+export type BikesLightLazyQueryHookResult = ReturnType<typeof useBikesLightLazyQuery>;
+export type BikesLightSuspenseQueryHookResult = ReturnType<typeof useBikesLightSuspenseQuery>;
+export type BikesLightQueryResult = Apollo.QueryResult<BikesLightQuery, BikesLightQueryVariables>;
 export const DeleteRideDocument = gql`
     mutation DeleteRide($id: ID!) {
   deleteRide(id: $id) {
@@ -1369,8 +1798,16 @@ export const MeDocument = gql`
     name
     avatarUrl
     onboardingCompleted
+    hasAcceptedCurrentTerms
     location
     age
+    role
+    mustChangePassword
+    isFoundingRider
+    hoursDisplayPreference
+    predictionMode
+    pairedComponentMigrationSeenAt
+    createdAt
   }
 }
     `;
@@ -1719,3 +2156,38 @@ export function useUpdateRideMutation(baseOptions?: Apollo.MutationHookOptions<U
 export type UpdateRideMutationHookResult = ReturnType<typeof useUpdateRideMutation>;
 export type UpdateRideMutationResult = Apollo.MutationResult<UpdateRideMutation>;
 export type UpdateRideMutationOptions = Apollo.BaseMutationOptions<UpdateRideMutation, UpdateRideMutationVariables>;
+export const UpdateUserPreferencesDocument = gql`
+    mutation UpdateUserPreferences($input: UpdateUserPreferencesInput!) {
+  updateUserPreferences(input: $input) {
+    id
+    hoursDisplayPreference
+    predictionMode
+  }
+}
+    `;
+export type UpdateUserPreferencesMutationFn = Apollo.MutationFunction<UpdateUserPreferencesMutation, UpdateUserPreferencesMutationVariables>;
+
+/**
+ * __useUpdateUserPreferencesMutation__
+ *
+ * To run a mutation, you first call `useUpdateUserPreferencesMutation` within a React component and pass it any options that fit your needs.
+ * When your component renders, `useUpdateUserPreferencesMutation` returns a tuple that includes:
+ * - A mutate function that you can call at any time to execute the mutation
+ * - An object with fields that represent the current status of the mutation's execution
+ *
+ * @param baseOptions options that will be passed into the mutation, supported options are listed on: https://www.apollographql.com/docs/react/api/react-hooks/#options-2;
+ *
+ * @example
+ * const [updateUserPreferencesMutation, { data, loading, error }] = useUpdateUserPreferencesMutation({
+ *   variables: {
+ *      input: // value for 'input'
+ *   },
+ * });
+ */
+export function useUpdateUserPreferencesMutation(baseOptions?: Apollo.MutationHookOptions<UpdateUserPreferencesMutation, UpdateUserPreferencesMutationVariables>) {
+        const options = {...defaultOptions, ...baseOptions}
+        return Apollo.useMutation<UpdateUserPreferencesMutation, UpdateUserPreferencesMutationVariables>(UpdateUserPreferencesDocument, options);
+      }
+export type UpdateUserPreferencesMutationHookResult = ReturnType<typeof useUpdateUserPreferencesMutation>;
+export type UpdateUserPreferencesMutationResult = Apollo.MutationResult<UpdateUserPreferencesMutation>;
+export type UpdateUserPreferencesMutationOptions = Apollo.BaseMutationOptions<UpdateUserPreferencesMutation, UpdateUserPreferencesMutationVariables>;
