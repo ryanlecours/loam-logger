@@ -1,10 +1,34 @@
 import * as SecureStore from 'expo-secure-store';
+import type { UserRole } from '@loam/graphql';
 
 const ACCESS_TOKEN_KEY = 'access_token';
 const REFRESH_TOKEN_KEY = 'refresh_token';
 const USER_KEY = 'user';
 
+/**
+ * Full user type matching ME query response.
+ * Includes all gating flags needed for navigation (hasAcceptedCurrentTerms, onboardingCompleted, role).
+ */
 export interface User {
+  id: string;
+  email: string;
+  name?: string | null;
+  avatarUrl?: string | null;
+  onboardingCompleted: boolean;
+  hasAcceptedCurrentTerms: boolean;
+  role: UserRole;
+  mustChangePassword: boolean;
+  isFoundingRider: boolean;
+  hoursDisplayPreference?: string | null;
+  predictionMode?: string | null;
+  createdAt: string;
+}
+
+/**
+ * Minimal user info returned by login endpoints.
+ * This is stored in SecureStore for quick hydration, but full user is fetched via ME query.
+ */
+export interface LoginUser {
   id: string;
   email?: string;
   name?: string;
@@ -15,10 +39,18 @@ export interface AuthTokens {
   refreshToken: string;
 }
 
+// Token refresh callback - allows useAuth to be notified when token is refreshed
+type TokenRefreshCallback = () => void;
+let onTokenRefreshed: TokenRefreshCallback | null = null;
+
+export function setTokenRefreshCallback(cb: TokenRefreshCallback | null): void {
+  onTokenRefreshed = cb;
+}
+
 export async function storeTokens(
   accessToken: string,
   refreshToken: string,
-  user: User
+  user: LoginUser
 ): Promise<void> {
   await SecureStore.setItemAsync(ACCESS_TOKEN_KEY, accessToken);
   await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, refreshToken);
@@ -33,7 +65,7 @@ export async function getRefreshToken(): Promise<string | null> {
   return await SecureStore.getItemAsync(REFRESH_TOKEN_KEY);
 }
 
-export async function getStoredUser(): Promise<User | null> {
+export async function getStoredUser(): Promise<LoginUser | null> {
   const userJson = await SecureStore.getItemAsync(USER_KEY);
   return userJson ? JSON.parse(userJson) : null;
 }
@@ -66,6 +98,8 @@ export async function refreshAccessToken(): Promise<string | null> {
 
     const data = await response.json();
     await SecureStore.setItemAsync(ACCESS_TOKEN_KEY, data.accessToken);
+    // Notify listener that token was refreshed (so useAuth can refetch ME)
+    onTokenRefreshed?.();
     return data.accessToken;
   } catch (error) {
     console.error('Token refresh failed:', error);

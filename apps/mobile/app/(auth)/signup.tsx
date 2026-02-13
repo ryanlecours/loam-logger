@@ -17,7 +17,7 @@ export default function SignupScreen() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const router = useRouter();
-  const { setUser } = useAuth();
+  const { setAuthenticated } = useAuth();
 
   async function handleSignup() {
     if (!email || !password || !confirmPassword) {
@@ -55,7 +55,8 @@ export default function SignupScreen() {
       const data = await response.json();
       const { storeTokens } = await import('../../src/lib/auth');
       await storeTokens(data.accessToken, data.refreshToken, data.user);
-      setUser(data.user);
+      // Set authenticated - this triggers ME query to fetch full user data
+      setAuthenticated(true);
       router.replace('/(tabs)');
     } catch (error) {
       Alert.alert(

@@ -105,7 +105,9 @@ Mobile will call these via fetch, not Apollo.
 
 ---
 
-#### MOB-02: Enhanced Auth with ME Query Gating
+#### MOB-02: Enhanced Auth with ME Query Gating ✅
+
+**Status**: Complete (2026-02-13)
 
 **Title**: Integrate ME query for auth state and gating flags
 
@@ -114,24 +116,35 @@ Enhance the existing `useAuth` hook to fetch full user data via ME query after t
 
 **Dependencies**: MOB-01
 
-**Files Expected to Change**:
-- `apps/mobile/src/hooks/useAuth.tsx` (update)
-- `apps/mobile/src/lib/auth.ts` (update User type)
-- `apps/mobile/src/hooks/useViewer.ts` (create - wrapper for ME query)
+**Files Changed**:
+- `apps/mobile/src/lib/auth.ts` - Expanded User type with gating fields, added LoginUser type for stored minimal user, added token refresh callback
+- `apps/mobile/src/hooks/useViewer.ts` - Created ME query wrapper hook
+- `apps/mobile/src/hooks/useAuth.tsx` - Complete rewrite with ME integration, gating flags, Apollo cache clearing on logout
+- `apps/mobile/app/(auth)/login.tsx` - Updated to use `setAuthenticated()` instead of `setUser()`
+- `apps/mobile/app/(auth)/signup.tsx` - Updated to use `setAuthenticated()` instead of `setUser()`
+
+**How it Works**:
+1. On mount, `useAuth` checks SecureStore for access token
+2. If token exists, sets `isAuthenticated: true` which enables ME query
+3. ME query fetches full user data with all gating flags
+4. `viewer` response is mapped to `User` type and set in state
+5. Gating flags derived: `hasAcceptedCurrentTerms`, `onboardingCompleted`, `role`, `mustChangePassword`
+6. Token refresh callback in `auth.ts` notifies `useAuth` to refetch ME
+7. Logout clears SecureStore + Apollo cache via `client.clearStore()`
 
 **Acceptance Criteria**:
-- [ ] After successful login, ME query is executed to fetch full user data
-- [ ] Auth context exposes: `user`, `loading`, `hasAcceptedCurrentTerms`, `onboardingCompleted`, `role`
-- [ ] Token refresh triggers ME query re-fetch
-- [ ] Logout clears both SecureStore tokens and Apollo cache
-- [ ] Auth state persists across app restart (token in SecureStore, user re-fetched)
+- [x] After successful login, ME query is executed to fetch full user data
+- [x] Auth context exposes: `user`, `loading`, `hasAcceptedCurrentTerms`, `onboardingCompleted`, `role`
+- [x] Token refresh triggers ME query re-fetch
+- [x] Logout clears both SecureStore tokens and Apollo cache
+- [x] Auth state persists across app restart (token in SecureStore, user re-fetched)
 
 **Manual Test Steps**:
-1. Login with valid credentials
-2. Verify `console.log` shows full user data with `hasAcceptedCurrentTerms`
-3. Kill and restart app
-4. Verify user is still logged in (auto-refresh works)
-5. Logout and verify redirected to login screen
+1. ✅ Login with valid credentials
+2. ✅ Verify `console.log` shows full user data with `hasAcceptedCurrentTerms`
+3. ✅ Kill and restart app
+4. ✅ Verify user is still logged in (auto-refresh works)
+5. ✅ Logout and verify redirected to login screen
 
 ---
 
