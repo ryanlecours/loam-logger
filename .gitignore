@@ -17,6 +17,8 @@ libs/**/package-lock.json
 .env
 .env.local
 .env.*.local
+apps/**/.env
+apps/**/.env.local
 
 # OS files
 .DS_Store

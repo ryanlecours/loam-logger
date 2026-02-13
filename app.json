@@ -1,0 +1,17 @@
+{
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "f609f62f-b399-44d3-8655-823163684845"
+      }
+    },
+    "owner": "ryanlecours",
+    "slug": "loamsource",
+    "ios": {
+      "bundleIdentifier": "com.loamlabs.loamlogger",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    }
+  }
+}
