@@ -40,7 +40,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [initializing, setInitializing] = useState(true);
 
   // Use ME query to fetch full user data when authenticated
-  const { viewer, loading: viewerLoading, refetchViewer } = useViewer({
+  const { viewer, loading: viewerLoading, error: viewerError, refetchViewer } = useViewer({
     skip: !isAuthenticated,
   });
 
@@ -82,16 +82,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       };
       setUser(mappedUser);
 
-      // Log for debugging (temporary - per MOB-02 manual test step 2)
-      console.log('[useAuth] ME query resolved:', {
-        id: mappedUser.id,
-        email: mappedUser.email,
-        hasAcceptedCurrentTerms: mappedUser.hasAcceptedCurrentTerms,
-        onboardingCompleted: mappedUser.onboardingCompleted,
-        role: mappedUser.role,
-      });
+      if (__DEV__) {
+        console.log('[useAuth] ME query resolved:', {
+          id: mappedUser.id,
+          email: mappedUser.email,
+          hasAcceptedCurrentTerms: mappedUser.hasAcceptedCurrentTerms,
+          onboardingCompleted: mappedUser.onboardingCompleted,
+          role: mappedUser.role,
+        });
+      }
     }
   }, [viewer]);
+
+  // Handle ME query errors - if the query fails, log out the user
+  // This handles cases like invalid/expired tokens that can't be refreshed
+  useEffect(() => {
+    if (viewerError && !viewerLoading && isAuthenticated) {
+      console.error('[useAuth] ME query error:', viewerError.message);
+      // Token is likely invalid - clear auth state
+      logout();
+    }
+  }, [viewerError, viewerLoading, isAuthenticated]);
 
   // Register token refresh callback to refetch user when token is refreshed
   const refetchUser = useCallback(async () => {
@@ -104,7 +115,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     setTokenRefreshCallback(() => {
-      console.log('[useAuth] Token refreshed, refetching user...');
+      if (__DEV__) {
+        console.log('[useAuth] Token refreshed, refetching user...');
+      }
       refetchUser();
     });
     return () => setTokenRefreshCallback(null);
@@ -115,7 +128,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await client.clearStore(); // Clear Apollo cache
     setUser(null);
     setIsAuthenticated(false);
-    console.log('[useAuth] Logged out, cleared tokens and Apollo cache');
+    if (__DEV__) {
+      console.log('[useAuth] Logged out, cleared tokens and Apollo cache');
+    }
   }
 
   // Loading is true while initializing OR while fetching viewer after auth
