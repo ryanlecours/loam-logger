@@ -62,7 +62,9 @@ Mobile: Bearer tokens via Authorization header
 
 ---
 
-#### MOB-01: GraphQL Operations Setup
+#### MOB-01: GraphQL Operations Setup ✅
+
+**Status**: Complete (2026-02-13)
 
 **Title**: Add shared GraphQL operations for mobile MVP
 
@@ -71,31 +73,35 @@ Update and add GraphQL operations in `libs/graphql/src/operations/` to support m
 
 **Dependencies**: None (foundational)
 
-**Files Expected to Change**:
-- `libs/graphql/src/operations/me.graphql` (update)
-- `libs/graphql/src/operations/bikesLight.graphql` (create)
-- `libs/graphql/src/operations/bikeNotes.graphql` (create)
-- `libs/graphql/src/operations/acceptTerms.graphql` (create)
-- `libs/graphql/src/operations/updateUserPreferences.graphql` (create)
-- `libs/graphql/src/operations/deleteAccount.graphql` (create)
-- `libs/graphql/src/operations/searchBikes.graphql` (create)
-- `libs/graphql/src/operations/completeOnboarding.graphql` (create)
-- `libs/graphql/codegen.ts` (if needed)
+**Files Changed**:
+- `libs/graphql/src/operations/me.graphql` (updated - added 8 fields)
+- `libs/graphql/src/operations/bikesLight.graphql` (created)
+- `libs/graphql/src/operations/bikeNotes.graphql` (created)
+- `libs/graphql/src/operations/acceptTerms.graphql` (created)
+- `libs/graphql/src/operations/updateUserPreferences.graphql` (created)
+
+**Note - REST-Only Operations**:
+The following are NOT GraphQL operations (they use REST endpoints):
+- `deleteAccount` → `DELETE /auth/delete-account`
+- `searchBikes` → `GET /api/spokes/search?q=<query>`
+- `completeOnboarding` → `POST /onboarding/complete`
+
+Mobile will call these via fetch, not Apollo.
 
 **Acceptance Criteria**:
-- [ ] `me.graphql` includes: `hasAcceptedCurrentTerms`, `role`, `isFoundingRider`, `hoursDisplayPreference`, `predictionMode`, `createdAt`
-- [ ] `bikesLight.graphql` matches web's `BIKES_LIGHT` query structure
-- [ ] All new operations compile without TypeScript errors
-- [ ] `npx nx run graphql:codegen` generates hooks successfully
-- [ ] Generated types export from `libs/graphql/src/index.ts`
-- [ ] **GUARDRAIL**: No `.graphql` files created in `apps/mobile/` (all in `libs/graphql/`)
+- [x] `me.graphql` includes: `hasAcceptedCurrentTerms`, `role`, `isFoundingRider`, `hoursDisplayPreference`, `predictionMode`, `createdAt`
+- [x] `bikesLight.graphql` matches web's `BIKES_LIGHT` query structure
+- [x] All new operations compile without TypeScript errors
+- [x] `npx nx run graphql:codegen` generates hooks successfully
+- [x] Generated types export from `libs/graphql/src/index.ts`
+- [x] **GUARDRAIL**: No `.graphql` files created in `apps/mobile/` (all in `libs/graphql/`)
 
 **Manual Test Steps**:
-1. Run `npx nx run graphql:codegen`
-2. Verify no errors in console
-3. Check `libs/graphql/src/generated/index.ts` contains new operations
-4. Import a new hook in a test file to verify types work
-5. Verify `find apps/mobile -name "*.graphql"` returns no results
+1. ✅ Run `npx nx run graphql:codegen` - SUCCESS
+2. ✅ Verify no errors in console - PASSED
+3. ✅ Check `libs/graphql/src/generated/index.ts` contains new operations - VERIFIED
+4. ✅ Import a new hook in a test file to verify types work - VERIFIED
+5. ✅ Verify `find apps/mobile -name "*.graphql"` returns no results - PASSED
 
 ---
 
