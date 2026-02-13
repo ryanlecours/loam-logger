@@ -148,7 +148,9 @@ Enhance the existing `useAuth` hook to fetch full user data via ME query after t
 
 ---
 
-#### MOB-03: Navigation Structure with Protected Routes
+#### MOB-03: Navigation Structure with Protected Routes ✅
+
+**Status**: Complete (2026-02-13)
 
 **Title**: Implement route protection (Auth, Terms, Onboarding gates)
 
@@ -157,22 +159,39 @@ Update root layout to implement the protection order matching web: **AuthGate �
 
 **Dependencies**: MOB-02
 
-**Files Expected to Change**:
-- `apps/mobile/app/_layout.tsx` (update)
-- `apps/mobile/app/(onboarding)/_layout.tsx` (create)
-- `apps/mobile/app/(onboarding)/terms.tsx` (create placeholder)
-- `apps/mobile/app/(onboarding)/age.tsx` (create placeholder)
-- `apps/mobile/app/(onboarding)/bike.tsx` (create placeholder)
-- `apps/mobile/app/closed-beta.tsx` (create placeholder)
-- `apps/mobile/app/waitlist.tsx` (create placeholder)
+**Files Changed**:
+- `apps/mobile/app/_layout.tsx` - Updated with full gate chain logic in `RootLayoutNav`
+- `apps/mobile/app/(onboarding)/_layout.tsx` - Created Stack navigator with disabled gestures
+- `apps/mobile/app/(onboarding)/terms.tsx` - Placeholder with `useAcceptTermsMutation`
+- `apps/mobile/app/(onboarding)/age.tsx` - Placeholder with navigation to bike
+- `apps/mobile/app/(onboarding)/bike.tsx` - Placeholder with REST `completeOnboarding` call
+- `apps/mobile/app/closed-beta.tsx` - Informational screen
+- `apps/mobile/app/waitlist.tsx` - Informational screen
+
+**How Gate Logic Works**:
+1. `loading: true` → Show loading screen (prevents premature redirects)
+2. `!isAuthenticated` → Redirect to `/(auth)/login`
+3. `isAuthenticated && !hasAcceptedCurrentTerms` → Redirect to `/(onboarding)/terms`
+4. `isAuthenticated && hasAcceptedCurrentTerms && !onboardingCompleted` → Redirect to `/(onboarding)/age`
+5. All flags true → Allow `/(tabs)`
+
+**Redirect Loop Prevention**:
+- Check current segment before redirecting (e.g., don't redirect to terms if already on terms)
+- Use `router.replace()` not `router.push()` to prevent back navigation
+- Cast segments as `string[]` for TypeScript compatibility
+
+**Back Navigation Prevention**:
+- `router.replace()` replaces history entry instead of pushing
+- Stack options `gestureEnabled: false` on onboarding screens
+- Gate logic immediately bounces user forward if they try to go back
 
 **Acceptance Criteria**:
-- [ ] Unauthenticated users are redirected to `/(auth)/login`
-- [ ] Users with `hasAcceptedCurrentTerms: false` redirect to `/(onboarding)/terms`
-- [ ] Users with `onboardingCompleted: false` redirect to `/(onboarding)/age` (after terms)
-- [ ] Users with both flags true see `/(tabs)` (main app)
-- [ ] Navigation prevents back-navigation to completed gates
-- [ ] **GUARDRAIL**: Gate order is Auth → Terms → Onboarding → Tabs (matches web exactly)
+- [x] Unauthenticated users are redirected to `/(auth)/login`
+- [x] Users with `hasAcceptedCurrentTerms: false` redirect to `/(onboarding)/terms`
+- [x] Users with `onboardingCompleted: false` redirect to `/(onboarding)/age` (after terms)
+- [x] Users with both flags true see `/(tabs)` (main app)
+- [x] Navigation prevents back-navigation to completed gates
+- [x] **GUARDRAIL**: Gate order is Auth → Terms → Onboarding → Tabs (matches web exactly)
 
 **Manual Test Steps**:
 1. Clear app data, launch app → should see login
