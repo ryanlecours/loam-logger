@@ -50,15 +50,5 @@ documentation/*
 # Dev Helpers
 apps/api/scripts/preview-email.tsx
 
-# Expo / React Native
-.expo/
-.expo-shared/
-*.jks
-*.p8
-*.p12
-*.key
-*.mobileprovision
-*.orig.*
-web-build/
 .vercel
 .env*.local
