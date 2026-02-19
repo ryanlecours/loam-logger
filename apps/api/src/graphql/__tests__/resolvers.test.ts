@@ -1200,6 +1200,25 @@ describe('GraphQL Resolvers', () => {
     });
   });
 
+  describe('User.hasPassword resolver', () => {
+    const resolver = resolvers.User.hasPassword;
+
+    it('should return false when passwordHash is null', () => {
+      const result = resolver({ passwordHash: null });
+      expect(result).toBe(false);
+    });
+
+    it('should return false when passwordHash is undefined', () => {
+      const result = resolver({ passwordHash: undefined });
+      expect(result).toBe(false);
+    });
+
+    it('should return true when passwordHash is set', () => {
+      const result = resolver({ passwordHash: '$2b$10$somehashedpassword' });
+      expect(result).toBe(true);
+    });
+  });
+
   describe('Component.type resolver (WHEELS to WHEEL_HUBS mapping)', () => {
     const resolver = resolvers.Component.type;
 

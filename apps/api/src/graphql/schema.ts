@@ -771,6 +771,7 @@ export const typeDefs = gql`
     accounts: [ConnectedAccount!]!
     role: UserRole!
     mustChangePassword: Boolean!
+    hasPassword: Boolean!
     isFoundingRider: Boolean!
     hoursDisplayPreference: String
     predictionMode: String

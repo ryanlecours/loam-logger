@@ -6,6 +6,7 @@ import { TbActivityHeartbeat } from "react-icons/tb";
 import { formatDistanceToNow } from "date-fns";
 import ThemeToggle from "../components/ThemeToggleButton";
 import DeleteAccountModal from "../components/DeleteAccountModal";
+import SetPasswordModal from "../components/SetPasswordModal";
 import ConnectGarminLink from "../components/ConnectGarminLink";
 import ConnectStravaLink from "../components/ConnectStravaLink";
 import ConnectWhoopLink from "../components/ConnectWhoopLink";
@@ -38,7 +39,7 @@ const CONNECTED_ACCOUNTS_QUERY = gql`
 `;
 
 export default function Settings() {
-  const { user } = useCurrentUser();
+  const { user, refetch: refetchUser } = useCurrentUser();
   const { isAdmin } = useUserTier();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -58,6 +59,7 @@ export default function Settings() {
   const initialPredictionSyncedRef = useRef(false);
   const [updateUserPreferences] = useMutation(UPDATE_USER_PREFERENCES_MUTATION);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [setPasswordModalOpen, setSetPasswordModalOpen] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [stravaImportModalOpen, setStravaImportModalOpen] = useState(false);
   const [whoopImportModalOpen, setWhoopImportModalOpen] = useState(false);
@@ -624,6 +626,34 @@ export default function Settings() {
               <dt className="text-muted uppercase tracking-[0.3em] text-xs">Email</dt>
               <dd className="text-lg text-white">{user?.email ?? "—"}</dd>
             </div>
+            <div>
+              <dt className="text-muted uppercase tracking-[0.3em] text-xs">Password</dt>
+              <dd className="text-lg text-white flex items-center gap-3">
+                {user?.hasPassword ? (
+                  <>
+                    <span>••••••••</span>
+                    <button
+                      onClick={() => navigate('/change-password')}
+                      className="text-sm text-primary hover:text-primary/80 transition"
+                    >
+                      Change
+                    </button>
+                  </>
+                ) : accounts.length > 0 ? (
+                  <>
+                    <span className="text-muted">Not set</span>
+                    <button
+                      onClick={() => setSetPasswordModalOpen(true)}
+                      className="text-sm text-primary hover:text-primary/80 transition"
+                    >
+                      Set Password
+                    </button>
+                  </>
+                ) : (
+                  <span className="text-muted">—</span>
+                )}
+              </dd>
+            </div>
           </dl>
         </div>
 
@@ -800,6 +830,12 @@ export default function Settings() {
         open={deleteModalOpen}
         onClose={() => setDeleteModalOpen(false)}
         onConfirm={handleDeleteAccount}
+      />
+
+      <SetPasswordModal
+        open={setPasswordModalOpen}
+        onClose={() => setSetPasswordModalOpen(false)}
+        onSuccess={refetchUser}
       />
 
       <GarminImportModal
