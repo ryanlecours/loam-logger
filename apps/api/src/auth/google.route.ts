@@ -3,6 +3,7 @@ import { OAuth2Client } from 'google-auth-library';
 import { ensureUserFromGoogle } from './ensureUserFromGoogle';
 import { setSessionCookie, clearSessionCookie } from './session';
 import { setCsrfCookie, clearCsrfCookie } from './csrf';
+import { updateLastAuthAt } from './recent-auth';
 
 const router = express.Router();
 
@@ -40,6 +41,9 @@ router.post('/google/code', express.json(), async (req, res) => {
         picture: p.picture,
       },
     );
+
+    // Update last auth timestamp for recent-auth gating
+    await updateLastAuthAt(user.id);
 
     // Set session and CSRF cookies, return CSRF token for immediate use
     setSessionCookie(res, { uid: user.id, email: user.email });

@@ -4,9 +4,12 @@ import { hashPassword, verifyPassword, validatePassword } from './password.utils
 import { validateEmailFormat } from './email.utils';
 import { setSessionCookie } from './session';
 import { setCsrfCookie } from './csrf'; // Used by /auth/csrf-token endpoint
+import { updateLastAuthAt } from './recent-auth';
+import { requireRecentAuth } from './requireRecentAuth';
 import { prisma } from '../lib/prisma';
 import { sendBadRequest, sendUnauthorized, sendForbidden, sendConflict, sendInternalError, sendTooManyRequests } from '../lib/api-response';
-import { checkAuthRateLimit } from '../lib/rate-limit';
+import { checkAuthRateLimit, checkMutationRateLimit } from '../lib/rate-limit';
+import { sendPasswordChangedNotification } from '../services/password-notification.service';
 
 const router = express.Router();
 
@@ -139,6 +142,9 @@ router.post('/login', express.json(), async (req, res) => {
       return sendUnauthorized(res, 'Invalid email or password');
     }
 
+    // Update last auth timestamp for recent-auth gating
+    await updateLastAuthAt(user.id);
+
     // Set session and CSRF cookies, return CSRF token for immediate use
     setSessionCookie(res, { uid: user.id, email: user.email });
     const csrfToken = setCsrfCookie(res);
@@ -159,12 +165,27 @@ router.post('/login', express.json(), async (req, res) => {
  * POST /auth/change-password
  * Change password for authenticated user
  * Used after login with temporary password
+ *
+ * Requirements:
+ * - User must be authenticated (session cookie)
+ * - User must have authenticated recently (within 10 minutes)
+ * - User must provide correct current password
  */
-router.post('/change-password', express.json(), async (req, res) => {
+router.post('/change-password', express.json(), requireRecentAuth(), async (req, res) => {
   try {
     const sessionUser = req.sessionUser;
     if (!sessionUser?.uid) {
       return sendUnauthorized(res);
+    }
+
+    // Rate limit check
+    const rateLimit = await checkMutationRateLimit('changePassword', sessionUser.uid);
+    if (!rateLimit.allowed) {
+      return sendTooManyRequests(
+        res,
+        'Too many password change attempts. Please try again later.',
+        rateLimit.retryAfter
+      );
     }
 
     const { currentPassword, newPassword } = req.body as {
@@ -185,7 +206,7 @@ router.post('/change-password', express.json(), async (req, res) => {
     // Get user with current password hash
     const user = await prisma.user.findUnique({
       where: { id: sessionUser.uid },
-      select: { passwordHash: true, mustChangePassword: true },
+      select: { id: true, passwordHash: true, mustChangePassword: true },
     });
 
     if (!user || !user.passwordHash) {
@@ -206,6 +227,11 @@ router.post('/change-password', express.json(), async (req, res) => {
         passwordHash: newHash,
         mustChangePassword: false,
       },
+    });
+
+    // Send notification email (non-blocking)
+    sendPasswordChangedNotification(user.id).catch(() => {
+      // Already logged in the service
     });
 
     res.json({ ok: true });

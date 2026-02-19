@@ -64,6 +64,10 @@ export const MUTATION_RATE_LIMITS = {
   addBikeNote: { windowSeconds: 60, maxRequests: 20 },
   /** deleteBikeNote: max 20 requests per minute per user */
   deleteBikeNote: { windowSeconds: 60, maxRequests: 20 },
+  /** addPassword: max 5 requests per hour per user (sensitive credential operation) */
+  addPassword: { windowSeconds: 3600, maxRequests: 5 },
+  /** changePassword: max 5 requests per hour per user (sensitive credential operation) */
+  changePassword: { windowSeconds: 3600, maxRequests: 5 },
 } as const;
 
 /**
