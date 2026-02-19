@@ -13,6 +13,11 @@ export const ME_QUERY = gql`
       age
       role
       isFoundingRider
+      hasPassword
+      accounts {
+        provider
+        connectedAt
+      }
       hoursDisplayPreference
       predictionMode
       pairedComponentMigrationSeenAt

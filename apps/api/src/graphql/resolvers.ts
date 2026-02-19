@@ -3850,6 +3850,7 @@ export const resolvers = {
     activeDataSource: (parent: { activeDataSource: string | null }) => parent.activeDataSource,
     role: (parent: { role: string }) => parent.role,
     mustChangePassword: (parent: { mustChangePassword?: boolean }) => parent.mustChangePassword ?? false,
+    hasPassword: (parent: { passwordHash?: string | null }) => !!parent.passwordHash,
     accounts: async (parent: { id: string }) => {
       const accounts = await prisma.userAccount.findMany({
         where: { userId: parent.id },
