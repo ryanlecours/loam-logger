@@ -1,7 +1,7 @@
 ﻿import { useState, useEffect } from 'react';
 import { useApolloClient } from '@apollo/client';
 import { GoogleLogin, type CredentialResponse } from '@react-oauth/google';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { motion } from 'motion/react';
 import { ME_QUERY } from '../graphql/me';
 import { useRedirectFrom } from '../utils/loginUtils';
@@ -11,6 +11,8 @@ import { setCsrfToken } from '@/lib/csrf';
 export default function Login() {
   const apollo = useApolloClient();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const isReauth = searchParams.get('reason') === 'reauth';
   const from = useRedirectFrom();
   const [mode, setMode] = useState<'login' | 'signup'>('login');
   const [email, setEmail] = useState('');
@@ -277,6 +279,11 @@ export default function Login() {
         </div>
 
         <form className="space-y-4 p-4 rounded-xl" style={{ backgroundColor: 'rgba(54, 60, 57, 0.3)' }} onSubmit={handleManualSubmit}>
+          {isReauth && (
+            <div className="text-sm p-3 rounded-lg" style={{ backgroundColor: 'rgba(134, 169, 139, 0.15)', color: 'var(--sage)' }}>
+              Please confirm your identity to continue.
+            </div>
+          )}
           {error && (
             <div className="alert alert-danger">
               <p>{error}</p>

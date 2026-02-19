@@ -27,6 +27,7 @@ import {
 import { createId } from '@paralleldrive/cuid2';
 import { logError } from '../lib/logger';
 import { config } from '../config/env';
+import { checkRecentAuth } from '../auth/recent-auth';
 import type { AcquisitionCondition, BaselineMethod, BaselineConfidence } from '@prisma/client';
 import { getBikeById, isSpokesConfigured } from '../services/spokes';
 import { parseISO } from 'date-fns';
@@ -3851,6 +3852,10 @@ export const resolvers = {
     role: (parent: { role: string }) => parent.role,
     mustChangePassword: (parent: { mustChangePassword?: boolean }) => parent.mustChangePassword ?? false,
     hasPassword: (parent: { passwordHash?: string | null }) => !!parent.passwordHash,
+    needsReauthForSensitiveActions: async (parent: { id: string }) => {
+      const result = await checkRecentAuth(parent.id);
+      return !result.valid;
+    },
     accounts: async (parent: { id: string }) => {
       const accounts = await prisma.userAccount.findMany({
         where: { userId: parent.id },

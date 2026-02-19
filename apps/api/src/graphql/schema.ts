@@ -772,6 +772,7 @@ export const typeDefs = gql`
     role: UserRole!
     mustChangePassword: Boolean!
     hasPassword: Boolean!
+    needsReauthForSensitiveActions: Boolean!
     isFoundingRider: Boolean!
     hoursDisplayPreference: String
     predictionMode: String
