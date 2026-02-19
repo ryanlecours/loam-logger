@@ -71,6 +71,23 @@ export default function Settings() {
   const [whoopDeleteLoading, setWhoopDeleteLoading] = useState(false);
   const [stravaMappingModalOpen, setStravaMappingModalOpen] = useState(false);
 
+  // Handle password actions with reauth check
+  const handleSetPassword = () => {
+    if (user?.needsReauthForSensitiveActions) {
+      navigate('/login?returnTo=/settings&reason=reauth');
+    } else {
+      setSetPasswordModalOpen(true);
+    }
+  };
+
+  const handleChangePassword = () => {
+    if (user?.needsReauthForSensitiveActions) {
+      navigate('/login?returnTo=/settings&reason=reauth');
+    } else {
+      navigate('/change-password?mode=change');
+    }
+  };
+
   // Check for OAuth connection callbacks
   useEffect(() => {
     if (searchParams.get('garmin') === 'connected') {
@@ -633,7 +650,7 @@ export default function Settings() {
                   <>
                     <span>••••••••</span>
                     <button
-                      onClick={() => navigate('/change-password')}
+                      onClick={handleChangePassword}
                       className="text-sm text-primary hover:text-primary/80 transition"
                     >
                       Change
@@ -643,7 +660,7 @@ export default function Settings() {
                   <>
                     <span className="text-muted">Not set</span>
                     <button
-                      onClick={() => setSetPasswordModalOpen(true)}
+                      onClick={handleSetPassword}
                       className="text-sm text-primary hover:text-primary/80 transition"
                     >
                       Set Password

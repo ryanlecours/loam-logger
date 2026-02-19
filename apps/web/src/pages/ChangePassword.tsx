@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { motion } from 'motion/react';
 import { Button } from '@/components/ui';
 import { validatePassword, PASSWORD_RULES } from '@loam/shared';
@@ -7,6 +7,8 @@ import { getAuthHeaders } from '@/lib/csrf';
 
 export default function ChangePassword() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const isVoluntaryChange = searchParams.get('mode') === 'change';
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -46,8 +48,12 @@ export default function ChangePassword() {
         return;
       }
 
-      // Success - redirect to dashboard
-      navigate('/dashboard', { replace: true });
+      // Success - redirect based on context
+      if (isVoluntaryChange) {
+        navigate('/settings', { replace: true });
+      } else {
+        navigate('/dashboard', { replace: true });
+      }
     } catch (err) {
       console.error('[ChangePassword] Network error', err);
       setError('A network error occurred. Please try again.');
@@ -97,9 +103,13 @@ export default function ChangePassword() {
         }}>
           <div className="text-center space-y-1">
             <p className="text-xs uppercase tracking-[0.4em]" style={{ color: 'var(--sage)' }}>Loam Logger</p>
-            <h1 className="text-2xl font-semibold" style={{ color: 'var(--cream)' }}>Set Your Password</h1>
+            <h1 className="text-2xl font-semibold" style={{ color: 'var(--cream)' }}>
+              {isVoluntaryChange ? 'Change Password' : 'Set Your Password'}
+            </h1>
             <p className="text-sm" style={{ color: 'var(--concrete)' }}>
-              Please create a new password to secure your account.
+              {isVoluntaryChange
+                ? 'Enter your current password and choose a new one.'
+                : 'Please create a new password to secure your account.'}
             </p>
           </div>
 
@@ -111,13 +121,14 @@ export default function ChangePassword() {
             )}
 
             <label className="block text-xs uppercase tracking-[0.3em]" style={{ color: 'var(--concrete)' }}>
-              Temporary Password
+              {isVoluntaryChange ? 'Current Password' : 'Temporary Password'}
               <input
                 type="password"
+                autoComplete={isVoluntaryChange ? 'current-password' : 'off'}
                 className="mt-1 w-full input-soft"
                 value={currentPassword}
                 onChange={(e) => setCurrentPassword(e.target.value)}
-                placeholder="From your activation email"
+                placeholder={isVoluntaryChange ? 'Enter your current password' : 'From your activation email'}
                 disabled={isLoading}
                 required
               />
@@ -127,6 +138,7 @@ export default function ChangePassword() {
               New Password
               <input
                 type="password"
+                autoComplete="new-password"
                 className="mt-1 w-full input-soft"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
@@ -140,6 +152,7 @@ export default function ChangePassword() {
               Confirm New Password
               <input
                 type="password"
+                autoComplete="new-password"
                 className="mt-1 w-full input-soft"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
@@ -170,7 +183,7 @@ export default function ChangePassword() {
               className="w-full justify-center text-base"
               disabled={isLoading}
             >
-              {isLoading ? 'Updating...' : 'Set New Password'}
+              {isLoading ? 'Updating...' : (isVoluntaryChange ? 'Change Password' : 'Set New Password')}
             </Button>
           </form>
         </div>

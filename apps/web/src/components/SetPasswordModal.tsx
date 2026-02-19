@@ -115,11 +115,12 @@ export default function SetPasswordModal({
       preventClose={isLoading}
       footer={
         <>
-          <Button variant="secondary" onClick={handleClose} disabled={isLoading}>
+          <Button variant="secondary" size="sm" onClick={handleClose} disabled={isLoading}>
             Cancel
           </Button>
           <Button
             variant="primary"
+            size="sm"
             onClick={handleSubmit}
             disabled={isLoading || !newPassword || !confirmPassword}
           >
