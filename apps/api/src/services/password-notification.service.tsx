@@ -42,8 +42,9 @@ export async function sendPasswordAddedNotification(userId: string): Promise<voi
       ),
       userId: user.id,
       emailType: 'password_added',
-      triggerSource: 'admin_manual', // Using admin_manual as closest match; could add a new trigger source
+      triggerSource: 'user_action',
       templateVersion: PASSWORD_ADDED_TEMPLATE_VERSION,
+      bypassUnsubscribe: true,
     });
 
     logger.info({ userId, email: user.email }, 'Password added notification sent');
@@ -84,8 +85,9 @@ export async function sendPasswordChangedNotification(userId: string): Promise<v
       ),
       userId: user.id,
       emailType: 'password_changed',
-      triggerSource: 'admin_manual', // Using admin_manual as closest match
+      triggerSource: 'user_action',
       templateVersion: PASSWORD_CHANGED_TEMPLATE_VERSION,
+      bypassUnsubscribe: true,
     });
 
     logger.info({ userId, email: user.email }, 'Password changed notification sent');

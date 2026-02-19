@@ -345,6 +345,7 @@ enum TriggerSource {
   system_activation
   system_welcome_series
   scheduled
+  user_action
 }
 
 enum EmailStatus {

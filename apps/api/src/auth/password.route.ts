@@ -20,13 +20,11 @@ const router = express.Router();
  */
 router.post('/password/add', express.json(), requireRecentAuth(), async (req, res) => {
   try {
-    const sessionUser = req.sessionUser;
-    if (!sessionUser?.uid) {
-      return sendUnauthorized(res);
-    }
+    // sessionUser.uid is guaranteed by requireRecentAuth middleware
+    const userId = req.sessionUser!.uid;
 
     // Rate limit check
-    const rateLimit = await checkMutationRateLimit('addPassword', sessionUser.uid);
+    const rateLimit = await checkMutationRateLimit('addPassword', userId);
     if (!rateLimit.allowed) {
       return sendTooManyRequests(
         res,
@@ -47,13 +45,12 @@ router.post('/password/add', express.json(), requireRecentAuth(), async (req, re
       return sendBadRequest(res, validation.error || 'Password does not meet requirements');
     }
 
-    // Get user with current state
+    // Get user with current state (for OAuth check and notification)
     const user = await prisma.user.findUnique({
-      where: { id: sessionUser.uid },
+      where: { id: userId },
       select: {
         id: true,
         email: true,
-        passwordHash: true,
         accounts: {
           select: { provider: true },
         },
@@ -64,27 +61,31 @@ router.post('/password/add', express.json(), requireRecentAuth(), async (req, re
       return sendUnauthorized(res);
     }
 
-    // Block if user already has a password
-    if (user.passwordHash) {
-      return sendForbidden(
-        res,
-        'Account already has a password. Use change-password instead.',
-        'ALREADY_HAS_PASSWORD'
-      );
-    }
-
     // Verify at least one OAuth provider is linked (safety check)
     // This prevents creating password-only accounts through this endpoint
     if (user.accounts.length === 0) {
       return sendBadRequest(res, 'Cannot add password to this account type');
     }
 
-    // Hash and save password
+    // Hash password before atomic update
     const passwordHash = await hashPassword(newPassword);
-    await prisma.user.update({
-      where: { id: user.id },
+
+    // Atomic conditional update: only set passwordHash if it's currently null
+    // This prevents TOCTOU race conditions where concurrent requests could
+    // both pass a null-check before either write completes
+    const result = await prisma.user.updateMany({
+      where: { id: user.id, passwordHash: null },
       data: { passwordHash },
     });
+
+    // If no rows updated, user already has a password
+    if (result.count === 0) {
+      return sendForbidden(
+        res,
+        'Account already has a password. Use change-password instead.',
+        'ALREADY_HAS_PASSWORD'
+      );
+    }
 
     // Send notification email (non-blocking)
     sendPasswordAddedNotification(user.id).catch(() => {

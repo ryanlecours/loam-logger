@@ -1,4 +1,4 @@
-import { checkRecentAuth, updateLastAuthAt, RECENT_AUTH_WINDOW_MS_EXPORT } from './recent-auth';
+import { checkRecentAuth, updateLastAuthAt, RECENT_AUTH_WINDOW_MS } from './recent-auth';
 import { prisma } from '../lib/prisma';
 
 jest.mock('../lib/prisma', () => ({
@@ -74,7 +74,7 @@ describe('checkRecentAuth', () => {
 
   it('should return valid when auth is exactly at the boundary (just under 10 min)', async () => {
     // Just under 10 minutes - should still be valid
-    const boundaryTime = new Date(Date.now() - RECENT_AUTH_WINDOW_MS_EXPORT + 1000);
+    const boundaryTime = new Date(Date.now() - RECENT_AUTH_WINDOW_MS + 1000);
     (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({
       lastAuthAt: boundaryTime,
     });
@@ -86,7 +86,7 @@ describe('checkRecentAuth', () => {
 
   it('should return invalid when auth is exactly at the boundary (just over 10 min)', async () => {
     // Just over 10 minutes - should be invalid
-    const boundaryTime = new Date(Date.now() - RECENT_AUTH_WINDOW_MS_EXPORT - 1000);
+    const boundaryTime = new Date(Date.now() - RECENT_AUTH_WINDOW_MS - 1000);
     (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({
       lastAuthAt: boundaryTime,
     });

@@ -10,6 +10,7 @@ import { prisma } from '../lib/prisma';
 import { sendBadRequest, sendUnauthorized, sendForbidden, sendConflict, sendInternalError, sendTooManyRequests } from '../lib/api-response';
 import { checkAuthRateLimit, checkMutationRateLimit } from '../lib/rate-limit';
 import { sendPasswordChangedNotification } from '../services/password-notification.service';
+import { logger } from '../lib/logger';
 
 const router = express.Router();
 
@@ -142,8 +143,10 @@ router.post('/login', express.json(), async (req, res) => {
       return sendUnauthorized(res, 'Invalid email or password');
     }
 
-    // Update last auth timestamp for recent-auth gating
-    await updateLastAuthAt(user.id);
+    // Update last auth timestamp for recent-auth gating (non-blocking)
+    updateLastAuthAt(user.id).catch((err) =>
+      logger.error({ err, userId: user.id }, '[EmailAuth] Failed to update lastAuthAt')
+    );
 
     // Set session and CSRF cookies, return CSRF token for immediate use
     setSessionCookie(res, { uid: user.id, email: user.email });

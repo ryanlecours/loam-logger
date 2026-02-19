@@ -4,6 +4,7 @@ import { ensureUserFromGoogle } from './ensureUserFromGoogle';
 import { setSessionCookie, clearSessionCookie } from './session';
 import { setCsrfCookie, clearCsrfCookie } from './csrf';
 import { updateLastAuthAt } from './recent-auth';
+import { logger } from '../lib/logger';
 
 const router = express.Router();
 
@@ -42,8 +43,10 @@ router.post('/google/code', express.json(), async (req, res) => {
       },
     );
 
-    // Update last auth timestamp for recent-auth gating
-    await updateLastAuthAt(user.id);
+    // Update last auth timestamp for recent-auth gating (non-blocking)
+    updateLastAuthAt(user.id).catch((err) =>
+      logger.error({ err, userId: user.id }, '[GoogleAuth] Failed to update lastAuthAt')
+    );
 
     // Set session and CSRF cookies, return CSRF token for immediate use
     setSessionCookie(res, { uid: user.id, email: user.email });

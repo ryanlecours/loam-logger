@@ -1,7 +1,7 @@
 import { prisma } from '../lib/prisma';
 
 /** Recent auth window: 10 minutes */
-const RECENT_AUTH_WINDOW_MS = 10 * 60 * 1000;
+export const RECENT_AUTH_WINDOW_MS = 10 * 60 * 1000;
 
 export type RecentAuthCheckResult =
   | { valid: true; lastAuthAt: Date }
@@ -43,6 +43,3 @@ export async function updateLastAuthAt(userId: string): Promise<void> {
     data: { lastAuthAt: new Date() },
   });
 }
-
-/** Export the window constant for testing */
-export const RECENT_AUTH_WINDOW_MS_EXPORT = RECENT_AUTH_WINDOW_MS;

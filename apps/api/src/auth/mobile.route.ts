@@ -8,6 +8,7 @@ import { updateLastAuthAt } from './recent-auth';
 import { prisma } from '../lib/prisma';
 import { checkMutationRateLimit } from '../lib/rate-limit';
 import { sendPasswordAddedNotification, sendPasswordChangedNotification } from '../services/password-notification.service';
+import { logger } from '../lib/logger';
 
 const router = express.Router();
 
@@ -49,8 +50,10 @@ router.post('/mobile/google', express.json(), async (req, res) => {
       picture: payload.picture,
     });
 
-    // Update last auth timestamp for recent-auth gating
-    await updateLastAuthAt(user.id);
+    // Update last auth timestamp for recent-auth gating (non-blocking)
+    updateLastAuthAt(user.id).catch((err) =>
+      logger.error({ err, userId: user.id }, '[MobileAuth] Failed to update lastAuthAt')
+    );
 
     // Generate tokens for mobile
     const accessToken = generateAccessToken({ uid: user.id, email: user.email });
@@ -159,8 +162,10 @@ router.post('/mobile/login', express.json(), async (req, res) => {
       return res.status(403).send('ALREADY_ON_WAITLIST');
     }
 
-    // Update last auth timestamp for recent-auth gating
-    await updateLastAuthAt(user.id);
+    // Update last auth timestamp for recent-auth gating (non-blocking)
+    updateLastAuthAt(user.id).catch((err) =>
+      logger.error({ err, userId: user.id }, '[MobileAuth] Failed to update lastAuthAt')
+    );
 
     // Generate tokens for mobile
     const accessToken = generateAccessToken({ uid: user.id, email: user.email });
@@ -256,13 +261,12 @@ router.post('/mobile/password/add', express.json(), async (req, res) => {
       return res.status(400).send(validation.error || 'Password does not meet requirements');
     }
 
-    // Get user with current state
+    // Get user with current state (for OAuth check and notification)
     const user = await prisma.user.findUnique({
       where: { id: sessionUser.uid },
       select: {
         id: true,
         email: true,
-        passwordHash: true,
         accounts: {
           select: { provider: true },
         },
@@ -273,25 +277,29 @@ router.post('/mobile/password/add', express.json(), async (req, res) => {
       return res.status(401).send('User not found');
     }
 
-    // Block if user already has a password
-    if (user.passwordHash) {
-      return res.status(403).json({
-        error: 'Account already has a password. Use change-password instead.',
-        code: 'ALREADY_HAS_PASSWORD',
-      });
-    }
-
     // Verify at least one OAuth provider is linked
     if (user.accounts.length === 0) {
       return res.status(400).send('Cannot add password to this account type');
     }
 
-    // Hash and save password
+    // Hash password before atomic update
     const passwordHash = await hashPassword(newPassword);
-    await prisma.user.update({
-      where: { id: user.id },
+
+    // Atomic conditional update: only set passwordHash if it's currently null
+    // This prevents TOCTOU race conditions where concurrent requests could
+    // both pass a null-check before either write completes
+    const result = await prisma.user.updateMany({
+      where: { id: user.id, passwordHash: null },
       data: { passwordHash },
     });
+
+    // If no rows updated, user already has a password
+    if (result.count === 0) {
+      return res.status(403).json({
+        error: 'Account already has a password. Use change-password instead.',
+        code: 'ALREADY_HAS_PASSWORD',
+      });
+    }
 
     // Send notification email (non-blocking)
     sendPasswordAddedNotification(user.id).catch(() => {

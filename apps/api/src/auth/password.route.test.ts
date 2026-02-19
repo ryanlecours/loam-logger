@@ -6,6 +6,7 @@ jest.mock('../lib/prisma', () => ({
     user: {
       findUnique: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn(),
     },
   },
 }));
@@ -112,16 +113,8 @@ describe('POST /password/add', () => {
     mockHashPassword.mockResolvedValue('hashed_password_123');
   });
 
-  describe('Authentication', () => {
-    it('should return 401 when user is not authenticated', async () => {
-      const req = createMockRequest({ sessionUser: undefined });
-      const res = createMockResponse();
-
-      await invokeHandler(handler, req as Request, res as Response);
-
-      expect(sendUnauthorized).toHaveBeenCalled();
-    });
-  });
+  // Note: Authentication (401) is handled by requireRecentAuth middleware,
+  // which is tested separately in the "requireRecentAuth middleware" section below.
 
   describe('Rate Limiting', () => {
     it('should return 429 when rate limited', async () => {
@@ -158,12 +151,15 @@ describe('POST /password/add', () => {
 
   describe('Account State', () => {
     it('should return 403 ALREADY_HAS_PASSWORD when user already has password', async () => {
+      // User exists with OAuth provider linked
       (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({
         id: 'user-123',
         email: 'test@example.com',
-        passwordHash: 'existing_hash',
         accounts: [{ provider: 'google' }],
       });
+      // Atomic update returns 0 because passwordHash is not null
+      (mockPrisma.user.updateMany as jest.Mock).mockResolvedValue({ count: 0 });
+
       const req = createMockRequest();
       const res = createMockResponse();
 
@@ -180,7 +176,6 @@ describe('POST /password/add', () => {
       (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({
         id: 'user-123',
         email: 'test@example.com',
-        passwordHash: null,
         accounts: [], // No providers linked
       });
       const req = createMockRequest();
@@ -197,10 +192,10 @@ describe('POST /password/add', () => {
       (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({
         id: 'user-123',
         email: 'test@example.com',
-        passwordHash: null,
         accounts: [{ provider: 'google' }],
       });
-      (mockPrisma.user.update as jest.Mock).mockResolvedValue({});
+      // Atomic update succeeds (user had no password)
+      (mockPrisma.user.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
 
       const req = createMockRequest();
       const res = createMockResponse();
@@ -208,8 +203,8 @@ describe('POST /password/add', () => {
       await invokeHandler(handler, req as Request, res as Response);
 
       expect(mockHashPassword).toHaveBeenCalledWith('SecurePass123!');
-      expect(mockPrisma.user.update).toHaveBeenCalledWith({
-        where: { id: 'user-123' },
+      expect(mockPrisma.user.updateMany).toHaveBeenCalledWith({
+        where: { id: 'user-123', passwordHash: null },
         data: { passwordHash: 'hashed_password_123' },
       });
       expect(res.json).toHaveBeenCalledWith({ ok: true });
@@ -219,10 +214,10 @@ describe('POST /password/add', () => {
       (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({
         id: 'user-123',
         email: 'test@example.com',
-        passwordHash: null,
         accounts: [{ provider: 'google' }],
       });
-      (mockPrisma.user.update as jest.Mock).mockResolvedValue({});
+      // Atomic update succeeds (user had no password)
+      (mockPrisma.user.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
 
       const req = createMockRequest();
       const res = createMockResponse();
