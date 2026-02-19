@@ -835,7 +835,7 @@ export default function Settings() {
       <SetPasswordModal
         open={setPasswordModalOpen}
         onClose={() => setSetPasswordModalOpen(false)}
-        onSuccess={() => refetchUser()}
+        onSuccess={refetchUser}
       />
 
       <GarminImportModal

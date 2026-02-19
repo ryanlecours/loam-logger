@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { Modal, Button } from './ui';
@@ -21,6 +21,15 @@ export default function SetPasswordModal({
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const redirectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (redirectTimeoutRef.current) {
+        clearTimeout(redirectTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const handleClose = () => {
     if (isLoading) return;
@@ -60,7 +69,7 @@ export default function SetPasswordModal({
 
         if (data.code === 'RECENT_AUTH_REQUIRED') {
           setError('For security, please log in again to set your password.');
-          setTimeout(() => {
+          redirectTimeoutRef.current = setTimeout(() => {
             navigate('/login?returnTo=/settings');
           }, 2000);
           return;
@@ -119,7 +128,7 @@ export default function SetPasswordModal({
         </>
       }
     >
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <div className="space-y-4">
         {error && (
           <div className="alert-danger-dark">
             <p className="text-sm">{error}</p>
@@ -135,7 +144,6 @@ export default function SetPasswordModal({
             onChange={(e) => setNewPassword(e.target.value)}
             placeholder="At least 8 characters"
             disabled={isLoading}
-            required
           />
         </label>
 
@@ -148,7 +156,6 @@ export default function SetPasswordModal({
             onChange={(e) => setConfirmPassword(e.target.value)}
             placeholder="Confirm your password"
             disabled={isLoading}
-            required
           />
         </label>
 
@@ -160,7 +167,7 @@ export default function SetPasswordModal({
             ))}
           </ul>
         </div>
-      </form>
+      </div>
     </Modal>
   );
 }
