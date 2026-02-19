@@ -4,7 +4,12 @@ import { extractBearerToken, verifyToken } from './token';
 
 const { SESSION_SECRET } = process.env;
 
-export type SessionUser = { uid: string; email?: string }
+export type SessionUser = {
+  uid: string;
+  email?: string;
+  /** Timestamp when this session was created (login time) */
+  authAt?: number;
+}
 
 export function setSessionCookie(res: Response, payload: SessionUser) {
   const token = jwt.sign(payload, SESSION_SECRET!, { expiresIn: '7d' });

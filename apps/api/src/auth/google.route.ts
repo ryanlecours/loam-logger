@@ -3,13 +3,15 @@ import { OAuth2Client } from 'google-auth-library';
 import { ensureUserFromGoogle } from './ensureUserFromGoogle';
 import { setSessionCookie, clearSessionCookie } from './session';
 import { setCsrfCookie, clearCsrfCookie } from './csrf';
+import { updateLastAuthAt } from './recent-auth';
+import { logger } from '../lib/logger';
 
 const router = express.Router();
 
 const { GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET } = process.env;
 
 if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
-  console.error('[GoogleAuth] Missing GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET');
+  logger.error('[GoogleAuth] Missing GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET');
 }
 
 const client = new OAuth2Client({
@@ -41,13 +43,19 @@ router.post('/google/code', express.json(), async (req, res) => {
       },
     );
 
+    // Update last auth timestamp for recent-auth gating (non-blocking)
+    updateLastAuthAt(user.id).catch((err) =>
+      logger.error({ err, userId: user.id }, '[GoogleAuth] Failed to update lastAuthAt')
+    );
+
     // Set session and CSRF cookies, return CSRF token for immediate use
-    setSessionCookie(res, { uid: user.id, email: user.email });
+    // Include authAt as fallback in case DB lastAuthAt write failed
+    setSessionCookie(res, { uid: user.id, email: user.email, authAt: Date.now() });
     const csrfToken = setCsrfCookie(res);
     res.status(200).json({ ok: true, csrfToken });
   } catch (e) {
     const errorMessage = e instanceof Error ? e.message : String(e);
-    console.error('[GoogleAuth] ID-token login failed', e);
+    logger.error({ err: e }, '[GoogleAuth] ID-token login failed');
 
     // Handle closed beta - new users
     if (errorMessage === 'CLOSED_BETA') {
@@ -63,7 +71,7 @@ router.post('/google/code', express.json(), async (req, res) => {
 });
 
 router.post('/logout', (_req, res) => {
-  console.log('[GoogleAuth] Logout request');
+  logger.debug('[GoogleAuth] Logout request');
   clearSessionCookie(res);
   clearCsrfCookie(res);
   res.status(200).json({ ok: true });

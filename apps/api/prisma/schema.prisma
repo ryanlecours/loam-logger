@@ -20,6 +20,7 @@ model User {
   avatarUrl           String?
   emailVerified       DateTime?
   passwordHash        String?
+  lastAuthAt          DateTime?           // Track last successful authentication time
   age                 Int?
   location            String?
   onboardingCompleted Boolean             @default(false)
@@ -335,6 +336,8 @@ enum EmailType {
   founding_post_activation_info
   strava_integration_live
   beta_feature_roundup
+  password_added
+  password_changed
 }
 
 enum TriggerSource {
@@ -342,6 +345,7 @@ enum TriggerSource {
   system_activation
   system_welcome_series
   scheduled
+  user_action
 }
 
 enum EmailStatus {

@@ -2,9 +2,14 @@ import express from 'express';
 import { OAuth2Client } from 'google-auth-library';
 import { ensureUserFromGoogle } from './ensureUserFromGoogle';
 import { normalizeEmail } from './utils';
-import { verifyPassword } from './password.utils';
+import { verifyPassword, validatePassword, hashPassword } from './password.utils';
 import { generateAccessToken, generateRefreshToken, verifyToken } from './token';
+import { updateLastAuthAt } from './recent-auth';
 import { prisma } from '../lib/prisma';
+import { checkMutationRateLimit } from '../lib/rate-limit';
+import { sendPasswordAddedNotification, sendPasswordChangedNotification } from '../services/password-notification.service';
+import { logger } from '../lib/logger';
+import { sendUnauthorized, sendBadRequest, sendForbidden, sendInternalError, sendTooManyRequests } from '../lib/api-response';
 
 const router = express.Router();
 
@@ -46,6 +51,11 @@ router.post('/mobile/google', express.json(), async (req, res) => {
       picture: payload.picture,
     });
 
+    // Update last auth timestamp for recent-auth gating (non-blocking)
+    updateLastAuthAt(user.id).catch((err) =>
+      logger.error({ err, userId: user.id }, '[MobileAuth] Failed to update lastAuthAt')
+    );
+
     // Generate tokens for mobile
     const accessToken = generateAccessToken({ uid: user.id, email: user.email });
     const refreshToken = generateRefreshToken({ uid: user.id, email: user.email });
@@ -62,7 +72,7 @@ router.post('/mobile/google', express.json(), async (req, res) => {
     });
   } catch (e) {
     const errorMessage = e instanceof Error ? e.message : String(e);
-    console.error('[MobileAuth] Google login failed', e);
+    logger.error({ err: e }, '[MobileAuth] Google login failed');
 
     // Handle closed beta - new users
     if (errorMessage === 'CLOSED_BETA') {
@@ -101,7 +111,7 @@ router.post('/mobile/apple', express.json(), async (req, res) => {
 
     res.status(501).send('Apple Sign-In not yet implemented');
   } catch (e) {
-    console.error('[MobileAuth] Apple login failed', e);
+    logger.error({ err: e }, '[MobileAuth] Apple login failed');
     res.status(500).send('Authentication failed');
   }
 });
@@ -153,6 +163,11 @@ router.post('/mobile/login', express.json(), async (req, res) => {
       return res.status(403).send('ALREADY_ON_WAITLIST');
     }
 
+    // Update last auth timestamp for recent-auth gating (non-blocking)
+    updateLastAuthAt(user.id).catch((err) =>
+      logger.error({ err, userId: user.id }, '[MobileAuth] Failed to update lastAuthAt')
+    );
+
     // Generate tokens for mobile
     const accessToken = generateAccessToken({ uid: user.id, email: user.email });
     const refreshToken = generateRefreshToken({ uid: user.id, email: user.email });
@@ -168,7 +183,7 @@ router.post('/mobile/login', express.json(), async (req, res) => {
       },
     });
   } catch (e) {
-    console.error('[MobileAuth] Email login failed', e);
+    logger.error({ err: e }, '[MobileAuth] Email login failed');
     res.status(500).send('Login failed');
   }
 });
@@ -177,6 +192,8 @@ router.post('/mobile/login', express.json(), async (req, res) => {
  * POST /auth/mobile/refresh
  * Refresh access token using refresh token
  * Returns new access token
+ *
+ * Note: Token refresh does NOT update lastAuthAt - it doesn't prove fresh authentication.
  */
 router.post('/mobile/refresh', express.json(), async (req, res) => {
   try {
@@ -205,8 +222,181 @@ router.post('/mobile/refresh', express.json(), async (req, res) => {
 
     res.status(200).json({ accessToken });
   } catch (e) {
-    console.error('[MobileAuth] Token refresh failed', e);
+    logger.error({ err: e }, '[MobileAuth] Token refresh failed');
     res.status(500).send('Token refresh failed');
+  }
+});
+
+/**
+ * POST /auth/mobile/password/add
+ * Add password to OAuth-only account (mobile)
+ *
+ * Mobile access tokens are short-lived (15 min), so if the token is valid,
+ * the auth is "recent" by definition. No separate recent-auth check needed.
+ */
+router.post('/mobile/password/add', express.json(), async (req, res) => {
+  try {
+    const sessionUser = req.sessionUser;
+    if (!sessionUser?.uid) {
+      return sendUnauthorized(res);
+    }
+
+    // Rate limit check
+    const rateLimit = await checkMutationRateLimit('addPassword', sessionUser.uid);
+    if (!rateLimit.allowed) {
+      return sendTooManyRequests(
+        res,
+        'Too many password attempts. Please try again later.',
+        rateLimit.retryAfter
+      );
+    }
+
+    const { newPassword } = req.body as { newPassword?: string };
+
+    if (!newPassword) {
+      return sendBadRequest(res, 'Password is required');
+    }
+
+    // Validate password strength
+    const validation = validatePassword(newPassword);
+    if (!validation.isValid) {
+      return sendBadRequest(res, validation.error || 'Password does not meet requirements');
+    }
+
+    // Get user with current state (for OAuth check and notification)
+    const user = await prisma.user.findUnique({
+      where: { id: sessionUser.uid },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        accounts: {
+          select: { provider: true },
+        },
+      },
+    });
+
+    if (!user) {
+      // User ID from valid token doesn't exist in DB - data integrity issue
+      return sendInternalError(res, 'Failed to add password');
+    }
+
+    // Verify at least one OAuth provider is linked
+    if (user.accounts.length === 0) {
+      return sendBadRequest(res, 'Cannot add password to this account type');
+    }
+
+    // Hash password before atomic update
+    const passwordHash = await hashPassword(newPassword);
+
+    // Atomic conditional update: only set passwordHash if it's currently null
+    // This prevents TOCTOU race conditions where concurrent requests could
+    // both pass a null-check before either write completes
+    const result = await prisma.user.updateMany({
+      where: { id: user.id, passwordHash: null },
+      data: { passwordHash },
+    });
+
+    // If no rows updated, user already has a password
+    if (result.count === 0) {
+      return sendForbidden(
+        res,
+        'Account already has a password. Use change-password instead.',
+        'ALREADY_HAS_PASSWORD'
+      );
+    }
+
+    // Send notification email (non-blocking)
+    sendPasswordAddedNotification({ id: user.id, email: user.email, name: user.name }).catch(() => {
+      // Already logged in the service
+    });
+
+    res.json({ ok: true });
+  } catch (e) {
+    logger.error({ err: e }, '[MobileAuth] Add password failed');
+    return sendInternalError(res, 'Failed to add password');
+  }
+});
+
+/**
+ * POST /auth/mobile/password/change
+ * Change password for authenticated user (mobile)
+ *
+ * Mobile access tokens are short-lived (15 min), so if the token is valid,
+ * the auth is "recent" by definition. No separate recent-auth check needed.
+ */
+router.post('/mobile/password/change', express.json(), async (req, res) => {
+  try {
+    const sessionUser = req.sessionUser;
+    if (!sessionUser?.uid) {
+      return sendUnauthorized(res);
+    }
+
+    // Rate limit check
+    const rateLimit = await checkMutationRateLimit('changePassword', sessionUser.uid);
+    if (!rateLimit.allowed) {
+      return sendTooManyRequests(
+        res,
+        'Too many password change attempts. Please try again later.',
+        rateLimit.retryAfter
+      );
+    }
+
+    const { currentPassword, newPassword } = req.body as {
+      currentPassword?: string;
+      newPassword?: string;
+    };
+
+    if (!currentPassword || !newPassword) {
+      return sendBadRequest(res, 'Current and new password are required');
+    }
+
+    // Validate new password strength
+    const validation = validatePassword(newPassword);
+    if (!validation.isValid) {
+      return sendBadRequest(res, validation.error || 'Password does not meet requirements');
+    }
+
+    // Get user with current password hash and info for notification
+    const user = await prisma.user.findUnique({
+      where: { id: sessionUser.uid },
+      select: { id: true, email: true, name: true, passwordHash: true, mustChangePassword: true },
+    });
+
+    if (!user) {
+      // User ID from valid token doesn't exist in DB - data integrity issue
+      return sendInternalError(res, 'Failed to change password');
+    }
+
+    if (!user.passwordHash) {
+      return sendBadRequest(res, 'Cannot change password for this account');
+    }
+
+    // Verify current password
+    const isValid = await verifyPassword(currentPassword, user.passwordHash);
+    if (!isValid) {
+      return sendUnauthorized(res, 'Current password is incorrect');
+    }
+
+    // Hash and save new password, clear mustChangePassword flag
+    const newHash = await hashPassword(newPassword);
+    await prisma.user.update({
+      where: { id: sessionUser.uid },
+      data: {
+        passwordHash: newHash,
+        mustChangePassword: false,
+      },
+    });
+
+    // Send notification email (non-blocking)
+    sendPasswordChangedNotification({ id: user.id, email: user.email, name: user.name }).catch(() => {
+      // Already logged in the service
+    });
+
+    res.json({ ok: true });
+  } catch (e) {
+    logger.error({ err: e }, '[MobileAuth] Change password failed');
+    return sendInternalError(res, 'Failed to change password');
   }
 });
 

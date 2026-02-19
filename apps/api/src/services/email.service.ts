@@ -73,6 +73,8 @@ export type SendEmailWithAuditParams = {
   emailType: EmailType;
   triggerSource: TriggerSource;
   templateVersion?: string;
+  /** If true, send even if user has unsubscribed (for security notifications) */
+  bypassUnsubscribe?: boolean;
 };
 
 export type SendEmailWithAuditResult = {
@@ -93,28 +95,31 @@ export async function sendEmailWithAudit({
   emailType,
   triggerSource,
   templateVersion,
+  bypassUnsubscribe,
 }: SendEmailWithAuditParams): Promise<SendEmailWithAuditResult> {
-  // Check if user is unsubscribed
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { emailUnsubscribed: true },
-  });
-
-  if (user?.emailUnsubscribed) {
-    // Record suppressed send
-    await prisma.emailSend.create({
-      data: {
-        userId,
-        toEmail: to,
-        emailType,
-        triggerSource,
-        templateVersion,
-        status: 'suppressed',
-        failureReason: 'User unsubscribed',
-      },
+  // Check if user is unsubscribed (unless bypassed for security notifications)
+  if (!bypassUnsubscribe) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { emailUnsubscribed: true },
     });
-    console.log(`[Email] Suppressed email to ${to} (unsubscribed)`);
-    return { messageId: '', status: 'suppressed' };
+
+    if (user?.emailUnsubscribed) {
+      // Record suppressed send
+      await prisma.emailSend.create({
+        data: {
+          userId,
+          toEmail: to,
+          emailType,
+          triggerSource,
+          templateVersion,
+          status: 'suppressed',
+          failureReason: 'User unsubscribed',
+        },
+      });
+      console.log(`[Email] Suppressed email to ${to} (unsubscribed)`);
+      return { messageId: '', status: 'suppressed' };
+    }
   }
 
   try {
@@ -160,6 +165,8 @@ export type SendReactEmailWithAuditParams = {
   emailType: EmailType;
   triggerSource: TriggerSource;
   templateVersion?: string;
+  /** If true, send even if user has unsubscribed (for security notifications) */
+  bypassUnsubscribe?: boolean;
 };
 
 /**
@@ -174,6 +181,7 @@ export async function sendReactEmailWithAudit({
   emailType,
   triggerSource,
   templateVersion,
+  bypassUnsubscribe,
 }: SendReactEmailWithAuditParams): Promise<SendEmailWithAuditResult> {
   const html = await render(reactElement);
   return sendEmailWithAudit({
@@ -184,5 +192,6 @@ export async function sendReactEmailWithAudit({
     emailType,
     triggerSource,
     templateVersion,
+    bypassUnsubscribe,
   });
 }

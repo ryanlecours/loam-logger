@@ -43,3 +43,12 @@ export function verifyUnsubscribeToken(token: string): { userId: string } | null
     return null;
   }
 }
+
+/**
+ * Generate a full unsubscribe URL for email links
+ */
+export function generateUnsubscribeUrl(userId: string): string {
+  const token = generateUnsubscribeToken(userId);
+  const baseUrl = process.env.FRONTEND_URL || 'https://loamlogger.app';
+  return `${baseUrl}/unsubscribe?token=${token}`;
+}

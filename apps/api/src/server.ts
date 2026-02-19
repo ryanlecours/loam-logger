@@ -39,7 +39,7 @@ import waitlistRouter from './routes/waitlist';
 import adminRouter from './routes/admin';
 import spokesRouter from './routes/spokes';
 import emailUnsubscribeRouter from './routes/email.unsubscribe';
-import { googleRouter, emailRouter, deleteAccountRouter, attachUser, verifyCsrf } from './auth/index';
+import { googleRouter, emailRouter, deleteAccountRouter, passwordRouter, attachUser, verifyCsrf } from './auth/index';
 import mobileAuthRouter from './auth/mobile.route';
 
 export type GraphQLContext = {
@@ -221,6 +221,7 @@ const startServer = async () => {
   app.use('/auth', googleRouter);
   app.use('/auth', emailRouter);
   app.use('/auth', deleteAccountRouter);
+  app.use('/auth', passwordRouter);
   app.use('/auth', mobileAuthRouter);
   app.use('/auth', authGarmin);
   app.use('/auth', authStrava);
