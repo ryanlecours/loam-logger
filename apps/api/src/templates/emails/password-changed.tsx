@@ -20,7 +20,6 @@ export type PasswordChangedEmailProps = {
   recipientFirstName?: string;
   email?: string;
   supportEmail?: string;
-  appUrl?: string;
   unsubscribeUrl?: string;
 };
 
@@ -73,7 +72,6 @@ export default function PasswordChangedEmail({
   recipientFirstName,
   email = "rider@example.com",
   supportEmail = "ryan.lecours@loamlogger.app",
-  appUrl = "https://loamlogger.app",
   unsubscribeUrl,
 }: PasswordChangedEmailProps) {
   const safeName = sanitizeUserInput(recipientFirstName);
