@@ -3852,8 +3852,14 @@ export const resolvers = {
     role: (parent: { role: string }) => parent.role,
     mustChangePassword: (parent: { mustChangePassword?: boolean }) => parent.mustChangePassword ?? false,
     hasPassword: (parent: { passwordHash?: string | null }) => !!parent.passwordHash,
-    needsReauthForSensitiveActions: async (parent: { id: string }) => {
-      const result = await checkRecentAuth(parent.id);
+    needsReauthForSensitiveActions: async (
+      parent: { id: string },
+      _args: unknown,
+      context: GraphQLContext
+    ) => {
+      // Pass sessionAuthAt to avoid DB query when session timestamp is available and valid
+      const sessionAuthAt = context.req.sessionUser?.authAt;
+      const result = await checkRecentAuth(parent.id, sessionAuthAt);
       return !result.valid;
     },
     accounts: async (parent: { id: string }) => {
