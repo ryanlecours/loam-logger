@@ -98,6 +98,64 @@ describe('checkRecentAuth', () => {
       expect(result.reason).toBe('AUTH_EXPIRED');
     }
   });
+
+  // Session authAt fallback tests
+  it('should use sessionAuthAt as fallback when DB lastAuthAt is null', async () => {
+    (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({
+      lastAuthAt: null,
+    });
+
+    const recentSessionAuth = Date.now() - 5 * 60 * 1000; // 5 minutes ago
+    const result = await checkRecentAuth('user-123', recentSessionAuth);
+
+    expect(result.valid).toBe(true);
+    if (result.valid) {
+      expect(result.lastAuthAt?.getTime()).toBe(recentSessionAuth);
+    }
+  });
+
+  it('should use sessionAuthAt as fallback when user not found', async () => {
+    (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue(null);
+
+    const recentSessionAuth = Date.now() - 5 * 60 * 1000; // 5 minutes ago
+    const result = await checkRecentAuth('user-123', recentSessionAuth);
+
+    expect(result.valid).toBe(true);
+    if (result.valid) {
+      expect(result.lastAuthAt?.getTime()).toBe(recentSessionAuth);
+    }
+  });
+
+  it('should return AUTH_EXPIRED when sessionAuthAt fallback is too old', async () => {
+    (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({
+      lastAuthAt: null,
+    });
+
+    const oldSessionAuth = Date.now() - 15 * 60 * 1000; // 15 minutes ago
+    const result = await checkRecentAuth('user-123', oldSessionAuth);
+
+    expect(result.valid).toBe(false);
+    if (!result.valid) {
+      expect(result.reason).toBe('AUTH_EXPIRED');
+      expect(result.lastAuthAt?.getTime()).toBe(oldSessionAuth);
+    }
+  });
+
+  it('should prefer DB lastAuthAt over sessionAuthAt when both exist', async () => {
+    const dbAuthTime = new Date(Date.now() - 5 * 60 * 1000); // 5 minutes ago (DB)
+    (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({
+      lastAuthAt: dbAuthTime,
+    });
+
+    const sessionAuthTime = Date.now() - 2 * 60 * 1000; // 2 minutes ago (session)
+    const result = await checkRecentAuth('user-123', sessionAuthTime);
+
+    expect(result.valid).toBe(true);
+    if (result.valid) {
+      // Should use DB time, not session time
+      expect(result.lastAuthAt).toEqual(dbAuthTime);
+    }
+  });
 });
 
 describe('updateLastAuthAt', () => {

@@ -49,7 +49,8 @@ router.post('/google/code', express.json(), async (req, res) => {
     );
 
     // Set session and CSRF cookies, return CSRF token for immediate use
-    setSessionCookie(res, { uid: user.id, email: user.email });
+    // Include authAt as fallback in case DB lastAuthAt write failed
+    setSessionCookie(res, { uid: user.id, email: user.email, authAt: Date.now() });
     const csrfToken = setCsrfCookie(res);
     res.status(200).json({ ok: true, csrfToken });
   } catch (e) {

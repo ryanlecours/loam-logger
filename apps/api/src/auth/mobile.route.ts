@@ -9,6 +9,7 @@ import { prisma } from '../lib/prisma';
 import { checkMutationRateLimit } from '../lib/rate-limit';
 import { sendPasswordAddedNotification, sendPasswordChangedNotification } from '../services/password-notification.service';
 import { logger } from '../lib/logger';
+import { sendUnauthorized, sendBadRequest, sendForbidden, sendInternalError, sendTooManyRequests } from '../lib/api-response';
 
 const router = express.Router();
 
@@ -237,28 +238,29 @@ router.post('/mobile/password/add', express.json(), async (req, res) => {
   try {
     const sessionUser = req.sessionUser;
     if (!sessionUser?.uid) {
-      return res.status(401).send('Unauthorized');
+      return sendUnauthorized(res);
     }
 
     // Rate limit check
     const rateLimit = await checkMutationRateLimit('addPassword', sessionUser.uid);
     if (!rateLimit.allowed) {
-      return res.status(429).json({
-        error: 'Too many password attempts. Please try again later.',
-        retryAfter: rateLimit.retryAfter,
-      });
+      return sendTooManyRequests(
+        res,
+        'Too many password attempts. Please try again later.',
+        rateLimit.retryAfter
+      );
     }
 
     const { newPassword } = req.body as { newPassword?: string };
 
     if (!newPassword) {
-      return res.status(400).send('Password is required');
+      return sendBadRequest(res, 'Password is required');
     }
 
     // Validate password strength
     const validation = validatePassword(newPassword);
     if (!validation.isValid) {
-      return res.status(400).send(validation.error || 'Password does not meet requirements');
+      return sendBadRequest(res, validation.error || 'Password does not meet requirements');
     }
 
     // Get user with current state (for OAuth check and notification)
@@ -267,6 +269,7 @@ router.post('/mobile/password/add', express.json(), async (req, res) => {
       select: {
         id: true,
         email: true,
+        name: true,
         accounts: {
           select: { provider: true },
         },
@@ -274,12 +277,13 @@ router.post('/mobile/password/add', express.json(), async (req, res) => {
     });
 
     if (!user) {
-      return res.status(401).send('User not found');
+      // User ID from valid token doesn't exist in DB - data integrity issue
+      return sendInternalError(res, 'Failed to add password');
     }
 
     // Verify at least one OAuth provider is linked
     if (user.accounts.length === 0) {
-      return res.status(400).send('Cannot add password to this account type');
+      return sendBadRequest(res, 'Cannot add password to this account type');
     }
 
     // Hash password before atomic update
@@ -295,21 +299,22 @@ router.post('/mobile/password/add', express.json(), async (req, res) => {
 
     // If no rows updated, user already has a password
     if (result.count === 0) {
-      return res.status(403).json({
-        error: 'Account already has a password. Use change-password instead.',
-        code: 'ALREADY_HAS_PASSWORD',
-      });
+      return sendForbidden(
+        res,
+        'Account already has a password. Use change-password instead.',
+        'ALREADY_HAS_PASSWORD'
+      );
     }
 
     // Send notification email (non-blocking)
-    sendPasswordAddedNotification(user.id).catch(() => {
+    sendPasswordAddedNotification({ id: user.id, email: user.email, name: user.name }).catch(() => {
       // Already logged in the service
     });
 
     res.json({ ok: true });
   } catch (e) {
-    console.error('[MobileAuth] Add password failed', e);
-    res.status(500).send('Failed to add password');
+    logger.error({ err: e }, '[MobileAuth] Add password failed');
+    return sendInternalError(res, 'Failed to add password');
   }
 });
 
@@ -324,16 +329,17 @@ router.post('/mobile/password/change', express.json(), async (req, res) => {
   try {
     const sessionUser = req.sessionUser;
     if (!sessionUser?.uid) {
-      return res.status(401).send('Unauthorized');
+      return sendUnauthorized(res);
     }
 
     // Rate limit check
     const rateLimit = await checkMutationRateLimit('changePassword', sessionUser.uid);
     if (!rateLimit.allowed) {
-      return res.status(429).json({
-        error: 'Too many password change attempts. Please try again later.',
-        retryAfter: rateLimit.retryAfter,
-      });
+      return sendTooManyRequests(
+        res,
+        'Too many password change attempts. Please try again later.',
+        rateLimit.retryAfter
+      );
     }
 
     const { currentPassword, newPassword } = req.body as {
@@ -342,29 +348,34 @@ router.post('/mobile/password/change', express.json(), async (req, res) => {
     };
 
     if (!currentPassword || !newPassword) {
-      return res.status(400).send('Current and new password are required');
+      return sendBadRequest(res, 'Current and new password are required');
     }
 
     // Validate new password strength
     const validation = validatePassword(newPassword);
     if (!validation.isValid) {
-      return res.status(400).send(validation.error || 'Password does not meet requirements');
+      return sendBadRequest(res, validation.error || 'Password does not meet requirements');
     }
 
-    // Get user with current password hash
+    // Get user with current password hash and info for notification
     const user = await prisma.user.findUnique({
       where: { id: sessionUser.uid },
-      select: { id: true, passwordHash: true, mustChangePassword: true },
+      select: { id: true, email: true, name: true, passwordHash: true, mustChangePassword: true },
     });
 
-    if (!user || !user.passwordHash) {
-      return res.status(400).send('Cannot change password for this account');
+    if (!user) {
+      // User ID from valid token doesn't exist in DB - data integrity issue
+      return sendInternalError(res, 'Failed to change password');
+    }
+
+    if (!user.passwordHash) {
+      return sendBadRequest(res, 'Cannot change password for this account');
     }
 
     // Verify current password
     const isValid = await verifyPassword(currentPassword, user.passwordHash);
     if (!isValid) {
-      return res.status(401).send('Current password is incorrect');
+      return sendUnauthorized(res, 'Current password is incorrect');
     }
 
     // Hash and save new password, clear mustChangePassword flag
@@ -378,14 +389,14 @@ router.post('/mobile/password/change', express.json(), async (req, res) => {
     });
 
     // Send notification email (non-blocking)
-    sendPasswordChangedNotification(user.id).catch(() => {
+    sendPasswordChangedNotification({ id: user.id, email: user.email, name: user.name }).catch(() => {
       // Already logged in the service
     });
 
     res.json({ ok: true });
   } catch (e) {
-    console.error('[MobileAuth] Change password failed', e);
-    res.status(500).send('Failed to change password');
+    logger.error({ err: e }, '[MobileAuth] Change password failed');
+    return sendInternalError(res, 'Failed to change password');
   }
 });
 

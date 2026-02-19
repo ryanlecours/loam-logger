@@ -105,11 +105,12 @@ function createMockRequest(overrides: Partial<Request> = {}): Partial<Request> {
   };
 }
 
-function createMockResponse(): Partial<Response> & { status: jest.Mock; json: jest.Mock; send: jest.Mock } {
+function createMockResponse(): Partial<Response> & { status: jest.Mock; json: jest.Mock; send: jest.Mock; setHeader: jest.Mock } {
   const res = {
     status: jest.fn().mockReturnThis(),
     json: jest.fn().mockReturnThis(),
     send: jest.fn().mockReturnThis(),
+    setHeader: jest.fn().mockReturnThis(),
   };
   return res;
 }
@@ -137,7 +138,10 @@ describe('POST /mobile/password/add', () => {
       await invokeHandler(handler, req as Request, res as Response);
 
       expect(res.status).toHaveBeenCalledWith(401);
-      expect(res.send).toHaveBeenCalledWith('Unauthorized');
+      expect(res.json).toHaveBeenCalledWith({
+        error: 'Unauthorized',
+        code: 'UNAUTHORIZED',
+      });
     });
   });
 
@@ -152,7 +156,8 @@ describe('POST /mobile/password/add', () => {
       expect(res.status).toHaveBeenCalledWith(429);
       expect(res.json).toHaveBeenCalledWith({
         error: 'Too many password attempts. Please try again later.',
-        retryAfter: 3600,
+        code: 'TOO_MANY_REQUESTS',
+        details: { retryAfter: 3600 },
       });
     });
   });
@@ -165,7 +170,10 @@ describe('POST /mobile/password/add', () => {
       await invokeHandler(handler, req as Request, res as Response);
 
       expect(res.status).toHaveBeenCalledWith(400);
-      expect(res.send).toHaveBeenCalledWith('Password is required');
+      expect(res.json).toHaveBeenCalledWith({
+        error: 'Password is required',
+        code: 'BAD_REQUEST',
+      });
     });
 
     it('should return 400 when password is weak', async () => {
@@ -176,20 +184,26 @@ describe('POST /mobile/password/add', () => {
       await invokeHandler(handler, req as Request, res as Response);
 
       expect(res.status).toHaveBeenCalledWith(400);
-      expect(res.send).toHaveBeenCalledWith('Password too short');
+      expect(res.json).toHaveBeenCalledWith({
+        error: 'Password too short',
+        code: 'BAD_REQUEST',
+      });
     });
   });
 
   describe('Account State', () => {
-    it('should return 401 when user not found', async () => {
+    it('should return 500 when user not found (data integrity issue)', async () => {
       (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue(null);
       const req = createMockRequest();
       const res = createMockResponse();
 
       await invokeHandler(handler, req as Request, res as Response);
 
-      expect(res.status).toHaveBeenCalledWith(401);
-      expect(res.send).toHaveBeenCalledWith('User not found');
+      expect(res.status).toHaveBeenCalledWith(500);
+      expect(res.json).toHaveBeenCalledWith({
+        error: 'Failed to add password',
+        code: 'INTERNAL_ERROR',
+      });
     });
 
     it('should return 400 when no OAuth provider is linked', async () => {
@@ -204,7 +218,10 @@ describe('POST /mobile/password/add', () => {
       await invokeHandler(handler, req as Request, res as Response);
 
       expect(res.status).toHaveBeenCalledWith(400);
-      expect(res.send).toHaveBeenCalledWith('Cannot add password to this account type');
+      expect(res.json).toHaveBeenCalledWith({
+        error: 'Cannot add password to this account type',
+        code: 'BAD_REQUEST',
+      });
     });
 
     it('should return 403 ALREADY_HAS_PASSWORD when user already has password', async () => {
@@ -233,6 +250,7 @@ describe('POST /mobile/password/add', () => {
       (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({
         id: 'user-123',
         email: 'test@example.com',
+        name: 'Test User',
         accounts: [{ provider: 'google' }],
       });
       (mockPrisma.user.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
@@ -254,6 +272,7 @@ describe('POST /mobile/password/add', () => {
       (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({
         id: 'user-123',
         email: 'test@example.com',
+        name: 'Test User',
         accounts: [{ provider: 'google' }],
       });
       (mockPrisma.user.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
@@ -263,7 +282,11 @@ describe('POST /mobile/password/add', () => {
 
       await invokeHandler(handler, req as Request, res as Response);
 
-      expect(mockSendPasswordAddedNotification).toHaveBeenCalledWith('user-123');
+      expect(mockSendPasswordAddedNotification).toHaveBeenCalledWith({
+        id: 'user-123',
+        email: 'test@example.com',
+        name: 'Test User',
+      });
     });
   });
 });
@@ -295,7 +318,10 @@ describe('POST /mobile/password/change', () => {
       await invokeHandler(handler, req as Request, res as Response);
 
       expect(res.status).toHaveBeenCalledWith(401);
-      expect(res.send).toHaveBeenCalledWith('Unauthorized');
+      expect(res.json).toHaveBeenCalledWith({
+        error: 'Unauthorized',
+        code: 'UNAUTHORIZED',
+      });
     });
   });
 
@@ -312,7 +338,8 @@ describe('POST /mobile/password/change', () => {
       expect(res.status).toHaveBeenCalledWith(429);
       expect(res.json).toHaveBeenCalledWith({
         error: 'Too many password change attempts. Please try again later.',
-        retryAfter: 3600,
+        code: 'TOO_MANY_REQUESTS',
+        details: { retryAfter: 3600 },
       });
     });
   });
@@ -325,7 +352,10 @@ describe('POST /mobile/password/change', () => {
       await invokeHandler(handler, req as Request, res as Response);
 
       expect(res.status).toHaveBeenCalledWith(400);
-      expect(res.send).toHaveBeenCalledWith('Current and new password are required');
+      expect(res.json).toHaveBeenCalledWith({
+        error: 'Current and new password are required',
+        code: 'BAD_REQUEST',
+      });
     });
 
     it('should return 400 when new password is missing', async () => {
@@ -335,7 +365,10 @@ describe('POST /mobile/password/change', () => {
       await invokeHandler(handler, req as Request, res as Response);
 
       expect(res.status).toHaveBeenCalledWith(400);
-      expect(res.send).toHaveBeenCalledWith('Current and new password are required');
+      expect(res.json).toHaveBeenCalledWith({
+        error: 'Current and new password are required',
+        code: 'BAD_REQUEST',
+      });
     });
 
     it('should return 400 when new password is weak', async () => {
@@ -348,7 +381,10 @@ describe('POST /mobile/password/change', () => {
       await invokeHandler(handler, req as Request, res as Response);
 
       expect(res.status).toHaveBeenCalledWith(400);
-      expect(res.send).toHaveBeenCalledWith('Password too short');
+      expect(res.json).toHaveBeenCalledWith({
+        error: 'Password too short',
+        code: 'BAD_REQUEST',
+      });
     });
   });
 
@@ -367,10 +403,13 @@ describe('POST /mobile/password/change', () => {
       await invokeHandler(handler, req as Request, res as Response);
 
       expect(res.status).toHaveBeenCalledWith(400);
-      expect(res.send).toHaveBeenCalledWith('Cannot change password for this account');
+      expect(res.json).toHaveBeenCalledWith({
+        error: 'Cannot change password for this account',
+        code: 'BAD_REQUEST',
+      });
     });
 
-    it('should return 400 when user not found', async () => {
+    it('should return 500 when user not found (data integrity issue)', async () => {
       (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue(null);
       const req = createMockRequest({
         body: { currentPassword: 'oldPass123!', newPassword: 'newPass123!' },
@@ -379,8 +418,11 @@ describe('POST /mobile/password/change', () => {
 
       await invokeHandler(handler, req as Request, res as Response);
 
-      expect(res.status).toHaveBeenCalledWith(400);
-      expect(res.send).toHaveBeenCalledWith('Cannot change password for this account');
+      expect(res.status).toHaveBeenCalledWith(500);
+      expect(res.json).toHaveBeenCalledWith({
+        error: 'Failed to change password',
+        code: 'INTERNAL_ERROR',
+      });
     });
 
     it('should return 401 when current password is incorrect', async () => {
@@ -399,7 +441,10 @@ describe('POST /mobile/password/change', () => {
       await invokeHandler(handler, req as Request, res as Response);
 
       expect(res.status).toHaveBeenCalledWith(401);
-      expect(res.send).toHaveBeenCalledWith('Current password is incorrect');
+      expect(res.json).toHaveBeenCalledWith({
+        error: 'Current password is incorrect',
+        code: 'UNAUTHORIZED',
+      });
     });
   });
 
@@ -407,6 +452,8 @@ describe('POST /mobile/password/change', () => {
     it('should change password successfully', async () => {
       (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({
         id: 'user-123',
+        email: 'test@example.com',
+        name: 'Test User',
         passwordHash: 'existing_hash',
         mustChangePassword: true,
       });
@@ -434,6 +481,8 @@ describe('POST /mobile/password/change', () => {
     it('should send notification email on success', async () => {
       (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({
         id: 'user-123',
+        email: 'test@example.com',
+        name: 'Test User',
         passwordHash: 'existing_hash',
         mustChangePassword: false,
       });
@@ -446,12 +495,18 @@ describe('POST /mobile/password/change', () => {
 
       await invokeHandler(handler, req as Request, res as Response);
 
-      expect(mockSendPasswordChangedNotification).toHaveBeenCalledWith('user-123');
+      expect(mockSendPasswordChangedNotification).toHaveBeenCalledWith({
+        id: 'user-123',
+        email: 'test@example.com',
+        name: 'Test User',
+      });
     });
 
     it('should clear mustChangePassword flag on success', async () => {
       (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({
         id: 'user-123',
+        email: 'test@example.com',
+        name: 'Test User',
         passwordHash: 'existing_hash',
         mustChangePassword: true,
       });

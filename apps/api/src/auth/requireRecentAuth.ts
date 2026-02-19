@@ -8,23 +8,22 @@ import { sendUnauthorized, sendForbidden } from '../lib/api-response';
  *
  * Use this to gate sensitive operations like adding/changing passwords.
  */
-export function requireRecentAuth() {
-  return async (req: Request, res: Response, next: NextFunction) => {
-    const sessionUser = req.sessionUser;
-    if (!sessionUser?.uid) {
-      return sendUnauthorized(res);
-    }
+export async function requireRecentAuth(req: Request, res: Response, next: NextFunction) {
+  const sessionUser = req.sessionUser;
+  if (!sessionUser?.uid) {
+    return sendUnauthorized(res);
+  }
 
-    const result = await checkRecentAuth(sessionUser.uid);
+  // Pass session authAt as fallback in case DB lastAuthAt write failed
+  const result = await checkRecentAuth(sessionUser.uid, sessionUser.authAt);
 
-    if (!result.valid) {
-      return sendForbidden(
-        res,
-        'This action requires recent authentication. Please log in again.',
-        'RECENT_AUTH_REQUIRED'
-      );
-    }
+  if (!result.valid) {
+    return sendForbidden(
+      res,
+      'This action requires recent authentication. Please log in again.',
+      'RECENT_AUTH_REQUIRED'
+    );
+  }
 
-    next();
-  };
+  next();
 }

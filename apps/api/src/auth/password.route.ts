@@ -5,6 +5,7 @@ import { prisma } from '../lib/prisma';
 import { sendBadRequest, sendUnauthorized, sendForbidden, sendInternalError, sendTooManyRequests } from '../lib/api-response';
 import { checkMutationRateLimit } from '../lib/rate-limit';
 import { sendPasswordAddedNotification } from '../services/password-notification.service';
+import { logger } from '../lib/logger';
 
 const router = express.Router();
 
@@ -18,7 +19,7 @@ const router = express.Router();
  * - User must NOT already have a password
  * - User must have at least one OAuth provider linked (e.g., Google)
  */
-router.post('/password/add', express.json(), requireRecentAuth(), async (req, res) => {
+router.post('/password/add', express.json(), requireRecentAuth, async (req, res) => {
   try {
     // sessionUser.uid is guaranteed by requireRecentAuth middleware
     const userId = req.sessionUser!.uid;
@@ -51,6 +52,7 @@ router.post('/password/add', express.json(), requireRecentAuth(), async (req, re
       select: {
         id: true,
         email: true,
+        name: true,
         accounts: {
           select: { provider: true },
         },
@@ -58,7 +60,8 @@ router.post('/password/add', express.json(), requireRecentAuth(), async (req, re
     });
 
     if (!user) {
-      return sendUnauthorized(res);
+      // User ID from valid session doesn't exist in DB - data integrity issue
+      return sendInternalError(res, 'Failed to add password');
     }
 
     // Verify at least one OAuth provider is linked (safety check)
@@ -88,13 +91,13 @@ router.post('/password/add', express.json(), requireRecentAuth(), async (req, re
     }
 
     // Send notification email (non-blocking)
-    sendPasswordAddedNotification(user.id).catch(() => {
+    sendPasswordAddedNotification({ id: user.id, email: user.email, name: user.name }).catch(() => {
       // Already logged in the service
     });
 
     res.json({ ok: true });
   } catch (e) {
-    console.error('[PasswordAuth] Add password failed', e);
+    logger.error({ err: e }, '[PasswordAuth] Add password failed');
     return sendInternalError(res, 'Failed to add password');
   }
 });

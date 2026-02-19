@@ -149,7 +149,8 @@ router.post('/login', express.json(), async (req, res) => {
     );
 
     // Set session and CSRF cookies, return CSRF token for immediate use
-    setSessionCookie(res, { uid: user.id, email: user.email });
+    // Include authAt as fallback in case DB lastAuthAt write failed
+    setSessionCookie(res, { uid: user.id, email: user.email, authAt: Date.now() });
     const csrfToken = setCsrfCookie(res);
 
     // Return success with mustChangePassword flag and CSRF token
@@ -174,7 +175,7 @@ router.post('/login', express.json(), async (req, res) => {
  * - User must have authenticated recently (within 10 minutes)
  * - User must provide correct current password
  */
-router.post('/change-password', express.json(), requireRecentAuth(), async (req, res) => {
+router.post('/change-password', express.json(), requireRecentAuth, async (req, res) => {
   try {
     const sessionUser = req.sessionUser;
     if (!sessionUser?.uid) {
@@ -206,13 +207,18 @@ router.post('/change-password', express.json(), requireRecentAuth(), async (req,
       return sendBadRequest(res, validation.error || 'Invalid password');
     }
 
-    // Get user with current password hash
+    // Get user with current password hash and info for notification
     const user = await prisma.user.findUnique({
       where: { id: sessionUser.uid },
-      select: { id: true, passwordHash: true, mustChangePassword: true },
+      select: { id: true, email: true, name: true, passwordHash: true, mustChangePassword: true },
     });
 
-    if (!user || !user.passwordHash) {
+    if (!user) {
+      // User ID from valid session doesn't exist in DB - data integrity issue
+      return sendInternalError(res, 'Failed to change password');
+    }
+
+    if (!user.passwordHash) {
       return sendBadRequest(res, 'Cannot change password for this account');
     }
 
@@ -233,7 +239,7 @@ router.post('/change-password', express.json(), requireRecentAuth(), async (req,
     });
 
     // Send notification email (non-blocking)
-    sendPasswordChangedNotification(user.id).catch(() => {
+    sendPasswordChangedNotification({ id: user.id, email: user.email, name: user.name }).catch(() => {
       // Already logged in the service
     });
 

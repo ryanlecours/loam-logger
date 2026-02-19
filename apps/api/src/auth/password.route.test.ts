@@ -214,6 +214,7 @@ describe('POST /password/add', () => {
       (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({
         id: 'user-123',
         email: 'test@example.com',
+        name: 'Test User',
         accounts: [{ provider: 'google' }],
       });
       // Atomic update succeeds (user had no password)
@@ -224,7 +225,11 @@ describe('POST /password/add', () => {
 
       await invokeHandler(handler, req as Request, res as Response);
 
-      expect(mockSendPasswordAddedNotification).toHaveBeenCalledWith('user-123');
+      expect(mockSendPasswordAddedNotification).toHaveBeenCalledWith({
+        id: 'user-123',
+        email: 'test@example.com',
+        name: 'Test User',
+      });
     });
   });
 });
@@ -245,8 +250,7 @@ describe('requireRecentAuth middleware', () => {
     const mockRes = createMockResponse();
     const mockNext = jest.fn();
 
-    const middleware = requireRecentAuth();
-    await middleware(mockReq as Request, mockRes as Response, mockNext);
+    await requireRecentAuth(mockReq as Request, mockRes as Response, mockNext);
 
     expect(sendForbidden).toHaveBeenCalledWith(
       mockRes,
@@ -265,8 +269,7 @@ describe('requireRecentAuth middleware', () => {
     const mockRes = createMockResponse();
     const mockNext = jest.fn();
 
-    const middleware = requireRecentAuth();
-    await middleware(mockReq as Request, mockRes as Response, mockNext);
+    await requireRecentAuth(mockReq as Request, mockRes as Response, mockNext);
 
     expect(mockNext).toHaveBeenCalled();
     expect(sendForbidden).not.toHaveBeenCalled();
