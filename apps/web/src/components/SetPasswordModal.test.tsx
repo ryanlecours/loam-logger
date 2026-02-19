@@ -130,7 +130,7 @@ describe('SetPasswordModal', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Set Password' }));
 
       expect(
-        await screen.findByText('For security, please log in again to set your password.')
+        await screen.findByText('For security, please log in again to set your password. Redirecting to login...')
       ).toBeInTheDocument();
     });
 
@@ -261,6 +261,66 @@ describe('SetPasswordModal', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
 
       expect(onClose).toHaveBeenCalled();
+    });
+  });
+
+  describe('form submission', () => {
+    it('submits when form is submitted', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ ok: true }),
+      });
+
+      renderModal();
+
+      fireEvent.change(screen.getByPlaceholderText('At least 8 characters'), {
+        target: { value: 'ValidPassword123!' },
+      });
+      fireEvent.change(screen.getByPlaceholderText('Confirm your password'), {
+        target: { value: 'ValidPassword123!' },
+      });
+
+      // Submit form (e.g., via Enter key - form is rendered via portal so query from document)
+      const form = document.querySelector('form')!;
+      fireEvent.submit(form);
+
+      await waitFor(() => {
+        expect(mockFetch).toHaveBeenCalled();
+      });
+    });
+
+    it('disables submit button while loading', async () => {
+      // Create a promise we can control to keep the request pending
+      let resolveRequest: (value: unknown) => void;
+      const pendingRequest = new Promise((resolve) => {
+        resolveRequest = resolve;
+      });
+      mockFetch.mockReturnValueOnce(pendingRequest);
+
+      renderModal();
+
+      fireEvent.change(screen.getByPlaceholderText('At least 8 characters'), {
+        target: { value: 'ValidPassword123!' },
+      });
+      fireEvent.change(screen.getByPlaceholderText('Confirm your password'), {
+        target: { value: 'ValidPassword123!' },
+      });
+
+      const submitButton = screen.getByRole('button', { name: 'Set Password' });
+      expect(submitButton).not.toBeDisabled();
+
+      // Click to start loading
+      fireEvent.click(submitButton);
+
+      // Button should now show loading state and be disabled
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'Setting...' })).toBeDisabled();
+      });
+
+      // Cleanup: resolve the pending request and wait for state update
+      await waitFor(async () => {
+        resolveRequest!({ ok: true, json: () => Promise.resolve({ ok: true }) });
+      });
     });
   });
 });

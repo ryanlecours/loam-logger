@@ -39,8 +39,8 @@ export default function SetPasswordModal({
     onClose();
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (e?: React.FormEvent | React.MouseEvent) => {
+    e?.preventDefault();
     setError(null);
 
     if (newPassword !== confirmPassword) {
@@ -65,10 +65,15 @@ export default function SetPasswordModal({
       });
 
       if (!res.ok) {
+        if (res.status === 429) {
+          setError('Too many attempts. Please try again later.');
+          return;
+        }
+
         const data = await res.json();
 
         if (data.code === 'RECENT_AUTH_REQUIRED') {
-          setError('For security, please log in again to set your password.');
+          setError('For security, please log in again to set your password. Redirecting to login...');
           redirectTimeoutRef.current = setTimeout(() => {
             navigate('/login?returnTo=/settings');
           }, 2000);
@@ -77,11 +82,6 @@ export default function SetPasswordModal({
 
         if (data.code === 'ALREADY_HAS_PASSWORD') {
           setError('You already have a password set. Use "Change Password" instead.');
-          return;
-        }
-
-        if (res.status === 429) {
-          setError('Too many attempts. Please try again later.');
           return;
         }
 
@@ -128,7 +128,7 @@ export default function SetPasswordModal({
         </>
       }
     >
-      <div className="space-y-4">
+      <form onSubmit={handleSubmit} className="space-y-4">
         {error && (
           <div className="alert-danger-dark">
             <p className="text-sm">{error}</p>
@@ -139,6 +139,7 @@ export default function SetPasswordModal({
           New Password
           <input
             type="password"
+            autoComplete="new-password"
             className="mt-1 w-full input-soft"
             value={newPassword}
             onChange={(e) => setNewPassword(e.target.value)}
@@ -151,6 +152,7 @@ export default function SetPasswordModal({
           Confirm Password
           <input
             type="password"
+            autoComplete="new-password"
             className="mt-1 w-full input-soft"
             value={confirmPassword}
             onChange={(e) => setConfirmPassword(e.target.value)}
@@ -167,7 +169,7 @@ export default function SetPasswordModal({
             ))}
           </ul>
         </div>
-      </div>
+      </form>
     </Modal>
   );
 }
