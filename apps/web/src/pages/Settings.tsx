@@ -639,7 +639,7 @@ export default function Settings() {
                       Change
                     </button>
                   </>
-                ) : user?.accounts?.length > 0 ? (
+                ) : accounts.length > 0 ? (
                   <>
                     <span className="text-muted">Not set</span>
                     <button

@@ -14,10 +14,6 @@ export const ME_QUERY = gql`
       role
       isFoundingRider
       hasPassword
-      accounts {
-        provider
-        connectedAt
-      }
       hoursDisplayPreference
       predictionMode
       pairedComponentMigrationSeenAt
