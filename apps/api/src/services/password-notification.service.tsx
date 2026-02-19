@@ -7,7 +7,6 @@ import PasswordChangedEmail, {
   getPasswordChangedEmailSubject,
   PASSWORD_CHANGED_TEMPLATE_VERSION,
 } from '../templates/emails/password-changed';
-import { generateUnsubscribeUrl } from '../lib/unsubscribe-token';
 import { logger } from '../lib/logger';
 
 export type PasswordNotificationUser = {
@@ -23,7 +22,6 @@ export type PasswordNotificationUser = {
 export async function sendPasswordAddedNotification(user: PasswordNotificationUser): Promise<void> {
   try {
     const firstName = user.name?.split(' ')[0];
-    const unsubscribeUrl = generateUnsubscribeUrl(user.id);
 
     await sendReactEmailWithAudit({
       to: user.email,
@@ -32,7 +30,6 @@ export async function sendPasswordAddedNotification(user: PasswordNotificationUs
         <PasswordAddedEmail
           recipientFirstName={firstName}
           email={user.email}
-          unsubscribeUrl={unsubscribeUrl}
         />
       ),
       userId: user.id,
@@ -56,7 +53,6 @@ export async function sendPasswordAddedNotification(user: PasswordNotificationUs
 export async function sendPasswordChangedNotification(user: PasswordNotificationUser): Promise<void> {
   try {
     const firstName = user.name?.split(' ')[0];
-    const unsubscribeUrl = generateUnsubscribeUrl(user.id);
 
     await sendReactEmailWithAudit({
       to: user.email,
@@ -65,7 +61,6 @@ export async function sendPasswordChangedNotification(user: PasswordNotification
         <PasswordChangedEmail
           recipientFirstName={firstName}
           email={user.email}
-          unsubscribeUrl={unsubscribeUrl}
         />
       ),
       userId: user.id,

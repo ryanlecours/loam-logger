@@ -72,7 +72,7 @@ router.post('/mobile/google', express.json(), async (req, res) => {
     });
   } catch (e) {
     const errorMessage = e instanceof Error ? e.message : String(e);
-    console.error('[MobileAuth] Google login failed', e);
+    logger.error({ err: e }, '[MobileAuth] Google login failed');
 
     // Handle closed beta - new users
     if (errorMessage === 'CLOSED_BETA') {
@@ -111,7 +111,7 @@ router.post('/mobile/apple', express.json(), async (req, res) => {
 
     res.status(501).send('Apple Sign-In not yet implemented');
   } catch (e) {
-    console.error('[MobileAuth] Apple login failed', e);
+    logger.error({ err: e }, '[MobileAuth] Apple login failed');
     res.status(500).send('Authentication failed');
   }
 });
@@ -183,7 +183,7 @@ router.post('/mobile/login', express.json(), async (req, res) => {
       },
     });
   } catch (e) {
-    console.error('[MobileAuth] Email login failed', e);
+    logger.error({ err: e }, '[MobileAuth] Email login failed');
     res.status(500).send('Login failed');
   }
 });
@@ -222,7 +222,7 @@ router.post('/mobile/refresh', express.json(), async (req, res) => {
 
     res.status(200).json({ accessToken });
   } catch (e) {
-    console.error('[MobileAuth] Token refresh failed', e);
+    logger.error({ err: e }, '[MobileAuth] Token refresh failed');
     res.status(500).send('Token refresh failed');
   }
 });

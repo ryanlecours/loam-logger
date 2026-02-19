@@ -85,7 +85,7 @@ router.post('/signup', express.json(), async (req, res) => {
     // User is now on the waitlist - redirect to already-on-waitlist page
     return sendForbidden(res, 'You have been added to the waitlist. We will email you when your account is activated.', 'ALREADY_ON_WAITLIST');
   } catch (e) {
-    console.error('[EmailAuth] Signup failed', e);
+    logger.error({ err: e }, '[EmailAuth] Signup failed');
     return sendInternalError(res, 'Signup failed');
   }
 });
@@ -160,7 +160,7 @@ router.post('/login', express.json(), async (req, res) => {
       csrfToken,
     });
   } catch (e) {
-    console.error('[EmailAuth] Login failed', e);
+    logger.error({ err: e }, '[EmailAuth] Login failed');
     return sendInternalError(res, 'Login failed');
   }
 });
@@ -177,13 +177,11 @@ router.post('/login', express.json(), async (req, res) => {
  */
 router.post('/change-password', express.json(), requireRecentAuth, async (req, res) => {
   try {
-    const sessionUser = req.sessionUser;
-    if (!sessionUser?.uid) {
-      return sendUnauthorized(res);
-    }
+    // sessionUser.uid is guaranteed by requireRecentAuth middleware
+    const userId = req.sessionUser!.uid;
 
     // Rate limit check
-    const rateLimit = await checkMutationRateLimit('changePassword', sessionUser.uid);
+    const rateLimit = await checkMutationRateLimit('changePassword', userId);
     if (!rateLimit.allowed) {
       return sendTooManyRequests(
         res,
@@ -209,7 +207,7 @@ router.post('/change-password', express.json(), requireRecentAuth, async (req, r
 
     // Get user with current password hash and info for notification
     const user = await prisma.user.findUnique({
-      where: { id: sessionUser.uid },
+      where: { id: userId },
       select: { id: true, email: true, name: true, passwordHash: true, mustChangePassword: true },
     });
 
@@ -231,7 +229,7 @@ router.post('/change-password', express.json(), requireRecentAuth, async (req, r
     // Hash and save new password, clear mustChangePassword flag
     const newHash = await hashPassword(newPassword);
     await prisma.user.update({
-      where: { id: sessionUser.uid },
+      where: { id: userId },
       data: {
         passwordHash: newHash,
         mustChangePassword: false,
@@ -245,7 +243,7 @@ router.post('/change-password', express.json(), requireRecentAuth, async (req, r
 
     res.json({ ok: true });
   } catch (e) {
-    console.error('[EmailAuth] Change password failed', e);
+    logger.error({ err: e }, '[EmailAuth] Change password failed');
     return sendInternalError(res, 'Failed to change password');
   }
 });

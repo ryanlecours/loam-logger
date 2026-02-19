@@ -11,7 +11,7 @@ const router = express.Router();
 const { GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET } = process.env;
 
 if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
-  console.error('[GoogleAuth] Missing GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET');
+  logger.error('[GoogleAuth] Missing GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET');
 }
 
 const client = new OAuth2Client({
@@ -55,7 +55,7 @@ router.post('/google/code', express.json(), async (req, res) => {
     res.status(200).json({ ok: true, csrfToken });
   } catch (e) {
     const errorMessage = e instanceof Error ? e.message : String(e);
-    console.error('[GoogleAuth] ID-token login failed', e);
+    logger.error({ err: e }, '[GoogleAuth] ID-token login failed');
 
     // Handle closed beta - new users
     if (errorMessage === 'CLOSED_BETA') {
@@ -71,7 +71,7 @@ router.post('/google/code', express.json(), async (req, res) => {
 });
 
 router.post('/logout', (_req, res) => {
-  console.log('[GoogleAuth] Logout request');
+  logger.debug('[GoogleAuth] Logout request');
   clearSessionCookie(res);
   clearCsrfCookie(res);
   res.status(200).json({ ok: true });
