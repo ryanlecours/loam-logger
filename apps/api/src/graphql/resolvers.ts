@@ -3818,6 +3818,13 @@ export const resolvers = {
     },
   },
 
+  Ride: {
+    startTime: (ride: { startTime: Date | string }) =>
+      ride.startTime instanceof Date
+        ? ride.startTime.toISOString()
+        : ride.startTime,
+  },
+
   Component: {
     isSpare: (component: ComponentModel & { status?: string }) =>
       component.status === 'INVENTORY' || (component.status == null && component.bikeId == null),
