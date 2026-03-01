@@ -177,8 +177,8 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string }>(
       });
 
       if (!tokenRes.ok) {
-        const text = await tokenRes.text();
-        log.error({ status: tokenRes.status, userId, attemptId }, 'Strava token exchange failed');
+        const body = await tokenRes.text();
+        log.error({ status: tokenRes.status, userId, attemptId, body }, 'Strava token exchange failed');
         return redirectError('token_exchange_failed');
       }
 
@@ -312,22 +312,12 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string }>(
 r.get('/strava/mobile/complete', (req: Request, res: Response) => {
   const status = (req.query.status as string) || 'error';
   const reason = req.query.reason as string | undefined;
-  const prompt = req.query.prompt as string | undefined;
   const scheme = process.env.MOBILE_DEEP_LINK_SCHEME || 'loamlogger';
 
   log.debug({ status, reason }, 'Rendering Strava mobile completion page');
 
-  // Pass prompt through to deep link if present
-  const extraParams = prompt ? `&prompt=${encodeURIComponent(prompt)}` : '';
-
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
-
-  // Build custom deep link URL with prompt param
-  const deepLinkPath = `${scheme}://oauth/strava`;
-  const queryParams = new URLSearchParams({ status });
-  if (reason) queryParams.set('reason', reason);
-  if (prompt) queryParams.set('prompt', prompt);
 
   res.send(renderOAuthCompletionPage({
     provider: 'Strava',

@@ -196,8 +196,8 @@ r.get<Empty, void, Empty, { code?: string; state?: string }>(
       });
 
       if (!tokenRes.ok) {
-        const text = await tokenRes.text();
-        log.error({ status: tokenRes.status, userId, attemptId }, 'Garmin token exchange failed');
+        const body = await tokenRes.text();
+        log.error({ status: tokenRes.status, userId, attemptId, body }, 'Garmin token exchange failed');
         return redirectError('token_exchange_failed');
       }
 

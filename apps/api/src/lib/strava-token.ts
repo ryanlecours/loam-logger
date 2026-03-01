@@ -60,13 +60,13 @@ export async function revokeStravaToken(accessToken: string): Promise<boolean> {
     }
 
     // Safely read error response body
-    let text = '';
+    let body = '';
     try {
-      text = await response.text();
+      body = await response.text();
     } catch {
-      text = '(failed to read response body)';
+      body = '(failed to read response body)';
     }
-    log.error({ status: response.status }, 'Token revocation failed');
+    log.error({ status: response.status, body }, 'Token revocation failed');
     return false;
   } catch (error) {
     log.error({ err: error }, 'Token revocation error');
@@ -206,13 +206,13 @@ async function refreshStravaToken(userId: string, refreshToken: string): Promise
     });
 
     if (!refreshRes.ok) {
-      let text = '';
+      let body = '';
       try {
-        text = await refreshRes.text();
+        body = await refreshRes.text();
       } catch {
-        text = '(failed to read response body)';
+        body = '(failed to read response body)';
       }
-      log.error({ status: refreshRes.status, userId }, 'Token refresh failed');
+      log.error({ status: refreshRes.status, userId, body }, 'Token refresh failed');
       return null;
     }
 
