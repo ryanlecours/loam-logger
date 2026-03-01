@@ -110,7 +110,7 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string }>(
   '/strava/callback',
   async (req: Request<Empty, void, Empty, { code?: string; state?: string; scope?: string }>, res: Response) => {
     let userId: string | undefined;
-    let isMobileFlow = false;
+    let isMobileFlow = !req.cookies['ll_strava_state']; // Pre-detect: no cookie means mobile
     let attemptId: string | undefined;
 
     const { code, state } = req.query;

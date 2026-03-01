@@ -49,7 +49,6 @@ export async function consumeOAuthAttempt(params: {
 }): Promise<{ attempt: OAuthAttempt; verifier: string } | null> {
   const { state, provider } = params;
   const stateHash = await sha256(state);
-  const now = new Date();
 
   // Atomic claim: only one concurrent caller can set usedAt on a given row
   const updated = await prisma.oAuthAttempt.updateMany({
@@ -57,18 +56,18 @@ export async function consumeOAuthAttempt(params: {
       stateHash,
       provider,
       usedAt: null,
-      expiresAt: { gt: now },
+      expiresAt: { gt: new Date() },
     },
-    data: { usedAt: now },
+    data: { usedAt: new Date() },
   });
 
   if (updated.count === 0) {
     return null;
   }
 
-  // Fetch the claimed attempt for its data (userId, nonce, etc.)
-  const attempt = await prisma.oAuthAttempt.findFirst({
-    where: { stateHash, provider, usedAt: now },
+  // Fetch the claimed attempt by its unique stateHash (no timestamp matching needed)
+  const attempt = await prisma.oAuthAttempt.findUnique({
+    where: { stateHash },
   });
 
   if (!attempt) {

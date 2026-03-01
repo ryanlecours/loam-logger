@@ -124,7 +124,7 @@ r.get<Empty, void, Empty, { code?: string; state?: string }>(
     // Determine flow type and extract context
     let userId: string | undefined;
     let verifier: string | undefined;
-    let isMobileFlow = false;
+    let isMobileFlow = !req.cookies['ll_oauth_state']; // Pre-detect: no cookie means mobile
     let attemptId: string | undefined;
 
     const { code, state } = req.query;

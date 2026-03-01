@@ -285,7 +285,7 @@ model OAuthAttempt {
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([stateHash])
+  @@unique([stateHash])
   @@index([userId, provider, createdAt])
 }
 
