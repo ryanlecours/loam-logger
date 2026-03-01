@@ -1,7 +1,8 @@
 import { Router as createRouter, type Router, type Request, type Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { randomString } from '../lib/pcke';
-import { sendBadRequest, sendUnauthorized, sendInternalError, sendSuccess } from '../lib/api-response';
+import { sendBadRequest, sendUnauthorized, sendInternalError, sendSuccess, sendTooManyRequests } from '../lib/api-response';
+import { checkMutationRateLimit } from '../lib/rate-limit';
 import { createLogger } from '../lib/logger';
 import { revokeStravaTokenForUser } from '../lib/strava-token';
 import { createOAuthAttempt, consumeOAuthAttempt } from '../lib/oauthState';
@@ -27,7 +28,8 @@ r.get<Empty, void, Empty>('/strava/start', async (_req: Request, res: Response) 
       !CLIENT_ID && 'STRAVA_CLIENT_ID',
       !REDIRECT_URI && 'STRAVA_REDIRECT_URI',
     ].filter(Boolean).join(', ');
-    return sendInternalError(res, `Missing env vars: ${missing}`);
+    log.error({ missing }, 'Missing env vars for Strava start (web)');
+    return sendInternalError(res, 'Strava OAuth is not configured');
   }
 
   const state = randomString(24);
@@ -59,6 +61,11 @@ r.post<Empty, unknown, Empty>('/strava/start', async (req: Request, res: Respons
     return sendUnauthorized(res, 'Not authenticated');
   }
 
+  const rateLimit = await checkMutationRateLimit('oauthStart', userId);
+  if (!rateLimit.allowed) {
+    return sendTooManyRequests(res, 'Too many OAuth attempts. Please try again later.', rateLimit.retryAfter);
+  }
+
   const AUTH_URL = 'https://www.strava.com/oauth/authorize';
   const CLIENT_ID = process.env.STRAVA_CLIENT_ID;
   const REDIRECT_URI = process.env.STRAVA_REDIRECT_URI;
@@ -69,7 +76,8 @@ r.post<Empty, unknown, Empty>('/strava/start', async (req: Request, res: Respons
       !CLIENT_ID && 'STRAVA_CLIENT_ID',
       !REDIRECT_URI && 'STRAVA_REDIRECT_URI',
     ].filter(Boolean).join(', ');
-    return sendInternalError(res, `Missing env vars: ${missing}`);
+    log.error({ missing }, 'Missing env vars for Strava start (mobile)');
+    return sendInternalError(res, 'Strava OAuth is not configured');
   }
 
   try {
@@ -130,7 +138,7 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string }>(
           !REDIRECT_URI && 'STRAVA_REDIRECT_URI',
         ].filter(Boolean).join(', ');
         log.error({ missing }, 'Missing env vars for Strava callback');
-        return sendInternalError(res, `Missing env vars: ${missing}`);
+        return sendInternalError(res, 'Strava OAuth is not configured');
       }
 
       if (!code || !state) {

@@ -68,6 +68,8 @@ export const MUTATION_RATE_LIMITS = {
   addPassword: { windowSeconds: 3600, maxRequests: 5 },
   /** changePassword: max 5 requests per hour per user (sensitive credential operation) */
   changePassword: { windowSeconds: 3600, maxRequests: 5 },
+  /** oauthStart: max 5 requests per 10 minutes per user (creates DB row each call) */
+  oauthStart: { windowSeconds: 600, maxRequests: 5 },
 } as const;
 
 /**

@@ -22,7 +22,8 @@ r.get<Empty, void, Empty>('/whoop/start', async (_req: Request, res: Response) =
       !CLIENT_ID && 'WHOOP_CLIENT_ID',
       !REDIRECT_URI && 'WHOOP_REDIRECT_URI',
     ].filter(Boolean).join(', ');
-    return sendInternalError(res, `Missing env vars: ${missing}`);
+    console.error('[WHOOP Start] Missing env vars:', missing);
+    return sendInternalError(res, 'WHOOP OAuth is not configured');
   }
 
   const state = randomString(24);
@@ -78,7 +79,7 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string }>(
           !CLIENT_SECRET && 'WHOOP_CLIENT_SECRET',
         ].filter(Boolean).join(', ');
         console.error('[WHOOP Callback] Missing env vars:', missing);
-        return sendInternalError(res, `Missing env vars: ${missing}`);
+        return sendInternalError(res, 'WHOOP OAuth is not configured');
       }
 
       const { code, state } = req.query;

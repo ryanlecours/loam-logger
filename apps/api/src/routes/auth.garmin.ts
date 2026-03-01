@@ -2,7 +2,8 @@ import { Router as createRouter, type Router, type Request, type Response } from
 import { prisma } from '../lib/prisma';
 import { sha256, randomString } from '../lib/pcke';
 import { addSeconds } from 'date-fns';
-import { sendBadRequest, sendUnauthorized, sendInternalError, sendSuccess } from '../lib/api-response';
+import { sendBadRequest, sendUnauthorized, sendInternalError, sendSuccess, sendTooManyRequests } from '../lib/api-response';
+import { checkMutationRateLimit } from '../lib/rate-limit';
 import { createLogger } from '../lib/logger';
 import { revokeGarminTokenForUser } from '../lib/garmin-token';
 import { createOAuthAttempt, consumeOAuthAttempt } from '../lib/oauthState';
@@ -29,7 +30,8 @@ r.get<Empty, void, Empty>('/garmin/start', async (_req: Request, res: Response) 
       !CLIENT_ID && 'GARMIN_CLIENT_ID',
       !REDIRECT_URI && 'GARMIN_REDIRECT_URI',
     ].filter(Boolean).join(', ');
-    return sendInternalError(res, `Missing env vars: ${missing}`);
+    log.error({ missing }, 'Missing env vars for Garmin start (web)');
+    return sendInternalError(res, 'Garmin OAuth is not configured');
   }
 
   const state = randomString(24);
@@ -66,6 +68,11 @@ r.post<Empty, unknown, Empty>('/garmin/start', async (req: Request, res: Respons
     return sendUnauthorized(res, 'Not authenticated');
   }
 
+  const rateLimit = await checkMutationRateLimit('oauthStart', userId);
+  if (!rateLimit.allowed) {
+    return sendTooManyRequests(res, 'Too many OAuth attempts. Please try again later.', rateLimit.retryAfter);
+  }
+
   const AUTH_URL = process.env.GARMIN_AUTH_URL;
   const CLIENT_ID = process.env.GARMIN_CLIENT_ID;
   const REDIRECT_URI = process.env.GARMIN_REDIRECT_URI;
@@ -77,7 +84,8 @@ r.post<Empty, unknown, Empty>('/garmin/start', async (req: Request, res: Respons
       !CLIENT_ID && 'GARMIN_CLIENT_ID',
       !REDIRECT_URI && 'GARMIN_REDIRECT_URI',
     ].filter(Boolean).join(', ');
-    return sendInternalError(res, `Missing env vars: ${missing}`);
+    log.error({ missing }, 'Missing env vars for Garmin start (mobile)');
+    return sendInternalError(res, 'Garmin OAuth is not configured');
   }
 
   try {
@@ -142,7 +150,7 @@ r.get<Empty, void, Empty, { code?: string; state?: string }>(
           !CLIENT_ID && 'GARMIN_CLIENT_ID',
         ].filter(Boolean).join(', ');
         log.error({ missing }, 'Missing env vars for Garmin callback');
-        return sendInternalError(res, `Missing env vars: ${missing}`);
+        return sendInternalError(res, 'Garmin OAuth is not configured');
       }
 
       if (!code || !state) {

@@ -146,7 +146,7 @@ describe('auth.whoop routes', () => {
       expect(mockRes.status).toHaveBeenCalledWith(500);
       expect(mockRes.json).toHaveBeenCalledWith(
         expect.objectContaining({
-          error: expect.stringContaining('Missing env vars'),
+          error: expect.stringContaining('not configured'),
         })
       );
     });
