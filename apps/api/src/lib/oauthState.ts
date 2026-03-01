@@ -38,24 +38,37 @@ export async function createOAuthAttempt(params: {
 }
 
 /**
- * Validate an OAuthAttempt by matching state hash.
+ * Atomically validate and consume an OAuthAttempt in a single operation.
+ * Uses updateMany to claim the attempt (prevents TOCTOU race where concurrent
+ * callbacks with the same state could both pass a read-then-write check).
  * Returns the attempt and its stored verifier (nonce) if valid, or null.
- * Does NOT mark the attempt as used — caller must call markAttemptUsed after successful token exchange.
  */
-export async function validateOAuthAttempt(params: {
+export async function consumeOAuthAttempt(params: {
   state: string;
   provider: IntegrationProvider;
 }): Promise<{ attempt: OAuthAttempt; verifier: string } | null> {
   const { state, provider } = params;
   const stateHash = await sha256(state);
+  const now = new Date();
 
-  const attempt = await prisma.oAuthAttempt.findFirst({
+  // Atomic claim: only one concurrent caller can set usedAt on a given row
+  const updated = await prisma.oAuthAttempt.updateMany({
     where: {
       stateHash,
       provider,
       usedAt: null,
-      expiresAt: { gt: new Date() },
+      expiresAt: { gt: now },
     },
+    data: { usedAt: now },
+  });
+
+  if (updated.count === 0) {
+    return null;
+  }
+
+  // Fetch the claimed attempt for its data (userId, nonce, etc.)
+  const attempt = await prisma.oAuthAttempt.findFirst({
+    where: { stateHash, provider, usedAt: now },
   });
 
   if (!attempt) {
@@ -63,16 +76,6 @@ export async function validateOAuthAttempt(params: {
   }
 
   return { attempt, verifier: attempt.nonce };
-}
-
-/**
- * Mark an OAuthAttempt as consumed (single-use enforcement).
- */
-export async function markAttemptUsed(attemptId: string): Promise<void> {
-  await prisma.oAuthAttempt.update({
-    where: { id: attemptId },
-    data: { usedAt: new Date() },
-  });
 }
 
 /**

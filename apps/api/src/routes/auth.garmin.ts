@@ -5,7 +5,7 @@ import { addSeconds } from 'date-fns';
 import { sendBadRequest, sendUnauthorized, sendInternalError, sendSuccess } from '../lib/api-response';
 import { createLogger } from '../lib/logger';
 import { revokeGarminTokenForUser } from '../lib/garmin-token';
-import { createOAuthAttempt, validateOAuthAttempt, markAttemptUsed } from '../lib/oauthState';
+import { createOAuthAttempt, consumeOAuthAttempt } from '../lib/oauthState';
 import { encrypt } from '../lib/crypto';
 import { renderOAuthCompletionPage } from '../lib/oauthCompletionPage';
 
@@ -149,8 +149,8 @@ r.get<Empty, void, Empty, { code?: string; state?: string }>(
         return sendBadRequest(res, 'Missing code or state');
       }
 
-      // Try DB-based validation first (mobile flow)
-      const dbAttempt = await validateOAuthAttempt({ state, provider: 'GARMIN' });
+      // Try DB-based validation first (mobile flow) — atomic consume prevents replay
+      const dbAttempt = await consumeOAuthAttempt({ state, provider: 'GARMIN' });
       if (dbAttempt) {
         isMobileFlow = true;
         userId = dbAttempt.attempt.userId;
@@ -293,7 +293,7 @@ r.get<Empty, void, Empty, { code?: string; state?: string }>(
       });
 
       if (isMobileFlow && attemptId) {
-        await markAttemptUsed(attemptId);
+        // Attempt already consumed atomically by consumeOAuthAttempt
         log.info({ userId, attemptId }, 'Garmin OAuth callback success (mobile)');
         return res.redirect('/auth/garmin/mobile/complete?status=success');
       }
