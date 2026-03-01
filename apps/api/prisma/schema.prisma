@@ -51,6 +51,8 @@ model User {
   servicePreferences  UserServicePreference[]
   componentInstalls   BikeComponentInstall[]
   bikeNotes           BikeNote[]
+  oauthAttempts       OAuthAttempt[]
+  integrations        UserIntegration[]
 }
 
 model OauthToken {
@@ -257,6 +259,55 @@ enum AuthProvider {
   google
   strava
   whoop
+}
+
+enum IntegrationProvider {
+  GARMIN
+  STRAVA
+  WHOOP
+}
+
+enum OAuthPlatform {
+  WEB
+  MOBILE
+}
+
+model OAuthAttempt {
+  id        String              @id @default(uuid())
+  provider  IntegrationProvider
+  userId    String
+  platform  OAuthPlatform
+  stateHash String
+  nonce     String
+  createdAt DateTime            @default(now())
+  expiresAt DateTime
+  usedAt    DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([stateHash])
+  @@index([userId, provider, createdAt])
+}
+
+model UserIntegration {
+  id              String              @id @default(uuid())
+  userId          String
+  provider        IntegrationProvider
+  externalUserId  String?
+  accessTokenEnc  String
+  refreshTokenEnc String?
+  expiresAt       DateTime
+  scopes          String?
+  connectedAt     DateTime            @default(now())
+  revokedAt       DateTime?
+  lastSyncAt      DateTime?
+  updatedAt       DateTime            @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, provider])
+  @@index([userId])
+  @@index([provider, externalUserId])
 }
 
 enum UserRole {
