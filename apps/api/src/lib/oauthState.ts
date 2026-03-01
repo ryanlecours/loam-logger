@@ -74,3 +74,15 @@ export async function markAttemptUsed(attemptId: string): Promise<void> {
     data: { usedAt: new Date() },
   });
 }
+
+/**
+ * Delete OAuthAttempt records that expired more than `olderThanHours` hours ago.
+ * Returns the number of deleted rows.
+ */
+export async function cleanupExpiredAttempts(olderThanHours = 24): Promise<number> {
+  const cutoff = new Date(Date.now() - olderThanHours * 60 * 60 * 1000);
+  const result = await prisma.oAuthAttempt.deleteMany({
+    where: { expiresAt: { lt: cutoff } },
+  });
+  return result.count;
+}

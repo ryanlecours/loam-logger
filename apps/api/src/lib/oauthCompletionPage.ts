@@ -1,3 +1,13 @@
+/** Escape a string for safe insertion into HTML content. */
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 /**
  * Renders an HTML page that deep-links the user back to the mobile app
  * after an OAuth callback completes. Used by both Garmin and Strava routes.
@@ -8,28 +18,38 @@ export function renderOAuthCompletionPage(params: {
   reason?: string;
   scheme: string;
   brandColor: string;
+  extraParams?: Record<string, string>;
 }): string {
-  const { provider, status, reason, scheme, brandColor } = params;
+  const { provider, status, reason, scheme, brandColor, extraParams } = params;
 
   const deepLinkPath = `${scheme}://oauth/${provider.toLowerCase()}`;
   const queryParams = new URLSearchParams({ status });
   if (reason) queryParams.set('reason', reason);
+  if (extraParams) {
+    for (const [key, value] of Object.entries(extraParams)) {
+      queryParams.set(key, value);
+    }
+  }
   const deepLinkUrl = `${deepLinkPath}?${queryParams.toString()}`;
+
+  const safeProvider = escapeHtml(provider);
+  const safeReason = reason ? escapeHtml(reason) : undefined;
+  const safeDeepLinkUrl = escapeHtml(deepLinkUrl);
 
   const isSuccess = status === 'success';
   const title = isSuccess
-    ? `${provider} Connected!`
-    : `${provider} Connection Failed`;
+    ? `${safeProvider} Connected!`
+    : `${safeProvider} Connection Failed`;
   const message = isSuccess
-    ? `Your ${provider} account has been connected to Loam Logger.`
-    : `Something went wrong connecting your ${provider} account.${reason ? ` (${reason})` : ''}`;
+    ? `Your ${safeProvider} account has been connected to Loam Logger.`
+    : `Something went wrong connecting your ${safeProvider} account.${safeReason ? ` (${safeReason})` : ''}`;
 
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta http-equiv="refresh" content="2;url=${deepLinkUrl}" />
+  <meta http-equiv="refresh" content="2;url=${safeDeepLinkUrl}" />
   <title>${title}</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -73,7 +93,7 @@ export function renderOAuthCompletionPage(params: {
     <div class="icon">${isSuccess ? '&#10003;' : '&#10007;'}</div>
     <h1>${title}</h1>
     <p>${message}</p>
-    <a class="btn" href="${deepLinkUrl}">Return to Loam Logger</a>
+    <a class="btn" href="${safeDeepLinkUrl}">Return to Loam Logger</a>
     <p class="sub">You should be redirected automatically&hellip;</p>
   </div>
   <script>

@@ -1,3 +1,6 @@
+// TODO: Migrate to read from UserIntegration (encrypted tokens) instead of
+// OauthToken (plaintext). Once migrated, stop dual-writing to OauthToken in
+// auth.strava.ts and drop the OauthToken table.
 import { prisma } from './prisma';
 import { createLogger } from './logger';
 

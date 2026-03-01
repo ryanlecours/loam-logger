@@ -83,10 +83,15 @@ router.post('/mobile/signup', express.json(), async (req, res) => {
       passwordHash = await hashPassword(password);
     }
 
+    const trimmedName = name?.trim() || null;
+    if (trimmedName && trimmedName.length > 100) {
+      return sendBadRequest(res, 'Name must be 100 characters or fewer');
+    }
+
     await prisma.user.create({
       data: {
         email,
-        name: name?.trim() || null,
+        name: trimmedName,
         role: 'WAITLIST',
         passwordHash,
       },

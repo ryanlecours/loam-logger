@@ -200,7 +200,9 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string }>(
       const stravaUserId = t.athlete.id.toString();
       const expiresAt = new Date(t.expires_at * 1000);
 
-      // Dual-write: OauthToken (existing) + UserIntegration (new)
+      // TODO: Remove OauthToken dual-write once webhooks/sync workers and token
+      // refresh helpers (strava-token.ts) are migrated to read from UserIntegration.
+      // OauthToken stores plaintext tokens; UserIntegration uses AES-256-GCM encryption.
       await prisma.oauthToken.upsert({
         where: { userId_provider: { userId, provider: 'strava' } },
         create: {
@@ -312,12 +314,16 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string }>(
 r.get('/strava/mobile/complete', (req: Request, res: Response) => {
   const status = (req.query.status as string) || 'error';
   const reason = req.query.reason as string | undefined;
+  const prompt = req.query.prompt as string | undefined;
   const scheme = process.env.MOBILE_DEEP_LINK_SCHEME || 'loamlogger';
 
-  log.debug({ status, reason }, 'Rendering Strava mobile completion page');
+  log.debug({ status, reason, prompt }, 'Rendering Strava mobile completion page');
 
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
+
+  const extraParams: Record<string, string> = {};
+  if (prompt) extraParams.prompt = prompt;
 
   res.send(renderOAuthCompletionPage({
     provider: 'Strava',
@@ -325,6 +331,7 @@ r.get('/strava/mobile/complete', (req: Request, res: Response) => {
     reason,
     scheme,
     brandColor: '#fc4c02',
+    extraParams,
   }));
 });
 

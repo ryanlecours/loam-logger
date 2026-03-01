@@ -12,6 +12,7 @@ import { startWorkers, stopWorkers } from './workers';
 import { getRedisConnection, checkRedisHealth } from './lib/redis';
 import { startEmailScheduler, stopEmailScheduler } from './services/email-scheduler.service';
 import { startImportSessionChecker, stopImportSessionChecker } from './services/import-session-checker.service';
+import { startOAuthCleanup, stopOAuthCleanup } from './services/oauth-cleanup.service';
 import { rootLogger, logger } from './lib/logger';
 import {
   runWithRequestContext,
@@ -286,6 +287,9 @@ const startServer = async () => {
   // Start import session checker (checks for idle import sessions every minute)
   startImportSessionChecker();
 
+  // Start OAuth attempt cleanup (deletes expired records hourly)
+  startOAuthCleanup();
+
   app.listen(PORT, HOST, () => {
     logger.info({ port: PORT }, 'LoamLogger backend running (GraphQL at /graphql)');
   });
@@ -293,6 +297,7 @@ const startServer = async () => {
   process.on('SIGTERM', async () => {
     await stopEmailScheduler();
     await stopImportSessionChecker();
+    stopOAuthCleanup();
     await stopWorkers();
     await server.stop();
     process.exit(0);

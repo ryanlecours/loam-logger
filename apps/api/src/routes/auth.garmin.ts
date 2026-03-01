@@ -232,7 +232,9 @@ r.get<Empty, void, Empty, { code?: string; state?: string }>(
       const garminUser = (await userIdRes.json()) as GarminUserIdResp;
       const garminUserId = garminUser.userId;
 
-      // Dual-write: OauthToken (existing) + UserIntegration (new)
+      // TODO: Remove OauthToken dual-write once webhooks/sync workers and token
+      // refresh helpers (garmin-token.ts) are migrated to read from UserIntegration.
+      // OauthToken stores plaintext tokens; UserIntegration uses AES-256-GCM encryption.
       await prisma.oauthToken.upsert({
         where: { userId_provider: { userId, provider: 'garmin' } },
         create: {
