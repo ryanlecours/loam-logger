@@ -15,6 +15,14 @@ function getKey(): Buffer {
 }
 
 /**
+ * Validate TOKEN_ENCRYPTION_KEY is present and correctly formatted.
+ * Call at server startup to fail fast on misconfiguration.
+ */
+export function validateEncryptionKey(): void {
+  getKey();
+}
+
+/**
  * Encrypt a plaintext string using AES-256-GCM.
  * Returns a base64 string containing: iv (12 bytes) + authTag (16 bytes) + ciphertext.
  */

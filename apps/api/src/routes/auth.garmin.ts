@@ -124,7 +124,7 @@ r.get<Empty, void, Empty, { code?: string; state?: string }>(
     // Determine flow type and extract context
     let userId: string | undefined;
     let verifier: string | undefined;
-    let isMobileFlow = !req.cookies['ll_oauth_state']; // Pre-detect: no cookie means mobile
+    let isMobileFlow = false;
     let attemptId: string | undefined;
 
     const { code, state } = req.query;
@@ -327,8 +327,14 @@ r.get<Empty, void, Empty, { code?: string; state?: string }>(
 // 4) Mobile completion page — deep link trampoline
 // ---------------------------------------------------------------------------
 r.get('/garmin/mobile/complete', (req: Request, res: Response) => {
-  const status = (req.query.status as string) || 'error';
-  const reason = req.query.reason as string | undefined;
+  const VALID_STATUSES = ['success', 'error'] as const;
+  const VALID_REASONS = ['invalid_state', 'token_exchange_failed', 'garmin_api_error', 'internal_error'] as const;
+
+  const rawStatus = req.query.status as string | undefined;
+  const rawReason = req.query.reason as string | undefined;
+
+  const status = VALID_STATUSES.includes(rawStatus as any) ? rawStatus! : 'error';
+  const reason = VALID_REASONS.includes(rawReason as any) ? rawReason! : undefined;
   const scheme = process.env.MOBILE_DEEP_LINK_SCHEME || 'loamlogger';
 
   log.debug({ status, reason }, 'Rendering Garmin mobile completion page');
@@ -406,21 +412,19 @@ r.post('/garmin/disconnect', async (req: Request, res: Response) => {
       log.warn({ userId }, 'Garmin token revocation failed, proceeding with local cleanup');
     }
 
-    // Soft-revoke UserIntegration
-    await prisma.userIntegration.updateMany({
-      where: { userId, provider: 'GARMIN' },
-      data: { revokedAt: new Date() },
+    // Soft-revoke UserIntegration + delete legacy models atomically
+    await prisma.$transaction(async (tx) => {
+      await tx.userIntegration.updateMany({
+        where: { userId, provider: 'GARMIN' },
+        data: { revokedAt: new Date() },
+      });
+      await tx.oauthToken.deleteMany({
+        where: { userId, provider: 'garmin' },
+      });
+      await tx.userAccount.deleteMany({
+        where: { userId, provider: 'garmin' },
+      });
     });
-
-    // Delete from existing models (backward compat)
-    await prisma.$transaction([
-      prisma.oauthToken.deleteMany({
-        where: { userId, provider: 'garmin' },
-      }),
-      prisma.userAccount.deleteMany({
-        where: { userId, provider: 'garmin' },
-      }),
-    ]);
 
     log.info({ userId, revoked }, 'Garmin disconnected (mobile)');
     return sendSuccess(res, { ok: true });
@@ -445,20 +449,19 @@ r.delete<Empty, void, Empty>('/garmin/disconnect', async (req: Request, res: Res
       log.warn({ userId }, 'Garmin token revocation failed, proceeding with local cleanup');
     }
 
-    // Soft-revoke UserIntegration
-    await prisma.userIntegration.updateMany({
-      where: { userId, provider: 'GARMIN' },
-      data: { revokedAt: new Date() },
+    // Soft-revoke UserIntegration + delete legacy models atomically
+    await prisma.$transaction(async (tx) => {
+      await tx.userIntegration.updateMany({
+        where: { userId, provider: 'GARMIN' },
+        data: { revokedAt: new Date() },
+      });
+      await tx.oauthToken.deleteMany({
+        where: { userId, provider: 'garmin' },
+      });
+      await tx.userAccount.deleteMany({
+        where: { userId, provider: 'garmin' },
+      });
     });
-
-    await prisma.$transaction([
-      prisma.oauthToken.deleteMany({
-        where: { userId, provider: 'garmin' },
-      }),
-      prisma.userAccount.deleteMany({
-        where: { userId, provider: 'garmin' },
-      }),
-    ]);
 
     log.info({ userId, revoked }, 'Garmin disconnected (web)');
     return res.status(200).json({ success: true });

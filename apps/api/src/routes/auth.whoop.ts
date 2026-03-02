@@ -2,9 +2,11 @@ import { Router as createRouter, type Router, type Request, type Response } from
 import { prisma } from '../lib/prisma';
 import { randomString } from '../lib/pcke';
 import { sendBadRequest, sendUnauthorized, sendInternalError } from '../lib/api-response';
-import { logError } from '../lib/logger';
+import { createLogger } from '../lib/logger';
 import { revokeWhoopTokenForUser } from '../lib/whoop-token';
 import { WHOOP_AUTH_URL, WHOOP_TOKEN_URL, type WhoopUserProfile } from '../types/whoop';
+
+const log = createLogger('whoop-oauth');
 
 type Empty = Record<string, never>;
 const r: Router = createRouter();
@@ -22,7 +24,7 @@ r.get<Empty, void, Empty>('/whoop/start', async (_req: Request, res: Response) =
       !CLIENT_ID && 'WHOOP_CLIENT_ID',
       !REDIRECT_URI && 'WHOOP_REDIRECT_URI',
     ].filter(Boolean).join(', ');
-    console.error('[WHOOP Start] Missing env vars:', missing);
+    log.error({ missing }, 'Missing env vars for WHOOP start');
     return sendInternalError(res, 'WHOOP OAuth is not configured');
   }
 
@@ -36,11 +38,7 @@ r.get<Empty, void, Empty>('/whoop/start', async (_req: Request, res: Response) =
     path: '/',
   };
 
-  console.log('[WHOOP Start] Setting state cookie:', {
-    state,
-    cookieOptions,
-    nodeEnv: process.env.NODE_ENV,
-  });
+  log.debug({ state, cookieOptions, nodeEnv: process.env.NODE_ENV }, 'Setting WHOOP state cookie');
 
   // short-lived, httpOnly cookie for CSRF state
   res.cookie('ll_whoop_state', state, cookieOptions);
@@ -66,11 +64,7 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string }>(
       const CLIENT_ID = process.env.WHOOP_CLIENT_ID;
       const CLIENT_SECRET = process.env.WHOOP_CLIENT_SECRET;
 
-      console.log('[WHOOP Callback] Environment check:', {
-        hasRedirectUri: !!REDIRECT_URI,
-        hasClientId: !!CLIENT_ID,
-        hasClientSecret: !!CLIENT_SECRET,
-      });
+      log.debug({ hasRedirectUri: !!REDIRECT_URI, hasClientId: !!CLIENT_ID, hasClientSecret: !!CLIENT_SECRET }, 'WHOOP callback environment check');
 
       if (!REDIRECT_URI || !CLIENT_ID || !CLIENT_SECRET) {
         const missing = [
@@ -78,20 +72,14 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string }>(
           !CLIENT_ID && 'WHOOP_CLIENT_ID',
           !CLIENT_SECRET && 'WHOOP_CLIENT_SECRET',
         ].filter(Boolean).join(', ');
-        console.error('[WHOOP Callback] Missing env vars:', missing);
+        log.error({ missing }, 'Missing env vars for WHOOP callback');
         return sendInternalError(res, 'WHOOP OAuth is not configured');
       }
 
       const { code, state } = req.query;
       const cookieState = req.cookies['ll_whoop_state'];
 
-      console.log('[WHOOP Callback] OAuth state check:', {
-        hasCode: !!code,
-        queryState: state,
-        cookieState: cookieState,
-        statesMatch: state === cookieState,
-        allCookies: Object.keys(req.cookies),
-      });
+      log.debug({ hasCode: !!code, statesMatch: state === cookieState }, 'WHOOP callback state check');
 
       if (!code || !state || !cookieState || state !== cookieState) {
         return sendBadRequest(res, 'Invalid OAuth state');
@@ -120,7 +108,7 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string }>(
 
       if (!tokenRes.ok) {
         const text = await tokenRes.text();
-        console.error('[WHOOP Callback] Token exchange failed:', text);
+        log.error({ status: tokenRes.status, body: text }, 'WHOOP token exchange failed');
         return res.status(502).send(`Token exchange failed: ${text}`);
       }
 
@@ -135,7 +123,7 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string }>(
       const t = (await tokenRes.json()) as WhoopTokenResp;
       const expiresAt = new Date(Date.now() + t.expires_in * 1000);
 
-      console.log('[WHOOP Callback] Token received, expires at:', expiresAt);
+      log.info({ expiresAt }, 'WHOOP token received');
 
       // Fetch user profile to get WHOOP user ID
       const profileRes = await fetch('https://api.prod.whoop.com/developer/v1/user/profile/basic', {
@@ -146,14 +134,14 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string }>(
 
       if (!profileRes.ok) {
         const text = await profileRes.text();
-        console.error('[WHOOP Callback] Profile fetch failed:', text);
+        log.error({ status: profileRes.status, body: text }, 'WHOOP profile fetch failed');
         return res.status(502).send(`Profile fetch failed: ${text}`);
       }
 
       const profile = (await profileRes.json()) as WhoopUserProfile;
       const whoopUserId = profile.user_id.toString();
 
-      console.log('[WHOOP Callback] WHOOP user ID:', whoopUserId);
+      log.info({ whoopUserId }, 'WHOOP user ID fetched');
 
       // Store OAuth token
       await prisma.oauthToken.upsert({
@@ -225,10 +213,10 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string }>(
         redirectPath = '/settings?whoop=connected';
       }
 
-      console.log('[WHOOP Callback] Success! Redirecting to:', redirectPath);
+      log.info({ userId, redirectPath }, 'WHOOP OAuth callback success');
       return res.redirect(`${appBase.replace(/\/$/, '')}${redirectPath}`);
     } catch (error) {
-      logError('WHOOP Callback', error);
+      log.error({ err: error }, 'WHOOP callback error');
       const appBase = process.env.APP_BASE_URL ?? 'http://localhost:5173';
       return res.redirect(
         `${appBase}/auth/error?message=${encodeURIComponent('WHOOP connection failed. Please try again.')}`
@@ -252,7 +240,7 @@ r.delete<Empty, void, Empty>('/whoop/disconnect', async (req: Request, res: Resp
     // This ensures the token is invalidated on WHOOP's servers
     const revoked = await revokeWhoopTokenForUser(userId);
     if (!revoked) {
-      console.warn(`[WHOOP Disconnect] Token revocation failed for user ${userId}, proceeding with local cleanup`);
+      log.warn({ userId }, 'WHOOP token revocation failed, proceeding with local cleanup');
     }
 
     // Get user to check if WHOOP is the active source
@@ -284,10 +272,10 @@ r.delete<Empty, void, Empty>('/whoop/disconnect', async (req: Request, res: Resp
       }),
     ]);
 
-    console.log(`[WHOOP Disconnect] User ${userId} disconnected WHOOP (token revoked: ${revoked})`);
+    log.info({ userId, revoked }, 'WHOOP disconnected');
     return res.status(200).json({ success: true });
   } catch (error) {
-    logError('WHOOP Disconnect', error);
+    log.error({ err: error, userId }, 'WHOOP disconnect failed');
     return sendInternalError(res, 'Failed to disconnect');
   }
 });

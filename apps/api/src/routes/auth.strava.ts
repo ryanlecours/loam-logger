@@ -110,7 +110,7 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string }>(
   '/strava/callback',
   async (req: Request<Empty, void, Empty, { code?: string; state?: string; scope?: string }>, res: Response) => {
     let userId: string | undefined;
-    let isMobileFlow = !req.cookies['ll_strava_state']; // Pre-detect: no cookie means mobile
+    let isMobileFlow = false;
     let attemptId: string | undefined;
 
     const { code, state } = req.query;
@@ -320,9 +320,17 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string }>(
 // 4) Mobile completion page — deep link trampoline
 // ---------------------------------------------------------------------------
 r.get('/strava/mobile/complete', (req: Request, res: Response) => {
-  const status = (req.query.status as string) || 'error';
-  const reason = req.query.reason as string | undefined;
-  const prompt = req.query.prompt as string | undefined;
+  const VALID_STATUSES = ['success', 'error'] as const;
+  const VALID_REASONS = ['invalid_state', 'token_exchange_failed', 'internal_error'] as const;
+  const VALID_PROMPTS = ['choose-source'] as const;
+
+  const rawStatus = req.query.status as string | undefined;
+  const rawReason = req.query.reason as string | undefined;
+  const rawPrompt = req.query.prompt as string | undefined;
+
+  const status = VALID_STATUSES.includes(rawStatus as any) ? rawStatus! : 'error';
+  const reason = VALID_REASONS.includes(rawReason as any) ? rawReason! : undefined;
+  const prompt = VALID_PROMPTS.includes(rawPrompt as any) ? rawPrompt! : undefined;
   const scheme = process.env.MOBILE_DEEP_LINK_SCHEME || 'loamlogger';
 
   log.debug({ status, reason, prompt }, 'Rendering Strava mobile completion page');
@@ -404,34 +412,30 @@ r.post('/strava/disconnect', async (req: Request, res: Response) => {
       log.warn({ userId }, 'Strava token revocation failed, proceeding with local cleanup');
     }
 
-    // Soft-revoke UserIntegration
-    await prisma.userIntegration.updateMany({
-      where: { userId, provider: 'STRAVA' },
-      data: { revokedAt: new Date() },
-    });
-
-    // Get user to check if Strava is the active source
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { activeDataSource: true },
-    });
-
-    // Delete from existing models + clear stravaUserId (backward compat)
-    await prisma.$transaction([
-      prisma.oauthToken.deleteMany({
+    // Soft-revoke UserIntegration + delete legacy models atomically
+    await prisma.$transaction(async (tx) => {
+      await tx.userIntegration.updateMany({
+        where: { userId, provider: 'STRAVA' },
+        data: { revokedAt: new Date() },
+      });
+      const user = await tx.user.findUnique({
+        where: { id: userId },
+        select: { activeDataSource: true },
+      });
+      await tx.oauthToken.deleteMany({
         where: { userId, provider: 'strava' },
-      }),
-      prisma.userAccount.deleteMany({
+      });
+      await tx.userAccount.deleteMany({
         where: { userId, provider: 'strava' },
-      }),
-      prisma.user.update({
+      });
+      await tx.user.update({
         where: { id: userId },
         data: {
           stravaUserId: null,
           ...(user?.activeDataSource === 'strava' ? { activeDataSource: null } : {}),
         },
-      }),
-    ]);
+      });
+    });
 
     log.info({ userId, revoked }, 'Strava disconnected (mobile)');
     return sendSuccess(res, { ok: true });
@@ -456,32 +460,30 @@ r.delete<Empty, void, Empty>('/strava/disconnect', async (req: Request, res: Res
       log.warn({ userId }, 'Strava token revocation failed, proceeding with local cleanup');
     }
 
-    // Soft-revoke UserIntegration
-    await prisma.userIntegration.updateMany({
-      where: { userId, provider: 'STRAVA' },
-      data: { revokedAt: new Date() },
-    });
-
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { activeDataSource: true },
-    });
-
-    await prisma.$transaction([
-      prisma.oauthToken.deleteMany({
+    // Soft-revoke UserIntegration + delete legacy models atomically
+    await prisma.$transaction(async (tx) => {
+      await tx.userIntegration.updateMany({
+        where: { userId, provider: 'STRAVA' },
+        data: { revokedAt: new Date() },
+      });
+      const user = await tx.user.findUnique({
+        where: { id: userId },
+        select: { activeDataSource: true },
+      });
+      await tx.oauthToken.deleteMany({
         where: { userId, provider: 'strava' },
-      }),
-      prisma.userAccount.deleteMany({
+      });
+      await tx.userAccount.deleteMany({
         where: { userId, provider: 'strava' },
-      }),
-      prisma.user.update({
+      });
+      await tx.user.update({
         where: { id: userId },
         data: {
           stravaUserId: null,
           ...(user?.activeDataSource === 'strava' ? { activeDataSource: null } : {}),
         },
-      }),
-    ]);
+      });
+    });
 
     log.info({ userId, revoked }, 'Strava disconnected (web)');
     return res.status(200).json({ success: true });

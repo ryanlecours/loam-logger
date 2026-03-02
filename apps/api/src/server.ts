@@ -14,6 +14,7 @@ import { startEmailScheduler, stopEmailScheduler } from './services/email-schedu
 import { startImportSessionChecker, stopImportSessionChecker } from './services/import-session-checker.service';
 import { startOAuthCleanup, stopOAuthCleanup } from './services/oauth-cleanup.service';
 import { rootLogger, logger } from './lib/logger';
+import { validateEncryptionKey } from './lib/crypto';
 import {
   runWithRequestContext,
   createRequestContext,
@@ -55,6 +56,7 @@ const startServer = async () => {
   if (!process.env.SESSION_SECRET) {
     throw new Error('SESSION_SECRET environment variable is required');
   }
+  validateEncryptionKey();
 
   const app = express();
 
