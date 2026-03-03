@@ -1,4 +1,5 @@
 import { Router as createRouter, type Router, type Request, type Response } from 'express';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { randomString } from '../lib/pcke';
 import { sendBadRequest, sendUnauthorized, sendInternalError, sendSuccess, sendTooManyRequests } from '../lib/api-response';
@@ -311,6 +312,14 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string }>(
       log.info({ userId }, 'Strava OAuth callback success (web)');
       return res.redirect(`${appBase.replace(/\/$/, '')}${redirectPath}`);
     } catch (err) {
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002' &&
+        (err.meta?.target as string[])?.includes('stravaUserId')
+      ) {
+        log.warn({ userId, attemptId }, 'Strava account already linked to another user');
+        return redirectError('account_already_linked');
+      }
       log.error({ err, userId, attemptId }, 'Strava callback failed');
       return redirectError('internal_error');
     }
@@ -322,7 +331,7 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string }>(
 // ---------------------------------------------------------------------------
 r.get('/strava/mobile/complete', (req: Request, res: Response) => {
   const VALID_STATUSES = ['success', 'error'] as const;
-  const VALID_REASONS = ['invalid_state', 'token_exchange_failed', 'internal_error'] as const;
+  const VALID_REASONS = ['invalid_state', 'token_exchange_failed', 'account_already_linked', 'internal_error'] as const;
   const VALID_PROMPTS = ['choose-source'] as const;
 
   const rawStatus = req.query.status as string | undefined;

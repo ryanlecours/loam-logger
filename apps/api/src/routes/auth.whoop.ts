@@ -1,4 +1,5 @@
 import { Router as createRouter, type Router, type Request, type Response } from 'express';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { randomString } from '../lib/pcke';
 import { sendBadRequest, sendUnauthorized, sendInternalError } from '../lib/api-response';
@@ -216,6 +217,17 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string }>(
       log.info({ userId, redirectPath }, 'WHOOP OAuth callback success');
       return res.redirect(`${appBase.replace(/\/$/, '')}${redirectPath}`);
     } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002' &&
+        (error.meta?.target as string[])?.includes('whoopUserId')
+      ) {
+        log.warn({ userId }, 'WHOOP account already linked to another user');
+        const appBase = process.env.APP_BASE_URL ?? 'http://localhost:5173';
+        return res.redirect(
+          `${appBase}/auth/error?message=${encodeURIComponent('This WHOOP account is already linked to another user.')}`
+        );
+      }
       log.error({ err: error }, 'WHOOP callback error');
       const appBase = process.env.APP_BASE_URL ?? 'http://localhost:5173';
       return res.redirect(

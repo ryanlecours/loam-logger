@@ -31,7 +31,7 @@ const httpLink = new HttpLink({
 
 const client = new ApolloClient({
   link: from([errorLink, authLink, httpLink]),
-  cache: new InMemoryCache(),
+  cache: new InMemoryCache({ canonizeResults: false }),
 });
 
 export default client;
