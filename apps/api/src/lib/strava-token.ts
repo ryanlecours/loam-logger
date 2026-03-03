@@ -1,5 +1,10 @@
+// TODO: Migrate to read from UserIntegration (encrypted tokens) instead of
+// OauthToken (plaintext). Once migrated, stop dual-writing to OauthToken in
+// auth.strava.ts and drop the OauthToken table.
 import { prisma } from './prisma';
-import { logError } from './logger';
+import { createLogger } from './logger';
+
+const log = createLogger('strava-token');
 
 const STRAVA_DEAUTH_URL = 'https://www.strava.com/oauth/deauthorize';
 
@@ -21,7 +26,7 @@ setInterval(() => {
   const now = Date.now();
   for (const [userId, entry] of refreshPromiseCache.entries()) {
     if (now - entry.timestamp > REFRESH_TIMEOUT_MS) {
-      console.warn(`[Strava Token] Cleaning up stale cache entry for user: ${userId}`);
+      log.warn({ userId }, 'Cleaning up stale cache entry');
       refreshPromiseCache.delete(userId);
     }
   }
@@ -37,7 +42,7 @@ setInterval(() => {
  */
 export async function revokeStravaToken(accessToken: string): Promise<boolean> {
   try {
-    console.log('[Strava Revoke] Revoking access token');
+    log.info('Revoking access token');
 
     const response = await fetch(STRAVA_DEAUTH_URL, {
       method: 'POST',
@@ -47,27 +52,27 @@ export async function revokeStravaToken(accessToken: string): Promise<boolean> {
     });
 
     if (response.ok) {
-      console.log('[Strava Revoke] Token revoked successfully');
+      log.info('Token revoked successfully');
       return true;
     }
 
     // 401 means the token is already invalid/revoked - that's fine
     if (response.status === 401) {
-      console.log('[Strava Revoke] Token already invalid/revoked');
+      log.info('Token already invalid/revoked');
       return true;
     }
 
     // Safely read error response body
-    let text = '';
+    let body = '';
     try {
-      text = await response.text();
+      body = await response.text();
     } catch {
-      text = '(failed to read response body)';
+      body = '(failed to read response body)';
     }
-    console.error(`[Strava Revoke] Failed: ${response.status} ${text}`);
+    log.error({ status: response.status, body }, 'Token revocation failed');
     return false;
   } catch (error) {
-    logError('Strava Token revocation', error);
+    log.error({ err: error }, 'Token revocation error');
     return false;
   }
 }
@@ -91,13 +96,13 @@ export async function revokeStravaTokenForUser(userId: string): Promise<boolean>
     });
 
     if (!token) {
-      console.log('[Strava Revoke] No token found for user:', userId);
+      log.info({ userId }, 'No token found for user');
       return true; // No token to revoke
     }
 
     return await revokeStravaToken(token.accessToken);
   } catch (error) {
-    logError('Strava Token revocation for user', error);
+    log.error({ err: error, userId }, 'Token revocation for user failed');
     return false;
   }
 }
@@ -137,7 +142,7 @@ export async function getValidStravaToken(userId: string): Promise<string | null
 
   // Token is expired or about to expire, try to refresh it
   if (!token.refreshToken) {
-    console.error('[Strava Token] No refresh token available');
+    log.error({ userId }, 'No refresh token available');
     return null;
   }
 
@@ -154,11 +159,11 @@ export async function getValidStravaToken(userId: string): Promise<string | null
     // Check if the cached promise has timed out (stale entry protection)
     const age = Date.now() - existingEntry.timestamp;
     if (age < REFRESH_TIMEOUT_MS) {
-      console.log('[Strava Token] Waiting for existing refresh for user:', userId);
+      log.debug({ userId }, 'Waiting for existing refresh');
       return existingEntry.promise;
     }
     // Stale entry - remove it and proceed with new refresh
-    console.warn(`[Strava Token] Removing stale cache entry for user: ${userId} (age: ${age}ms)`);
+    log.warn({ userId, age }, 'Removing stale cache entry');
     refreshPromiseCache.delete(userId);
   }
 
@@ -184,11 +189,11 @@ async function refreshStravaToken(userId: string, refreshToken: string): Promise
     const CLIENT_SECRET = process.env.STRAVA_CLIENT_SECRET;
 
     if (!CLIENT_ID || !CLIENT_SECRET) {
-      console.error('[Strava Token] Missing STRAVA_CLIENT_ID or STRAVA_CLIENT_SECRET');
+      log.error('Missing STRAVA_CLIENT_ID or STRAVA_CLIENT_SECRET');
       return null;
     }
 
-    console.log('[Strava Token] Refreshing expired token for user:', userId);
+    log.info({ userId }, 'Refreshing expired token');
 
     const body = new URLSearchParams({
       client_id: CLIENT_ID,
@@ -204,13 +209,13 @@ async function refreshStravaToken(userId: string, refreshToken: string): Promise
     });
 
     if (!refreshRes.ok) {
-      let text = '';
+      let body = '';
       try {
-        text = await refreshRes.text();
+        body = await refreshRes.text();
       } catch {
-        text = '(failed to read response body)';
+        body = '(failed to read response body)';
       }
-      console.error(`[Strava Token] Refresh failed: ${refreshRes.status} ${text}`);
+      log.error({ status: refreshRes.status, userId, body }, 'Token refresh failed');
       return null;
     }
 
@@ -241,10 +246,10 @@ async function refreshStravaToken(userId: string, refreshToken: string): Promise
       },
     });
 
-    console.log('[Strava Token] Token refreshed successfully, expires at:', newExpiresAt);
+    log.info({ userId }, 'Token refreshed successfully');
     return newTokens.access_token;
   } catch (error) {
-    logError('Strava Token refresh', error);
+    log.error({ err: error, userId }, 'Token refresh error');
     return null;
   }
 }

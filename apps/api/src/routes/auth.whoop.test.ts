@@ -37,8 +37,9 @@ jest.mock('../lib/prisma', () => ({
   },
 }));
 
+const mockLog = { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() };
 jest.mock('../lib/logger', () => ({
-  logError: jest.fn(),
+  createLogger: jest.fn(() => mockLog),
 }));
 
 // Mock global fetch
@@ -146,7 +147,7 @@ describe('auth.whoop routes', () => {
       expect(mockRes.status).toHaveBeenCalledWith(500);
       expect(mockRes.json).toHaveBeenCalledWith(
         expect.objectContaining({
-          error: expect.stringContaining('Missing env vars'),
+          error: expect.stringContaining('not configured'),
         })
       );
     });

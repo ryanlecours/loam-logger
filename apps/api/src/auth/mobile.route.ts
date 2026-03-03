@@ -2,14 +2,15 @@ import express from 'express';
 import { OAuth2Client } from 'google-auth-library';
 import { ensureUserFromGoogle } from './ensureUserFromGoogle';
 import { normalizeEmail } from './utils';
+import { validateEmailFormat } from './email.utils';
 import { verifyPassword, validatePassword, hashPassword } from './password.utils';
 import { generateAccessToken, generateRefreshToken, verifyToken } from './token';
 import { updateLastAuthAt } from './recent-auth';
 import { prisma } from '../lib/prisma';
-import { checkMutationRateLimit } from '../lib/rate-limit';
+import { checkAuthRateLimit, checkMutationRateLimit } from '../lib/rate-limit';
 import { sendPasswordAddedNotification, sendPasswordChangedNotification } from '../services/password-notification.service';
 import { logger } from '../lib/logger';
-import { sendUnauthorized, sendBadRequest, sendForbidden, sendInternalError, sendTooManyRequests } from '../lib/api-response';
+import { sendUnauthorized, sendBadRequest, sendForbidden, sendConflict, sendInternalError, sendTooManyRequests } from '../lib/api-response';
 
 const router = express.Router();
 
@@ -18,6 +19,94 @@ const { GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET } = process.env;
 const googleClient = new OAuth2Client({
   clientId: GOOGLE_CLIENT_ID,
   clientSecret: GOOGLE_CLIENT_SECRET,
+});
+
+/**
+ * POST /auth/mobile/signup
+ * Register new user from mobile app (closed beta - adds to waitlist)
+ * Returns JSON response indicating waitlist status
+ */
+router.post('/mobile/signup', express.json(), async (req, res) => {
+  try {
+    // Rate limit by IP to prevent automated spam signups
+    const clientIp = req.ip || (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || 'unknown';
+    const rateLimit = await checkAuthRateLimit('signup', clientIp);
+    if (!rateLimit.allowed) {
+      return sendTooManyRequests(res, 'Too many signup attempts. Please try again later.', rateLimit.retryAfter);
+    }
+
+    const { email: rawEmail, password, name } = req.body as {
+      email?: string;
+      password?: string;
+      name?: string;
+    };
+
+    // Validate email
+    if (!rawEmail) {
+      return sendBadRequest(res, 'Email is required');
+    }
+
+    const email = normalizeEmail(rawEmail);
+    if (!email) {
+      return sendBadRequest(res, 'Invalid email');
+    }
+
+    if (!validateEmailFormat(email)) {
+      return sendBadRequest(res, 'Invalid email format');
+    }
+
+    // Check if user already exists
+    const existingUser = await prisma.user.findUnique({
+      where: { email },
+      select: { role: true },
+    });
+
+    if (existingUser) {
+      if (existingUser.role === 'WAITLIST') {
+        return sendForbidden(
+          res,
+          'You are already on the waitlist. We will email you when your account is activated.',
+          'ALREADY_ON_WAITLIST'
+        );
+      }
+      return sendConflict(res, 'An account with this email already exists. Please log in.');
+    }
+
+    // During closed beta, create user with WAITLIST role
+    // Password is optional during signup - will be set during activation
+    let passwordHash = null;
+    if (password) {
+      const validation = validatePassword(password);
+      if (!validation.isValid) {
+        return sendBadRequest(res, validation.error || 'Password does not meet requirements');
+      }
+      passwordHash = await hashPassword(password);
+    }
+
+    const trimmedName = name?.trim() || null;
+    if (trimmedName && trimmedName.length > 100) {
+      return sendBadRequest(res, 'Name must be 100 characters or fewer');
+    }
+
+    await prisma.user.create({
+      data: {
+        email,
+        name: trimmedName,
+        role: 'WAITLIST',
+        passwordHash,
+      },
+    });
+
+    // Return waitlist status (not an error, but user can't login yet)
+    return res.status(200).json({
+      ok: true,
+      waitlist: true,
+      message: 'You have been added to the waitlist. We will email you when your account is activated.',
+    });
+  } catch (e) {
+    logger.error({ err: e }, '[MobileAuth] Signup failed');
+    return sendInternalError(res, 'Signup failed');
+  }
 });
 
 /**

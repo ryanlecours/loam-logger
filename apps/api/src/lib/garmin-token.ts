@@ -1,6 +1,11 @@
+// TODO: Migrate to read from UserIntegration (encrypted tokens) instead of
+// OauthToken (plaintext). Once migrated, stop dual-writing to OauthToken in
+// auth.garmin.ts and drop the OauthToken table.
 import { prisma } from './prisma';
 import { addSeconds } from 'date-fns';
-import { logError } from './logger';
+import { createLogger } from './logger';
+
+const log = createLogger('garmin-token');
 
 // Cache for in-flight refresh promises to prevent race conditions
 // When multiple requests need a token refresh simultaneously, they share the same promise
@@ -20,7 +25,7 @@ setInterval(() => {
   const now = Date.now();
   for (const [userId, entry] of refreshPromiseCache.entries()) {
     if (now - entry.timestamp > REFRESH_TIMEOUT_MS) {
-      console.warn(`[Garmin Token] Cleaning up stale cache entry for user: ${userId}`);
+      log.warn({ userId }, 'Cleaning up stale cache entry');
       refreshPromiseCache.delete(userId);
     }
   }
@@ -42,7 +47,7 @@ export async function revokeGarminToken(accessToken: string): Promise<boolean> {
     const GARMIN_API_BASE = process.env.GARMIN_API_BASE || 'https://apis.garmin.com/wellness-api';
     const deregistrationUrl = `${GARMIN_API_BASE}/rest/user/registration`;
 
-    console.log('[Garmin Revoke] Deregistering user token');
+    log.info('Deregistering user token');
 
     const response = await fetch(deregistrationUrl, {
       method: 'DELETE',
@@ -52,27 +57,27 @@ export async function revokeGarminToken(accessToken: string): Promise<boolean> {
     });
 
     if (response.ok || response.status === 204) {
-      console.log('[Garmin Revoke] Token revoked successfully');
+      log.info('Token revoked successfully');
       return true;
     }
 
     // 401/403 means the token is already invalid/revoked - that's fine
     if (response.status === 401 || response.status === 403) {
-      console.log('[Garmin Revoke] Token already invalid/revoked');
+      log.info('Token already invalid/revoked');
       return true;
     }
 
     // Safely read error response body
-    let text = '';
+    let body = '';
     try {
-      text = await response.text();
+      body = await response.text();
     } catch {
-      text = '(failed to read response body)';
+      body = '(failed to read response body)';
     }
-    console.error(`[Garmin Revoke] Failed: ${response.status} ${text}`);
+    log.error({ status: response.status, body }, 'Token revocation failed');
     return false;
   } catch (error) {
-    logError('Garmin Token revocation', error);
+    log.error({ err: error }, 'Token revocation error');
     return false;
   }
 }
@@ -96,13 +101,13 @@ export async function revokeGarminTokenForUser(userId: string): Promise<boolean>
     });
 
     if (!token) {
-      console.log('[Garmin Revoke] No token found for user:', userId);
+      log.info({ userId }, 'No token found for user');
       return true; // No token to revoke
     }
 
     return await revokeGarminToken(token.accessToken);
   } catch (error) {
-    logError('Garmin Token revocation for user', error);
+    log.error({ err: error, userId }, 'Token revocation for user failed');
     return false;
   }
 }
@@ -139,7 +144,7 @@ export async function getValidGarminToken(userId: string): Promise<string | null
 
   // Token is expired or about to expire, try to refresh it
   if (!token.refreshToken) {
-    console.error('[Garmin Token] No refresh token available');
+    log.error({ userId }, 'No refresh token available');
     return null;
   }
 
@@ -156,11 +161,11 @@ export async function getValidGarminToken(userId: string): Promise<string | null
     // Check if the cached promise has timed out (stale entry protection)
     const age = Date.now() - existingEntry.timestamp;
     if (age < REFRESH_TIMEOUT_MS) {
-      console.log('[Garmin Token] Waiting for existing refresh for user:', userId);
+      log.debug({ userId }, 'Waiting for existing refresh');
       return existingEntry.promise;
     }
     // Stale entry - remove it and proceed with new refresh
-    console.warn(`[Garmin Token] Removing stale cache entry for user: ${userId} (age: ${age}ms)`);
+    log.warn({ userId, age }, 'Removing stale cache entry');
     refreshPromiseCache.delete(userId);
   }
 
@@ -185,11 +190,11 @@ async function refreshGarminToken(userId: string, refreshToken: string): Promise
     const CLIENT_ID = process.env.GARMIN_CLIENT_ID;
 
     if (!TOKEN_URL || !CLIENT_ID) {
-      console.error('[Garmin Token] Missing GARMIN_TOKEN_URL or GARMIN_CLIENT_ID');
+      log.error('Missing GARMIN_TOKEN_URL or GARMIN_CLIENT_ID');
       return null;
     }
 
-    console.log('[Garmin Token] Refreshing expired token for user:', userId);
+    log.info({ userId }, 'Refreshing expired token');
 
     const body = new URLSearchParams({
       grant_type: 'refresh_token',
@@ -208,13 +213,13 @@ async function refreshGarminToken(userId: string, refreshToken: string): Promise
     });
 
     if (!refreshRes.ok) {
-      let text = '';
+      let body = '';
       try {
-        text = await refreshRes.text();
+        body = await refreshRes.text();
       } catch {
-        text = '(failed to read response body)';
+        body = '(failed to read response body)';
       }
-      console.error(`[Garmin Token] Refresh failed: ${refreshRes.status} ${text}`);
+      log.error({ status: refreshRes.status, userId, body }, 'Token refresh failed');
       return null;
     }
 
@@ -242,10 +247,10 @@ async function refreshGarminToken(userId: string, refreshToken: string): Promise
       },
     });
 
-    console.log('[Garmin Token] Token refreshed successfully');
+    log.info({ userId }, 'Token refreshed successfully');
     return newTokens.access_token;
   } catch (error) {
-    logError('Garmin Token refresh', error);
+    log.error({ err: error, userId }, 'Token refresh error');
     return null;
   }
 }

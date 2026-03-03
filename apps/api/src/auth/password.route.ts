@@ -2,7 +2,7 @@ import express from 'express';
 import { validatePassword, hashPassword } from './password.utils';
 import { requireRecentAuth } from './requireRecentAuth';
 import { prisma } from '../lib/prisma';
-import { sendBadRequest, sendUnauthorized, sendForbidden, sendInternalError, sendTooManyRequests } from '../lib/api-response';
+import { sendBadRequest, sendForbidden, sendInternalError, sendTooManyRequests } from '../lib/api-response';
 import { checkMutationRateLimit } from '../lib/rate-limit';
 import { sendPasswordAddedNotification } from '../services/password-notification.service';
 import { logger } from '../lib/logger';

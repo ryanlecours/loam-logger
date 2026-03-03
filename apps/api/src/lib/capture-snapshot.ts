@@ -1,5 +1,4 @@
 import type { PrismaClient, Prisma } from '@prisma/client';
-import { getSlotKey } from '@loam/shared';
 import type {
   SetupSnapshot,
   BikeSpecsSnapshot,

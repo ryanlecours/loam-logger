@@ -38,7 +38,7 @@ jest.mock('../services/password-notification.service', () => ({
 
 import router from './password.route';
 import { prisma } from '../lib/prisma';
-import { sendBadRequest, sendUnauthorized, sendForbidden } from '../lib/api-response';
+import { sendBadRequest, sendForbidden } from '../lib/api-response';
 import { checkMutationRateLimit } from '../lib/rate-limit';
 import { checkRecentAuth } from './recent-auth';
 import { validatePassword, hashPassword } from './password.utils';
