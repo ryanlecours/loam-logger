@@ -1,5 +1,5 @@
 // src/lib/format.ts
-export function fmtDateTime(iso: string | number) {
+export function fmtDateTime(iso: string | number | Date) {
   const d = new Date(iso);
   if (!Number.isFinite(d.getTime())) return 'Unknown';
   return new Intl.DateTimeFormat(undefined, {
