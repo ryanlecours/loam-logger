@@ -140,7 +140,7 @@ export default function RideCard({ ride, bikes = [] }: RideCardProps) {
           </div>
 
           <div className="ride-metadata">
-            <span className="meta-item">{fmtDateTime(Number(ride.startTime))}</span>
+            <span className="meta-item">{fmtDateTime(ride.startTime)}</span>
             <span className="meta-item">{fmtDuration(ride.durationSeconds)}</span>
             <span className="meta-item">{fmtMiles(ride.distanceMiles)}</span>
             <span className="meta-item">{fmtFeet(ride.elevationGainFeet)}</span>
