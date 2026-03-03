@@ -60,6 +60,7 @@ r.get<Empty, void, Empty>('/whoop/start', async (_req: Request, res: Response) =
 r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string }>(
   '/whoop/callback',
   async (req: Request<Empty, void, Empty, { code?: string; state?: string; scope?: string }>, res: Response) => {
+    let userId: string | undefined;
     try {
       const REDIRECT_URI = process.env.WHOOP_REDIRECT_URI;
       const CLIENT_ID = process.env.WHOOP_CLIENT_ID;
@@ -87,7 +88,7 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string }>(
       }
 
       // Check for authenticated user
-      const userId = req.user?.id || req.sessionUser?.uid;
+      userId = req.user?.id || req.sessionUser?.uid;
       if (!userId) {
         return sendUnauthorized(res, 'No user - please log in first');
       }
