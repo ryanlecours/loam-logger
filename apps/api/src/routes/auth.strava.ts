@@ -270,7 +270,6 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string }>(
             refreshTokenEnc: encrypt(t.refresh_token),
             expiresAt,
             scopes: 'activity:read_all',
-            connectedAt: new Date(),
             revokedAt: null,
           },
         });

@@ -37,8 +37,9 @@ jest.mock('../lib/prisma', () => ({
   },
 }));
 
+const mockLog = { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() };
 jest.mock('../lib/logger', () => ({
-  logError: jest.fn(),
+  createLogger: jest.fn(() => mockLog),
 }));
 
 // Mock global fetch

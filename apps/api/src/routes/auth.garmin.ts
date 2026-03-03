@@ -296,7 +296,6 @@ r.get<Empty, void, Empty, { code?: string; state?: string }>(
             refreshTokenEnc: refreshTokenNorm ? encrypt(refreshTokenNorm) : null,
             expiresAt,
             scopes: t.scope ?? process.env.GARMIN_SCOPES ?? null,
-            connectedAt: new Date(),
             revokedAt: null, // clear any previous revocation
           },
         });
