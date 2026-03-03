@@ -1,5 +1,6 @@
 export function fmtDateTime(iso: number) {
   const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return 'Unknown';
   return new Intl.DateTimeFormat(undefined, {
     dateStyle: 'medium',
     timeStyle: 'short',
