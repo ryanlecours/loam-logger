@@ -205,7 +205,7 @@ r.get<Empty, void, Empty, { code?: string; state?: string }>(
 
       if (!tokenRes.ok) {
         const body = await tokenRes.text();
-        log.error({ status: tokenRes.status, userId, attemptId, body }, 'Garmin token exchange failed');
+        log.error({ status: tokenRes.status, userId, attemptId, body: body.slice(0, 200) }, 'Garmin token exchange failed');
         return redirectError('token_exchange_failed');
       }
 
@@ -243,61 +243,63 @@ r.get<Empty, void, Empty, { code?: string; state?: string }>(
       // TODO: Remove OauthToken dual-write once webhooks/sync workers and token
       // refresh helpers (garmin-token.ts) are migrated to read from UserIntegration.
       // OauthToken stores plaintext tokens; UserIntegration uses AES-256-GCM encryption.
-      await prisma.oauthToken.upsert({
-        where: { userId_provider: { userId, provider: 'garmin' } },
-        create: {
-          userId,
-          provider: 'garmin',
-          accessToken: t.access_token,
-          refreshToken: refreshTokenNorm,
-          expiresAt,
-        },
-        update: {
-          accessToken: t.access_token,
-          expiresAt,
-          ...(t.refresh_token !== undefined ? { refreshToken: t.refresh_token ?? null } : {}),
-        },
-      });
-
-      await prisma.userAccount.upsert({
-        where: {
-          provider_providerUserId: {
+      await prisma.$transaction(async (tx) => {
+        await tx.oauthToken.upsert({
+          where: { userId_provider: { userId, provider: 'garmin' } },
+          create: {
+            userId,
             provider: 'garmin',
-            providerUserId: garminUserId
-          }
-        },
-        create: {
-          userId,
-          provider: 'garmin',
-          providerUserId: garminUserId,
-        },
-        update: {
-          userId,
-        },
-      });
+            accessToken: t.access_token,
+            refreshToken: refreshTokenNorm,
+            expiresAt,
+          },
+          update: {
+            accessToken: t.access_token,
+            expiresAt,
+            ...(t.refresh_token !== undefined ? { refreshToken: t.refresh_token ?? null } : {}),
+          },
+        });
 
-      // UserIntegration upsert (encrypted tokens)
-      await prisma.userIntegration.upsert({
-        where: { userId_provider: { userId, provider: 'GARMIN' } },
-        create: {
-          userId,
-          provider: 'GARMIN',
-          externalUserId: garminUserId,
-          accessTokenEnc: encrypt(t.access_token),
-          refreshTokenEnc: refreshTokenNorm ? encrypt(refreshTokenNorm) : null,
-          expiresAt,
-          scopes: t.scope ?? process.env.GARMIN_SCOPES ?? null,
-          connectedAt: new Date(),
-        },
-        update: {
-          externalUserId: garminUserId,
-          accessTokenEnc: encrypt(t.access_token),
-          refreshTokenEnc: refreshTokenNorm ? encrypt(refreshTokenNorm) : null,
-          expiresAt,
-          scopes: t.scope ?? process.env.GARMIN_SCOPES ?? null,
-          connectedAt: new Date(),
-          revokedAt: null, // clear any previous revocation
-        },
+        await tx.userAccount.upsert({
+          where: {
+            provider_providerUserId: {
+              provider: 'garmin',
+              providerUserId: garminUserId
+            }
+          },
+          create: {
+            userId,
+            provider: 'garmin',
+            providerUserId: garminUserId,
+          },
+          update: {
+            userId,
+          },
+        });
+
+        // UserIntegration upsert (encrypted tokens)
+        await tx.userIntegration.upsert({
+          where: { userId_provider: { userId, provider: 'GARMIN' } },
+          create: {
+            userId,
+            provider: 'GARMIN',
+            externalUserId: garminUserId,
+            accessTokenEnc: encrypt(t.access_token),
+            refreshTokenEnc: refreshTokenNorm ? encrypt(refreshTokenNorm) : null,
+            expiresAt,
+            scopes: t.scope ?? process.env.GARMIN_SCOPES ?? null,
+            connectedAt: new Date(),
+          },
+          update: {
+            externalUserId: garminUserId,
+            accessTokenEnc: encrypt(t.access_token),
+            refreshTokenEnc: refreshTokenNorm ? encrypt(refreshTokenNorm) : null,
+            expiresAt,
+            scopes: t.scope ?? process.env.GARMIN_SCOPES ?? null,
+            connectedAt: new Date(),
+            revokedAt: null, // clear any previous revocation
+          },
+        });
       });
 
       if (isMobileFlow && attemptId) {
@@ -333,8 +335,8 @@ r.get('/garmin/mobile/complete', (req: Request, res: Response) => {
   const rawStatus = req.query.status as string | undefined;
   const rawReason = req.query.reason as string | undefined;
 
-  const status = VALID_STATUSES.includes(rawStatus as any) ? rawStatus! : 'error';
-  const reason = VALID_REASONS.includes(rawReason as any) ? rawReason! : undefined;
+  const status = (VALID_STATUSES as readonly string[]).includes(rawStatus!) ? rawStatus! : 'error';
+  const reason = (VALID_REASONS as readonly string[]).includes(rawReason!) ? rawReason! : undefined;
   const scheme = process.env.MOBILE_DEEP_LINK_SCHEME || 'loamlogger';
 
   log.debug({ status, reason }, 'Rendering Garmin mobile completion page');
@@ -398,8 +400,30 @@ r.get('/garmin/status', async (req: Request, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
-// 6) Mobile Disconnect — POST (Bearer token auth)
+// 6/7) Disconnect — shared logic for POST (mobile) and DELETE (web)
 // ---------------------------------------------------------------------------
+async function handleGarminDisconnect(userId: string): Promise<boolean> {
+  const revoked = await revokeGarminTokenForUser(userId);
+  if (!revoked) {
+    log.warn({ userId }, 'Garmin token revocation failed, proceeding with local cleanup');
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.userIntegration.updateMany({
+      where: { userId, provider: 'GARMIN' },
+      data: { revokedAt: new Date() },
+    });
+    await tx.oauthToken.deleteMany({
+      where: { userId, provider: 'garmin' },
+    });
+    await tx.userAccount.deleteMany({
+      where: { userId, provider: 'garmin' },
+    });
+  });
+
+  return revoked;
+}
+
 r.post('/garmin/disconnect', async (req: Request, res: Response) => {
   const userId = req.sessionUser?.uid;
   if (!userId) {
@@ -407,25 +431,7 @@ r.post('/garmin/disconnect', async (req: Request, res: Response) => {
   }
 
   try {
-    const revoked = await revokeGarminTokenForUser(userId);
-    if (!revoked) {
-      log.warn({ userId }, 'Garmin token revocation failed, proceeding with local cleanup');
-    }
-
-    // Soft-revoke UserIntegration + delete legacy models atomically
-    await prisma.$transaction(async (tx) => {
-      await tx.userIntegration.updateMany({
-        where: { userId, provider: 'GARMIN' },
-        data: { revokedAt: new Date() },
-      });
-      await tx.oauthToken.deleteMany({
-        where: { userId, provider: 'garmin' },
-      });
-      await tx.userAccount.deleteMany({
-        where: { userId, provider: 'garmin' },
-      });
-    });
-
+    const revoked = await handleGarminDisconnect(userId);
     log.info({ userId, revoked }, 'Garmin disconnected (mobile)');
     return sendSuccess(res, { ok: true });
   } catch (err) {
@@ -434,9 +440,6 @@ r.post('/garmin/disconnect', async (req: Request, res: Response) => {
   }
 });
 
-// ---------------------------------------------------------------------------
-// 7) Web Disconnect — DELETE (existing, backward compat)
-// ---------------------------------------------------------------------------
 r.delete<Empty, void, Empty>('/garmin/disconnect', async (req: Request, res: Response) => {
   const userId = req.user?.id || req.sessionUser?.uid;
   if (!userId) {
@@ -444,25 +447,7 @@ r.delete<Empty, void, Empty>('/garmin/disconnect', async (req: Request, res: Res
   }
 
   try {
-    const revoked = await revokeGarminTokenForUser(userId);
-    if (!revoked) {
-      log.warn({ userId }, 'Garmin token revocation failed, proceeding with local cleanup');
-    }
-
-    // Soft-revoke UserIntegration + delete legacy models atomically
-    await prisma.$transaction(async (tx) => {
-      await tx.userIntegration.updateMany({
-        where: { userId, provider: 'GARMIN' },
-        data: { revokedAt: new Date() },
-      });
-      await tx.oauthToken.deleteMany({
-        where: { userId, provider: 'garmin' },
-      });
-      await tx.userAccount.deleteMany({
-        where: { userId, provider: 'garmin' },
-      });
-    });
-
+    const revoked = await handleGarminDisconnect(userId);
     log.info({ userId, revoked }, 'Garmin disconnected (web)');
     return res.status(200).json({ success: true });
   } catch (err) {

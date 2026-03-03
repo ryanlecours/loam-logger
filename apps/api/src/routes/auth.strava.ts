@@ -186,7 +186,7 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string }>(
 
       if (!tokenRes.ok) {
         const body = await tokenRes.text();
-        log.error({ status: tokenRes.status, userId, attemptId, body }, 'Strava token exchange failed');
+        log.error({ status: tokenRes.status, userId, attemptId, body: body.slice(0, 200) }, 'Strava token exchange failed');
         return redirectError('token_exchange_failed');
       }
 
@@ -211,67 +211,69 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string }>(
       // TODO: Remove OauthToken dual-write once webhooks/sync workers and token
       // refresh helpers (strava-token.ts) are migrated to read from UserIntegration.
       // OauthToken stores plaintext tokens; UserIntegration uses AES-256-GCM encryption.
-      await prisma.oauthToken.upsert({
-        where: { userId_provider: { userId, provider: 'strava' } },
-        create: {
-          userId,
-          provider: 'strava',
-          accessToken: t.access_token,
-          refreshToken: t.refresh_token,
-          expiresAt,
-        },
-        update: {
-          accessToken: t.access_token,
-          refreshToken: t.refresh_token,
-          expiresAt,
-        },
-      });
+      await prisma.$transaction(async (tx) => {
+        await tx.oauthToken.upsert({
+          where: { userId_provider: { userId, provider: 'strava' } },
+          create: {
+            userId,
+            provider: 'strava',
+            accessToken: t.access_token,
+            refreshToken: t.refresh_token,
+            expiresAt,
+          },
+          update: {
+            accessToken: t.access_token,
+            refreshToken: t.refresh_token,
+            expiresAt,
+          },
+        });
 
-      await prisma.userAccount.upsert({
-        where: {
-          provider_providerUserId: {
+        await tx.userAccount.upsert({
+          where: {
+            provider_providerUserId: {
+              provider: 'strava',
+              providerUserId: stravaUserId,
+            },
+          },
+          create: {
+            userId,
             provider: 'strava',
             providerUserId: stravaUserId,
           },
-        },
-        create: {
-          userId,
-          provider: 'strava',
-          providerUserId: stravaUserId,
-        },
-        update: {
-          userId,
-        },
-      });
+          update: {
+            userId,
+          },
+        });
 
-      // Update User with stravaUserId
-      await prisma.user.update({
-        where: { id: userId },
-        data: { stravaUserId },
-      });
+        // Update User with stravaUserId
+        await tx.user.update({
+          where: { id: userId },
+          data: { stravaUserId },
+        });
 
-      // UserIntegration upsert (encrypted tokens)
-      await prisma.userIntegration.upsert({
-        where: { userId_provider: { userId, provider: 'STRAVA' } },
-        create: {
-          userId,
-          provider: 'STRAVA',
-          externalUserId: stravaUserId,
-          accessTokenEnc: encrypt(t.access_token),
-          refreshTokenEnc: encrypt(t.refresh_token),
-          expiresAt,
-          scopes: 'activity:read_all',
-          connectedAt: new Date(),
-        },
-        update: {
-          externalUserId: stravaUserId,
-          accessTokenEnc: encrypt(t.access_token),
-          refreshTokenEnc: encrypt(t.refresh_token),
-          expiresAt,
-          scopes: 'activity:read_all',
-          connectedAt: new Date(),
-          revokedAt: null,
-        },
+        // UserIntegration upsert (encrypted tokens)
+        await tx.userIntegration.upsert({
+          where: { userId_provider: { userId, provider: 'STRAVA' } },
+          create: {
+            userId,
+            provider: 'STRAVA',
+            externalUserId: stravaUserId,
+            accessTokenEnc: encrypt(t.access_token),
+            refreshTokenEnc: encrypt(t.refresh_token),
+            expiresAt,
+            scopes: 'activity:read_all',
+            connectedAt: new Date(),
+          },
+          update: {
+            externalUserId: stravaUserId,
+            accessTokenEnc: encrypt(t.access_token),
+            refreshTokenEnc: encrypt(t.refresh_token),
+            expiresAt,
+            scopes: 'activity:read_all',
+            connectedAt: new Date(),
+            revokedAt: null,
+          },
+        });
       });
 
       // Check if multiple providers are connected (for data source prompt)
@@ -328,9 +330,9 @@ r.get('/strava/mobile/complete', (req: Request, res: Response) => {
   const rawReason = req.query.reason as string | undefined;
   const rawPrompt = req.query.prompt as string | undefined;
 
-  const status = VALID_STATUSES.includes(rawStatus as any) ? rawStatus! : 'error';
-  const reason = VALID_REASONS.includes(rawReason as any) ? rawReason! : undefined;
-  const prompt = VALID_PROMPTS.includes(rawPrompt as any) ? rawPrompt! : undefined;
+  const status = (VALID_STATUSES as readonly string[]).includes(rawStatus!) ? rawStatus! : 'error';
+  const reason = (VALID_REASONS as readonly string[]).includes(rawReason!) ? rawReason! : undefined;
+  const prompt = (VALID_PROMPTS as readonly string[]).includes(rawPrompt!) ? rawPrompt! : undefined;
   const scheme = process.env.MOBILE_DEEP_LINK_SCHEME || 'loamlogger';
 
   log.debug({ status, reason, prompt }, 'Rendering Strava mobile completion page');
@@ -398,8 +400,41 @@ r.get('/strava/status', async (req: Request, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
-// 6) Mobile Disconnect — POST (Bearer token auth)
+// 6/7) Disconnect — shared logic for POST (mobile) and DELETE (web)
 // ---------------------------------------------------------------------------
+async function handleStravaDisconnect(userId: string): Promise<boolean> {
+  const revoked = await revokeStravaTokenForUser(userId);
+  if (!revoked) {
+    log.warn({ userId }, 'Strava token revocation failed, proceeding with local cleanup');
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.userIntegration.updateMany({
+      where: { userId, provider: 'STRAVA' },
+      data: { revokedAt: new Date() },
+    });
+    const user = await tx.user.findUnique({
+      where: { id: userId },
+      select: { activeDataSource: true },
+    });
+    await tx.oauthToken.deleteMany({
+      where: { userId, provider: 'strava' },
+    });
+    await tx.userAccount.deleteMany({
+      where: { userId, provider: 'strava' },
+    });
+    await tx.user.update({
+      where: { id: userId },
+      data: {
+        stravaUserId: null,
+        ...(user?.activeDataSource === 'strava' ? { activeDataSource: null } : {}),
+      },
+    });
+  });
+
+  return revoked;
+}
+
 r.post('/strava/disconnect', async (req: Request, res: Response) => {
   const userId = req.sessionUser?.uid;
   if (!userId) {
@@ -407,36 +442,7 @@ r.post('/strava/disconnect', async (req: Request, res: Response) => {
   }
 
   try {
-    const revoked = await revokeStravaTokenForUser(userId);
-    if (!revoked) {
-      log.warn({ userId }, 'Strava token revocation failed, proceeding with local cleanup');
-    }
-
-    // Soft-revoke UserIntegration + delete legacy models atomically
-    await prisma.$transaction(async (tx) => {
-      await tx.userIntegration.updateMany({
-        where: { userId, provider: 'STRAVA' },
-        data: { revokedAt: new Date() },
-      });
-      const user = await tx.user.findUnique({
-        where: { id: userId },
-        select: { activeDataSource: true },
-      });
-      await tx.oauthToken.deleteMany({
-        where: { userId, provider: 'strava' },
-      });
-      await tx.userAccount.deleteMany({
-        where: { userId, provider: 'strava' },
-      });
-      await tx.user.update({
-        where: { id: userId },
-        data: {
-          stravaUserId: null,
-          ...(user?.activeDataSource === 'strava' ? { activeDataSource: null } : {}),
-        },
-      });
-    });
-
+    const revoked = await handleStravaDisconnect(userId);
     log.info({ userId, revoked }, 'Strava disconnected (mobile)');
     return sendSuccess(res, { ok: true });
   } catch (err) {
@@ -445,9 +451,6 @@ r.post('/strava/disconnect', async (req: Request, res: Response) => {
   }
 });
 
-// ---------------------------------------------------------------------------
-// 7) Web Disconnect — DELETE (existing, backward compat)
-// ---------------------------------------------------------------------------
 r.delete<Empty, void, Empty>('/strava/disconnect', async (req: Request, res: Response) => {
   const userId = req.user?.id || req.sessionUser?.uid;
   if (!userId) {
@@ -455,36 +458,7 @@ r.delete<Empty, void, Empty>('/strava/disconnect', async (req: Request, res: Res
   }
 
   try {
-    const revoked = await revokeStravaTokenForUser(userId);
-    if (!revoked) {
-      log.warn({ userId }, 'Strava token revocation failed, proceeding with local cleanup');
-    }
-
-    // Soft-revoke UserIntegration + delete legacy models atomically
-    await prisma.$transaction(async (tx) => {
-      await tx.userIntegration.updateMany({
-        where: { userId, provider: 'STRAVA' },
-        data: { revokedAt: new Date() },
-      });
-      const user = await tx.user.findUnique({
-        where: { id: userId },
-        select: { activeDataSource: true },
-      });
-      await tx.oauthToken.deleteMany({
-        where: { userId, provider: 'strava' },
-      });
-      await tx.userAccount.deleteMany({
-        where: { userId, provider: 'strava' },
-      });
-      await tx.user.update({
-        where: { id: userId },
-        data: {
-          stravaUserId: null,
-          ...(user?.activeDataSource === 'strava' ? { activeDataSource: null } : {}),
-        },
-      });
-    });
-
+    const revoked = await handleStravaDisconnect(userId);
     log.info({ userId, revoked }, 'Strava disconnected (web)');
     return res.status(200).json({ success: true });
   } catch (err) {

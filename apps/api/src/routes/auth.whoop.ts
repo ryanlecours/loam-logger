@@ -108,8 +108,8 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string }>(
 
       if (!tokenRes.ok) {
         const text = await tokenRes.text();
-        log.error({ status: tokenRes.status, body: text }, 'WHOOP token exchange failed');
-        return res.status(502).send(`Token exchange failed: ${text}`);
+        log.error({ status: tokenRes.status, body: text.slice(0, 200) }, 'WHOOP token exchange failed');
+        return res.status(502).send('Token exchange failed');
       }
 
       type WhoopTokenResp = {
@@ -134,8 +134,8 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string }>(
 
       if (!profileRes.ok) {
         const text = await profileRes.text();
-        log.error({ status: profileRes.status, body: text }, 'WHOOP profile fetch failed');
-        return res.status(502).send(`Profile fetch failed: ${text}`);
+        log.error({ status: profileRes.status, body: text.slice(0, 200) }, 'WHOOP profile fetch failed');
+        return res.status(502).send('Profile fetch failed');
       }
 
       const profile = (await profileRes.json()) as WhoopUserProfile;
