@@ -8,7 +8,7 @@ import { Modal, Input, Textarea, Select, Button } from './ui';
 
 type BikeSummary = { id: string; nickname?: string | null; manufacturer: string; model: string };
 const formatBikeName = (bike: BikeSummary) =>
-  (bike.nickname?.trim() || `${bike.manufacturer} ${bike.model}`.trim() || 'Bike').trim();
+  bike.nickname?.trim() || `${bike.manufacturer} ${bike.model}`.trim() || 'Bike';
 
 type Ride = {
   id: string;
@@ -50,7 +50,7 @@ export default function EditRideModal({
   );
 
   const { data: bikesData, loading: bikesLoading } = useQuery<{ bikes: BikeSummary[] }>(BIKES_LIGHT, { fetchPolicy: 'cache-and-network' });
-  const userBikes = useMemo(() => bikesData?.bikes ?? [], [bikesData]);
+  const userBikes = bikesData?.bikes ?? [];
 
   const [mutate, { loading, error }] = useMutation(UPDATE_RIDE, {
     update(cache, { data }) {
@@ -168,21 +168,18 @@ export default function EditRideModal({
           maxLength={32}
         />
 
-        <div className="space-y-1.5">
-          <label className="block text-sm font-medium text-muted mb-1.5">Bike (optional)</label>
-          {bikesLoading ? (
-            <div className="text-sm text-muted">Loading bikes...</div>
+        <Select label="Bike (optional)" value={bikeId} onChange={(e) => setBikeId(e.target.value)} disabled={bikesLoading}>
+          <option value="">None</option>
+          {bikesLoading && bikeId ? (
+            <option value={bikeId}>{bikeId}</option>
           ) : (
-            <Select value={bikeId} onChange={(e) => setBikeId(e.target.value)}>
-              <option value="">None</option>
-              {userBikes.map((bike) => (
-                <option key={bike.id} value={bike.id}>
-                  {formatBikeName(bike)}
-                </option>
-              ))}
-            </Select>
+            userBikes.map((bike) => (
+              <option key={bike.id} value={bike.id}>
+                {formatBikeName(bike)}
+              </option>
+            ))
           )}
-        </div>
+        </Select>
 
         <Input
           label="Trail system (optional)"

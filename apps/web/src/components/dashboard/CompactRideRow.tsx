@@ -38,8 +38,7 @@ export function CompactRideRow({ ride, bikeName, onLinkBike }: CompactRideRowPro
   return (
     <>
       <div
-        className="compact-ride-row"
-        style={{ cursor: 'pointer' }}
+        className="compact-ride-row cursor-pointer"
         role="button"
         tabIndex={0}
         onClick={() => setEditing(true)}

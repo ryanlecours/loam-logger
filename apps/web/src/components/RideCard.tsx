@@ -116,8 +116,7 @@ export default function RideCard({ ride, bikes = [] }: RideCardProps) {
   return (
     <>
       <div
-        className="ride-card-container"
-        style={{ cursor: 'pointer' }}
+        className="ride-card-container cursor-pointer"
         role="button"
         tabIndex={0}
         onClick={() => setEditing(true)}
