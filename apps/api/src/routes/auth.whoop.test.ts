@@ -18,23 +18,25 @@ const mockUpdate = jest.fn();
 const mockDeleteMany = jest.fn();
 const mockTransaction = jest.fn();
 
-jest.mock('../lib/prisma', () => ({
-  prisma: {
-    oauthToken: {
-      upsert: mockUpsert,
-      deleteMany: mockDeleteMany,
-    },
-    userAccount: {
-      upsert: mockUpsert,
-      findMany: mockFindMany,
-      deleteMany: mockDeleteMany,
-    },
-    user: {
-      findUnique: mockFindUnique,
-      update: mockUpdate,
-    },
-    $transaction: mockTransaction,
+const mockPrisma = {
+  oauthToken: {
+    upsert: mockUpsert,
+    deleteMany: mockDeleteMany,
   },
+  userAccount: {
+    upsert: mockUpsert,
+    findMany: mockFindMany,
+    deleteMany: mockDeleteMany,
+  },
+  user: {
+    findUnique: mockFindUnique,
+    update: mockUpdate,
+  },
+  $transaction: mockTransaction,
+};
+
+jest.mock('../lib/prisma', () => ({
+  prisma: mockPrisma,
 }));
 
 const mockLog = { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() };
@@ -48,6 +50,7 @@ global.fetch = mockFetch;
 
 // Import router after mocks
 import router from './auth.whoop';
+import { Prisma } from '@prisma/client';
 
 // Type for Express router layer internals
 interface RouteLayer {
@@ -215,6 +218,9 @@ describe('auth.whoop routes', () => {
       mockUpdate.mockResolvedValue({});
       mockFindMany.mockResolvedValue([{ provider: 'whoop' }]);
       mockFindUnique.mockResolvedValue({ onboardingCompleted: true });
+      mockTransaction.mockImplementation(async (fn: (tx: typeof mockPrisma) => Promise<void>) => {
+        await fn(mockPrisma);
+      });
     });
 
     it('should return error for invalid state', async () => {
@@ -369,6 +375,30 @@ describe('auth.whoop routes', () => {
         expect.objectContaining({
           where: { userId_provider: { userId: 'session-user-456', provider: 'whoop' } },
         })
+      );
+    });
+
+    it('should redirect with error when WHOOP account is already linked (P2002)', async () => {
+      const p2002Error = new Prisma.PrismaClientKnownRequestError(
+        'Unique constraint failed on the fields: (`whoopUserId`)',
+        { code: 'P2002', clientVersion: '5.0.0', meta: { target: ['whoopUserId'] } }
+      );
+      mockTransaction.mockRejectedValue(p2002Error);
+
+      await invokeHandler(handler, mockReq as Request, mockRes as Response);
+
+      expect(mockRes.redirect).toHaveBeenCalledWith(
+        expect.stringContaining('already+linked+to+another+user')
+      );
+    });
+
+    it('should redirect with generic error on non-P2002 database failure', async () => {
+      mockTransaction.mockRejectedValue(new Error('Database connection lost'));
+
+      await invokeHandler(handler, mockReq as Request, mockRes as Response);
+
+      expect(mockRes.redirect).toHaveBeenCalledWith(
+        expect.stringContaining('WHOOP+connection+failed')
       );
     });
   });

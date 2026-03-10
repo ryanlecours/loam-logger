@@ -121,8 +121,11 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string }>(
         return res.redirect(`/auth/strava/mobile/complete?status=error&reason=${encodeURIComponent(reason)}`);
       }
       const appBase = process.env.APP_BASE_URL ?? 'http://localhost:5173';
+      const message = reason === 'account_already_linked'
+        ? 'This Strava account is already linked to another user.'
+        : 'Strava connection failed. Please try again.';
       return res.redirect(
-        `${appBase}/auth/error?message=${encodeURIComponent('Strava connection failed. Please try again.')}`
+        `${appBase}/auth/error?message=${encodeURIComponent(message)}`
       );
     }
 
@@ -315,7 +318,7 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string }>(
       if (
         err instanceof Prisma.PrismaClientKnownRequestError &&
         err.code === 'P2002' &&
-        (err.meta?.target as string[])?.includes('stravaUserId')
+        Array.isArray(err.meta?.target) && err.meta.target.includes('stravaUserId')
       ) {
         log.warn({ userId, attemptId }, 'Strava account already linked to another user');
         return redirectError('account_already_linked');
