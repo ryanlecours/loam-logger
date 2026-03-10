@@ -115,7 +115,13 @@ export default function RideCard({ ride, bikes = [] }: RideCardProps) {
 
   return (
     <>
-      <div className="ride-card-container">
+      <div
+        className="ride-card-container cursor-pointer"
+        role="button"
+        tabIndex={0}
+        onClick={() => setEditing(true)}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setEditing(true); } }}
+      >
         <div className="ride-content">
           <div className="ride-header">
             <h3 className="ride-title" title={title}>{title}</h3>
@@ -156,7 +162,7 @@ export default function RideCard({ ride, bikes = [] }: RideCardProps) {
           )}
 
           {needsBikeAssignment && (
-            <div className="bike-assignment">
+            <div className="bike-assignment" onClick={(e) => e.stopPropagation()}>
               <span className="assignment-label">Assign to bike:</span>
               <Select
                 value={selectedBikeId}
@@ -181,19 +187,7 @@ export default function RideCard({ ride, bikes = [] }: RideCardProps) {
           )}
         </div>
 
-        <div className="ride-actions">
-          <button
-            type="button"
-            onClick={() => setEditing(true)}
-            className="ride-action-btn"
-            title="Edit ride"
-            aria-label="Edit ride"
-          >
-            <svg className="action-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-              <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25ZM20.71 7.04a1.003 1.003 0 0 0 0-1.42l-2.34-2.34a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 1.84-1.82Z" />
-            </svg>
-          </button>
-
+        <div className="ride-actions" onClick={(e) => e.stopPropagation()}>
           <DeleteRideButton id={ride.id} />
         </div>
       </div>

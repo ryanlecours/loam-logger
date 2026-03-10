@@ -19,6 +19,7 @@ const createRide = (overrides: Partial<BikeRide> = {}): BikeRide => ({
   durationSeconds: 3600,
   distanceMiles: 10,
   elevationGainFeet: 1000,
+  rideType: 'trail',
   bikeId: 'bike-1',
   ...overrides,
 });

@@ -38,13 +38,14 @@ interface Ride {
   distanceMiles: number;
   elevationGainFeet: number;
   averageHr?: number | null;
-  rideType?: string;
+  rideType: string;
   bikeId?: string | null;
   notes?: string | null;
   trailSystem?: string | null;
   location?: string | null;
   stravaActivityId?: string | null;
   garminActivityId?: string | null;
+  whoopWorkoutId?: string | null;
 }
 
 const RECENT_COUNT = 20;

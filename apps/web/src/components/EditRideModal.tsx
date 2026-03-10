@@ -1,9 +1,14 @@
 import { useState, useMemo } from 'react';
-import { useMutation } from '@apollo/client';
+import { useMutation, useQuery } from '@apollo/client';
 import { UPDATE_RIDE } from '../graphql/updateRide';
 import { RIDES } from '../graphql/rides';
+import { BIKES_LIGHT } from '../graphql/bikes';
 import { toLocalInputValue, fromLocalInputValue } from '../lib/format';
-import { Modal, Input, Textarea, Button } from './ui';
+import { Modal, Input, Textarea, Select, Button } from './ui';
+
+type BikeSummary = { id: string; nickname?: string | null; manufacturer: string; model: string };
+const formatBikeName = (bike: BikeSummary) =>
+  bike.nickname?.trim() || `${bike.manufacturer} ${bike.model}`.trim() || 'Bike';
 
 type Ride = {
   id: string;
@@ -43,6 +48,9 @@ export default function EditRideModal({
     () => Math.max(0, Math.floor((Number(hours) || 0) * 3600 + (Number(minutes) || 0) * 60)),
     [hours, minutes]
   );
+
+  const { data: bikesData, loading: bikesLoading } = useQuery<{ bikes: BikeSummary[] }>(BIKES_LIGHT, { fetchPolicy: 'cache-and-network' });
+  const userBikes = bikesData?.bikes ?? [];
 
   const [mutate, { loading, error }] = useMutation(UPDATE_RIDE, {
     update(cache, { data }) {
@@ -160,13 +168,18 @@ export default function EditRideModal({
           maxLength={32}
         />
 
-        <Input
-          label="Bike (optional)"
-          type="text"
-          value={bikeId}
-          onChange={e => setBikeId(e.target.value)}
-          placeholder="Bike id (or leave blank)"
-        />
+        <Select label="Bike (optional)" value={bikeId} onChange={(e) => setBikeId(e.target.value)} disabled={bikesLoading}>
+          <option value="">None</option>
+          {bikesLoading && bikeId ? (
+            <option value={bikeId}>{bikeId}</option>
+          ) : (
+            userBikes.map((bike) => (
+              <option key={bike.id} value={bike.id}>
+                {formatBikeName(bike)}
+              </option>
+            ))
+          )}
+        </Select>
 
         <Input
           label="Trail system (optional)"
