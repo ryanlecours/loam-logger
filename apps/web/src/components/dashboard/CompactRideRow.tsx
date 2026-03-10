@@ -1,5 +1,7 @@
+import { useState } from 'react';
 import { formatDurationCompact, formatRideDate } from '../../utils/formatters';
 import { getRideSource, SOURCE_LABELS } from '../../utils/rideSource';
+import EditRideModal from '../EditRideModal';
 
 interface Ride {
   id: string;
@@ -7,9 +9,11 @@ interface Ride {
   durationSeconds: number;
   distanceMiles: number;
   elevationGainFeet: number;
-  rideType?: string;
+  averageHr?: number | null;
+  rideType: string;
   trailSystem?: string | null;
   location?: string | null;
+  notes?: string | null;
   stravaActivityId?: string | null;
   garminActivityId?: string | null;
   whoopWorkoutId?: string | null;
@@ -23,6 +27,7 @@ interface CompactRideRowProps {
 }
 
 export function CompactRideRow({ ride, bikeName, onLinkBike }: CompactRideRowProps) {
+  const [editing, setEditing] = useState(false);
   const title = ride.trailSystem || ride.location || 'Ride';
   const formattedDate = formatRideDate(ride.startTime);
   const duration = formatDurationCompact(ride.durationSeconds);
@@ -31,37 +36,48 @@ export function CompactRideRow({ ride, bikeName, onLinkBike }: CompactRideRowPro
   const source = getRideSource(ride);
 
   return (
-    <div className="compact-ride-row">
-      <div className="compact-ride-content">
-        <h4 className="compact-ride-title" title={title}>
-          {title}
-        </h4>
-        <div className="compact-ride-meta">
-          <span>{formattedDate}</span>
-          <span className="compact-ride-meta-sep">•</span>
-          <span>{duration}</span>
-          <span className="compact-ride-meta-sep">•</span>
-          <span>{climb} ft</span>
-        </div>
-        {bikeName ? (
-          <div className="compact-ride-bike">
-            {bikeName}
+    <>
+      <div
+        className="compact-ride-row"
+        style={{ cursor: 'pointer' }}
+        role="button"
+        tabIndex={0}
+        onClick={() => setEditing(true)}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setEditing(true); } }}
+      >
+        <div className="compact-ride-content">
+          <h4 className="compact-ride-title" title={title}>
+            {title}
+          </h4>
+          <div className="compact-ride-meta">
+            <span>{formattedDate}</span>
+            <span className="compact-ride-meta-sep">&bull;</span>
+            <span>{duration}</span>
+            <span className="compact-ride-meta-sep">&bull;</span>
+            <span>{climb} ft</span>
           </div>
-        ) : (
-          <button
-            type="button"
-            onClick={() => onLinkBike?.(ride)}
-            className="compact-ride-no-bike"
-          >
-            Link bike
-          </button>
-        )}
+          {bikeName ? (
+            <div className="compact-ride-bike">
+              {bikeName}
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onLinkBike?.(ride); }}
+              className="compact-ride-no-bike"
+            >
+              Link bike
+            </button>
+          )}
+        </div>
+        <div className="compact-ride-source">
+          <span className={`source-badge source-badge-${source}`}>
+            {SOURCE_LABELS[source]}
+          </span>
+        </div>
       </div>
-      <div className="compact-ride-source">
-        <span className={`source-badge source-badge-${source}`}>
-          {SOURCE_LABELS[source]}
-        </span>
-      </div>
-    </div>
+
+      {editing && <EditRideModal ride={ride} onClose={() => setEditing(false)} />}
+    </>
   );
 }

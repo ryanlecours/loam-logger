@@ -9,11 +9,14 @@ interface Ride {
   durationSeconds: number;
   distanceMiles: number;
   elevationGainFeet: number;
-  rideType?: string;
+  averageHr?: number | null;
+  rideType: string;
   trailSystem?: string | null;
   location?: string | null;
+  notes?: string | null;
   stravaActivityId?: string | null;
   garminActivityId?: string | null;
+  whoopWorkoutId?: string | null;
   bikeId?: string | null;
 }
 
