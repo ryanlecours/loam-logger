@@ -1,4 +1,5 @@
 import { Router as createRouter, type Router, type Request, type Response } from 'express';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { randomString } from '../lib/pcke';
 import { sendBadRequest, sendUnauthorized, sendInternalError } from '../lib/api-response';
@@ -59,6 +60,7 @@ r.get<Empty, void, Empty>('/whoop/start', async (_req: Request, res: Response) =
 r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string }>(
   '/whoop/callback',
   async (req: Request<Empty, void, Empty, { code?: string; state?: string; scope?: string }>, res: Response) => {
+    let userId: string | undefined;
     try {
       const REDIRECT_URI = process.env.WHOOP_REDIRECT_URI;
       const CLIENT_ID = process.env.WHOOP_CLIENT_ID;
@@ -86,7 +88,7 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string }>(
       }
 
       // Check for authenticated user
-      const userId = req.user?.id || req.sessionUser?.uid;
+      userId = req.user?.id || req.sessionUser?.uid;
       if (!userId) {
         return sendUnauthorized(res, 'No user - please log in first');
       }
@@ -143,45 +145,45 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string }>(
 
       log.info({ whoopUserId }, 'WHOOP user ID fetched');
 
-      // Store OAuth token
-      await prisma.oauthToken.upsert({
-        where: { userId_provider: { userId, provider: 'whoop' } },
-        create: {
-          userId,
-          provider: 'whoop',
-          accessToken: t.access_token,
-          refreshToken: t.refresh_token,
-          expiresAt,
-        },
-        update: {
-          accessToken: t.access_token,
-          refreshToken: t.refresh_token,
-          expiresAt,
-        },
-      });
+      // Store OAuth token, user account, and whoopUserId atomically
+      await prisma.$transaction(async (tx) => {
+        await tx.oauthToken.upsert({
+          where: { userId_provider: { userId, provider: 'whoop' } },
+          create: {
+            userId,
+            provider: 'whoop',
+            accessToken: t.access_token,
+            refreshToken: t.refresh_token,
+            expiresAt,
+          },
+          update: {
+            accessToken: t.access_token,
+            refreshToken: t.refresh_token,
+            expiresAt,
+          },
+        });
 
-      // Store WHOOP user ID in UserAccount for identification
-      await prisma.userAccount.upsert({
-        where: {
-          provider_providerUserId: {
+        await tx.userAccount.upsert({
+          where: {
+            provider_providerUserId: {
+              provider: 'whoop',
+              providerUserId: whoopUserId,
+            },
+          },
+          create: {
+            userId,
             provider: 'whoop',
             providerUserId: whoopUserId,
           },
-        },
-        create: {
-          userId,
-          provider: 'whoop',
-          providerUserId: whoopUserId,
-        },
-        update: {
-          userId, // in case user reconnects to different account
-        },
-      });
+          update: {
+            userId,
+          },
+        });
 
-      // Update User with whoopUserId
-      await prisma.user.update({
-        where: { id: userId },
-        data: { whoopUserId },
+        await tx.user.update({
+          where: { id: userId },
+          data: { whoopUserId },
+        });
       });
 
       // Check if user has multiple providers connected
@@ -216,8 +218,18 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string }>(
       log.info({ userId, redirectPath }, 'WHOOP OAuth callback success');
       return res.redirect(`${appBase.replace(/\/$/, '')}${redirectPath}`);
     } catch (error) {
-      log.error({ err: error }, 'WHOOP callback error');
       const appBase = process.env.APP_BASE_URL ?? 'http://localhost:5173';
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002' &&
+        Array.isArray(error.meta?.target) && error.meta.target.includes('whoopUserId')
+      ) {
+        log.warn({ userId }, 'WHOOP account already linked to another user');
+        return res.redirect(
+          `${appBase}/auth/error?message=${encodeURIComponent('This WHOOP account is already linked to another user.')}`
+        );
+      }
+      log.error({ err: error }, 'WHOOP callback error');
       return res.redirect(
         `${appBase}/auth/error?message=${encodeURIComponent('WHOOP connection failed. Please try again.')}`
       );

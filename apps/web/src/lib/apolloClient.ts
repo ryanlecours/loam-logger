@@ -31,7 +31,8 @@ const httpLink = new HttpLink({
 
 const client = new ApolloClient({
   link: from([errorLink, authLink, httpLink]),
-  cache: new InMemoryCache(),
+  // Disable canonizeResults to avoid frozen-object and object-identity issues in React strict mode
+  cache: new InMemoryCache({ canonizeResults: false }),
 });
 
 export default client;
