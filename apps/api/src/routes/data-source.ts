@@ -56,16 +56,25 @@ r.post<Empty, void, { provider: 'garmin' | 'strava' }>(
     }
 
     try {
-      // Verify user has this provider connected
-      const userAccount = await prisma.userAccount.findFirst({
+      // Verify user has this provider connected (check integrations, not login accounts)
+      const integrationProvider = provider.toUpperCase() as 'GARMIN' | 'STRAVA';
+      const integration = await prisma.userIntegration.findFirst({
         where: {
           userId,
-          provider,
+          provider: integrationProvider,
+          revokedAt: null,
         },
       });
 
-      if (!userAccount) {
-        return sendBadRequest(res, `${provider.charAt(0).toUpperCase() + provider.slice(1)} account not connected`);
+      if (!integration) {
+        // Fallback: also check UserAccount for users who connected via OAuth login
+        const userAccount = await prisma.userAccount.findFirst({
+          where: { userId, provider },
+        });
+
+        if (!userAccount) {
+          return sendBadRequest(res, `${provider.charAt(0).toUpperCase() + provider.slice(1)} account not connected`);
+        }
       }
 
       // Update active data source
