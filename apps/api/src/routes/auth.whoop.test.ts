@@ -388,7 +388,7 @@ describe('auth.whoop routes', () => {
       await invokeHandler(handler, mockReq as Request, mockRes as Response);
 
       expect(mockRes.redirect).toHaveBeenCalledWith(
-        expect.stringContaining('already+linked+to+another+user')
+        expect.stringContaining('already%20linked%20to%20another%20user')
       );
     });
 
@@ -398,7 +398,7 @@ describe('auth.whoop routes', () => {
       await invokeHandler(handler, mockReq as Request, mockRes as Response);
 
       expect(mockRes.redirect).toHaveBeenCalledWith(
-        expect.stringContaining('WHOOP+connection+failed')
+        expect.stringContaining('WHOOP%20connection%20failed')
       );
     });
   });
