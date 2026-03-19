@@ -5,7 +5,20 @@ const steps = [
   {
     number: '01',
     title: 'Add Your Bikes',
-    description: 'Enter your bikes, add components, and set service intervals based on manufacturer recommendations or your own experience.',
+    description: (
+      <>
+        Import your bike's full specs from{' '}
+        <a
+          href="https://99spokes.com"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-mint hover:text-mint/80 underline transition-colors"
+        >
+          99Spokes
+        </a>
+        , or add manually. Set service intervals based on manufacturer recommendations or your own experience.
+      </>
+    ),
   },
   {
     number: '02',
