@@ -172,7 +172,6 @@ router.post('/complete', express.json(), async (req: Request, res) => {
         bikeId: bike.id,
         userId,
         bikeSpec,
-        acquisitionCondition: acquisitionCondition ?? 'NEW',
         spokesComponents: spokesComponents ?? null,
         userOverrides: components ?? undefined,
       });

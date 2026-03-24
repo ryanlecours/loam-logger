@@ -229,6 +229,7 @@ r.post('/duplicates/scan', async (req: Request, res: Response) => {
         elevationGainFeet: true,
         garminActivityId: true,
         stravaActivityId: true,
+        whoopWorkoutId: true,
       },
       orderBy: { startTime: 'asc' },
     });

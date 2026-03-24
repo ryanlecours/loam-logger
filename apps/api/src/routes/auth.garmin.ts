@@ -180,10 +180,12 @@ r.get<Empty, void, Empty, { code?: string; state?: string }>(
         log.info({ userId }, 'Garmin callback: web flow (cookie state)');
       }
 
-      if (!userId) {
+      if (!userId || !verifier) {
         log.warn('Garmin callback: no authenticated user');
         return redirectError('invalid_state');
       }
+
+      const authenticatedUserId = userId;
 
       // Token exchange (OAuth2 Authorization Code + PKCE)
       const body = new URLSearchParams({
@@ -245,9 +247,9 @@ r.get<Empty, void, Empty, { code?: string; state?: string }>(
       // OauthToken stores plaintext tokens; UserIntegration uses AES-256-GCM encryption.
       await prisma.$transaction(async (tx) => {
         await tx.oauthToken.upsert({
-          where: { userId_provider: { userId, provider: 'garmin' } },
+          where: { userId_provider: { userId: authenticatedUserId, provider: 'garmin' } },
           create: {
-            userId,
+            userId: authenticatedUserId,
             provider: 'garmin',
             accessToken: t.access_token,
             refreshToken: refreshTokenNorm,
@@ -268,20 +270,20 @@ r.get<Empty, void, Empty, { code?: string; state?: string }>(
             }
           },
           create: {
-            userId,
+            userId: authenticatedUserId,
             provider: 'garmin',
             providerUserId: garminUserId,
           },
           update: {
-            userId,
+            userId: authenticatedUserId,
           },
         });
 
         // UserIntegration upsert (encrypted tokens)
         await tx.userIntegration.upsert({
-          where: { userId_provider: { userId, provider: 'GARMIN' } },
+          where: { userId_provider: { userId: authenticatedUserId, provider: 'GARMIN' } },
           create: {
-            userId,
+            userId: authenticatedUserId,
             provider: 'GARMIN',
             externalUserId: garminUserId,
             accessTokenEnc: encrypt(t.access_token),

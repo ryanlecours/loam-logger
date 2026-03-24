@@ -49,7 +49,7 @@ export async function checkRecentAuth(
     return { valid: false, reason: 'AUTH_EXPIRED', lastAuthAt };
   }
 
-  return { valid: true, lastAuthAt };
+  return { valid: true, lastAuthAt: lastAuthAt! };
 }
 
 /**
