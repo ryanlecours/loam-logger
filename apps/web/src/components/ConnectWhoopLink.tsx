@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { TbActivityHeartbeat } from "react-icons/tb"
+import { Activity } from "lucide-react"
 
 const apiBase =
   (import.meta.env.VITE_API_URL ?? "").replace(/\/$/, "") ||
@@ -29,7 +29,7 @@ export default function ConnectWhoopLink() {
           : 'border-[#00FF87]/50 bg-[#00FF87]/10 text-[#00FF87] hover:bg-[#00FF87]/20 hover:border-[#00FF87]/70 hover:cursor-pointer'
         }`}
     >
-      <TbActivityHeartbeat size={18} />
+      <Activity size={18} />
       <span>{isConnecting ? 'Connecting...' : 'Connect WHOOP'}</span>
     </button>
   )

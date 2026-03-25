@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useMutation } from '@apollo/client';
-import { FaExclamationTriangle } from 'react-icons/fa';
+import { TriangleAlert } from 'lucide-react';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
 import { ADD_BIKE_NOTE, BIKE_NOTES_QUERY } from '../../graphql/gear';
@@ -136,7 +136,7 @@ export function AddBikeNoteModal({
         {/* Error */}
         {error && (
           <div className="alert-inline alert-inline-error">
-            <FaExclamationTriangle size={14} />
+            <TriangleAlert size={14} />
             {error}
           </div>
         )}

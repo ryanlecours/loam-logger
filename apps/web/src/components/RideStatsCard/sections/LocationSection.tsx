@@ -1,4 +1,4 @@
-import { FaMapMarkerAlt, FaMountain } from 'react-icons/fa';
+import { MapPin, Mountain } from 'lucide-react';
 import type { LocationStats, LocationBreakdown } from '../types';
 
 interface LocationSectionProps {
@@ -46,7 +46,7 @@ export default function LocationSection({ stats }: LocationSectionProps) {
       {hasLocations && (
         <LocationList
           items={stats.topLocations}
-          icon={<FaMapMarkerAlt className="location-icon" />}
+          icon={<MapPin className="location-icon" />}
           title="Top Locations"
         />
       )}
@@ -54,7 +54,7 @@ export default function LocationSection({ stats }: LocationSectionProps) {
       {hasTrailSystems && (
         <LocationList
           items={stats.topTrailSystems}
-          icon={<FaMountain className="location-icon" />}
+          icon={<Mountain className="location-icon" />}
           title="Trail Systems"
         />
       )}

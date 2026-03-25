@@ -1,5 +1,5 @@
-import { FaMountain, FaStrava } from 'react-icons/fa';
-import { TbActivityHeartbeat } from 'react-icons/tb';
+import { Mountain, Activity } from 'lucide-react';
+import { StravaIcon } from '../icons/BrandIcons';
 
 type Props = {
   currentSource: 'garmin' | 'strava' | 'whoop' | null;
@@ -45,7 +45,7 @@ export default function DataSourceSelector({ currentSource, hasGarmin, hasStrava
               </div>
             )}
 
-            <FaMountain size={32} className={currentSource === 'garmin' ? 'text-[#11A9ED]' : 'text-muted'} />
+            <Mountain size={32} className={currentSource === 'garmin' ? 'text-[#11A9ED]' : 'text-muted'} />
             <div className="text-center">
               <p className="font-semibold">Garmin</p>
               <p className="text-xs text-muted mt-1">
@@ -72,7 +72,7 @@ export default function DataSourceSelector({ currentSource, hasGarmin, hasStrava
               </div>
             )}
 
-            <FaStrava size={32} className={currentSource === 'strava' ? 'text-[#FC4C02]' : 'text-muted'} />
+            <StravaIcon size={32} className={currentSource === 'strava' ? 'text-[#FC4C02]' : 'text-muted'} />
             <div className="text-center">
               <p className="font-semibold">Strava</p>
               <p className="text-xs text-muted mt-1">
@@ -99,7 +99,7 @@ export default function DataSourceSelector({ currentSource, hasGarmin, hasStrava
               </div>
             )}
 
-            <TbActivityHeartbeat size={32} className={currentSource === 'whoop' ? 'text-[#00FF87]' : 'text-muted'} />
+            <Activity size={32} className={currentSource === 'whoop' ? 'text-[#00FF87]' : 'text-muted'} />
             <div className="text-center">
               <p className="font-semibold">WHOOP</p>
               <p className="text-xs text-muted mt-1">

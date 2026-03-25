@@ -1,12 +1,12 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@apollo/client';
 import {
-  FaHashtag,
-  FaChartLine,
-  FaHeartbeat,
-  FaMapMarkerAlt,
-  FaBicycle,
-} from 'react-icons/fa';
+  Hash,
+  TrendingUp,
+  HeartPulse,
+  MapPin,
+  Bike,
+} from 'lucide-react';
 
 import TimeframeDropdown from './TimeframeDropdown';
 import BikeFilterDropdown from './BikeFilterDropdown';
@@ -176,14 +176,14 @@ export default function RideStatsCard({ showHeading = true, rides: externalRides
               <ExpandableSection
                 title="Ride Count & Averages"
                 subtitle={`${selectedStats.rideCount.totalRides} rides`}
-                icon={<FaHashtag size={14} />}
+                icon={<Hash size={14} />}
               >
                 <RideCountSection stats={selectedStats.rideCount} />
               </ExpandableSection>
 
               <ExpandableSection
                 title="Trends & Streaks"
-                icon={<FaChartLine size={14} />}
+                icon={<TrendingUp size={14} />}
                 isEmpty={selectedStats.rideCount.totalRides < 2}
                 emptyMessage="Need more rides for trends"
               >
@@ -197,7 +197,7 @@ export default function RideStatsCard({ showHeading = true, rides: externalRides
                     ? `${selectedStats.heartRate.averageHr} avg`
                     : undefined
                 }
-                icon={<FaHeartbeat size={14} />}
+                icon={<HeartPulse size={14} />}
                 isEmpty={selectedStats.heartRate.averageHr === null}
                 emptyMessage="No heart rate data available"
               >
@@ -206,7 +206,7 @@ export default function RideStatsCard({ showHeading = true, rides: externalRides
 
               <ExpandableSection
                 title="Locations"
-                icon={<FaMapMarkerAlt size={14} />}
+                icon={<MapPin size={14} />}
                 isEmpty={
                   selectedStats.locations.topLocations.length === 0 &&
                   selectedStats.locations.topTrailSystems.length === 0
@@ -218,7 +218,7 @@ export default function RideStatsCard({ showHeading = true, rides: externalRides
 
               <ExpandableSection
                 title="Bike Usage"
-                icon={<FaBicycle size={14} />}
+                icon={<Bike size={14} />}
                 isEmpty={selectedStats.bikeTime.length === 0}
                 emptyMessage="No bike data for this timeframe"
               >

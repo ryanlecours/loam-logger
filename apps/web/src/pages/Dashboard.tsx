@@ -18,7 +18,7 @@ import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useUserTier } from '../hooks/useUserTier';
 import { useConnectedAccounts } from '../hooks/useConnectedAccounts';
 import { usePriorityBike, type BikeWithPredictions } from '../hooks/usePriorityBike';
-import { FaChevronDown } from 'react-icons/fa';
+import { ChevronDown } from 'lucide-react';
 import {
   PriorityBikeHero,
   BikeSwitcherRow,
@@ -260,7 +260,7 @@ export default function Dashboard() {
 
           {/* Scroll indicator */}
           <div className="scroll-indicator" aria-hidden="true">
-            <FaChevronDown className="scroll-indicator-icon" />
+            <ChevronDown className="scroll-indicator-icon" />
           </div>
         </section>
 

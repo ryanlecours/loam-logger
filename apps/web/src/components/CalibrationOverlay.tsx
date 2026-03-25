@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
-import { FaBellSlash, FaBicycle, FaCheck, FaChevronDown, FaChevronUp, FaExclamationTriangle, FaCheckCircle } from 'react-icons/fa';
+import { BellOff, Bike, Check, ChevronDown, ChevronUp, TriangleAlert, CircleCheck } from 'lucide-react';
 import { Modal } from './ui/Modal';
 import { Button } from './ui/Button';
 import { StatusDot } from './dashboard/StatusDot';
@@ -322,7 +322,7 @@ export function CalibrationOverlay({ isOpen, onClose }: CalibrationOverlayProps)
         {/* Success Message */}
         {successMessage && (
           <div className="alert-inline alert-inline-success">
-            <FaCheckCircle size={14} />
+            <CircleCheck size={14} />
             {successMessage}
           </div>
         )}
@@ -330,7 +330,7 @@ export function CalibrationOverlay({ isOpen, onClose }: CalibrationOverlayProps)
         {/* Error Message */}
         {error && (
           <div className="alert-inline alert-inline-error">
-            <FaExclamationTriangle size={14} />
+            <TriangleAlert size={14} />
             {error}
           </div>
         )}
@@ -403,21 +403,21 @@ function BikeSection({
             <img src={bike.thumbnailUrl} alt="" className="calibration-bike-thumb" />
           ) : (
             <div className="calibration-bike-thumb-placeholder">
-              <FaBicycle size={20} />
+              <Bike size={20} />
             </div>
           )}
           <div className="calibration-bike-name">
             <span className="calibration-bike-title">{bike.bikeName}</span>
             <span className="calibration-bike-count">
               {allCalibrated ? (
-                <><FaCheck size={12} className="icon-success" /> All set</>
+                <><Check size={12} className="icon-success" /> All set</>
               ) : (
                 `${uncalibratedCount} need${uncalibratedCount === 1 ? 's' : ''} attention`
               )}
             </span>
           </div>
         </div>
-        {isExpanded ? <FaChevronUp size={14} /> : <FaChevronDown size={14} />}
+        {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
       </button>
 
       {/* Expanded content */}
@@ -495,7 +495,7 @@ function ComponentRow({ component, isCalibrated, isSelected, onToggleSelection, 
     return (
       <div className="calibration-component calibration-component-done">
         <div className="calibration-component-check">
-          <FaCheck size={12} />
+          <Check size={12} />
         </div>
         <div className="calibration-component-info">
           <span className="calibration-component-label">{label}</span>
@@ -540,7 +540,7 @@ function ComponentRow({ component, isCalibrated, isSelected, onToggleSelection, 
         disabled={isSubmitting}
         title="Visually inspected - extend service interval by 50%"
       >
-        <FaBellSlash size={10} className="icon-left" />
+        <BellOff size={10} className="icon-left" />
         Snooze
       </Button>
     </div>

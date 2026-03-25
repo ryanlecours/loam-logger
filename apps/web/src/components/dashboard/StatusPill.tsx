@@ -1,4 +1,4 @@
-import { FaExclamationCircle, FaExclamationTriangle, FaClock, FaCheckCircle } from 'react-icons/fa';
+import { CircleAlert, TriangleAlert, Clock, CircleCheck } from 'lucide-react';
 import type { PredictionStatus } from '../../types/prediction';
 import { STATUS_CONFIG } from '../../types/prediction';
 
@@ -8,10 +8,10 @@ interface StatusPillProps {
 }
 
 const STATUS_ICONS: Record<PredictionStatus, React.ComponentType<{ className?: string }>> = {
-  OVERDUE: FaExclamationCircle,
-  DUE_NOW: FaExclamationTriangle,
-  DUE_SOON: FaClock,
-  ALL_GOOD: FaCheckCircle,
+  OVERDUE: CircleAlert,
+  DUE_NOW: TriangleAlert,
+  DUE_SOON: Clock,
+  ALL_GOOD: CircleCheck,
 };
 
 const STATUS_CLASSES: Record<PredictionStatus, string> = {

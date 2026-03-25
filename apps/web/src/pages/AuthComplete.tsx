@@ -3,7 +3,7 @@ import { useApolloClient } from '@apollo/client';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
 import { Card } from '../components/ui';
-import { FaCheckCircle } from 'react-icons/fa';
+import { CircleCheck } from 'lucide-react';
 
 export default function AuthComplete() {
   const client = useApolloClient();
@@ -39,7 +39,7 @@ export default function AuthComplete() {
             }}
             className="mb-6"
           >
-            <FaCheckCircle className="text-6xl text-mint mx-auto" />
+            <CircleCheck className="text-6xl text-mint mx-auto" />
           </motion.div>
 
           <motion.div

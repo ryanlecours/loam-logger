@@ -1,4 +1,4 @@
-import { FaArrowUp, FaArrowDown, FaMinus, FaFire, FaTrophy } from 'react-icons/fa';
+import { ArrowUp, ArrowDown, Minus, Flame, Trophy } from 'lucide-react';
 import type { TrendStats } from '../types';
 
 interface TrendsSectionProps {
@@ -10,7 +10,7 @@ function TrendIndicator({ value, label }: { value: number | null; label: string 
     return (
       <div className="trend-item">
         <span className="trend-icon trend-neutral">
-          <FaMinus size={10} />
+          <Minus size={10} />
         </span>
         <span className="trend-label">{label}</span>
         <span className="trend-value trend-neutral">—</span>
@@ -24,7 +24,7 @@ function TrendIndicator({ value, label }: { value: number | null; label: string 
   return (
     <div className="trend-item">
       <span className={`trend-icon ${isPositive ? 'trend-up' : isNeutral ? 'trend-neutral' : 'trend-down'}`}>
-        {isPositive ? <FaArrowUp size={10} /> : isNeutral ? <FaMinus size={10} /> : <FaArrowDown size={10} />}
+        {isPositive ? <ArrowUp size={10} /> : isNeutral ? <Minus size={10} /> : <ArrowDown size={10} />}
       </span>
       <span className="trend-label">{label}</span>
       <span className={`trend-value ${isPositive ? 'trend-up' : isNeutral ? 'trend-neutral' : 'trend-down'}`}>
@@ -75,14 +75,14 @@ export default function TrendsSection({ stats }: TrendsSectionProps) {
       {/* Streaks */}
       <div className="streaks-row">
         <div className="streak-item">
-          <FaFire className="streak-icon" />
+          <Flame className="streak-icon" />
           <div className="streak-info">
             <span className="streak-value">{stats.currentStreak}</span>
             <span className="streak-label">Current Streak</span>
           </div>
         </div>
         <div className="streak-item">
-          <FaTrophy className="streak-icon streak-icon-gold" />
+          <Trophy className="streak-icon streak-icon-gold" />
           <div className="streak-info">
             <span className="streak-value">{stats.longestStreak}</span>
             <span className="streak-label">Longest Streak</span>

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery } from '@apollo/client';
 import { useNavigate } from 'react-router-dom';
-import { FaBicycle } from 'react-icons/fa';
+import { Bike } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { BikeForm } from '@/components/BikeForm';
 import { showBikeCreatedToast } from '@/utils/toastHelpers';
@@ -400,7 +400,7 @@ export default function Gear() {
           {/* Empty State */}
           {!loading && bikes.length === 0 && (
             <div className="bikes-empty">
-              <FaBicycle size={48} className="bikes-empty-icon" />
+              <Bike size={48} className="bikes-empty-icon" />
               <h3 className="bikes-empty-title">No bikes on file yet</h3>
               <p className="bikes-empty-text">
                 Add your first bike to start tracking service intervals and upgrade paths.

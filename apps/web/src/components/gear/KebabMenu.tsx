@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, type ReactNode } from 'react';
-import { FaEllipsisV } from 'react-icons/fa';
+import { EllipsisVertical } from 'lucide-react';
 
 export interface KebabMenuItem {
   label: string;
@@ -62,7 +62,7 @@ export function KebabMenu({ items, ariaLabel = 'Actions menu' }: KebabMenuProps)
         aria-expanded={isOpen}
         aria-haspopup="menu"
       >
-        <FaEllipsisV size={14} />
+        <EllipsisVertical size={14} />
       </button>
 
       {isOpen && (

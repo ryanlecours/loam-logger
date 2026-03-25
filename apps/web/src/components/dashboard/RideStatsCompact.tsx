@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { FaChartLine } from 'react-icons/fa';
+import { TrendingUp } from 'lucide-react';
 import {
   getTimeframeStartDate,
   filterRidesByDate,
@@ -91,7 +91,7 @@ export function RideStatsCompact({ rides, loading = false }: RideStatsCompactPro
         </div>
         <div className="ride-stats-compact-footer">
           <Link to="/rides" className="link-subtle">
-            <FaChartLine size={12} />
+            <TrendingUp size={12} />
             View details
           </Link>
         </div>

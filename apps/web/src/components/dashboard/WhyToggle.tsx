@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { FaQuestionCircle, FaChevronDown } from 'react-icons/fa';
+import { CircleHelp, ChevronDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import type { WearDriver } from '../../types/prediction';
 
@@ -23,9 +23,9 @@ export function WhyToggle({ explanation, drivers, className = '' }: WhyTogglePro
         onClick={() => setIsExpanded(!isExpanded)}
         aria-expanded={isExpanded}
       >
-        <FaQuestionCircle size={12} />
+        <CircleHelp size={12} />
         Why?
-        <FaChevronDown size={10} className="why-toggle-chevron" />
+        <ChevronDown size={10} className="why-toggle-chevron" />
       </button>
 
       <AnimatePresence>
