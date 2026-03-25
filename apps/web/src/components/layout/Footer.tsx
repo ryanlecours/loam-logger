@@ -115,6 +115,29 @@ export default function Footer() {
                 </div>
             </div>
 
+            {/* Partner Attribution */}
+            <div className="border-t footer-border">
+                <div className="container py-8">
+                    <div className="flex flex-col items-center gap-3">
+                        <p className="text-xs text-concrete text-center">
+                            Bike specifications and component data
+                        </p>
+                        <a
+                            href="https://99spokes.com"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="opacity-80 hover:opacity-100 transition-opacity"
+                        >
+                            <img
+                                src="/logos/powered-by-99-spokes-for-light-bg.svg"
+                                alt="Powered by 99 Spokes"
+                                className="h-8"
+                            />
+                        </a>
+                    </div>
+                </div>
+            </div>
+
             {/* Bottom Disclaimer Bar */}
             <div className="border-t footer-border">
                 <div className="container py-4 px-6">
