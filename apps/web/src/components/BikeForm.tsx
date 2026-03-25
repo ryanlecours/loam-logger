@@ -169,8 +169,8 @@ export function BikeForm({
 
   // Determine if we have multiple images for colorway selection
   const hasMultipleImages = (spokesDetails?.images?.length ?? 0) > 1;
-  // Total steps: 2 if no colorway choice, 3 if colorway choice exists
-  const totalSteps = hasMultipleImages ? 3 : 2;
+  // Total steps: always 3 (Search → Details → Wear Start)
+  const totalSteps = 3;
 
   // Get bike image URL with fallback to images array, validated for security
   const getBikeImageUrl = () => {
@@ -277,8 +277,8 @@ export function BikeForm({
     setStep(2);
   };
 
-  // Proceed from Step 2 (Colorway) to Step 3 (Wear Start)
-  const handleContinueFromColorway = () => {
+  // Proceed from Step 2 (Details) to Step 3 (Wear Start)
+  const handleContinueFromStep2 = () => {
     setStep(3);
   };
 
@@ -470,11 +470,11 @@ export function BikeForm({
   const canContinue = form.manufacturer && form.model && form.year;
 
   // ============================================================================
-  // Step 1: Bike Selection (Create & Edit modes)
+  // Step 1: Bike Search (Create & Edit modes)
   // ============================================================================
   if (step === 1) {
     return (
-      <div className="bg-surface border border-app rounded-xl shadow p-6 space-y-4">
+      <div className="bg-surface border border-app rounded-xl shadow p-6 space-y-5">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold text-heading">
             {mode === 'edit' ? 'Edit Bike' : 'Add New Bike'}
@@ -482,8 +482,8 @@ export function BikeForm({
           <span className="text-xs text-muted">Step 1 of {totalSteps}</span>
         </div>
 
-        {/* Bike Search */}
-        <div className="space-y-2">
+        {/* 99Spokes-powered search */}
+        <div className="space-y-3">
           <BikeSearch
             label="Search Bike"
             onSelect={handleBikeSelect}
@@ -493,6 +493,23 @@ export function BikeForm({
           {loadingDetails && (
             <p className="text-xs text-muted">Loading bike details...</p>
           )}
+
+          {/* 99Spokes attribution */}
+          <div className="flex items-center justify-center gap-2 pt-1">
+            <span className="text-sm text-muted">Powered by</span>
+            <a
+              href="https://99spokes.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="opacity-80 hover:opacity-100 transition-opacity"
+            >
+              <img
+                src="/logos/powered-by-99-spokes-for-dark-bg.svg"
+                alt="99 Spokes"
+                className="h-6"
+              />
+            </a>
+          </div>
         </div>
 
         {/* Selected bike display */}
@@ -528,15 +545,22 @@ export function BikeForm({
           </div>
         )}
 
-        {/* Manual entry toggle */}
+        {/* "or" divider + manual entry */}
         {!form.manufacturer && !showManualEntry && (
-          <button
-            type="button"
-            onClick={() => setShowManualEntry(true)}
-            className="text-sm text-muted hover:text-primary"
-          >
-            Can't find your bike? Enter details manually
-          </button>
+          <div className="space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="flex-1 border-t border-app" />
+              <span className="text-xs text-muted uppercase tracking-wider">or</span>
+              <div className="flex-1 border-t border-app" />
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowManualEntry(true)}
+              className="w-full text-center text-sm text-muted hover:text-primary transition-colors"
+            >
+              Can't find your bike? Enter details manually
+            </button>
+          </div>
         )}
 
         {/* Manual Entry Fields */}
@@ -598,6 +622,74 @@ export function BikeForm({
           </div>
         )}
 
+        {error && (
+          <div className="text-sm text-danger">{error}</div>
+        )}
+
+        <div className="flex justify-end gap-3 pt-2">
+          <Button type="button" variant="secondary" size="sm" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            variant="primary"
+            size="sm"
+            disabled={!canContinue}
+            onClick={handleContinueFromStep1}
+          >
+            Continue
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  // ============================================================================
+  // Step 2: Bike Details (Create mode — colorway, nickname, notes)
+  // ============================================================================
+  if (step === 2 && mode === 'create') {
+    return (
+      <div className="bg-surface border border-app rounded-xl shadow p-6 space-y-6">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-heading">Bike Details</h2>
+          <span className="text-xs text-muted">Step 2 of {totalSteps}</span>
+        </div>
+
+        {/* Selected bike summary */}
+        {form.manufacturer && form.model && (
+          <div className="rounded-lg bg-surface-2 p-3 border border-app">
+            <div className="flex items-center gap-3">
+              {getBikeImageUrl() && (
+                <img
+                  src={getBikeImageUrl()!}
+                  alt={`${form.year} ${form.manufacturer} ${form.model}`}
+                  className="w-16 h-12 object-contain rounded bg-white/5"
+                  onError={(e) => {
+                    e.currentTarget.style.display = 'none';
+                  }}
+                />
+              )}
+              <p className="text-heading font-medium text-sm">
+                {form.year} {form.manufacturer} {form.model}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Colorway selector (if multiple images) */}
+        {hasMultipleImages && (
+          <div className="space-y-2">
+            <h3 className="text-sm font-medium text-heading">Which colorway do you have?</h3>
+            <p className="text-xs text-muted">Select the color that matches your bike.</p>
+            <BikeImageSelector
+              images={spokesDetails!.images!}
+              thumbnailUrl={spokesDetails!.thumbnailUrl}
+              selectedUrl={form.thumbnailUrl ?? null}
+              onSelect={handleImageSelect}
+            />
+          </div>
+        )}
+
         {/* Nickname */}
         <Input
           label="Nickname (optional)"
@@ -619,85 +711,28 @@ export function BikeForm({
           <div className="text-sm text-danger">{error}</div>
         )}
 
-        <div className="flex justify-end gap-3 pt-2">
-          <Button type="button" variant="secondary" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
+        <div className="flex justify-between pt-2">
+          <button
             type="button"
-            variant="primary"
-            disabled={!canContinue}
-            onClick={handleContinueFromStep1}
+            onClick={handleBackToStep1}
+            className="px-4 py-2 text-sm font-medium text-muted hover:text-primary transition-colors"
+          >
+            Back
+          </button>
+          <button
+            type="button"
+            onClick={handleContinueFromStep2}
+            className="px-6 py-2 rounded-lg text-sm font-medium bg-accent text-white hover:bg-accent-hover transition-all"
           >
             Continue
-          </Button>
+          </button>
         </div>
       </div>
     );
   }
 
   // ============================================================================
-  // Step 2: Colorway Selection (Create mode, only if multiple images)
-  // OR Wear Start Point (Create mode, if no multiple images)
-  // ============================================================================
-  if (step === 2 && mode === 'create') {
-    // If multiple images, show colorway selector
-    if (hasMultipleImages) {
-      return (
-        <div className="bg-surface border border-app rounded-xl shadow p-6 space-y-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-xl font-semibold text-primary">
-                Which colorway do you have?
-              </h2>
-              <p className="text-sm text-muted mt-1">
-                Select the color that matches your bike.
-              </p>
-            </div>
-            <span className="text-xs text-muted">Step 2 of {totalSteps}</span>
-          </div>
-
-          <BikeImageSelector
-            images={spokesDetails!.images!}
-            thumbnailUrl={spokesDetails!.thumbnailUrl}
-            selectedUrl={form.thumbnailUrl ?? null}
-            onSelect={handleImageSelect}
-          />
-
-          <div className="flex justify-between pt-2">
-            <button
-              type="button"
-              onClick={handleBackToStep1}
-              className="px-4 py-2 text-sm font-medium text-muted hover:text-primary transition-colors"
-            >
-              Back
-            </button>
-            <button
-              type="button"
-              onClick={handleContinueFromColorway}
-              className="px-6 py-2 rounded-lg text-sm font-medium bg-accent text-white hover:bg-accent-hover transition-all"
-            >
-              Continue
-            </button>
-          </div>
-        </div>
-      );
-    }
-
-    // No multiple images, show wear start directly as Step 2
-    return (
-      <WearStartStep
-        selected={acquisitionCondition}
-        onSelect={setAcquisitionCondition}
-        onBack={handleBackToStep1}
-        onSubmit={handleCreateSubmit}
-        submitting={submitting}
-      />
-    );
-  }
-
-  // ============================================================================
-  // Step 3: Wear Start Point (Create mode, only after colorway selection)
+  // Step 3: Wear Start Point (Create mode)
   // ============================================================================
   if (step === 3 && mode === 'create') {
     return (
