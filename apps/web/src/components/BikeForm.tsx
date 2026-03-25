@@ -58,7 +58,7 @@ const ComponentRow = memo(function ComponentRow({ entry, isLast, error, onUpdate
             placeholder="Brand"
             className={`w-full bg-transparent text-sm text-heading placeholder:text-muted/50 focus:outline-none ${error && !entry.brand.trim() ? 'text-danger placeholder:text-danger/50' : ''}`}
           />
-          <FaPencilAlt className="w-3 h-3 text-muted/40 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
+          <FaPencilAlt class="w-3 h-3 text-muted/40 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
         </div>
       </td>
       <td className="px-4 py-2">
@@ -70,7 +70,7 @@ const ComponentRow = memo(function ComponentRow({ entry, isLast, error, onUpdate
             placeholder="Model"
             className={`w-full bg-transparent text-sm text-heading placeholder:text-muted/50 focus:outline-none ${error && !entry.model.trim() ? 'text-danger placeholder:text-danger/50' : ''}`}
           />
-          <FaPencilAlt className="w-3 h-3 text-muted/40 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
+          <FaPencilAlt class="w-3 h-3 text-muted/40 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
         </div>
         {error && (
           <span className="text-xs text-danger">{error}</span>

@@ -12,9 +12,9 @@ import { BIKES } from "../graphql/bikes";
 import { Modal, Button } from "./ui";
 
 const statusIcons = {
-  ok: <FaCheckCircle className="component-icon icon-good" />,
-  warning: <FaExclamationTriangle className="component-icon icon-warning" />,
-  danger: <FaExclamationCircle className="component-icon icon-danger" />,
+  ok: <FaCheckCircle class="component-icon icon-good" />,
+  warning: <FaExclamationTriangle class="component-icon icon-warning" />,
+  danger: <FaExclamationCircle class="component-icon icon-danger" />,
 };
 
 type ComponentInfo = {

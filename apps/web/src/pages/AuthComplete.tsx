@@ -39,7 +39,7 @@ export default function AuthComplete() {
             }}
             className="mb-6"
           >
-            <FaCheckCircle className="text-6xl text-mint mx-auto" />
+            <FaCheckCircle class="text-6xl text-mint mx-auto" />
           </motion.div>
 
           <motion.div

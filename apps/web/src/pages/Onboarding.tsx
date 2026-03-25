@@ -768,7 +768,7 @@ export default function Onboarding() {
                   <div className="w-full rounded-2xl border border-[#FC4C02]/50 bg-surface-2 px-4 py-4">
                     <div className="flex items-center justify-between gap-4">
                       <div className="flex items-center gap-3">
-                        <FaStrava className="text-lg" style={{ color: '#FC4C02' }} />
+                        <FaStrava class="text-lg" style={{ color: '#FC4C02' }} />
                         <div className="text-left">
                           <p className="font-semibold">Strava</p>
                           <p className="text-xs text-success">Connected ✓</p>
@@ -784,7 +784,7 @@ export default function Onboarding() {
                   >
                     <div className="flex items-center justify-between gap-4">
                       <div className="flex items-center gap-3">
-                        <FaStrava className="text-lg" style={{ color: '#FC4C02' }} />
+                        <FaStrava class="text-lg" style={{ color: '#FC4C02' }} />
                         <div>
                           <div className="flex items-center gap-2">
                             <p className="font-semibold">Strava</p>
@@ -803,7 +803,7 @@ export default function Onboarding() {
                   <div className="w-full rounded-2xl border border-[#11A9ED]/50 bg-surface-2 px-4 py-4">
                     <div className="flex items-center justify-between gap-4">
                       <div className="flex items-center gap-3">
-                        <FaMountain className="text-lg" style={{ color: '#11A9ED' }} />
+                        <FaMountain class="text-lg" style={{ color: '#11A9ED' }} />
                         <div className="text-left">
                           <p className="font-semibold">Garmin Connect</p>
                           <p className="text-xs text-success">Connected ✓</p>
@@ -819,7 +819,7 @@ export default function Onboarding() {
                   >
                     <div className="flex items-center justify-between gap-4">
                       <div className="flex items-center gap-3">
-                        <FaMountain className="text-lg" style={{ color: '#11A9ED' }} />
+                        <FaMountain class="text-lg" style={{ color: '#11A9ED' }} />
                         <div>
                           <p className="font-semibold">Garmin Connect</p>
                           <p className="text-xs text-muted">Import activities automatically</p>
@@ -849,7 +849,7 @@ export default function Onboarding() {
               <div className="space-y-2">
                 <div className="flex justify-center mb-4">
                   <div className="w-16 h-16 rounded-full bg-green-500/20 flex items-center justify-center">
-                    <FaCheck className="text-2xl text-green-400" />
+                    <FaCheck class="text-2xl text-green-400" />
                   </div>
                 </div>
                 <h2 className="text-3xl font-semibold text-white">You're All Set!</h2>
@@ -881,7 +881,7 @@ export default function Onboarding() {
                 >
                   <div className="flex items-start gap-3">
                     <div className="w-8 h-8 rounded-full bg-accent/20 flex items-center justify-center shrink-0">
-                      <FaCog className="text-accent" />
+                      <FaCog class="text-accent" />
                     </div>
                     <div className="flex-1">
                       <span className="font-medium text-primary">Edit bike components</span>
@@ -899,7 +899,7 @@ export default function Onboarding() {
                   >
                     <div className="flex items-start gap-3">
                       <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center shrink-0">
-                        <FaClock className="text-primary" />
+                        <FaClock class="text-primary" />
                       </div>
                       <div className="flex-1">
                         <span className="font-medium text-primary">Configure service tracking</span>
@@ -907,9 +907,9 @@ export default function Onboarding() {
                       </div>
                     </div>
                     {showServicePrefs ? (
-                      <FaChevronUp className="w-4 h-4 text-muted shrink-0" />
+                      <FaChevronUp class="w-4 h-4 text-muted shrink-0" />
                     ) : (
-                      <FaChevronDown className="w-4 h-4 text-muted shrink-0" />
+                      <FaChevronDown class="w-4 h-4 text-muted shrink-0" />
                     )}
                   </button>
 

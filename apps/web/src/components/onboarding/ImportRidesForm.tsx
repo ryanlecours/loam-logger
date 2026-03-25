@@ -275,9 +275,9 @@ export function ImportRidesForm({ connectedProviders }: ImportRidesFormProps) {
             {importState === 'loading' ? (
               <div className="w-4 h-4 border-2 border-accent border-t-transparent rounded-full animate-spin" />
             ) : importState === 'done' ? (
-              <FaCheck className="text-green-400" />
+              <FaCheck class="text-green-400" />
             ) : (
-              <FaHistory className="text-accent" />
+              <FaHistory class="text-accent" />
             )}
           </div>
           <div className="text-left">
@@ -296,9 +296,9 @@ export function ImportRidesForm({ connectedProviders }: ImportRidesFormProps) {
         </div>
         {importState !== 'loading' && (
           expanded ? (
-            <FaChevronUp className="w-4 h-4 text-muted" />
+            <FaChevronUp class="w-4 h-4 text-muted" />
           ) : (
-            <FaChevronDown className="w-4 h-4 text-muted" />
+            <FaChevronDown class="w-4 h-4 text-muted" />
           )
         )}
       </button>
@@ -386,7 +386,7 @@ export function ImportRidesForm({ connectedProviders }: ImportRidesFormProps) {
                         {option.label}
                       </span>
                       {isBackfilled && (
-                        <FaCheck className="w-3 h-3 text-green-400" title="Already imported" />
+                        <FaCheck class="w-3 h-3 text-green-400" title="Already imported" />
                       )}
                       {isInProgress && !isBackfilled && (
                         <div className="w-3 h-3 border border-yellow-400 border-t-transparent rounded-full animate-spin" title="In progress" />

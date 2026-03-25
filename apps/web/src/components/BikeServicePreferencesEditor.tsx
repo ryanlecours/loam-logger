@@ -281,7 +281,7 @@ export default function BikeServicePreferencesEditor({
           onClick={handleResetAllToGlobal}
           className="text-sm text-primary hover:underline flex items-center gap-1"
         >
-          <FaUndo className="text-xs" />
+          <FaUndo class="text-xs" />
           Reset all to global defaults
         </button>
       )}
@@ -346,9 +346,9 @@ export default function BikeServicePreferencesEditor({
                             title={pref.overrideTrackingEnabled ? 'Disable tracking' : 'Enable tracking'}
                           >
                             {pref.overrideTrackingEnabled ? (
-                              <FaToggleOn className="text-2xl text-primary" />
+                              <FaToggleOn class="text-2xl text-primary" />
                             ) : (
-                              <FaToggleOff className="text-2xl text-muted" />
+                              <FaToggleOff class="text-2xl text-muted" />
                             )}
                           </button>
                           <span className="text-xs text-muted">

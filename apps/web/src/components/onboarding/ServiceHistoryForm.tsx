@@ -271,7 +271,7 @@ export function ServiceHistoryForm({ bikeId, onComplete }: ServiceHistoryFormPro
       <div className="w-full p-4 rounded-lg border-2 border-app bg-surface">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-full bg-accent/20 flex items-center justify-center">
-            <FaWrench className="text-accent" />
+            <FaWrench class="text-accent" />
           </div>
           <span className="text-muted">Loading components...</span>
         </div>
@@ -285,7 +285,7 @@ export function ServiceHistoryForm({ bikeId, onComplete }: ServiceHistoryFormPro
       <div className="w-full p-4 rounded-lg border-2 border-app bg-surface">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-full bg-accent/20 flex items-center justify-center">
-            <FaWrench className="text-accent" />
+            <FaWrench class="text-accent" />
           </div>
           <div>
             <span className="font-medium text-primary">Log Service History</span>
@@ -307,9 +307,9 @@ export function ServiceHistoryForm({ bikeId, onComplete }: ServiceHistoryFormPro
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-full bg-accent/20 flex items-center justify-center shrink-0">
             {saveSuccess ? (
-              <FaCheck className="text-green-400" />
+              <FaCheck class="text-green-400" />
             ) : (
-              <FaWrench className="text-accent" />
+              <FaWrench class="text-accent" />
             )}
           </div>
           <div className="text-left">
@@ -325,9 +325,9 @@ export function ServiceHistoryForm({ bikeId, onComplete }: ServiceHistoryFormPro
           </div>
         </div>
         {expanded ? (
-          <FaChevronUp className="w-4 h-4 text-muted" />
+          <FaChevronUp class="w-4 h-4 text-muted" />
         ) : (
-          <FaChevronDown className="w-4 h-4 text-muted" />
+          <FaChevronDown class="w-4 h-4 text-muted" />
         )}
       </button>
 
@@ -438,12 +438,12 @@ export function ServiceHistoryForm({ bikeId, onComplete }: ServiceHistoryFormPro
           >
             {editingId ? (
               <>
-                <FaEdit className="w-3 h-3" />
+                <FaEdit class="w-3 h-3" />
                 Update Entry
               </>
             ) : (
               <>
-                <FaPlus className="w-3 h-3" />
+                <FaPlus class="w-3 h-3" />
                 Add Service
               </>
             )}
@@ -477,7 +477,7 @@ export function ServiceHistoryForm({ bikeId, onComplete }: ServiceHistoryFormPro
                       className="p-1.5 rounded hover:bg-surface-hover text-muted hover:text-primary transition-colors"
                       title="Edit"
                     >
-                      <FaEdit className="w-3 h-3" />
+                      <FaEdit class="w-3 h-3" />
                     </button>
                     <button
                       type="button"
@@ -485,7 +485,7 @@ export function ServiceHistoryForm({ bikeId, onComplete }: ServiceHistoryFormPro
                       className="p-1.5 rounded hover:bg-red-500/10 text-muted hover:text-danger transition-colors"
                       title="Delete"
                     >
-                      <FaTimes className="w-3 h-3" />
+                      <FaTimes class="w-3 h-3" />
                     </button>
                   </div>
                 </div>
