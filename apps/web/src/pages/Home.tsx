@@ -29,6 +29,25 @@ export default function Home() {
             <a className="underline underline-offset-4" href="/privacy">Privacy Policy</a>
           </nav>
         </div>
+        <div className="mt-6 pt-6 border-t border-black/10 dark:border-white/10">
+          <div className="flex flex-col items-center gap-3">
+            <p className="text-xs text-concrete text-center">
+              Bike specifications and component data
+            </p>
+            <a
+              href="https://99spokes.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="opacity-80 hover:opacity-100 transition-opacity"
+            >
+              <img
+                src="/logos/powered-by-99-spokes-for-dark-bg.svg"
+                alt="Powered by 99 Spokes"
+                className="h-8"
+              />
+            </a>
+          </div>
+        </div>
       </footer>
     </main>
   );
