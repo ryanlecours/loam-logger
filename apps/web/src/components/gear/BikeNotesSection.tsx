@@ -88,7 +88,7 @@ export function BikeNotesSection({ bikeId, onAddNote }: BikeNotesSectionProps) {
         aria-expanded={isExpanded}
       >
         <div className="flex items-center gap-2">
-          <FaStickyNote class="text-muted" size={14} />
+          <FaStickyNote className="text-muted" size={14} />
           <span className="text-sm font-medium text-app">Notes</span>
           {totalCount > 0 && (
             <span className="text-xs text-muted">({totalCount})</span>
@@ -96,7 +96,7 @@ export function BikeNotesSection({ bikeId, onAddNote }: BikeNotesSectionProps) {
         </div>
         <FaChevronDown
           size={12}
-          class={`text-muted transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+          className={`text-muted transition-transform ${isExpanded ? 'rotate-180' : ''}`}
         />
       </button>
 
@@ -119,7 +119,7 @@ export function BikeNotesSection({ bikeId, onAddNote }: BikeNotesSectionProps) {
                   onClick={onAddNote}
                   className="w-full"
                 >
-                  <FaPlus size={10} class="mr-1.5" />
+                  <FaPlus size={10} className="mr-1.5" />
                   Add Note
                 </Button>
               </div>

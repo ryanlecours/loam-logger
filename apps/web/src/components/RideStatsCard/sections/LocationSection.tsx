@@ -46,7 +46,7 @@ export default function LocationSection({ stats }: LocationSectionProps) {
       {hasLocations && (
         <LocationList
           items={stats.topLocations}
-          icon={<FaMapMarkerAlt class="location-icon" />}
+          icon={<FaMapMarkerAlt className="location-icon" />}
           title="Top Locations"
         />
       )}
@@ -54,7 +54,7 @@ export default function LocationSection({ stats }: LocationSectionProps) {
       {hasTrailSystems && (
         <LocationList
           items={stats.topTrailSystems}
-          icon={<FaMountain class="location-icon" />}
+          icon={<FaMountain className="location-icon" />}
           title="Trail Systems"
         />
       )}

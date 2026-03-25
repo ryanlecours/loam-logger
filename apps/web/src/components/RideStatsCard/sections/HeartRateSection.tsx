@@ -10,7 +10,7 @@ export default function HeartRateSection({ stats }: HeartRateSectionProps) {
     <div className="hr-content">
       <div className="hr-stats-row">
         <div className="hr-stat">
-          <FaHeartbeat class="hr-icon" />
+          <FaHeartbeat className="hr-icon" />
           <span className="hr-value">{stats.averageHr ?? '—'}</span>
           <span className="hr-label">Avg BPM</span>
         </div>

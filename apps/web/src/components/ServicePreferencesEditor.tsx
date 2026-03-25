@@ -203,7 +203,7 @@ export default function ServicePreferencesEditor({ onSaved, compact = false }: S
 
       {allDisabled && (
         <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-sm text-amber-400 flex items-start gap-2">
-          <FaExclamationTriangle class="mt-0.5 shrink-0" />
+          <FaExclamationTriangle className="mt-0.5 shrink-0" />
           <span>All service tracking is disabled. Your dashboard won&apos;t show any maintenance alerts.</span>
         </div>
       )}
@@ -225,9 +225,9 @@ export default function ServicePreferencesEditor({ onSaved, compact = false }: S
             >
               <div className="flex items-center gap-2">
                 {isExpanded ? (
-                  <FaChevronDown class="text-xs text-muted" />
+                  <FaChevronDown className="text-xs text-muted" />
                 ) : (
-                  <FaChevronRight class="text-xs text-muted" />
+                  <FaChevronRight className="text-xs text-muted" />
                 )}
                 <span className="text-sm font-medium text-white">
                   {CATEGORY_LABELS[category]}
@@ -265,9 +265,9 @@ export default function ServicePreferencesEditor({ onSaved, compact = false }: S
                         title={pref.trackingEnabled ? 'Disable tracking' : 'Enable tracking'}
                       >
                         {pref.trackingEnabled ? (
-                          <FaToggleOn class="text-2xl text-primary" />
+                          <FaToggleOn className="text-2xl text-primary" />
                         ) : (
-                          <FaToggleOff class="text-2xl text-muted" />
+                          <FaToggleOff className="text-2xl text-muted" />
                         )}
                       </button>
                     </div>

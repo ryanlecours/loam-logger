@@ -414,7 +414,7 @@ export default function Settings() {
             <div className="w-full rounded-2xl border border-app/70 bg-surface-2 px-4 py-3">
               <div className="flex items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
-                  <FaGoogle class="text-lg text-blue-400" />
+                  <FaGoogle className="text-lg text-blue-400" />
                   <div>
                     <p className="font-semibold">Google</p>
                     <p className="text-body-muted">Used for login</p>
@@ -429,7 +429,7 @@ export default function Settings() {
               <div className="w-full rounded-2xl border border-app/70 bg-surface-2 px-4 py-3">
                 <div className="flex items-center justify-between gap-4">
                   <div className="flex items-center gap-3">
-                    <FaMountain class="text-lg" style={{ color: '#11A9ED' }} />
+                    <FaMountain className="text-lg" style={{ color: '#11A9ED' }} />
                     <div>
                       <p className="font-semibold">Garmin Connect</p>
                       <p className="text-xs text-muted">
@@ -471,7 +471,7 @@ export default function Settings() {
               <div className="w-full rounded-2xl border border-app/70 bg-surface-2 px-4 py-3">
                 <div className="flex items-center justify-between gap-4">
                   <div className="flex items-center gap-3">
-                    <FaStrava class="text-lg" style={{ color: '#FC4C02' }} />
+                    <FaStrava className="text-lg" style={{ color: '#FC4C02' }} />
                     <div>
                       <p className="font-semibold">Strava</p>
                       <p className="text-xs text-muted">
@@ -513,7 +513,7 @@ export default function Settings() {
               <div className="w-full rounded-2xl border border-app/70 bg-surface-2 px-4 py-3">
                 <div className="flex items-center justify-between gap-4">
                   <div className="flex items-center gap-3">
-                    <TbActivityHeartbeat class="text-lg" style={{ color: '#00FF87' }} />
+                    <TbActivityHeartbeat className="text-lg" style={{ color: '#00FF87' }} />
                     <div>
                       <p className="font-semibold">WHOOP</p>
                       <p className="text-xs text-muted">

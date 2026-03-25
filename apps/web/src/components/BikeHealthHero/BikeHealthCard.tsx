@@ -36,7 +36,7 @@ export function BikeHealthCard({
           />
         ) : (
           <div className="health-card-placeholder">
-            <FaBicycle class="health-card-placeholder-icon" />
+            <FaBicycle className="health-card-placeholder-icon" />
           </div>
         )}
       </div>

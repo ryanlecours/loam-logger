@@ -65,9 +65,9 @@ export function BikeNoteCard({ note, onDelete, deleting }: BikeNoteCardProps) {
         {/* Icon */}
         <div className="flex-shrink-0 mt-0.5">
           {isSwapNote ? (
-            <FaExchangeAlt class="text-forest" size={14} />
+            <FaExchangeAlt className="text-forest" size={14} />
           ) : (
-            <FaStickyNote class="text-muted" size={14} />
+            <FaStickyNote className="text-muted" size={14} />
           )}
         </div>
 
@@ -107,7 +107,7 @@ export function BikeNoteCard({ note, onDelete, deleting }: BikeNoteCardProps) {
           {hasSnapshot && (
             <FaChevronDown
               size={12}
-              class={`text-muted transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+              className={`text-muted transition-transform ${isExpanded ? 'rotate-180' : ''}`}
             />
           )}
         </div>

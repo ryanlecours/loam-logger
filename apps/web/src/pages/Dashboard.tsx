@@ -260,7 +260,7 @@ export default function Dashboard() {
 
           {/* Scroll indicator */}
           <div className="scroll-indicator" aria-hidden="true">
-            <FaChevronDown class="scroll-indicator-icon" />
+            <FaChevronDown className="scroll-indicator-icon" />
           </div>
         </section>
 

@@ -75,14 +75,14 @@ export default function TrendsSection({ stats }: TrendsSectionProps) {
       {/* Streaks */}
       <div className="streaks-row">
         <div className="streak-item">
-          <FaFire class="streak-icon" />
+          <FaFire className="streak-icon" />
           <div className="streak-info">
             <span className="streak-value">{stats.currentStreak}</span>
             <span className="streak-label">Current Streak</span>
           </div>
         </div>
         <div className="streak-item">
-          <FaTrophy class="streak-icon streak-icon-gold" />
+          <FaTrophy className="streak-icon streak-icon-gold" />
           <div className="streak-info">
             <span className="streak-value">{stats.longestStreak}</span>
             <span className="streak-label">Longest Streak</span>

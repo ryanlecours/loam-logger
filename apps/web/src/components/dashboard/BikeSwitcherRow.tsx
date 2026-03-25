@@ -103,7 +103,7 @@ export function BikeSwitcherRow({
     <div className="bike-switcher-container">
       {showHint && (
         <div className="bike-switcher-hint">
-          <FaGripHorizontal class="bike-switcher-hint-icon" />
+          <FaGripHorizontal className="bike-switcher-hint-icon" />
           <span>Drag to reorder your bikes</span>
           <button
             className="bike-switcher-hint-dismiss"
@@ -126,7 +126,7 @@ export function BikeSwitcherRow({
           <div className={`bike-switcher-row ${isReordering ? 'bike-switcher-row-loading' : ''}`}>
             {isReordering && (
               <div className="bike-switcher-loading-overlay">
-                <FaSpinner class="bike-switcher-spinner" />
+                <FaSpinner className="bike-switcher-spinner" />
               </div>
             )}
             {visibleBikes.map((bike) => (
@@ -140,7 +140,7 @@ export function BikeSwitcherRow({
             ))}
             {hasMore && (
               <Link to="/gear" className="bike-tile-more">
-                <FaPlus class="bike-tile-more-icon" />
+                <FaPlus className="bike-tile-more-icon" />
                 <span className="bike-tile-more-text">
                   +{bikes.length - maxVisible} more
                 </span>

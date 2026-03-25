@@ -17,9 +17,9 @@ interface BikeHealthModalProps {
 }
 
 const statusIcons = {
-  ok: <FaCheckCircle class="component-icon icon-good" />,
-  warning: <FaExclamationTriangle class="component-icon icon-warning" />,
-  danger: <FaExclamationCircle class="component-icon icon-danger" />,
+  ok: <FaCheckCircle className="component-icon icon-good" />,
+  warning: <FaExclamationTriangle className="component-icon icon-warning" />,
+  danger: <FaExclamationCircle className="component-icon icon-danger" />,
 };
 
 function formatHoursAndMinutes(totalHours: number): string {

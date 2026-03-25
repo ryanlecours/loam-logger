@@ -384,7 +384,7 @@ export function ComponentHealthPanel({ components, className = '', onLogService 
                   </>
                 )}
               </div>
-              <FaChevronRight class="component-health-chevron" size={12} />
+              <FaChevronRight className="component-health-chevron" size={12} />
             </button>
           );
         })}
