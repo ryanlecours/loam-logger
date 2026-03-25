@@ -98,20 +98,13 @@ export default function BikeServicePreferencesEditor({
           const userPref = userPrefMap.get(def.componentType);
           const bikePref = bikePrefMap.get(def.componentType);
 
-          // Global defaults
           const globalTrackingEnabled = userPref?.trackingEnabled ?? true;
           const globalCustomInterval = userPref?.customInterval ?? null;
-
-          // Bike override (if exists)
           const hasOverride = !!bikePref;
           const overrideTrackingEnabled = bikePref?.trackingEnabled ?? globalTrackingEnabled;
           const overrideCustomInterval = bikePref?.customInterval ?? null;
-
-          // Effective values (bike override > global)
           const effectiveTrackingEnabled = hasOverride ? overrideTrackingEnabled : globalTrackingEnabled;
-          const effectiveCustomInterval = hasOverride
-            ? overrideCustomInterval
-            : globalCustomInterval;
+          const effectiveCustomInterval = hasOverride ? overrideCustomInterval : globalCustomInterval;
 
           return {
             componentType: def.componentType,

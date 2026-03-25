@@ -113,7 +113,7 @@ export default function BikeDetail() {
 
   const bike = data?.bikes?.find((b) => b.id === bikeId);
   const predictions = bike?.predictions;
-  const allBikes = data?.bikes ?? [];
+  const allBikes = useMemo(() => data?.bikes ?? [], [data?.bikes]);
   const spareComponents = data?.spareComponents ?? [];
   const otherBikes = useMemo(
     () => allBikes.filter((b) => b.id !== bikeId),

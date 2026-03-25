@@ -79,20 +79,16 @@ export function CalibrationOverlay({ isOpen, onClose }: CalibrationOverlayProps)
       setPendingServiceLogs(new Map());
       setError(null);
       setSuccessMessage(null);
-      // Capture initial total for progress tracking (stable across refetches)
       const total = bikes.reduce((sum, bike) => sum + bike.components.length, 0);
       setInitialTotal(total);
-      // Expand first bike by default
       if (bikes.length > 0) {
         setExpandedBikeId(bikes[0].bikeId);
       }
-      // Initialize bulk dates to current month/year
       const now = new Date();
       const initialDates: Record<string, { month: number; year: number }> = {};
       const initialSelected: Record<string, Set<string>> = {};
       bikes.forEach((bike) => {
         initialDates[bike.bikeId] = { month: now.getMonth(), year: now.getFullYear() };
-        // Select all uncalibrated components by default
         initialSelected[bike.bikeId] = new Set(bike.components.map((c) => c.componentId));
       });
       setBulkDates(initialDates);

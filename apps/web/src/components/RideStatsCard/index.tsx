@@ -103,13 +103,14 @@ export default function RideStatsCard({ showHeading = true, rides: externalRides
   );
 
   // Build bike options for dropdown
+  const bikes = bikesData?.bikes;
   const bikeOptions = useMemo(() => {
-    if (!bikesData?.bikes) return [];
-    return bikesData.bikes.map((bike) => ({
+    if (!bikes) return [];
+    return bikes.map((bike) => ({
       id: bike.id,
       name: bike.nickname?.trim() || `${bike.manufacturer} ${bike.model}`.trim() || 'Bike',
     }));
-  }, [bikesData?.bikes]);
+  }, [bikes]);
 
   // Determine which stats to show
   const selectedStats = useMemo(() => {

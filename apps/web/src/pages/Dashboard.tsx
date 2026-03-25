@@ -1,5 +1,5 @@
 // src/pages/Dashboard.tsx
-import { useEffect, useState, useMemo } from 'react';
+import { useCallback, useEffect, useState, useMemo, useRef } from 'react';
 import { useQuery } from '@apollo/client';
 import { useNavigate } from 'react-router-dom';
 import { RIDES } from '../graphql/rides';
@@ -93,10 +93,10 @@ export default function Dashboard() {
   // Use full data if available, otherwise fall back to light data
   const bikesData = bikesFullData || bikesLightData;
   const bikesLoading = bikesLightLoading;
-  const refetchBikes = async () => {
+  const refetchBikes = useCallback(async () => {
     await refetchBikesLight();
     await refetchBikesFull();
-  };
+  }, [refetchBikesLight, refetchBikesFull]);
 
   const { data: unmappedData } = useQuery(UNMAPPED_STRAVA_GEARS, {
     pollInterval: 60000,
@@ -135,28 +135,20 @@ export default function Dashboard() {
   const [isImportOverlayOpen, setIsImportOverlayOpen] = useState(false);
   const [isCalibrationOpen, setIsCalibrationOpen] = useState(false);
   const [isMigrationNoticeOpen, setIsMigrationNoticeOpen] = useState(false);
-  const [hasMigrationRun, setHasMigrationRun] = useState(false);
 
   // Run paired component migration on first dashboard load for users created before cutoff
-  // This runs independently of the notice - migration happens regardless
+  const migrationTriggeredRef = useRef(false);
   useEffect(() => {
-    if (!user || hasMigrationRun) return;
+    if (!user || migrationTriggeredRef.current) return;
 
-    // Only run for users created on or before the cutoff date
     const userCreatedAt = user.createdAt ? new Date(user.createdAt) : null;
     if (!userCreatedAt || userCreatedAt > MIGRATION_CUTOFF_DATE) return;
 
-    setHasMigrationRun(true);
+    migrationTriggeredRef.current = true;
     migratePairedComponents()
-      .then(() => {
-        // Refetch bikes to get updated components
-        refetchBikes();
-      })
-      .catch(() => {
-        // Silent fail - migration is best-effort and idempotent
-        // User can still use the app normally, migration will retry on next load
-      });
-  }, [user, hasMigrationRun, migratePairedComponents, refetchBikes]);
+      .then(() => refetchBikes())
+      .catch(() => {});
+  }, [user, migratePairedComponents, refetchBikes]);
 
   // Determine if we should show the paired component migration notice
   const shouldShowMigrationNotice = useMemo(() => {
