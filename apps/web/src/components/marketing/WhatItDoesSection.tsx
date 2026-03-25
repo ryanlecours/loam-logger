@@ -1,5 +1,5 @@
 import SectionWrapper from './SectionWrapper';
-import { RiCheckLine } from 'react-icons/ri';
+import { Check } from 'lucide-react';
 import { motion } from 'motion/react';
 
 const features = [
@@ -47,7 +47,7 @@ export default function WhatItDoesSection() {
           {features.map((feature, index) => (
             <div key={index} className="flex items-start gap-3">
               <div className="flex-shrink-0 mt-1">
-                <RiCheckLine size={24} className="text-mint" />
+                <Check size={24} className="text-mint" />
               </div>
               <p className="text-lg text-charcoal">{feature}</p>
             </div>

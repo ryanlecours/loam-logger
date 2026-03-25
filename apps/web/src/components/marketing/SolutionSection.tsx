@@ -1,20 +1,20 @@
 import SectionWrapper from './SectionWrapper';
 import MarketingCard from './MarketingCard';
-import { RiBellFill, RiRefreshLine, RiBookOpenFill } from 'react-icons/ri';
+import { Bell, RefreshCw, BookOpen } from 'lucide-react';
 
 const solutions = [
   {
-    icon: <RiBellFill size={40} />,
+    icon: <Bell size={40} />,
     title: 'Automatic Service Alerts',
     description: 'Track hours and miles on every component. Get reminders before things break. No more guessing when your shock service is due.',
   },
   {
-    icon: <RiRefreshLine size={40} />,
+    icon: <RefreshCw size={40} />,
     title: 'Set It and Forget It',
     description: 'Auto-sync with Strava, Garmin, and soon Suunto and Whoop. Your rides automatically update component usage. You just ride.',
   },
   {
-    icon: <RiBookOpenFill size={40} />,
+    icon: <BookOpen size={40} />,
     title: 'Complete Bike History',
     description: 'Full quiver management with component-level tracking. Know exactly what\'s on each bike, when it was installed, and when it needs attention.',
   },

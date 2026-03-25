@@ -82,10 +82,9 @@ r.post('/whoop', async (req: Request, res: Response) => {
     // Handle different event types
     switch (event_type) {
       case 'workout.deleted': {
-        // Soft delete the ride (mark as deleted rather than hard delete)
-        const updateResult = await prisma.ride.updateMany({
+        // Delete the ride
+        const updateResult = await prisma.ride.deleteMany({
           where: { userId: user.id, whoopWorkoutId: workoutId },
-          data: { deletedAt: new Date() },
         });
 
         if (updateResult.count > 0) {
@@ -105,13 +104,10 @@ r.post('/whoop', async (req: Request, res: Response) => {
       case 'workout.created':
       case 'workout.updated': {
         // Enqueue sync job to fetch and upsert the workout
-        await enqueueSyncJob({
-          name: 'syncActivity',
-          data: {
-            userId: user.id,
-            provider: 'whoop',
-            activityId: workoutId,
-          },
+        await enqueueSyncJob('syncActivity', {
+          userId: user.id,
+          provider: 'whoop',
+          activityId: workoutId,
         });
 
         logger.info(

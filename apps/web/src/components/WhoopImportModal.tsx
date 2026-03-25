@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { FaCheck } from 'react-icons/fa';
+import { Check } from 'lucide-react';
 import { Modal, Button } from './ui';
 import { getAuthHeaders } from '@/lib/csrf';
 
@@ -253,7 +253,7 @@ export default function WhoopImportModal({ open, onClose, onSuccess, onDuplicate
                         {option.label}
                       </span>
                       {isBackfilled && (
-                        <FaCheck className="w-3 h-3 text-green-400" title="Already imported" />
+                        <Check className="w-3 h-3 text-green-400" title="Already imported" />
                       )}
                       {isInProgress && (
                         <div className="w-3 h-3 border border-yellow-400 border-t-transparent rounded-full animate-spin" title="In progress" />

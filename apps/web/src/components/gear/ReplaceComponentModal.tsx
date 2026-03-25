@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useMutation } from '@apollo/client';
-import { FaExclamationTriangle, FaExchangeAlt } from 'react-icons/fa';
+import { TriangleAlert, ArrowLeftRight } from 'lucide-react';
 import { getSlotKey } from '@loam/shared';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
@@ -193,7 +193,7 @@ export function ReplaceComponentModal({
       <div className="flex flex-col gap-4">
         {/* Compatibility warning */}
         <div className="flex items-start gap-2 rounded-md border border-app bg-surface-2 px-3 py-2 text-sm text-muted">
-          <FaExclamationTriangle size={14} className="mt-0.5 shrink-0 text-amber-400" />
+          <TriangleAlert size={14} className="mt-0.5 shrink-0 text-amber-400" />
           <span>
             Compatibility is not validated. Ensure the replacement fits your bike.
           </span>
@@ -341,7 +341,7 @@ export function ReplaceComponentModal({
         {/* Error */}
         {error && (
           <div className="alert-inline alert-inline-error">
-            <FaExclamationTriangle size={14} />
+            <TriangleAlert size={14} />
             {error}
           </div>
         )}
@@ -354,7 +354,7 @@ export function ReplaceComponentModal({
               className="inline-flex items-center gap-1.5 text-sm text-muted transition-colors hover:text-app"
               onClick={onSwapInstead}
             >
-              <FaExchangeAlt size={12} />
+              <ArrowLeftRight size={12} />
               Or swap with another bike
             </button>
           </div>

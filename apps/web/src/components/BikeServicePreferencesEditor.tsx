@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation } from '@apollo/client';
-import { FaToggleOn, FaToggleOff, FaUndo } from 'react-icons/fa';
+import { ToggleRight, ToggleLeft, Undo2 } from 'lucide-react';
 import {
   SERVICE_PREFERENCE_DEFAULTS_QUERY,
   USER_SERVICE_PREFERENCES_QUERY,
@@ -98,20 +98,13 @@ export default function BikeServicePreferencesEditor({
           const userPref = userPrefMap.get(def.componentType);
           const bikePref = bikePrefMap.get(def.componentType);
 
-          // Global defaults
           const globalTrackingEnabled = userPref?.trackingEnabled ?? true;
           const globalCustomInterval = userPref?.customInterval ?? null;
-
-          // Bike override (if exists)
           const hasOverride = !!bikePref;
           const overrideTrackingEnabled = bikePref?.trackingEnabled ?? globalTrackingEnabled;
           const overrideCustomInterval = bikePref?.customInterval ?? null;
-
-          // Effective values (bike override > global)
           const effectiveTrackingEnabled = hasOverride ? overrideTrackingEnabled : globalTrackingEnabled;
-          const effectiveCustomInterval = hasOverride
-            ? overrideCustomInterval
-            : globalCustomInterval;
+          const effectiveCustomInterval = hasOverride ? overrideCustomInterval : globalCustomInterval;
 
           return {
             componentType: def.componentType,
@@ -288,7 +281,7 @@ export default function BikeServicePreferencesEditor({
           onClick={handleResetAllToGlobal}
           className="text-sm text-primary hover:underline flex items-center gap-1"
         >
-          <FaUndo className="text-xs" />
+          <Undo2 className="text-xs" />
           Reset all to global defaults
         </button>
       )}
@@ -353,9 +346,9 @@ export default function BikeServicePreferencesEditor({
                             title={pref.overrideTrackingEnabled ? 'Disable tracking' : 'Enable tracking'}
                           >
                             {pref.overrideTrackingEnabled ? (
-                              <FaToggleOn className="text-2xl text-primary" />
+                              <ToggleRight className="text-2xl text-primary" />
                             ) : (
-                              <FaToggleOff className="text-2xl text-muted" />
+                              <ToggleLeft className="text-2xl text-muted" />
                             )}
                           </button>
                           <span className="text-xs text-muted">

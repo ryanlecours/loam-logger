@@ -39,7 +39,7 @@ export async function checkRecentAuth(
     lastAuthTime = sessionAuthAt;
   }
 
-  if (lastAuthTime === null) {
+  if (lastAuthTime === null || lastAuthAt === null) {
     return { valid: false, reason: 'NEVER_AUTHENTICATED', lastAuthAt: null };
   }
 

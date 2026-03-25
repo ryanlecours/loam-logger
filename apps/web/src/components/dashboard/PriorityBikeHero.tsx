@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { FaWrench, FaCog, FaBicycle, FaChevronUp, FaChevronDown, FaStrava } from 'react-icons/fa';
+import { Wrench, Settings, Bike, ChevronUp, ChevronDown } from 'lucide-react';
+import { StravaIcon } from '../../icons/BrandIcons';
 import type { BikeWithPredictions } from '../../hooks/usePriorityBike';
 import { useBikeRides, type BikeRide } from '../../hooks/useBikeRides';
 import { getBikeName } from '../../utils/formatters';
@@ -71,7 +72,7 @@ export function PriorityBikeHero({
     return (
       <section className="priority-hero">
         <div className="priority-hero-empty">
-          <FaBicycle size={48} className="priority-hero-empty-icon" />
+          <Bike size={48} className="priority-hero-empty-icon" />
           <div>
             <h2 className="priority-hero-empty-title">No bikes yet</h2>
             <p className="priority-hero-empty-text">
@@ -142,12 +143,12 @@ export function PriorityBikeHero({
                 size="sm"
                 onClick={() => onLogService()}
               >
-                <FaWrench size={12} className="icon-left" />
+                <Wrench size={12} className="icon-left" />
                 Log service
               </Button>
               <span title="Coming soon - available by January 21, 2026">
                 <Button variant="secondary" size="sm" disabled>
-                  <FaCog size={12} className="icon-left" />
+                  <Settings size={12} className="icon-left" />
                   View maintenance
                 </Button>
               </span>
@@ -204,7 +205,7 @@ export function PriorityBikeHero({
                   className="empty-cta-link empty-cta-strava"
                   onClick={onStravaBackfill}
                 >
-                  <FaStrava size={14} />
+                  <StravaIcon size={14} />
                   {isStravaConnected ? 'Backfill from Strava' : 'Connect Strava'}
                 </button>
               </div>
@@ -221,7 +222,7 @@ export function PriorityBikeHero({
                   disabled={!canGoNewer}
                   aria-label="Show newer rides"
                 >
-                  <FaChevronUp size={14} />
+                  <ChevronUp size={14} />
                 </button>
                 <button
                   type="button"
@@ -230,7 +231,7 @@ export function PriorityBikeHero({
                   disabled={!canGoOlder || ridesLoading}
                   aria-label="Show older rides"
                 >
-                  <FaChevronDown size={14} />
+                  <ChevronDown size={14} />
                 </button>
               </div>
               <span className="bike-rides-nav-range">

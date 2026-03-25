@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { FaPlus, FaGripHorizontal, FaSpinner } from 'react-icons/fa';
+import { Plus, GripHorizontal, Loader2 } from 'lucide-react';
 import { useMutation } from '@apollo/client';
 import {
   DndContext,
@@ -103,7 +103,7 @@ export function BikeSwitcherRow({
     <div className="bike-switcher-container">
       {showHint && (
         <div className="bike-switcher-hint">
-          <FaGripHorizontal className="bike-switcher-hint-icon" />
+          <GripHorizontal className="bike-switcher-hint-icon" />
           <span>Drag to reorder your bikes</span>
           <button
             className="bike-switcher-hint-dismiss"
@@ -126,7 +126,7 @@ export function BikeSwitcherRow({
           <div className={`bike-switcher-row ${isReordering ? 'bike-switcher-row-loading' : ''}`}>
             {isReordering && (
               <div className="bike-switcher-loading-overlay">
-                <FaSpinner className="bike-switcher-spinner" />
+                <Loader2 className="bike-switcher-spinner" />
               </div>
             )}
             {visibleBikes.map((bike) => (
@@ -140,7 +140,7 @@ export function BikeSwitcherRow({
             ))}
             {hasMore && (
               <Link to="/gear" className="bike-tile-more">
-                <FaPlus className="bike-tile-more-icon" />
+                <Plus className="bike-tile-more-icon" />
                 <span className="bike-tile-more-text">
                   +{bikes.length - maxVisible} more
                 </span>

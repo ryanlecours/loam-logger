@@ -80,7 +80,7 @@ export async function enqueueBackfillJob(
   data: BackfillJobData
 ): Promise<EnqueueBackfillResult> {
   const queue = getBackfillQueue();
-  const jobId = buildBackfillJobId(data.provider, data.userId, data.year);
+  const jobId = buildBackfillJobId(data.provider, data.userId, data.year ?? 'ytd');
 
   try {
     await queue.add('backfillYear', data, { jobId });

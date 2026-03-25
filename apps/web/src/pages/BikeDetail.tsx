@@ -3,16 +3,16 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useQuery, useMutation } from '@apollo/client';
 import { motion, AnimatePresence } from 'motion/react';
 import {
-  FaArrowLeft,
-  FaBicycle,
-  FaPencilAlt,
-  FaWrench,
-  FaExternalLinkAlt,
-  FaCog,
-  FaChevronDown,
-  FaChevronUp,
-  FaSlidersH,
-} from 'react-icons/fa';
+  ArrowLeft,
+  Bike,
+  Pencil,
+  Wrench,
+  ExternalLink,
+  Settings,
+  ChevronDown,
+  ChevronUp,
+  SlidersHorizontal,
+} from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { StatusPill } from '@/components/dashboard/StatusPill';
@@ -113,7 +113,7 @@ export default function BikeDetail() {
 
   const bike = data?.bikes?.find((b) => b.id === bikeId);
   const predictions = bike?.predictions;
-  const allBikes = data?.bikes ?? [];
+  const allBikes = useMemo(() => data?.bikes ?? [], [data?.bikes]);
   const spareComponents = data?.spareComponents ?? [];
   const otherBikes = useMemo(
     () => allBikes.filter((b) => b.id !== bikeId),
@@ -295,7 +295,7 @@ export default function BikeDetail() {
     return (
       <div className="bike-detail-page">
         <Link to="/gear" className="bike-detail-back">
-          <FaArrowLeft size={14} />
+          <ArrowLeft size={14} />
           Back to Bikes
         </Link>
         <div className="bike-detail-section" style={{ padding: '2rem', textAlign: 'center' }}>
@@ -310,11 +310,11 @@ export default function BikeDetail() {
     return (
       <div className="bike-detail-page">
         <Link to="/gear" className="bike-detail-back">
-          <FaArrowLeft size={14} />
+          <ArrowLeft size={14} />
           Back to Bikes
         </Link>
         <div className="bike-detail-section" style={{ padding: '3rem', textAlign: 'center' }}>
-          <FaBicycle size={48} style={{ color: 'var(--sage-30)', marginBottom: '1rem' }} />
+          <Bike size={48} style={{ color: 'var(--sage-30)', marginBottom: '1rem' }} />
           <h2 style={{ color: 'var(--cream)', marginBottom: '0.5rem' }}>Bike not found</h2>
           <p style={{ color: 'var(--sage)' }}>
             The bike you're looking for doesn't exist or has been deleted.
@@ -339,7 +339,7 @@ export default function BikeDetail() {
     >
       {/* Back Navigation */}
       <Link to="/gear" className="bike-detail-back">
-        <FaArrowLeft size={14} />
+        <ArrowLeft size={14} />
         Back to Bikes
       </Link>
 
@@ -375,7 +375,7 @@ export default function BikeDetail() {
 
           <div className="bike-detail-hero-actions">
             <Button variant="primary" size="sm" onClick={() => setServiceModalOpen(true)}>
-              <FaWrench size={12} className="icon-left" />
+              <Wrench size={12} className="icon-left" />
               Log Service
             </Button>
           </div>
@@ -398,7 +398,7 @@ export default function BikeDetail() {
             className="bike-detail-hero-placeholder"
             style={{ display: bike.thumbnailUrl ? 'none' : 'flex' }}
           >
-            <FaBicycle size={48} />
+            <Bike size={48} />
           </div>
           {/* Edit image button */}
           {bike.spokesId && (
@@ -408,7 +408,7 @@ export default function BikeDetail() {
               className="absolute bottom-2 right-2 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-black/70 text-white text-xs font-medium hover:bg-black/90 transition-colors"
               aria-label="Change bike image"
             >
-              <FaPencilAlt size={10} />
+              <Pencil size={10} />
               Change Image
             </button>
           )}
@@ -446,7 +446,7 @@ export default function BikeDetail() {
           </div>
         ) : (
           <div className="bike-detail-empty-components">
-            <FaCog size={32} className="bike-detail-empty-icon" />
+            <Settings size={32} className="bike-detail-empty-icon" />
             <p className="bike-detail-empty-text">
               No components added yet. Edit the bike to add components.
             </p>
@@ -462,15 +462,15 @@ export default function BikeDetail() {
           className="w-full flex items-center justify-between text-left"
         >
           <div className="flex items-center gap-2">
-            <FaSlidersH size={14} className="text-muted" />
+            <SlidersHorizontal size={14} className="text-muted" />
             <h3 className="bike-detail-section-title" style={{ marginBottom: 0 }}>
               Service Tracking
             </h3>
           </div>
           {serviceTrackingExpanded ? (
-            <FaChevronUp size={14} className="text-muted" />
+            <ChevronUp size={14} className="text-muted" />
           ) : (
-            <FaChevronDown size={14} className="text-muted" />
+            <ChevronDown size={14} className="text-muted" />
           )}
         </button>
         <AnimatePresence>
@@ -521,7 +521,7 @@ export default function BikeDetail() {
               className="bike-detail-external-link"
             >
               View on 99spokes
-              <FaExternalLinkAlt size={12} />
+              <ExternalLink size={12} />
             </a>
           </div>
         </section>

@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useMutation } from '@apollo/client';
-import { FaCheck, FaWrench, FaExclamationTriangle } from 'react-icons/fa';
+import { Check, Wrench, TriangleAlert } from 'lucide-react';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
 import { LOG_COMPONENT_SERVICE } from '../../graphql/logComponentService';
@@ -111,7 +111,7 @@ export function LogServiceModal({
     >
       <div className="log-service-modal-content">
         <div className="log-service-modal-bike">
-          <FaWrench size={16} className="icon-sage" />
+          <Wrench size={16} className="icon-sage" />
           <span className="log-service-modal-bike-name">{bikeName}</span>
         </div>
 
@@ -153,7 +153,7 @@ export function LogServiceModal({
                   }}
                 >
                   <div className="log-service-item-checkbox">
-                    {isSelected && <FaCheck size={10} className="icon-forest" />}
+                    {isSelected && <Check size={10} className="icon-forest" />}
                   </div>
                   <StatusDot status={component.status} />
                   <span className="log-service-item-label">
@@ -170,7 +170,7 @@ export function LogServiceModal({
 
         {error && (
           <div className="alert-inline alert-inline-error">
-            <FaExclamationTriangle size={14} />
+            <TriangleAlert size={14} />
             {error}
           </div>
         )}

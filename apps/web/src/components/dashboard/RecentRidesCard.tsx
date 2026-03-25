@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { FaRoute } from 'react-icons/fa';
+import { Route } from 'lucide-react';
 import { CompactRideRow } from './CompactRideRow';
 import { getBikeName } from '../../utils/formatters';
 
@@ -67,7 +67,7 @@ export function RecentRidesCard({ rides, bikes = [], loading = false, onLinkBike
           </Link>
         </div>
         <div className="recent-rides-empty">
-          <FaRoute className="recent-rides-empty-icon" />
+          <Route className="recent-rides-empty-icon" />
           <p className="recent-rides-empty-text">
             No rides yet. <Link to="/rides" className="text-mint hover:underline">Log your first ride</Link>
           </p>

@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect } from 'react';
-import { FaChevronLeft, FaChevronRight } from 'react-icons/fa';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import type { SpokesImage } from '@/hooks/useSpokes';
 import { isValidImageUrl } from '@/utils/bikeFormHelpers';
 
@@ -88,7 +88,7 @@ export function BikeImageSelector({
           className="absolute left-2 top-1/2 -translate-y-1/2 z-10 p-2 rounded-full bg-black/50 text-white hover:bg-black/70 transition-colors"
           aria-label="Previous image"
         >
-          <FaChevronLeft size={20} />
+          <ChevronLeft size={20} />
         </button>
 
         {/* Image container */}
@@ -110,7 +110,7 @@ export function BikeImageSelector({
           className="absolute right-2 top-1/2 -translate-y-1/2 z-10 p-2 rounded-full bg-black/50 text-white hover:bg-black/70 transition-colors"
           aria-label="Next image"
         >
-          <FaChevronRight size={20} />
+          <ChevronRight size={20} />
         </button>
       </div>
 

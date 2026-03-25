@@ -93,6 +93,8 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string }>(
         return sendUnauthorized(res, 'No user - please log in first');
       }
 
+      const authenticatedUserId = userId;
+
       // Token exchange (OAuth2 Authorization Code)
       const body = new URLSearchParams({
         client_id: CLIENT_ID,
@@ -148,9 +150,9 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string }>(
       // Store OAuth token, user account, and whoopUserId atomically
       await prisma.$transaction(async (tx) => {
         await tx.oauthToken.upsert({
-          where: { userId_provider: { userId, provider: 'whoop' } },
+          where: { userId_provider: { userId: authenticatedUserId, provider: 'whoop' } },
           create: {
-            userId,
+            userId: authenticatedUserId,
             provider: 'whoop',
             accessToken: t.access_token,
             refreshToken: t.refresh_token,
@@ -171,12 +173,12 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string }>(
             },
           },
           create: {
-            userId,
+            userId: authenticatedUserId,
             provider: 'whoop',
             providerUserId: whoopUserId,
           },
           update: {
-            userId,
+            userId: authenticatedUserId,
           },
         });
 

@@ -1,6 +1,6 @@
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { FaBicycle } from 'react-icons/fa';
+import { Bike } from 'lucide-react';
 import type { BikeWithPredictions } from '../../hooks/usePriorityBike';
 import type { PredictionStatus } from '../../types/prediction';
 import { getBikeName } from '../../utils/formatters';
@@ -57,7 +57,7 @@ export function SortableBikeTile({ bike, isSelected, onClick, disabled }: Sortab
         {bike.thumbnailUrl ? (
           <img src={bike.thumbnailUrl} alt={bikeName} />
         ) : (
-          <FaBicycle />
+          <Bike />
         )}
         <span className={`bike-tile-status ${statusClass}`} />
       </div>

@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { FaMountain } from "react-icons/fa"
+import { Mountain } from "lucide-react"
 
 const apiBase =
   (import.meta.env.VITE_API_URL ?? "").replace(/\/$/, "") ||
@@ -29,7 +29,7 @@ export default function ConnectGarminLink() {
           : 'border-[#11A9ED]/50 bg-[#11A9ED]/20 text-[#11A9ED] hover:bg-[#11A9ED]/30 hover:border-[#11A9ED]/70 hover:cursor-pointer'
         }`}
     >
-      <FaMountain size={18} />
+      <Mountain size={18} />
       <span>{isConnecting ? 'Connecting...' : 'Connect Garmin'}</span>
     </button>
   )

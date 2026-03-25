@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { FaChevronDown } from 'react-icons/fa';
+import { ChevronDown } from 'lucide-react';
 
 interface ExpandableSectionProps {
   title: string;
@@ -40,7 +40,7 @@ export default function ExpandableSection({
           transition={{ duration: 0.25, ease: 'easeInOut' }}
           className="chevron-icon"
         >
-          <FaChevronDown size={12} />
+          <ChevronDown size={12} />
         </motion.span>
       </button>
 

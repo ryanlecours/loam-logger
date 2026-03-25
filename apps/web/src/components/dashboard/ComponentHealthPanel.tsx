@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation } from '@apollo/client';
-import { FaChevronRight, FaCheck, FaWrench } from 'react-icons/fa';
+import { ChevronRight, Check, Wrench } from 'lucide-react';
 import type { ComponentPrediction } from '../../types/prediction';
 import { STATUS_SEVERITY } from '../../types/prediction';
 import { formatComponentLabel } from '../../utils/formatters';
@@ -182,7 +182,7 @@ function ComponentDetailOverlay({ component, onClose, onServiceLogged, onLogServ
             disabled={isSnoozing || snoozeSuccess}
             type="button"
           >
-            <FaCheck size={14} />
+            <Check size={14} />
             <span>{snoozeSuccess ? 'Snoozed!' : 'Looks Good'}</span>
           </button>
 
@@ -196,7 +196,7 @@ function ComponentDetailOverlay({ component, onClose, onServiceLogged, onLogServ
               disabled={isSnoozing || snoozeSuccess}
               type="button"
             >
-              <FaWrench size={14} />
+              <Wrench size={14} />
               <span>Log Service</span>
             </button>
           )}
@@ -384,7 +384,7 @@ export function ComponentHealthPanel({ components, className = '', onLogService 
                   </>
                 )}
               </div>
-              <FaChevronRight className="component-health-chevron" size={12} />
+              <ChevronRight className="component-health-chevron" size={12} />
             </button>
           );
         })}

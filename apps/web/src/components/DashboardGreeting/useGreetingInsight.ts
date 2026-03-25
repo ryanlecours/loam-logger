@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import type { RideStats } from '../RideStatsCard/types';
 import { formatDistance, formatPercentChange, getRandomDefaultMessage } from './greetingMessages';
 
@@ -26,13 +26,15 @@ export function useGreetingInsight({
   bikeHealth,
   totalHoursAllTime = 0,
 }: UseGreetingInsightOptions): GreetingInsight {
+  // Capture current time once per mount to keep useMemo pure
+  const [mountTime] = useState(() => Date.now());
   return useMemo(() => {
     // Priority 1: Personal Records (check if any exist and highlight the first one)
     if (stats?.trends.personalRecords && stats.trends.personalRecords.length > 0) {
       const record = stats.trends.personalRecords[0];
       // Only celebrate if it's from a recent ride (within last 7 days)
       const recordDate = new Date(record.date);
-      const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      const weekAgo = new Date(mountTime - 7 * 24 * 60 * 60 * 1000);
 
       if (recordDate > weekAgo) {
         let recordMessage = '';
@@ -138,5 +140,5 @@ export function useGreetingInsight({
       message: getRandomDefaultMessage(),
       emoji: '🤙',
     };
-  }, [stats, bikeHealth, totalHoursAllTime]);
+  }, [stats, bikeHealth, totalHoursAllTime, mountTime]);
 }
