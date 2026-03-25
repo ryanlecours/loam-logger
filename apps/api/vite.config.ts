@@ -24,7 +24,7 @@ export default defineConfig({
         entryFileNames: "server.cjs",
         // Bundle everything into single file - no code splitting for SSR
         // Prevents "Cannot find module ./assets/index-*.js" errors in production
-        inlineDynamicImports: true,
+        codeSplitting: false,
       },
     },
   },
