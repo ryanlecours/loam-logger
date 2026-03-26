@@ -82,4 +82,47 @@ router.post('/waitlist', express.json(), async (req: Request, res) => {
   }
 });
 
+/**
+ * GET /api/waitlist/stats
+ * Public stats for the landing page (cached for 60s)
+ */
+const STATS_TTL_MS = 60_000;
+let statsCachePromise: Promise<{ signupCount: number; ridesTracked: number }> | null = null;
+let statsCacheExpiresAt = 0;
+
+async function getPublicStats() {
+  if (statsCachePromise && Date.now() < statsCacheExpiresAt) return statsCachePromise;
+
+  statsCacheExpiresAt = Date.now() + STATS_TTL_MS;
+  statsCachePromise = (async () => {
+    const [waitlistCount, activeUserCount, ridesTracked] = await Promise.all([
+      prisma.user.count({ where: { role: 'WAITLIST' } }),
+      prisma.user.count({ where: { role: { in: ['FREE', 'PRO', 'ADMIN'] } } }),
+      prisma.ride.count(),
+    ]);
+    return { signupCount: waitlistCount + activeUserCount, ridesTracked };
+  })().catch((e) => {
+    statsCacheExpiresAt = 0;
+    statsCachePromise = null;
+    throw e;
+  });
+
+  return statsCachePromise;
+}
+
+router.get('/waitlist/stats', async (req: Request, res) => {
+  try {
+    const rateLimit = await checkAuthRateLimit('public-stats', req.ip ?? 'unknown');
+    if (!rateLimit.allowed) {
+      return sendTooManyRequests(res, 'Too many requests. Please try again later.', rateLimit.retryAfter);
+    }
+
+    const data = await getPublicStats();
+    return sendSuccess(res, data);
+  } catch (e) {
+    console.error('[Waitlist Stats] Error:', e instanceof Error ? e.message : String(e));
+    return sendInternalError(res, 'Failed to fetch stats.');
+  }
+});
+
 export default router;

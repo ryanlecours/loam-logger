@@ -1,7 +1,25 @@
+import { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
 import SectionWrapper from './SectionWrapper';
 
 export default function TestimonialsSection() {
+  const [signupCount, setSignupCount] = useState<number | null>(null);
+  const [ridesTracked, setRidesTracked] = useState<number | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch(`${import.meta.env.VITE_API_URL}/api/waitlist/stats`, { signal: controller.signal })
+      .then((res) => res.ok ? res.json() : Promise.reject())
+      .then((json) => {
+        setSignupCount(json.data.signupCount);
+        setRidesTracked(json.data.ridesTracked);
+      })
+      .catch((err) => {
+        if (err?.name !== 'AbortError') console.error('[Stats] fetch failed', err);
+      });
+    return () => controller.abort();
+  }, []);
+
   return (
     <SectionWrapper background="charcoal">
       <div className="text-center max-w-4xl mx-auto">
@@ -20,13 +38,17 @@ export default function TestimonialsSection() {
           {/* Stats Section */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-12">
             <div className="text-center">
-              <div className="text-5xl font-bold text-mint mb-2">300+</div>
+              <div className="text-5xl font-bold text-mint mb-2">
+                {signupCount !== null ? signupCount.toLocaleString() : <span className="opacity-40">—</span>}
+              </div>
               <p className="text-sm text-concrete uppercase tracking-wider">
-                Beta Waitlist
+                Beta Testers
               </p>
             </div>
             <div className="text-center">
-              <div className="text-5xl font-bold text-mint mb-2">∞</div>
+              <div className="text-5xl font-bold text-mint mb-2">
+                {ridesTracked !== null ? ridesTracked.toLocaleString() : <span className="opacity-40">—</span>}
+              </div>
               <p className="text-sm text-concrete uppercase tracking-wider">
                 Rides Tracked
               </p>
