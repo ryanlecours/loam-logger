@@ -84,23 +84,35 @@ router.post('/waitlist', express.json(), async (req: Request, res) => {
 
 /**
  * GET /api/waitlist/stats
- * Public stats for the landing page
+ * Public stats for the landing page (cached for 60s)
  */
+const STATS_TTL_MS = 60_000;
+let statsCache: { data: { signupCount: number; ridesTracked: number }; expiresAt: number } | null = null;
+
+async function getPublicStats() {
+  if (statsCache && Date.now() < statsCache.expiresAt) return statsCache.data;
+
+  const [waitlistCount, activeUserCount, ridesTracked] = await Promise.all([
+    prisma.user.count({ where: { role: 'WAITLIST' } }),
+    prisma.user.count({ where: { role: { in: ['FREE', 'PRO', 'ADMIN'] } } }),
+    prisma.ride.count(),
+  ]);
+
+  const data = { signupCount: waitlistCount + activeUserCount, ridesTracked };
+  statsCache = { data, expiresAt: Date.now() + STATS_TTL_MS };
+  return data;
+}
+
 router.get('/waitlist/stats', async (req: Request, res) => {
   try {
     const clientIp = req.ip || (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || 'unknown';
-    const rateLimit = await checkAuthRateLimit('signup', clientIp);
+    const rateLimit = await checkAuthRateLimit('public-stats', clientIp);
     if (!rateLimit.allowed) {
       return sendTooManyRequests(res, 'Too many requests. Please try again later.', rateLimit.retryAfter);
     }
 
-    const [waitlistCount, activeUserCount, ridesTracked] = await Promise.all([
-      prisma.user.count({ where: { role: 'WAITLIST' } }),
-      prisma.user.count({ where: { role: { in: ['FREE', 'PRO', 'ADMIN'] } } }),
-      prisma.ride.count(),
-    ]);
-
-    return sendSuccess(res, { signupCount: waitlistCount + activeUserCount, ridesTracked });
+    const data = await getPublicStats();
+    return sendSuccess(res, data);
   } catch (e) {
     console.error('[Waitlist Stats] Error:', e instanceof Error ? e.message : String(e));
     return sendInternalError(res, 'Failed to fetch stats.');
