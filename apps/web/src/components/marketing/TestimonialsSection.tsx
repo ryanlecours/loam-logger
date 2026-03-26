@@ -14,7 +14,9 @@ export default function TestimonialsSection() {
         setSignupCount(json.data.signupCount);
         setRidesTracked(json.data.ridesTracked);
       })
-      .catch(() => {/* keep fallback values */});
+      .catch((err) => {
+        if (err?.name !== 'AbortError') console.error('[Stats] fetch failed', err);
+      });
     return () => controller.abort();
   }, []);
 

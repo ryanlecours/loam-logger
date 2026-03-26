@@ -110,8 +110,14 @@ async function getPublicStats() {
   return statsCachePromise;
 }
 
-router.get('/waitlist/stats', async (_req: Request, res) => {
+router.get('/waitlist/stats', async (req: Request, res) => {
   try {
+    const clientIp = req.ip || (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || 'unknown';
+    const rateLimit = await checkAuthRateLimit('public-stats', clientIp);
+    if (!rateLimit.allowed) {
+      return sendTooManyRequests(res, 'Too many requests. Please try again later.', rateLimit.retryAfter);
+    }
+
     const data = await getPublicStats();
     return sendSuccess(res, data);
   } catch (e) {
