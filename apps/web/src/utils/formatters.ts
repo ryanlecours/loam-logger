@@ -53,10 +53,13 @@ export function formatRideDate(startTime: string | undefined | null): string {
 }
 
 /**
- * Format elevation with units (accepts meters, displays as feet)
+ * Format elevation with units (accepts meters, displays as feet for mi users or meters for km users)
  */
-export function formatElevation(meters: number): string {
-  if (!meters || isNaN(meters)) return '0 ft';
+export function formatElevation(meters: number, unit: 'mi' | 'km' = 'mi'): string {
+  if (!meters || isNaN(meters)) return unit === 'km' ? '0 m' : '0 ft';
+  if (unit === 'km') {
+    return `${Math.round(meters).toLocaleString()} m`;
+  }
   return `${Math.round(meters * 3.28084).toLocaleString()} ft`;
 }
 

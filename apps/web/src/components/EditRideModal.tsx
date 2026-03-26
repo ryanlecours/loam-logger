@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { useMutation, useQuery } from '@apollo/client';
 import { UPDATE_RIDE } from '../graphql/updateRide';
 import { RIDES } from '../graphql/rides';
@@ -40,7 +40,27 @@ export default function EditRideModal({
   const [distanceInput, setDistanceInput] = useState<number>(
     distanceUnit === 'km' ? Number((ride.distanceMeters / 1000).toFixed(1)) : Number((ride.distanceMeters / 1609.344).toFixed(1))
   );
-  const [elevationInput, setElevationInput] = useState<number>(Math.round(ride.elevationGainMeters * 3.28084));
+  const [elevationInput, setElevationInput] = useState<number>(
+    distanceUnit === 'km' ? Math.round(ride.elevationGainMeters) : Math.round(ride.elevationGainMeters * 3.28084)
+  );
+
+  // Re-compute distance when distanceUnit settles after Me query loads
+  const initialUnitRef = useRef(distanceUnit);
+  useEffect(() => {
+    if (distanceUnit !== initialUnitRef.current) {
+      initialUnitRef.current = distanceUnit;
+      setDistanceInput(
+        distanceUnit === 'km'
+          ? Number((ride.distanceMeters / 1000).toFixed(1))
+          : Number((ride.distanceMeters / 1609.344).toFixed(1))
+      );
+      setElevationInput(
+        distanceUnit === 'km'
+          ? Math.round(ride.elevationGainMeters)
+          : Math.round(ride.elevationGainMeters * 3.28084)
+      );
+    }
+  }, [distanceUnit, ride.distanceMeters, ride.elevationGainMeters]);
   const [averageHr, setAverageHr] = useState<number | ''>(ride.averageHr ?? '');
   const [rideType, setRideType] = useState<string>(ride.rideType);
   const [bikeId, setBikeId] = useState<string | ''>(ride.bikeId ?? '');
@@ -72,7 +92,7 @@ export default function EditRideModal({
     const iso = fromLocalInputValue(startLocal);
 
     const distanceInMeters = distanceUnit === 'km' ? Number(distanceInput) * 1000 : Number(distanceInput) * 1609.344;
-    const elevationInMeters = Number(elevationInput) * 0.3048;
+    const elevationInMeters = distanceUnit === 'km' ? Number(elevationInput) : Number(elevationInput) * 0.3048;
     await mutate({
       variables: {
         id: ride.id,
@@ -147,7 +167,7 @@ export default function EditRideModal({
             onChange={e => setDistanceInput(Number(e.target.value))}
           />
           <Input
-            label="Elevation Gain (feet)"
+            label={`Elevation Gain (${distanceUnit === 'km' ? 'meters' : 'feet'})`}
             type="number"
             min={0}
             step={1}

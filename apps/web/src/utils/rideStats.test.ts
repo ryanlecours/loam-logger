@@ -62,7 +62,7 @@ describe('filterRidesByDate', () => {
   const createRide = (startTime: string, overrides: Partial<RideData> = {}): RideData => ({
     startTime,
     durationSeconds: 3600,
-    distanceMeters: 10,
+    distanceMeters: 16093,
     elevationGainMeters: 500,
     ...overrides,
   });
@@ -160,7 +160,7 @@ describe('calculateRideStats', () => {
   const createRide = (overrides: Partial<RideData> = {}): RideData => ({
     startTime: '2024-02-15T12:00:00Z',
     durationSeconds: 3600,
-    distanceMeters: 10,
+    distanceMeters: 16093,
     elevationGainMeters: 500,
     ...overrides,
   });
@@ -169,7 +169,7 @@ describe('calculateRideStats', () => {
     const result = calculateRideStats([]);
 
     expect(result.hours).toBe('0.0');
-    expect(result.miles).toBe('0');
+    expect(result.distance).toBe('0');
     expect(result.climb).toBe('0');
   });
 
@@ -201,7 +201,7 @@ describe('calculateRideStats', () => {
     const result = calculateRideStats(rides);
 
     // 25 miles total
-    expect(result.miles).toBe('25');
+    expect(result.distance).toBe('25');
   });
 
   it('formats miles with locale separators', () => {
@@ -212,7 +212,7 @@ describe('calculateRideStats', () => {
 
     const result = calculateRideStats(rides);
 
-    expect(result.miles).toBe('1,500');
+    expect(result.distance).toBe('1,500');
   });
 
   it('sums elevation gain and converts meters to feet', () => {
@@ -240,7 +240,7 @@ describe('calculateRideStats', () => {
     const result = calculateRideStats(rides);
 
     expect(result.hours).toBe('1.0');
-    expect(result.miles).toBe('10');
+    expect(result.distance).toBe('10');
     expect(result.climb).toBe('500');
   });
 
@@ -252,7 +252,7 @@ describe('calculateRideStats', () => {
     const result = calculateRideStats(rides);
 
     expect(result.hours).toBe('100.0');
-    expect(result.miles).toBe('10,000');
+    expect(result.distance).toBe('10,000');
     expect(result.climb).toBe('100,000');
   });
 });

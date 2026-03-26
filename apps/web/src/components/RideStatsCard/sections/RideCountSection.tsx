@@ -8,8 +8,8 @@ interface RideCountSectionProps {
 export default function RideCountSection({ stats }: RideCountSectionProps) {
   const { distanceUnit } = usePreferences();
   const avgDistance = distanceUnit === 'km'
-    ? (stats.avgDistancePerRide * 1.60934).toFixed(1)
-    : stats.avgDistancePerRide;
+    ? (stats.avgDistancePerRide / 1000).toFixed(1)
+    : (stats.avgDistancePerRide / 1609.344).toFixed(1);
 
   return (
     <div className="stats-grid-2x2">
@@ -22,7 +22,11 @@ export default function RideCountSection({ stats }: RideCountSectionProps) {
         <span className="stat-label">Avg Distance</span>
       </div>
       <div className="stat-cell">
-        <span className="stat-value">{stats.avgElevationPerRide.toLocaleString()} ft</span>
+        <span className="stat-value">
+          {distanceUnit === 'km'
+            ? `${Math.round(stats.avgElevationPerRide).toLocaleString()} m`
+            : `${Math.round(stats.avgElevationPerRide * 3.28084).toLocaleString()} ft`}
+        </span>
         <span className="stat-label">Avg Elevation</span>
       </div>
       <div className="stat-cell">

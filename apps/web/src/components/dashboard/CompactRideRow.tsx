@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { formatDurationCompact, formatRideDate } from '../../utils/formatters';
 import { getRideSource, SOURCE_LABELS } from '../../utils/rideSource';
+import { usePreferences } from '../../hooks/usePreferences';
 import EditRideModal from '../EditRideModal';
 
 interface Ride {
@@ -28,12 +29,14 @@ interface CompactRideRowProps {
 
 export function CompactRideRow({ ride, bikeName, onLinkBike }: CompactRideRowProps) {
   const [editing, setEditing] = useState(false);
+  const { distanceUnit } = usePreferences();
   const title = ride.trailSystem || ride.location || 'Ride';
   const formattedDate = formatRideDate(ride.startTime);
   const duration = formatDurationCompact(ride.durationSeconds);
   const climbMeters = ride.elevationGainMeters ?? 0;
-  const climbFeet = climbMeters * 3.28084;
-  const climb = isNaN(climbFeet) ? '0' : Math.round(climbFeet).toLocaleString();
+  const climbValue = distanceUnit === 'km' ? climbMeters : climbMeters * 3.28084;
+  const climb = isNaN(climbValue) ? '0' : Math.round(climbValue).toLocaleString();
+  const climbUnit = distanceUnit === 'km' ? 'm' : 'ft';
   const source = getRideSource(ride);
 
   return (
@@ -54,7 +57,7 @@ export function CompactRideRow({ ride, bikeName, onLinkBike }: CompactRideRowPro
             <span className="compact-ride-meta-sep">&bull;</span>
             <span>{duration}</span>
             <span className="compact-ride-meta-sep">&bull;</span>
-            <span>{climb} ft</span>
+            <span>{climb} {climbUnit}</span>
           </div>
           {bikeName ? (
             <div className="compact-ride-bike">

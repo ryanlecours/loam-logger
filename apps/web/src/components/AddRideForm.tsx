@@ -26,7 +26,7 @@ export default function AddRideForm({ onAdded }: { onAdded?: () => void }) {
   const [hours, setHours] = useState<number>(1);
   const [minutes, setMinutes] = useState<number>(0);
   const [distanceInput, setDistanceInput] = useState<number>(10);
-  const [elevationInput, setElevationInput] = useState<number>(500);
+  const [elevationInput, setElevationInput] = useState<number>(distanceUnit === 'km' ? 150 : 500);
   const [rideType, setRideType] = useState<string>('trail');
   const [bikeId, setBikeId] = useState<string | ''>('');
 
@@ -100,7 +100,7 @@ export default function AddRideForm({ onAdded }: { onAdded?: () => void }) {
 
     const isoStart = new Date(startLocal).toISOString();
     const distanceInMeters = distanceUnit === 'km' ? Number(distanceInput) * 1000 : Number(distanceInput) * 1609.344;
-    const elevationInMeters = Number(elevationInput) * 0.3048;
+    const elevationInMeters = distanceUnit === 'km' ? Number(elevationInput) : Number(elevationInput) * 0.3048;
     await addRide({
       variables: {
         input: {
@@ -123,7 +123,7 @@ export default function AddRideForm({ onAdded }: { onAdded?: () => void }) {
   function resetForm() {
     setStartLocal(new Date().toISOString().slice(0, 16));
     setHours(1); setMinutes(0);
-    setDistanceInput(10); setElevationInput(500);
+    setDistanceInput(10); setElevationInput(distanceUnit === 'km' ? 150 : 500);
     setAverageHr('');
     setRideType('trail');
     setBikeId(userBikes.length === 1 ? userBikes[0].id : '');
@@ -247,7 +247,7 @@ export default function AddRideForm({ onAdded }: { onAdded?: () => void }) {
                 className="input-soft pr-12 text-center"
                 placeholder="500"
               />
-              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted/60 pointer-events-none">ft</span>
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted/60 pointer-events-none">{distanceUnit === 'km' ? 'm' : 'ft'}</span>
             </div>
           </div>
         </div>

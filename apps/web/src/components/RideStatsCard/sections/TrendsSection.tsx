@@ -39,11 +39,14 @@ function formatRecordValue(type: string, value: number, distanceUnit: 'mi' | 'km
   switch (type) {
     case 'longest_ride':
       if (distanceUnit === 'km') {
-        return `${(value * 1.60934).toFixed(1)} km`;
+        return `${(value / 1000).toFixed(1)} km`;
       }
-      return `${value.toFixed(1)} mi`;
+      return `${(value / 1609.344).toFixed(1)} mi`;
     case 'most_elevation':
-      return `${value.toLocaleString()} ft`;
+      if (distanceUnit === 'km') {
+        return `${Math.round(value).toLocaleString()} m`;
+      }
+      return `${Math.round(value * 3.28084).toLocaleString()} ft`;
     case 'longest_duration': {
       const hours = Math.floor(value / 3600);
       const mins = Math.round((value % 3600) / 60);

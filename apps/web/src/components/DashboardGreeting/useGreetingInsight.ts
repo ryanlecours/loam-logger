@@ -43,7 +43,9 @@ export function useGreetingInsight({
             recordMessage = `New distance PR: ${formatDistance(record.value, distanceUnit)}`;
             break;
           case 'most_elevation':
-            recordMessage = `New climbing PR: ${record.value.toLocaleString()} ft`;
+            recordMessage = distanceUnit === 'km'
+              ? `New climbing PR: ${Math.round(record.value).toLocaleString()} m`
+              : `New climbing PR: ${Math.round(record.value * 3.28084).toLocaleString()} ft`;
             break;
           case 'longest_duration': {
             const hours = Math.floor(record.value / 3600);

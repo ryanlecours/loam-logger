@@ -83,12 +83,12 @@ export function RideStatsCompact({ rides, loading = false }: RideStatsCompactPro
             <span className="ride-stats-compact-label">Hours</span>
           </div>
           <div className="ride-stats-compact-metric">
-            <span className="ride-stats-compact-value">{stats.miles}</span>
+            <span className="ride-stats-compact-value">{stats.distance}</span>
             <span className="ride-stats-compact-label">{distanceUnit === 'km' ? 'Kilometers' : 'Miles'}</span>
           </div>
           <div className="ride-stats-compact-metric">
             <span className="ride-stats-compact-value">{stats.climb}</span>
-            <span className="ride-stats-compact-label">Climb (ft)</span>
+            <span className="ride-stats-compact-label">Climb ({distanceUnit === 'km' ? 'm' : 'ft'})</span>
           </div>
         </div>
         <div className="ride-stats-compact-footer">

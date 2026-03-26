@@ -59,7 +59,10 @@ export function LinkBikeModal({ ride, bikes, onClose, onSuccess }: LinkBikeModal
   const distanceValue = distanceUnit === 'km'
     ? ((ride.distanceMeters ?? 0) / 1000).toFixed(1)
     : ((ride.distanceMeters ?? 0) / 1609.344).toFixed(1);
-  const elevation = Math.round((ride.elevationGainMeters ?? 0) * 3.28084).toLocaleString();
+  const elevation = distanceUnit === 'km'
+    ? Math.round(ride.elevationGainMeters ?? 0).toLocaleString()
+    : Math.round((ride.elevationGainMeters ?? 0) * 3.28084).toLocaleString();
+  const elevUnit = distanceUnit === 'km' ? 'm' : 'ft';
   const source = getRideSource(ride);
 
   const handleSave = async () => {
@@ -110,7 +113,7 @@ export function LinkBikeModal({ ride, bikes, onClose, onSuccess }: LinkBikeModal
             </div>
             <div>
               <span className="text-muted">Elevation</span>
-              <p className="text-white">{elevation} ft</p>
+              <p className="text-white">{elevation} {elevUnit}</p>
             </div>
             {ride.location && ride.trailSystem && (
               <div className="col-span-2">

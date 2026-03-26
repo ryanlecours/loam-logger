@@ -20,7 +20,10 @@ export const fmtDistance = (meters: number, unit: 'mi' | 'km' = 'mi') => {
   }
   return `${(meters / 1609.344).toFixed(1)} mi`;
 };
-export const fmtElevation = (meters: number) => `${Math.round(meters * 3.28084)} ft`;
+export const fmtElevation = (meters: number, unit: 'mi' | 'km' = 'mi') =>
+  unit === 'km'
+    ? `${Math.round(meters).toLocaleString()} m`
+    : `${Math.round(meters * 3.28084).toLocaleString()} ft`;
 
 /** Accepts ISO string / epoch string / number / Date and returns yyyy-MM-ddTHH:mm (local) */
 export function toLocalInputValue(v: string | number | Date): string {

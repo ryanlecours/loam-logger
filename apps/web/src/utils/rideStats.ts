@@ -24,7 +24,7 @@ export interface RideData {
 
 export interface RideStats {
   hours: string;
-  miles: string;
+  distance: string;
   climb: string;
 }
 
@@ -75,11 +75,11 @@ export function calculateRideStats(rides: RideData[], distanceUnit: 'mi' | 'km' 
   );
 
   const displayDistance = distanceUnit === 'km' ? totalMeters / 1000 : totalMeters / 1609.344;
-  const totalClimb = totalClimbMeters * 3.28084;
+  const totalClimb = distanceUnit === 'km' ? totalClimbMeters : totalClimbMeters * 3.28084;
 
   return {
     hours: (totalSeconds / SECONDS_PER_HOUR).toFixed(1),
-    miles: Math.round(displayDistance).toLocaleString(),
+    distance: Math.round(displayDistance).toLocaleString(),
     climb: Math.round(totalClimb).toLocaleString(),
   };
 }
