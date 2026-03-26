@@ -9,8 +9,8 @@ export const RIDES = gql`
       whoopWorkoutId
       startTime
       durationSeconds
-      distanceMiles
-      elevationGainFeet
+      distanceMeters
+      elevationGainMeters
       averageHr
       rideType
       bikeId

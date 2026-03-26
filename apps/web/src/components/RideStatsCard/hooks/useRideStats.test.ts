@@ -14,8 +14,8 @@ const createRide = (overrides: Partial<Ride> = {}): Ride => ({
   id: `ride-${Math.random().toString(36).slice(2)}`,
   startTime: '2024-06-15T12:00:00Z',
   durationSeconds: 3600,
-  distanceMiles: 10,
-  elevationGainFeet: 500,
+  distanceMeters: 10,
+  elevationGainMeters: 500,
   rideType: 'Trail',
   bikeId: null,
   averageHr: null,
@@ -190,7 +190,7 @@ describe('useRideStats', () => {
 
   it('returns stats for all preset timeframes', () => {
     const rides = [
-      createRide({ startTime: '2024-06-10T12:00:00Z', distanceMiles: 10 }),
+      createRide({ startTime: '2024-06-10T12:00:00Z', distanceMeters: 10 }),
     ];
     const bikeNameMap = new Map<string, string>();
 
@@ -206,8 +206,8 @@ describe('useRideStats', () => {
 
   it('filters rides correctly for 1 week timeframe', () => {
     const rides = [
-      createRide({ startTime: '2024-06-14T12:00:00Z', distanceMiles: 10 }), // Within 1 week
-      createRide({ startTime: '2024-06-01T12:00:00Z', distanceMiles: 20 }), // Outside 1 week
+      createRide({ startTime: '2024-06-14T12:00:00Z', distanceMeters: 10 }), // Within 1 week
+      createRide({ startTime: '2024-06-01T12:00:00Z', distanceMeters: 20 }), // Outside 1 week
     ];
     const bikeNameMap = new Map<string, string>();
 
@@ -223,14 +223,14 @@ describe('useRideStats', () => {
     const rides = [
       createRide({
         startTime: '2024-06-14T12:00:00Z',
-        distanceMiles: 10,
-        elevationGainFeet: 1000,
+        distanceMeters: 10,
+        elevationGainMeters: 1000,
         durationSeconds: 3600,
       }),
       createRide({
         startTime: '2024-06-13T12:00:00Z',
-        distanceMiles: 15,
-        elevationGainFeet: 1500,
+        distanceMeters: 15,
+        elevationGainMeters: 1500,
         durationSeconds: 5400,
       }),
     ];
@@ -250,8 +250,8 @@ describe('useRideStats', () => {
 describe('useRideStatsForRides', () => {
   it('calculates stats for provided rides', () => {
     const rides = [
-      createRide({ distanceMiles: 10, elevationGainFeet: 1000, durationSeconds: 3600 }),
-      createRide({ distanceMiles: 15, elevationGainFeet: 500, durationSeconds: 1800 }),
+      createRide({ distanceMeters: 10, elevationGainMeters: 1000, durationSeconds: 3600 }),
+      createRide({ distanceMeters: 15, elevationGainMeters: 500, durationSeconds: 1800 }),
     ];
     const bikeNameMap = new Map<string, string>();
 
@@ -304,10 +304,10 @@ describe('useRideStatsForRides', () => {
 describe('useRideStatsForYear', () => {
   it('filters rides to specific year', () => {
     const rides = [
-      createRide({ startTime: '2023-03-15T12:00:00Z', distanceMiles: 10 }),
-      createRide({ startTime: '2023-09-15T12:00:00Z', distanceMiles: 15 }),
-      createRide({ startTime: '2024-01-15T12:00:00Z', distanceMiles: 20 }),
-      createRide({ startTime: '2022-06-15T12:00:00Z', distanceMiles: 5 }),
+      createRide({ startTime: '2023-03-15T12:00:00Z', distanceMeters: 10 }),
+      createRide({ startTime: '2023-09-15T12:00:00Z', distanceMeters: 15 }),
+      createRide({ startTime: '2024-01-15T12:00:00Z', distanceMeters: 20 }),
+      createRide({ startTime: '2022-06-15T12:00:00Z', distanceMeters: 5 }),
     ];
     const bikeNameMap = new Map<string, string>();
 
@@ -322,8 +322,8 @@ describe('useRideStatsForYear', () => {
   it('includes rides at year boundaries', () => {
     // Use mid-day timestamps to avoid timezone edge cases
     const rides = [
-      createRide({ startTime: '2023-01-01T12:00:00Z', distanceMiles: 5 }),
-      createRide({ startTime: '2023-12-31T12:00:00Z', distanceMiles: 10 }),
+      createRide({ startTime: '2023-01-01T12:00:00Z', distanceMeters: 5 }),
+      createRide({ startTime: '2023-12-31T12:00:00Z', distanceMeters: 10 }),
     ];
     const bikeNameMap = new Map<string, string>();
 
@@ -337,7 +337,7 @@ describe('useRideStatsForYear', () => {
 
   it('returns empty stats for year with no rides', () => {
     const rides = [
-      createRide({ startTime: '2023-06-15T12:00:00Z', distanceMiles: 10 }),
+      createRide({ startTime: '2023-06-15T12:00:00Z', distanceMeters: 10 }),
     ];
     const bikeNameMap = new Map<string, string>();
 
@@ -353,8 +353,8 @@ describe('useRideStatsForYear', () => {
 describe('ride count stats', () => {
   it('calculates averages correctly', () => {
     const rides = [
-      createRide({ distanceMiles: 10, elevationGainFeet: 1000, durationSeconds: 3600 }),
-      createRide({ distanceMiles: 20, elevationGainFeet: 2000, durationSeconds: 7200 }),
+      createRide({ distanceMeters: 10, elevationGainMeters: 1000, durationSeconds: 3600 }),
+      createRide({ distanceMeters: 20, elevationGainMeters: 2000, durationSeconds: 7200 }),
     ];
     const bikeNameMap = new Map<string, string>();
 

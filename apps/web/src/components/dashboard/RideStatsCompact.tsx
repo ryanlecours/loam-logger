@@ -7,13 +7,14 @@ import {
   calculateRideStats,
   type Timeframe,
 } from '../../utils/rideStats';
+import { usePreferences } from '../../hooks/usePreferences';
 
 interface Ride {
   id: string;
   startTime: string;
   durationSeconds: number;
-  distanceMiles: number;
-  elevationGainFeet: number;
+  distanceMeters: number;
+  elevationGainMeters: number;
 }
 
 interface RideStatsCompactProps {
@@ -30,12 +31,13 @@ const TIMEFRAME_LABELS: Record<Timeframe, string> = {
 
 export function RideStatsCompact({ rides, loading = false }: RideStatsCompactProps) {
   const [timeframe, setTimeframe] = useState<Timeframe>('30');
+  const { distanceUnit } = usePreferences();
 
   const stats = useMemo(() => {
     const startDate = getTimeframeStartDate(timeframe);
     const filteredRides = filterRidesByDate(rides, startDate);
-    return calculateRideStats(filteredRides);
-  }, [rides, timeframe]);
+    return calculateRideStats(filteredRides, distanceUnit);
+  }, [rides, timeframe, distanceUnit]);
 
   // Loading skeleton
   if (loading) {
@@ -81,12 +83,12 @@ export function RideStatsCompact({ rides, loading = false }: RideStatsCompactPro
             <span className="ride-stats-compact-label">Hours</span>
           </div>
           <div className="ride-stats-compact-metric">
-            <span className="ride-stats-compact-value">{stats.miles}</span>
-            <span className="ride-stats-compact-label">Miles</span>
+            <span className="ride-stats-compact-value">{stats.distance}</span>
+            <span className="ride-stats-compact-label">{distanceUnit === 'km' ? 'Kilometers' : 'Miles'}</span>
           </div>
           <div className="ride-stats-compact-metric">
             <span className="ride-stats-compact-value">{stats.climb}</span>
-            <span className="ride-stats-compact-label">Climb (ft)</span>
+            <span className="ride-stats-compact-label">Climb ({distanceUnit === 'km' ? 'm' : 'ft'})</span>
           </div>
         </div>
         <div className="ride-stats-compact-footer">

@@ -4,8 +4,8 @@ export interface BikeTimeData {
 }
 
 export interface RideStats {
-  distance: number;     // in miles
-  elevation: number;    // in feet
+  distance: number;     // in meters
+  elevation: number;    // in meters
   hours: number;        // total time ridden
   bikeTime: BikeTimeData[];
 }

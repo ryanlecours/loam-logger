@@ -121,8 +121,8 @@ export const typeDefs = gql`
     stravaGearId: String
     startTime: String!
     durationSeconds: Int!
-    distanceMiles: Float!
-    elevationGainFeet: Float!
+    distanceMeters: Float!
+    elevationGainMeters: Float!
     averageHr: Int
     rideType: String!
     bikeId: ID
@@ -272,8 +272,8 @@ export const typeDefs = gql`
   input UpdateRideInput {
     startTime: String
     durationSeconds: Int
-    distanceMiles: Float
-    elevationGainFeet: Float
+    distanceMeters: Float
+    elevationGainMeters: Float
     averageHr: Int
     rideType: String
     bikeId: ID
@@ -285,8 +285,8 @@ export const typeDefs = gql`
   input AddRideInput {
     startTime: String!
     durationSeconds: Int!
-    distanceMiles: Float!
-    elevationGainFeet: Float!
+    distanceMeters: Float!
+    elevationGainMeters: Float!
     averageHr: Int
     rideType: String!
     bikeId: ID
@@ -461,8 +461,8 @@ export const typeDefs = gql`
     id: ID!
     startTime: String!
     durationSeconds: Int!
-    distanceMiles: Float!
-    elevationGainFeet: Float!
+    distanceMeters: Float!
+    elevationGainMeters: Float!
     location: String
     rideType: String!
   }
@@ -518,6 +518,7 @@ export const typeDefs = gql`
   input UpdateUserPreferencesInput {
     hoursDisplayPreference: String
     predictionMode: String
+    distanceUnit: String
   }
 
   # Service Preferences
@@ -776,6 +777,7 @@ export const typeDefs = gql`
     isFoundingRider: Boolean!
     hoursDisplayPreference: String
     predictionMode: String
+    distanceUnit: String
     pairedComponentMigrationSeenAt: String
     servicePreferences: [UserServicePreference!]!
     createdAt: String!

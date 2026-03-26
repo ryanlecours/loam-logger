@@ -18,8 +18,8 @@ export const UNASSIGNED_RIDES = gql`
         id
         startTime
         durationSeconds
-        distanceMiles
-        elevationGainFeet
+        distanceMeters
+        elevationGainMeters
         location
         rideType
       }
@@ -57,8 +57,8 @@ export type UnassignedRide = {
   id: string;
   startTime: string;
   durationSeconds: number;
-  distanceMiles: number;
-  elevationGainFeet: number;
+  distanceMeters: number;
+  elevationGainMeters: number;
   location: string | null;
   rideType: string;
 };

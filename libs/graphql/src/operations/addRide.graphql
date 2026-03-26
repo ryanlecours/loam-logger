@@ -3,8 +3,8 @@ mutation AddRide($input: AddRideInput!) {
     id
     startTime
     durationSeconds
-    distanceMiles
-    elevationGainFeet
+    distanceMeters
+    elevationGainMeters
     averageHr
     rideType
     bikeId

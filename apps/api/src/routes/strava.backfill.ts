@@ -162,8 +162,8 @@ r.get<Empty, void, Empty, { year?: string }>(
         }
 
         // Convert activity to Ride format
-        const distanceMiles = activity.distance * 0.000621371; // meters to miles
-        const elevationGainFeet = activity.total_elevation_gain * 3.28084; // meters to feet
+        const distanceMeters = activity.distance;
+        const elevationGainMeters = activity.total_elevation_gain;
         const startTime = new Date(activity.start_date);
 
         const durationHours = Math.max(0, activity.moving_time) / 3600;
@@ -180,8 +180,8 @@ r.get<Empty, void, Empty, { year?: string }>(
               stravaGearId: activity.gear_id ?? null,
               startTime,
               durationSeconds: activity.moving_time,
-              distanceMiles,
-              elevationGainFeet,
+              distanceMeters,
+              elevationGainMeters,
               averageHr: activity.average_heartrate ? Math.round(activity.average_heartrate) : null,
               rideType: activity.sport_type,
               notes: activity.name || null,
@@ -358,7 +358,7 @@ r.get<Empty, void, Empty, Empty>(
           stravaActivityId: true,
           startTime: true,
           rideType: true,
-          distanceMiles: true,
+          distanceMeters: true,
           createdAt: true,
         },
       });

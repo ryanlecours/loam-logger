@@ -1,5 +1,6 @@
 import { FaArrowUp, FaArrowDown, FaMinus, FaFire, FaTrophy } from 'react-icons/fa';
 import type { TrendStats } from '../types';
+import { usePreferences } from '../../../hooks/usePreferences';
 
 interface TrendsSectionProps {
   stats: TrendStats;
@@ -34,12 +35,18 @@ function TrendIndicator({ value, label }: { value: number | null; label: string 
   );
 }
 
-function formatRecordValue(type: string, value: number): string {
+function formatRecordValue(type: string, value: number, distanceUnit: 'mi' | 'km' = 'mi'): string {
   switch (type) {
     case 'longest_ride':
-      return `${value.toFixed(1)} mi`;
+      if (distanceUnit === 'km') {
+        return `${(value / 1000).toFixed(1)} km`;
+      }
+      return `${(value / 1609.344).toFixed(1)} mi`;
     case 'most_elevation':
-      return `${value.toLocaleString()} ft`;
+      if (distanceUnit === 'km') {
+        return `${Math.round(value).toLocaleString()} m`;
+      }
+      return `${Math.round(value * 3.28084).toLocaleString()} ft`;
     case 'longest_duration': {
       const hours = Math.floor(value / 3600);
       const mins = Math.round((value % 3600) / 60);
@@ -64,6 +71,7 @@ function getRecordLabel(type: string): string {
 }
 
 export default function TrendsSection({ stats }: TrendsSectionProps) {
+  const { distanceUnit } = usePreferences();
   return (
     <div className="trends-content">
       {/* Week over week trends */}
@@ -97,7 +105,7 @@ export default function TrendsSection({ stats }: TrendsSectionProps) {
           {stats.personalRecords.map((record) => (
             <div key={record.type} className="record-item">
               <span className="record-label">{getRecordLabel(record.type)}</span>
-              <span className="record-value">{formatRecordValue(record.type, record.value)}</span>
+              <span className="record-value">{formatRecordValue(record.type, record.value, distanceUnit)}</span>
             </div>
           ))}
         </div>

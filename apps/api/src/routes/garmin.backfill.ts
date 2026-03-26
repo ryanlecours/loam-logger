@@ -535,7 +535,7 @@ r.get<Empty, void, Empty, Empty>(
           garminActivityId: true,
           startTime: true,
           rideType: true,
-          distanceMiles: true,
+          distanceMeters: true,
           createdAt: true,
         },
       });

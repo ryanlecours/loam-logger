@@ -10,11 +10,11 @@ import {
 import type { RideMetrics, ComponentWearWeights } from '../types';
 
 describe('wear calculations', () => {
-  // Standard test ride: 1 hour, 10 miles, 1500 ft elevation
+  // Standard test ride: 1 hour, ~10 miles, ~1500 ft elevation (in meters)
   const standardRide: RideMetrics = {
     durationSeconds: 3600, // 1 hour
-    distanceMiles: 10,
-    elevationGainFeet: 1500,
+    distanceMeters: 16093.44, // 10 miles in meters
+    elevationGainMeters: 457.2, // 1500 feet in meters
     startTime: new Date('2024-01-15T10:00:00Z'),
   };
 
@@ -29,6 +29,7 @@ describe('wear calculations', () => {
   describe('calculateRideWear', () => {
     it('should calculate wear using the spec formula', () => {
       // Formula: wearUnits = wH*H + wD*(D/10) + wC*(C/3000) + wV*(V/300)
+      // Input is in meters, converted internally: D = 16093.44/1609.344 = 10 miles, C = 457.2*3.28084 = 1500 ft
       // H = 3600/3600 = 1
       // D = 10
       // C = 1500
@@ -39,7 +40,7 @@ describe('wear calculations', () => {
       // = 1 + 1 + 0.5 + 0.5 = 3.0
 
       const wear = calculateRideWear(standardRide, standardWeights);
-      expect(wear).toBe(3.0);
+      expect(wear).toBeCloseTo(3.0, 1);
     });
 
     it('should apply brake pad weights correctly', () => {
@@ -54,7 +55,7 @@ describe('wear calculations', () => {
       // 0.8*1 + 0.2*1 + 1.2*0.5 + 1.2*0.5
       // = 0.8 + 0.2 + 0.6 + 0.6 = 2.2
       const wear = calculateRideWear(standardRide, brakePadWeights);
-      expect(wear).toBe(2.2);
+      expect(wear).toBeCloseTo(2.2, 1);
     });
 
     it('should apply chain weights correctly', () => {
@@ -69,29 +70,30 @@ describe('wear calculations', () => {
       // 1.0*1 + 1.2*1 + 0.5*0.5 + 0.1*0.5
       // = 1.0 + 1.2 + 0.25 + 0.05 = 2.5
       const wear = calculateRideWear(standardRide, chainWeights);
-      expect(wear).toBe(2.5);
+      expect(wear).toBeCloseTo(2.5, 1);
     });
 
     it('should handle zero distance gracefully (V calculation)', () => {
       const zeroDistanceRide: RideMetrics = {
         durationSeconds: 3600,
-        distanceMiles: 0,
-        elevationGainFeet: 1000,
+        distanceMeters: 0,
+        elevationGainMeters: 304.8, // 1000 feet in meters
         startTime: new Date(),
       };
 
+      // D = 0/1609.344 = 0 miles, C = 304.8*3.28084 = ~1000 ft
       // V = 1000 / max(0, 1) = 1000
       // 1.0*1 + 1.0*0 + 1.0*(1000/3000) + 1.0*(1000/300)
       // = 1 + 0 + 0.333... + 3.333... = 4.666...
       const wear = calculateRideWear(zeroDistanceRide, standardWeights);
-      expect(wear).toBeCloseTo(4.667, 2);
+      expect(wear).toBeCloseTo(4.667, 1);
     });
 
     it('should return non-negative wear', () => {
       const emptyRide: RideMetrics = {
         durationSeconds: 0,
-        distanceMiles: 0,
-        elevationGainFeet: 0,
+        distanceMeters: 0,
+        elevationGainMeters: 0,
         startTime: new Date(),
       };
 
@@ -105,19 +107,19 @@ describe('wear calculations', () => {
       const rides = [standardRide];
       const result = calculateWearDetailed(rides, standardWeights);
 
-      expect(result.totalWearUnits).toBe(3.0);
+      expect(result.totalWearUnits).toBeCloseTo(3.0, 1);
       expect(result.totalHours).toBe(1.0);
-      expect(result.breakdown.hours).toBe(1.0);
-      expect(result.breakdown.distance).toBe(1.0);
-      expect(result.breakdown.climbing).toBe(0.5);
-      expect(result.breakdown.steepness).toBe(0.5);
+      expect(result.breakdown.hours).toBeCloseTo(1.0, 1);
+      expect(result.breakdown.distance).toBeCloseTo(1.0, 1);
+      expect(result.breakdown.climbing).toBeCloseTo(0.5, 1);
+      expect(result.breakdown.steepness).toBeCloseTo(0.5, 1);
     });
 
     it('should accumulate wear across multiple rides', () => {
       const rides = [standardRide, standardRide]; // 2 identical rides
       const result = calculateWearDetailed(rides, standardWeights);
 
-      expect(result.totalWearUnits).toBe(6.0); // 3.0 * 2
+      expect(result.totalWearUnits).toBeCloseTo(6.0, 1); // 3.0 * 2
       expect(result.totalHours).toBe(2.0);
     });
 
@@ -133,7 +135,7 @@ describe('wear calculations', () => {
     it('should sum wear across rides', () => {
       const rides = [standardRide, standardRide];
       const wear = calculateTotalWear(rides, standardWeights);
-      expect(wear).toBe(6.0);
+      expect(wear).toBeCloseTo(6.0, 1);
     });
   });
 
@@ -162,7 +164,7 @@ describe('wear calculations', () => {
       // Wear = 2.5 (calculated above)
       // Hours = 1.0
       // Ratio = 2.5 / 1.0 = 2.5
-      expect(ratio).toBe(2.5);
+      expect(ratio).toBeCloseTo(2.5, 1);
     });
   });
 
@@ -233,15 +235,15 @@ describe('wear calculations', () => {
 });
 
 describe('component-specific weight tests', () => {
-  // Test ride for weight verification
+  // Test ride for weight verification: 2 hours, ~15 miles, ~3000 ft elevation
   const testRide: RideMetrics = {
     durationSeconds: 7200, // 2 hours
-    distanceMiles: 15,
-    elevationGainFeet: 3000,
+    distanceMeters: 24140, // ~15 miles in meters
+    elevationGainMeters: 914.4, // ~3000 feet in meters
     startTime: new Date(),
   };
 
-  // V = 3000 / 15 = 200 ft/mile
+  // After conversion: D = 15 miles, C = 3000 ft, V = 3000 / 15 = 200 ft/mile
 
   it('BRAKE_PAD should have high climb/steepness sensitivity', () => {
     const brakePadWeights: ComponentWearWeights = {

@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import type { RideStats } from '../RideStatsCard/types';
 import { formatDistance, formatPercentChange, getRandomDefaultMessage } from './greetingMessages';
+import { usePreferences } from '../../hooks/usePreferences';
 
 export type InsightType = 'pr' | 'streak' | 'improvement' | 'maintenance' | 'milestone' | 'welcome' | 'default';
 
@@ -26,6 +27,7 @@ export function useGreetingInsight({
   bikeHealth,
   totalHoursAllTime = 0,
 }: UseGreetingInsightOptions): GreetingInsight {
+  const { distanceUnit } = usePreferences();
   return useMemo(() => {
     // Priority 1: Personal Records (check if any exist and highlight the first one)
     if (stats?.trends.personalRecords && stats.trends.personalRecords.length > 0) {
@@ -38,10 +40,12 @@ export function useGreetingInsight({
         let recordMessage = '';
         switch (record.type) {
           case 'longest_ride':
-            recordMessage = `New distance PR: ${formatDistance(record.value)}`;
+            recordMessage = `New distance PR: ${formatDistance(record.value, distanceUnit)}`;
             break;
           case 'most_elevation':
-            recordMessage = `New climbing PR: ${record.value.toLocaleString()} ft`;
+            recordMessage = distanceUnit === 'km'
+              ? `New climbing PR: ${Math.round(record.value).toLocaleString()} m`
+              : `New climbing PR: ${Math.round(record.value * 3.28084).toLocaleString()} ft`;
             break;
           case 'longest_duration': {
             const hours = Math.floor(record.value / 3600);
@@ -127,7 +131,7 @@ export function useGreetingInsight({
       const distance = stats.distance;
       return {
         type: 'default',
-        message: `${rides} ride${rides > 1 ? 's' : ''} and ${formatDistance(distance)} this week`,
+        message: `${rides} ride${rides > 1 ? 's' : ''} and ${formatDistance(distance, distanceUnit)} this week`,
         emoji: '🚵',
       };
     }
@@ -138,5 +142,5 @@ export function useGreetingInsight({
       message: getRandomDefaultMessage(),
       emoji: '🤙',
     };
-  }, [stats, bikeHealth, totalHoursAllTime]);
+  }, [stats, bikeHealth, totalHoursAllTime, distanceUnit]);
 }
