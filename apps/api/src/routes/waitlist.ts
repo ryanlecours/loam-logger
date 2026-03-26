@@ -87,30 +87,31 @@ router.post('/waitlist', express.json(), async (req: Request, res) => {
  * Public stats for the landing page (cached for 60s)
  */
 const STATS_TTL_MS = 60_000;
-let statsCache: { data: { signupCount: number; ridesTracked: number }; expiresAt: number } | null = null;
+let statsCachePromise: Promise<{ signupCount: number; ridesTracked: number }> | null = null;
+let statsCacheExpiresAt = 0;
 
 async function getPublicStats() {
-  if (statsCache && Date.now() < statsCache.expiresAt) return statsCache.data;
+  if (statsCachePromise && Date.now() < statsCacheExpiresAt) return statsCachePromise;
 
-  const [waitlistCount, activeUserCount, ridesTracked] = await Promise.all([
-    prisma.user.count({ where: { role: 'WAITLIST' } }),
-    prisma.user.count({ where: { role: { in: ['FREE', 'PRO', 'ADMIN'] } } }),
-    prisma.ride.count(),
-  ]);
+  statsCacheExpiresAt = Date.now() + STATS_TTL_MS;
+  statsCachePromise = (async () => {
+    const [waitlistCount, activeUserCount, ridesTracked] = await Promise.all([
+      prisma.user.count({ where: { role: 'WAITLIST' } }),
+      prisma.user.count({ where: { role: { in: ['FREE', 'PRO', 'ADMIN'] } } }),
+      prisma.ride.count(),
+    ]);
+    return { signupCount: waitlistCount + activeUserCount, ridesTracked };
+  })().catch((e) => {
+    statsCacheExpiresAt = 0;
+    statsCachePromise = null;
+    throw e;
+  });
 
-  const data = { signupCount: waitlistCount + activeUserCount, ridesTracked };
-  statsCache = { data, expiresAt: Date.now() + STATS_TTL_MS };
-  return data;
+  return statsCachePromise;
 }
 
-router.get('/waitlist/stats', async (req: Request, res) => {
+router.get('/waitlist/stats', async (_req: Request, res) => {
   try {
-    const clientIp = req.ip || (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || 'unknown';
-    const rateLimit = await checkAuthRateLimit('public-stats', clientIp);
-    if (!rateLimit.allowed) {
-      return sendTooManyRequests(res, 'Too many requests. Please try again later.', rateLimit.retryAfter);
-    }
-
     const data = await getPublicStats();
     return sendSuccess(res, data);
   } catch (e) {
