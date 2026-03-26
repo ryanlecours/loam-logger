@@ -187,21 +187,17 @@ r.get<Empty, void, Empty, { year?: string }>(
         const durationSeconds = Math.round((endTime.getTime() - startTime.getTime()) / 1000);
         const durationHours = Math.max(0, durationSeconds) / 3600;
 
-        // Convert WHOOP metrics (meters to miles, meters to feet)
-        const distanceMiles = workout.score?.distance_meter
-          ? workout.score.distance_meter * 0.000621371
-          : 0;
-        const elevationGainFeet = workout.score?.altitude_gain_meter
-          ? workout.score.altitude_gain_meter * 3.28084
-          : 0;
+        // Store raw WHOOP metrics in meters
+        const distanceMeters = workout.score?.distance_meter ?? 0;
+        const elevationGainMeters = workout.score?.altitude_gain_meter ?? 0;
 
         // Check for cross-provider duplicates
         const duplicateCandidate: DuplicateCandidate = {
           id: '',
           startTime,
           durationSeconds,
-          distanceMiles,
-          elevationGainFeet,
+          distanceMeters,
+          elevationGainMeters,
           garminActivityId: null,
           stravaActivityId: null,
           whoopWorkoutId: workout.id,
@@ -228,8 +224,8 @@ r.get<Empty, void, Empty, { year?: string }>(
               whoopWorkoutId: workout.id,
               startTime,
               durationSeconds,
-              distanceMiles,
-              elevationGainFeet,
+              distanceMeters,
+              elevationGainMeters,
               averageHr: workout.score?.average_heart_rate
                 ? Math.round(workout.score.average_heart_rate)
                 : null,
@@ -338,7 +334,7 @@ r.get<Empty, void, Empty, Empty>(
           whoopWorkoutId: true,
           startTime: true,
           rideType: true,
-          distanceMiles: true,
+          distanceMeters: true,
           createdAt: true,
         },
       });

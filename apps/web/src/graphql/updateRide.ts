@@ -6,8 +6,8 @@ export const UPDATE_RIDE = gql`
       id
       startTime
       durationSeconds
-      distanceMiles
-      elevationGainFeet
+      distanceMeters
+      elevationGainMeters
       averageHr
       rideType
       bikeId

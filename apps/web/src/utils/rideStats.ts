@@ -18,8 +18,8 @@ export type Timeframe = '7' | '30' | '90' | 'YTD';
 export interface RideData {
   startTime: string;
   durationSeconds: number;
-  distanceMiles: number;
-  elevationGainFeet: number;
+  distanceMeters: number;
+  elevationGainMeters: number;
 }
 
 export interface RideStats {
@@ -60,23 +60,26 @@ export function filterRidesByDate(rides: RideData[], startDate: Date): RideData[
 /**
  * Calculate aggregated statistics for a set of rides.
  */
-export function calculateRideStats(rides: RideData[]): RideStats {
+export function calculateRideStats(rides: RideData[], distanceUnit: 'mi' | 'km' = 'mi'): RideStats {
   const totalSeconds = rides.reduce(
     (sum, ride) => sum + (ride.durationSeconds ?? 0),
     0
   );
-  const totalMiles = rides.reduce(
-    (sum, ride) => sum + (ride.distanceMiles ?? 0),
+  const totalMeters = rides.reduce(
+    (sum, ride) => sum + (ride.distanceMeters ?? 0),
     0
   );
-  const totalClimb = rides.reduce(
-    (sum, ride) => sum + (ride.elevationGainFeet ?? 0),
+  const totalClimbMeters = rides.reduce(
+    (sum, ride) => sum + (ride.elevationGainMeters ?? 0),
     0
   );
 
+  const displayDistance = distanceUnit === 'km' ? totalMeters / 1000 : totalMeters / 1609.344;
+  const totalClimb = totalClimbMeters * 3.28084;
+
   return {
     hours: (totalSeconds / SECONDS_PER_HOUR).toFixed(1),
-    miles: Math.round(totalMiles).toLocaleString(),
+    miles: Math.round(displayDistance).toLocaleString(),
     climb: Math.round(totalClimb).toLocaleString(),
   };
 }

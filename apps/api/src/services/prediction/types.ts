@@ -34,8 +34,8 @@ export interface ComponentWearWeights {
 /** Ride metrics needed for wear calculation */
 export interface RideMetrics {
   durationSeconds: number;
-  distanceMiles: number;
-  elevationGainFeet: number;
+  distanceMeters: number;
+  elevationGainMeters: number;
   startTime: Date;
 }
 

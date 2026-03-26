@@ -358,13 +358,10 @@ async function processGarminCallback(userId: string, callbackURL: string): Promi
     }
 
     // Convert activity to Ride format
-    const distanceMiles = activity.distanceInMeters
-      ? activity.distanceInMeters * 0.000621371
-      : 0;
+    const distanceMeters = activity.distanceInMeters ?? 0;
 
-    const elevationGainFeet = (activity.totalElevationGainInMeters ?? activity.elevationGainInMeters)
-      ? (activity.totalElevationGainInMeters ?? activity.elevationGainInMeters)! * 3.28084
-      : 0;
+    const elevationGainMeters =
+      (activity.totalElevationGainInMeters ?? activity.elevationGainInMeters) ?? 0;
 
     const startTime = new Date(activity.startTimeInSeconds * 1000);
 
@@ -394,8 +391,8 @@ async function processGarminCallback(userId: string, callbackURL: string): Promi
         garminActivityId: activity.summaryId,
         startTime,
         durationSeconds: activity.durationInSeconds,
-        distanceMiles,
-        elevationGainFeet,
+        distanceMeters,
+        elevationGainMeters,
         averageHr: activity.averageHeartRateInBeatsPerMinute ?? null,
         rideType: activity.activityType,
         notes: activity.activityName ?? null,
@@ -405,8 +402,8 @@ async function processGarminCallback(userId: string, callbackURL: string): Promi
       update: {
         startTime,
         durationSeconds: activity.durationInSeconds,
-        distanceMiles,
-        elevationGainFeet,
+        distanceMeters,
+        elevationGainMeters,
         averageHr: activity.averageHeartRateInBeatsPerMinute ?? null,
         rideType: activity.activityType,
         notes: activity.activityName ?? null,

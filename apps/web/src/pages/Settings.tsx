@@ -50,13 +50,15 @@ export default function Settings() {
   const { data: unmappedData, refetch: refetchUnmapped } = useQuery(UNMAPPED_STRAVA_GEARS, {
     fetchPolicy: 'cache-and-network',
   });
-  const { hoursDisplay, setHoursDisplay, predictionMode, setPredictionMode } = usePreferences();
+  const { hoursDisplay, setHoursDisplay, predictionMode, setPredictionMode, distanceUnit, setDistanceUnit } = usePreferences();
   const { isPro } = useUserTier();
   const [savedHoursDisplay, setSavedHoursDisplay] = useState(hoursDisplay);
   const [savedPredictionMode, setSavedPredictionMode] = useState(predictionMode);
+  const [savedDistanceUnit, setSavedDistanceUnit] = useState(distanceUnit);
   const [preferenceSaving, setPreferenceSaving] = useState(false);
   const initialPrefSyncedRef = useRef(false);
   const initialPredictionSyncedRef = useRef(false);
+  const initialDistanceUnitSyncedRef = useRef(false);
   const [updateUserPreferences] = useMutation(UPDATE_USER_PREFERENCES_MUTATION);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [setPasswordModalOpen, setSetPasswordModalOpen] = useState(false);
@@ -148,6 +150,16 @@ export default function Settings() {
       initialPredictionSyncedRef.current = true;
     }
   }, [user?.predictionMode, setPredictionMode]);
+
+  // Sync distanceUnit preference from database on initial load only
+  useEffect(() => {
+    if (user?.distanceUnit && !initialDistanceUnitSyncedRef.current) {
+      const dbPref = user.distanceUnit as 'mi' | 'km';
+      setSavedDistanceUnit(dbPref);
+      setDistanceUnit(dbPref);
+      initialDistanceUnitSyncedRef.current = true;
+    }
+  }, [user?.distanceUnit, setDistanceUnit]);
 
   const accounts = accountsData?.me?.accounts || [];
   const garminAccount = accounts.find((acc: { provider: string; connectedAt: string }) => acc.provider === "garmin");
@@ -346,11 +358,13 @@ export default function Settings() {
           input: {
             hoursDisplayPreference: hoursDisplay,
             predictionMode: predictionMode,
+            distanceUnit: distanceUnit,
           },
         },
       });
       setSavedHoursDisplay(hoursDisplay);
       setSavedPredictionMode(predictionMode);
+      setSavedDistanceUnit(distanceUnit);
       setSuccessMessage('Preferences saved successfully');
       setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err) {
@@ -361,7 +375,7 @@ export default function Settings() {
     }
   };
 
-  const hasUnsavedChanges = hoursDisplay !== savedHoursDisplay || predictionMode !== savedPredictionMode;
+  const hasUnsavedChanges = hoursDisplay !== savedHoursDisplay || predictionMode !== savedPredictionMode || distanceUnit !== savedDistanceUnit;
 
   const handleDeleteAccount = async () => {
     try {
@@ -779,6 +793,50 @@ export default function Settings() {
             </div>
             <p className="text-xs text-muted">
               Total hours are always stored. This preference only affects how we display service intervals.
+            </p>
+          </div>
+
+          {/* Distance Unit */}
+          <div className="space-y-3">
+            <h3 className="text-sm font-medium text-white">Distance unit</h3>
+            <div className="grid gap-3 md:grid-cols-2">
+              <label
+                className={`cursor-pointer rounded-2xl border px-4 py-3 transition ${
+                  distanceUnit === "mi"
+                    ? "border-primary/60 bg-surface-accent/60"
+                    : "border-app/60 bg-surface-2"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="distance-unit"
+                  value="mi"
+                  className="mr-2"
+                  checked={distanceUnit === "mi"}
+                  onChange={() => setDistanceUnit("mi")}
+                />
+                Miles (mi)
+              </label>
+              <label
+                className={`cursor-pointer rounded-2xl border px-4 py-3 transition ${
+                  distanceUnit === "km"
+                    ? "border-primary/60 bg-surface-accent/60"
+                    : "border-app/60 bg-surface-2"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="distance-unit"
+                  value="km"
+                  className="mr-2"
+                  checked={distanceUnit === "km"}
+                  onChange={() => setDistanceUnit("km")}
+                />
+                Kilometers (km)
+              </label>
+            </div>
+            <p className="text-xs text-muted">
+              Distances are always stored in miles. This preference only affects how they are displayed and entered.
             </p>
           </div>
 

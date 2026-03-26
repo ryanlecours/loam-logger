@@ -7,7 +7,10 @@ export function getTimeOfDayGreeting(): string {
 }
 
 // Format distance with units
-export function formatDistance(miles: number): string {
+export function formatDistance(miles: number, unit: 'mi' | 'km' = 'mi'): string {
+  if (unit === 'km') {
+    return `${(miles * 1.60934).toFixed(1)} km`;
+  }
   return `${miles.toFixed(1)} miles`;
 }
 

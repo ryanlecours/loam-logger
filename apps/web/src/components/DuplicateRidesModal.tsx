@@ -1,13 +1,14 @@
 import { useState, useEffect } from 'react';
 import { Modal, Button } from './ui';
 import { getAuthHeaders } from '@/lib/csrf';
+import { usePreferences } from '../hooks/usePreferences';
 
 type Ride = {
   id: string;
   startTime: string;
   durationSeconds: number;
-  distanceMiles: number;
-  elevationGainFeet: number;
+  distanceMeters: number;
+  elevationGainMeters: number;
   garminActivityId: string | null;
   stravaActivityId: string | null;
   rideType: string;
@@ -18,7 +19,7 @@ type Ride = {
 type DuplicateGroup = {
   id: string;
   startTime: string;
-  distanceMiles: number;
+  distanceMeters: number;
   duplicates: Ride[];
   [key: string]: unknown;
 };
@@ -29,6 +30,7 @@ type Props = {
 };
 
 export default function DuplicateRidesModal({ open, onClose }: Props) {
+  const { distanceUnit } = usePreferences();
   const [duplicateGroups, setDuplicateGroups] = useState<DuplicateGroup[]>([]);
   const [loading, setLoading] = useState(false);
   const [scanning, setScanning] = useState(false);
@@ -244,7 +246,7 @@ export default function DuplicateRidesModal({ open, onClose }: Props) {
             return (
               <div key={group.id} className="border border-app/50 rounded-2xl p-4 space-y-3">
                 <p className="text-sm text-muted">
-                  {new Date(group.startTime).toLocaleDateString()} - {group.distanceMiles.toFixed(1)} mi
+                  {new Date(group.startTime).toLocaleDateString()} - {distanceUnit === 'km' ? (group.distanceMeters / 1000).toFixed(1) : (group.distanceMeters / 1609.344).toFixed(1)} {distanceUnit}
                 </p>
 
                 {/* Primary ride */}

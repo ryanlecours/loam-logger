@@ -321,8 +321,8 @@ async function processActivityEvent(event: StravaWebhookEvent): Promise<void> {
       console.log(`[Strava Activity Event] Processing cycling activity: ${activity.sport_type}`);
 
       // Convert activity to Ride format
-      const distanceMiles = activity.distance * 0.000621371; // meters to miles
-      const elevationGainFeet = activity.total_elevation_gain * 3.28084; // meters to feet
+      const distanceMeters = activity.distance;
+      const elevationGainMeters = activity.total_elevation_gain;
       const startTime = new Date(activity.start_date);
 
       // Look up bike mapping if gear_id exists
@@ -370,8 +370,8 @@ async function processActivityEvent(event: StravaWebhookEvent): Promise<void> {
             stravaGearId: activity.gear_id ?? null,
             startTime,
             durationSeconds: activity.moving_time,
-            distanceMiles,
-            elevationGainFeet,
+            distanceMeters,
+            elevationGainMeters,
             averageHr: activity.average_heartrate ? Math.round(activity.average_heartrate) : null,
             rideType: activity.sport_type,
             notes: activity.name || null,
@@ -382,8 +382,8 @@ async function processActivityEvent(event: StravaWebhookEvent): Promise<void> {
             startTime,
             stravaGearId: activity.gear_id ?? null,
             durationSeconds: activity.moving_time,
-            distanceMiles,
-            elevationGainFeet,
+            distanceMeters,
+            elevationGainMeters,
             averageHr: activity.average_heartrate ? Math.round(activity.average_heartrate) : null,
             rideType: activity.sport_type,
             notes: activity.name || null,

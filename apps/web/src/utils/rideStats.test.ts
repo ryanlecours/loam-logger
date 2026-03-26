@@ -62,8 +62,8 @@ describe('filterRidesByDate', () => {
   const createRide = (startTime: string, overrides: Partial<RideData> = {}): RideData => ({
     startTime,
     durationSeconds: 3600,
-    distanceMiles: 10,
-    elevationGainFeet: 500,
+    distanceMeters: 10,
+    elevationGainMeters: 500,
     ...overrides,
   });
 
@@ -160,8 +160,8 @@ describe('calculateRideStats', () => {
   const createRide = (overrides: Partial<RideData> = {}): RideData => ({
     startTime: '2024-02-15T12:00:00Z',
     durationSeconds: 3600,
-    distanceMiles: 10,
-    elevationGainFeet: 500,
+    distanceMeters: 10,
+    elevationGainMeters: 500,
     ...overrides,
   });
 
@@ -192,22 +192,22 @@ describe('calculateRideStats', () => {
     expect(result.hours).toBe('1.1');
   });
 
-  it('sums distance in miles', () => {
+  it('sums distance and converts meters to miles', () => {
     const rides = [
-      createRide({ distanceMiles: 10.5 }),
-      createRide({ distanceMiles: 15.3 }),
+      createRide({ distanceMeters: 16093.44 }), // 10 mi
+      createRide({ distanceMeters: 24140.16 }), // 15 mi
     ];
 
     const result = calculateRideStats(rides);
 
-    // 25.8 rounds to 26
-    expect(result.miles).toBe('26');
+    // 25 miles total
+    expect(result.miles).toBe('25');
   });
 
   it('formats miles with locale separators', () => {
     const rides = [
-      createRide({ distanceMiles: 1000 }),
-      createRide({ distanceMiles: 500 }),
+      createRide({ distanceMeters: 1609344 }), // 1000 mi
+      createRide({ distanceMeters: 804672 }),   // 500 mi
     ];
 
     const result = calculateRideStats(rides);
@@ -215,10 +215,10 @@ describe('calculateRideStats', () => {
     expect(result.miles).toBe('1,500');
   });
 
-  it('sums elevation gain', () => {
+  it('sums elevation gain and converts meters to feet', () => {
     const rides = [
-      createRide({ elevationGainFeet: 1000 }),
-      createRide({ elevationGainFeet: 2500 }),
+      createRide({ elevationGainMeters: 304.8 }),  // ~1000 ft
+      createRide({ elevationGainMeters: 762 }),     // ~2500 ft
     ];
 
     const result = calculateRideStats(rides);
@@ -231,10 +231,10 @@ describe('calculateRideStats', () => {
       {
         startTime: '2024-02-15T12:00:00Z',
         durationSeconds: null as unknown as number,
-        distanceMiles: undefined as unknown as number,
-        elevationGainFeet: null as unknown as number,
+        distanceMeters: undefined as unknown as number,
+        elevationGainMeters: null as unknown as number,
       },
-      createRide({ durationSeconds: 3600, distanceMiles: 10, elevationGainFeet: 500 }),
+      createRide({ durationSeconds: 3600, distanceMeters: 16093.44, elevationGainMeters: 152.4 }),
     ];
 
     const result = calculateRideStats(rides);
@@ -246,7 +246,7 @@ describe('calculateRideStats', () => {
 
   it('handles large values', () => {
     const rides = [
-      createRide({ durationSeconds: 360000, distanceMiles: 10000, elevationGainFeet: 100000 }),
+      createRide({ durationSeconds: 360000, distanceMeters: 16093440, elevationGainMeters: 30480 }),
     ];
 
     const result = calculateRideStats(rides);

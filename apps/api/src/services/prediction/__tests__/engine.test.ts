@@ -83,14 +83,14 @@ describe('prediction engine', () => {
   const mockRides: RideMetrics[] = [
     {
       durationSeconds: 3600,
-      distanceMiles: 10,
-      elevationGainFeet: 1500,
+      distanceMeters: 16093, // ~10 miles
+      elevationGainMeters: 457, // ~1500 feet
       startTime: new Date('2024-01-15'),
     },
     {
       durationSeconds: 7200,
-      distanceMiles: 20,
-      elevationGainFeet: 3000,
+      distanceMeters: 32187, // ~20 miles
+      elevationGainMeters: 914, // ~3000 feet
       startTime: new Date('2024-01-14'),
     },
   ];
@@ -158,26 +158,26 @@ describe('prediction engine', () => {
       const overdueRides: RideMetrics[] = [
         {
           durationSeconds: 24 * 3600, // 24 hours (max per ride)
-          distanceMiles: 50,
-          elevationGainFeet: 5000,
+          distanceMeters: 80467, // ~50 miles
+          elevationGainMeters: 1524, // ~5000 feet
           startTime: new Date('2024-01-10'),
         },
         {
           durationSeconds: 24 * 3600, // 24 hours
-          distanceMiles: 50,
-          elevationGainFeet: 5000,
+          distanceMeters: 80467,
+          elevationGainMeters: 1524,
           startTime: new Date('2024-01-09'),
         },
         {
           durationSeconds: 24 * 3600, // 24 hours
-          distanceMiles: 50,
-          elevationGainFeet: 5000,
+          distanceMeters: 80467,
+          elevationGainMeters: 1524,
           startTime: new Date('2024-01-08'),
         },
         {
           durationSeconds: 10 * 3600, // 10 hours - total: 82 hours > 70h interval
-          distanceMiles: 20,
-          elevationGainFeet: 2000,
+          distanceMeters: 32187, // ~20 miles
+          elevationGainMeters: 610, // ~2000 feet
           startTime: new Date('2024-01-07'),
         },
       ];

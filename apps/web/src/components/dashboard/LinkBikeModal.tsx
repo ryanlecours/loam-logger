@@ -5,13 +5,14 @@ import { RIDES } from '../../graphql/rides';
 import { Modal, Select, Button } from '../ui';
 import { getBikeName, formatRideDate, formatDurationCompact } from '../../utils/formatters';
 import { getRideSource, SOURCE_LABELS } from '../../utils/rideSource';
+import { usePreferences } from '../../hooks/usePreferences';
 
 interface Ride {
   id: string;
   startTime: string;
   durationSeconds: number;
-  distanceMiles: number;
-  elevationGainFeet: number;
+  distanceMeters: number;
+  elevationGainMeters: number;
   trailSystem?: string | null;
   location?: string | null;
   bikeId?: string | null;
@@ -48,13 +49,17 @@ export function LinkBikeModal({ ride, bikes, onClose, onSuccess }: LinkBikeModal
     },
   });
 
+  const { distanceUnit } = usePreferences();
+
   if (!ride) return null;
 
   const rideName = ride.trailSystem || ride.location || 'Ride';
   const rideDate = formatRideDate(ride.startTime);
   const duration = formatDurationCompact(ride.durationSeconds);
-  const distance = ride.distanceMiles?.toFixed(1) ?? '0';
-  const elevation = Math.round(ride.elevationGainFeet ?? 0).toLocaleString();
+  const distanceValue = distanceUnit === 'km'
+    ? ((ride.distanceMeters ?? 0) / 1000).toFixed(1)
+    : ((ride.distanceMeters ?? 0) / 1609.344).toFixed(1);
+  const elevation = Math.round((ride.elevationGainMeters ?? 0) * 3.28084).toLocaleString();
   const source = getRideSource(ride);
 
   const handleSave = async () => {
@@ -101,7 +106,7 @@ export function LinkBikeModal({ ride, bikes, onClose, onSuccess }: LinkBikeModal
             </div>
             <div>
               <span className="text-muted">Distance</span>
-              <p className="text-white">{distance} mi</p>
+              <p className="text-white">{distanceValue} {distanceUnit}</p>
             </div>
             <div>
               <span className="text-muted">Elevation</span>

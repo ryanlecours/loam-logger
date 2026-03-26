@@ -5,6 +5,7 @@ import { RIDES } from '../graphql/rides';
 import { BIKES_LIGHT } from '../graphql/bikes';
 import { toLocalInputValue, fromLocalInputValue } from '../lib/format';
 import { Modal, Input, Textarea, Select, Button } from './ui';
+import { usePreferences } from '../hooks/usePreferences';
 
 type BikeSummary = { id: string; nickname?: string | null; manufacturer: string; model: string };
 const formatBikeName = (bike: BikeSummary) =>
@@ -14,8 +15,8 @@ type Ride = {
   id: string;
   startTime: string | number | Date;
   durationSeconds: number;
-  distanceMiles: number;
-  elevationGainFeet: number;
+  distanceMeters: number;
+  elevationGainMeters: number;
   averageHr?: number | null;
   rideType: string;
   bikeId?: string | null;
@@ -31,12 +32,15 @@ export default function EditRideModal({
   ride: Ride;
   onClose: () => void;
 }) {
-  // Pre-fill fields
+  const { distanceUnit } = usePreferences();
+  // Pre-fill fields - convert stored meters to user's preferred unit for display
   const [startLocal, setStartLocal] = useState<string>(() => toLocalInputValue(ride.startTime));
   const [hours, setHours] = useState<number>(() => Math.floor(ride.durationSeconds / 3600));
   const [minutes, setMinutes] = useState<number>(() => Math.round((ride.durationSeconds % 3600) / 60));
-  const [distanceMiles, setDistanceMiles] = useState<number>(ride.distanceMiles);
-  const [elevationGainFeet, setElevationGainFeet] = useState<number>(ride.elevationGainFeet);
+  const [distanceInput, setDistanceInput] = useState<number>(
+    distanceUnit === 'km' ? Number((ride.distanceMeters / 1000).toFixed(1)) : Number((ride.distanceMeters / 1609.344).toFixed(1))
+  );
+  const [elevationInput, setElevationInput] = useState<number>(Math.round(ride.elevationGainMeters * 3.28084));
   const [averageHr, setAverageHr] = useState<number | ''>(ride.averageHr ?? '');
   const [rideType, setRideType] = useState<string>(ride.rideType);
   const [bikeId, setBikeId] = useState<string | ''>(ride.bikeId ?? '');
@@ -67,14 +71,16 @@ export default function EditRideModal({
     e.preventDefault();
     const iso = fromLocalInputValue(startLocal);
 
+    const distanceInMeters = distanceUnit === 'km' ? Number(distanceInput) * 1000 : Number(distanceInput) * 1609.344;
+    const elevationInMeters = Number(elevationInput) * 0.3048;
     await mutate({
       variables: {
         id: ride.id,
         input: {
           startTime: iso,
           durationSeconds,
-          distanceMiles: Number(distanceMiles),
-          elevationGainFeet: Number(elevationGainFeet),
+          distanceMeters: distanceInMeters,
+          elevationGainMeters: elevationInMeters,
           averageHr: averageHr === '' ? null : Math.floor(Number(averageHr)),
           rideType: rideType.trim(),
           bikeId: bikeId || null,
@@ -133,20 +139,20 @@ export default function EditRideModal({
 
         <div className="grid grid-cols-2 gap-3">
           <Input
-            label="Distance (miles)"
+            label={`Distance (${distanceUnit === 'km' ? 'km' : 'miles'})`}
             type="number"
             min={0}
             step={0.1}
-            value={distanceMiles}
-            onChange={e => setDistanceMiles(Number(e.target.value))}
+            value={distanceInput}
+            onChange={e => setDistanceInput(Number(e.target.value))}
           />
           <Input
             label="Elevation Gain (feet)"
             type="number"
             min={0}
             step={1}
-            value={elevationGainFeet}
-            onChange={e => setElevationGainFeet(Number(e.target.value))}
+            value={elevationInput}
+            onChange={e => setElevationInput(Number(e.target.value))}
           />
         </div>
 

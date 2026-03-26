@@ -7,8 +7,8 @@ interface Ride {
   id: string;
   startTime: string;
   durationSeconds: number;
-  distanceMiles: number;
-  elevationGainFeet: number;
+  distanceMeters: number;
+  elevationGainMeters: number;
   averageHr?: number | null;
   rideType: string;
   trailSystem?: string | null;
@@ -31,8 +31,9 @@ export function CompactRideRow({ ride, bikeName, onLinkBike }: CompactRideRowPro
   const title = ride.trailSystem || ride.location || 'Ride';
   const formattedDate = formatRideDate(ride.startTime);
   const duration = formatDurationCompact(ride.durationSeconds);
-  const climbValue = ride.elevationGainFeet ?? 0;
-  const climb = isNaN(climbValue) ? '0' : Math.round(climbValue).toLocaleString();
+  const climbMeters = ride.elevationGainMeters ?? 0;
+  const climbFeet = climbMeters * 3.28084;
+  const climb = isNaN(climbFeet) ? '0' : Math.round(climbFeet).toLocaleString();
   const source = getRideSource(ride);
 
   return (

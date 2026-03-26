@@ -434,7 +434,7 @@ describe('whoop.backfill routes', () => {
       expect(mockRes.status).toHaveBeenCalledWith(500);
     });
 
-    it('should convert distance from meters to miles', async () => {
+    it('should store raw distance in meters', async () => {
       mockFetch.mockResolvedValue({
         ok: true,
         json: () => Promise.resolve({
@@ -456,11 +456,11 @@ describe('whoop.backfill routes', () => {
 
       await invokeHandler(handler, mockReq as Request, mockRes as Response);
 
-      // 25000 meters * 0.000621371 = ~15.53 miles
-      expect(createdRideData?.distanceMiles).toBeCloseTo(15.53, 1);
+      // Raw meters from WHOOP (25000m)
+      expect(createdRideData?.distanceMeters).toBe(25000);
     });
 
-    it('should convert elevation from meters to feet', async () => {
+    it('should store raw elevation in meters', async () => {
       mockFetch.mockResolvedValue({
         ok: true,
         json: () => Promise.resolve({
@@ -482,8 +482,8 @@ describe('whoop.backfill routes', () => {
 
       await invokeHandler(handler, mockReq as Request, mockRes as Response);
 
-      // 300 meters * 3.28084 = ~984.25 feet
-      expect(createdRideData?.elevationGainFeet).toBeCloseTo(984.25, 1);
+      // Raw meters from WHOOP (300m)
+      expect(createdRideData?.elevationGainMeters).toBe(300);
     });
 
     it('should calculate duration from start and end times', async () => {
@@ -557,7 +557,7 @@ describe('whoop.backfill routes', () => {
           whoopWorkoutId: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
           startTime: new Date(),
           rideType: 'Cycling',
-          distanceMiles: 15.5,
+          distanceMeters: 15.5,
           createdAt: new Date(),
         },
       ];

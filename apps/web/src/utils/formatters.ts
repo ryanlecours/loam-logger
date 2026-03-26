@@ -53,19 +53,22 @@ export function formatRideDate(startTime: string | undefined | null): string {
 }
 
 /**
- * Format elevation with units (e.g., "1,234 ft")
+ * Format elevation with units (accepts meters, displays as feet)
  */
-export function formatElevation(feet: number): string {
-  if (!feet || isNaN(feet)) return '0 ft';
-  return `${Math.round(feet).toLocaleString()} ft`;
+export function formatElevation(meters: number): string {
+  if (!meters || isNaN(meters)) return '0 ft';
+  return `${Math.round(meters * 3.28084).toLocaleString()} ft`;
 }
 
 /**
- * Format distance in compact form (e.g., "12.3 mi")
+ * Format distance in compact form (accepts meters, e.g., "12.3 mi")
  */
-export function formatDistanceCompact(miles: number): string {
-  if (!miles || isNaN(miles) || miles < 0) return '0 mi';
-  return `${miles.toFixed(1)} mi`;
+export function formatDistanceCompact(meters: number, unit: 'mi' | 'km' = 'mi'): string {
+  if (!meters || isNaN(meters) || meters < 0) return unit === 'km' ? '0 km' : '0 mi';
+  if (unit === 'km') {
+    return `${(meters / 1000).toFixed(1)} km`;
+  }
+  return `${(meters / 1609.344).toFixed(1)} mi`;
 }
 
 /**

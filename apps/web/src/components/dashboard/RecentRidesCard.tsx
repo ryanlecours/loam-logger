@@ -7,8 +7,8 @@ interface Ride {
   id: string;
   startTime: string;
   durationSeconds: number;
-  distanceMiles: number;
-  elevationGainFeet: number;
+  distanceMeters: number;
+  elevationGainMeters: number;
   averageHr?: number | null;
   rideType: string;
   trailSystem?: string | null;

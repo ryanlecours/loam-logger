@@ -4,8 +4,8 @@ export interface DuplicateCandidate {
   id: string;
   startTime: Date;
   durationSeconds: number;
-  distanceMiles: number;
-  elevationGainFeet: number;
+  distanceMeters: number;
+  elevationGainMeters: number;
   garminActivityId: string | null;
   stravaActivityId: string | null;
   whoopWorkoutId: string | null;
@@ -56,15 +56,15 @@ export function isDuplicateActivity(
 
   // Note: Duration check removed - providers report different durations for the same ride
 
-  // Distance threshold: within 5% or 0.1 miles (whichever is larger)
-  const distanceDiff = Math.abs(newRide.distanceMiles - existingRide.distanceMiles);
-  const distanceThreshold = Math.max(existingRide.distanceMiles * 0.05, 0.1);
+  // Distance threshold: within 5% or 160m (~0.1 miles) (whichever is larger)
+  const distanceDiff = Math.abs(newRide.distanceMeters - existingRide.distanceMeters);
+  const distanceThreshold = Math.max(existingRide.distanceMeters * 0.05, 160);
   if (distanceDiff > distanceThreshold) return false;
 
-  // Elevation threshold: within 5% or 100ft (whichever is larger)
-  // 100ft minimum handles GPS noise on flat rides where devices may report wildly different values
-  const elevationDiff = Math.abs(newRide.elevationGainFeet - existingRide.elevationGainFeet);
-  const elevationThreshold = Math.max(existingRide.elevationGainFeet * 0.05, 100);
+  // Elevation threshold: within 5% or 30m (~100ft) (whichever is larger)
+  // 30m minimum handles GPS noise on flat rides where devices may report wildly different values
+  const elevationDiff = Math.abs(newRide.elevationGainMeters - existingRide.elevationGainMeters);
+  const elevationThreshold = Math.max(existingRide.elevationGainMeters * 0.05, 30);
   if (elevationDiff > elevationThreshold) return false;
 
   // All criteria match - this is likely a duplicate
@@ -117,8 +117,8 @@ export async function findPotentialDuplicates(
       id: true,
       startTime: true,
       durationSeconds: true,
-      distanceMiles: true,
-      elevationGainFeet: true,
+      distanceMeters: true,
+      elevationGainMeters: true,
       garminActivityId: true,
       stravaActivityId: true,
       whoopWorkoutId: true,

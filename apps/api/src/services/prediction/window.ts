@@ -33,8 +33,8 @@ export async function getRecentRides(
     take: RECENT_RIDES_TARGET,
     select: {
       durationSeconds: true,
-      distanceMiles: true,
-      elevationGainFeet: true,
+      distanceMeters: true,
+      elevationGainMeters: true,
       startTime: true,
     },
   });
@@ -66,8 +66,8 @@ export async function getRidesSinceDate(
     orderBy: { startTime: 'asc' },
     select: {
       durationSeconds: true,
-      distanceMiles: true,
-      elevationGainFeet: true,
+      distanceMeters: true,
+      elevationGainMeters: true,
       startTime: true,
     },
   });
@@ -163,8 +163,8 @@ export async function getAllRidesForBike(
     take: 2000,
     select: {
       durationSeconds: true,
-      distanceMiles: true,
-      elevationGainFeet: true,
+      distanceMeters: true,
+      elevationGainMeters: true,
       startTime: true,
     },
   });

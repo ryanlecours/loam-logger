@@ -13,6 +13,7 @@ query Me {
     isFoundingRider
     hoursDisplayPreference
     predictionMode
+    distanceUnit
     pairedComponentMigrationSeenAt
     createdAt
   }
