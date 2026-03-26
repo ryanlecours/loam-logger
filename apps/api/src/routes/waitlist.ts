@@ -82,4 +82,29 @@ router.post('/waitlist', express.json(), async (req: Request, res) => {
   }
 });
 
+/**
+ * GET /api/waitlist/stats
+ * Public stats for the landing page
+ */
+router.get('/waitlist/stats', async (req: Request, res) => {
+  try {
+    const clientIp = req.ip || (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || 'unknown';
+    const rateLimit = await checkAuthRateLimit('signup', clientIp);
+    if (!rateLimit.allowed) {
+      return sendTooManyRequests(res, 'Too many requests. Please try again later.', rateLimit.retryAfter);
+    }
+
+    const [waitlistCount, activeUserCount, ridesTracked] = await Promise.all([
+      prisma.user.count({ where: { role: 'WAITLIST' } }),
+      prisma.user.count({ where: { role: { in: ['FREE', 'PRO', 'ADMIN'] } } }),
+      prisma.ride.count(),
+    ]);
+
+    return sendSuccess(res, { signupCount: waitlistCount + activeUserCount, ridesTracked });
+  } catch (e) {
+    console.error('[Waitlist Stats] Error:', e instanceof Error ? e.message : String(e));
+    return sendInternalError(res, 'Failed to fetch stats.');
+  }
+});
+
 export default router;
