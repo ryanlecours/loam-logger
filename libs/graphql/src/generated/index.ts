@@ -482,6 +482,7 @@ export type Mutation = {
   logService: ServiceLog;
   markPairedComponentMigrationSeen: User;
   migratePairedComponents: MigratePairedComponentsResult;
+  reactivateBike: Bike;
   replaceComponent: ReplaceComponentResult;
   resetCalibration: User;
   retireBike: Bike;
@@ -588,6 +589,11 @@ export type MutationLogComponentServiceArgs = {
 
 export type MutationLogServiceArgs = {
   input: LogServiceInput;
+};
+
+
+export type MutationReactivateBikeArgs = {
+  id: Scalars['ID']['input'];
 };
 
 
@@ -706,7 +712,7 @@ export type QueryBikeNotesArgs = {
 
 
 export type QueryBikesArgs = {
-  includeRetired?: InputMaybe<Scalars['Boolean']['input']>;
+  includeInactive?: InputMaybe<Scalars['Boolean']['input']>;
 };
 
 

@@ -732,6 +732,7 @@ export const typeDefs = gql`
     updateBike(id: ID!, input: UpdateBikeInput!): Bike!
     deleteBike(id: ID!): DeleteResult!
     retireBike(id: ID!, status: BikeStatus!): Bike!
+    reactivateBike(id: ID!): Bike!
     updateBikesOrder(bikeIds: [ID!]!): [Bike!]!
     addComponent(input: AddComponentInput!, bikeId: ID): Component!
     updateComponent(id: ID!, input: UpdateComponentInput!): Component!
@@ -803,7 +804,7 @@ export const typeDefs = gql`
     user(id: ID!): User
     rides(take: Int = 1000, after: ID, filter: RidesFilterInput): [Ride!]!
     rideTypes: [RideType!]!
-    bikes(includeRetired: Boolean): [Bike!]!
+    bikes(includeInactive: Boolean): [Bike!]!
     components(filter: ComponentFilterInput): [Component!]!
     stravaGearMappings: [StravaGearMapping!]!
     unmappedStravaGears: [StravaGearInfo!]!
