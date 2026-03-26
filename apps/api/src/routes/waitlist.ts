@@ -112,8 +112,7 @@ async function getPublicStats() {
 
 router.get('/waitlist/stats', async (req: Request, res) => {
   try {
-    const clientIp = req.ip || (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || 'unknown';
-    const rateLimit = await checkAuthRateLimit('public-stats', clientIp);
+    const rateLimit = await checkAuthRateLimit('public-stats', req.ip ?? 'unknown');
     if (!rateLimit.allowed) {
       return sendTooManyRequests(res, 'Too many requests. Please try again later.', rateLimit.retryAfter);
     }
