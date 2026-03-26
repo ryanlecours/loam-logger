@@ -140,12 +140,14 @@ export type Bike = {
   notes?: Maybe<Scalars['String']['output']>;
   pivotBearings?: Maybe<Component>;
   predictions?: Maybe<BikePredictionSummary>;
+  retiredAt?: Maybe<Scalars['String']['output']>;
   seatpost?: Maybe<Component>;
   servicePreferences: Array<BikeServicePreference>;
   shock?: Maybe<Component>;
   sortOrder: Scalars['Int']['output'];
   spokesId?: Maybe<Scalars['String']['output']>;
   spokesUrl?: Maybe<Scalars['String']['output']>;
+  status: BikeStatus;
   subcategory?: Maybe<Scalars['String']['output']>;
   thumbnailUrl?: Maybe<Scalars['String']['output']>;
   travelForkMm?: Maybe<Scalars['Int']['output']>;
@@ -244,6 +246,12 @@ export type BikeSpecsSnapshot = {
   travelForkMm?: Maybe<Scalars['Int']['output']>;
   travelShockMm?: Maybe<Scalars['Int']['output']>;
 };
+
+export enum BikeStatus {
+  Active = 'ACTIVE',
+  Retired = 'RETIRED',
+  Sold = 'SOLD'
+}
 
 export type BulkAssignResult = {
   __typename?: 'BulkAssignResult';
@@ -476,6 +484,7 @@ export type Mutation = {
   migratePairedComponents: MigratePairedComponentsResult;
   replaceComponent: ReplaceComponentResult;
   resetCalibration: User;
+  retireBike: Bike;
   snoozeComponent: Component;
   swapComponents: SwapComponentsResult;
   triggerProviderSync: TriggerSyncResult;
@@ -587,6 +596,12 @@ export type MutationReplaceComponentArgs = {
 };
 
 
+export type MutationRetireBikeArgs = {
+  id: Scalars['ID']['input'];
+  status: BikeStatus;
+};
+
+
 export type MutationSnoozeComponentArgs = {
   hours?: InputMaybe<Scalars['Float']['input']>;
   id: Scalars['ID']['input'];
@@ -687,6 +702,11 @@ export type QueryBikeNotesArgs = {
   after?: InputMaybe<Scalars['ID']['input']>;
   bikeId: Scalars['ID']['input'];
   take?: InputMaybe<Scalars['Int']['input']>;
+};
+
+
+export type QueryBikesArgs = {
+  includeRetired?: InputMaybe<Scalars['Boolean']['input']>;
 };
 
 
@@ -994,12 +1014,14 @@ export type User = {
   distanceUnit?: Maybe<Scalars['String']['output']>;
   email: Scalars['String']['output'];
   hasAcceptedCurrentTerms: Scalars['Boolean']['output'];
+  hasPassword: Scalars['Boolean']['output'];
   hoursDisplayPreference?: Maybe<Scalars['String']['output']>;
   id: Scalars['ID']['output'];
   isFoundingRider: Scalars['Boolean']['output'];
   location?: Maybe<Scalars['String']['output']>;
   mustChangePassword: Scalars['Boolean']['output'];
   name?: Maybe<Scalars['String']['output']>;
+  needsReauthForSensitiveActions: Scalars['Boolean']['output'];
   onboardingCompleted: Scalars['Boolean']['output'];
   pairedComponentMigrationSeenAt?: Maybe<Scalars['String']['output']>;
   predictionMode?: Maybe<Scalars['String']['output']>;

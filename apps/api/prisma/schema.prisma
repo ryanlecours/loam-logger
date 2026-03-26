@@ -145,6 +145,8 @@ model Bike {
   motorTorqueNm      Int?
   thumbnailUrl         String?
   acquisitionCondition AcquisitionCondition?
+  status               BikeStatus          @default(ACTIVE)
+  retiredAt            DateTime?
   user                 User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   components           Component[]
   Ride                 Ride[]
@@ -154,6 +156,7 @@ model Bike {
   bikeNotes            BikeNote[]
 
   @@index([spokesId])
+  @@index([userId, status])
 }
 
 model StravaGearMapping {
@@ -355,6 +358,12 @@ enum AcquisitionCondition {
   NEW
   USED
   MIXED
+}
+
+enum BikeStatus {
+  ACTIVE
+  RETIRED
+  SOLD
 }
 
 enum BaselineMethod {

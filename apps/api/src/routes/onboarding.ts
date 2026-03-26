@@ -70,6 +70,9 @@ router.post('/complete', express.json(), async (req: Request, res) => {
       spokesComponents,
       // Bike acquisition condition (new/used/mixed)
       acquisitionCondition,
+      // Bike nickname and notes
+      nickname,
+      notes,
     } = req.body as {
       age?: number;
       location?: string;
@@ -99,6 +102,8 @@ router.post('/complete', express.json(), async (req: Request, res) => {
       components?: Partial<Record<BikeComponentKey, BikeComponentInputGQL | null>>;
       spokesComponents?: SpokesComponentsInputGQL;
       acquisitionCondition?: AcquisitionCondition;
+      nickname?: string;
+      notes?: string;
     };
 
     // Validate bike data
@@ -133,6 +138,8 @@ router.post('/complete', express.json(), async (req: Request, res) => {
           userId,
           manufacturer: bikeMake,
           model: bikeModel,
+          nickname: nickname?.trim() || null,
+          notes: notes?.trim() || null,
           year: bikeYear || null,
           travelForkMm: bikeTravelFork || null,
           travelShockMm: bikeTravelShock || null,

@@ -843,10 +843,14 @@ export const resolvers = {
       return id ? prisma.user.findUnique({ where: { id } }) : null;
     },
 
-    bikes: async (_: unknown, __: unknown, ctx: GraphQLContext) => {
+    bikes: async (_: unknown, args: { includeRetired?: boolean }, ctx: GraphQLContext) => {
       const userId = requireUserId(ctx);
+      const where: Prisma.BikeWhereInput = { userId };
+      if (!args.includeRetired) {
+        where.status = 'ACTIVE';
+      }
       return prisma.bike.findMany({
-        where: { userId },
+        where,
         orderBy: { sortOrder: 'asc' },
         include: { components: true },
       });
@@ -1746,6 +1750,32 @@ export const resolvers = {
       });
 
       return { ok: true, id };
+    },
+
+    retireBike: async (
+      _: unknown,
+      { id, status }: { id: string; status: 'RETIRED' | 'SOLD' },
+      ctx: GraphQLContext
+    ) => {
+      const userId = requireUserId(ctx);
+      const existing = await prisma.bike.findUnique({
+        where: { id },
+        select: { userId: true },
+      });
+      if (!existing || existing.userId !== userId) throw new Error('Bike not found');
+
+      if (status !== 'RETIRED' && status !== 'SOLD') {
+        throw new Error('Status must be RETIRED or SOLD');
+      }
+
+      return prisma.bike.update({
+        where: { id },
+        data: {
+          status,
+          retiredAt: new Date(),
+        },
+        include: { components: true },
+      });
     },
 
     updateBikesOrder: async (
