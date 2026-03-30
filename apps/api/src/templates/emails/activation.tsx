@@ -134,13 +134,13 @@ export default function ActivationEmail({
               You are one of the first riders shaping Loam Logger. That means full access to everything,
               free for life, and a direct line to influence what this becomes.
             </Text>
-            
+
             <Img
-                              src={`https://loamlogger.app/ridingThroughFerns.jpg`}
-                              alt="Mountain biker riding through lush ferns on a forest trail"
-                              width="60%"
-                              style={styles.heroImage}
-                            />
+              src='https://loamlogger.app/ridingThroughFerns.jpg'
+              alt="Mountain biker riding through lush ferns on a forest trail"
+              width="60%"
+              style={styles.heroImage}
+            />
 
             <Hr className="ll-hr" style={styles.hr} />
 
@@ -210,49 +210,49 @@ export default function ActivationEmail({
               There is no perfect setup. Just get it close and we will refine it together.
             </Text>
 
-                          <Hr className="ll-hr" style={styles.hr} />
+            <Hr className="ll-hr" style={styles.hr} />
 
             <Heading as="h2" className="ll-h2" style={styles.h2}>
-              What Loam Logger actually is
+              Why Loam Logger Exists
             </Heading>
 
             <Text className="ll-p" style={styles.p}>
-                          I began building Loam Logger because there isn't currently a great way to reliably track
-                          maintenance and servicing across multiple bikes. I have tried
-                          spreadsheets, notes, mental checklists, and other apps. None of
-                          them felt trustworthy enough to ride without second-guessing.
-                        </Text>
-                        <Section className="ll-callout" style={styles.callout}>
-                          <Text className="ll-p" style={styles.p}>
-                            <span className="ll-emph" style={styles.emph}>The goal is simple:</span><br />You should be able to grab your bike after work
-                            and head out the door with confidence that it is good to go.
-                          </Text>
-                           
-                        </Section>
-                        <Img
-                            src={`https://loamlogger.app/dakotaWhis.jpg`}
-                            alt="Mountain biking in Whistler"
-                            width="60%"
-                            style={styles.heroImage}
-                          />
-            
-                        <Text className="ll-p" style={styles.p}>
-                          Loam Logger quietly tracks wear, logs maintenance, and notifies you
-                          when it's actually time to look at a component. You no longer have
-                          to keep it all in your head or do the math from your Strava hours.
-                        </Text>
-            
-                        <Text className="ll-p" style={styles.p}>
-                          I have built Loam Logger entirely from the ground up, purely with code. That
-                          gives us a lot of flexibility, but it also means there will be some
-                          bugs and rough edges early on. <span className="ll-emph" style={styles.emph}>Your help spotting these bugs is just as
-                            valuable as ideas for new features.</span></Text>
-            
-                        <Text className="ll-p" style={styles.p}>
-                          Even these emails are custom coded. Let me know if anything looks weird on your end.
-                        </Text>
+              I began building Loam Logger because there isn't currently a great way to reliably track
+              maintenance and servicing across multiple bikes. I have tried
+              spreadsheets, notes, mental checklists, and other apps. None of
+              them felt trustworthy enough to ride without second-guessing.
+            </Text>
+            <Section className="ll-callout" style={styles.callout}>
+              <Text className="ll-p" style={styles.p}>
+                <span className="ll-emph" style={styles.emph}>The goal is simple:</span><br />You should be able to grab your bike after work
+                and head out the door with confidence that it is good to go.
+              </Text>
 
-            
+            </Section>
+            <Img
+              src='https://loamlogger.app/dakotaWhis.jpg'
+              alt="Mountain biking in Whistler"
+              width="60%"
+              style={styles.heroImage}
+            />
+            <Hr className="ll-hr" style={styles.hr} />
+            <Heading as="h2" className="ll-h2" style={styles.h2}>
+              What Loam Logger Solves
+            </Heading>
+
+            <Text className="ll-p" style={styles.p}>
+              Loam Logger quietly tracks wear, logs maintenance, and notifies you
+              when it's actually time to look at a component. You no longer have
+              to keep it all in your head or do the math from your Strava hours.
+            </Text>
+            <Text className="ll-p" style={styles.p}>
+              <span className="ll-emph" style={styles.emph}>Riders will save money</span> by servicing components at the right time, not too early and not too late.</Text>
+            <Text className="ll-p" style={styles.p}>
+              <span className="ll-emph" style={styles.emph}>For bike and component dealors</span>, Loam Logger provides a way to connect with riders in your area and offer them the right service at the right time. Riders who are in tune with what maintenance their bikes need and when are more likely to get that maintenance done, which means more consistent business for shops and better performing bikes for riders.
+              </Text> <Text className="ll-p" style={styles.p}>
+              <span className="ll-emph" style={styles.emph}>A true win-win.</span>
+            </Text>
+
             <Hr className="ll-hr" style={styles.hr} />
 
             <Heading as="h2" className="ll-h2" style={styles.h2}>
@@ -260,34 +260,34 @@ export default function ActivationEmail({
             </Heading>
 
             <Text className="ll-bullets" style={styles.bullets}>• Automatic ride sync with Garmin, Whoop and Strava</Text>
-                        <Text className="ll-bullets" style={{ ...styles.bullets, paddingLeft: 32 }}>- Track a ride from your smartwatch or phone like you normally do, those stats are automatically pulled in to Loam Logger.</Text>
-                        <Text className="ll-bullets" style={styles.bullets}>• Auto-populate bike specs thanks to{" "}
-                          <Link href={spokesUrl} className="ll-link" style={styles.link}>99spokes.com</Link>
-                        </Text>
-                        <Text className="ll-bullets" style={styles.bullets}>• Track 21+ individual components on all of your bikes</Text>
-                        <Text className="ll-bullets" style={styles.bullets}>• Predictive maintenance analysis</Text>
-                        <Text className="ll-bullets" style={{ ...styles.bullets, paddingLeft: 32 }}>- "Check your front brake pads in ~4 rides, shock 200hr service should be done in ~9 rides, etc."</Text>
-                        <Text className="ll-bullets" style={styles.bullets}>• Algorithmic wear tracking</Text>
-                        <Text className="ll-bullets" style={{ ...styles.bullets, paddingLeft: 32 }}>- Considers elevation change, distance and grade when weighting wear on components</Text>
-                        <Text className="ll-bullets" style={{ ...styles.bullets, paddingLeft: 32 }}>- For example, the steeper the trail, the more wear and tear on your brake pads and suspension. Shuttling does not wear your drivetrain the way an XC ride will.</Text>
-                        <Text className="ll-bullets" style={{ ...styles.bullets, paddingLeft: 32 }}>- This algorithm will need tuning to function and feel correct, we'll dial this in together.</Text>
-                        <Text className="ll-bullets" style={styles.bullets}>• At-a-glance dashboard for bike and component health</Text>
-                        <Text className="ll-bullets" style={styles.bullets}>• User customizable notifications, service intervals, and wear algorithm parameters</Text>
-            
-                        
-                        <Text className="ll-p" style={styles.p}>(There's much more, but this covers the core idea.)</Text>
-                        <Hr className="ll-hr" style={styles.hr} />
-                        <Heading as="h2" className="ll-h2" style={styles.h2}>
-                          Ideas for the future (Suggested by riders like you)
-                        </Heading>
-            
-                        <Text className="ll-bullets" style={styles.bullets}>• Native support for Coros, Suunto, and Apple Watch</Text>
-                        <Text className="ll-bullets" style={styles.bullets}>• "What's that sound?" bike diagnostic page</Text>
-                        <Text className="ll-bullets" style={styles.bullets}>• Connecting users to nearby bike shops that can perform the needed service</Text>
-                        <Text className="ll-bullets" style={styles.bullets}>• Weather API integration - option to factor wet, dry, dusty conditions into wear calculations</Text>
-                        <Text className="ll-bullets" style={styles.bullets}>• The Beater Board - An opt-in leaderboard celebrating the most neglected / clapped-out bikes</Text>
-                        <Text className="ll-bullets" style={styles.bullets}>• Any other insightful, fun, funny feature ideas any of you come up with!</Text>
-            
+            <Text className="ll-bullets" style={{ ...styles.bullets, paddingLeft: 32 }}>- Track a ride from your smartwatch or phone like you normally do, those stats are automatically pulled in to Loam Logger.</Text>
+            <Text className="ll-bullets" style={styles.bullets}>• Auto-populate bike specs thanks to{" "}
+              <Link href={spokesUrl} className="ll-link" style={styles.link}>99spokes.com</Link>
+            </Text>
+            <Text className="ll-bullets" style={styles.bullets}>• Track 21+ individual components on all of your bikes</Text>
+            <Text className="ll-bullets" style={styles.bullets}>• Predictive maintenance analysis</Text>
+            <Text className="ll-bullets" style={{ ...styles.bullets, paddingLeft: 32 }}>- "Check your front brake pads in ~4 rides, shock 200hr service should be done in ~9 rides, etc."</Text>
+            <Text className="ll-bullets" style={styles.bullets}>• Algorithmic wear tracking</Text>
+            <Text className="ll-bullets" style={{ ...styles.bullets, paddingLeft: 32 }}>- Considers elevation change, distance and grade when weighting wear on components</Text>
+            <Text className="ll-bullets" style={{ ...styles.bullets, paddingLeft: 32 }}>- For example, the steeper the trail, the more wear and tear on your brake pads and suspension. Shuttling does not wear your drivetrain the way an XC ride will.</Text>
+            <Text className="ll-bullets" style={{ ...styles.bullets, paddingLeft: 32 }}>- This algorithm will need tuning to function and feel correct, we'll dial this in together.</Text>
+            <Text className="ll-bullets" style={styles.bullets}>• At-a-glance dashboard for bike and component health</Text>
+            <Text className="ll-bullets" style={styles.bullets}>• User customizable notifications, service intervals, and wear algorithm parameters</Text>
+
+
+            <Text className="ll-p" style={styles.p}>(There's much more, but this covers the core idea.)</Text>
+            <Hr className="ll-hr" style={styles.hr} />
+            <Heading as="h2" className="ll-h2" style={styles.h2}>
+              Ideas for the future (Suggested by riders like you)
+            </Heading>
+
+            <Text className="ll-bullets" style={styles.bullets}>• Native support for Coros, Suunto, and Apple Watch</Text>
+            <Text className="ll-bullets" style={styles.bullets}>• "What's that sound?" bike diagnostic page</Text>
+            <Text className="ll-bullets" style={styles.bullets}>• Connecting users to nearby bike shops that can perform the needed service</Text>
+            <Text className="ll-bullets" style={styles.bullets}>• Weather API integration - option to factor wet, dry, dusty conditions into wear calculations</Text>
+            <Text className="ll-bullets" style={styles.bullets}>• The Beater Board - An opt-in leaderboard celebrating the most neglected / clapped-out bikes</Text>
+            <Text className="ll-bullets" style={styles.bullets}>• Any other insightful, fun, funny feature ideas any of you come up with!</Text>
+
             <Section style={styles.imageContainer}>
               <Img
                 src="https://loamlogger.app/RyanAbenaki.jpg"
@@ -323,46 +323,46 @@ export default function ActivationEmail({
             </Text>
 
             <Text className="ll-p" style={styles.p}>
-                          Thanks again for being part of the beta. Your real world usage is
-                          directly shaping where this product goes next.
-                        </Text>
-            
-                        <Text
-                          className="ll-signature"
-                          style={{
-                            ...styles.p,
-                            marginTop: 14,
-                            marginBottom: 0,
-                            color: TOKENS.text,
-                            fontWeight: 800,
-                          }}
-                        >
-                          Ryan LeCours
-                        </Text>
-            
-                        <Text className="ll-p" style={{ ...styles.p, marginBottom: 0 }}>
-                          Founder, Loam Logger
-                        </Text>
-            
-                        <Text className="ll-p" style={{ ...styles.p, marginBottom: 0 }}>
-                          Loam Labs LLC
-                        </Text>
+              Thanks again for being part of the beta. Your real world usage is
+              directly shaping where this product goes next.
+            </Text>
+
+            <Text
+              className="ll-signature"
+              style={{
+                ...styles.p,
+                marginTop: 14,
+                marginBottom: 0,
+                color: TOKENS.text,
+                fontWeight: 800,
+              }}
+            >
+              Ryan LeCours
+            </Text>
+
+            <Text className="ll-p" style={{ ...styles.p, marginBottom: 0 }}>
+              Founder, Loam Logger
+            </Text>
+
+            <Text className="ll-p" style={{ ...styles.p, marginBottom: 0 }}>
+              Loam Labs LLC
+            </Text>
           </Section>
 
           <Section style={styles.footer}>
-                      <Text className="ll-footer" style={{ ...styles.footerText, marginBottom: 0 }}>
-                        Loam Logger is a product of Loam Labs LLC. You are receiving this
-                        email because you signed up for beta access.
-                      </Text>
-          
-                      {unsubscribeUrl ? (
-                        <Text className="ll-footer" style={{ ...styles.footerText, marginTop: 6 }}>
-                          <Link href={unsubscribeUrl} className="ll-footer-link" style={styles.footerLink}>
-                            Unsubscribe
-                          </Link>
-                        </Text>
-                      ) : null}
-                    </Section>
+            <Text className="ll-footer" style={{ ...styles.footerText, marginBottom: 0 }}>
+              Loam Logger is a product of Loam Labs LLC. You are receiving this
+              email because you signed up for beta access.
+            </Text>
+
+            {unsubscribeUrl ? (
+              <Text className="ll-footer" style={{ ...styles.footerText, marginTop: 6 }}>
+                <Link href={unsubscribeUrl} className="ll-footer-link" style={styles.footerLink}>
+                  Unsubscribe
+                </Link>
+              </Text>
+            ) : null}
+          </Section>
         </Container>
       </Body>
     </Html>
@@ -447,13 +447,13 @@ const styles: Record<string, React.CSSProperties> = {
   },
   imageContainer: {
     margin: "16px 0",
-    textAlign: "center" as const,
+    textAlign: "center",
   },
   heroImage: {
     borderRadius: 12,
     maxWidth: "100%",
     height: "auto",
-    display: "flex",
+    display: "block",
     margin: "0 auto",
   },
   button: {
