@@ -255,25 +255,34 @@ export default function Welcome2Email({
             </Text>
 
             <Text
-              className="ll-signature"
-              style={{
-                ...styles.p,
-                marginTop: 10,
-                marginBottom: 0,
-                color: TOKENS.text,
-                fontWeight: 800,
-              }}
-            >
-              – Ryan
-            </Text>
+                                                  className="ll-signature"
+                                                  style={{
+                                                    ...styles.p,
+                                                    marginTop: 14,
+                                                    marginBottom: 0,
+                                                    color: TOKENS.text,
+                                                    fontWeight: 800,
+                                                  }}
+                                                >
+                                                  Ryan LeCours
+                                                </Text>
+                                    
+                                                <Text className="ll-p" style={{ ...styles.p, marginBottom: 0 }}>
+                                                  Founder, Loam Logger
+                                                </Text>
+                                    
+                                                <Text className="ll-p" style={{ ...styles.p, marginBottom: 0 }}>
+                                                  Loam Labs LLC
+                                                </Text>
           </Section>
 
           {/* Footer */}
           <Section style={styles.footer}>
             <Text className="ll-footer" style={{ ...styles.footerText, marginBottom: 0 }}>
-              Loam Logger • You&apos;re receiving this because you signed up for early access.
-            </Text>
-
+                                                Loam Logger is a product of Loam Labs LLC. You are receiving this
+                                                email because you signed up for beta access.
+                                              </Text>
+            
             {unsubscribeUrl ? (
               <Text className="ll-footer" style={{ ...styles.footerText, marginTop: 6 }}>
                 <Link href={unsubscribeUrl} className="ll-footer-link" style={styles.footerLink}>

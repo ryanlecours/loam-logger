@@ -115,8 +115,7 @@ export default function Welcome1Email({
             </Text>
 
             <Text className="ll-p" style={styles.p}>
-              You should have received a couple emails already (welcome + activation). Most people skim those — totally
-              fair.<br />Here is the simple version of what matters on day one.
+              You should have received your account activation email already.<br />Whether you've logged in or just skimmed the email, here is the simple version of what matters on day one.
             </Text>
 
             <Section className="ll-callout" style={styles.callout}>
@@ -128,7 +127,7 @@ export default function Welcome1Email({
                 • <span className="ll-emph" style={styles.emph}>Add one bike</span> (the one you ride most).
               </Text>
               <Text className="ll-bullets" style={styles.bullets}>
-                • <span className="ll-emph" style={styles.emph}>Connect Garmin or Strava (when available)</span> so rides sync automatically.
+                • <span className="ll-emph" style={styles.emph}>Connect Garmin, Whoop or Strava (if you have any of them)</span> so rides sync automatically.
               </Text>
               <Text className="ll-bullets" style={styles.bullets}>
                 • <span className="ll-emph" style={styles.emph}>Ignore perfection</span>. You can fill in details later.
@@ -143,7 +142,7 @@ export default function Welcome1Email({
               <Text className="ll-p" style={{ ...styles.p, margin: "6px 0 0 0", fontSize: 12, textAlign: "center" }}>
                 Want to jump straight to connecting?{" "}
                 <Link href={safeConnectUrl} className="ll-link" style={styles.link}>
-                  Connect Garmin/Strava
+                  Connect Garmin/Strava/Whoop
                 </Link>
               </Text>
             </Section>
@@ -202,24 +201,33 @@ export default function Welcome1Email({
             </Text>
 
             <Text
-              className="ll-signature"
-              style={{
-                ...styles.p,
-                marginTop: 10,
-                marginBottom: 0,
-                color: TOKENS.text,
-                fontWeight: 800,
-              }}
-            >
-              – Ryan
-            </Text>
+                                      className="ll-signature"
+                                      style={{
+                                        ...styles.p,
+                                        marginTop: 14,
+                                        marginBottom: 0,
+                                        color: TOKENS.text,
+                                        fontWeight: 800,
+                                      }}
+                                    >
+                                      Ryan LeCours
+                                    </Text>
+                        
+                                    <Text className="ll-p" style={{ ...styles.p, marginBottom: 0 }}>
+                                      Founder, Loam Logger
+                                    </Text>
+                        
+                                    <Text className="ll-p" style={{ ...styles.p, marginBottom: 0 }}>
+                                      Loam Labs LLC
+                                    </Text>
           </Section>
 
           {/* Footer */}
           <Section style={styles.footer}>
             <Text className="ll-footer" style={{ ...styles.footerText, marginBottom: 0 }}>
-              Loam Logger • You&apos;re receiving this because you signed up for early access.
-            </Text>
+                                    Loam Logger is a product of Loam Labs LLC. You are receiving this
+                                    email because you signed up for beta access.
+                                  </Text>
 
             {unsubscribeUrl ? (
               <Text className="ll-footer" style={{ ...styles.footerText, marginTop: 6 }}>
