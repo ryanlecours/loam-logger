@@ -248,8 +248,8 @@ export default function ActivationEmail({
             <Text className="ll-p" style={styles.p}>
               <span className="ll-emph" style={styles.emph}>Riders will save money</span> by servicing components at the right time, not too early and not too late.</Text>
             <Text className="ll-p" style={styles.p}>
-              <span className="ll-emph" style={styles.emph}>For bike and component dealors</span>, Loam Logger provides a way to connect with riders in your area and offer them the right service at the right time. Riders who are in tune with what maintenance their bikes need and when are more likely to get that maintenance done, which means more consistent business for shops and better performing bikes for riders.
-              </Text> <Text className="ll-p" style={styles.p}>
+              <span className="ll-emph" style={styles.emph}>For bike and component dealers</span>, Loam Logger provides a way to connect with riders in your area and offer them the right service at the right time. Riders who are in tune with what maintenance their bikes need and when are more likely to get that maintenance done, which means more consistent business for shops and better performing bikes for riders.
+            </Text> <Text className="ll-p" style={styles.p}>
               <span className="ll-emph" style={styles.emph}>A true win-win.</span>
             </Text>
 
