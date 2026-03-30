@@ -163,7 +163,7 @@ export default function Welcome3Email({
             <Text className="ll-p" style={styles.p}>
               If the dashboard feels “too optimistic” (or “way too alarmist”), it’s almost always fixable.
             </Text>
-            
+
             <Text className="ll-p" style={styles.p}>
               Your gut feeling is the best signal I can get right now.
             </Text>
@@ -211,21 +211,31 @@ export default function Welcome3Email({
               className="ll-signature"
               style={{
                 ...styles.p,
-                marginTop: 10,
+                marginTop: 14,
                 marginBottom: 0,
                 color: TOKENS.text,
                 fontWeight: 800,
               }}
             >
-              – Ryan
+              Ryan LeCours
+            </Text>
+
+            <Text className="ll-p" style={{ ...styles.p, marginBottom: 0 }}>
+              Founder, Loam Logger
+            </Text>
+
+            <Text className="ll-p" style={{ ...styles.p, marginBottom: 0 }}>
+              Loam Labs LLC
             </Text>
           </Section>
 
           {/* Footer */}
           <Section style={styles.footer}>
             <Text className="ll-footer" style={{ ...styles.footerText, marginBottom: 0 }}>
-              Loam Logger • You&apos;re receiving this because you signed up for early access.
+              Loam Logger is a product of Loam Labs LLC. You are receiving this
+              email because you signed up for beta access.
             </Text>
+
             {unsubscribeUrl ? (
               <Text className="ll-footer" style={{ ...styles.footerText, marginTop: 6 }}>
                 <Link href={unsubscribeUrl} className="ll-footer-link" style={styles.footerLink}>
