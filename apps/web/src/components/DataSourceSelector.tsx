@@ -1,5 +1,5 @@
 import { Mountain, Activity } from 'lucide-react';
-import { StravaIcon } from '../icons/BrandIcons';
+import { StravaIcon } from './icons/BrandIcons';
 
 type Props = {
   currentSource: 'garmin' | 'strava' | 'whoop' | null;
