@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo, type ReactElement } from 'react';
 import { useQuery, useMutation } from '@apollo/client';
-import { FaTrash, FaPlus, FaExchangeAlt } from 'react-icons/fa';
+import { Trash2, Plus, ArrowLeftRight } from 'lucide-react';
 import { BIKES } from '../graphql/bikes';
 import { ADD_BIKE } from '../graphql/gear';
 import {
@@ -429,7 +429,7 @@ export default function StravaBikeMappingOverlay({ open, onClose, onSuccess }: P
                           aria-label="Change mapping"
                           title="Change mapping"
                         >
-                          <FaExchangeAlt size={14} />
+                          <ArrowLeftRight size={14} />
                         </button>
                         <button
                           onClick={() => handleDeleteMapping(mapping.id)}
@@ -437,7 +437,7 @@ export default function StravaBikeMappingOverlay({ open, onClose, onSuccess }: P
                           aria-label="Remove mapping"
                           title="Remove mapping"
                         >
-                          <FaTrash size={14} />
+                          <Trash2 size={14} />
                         </button>
                       </>
                     )}
@@ -482,7 +482,7 @@ export default function StravaBikeMappingOverlay({ open, onClose, onSuccess }: P
                           setShowCreateBike(false);
                         }}
                       >
-                        <FaPlus size={12} className="mr-1" />
+                        <Plus size={12} className="mr-1" />
                         Map
                       </Button>
                     )}

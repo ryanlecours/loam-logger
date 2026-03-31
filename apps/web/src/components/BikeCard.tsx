@@ -3,18 +3,18 @@ import { useMutation } from "@apollo/client";
 import type { Bike } from "../models/BikeComponents";
 import { getHealthStatus } from "../utils/getHealthStatus";
 import {
-  FaCheckCircle,
-  FaExclamationCircle,
-  FaExclamationTriangle,
-} from "react-icons/fa";
+  CircleCheck,
+  CircleAlert,
+  TriangleAlert,
+} from "lucide-react";
 import { LOG_COMPONENT_SERVICE } from "../graphql/logComponentService";
 import { BIKES } from "../graphql/bikes";
 import { Modal, Button } from "./ui";
 
 const statusIcons = {
-  ok: <FaCheckCircle className="component-icon icon-good" />,
-  warning: <FaExclamationTriangle className="component-icon icon-warning" />,
-  danger: <FaExclamationCircle className="component-icon icon-danger" />,
+  ok: <CircleCheck className="component-icon icon-good" />,
+  warning: <TriangleAlert className="component-icon icon-warning" />,
+  danger: <CircleAlert className="component-icon icon-danger" />,
 };
 
 type ComponentInfo = {

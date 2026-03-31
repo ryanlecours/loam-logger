@@ -1,7 +1,4 @@
-import { FaPlus, FaBoxOpen, FaWrench, FaHandPaper, FaCompactDisc, FaLink } from 'react-icons/fa';
-import { MdOutlineElectricBolt } from 'react-icons/md';
-import { GiCarWheel, GiSuspensionBridge, GiGears } from 'react-icons/gi';
-import { TbArrowAutofitHeight } from 'react-icons/tb';
+import { Plus, PackageOpen, Wrench, Hand, Disc, Link, Zap, Circle, Waypoints, Cog, ArrowUpDown } from 'lucide-react';
 import { Button } from '../ui/Button';
 
 type ComponentDto = {
@@ -27,29 +24,29 @@ interface SpareComponentsPanelProps {
 }
 
 const COMPONENT_ICONS: Record<string, React.ReactNode> = {
-  FORK: <GiSuspensionBridge size={16} />,
-  SHOCK: <MdOutlineElectricBolt size={16} />,
-  DROPPER: <TbArrowAutofitHeight size={16} />,
-  WHEEL_HUBS: <GiCarWheel size={16} />,
-  CHAIN: <FaLink size={16} />,
-  CASSETTE: <GiGears size={16} />,
-  CRANK: <GiGears size={16} />,
-  REAR_DERAILLEUR: <GiGears size={16} />,
-  DRIVETRAIN: <GiGears size={16} />,
-  BRAKES: <FaHandPaper size={16} />,
-  BRAKE_PAD: <FaHandPaper size={16} />,
-  BRAKE_ROTOR: <FaCompactDisc size={16} />,
-  TIRES: <GiCarWheel size={16} />,
-  RIMS: <GiCarWheel size={16} />,
-  STEM: <FaWrench size={16} />,
-  HANDLEBAR: <FaWrench size={16} />,
-  SADDLE: <FaWrench size={16} />,
-  SEATPOST: <FaWrench size={16} />,
-  PEDALS: <FaWrench size={16} />,
-  PIVOT_BEARINGS: <FaWrench size={16} />,
-  HEADSET: <FaWrench size={16} />,
-  BOTTOM_BRACKET: <FaWrench size={16} />,
-  OTHER: <FaBoxOpen size={16} />,
+  FORK: <Waypoints size={16} />,
+  SHOCK: <Zap size={16} />,
+  DROPPER: <ArrowUpDown size={16} />,
+  WHEEL_HUBS: <Circle size={16} />,
+  CHAIN: <Link size={16} />,
+  CASSETTE: <Cog size={16} />,
+  CRANK: <Cog size={16} />,
+  REAR_DERAILLEUR: <Cog size={16} />,
+  DRIVETRAIN: <Cog size={16} />,
+  BRAKES: <Hand size={16} />,
+  BRAKE_PAD: <Hand size={16} />,
+  BRAKE_ROTOR: <Disc size={16} />,
+  TIRES: <Circle size={16} />,
+  RIMS: <Circle size={16} />,
+  STEM: <Wrench size={16} />,
+  HANDLEBAR: <Wrench size={16} />,
+  SADDLE: <Wrench size={16} />,
+  SEATPOST: <Wrench size={16} />,
+  PEDALS: <Wrench size={16} />,
+  PIVOT_BEARINGS: <Wrench size={16} />,
+  HEADSET: <Wrench size={16} />,
+  BOTTOM_BRACKET: <Wrench size={16} />,
+  OTHER: <PackageOpen size={16} />,
 };
 
 const COMPONENT_LABELS: Record<string, string> = {
@@ -101,12 +98,12 @@ export function SpareComponentsPanel({
         </div>
       ) : components.length === 0 ? (
         <div className="spares-panel-empty">
-          <FaBoxOpen size={32} className="spares-panel-empty-icon" />
+          <PackageOpen size={32} className="spares-panel-empty-icon" />
           <p className="spares-panel-empty-text">
             Track spare components so you always know what's on deck for your next swap.
           </p>
           <Button variant="secondary" size="sm" onClick={onAdd}>
-            <FaPlus size={10} className="icon-left" />
+            <Plus size={10} className="icon-left" />
             Add spare
           </Button>
         </div>
@@ -128,7 +125,7 @@ export function SpareComponentsPanel({
                 }}
               >
                 <div className="spare-row-icon">
-                  {COMPONENT_ICONS[component.type] || <FaBoxOpen size={16} />}
+                  {COMPONENT_ICONS[component.type] || <PackageOpen size={16} />}
                 </div>
                 <div className="spare-row-content">
                   <p className="spare-row-type">
@@ -177,7 +174,7 @@ export function SpareComponentsPanel({
           </div>
           <div style={{ marginTop: '0.75rem' }}>
             <Button variant="secondary" size="sm" onClick={onAdd}>
-              <FaPlus size={10} className="icon-left" />
+              <Plus size={10} className="icon-left" />
               Add spare
             </Button>
           </div>

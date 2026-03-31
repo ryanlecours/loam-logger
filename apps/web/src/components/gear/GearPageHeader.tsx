@@ -1,5 +1,5 @@
 import { Button } from '../ui/Button';
-import { FaPlus } from 'react-icons/fa';
+import { Plus } from 'lucide-react';
 
 interface GearPageHeaderProps {
   onAddBike: () => void;
@@ -16,11 +16,11 @@ export function GearPageHeader({ onAddBike, onAddSpare }: GearPageHeaderProps) {
       </div>
       <div className="gear-page-actions">
         <Button onClick={onAddBike}>
-          <FaPlus size={12} className="icon-left" />
+          <Plus size={12} className="icon-left" />
           Add Bike
         </Button>
         <Button variant="outline" onClick={onAddSpare}>
-          <FaPlus size={12} className="icon-left" />
+          <Plus size={12} className="icon-left" />
           Add Spare Component
         </Button>
       </div>

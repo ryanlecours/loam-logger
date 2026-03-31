@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { FaChevronDown, FaPencilAlt, FaExchangeAlt, FaSyncAlt } from 'react-icons/fa';
+import { ChevronDown, Pencil, ArrowLeftRight, RefreshCw } from 'lucide-react';
 import { StatusDot } from '../dashboard/StatusDot';
 import type { PredictionStatus } from '../../types/prediction';
 import { formatComponentLabel } from '../../utils/formatters';
@@ -164,7 +164,7 @@ export function ComponentDetailRow({
             }}
             aria-label={`Edit ${componentLabel}`}
           >
-            <FaPencilAlt size={10} />
+            <Pencil size={10} />
             Edit
           </button>
 
@@ -172,7 +172,7 @@ export function ComponentDetailRow({
             <span className="component-detail-toggle-label">
               {isExpanded ? 'Less' : 'More'}
             </span>
-            <FaChevronDown size={12} className="component-detail-chevron" />
+            <ChevronDown size={12} className="component-detail-chevron" />
           </span>
         </div>
       </div>
@@ -293,7 +293,7 @@ export function ComponentDetailRow({
                       className="component-detail-action-btn"
                       onClick={(e) => { e.stopPropagation(); onReplace(); }}
                     >
-                      <FaExchangeAlt size={11} />
+                      <ArrowLeftRight size={11} />
                       Replace
                     </button>
                   )}
@@ -303,7 +303,7 @@ export function ComponentDetailRow({
                       className="component-detail-action-btn"
                       onClick={(e) => { e.stopPropagation(); onSwap(); }}
                     >
-                      <FaSyncAlt size={11} />
+                      <RefreshCw size={11} />
                       Swap with another bike
                     </button>
                   )}

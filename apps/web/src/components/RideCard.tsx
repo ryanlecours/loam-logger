@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react';
-import { FaMountain, FaPencilAlt, FaStrava } from 'react-icons/fa';
+import { Mountain, Pencil } from 'lucide-react';
+import { StravaIcon } from './icons/BrandIcons';
 import { useMutation } from '@apollo/client';
 import { UPDATE_RIDE } from '../graphql/updateRide';
 import { RIDES } from '../graphql/rides';
@@ -60,10 +61,10 @@ const SOURCE_BADGES: Record<
   RideSource,
   { label: string; color: string; icon: ReactNode }
 > = {
-  garmin: { label: 'Garmin', color: '#11A9ED', icon: <FaMountain /> },
-  strava: { label: 'Strava', color: '#FC4C02', icon: <FaStrava /> },
+  garmin: { label: 'Garmin', color: '#11A9ED', icon: <Mountain /> },
+  strava: { label: 'Strava', color: '#FC4C02', icon: <StravaIcon /> },
   whoop: { label: 'WHOOP', color: '#00FF87', icon: <WhoopLogo /> },
-  manual: { label: 'Manual', color: '#9CA3AF', icon: <FaPencilAlt /> },
+  manual: { label: 'Manual', color: '#9CA3AF', icon: <Pencil /> },
 };
 
 const formatTitle = (ride: Ride) => {

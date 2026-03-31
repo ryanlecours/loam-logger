@@ -1,42 +1,42 @@
 import SectionWrapper from './SectionWrapper';
 import MarketingCard from './MarketingCard';
 import {
-  RiBikeLine,
-  RiSettings4Line,
-  RiHistoryLine,
-  RiBellLine,
-  RiBarChartLine,
-  RiCloudLine
-} from 'react-icons/ri';
+  Bike,
+  Settings,
+  History,
+  Bell,
+  BarChart3,
+  Cloud
+} from 'lucide-react';
 
 const features = [
   {
-    icon: <RiBikeLine size={36} />,
+    icon: <Bike size={36} />,
     title: 'Multi-Bike Management',
     description: 'Track your entire quiver in one place. From trail bikes to downhill sleds, manage every bike with ease.',
   },
   {
-    icon: <RiSettings4Line size={36} />,
+    icon: <Settings size={36} />,
     title: 'Component-Level Tracking',
     description: 'Monitor fork, shock, drivetrain, wheels, and pivot bearings independently. Know exactly what needs attention.',
   },
   {
-    icon: <RiHistoryLine size={36} />,
+    icon: <History size={36} />,
     title: 'Complete Service History',
     description: 'Document every service with notes and dates. Never wonder when you last rebuilt that shock.',
   },
   {
-    icon: <RiBellLine size={36} />,
+    icon: <Bell size={36} />,
     title: 'Smart Alerts',
     description: 'Get notified based on time and distance. Customizable intervals for each component type.',
   },
   {
-    icon: <RiBarChartLine size={36} />,
+    icon: <BarChart3 size={36} />,
     title: 'Ride Statistics',
     description: 'See your riding trends and component usage patterns. Make data-driven maintenance decisions.',
   },
   {
-    icon: <RiCloudLine size={36} />,
+    icon: <Cloud size={36} />,
     title: 'Auto-Sync Everything',
     description: 'Connect Strava, Garmin, Suunto or Whoop. Your rides sync automatically.',
   },

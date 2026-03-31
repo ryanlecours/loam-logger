@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion } from 'motion/react';
-import { FaBicycle, FaCheckCircle, FaExclamationCircle, FaExclamationTriangle } from 'react-icons/fa';
+import { Bike, CircleCheck, CircleAlert, TriangleAlert } from 'lucide-react';
 import { Badge, Button } from '../ui';
 import type { BikeHealth } from '../../utils/transformToHealthData';
 
@@ -36,25 +36,25 @@ export function BikeHealthCard({
           />
         ) : (
           <div className="health-card-placeholder">
-            <FaBicycle className="health-card-placeholder-icon" />
+            <Bike className="health-card-placeholder-icon" />
           </div>
         )}
       </div>
 
       <div className="health-card-status">
         {bike.isHealthy ? (
-          <Badge variant="success" icon={<FaCheckCircle />}>
+          <Badge variant="success" icon={<CircleCheck />}>
             All Good
           </Badge>
         ) : (
           <>
             {bike.criticalCount > 0 && (
-              <Badge variant="danger" icon={<FaExclamationCircle />}>
+              <Badge variant="danger" icon={<CircleAlert />}>
                 {bike.criticalCount} critical
               </Badge>
             )}
             {bike.warningCount > 0 && (
-              <Badge variant="warning" icon={<FaExclamationTriangle />}>
+              <Badge variant="warning" icon={<TriangleAlert />}>
                 {bike.warningCount} warning
               </Badge>
             )}

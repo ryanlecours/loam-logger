@@ -1099,7 +1099,6 @@ router.post('/email/pre-access/preview', async (_req, res) => {
     const html = await render(
       React.createElement(FoundingRidersLaunchEmail, {
         recipientFirstName: 'Preview',
-        appUrl: FRONTEND_URL,
         unsubscribeUrl: `${API_URL}/api/email/unsubscribe?token=preview`,
       })
     );
@@ -1186,7 +1185,6 @@ router.post('/email/pre-access', async (req, res) => {
           subject,
           reactElement: React.createElement(FoundingRidersLaunchEmail, {
             recipientFirstName: firstName,
-            appUrl: FRONTEND_URL,
             unsubscribeUrl,
           }),
           userId: recipient.id,

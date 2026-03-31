@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation } from '@apollo/client';
-import { FaToggleOn, FaToggleOff, FaExclamationTriangle, FaChevronDown, FaChevronRight } from 'react-icons/fa';
+import { ToggleRight, ToggleLeft, TriangleAlert, ChevronDown, ChevronRight } from 'lucide-react';
 import {
   SERVICE_PREFERENCE_DEFAULTS_QUERY,
   USER_SERVICE_PREFERENCES_QUERY,
@@ -203,7 +203,7 @@ export default function ServicePreferencesEditor({ onSaved, compact = false }: S
 
       {allDisabled && (
         <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-sm text-amber-400 flex items-start gap-2">
-          <FaExclamationTriangle className="mt-0.5 shrink-0" />
+          <TriangleAlert className="mt-0.5 shrink-0" />
           <span>All service tracking is disabled. Your dashboard won&apos;t show any maintenance alerts.</span>
         </div>
       )}
@@ -225,9 +225,9 @@ export default function ServicePreferencesEditor({ onSaved, compact = false }: S
             >
               <div className="flex items-center gap-2">
                 {isExpanded ? (
-                  <FaChevronDown className="text-xs text-muted" />
+                  <ChevronDown className="text-xs text-muted" />
                 ) : (
-                  <FaChevronRight className="text-xs text-muted" />
+                  <ChevronRight className="text-xs text-muted" />
                 )}
                 <span className="text-sm font-medium text-white">
                   {CATEGORY_LABELS[category]}
@@ -265,9 +265,9 @@ export default function ServicePreferencesEditor({ onSaved, compact = false }: S
                         title={pref.trackingEnabled ? 'Disable tracking' : 'Enable tracking'}
                       >
                         {pref.trackingEnabled ? (
-                          <FaToggleOn className="text-2xl text-primary" />
+                          <ToggleRight className="text-2xl text-primary" />
                         ) : (
-                          <FaToggleOff className="text-2xl text-muted" />
+                          <ToggleLeft className="text-2xl text-muted" />
                         )}
                       </button>
                     </div>

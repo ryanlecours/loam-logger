@@ -1,19 +1,19 @@
 import SectionWrapper from './SectionWrapper';
-import { RiUserHeartLine, RiToolsLine, RiCarLine } from 'react-icons/ri';
+import { HeartHandshake, Wrench, Car } from 'lucide-react';
 
 const personas = [
   {
-    icon: <RiUserHeartLine size={40} />,
+    icon: <HeartHandshake size={40} />,
     title: 'The Weekend Warrior',
     description: 'You ride hard every chance you get. You want your bike dialed but only service it when it "feels bad". Get alerts when it\'s time to service before you damage expensive components.',
   },
   {
-    icon: <RiToolsLine size={40} />,
+    icon: <Wrench size={40} />,
     title: 'The Gear Head',
     description: 'Multiple bikes. Component swaps. Constant tinkering. You need to track it all without losing your mind. Know what\'s on which bike and when it needs service.',
   },
   {
-    icon: <RiCarLine size={40} />,
+    icon: <Car size={40} />,
     title: 'The Set-and-Forget Rider',
     description: 'You couldn\'t be bothered by tracking or performing maintenance. You have no clue what work was done to your bike since you bought it. Get alerts when it\'s time to service—no thinking, no guessing, no surprises.',
   },

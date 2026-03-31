@@ -1,6 +1,6 @@
 import { type AcquisitionCondition } from '@loam/shared';
-import { HiSparkles, HiClock } from 'react-icons/hi2';
-import type { IconType } from 'react-icons';
+import { Sparkles, Clock } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 
 interface WearStartStepProps {
   selected: AcquisitionCondition | null;
@@ -15,7 +15,7 @@ interface StockOption {
   title: string;
   description: string;
   tooltip: string;
-  Icon: IconType;
+  Icon: LucideIcon;
   recommended?: boolean;
 }
 
@@ -25,7 +25,7 @@ const STOCK_OPTIONS: StockOption[] = [
     title: 'All Stock',
     description: 'Components are unchanged from the factory.',
     tooltip: 'Best for most bikes. Component specs come from 99spokes database.',
-    Icon: HiSparkles,
+    Icon: Sparkles,
     recommended: true,
   },
   {
@@ -33,7 +33,7 @@ const STOCK_OPTIONS: StockOption[] = [
     title: 'Some Swapped',
     description: "I've replaced some parts since buying.",
     tooltip: 'You can update component details in bike settings after creation.',
-    Icon: HiClock,
+    Icon: Clock,
   },
 ];
 

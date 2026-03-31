@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useQuery } from '@apollo/client';
-import { FaCheck, FaBicycle, FaExclamationTriangle, FaCheckCircle } from 'react-icons/fa';
+import { Check, Bike, TriangleAlert, CircleCheck } from 'lucide-react';
 import { Modal } from './ui/Modal';
 import { Button } from './ui/Button';
 import { BIKES } from '../graphql/bikes';
@@ -172,7 +172,7 @@ export function ImportCompleteOverlay({
       <div className="import-overlay-content">
         {bikes.length === 0 ? (
           <div className="import-overlay-no-bikes">
-            <FaBicycle size={32} className="icon-muted" />
+            <Bike size={32} className="icon-muted" />
             <p>You don't have any bikes yet.</p>
             <p className="text-muted">Add a bike from the Dashboard to assign rides.</p>
           </div>
@@ -253,7 +253,7 @@ export function ImportCompleteOverlay({
           </>
         ) : (
           <div className="import-overlay-all-done">
-            <FaCheckCircle size={48} className="icon-forest" />
+            <CircleCheck size={48} className="icon-forest" />
             <p>All rides have been assigned to bikes!</p>
           </div>
         )}
@@ -261,7 +261,7 @@ export function ImportCompleteOverlay({
         {/* Success Message */}
         {successMessage && (
           <div className="alert-inline alert-inline-success">
-            <FaCheckCircle size={14} />
+            <CircleCheck size={14} />
             {successMessage}
           </div>
         )}
@@ -269,7 +269,7 @@ export function ImportCompleteOverlay({
         {/* Error Message */}
         {error && (
           <div className="alert-inline alert-inline-error">
-            <FaExclamationTriangle size={14} />
+            <TriangleAlert size={14} />
             {error}
           </div>
         )}
@@ -318,7 +318,7 @@ function RideRow({
       }}
     >
       <div className="import-overlay-ride-checkbox">
-        {isSelected && <FaCheck size={10} className="icon-forest" />}
+        {isSelected && <Check size={10} className="icon-forest" />}
       </div>
       <div className="import-overlay-ride-info">
         <span className="import-overlay-ride-date">{formattedDate}</span>

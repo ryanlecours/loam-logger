@@ -12,12 +12,17 @@ export default tseslint.config([
     extends: [
       js.configs.recommended,
       tseslint.configs.recommended,
-      reactHooks.configs['recommended-latest'],
+      reactHooks.configs.flat['recommended-latest'],
       reactRefresh.configs.vite,
     ],
     languageOptions: {
       ecmaVersion: 2020,
       globals: globals.browser,
+    },
+    rules: {
+      // setState in useEffect is a common pattern for syncing derived/external state;
+      // the React Compiler's set-state-in-effect rule is too strict for these cases
+      'react-hooks/set-state-in-effect': 'off',
     },
   },
   {

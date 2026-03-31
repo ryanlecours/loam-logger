@@ -1,20 +1,20 @@
 import SectionWrapper from './SectionWrapper';
 import MarketingCard from './MarketingCard';
-import { RiAlertFill, RiLinksLine, RiQuestionMark } from 'react-icons/ri';
+import { AlertTriangle, Link, HelpCircle } from 'lucide-react';
 
 const problems = [
   {
-    icon: <RiAlertFill size={40} />,
+    icon: <AlertTriangle size={40} />,
     title: 'Blown Shock. Mid-Ride.',
     description: 'Overdue service costs you money and riding time. That fork rebuild you forgot about? Now it\'s a costly repair instead of routine maintenance.',
   },
   {
-    icon: <RiLinksLine size={40} />,
+    icon: <Link size={40} />,
     title: 'Forgotten Chain. Snapped.',
     description: 'Lost track of wear, now you\'re walking. You meant to replace it after that last shuttle day, but you forgot. Now you\'re miles from the trailhead.',
   },
   {
-    icon: <RiQuestionMark size={40} />,
+    icon: <HelpCircle size={40} />,
     title: 'Component Lottery',
     description: 'Your gear history is a mystery. Which shock was on which bike? When did you swap those wheels? Spreadsheets feel like work, not riding.',
   },
