@@ -353,16 +353,12 @@ async function processActivityEvent(event: StravaWebhookEvent): Promise<void> {
 
       const autoLocation = await extractStravaLocation(activity);
 
-      let syncedRideId: string | null = null;
-      let isNewRide = false;
-
-      await prisma.$transaction(async (tx) => {
+      const { syncedRideId, isNewRide } = await prisma.$transaction(async (tx) => {
         const existing = await tx.ride.findUnique({
           where: { stravaActivityId: activityId.toString() },
           select: { id: true, durationSeconds: true, bikeId: true, location: true },
         });
 
-        isNewRide = !existing;
         const locationUpdate = shouldApplyAutoLocation(existing?.location ?? null, autoLocation?.title ?? null);
 
         const ride = await tx.ride.upsert({
@@ -397,8 +393,6 @@ async function processActivityEvent(event: StravaWebhookEvent): Promise<void> {
           },
         });
 
-        syncedRideId = ride.id;
-
         await syncBikeComponentHours(
           tx,
           userAccount.userId,
@@ -411,6 +405,8 @@ async function processActivityEvent(event: StravaWebhookEvent): Promise<void> {
             durationSeconds: ride.durationSeconds,
           }
         );
+
+        return { syncedRideId: ride.id, isNewRide: !existing };
       });
 
       console.log(`[Strava Activity Event] Successfully stored ride for activity ${activityId}`);

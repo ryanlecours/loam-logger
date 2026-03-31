@@ -2719,7 +2719,7 @@ describe('GraphQL Resolvers', () => {
 
     it('should clear notification logs after servicing a component', async () => {
       const ctx = createMockContext();
-      const { clearServiceNotificationLogs } = require('../../services/notification.service');
+      const { clearServiceNotificationLogs } = jest.requireMock<typeof import('../../services/notification.service')>('../../services/notification.service');
 
       (mockPrisma.component.findUnique as jest.Mock).mockResolvedValue({
         userId: 'user-123',
@@ -2731,7 +2731,7 @@ describe('GraphQL Resolvers', () => {
         serviceLog: { create: jest.fn() },
         component: { update: jest.fn().mockResolvedValue({ id: 'comp-1' }) },
       };
-      (mockPrisma.$transaction as jest.Mock).mockImplementation((fn: Function) => fn(mockTx));
+      (mockPrisma.$transaction as jest.Mock).mockImplementation((fn: (...args: unknown[]) => unknown) => fn(mockTx));
 
       await mutation(null, { id: 'comp-1' }, ctx);
 

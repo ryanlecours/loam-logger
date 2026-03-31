@@ -1,7 +1,8 @@
 import { Expo, type ExpoPushMessage, type ExpoPushTicket } from 'expo-server-sdk';
 import { prisma } from '../lib/prisma';
-import { logError } from '../lib/logger';
+import { logError, logger } from '../lib/logger';
 import { enqueueReceiptCheck } from '../lib/queue/notification.queue';
+import { generateBikePredictions } from './prediction';
 import type { ServiceNotificationMode } from '@prisma/client';
 
 const expo = new Expo();
@@ -27,7 +28,7 @@ type SendPushParams = {
  */
 async function sendPushNotification({ pushToken, title, body, data }: SendPushParams): Promise<string | null> {
   if (!Expo.isExpoPushToken(pushToken)) {
-    console.warn(`[notifications] Invalid Expo push token: ${pushToken}`);
+    logger.warn({ pushToken }, '[notifications] Invalid Expo push token');
     return null;
   }
 
@@ -43,7 +44,7 @@ async function sendPushNotification({ pushToken, title, body, data }: SendPushPa
     const tickets: ExpoPushTicket[] = await expo.sendPushNotificationsAsync([message]);
     const ticket = tickets[0];
     if (ticket.status === 'error') {
-      console.error(`[notifications] Push error: ${ticket.message}`, ticket.details);
+      logger.error({ message: ticket.message, details: ticket.details }, '[notifications] Push error');
       return null;
     }
     return ticket.id;
@@ -52,6 +53,12 @@ async function sendPushNotification({ pushToken, title, body, data }: SendPushPa
     return null;
   }
 }
+
+type NotificationUser = {
+  expoPushToken: string;
+  notifyOnRideUpload: boolean;
+  distanceUnit: string | null;
+};
 
 /**
  * Send a notification when a ride is synced from an integration (Strava/Garmin).
@@ -62,15 +69,11 @@ export async function notifyRideUploaded(params: {
   durationSeconds: number;
   distanceMeters: number;
   bikeName?: string;
+  user: NotificationUser;
 }): Promise<string | undefined> {
-  const { userId, rideId, durationSeconds, distanceMeters, bikeName } = params;
+  const { userId, rideId, durationSeconds, distanceMeters, bikeName, user } = params;
 
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { expoPushToken: true, notifyOnRideUpload: true, distanceUnit: true },
-  });
-
-  if (!user?.expoPushToken || !user.notifyOnRideUpload) return;
+  if (!user.notifyOnRideUpload) return;
 
   const durationMin = Math.round(durationSeconds / 60);
   const isKm = user.distanceUnit === 'km';
@@ -90,6 +93,10 @@ export async function notifyRideUploaded(params: {
   });
 
   if (ticketId) {
+    // Audit log only — not used for deduplication. componentId is null here,
+    // so the unique constraint on (userId, componentId, notificationType) does
+    // not apply (NULL != NULL in PostgreSQL). Ride upload dedup is unnecessary
+    // because each synced ride only triggers one notification via fireRideNotifications.
     await prisma.notificationLog.create({
       data: {
         userId,
@@ -117,16 +124,10 @@ export async function checkAndNotifyServiceDue(params: {
   userId: string;
   bikeId: string;
   bikeName: string;
+  pushToken: string;
   predictions: ComponentPrediction[];
 }): Promise<string | undefined> {
-  const { userId, bikeId, bikeName, predictions } = params;
-
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { expoPushToken: true },
-  });
-
-  if (!user?.expoPushToken) return;
+  const { userId, bikeId, bikeName, pushToken, predictions } = params;
 
   const notifPref = await prisma.bikeNotificationPreference.findUnique({
     where: { bikeId },
@@ -206,7 +207,7 @@ export async function checkAndNotifyServiceDue(params: {
     : `${newComponents.length} components need service: ${componentNames}`;
 
   const ticketId = await sendPushNotification({
-    pushToken: user.expoPushToken,
+    pushToken,
     title: `${bikeName} - Service Due`,
     body,
     data: { screen: 'bike', bikeId },
@@ -233,6 +234,20 @@ export async function fireRideNotifications(params: {
   if (!isNewRide) return;
 
   try {
+    // Single user query for all notification needs
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        expoPushToken: true,
+        notifyOnRideUpload: true,
+        distanceUnit: true,
+        role: true,
+        predictionMode: true,
+      },
+    });
+
+    if (!user?.expoPushToken) return;
+
     // Get bike name if assigned
     let bikeName: string | undefined;
     if (bikeId) {
@@ -248,33 +263,34 @@ export async function fireRideNotifications(params: {
     const ticketIds: string[] = [];
 
     // Ride upload notification
-    const rideTicketId = await notifyRideUploaded({ userId, rideId, durationSeconds, distanceMeters, bikeName });
+    const rideTicketId = await notifyRideUploaded({
+      userId, rideId, durationSeconds, distanceMeters, bikeName,
+      user: {
+        expoPushToken: user.expoPushToken,
+        notifyOnRideUpload: user.notifyOnRideUpload,
+        distanceUnit: user.distanceUnit,
+      },
+    });
     if (rideTicketId) ticketIds.push(rideTicketId);
 
     // Service due check (only if ride is assigned to a bike)
     if (bikeId && bikeName) {
-      const { generateBikePredictions } = await import('./prediction');
-      const user = await prisma.user.findUnique({
-        where: { id: userId },
-        select: { role: true, predictionMode: true },
+      const predictionMode = (user.predictionMode === 'predictive' ? 'predictive' : 'simple') as 'simple' | 'predictive';
+      const summary = await generateBikePredictions({
+        userId,
+        bikeId,
+        userRole: user.role,
+        predictionMode,
       });
-      if (user) {
-        const predictionMode = (user.predictionMode === 'predictive' ? 'predictive' : 'simple') as 'simple' | 'predictive';
-        const summary = await generateBikePredictions({
+      if (summary?.components) {
+        const serviceTicketId = await checkAndNotifyServiceDue({
           userId,
           bikeId,
-          userRole: user.role,
-          predictionMode,
+          bikeName,
+          pushToken: user.expoPushToken,
+          predictions: summary.components,
         });
-        if (summary?.components) {
-          const serviceTicketId = await checkAndNotifyServiceDue({
-            userId,
-            bikeId,
-            bikeName,
-            predictions: summary.components,
-          });
-          if (serviceTicketId) ticketIds.push(serviceTicketId);
-        }
+        if (serviceTicketId) ticketIds.push(serviceTicketId);
       }
     }
 
