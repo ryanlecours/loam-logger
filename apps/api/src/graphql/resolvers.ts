@@ -473,6 +473,7 @@ export async function buildBikeComponents(
     spokesComponents?: SpokesComponentsInputGQL | null;
     userOverrides?: Partial<Record<BikeComponentKey, BikeComponentInputGQL | null>>;
     pairedComponentConfigs?: PairedComponentConfigInputGQL[] | null;
+    acquisitionCondition?: string;
   }
 ): Promise<void> {
   const { bikeId, userId, bikeSpec, spokesComponents, userOverrides, pairedComponentConfigs } = opts;

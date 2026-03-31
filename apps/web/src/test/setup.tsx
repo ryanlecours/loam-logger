@@ -1,10 +1,11 @@
 import '@testing-library/jest-dom';
 import { vi, beforeEach } from 'vitest';
 
-// Mock lucide-react - returns a proxy that creates SVG stubs for any icon import
-vi.mock('lucide-react', () => {
+// Mock lucide-react - creates SVG stubs for any icon import
+vi.mock('lucide-react', async (importOriginal) => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const React = require('react');
+  const original = await importOriginal<Record<string, unknown>>();
   const createIcon = (name: string) =>
     function MockIcon(props: Record<string, unknown>) {
       return React.createElement('svg', {
@@ -13,10 +14,12 @@ vi.mock('lucide-react', () => {
         ...props,
       });
     };
-  return new Proxy(
-    {},
-    { get: (_target, name: string) => createIcon(name) }
-  );
+  // Replace every export that looks like a component (PascalCase) with a mock
+  const mocked: Record<string, unknown> = {};
+  for (const key of Object.keys(original)) {
+    mocked[key] = /^[A-Z]/.test(key) ? createIcon(key) : original[key];
+  }
+  return mocked;
 });
 
 // Mock localStorage

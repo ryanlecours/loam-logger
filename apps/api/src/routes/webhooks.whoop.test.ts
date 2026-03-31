@@ -8,6 +8,7 @@ jest.mock('../lib/prisma', () => ({
     },
     ride: {
       updateMany: jest.fn(),
+      deleteMany: jest.fn(),
     },
   },
 }));
@@ -147,7 +148,7 @@ describe('WHOOP Webhook Handler', () => {
       );
     });
 
-    it('should soft-delete ride on workout.deleted event', async () => {
+    it('should delete ride on workout.deleted event', async () => {
       const handler = getRouteHandler('post', '/whoop');
       const req = mockRequest({
         body: {
@@ -160,13 +161,12 @@ describe('WHOOP Webhook Handler', () => {
       const res = mockResponse();
 
       (prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 'user-123' });
-      (prisma.ride.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
+      (prisma.ride.deleteMany as jest.Mock).mockResolvedValue({ count: 1 });
 
       await handler!(req as Request, res as Response);
 
-      expect(prisma.ride.updateMany).toHaveBeenCalledWith({
+      expect(prisma.ride.deleteMany).toHaveBeenCalledWith({
         where: { userId: 'user-123', whoopWorkoutId: 'workout-uuid-to-delete' },
-        data: { deletedAt: expect.any(Date) },
       });
       expect(logger.info).toHaveBeenCalledWith(
         expect.objectContaining({ workoutId: 'workout-uuid-to-delete', userId: 'user-123' }),
@@ -187,7 +187,7 @@ describe('WHOOP Webhook Handler', () => {
       const res = mockResponse();
 
       (prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 'user-123' });
-      (prisma.ride.updateMany as jest.Mock).mockResolvedValue({ count: 0 });
+      (prisma.ride.deleteMany as jest.Mock).mockResolvedValue({ count: 0 });
 
       await handler!(req as Request, res as Response);
 
@@ -214,13 +214,10 @@ describe('WHOOP Webhook Handler', () => {
 
       await handler!(req as Request, res as Response);
 
-      expect(enqueueSyncJob).toHaveBeenCalledWith({
-        name: 'syncActivity',
-        data: {
-          userId: 'user-456',
-          provider: 'whoop',
-          activityId: 'new-workout-uuid',
-        },
+      expect(enqueueSyncJob).toHaveBeenCalledWith('syncActivity', {
+        userId: 'user-456',
+        provider: 'whoop',
+        activityId: 'new-workout-uuid',
       });
       expect(logger.info).toHaveBeenCalledWith(
         expect.objectContaining({ workoutId: 'new-workout-uuid', userId: 'user-456' }),
@@ -245,13 +242,10 @@ describe('WHOOP Webhook Handler', () => {
 
       await handler!(req as Request, res as Response);
 
-      expect(enqueueSyncJob).toHaveBeenCalledWith({
-        name: 'syncActivity',
-        data: {
-          userId: 'user-789',
-          provider: 'whoop',
-          activityId: 'updated-workout-uuid',
-        },
+      expect(enqueueSyncJob).toHaveBeenCalledWith('syncActivity', {
+        userId: 'user-789',
+        provider: 'whoop',
+        activityId: 'updated-workout-uuid',
       });
     });
 

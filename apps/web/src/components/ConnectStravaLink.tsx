@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { StravaIcon } from './icons/BrandIcons'
+import { StravaIcon } from '../icons/BrandIcons'
 
 const apiBase =
   (import.meta.env.VITE_API_URL ?? "").replace(/\/$/, "") ||
