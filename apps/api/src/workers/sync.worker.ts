@@ -8,6 +8,7 @@ import { getValidWhoopToken } from '../lib/whoop-token';
 import { deriveLocation, deriveLocationAsync, shouldApplyAutoLocation } from '../lib/location';
 import { incrementBikeComponentHours, decrementBikeComponentHours } from '../lib/component-hours';
 import { logger } from '../lib/logger';
+import { notifyRideUploaded, checkAndNotifyServiceDue } from '../services/notification.service';
 import { config } from '../config/env';
 import type { SyncJobData, SyncJobName, SyncProvider } from '../lib/queue/sync.queue';
 import type { Prisma } from '@prisma/client';
@@ -95,6 +96,73 @@ type GarminActivity = {
   beginLongitude?: number;
   [key: string]: unknown;
 };
+
+/**
+ * Fire-and-forget: send ride upload notification and check service due notifications.
+ * Errors are logged but never thrown to avoid blocking the sync flow.
+ */
+async function fireRideNotifications(params: {
+  userId: string;
+  rideId: string;
+  bikeId: string | null;
+  durationSeconds: number;
+  distanceMeters: number;
+  isNewRide: boolean;
+}): Promise<void> {
+  const { userId, rideId, bikeId, durationSeconds, distanceMeters, isNewRide } = params;
+
+  // Only notify for newly created rides, not updates
+  if (!isNewRide) return;
+
+  try {
+    // Get bike name if assigned
+    let bikeName: string | undefined;
+    if (bikeId) {
+      const bike = await prisma.bike.findUnique({
+        where: { id: bikeId },
+        select: { nickname: true, manufacturer: true, model: true },
+      });
+      if (bike) {
+        bikeName = bike.nickname || `${bike.manufacturer} ${bike.model}`;
+      }
+    }
+
+    // Ride upload notification
+    await notifyRideUploaded({ userId, rideId, durationSeconds, distanceMeters, bikeName });
+
+    // Service due check (only if ride is assigned to a bike)
+    if (bikeId && bikeName) {
+      try {
+        const { generateBikePredictions } = await import('../services/prediction');
+        const user = await prisma.user.findUnique({
+          where: { id: userId },
+          select: { role: true, predictionMode: true },
+        });
+        if (user) {
+          const predictionMode = (user.predictionMode === 'predictive' ? 'predictive' : 'simple') as 'simple' | 'predictive';
+          const summary = await generateBikePredictions({
+            userId,
+            bikeId,
+            userRole: user.role,
+            predictionMode,
+          });
+          if (summary?.components) {
+            await checkAndNotifyServiceDue({
+              userId,
+              bikeId,
+              bikeName,
+              predictions: summary.components,
+            });
+          }
+        }
+      } catch (predError) {
+        logger.warn({ bikeId, error: predError }, '[SyncWorker] Service notification prediction failed');
+      }
+    }
+  } catch (error) {
+    logger.warn({ userId, rideId, error }, '[SyncWorker] Notification send failed (non-fatal)');
+  }
+}
 
 /**
  * Process a sync job.
@@ -305,12 +373,16 @@ async function upsertStravaActivity(userId: string, activity: StravaActivity): P
     lon: activity.start_latlng?.[1] ?? null,
   });
 
+  let syncedRideId: string | null = null;
+  let isNewRide = false;
+
   await prisma.$transaction(async (tx) => {
     const existing = await tx.ride.findUnique({
       where: { stravaActivityId: activity.id.toString() },
-      select: { durationSeconds: true, bikeId: true, location: true },
+      select: { id: true, durationSeconds: true, bikeId: true, location: true },
     });
 
+    isNewRide = !existing;
     const locationUpdate = shouldApplyAutoLocation(existing?.location ?? null, autoLocation);
 
     const ride = await tx.ride.upsert({
@@ -343,6 +415,8 @@ async function upsertStravaActivity(userId: string, activity: StravaActivity): P
       },
     });
 
+    syncedRideId = ride.id;
+
     // Sync component hours
     await syncBikeComponentHours(
       tx,
@@ -353,6 +427,18 @@ async function upsertStravaActivity(userId: string, activity: StravaActivity): P
   });
 
   logger.debug({ stravaActivityId: activity.id }, '[SyncWorker] Upserted Strava activity');
+
+  // Fire-and-forget notifications
+  if (syncedRideId) {
+    fireRideNotifications({
+      userId,
+      rideId: syncedRideId,
+      bikeId,
+      durationSeconds: activity.moving_time,
+      distanceMeters,
+      isNewRide,
+    }).catch(() => {}); // swallow - already logged internally
+  }
 }
 
 // ============================================================================
@@ -503,6 +589,7 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
     select: { location: true },
   });
 
+  const isNewRide = !existing;
   const locationUpdate = shouldApplyAutoLocation(existing?.location ?? null, autoLocation?.title ?? null);
 
   // Look up running ImportSession for this user (if any)
@@ -511,7 +598,7 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
     select: { id: true },
   });
 
-  await prisma.ride.upsert({
+  const ride = await prisma.ride.upsert({
     where: { garminActivityId: activity.summaryId },
     create: {
       userId,
@@ -547,6 +634,16 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
   }
 
   logger.debug({ summaryId: activity.summaryId }, '[SyncWorker] Upserted Garmin activity');
+
+  // Fire-and-forget notifications (Garmin rides have no bike assignment at sync time)
+  fireRideNotifications({
+    userId,
+    rideId: ride.id,
+    bikeId: ride.bikeId,
+    durationSeconds: activity.durationInSeconds,
+    distanceMeters,
+    isNewRide,
+  }).catch(() => {});
 }
 
 // ============================================================================
@@ -655,11 +752,16 @@ async function upsertWhoopActivity(userId: string, workout: WhoopWorkout): Promi
   // Get ride type based on sport (Cycling vs Mountain Bike)
   const rideType = getWhoopRideType(workout);
 
+  let syncedRideId: string | null = null;
+  let isNewRide = false;
+
   await prisma.$transaction(async (tx) => {
     const existing = await tx.ride.findUnique({
       where: { whoopWorkoutId: workout.id },
-      select: { durationSeconds: true, bikeId: true },
+      select: { id: true, durationSeconds: true, bikeId: true },
     });
+
+    isNewRide = !existing;
 
     const ride = await tx.ride.upsert({
       where: { whoopWorkoutId: workout.id },
@@ -689,6 +791,8 @@ async function upsertWhoopActivity(userId: string, workout: WhoopWorkout): Promi
       },
     });
 
+    syncedRideId = ride.id;
+
     // Sync component hours
     await syncBikeComponentHours(
       tx,
@@ -697,6 +801,18 @@ async function upsertWhoopActivity(userId: string, workout: WhoopWorkout): Promi
       { bikeId: ride.bikeId ?? null, durationSeconds: ride.durationSeconds }
     );
   });
+
+  // Fire-and-forget notifications
+  if (syncedRideId) {
+    fireRideNotifications({
+      userId,
+      rideId: syncedRideId,
+      bikeId,
+      durationSeconds,
+      distanceMeters,
+      isNewRide,
+    }).catch(() => {});
+  }
 
   logger.debug({ whoopWorkoutId: workout.id }, '[SyncWorker] Upserted WHOOP workout');
 }

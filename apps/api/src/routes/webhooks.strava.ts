@@ -5,6 +5,7 @@ import { getValidStravaToken } from '../lib/strava-token';
 import { deriveLocationAsync, shouldApplyAutoLocation } from '../lib/location';
 import { incrementBikeComponentHours, decrementBikeComponentHours } from '../lib/component-hours';
 import { logError } from '../lib/logger';
+import { notifyRideUploaded, checkAndNotifyServiceDue } from '../services/notification.service';
 
 type Empty = Record<string, never>;
 const r: Router = createRouter();
@@ -352,12 +353,16 @@ async function processActivityEvent(event: StravaWebhookEvent): Promise<void> {
 
       const autoLocation = await extractStravaLocation(activity);
 
+      let syncedRideId: string | null = null;
+      let isNewRide = false;
+
       await prisma.$transaction(async (tx) => {
         const existing = await tx.ride.findUnique({
           where: { stravaActivityId: activityId.toString() },
-          select: { durationSeconds: true, bikeId: true, location: true },
+          select: { id: true, durationSeconds: true, bikeId: true, location: true },
         });
 
+        isNewRide = !existing;
         const locationUpdate = shouldApplyAutoLocation(existing?.location ?? null, autoLocation?.title ?? null);
 
         const ride = await tx.ride.upsert({
@@ -392,6 +397,8 @@ async function processActivityEvent(event: StravaWebhookEvent): Promise<void> {
           },
         });
 
+        syncedRideId = ride.id;
+
         await syncBikeComponentHours(
           tx,
           userAccount.userId,
@@ -407,6 +414,60 @@ async function processActivityEvent(event: StravaWebhookEvent): Promise<void> {
       });
 
       console.log(`[Strava Activity Event] Successfully stored ride for activity ${activityId}`);
+
+      // Fire-and-forget notifications for new rides
+      if (syncedRideId && isNewRide) {
+        (async () => {
+          try {
+            // Get bike name
+            let bikeName: string | undefined;
+            if (bikeId) {
+              const bike = await prisma.bike.findUnique({
+                where: { id: bikeId },
+                select: { nickname: true, manufacturer: true, model: true },
+              });
+              if (bike) bikeName = bike.nickname || `${bike.manufacturer} ${bike.model}`;
+            }
+
+            await notifyRideUploaded({
+              userId: userAccount.userId,
+              rideId: syncedRideId!,
+              durationSeconds: activity.moving_time,
+              distanceMeters,
+              bikeName,
+            });
+
+            // Service due check
+            if (bikeId && bikeName) {
+              const { generateBikePredictions } = await import('../services/prediction');
+              const user = await prisma.user.findUnique({
+                where: { id: userAccount.userId },
+                select: { role: true, predictionMode: true },
+              });
+              if (user) {
+                const predictionMode = (user.predictionMode === 'predictive' ? 'predictive' : 'simple') as 'simple' | 'predictive';
+                const summary = await generateBikePredictions({
+                  userId: userAccount.userId,
+                  bikeId,
+                  userRole: user.role,
+                  predictionMode,
+                });
+                if (summary?.components) {
+                  await checkAndNotifyServiceDue({
+                    userId: userAccount.userId,
+                    bikeId,
+                    bikeName,
+                    predictions: summary.components,
+                  });
+                }
+              }
+            }
+          } catch (notifError) {
+            // Non-fatal - don't break the webhook flow
+            console.warn('[Strava Webhook] Notification send failed:', notifError);
+          }
+        })();
+      }
     } catch (error) {
       logError(`Strava Activity Event ${activityId}`, error);
       throw error;
