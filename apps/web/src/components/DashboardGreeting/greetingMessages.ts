@@ -6,9 +6,12 @@ export function getTimeOfDayGreeting(): string {
   return 'Good evening';
 }
 
-// Format distance with units
-export function formatDistance(miles: number): string {
-  return `${miles.toFixed(1)} miles`;
+// Format distance (input in meters) with units
+export function formatDistance(meters: number, unit: 'mi' | 'km' = 'mi'): string {
+  if (unit === 'km') {
+    return `${(meters / 1000).toFixed(1)} km`;
+  }
+  return `${(meters / 1609.344).toFixed(1)} miles`;
 }
 
 // Format duration in human-readable form
@@ -21,9 +24,12 @@ export function formatDuration(seconds: number): string {
   return `${mins} minutes`;
 }
 
-// Format elevation with units
-export function formatElevation(feet: number): string {
-  return `${feet.toLocaleString()} ft`;
+// Format elevation (input in meters, displayed in feet for mi users or meters for km users)
+export function formatElevation(meters: number, unit: 'mi' | 'km' = 'mi'): string {
+  if (unit === 'km') {
+    return `${Math.round(meters).toLocaleString()} m`;
+  }
+  return `${Math.round(meters * 3.28084).toLocaleString()} ft`;
 }
 
 // Format percentage change

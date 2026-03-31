@@ -13,8 +13,16 @@ export function fmtDuration(sec: number) {
   return h ? `${h}h ${m}m` : `${m}m`;
 }
 
-export const fmtMiles = (mi: number) => `${mi.toFixed(1)} mi`;
-export const fmtFeet = (ft: number) => `${Math.round(ft)} ft`;
+export const fmtDistance = (meters: number, unit: 'mi' | 'km' = 'mi') => {
+  if (unit === 'km') {
+    return `${(meters / 1000).toFixed(1)} km`;
+  }
+  return `${(meters / 1609.344).toFixed(1)} mi`;
+};
+export const fmtElevation = (meters: number, unit: 'mi' | 'km' = 'mi') =>
+  unit === 'km'
+    ? `${Math.round(meters).toLocaleString()} m`
+    : `${Math.round(meters * 3.28084)} ft`;
 
 /** Accepts ISO string / epoch string / number / Date and returns yyyy-MM-ddTHH:mm (local) */
 export function toLocalInputValue(v: string | number | Date): string {

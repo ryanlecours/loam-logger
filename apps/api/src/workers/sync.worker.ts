@@ -271,8 +271,8 @@ async function syncStravaActivity(userId: string, activityId: string): Promise<v
 }
 
 async function upsertStravaActivity(userId: string, activity: StravaActivity): Promise<void> {
-  const distanceMiles = activity.distance * 0.000621371;
-  const elevationGainFeet = activity.total_elevation_gain * 3.28084;
+  const distanceMeters = activity.distance;
+  const elevationGainMeters = activity.total_elevation_gain;
   const startTime = new Date(activity.start_date);
 
   // Look up bike mapping
@@ -321,8 +321,8 @@ async function upsertStravaActivity(userId: string, activity: StravaActivity): P
         stravaGearId: activity.gear_id ?? null,
         startTime,
         durationSeconds: activity.moving_time,
-        distanceMiles,
-        elevationGainFeet,
+        distanceMeters,
+        elevationGainMeters,
         averageHr: activity.average_heartrate ? Math.round(activity.average_heartrate) : null,
         rideType: activity.sport_type,
         notes: activity.name || null,
@@ -333,8 +333,8 @@ async function upsertStravaActivity(userId: string, activity: StravaActivity): P
         startTime,
         stravaGearId: activity.gear_id ?? null,
         durationSeconds: activity.moving_time,
-        distanceMiles,
-        elevationGainFeet,
+        distanceMeters,
+        elevationGainMeters,
         averageHr: activity.average_heartrate ? Math.round(activity.average_heartrate) : null,
         rideType: activity.sport_type,
         notes: activity.name || null,
@@ -482,14 +482,10 @@ async function syncGarminActivity(userId: string, activityId: string): Promise<v
 }
 
 async function upsertGarminActivity(userId: string, activity: GarminActivity): Promise<void> {
-  const distanceMiles = activity.distanceInMeters
-    ? activity.distanceInMeters * 0.000621371
-    : 0;
+  const distanceMeters = activity.distanceInMeters ?? 0;
 
-  const elevationGainFeet =
-    (activity.totalElevationGainInMeters ?? activity.elevationGainInMeters)
-      ? (activity.totalElevationGainInMeters ?? activity.elevationGainInMeters)! * 3.28084
-      : 0;
+  const elevationGainMeters =
+    (activity.totalElevationGainInMeters ?? activity.elevationGainInMeters) ?? 0;
 
   const startTime = new Date(activity.startTimeInSeconds * 1000);
 
@@ -522,8 +518,8 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
       garminActivityId: activity.summaryId,
       startTime,
       durationSeconds: activity.durationInSeconds,
-      distanceMiles,
-      elevationGainFeet,
+      distanceMeters,
+      elevationGainMeters,
       averageHr: activity.averageHeartRateInBeatsPerMinute ?? null,
       rideType: activity.activityType,
       notes: activity.activityName ?? null,
@@ -533,8 +529,8 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
     update: {
       startTime,
       durationSeconds: activity.durationInSeconds,
-      distanceMiles,
-      elevationGainFeet,
+      distanceMeters,
+      elevationGainMeters,
       averageHr: activity.averageHeartRateInBeatsPerMinute ?? null,
       rideType: activity.activityType,
       notes: activity.activityName ?? null,
@@ -643,12 +639,8 @@ async function upsertWhoopActivity(userId: string, workout: WhoopWorkout): Promi
   const endTime = new Date(workout.end);
   const durationSeconds = Math.round((endTime.getTime() - startTime.getTime()) / 1000);
 
-  const distanceMiles = workout.score?.distance_meter
-    ? workout.score.distance_meter * 0.000621371
-    : 0;
-  const elevationGainFeet = workout.score?.altitude_gain_meter
-    ? workout.score.altitude_gain_meter * 3.28084
-    : 0;
+  const distanceMeters = workout.score?.distance_meter ?? 0;
+  const elevationGainMeters = workout.score?.altitude_gain_meter ?? 0;
 
   // Auto-assign bike if user has exactly one bike (WHOOP has no gear tagging)
   let bikeId: string | null = null;
@@ -676,8 +668,8 @@ async function upsertWhoopActivity(userId: string, workout: WhoopWorkout): Promi
         whoopWorkoutId: workout.id,
         startTime,
         durationSeconds,
-        distanceMiles,
-        elevationGainFeet,
+        distanceMeters,
+        elevationGainMeters,
         averageHr: workout.score?.average_heart_rate
           ? Math.round(workout.score.average_heart_rate)
           : null,
@@ -687,8 +679,8 @@ async function upsertWhoopActivity(userId: string, workout: WhoopWorkout): Promi
       update: {
         startTime,
         durationSeconds,
-        distanceMiles,
-        elevationGainFeet,
+        distanceMeters,
+        elevationGainMeters,
         averageHr: workout.score?.average_heart_rate
           ? Math.round(workout.score.average_heart_rate)
           : null,

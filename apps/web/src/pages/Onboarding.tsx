@@ -93,6 +93,7 @@ export default function Onboarding() {
   const { getBikeDetails, isLoading: loadingBikeDetails } = useSpokes();
 
   const [showManualBikeEntry, setShowManualBikeEntry] = useState(false);
+  const [showBikeValidation, setShowBikeValidation] = useState(false);
   const [spokesDetails, setSpokesDetails] = useState<SpokesBikeDetails | null>(null);
   const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null);
 
@@ -298,6 +299,7 @@ export default function Onboarding() {
       if (!data.bikeModel) errors.push('bike model');
 
       if (errors.length > 0) {
+        setShowBikeValidation(true);
         setError(`Please enter a valid ${errors.join(', ')}`);
         return;
       }
@@ -308,6 +310,7 @@ export default function Onboarding() {
     if (currentStep < 6) {
       setCurrentStep(currentStep + 1);
       setError(null);
+      setShowBikeValidation(false);
     }
   };
 
@@ -315,6 +318,7 @@ export default function Onboarding() {
     if (currentStep > 1) {
       setCurrentStep(currentStep - 1);
       setError(null);
+      setShowBikeValidation(false);
     }
   };
 
@@ -456,7 +460,7 @@ export default function Onboarding() {
             boxShadow: '0 20px 60px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(168, 208, 184, 0.05)',
           }}
         >
-          {error && (
+          {error && currentStep !== 4 && (
             <div className="rounded-lg bg-red-500/10 border border-red-500/30 p-3">
               <p className="text-sm text-danger">{error}</p>
             </div>
@@ -544,7 +548,7 @@ export default function Onboarding() {
               </div>
 
               {/* Bike Search */}
-              <div className="space-y-2 text-left">
+              <div className="space-y-3 text-left">
                 <BikeSearch
                   label="Search Bike"
                   onSelect={handleBikeSelect}
@@ -554,6 +558,23 @@ export default function Onboarding() {
                 {loadingBikeDetails && (
                   <p className="text-xs text-muted">Loading bike details...</p>
                 )}
+
+                {/* 99Spokes attribution */}
+                <div className="flex items-center justify-center gap-2 pt-1 pb-4 border-b border-white/10">
+                  <span className="text-sm text-muted">Powered by</span>
+                  <a
+                    href="https://99spokes.com"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="opacity-80 hover:opacity-100 transition-opacity"
+                  >
+                    <img
+                      src="/logos/powered-by-99-spokes-for-dark-bg.svg"
+                      alt="99 Spokes"
+                      className="h-6"
+                    />
+                  </a>
+                </div>
               </div>
 
               {/* Selected bike display */}
@@ -693,7 +714,7 @@ export default function Onboarding() {
                 </div>
               )}
 
-              {!isBikeDataValid() && (
+              {showBikeValidation && !isBikeDataValid() && (
                 <div className="rounded-lg bg-yellow-500/10 border border-yellow-500/30 p-3">
                   <p className="text-sm text-warning">Please enter a valid bike year, make, and model to continue</p>
                 </div>
@@ -947,7 +968,7 @@ export default function Onboarding() {
                 onClick={handleNext}
                 variant="primary"
                 className="flex-1"
-                disabled={isLoading || (currentStep === 4 && !isBikeDataValid())}
+                disabled={isLoading}
               >
                 Continue
               </Button>

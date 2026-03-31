@@ -76,6 +76,12 @@ export const typeDefs = gql`
     MIXED
   }
 
+  enum BikeStatus {
+    ACTIVE
+    RETIRED
+    SOLD
+  }
+
   enum BaselineMethod {
     DEFAULT
     SLIDER
@@ -121,8 +127,8 @@ export const typeDefs = gql`
     stravaGearId: String
     startTime: String!
     durationSeconds: Int!
-    distanceMiles: Float!
-    elevationGainFeet: Float!
+    distanceMeters: Float!
+    elevationGainMeters: Float!
     averageHr: Int
     rideType: String!
     bikeId: ID
@@ -235,6 +241,8 @@ export const typeDefs = gql`
     motorTorqueNm: Int
     batteryWh: Int
     acquisitionCondition: AcquisitionCondition
+    status: BikeStatus!
+    retiredAt: String
     fork: Component
     shock: Component
     seatpost: Component
@@ -272,8 +280,8 @@ export const typeDefs = gql`
   input UpdateRideInput {
     startTime: String
     durationSeconds: Int
-    distanceMiles: Float
-    elevationGainFeet: Float
+    distanceMeters: Float
+    elevationGainMeters: Float
     averageHr: Int
     rideType: String
     bikeId: ID
@@ -285,8 +293,8 @@ export const typeDefs = gql`
   input AddRideInput {
     startTime: String!
     durationSeconds: Int!
-    distanceMiles: Float!
-    elevationGainFeet: Float!
+    distanceMeters: Float!
+    elevationGainMeters: Float!
     averageHr: Int
     rideType: String!
     bikeId: ID
@@ -461,8 +469,8 @@ export const typeDefs = gql`
     id: ID!
     startTime: String!
     durationSeconds: Int!
-    distanceMiles: Float!
-    elevationGainFeet: Float!
+    distanceMeters: Float!
+    elevationGainMeters: Float!
     location: String
     rideType: String!
   }
@@ -518,6 +526,7 @@ export const typeDefs = gql`
   input UpdateUserPreferencesInput {
     hoursDisplayPreference: String
     predictionMode: String
+    distanceUnit: String
   }
 
   # Service Preferences
@@ -722,6 +731,8 @@ export const typeDefs = gql`
     addBike(input: AddBikeInput!): Bike!
     updateBike(id: ID!, input: UpdateBikeInput!): Bike!
     deleteBike(id: ID!): DeleteResult!
+    retireBike(id: ID!, status: BikeStatus!): Bike!
+    reactivateBike(id: ID!): Bike!
     updateBikesOrder(bikeIds: [ID!]!): [Bike!]!
     addComponent(input: AddComponentInput!, bikeId: ID): Component!
     updateComponent(id: ID!, input: UpdateComponentInput!): Component!
@@ -776,6 +787,7 @@ export const typeDefs = gql`
     isFoundingRider: Boolean!
     hoursDisplayPreference: String
     predictionMode: String
+    distanceUnit: String
     pairedComponentMigrationSeenAt: String
     servicePreferences: [UserServicePreference!]!
     createdAt: String!
@@ -792,7 +804,7 @@ export const typeDefs = gql`
     user(id: ID!): User
     rides(take: Int = 1000, after: ID, filter: RidesFilterInput): [Ride!]!
     rideTypes: [RideType!]!
-    bikes: [Bike!]!
+    bikes(includeInactive: Boolean): [Bike!]!
     components(filter: ComponentFilterInput): [Component!]!
     stravaGearMappings: [StravaGearMapping!]!
     unmappedStravaGears: [StravaGearInfo!]!

@@ -6,8 +6,8 @@ query Rides($take: Int, $after: ID, $filter: RidesFilterInput) {
     whoopWorkoutId
     startTime
     durationSeconds
-    distanceMiles
-    elevationGainFeet
+    distanceMeters
+    elevationGainMeters
     averageHr
     rideType
     bikeId

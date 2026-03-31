@@ -136,19 +136,18 @@ describe('formatElevation', () => {
     expect(formatElevation(NaN)).toBe('0 ft');
   });
 
-  it('formats small numbers', () => {
-    expect(formatElevation(100)).toBe('100 ft');
-    expect(formatElevation(500)).toBe('500 ft');
+  it('formats small numbers in meters to feet', () => {
+    expect(formatElevation(100)).toBe('328 ft');
+    expect(formatElevation(500)).toBe('1,640 ft');
   });
 
   it('formats large numbers with locale separators', () => {
-    expect(formatElevation(1234)).toBe('1,234 ft');
-    expect(formatElevation(10000)).toBe('10,000 ft');
+    expect(formatElevation(1234)).toBe('4,049 ft');
+    expect(formatElevation(10000)).toBe('32,808 ft');
   });
 
-  it('rounds decimal values', () => {
-    expect(formatElevation(1234.5)).toBe('1,235 ft');
-    expect(formatElevation(1234.4)).toBe('1,234 ft');
+  it('rounds decimal values meters to feet', () => {
+    expect(formatElevation(1234.5)).toBe('4,050 ft');
   });
 });
 

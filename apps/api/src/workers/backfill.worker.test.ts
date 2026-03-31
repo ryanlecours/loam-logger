@@ -688,7 +688,7 @@ describe('Activity metric conversions', () => {
     await closeBackfillWorker();
   });
 
-  it('should convert meters to miles', async () => {
+  it('should store raw distance in meters', async () => {
     let capturedArgs: unknown;
     (mockPrisma.ride.upsert as jest.Mock).mockImplementation((args) => {
       capturedArgs = args;
@@ -718,12 +718,11 @@ describe('Activity metric conversions', () => {
       },
     });
 
-    // 10000m * 0.000621371 = ~6.21371 miles
-    const args = capturedArgs as { create: { distanceMiles: number } };
-    expect(args.create.distanceMiles).toBeCloseTo(6.21371, 4);
+    const args = capturedArgs as { create: { distanceMeters: number } };
+    expect(args.create.distanceMeters).toBe(10000);
   });
 
-  it('should convert meters to feet for elevation', async () => {
+  it('should store raw elevation in meters', async () => {
     let capturedArgs: unknown;
     (mockPrisma.ride.upsert as jest.Mock).mockImplementation((args) => {
       capturedArgs = args;
@@ -753,9 +752,8 @@ describe('Activity metric conversions', () => {
       },
     });
 
-    // 100m * 3.28084 = ~328.084 feet
-    const args = capturedArgs as { create: { elevationGainFeet: number } };
-    expect(args.create.elevationGainFeet).toBeCloseTo(328.084, 2);
+    const args = capturedArgs as { create: { elevationGainMeters: number } };
+    expect(args.create.elevationGainMeters).toBe(100);
   });
 
   it('should use elevationGainInMeters as fallback', async () => {
@@ -788,9 +786,8 @@ describe('Activity metric conversions', () => {
       },
     });
 
-    // 50m * 3.28084 = ~164.042 feet
-    const args = capturedArgs as { create: { elevationGainFeet: number } };
-    expect(args.create.elevationGainFeet).toBeCloseTo(164.042, 2);
+    const args = capturedArgs as { create: { elevationGainMeters: number } };
+    expect(args.create.elevationGainMeters).toBe(50);
   });
 
   it('should handle missing distance and elevation', async () => {
@@ -823,8 +820,8 @@ describe('Activity metric conversions', () => {
       },
     });
 
-    const args = capturedArgs as { create: { distanceMiles: number; elevationGainFeet: number } };
-    expect(args.create.distanceMiles).toBe(0);
-    expect(args.create.elevationGainFeet).toBe(0);
+    const args = capturedArgs as { create: { distanceMeters: number; elevationGainMeters: number } };
+    expect(args.create.distanceMeters).toBe(0);
+    expect(args.create.elevationGainMeters).toBe(0);
   });
 });

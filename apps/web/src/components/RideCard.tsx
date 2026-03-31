@@ -7,7 +7,8 @@ import { RIDES } from '../graphql/rides';
 import { BIKES } from '../graphql/bikes';
 import DeleteRideButton from './DeleteRideButton';
 import EditRideModal from './EditRideModal';
-import { fmtDateTime, fmtDuration, fmtMiles, fmtFeet } from '../lib/format';
+import { fmtDateTime, fmtDuration, fmtDistance, fmtElevation } from '../lib/format';
+import { usePreferences } from '../hooks/usePreferences';
 import { Badge, Select } from './ui';
 
 const WhoopLogo = () => (
@@ -25,8 +26,8 @@ type Ride = {
   whoopWorkoutId?: string | null;
   startTime: string | number | Date;
   durationSeconds: number;
-  distanceMiles: number;
-  elevationGainFeet: number;
+  distanceMeters: number;
+  elevationGainMeters: number;
   averageHr?: number | null;
   rideType: string;
   bikeId?: string | null;
@@ -79,6 +80,7 @@ export default function RideCard({ ride, bikes = [] }: RideCardProps) {
   const [editing, setEditing] = useState(false);
   const [selectedBikeId, setSelectedBikeId] = useState<string>(bikes[0]?.id || '');
   const [isAssigning, setIsAssigning] = useState(false);
+  const { distanceUnit } = usePreferences();
 
   const [updateRide] = useMutation(UPDATE_RIDE, {
     refetchQueries: [
@@ -149,8 +151,8 @@ export default function RideCard({ ride, bikes = [] }: RideCardProps) {
           <div className="ride-metadata">
             <span className="meta-item">{fmtDateTime(ride.startTime)}</span>
             <span className="meta-item">{fmtDuration(ride.durationSeconds)}</span>
-            <span className="meta-item">{fmtMiles(ride.distanceMiles)}</span>
-            <span className="meta-item">{fmtFeet(ride.elevationGainFeet)}</span>
+            <span className="meta-item">{fmtDistance(ride.distanceMeters, distanceUnit)}</span>
+            <span className="meta-item">{fmtElevation(ride.elevationGainMeters)}</span>
             {typeof ride.averageHr === 'number' && (
               <span className="meta-item">{ride.averageHr} bpm</span>
             )}

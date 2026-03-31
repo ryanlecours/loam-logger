@@ -91,6 +91,8 @@ export const BIKE_FIELDS_LIGHT = gql`
     motorTorqueNm
     batteryWh
     acquisitionCondition
+    status
+    retiredAt
     components {
       ...ComponentFields
     }
@@ -130,6 +132,8 @@ export const BIKE_FIELDS = gql`
     motorTorqueNm
     batteryWh
     acquisitionCondition
+    status
+    retiredAt
     components {
       ...ComponentFields
     }

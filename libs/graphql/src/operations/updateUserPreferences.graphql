@@ -3,5 +3,6 @@ mutation UpdateUserPreferences($input: UpdateUserPreferencesInput!) {
     id
     hoursDisplayPreference
     predictionMode
+    distanceUnit
   }
 }

@@ -17,6 +17,7 @@ export const ME_QUERY = gql`
       needsReauthForSensitiveActions
       hoursDisplayPreference
       predictionMode
+      distanceUnit
       pairedComponentMigrationSeenAt
       createdAt
     }

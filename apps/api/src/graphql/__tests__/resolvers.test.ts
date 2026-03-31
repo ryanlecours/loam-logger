@@ -1,3 +1,8 @@
+// Mock ESM dependencies
+jest.mock('@paralleldrive/cuid2', () => ({
+  createId: jest.fn(() => 'mock-cuid'),
+}));
+
 // Mock dependencies before imports
 jest.mock('../../lib/prisma', () => ({
   prisma: {
@@ -13,10 +18,16 @@ jest.mock('../../lib/prisma', () => ({
       findMany: jest.fn(),
       findUnique: jest.fn(),
       findFirst: jest.fn(),
+      create: jest.fn(),
       update: jest.fn(),
+      delete: jest.fn(),
     },
     ride: {
       findMany: jest.fn(),
+      updateMany: jest.fn(),
+    },
+    stravaGearMapping: {
+      deleteMany: jest.fn(),
     },
     serviceLog: {
       create: jest.fn(),
@@ -2301,6 +2312,208 @@ describe('GraphQL Resolvers', () => {
           )
         ).rejects.toThrow('No component installed in the second slot');
       });
+    });
+  });
+
+  describe('bikes query', () => {
+    const query = resolvers.Query.bikes;
+
+    it('should throw Unauthorized when user is not authenticated', async () => {
+      const ctx = createMockContext(null);
+      await expect(query({}, {}, ctx as never)).rejects.toThrow('Unauthorized');
+    });
+
+    it('should only return ACTIVE bikes by default', async () => {
+      const ctx = createMockContext('user-123');
+      mockPrisma.bike.findMany.mockResolvedValue([] as never);
+
+      await query({}, {}, ctx as never);
+
+      expect(mockPrisma.bike.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { userId: 'user-123', status: 'ACTIVE' },
+        })
+      );
+    });
+
+    it('should return all bikes when includeInactive is true', async () => {
+      const ctx = createMockContext('user-123');
+      mockPrisma.bike.findMany.mockResolvedValue([] as never);
+
+      await query({}, { includeInactive: true }, ctx as never);
+
+      expect(mockPrisma.bike.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { userId: 'user-123' },
+        })
+      );
+    });
+  });
+
+  describe('retireBike', () => {
+    const mutation = resolvers.Mutation.retireBike;
+
+    describe('authorization', () => {
+      it('should throw Unauthorized when user is not authenticated', async () => {
+        const ctx = createMockContext(null);
+        await expect(
+          mutation({}, { id: 'bike-1', status: 'RETIRED' }, ctx as never)
+        ).rejects.toThrow('Unauthorized');
+      });
+
+      it('should throw when bike does not exist', async () => {
+        const ctx = createMockContext('user-123');
+        mockPrisma.bike.findUnique.mockResolvedValue(null as never);
+
+        await expect(
+          mutation({}, { id: 'bike-1', status: 'RETIRED' }, ctx as never)
+        ).rejects.toThrow('Bike not found');
+      });
+
+      it('should throw when bike belongs to another user', async () => {
+        const ctx = createMockContext('user-123');
+        mockPrisma.bike.findUnique.mockResolvedValue({ userId: 'other-user', retiredAt: null } as never);
+
+        await expect(
+          mutation({}, { id: 'bike-1', status: 'RETIRED' }, ctx as never)
+        ).rejects.toThrow('Bike not found');
+      });
+    });
+
+    describe('happy path', () => {
+      it('should set status to RETIRED and retiredAt', async () => {
+        const ctx = createMockContext('user-123');
+        mockPrisma.bike.findUnique.mockResolvedValue({ userId: 'user-123', retiredAt: null } as never);
+        mockPrisma.bike.update.mockResolvedValue({ id: 'bike-1', status: 'RETIRED' } as never);
+
+        await mutation({}, { id: 'bike-1', status: 'RETIRED' }, ctx as never);
+
+        expect(mockPrisma.bike.update).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: { id: 'bike-1' },
+            data: expect.objectContaining({
+              status: 'RETIRED',
+              retiredAt: expect.any(Date),
+            }),
+          })
+        );
+      });
+
+      it('should set status to SOLD', async () => {
+        const ctx = createMockContext('user-123');
+        mockPrisma.bike.findUnique.mockResolvedValue({ userId: 'user-123', retiredAt: null } as never);
+        mockPrisma.bike.update.mockResolvedValue({ id: 'bike-1', status: 'SOLD' } as never);
+
+        await mutation({}, { id: 'bike-1', status: 'SOLD' }, ctx as never);
+
+        expect(mockPrisma.bike.update).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({ status: 'SOLD' }),
+          })
+        );
+      });
+    });
+
+    describe('double-call behavior', () => {
+      it('should preserve original retiredAt when called again', async () => {
+        const originalDate = new Date('2025-01-15T00:00:00Z');
+        const ctx = createMockContext('user-123');
+        mockPrisma.bike.findUnique.mockResolvedValue({ userId: 'user-123', retiredAt: originalDate } as never);
+        mockPrisma.bike.update.mockResolvedValue({ id: 'bike-1', status: 'SOLD' } as never);
+
+        await mutation({}, { id: 'bike-1', status: 'SOLD' }, ctx as never);
+
+        expect(mockPrisma.bike.update).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({
+              status: 'SOLD',
+              retiredAt: originalDate,
+            }),
+          })
+        );
+      });
+    });
+  });
+
+  describe('reactivateBike', () => {
+    const mutation = resolvers.Mutation.reactivateBike;
+
+    it('should throw Unauthorized when user is not authenticated', async () => {
+      const ctx = createMockContext(null);
+      await expect(
+        mutation({}, { id: 'bike-1' }, ctx as never)
+      ).rejects.toThrow('Unauthorized');
+    });
+
+    it('should throw when bike belongs to another user', async () => {
+      const ctx = createMockContext('user-123');
+      mockPrisma.bike.findUnique.mockResolvedValue({ userId: 'other-user' } as never);
+
+      await expect(
+        mutation({}, { id: 'bike-1' }, ctx as never)
+      ).rejects.toThrow('Bike not found');
+    });
+
+    it('should set status to ACTIVE and clear retiredAt', async () => {
+      const ctx = createMockContext('user-123');
+      mockPrisma.bike.findUnique.mockResolvedValue({ userId: 'user-123' } as never);
+      mockPrisma.bike.update.mockResolvedValue({ id: 'bike-1', status: 'ACTIVE' } as never);
+
+      await mutation({}, { id: 'bike-1' }, ctx as never);
+
+      expect(mockPrisma.bike.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'bike-1' },
+          data: { status: 'ACTIVE', retiredAt: null },
+        })
+      );
+    });
+  });
+
+  describe('deleteBike', () => {
+    const mutation = resolvers.Mutation.deleteBike;
+
+    it('should throw Unauthorized when user is not authenticated', async () => {
+      const ctx = createMockContext(null);
+      await expect(
+        mutation({}, { id: 'bike-1' }, ctx as never)
+      ).rejects.toThrow('Unauthorized');
+    });
+
+    it('should throw when bike belongs to another user', async () => {
+      const ctx = createMockContext('user-123');
+      mockPrisma.bike.findUnique.mockResolvedValue({ userId: 'other-user' } as never);
+
+      await expect(
+        mutation({}, { id: 'bike-1' }, ctx as never)
+      ).rejects.toThrow('Bike not found');
+    });
+
+    it('should delete bike and associated data in a transaction', async () => {
+      const ctx = createMockContext('user-123');
+      mockPrisma.bike.findUnique.mockResolvedValue({ userId: 'user-123' } as never);
+
+      const mockTx = {
+        component: { deleteMany: jest.fn() },
+        ride: { updateMany: jest.fn() },
+        stravaGearMapping: { deleteMany: jest.fn() },
+        bike: { delete: jest.fn() },
+      };
+      mockPrisma.$transaction.mockImplementation(async (fn) => {
+        if (typeof fn === 'function') return fn(mockTx as never);
+        return [];
+      });
+
+      const result = await mutation({}, { id: 'bike-1' }, ctx as never);
+
+      expect(result).toEqual({ ok: true, id: 'bike-1' });
+      expect(mockTx.component.deleteMany).toHaveBeenCalledWith({ where: { bikeId: 'bike-1' } });
+      expect(mockTx.ride.updateMany).toHaveBeenCalledWith({
+        where: { bikeId: 'bike-1' },
+        data: { bikeId: null },
+      });
+      expect(mockTx.stravaGearMapping.deleteMany).toHaveBeenCalledWith({ where: { bikeId: 'bike-1' } });
+      expect(mockTx.bike.delete).toHaveBeenCalledWith({ where: { id: 'bike-1' } });
     });
   });
 });

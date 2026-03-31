@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState, useRef } from 'react';
-import { PreferencesContext, type HoursDisplayMode, type PredictionMode } from './PreferencesContext';
+import { PreferencesContext, type HoursDisplayMode, type PredictionMode, type DistanceUnit } from './PreferencesContext';
 import { useViewer } from '../graphql/me';
 
 const HOURS_STORAGE_KEY = 'loam-hours-display';
 const PREDICTION_STORAGE_KEY = 'loam-prediction-mode';
+const DISTANCE_UNIT_STORAGE_KEY = 'loam-distance-unit';
 
 function getInitialHoursDisplay(): HoursDisplayMode {
   if (typeof window === 'undefined') return 'total';
@@ -19,12 +20,21 @@ function getInitialPredictionMode(): PredictionMode {
   return 'simple';
 }
 
+function getInitialDistanceUnit(): DistanceUnit {
+  if (typeof window === 'undefined') return 'mi';
+  const saved = window.localStorage.getItem(DISTANCE_UNIT_STORAGE_KEY);
+  if (saved === 'mi' || saved === 'km') return saved;
+  return 'mi';
+}
+
 export function PreferencesProvider({ children }: { children: React.ReactNode }) {
   const [hoursDisplay, setHoursDisplayState] = useState<HoursDisplayMode>(getInitialHoursDisplay);
   const [predictionMode, setPredictionModeState] = useState<PredictionMode>(getInitialPredictionMode);
+  const [distanceUnit, setDistanceUnitState] = useState<DistanceUnit>(getInitialDistanceUnit);
   const { viewer } = useViewer();
   const hasSyncedHoursFromDb = useRef(false);
   const hasSyncedPredictionFromDb = useRef(false);
+  const hasSyncedDistanceUnitFromDb = useRef(false);
 
   // Sync hours display from database preference when user data loads (only once per session)
   useEffect(() => {
@@ -48,6 +58,17 @@ export function PreferencesProvider({ children }: { children: React.ReactNode })
     }
   }, [viewer?.predictionMode]);
 
+  // Sync distance unit from database preference when user data loads (only once per session)
+  useEffect(() => {
+    if (viewer?.distanceUnit && !hasSyncedDistanceUnitFromDb.current) {
+      const dbPref = viewer.distanceUnit as DistanceUnit;
+      if (dbPref === 'mi' || dbPref === 'km') {
+        setDistanceUnitState(dbPref);
+        hasSyncedDistanceUnitFromDb.current = true;
+      }
+    }
+  }, [viewer?.distanceUnit]);
+
   useEffect(() => {
     window.localStorage.setItem(HOURS_STORAGE_KEY, hoursDisplay);
   }, [hoursDisplay]);
@@ -55,6 +76,10 @@ export function PreferencesProvider({ children }: { children: React.ReactNode })
   useEffect(() => {
     window.localStorage.setItem(PREDICTION_STORAGE_KEY, predictionMode);
   }, [predictionMode]);
+
+  useEffect(() => {
+    window.localStorage.setItem(DISTANCE_UNIT_STORAGE_KEY, distanceUnit);
+  }, [distanceUnit]);
 
   const setHoursDisplay = (mode: HoursDisplayMode) => {
     setHoursDisplayState(mode);
@@ -64,14 +89,20 @@ export function PreferencesProvider({ children }: { children: React.ReactNode })
     setPredictionModeState(mode);
   };
 
+  const setDistanceUnit = (unit: DistanceUnit) => {
+    setDistanceUnitState(unit);
+  };
+
   const value = useMemo(
     () => ({
       hoursDisplay,
       setHoursDisplay,
       predictionMode,
       setPredictionMode,
+      distanceUnit,
+      setDistanceUnit,
     }),
-    [hoursDisplay, predictionMode]
+    [hoursDisplay, predictionMode, distanceUnit]
   );
 
   return (

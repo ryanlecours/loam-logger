@@ -12,6 +12,7 @@ import {
 } from '../graphql/importSession';
 import { getBikeName } from '../utils/formatters';
 import { formatDistanceCompact, formatDurationCompact, formatDate } from '../utils/formatters';
+import { usePreferences } from '../hooks/usePreferences';
 import type { BikeWithPredictions } from '../hooks/usePriorityBike';
 
 /** Minimal bike fields needed for the overlay */
@@ -293,10 +294,11 @@ function RideRow({
   isSelected: boolean;
   onToggle: () => void;
 }) {
+  const { distanceUnit } = usePreferences();
   const date = new Date(ride.startTime);
   const formattedDate = formatDate(date, 'short');
   const duration = formatDurationCompact(ride.durationSeconds);
-  const distance = formatDistanceCompact(ride.distanceMiles);
+  const distance = formatDistanceCompact(ride.distanceMeters, distanceUnit);
 
   const ariaLabel = `${ride.rideType} ride on ${formattedDate}, ${duration}, ${distance}${ride.location ? `, ${ride.location}` : ''}`;
 

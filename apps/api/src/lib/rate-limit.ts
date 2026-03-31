@@ -176,6 +176,8 @@ export const ADMIN_RATE_LIMITS = {
 export const AUTH_RATE_LIMITS = {
   /** signup: max 5 requests per minute per IP (prevents automated spam) */
   signup: { windowSeconds: 60, maxRequests: 5 },
+  /** public-stats: max 30 requests per minute per IP (cached endpoint, prevent abuse) */
+  'public-stats': { windowSeconds: 60, maxRequests: 30 },
 } as const;
 
 export type AuthRateLimitType = keyof typeof AUTH_RATE_LIMITS;

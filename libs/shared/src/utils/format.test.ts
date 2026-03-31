@@ -1,4 +1,4 @@
-import { fmtDateTime, fmtDuration, fmtMiles, fmtFeet, toLocalInputValue, fromLocalInputValue } from './format';
+import { fmtDateTime, fmtDuration, fmtDistance, fmtElevation, toLocalInputValue, fromLocalInputValue } from './format';
 
 describe('fmtDuration', () => {
   it('should format 0 seconds as 0m', () => {
@@ -38,42 +38,37 @@ describe('fmtDuration', () => {
   });
 });
 
-describe('fmtMiles', () => {
-  it('should format zero', () => {
-    expect(fmtMiles(0)).toBe('0.0 mi');
+describe('fmtDistance', () => {
+  it('should format zero meters as miles', () => {
+    expect(fmtDistance(0)).toBe('0.0 mi');
   });
 
-  it('should format with one decimal place', () => {
-    expect(fmtMiles(5)).toBe('5.0 mi');
-    expect(fmtMiles(5.5)).toBe('5.5 mi');
-    expect(fmtMiles(5.56)).toBe('5.6 mi'); // rounds up
-    expect(fmtMiles(5.54)).toBe('5.5 mi'); // rounds down
+  it('should convert meters to miles with one decimal place', () => {
+    // 1609.344 meters = 1 mile
+    expect(fmtDistance(1609.344)).toBe('1.0 mi');
+    expect(fmtDistance(8046.72)).toBe('5.0 mi');
   });
 
-  it('should format large numbers', () => {
-    expect(fmtMiles(100.123)).toBe('100.1 mi');
+  it('should convert meters to km', () => {
+    expect(fmtDistance(1000, 'km')).toBe('1.0 km');
+    expect(fmtDistance(5500, 'km')).toBe('5.5 km');
   });
 
-  it('should format very small numbers', () => {
-    expect(fmtMiles(0.04)).toBe('0.0 mi');
-    expect(fmtMiles(0.05)).toBe('0.1 mi');
+  it('should format large distances', () => {
+    expect(fmtDistance(160934.4)).toBe('100.0 mi');
   });
 });
 
-describe('fmtFeet', () => {
-  it('should format zero', () => {
-    expect(fmtFeet(0)).toBe('0 ft');
+describe('fmtElevation', () => {
+  it('should format zero meters', () => {
+    expect(fmtElevation(0)).toBe('0 ft');
   });
 
-  it('should round to nearest integer', () => {
-    expect(fmtFeet(5.4)).toBe('5 ft');
-    expect(fmtFeet(5.5)).toBe('6 ft');
-    expect(fmtFeet(5.6)).toBe('6 ft');
-  });
-
-  it('should format large numbers', () => {
-    expect(fmtFeet(1000)).toBe('1000 ft');
-    expect(fmtFeet(1000.7)).toBe('1001 ft');
+  it('should convert meters to feet and round', () => {
+    // 1 meter = 3.28084 feet
+    expect(fmtElevation(1)).toBe('3 ft');
+    expect(fmtElevation(100)).toBe('328 ft');
+    expect(fmtElevation(304.8)).toBe('1000 ft');
   });
 });
 

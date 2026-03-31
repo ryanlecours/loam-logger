@@ -12,12 +12,12 @@ import { getComponentWeights } from './config';
  * Maximum reasonable values for ride metrics to prevent overflow.
  * These represent extreme but plausible values:
  * - 24 hours max duration (86400 seconds)
- * - 500 miles max distance (ultra-endurance events)
- * - 50,000 feet max elevation (Everesting x2)
+ * - 800,000 meters (~500 miles) max distance (ultra-endurance events)
+ * - 15,240 meters (~50,000 feet) max elevation (Everesting x2)
  */
 const MAX_DURATION_SECONDS = 86400; // 24 hours
-const MAX_DISTANCE_MILES = 500;
-const MAX_ELEVATION_FEET = 50000;
+const MAX_DISTANCE_METERS = 800000;
+const MAX_ELEVATION_METERS = 15240;
 
 /**
  * Sanitize ride metrics to prevent overflow and ensure valid values.
@@ -25,21 +25,21 @@ const MAX_ELEVATION_FEET = 50000;
  */
 function sanitizeRideMetrics(ride: RideMetrics): {
   durationSeconds: number;
-  distanceMiles: number;
-  elevationGainFeet: number;
+  distanceMeters: number;
+  elevationGainMeters: number;
 } {
   return {
     durationSeconds: Math.min(
       Math.max(0, ride.durationSeconds || 0),
       MAX_DURATION_SECONDS
     ),
-    distanceMiles: Math.min(
-      Math.max(0, ride.distanceMiles || 0),
-      MAX_DISTANCE_MILES
+    distanceMeters: Math.min(
+      Math.max(0, ride.distanceMeters || 0),
+      MAX_DISTANCE_METERS
     ),
-    elevationGainFeet: Math.min(
-      Math.max(0, ride.elevationGainFeet || 0),
-      MAX_ELEVATION_FEET
+    elevationGainMeters: Math.min(
+      Math.max(0, ride.elevationGainMeters || 0),
+      MAX_ELEVATION_METERS
     ),
   };
 }
@@ -47,11 +47,14 @@ function sanitizeRideMetrics(ride: RideMetrics): {
 /**
  * Calculate wear units for a single ride.
  *
- * Formula from spec:
+ * Formula from spec (using imperial intermediaries for stable wear units):
  *   wearUnits = wH*H + wD*(D/10) + wC*(C/3000) + wV*(V/300)
- *   where V = elevationGainFt / max(distanceMiles, 1)
+ *   where D = distance in miles, C = elevation in feet,
+ *   V = C / max(D, 1) (ft per mile steepness proxy)
  *
- * @param ride - Ride metrics
+ * Input metrics are in meters; converted internally to preserve wear unit scale.
+ *
+ * @param ride - Ride metrics (distance and elevation in meters)
  * @param weights - Component-specific weights
  * @returns Wear units for this ride
  */
@@ -61,8 +64,8 @@ export function calculateRideWear(
 ): number {
   const sanitized = sanitizeRideMetrics(ride);
   const H = sanitized.durationSeconds / 3600; // hours
-  const D = sanitized.distanceMiles;
-  const C = sanitized.elevationGainFeet;
+  const D = sanitized.distanceMeters / 1609.344; // convert to miles
+  const C = sanitized.elevationGainMeters * 3.28084; // convert to feet
   const V = C / Math.max(D, 1); // ft per mile (steepness proxy)
 
   const wearUnits =
@@ -95,8 +98,8 @@ export function calculateWearDetailed(
   for (const ride of rides) {
     const sanitized = sanitizeRideMetrics(ride);
     const H = sanitized.durationSeconds / 3600;
-    const D = sanitized.distanceMiles;
-    const C = sanitized.elevationGainFeet;
+    const D = sanitized.distanceMeters / 1609.344; // convert to miles
+    const C = sanitized.elevationGainMeters * 3.28084; // convert to feet
     const V = C / Math.max(D, 1);
 
     totalHours += H;

@@ -5,8 +5,8 @@ describe('isDuplicateActivity', () => {
     id: 'garmin-1',
     startTime: new Date('2026-01-15T10:00:00Z'),
     durationSeconds: 3600,
-    distanceMiles: 15.0,
-    elevationGainFeet: 1500,
+    distanceMeters: 24140, // ~15 miles in meters
+    elevationGainMeters: 457, // ~1500 feet in meters
     garminActivityId: 'garmin-123',
     stravaActivityId: null,
   };
@@ -15,8 +15,8 @@ describe('isDuplicateActivity', () => {
     id: 'strava-1',
     startTime: new Date('2026-01-15T10:05:00Z'),
     durationSeconds: 3650, // Different duration (Strava/Garmin often differ)
-    distanceMiles: 15.1, // Within 5% threshold
-    elevationGainFeet: 1520, // Within 5% threshold
+    distanceMeters: 24300, // Within 5% threshold
+    elevationGainMeters: 463, // Within 5% threshold
     garminActivityId: null,
     stravaActivityId: 'strava-456',
   };
@@ -95,7 +95,7 @@ describe('isDuplicateActivity', () => {
     it('should allow distance within 5% threshold', () => {
       const slightlyDifferentDistance: DuplicateCandidate = {
         ...baseStravaRide,
-        distanceMiles: 15.7, // 4.7% difference from 15.0
+        distanceMeters: 25270, // 4.7% difference from 24140
       };
       expect(isDuplicateActivity(baseGarminRide, slightlyDifferentDistance)).toBe(true);
     });
@@ -103,25 +103,25 @@ describe('isDuplicateActivity', () => {
     it('should reject distance beyond 5% threshold', () => {
       const tooFarDistance: DuplicateCandidate = {
         ...baseStravaRide,
-        distanceMiles: 16.0, // 6.7% difference from 15.0
+        distanceMeters: 25760, // 6.7% difference from 24140
       };
       expect(isDuplicateActivity(baseGarminRide, tooFarDistance)).toBe(false);
     });
 
-    it('should use 0.1 mile minimum threshold for short rides', () => {
+    it('should use 160m minimum threshold for short rides', () => {
       const shortRide1: DuplicateCandidate = {
         ...baseGarminRide,
-        distanceMiles: 1.0,
+        distanceMeters: 1000,
       };
       const shortRide2: DuplicateCandidate = {
         ...baseStravaRide,
-        distanceMiles: 1.08, // Within 0.1 mile minimum threshold
+        distanceMeters: 1150, // Within 160m minimum threshold
       };
       expect(isDuplicateActivity(shortRide1, shortRide2)).toBe(true);
 
       const shortRide3: DuplicateCandidate = {
         ...baseStravaRide,
-        distanceMiles: 1.15, // Beyond 0.1 mile minimum threshold
+        distanceMeters: 1200, // Beyond 160m minimum threshold
       };
       expect(isDuplicateActivity(shortRide1, shortRide3)).toBe(false);
     });
@@ -131,7 +131,7 @@ describe('isDuplicateActivity', () => {
     it('should allow elevation within 5% threshold', () => {
       const slightlyDifferentElevation: DuplicateCandidate = {
         ...baseStravaRide,
-        elevationGainFeet: 1570, // 4.7% difference from 1500
+        elevationGainMeters: 478, // 4.6% difference from 457
       };
       expect(isDuplicateActivity(baseGarminRide, slightlyDifferentElevation)).toBe(true);
     });
@@ -139,25 +139,25 @@ describe('isDuplicateActivity', () => {
     it('should reject elevation beyond 5% threshold', () => {
       const tooMuchElevation: DuplicateCandidate = {
         ...baseStravaRide,
-        elevationGainFeet: 1700, // 13.3% difference from 1500
+        elevationGainMeters: 520, // 13.8% difference from 457
       };
       expect(isDuplicateActivity(baseGarminRide, tooMuchElevation)).toBe(false);
     });
 
-    it('should use 100ft minimum threshold for flat rides', () => {
+    it('should use 30m minimum threshold for flat rides', () => {
       const flatRide1: DuplicateCandidate = {
         ...baseGarminRide,
-        elevationGainFeet: 50,
+        elevationGainMeters: 15,
       };
       const flatRide2: DuplicateCandidate = {
         ...baseStravaRide,
-        elevationGainFeet: 140, // Within 100ft minimum threshold
+        elevationGainMeters: 40, // Within 30m minimum threshold
       };
       expect(isDuplicateActivity(flatRide1, flatRide2)).toBe(true);
 
       const flatRide3: DuplicateCandidate = {
         ...baseStravaRide,
-        elevationGainFeet: 160, // Beyond 100ft minimum threshold
+        elevationGainMeters: 50, // Beyond 30m minimum threshold
       };
       expect(isDuplicateActivity(flatRide1, flatRide3)).toBe(false);
     });
@@ -180,8 +180,8 @@ describe('isDuplicateActivity', () => {
         id: 'garmin-real',
         startTime: new Date('2026-01-03T15:30:00Z'),
         durationSeconds: 4320, // 1h 12m
-        distanceMiles: 12.5,
-        elevationGainFeet: 1860,
+        distanceMeters: 20117, // ~12.5 miles
+        elevationGainMeters: 567, // ~1860 feet
         garminActivityId: 'garmin-real-123',
         stravaActivityId: null,
       };
@@ -189,8 +189,8 @@ describe('isDuplicateActivity', () => {
         id: 'strava-real',
         startTime: new Date('2026-01-03T15:32:00Z'), // 2 min later start
         durationSeconds: 4280, // Slightly different duration
-        distanceMiles: 12.4, // GPS variance
-        elevationGainFeet: 1860, // Same elevation
+        distanceMeters: 19956, // GPS variance (~12.4 miles)
+        elevationGainMeters: 567, // Same elevation
         garminActivityId: null,
         stravaActivityId: 'strava-real-456',
       };
@@ -202,8 +202,8 @@ describe('isDuplicateActivity', () => {
         id: 'morning',
         startTime: new Date('2026-01-15T08:00:00Z'),
         durationSeconds: 3600,
-        distanceMiles: 15.0,
-        elevationGainFeet: 1500,
+        distanceMeters: 24140, // ~15 miles
+        elevationGainMeters: 457, // ~1500 feet
         garminActivityId: 'garmin-morning',
         stravaActivityId: null,
       };
@@ -211,8 +211,8 @@ describe('isDuplicateActivity', () => {
         id: 'evening',
         startTime: new Date('2026-01-15T18:00:00Z'),
         durationSeconds: 2400,
-        distanceMiles: 8.0, // Very different distance
-        elevationGainFeet: 500, // Very different elevation
+        distanceMeters: 12875, // Very different distance (~8 miles)
+        elevationGainMeters: 152, // Very different elevation (~500 feet)
         garminActivityId: null,
         stravaActivityId: 'strava-evening',
       };

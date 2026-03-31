@@ -11,11 +11,12 @@ import {
   Text,
   Button,
   Hr,
+  Img,
 } from "@react-email/components";
 import { render } from "@react-email/render";
 import { sanitizeUserInput, isValidEmail } from "../../lib/html";
 
-export const ACTIVATION_TEMPLATE_VERSION = "2.2.0";
+export const ACTIVATION_TEMPLATE_VERSION = "2.3.0";
 
 export type ActivationEmailProps = {
   recipientFirstName?: string;
@@ -23,8 +24,8 @@ export type ActivationEmailProps = {
   tempPassword?: string;
   loginUrl?: string;
   resetPasswordUrl?: string;
-  supportEmail?: string;
   appUrl?: string;
+  spokesUrl?: string;
   unsubscribeUrl?: string;
 };
 
@@ -80,18 +81,16 @@ export default function ActivationEmail({
   tempPassword = "••••••••",
   loginUrl = "https://loamlogger.app/login",
   resetPasswordUrl,
-  supportEmail = "ryan.lecours@loamlogger.app",
   appUrl = "https://loamlogger.app",
+  spokesUrl = "https://99spokes.com",
   unsubscribeUrl,
 }: ActivationEmailProps) {
-  // Sanitize user-provided inputs
   const safeName = sanitizeUserInput(recipientFirstName);
-  const safeEmail = sanitizeUserInput(email, 254); // Max email length per RFC
+  const safeEmail = sanitizeUserInput(email, 254);
   const safeTempPassword = sanitizeUserInput(tempPassword, 64);
 
   const greeting = safeName ? `Good morning ${safeName},` : "Good morning,";
 
-  // Only include email in reset URL if it's a valid format
   const safeResetUrl =
     resetPasswordUrl ??
     (isValidEmail(safeEmail)
@@ -106,18 +105,18 @@ export default function ActivationEmail({
         <style dangerouslySetInnerHTML={{ __html: darkModeStyles }} />
       </Head>
 
-      <Preview>Your Loam Logger access is live — log in, change your password, and connect Garmin or Strava.</Preview>
+      <Preview>
+        Your Loam Logger access is live — log in, change your password, and connect Garmin, Whoop or Strava.
+      </Preview>
 
       <Body className="ll-body" style={styles.body}>
         <Container className="ll-container" style={styles.container}>
-          {/* Brand */}
           <Section style={{ padding: "8px 6px 14px 6px" }}>
             <Text className="ll-brand" style={styles.brand}>
               LoamLogger
             </Text>
           </Section>
 
-          {/* Main Card */}
           <Section className="ll-card" style={styles.card}>
             <Heading className="ll-h1" style={styles.h1}>
               Your account is live 🎉
@@ -129,10 +128,20 @@ export default function ActivationEmail({
 
             <Text className="ll-p" style={styles.p}>
               Your <span className="ll-emph" style={styles.emph}>Founding Rider</span> access is now active.
-              Thank you again for being early, patient, and opinionated. You are helping set the direction of this entire platform.
             </Text>
 
-            
+            <Text className="ll-p" style={styles.p}>
+              You are one of the first riders shaping Loam Logger. That means full access to everything,
+              free for life, and a direct line to influence what this becomes.
+            </Text>
+
+            <Img
+              src='https://loamlogger.app/ridingThroughFerns.jpg'
+              alt="Mountain biker riding through lush ferns on a forest trail"
+              width="60%"
+              style={styles.heroImage}
+            />
+
             <Hr className="ll-hr" style={styles.hr} />
 
             <Heading as="h2" className="ll-h2" style={styles.h2}>
@@ -175,8 +184,6 @@ export default function ActivationEmail({
               </Text>
             </Section>
 
-            <Hr className="ll-hr" style={styles.hr} />
-
             <Heading as="h2" className="ll-h2" style={{ ...styles.h2, marginTop: 4 }}>
               Recommended first 5 minutes
             </Heading>
@@ -189,7 +196,7 @@ export default function ActivationEmail({
                 • Add a bike (you can add more later)
               </Text>
               <Text className="ll-bullets" style={styles.bullets}>
-                • Connect Garmin or Strava to pull your rides automatically
+                • Connect Garmin, Whoop or Strava to pull your rides automatically
               </Text>
               <Text className="ll-bullets" style={styles.bullets}>
                 • Skim the dashboard. It will show what is closest to needing attention
@@ -200,22 +207,96 @@ export default function ActivationEmail({
             </Section>
 
             <Text className="ll-p" style={styles.p}>
-              There is no “perfect setup” — just get it roughly feeling right and we will refine together as the wear algorithm gets tuned.
+              There is no perfect setup. Just get it close and we will refine it together.
             </Text>
 
-            <Section className="ll-callout" style={{ ...styles.callout, textAlign: "center" }}>
-              <Text className="ll-p" style={{ ...styles.p, margin: "0 0 10px 0" }}>
-                If anything looks off (wrong components, weird ride data, bugs, etc.), hit reply.
+            <Hr className="ll-hr" style={styles.hr} />
+
+            <Heading as="h2" className="ll-h2" style={styles.h2}>
+              Why Loam Logger Exists
+            </Heading>
+
+            <Text className="ll-p" style={styles.p}>
+              I began building Loam Logger because there isn't currently a great way to reliably track
+              maintenance and servicing across multiple bikes. I have tried
+              spreadsheets, notes, mental checklists, and other apps. None of
+              them felt trustworthy enough to ride without second-guessing.
+            </Text>
+            <Section className="ll-callout" style={styles.callout}>
+              <Text className="ll-p" style={styles.p}>
+                <span className="ll-emph" style={styles.emph}>The goal is simple:</span><br />You should be able to grab your bike after work
+                and head out the door with confidence that it is good to go.
               </Text>
 
-              <Button
-                href={`mailto:${supportEmail}?subject=${encodeURIComponent("Loam Logger Feedback / Bug")}`}
-                className="ll-button"
-                style={styles.button}
-              >
-                ✉️ Reply with feedback
-              </Button>
             </Section>
+            <Img
+              src='https://loamlogger.app/dakotaWhis.jpg'
+              alt="Mountain biking in Whistler"
+              width="60%"
+              style={styles.heroImage}
+            />
+            <Hr className="ll-hr" style={styles.hr} />
+            <Heading as="h2" className="ll-h2" style={styles.h2}>
+              What Loam Logger Solves
+            </Heading>
+
+            <Text className="ll-p" style={styles.p}>
+              Loam Logger quietly tracks wear, logs maintenance, and notifies you
+              when it's actually time to look at a component. You no longer have
+              to keep it all in your head or do the math from your Strava hours.
+            </Text>
+            <Text className="ll-p" style={styles.p}>
+              <span className="ll-emph" style={styles.emph}>Riders will save money</span> by servicing components at the right time, not too early and not too late.</Text>
+            <Text className="ll-p" style={styles.p}>
+              <span className="ll-emph" style={styles.emph}>For bike and component dealers</span>, Loam Logger provides a way to connect with riders in your area and offer them the right service at the right time. Riders who are in tune with what maintenance their bikes need and when are more likely to get that maintenance done, which means more consistent business for shops and better performing bikes for riders.
+            </Text> <Text className="ll-p" style={styles.p}>
+              <span className="ll-emph" style={styles.emph}>A true win-win.</span>
+            </Text>
+
+            <Hr className="ll-hr" style={styles.hr} />
+
+            <Heading as="h2" className="ll-h2" style={styles.h2}>
+              What is already working
+            </Heading>
+
+            <Text className="ll-bullets" style={styles.bullets}>• Automatic ride sync with Garmin, Whoop and Strava</Text>
+            <Text className="ll-bullets" style={{ ...styles.bullets, paddingLeft: 32 }}>- Track a ride from your smartwatch or phone like you normally do, those stats are automatically pulled in to Loam Logger.</Text>
+            <Text className="ll-bullets" style={styles.bullets}>• Auto-populate bike specs thanks to{" "}
+              <Link href={spokesUrl} className="ll-link" style={styles.link}>99spokes.com</Link>
+            </Text>
+            <Text className="ll-bullets" style={styles.bullets}>• Track 21+ individual components on all of your bikes</Text>
+            <Text className="ll-bullets" style={styles.bullets}>• Predictive maintenance analysis</Text>
+            <Text className="ll-bullets" style={{ ...styles.bullets, paddingLeft: 32 }}>- "Check your front brake pads in ~4 rides, shock 200hr service should be done in ~9 rides, etc."</Text>
+            <Text className="ll-bullets" style={styles.bullets}>• Algorithmic wear tracking</Text>
+            <Text className="ll-bullets" style={{ ...styles.bullets, paddingLeft: 32 }}>- Considers elevation change, distance and grade when weighting wear on components</Text>
+            <Text className="ll-bullets" style={{ ...styles.bullets, paddingLeft: 32 }}>- For example, the steeper the trail, the more wear and tear on your brake pads and suspension. Shuttling does not wear your drivetrain the way an XC ride will.</Text>
+            <Text className="ll-bullets" style={{ ...styles.bullets, paddingLeft: 32 }}>- This algorithm will need tuning to function and feel correct, we'll dial this in together.</Text>
+            <Text className="ll-bullets" style={styles.bullets}>• At-a-glance dashboard for bike and component health</Text>
+            <Text className="ll-bullets" style={styles.bullets}>• User customizable notifications, service intervals, and wear algorithm parameters</Text>
+
+
+            <Text className="ll-p" style={styles.p}>(There's much more, but this covers the core idea.)</Text>
+            <Hr className="ll-hr" style={styles.hr} />
+            <Heading as="h2" className="ll-h2" style={styles.h2}>
+              Ideas for the future (Suggested by riders like you)
+            </Heading>
+
+            <Text className="ll-bullets" style={styles.bullets}>• Native support for Coros, Suunto, and Apple Watch</Text>
+            <Text className="ll-bullets" style={styles.bullets}>• "What's that sound?" bike diagnostic page</Text>
+            <Text className="ll-bullets" style={styles.bullets}>• Connecting users to nearby bike shops that can perform the needed service</Text>
+            <Text className="ll-bullets" style={styles.bullets}>• Weather API integration - option to factor wet, dry, dusty conditions into wear calculations</Text>
+            <Text className="ll-bullets" style={styles.bullets}>• The Beater Board - An opt-in leaderboard celebrating the most neglected / clapped-out bikes</Text>
+            <Text className="ll-bullets" style={styles.bullets}>• Any other insightful, fun, funny feature ideas any of you come up with!</Text>
+
+            <Section style={styles.imageContainer}>
+              <Img
+                src="https://loamlogger.app/RyanAbenaki.jpg"
+                alt="Mountain biker riding through lush ferns"
+                width="60%"
+                style={styles.heroImage}
+              />
+            </Section>
+
 
             <Hr className="ll-hr" style={styles.hr} />
 
@@ -241,28 +322,37 @@ export default function ActivationEmail({
               I am excited to see what you think once you get a few rides in.
             </Text>
 
+            <Text className="ll-p" style={styles.p}>
+              Thanks again for being part of the beta. Your real world usage is
+              directly shaping where this product goes next.
+            </Text>
+
             <Text
               className="ll-signature"
               style={{
                 ...styles.p,
-                marginTop: 10,
+                marginTop: 14,
                 marginBottom: 0,
                 color: TOKENS.text,
                 fontWeight: 800,
               }}
             >
-              – Ryan
+              Ryan LeCours
+            </Text>
+
+            <Text className="ll-p" style={{ ...styles.p, marginBottom: 0 }}>
+              Founder, Loam Logger
+            </Text>
+
+            <Text className="ll-p" style={{ ...styles.p, marginBottom: 0 }}>
+              Loam Labs LLC
             </Text>
           </Section>
 
-          {/* Footer */}
           <Section style={styles.footer}>
             <Text className="ll-footer" style={{ ...styles.footerText, marginBottom: 0 }}>
-              Loam Logger • You&apos;re receiving this email because you signed up for early access.
-            </Text>
-
-            <Text className="ll-footer" style={{ ...styles.footerText, marginTop: 6, fontStyle: "italic" }}>
-              If this landed in your inbox by mistake, feel free to ignore it.
+              Loam Logger is a product of Loam Labs LLC. You are receiving this
+              email because you signed up for beta access.
             </Text>
 
             {unsubscribeUrl ? (
@@ -355,6 +445,17 @@ const styles: Record<string, React.CSSProperties> = {
     borderColor: TOKENS.border,
     margin: "14px 0 10px",
   },
+  imageContainer: {
+    margin: "16px 0",
+    textAlign: "center",
+  },
+  heroImage: {
+    borderRadius: 12,
+    maxWidth: "100%",
+    height: "auto",
+    display: "block",
+    margin: "0 auto",
+  },
   button: {
     display: "inline-block",
     backgroundColor: TOKENS.ctaBg,
@@ -399,7 +500,6 @@ export function getActivationEmailSubject(): string {
   return "Your Loam Logger account is live";
 }
 
-// Helper type for the legacy getActivationEmailHtml function
 export type GetActivationEmailHtmlParams = {
   name?: string;
   email: string;

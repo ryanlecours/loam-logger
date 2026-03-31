@@ -42,8 +42,8 @@ type UserArgs = { id: string };
 type AddRideInput = {
   startTime: string;
   durationSeconds: number;
-  distanceMiles: number;
-  elevationGainFeet: number;
+  distanceMeters: number;
+  elevationGainMeters: number;
   averageHr?: number | null;
   rideType: string;
   bikeId?: string | null;
@@ -55,8 +55,8 @@ type AddRideInput = {
 type UpdateRideInput = {
   startTime?: string | null;
   durationSeconds?: number | null;
-  distanceMiles?: number | null;
-  elevationGainFeet?: number | null;
+  distanceMeters?: number | null;
+  elevationGainMeters?: number | null;
   averageHr?: number | null;
   rideType?: string | null;
   bikeId?: string | null;
@@ -843,10 +843,14 @@ export const resolvers = {
       return id ? prisma.user.findUnique({ where: { id } }) : null;
     },
 
-    bikes: async (_: unknown, __: unknown, ctx: GraphQLContext) => {
+    bikes: async (_: unknown, args: { includeInactive?: boolean }, ctx: GraphQLContext) => {
       const userId = requireUserId(ctx);
+      const where: Prisma.BikeWhereInput = { userId };
+      if (!args.includeInactive) {
+        where.status = 'ACTIVE';
+      }
       return prisma.bike.findMany({
-        where: { userId },
+        where,
         orderBy: { sortOrder: 'asc' },
         include: { components: true },
       });
@@ -1018,8 +1022,8 @@ export const resolvers = {
             id: true,
             startTime: true,
             durationSeconds: true,
-            distanceMiles: true,
-            elevationGainFeet: true,
+            distanceMeters: true,
+            elevationGainMeters: true,
             location: true,
             rideType: true,
           },
@@ -1267,8 +1271,8 @@ export const resolvers = {
       }
       const start = parseIso(input.startTime);
       const durationSeconds = Math.max(0, Math.floor(input.durationSeconds));
-      const distanceMiles = Math.max(0, Number(input.distanceMiles));
-      const elevationGainFeet = Math.max(0, Number(input.elevationGainFeet));
+      const distanceMeters = Math.max(0, Number(input.distanceMeters));
+      const elevationGainMeters = Math.max(0, Number(input.elevationGainMeters));
       const averageHr =
         typeof input.averageHr === 'number' ? Math.max(0, Math.floor(input.averageHr)) : null;
       const notes = cleanText(input.notes, MAX_NOTES_LEN);
@@ -1302,8 +1306,8 @@ export const resolvers = {
         userId,
         startTime: start,
         durationSeconds,
-        distanceMiles,
-        elevationGainFeet,
+        distanceMeters,
+        elevationGainMeters,
         averageHr,
         rideType,
         ...(bikeId ? { bikeId } : {}),
@@ -1458,11 +1462,11 @@ export const resolvers = {
         ...(durationUpdate !== undefined && {
           durationSeconds: durationUpdate, // number (no null)
         }),
-        ...(input.distanceMiles !== undefined && {
-          distanceMiles: Math.max(0, Number(input.distanceMiles ?? 0)), // number (no null)
+        ...(input.distanceMeters !== undefined && {
+          distanceMeters: Math.max(0, Number(input.distanceMeters ?? 0)), // number (no null)
         }),
-        ...(input.elevationGainFeet !== undefined && {
-          elevationGainFeet: Math.max(0, Number(input.elevationGainFeet ?? 0)), // number (no null)
+        ...(input.elevationGainMeters !== undefined && {
+          elevationGainMeters: Math.max(0, Number(input.elevationGainMeters ?? 0)), // number (no null)
         }),
         ...(input.averageHr !== undefined && {
           averageHr: input.averageHr == null ? null : Math.max(0, Math.floor(input.averageHr)),
@@ -1746,6 +1750,50 @@ export const resolvers = {
       });
 
       return { ok: true, id };
+    },
+
+    retireBike: async (
+      _: unknown,
+      { id, status }: { id: string; status: 'RETIRED' | 'SOLD' },
+      ctx: GraphQLContext
+    ) => {
+      const userId = requireUserId(ctx);
+      const existing = await prisma.bike.findUnique({
+        where: { id },
+        select: { userId: true, retiredAt: true },
+      });
+      if (!existing || existing.userId !== userId) throw new Error('Bike not found');
+
+      return prisma.bike.update({
+        where: { id },
+        data: {
+          status,
+          retiredAt: existing.retiredAt ?? new Date(),
+        },
+        include: { components: true },
+      });
+    },
+
+    reactivateBike: async (
+      _: unknown,
+      { id }: { id: string },
+      ctx: GraphQLContext
+    ) => {
+      const userId = requireUserId(ctx);
+      const existing = await prisma.bike.findUnique({
+        where: { id },
+        select: { userId: true },
+      });
+      if (!existing || existing.userId !== userId) throw new Error('Bike not found');
+
+      return prisma.bike.update({
+        where: { id },
+        data: {
+          status: 'ACTIVE',
+          retiredAt: null,
+        },
+        include: { components: true },
+      });
     },
 
     updateBikesOrder: async (
@@ -2446,12 +2494,12 @@ export const resolvers = {
 
     updateUserPreferences: async (
       _: unknown,
-      { input }: { input: { hoursDisplayPreference?: string | null; predictionMode?: string | null } },
+      { input }: { input: { hoursDisplayPreference?: string | null; predictionMode?: string | null; distanceUnit?: string | null } },
       ctx: GraphQLContext
     ) => {
       const userId = requireUserId(ctx);
 
-      const updateData: { hoursDisplayPreference?: string | null; predictionMode?: string | null } = {};
+      const updateData: { hoursDisplayPreference?: string | null; predictionMode?: string | null; distanceUnit?: string | null } = {};
 
       if (input.hoursDisplayPreference !== undefined) {
         // Input length validation to prevent DoS/excessive storage
@@ -2493,6 +2541,17 @@ export const resolvers = {
           }
         }
         updateData.predictionMode = input.predictionMode;
+      }
+
+      if (input.distanceUnit !== undefined) {
+        if (input.distanceUnit !== null &&
+            input.distanceUnit !== 'mi' &&
+            input.distanceUnit !== 'km') {
+          throw new GraphQLError('Invalid distanceUnit value. Must be "mi" or "km"', {
+            extensions: { code: 'BAD_USER_INPUT' },
+          });
+        }
+        updateData.distanceUnit = input.distanceUnit;
       }
 
       if (Object.keys(updateData).length === 0) {
