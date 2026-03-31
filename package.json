@@ -1,6 +1,9 @@
 {
   "name": "@loam/source",
   "private": true,
+  "engines": {
+    "node": ">=22"
+  },
   "workspaces": [
     "apps/*",
     "libs/*"
