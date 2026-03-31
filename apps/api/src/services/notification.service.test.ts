@@ -20,6 +20,10 @@ jest.mock('../lib/logger', () => ({
   logError: jest.fn(),
 }));
 
+jest.mock('../lib/queue/notification.queue', () => ({
+  enqueueReceiptCheck: jest.fn().mockResolvedValue(undefined),
+}));
+
 // Mock expo-server-sdk
 const mockSendPushNotificationsAsync = jest.fn();
 jest.mock('expo-server-sdk', () => {
@@ -47,7 +51,8 @@ const mockPrisma = prisma as jest.Mocked<typeof prisma>;
 describe('notification.service', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockSendPushNotificationsAsync.mockResolvedValue([{ status: 'ok' }]);
+    mockSendPushNotificationsAsync.mockResolvedValue([{ status: 'ok', id: 'ticket-123' }]);
+    (mockPrisma.notificationLog.create as jest.Mock).mockResolvedValue({});
   });
 
   describe('notifyRideUploaded', () => {
@@ -255,7 +260,6 @@ describe('notification.service', () => {
         serviceNotificationMode: 'RIDES_BEFORE',
         serviceNotificationThreshold: 3,
       });
-      (mockPrisma.notificationLog.findMany as jest.Mock).mockResolvedValue([]);
 
       await checkAndNotifyServiceDue(baseParams);
 
@@ -263,7 +267,7 @@ describe('notification.service', () => {
       expect(mockSendPushNotificationsAsync).toHaveBeenCalledWith([
         expect.objectContaining({
           title: 'Enduro Bike - Service Due',
-          body: expect.stringContaining('chain'),
+          body: expect.stringContaining('2 rides left'),
           data: { screen: 'bike', bikeId: 'bike-1' },
         }),
       ]);
@@ -278,14 +282,13 @@ describe('notification.service', () => {
         serviceNotificationMode: 'HOURS_BEFORE',
         serviceNotificationThreshold: 10,
       });
-      (mockPrisma.notificationLog.findMany as jest.Mock).mockResolvedValue([]);
 
       await checkAndNotifyServiceDue(baseParams);
 
       // comp-1 has 5 hours remaining (< 10), comp-2 has 30 (> 10)
       expect(mockSendPushNotificationsAsync).toHaveBeenCalledWith([
         expect.objectContaining({
-          body: expect.stringContaining('chain'),
+          body: expect.stringContaining('5h left'),
         }),
       ]);
     });
@@ -299,7 +302,6 @@ describe('notification.service', () => {
         serviceNotificationMode: 'AT_SERVICE',
         serviceNotificationThreshold: 3,
       });
-      (mockPrisma.notificationLog.findMany as jest.Mock).mockResolvedValue([]);
 
       // DUE_SOON should not trigger AT_SERVICE
       await checkAndNotifyServiceDue(baseParams);
@@ -316,7 +318,6 @@ describe('notification.service', () => {
         serviceNotificationMode: 'AT_SERVICE',
         serviceNotificationThreshold: 3,
       });
-      (mockPrisma.notificationLog.findMany as jest.Mock).mockResolvedValue([]);
 
       const overduePredictions = [
         { ...basePredictions[0], status: 'OVERDUE' },
@@ -324,10 +325,14 @@ describe('notification.service', () => {
 
       await checkAndNotifyServiceDue({ ...baseParams, predictions: overduePredictions });
 
-      expect(mockSendPushNotificationsAsync).toHaveBeenCalled();
+      expect(mockSendPushNotificationsAsync).toHaveBeenCalledWith([
+        expect.objectContaining({
+          body: expect.stringContaining('overdue'),
+        }),
+      ]);
     });
 
-    it('should skip already-notified components (dedup)', async () => {
+    it('should skip already-notified components (dedup via unique constraint)', async () => {
       (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({
         expoPushToken: 'ExponentPushToken[abc123]',
       });
@@ -336,17 +341,17 @@ describe('notification.service', () => {
         serviceNotificationMode: 'RIDES_BEFORE',
         serviceNotificationThreshold: 3,
       });
-      // comp-1 already notified
-      (mockPrisma.notificationLog.findMany as jest.Mock).mockResolvedValue([
-        { componentId: 'comp-1' },
-      ]);
+      // comp-1 create fails with unique constraint violation (already notified)
+      (mockPrisma.notificationLog.create as jest.Mock).mockRejectedValue(
+        new Error('Unique constraint failed on the fields: (`userId`,`componentId`,`notificationType`)')
+      );
 
       await checkAndNotifyServiceDue(baseParams);
 
       expect(mockSendPushNotificationsAsync).not.toHaveBeenCalled();
     });
 
-    it('should log notified components for dedup', async () => {
+    it('should claim dedup slots via individual creates before sending', async () => {
       (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({
         expoPushToken: 'ExponentPushToken[abc123]',
       });
@@ -355,20 +360,37 @@ describe('notification.service', () => {
         serviceNotificationMode: 'RIDES_BEFORE',
         serviceNotificationThreshold: 3,
       });
-      (mockPrisma.notificationLog.findMany as jest.Mock).mockResolvedValue([]);
 
       await checkAndNotifyServiceDue(baseParams);
 
-      expect(mockPrisma.notificationLog.createMany).toHaveBeenCalledWith({
-        data: [
-          expect.objectContaining({
-            userId: 'user-1',
-            bikeId: 'bike-1',
-            componentId: 'comp-1',
-            notificationType: 'SERVICE_DUE',
-          }),
-        ],
+      // comp-1 meets threshold (2 < 3), so a dedup log should be created
+      expect(mockPrisma.notificationLog.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          userId: 'user-1',
+          bikeId: 'bike-1',
+          componentId: 'comp-1',
+          notificationType: 'SERVICE_DUE',
+        }),
       });
+    });
+
+    it('should skip ALL_GOOD components even when estimate is below threshold', async () => {
+      (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({
+        expoPushToken: 'ExponentPushToken[abc123]',
+      });
+      (mockPrisma.bikeNotificationPreference.findUnique as jest.Mock).mockResolvedValue({
+        serviceNotificationsEnabled: true,
+        serviceNotificationMode: 'RIDES_BEFORE',
+        serviceNotificationThreshold: 15,
+      });
+
+      const predictions = [
+        { ...basePredictions[1], ridesRemainingEstimate: 1 }, // ALL_GOOD with low estimate
+      ];
+
+      await checkAndNotifyServiceDue({ ...baseParams, predictions });
+
+      expect(mockSendPushNotificationsAsync).not.toHaveBeenCalled();
     });
 
     it('should send summary notification when multiple components due', async () => {
@@ -380,10 +402,13 @@ describe('notification.service', () => {
         serviceNotificationMode: 'RIDES_BEFORE',
         serviceNotificationThreshold: 15,
       });
-      (mockPrisma.notificationLog.findMany as jest.Mock).mockResolvedValue([]);
 
-      // Both components under threshold
-      await checkAndNotifyServiceDue(baseParams);
+      // Both components non-ALL_GOOD and under threshold
+      const predictions = [
+        basePredictions[0], // DUE_SOON, 2 rides remaining
+        { ...basePredictions[1], status: 'DUE_SOON' }, // override ALL_GOOD → DUE_SOON
+      ];
+      await checkAndNotifyServiceDue({ ...baseParams, predictions });
 
       expect(mockSendPushNotificationsAsync).toHaveBeenCalledWith([
         expect.objectContaining({

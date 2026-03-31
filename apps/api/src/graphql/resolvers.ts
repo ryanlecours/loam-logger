@@ -12,7 +12,7 @@ import type {
 import { checkRateLimit, checkMutationRateLimit, checkQueryRateLimit } from '../lib/rate-limit';
 import { enqueueSyncJob, type SyncProvider } from '../lib/queue';
 import { invalidateBikePrediction } from '../services/prediction/cache';
-import { clearServiceNotificationLogs } from '../services/notification.service';
+import { clearServiceNotificationLogs, isValidExpoPushToken } from '../services/notification.service';
 import { getBaseInterval, BASE_INTERVALS_HOURS, DEFAULT_INTERVAL_HOURS } from '../services/prediction/config';
 import {
   getApplicableComponents,
@@ -2037,7 +2037,7 @@ export const resolvers = {
       }
 
       // Clear notification dedup logs so this component can trigger notifications again
-      clearServiceNotificationLogs(id).catch(() => {});
+      clearServiceNotificationLogs(id).catch((err) => logError('clearServiceNotificationLogs', err));
 
       return updated;
     },
@@ -2110,7 +2110,7 @@ export const resolvers = {
       }
 
       // Clear notification dedup logs so this component can trigger notifications again
-      clearServiceNotificationLogs(input.componentId).catch(() => {});
+      clearServiceNotificationLogs(input.componentId).catch((err) => logError('clearServiceNotificationLogs', err));
 
       return serviceLog;
     },
@@ -2512,6 +2512,13 @@ export const resolvers = {
     ) => {
       const userId = requireUserId(ctx);
 
+      const rateLimit = await checkMutationRateLimit('updateUserPreferences', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
+
       const updateData: { hoursDisplayPreference?: string | null; predictionMode?: string | null; distanceUnit?: string | null; expoPushToken?: string | null; notifyOnRideUpload?: boolean } = {};
 
       if (input.hoursDisplayPreference !== undefined) {
@@ -2568,10 +2575,17 @@ export const resolvers = {
       }
 
       if (input.expoPushToken !== undefined) {
-        if (input.expoPushToken !== null && input.expoPushToken.length > 200) {
-          throw new GraphQLError('expoPushToken exceeds maximum length', {
-            extensions: { code: 'BAD_USER_INPUT' },
-          });
+        if (input.expoPushToken !== null) {
+          if (input.expoPushToken.length > 200) {
+            throw new GraphQLError('expoPushToken exceeds maximum length', {
+              extensions: { code: 'BAD_USER_INPUT' },
+            });
+          }
+          if (!isValidExpoPushToken(input.expoPushToken)) {
+            throw new GraphQLError('expoPushToken is not a valid Expo push token', {
+              extensions: { code: 'BAD_USER_INPUT' },
+            });
+          }
         }
         updateData.expoPushToken = input.expoPushToken;
       }
@@ -2721,6 +2735,13 @@ export const resolvers = {
       ctx: GraphQLContext
     ) => {
       const userId = requireUserId(ctx);
+
+      const rateLimit = await checkMutationRateLimit('updateBikeNotificationPreference', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
 
       // Verify bike belongs to user
       const bike = await prisma.bike.findUnique({

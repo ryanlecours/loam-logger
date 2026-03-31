@@ -67,6 +67,7 @@ jest.mock('../../services/prediction/cache', () => ({
 
 jest.mock('../../services/notification.service', () => ({
   clearServiceNotificationLogs: jest.fn().mockResolvedValue(undefined),
+  isValidExpoPushToken: jest.fn((token: string) => token.startsWith('ExponentPushToken[') || token.startsWith('ExpoPushToken[')),
 }));
 
 import { resolvers } from '../resolvers';
@@ -2559,6 +2560,14 @@ describe('GraphQL Resolvers', () => {
       await expect(
         mutation(null, { input: { expoPushToken: longToken } }, ctx)
       ).rejects.toThrow('expoPushToken exceeds maximum length');
+    });
+
+    it('should reject expoPushToken with invalid format', async () => {
+      const ctx = createMockContext();
+
+      await expect(
+        mutation(null, { input: { expoPushToken: 'not-a-valid-token' } }, ctx)
+      ).rejects.toThrow('expoPushToken is not a valid Expo push token');
     });
 
     it('should allow clearing expoPushToken with null', async () => {

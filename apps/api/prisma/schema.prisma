@@ -633,6 +633,6 @@ model NotificationLog {
   sentAt           DateTime         @default(now())
   user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@unique([userId, componentId, notificationType])
   @@index([userId])
-  @@index([componentId, notificationType])
 }

@@ -8,7 +8,7 @@ import { getValidWhoopToken } from '../lib/whoop-token';
 import { deriveLocation, deriveLocationAsync, shouldApplyAutoLocation } from '../lib/location';
 import { incrementBikeComponentHours, decrementBikeComponentHours } from '../lib/component-hours';
 import { logger } from '../lib/logger';
-import { notifyRideUploaded, checkAndNotifyServiceDue } from '../services/notification.service';
+import { fireRideNotifications } from '../services/notification.service';
 import { config } from '../config/env';
 import type { SyncJobData, SyncJobName, SyncProvider } from '../lib/queue/sync.queue';
 import type { Prisma } from '@prisma/client';
@@ -96,73 +96,6 @@ type GarminActivity = {
   beginLongitude?: number;
   [key: string]: unknown;
 };
-
-/**
- * Fire-and-forget: send ride upload notification and check service due notifications.
- * Errors are logged but never thrown to avoid blocking the sync flow.
- */
-async function fireRideNotifications(params: {
-  userId: string;
-  rideId: string;
-  bikeId: string | null;
-  durationSeconds: number;
-  distanceMeters: number;
-  isNewRide: boolean;
-}): Promise<void> {
-  const { userId, rideId, bikeId, durationSeconds, distanceMeters, isNewRide } = params;
-
-  // Only notify for newly created rides, not updates
-  if (!isNewRide) return;
-
-  try {
-    // Get bike name if assigned
-    let bikeName: string | undefined;
-    if (bikeId) {
-      const bike = await prisma.bike.findUnique({
-        where: { id: bikeId },
-        select: { nickname: true, manufacturer: true, model: true },
-      });
-      if (bike) {
-        bikeName = bike.nickname || `${bike.manufacturer} ${bike.model}`;
-      }
-    }
-
-    // Ride upload notification
-    await notifyRideUploaded({ userId, rideId, durationSeconds, distanceMeters, bikeName });
-
-    // Service due check (only if ride is assigned to a bike)
-    if (bikeId && bikeName) {
-      try {
-        const { generateBikePredictions } = await import('../services/prediction');
-        const user = await prisma.user.findUnique({
-          where: { id: userId },
-          select: { role: true, predictionMode: true },
-        });
-        if (user) {
-          const predictionMode = (user.predictionMode === 'predictive' ? 'predictive' : 'simple') as 'simple' | 'predictive';
-          const summary = await generateBikePredictions({
-            userId,
-            bikeId,
-            userRole: user.role,
-            predictionMode,
-          });
-          if (summary?.components) {
-            await checkAndNotifyServiceDue({
-              userId,
-              bikeId,
-              bikeName,
-              predictions: summary.components,
-            });
-          }
-        }
-      } catch (predError) {
-        logger.warn({ bikeId, error: predError }, '[SyncWorker] Service notification prediction failed');
-      }
-    }
-  } catch (error) {
-    logger.warn({ userId, rideId, error }, '[SyncWorker] Notification send failed (non-fatal)');
-  }
-}
 
 /**
  * Process a sync job.
