@@ -179,9 +179,9 @@ router.post('/complete', express.json(), async (req: Request, res) => {
         bikeId: bike.id,
         userId,
         bikeSpec,
-        acquisitionCondition: acquisitionCondition ?? 'NEW',
         spokesComponents: spokesComponents ?? null,
         userOverrides: components ?? undefined,
+        acquisitionCondition: acquisitionCondition ?? 'NEW',
       });
 
       console.log(`[Onboarding] Created components for bike: ${bike.id}`);

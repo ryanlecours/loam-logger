@@ -174,6 +174,8 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string }>(
         return redirectError('invalid_state');
       }
 
+      const authenticatedUserId = userId;
+
       // Token exchange (OAuth2 Authorization Code — no PKCE for Strava)
       const body = new URLSearchParams({
         client_id: CLIENT_ID,
@@ -217,9 +219,9 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string }>(
       // OauthToken stores plaintext tokens; UserIntegration uses AES-256-GCM encryption.
       await prisma.$transaction(async (tx) => {
         await tx.oauthToken.upsert({
-          where: { userId_provider: { userId, provider: 'strava' } },
+          where: { userId_provider: { userId: authenticatedUserId, provider: 'strava' } },
           create: {
-            userId,
+            userId: authenticatedUserId,
             provider: 'strava',
             accessToken: t.access_token,
             refreshToken: t.refresh_token,
@@ -240,26 +242,26 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string }>(
             },
           },
           create: {
-            userId,
+            userId: authenticatedUserId,
             provider: 'strava',
             providerUserId: stravaUserId,
           },
           update: {
-            userId,
+            userId: authenticatedUserId,
           },
         });
 
         // Update User with stravaUserId
         await tx.user.update({
-          where: { id: userId },
+          where: { id: authenticatedUserId },
           data: { stravaUserId },
         });
 
         // UserIntegration upsert (encrypted tokens)
         await tx.userIntegration.upsert({
-          where: { userId_provider: { userId, provider: 'STRAVA' } },
+          where: { userId_provider: { userId: authenticatedUserId, provider: 'STRAVA' } },
           create: {
-            userId,
+            userId: authenticatedUserId,
             provider: 'STRAVA',
             externalUserId: stravaUserId,
             accessTokenEnc: encrypt(t.access_token),

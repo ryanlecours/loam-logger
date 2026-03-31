@@ -1,6 +1,6 @@
 import { motion } from 'motion/react';
 import SectionWrapper from './SectionWrapper';
-import { RiArrowRightLine } from 'react-icons/ri';
+import { ArrowRight } from 'lucide-react';
 
 const problemSolutions = [
   {
@@ -47,7 +47,7 @@ export default function ProblemSolutionSection() {
 
             {/* Arrow */}
             <div className="hidden md:flex justify-center">
-              <RiArrowRightLine size={24} className="text-moss" />
+              <ArrowRight size={24} className="text-moss" />
             </div>
 
             {/* Solution (Right) */}

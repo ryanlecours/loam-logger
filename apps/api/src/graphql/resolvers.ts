@@ -473,6 +473,7 @@ export async function buildBikeComponents(
     spokesComponents?: SpokesComponentsInputGQL | null;
     userOverrides?: Partial<Record<BikeComponentKey, BikeComponentInputGQL | null>>;
     pairedComponentConfigs?: PairedComponentConfigInputGQL[] | null;
+    acquisitionCondition?: string;
   }
 ): Promise<void> {
   const { bikeId, userId, bikeSpec, spokesComponents, userOverrides, pairedComponentConfigs } = opts;
@@ -3776,7 +3777,7 @@ export const resolvers = {
                 bikeId: component.bikeId,
                 userId: component.userId,
                 hoursUsed: component.hoursUsed,
-                serviceIntervalHours: component.serviceIntervalHours,
+                serviceDueAtHours: component.serviceDueAtHours,
                 installedAt: component.installedAt,
                 isStock: component.isStock,
                 baselineWearPercent: component.baselineWearPercent,
@@ -3896,7 +3897,7 @@ export const resolvers = {
     },
     // Map legacy WHEELS database value to WHEEL_HUBS for GraphQL
     type: (component: ComponentModel & { type: string }) =>
-      component.type === 'WHEELS' ? 'WHEEL_HUBS' : component.type,
+      (component.type as string) === 'WHEELS' ? 'WHEEL_HUBS' : component.type,
     location: (component: ComponentModel & { location?: string }) =>
       component.location ?? 'NONE',
     serviceLogs: (component: ComponentModel, _args: unknown, ctx: GraphQLContext) =>

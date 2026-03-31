@@ -64,16 +64,18 @@ export default function AddRideForm({ onAdded }: { onAdded?: () => void }) {
 
   const [formError, setFormError] = useState<string | null>(null);
 
-  useEffect(() => {
+  // Derive effective bikeId from userBikes — auto-select when only one bike exists
+  const effectiveBikeId = useMemo(() => {
     if (userBikes.length === 1) {
-      setBikeId((current) => current || userBikes[0].id);
+      return bikeId || userBikes[0].id;
     } else if (userBikes.length === 0) {
-      setBikeId('');
+      return '';
     } else {
-      setBikeId((current) => (userBikes.some((bike) => bike.id === current) ? current : ''));
+      return userBikes.some((bike) => bike.id === bikeId) ? bikeId : '';
     }
-  }, [userBikes]);
+  }, [userBikes, bikeId]);
 
+  // Clear form error when any field changes
   useEffect(() => setFormError(null), [
     startLocal, hours, minutes, distanceInput, elevationInput, averageHr, rideType, bikeId, notes, trailSystem, location,
   ]);
@@ -88,7 +90,7 @@ export default function AddRideForm({ onAdded }: { onAdded?: () => void }) {
     }
     if (!rideType.trim()) return 'Ride type is required.';
     if (userBikes.length === 0) return 'Add a bike in Gear before logging a ride.';
-    if (userBikes.length > 0 && !bikeId) return 'Please select which bike you rode.';
+    if (userBikes.length > 0 && !effectiveBikeId) return 'Please select which bike you rode.';
     if (notes.length > MAX_NOTES_LEN) return `Notes must be <= ${MAX_NOTES_LEN} characters.`;
     return null;
   }
@@ -110,7 +112,7 @@ export default function AddRideForm({ onAdded }: { onAdded?: () => void }) {
           elevationGainMeters: elevationInMeters,
           averageHr: averageHr === '' ? null : Math.floor(Number(averageHr)),
           rideType: rideType.trim(),
-          bikeId: bikeId || null,
+          bikeId: effectiveBikeId || null,
           notes: notes.trim() || null,
           trailSystem: trailSystem.trim() || null,
           location: location.trim() || null,
@@ -134,7 +136,7 @@ export default function AddRideForm({ onAdded }: { onAdded?: () => void }) {
     setShowDetails(false);
   }
 
-  const submitDisabled = loading || bikesLoading || userBikes.length === 0 || !bikeId;
+  const submitDisabled = loading || bikesLoading || userBikes.length === 0 || !effectiveBikeId;
   const submitLabel = userBikes.length === 0 ? 'Add a bike to log rides' : loading ? 'Saving...' : 'Save Ride';
 
   // Collapsed quick-add view
@@ -282,7 +284,7 @@ export default function AddRideForm({ onAdded }: { onAdded?: () => void }) {
               <div className="text-sm text-muted">Loading bikes...</div>
             ) : userBikes.length > 0 ? (
               <Select
-                value={bikeId}
+                value={effectiveBikeId}
                 onChange={(e) => setBikeId(e.target.value)}
                 required
               >

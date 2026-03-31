@@ -1,6 +1,6 @@
 import { motion } from 'motion/react';
 import { Link } from 'react-router-dom';
-import { FaBicycle, FaWrench, FaPencilAlt, FaTrash, FaExternalLinkAlt } from 'react-icons/fa';
+import { Bike, Wrench, Pencil, Trash2, ExternalLink } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { KebabMenu, type KebabMenuItem } from './KebabMenu';
 import { StatusDot } from '../dashboard/StatusDot';
@@ -104,12 +104,12 @@ export function BikeOverviewCard({
   const menuItems: KebabMenuItem[] = [
     {
       label: 'Edit bike',
-      icon: <FaPencilAlt size={12} />,
+      icon: <Pencil size={12} />,
       onClick: onEdit,
     },
     {
       label: isDeleting ? 'Deleting...' : 'Delete bike',
-      icon: <FaTrash size={12} />,
+      icon: <Trash2 size={12} />,
       onClick: onDelete,
       danger: true,
       disabled: isDeleting,
@@ -147,7 +147,7 @@ export function BikeOverviewCard({
               className="bike-card-header-img-placeholder"
               style={{ display: bike.thumbnailUrl ? 'none' : 'flex' }}
             >
-              <FaBicycle size={48} />
+              <Bike size={48} />
             </div>
           </div>
 
@@ -247,12 +247,12 @@ export function BikeOverviewCard({
                 size="sm"
                 onClick={onLogService}
               >
-                <FaWrench size={12} className="icon-left" />
+                <Wrench size={12} className="icon-left" />
                 Log service
               </Button>
             )}
             <Link to={`/gear/${bike.id}`} className="btn-secondary btn-sm">
-              <FaPencilAlt size={12} className="icon-left" />
+              <Pencil size={12} className="icon-left" />
               Edit details
             </Link>
             {isValid99SpokesUrl(bike.spokesUrl) && (
@@ -262,7 +262,7 @@ export function BikeOverviewCard({
                 rel="noopener noreferrer"
                 className="btn-secondary btn-sm"
               >
-                99spokes <FaExternalLinkAlt size={10} className="icon-right" />
+                99spokes <ExternalLink size={10} className="icon-right" />
               </a>
             )}
           </div>

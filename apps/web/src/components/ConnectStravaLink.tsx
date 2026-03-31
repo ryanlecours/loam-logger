@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { FaStrava } from "react-icons/fa"
+import { StravaIcon } from './icons/BrandIcons'
 
 const apiBase =
   (import.meta.env.VITE_API_URL ?? "").replace(/\/$/, "") ||
@@ -29,7 +29,7 @@ export default function ConnectStravaLink() {
           : 'border-[#FC4C02]/50 bg-[#FC4C02]/20 text-[#FC4C02] hover:bg-[#FC4C02]/30 hover:border-[#FC4C02]/70 hover:cursor-pointer'
         }`}
     >
-      <FaStrava size={18} />
+      <StravaIcon size={18} />
       <span>{isConnecting ? 'Connecting...' : 'Connect Strava'}</span>
     </button>
   )

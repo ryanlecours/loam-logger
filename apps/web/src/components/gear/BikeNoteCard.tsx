@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { FaChevronDown, FaTrash, FaExchangeAlt, FaStickyNote } from 'react-icons/fa';
+import { ChevronDown, Trash2, ArrowLeftRight, StickyNote } from 'lucide-react';
 import type { SetupSnapshot } from '@loam/shared';
 import { SetupSnapshotView } from './SetupSnapshotView';
 
@@ -65,9 +65,9 @@ export function BikeNoteCard({ note, onDelete, deleting }: BikeNoteCardProps) {
         {/* Icon */}
         <div className="flex-shrink-0 mt-0.5">
           {isSwapNote ? (
-            <FaExchangeAlt className="text-forest" size={14} />
+            <ArrowLeftRight className="text-forest" size={14} />
           ) : (
-            <FaStickyNote className="text-muted" size={14} />
+            <StickyNote className="text-muted" size={14} />
           )}
         </div>
 
@@ -101,11 +101,11 @@ export function BikeNoteCard({ note, onDelete, deleting }: BikeNoteCardProps) {
               disabled={deleting}
               aria-label="Delete note"
             >
-              <FaTrash size={12} />
+              <Trash2 size={12} />
             </button>
           )}
           {hasSnapshot && (
-            <FaChevronDown
+            <ChevronDown
               size={12}
               className={`text-muted transition-transform ${isExpanded ? 'rotate-180' : ''}`}
             />

@@ -1,6 +1,6 @@
 import { Modal } from './ui/Modal';
 import { Button } from './ui/Button';
-import { FaWrench } from 'react-icons/fa';
+import { Wrench } from 'lucide-react';
 
 interface PairedComponentMigrationNoticeProps {
   isOpen: boolean;
@@ -23,7 +23,7 @@ export function PairedComponentMigrationNotice({
     >
       <div className="space-y-4">
         <div className="flex items-center gap-3 text-primary">
-          <FaWrench size={24} />
+          <Wrench size={24} />
           <span className="text-lg font-medium">Front & Rear Tracking</span>
         </div>
 

@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
-import { FaCheckCircle, FaExclamationTriangle } from 'react-icons/fa';
+import { CircleCheck, TriangleAlert } from 'lucide-react';
 import { Modal } from './ui/Modal';
 import { Button } from './ui/Button';
 import { useAssignBikeToRides } from '../graphql/importSession';
@@ -240,7 +240,7 @@ export function MassAssignBikeModal({
             {/* Success Message */}
             {successMessage && (
               <div className="flex items-center gap-2 p-3 rounded-lg bg-forest/20 text-forest text-sm">
-                <FaCheckCircle size={14} />
+                <CircleCheck size={14} />
                 {successMessage}
               </div>
             )}
@@ -248,7 +248,7 @@ export function MassAssignBikeModal({
             {/* Error Message */}
             {error && (
               <div className="flex items-center gap-2 p-3 rounded-lg bg-danger/20 text-danger text-sm">
-                <FaExclamationTriangle size={14} />
+                <TriangleAlert size={14} />
                 {error}
               </div>
             )}

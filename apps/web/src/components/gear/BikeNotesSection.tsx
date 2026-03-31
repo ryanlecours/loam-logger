@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation } from '@apollo/client';
 import { motion, AnimatePresence } from 'motion/react';
-import { FaChevronDown, FaPlus, FaStickyNote } from 'react-icons/fa';
+import { ChevronDown, Plus, StickyNote } from 'lucide-react';
 import { BikeNoteCard, type BikeNote } from './BikeNoteCard';
 import { BIKE_NOTES_QUERY, DELETE_BIKE_NOTE } from '../../graphql/gear';
 import { Button } from '../ui/Button';
@@ -88,13 +88,13 @@ export function BikeNotesSection({ bikeId, onAddNote }: BikeNotesSectionProps) {
         aria-expanded={isExpanded}
       >
         <div className="flex items-center gap-2">
-          <FaStickyNote className="text-muted" size={14} />
+          <StickyNote className="text-muted" size={14} />
           <span className="text-sm font-medium text-app">Notes</span>
           {totalCount > 0 && (
             <span className="text-xs text-muted">({totalCount})</span>
           )}
         </div>
-        <FaChevronDown
+        <ChevronDown
           size={12}
           className={`text-muted transition-transform ${isExpanded ? 'rotate-180' : ''}`}
         />
@@ -119,7 +119,7 @@ export function BikeNotesSection({ bikeId, onAddNote }: BikeNotesSectionProps) {
                   onClick={onAddNote}
                   className="w-full"
                 >
-                  <FaPlus size={10} className="mr-1.5" />
+                  <Plus size={10} className="mr-1.5" />
                   Add Note
                 </Button>
               </div>

@@ -21,7 +21,7 @@ export interface TemplateConfig {
   /** Default email subject line */
   defaultSubject: string;
   /** Email type for audit logging */
-  emailType: string;
+  emailType: import('@prisma/client').EmailType;
   /** Template version for tracking changes */
   templateVersion: string;
   /** Configurable parameters for this template */
