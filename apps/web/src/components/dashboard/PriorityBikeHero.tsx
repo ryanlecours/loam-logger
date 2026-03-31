@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { Wrench, Settings, Bike, ChevronUp, ChevronDown } from 'lucide-react';
-import { StravaIcon } from '../../icons/BrandIcons';
+import { StravaIcon } from '../icons/BrandIcons';
 import type { BikeWithPredictions } from '../../hooks/usePriorityBike';
 import { useBikeRides, type BikeRide } from '../../hooks/useBikeRides';
 import { getBikeName } from '../../utils/formatters';

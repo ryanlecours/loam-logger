@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { Mountain, Pencil } from 'lucide-react';
-import { StravaIcon } from '../icons/BrandIcons';
+import { StravaIcon } from './icons/BrandIcons';
 import { useMutation } from '@apollo/client';
 import { UPDATE_RIDE } from '../graphql/updateRide';
 import { RIDES } from '../graphql/rides';
