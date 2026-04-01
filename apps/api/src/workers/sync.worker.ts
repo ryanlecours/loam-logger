@@ -568,7 +568,7 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
 
   logger.debug({ summaryId: activity.summaryId }, '[SyncWorker] Upserted Garmin activity');
 
-  // Fire-and-forget notifications (Garmin rides have no bike assignment at sync time)
+  // Fire-and-forget notifications
   fireRideNotifications({
     userId,
     rideId: ride.id,
@@ -576,7 +576,7 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
     durationSeconds: activity.durationInSeconds,
     distanceMeters,
     isNewRide,
-  }).catch(() => {});
+  }).catch(() => {}); // swallow - already logged internally
 }
 
 // ============================================================================
@@ -744,7 +744,7 @@ async function upsertWhoopActivity(userId: string, workout: WhoopWorkout): Promi
       durationSeconds,
       distanceMeters,
       isNewRide,
-    }).catch(() => {});
+    }).catch(() => {}); // swallow - already logged internally
   }
 
   logger.debug({ whoopWorkoutId: workout.id }, '[SyncWorker] Upserted WHOOP workout');

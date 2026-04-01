@@ -1,11 +1,10 @@
 import { Expo, type ExpoPushMessage, type ExpoPushTicket } from 'expo-server-sdk';
+import { expo } from '../lib/expo';
 import { prisma } from '../lib/prisma';
 import { logError, logger } from '../lib/logger';
 import { enqueueReceiptCheck } from '../lib/queue/notification.queue';
 import { generateBikePredictions } from './prediction';
 import type { ServiceNotificationMode } from '@prisma/client';
-
-const expo = new Expo();
 
 /**
  * Validates that a string is a well-formed Expo push token.
@@ -275,7 +274,7 @@ export async function fireRideNotifications(params: {
         select: { nickname: true, manufacturer: true, model: true },
       });
       if (bike) {
-        bikeName = bike.nickname || `${bike.manufacturer} ${bike.model}`;
+        bikeName = bike.nickname || [bike.manufacturer, bike.model].filter(Boolean).join(' ') || undefined;
       }
     }
 

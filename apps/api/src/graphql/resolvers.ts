@@ -2774,7 +2774,7 @@ export const resolvers = {
         }
       }
 
-      const updateData: Record<string, unknown> = {};
+      const updateData: Prisma.BikeNotificationPreferenceUpdateInput = {};
       if (input.serviceNotificationsEnabled !== undefined && input.serviceNotificationsEnabled !== null) {
         updateData.serviceNotificationsEnabled = input.serviceNotificationsEnabled;
       }

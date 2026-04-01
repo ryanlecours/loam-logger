@@ -1672,6 +1672,38 @@ describe('GraphQL Resolvers', () => {
     });
   });
 
+  describe('Bike.notificationPreference', () => {
+    const resolver = resolvers.Bike.notificationPreference;
+
+    it('should fetch notification preference from database', async () => {
+      const bike = { id: 'bike-1' };
+      const mockPref = {
+        id: 'pref-1',
+        bikeId: 'bike-1',
+        serviceNotificationsEnabled: true,
+        serviceNotificationMode: 'RIDES_BEFORE',
+        serviceNotificationThreshold: 3,
+      };
+      (mockPrisma.bikeNotificationPreference.findUnique as jest.Mock).mockResolvedValue(mockPref);
+
+      const result = await resolver(bike as never, {}, {} as never);
+
+      expect(mockPrisma.bikeNotificationPreference.findUnique).toHaveBeenCalledWith({
+        where: { bikeId: 'bike-1' },
+      });
+      expect(result).toEqual(mockPref);
+    });
+
+    it('should return null when no preference exists', async () => {
+      const bike = { id: 'bike-1' };
+      (mockPrisma.bikeNotificationPreference.findUnique as jest.Mock).mockResolvedValue(null);
+
+      const result = await resolver(bike as never, {}, {} as never);
+
+      expect(result).toBeNull();
+    });
+  });
+
   describe('rides query with bikeId filter', () => {
     const query = resolvers.Query.rides;
 

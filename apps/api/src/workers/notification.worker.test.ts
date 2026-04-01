@@ -95,6 +95,29 @@ describe('notification.worker', () => {
     expect(mockPrisma.user.update).not.toHaveBeenCalled();
   });
 
+  it('should process all receipts in a chunk even after DeviceNotRegistered', async () => {
+    mockGetPushNotificationReceiptsAsync.mockResolvedValue({
+      'ticket-1': {
+        status: 'error',
+        message: 'The device is not registered',
+        details: { error: 'DeviceNotRegistered' },
+      },
+      'ticket-2': {
+        status: 'error',
+        message: 'The device is not registered',
+        details: { error: 'DeviceNotRegistered' },
+      },
+    });
+
+    await processReceiptCheck(createMockJob({
+      userId: 'user-1',
+      ticketIds: ['ticket-1', 'ticket-2'],
+    }));
+
+    // Token should only be cleared once despite multiple DeviceNotRegistered receipts
+    expect(mockPrisma.user.update).toHaveBeenCalledTimes(1);
+  });
+
   it('should rethrow when Expo receipt fetch fails (for BullMQ retry)', async () => {
     const expoError = new Error('Expo API unavailable');
     mockGetPushNotificationReceiptsAsync.mockRejectedValue(expoError);

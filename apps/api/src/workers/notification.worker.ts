@@ -1,11 +1,10 @@
 import { Worker, Job } from 'bullmq';
-import { Expo, type ExpoPushReceipt } from 'expo-server-sdk';
+import type { ExpoPushReceipt } from 'expo-server-sdk';
+import { expo } from '../lib/expo';
 import { getQueueConnection } from '../lib/queue/connection';
 import { prisma } from '../lib/prisma';
 import { logger } from '../lib/logger';
 import type { NotificationJobData, NotificationJobName } from '../lib/queue/notification.queue';
-
-const expo = new Expo();
 
 /**
  * Process a receipt check job: poll Expo for delivery receipts and handle errors.
@@ -20,6 +19,8 @@ export async function processReceiptCheck(job: Job<NotificationJobData, void, No
   logger.debug({ userId, ticketCount: ticketIds.length }, '[NotificationWorker] Checking receipts');
 
   const receiptChunks = expo.chunkPushNotificationReceiptIds(ticketIds);
+
+  let tokenCleared = false;
 
   for (const chunk of receiptChunks) {
     let receipts: { [id: string]: ExpoPushReceipt };
@@ -41,12 +42,14 @@ export async function processReceiptCheck(job: Job<NotificationJobData, void, No
 
       // DeviceNotRegistered means the token is permanently invalid — clear it
       if (receipt.details?.error === 'DeviceNotRegistered') {
-        logger.info({ userId }, '[NotificationWorker] Clearing invalid push token (DeviceNotRegistered)');
-        await prisma.user.update({
-          where: { id: userId },
-          data: { expoPushToken: null },
-        });
-        return; // Token cleared — no point checking remaining receipts for this user
+        if (!tokenCleared) {
+          logger.info({ userId }, '[NotificationWorker] Clearing invalid push token (DeviceNotRegistered)');
+          await prisma.user.update({
+            where: { id: userId },
+            data: { expoPushToken: null },
+          });
+          tokenCleared = true;
+        }
       }
     }
   }

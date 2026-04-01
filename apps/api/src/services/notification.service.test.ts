@@ -4,6 +4,9 @@ jest.mock('../lib/prisma', () => ({
     user: {
       findUnique: jest.fn(),
     },
+    bike: {
+      findUnique: jest.fn(),
+    },
     bikeNotificationPreference: {
       findUnique: jest.fn(),
     },
@@ -30,6 +33,11 @@ jest.mock('../lib/queue/notification.queue', () => ({
   enqueueReceiptCheck: jest.fn().mockResolvedValue(undefined),
 }));
 
+const mockGenerateBikePredictions = jest.fn();
+jest.mock('./prediction', () => ({
+  generateBikePredictions: (...args: unknown[]) => mockGenerateBikePredictions(...args),
+}));
+
 // Mock expo-server-sdk
 const mockSendPushNotificationsAsync = jest.fn();
 jest.mock('expo-server-sdk', () => {
@@ -46,7 +54,9 @@ jest.mock('expo-server-sdk', () => {
 });
 
 import { prisma } from '../lib/prisma';
+import { enqueueReceiptCheck } from '../lib/queue/notification.queue';
 import {
+  fireRideNotifications,
   notifyRideUploaded,
   checkAndNotifyServiceDue,
   clearServiceNotificationLogs,
@@ -368,6 +378,84 @@ describe('notification.service', () => {
       await checkAndNotifyServiceDue(baseParams);
 
       expect(mockSendPushNotificationsAsync).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('fireRideNotifications', () => {
+    const baseParams = {
+      userId: 'user-1',
+      rideId: 'ride-1',
+      bikeId: 'bike-1',
+      durationSeconds: 3600,
+      distanceMeters: 16093,
+      isNewRide: true,
+    };
+
+    beforeEach(() => {
+      (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({
+        expoPushToken: 'ExponentPushToken[abc123]',
+        notifyOnRideUpload: true,
+        distanceUnit: 'mi',
+        role: 'USER',
+        predictionMode: 'simple',
+      });
+      (mockPrisma.bike.findUnique as jest.Mock).mockResolvedValue({
+        nickname: 'Trail Bike',
+        manufacturer: 'Santa Cruz',
+        model: 'Hightower',
+      });
+      mockGenerateBikePredictions.mockResolvedValue(null);
+    });
+
+    it('should return early when isNewRide is false', async () => {
+      await fireRideNotifications({ ...baseParams, isNewRide: false });
+
+      expect(mockPrisma.user.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('should return early when user has no push token', async () => {
+      (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({
+        expoPushToken: null,
+        notifyOnRideUpload: true,
+        distanceUnit: 'mi',
+        role: 'USER',
+        predictionMode: 'simple',
+      });
+
+      await fireRideNotifications(baseParams);
+
+      expect(mockSendPushNotificationsAsync).not.toHaveBeenCalled();
+    });
+
+    it('should skip service check when generateBikePredictions returns null', async () => {
+      mockGenerateBikePredictions.mockResolvedValue(null);
+
+      await fireRideNotifications(baseParams);
+
+      expect(mockPrisma.bikeNotificationPreference.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('should enqueue receipt check when notifications are sent', async () => {
+      mockSendPushNotificationsAsync.mockResolvedValue([{ status: 'ok', id: 'ticket-abc' }]);
+
+      await fireRideNotifications(baseParams);
+
+      expect(enqueueReceiptCheck).toHaveBeenCalledWith('user-1', expect.arrayContaining([expect.any(String)]));
+    });
+
+    it('should not enqueue receipt check when no tickets are produced', async () => {
+      (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({
+        expoPushToken: 'ExponentPushToken[abc123]',
+        notifyOnRideUpload: false,
+        distanceUnit: 'mi',
+        role: 'USER',
+        predictionMode: 'simple',
+      });
+      mockGenerateBikePredictions.mockResolvedValue(null);
+
+      await fireRideNotifications(baseParams);
+
+      expect(enqueueReceiptCheck).not.toHaveBeenCalled();
     });
   });
 
