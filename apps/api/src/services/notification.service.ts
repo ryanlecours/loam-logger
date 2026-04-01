@@ -91,19 +91,7 @@ export async function notifyRideUploaded(params: {
     data: { screen: 'ride', rideId },
   });
 
-  if (ticketId) {
-    // Audit log only — not used for deduplication. componentId is null here,
-    // so the unique constraint on (userId, componentId, notificationType) does
-    // not apply (NULL != NULL in PostgreSQL). Ride upload dedup is unnecessary
-    // because each synced ride only triggers one notification via fireRideNotifications.
-    await prisma.notificationLog.create({
-      data: {
-        userId,
-        notificationType: 'RIDE_UPLOADED',
-      },
-    });
-    return ticketId;
-  }
+  return ticketId ?? undefined;
 }
 
 type ComponentPrediction = {
@@ -208,7 +196,7 @@ export async function checkAndNotifyServiceDue(params: {
 
   const body = newComponents.length === 1
     ? `${newComponents[0].componentType.replace(/_/g, ' ').toLowerCase()} needs service (${formatRemaining(newComponents[0])})`
-    : `${newComponents.length} components need service: ${componentNames}`;
+    : `${newComponents.length} components need service: ${newComponents.map(c => `${c.componentType.replace(/_/g, ' ').toLowerCase()} (${formatRemaining(c)})`).join(', ')}`;
 
   const ticketId = await sendPushNotification({
     pushToken,
@@ -326,10 +314,11 @@ export async function fireRideNotifications(params: {
 /**
  * Clear notification logs for a component when it's serviced, so it can be re-notified.
  */
-export async function clearServiceNotificationLogs(componentId: string): Promise<void> {
+export async function clearServiceNotificationLogs(componentId: string, userId: string): Promise<void> {
   await prisma.notificationLog.deleteMany({
     where: {
       componentId,
+      userId,
       notificationType: 'SERVICE_DUE',
     },
   });

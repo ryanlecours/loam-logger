@@ -133,25 +133,12 @@ describe('notification.service', () => {
       expect(call.body).not.toContain('on');
     });
 
-    it('should log notification to database on success', async () => {
-      await notifyRideUploaded(baseParams);
+    it('should return ticket id on success', async () => {
+      mockSendPushNotificationsAsync.mockResolvedValue([{ status: 'ok', id: 'ticket-123' }]);
 
-      expect(mockPrisma.notificationLog.create).toHaveBeenCalledWith({
-        data: {
-          userId: 'user-1',
-          notificationType: 'RIDE_UPLOADED',
-        },
-      });
-    });
+      const result = await notifyRideUploaded(baseParams);
 
-    it('should not log notification on push failure', async () => {
-      mockSendPushNotificationsAsync.mockResolvedValue([
-        { status: 'error', message: 'DeviceNotRegistered' },
-      ]);
-
-      await notifyRideUploaded(baseParams);
-
-      expect(mockPrisma.notificationLog.create).not.toHaveBeenCalled();
+      expect(result).toBe('ticket-123');
     });
 
     it('should skip if push token is invalid', async () => {
@@ -363,7 +350,7 @@ describe('notification.service', () => {
 
       expect(mockSendPushNotificationsAsync).toHaveBeenCalledWith([
         expect.objectContaining({
-          body: expect.stringContaining('2 components'),
+          body: expect.stringMatching(/2 components need service: chain \(2 rides left\), brake pad \(\d+ rides left\)/),
         }),
       ]);
     });
@@ -460,12 +447,13 @@ describe('notification.service', () => {
   });
 
   describe('clearServiceNotificationLogs', () => {
-    it('should delete notification logs for the given component', async () => {
-      await clearServiceNotificationLogs('comp-1');
+    it('should delete notification logs scoped to the user and component', async () => {
+      await clearServiceNotificationLogs('comp-1', 'user-1');
 
       expect(mockPrisma.notificationLog.deleteMany).toHaveBeenCalledWith({
         where: {
           componentId: 'comp-1',
+          userId: 'user-1',
           notificationType: 'SERVICE_DUE',
         },
       });

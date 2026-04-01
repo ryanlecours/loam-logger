@@ -158,6 +158,7 @@ model Bike {
   stravaGearMappings   StravaGearMapping[]
   servicePreferences       BikeServicePreference[]
   notificationPreference   BikeNotificationPreference?
+  notificationLogs         NotificationLog[]
   installs                 BikeComponentInstall[]
   bikeNotes                BikeNote[]
 
@@ -211,6 +212,7 @@ model Component {
   bike                  Bike?              @relation(fields: [bikeId], references: [id])
   user                  User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   serviceLogs           ServiceLog[]
+  notificationLogs      NotificationLog[]
   installs              BikeComponentInstall[]
 
   // Self-referential relation for replacement chain
@@ -632,7 +634,11 @@ model NotificationLog {
   notificationType NotificationType
   sentAt           DateTime         @default(now())
   user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bike             Bike?            @relation(fields: [bikeId], references: [id], onDelete: Cascade)
+  component        Component?       @relation(fields: [componentId], references: [id], onDelete: Cascade)
 
   @@unique([userId, componentId, notificationType])
   @@index([userId])
+  @@index([componentId])
+  @@index([bikeId])
 }

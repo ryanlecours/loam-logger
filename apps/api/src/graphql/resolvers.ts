@@ -29,7 +29,7 @@ import { createId } from '@paralleldrive/cuid2';
 import { logError } from '../lib/logger';
 import { config } from '../config/env';
 import { checkRecentAuth } from '../auth/recent-auth';
-import type { AcquisitionCondition, BaselineMethod, BaselineConfidence } from '@prisma/client';
+import type { AcquisitionCondition, BaselineMethod, BaselineConfidence, ServiceNotificationMode } from '@prisma/client';
 import { getBikeById, isSpokesConfigured } from '../services/spokes';
 import { parseISO } from 'date-fns';
 import { incrementBikeComponentHours, decrementBikeComponentHours } from '../lib/component-hours';
@@ -2037,7 +2037,7 @@ export const resolvers = {
       }
 
       // Clear notification dedup logs so this component can trigger notifications again
-      clearServiceNotificationLogs(id).catch((err) => logError('clearServiceNotificationLogs', err));
+      clearServiceNotificationLogs(id, userId).catch((err) => logError('clearServiceNotificationLogs', err));
 
       return updated;
     },
@@ -2110,7 +2110,7 @@ export const resolvers = {
       }
 
       // Clear notification dedup logs so this component can trigger notifications again
-      clearServiceNotificationLogs(input.componentId).catch((err) => logError('clearServiceNotificationLogs', err));
+      clearServiceNotificationLogs(input.componentId, userId).catch((err) => logError('clearServiceNotificationLogs', err));
 
       return serviceLog;
     },
@@ -2779,7 +2779,7 @@ export const resolvers = {
         updateData.serviceNotificationsEnabled = input.serviceNotificationsEnabled;
       }
       if (input.serviceNotificationMode !== undefined && input.serviceNotificationMode !== null) {
-        updateData.serviceNotificationMode = input.serviceNotificationMode;
+        updateData.serviceNotificationMode = input.serviceNotificationMode as ServiceNotificationMode;
       }
       if (input.serviceNotificationThreshold !== undefined && input.serviceNotificationThreshold !== null) {
         updateData.serviceNotificationThreshold = input.serviceNotificationThreshold;

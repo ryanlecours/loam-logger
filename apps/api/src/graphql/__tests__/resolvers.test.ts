@@ -2767,7 +2767,7 @@ describe('GraphQL Resolvers', () => {
 
       await mutation(null, { id: 'comp-1' }, ctx);
 
-      expect(clearServiceNotificationLogs).toHaveBeenCalledWith('comp-1');
+      expect(clearServiceNotificationLogs).toHaveBeenCalledWith('comp-1', 'user-123');
     });
   });
 });
