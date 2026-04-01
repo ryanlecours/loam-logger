@@ -4,12 +4,12 @@ import { validateEmailFormat } from '../auth/email.utils';
 import { normalizeEmail } from '../auth/utils';
 import { sendBadRequest, sendError, sendSuccess, sendInternalError, sendTooManyRequests } from '../lib/api-response';
 import { checkAuthRateLimit } from '../lib/rate-limit';
-import { generateReferralCode, resolveReferrer, createUserWithReferralCode } from '../services/referral.service';
 import { logger } from '../lib/logger';
 import { config } from '../config/env';
 import { validatePassword, hashPassword } from '../auth/password.utils';
 import { setSessionCookie } from '../auth/session';
 import { setCsrfCookie } from '../auth/csrf';
+import { createNewUser } from '../services/signup.service';
 
 const router = express.Router();
 
@@ -72,7 +72,6 @@ router.post('/waitlist', express.json(), async (req: Request, res) => {
     }
 
     if (config.bypassWaitlistFlow) {
-      // Direct registration — user becomes FREE immediately
       if (!password) {
         return sendBadRequest(res, 'Password is required');
       }
@@ -85,77 +84,23 @@ router.post('/waitlist', express.json(), async (req: Request, res) => {
       }
 
       const passwordHash = await hashPassword(password);
-      const referrerId = ref ? await resolveReferrer(ref) : null;
+      const { user } = await createNewUser({ email, name: trimmedName, passwordHash, ref, signupIp: clientIp });
 
-      const newUser = await createUserWithReferralCode((referralCode) =>
-        prisma.$transaction(async (tx) => {
-          const user = await tx.user.create({
-            data: {
-              email,
-              name: trimmedName,
-              role: 'FREE',
-              subscriptionTier: 'FREE_LIGHT',
-              referralCode,
-              passwordHash,
-            },
-          });
-
-          if (referrerId) {
-            await tx.referral.create({
-              data: { referrerUserId: referrerId, referredUserId: user.id },
-            });
-          }
-
-          return user;
-        })
-      );
-
-      // Auto-login: set session cookie
-      setSessionCookie(res, { uid: newUser.id, email: newUser.email, authAt: Date.now() });
+      setSessionCookie(res, { uid: user.id, email: user.email, authAt: Date.now() });
       const csrfToken = setCsrfCookie(res);
 
-      logger.info({ email }, 'New user registered (waitlist bypassed)');
-
-      return res.status(201).json({
-        ok: true,
-        waitlist: false,
-        csrfToken,
-      });
+      return res.status(201).json({ ok: true, waitlist: false, csrfToken });
     }
 
-    // Waitlist flow — create user with WAITLIST role (no password)
-    const referrerId = ref ? await resolveReferrer(ref) : null;
-
-    await createUserWithReferralCode((referralCode) =>
-      prisma.$transaction(async (tx) => {
-        const user = await tx.user.create({
-          data: {
-            email,
-            name: trimmedName,
-            role: 'WAITLIST',
-            referralCode,
-          },
-        });
-
-        if (referrerId) {
-          await tx.referral.create({
-            data: { referrerUserId: referrerId, referredUserId: user.id },
-          });
-        }
-
-        return user;
-      })
-    );
-
-    logger.info({ email }, 'New waitlist signup');
+    // Waitlist flow
+    await createNewUser({ email, name: trimmedName, passwordHash: null, ref, signupIp: clientIp });
 
     return sendSuccess(res, undefined, 'Successfully joined the waitlist!', 201);
 
   } catch (e) {
     const errorMessage = e instanceof Error ? e.message : String(e);
-    console.error('[Waitlist] Error:', errorMessage);
+    logger.error({ error: errorMessage }, '[Waitlist] Signup error');
 
-    // Handle duplicate email (race condition fallback)
     if (errorMessage.includes('Unique constraint failed')) {
       return sendError(res, 409, 'This email is already on the waitlist', 'ALREADY_ON_WAITLIST');
     }

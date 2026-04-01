@@ -37,6 +37,7 @@ model User {
   stripeSubscriptionId String?            @unique
   referralCode        String?             @unique
   needsDowngradeSelection Boolean         @default(false)
+  signupIp            String?
   emailUnsubscribed   Boolean             @default(false)
   hoursDisplayPreference String?          @default("remaining")
   predictionMode         String?          @default("simple")

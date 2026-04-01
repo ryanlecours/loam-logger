@@ -62,19 +62,49 @@ export async function resolveReferrer(code: string): Promise<string | null> {
 }
 
 /**
- * Complete a referral after the referred user finishes onboarding.
- * Upgrades the referrer from FREE_LIGHT to FREE_FULL if applicable.
+ * Minimum number of rides the referred user must have logged before
+ * the referral completes and the referrer gets upgraded.
+ */
+const MIN_RIDES_FOR_REFERRAL = 1;
+
+/**
+ * Attempt to complete a referral for a referred user. Called from onboarding
+ * and after ride creation. The referral only completes when:
+ * 1. The referred user has logged at least MIN_RIDES_FOR_REFERRAL rides
+ * 2. The referred user's signup IP differs from the referrer's (abuse check)
+ *
+ * Safe to call multiple times — idempotent via atomic PENDING → COMPLETED claim.
  */
 export async function completeReferral(referredUserId: string): Promise<void> {
   const referral = await prisma.referral.findUnique({
     where: { referredUserId },
     include: {
-      referrer: { select: { id: true, email: true, name: true, subscriptionTier: true, isFoundingRider: true } },
-      referred: { select: { name: true } },
+      referrer: { select: { id: true, email: true, name: true, subscriptionTier: true, isFoundingRider: true, signupIp: true } },
+      referred: { select: { name: true, signupIp: true } },
     },
   });
 
   if (!referral || referral.status === 'COMPLETED') return;
+
+  // Abuse check: same signup IP suggests self-referral via second account
+  if (
+    referral.referrer.signupIp &&
+    referral.referred.signupIp &&
+    referral.referrer.signupIp === referral.referred.signupIp
+  ) {
+    logger.warn(
+      { referralId: referral.id, referrerId: referral.referrer.id, referredUserId, ip: referral.referred.signupIp },
+      'Referral blocked: same signup IP as referrer (possible self-referral)'
+    );
+    return;
+  }
+
+  // Ride gate: referred user must have logged at least 1 ride
+  const rideCount = await prisma.ride.count({
+    where: { userId: referredUserId },
+  });
+
+  if (rideCount < MIN_RIDES_FOR_REFERRAL) return; // not ready yet — will be retried after ride creation
 
   // Interactive transaction: claim the referral, then conditionally upgrade.
   // Returns null if the claim was lost to a concurrent call.

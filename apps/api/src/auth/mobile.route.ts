@@ -11,8 +11,8 @@ import { checkAuthRateLimit, checkMutationRateLimit } from '../lib/rate-limit';
 import { sendPasswordAddedNotification, sendPasswordChangedNotification } from '../services/password-notification.service';
 import { logger } from '../lib/logger';
 import { sendUnauthorized, sendBadRequest, sendForbidden, sendConflict, sendInternalError, sendTooManyRequests } from '../lib/api-response';
-import { resolveReferrer, createUserWithReferralCode } from '../services/referral.service';
 import { config } from '../config/env';
+import { createNewUser } from '../services/signup.service';
 
 const router = express.Router();
 
@@ -92,39 +92,14 @@ router.post('/mobile/signup', express.json(), async (req, res) => {
     }
 
     if (config.bypassWaitlistFlow) {
-      // Direct registration — require password
       if (!passwordHash) {
         return sendBadRequest(res, 'Password is required');
       }
 
-      const referrerId = ref ? await resolveReferrer(ref) : null;
+      const { user } = await createNewUser({ email, name: trimmedName, passwordHash, ref, signupIp: clientIp });
 
-      const newUser = await createUserWithReferralCode((referralCode) =>
-        prisma.$transaction(async (tx) => {
-          const user = await tx.user.create({
-            data: {
-              email,
-              name: trimmedName,
-              role: 'FREE',
-              subscriptionTier: 'FREE_LIGHT',
-              passwordHash,
-              referralCode,
-            },
-          });
-
-          if (referrerId) {
-            await tx.referral.create({
-              data: { referrerUserId: referrerId, referredUserId: user.id },
-            });
-          }
-
-          return user;
-        })
-      );
-
-      // Return tokens so the mobile app can log in immediately
-      const accessToken = generateAccessToken({ uid: newUser.id, email: newUser.email });
-      const refreshToken = generateRefreshToken({ uid: newUser.id, email: newUser.email });
+      const accessToken = generateAccessToken({ uid: user.id, email: user.email });
+      const refreshToken = generateRefreshToken({ uid: user.id, email: user.email });
 
       return res.status(201).json({
         ok: true,
@@ -135,29 +110,7 @@ router.post('/mobile/signup', express.json(), async (req, res) => {
     }
 
     // Waitlist flow
-    const referrerId = ref ? await resolveReferrer(ref) : null;
-
-    await createUserWithReferralCode((referralCode) =>
-      prisma.$transaction(async (tx) => {
-        const user = await tx.user.create({
-          data: {
-            email,
-            name: trimmedName,
-            role: 'WAITLIST',
-            passwordHash,
-            referralCode,
-          },
-        });
-
-        if (referrerId) {
-          await tx.referral.create({
-            data: { referrerUserId: referrerId, referredUserId: user.id },
-          });
-        }
-
-        return user;
-      })
-    );
+    await createNewUser({ email, name: trimmedName, passwordHash, ref, signupIp: clientIp });
 
     return res.status(200).json({
       ok: true,

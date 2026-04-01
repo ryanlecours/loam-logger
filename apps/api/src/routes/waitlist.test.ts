@@ -33,7 +33,11 @@ jest.mock('../lib/logger', () => ({
 jest.mock('../services/referral.service', () => ({
   generateReferralCode: () => mockGenerateReferralCode(),
   resolveReferrer: (...args: unknown[]) => mockResolveReferrer(...args),
-  createUserWithReferralCode: async (fn: (code: string) => Promise<unknown>) => fn('abc12345'),
+}));
+
+const mockCreateNewUser = jest.fn();
+jest.mock('../services/signup.service', () => ({
+  createNewUser: (...args: unknown[]) => mockCreateNewUser(...args),
 }));
 
 jest.mock('../auth/password.utils', () => ({
@@ -89,60 +93,48 @@ describe('POST /api/waitlist', () => {
 
   describe('waitlist mode (bypass OFF)', () => {
     it('should create a WAITLIST user without password', async () => {
-      mockTransaction.mockImplementation(async (fn: (tx: unknown) => unknown) => {
-        const tx = {
-          user: { create: jest.fn().mockResolvedValue({ id: 'user-1', email: 'test@test.com' }) },
-          referral: { create: jest.fn() },
-        };
-        return fn(tx);
-      });
+      mockCreateNewUser.mockResolvedValue({ user: { id: 'user-1', email: 'test@test.com' }, waitlist: true });
 
       const res = await request(app)
         .post('/api/waitlist')
         .send({ email: 'test@test.com', name: 'Test' });
 
       expect(res.status).toBe(201);
+      expect(mockCreateNewUser).toHaveBeenCalledWith(
+        expect.objectContaining({
+          email: 'test@test.com',
+          name: 'Test',
+          passwordHash: null,
+          ref: undefined,
+          signupIp: expect.any(String),
+        })
+      );
     });
 
-    it('should create referral row when valid ref code provided', async () => {
-      mockResolveReferrer.mockResolvedValue('referrer-id');
-
-      let referralCreated = false;
-      mockTransaction.mockImplementation(async (fn: (tx: unknown) => unknown) => {
-        const tx = {
-          user: { create: jest.fn().mockResolvedValue({ id: 'user-1', email: 'test@test.com' }) },
-          referral: { create: jest.fn().mockImplementation(() => { referralCreated = true; return Promise.resolve({}); }) },
-        };
-        return fn(tx);
-      });
+    it('should pass ref to createNewUser when provided', async () => {
+      mockCreateNewUser.mockResolvedValue({ user: { id: 'user-1', email: 'test@test.com' }, waitlist: true });
 
       const res = await request(app)
         .post('/api/waitlist')
         .send({ email: 'test@test.com', name: 'Test', ref: 'validcode' });
 
       expect(res.status).toBe(201);
-      expect(mockResolveReferrer).toHaveBeenCalledWith('validcode');
-      expect(referralCreated).toBe(true);
+      expect(mockCreateNewUser).toHaveBeenCalledWith(
+        expect.objectContaining({ ref: 'validcode' })
+      );
     });
 
-    it('should create user without referral when ref code is invalid', async () => {
-      mockResolveReferrer.mockResolvedValue(null);
-
-      let referralCreated = false;
-      mockTransaction.mockImplementation(async (fn: (tx: unknown) => unknown) => {
-        const tx = {
-          user: { create: jest.fn().mockResolvedValue({ id: 'user-1', email: 'test@test.com' }) },
-          referral: { create: jest.fn().mockImplementation(() => { referralCreated = true; return Promise.resolve({}); }) },
-        };
-        return fn(tx);
-      });
+    it('should pass null ref when ref code is not provided', async () => {
+      mockCreateNewUser.mockResolvedValue({ user: { id: 'user-1', email: 'test@test.com' }, waitlist: true });
 
       const res = await request(app)
         .post('/api/waitlist')
-        .send({ email: 'test@test.com', name: 'Test', ref: 'badcode' });
+        .send({ email: 'test@test.com', name: 'Test' });
 
       expect(res.status).toBe(201);
-      expect(referralCreated).toBe(false);
+      expect(mockCreateNewUser).toHaveBeenCalledWith(
+        expect.objectContaining({ ref: undefined })
+      );
     });
   });
 
@@ -161,19 +153,7 @@ describe('POST /api/waitlist', () => {
     });
 
     it('should create FREE user with auto-login when bypass is on', async () => {
-      let createdRole: string | undefined;
-      mockTransaction.mockImplementation(async (fn: (tx: unknown) => unknown) => {
-        const tx = {
-          user: {
-            create: jest.fn().mockImplementation(({ data }: { data: { role: string } }) => {
-              createdRole = data.role;
-              return Promise.resolve({ id: 'user-1', email: 'test@test.com' });
-            }),
-          },
-          referral: { create: jest.fn() },
-        };
-        return fn(tx);
-      });
+      mockCreateNewUser.mockResolvedValue({ user: { id: 'user-1', email: 'test@test.com' }, waitlist: false });
 
       const res = await request(app)
         .post('/api/waitlist')
@@ -182,32 +162,22 @@ describe('POST /api/waitlist', () => {
       expect(res.status).toBe(201);
       expect(res.body.waitlist).toBe(false);
       expect(res.body.csrfToken).toBe('csrf-token');
-      expect(createdRole).toBe('FREE');
       expect(mockSetSessionCookie).toHaveBeenCalled();
+      expect(mockCreateNewUser).toHaveBeenCalledWith(
+        expect.objectContaining({ email: 'test@test.com', passwordHash: 'hashed' })
+      );
     });
 
-    it('should create referral row atomically with user when ref is valid', async () => {
-      mockResolveReferrer.mockResolvedValue('referrer-id');
-
-      let referralData: { referrerUserId?: string; referredUserId?: string } | undefined;
-      mockTransaction.mockImplementation(async (fn: (tx: unknown) => unknown) => {
-        const tx = {
-          user: { create: jest.fn().mockResolvedValue({ id: 'new-user', email: 'test@test.com' }) },
-          referral: {
-            create: jest.fn().mockImplementation(({ data }: { data: typeof referralData }) => {
-              referralData = data;
-              return Promise.resolve({});
-            }),
-          },
-        };
-        return fn(tx);
-      });
+    it('should pass ref to createNewUser for referral tracking', async () => {
+      mockCreateNewUser.mockResolvedValue({ user: { id: 'new-user', email: 'test@test.com' }, waitlist: false });
 
       await request(app)
         .post('/api/waitlist')
         .send({ email: 'test@test.com', name: 'Test', password: 'ValidPass1!', ref: 'goodcode' });
 
-      expect(referralData).toEqual({ referrerUserId: 'referrer-id', referredUserId: 'new-user' });
+      expect(mockCreateNewUser).toHaveBeenCalledWith(
+        expect.objectContaining({ ref: 'goodcode' })
+      );
     });
 
     it('should reject invalid password', async () => {

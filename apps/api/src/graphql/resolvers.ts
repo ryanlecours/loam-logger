@@ -1351,6 +1351,14 @@ export const resolvers = {
         await invalidateBikePrediction(userId, bikeId);
       }
 
+      // Check if this ride completes a pending referral (non-blocking)
+      try {
+        const { completeReferral } = await import('../services/referral.service');
+        await completeReferral(userId);
+      } catch (refErr) {
+        logError('Referral completion after ride', refErr);
+      }
+
       return ride;
     },
     deleteRide: async (_: unknown, { id }: { id: string }, ctx: GraphQLContext) => {

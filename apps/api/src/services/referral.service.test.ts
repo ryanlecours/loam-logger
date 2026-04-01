@@ -7,6 +7,8 @@ const mockUserFindUniqueOrThrow = jest.fn();
 const mockUserUpdate = jest.fn();
 const mockTransaction = jest.fn();
 
+const mockRideCount = jest.fn().mockResolvedValue(1); // default: referred user has 1 ride
+
 jest.mock('../lib/prisma', () => ({
   prisma: {
     user: {
@@ -21,6 +23,9 @@ jest.mock('../lib/prisma', () => ({
       update: mockUpdate,
       updateMany: mockUpdateMany,
       count: jest.fn().mockResolvedValue(0),
+    },
+    ride: {
+      count: (...args: unknown[]) => mockRideCount(...args),
     },
     $transaction: mockTransaction,
   },
@@ -62,8 +67,8 @@ describe('completeReferral', () => {
     (mockPrisma.referral.findUnique as jest.Mock).mockResolvedValue({
       id: 'ref-1',
       status: 'COMPLETED',
-      referrer: { id: 'referrer-1', email: 'r@test.com', name: 'R', subscriptionTier: 'FREE_LIGHT', isFoundingRider: false },
-      referred: { name: 'Friend' },
+      referrer: { id: 'referrer-1', email: 'r@test.com', name: 'R', subscriptionTier: 'FREE_LIGHT', isFoundingRider: false, signupIp: '1.1.1.1' },
+      referred: { name: 'Friend', signupIp: '2.2.2.2' },
     });
 
     await completeReferral('user-1');
@@ -75,8 +80,8 @@ describe('completeReferral', () => {
     (mockPrisma.referral.findUnique as jest.Mock).mockResolvedValue({
       id: 'ref-1',
       status: 'PENDING',
-      referrer: { id: 'referrer-1', email: 'r@test.com', name: 'Referrer', subscriptionTier: 'FREE_LIGHT', isFoundingRider: false },
-      referred: { name: 'Friend' },
+      referrer: { id: 'referrer-1', email: 'r@test.com', name: 'Referrer', subscriptionTier: 'FREE_LIGHT', isFoundingRider: false, signupIp: '1.1.1.1' },
+      referred: { name: 'Friend', signupIp: '2.2.2.2' },
     });
 
     // Interactive transaction: execute the callback
@@ -100,8 +105,8 @@ describe('completeReferral', () => {
     (mockPrisma.referral.findUnique as jest.Mock).mockResolvedValue({
       id: 'ref-1',
       status: 'PENDING',
-      referrer: { id: 'referrer-1', email: 'r@test.com', name: 'Referrer', subscriptionTier: 'FREE_FULL', isFoundingRider: false },
-      referred: { name: 'Friend' },
+      referrer: { id: 'referrer-1', email: 'r@test.com', name: 'Referrer', subscriptionTier: 'FREE_FULL', isFoundingRider: false, signupIp: '1.1.1.1' },
+      referred: { name: 'Friend', signupIp: '2.2.2.2' },
     });
 
     let userUpdateCalled = false;
@@ -125,8 +130,8 @@ describe('completeReferral', () => {
     (mockPrisma.referral.findUnique as jest.Mock).mockResolvedValue({
       id: 'ref-1',
       status: 'PENDING',
-      referrer: { id: 'referrer-1', email: 'r@test.com', name: 'Referrer', subscriptionTier: 'FREE_LIGHT', isFoundingRider: true },
-      referred: { name: 'Friend' },
+      referrer: { id: 'referrer-1', email: 'r@test.com', name: 'Referrer', subscriptionTier: 'FREE_LIGHT', isFoundingRider: true, signupIp: '1.1.1.1' },
+      referred: { name: 'Friend', signupIp: '2.2.2.2' },
     });
 
     let userUpdateCalled = false;
@@ -150,8 +155,8 @@ describe('completeReferral', () => {
     (mockPrisma.referral.findUnique as jest.Mock).mockResolvedValue({
       id: 'ref-1',
       status: 'PENDING',
-      referrer: { id: 'referrer-1', email: 'r@test.com', name: 'R', subscriptionTier: 'FREE_LIGHT', isFoundingRider: false },
-      referred: { name: 'F' },
+      referrer: { id: 'referrer-1', email: 'r@test.com', name: 'R', subscriptionTier: 'FREE_LIGHT', isFoundingRider: false, signupIp: '1.1.1.1' },
+      referred: { name: 'F', signupIp: '2.2.2.2' },
     });
 
     mockTransaction.mockImplementation(async (fn: (tx: unknown) => unknown) => {
