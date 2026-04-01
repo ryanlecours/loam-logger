@@ -2780,6 +2780,28 @@ describe('GraphQL Resolvers', () => {
   describe('selectBikeForDowngrade', () => {
     const mutation = resolvers.Mutation.selectBikeForDowngrade;
 
+    // Helper to create a mock transaction client for selectBikeForDowngrade
+    const createDowngradeTx = (overrides: {
+      needsDowngradeSelection?: boolean;
+      bike?: unknown;
+    } = {}) => {
+      const mockBikeUpdateMany = jest.fn().mockResolvedValue({ count: 2 });
+      const mockUserUpdate = jest.fn().mockResolvedValue({});
+      const tx = {
+        user: {
+          findUniqueOrThrow: jest.fn().mockResolvedValue({
+            needsDowngradeSelection: overrides.needsDowngradeSelection ?? true,
+          }),
+          update: mockUserUpdate,
+        },
+        bike: {
+          findFirst: jest.fn().mockResolvedValue(overrides.bike ?? null),
+          updateMany: mockBikeUpdateMany,
+        },
+      };
+      return { tx, mockBikeUpdateMany, mockUserUpdate };
+    };
+
     it('should throw Unauthorized when user is not authenticated', async () => {
       const ctx = createMockContext(null);
       await expect(mutation({}, { bikeId: 'bike-1' }, ctx as never)).rejects.toThrow('Unauthorized');
@@ -2787,30 +2809,24 @@ describe('GraphQL Resolvers', () => {
 
     it('should throw when needsDowngradeSelection is false', async () => {
       const ctx = createMockContext('user-123');
-      (mockPrisma.user.findUniqueOrThrow as jest.Mock).mockResolvedValue({
-        needsDowngradeSelection: false,
-      });
+      const { tx } = createDowngradeTx({ needsDowngradeSelection: false });
+      (mockPrisma.$transaction as jest.Mock).mockImplementation(async (fn: (tx: unknown) => unknown) => fn(tx));
 
       await expect(mutation({}, { bikeId: 'bike-1' }, ctx as never)).rejects.toThrow('No downgrade selection needed');
     });
 
     it('should throw when bike is not found', async () => {
       const ctx = createMockContext('user-123');
-      (mockPrisma.user.findUniqueOrThrow as jest.Mock).mockResolvedValue({
-        needsDowngradeSelection: true,
-      });
-      (mockPrisma.bike.findFirst as jest.Mock).mockResolvedValue(null);
+      const { tx } = createDowngradeTx({ bike: null });
+      (mockPrisma.$transaction as jest.Mock).mockImplementation(async (fn: (tx: unknown) => unknown) => fn(tx));
 
       await expect(mutation({}, { bikeId: 'nonexistent' }, ctx as never)).rejects.toThrow('Bike not found');
     });
 
     it('should throw when bike belongs to another user', async () => {
       const ctx = createMockContext('user-123');
-      (mockPrisma.user.findUniqueOrThrow as jest.Mock).mockResolvedValue({
-        needsDowngradeSelection: true,
-      });
-      // findFirst with userId filter returns null for non-owned bike
-      (mockPrisma.bike.findFirst as jest.Mock).mockResolvedValue(null);
+      const { tx } = createDowngradeTx({ bike: null });
+      (mockPrisma.$transaction as jest.Mock).mockImplementation(async (fn: (tx: unknown) => unknown) => fn(tx));
 
       await expect(mutation({}, { bikeId: 'other-users-bike' }, ctx as never)).rejects.toThrow('Bike not found');
     });
@@ -2818,26 +2834,17 @@ describe('GraphQL Resolvers', () => {
     it('should archive other bikes and clear flag on valid selection', async () => {
       const ctx = createMockContext('user-123');
       const selectedBike = { id: 'bike-1', userId: 'user-123', status: 'ACTIVE' };
-
-      (mockPrisma.user.findUniqueOrThrow as jest.Mock).mockResolvedValue({
-        needsDowngradeSelection: true,
-      });
-      (mockPrisma.bike.findFirst as jest.Mock).mockResolvedValue(selectedBike);
-      (mockPrisma.bike.updateMany as jest.Mock).mockResolvedValue({ count: 2 });
-      (mockPrisma.user.update as jest.Mock).mockResolvedValue({});
-      (mockPrisma.$transaction as jest.Mock).mockImplementation(async (ops: unknown[]) => {
-        return Promise.all((ops as Promise<unknown>[]).map(p => p));
-      });
+      const { tx, mockBikeUpdateMany, mockUserUpdate } = createDowngradeTx({ bike: selectedBike });
+      (mockPrisma.$transaction as jest.Mock).mockImplementation(async (fn: (tx: unknown) => unknown) => fn(tx));
 
       const result = await mutation({}, { bikeId: 'bike-1' }, ctx as never);
 
       expect(result).toEqual(selectedBike);
-      expect(mockPrisma.$transaction).toHaveBeenCalled();
-      expect(mockPrisma.bike.updateMany).toHaveBeenCalledWith({
+      expect(mockBikeUpdateMany).toHaveBeenCalledWith({
         where: { userId: 'user-123', status: 'ACTIVE', id: { not: 'bike-1' } },
         data: { status: 'ARCHIVED' },
       });
-      expect(mockPrisma.user.update).toHaveBeenCalledWith({
+      expect(mockUserUpdate).toHaveBeenCalledWith({
         where: { id: 'user-123' },
         data: { needsDowngradeSelection: false },
       });

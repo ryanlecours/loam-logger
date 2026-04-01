@@ -92,10 +92,9 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     return;
   }
 
-  // Atomically upgrade: WHERE clause encodes all preconditions so stale reads
-  // can't cause incorrect upgrades or double-processing.
-  const [upgraded] = await prisma.$transaction([
-    prisma.user.updateMany({
+  // Interactive transaction: only un-archive bikes if the upgrade actually happened.
+  const upgraded = await prisma.$transaction(async (tx) => {
+    const result = await tx.user.updateMany({
       where: {
         id: userId,
         isFoundingRider: false,
@@ -107,14 +106,19 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
         stripeSubscriptionId: subscriptionId,
         needsDowngradeSelection: false,
       },
-    }),
-    prisma.bike.updateMany({
+    });
+
+    if (result.count === 0) return false;
+
+    await tx.bike.updateMany({
       where: { userId, status: 'ARCHIVED' },
       data: { status: 'ACTIVE' },
-    }),
-  ]);
+    });
 
-  if (upgraded.count === 0) {
+    return true;
+  });
+
+  if (!upgraded) {
     logger.info({ userId, subscriptionId }, 'Checkout skipped (founding rider, already processed, or user not found)');
     return;
   }
@@ -153,12 +157,13 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
     return;
   }
 
-  const user = await prisma.user.findUnique({
+  // Quick check to skip founding riders without a transaction
+  const userCheck = await prisma.user.findUnique({
     where: { id: userId },
-    select: { subscriptionTier: true, isFoundingRider: true, email: true, name: true },
+    select: { isFoundingRider: true },
   });
 
-  if (!user || user.isFoundingRider) return;
+  if (!userCheck || userCheck.isFoundingRider) return;
 
   logger.info(
     { userId, subscriptionId: subscription.id, status: subscription.status },
@@ -166,40 +171,52 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
   );
 
   if (subscription.status === 'active') {
-    // Atomically upgrade only if not already PRO — prevents stale-read races
-    const [upgraded] = await prisma.$transaction([
-      prisma.user.updateMany({
+    // Interactive transaction: only un-archive bikes if the upgrade actually happened.
+    const didUpgrade = await prisma.$transaction(async (tx) => {
+      const result = await tx.user.updateMany({
         where: { id: userId, subscriptionTier: { not: 'PRO' }, isFoundingRider: false },
         data: {
           subscriptionTier: 'PRO',
           stripeSubscriptionId: subscription.id,
           needsDowngradeSelection: false,
         },
-      }),
-      prisma.bike.updateMany({
+      });
+
+      if (result.count === 0) return false;
+
+      await tx.bike.updateMany({
         where: { userId, status: 'ARCHIVED' },
         data: { status: 'ACTIVE' },
-      }),
-    ]);
+      });
 
-    if (upgraded.count > 0) {
+      return true;
+    });
+
+    if (didUpgrade) {
       logger.info({ userId }, 'Subscription resumed — user re-upgraded to PRO');
 
-      // Send upgrade confirmation email
-      try {
-        const firstName = user.name?.split(' ')[0] || undefined;
-        await sendEmailWithAudit({
-          to: user.email,
-          subject: getUpgradeConfirmationEmailSubject(),
-          html: await getUpgradeConfirmationEmailHtml({ name: firstName }),
-          userId,
-          emailType: 'upgrade_confirmation',
-          triggerSource: 'user_action',
-          templateVersion: UPGRADE_CONFIRMATION_TEMPLATE_VERSION,
-          bypassUnsubscribe: true,
-        });
-      } catch (emailErr) {
-        logger.error({ error: emailErr instanceof Error ? emailErr.message : String(emailErr), userId }, 'Failed to send re-upgrade confirmation email');
+      // Fetch fresh user data for email (post-write, only on success)
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { email: true, name: true },
+      });
+
+      if (user) {
+        try {
+          const firstName = user.name?.split(' ')[0] || undefined;
+          await sendEmailWithAudit({
+            to: user.email,
+            subject: getUpgradeConfirmationEmailSubject(),
+            html: await getUpgradeConfirmationEmailHtml({ name: firstName }),
+            userId,
+            emailType: 'upgrade_confirmation',
+            triggerSource: 'user_action',
+            templateVersion: UPGRADE_CONFIRMATION_TEMPLATE_VERSION,
+            bypassUnsubscribe: true,
+          });
+        } catch (emailErr) {
+          logger.error({ error: emailErr instanceof Error ? emailErr.message : String(emailErr), userId }, 'Failed to send re-upgrade confirmation email');
+        }
       }
     }
   } else if (subscription.status === 'past_due') {

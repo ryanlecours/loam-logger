@@ -1,13 +1,30 @@
 import Stripe from 'stripe';
 
+const REQUIRED_STRIPE_VARS = [
+  'STRIPE_SECRET_KEY',
+  'STRIPE_WEBHOOK_SECRET',
+  'STRIPE_MONTHLY_PRICE_ID',
+  'STRIPE_ANNUAL_PRICE_ID',
+] as const;
+
+/**
+ * Validate that all Stripe env vars are present.
+ * Called at startup when STRIPE_SECRET_KEY is set — fails fast
+ * rather than producing confusing errors during checkout.
+ */
+export function validateStripeConfig(): void {
+  const missing = REQUIRED_STRIPE_VARS.filter((v) => !process.env[v]);
+  if (missing.length > 0) {
+    throw new Error(`Missing Stripe environment variables: ${missing.join(', ')}`);
+  }
+}
+
 let _stripe: Stripe | null = null;
 
 function getStripe(): Stripe {
   if (!_stripe) {
-    if (!process.env.STRIPE_SECRET_KEY) {
-      throw new Error('STRIPE_SECRET_KEY environment variable is required');
-    }
-    _stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+    validateStripeConfig();
+    _stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
   }
   return _stripe;
 }

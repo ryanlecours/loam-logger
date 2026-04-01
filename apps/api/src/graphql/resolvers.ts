@@ -28,7 +28,7 @@ import {
 import { createId } from '@paralleldrive/cuid2';
 import { logError } from '../lib/logger';
 import { config } from '../config/env';
-import { requireBikeCreation, requireComponentType, getEffectiveTier, getAllowedComponentTypes, canCreateBike } from '../auth/tier-access';
+import { requireBikeCreation, requireComponentType, getEffectiveTier, getAllowedComponentTypes, canCreateBike, isProTier } from '../auth/tier-access';
 import { createCheckoutSession, createBillingPortalSession, type StripePlan } from '../services/stripe.service';
 import { getReferralStats } from '../services/referral.service';
 import { TIER_LIMITS } from '@loam/shared';
@@ -3967,6 +3967,20 @@ export const resolvers = {
       ctx: GraphQLContext
     ) => {
       const userId = requireUserId(ctx);
+
+      // Reject if user is already PRO (paid or founding rider).
+      // A future gifting flow would create checkout for a *different* userId,
+      // so this guard only blocks redundant self-upgrades.
+      const user = await prisma.user.findUniqueOrThrow({
+        where: { id: userId },
+        select: { subscriptionTier: true, isFoundingRider: true },
+      });
+      if (isProTier(user)) {
+        throw new GraphQLError('You already have Pro access.', {
+          extensions: { code: 'ALREADY_PRO' },
+        });
+      }
+
       const stripePlan: StripePlan = plan === 'MONTHLY' ? 'monthly' : 'annual';
       return createCheckoutSession(userId, stripePlan);
     },
@@ -3983,41 +3997,41 @@ export const resolvers = {
     ) => {
       const userId = requireUserId(ctx);
 
-      const user = await prisma.user.findUniqueOrThrow({
-        where: { id: userId },
-        select: { needsDowngradeSelection: true },
-      });
-
-      if (!user.needsDowngradeSelection) {
-        throw new GraphQLError('No downgrade selection needed', {
-          extensions: { code: 'BAD_REQUEST' },
+      // All reads and writes in a single interactive transaction
+      return prisma.$transaction(async (tx) => {
+        const user = await tx.user.findUniqueOrThrow({
+          where: { id: userId },
+          select: { needsDowngradeSelection: true },
         });
-      }
 
-      // Verify the bike belongs to the user and is active
-      const bike = await prisma.bike.findFirst({
-        where: { id: bikeId, userId, status: 'ACTIVE' },
-      });
+        if (!user.needsDowngradeSelection) {
+          throw new GraphQLError('No downgrade selection needed', {
+            extensions: { code: 'BAD_REQUEST' },
+          });
+        }
 
-      if (!bike) {
-        throw new GraphQLError('Bike not found or not active', {
-          extensions: { code: 'NOT_FOUND' },
+        const bike = await tx.bike.findFirst({
+          where: { id: bikeId, userId, status: 'ACTIVE' },
         });
-      }
 
-      // Archive all other active bikes, clear the flag
-      await prisma.$transaction([
-        prisma.bike.updateMany({
+        if (!bike) {
+          throw new GraphQLError('Bike not found or not active', {
+            extensions: { code: 'NOT_FOUND' },
+          });
+        }
+
+        await tx.bike.updateMany({
           where: { userId, status: 'ACTIVE', id: { not: bikeId } },
           data: { status: 'ARCHIVED' },
-        }),
-        prisma.user.update({
+        });
+
+        await tx.user.update({
           where: { id: userId },
           data: { needsDowngradeSelection: false },
-        }),
-      ]);
+        });
 
-      return bike;
+        return bike;
+      });
     },
   },
 

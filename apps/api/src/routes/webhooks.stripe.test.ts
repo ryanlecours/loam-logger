@@ -107,15 +107,16 @@ describe('Stripe Webhooks', () => {
 
     beforeEach(() => {
       mockConstructEvent.mockReturnValue(makeEvent('checkout.session.completed', session));
-      // Default: transaction executes the batched operations
-      (mockPrisma.$transaction as jest.Mock).mockImplementation(async (ops: unknown[]) => {
-        return Promise.all((ops as Promise<unknown>[]).map(p => p));
-      });
     });
 
     it('should upgrade user to PRO when preconditions match', async () => {
-      (mockPrisma.user.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
-      (mockPrisma.bike.updateMany as jest.Mock).mockResolvedValue({ count: 0 });
+      (mockPrisma.$transaction as jest.Mock).mockImplementation(async (fn: (tx: unknown) => unknown) => {
+        const tx = {
+          user: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+          bike: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+        };
+        return fn(tx);
+      });
       (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({ email: 'test@test.com', name: 'Test' });
 
       const res = await request(app)
@@ -129,8 +130,14 @@ describe('Stripe Webhooks', () => {
     });
 
     it('should skip if updateMany matches 0 rows (idempotent/founding rider)', async () => {
-      (mockPrisma.user.updateMany as jest.Mock).mockResolvedValue({ count: 0 });
-      (mockPrisma.bike.updateMany as jest.Mock).mockResolvedValue({ count: 0 });
+      const mockBikeUpdateMany = jest.fn();
+      (mockPrisma.$transaction as jest.Mock).mockImplementation(async (fn: (tx: unknown) => unknown) => {
+        const tx = {
+          user: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+          bike: { updateMany: mockBikeUpdateMany },
+        };
+        return fn(tx);
+      });
 
       const res = await request(app)
         .post('/')
@@ -139,6 +146,7 @@ describe('Stripe Webhooks', () => {
 
       expect(res.status).toBe(200);
       expect(sendEmailWithAudit).not.toHaveBeenCalled();
+      expect(mockBikeUpdateMany).not.toHaveBeenCalled();
     });
 
     it('should skip if subscription ID is missing', async () => {

@@ -4,7 +4,7 @@ import { validateEmailFormat } from '../auth/email.utils';
 import { normalizeEmail } from '../auth/utils';
 import { sendBadRequest, sendError, sendSuccess, sendInternalError, sendTooManyRequests } from '../lib/api-response';
 import { checkAuthRateLimit } from '../lib/rate-limit';
-import { generateReferralCode, resolveReferrer } from '../services/referral.service';
+import { generateReferralCode, resolveReferrer, createUserWithReferralCode } from '../services/referral.service';
 import { logger } from '../lib/logger';
 import { config } from '../config/env';
 import { validatePassword, hashPassword } from '../auth/password.utils';
@@ -71,8 +71,6 @@ router.post('/waitlist', express.json(), async (req: Request, res) => {
       return sendError(res, 409, 'An account with this email already exists', 'ACCOUNT_EXISTS');
     }
 
-    const referralCode = generateReferralCode();
-
     if (config.bypassWaitlistFlow) {
       // Direct registration — user becomes FREE immediately
       if (!password) {
@@ -87,30 +85,30 @@ router.post('/waitlist', express.json(), async (req: Request, res) => {
       }
 
       const passwordHash = await hashPassword(password);
-
-      // Resolve referrer before transaction so we can create both atomically
       const referrerId = ref ? await resolveReferrer(ref) : null;
 
-      const newUser = await prisma.$transaction(async (tx) => {
-        const user = await tx.user.create({
-          data: {
-            email,
-            name: trimmedName,
-            role: 'FREE',
-            subscriptionTier: 'FREE_LIGHT',
-            referralCode,
-            passwordHash,
-          },
-        });
-
-        if (referrerId) {
-          await tx.referral.create({
-            data: { referrerUserId: referrerId, referredUserId: user.id },
+      const newUser = await createUserWithReferralCode((referralCode) =>
+        prisma.$transaction(async (tx) => {
+          const user = await tx.user.create({
+            data: {
+              email,
+              name: trimmedName,
+              role: 'FREE',
+              subscriptionTier: 'FREE_LIGHT',
+              referralCode,
+              passwordHash,
+            },
           });
-        }
 
-        return user;
-      });
+          if (referrerId) {
+            await tx.referral.create({
+              data: { referrerUserId: referrerId, referredUserId: user.id },
+            });
+          }
+
+          return user;
+        })
+      );
 
       // Auto-login: set session cookie
       setSessionCookie(res, { uid: newUser.id, email: newUser.email, authAt: Date.now() });
@@ -128,22 +126,26 @@ router.post('/waitlist', express.json(), async (req: Request, res) => {
     // Waitlist flow — create user with WAITLIST role (no password)
     const referrerId = ref ? await resolveReferrer(ref) : null;
 
-    await prisma.$transaction(async (tx) => {
-      const user = await tx.user.create({
-        data: {
-          email,
-          name: trimmedName,
-          role: 'WAITLIST',
-          referralCode,
-        },
-      });
-
-      if (referrerId) {
-        await tx.referral.create({
-          data: { referrerUserId: referrerId, referredUserId: user.id },
+    await createUserWithReferralCode((referralCode) =>
+      prisma.$transaction(async (tx) => {
+        const user = await tx.user.create({
+          data: {
+            email,
+            name: trimmedName,
+            role: 'WAITLIST',
+            referralCode,
+          },
         });
-      }
-    });
+
+        if (referrerId) {
+          await tx.referral.create({
+            data: { referrerUserId: referrerId, referredUserId: user.id },
+          });
+        }
+
+        return user;
+      })
+    );
 
     logger.info({ email }, 'New waitlist signup');
 

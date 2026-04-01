@@ -14,19 +14,51 @@ export function generateReferralCode(): string {
 }
 
 /**
- * Look up the referrer for a given code. Returns the referrer's user ID,
- * or null if the code is invalid or is the user's own code.
- * Call this BEFORE user creation so you can include the referral in the
- * same transaction as the user insert.
+ * Generate a referral code and retry user creation if the code collides
+ * with an existing one (P2002 on referralCode unique constraint).
+ * Returns the code that was successfully used.
  */
-export async function resolveReferrer(code: string, newUserId?: string): Promise<string | null> {
+export async function createUserWithReferralCode<T>(
+  createFn: (code: string) => Promise<T>,
+  maxAttempts = 3
+): Promise<T> {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const code = generateReferralCode();
+    try {
+      return await createFn(code);
+    } catch (err) {
+      const isReferralCodeCollision =
+        err instanceof Error &&
+        'code' in err &&
+        (err as { code: string }).code === 'P2002' &&
+        'meta' in err &&
+        ((err as { meta?: { target?: string[] } }).meta?.target ?? []).includes('referralCode');
+
+      if (!isReferralCodeCollision || attempt === maxAttempts - 1) throw err;
+      // Retry with a new code
+    }
+  }
+  // Unreachable, but TypeScript needs it
+  throw new Error('Failed to generate unique referral code');
+}
+
+/**
+ * Look up the referrer for a given code. Returns the referrer's user ID,
+ * or null if the code is invalid.
+ *
+ * Called BEFORE user creation so the referral can be created atomically
+ * with the new user record.
+ *
+ * Note: self-referral via a second account is not prevented here — that's
+ * a policy/abuse concern, not a data integrity issue.
+ */
+export async function resolveReferrer(code: string): Promise<string | null> {
   const referrer = await prisma.user.findUnique({
     where: { referralCode: code },
     select: { id: true },
   });
 
-  if (!referrer || referrer.id === newUserId) return null;
-  return referrer.id;
+  return referrer?.id ?? null;
 }
 
 /**
@@ -116,14 +148,36 @@ export async function getReferralStats(userId: string) {
     select: { referralCode: true },
   });
 
-  // Backfill referral code for pre-migration users who don't have one
+  // Backfill referral code for pre-migration users who don't have one.
+  // Uses updateMany WHERE referralCode IS NULL to avoid overwriting a concurrent write,
+  // and retries on unique constraint violation (code collision with another user).
   if (!user.referralCode) {
-    const code = generateReferralCode();
-    user = await prisma.user.update({
-      where: { id: userId },
-      data: { referralCode: code },
-      select: { referralCode: true },
-    });
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const code = generateReferralCode();
+      try {
+        const result = await prisma.user.updateMany({
+          where: { id: userId, referralCode: null },
+          data: { referralCode: code },
+        });
+
+        if (result.count === 0) {
+          // Another request already set it — re-read
+          user = await prisma.user.findUniqueOrThrow({
+            where: { id: userId },
+            select: { referralCode: true },
+          });
+          break;
+        }
+
+        user = { referralCode: code };
+        break;
+      } catch (err) {
+        // P2002 = unique constraint violation (code collided with another user's code)
+        const isUniqueViolation = err instanceof Error && 'code' in err && (err as { code: string }).code === 'P2002';
+        if (!isUniqueViolation || attempt === 2) throw err;
+        // Retry with a new code
+      }
+    }
   }
 
   const [pendingCount, completedCount] = await Promise.all([

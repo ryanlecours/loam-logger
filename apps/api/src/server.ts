@@ -43,6 +43,7 @@ import spokesRouter from './routes/spokes';
 import emailUnsubscribeRouter from './routes/email.unsubscribe';
 import { googleRouter, emailRouter, deleteAccountRouter, passwordRouter, attachUser, verifyCsrf } from './auth/index';
 import webhooksStripe from './routes/webhooks.stripe';
+import { validateStripeConfig } from './lib/stripe';
 import referralRouter from './routes/referral';
 import mobileAuthRouter from './auth/mobile.route';
 
@@ -139,6 +140,7 @@ const startServer = async () => {
 
   // Stripe webhook must be registered before express.json() to access raw body for signature verification
   if (process.env.STRIPE_SECRET_KEY) {
+    validateStripeConfig(); // Fail fast if any Stripe env vars are missing
     app.use('/webhooks/stripe', express.raw({ type: 'application/json' }), webhooksStripe);
   }
 

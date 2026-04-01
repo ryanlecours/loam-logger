@@ -5,6 +5,7 @@ import { prisma } from '../lib/prisma';
 import { config } from '../config/env';
 import { generateReferralCode } from '../services/referral.service';
 
+
 export async function ensureUserFromGoogle(
   claims: GoogleClaims,
   tokens?: GoogleTokens

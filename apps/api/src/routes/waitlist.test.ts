@@ -33,6 +33,7 @@ jest.mock('../lib/logger', () => ({
 jest.mock('../services/referral.service', () => ({
   generateReferralCode: () => mockGenerateReferralCode(),
   resolveReferrer: (...args: unknown[]) => mockResolveReferrer(...args),
+  createUserWithReferralCode: async (fn: (code: string) => Promise<unknown>) => fn('abc12345'),
 }));
 
 jest.mock('../auth/password.utils', () => ({
