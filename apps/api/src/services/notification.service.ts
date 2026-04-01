@@ -179,8 +179,13 @@ export async function checkAndNotifyServiceDue(params: {
         },
       });
       newComponents.push(c);
-    } catch {
-      // Unique constraint violation — already claimed by a concurrent process
+    } catch (err: unknown) {
+      // Only swallow Prisma unique constraint violations (P2002) — rethrow anything else
+      const isPrismaUniqueViolation =
+        err instanceof Error &&
+        'code' in err &&
+        (err as { code: string }).code === 'P2002';
+      if (!isPrismaUniqueViolation) throw err;
     }
   }
 
@@ -213,7 +218,21 @@ export async function checkAndNotifyServiceDue(params: {
     data: { screen: 'bike', bikeId },
   });
 
-  return ticketId ?? undefined;
+  if (!ticketId) {
+    // Push failed — roll back dedup entries so the next ride sync can retry.
+    // Without this, a transient push failure would permanently suppress
+    // notifications for these components until the user services them.
+    await prisma.notificationLog.deleteMany({
+      where: {
+        userId,
+        componentId: { in: newComponents.map(c => c.componentId) },
+        notificationType: 'SERVICE_DUE',
+      },
+    });
+    return;
+  }
+
+  return ticketId;
 }
 
 /**

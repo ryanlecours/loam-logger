@@ -45,6 +45,14 @@ jest.mock('../lib/whoop-token', () => ({
   getValidWhoopToken: jest.fn(),
 }));
 
+jest.mock('../lib/queue/notification.queue', () => ({
+  enqueueReceiptCheck: jest.fn().mockResolvedValue(undefined),
+}));
+
+jest.mock('../services/notification.service', () => ({
+  fireRideNotifications: jest.fn().mockResolvedValue(undefined),
+}));
+
 jest.mock('../lib/location', () => ({
   deriveLocation: jest.fn().mockReturnValue('Derived Location'),
   shouldApplyAutoLocation: jest.fn().mockReturnValue(undefined),

@@ -14,7 +14,7 @@ const expo = new Expo();
  * the app or revoked notification permissions, so we clear their stored push token
  * to stop attempting future sends.
  */
-async function processReceiptCheck(job: Job<NotificationJobData, void, NotificationJobName>): Promise<void> {
+export async function processReceiptCheck(job: Job<NotificationJobData, void, NotificationJobName>): Promise<void> {
   const { userId, ticketIds } = job.data;
 
   logger.debug({ userId, ticketCount: ticketIds.length }, '[NotificationWorker] Checking receipts');

@@ -269,9 +269,11 @@ describe('notification.service', () => {
         serviceNotificationThreshold: 3,
       });
       // comp-1 create fails with unique constraint violation (already notified)
-      (mockPrisma.notificationLog.create as jest.Mock).mockRejectedValue(
-        new Error('Unique constraint failed on the fields: (`userId`,`componentId`,`notificationType`)')
+      const prismaError = Object.assign(
+        new Error('Unique constraint failed on the fields: (`userId`,`componentId`,`notificationType`)'),
+        { code: 'P2002' }
       );
+      (mockPrisma.notificationLog.create as jest.Mock).mockRejectedValue(prismaError);
 
       await checkAndNotifyServiceDue(baseParams);
 
@@ -295,6 +297,27 @@ describe('notification.service', () => {
           componentId: 'comp-1',
           notificationType: 'SERVICE_DUE',
         }),
+      });
+    });
+
+    it('should roll back dedup entries when push send fails', async () => {
+      (mockPrisma.bikeNotificationPreference.findUnique as jest.Mock).mockResolvedValue({
+        serviceNotificationsEnabled: true,
+        serviceNotificationMode: 'RIDES_BEFORE',
+        serviceNotificationThreshold: 3,
+      });
+      mockSendPushNotificationsAsync.mockResolvedValue([
+        { status: 'error', message: 'DeviceNotRegistered' },
+      ]);
+
+      await checkAndNotifyServiceDue(baseParams);
+
+      expect(mockPrisma.notificationLog.deleteMany).toHaveBeenCalledWith({
+        where: {
+          userId: 'user-1',
+          componentId: { in: ['comp-1'] },
+          notificationType: 'SERVICE_DUE',
+        },
       });
     });
 
