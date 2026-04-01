@@ -1,5 +1,6 @@
 import { Expo } from 'expo-server-sdk';
+import { config } from '../config/env';
 
 export const expo = new Expo({
-  accessToken: process.env.EXPO_ACCESS_TOKEN || undefined,
+  accessToken: config.expoAccessToken,
 });
