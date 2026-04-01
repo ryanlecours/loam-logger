@@ -248,6 +248,20 @@ r.post<Empty, void, GarminPingPayload>(
             return { status: 'skipped', reason: 'unknown_user' };
           }
 
+          // Check user's active data source
+          const user = await prisma.user.findUnique({
+            where: { id: userAccount.userId },
+            select: { activeDataSource: true },
+          });
+
+          if (user?.activeDataSource && user.activeDataSource !== 'garmin') {
+            logger.info(
+              { requestId, garminUserId, activeDataSource: user.activeDataSource },
+              '[Garmin PING] User active source is not Garmin, skipping callback'
+            );
+            return { status: 'skipped', reason: 'inactive_source' };
+          }
+
           const result = await enqueueCallbackJob({
             userId: userAccount.userId,
             provider: 'garmin',
@@ -330,6 +344,20 @@ r.post<Empty, void, GarminPingPayload>(
           if (!userAccount) {
             logger.warn({ requestId, garminUserId, summaryId }, '[Garmin PING] Unknown Garmin userId');
             return { status: 'skipped', summaryId, reason: 'unknown_user' };
+          }
+
+          // Check user's active data source
+          const user = await prisma.user.findUnique({
+            where: { id: userAccount.userId },
+            select: { activeDataSource: true },
+          });
+
+          if (user?.activeDataSource && user.activeDataSource !== 'garmin') {
+            logger.info(
+              { requestId, garminUserId, summaryId, activeDataSource: user.activeDataSource },
+              '[Garmin PING] User active source is not Garmin, skipping'
+            );
+            return { status: 'skipped', summaryId, reason: 'inactive_source' };
           }
 
           // Enqueue sync job with deterministic ID for deduplication

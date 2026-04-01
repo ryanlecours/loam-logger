@@ -71,11 +71,20 @@ r.post('/whoop', async (req: Request, res: Response) => {
     // Lookup our user by WHOOP user ID
     const user = await prisma.user.findUnique({
       where: { whoopUserId: user_id.toString() },
-      select: { id: true },
+      select: { id: true, activeDataSource: true },
     });
 
     if (!user) {
       logger.warn({ whoopUserId: user_id }, '[WHOOP Webhook] Unknown WHOOP user');
+      return;
+    }
+
+    // Check user's active data source
+    if (user.activeDataSource && user.activeDataSource !== 'whoop') {
+      logger.info(
+        { whoopUserId: user_id, activeDataSource: user.activeDataSource },
+        '[WHOOP Webhook] User active source is not WHOOP, skipping'
+      );
       return;
     }
 

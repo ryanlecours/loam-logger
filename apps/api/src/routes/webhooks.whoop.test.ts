@@ -140,12 +140,92 @@ describe('WHOOP Webhook Handler', () => {
 
       expect(prisma.user.findUnique).toHaveBeenCalledWith({
         where: { whoopUserId: '999999' },
-        select: { id: true },
+        select: { id: true, activeDataSource: true },
       });
       expect(logger.warn).toHaveBeenCalledWith(
         { whoopUserId: 999999 },
         '[WHOOP Webhook] Unknown WHOOP user'
       );
+    });
+
+    it('should skip processing when user active source is not whoop', async () => {
+      const handler = getRouteHandler('post', '/whoop');
+      const req = mockRequest({
+        body: {
+          user_id: 123456,
+          id: 'new-workout-uuid',
+          event_type: 'workout.created',
+          timestamp: '2024-01-15T10:00:00Z',
+        },
+      });
+      const res = mockResponse();
+
+      (prisma.user.findUnique as jest.Mock).mockResolvedValue({
+        id: 'user-123',
+        activeDataSource: 'strava',
+      });
+
+      await handler!(req as Request, res as Response);
+
+      expect(enqueueSyncJob).not.toHaveBeenCalled();
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.objectContaining({ activeDataSource: 'strava' }),
+        '[WHOOP Webhook] User active source is not WHOOP, skipping'
+      );
+    });
+
+    it('should proceed when activeDataSource is whoop', async () => {
+      const handler = getRouteHandler('post', '/whoop');
+      const req = mockRequest({
+        body: {
+          user_id: 123456,
+          id: 'new-workout-uuid',
+          event_type: 'workout.created',
+          timestamp: '2024-01-15T10:00:00Z',
+        },
+      });
+      const res = mockResponse();
+
+      (prisma.user.findUnique as jest.Mock).mockResolvedValue({
+        id: 'user-123',
+        activeDataSource: 'whoop',
+      });
+      (enqueueSyncJob as jest.Mock).mockResolvedValue(undefined);
+
+      await handler!(req as Request, res as Response);
+
+      expect(enqueueSyncJob).toHaveBeenCalledWith('syncActivity', {
+        userId: 'user-123',
+        provider: 'whoop',
+        activityId: 'new-workout-uuid',
+      });
+    });
+
+    it('should proceed when activeDataSource is null', async () => {
+      const handler = getRouteHandler('post', '/whoop');
+      const req = mockRequest({
+        body: {
+          user_id: 123456,
+          id: 'new-workout-uuid',
+          event_type: 'workout.created',
+          timestamp: '2024-01-15T10:00:00Z',
+        },
+      });
+      const res = mockResponse();
+
+      (prisma.user.findUnique as jest.Mock).mockResolvedValue({
+        id: 'user-123',
+        activeDataSource: null,
+      });
+      (enqueueSyncJob as jest.Mock).mockResolvedValue(undefined);
+
+      await handler!(req as Request, res as Response);
+
+      expect(enqueueSyncJob).toHaveBeenCalledWith('syncActivity', {
+        userId: 'user-123',
+        provider: 'whoop',
+        activityId: 'new-workout-uuid',
+      });
     });
 
     it('should delete ride on workout.deleted event', async () => {
@@ -160,7 +240,7 @@ describe('WHOOP Webhook Handler', () => {
       });
       const res = mockResponse();
 
-      (prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 'user-123' });
+      (prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 'user-123', activeDataSource: null });
       (prisma.ride.deleteMany as jest.Mock).mockResolvedValue({ count: 1 });
 
       await handler!(req as Request, res as Response);
@@ -186,7 +266,7 @@ describe('WHOOP Webhook Handler', () => {
       });
       const res = mockResponse();
 
-      (prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 'user-123' });
+      (prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 'user-123', activeDataSource: null });
       (prisma.ride.deleteMany as jest.Mock).mockResolvedValue({ count: 0 });
 
       await handler!(req as Request, res as Response);
@@ -209,7 +289,7 @@ describe('WHOOP Webhook Handler', () => {
       });
       const res = mockResponse();
 
-      (prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 'user-456' });
+      (prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 'user-456', activeDataSource: null });
       (enqueueSyncJob as jest.Mock).mockResolvedValue(undefined);
 
       await handler!(req as Request, res as Response);
@@ -237,7 +317,7 @@ describe('WHOOP Webhook Handler', () => {
       });
       const res = mockResponse();
 
-      (prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 'user-789' });
+      (prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 'user-789', activeDataSource: null });
       (enqueueSyncJob as jest.Mock).mockResolvedValue(undefined);
 
       await handler!(req as Request, res as Response);
@@ -261,7 +341,7 @@ describe('WHOOP Webhook Handler', () => {
       });
       const res = mockResponse();
 
-      (prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 'user-123' });
+      (prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 'user-123', activeDataSource: null });
 
       await handler!(req as Request, res as Response);
 

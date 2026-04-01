@@ -1,6 +1,9 @@
 // Mock dependencies before imports
 jest.mock('../lib/prisma', () => ({
   prisma: {
+    user: {
+      findUnique: jest.fn(),
+    },
     userAccount: {
       findUnique: jest.fn(),
       delete: jest.fn(),
@@ -54,6 +57,8 @@ describe('Garmin Webhooks', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    // Default: no active data source preference (allow all providers)
+    (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({ activeDataSource: null });
   });
 
   describe('POST /webhooks/garmin/deregistration', () => {
@@ -412,6 +417,86 @@ describe('Garmin Webhooks', () => {
 
         expect(response.status).toBe(200);
       });
+
+      it('should skip sync when user active source is not garmin', async () => {
+        (mockPrisma.userAccount.findUnique as jest.Mock).mockResolvedValue({
+          userId: 'internal-user-123',
+        });
+        (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({
+          activeDataSource: 'strava',
+        });
+
+        const response = await request(app)
+          .post('/webhooks/garmin/activities-ping')
+          .send({
+            activityDetails: [{
+              userId: 'garmin-user-123',
+              userAccessToken: 'token-xyz',
+              summaryId: 'summary-456',
+              uploadTimestampInSeconds: 1706123456,
+            }],
+          });
+
+        expect(response.status).toBe(200);
+
+        await new Promise(resolve => setImmediate(resolve));
+
+        expect(mockEnqueueSyncJob).not.toHaveBeenCalled();
+      });
+
+      it('should proceed when activeDataSource is garmin', async () => {
+        (mockPrisma.userAccount.findUnique as jest.Mock).mockResolvedValue({
+          userId: 'internal-user-123',
+        });
+        (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({
+          activeDataSource: 'garmin',
+        });
+        mockEnqueueSyncJob.mockResolvedValue({ status: 'queued', jobId: 'job-123' });
+
+        const response = await request(app)
+          .post('/webhooks/garmin/activities-ping')
+          .send({
+            activityDetails: [{
+              userId: 'garmin-user-123',
+              userAccessToken: 'token-xyz',
+              summaryId: 'summary-456',
+              uploadTimestampInSeconds: 1706123456,
+            }],
+          });
+
+        expect(response.status).toBe(200);
+
+        await new Promise(resolve => setImmediate(resolve));
+
+        expect(mockEnqueueSyncJob).toHaveBeenCalledTimes(1);
+      });
+
+      it('should proceed when activeDataSource is null', async () => {
+        (mockPrisma.userAccount.findUnique as jest.Mock).mockResolvedValue({
+          userId: 'internal-user-123',
+        });
+        (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({
+          activeDataSource: null,
+        });
+        mockEnqueueSyncJob.mockResolvedValue({ status: 'queued', jobId: 'job-123' });
+
+        const response = await request(app)
+          .post('/webhooks/garmin/activities-ping')
+          .send({
+            activityDetails: [{
+              userId: 'garmin-user-123',
+              userAccessToken: 'token-xyz',
+              summaryId: 'summary-456',
+              uploadTimestampInSeconds: 1706123456,
+            }],
+          });
+
+        expect(response.status).toBe(200);
+
+        await new Promise(resolve => setImmediate(resolve));
+
+        expect(mockEnqueueSyncJob).toHaveBeenCalledTimes(1);
+      });
     });
 
     describe('activities format (callback mode)', () => {
@@ -485,6 +570,30 @@ describe('Garmin Webhooks', () => {
         await new Promise(resolve => setImmediate(resolve));
 
         expect(mockEnqueueCallbackJob).toHaveBeenCalledTimes(2);
+      });
+
+      it('should skip callback when user active source is not garmin', async () => {
+        (mockPrisma.userAccount.findUnique as jest.Mock).mockResolvedValue({
+          userId: 'internal-user-123',
+        });
+        (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({
+          activeDataSource: 'strava',
+        });
+
+        const response = await request(app)
+          .post('/webhooks/garmin/activities-ping')
+          .send({
+            activities: [{
+              userId: 'garmin-user-123',
+              callbackURL: 'https://apis.garmin.com/callback/1',
+            }],
+          });
+
+        expect(response.status).toBe(200);
+
+        await new Promise(resolve => setImmediate(resolve));
+
+        expect(mockEnqueueCallbackJob).not.toHaveBeenCalled();
       });
     });
 
