@@ -1,9 +1,6 @@
 // Mock dependencies before imports
 jest.mock('../lib/prisma', () => ({
   prisma: {
-    user: {
-      findUnique: jest.fn(),
-    },
     userAccount: {
       findUnique: jest.fn(),
       delete: jest.fn(),
@@ -13,6 +10,11 @@ jest.mock('../lib/prisma', () => ({
     },
     $transaction: jest.fn(),
   },
+}));
+
+const mockIsActiveSource = jest.fn();
+jest.mock('../lib/active-source', () => ({
+  isActiveSource: (...args: unknown[]) => mockIsActiveSource(...args),
 }));
 
 jest.mock('../lib/logger', () => ({
@@ -57,8 +59,8 @@ describe('Garmin Webhooks', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    // Default: no active data source preference (allow all providers)
-    (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({ activeDataSource: null });
+    // Default: allow all providers (no active data source preference)
+    mockIsActiveSource.mockResolvedValue(true);
   });
 
   describe('POST /webhooks/garmin/deregistration', () => {
@@ -422,9 +424,7 @@ describe('Garmin Webhooks', () => {
         (mockPrisma.userAccount.findUnique as jest.Mock).mockResolvedValue({
           userId: 'internal-user-123',
         });
-        (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({
-          activeDataSource: 'strava',
-        });
+        mockIsActiveSource.mockResolvedValue(false);
 
         const response = await request(app)
           .post('/webhooks/garmin/activities-ping')
@@ -448,9 +448,7 @@ describe('Garmin Webhooks', () => {
         (mockPrisma.userAccount.findUnique as jest.Mock).mockResolvedValue({
           userId: 'internal-user-123',
         });
-        (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({
-          activeDataSource: 'garmin',
-        });
+        mockIsActiveSource.mockResolvedValue(true);
         mockEnqueueSyncJob.mockResolvedValue({ status: 'queued', jobId: 'job-123' });
 
         const response = await request(app)
@@ -475,9 +473,7 @@ describe('Garmin Webhooks', () => {
         (mockPrisma.userAccount.findUnique as jest.Mock).mockResolvedValue({
           userId: 'internal-user-123',
         });
-        (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({
-          activeDataSource: null,
-        });
+        mockIsActiveSource.mockResolvedValue(true);
         mockEnqueueSyncJob.mockResolvedValue({ status: 'queued', jobId: 'job-123' });
 
         const response = await request(app)
@@ -576,9 +572,7 @@ describe('Garmin Webhooks', () => {
         (mockPrisma.userAccount.findUnique as jest.Mock).mockResolvedValue({
           userId: 'internal-user-123',
         });
-        (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({
-          activeDataSource: 'strava',
-        });
+        mockIsActiveSource.mockResolvedValue(false);
 
         const response = await request(app)
           .post('/webhooks/garmin/activities-ping')

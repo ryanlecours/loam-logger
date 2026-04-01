@@ -4,6 +4,7 @@ import { prisma } from '../lib/prisma';
 import { logger, logError } from '../lib/logger';
 import { enqueueSyncJob } from '../lib/queue/sync.queue';
 import { enqueueCallbackJob } from '../lib/queue/backfill.queue';
+import { isActiveSource } from '../lib/active-source';
 
 type Empty = Record<string, never>;
 const r: Router = createRouter();
@@ -249,14 +250,9 @@ r.post<Empty, void, GarminPingPayload>(
           }
 
           // Check user's active data source
-          const user = await prisma.user.findUnique({
-            where: { id: userAccount.userId },
-            select: { activeDataSource: true },
-          });
-
-          if (user?.activeDataSource && user.activeDataSource !== 'garmin') {
+          if (!await isActiveSource(userAccount.userId, 'garmin')) {
             logger.info(
-              { requestId, garminUserId, activeDataSource: user.activeDataSource },
+              { requestId, garminUserId },
               '[Garmin PING] User active source is not Garmin, skipping callback'
             );
             return { status: 'skipped', reason: 'inactive_source' };
@@ -347,14 +343,9 @@ r.post<Empty, void, GarminPingPayload>(
           }
 
           // Check user's active data source
-          const user = await prisma.user.findUnique({
-            where: { id: userAccount.userId },
-            select: { activeDataSource: true },
-          });
-
-          if (user?.activeDataSource && user.activeDataSource !== 'garmin') {
+          if (!await isActiveSource(userAccount.userId, 'garmin')) {
             logger.info(
-              { requestId, garminUserId, summaryId, activeDataSource: user.activeDataSource },
+              { requestId, garminUserId, summaryId },
               '[Garmin PING] User active source is not Garmin, skipping'
             );
             return { status: 'skipped', summaryId, reason: 'inactive_source' };

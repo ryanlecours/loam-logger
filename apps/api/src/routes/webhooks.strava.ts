@@ -6,6 +6,7 @@ import { deriveLocationAsync, shouldApplyAutoLocation } from '../lib/location';
 import { incrementBikeComponentHours, decrementBikeComponentHours } from '../lib/component-hours';
 import { logError } from '../lib/logger';
 import { fireRideNotifications } from '../services/notification.service';
+import { isActiveSource } from '../lib/active-source';
 
 type Empty = Record<string, never>;
 const r: Router = createRouter();
@@ -240,13 +241,8 @@ async function processActivityEvent(event: StravaWebhookEvent): Promise<void> {
   console.log(`[Strava Activity Event] Found user: ${userAccount.userId}`);
 
   // Check user's active data source
-  const user = await prisma.user.findUnique({
-    where: { id: userAccount.userId },
-    select: { activeDataSource: true },
-  });
-
-  if (user?.activeDataSource && user.activeDataSource !== 'strava') {
-    console.log(`[Strava Activity Event] User's active source is ${user.activeDataSource}, skipping Strava activity`);
+  if (!await isActiveSource(userAccount.userId, 'strava')) {
+    console.log('[Strava Activity Event] User active source is not Strava, skipping');
     return;
   }
 
