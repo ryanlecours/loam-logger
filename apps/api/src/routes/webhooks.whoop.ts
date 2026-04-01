@@ -2,6 +2,7 @@ import { Router as createRouter, type Request, type Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { enqueueSyncJob } from '../lib/queue/sync.queue';
 import { logger } from '../lib/logger';
+import { isActiveSource } from '../lib/active-source';
 
 const r = createRouter();
 
@@ -76,6 +77,15 @@ r.post('/whoop', async (req: Request, res: Response) => {
 
     if (!user) {
       logger.warn({ whoopUserId: user_id }, '[WHOOP Webhook] Unknown WHOOP user');
+      return;
+    }
+
+    // Check user's active data source
+    if (!await isActiveSource(user.id, 'whoop')) {
+      logger.info(
+        { whoopUserId: user_id },
+        '[WHOOP Webhook] User active source is not WHOOP, skipping'
+      );
       return;
     }
 

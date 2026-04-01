@@ -12,6 +12,11 @@ jest.mock('../lib/prisma', () => ({
   },
 }));
 
+const mockIsActiveSource = jest.fn();
+jest.mock('../lib/active-source', () => ({
+  isActiveSource: (...args: unknown[]) => mockIsActiveSource(...args),
+}));
+
 jest.mock('../lib/logger', () => ({
   logger: {
     warn: jest.fn(),
@@ -54,6 +59,8 @@ describe('Garmin Webhooks', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    // Default: allow all providers (no active data source preference)
+    mockIsActiveSource.mockResolvedValue(true);
   });
 
   describe('POST /webhooks/garmin/deregistration', () => {
@@ -412,6 +419,80 @@ describe('Garmin Webhooks', () => {
 
         expect(response.status).toBe(200);
       });
+
+      it('should skip sync when user active source is not garmin', async () => {
+        (mockPrisma.userAccount.findUnique as jest.Mock).mockResolvedValue({
+          userId: 'internal-user-123',
+        });
+        mockIsActiveSource.mockResolvedValue(false);
+
+        const response = await request(app)
+          .post('/webhooks/garmin/activities-ping')
+          .send({
+            activityDetails: [{
+              userId: 'garmin-user-123',
+              userAccessToken: 'token-xyz',
+              summaryId: 'summary-456',
+              uploadTimestampInSeconds: 1706123456,
+            }],
+          });
+
+        expect(response.status).toBe(200);
+
+        await new Promise(resolve => setImmediate(resolve));
+
+        expect(mockEnqueueSyncJob).not.toHaveBeenCalled();
+      });
+
+      it('should proceed when activeDataSource is garmin', async () => {
+        (mockPrisma.userAccount.findUnique as jest.Mock).mockResolvedValue({
+          userId: 'internal-user-123',
+        });
+        mockIsActiveSource.mockResolvedValue(true);
+        mockEnqueueSyncJob.mockResolvedValue({ status: 'queued', jobId: 'job-123' });
+
+        const response = await request(app)
+          .post('/webhooks/garmin/activities-ping')
+          .send({
+            activityDetails: [{
+              userId: 'garmin-user-123',
+              userAccessToken: 'token-xyz',
+              summaryId: 'summary-456',
+              uploadTimestampInSeconds: 1706123456,
+            }],
+          });
+
+        expect(response.status).toBe(200);
+
+        await new Promise(resolve => setImmediate(resolve));
+
+        expect(mockEnqueueSyncJob).toHaveBeenCalledTimes(1);
+      });
+
+      it('should proceed when activeDataSource is null', async () => {
+        (mockPrisma.userAccount.findUnique as jest.Mock).mockResolvedValue({
+          userId: 'internal-user-123',
+        });
+        mockIsActiveSource.mockResolvedValue(true);
+        mockEnqueueSyncJob.mockResolvedValue({ status: 'queued', jobId: 'job-123' });
+
+        const response = await request(app)
+          .post('/webhooks/garmin/activities-ping')
+          .send({
+            activityDetails: [{
+              userId: 'garmin-user-123',
+              userAccessToken: 'token-xyz',
+              summaryId: 'summary-456',
+              uploadTimestampInSeconds: 1706123456,
+            }],
+          });
+
+        expect(response.status).toBe(200);
+
+        await new Promise(resolve => setImmediate(resolve));
+
+        expect(mockEnqueueSyncJob).toHaveBeenCalledTimes(1);
+      });
     });
 
     describe('activities format (callback mode)', () => {
@@ -485,6 +566,28 @@ describe('Garmin Webhooks', () => {
         await new Promise(resolve => setImmediate(resolve));
 
         expect(mockEnqueueCallbackJob).toHaveBeenCalledTimes(2);
+      });
+
+      it('should skip callback when user active source is not garmin', async () => {
+        (mockPrisma.userAccount.findUnique as jest.Mock).mockResolvedValue({
+          userId: 'internal-user-123',
+        });
+        mockIsActiveSource.mockResolvedValue(false);
+
+        const response = await request(app)
+          .post('/webhooks/garmin/activities-ping')
+          .send({
+            activities: [{
+              userId: 'garmin-user-123',
+              callbackURL: 'https://apis.garmin.com/callback/1',
+            }],
+          });
+
+        expect(response.status).toBe(200);
+
+        await new Promise(resolve => setImmediate(resolve));
+
+        expect(mockEnqueueCallbackJob).not.toHaveBeenCalled();
       });
     });
 

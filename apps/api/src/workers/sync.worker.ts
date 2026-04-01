@@ -449,7 +449,7 @@ async function syncGarminActivity(userId: string, activityId: string): Promise<v
 
   try {
     const response = await fetch(
-      `${config.garminApiBase}/rest/activityFile/${activityId}`,
+      `${config.garminApiBase}/rest/activities/${activityId}`,
       {
         headers: {
           Authorization: `Bearer ${accessToken}`,

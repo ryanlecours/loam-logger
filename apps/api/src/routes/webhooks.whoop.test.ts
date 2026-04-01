@@ -26,6 +26,11 @@ jest.mock('../lib/logger', () => ({
   },
 }));
 
+const mockIsActiveSource = jest.fn();
+jest.mock('../lib/active-source', () => ({
+  isActiveSource: (...args: unknown[]) => mockIsActiveSource(...args),
+}));
+
 import { prisma } from '../lib/prisma';
 import { enqueueSyncJob } from '../lib/queue/sync.queue';
 import { logger } from '../lib/logger';
@@ -60,6 +65,7 @@ describe('WHOOP Webhook Handler', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockIsActiveSource.mockResolvedValue(true);
   });
 
   describe('GET /whoop (verification)', () => {
@@ -146,6 +152,52 @@ describe('WHOOP Webhook Handler', () => {
         { whoopUserId: 999999 },
         '[WHOOP Webhook] Unknown WHOOP user'
       );
+    });
+
+    it('should skip processing when user active source is not whoop', async () => {
+      const handler = getRouteHandler('post', '/whoop');
+      const req = mockRequest({
+        body: {
+          user_id: 123456,
+          id: 'new-workout-uuid',
+          event_type: 'workout.created',
+          timestamp: '2024-01-15T10:00:00Z',
+        },
+      });
+      const res = mockResponse();
+
+      (prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 'user-123' });
+      mockIsActiveSource.mockResolvedValue(false);
+
+      await handler!(req as Request, res as Response);
+
+      expect(enqueueSyncJob).not.toHaveBeenCalled();
+      expect(mockIsActiveSource).toHaveBeenCalledWith('user-123', 'whoop');
+    });
+
+    it('should proceed when active source is whoop', async () => {
+      const handler = getRouteHandler('post', '/whoop');
+      const req = mockRequest({
+        body: {
+          user_id: 123456,
+          id: 'new-workout-uuid',
+          event_type: 'workout.created',
+          timestamp: '2024-01-15T10:00:00Z',
+        },
+      });
+      const res = mockResponse();
+
+      (prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 'user-123' });
+      mockIsActiveSource.mockResolvedValue(true);
+      (enqueueSyncJob as jest.Mock).mockResolvedValue(undefined);
+
+      await handler!(req as Request, res as Response);
+
+      expect(enqueueSyncJob).toHaveBeenCalledWith('syncActivity', {
+        userId: 'user-123',
+        provider: 'whoop',
+        activityId: 'new-workout-uuid',
+      });
     });
 
     it('should delete ride on workout.deleted event', async () => {

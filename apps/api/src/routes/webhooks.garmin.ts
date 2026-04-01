@@ -4,6 +4,7 @@ import { prisma } from '../lib/prisma';
 import { logger, logError } from '../lib/logger';
 import { enqueueSyncJob } from '../lib/queue/sync.queue';
 import { enqueueCallbackJob } from '../lib/queue/backfill.queue';
+import { isActiveSource } from '../lib/active-source';
 
 type Empty = Record<string, never>;
 const r: Router = createRouter();
@@ -248,6 +249,15 @@ r.post<Empty, void, GarminPingPayload>(
             return { status: 'skipped', reason: 'unknown_user' };
           }
 
+          // Check user's active data source
+          if (!await isActiveSource(userAccount.userId, 'garmin')) {
+            logger.info(
+              { requestId, garminUserId },
+              '[Garmin PING] User active source is not Garmin, skipping callback'
+            );
+            return { status: 'skipped', reason: 'inactive_source' };
+          }
+
           const result = await enqueueCallbackJob({
             userId: userAccount.userId,
             provider: 'garmin',
@@ -330,6 +340,15 @@ r.post<Empty, void, GarminPingPayload>(
           if (!userAccount) {
             logger.warn({ requestId, garminUserId, summaryId }, '[Garmin PING] Unknown Garmin userId');
             return { status: 'skipped', summaryId, reason: 'unknown_user' };
+          }
+
+          // Check user's active data source
+          if (!await isActiveSource(userAccount.userId, 'garmin')) {
+            logger.info(
+              { requestId, garminUserId, summaryId },
+              '[Garmin PING] User active source is not Garmin, skipping'
+            );
+            return { status: 'skipped', summaryId, reason: 'inactive_source' };
           }
 
           // Enqueue sync job with deterministic ID for deduplication
