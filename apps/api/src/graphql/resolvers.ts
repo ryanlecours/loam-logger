@@ -12,6 +12,7 @@ import type {
 import { checkRateLimit, checkMutationRateLimit, checkQueryRateLimit } from '../lib/rate-limit';
 import { enqueueSyncJob, type SyncProvider } from '../lib/queue';
 import { invalidateBikePrediction } from '../services/prediction/cache';
+import { clearServiceNotificationLogs, isValidExpoPushToken } from '../services/notification.service';
 import { getBaseInterval, BASE_INTERVALS_HOURS, DEFAULT_INTERVAL_HOURS } from '../services/prediction/config';
 import {
   getApplicableComponents,
@@ -28,7 +29,7 @@ import { createId } from '@paralleldrive/cuid2';
 import { logError } from '../lib/logger';
 import { config } from '../config/env';
 import { checkRecentAuth } from '../auth/recent-auth';
-import type { AcquisitionCondition, BaselineMethod, BaselineConfidence } from '@prisma/client';
+import type { AcquisitionCondition, BaselineMethod, BaselineConfidence, ServiceNotificationMode } from '@prisma/client';
 import { getBikeById, isSpokesConfigured } from '../services/spokes';
 import { parseISO } from 'date-fns';
 import { incrementBikeComponentHours, decrementBikeComponentHours } from '../lib/component-hours';
@@ -1643,6 +1644,11 @@ export const resolvers = {
           pairedComponentConfigs: input.pairedComponentConfigs,
         });
 
+        // Create default notification preference for the new bike
+        await tx.bikeNotificationPreference.create({
+          data: { bikeId: bike.id },
+        });
+
         return tx.bike.findUnique({
           where: { id: bike.id },
           include: { components: true },
@@ -2030,6 +2036,9 @@ export const resolvers = {
         await invalidateBikePrediction(userId, existing.bikeId);
       }
 
+      // Clear notification dedup logs so this component can trigger notifications again
+      clearServiceNotificationLogs(id, userId).catch((err) => logError('clearServiceNotificationLogs', err));
+
       return updated;
     },
 
@@ -2099,6 +2108,9 @@ export const resolvers = {
       if (component.bikeId) {
         await invalidateBikePrediction(userId, component.bikeId);
       }
+
+      // Clear notification dedup logs so this component can trigger notifications again
+      clearServiceNotificationLogs(input.componentId, userId).catch((err) => logError('clearServiceNotificationLogs', err));
 
       return serviceLog;
     },
@@ -2495,12 +2507,19 @@ export const resolvers = {
 
     updateUserPreferences: async (
       _: unknown,
-      { input }: { input: { hoursDisplayPreference?: string | null; predictionMode?: string | null; distanceUnit?: string | null } },
+      { input }: { input: { hoursDisplayPreference?: string | null; predictionMode?: string | null; distanceUnit?: string | null; expoPushToken?: string | null; notifyOnRideUpload?: boolean | null } },
       ctx: GraphQLContext
     ) => {
       const userId = requireUserId(ctx);
 
-      const updateData: { hoursDisplayPreference?: string | null; predictionMode?: string | null; distanceUnit?: string | null } = {};
+      const rateLimit = await checkMutationRateLimit('updateUserPreferences', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
+
+      const updateData: { hoursDisplayPreference?: string | null; predictionMode?: string | null; distanceUnit?: string | null; expoPushToken?: string | null; notifyOnRideUpload?: boolean } = {};
 
       if (input.hoursDisplayPreference !== undefined) {
         // Input length validation to prevent DoS/excessive storage
@@ -2553,6 +2572,26 @@ export const resolvers = {
           });
         }
         updateData.distanceUnit = input.distanceUnit;
+      }
+
+      if (input.expoPushToken !== undefined) {
+        if (input.expoPushToken !== null) {
+          if (input.expoPushToken.length > 200) {
+            throw new GraphQLError('expoPushToken exceeds maximum length', {
+              extensions: { code: 'BAD_USER_INPUT' },
+            });
+          }
+          if (!isValidExpoPushToken(input.expoPushToken)) {
+            throw new GraphQLError('expoPushToken is not a valid Expo push token', {
+              extensions: { code: 'BAD_USER_INPUT' },
+            });
+          }
+        }
+        updateData.expoPushToken = input.expoPushToken;
+      }
+
+      if (input.notifyOnRideUpload !== undefined && input.notifyOnRideUpload !== null) {
+        updateData.notifyOnRideUpload = input.notifyOnRideUpload;
       }
 
       if (Object.keys(updateData).length === 0) {
@@ -2688,6 +2727,72 @@ export const resolvers = {
       await invalidateBikePrediction(userId, input.bikeId);
 
       return results;
+    },
+
+    updateBikeNotificationPreference: async (
+      _: unknown,
+      { input }: { input: { bikeId: string; serviceNotificationsEnabled?: boolean | null; serviceNotificationMode?: string | null; serviceNotificationThreshold?: number | null } },
+      ctx: GraphQLContext
+    ) => {
+      const userId = requireUserId(ctx);
+
+      const rateLimit = await checkMutationRateLimit('updateBikeNotificationPreference', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
+
+      // Verify bike belongs to user
+      const bike = await prisma.bike.findUnique({
+        where: { id: input.bikeId },
+        select: { userId: true },
+      });
+
+      if (!bike || bike.userId !== userId) {
+        throw new GraphQLError('Bike not found', {
+          extensions: { code: 'NOT_FOUND' },
+        });
+      }
+
+      // Validate serviceNotificationMode
+      const validModes = ['RIDES_BEFORE', 'HOURS_BEFORE', 'AT_SERVICE'];
+      if (input.serviceNotificationMode !== undefined && input.serviceNotificationMode !== null) {
+        if (!validModes.includes(input.serviceNotificationMode)) {
+          throw new GraphQLError('Invalid serviceNotificationMode', {
+            extensions: { code: 'BAD_USER_INPUT' },
+          });
+        }
+      }
+
+      // Validate threshold (1-100 range)
+      if (input.serviceNotificationThreshold !== undefined && input.serviceNotificationThreshold !== null) {
+        if (input.serviceNotificationThreshold < 1 || input.serviceNotificationThreshold > 100) {
+          throw new GraphQLError('serviceNotificationThreshold must be between 1 and 100', {
+            extensions: { code: 'BAD_USER_INPUT' },
+          });
+        }
+      }
+
+      const updateData: Prisma.BikeNotificationPreferenceUpdateInput = {};
+      if (input.serviceNotificationsEnabled !== undefined && input.serviceNotificationsEnabled !== null) {
+        updateData.serviceNotificationsEnabled = input.serviceNotificationsEnabled;
+      }
+      if (input.serviceNotificationMode !== undefined && input.serviceNotificationMode !== null) {
+        updateData.serviceNotificationMode = input.serviceNotificationMode as ServiceNotificationMode;
+      }
+      if (input.serviceNotificationThreshold !== undefined && input.serviceNotificationThreshold !== null) {
+        updateData.serviceNotificationThreshold = input.serviceNotificationThreshold;
+      }
+
+      return prisma.bikeNotificationPreference.upsert({
+        where: { bikeId: input.bikeId },
+        create: {
+          bikeId: input.bikeId,
+          ...updateData,
+        },
+        update: updateData,
+      });
     },
 
     addBikeNote: async (
@@ -3876,6 +3981,11 @@ export const resolvers = {
         where: { bikeId: bike.id },
       });
     },
+    notificationPreference: async (bike: Bike) => {
+      return prisma.bikeNotificationPreference.findUnique({
+        where: { bikeId: bike.id },
+      });
+    },
   },
 
   Ride: {
@@ -3953,6 +4063,7 @@ export const resolvers = {
     },
     pairedComponentMigrationSeenAt: (parent: { pairedComponentMigrationSeenAt?: Date | null }) =>
       parent.pairedComponentMigrationSeenAt?.toISOString() ?? null,
+    notifyOnRideUpload: (parent: { notifyOnRideUpload?: boolean }) => parent.notifyOnRideUpload ?? true,
     createdAt: (parent: { createdAt: Date }) => parent.createdAt.toISOString(),
     servicePreferences: async (parent: { id: string }) => {
       return prisma.userServicePreference.findMany({

@@ -251,6 +251,7 @@ export const typeDefs = gql`
     components: [Component!]!
     predictions: BikePredictionSummary
     servicePreferences: [BikeServicePreference!]!
+    notificationPreference: BikeNotificationPreference
     createdAt: String!
     updatedAt: String!
   }
@@ -527,6 +528,29 @@ export const typeDefs = gql`
     hoursDisplayPreference: String
     predictionMode: String
     distanceUnit: String
+    expoPushToken: String
+    notifyOnRideUpload: Boolean
+  }
+
+  # Push notification preferences
+  enum ServiceNotificationMode {
+    RIDES_BEFORE
+    HOURS_BEFORE
+    AT_SERVICE
+  }
+
+  type BikeNotificationPreference {
+    bikeId: ID!
+    serviceNotificationsEnabled: Boolean!
+    serviceNotificationMode: ServiceNotificationMode!
+    serviceNotificationThreshold: Int!
+  }
+
+  input UpdateBikeNotificationPreferenceInput {
+    bikeId: ID!
+    serviceNotificationsEnabled: Boolean
+    serviceNotificationMode: ServiceNotificationMode
+    serviceNotificationThreshold: Int
   }
 
   # Service Preferences
@@ -759,6 +783,7 @@ export const typeDefs = gql`
     migratePairedComponents: MigratePairedComponentsResult!
     updateServicePreferences(input: UpdateServicePreferencesInput!): [UserServicePreference!]!
     updateBikeServicePreferences(input: UpdateBikeServicePreferencesInput!): [BikeServicePreference!]!
+    updateBikeNotificationPreference(input: UpdateBikeNotificationPreferenceInput!): BikeNotificationPreference!
     addBikeNote(input: AddBikeNoteInput!): BikeNote!
     deleteBikeNote(id: ID!): DeleteResult!
   }
@@ -790,6 +815,7 @@ export const typeDefs = gql`
     distanceUnit: String
     pairedComponentMigrationSeenAt: String
     servicePreferences: [UserServicePreference!]!
+    notifyOnRideUpload: Boolean!
     createdAt: String!
   }
 

@@ -14,4 +14,10 @@ export const config = {
    * Base URL for Garmin Wellness API.
    */
   garminApiBase: process.env.GARMIN_API_BASE || 'https://apis.garmin.com/wellness-api',
+
+  /**
+   * Optional Expo push notification access token.
+   * Without it the SDK uses anonymous access (lower rate limits).
+   */
+  expoAccessToken: process.env.EXPO_ACCESS_TOKEN || undefined,
 } as const;

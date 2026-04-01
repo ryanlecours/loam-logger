@@ -5,6 +5,7 @@ import { getValidStravaToken } from '../lib/strava-token';
 import { deriveLocationAsync, shouldApplyAutoLocation } from '../lib/location';
 import { incrementBikeComponentHours, decrementBikeComponentHours } from '../lib/component-hours';
 import { logError } from '../lib/logger';
+import { fireRideNotifications } from '../services/notification.service';
 
 type Empty = Record<string, never>;
 const r: Router = createRouter();
@@ -352,10 +353,10 @@ async function processActivityEvent(event: StravaWebhookEvent): Promise<void> {
 
       const autoLocation = await extractStravaLocation(activity);
 
-      await prisma.$transaction(async (tx) => {
+      const { syncedRideId, isNewRide } = await prisma.$transaction(async (tx) => {
         const existing = await tx.ride.findUnique({
           where: { stravaActivityId: activityId.toString() },
-          select: { durationSeconds: true, bikeId: true, location: true },
+          select: { id: true, durationSeconds: true, bikeId: true, location: true },
         });
 
         const locationUpdate = shouldApplyAutoLocation(existing?.location ?? null, autoLocation?.title ?? null);
@@ -404,9 +405,23 @@ async function processActivityEvent(event: StravaWebhookEvent): Promise<void> {
             durationSeconds: ride.durationSeconds,
           }
         );
+
+        return { syncedRideId: ride.id, isNewRide: !existing };
       });
 
       console.log(`[Strava Activity Event] Successfully stored ride for activity ${activityId}`);
+
+      // Fire-and-forget notifications for new rides
+      if (syncedRideId) {
+        fireRideNotifications({
+          userId: userAccount.userId,
+          rideId: syncedRideId,
+          bikeId,
+          durationSeconds: activity.moving_time,
+          distanceMeters,
+          isNewRide,
+        }).catch(() => {}); // swallow - already logged internally
+      }
     } catch (error) {
       logError(`Strava Activity Event ${activityId}`, error);
       throw error;

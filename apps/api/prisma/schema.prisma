@@ -54,6 +54,11 @@ model User {
   bikeNotes           BikeNote[]
   oauthAttempts       OAuthAttempt[]
   integrations        UserIntegration[]
+  notificationLogs    NotificationLog[]
+
+  // Push notification preferences
+  expoPushToken       String?
+  notifyOnRideUpload  Boolean             @default(true)
 }
 
 model OauthToken {
@@ -151,9 +156,11 @@ model Bike {
   components           Component[]
   Ride                 Ride[]
   stravaGearMappings   StravaGearMapping[]
-  servicePreferences   BikeServicePreference[]
-  installs             BikeComponentInstall[]
-  bikeNotes            BikeNote[]
+  servicePreferences       BikeServicePreference[]
+  notificationPreference   BikeNotificationPreference?
+  notificationLogs         NotificationLog[]
+  installs                 BikeComponentInstall[]
+  bikeNotes                BikeNote[]
 
   @@index([spokesId])
   @@index([userId, status])
@@ -205,6 +212,7 @@ model Component {
   bike                  Bike?              @relation(fields: [bikeId], references: [id])
   user                  User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   serviceLogs           ServiceLog[]
+  notificationLogs      NotificationLog[]
   installs              BikeComponentInstall[]
 
   // Self-referential relation for replacement chain
@@ -594,4 +602,43 @@ model BikeNote {
   @@index([bikeId])
   @@index([userId])
   @@index([bikeId, createdAt])
+}
+
+enum ServiceNotificationMode {
+  RIDES_BEFORE
+  HOURS_BEFORE
+  AT_SERVICE
+}
+
+model BikeNotificationPreference {
+  id                          String                  @id @default(uuid())
+  bikeId                      String                  @unique
+  serviceNotificationsEnabled Boolean                 @default(true)
+  serviceNotificationMode     ServiceNotificationMode @default(RIDES_BEFORE)
+  serviceNotificationThreshold Int                    @default(3)
+  createdAt                   DateTime                @default(now())
+  updatedAt                   DateTime                @updatedAt
+  bike                        Bike                    @relation(fields: [bikeId], references: [id], onDelete: Cascade)
+}
+
+enum NotificationType {
+  RIDE_UPLOADED
+  SERVICE_DUE
+}
+
+model NotificationLog {
+  id               String           @id @default(uuid())
+  userId           String
+  bikeId           String?
+  componentId      String?
+  notificationType NotificationType
+  sentAt           DateTime         @default(now())
+  user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bike             Bike?            @relation(fields: [bikeId], references: [id], onDelete: Cascade)
+  component        Component?       @relation(fields: [componentId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, componentId, notificationType])
+  @@index([userId])
+  @@index([componentId])
+  @@index([bikeId])
 }

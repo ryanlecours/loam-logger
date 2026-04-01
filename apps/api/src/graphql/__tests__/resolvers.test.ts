@@ -44,6 +44,10 @@ jest.mock('../../lib/prisma', () => ({
       upsert: jest.fn(),
       deleteMany: jest.fn(),
     },
+    bikeNotificationPreference: {
+      findUnique: jest.fn(),
+      upsert: jest.fn(),
+    },
     bikeComponentInstall: {
       findFirst: jest.fn(),
       create: jest.fn(),
@@ -59,6 +63,11 @@ jest.mock('../../lib/rate-limit', () => ({
 
 jest.mock('../../services/prediction/cache', () => ({
   invalidateBikePrediction: jest.fn().mockResolvedValue(undefined),
+}));
+
+jest.mock('../../services/notification.service', () => ({
+  clearServiceNotificationLogs: jest.fn().mockResolvedValue(undefined),
+  isValidExpoPushToken: jest.fn((token: string) => token.startsWith('ExponentPushToken[') || token.startsWith('ExpoPushToken[')),
 }));
 
 import { resolvers } from '../resolvers';
@@ -1663,6 +1672,38 @@ describe('GraphQL Resolvers', () => {
     });
   });
 
+  describe('Bike.notificationPreference', () => {
+    const resolver = resolvers.Bike.notificationPreference;
+
+    it('should fetch notification preference from database', async () => {
+      const bike = { id: 'bike-1' };
+      const mockPref = {
+        id: 'pref-1',
+        bikeId: 'bike-1',
+        serviceNotificationsEnabled: true,
+        serviceNotificationMode: 'RIDES_BEFORE',
+        serviceNotificationThreshold: 3,
+      };
+      (mockPrisma.bikeNotificationPreference.findUnique as jest.Mock).mockResolvedValue(mockPref);
+
+      const result = await resolver(bike as never, {}, {} as never);
+
+      expect(mockPrisma.bikeNotificationPreference.findUnique).toHaveBeenCalledWith({
+        where: { bikeId: 'bike-1' },
+      });
+      expect(result).toEqual(mockPref);
+    });
+
+    it('should return null when no preference exists', async () => {
+      const bike = { id: 'bike-1' };
+      (mockPrisma.bikeNotificationPreference.findUnique as jest.Mock).mockResolvedValue(null);
+
+      const result = await resolver(bike as never, {}, {} as never);
+
+      expect(result).toBeNull();
+    });
+  });
+
   describe('rides query with bikeId filter', () => {
     const query = resolvers.Query.rides;
 
@@ -2514,6 +2555,219 @@ describe('GraphQL Resolvers', () => {
       });
       expect(mockTx.stravaGearMapping.deleteMany).toHaveBeenCalledWith({ where: { bikeId: 'bike-1' } });
       expect(mockTx.bike.delete).toHaveBeenCalledWith({ where: { id: 'bike-1' } });
+    });
+  });
+
+  describe('updateUserPreferences', () => {
+    const mutation = resolvers.Mutation.updateUserPreferences;
+
+    it('should update expoPushToken', async () => {
+      const ctx = createMockContext();
+      (mockPrisma.user.update as jest.Mock).mockResolvedValue({ id: 'user-123' });
+
+      await mutation(null, { input: { expoPushToken: 'ExponentPushToken[abc]' } }, ctx);
+
+      expect(mockPrisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'user-123' },
+        data: { expoPushToken: 'ExponentPushToken[abc]' },
+      });
+    });
+
+    it('should update notifyOnRideUpload', async () => {
+      const ctx = createMockContext();
+      (mockPrisma.user.update as jest.Mock).mockResolvedValue({ id: 'user-123' });
+
+      await mutation(null, { input: { notifyOnRideUpload: false } }, ctx);
+
+      expect(mockPrisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'user-123' },
+        data: { notifyOnRideUpload: false },
+      });
+    });
+
+    it('should reject expoPushToken exceeding max length', async () => {
+      const ctx = createMockContext();
+      const longToken = 'a'.repeat(201);
+
+      await expect(
+        mutation(null, { input: { expoPushToken: longToken } }, ctx)
+      ).rejects.toThrow('expoPushToken exceeds maximum length');
+    });
+
+    it('should reject expoPushToken with invalid format', async () => {
+      const ctx = createMockContext();
+
+      await expect(
+        mutation(null, { input: { expoPushToken: 'not-a-valid-token' } }, ctx)
+      ).rejects.toThrow('expoPushToken is not a valid Expo push token');
+    });
+
+    it('should allow clearing expoPushToken with null', async () => {
+      const ctx = createMockContext();
+      (mockPrisma.user.update as jest.Mock).mockResolvedValue({ id: 'user-123' });
+
+      await mutation(null, { input: { expoPushToken: null } }, ctx);
+
+      expect(mockPrisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'user-123' },
+        data: { expoPushToken: null },
+      });
+    });
+  });
+
+  describe('updateBikeNotificationPreference', () => {
+    const mutation = resolvers.Mutation.updateBikeNotificationPreference;
+
+    it('should upsert notification preference for owned bike', async () => {
+      const ctx = createMockContext();
+      (mockPrisma.bike.findUnique as jest.Mock).mockResolvedValue({ userId: 'user-123' });
+      (mockPrisma.bikeNotificationPreference.upsert as jest.Mock).mockResolvedValue({
+        bikeId: 'bike-1',
+        serviceNotificationsEnabled: false,
+        serviceNotificationMode: 'RIDES_BEFORE',
+        serviceNotificationThreshold: 3,
+      });
+
+      const result = await mutation(
+        null,
+        { input: { bikeId: 'bike-1', serviceNotificationsEnabled: false } },
+        ctx
+      );
+
+      expect(mockPrisma.bikeNotificationPreference.upsert).toHaveBeenCalledWith({
+        where: { bikeId: 'bike-1' },
+        create: { bikeId: 'bike-1', serviceNotificationsEnabled: false },
+        update: { serviceNotificationsEnabled: false },
+      });
+      expect(result.serviceNotificationsEnabled).toBe(false);
+    });
+
+    it('should reject if bike not found', async () => {
+      const ctx = createMockContext();
+      (mockPrisma.bike.findUnique as jest.Mock).mockResolvedValue(null);
+
+      await expect(
+        mutation(null, { input: { bikeId: 'bike-999' } }, ctx)
+      ).rejects.toThrow('Bike not found');
+    });
+
+    it('should reject if bike belongs to another user', async () => {
+      const ctx = createMockContext();
+      (mockPrisma.bike.findUnique as jest.Mock).mockResolvedValue({ userId: 'other-user' });
+
+      await expect(
+        mutation(null, { input: { bikeId: 'bike-1' } }, ctx)
+      ).rejects.toThrow('Bike not found');
+    });
+
+    it('should reject invalid serviceNotificationMode', async () => {
+      const ctx = createMockContext();
+      (mockPrisma.bike.findUnique as jest.Mock).mockResolvedValue({ userId: 'user-123' });
+
+      await expect(
+        mutation(
+          null,
+          { input: { bikeId: 'bike-1', serviceNotificationMode: 'INVALID_MODE' } },
+          ctx
+        )
+      ).rejects.toThrow('Invalid serviceNotificationMode');
+    });
+
+    it('should reject threshold below 1', async () => {
+      const ctx = createMockContext();
+      (mockPrisma.bike.findUnique as jest.Mock).mockResolvedValue({ userId: 'user-123' });
+
+      await expect(
+        mutation(
+          null,
+          { input: { bikeId: 'bike-1', serviceNotificationThreshold: 0 } },
+          ctx
+        )
+      ).rejects.toThrow('serviceNotificationThreshold must be between 1 and 100');
+    });
+
+    it('should reject threshold above 100', async () => {
+      const ctx = createMockContext();
+      (mockPrisma.bike.findUnique as jest.Mock).mockResolvedValue({ userId: 'user-123' });
+
+      await expect(
+        mutation(
+          null,
+          { input: { bikeId: 'bike-1', serviceNotificationThreshold: 101 } },
+          ctx
+        )
+      ).rejects.toThrow('serviceNotificationThreshold must be between 1 and 100');
+    });
+
+    it('should update serviceNotificationMode', async () => {
+      const ctx = createMockContext();
+      (mockPrisma.bike.findUnique as jest.Mock).mockResolvedValue({ userId: 'user-123' });
+      (mockPrisma.bikeNotificationPreference.upsert as jest.Mock).mockResolvedValue({
+        bikeId: 'bike-1',
+        serviceNotificationsEnabled: true,
+        serviceNotificationMode: 'HOURS_BEFORE',
+        serviceNotificationThreshold: 3,
+      });
+
+      await mutation(
+        null,
+        { input: { bikeId: 'bike-1', serviceNotificationMode: 'HOURS_BEFORE' } },
+        ctx
+      );
+
+      expect(mockPrisma.bikeNotificationPreference.upsert).toHaveBeenCalledWith({
+        where: { bikeId: 'bike-1' },
+        create: { bikeId: 'bike-1', serviceNotificationMode: 'HOURS_BEFORE' },
+        update: { serviceNotificationMode: 'HOURS_BEFORE' },
+      });
+    });
+
+    it('should update serviceNotificationThreshold', async () => {
+      const ctx = createMockContext();
+      (mockPrisma.bike.findUnique as jest.Mock).mockResolvedValue({ userId: 'user-123' });
+      (mockPrisma.bikeNotificationPreference.upsert as jest.Mock).mockResolvedValue({
+        bikeId: 'bike-1',
+        serviceNotificationsEnabled: true,
+        serviceNotificationMode: 'RIDES_BEFORE',
+        serviceNotificationThreshold: 5,
+      });
+
+      await mutation(
+        null,
+        { input: { bikeId: 'bike-1', serviceNotificationThreshold: 5 } },
+        ctx
+      );
+
+      expect(mockPrisma.bikeNotificationPreference.upsert).toHaveBeenCalledWith({
+        where: { bikeId: 'bike-1' },
+        create: { bikeId: 'bike-1', serviceNotificationThreshold: 5 },
+        update: { serviceNotificationThreshold: 5 },
+      });
+    });
+  });
+
+  describe('logComponentService - notification dedup reset', () => {
+    const mutation = resolvers.Mutation.logComponentService;
+
+    it('should clear notification logs after servicing a component', async () => {
+      const ctx = createMockContext();
+      const { clearServiceNotificationLogs } = jest.requireMock<typeof import('../../services/notification.service')>('../../services/notification.service');
+
+      (mockPrisma.component.findUnique as jest.Mock).mockResolvedValue({
+        userId: 'user-123',
+        bikeId: 'bike-1',
+        hoursUsed: 50,
+      });
+
+      const mockTx = {
+        serviceLog: { create: jest.fn() },
+        component: { update: jest.fn().mockResolvedValue({ id: 'comp-1' }) },
+      };
+      (mockPrisma.$transaction as jest.Mock).mockImplementation((fn: (...args: unknown[]) => unknown) => fn(mockTx));
+
+      await mutation(null, { id: 'comp-1' }, ctx);
+
+      expect(clearServiceNotificationLogs).toHaveBeenCalledWith('comp-1', 'user-123');
     });
   });
 });

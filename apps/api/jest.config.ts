@@ -26,6 +26,7 @@ export default {
       },
     ],
   },
+  transformIgnorePatterns: ['/node_modules/(?!expo-server-sdk)'],
   clearMocks: true,
   collectCoverageFrom: ['src/**/*.ts', '!src/**/*.d.ts'],
 };
