@@ -20,6 +20,7 @@ jest.mock('../../lib/prisma', () => ({
       findFirst: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn(),
       delete: jest.fn(),
       count: jest.fn().mockResolvedValue(0),
     },
@@ -39,7 +40,7 @@ jest.mock('../../lib/prisma', () => ({
     },
     user: {
       update: jest.fn(),
-      findUniqueOrThrow: jest.fn().mockResolvedValue({ subscriptionTier: 'PRO', isFoundingRider: false }),
+      findUniqueOrThrow: jest.fn().mockResolvedValue({ subscriptionTier: 'PRO', isFoundingRider: false, needsDowngradeSelection: false }),
     },
     bikeServicePreference: {
       findMany: jest.fn(),
@@ -2770,6 +2771,76 @@ describe('GraphQL Resolvers', () => {
       await mutation(null, { id: 'comp-1' }, ctx);
 
       expect(clearServiceNotificationLogs).toHaveBeenCalledWith('comp-1', 'user-123');
+    });
+  });
+
+  // =========================================================================
+  // selectBikeForDowngrade
+  // =========================================================================
+  describe('selectBikeForDowngrade', () => {
+    const mutation = resolvers.Mutation.selectBikeForDowngrade;
+
+    it('should throw Unauthorized when user is not authenticated', async () => {
+      const ctx = createMockContext(null);
+      await expect(mutation({}, { bikeId: 'bike-1' }, ctx as never)).rejects.toThrow('Unauthorized');
+    });
+
+    it('should throw when needsDowngradeSelection is false', async () => {
+      const ctx = createMockContext('user-123');
+      (mockPrisma.user.findUniqueOrThrow as jest.Mock).mockResolvedValue({
+        needsDowngradeSelection: false,
+      });
+
+      await expect(mutation({}, { bikeId: 'bike-1' }, ctx as never)).rejects.toThrow('No downgrade selection needed');
+    });
+
+    it('should throw when bike is not found', async () => {
+      const ctx = createMockContext('user-123');
+      (mockPrisma.user.findUniqueOrThrow as jest.Mock).mockResolvedValue({
+        needsDowngradeSelection: true,
+      });
+      (mockPrisma.bike.findFirst as jest.Mock).mockResolvedValue(null);
+
+      await expect(mutation({}, { bikeId: 'nonexistent' }, ctx as never)).rejects.toThrow('Bike not found');
+    });
+
+    it('should throw when bike belongs to another user', async () => {
+      const ctx = createMockContext('user-123');
+      (mockPrisma.user.findUniqueOrThrow as jest.Mock).mockResolvedValue({
+        needsDowngradeSelection: true,
+      });
+      // findFirst with userId filter returns null for non-owned bike
+      (mockPrisma.bike.findFirst as jest.Mock).mockResolvedValue(null);
+
+      await expect(mutation({}, { bikeId: 'other-users-bike' }, ctx as never)).rejects.toThrow('Bike not found');
+    });
+
+    it('should archive other bikes and clear flag on valid selection', async () => {
+      const ctx = createMockContext('user-123');
+      const selectedBike = { id: 'bike-1', userId: 'user-123', status: 'ACTIVE' };
+
+      (mockPrisma.user.findUniqueOrThrow as jest.Mock).mockResolvedValue({
+        needsDowngradeSelection: true,
+      });
+      (mockPrisma.bike.findFirst as jest.Mock).mockResolvedValue(selectedBike);
+      (mockPrisma.bike.updateMany as jest.Mock).mockResolvedValue({ count: 2 });
+      (mockPrisma.user.update as jest.Mock).mockResolvedValue({});
+      (mockPrisma.$transaction as jest.Mock).mockImplementation(async (ops: unknown[]) => {
+        return Promise.all((ops as Promise<unknown>[]).map(p => p));
+      });
+
+      const result = await mutation({}, { bikeId: 'bike-1' }, ctx as never);
+
+      expect(result).toEqual(selectedBike);
+      expect(mockPrisma.$transaction).toHaveBeenCalled();
+      expect(mockPrisma.bike.updateMany).toHaveBeenCalledWith({
+        where: { userId: 'user-123', status: 'ACTIVE', id: { not: 'bike-1' } },
+        data: { status: 'ARCHIVED' },
+      });
+      expect(mockPrisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'user-123' },
+        data: { needsDowngradeSelection: false },
+      });
     });
   });
 });

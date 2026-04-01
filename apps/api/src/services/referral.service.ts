@@ -5,19 +5,12 @@ import { sendEmailWithAudit } from './email.service';
 import { getReferralSuccessEmailHtml, getReferralSuccessEmailSubject, REFERRAL_SUCCESS_TEMPLATE_VERSION } from '../templates/emails/referral-success';
 
 /**
- * Generate a unique 8-character alphanumeric referral code.
+ * Generate an 8-character hex referral code.
+ * With ~4 billion possible values, collisions are effectively impossible.
+ * The DB unique constraint on referralCode is the real safety net.
  */
-export async function generateReferralCode(): Promise<string> {
-  for (let attempt = 0; attempt < 10; attempt++) {
-    const code = crypto.randomBytes(4).toString('hex'); // 8 hex chars
-    const existing = await prisma.user.findUnique({
-      where: { referralCode: code },
-      select: { id: true },
-    });
-    if (!existing) return code;
-  }
-  // Fallback to longer code if collisions persist
-  return crypto.randomBytes(6).toString('hex');
+export function generateReferralCode(): string {
+  return crypto.randomBytes(4).toString('hex');
 }
 
 /**
@@ -52,15 +45,14 @@ export async function completeReferral(referredUserId: string): Promise<void> {
   if (!referral || referral.status === 'COMPLETED') return;
 
   // Interactive transaction: claim the referral, then conditionally upgrade.
-  // Everything reads and writes fresh DB state inside the transaction boundary.
-  const didUpgrade = await prisma.$transaction(async (tx) => {
-    // Atomically claim — only one concurrent caller can transition PENDING → COMPLETED
+  // Returns null if the claim was lost to a concurrent call.
+  const result = await prisma.$transaction(async (tx) => {
     const claimed = await tx.referral.updateMany({
       where: { id: referral.id, status: 'PENDING' },
       data: { status: 'COMPLETED', completedAt: new Date() },
     });
 
-    if (claimed.count === 0) return false; // already completed by another call
+    if (claimed.count === 0) return null; // lost the race
 
     // Re-read referrer state inside the transaction to avoid stale data
     const referrer = await tx.user.findUniqueOrThrow({
@@ -73,22 +65,22 @@ export async function completeReferral(referredUserId: string): Promise<void> {
         where: { id: referral.referrer.id },
         data: { subscriptionTier: 'FREE_FULL' },
       });
-      return true;
+      return { upgraded: true };
     }
 
-    return false;
+    return { upgraded: false };
   });
 
-  if (didUpgrade === false && !referral) return; // no-op from race
+  if (!result) return; // concurrent call already completed this referral
 
-  if (didUpgrade) {
+  if (result.upgraded) {
     logger.info({ referrerId: referral.referrer.id }, 'Referrer upgraded to FREE_FULL via referral');
   }
 
   logger.info({ referralId: referral.id, referredUserId }, 'Referral completed');
 
   // Send referral success email to the referrer (non-blocking — bypasses unsubscribe)
-  if (didUpgrade) {
+  if (result.upgraded) {
     try {
       const referrerFirstName = referral.referrer.name?.split(' ')[0] || undefined;
       const referredFirstName = referral.referred.name?.split(' ')[0] || undefined;
@@ -126,7 +118,7 @@ export async function getReferralStats(userId: string) {
 
   // Backfill referral code for pre-migration users who don't have one
   if (!user.referralCode) {
-    const code = await generateReferralCode();
+    const code = generateReferralCode();
     user = await prisma.user.update({
       where: { id: userId },
       data: { referralCode: code },

@@ -7,6 +7,7 @@ import {
   getAllowedComponentTypes,
   requireBikeCreation,
   requireComponentType,
+  requireNoDowngradePending,
 } from './tier-access';
 
 type TierUser = { subscriptionTier: SubscriptionTier; isFoundingRider: boolean };
@@ -190,5 +191,37 @@ describe('requireComponentType', () => {
       expect(gqlErr.extensions?.code).toBe('TIER_COMPONENT_RESTRICTED');
       expect(gqlErr.extensions?.allowedTypes).toEqual(['FORK', 'SHOCK', 'BRAKE_PAD', 'PIVOT_BEARINGS']);
     }
+  });
+});
+
+describe('requireNoDowngradePending', () => {
+  it('does not throw when needsDowngradeSelection is false', () => {
+    expect(() => requireNoDowngradePending({ ...pro, needsDowngradeSelection: false })).not.toThrow();
+  });
+
+  it('does not throw when needsDowngradeSelection is undefined', () => {
+    expect(() => requireNoDowngradePending(freeLight)).not.toThrow();
+  });
+
+  it('throws DOWNGRADE_SELECTION_REQUIRED when needsDowngradeSelection is true', () => {
+    try {
+      requireNoDowngradePending({ ...freeLight, needsDowngradeSelection: true });
+      fail('should have thrown');
+    } catch (err: unknown) {
+      const gqlErr = err as { extensions?: { code?: string } };
+      expect(gqlErr.extensions?.code).toBe('DOWNGRADE_SELECTION_REQUIRED');
+    }
+  });
+});
+
+describe('requireBikeCreation blocks downgrade-pending users', () => {
+  it('throws DOWNGRADE_SELECTION_REQUIRED even if bike limit is not hit', () => {
+    expect(() => requireBikeCreation({ ...pro, needsDowngradeSelection: true }, 0)).toThrow('select a bike');
+  });
+});
+
+describe('requireComponentType blocks downgrade-pending users', () => {
+  it('throws DOWNGRADE_SELECTION_REQUIRED even for allowed types', () => {
+    expect(() => requireComponentType({ ...pro, needsDowngradeSelection: true }, 'FORK')).toThrow('select a bike');
   });
 });

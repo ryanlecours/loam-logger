@@ -102,7 +102,7 @@ export async function activateWaitlistUser({
   // the user is still activated but we return the temp password for manual sharing.
   // This is preferable to leaving a user in WAITLIST state indefinitely.
   // Founding riders get lifetime PRO access; regular users get FREE tier.
-  const referralCode = user.referralCode ?? await generateReferralCode();
+  const referralCode = user.referralCode ?? generateReferralCode();
 
   await prisma.user.update({
     where: { id: userId },

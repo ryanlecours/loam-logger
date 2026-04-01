@@ -91,7 +91,7 @@ router.post('/mobile/signup', express.json(), async (req, res) => {
       return sendBadRequest(res, 'Name must be 100 characters or fewer');
     }
 
-    const referralCode = await generateReferralCode();
+    const referralCode = generateReferralCode();
 
     if (config.bypassWaitlistFlow) {
       // Direct registration — require password

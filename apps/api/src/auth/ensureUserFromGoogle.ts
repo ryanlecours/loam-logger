@@ -45,7 +45,7 @@ export async function ensureUserFromGoogle(
       }
 
       // Direct registration via Google OAuth
-      const referralCode = await generateReferralCode();
+      const referralCode = generateReferralCode();
       const newUser = await tx.user.create({
         data: {
           email,

@@ -5,6 +5,7 @@ import { FREE_LIGHT_COMPONENT_TYPES, TIER_LIMITS, TIER_DISPLAY_NAMES } from '@lo
 type TierUser = {
   subscriptionTier: SubscriptionTier;
   isFoundingRider: boolean;
+  needsDowngradeSelection?: boolean;
 };
 
 /**
@@ -52,9 +53,23 @@ export function getAllowedComponentTypes(user: TierUser): ComponentType[] | 'ALL
 }
 
 /**
+ * Throws a GraphQLError if the user must select a bike after a downgrade.
+ * Call this before any tier-gated mutation to block usage until selection is made.
+ */
+export function requireNoDowngradePending(user: TierUser): void {
+  if (user.needsDowngradeSelection) {
+    throw new GraphQLError(
+      'Please select a bike to keep before continuing.',
+      { extensions: { code: 'DOWNGRADE_SELECTION_REQUIRED' } }
+    );
+  }
+}
+
+/**
  * Throws a GraphQLError if the user has hit their bike creation limit.
  */
 export function requireBikeCreation(user: TierUser, currentActiveBikeCount: number): void {
+  requireNoDowngradePending(user);
   if (!canCreateBike(user, currentActiveBikeCount)) {
     const tier = getEffectiveTier(user);
     throw new GraphQLError(
@@ -68,6 +83,7 @@ export function requireBikeCreation(user: TierUser, currentActiveBikeCount: numb
  * Throws a GraphQLError if the user's tier doesn't allow the component type.
  */
 export function requireComponentType(user: TierUser, componentType: ComponentType): void {
+  requireNoDowngradePending(user);
   if (!canUseComponentType(user, componentType)) {
     throw new GraphQLError(
       `Your Free plan does not include ${componentType.replace(/_/g, ' ').toLowerCase()} tracking. Upgrade or refer a friend to unlock all components.`,

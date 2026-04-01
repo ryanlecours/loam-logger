@@ -73,7 +73,7 @@ router.post('/signup', express.json(), async (req, res) => {
       return sendConflict(res, 'An account with this email already exists. Please log in.');
     }
 
-    const referralCode = await generateReferralCode();
+    const referralCode = generateReferralCode();
 
     if (config.bypassWaitlistFlow) {
       // Direct registration — require password

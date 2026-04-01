@@ -1554,7 +1554,7 @@ export const resolvers = {
       const [user, activeBikeCount] = await Promise.all([
         prisma.user.findUniqueOrThrow({
           where: { id: userId },
-          select: { subscriptionTier: true, isFoundingRider: true },
+          select: { subscriptionTier: true, isFoundingRider: true, needsDowngradeSelection: true },
         }),
         prisma.bike.count({ where: { userId, status: 'ACTIVE' } }),
       ]);
@@ -1872,7 +1872,7 @@ export const resolvers = {
       // Tier check: enforce component type restriction
       const tierUser = await prisma.user.findUniqueOrThrow({
         where: { id: userId },
-        select: { subscriptionTier: true, isFoundingRider: true },
+        select: { subscriptionTier: true, isFoundingRider: true, needsDowngradeSelection: true },
       });
       requireComponentType(tierUser, type);
 
@@ -3353,7 +3353,7 @@ export const resolvers = {
       // Tier check: enforce component type restriction
       const installTierUser = await prisma.user.findUniqueOrThrow({
         where: { id: userId },
-        select: { subscriptionTier: true, isFoundingRider: true },
+        select: { subscriptionTier: true, isFoundingRider: true, needsDowngradeSelection: true },
       });
       requireComponentType(installTierUser, slotType as ComponentTypeLiteral);
 

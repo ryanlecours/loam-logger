@@ -71,7 +71,7 @@ router.post('/waitlist', express.json(), async (req: Request, res) => {
       return sendError(res, 409, 'An account with this email already exists', 'ACCOUNT_EXISTS');
     }
 
-    const referralCode = await generateReferralCode();
+    const referralCode = generateReferralCode();
 
     if (config.bypassWaitlistFlow) {
       // Direct registration — user becomes FREE immediately

@@ -1,5 +1,6 @@
 import { Router, type Request, type Response } from 'express';
 import { prisma } from '../lib/prisma';
+import { logger } from '../lib/logger';
 
 const router = Router();
 
@@ -12,18 +13,23 @@ const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 router.get('/r/:code', async (req: Request, res: Response) => {
   const { code } = req.params;
 
-  const user = await prisma.user.findUnique({
-    where: { referralCode: code },
-    select: { id: true },
-  });
+  try {
+    const user = await prisma.user.findUnique({
+      where: { referralCode: code },
+      select: { id: true },
+    });
 
-  if (!user) {
-    // Invalid code — redirect to signup without ref param
+    if (!user) {
+      res.redirect(`${FRONTEND_URL}/signup`);
+      return;
+    }
+
+    res.redirect(`${FRONTEND_URL}/signup?ref=${code}`);
+  } catch (err) {
+    logger.error({ error: err instanceof Error ? err.message : String(err), code }, 'Referral redirect failed');
+    // Redirect to signup so the referred user isn't stranded
     res.redirect(`${FRONTEND_URL}/signup`);
-    return;
   }
-
-  res.redirect(`${FRONTEND_URL}/signup?ref=${code}`);
 });
 
 export default router;
