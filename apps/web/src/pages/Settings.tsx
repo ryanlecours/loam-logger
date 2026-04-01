@@ -24,6 +24,8 @@ import { useUserTier } from "../hooks/useUserTier";
 import { getAuthHeaders } from "@/lib/csrf";
 import { UPDATE_USER_PREFERENCES_MUTATION } from "../graphql/userPreferences";
 import ServicePreferencesEditor from "../components/ServicePreferencesEditor";
+import BillingSection from "../components/BillingSection";
+import ReferralCard from "../components/ReferralCard";
 
 const CONNECTED_ACCOUNTS_QUERY = gql`
   query ConnectedAccounts {
@@ -414,6 +416,18 @@ export default function Settings() {
             </p>
           </div>
           <ThemeToggle />
+        </div>
+      </section>
+
+      {/* Subscription & Referral */}
+      <section className="grid gap-6 xl:grid-cols-2">
+        <div className="panel-spaced">
+          <div>
+            <p className="label-section">Plan</p>
+            <h2 className="title-section">Subscription & Billing</h2>
+          </div>
+          <BillingSection />
+          <ReferralCard />
         </div>
       </section>
 

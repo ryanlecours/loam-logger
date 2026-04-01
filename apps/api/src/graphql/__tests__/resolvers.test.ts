@@ -21,6 +21,7 @@ jest.mock('../../lib/prisma', () => ({
       create: jest.fn(),
       update: jest.fn(),
       delete: jest.fn(),
+      count: jest.fn().mockResolvedValue(0),
     },
     ride: {
       findMany: jest.fn(),
@@ -38,6 +39,7 @@ jest.mock('../../lib/prisma', () => ({
     },
     user: {
       update: jest.fn(),
+      findUniqueOrThrow: jest.fn().mockResolvedValue({ subscriptionTier: 'PRO', isFoundingRider: false }),
     },
     bikeServicePreference: {
       findMany: jest.fn(),

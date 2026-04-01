@@ -32,6 +32,11 @@ model User {
   activatedAt         DateTime?
   activatedBy         String?
   isFoundingRider     Boolean             @default(false)
+  subscriptionTier    SubscriptionTier    @default(FREE_LIGHT)
+  stripeCustomerId    String?             @unique
+  stripeSubscriptionId String?            @unique
+  referralCode        String?             @unique
+  needsDowngradeSelection Boolean         @default(false)
   emailUnsubscribed   Boolean             @default(false)
   hoursDisplayPreference String?          @default("remaining")
   predictionMode         String?          @default("simple")
@@ -55,6 +60,8 @@ model User {
   oauthAttempts       OAuthAttempt[]
   integrations        UserIntegration[]
   notificationLogs    NotificationLog[]
+  referralsMade       Referral[]          @relation("ReferralsMade")
+  referralReceived    Referral?           @relation("ReferralReceived")
 
   // Push notification preferences
   expoPushToken       String?
@@ -330,6 +337,17 @@ enum UserRole {
   ADMIN
 }
 
+enum SubscriptionTier {
+  FREE_LIGHT
+  FREE_FULL
+  PRO
+}
+
+enum ReferralStatus {
+  PENDING
+  COMPLETED
+}
+
 enum ComponentLocation {
   FRONT
   REAR
@@ -372,6 +390,7 @@ enum BikeStatus {
   ACTIVE
   RETIRED
   SOLD
+  ARCHIVED
 }
 
 enum BaselineMethod {
@@ -408,6 +427,10 @@ enum EmailType {
   beta_feature_roundup
   password_added
   password_changed
+  upgrade_confirmation
+  downgrade_notice
+  payment_failed
+  referral_success
 }
 
 enum TriggerSource {
@@ -641,4 +664,18 @@ model NotificationLog {
   @@index([userId])
   @@index([componentId])
   @@index([bikeId])
+}
+
+model Referral {
+  id             String         @id @default(cuid())
+  referrerUserId String
+  referredUserId String         @unique
+  status         ReferralStatus @default(PENDING)
+  completedAt    DateTime?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  referrer       User           @relation("ReferralsMade", fields: [referrerUserId], references: [id], onDelete: Cascade)
+  referred       User           @relation("ReferralReceived", fields: [referredUserId], references: [id], onDelete: Cascade)
+
+  @@index([referrerUserId])
 }

@@ -42,6 +42,8 @@ import adminRouter from './routes/admin';
 import spokesRouter from './routes/spokes';
 import emailUnsubscribeRouter from './routes/email.unsubscribe';
 import { googleRouter, emailRouter, deleteAccountRouter, passwordRouter, attachUser, verifyCsrf } from './auth/index';
+import webhooksStripe from './routes/webhooks.stripe';
+import referralRouter from './routes/referral';
 import mobileAuthRouter from './auth/mobile.route';
 
 export type GraphQLContext = {
@@ -134,6 +136,11 @@ const startServer = async () => {
 
   app.use(corsMw);
   app.options('*', corsMw);
+
+  // Stripe webhook must be registered before express.json() to access raw body for signature verification
+  if (process.env.STRIPE_SECRET_KEY) {
+    app.use('/webhooks/stripe', express.raw({ type: 'application/json' }), webhooksStripe);
+  }
 
   app.use(express.json());
   app.use(express.urlencoded({ extended: false }));
@@ -246,6 +253,7 @@ const startServer = async () => {
   app.use('/webhooks', webhooksWhoop);
 
   app.use('/onboarding', onboardingRouter);
+  app.use(referralRouter);
   app.use(garminTest);
   app.use(mockGarmin);
 

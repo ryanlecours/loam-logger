@@ -11,6 +11,8 @@ import { checkAuthRateLimit, checkMutationRateLimit } from '../lib/rate-limit';
 import { sendPasswordAddedNotification, sendPasswordChangedNotification } from '../services/password-notification.service';
 import { logger } from '../lib/logger';
 import { sendUnauthorized, sendBadRequest, sendForbidden, sendConflict, sendInternalError, sendTooManyRequests } from '../lib/api-response';
+import { generateReferralCode, applyReferralCode } from '../services/referral.service';
+import { config } from '../config/env';
 
 const router = express.Router();
 
@@ -35,10 +37,11 @@ router.post('/mobile/signup', express.json(), async (req, res) => {
       return sendTooManyRequests(res, 'Too many signup attempts. Please try again later.', rateLimit.retryAfter);
     }
 
-    const { email: rawEmail, password, name } = req.body as {
+    const { email: rawEmail, password, name, ref } = req.body as {
       email?: string;
       password?: string;
       name?: string;
+      ref?: string;
     };
 
     // Validate email
@@ -88,16 +91,58 @@ router.post('/mobile/signup', express.json(), async (req, res) => {
       return sendBadRequest(res, 'Name must be 100 characters or fewer');
     }
 
-    await prisma.user.create({
+    const referralCode = await generateReferralCode();
+
+    if (config.bypassWaitlistFlow) {
+      // Direct registration — require password
+      if (!passwordHash) {
+        return sendBadRequest(res, 'Password is required');
+      }
+
+      const newUser = await prisma.user.create({
+        data: {
+          email,
+          name: trimmedName,
+          role: 'FREE',
+          subscriptionTier: 'FREE_LIGHT',
+          passwordHash,
+          referralCode,
+        },
+      });
+
+      if (ref) {
+        try { await applyReferralCode(newUser.id, ref); }
+        catch (refErr) { logger.error({ error: refErr instanceof Error ? refErr.message : String(refErr) }, 'Failed to apply referral code during mobile signup'); }
+      }
+
+      // Return tokens so the mobile app can log in immediately
+      const accessToken = generateAccessToken({ uid: newUser.id, email: newUser.email });
+      const refreshToken = generateRefreshToken({ uid: newUser.id, email: newUser.email });
+
+      return res.status(201).json({
+        ok: true,
+        waitlist: false,
+        accessToken,
+        refreshToken,
+      });
+    }
+
+    // Waitlist flow
+    const newUser = await prisma.user.create({
       data: {
         email,
         name: trimmedName,
         role: 'WAITLIST',
         passwordHash,
+        referralCode,
       },
     });
 
-    // Return waitlist status (not an error, but user can't login yet)
+    if (ref) {
+      try { await applyReferralCode(newUser.id, ref); }
+      catch (refErr) { logger.error({ error: refErr instanceof Error ? refErr.message : String(refErr) }, 'Failed to apply referral code during mobile signup'); }
+    }
+
     return res.status(200).json({
       ok: true,
       waitlist: true,

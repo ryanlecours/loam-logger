@@ -4,12 +4,26 @@ import { validateEmailFormat } from '../auth/email.utils';
 import { normalizeEmail } from '../auth/utils';
 import { sendBadRequest, sendError, sendSuccess, sendInternalError, sendTooManyRequests } from '../lib/api-response';
 import { checkAuthRateLimit } from '../lib/rate-limit';
+import { generateReferralCode, applyReferralCode } from '../services/referral.service';
+import { logger } from '../lib/logger';
+import { config } from '../config/env';
+import { validatePassword, hashPassword } from '../auth/password.utils';
+import { setSessionCookie } from '../auth/session';
+import { setCsrfCookie } from '../auth/csrf';
 
 const router = express.Router();
 
 /**
+ * GET /api/config
+ * Public app configuration (e.g., whether waitlist is active)
+ */
+router.get('/config', (_req, res) => {
+  res.json({ waitlistEnabled: !config.bypassWaitlistFlow });
+});
+
+/**
  * POST /api/waitlist
- * Add email to beta waitlist
+ * Add email to beta waitlist, or register directly if waitlist is bypassed.
  * Public endpoint - no authentication required
  */
 router.post('/waitlist', express.json(), async (req: Request, res) => {
@@ -21,9 +35,11 @@ router.post('/waitlist', express.json(), async (req: Request, res) => {
       return sendTooManyRequests(res, 'Too many signup attempts. Please try again later.', rateLimit.retryAfter);
     }
 
-    const { email: rawEmail, name } = req.body as {
+    const { email: rawEmail, name, ref, password } = req.body as {
       email?: string;
       name?: string;
+      ref?: string;
+      password?: string;
     };
 
     // Validate email
@@ -55,17 +71,75 @@ router.post('/waitlist', express.json(), async (req: Request, res) => {
       return sendError(res, 409, 'An account with this email already exists', 'ACCOUNT_EXISTS');
     }
 
-    // Create User with WAITLIST role
-    await prisma.user.create({
+    const referralCode = await generateReferralCode();
+
+    if (config.bypassWaitlistFlow) {
+      // Direct registration — user becomes FREE immediately
+      if (!password) {
+        return sendBadRequest(res, 'Password is required');
+      }
+      if (!trimmedName) {
+        return sendBadRequest(res, 'Name is required');
+      }
+      const validation = validatePassword(password);
+      if (!validation.isValid) {
+        return sendBadRequest(res, validation.error || 'Password does not meet requirements');
+      }
+
+      const passwordHash = await hashPassword(password);
+      const newUser = await prisma.user.create({
+        data: {
+          email,
+          name: trimmedName,
+          role: 'FREE',
+          subscriptionTier: 'FREE_LIGHT',
+          referralCode,
+          passwordHash,
+        },
+      });
+
+      // Apply referral code if provided
+      if (ref) {
+        try {
+          await applyReferralCode(newUser.id, ref);
+        } catch (refErr) {
+          logger.error({ error: refErr instanceof Error ? refErr.message : String(refErr) }, 'Failed to apply referral code during signup');
+        }
+      }
+
+      // Auto-login: set session cookie
+      setSessionCookie(res, { uid: newUser.id, email: newUser.email, authAt: Date.now() });
+      const csrfToken = setCsrfCookie(res);
+
+      logger.info({ email }, 'New user registered (waitlist bypassed)');
+
+      return res.status(201).json({
+        ok: true,
+        waitlist: false,
+        csrfToken,
+      });
+    }
+
+    // Waitlist flow — create user with WAITLIST role (no password)
+    const newUser = await prisma.user.create({
       data: {
         email,
         name: trimmedName,
         role: 'WAITLIST',
-        // passwordHash is null - will be set on activation
+        referralCode,
       },
     });
 
-    console.log(`[Waitlist] New signup: ${email}`);
+    // Apply referral code if provided
+    if (ref) {
+      try {
+        await applyReferralCode(newUser.id, ref);
+      } catch (refErr) {
+        logger.error({ error: refErr instanceof Error ? refErr.message : String(refErr) }, 'Failed to apply referral code during waitlist signup');
+      }
+    }
+
+    logger.info({ email }, 'New waitlist signup');
 
     return sendSuccess(res, undefined, 'Successfully joined the waitlist!', 201);
 

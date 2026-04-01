@@ -80,6 +80,18 @@ export const typeDefs = gql`
     ACTIVE
     RETIRED
     SOLD
+    ARCHIVED
+  }
+
+  enum SubscriptionTier {
+    FREE_LIGHT
+    FREE_FULL
+    PRO
+  }
+
+  enum StripePlan {
+    MONTHLY
+    ANNUAL
   }
 
   enum BaselineMethod {
@@ -786,11 +798,37 @@ export const typeDefs = gql`
     updateBikeNotificationPreference(input: UpdateBikeNotificationPreferenceInput!): BikeNotificationPreference!
     addBikeNote(input: AddBikeNoteInput!): BikeNote!
     deleteBikeNote(id: ID!): DeleteResult!
+    createCheckoutSession(plan: StripePlan!): CheckoutSessionResult!
+    createBillingPortalSession: BillingPortalResult!
+    selectBikeForDowngrade(bikeId: ID!): Bike!
   }
 
   type ConnectedAccount {
     provider: String!
     connectedAt: String!
+  }
+
+  type TierLimits {
+    maxBikes: Int
+    allowedComponentTypes: [ComponentType!]!
+    currentBikeCount: Int!
+    canAddBike: Boolean!
+  }
+
+  type CheckoutSessionResult {
+    sessionId: String!
+    url: String
+  }
+
+  type BillingPortalResult {
+    url: String!
+  }
+
+  type ReferralStats {
+    referralCode: String!
+    referralLink: String!
+    pendingCount: Int!
+    completedCount: Int!
   }
 
   type User {
@@ -810,6 +848,10 @@ export const typeDefs = gql`
     hasPassword: Boolean!
     needsReauthForSensitiveActions: Boolean!
     isFoundingRider: Boolean!
+    subscriptionTier: SubscriptionTier!
+    referralCode: String
+    needsDowngradeSelection: Boolean!
+    tierLimits: TierLimits!
     hoursDisplayPreference: String
     predictionMode: String
     distanceUnit: String
@@ -839,5 +881,6 @@ export const typeDefs = gql`
     calibrationState: CalibrationState
     servicePreferenceDefaults: [ServicePreferenceDefault!]!
     bikeNotes(bikeId: ID!, take: Int = 20, after: ID): BikeNotesPage!
+    referralStats: ReferralStats!
   }
 `;

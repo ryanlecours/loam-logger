@@ -2,6 +2,8 @@ import { Prisma } from '@prisma/client';
 import { normalizeEmail, computeExpiry } from './utils';
 import type { GoogleClaims, GoogleTokens } from './types';
 import { prisma } from '../lib/prisma';
+import { config } from '../config/env';
+import { generateReferralCode } from '../services/referral.service';
 
 export async function ensureUserFromGoogle(
   claims: GoogleClaims,
@@ -36,9 +38,44 @@ export async function ensureUserFromGoogle(
       throw new Error('ALREADY_ON_WAITLIST');
     }
 
-    // New user trying to sign up via Google - redirect to closed beta page
+    // New user trying to sign up via Google
     if (!user) {
-      throw new Error('CLOSED_BETA');
+      if (!config.bypassWaitlistFlow) {
+        throw new Error('CLOSED_BETA');
+      }
+
+      // Direct registration via Google OAuth
+      const referralCode = await generateReferralCode();
+      const newUser = await tx.user.create({
+        data: {
+          email,
+          name: claims.name ?? null,
+          avatarUrl: claims.picture ?? null,
+          emailVerified: claims.email_verified ? new Date() : null,
+          role: 'FREE',
+          subscriptionTier: 'FREE_LIGHT',
+          referralCode,
+        },
+      });
+
+      // Link Google account
+      await tx.userAccount.create({
+        data: { userId: newUser.id, provider: 'google', providerUserId: sub },
+      });
+
+      if (tokens?.access_token || tokens?.refresh_token) {
+        await tx.oauthToken.create({
+          data: {
+            userId: newUser.id,
+            provider: 'google',
+            accessToken: tokens.access_token ?? '',
+            refreshToken: tokens.refresh_token ?? null,
+            expiresAt: computeExpiry(tokens.expires_in) ?? new Date(Date.now() + 3600 * 1000),
+          },
+        });
+      }
+
+      return newUser;
     }
 
     // User exists and is activated - update profile and link Google account

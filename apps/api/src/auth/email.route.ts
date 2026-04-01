@@ -11,6 +11,8 @@ import { sendBadRequest, sendUnauthorized, sendForbidden, sendConflict, sendInte
 import { checkAuthRateLimit, checkMutationRateLimit } from '../lib/rate-limit';
 import { sendPasswordChangedNotification } from '../services/password-notification.service';
 import { logger } from '../lib/logger';
+import { generateReferralCode, applyReferralCode } from '../services/referral.service';
+import { config } from '../config/env';
 
 const router = express.Router();
 
@@ -27,9 +29,10 @@ router.post('/signup', express.json(), async (req, res) => {
       return sendTooManyRequests(res, 'Too many signup attempts. Please try again later.', rateLimit.retryAfter);
     }
 
-    const { email: rawEmail, name } = req.body as {
+    const { email: rawEmail, name, ref } = req.body as {
       email?: string;
       name?: string;
+      ref?: string;
     };
 
     // Validate input - password not required during closed beta
@@ -70,19 +73,58 @@ router.post('/signup', express.json(), async (req, res) => {
       return sendConflict(res, 'An account with this email already exists. Please log in.');
     }
 
-    // During closed beta, create user with WAITLIST role (no password yet)
-    // Admin will activate them later, which generates a temporary password
-    // and sends it via email. User must change it on first login.
-    await prisma.user.create({
+    const referralCode = await generateReferralCode();
+
+    if (config.bypassWaitlistFlow) {
+      // Direct registration — require password
+      const { password } = req.body as { password?: string };
+      if (!password) {
+        return sendBadRequest(res, 'Password is required');
+      }
+      const validation = validatePassword(password);
+      if (!validation.isValid) {
+        return sendBadRequest(res, validation.error || 'Password does not meet requirements');
+      }
+
+      const passwordHash = await hashPassword(password);
+      const newUser = await prisma.user.create({
+        data: {
+          email,
+          name: name.trim(),
+          role: 'FREE',
+          subscriptionTier: 'FREE_LIGHT',
+          referralCode,
+          passwordHash,
+        },
+      });
+
+      if (ref) {
+        try { await applyReferralCode(newUser.id, ref); }
+        catch (refErr) { logger.error({ error: refErr instanceof Error ? refErr.message : String(refErr) }, 'Failed to apply referral code during signup'); }
+      }
+
+      // Auto-login
+      setSessionCookie(res, { uid: newUser.id, email: newUser.email, authAt: Date.now() });
+      const csrfToken = setCsrfCookie(res);
+
+      return res.status(201).json({ ok: true, waitlist: false, csrfToken });
+    }
+
+    // Waitlist flow
+    const newUser = await prisma.user.create({
       data: {
         email,
         name: name.trim(),
         role: 'WAITLIST',
-        // passwordHash intentionally null - will be set during activation
+        referralCode,
       },
     });
 
-    // User is now on the waitlist - redirect to already-on-waitlist page
+    if (ref) {
+      try { await applyReferralCode(newUser.id, ref); }
+      catch (refErr) { logger.error({ error: refErr instanceof Error ? refErr.message : String(refErr) }, 'Failed to apply referral code during signup'); }
+    }
+
     return sendForbidden(res, 'You have been added to the waitlist. We will email you when your account is activated.', 'ALREADY_ON_WAITLIST');
   } catch (e) {
     logger.error({ err: e }, '[EmailAuth] Signup failed');

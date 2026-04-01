@@ -5,6 +5,7 @@ import { sendEmail } from './email.service';
 import { getActivationEmailSubject, getActivationEmailHtml } from '../templates/emails/activation';
 import { generateUnsubscribeToken } from '../lib/unsubscribe-token';
 import { PASSWORD_REQUIREMENTS } from '@loam/shared';
+import { generateReferralCode } from './referral.service';
 
 const API_URL = process.env.API_URL || 'http://localhost:4000';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
@@ -101,10 +102,14 @@ export async function activateWaitlistUser({
   // the user is still activated but we return the temp password for manual sharing.
   // This is preferable to leaving a user in WAITLIST state indefinitely.
   // Founding riders get lifetime PRO access; regular users get FREE tier.
+  const referralCode = await generateReferralCode();
+
   await prisma.user.update({
     where: { id: userId },
     data: {
       role: user.isFoundingRider ? 'PRO' : 'FREE',
+      subscriptionTier: user.isFoundingRider ? 'PRO' : 'FREE_LIGHT',
+      referralCode,
       passwordHash,
       mustChangePassword: true,
       activatedAt: new Date(),

@@ -7,6 +7,7 @@ import { ME_QUERY } from '../graphql/me';
 import { useRedirectFrom } from '../utils/loginUtils';
 import { Button } from '@/components/ui';
 import { setCsrfToken } from '@/lib/csrf';
+import { useAppConfig } from '../hooks/useAppConfig';
 
 export default function Login() {
   const apollo = useApolloClient();
@@ -14,6 +15,7 @@ export default function Login() {
   const [searchParams] = useSearchParams();
   const isReauth = searchParams.get('reason') === 'reauth';
   const from = useRedirectFrom();
+  const { waitlistEnabled } = useAppConfig();
   const [mode, setMode] = useState<'login' | 'signup'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -269,6 +271,10 @@ export default function Login() {
               mode === 'signup' ? 'btn-primary' : 'btn-outline hover:text-white hover:ring-1 hover:ring-primary/40 hover:ring-offset-1 hover:ring-offset-surface-1'
             } ${isLoading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
             onClick={() => {
+              if (!waitlistEnabled) {
+                navigate('/beta-waitlist');
+                return;
+              }
               setMode('signup');
               setName('');
               setError(null);
@@ -329,7 +335,7 @@ export default function Login() {
               />
             </label>
           )}
-          {mode === 'signup' && (
+          {mode === 'signup' && waitlistEnabled && (
             <div className="text-sm p-3 rounded-lg" style={{ backgroundColor: 'rgba(134, 169, 139, 0.15)', color: 'var(--sage)' }}>
               Loam Logger is in closed beta. Join the waitlist and we'll email you login credentials when your account is activated.
             </div>
