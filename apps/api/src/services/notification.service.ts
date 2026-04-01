@@ -194,9 +194,20 @@ export async function checkAndNotifyServiceDue(params: {
     }
   };
 
-  const body = newComponents.length === 1
-    ? `${newComponents[0].componentType.replace(/_/g, ' ').toLowerCase()} needs service (${formatRemaining(newComponents[0])})`
-    : `${newComponents.length} components need service: ${newComponents.map(c => `${c.componentType.replace(/_/g, ' ').toLowerCase()} (${formatRemaining(c)})`).join(', ')}`;
+  const formatComponent = (c: ComponentPrediction) =>
+    `${c.componentType.replace(/_/g, ' ').toLowerCase()} (${formatRemaining(c)})`;
+
+  let body: string;
+  if (newComponents.length === 1) {
+    body = `${newComponents[0].componentType.replace(/_/g, ' ').toLowerCase()} needs service (${formatRemaining(newComponents[0])})`;
+  } else {
+    const MAX_LISTED = 2;
+    const listed = newComponents.slice(0, MAX_LISTED).map(formatComponent).join(', ');
+    const remaining = newComponents.length - MAX_LISTED;
+    body = remaining > 0
+      ? `${newComponents.length} components need service: ${listed}, and ${remaining} more`
+      : `${newComponents.length} components need service: ${listed}`;
+  }
 
   const ticketId = await sendPushNotification({
     pushToken,

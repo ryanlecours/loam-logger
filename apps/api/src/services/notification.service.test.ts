@@ -355,6 +355,27 @@ describe('notification.service', () => {
       ]);
     });
 
+    it('should truncate component list when more than 2 are due', async () => {
+      (mockPrisma.bikeNotificationPreference.findUnique as jest.Mock).mockResolvedValue({
+        serviceNotificationsEnabled: true,
+        serviceNotificationMode: 'RIDES_BEFORE',
+        serviceNotificationThreshold: 15,
+      });
+
+      const predictions = [
+        { ...basePredictions[0], componentType: 'CHAIN', status: 'DUE_SOON', ridesRemainingEstimate: 2 },
+        { ...basePredictions[0], componentId: 'comp-2', componentType: 'FORK', status: 'DUE_SOON', ridesRemainingEstimate: 3 },
+        { ...basePredictions[0], componentId: 'comp-3', componentType: 'BRAKE_PAD', status: 'DUE_SOON', ridesRemainingEstimate: 4 },
+      ];
+      await checkAndNotifyServiceDue({ ...baseParams, predictions });
+
+      expect(mockSendPushNotificationsAsync).toHaveBeenCalledWith([
+        expect.objectContaining({
+          body: '3 components need service: chain (2 rides left), fork (3 rides left), and 1 more',
+        }),
+      ]);
+    });
+
     it('should not send or log if no components meet criteria', async () => {
       (mockPrisma.bikeNotificationPreference.findUnique as jest.Mock).mockResolvedValue({
         serviceNotificationsEnabled: true,
