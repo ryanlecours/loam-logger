@@ -272,7 +272,7 @@ export default function Login() {
             } ${isLoading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
             onClick={() => {
               if (!waitlistEnabled) {
-                navigate('/beta-waitlist');
+                navigate('/signup');
                 return;
               }
               setMode('signup');

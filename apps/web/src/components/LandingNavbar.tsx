@@ -60,7 +60,7 @@ export default function LandingNavbar() {
               Sign In
             </Link>
             <Link
-              to="/beta-waitlist"
+              to="/signup"
               className="btn-primary"
               style={{
                 padding: '0.75rem 2rem',
@@ -157,7 +157,7 @@ export default function LandingNavbar() {
                 Sign In
               </Link>
               <Link
-                to="/beta-waitlist"
+                to="/signup"
                 onClick={() => setIsMobileMenuOpen(false)}
                 className="btn-primary block text-center"
                 style={{

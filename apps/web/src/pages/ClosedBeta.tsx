@@ -45,7 +45,7 @@ export default function ClosedBeta() {
         </div>
 
         <div className="flex flex-col sm:flex-row gap-4 justify-center">
-          <MarketingButton href="/beta-waitlist" size="lg">
+          <MarketingButton href="/signup" size="lg">
             Join the Waitlist
           </MarketingButton>
           <button

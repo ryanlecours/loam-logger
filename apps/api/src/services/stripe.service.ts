@@ -6,8 +6,11 @@ const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 /**
  * Get or create a Stripe customer for a user.
+ * Uses a PostgreSQL advisory lock keyed on user ID to prevent concurrent
+ * requests from creating duplicate Stripe customers.
  */
 export async function getOrCreateStripeCustomer(userId: string): Promise<string> {
+  // Fast path — no lock needed if already set
   const user = await prisma.user.findUniqueOrThrow({
     where: { id: userId },
     select: { id: true, email: true, name: true, stripeCustomerId: true },
@@ -15,19 +18,36 @@ export async function getOrCreateStripeCustomer(userId: string): Promise<string>
 
   if (user.stripeCustomerId) return user.stripeCustomerId;
 
-  const customer = await stripe.customers.create({
-    email: user.email,
-    name: user.name ?? undefined,
-    metadata: { userId: user.id },
-  });
+  // Serialize concurrent requests for this user via an interactive transaction
+  // with a PostgreSQL advisory lock. Only one caller enters the create path.
+  return prisma.$transaction(async (tx) => {
+    // Acquire advisory lock scoped to this transaction (auto-released on commit/rollback).
+    // hashtext returns a stable int4 for the userId string.
+    await tx.$queryRawUnsafe(`SELECT pg_advisory_xact_lock(hashtext($1))`, userId);
 
-  await prisma.user.update({
-    where: { id: userId },
-    data: { stripeCustomerId: customer.id },
-  });
+    // Re-check inside the lock — another request may have just finished
+    const fresh = await tx.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { email: true, name: true, stripeCustomerId: true },
+    });
 
-  logger.info({ userId, stripeCustomerId: customer.id }, 'Created Stripe customer');
-  return customer.id;
+    if (fresh.stripeCustomerId) return fresh.stripeCustomerId;
+
+    // We hold the lock — safe to create exactly one Stripe customer
+    const customer = await stripe.customers.create({
+      email: fresh.email,
+      name: fresh.name ?? undefined,
+      metadata: { userId },
+    });
+
+    await tx.user.update({
+      where: { id: userId },
+      data: { stripeCustomerId: customer.id },
+    });
+
+    logger.info({ userId, stripeCustomerId: customer.id }, 'Created Stripe customer');
+    return customer.id;
+  });
 }
 
 export type StripePlan = 'monthly' | 'annual';

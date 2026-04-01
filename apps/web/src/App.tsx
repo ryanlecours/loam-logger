@@ -76,6 +76,7 @@ function AppRoutes() {
           <Route path="/about" element={<Page><About /></Page>} />
           <Route path="/support" element={<Page><Support /></Page>} />
           <Route path="/login" element={<Page><Login /></Page>} />
+          <Route path="/signup" element={<Page><BetaTesterWaitlist /></Page>} />
           <Route path="/beta-waitlist" element={<Page><BetaTesterWaitlist /></Page>} />
           <Route path="/closed-beta" element={<Page><ClosedBeta /></Page>} />
           <Route path="/already-on-waitlist" element={<Page><AlreadyOnWaitlist /></Page>} />

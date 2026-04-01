@@ -19,11 +19,11 @@ router.get('/r/:code', async (req: Request, res: Response) => {
 
   if (!user) {
     // Invalid code — redirect to signup without ref param
-    res.redirect(`${FRONTEND_URL}/beta-waitlist`);
+    res.redirect(`${FRONTEND_URL}/signup`);
     return;
   }
 
-  res.redirect(`${FRONTEND_URL}/beta-waitlist?ref=${code}`);
+  res.redirect(`${FRONTEND_URL}/signup?ref=${code}`);
 });
 
 export default router;

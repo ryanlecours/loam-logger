@@ -8,6 +8,25 @@ import { getDowngradeNoticeEmailHtml, getDowngradeNoticeEmailSubject, DOWNGRADE_
 import { getPaymentFailedEmailHtml, getPaymentFailedEmailSubject, PAYMENT_FAILED_TEMPLATE_VERSION } from '../templates/emails/payment-failed';
 import type Stripe from 'stripe';
 
+/**
+ * Resolve a userId from a Stripe object. Tries metadata first, then falls back
+ * to looking up the user by stripeCustomerId. This handles subscriptions
+ * modified via the Stripe dashboard where metadata may not be set.
+ */
+async function resolveUserId(metadata: Stripe.Metadata | undefined | null, customerId: string | Stripe.Customer | Stripe.DeletedCustomer | null): Promise<string | null> {
+  if (metadata?.userId) return metadata.userId;
+
+  const cid = typeof customerId === 'string' ? customerId : customerId?.id;
+  if (!cid) return null;
+
+  const user = await prisma.user.findFirst({
+    where: { stripeCustomerId: cid },
+    select: { id: true },
+  });
+
+  return user?.id ?? null;
+}
+
 const router = Router();
 
 router.post('/', async (req: Request, res: Response) => {
@@ -43,8 +62,10 @@ router.post('/', async (req: Request, res: Response) => {
     }
   } catch (err) {
     logger.error({ error: err instanceof Error ? err.message : String(err), eventType: event.type }, 'Error processing Stripe webhook');
-    // Return 200 to prevent Stripe from retrying — we've logged the error
-    res.status(200).json({ received: true, error: true });
+    // Return 500 so Stripe retries (up to 3 days). Our handlers are idempotent,
+    // so retries are safe. Swallowing transient DB failures with 200 would
+    // silently drop upgrades/downgrades.
+    res.status(500).json({ received: true, error: true });
     return;
   }
 
@@ -66,131 +87,176 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     ? session.customer
     : session.customer?.id;
 
-  // Idempotency: check if already processed
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { subscriptionTier: true, stripeSubscriptionId: true, isFoundingRider: true, email: true, name: true },
-  });
-
-  if (!user) {
-    logger.error({ userId }, 'User not found for checkout completion');
+  if (!subscriptionId) {
+    logger.error({ sessionId: session.id, userId }, 'Checkout session missing subscription ID');
     return;
   }
 
-  // Don't downgrade founding riders
-  if (user.isFoundingRider) {
-    logger.info({ userId }, 'Skipping checkout for founding rider');
-    return;
-  }
-
-  // Already has this subscription
-  if (user.stripeSubscriptionId === subscriptionId) {
-    logger.info({ userId, subscriptionId }, 'Checkout already processed (idempotent)');
-    return;
-  }
-
-  await prisma.$transaction([
-    // Upgrade user to PRO
-    prisma.user.update({
-      where: { id: userId },
+  // Atomically upgrade: WHERE clause encodes all preconditions so stale reads
+  // can't cause incorrect upgrades or double-processing.
+  const [upgraded] = await prisma.$transaction([
+    prisma.user.updateMany({
+      where: {
+        id: userId,
+        isFoundingRider: false,
+        stripeSubscriptionId: { not: subscriptionId },
+      },
       data: {
         subscriptionTier: 'PRO',
-        stripeCustomerId: customerId ?? undefined,
-        stripeSubscriptionId: subscriptionId ?? undefined,
+        stripeCustomerId: customerId ?? null,
+        stripeSubscriptionId: subscriptionId,
         needsDowngradeSelection: false,
       },
     }),
-    // Restore any archived bikes
     prisma.bike.updateMany({
       where: { userId, status: 'ARCHIVED' },
       data: { status: 'ACTIVE' },
     }),
   ]);
 
+  if (upgraded.count === 0) {
+    logger.info({ userId, subscriptionId }, 'Checkout skipped (founding rider, already processed, or user not found)');
+    return;
+  }
+
   logger.info({ userId, subscriptionId }, 'User upgraded to PRO via Stripe checkout');
 
-  // Send upgrade confirmation email (non-blocking, transactional — bypasses unsubscribe)
-  try {
-    const firstName = user.name?.split(' ')[0] || undefined;
+  // Fetch user for email (post-write, only on success)
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { email: true, name: true },
+  });
 
-    await sendEmailWithAudit({
-      to: user.email,
-      subject: getUpgradeConfirmationEmailSubject(),
-      html: await getUpgradeConfirmationEmailHtml({ name: firstName }),
-      userId,
-      emailType: 'upgrade_confirmation',
-      triggerSource: 'user_action',
-      templateVersion: UPGRADE_CONFIRMATION_TEMPLATE_VERSION,
-      bypassUnsubscribe: true,
-    });
-  } catch (emailErr) {
-    logger.error({ error: emailErr instanceof Error ? emailErr.message : String(emailErr), userId }, 'Failed to send upgrade confirmation email');
+  if (user) {
+    try {
+      const firstName = user.name?.split(' ')[0] || undefined;
+      await sendEmailWithAudit({
+        to: user.email,
+        subject: getUpgradeConfirmationEmailSubject(),
+        html: await getUpgradeConfirmationEmailHtml({ name: firstName }),
+        userId,
+        emailType: 'upgrade_confirmation',
+        triggerSource: 'user_action',
+        templateVersion: UPGRADE_CONFIRMATION_TEMPLATE_VERSION,
+        bypassUnsubscribe: true,
+      });
+    } catch (emailErr) {
+      logger.error({ error: emailErr instanceof Error ? emailErr.message : String(emailErr), userId }, 'Failed to send upgrade confirmation email');
+    }
   }
 }
 
 async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
-  const userId = subscription.metadata?.userId;
+  const userId = await resolveUserId(subscription.metadata, subscription.customer);
   if (!userId) {
-    logger.warn({ subscriptionId: subscription.id }, 'Subscription update missing userId metadata');
-    return;
-  }
-
-  // Log the update for now — plan changes (monthly↔annual) don't change the tier
-  logger.info(
-    { userId, subscriptionId: subscription.id, status: subscription.status },
-    'Subscription updated'
-  );
-}
-
-async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
-  const userId = subscription.metadata?.userId;
-  if (!userId) {
-    logger.warn({ subscriptionId: subscription.id }, 'Subscription deletion missing userId metadata');
+    logger.warn({ subscriptionId: subscription.id }, 'Subscription update: could not resolve userId');
     return;
   }
 
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { isFoundingRider: true, subscriptionTier: true, email: true, name: true },
+    select: { subscriptionTier: true, isFoundingRider: true, email: true, name: true },
   });
 
-  if (!user || user.isFoundingRider) {
+  if (!user || user.isFoundingRider) return;
+
+  logger.info(
+    { userId, subscriptionId: subscription.id, status: subscription.status },
+    'Subscription updated'
+  );
+
+  if (subscription.status === 'active') {
+    // Atomically upgrade only if not already PRO — prevents stale-read races
+    const [upgraded] = await prisma.$transaction([
+      prisma.user.updateMany({
+        where: { id: userId, subscriptionTier: { not: 'PRO' }, isFoundingRider: false },
+        data: {
+          subscriptionTier: 'PRO',
+          stripeSubscriptionId: subscription.id,
+          needsDowngradeSelection: false,
+        },
+      }),
+      prisma.bike.updateMany({
+        where: { userId, status: 'ARCHIVED' },
+        data: { status: 'ACTIVE' },
+      }),
+    ]);
+
+    if (upgraded.count > 0) {
+      logger.info({ userId }, 'Subscription resumed — user re-upgraded to PRO');
+
+      // Send upgrade confirmation email
+      try {
+        const firstName = user.name?.split(' ')[0] || undefined;
+        await sendEmailWithAudit({
+          to: user.email,
+          subject: getUpgradeConfirmationEmailSubject(),
+          html: await getUpgradeConfirmationEmailHtml({ name: firstName }),
+          userId,
+          emailType: 'upgrade_confirmation',
+          triggerSource: 'user_action',
+          templateVersion: UPGRADE_CONFIRMATION_TEMPLATE_VERSION,
+          bypassUnsubscribe: true,
+        });
+      } catch (emailErr) {
+        logger.error({ error: emailErr instanceof Error ? emailErr.message : String(emailErr), userId }, 'Failed to send re-upgrade confirmation email');
+      }
+    }
+  } else if (subscription.status === 'past_due') {
+    logger.warn({ userId, subscriptionId: subscription.id }, 'Subscription is past due');
+  }
+}
+
+async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
+  const userId = await resolveUserId(subscription.metadata, subscription.customer);
+  if (!userId) {
+    logger.warn({ subscriptionId: subscription.id }, 'Subscription deletion: could not resolve userId');
+    return;
+  }
+
+  // Interactive transaction: read fresh state and downgrade atomically
+  const result = await prisma.$transaction(async (tx) => {
+    const user = await tx.user.findUnique({
+      where: { id: userId },
+      select: { isFoundingRider: true, subscriptionTier: true, email: true, name: true },
+    });
+
+    if (!user || user.isFoundingRider) return null;
+
+    const [completedReferral, activeBikeCount] = await Promise.all([
+      tx.referral.findFirst({ where: { referrerUserId: userId, status: 'COMPLETED' }, select: { id: true } }),
+      tx.bike.count({ where: { userId, status: 'ACTIVE' } }),
+    ]);
+
+    const downgradeTier = completedReferral ? 'FREE_FULL' : 'FREE_LIGHT';
+    const needsSelection = activeBikeCount > 1;
+
+    await tx.user.update({
+      where: { id: userId },
+      data: {
+        subscriptionTier: downgradeTier,
+        stripeSubscriptionId: null,
+        needsDowngradeSelection: needsSelection,
+      },
+    });
+
+    return { email: user.email, name: user.name, downgradeTier, needsSelection };
+  });
+
+  if (!result) {
     logger.info({ userId }, 'Skipping subscription deletion for founding rider or missing user');
     return;
   }
 
-  // Check if user has a completed referral to determine downgrade target
-  const completedReferral = await prisma.referral.findFirst({
-    where: { referrerUserId: userId, status: 'COMPLETED' },
-  });
-
-  const downgradeTier = completedReferral ? 'FREE_FULL' : 'FREE_LIGHT';
-
-  // Count active bikes to determine if downgrade selection is needed
-  const activeBikeCount = await prisma.bike.count({
-    where: { userId, status: 'ACTIVE' },
-  });
-
-  await prisma.user.update({
-    where: { id: userId },
-    data: {
-      subscriptionTier: downgradeTier,
-      stripeSubscriptionId: null,
-      needsDowngradeSelection: activeBikeCount > 1,
-    },
-  });
-
   logger.info(
-    { userId, downgradeTier, needsDowngradeSelection: activeBikeCount > 1 },
+    { userId, downgradeTier: result.downgradeTier, needsDowngradeSelection: result.needsSelection },
     'User downgraded from PRO'
   );
 
-  // Send downgrade notice email (non-blocking, transactional — bypasses unsubscribe)
   try {
-    const firstName = user.name?.split(' ')[0] || undefined;
-
+    const firstName = result.name?.split(' ')[0] || undefined;
     await sendEmailWithAudit({
-      to: user.email,
+      to: result.email,
       subject: getDowngradeNoticeEmailSubject(),
       html: await getDowngradeNoticeEmailHtml({ name: firstName }),
       userId,

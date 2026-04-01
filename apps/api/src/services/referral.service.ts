@@ -21,32 +21,19 @@ export async function generateReferralCode(): Promise<string> {
 }
 
 /**
- * Apply a referral code during signup. Creates a PENDING referral record.
- * Returns false if the code is invalid.
+ * Look up the referrer for a given code. Returns the referrer's user ID,
+ * or null if the code is invalid or is the user's own code.
+ * Call this BEFORE user creation so you can include the referral in the
+ * same transaction as the user insert.
  */
-export async function applyReferralCode(newUserId: string, code: string): Promise<boolean> {
+export async function resolveReferrer(code: string, newUserId?: string): Promise<string | null> {
   const referrer = await prisma.user.findUnique({
     where: { referralCode: code },
     select: { id: true },
   });
 
-  if (!referrer || referrer.id === newUserId) return false;
-
-  // Check if this user was already referred
-  const existing = await prisma.referral.findUnique({
-    where: { referredUserId: newUserId },
-  });
-  if (existing) return false;
-
-  await prisma.referral.create({
-    data: {
-      referrerUserId: referrer.id,
-      referredUserId: newUserId,
-    },
-  });
-
-  logger.info({ referrerId: referrer.id, referredUserId: newUserId }, 'Referral code applied');
-  return true;
+  if (!referrer || referrer.id === newUserId) return null;
+  return referrer.id;
 }
 
 /**
@@ -64,24 +51,43 @@ export async function completeReferral(referredUserId: string): Promise<void> {
 
   if (!referral || referral.status === 'COMPLETED') return;
 
-  await prisma.referral.update({
-    where: { id: referral.id },
-    data: { status: 'COMPLETED', completedAt: new Date() },
+  // Interactive transaction: claim the referral, then conditionally upgrade.
+  // Everything reads and writes fresh DB state inside the transaction boundary.
+  const didUpgrade = await prisma.$transaction(async (tx) => {
+    // Atomically claim — only one concurrent caller can transition PENDING → COMPLETED
+    const claimed = await tx.referral.updateMany({
+      where: { id: referral.id, status: 'PENDING' },
+      data: { status: 'COMPLETED', completedAt: new Date() },
+    });
+
+    if (claimed.count === 0) return false; // already completed by another call
+
+    // Re-read referrer state inside the transaction to avoid stale data
+    const referrer = await tx.user.findUniqueOrThrow({
+      where: { id: referral.referrer.id },
+      select: { subscriptionTier: true, isFoundingRider: true },
+    });
+
+    if (referrer.subscriptionTier === 'FREE_LIGHT' && !referrer.isFoundingRider) {
+      await tx.user.update({
+        where: { id: referral.referrer.id },
+        data: { subscriptionTier: 'FREE_FULL' },
+      });
+      return true;
+    }
+
+    return false;
   });
 
-  // Upgrade referrer if they're on FREE_LIGHT
-  const didUpgrade = referral.referrer.subscriptionTier === 'FREE_LIGHT' && !referral.referrer.isFoundingRider;
+  if (didUpgrade === false && !referral) return; // no-op from race
+
   if (didUpgrade) {
-    await prisma.user.update({
-      where: { id: referral.referrer.id },
-      data: { subscriptionTier: 'FREE_FULL' },
-    });
     logger.info({ referrerId: referral.referrer.id }, 'Referrer upgraded to FREE_FULL via referral');
   }
 
   logger.info({ referralId: referral.id, referredUserId }, 'Referral completed');
 
-  // Send referral success email to the referrer (non-blocking, transactional — bypasses unsubscribe)
+  // Send referral success email to the referrer (non-blocking — bypasses unsubscribe)
   if (didUpgrade) {
     try {
       const referrerFirstName = referral.referrer.name?.split(' ')[0] || undefined;
@@ -113,10 +119,20 @@ export async function completeReferral(referredUserId: string): Promise<void> {
  * Get referral stats for a user.
  */
 export async function getReferralStats(userId: string) {
-  const user = await prisma.user.findUniqueOrThrow({
+  let user = await prisma.user.findUniqueOrThrow({
     where: { id: userId },
     select: { referralCode: true },
   });
+
+  // Backfill referral code for pre-migration users who don't have one
+  if (!user.referralCode) {
+    const code = await generateReferralCode();
+    user = await prisma.user.update({
+      where: { id: userId },
+      data: { referralCode: code },
+      select: { referralCode: true },
+    });
+  }
 
   const [pendingCount, completedCount] = await Promise.all([
     prisma.referral.count({ where: { referrerUserId: userId, status: 'PENDING' } }),
@@ -126,8 +142,8 @@ export async function getReferralStats(userId: string) {
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
 
   return {
-    referralCode: user.referralCode ?? '',
-    referralLink: user.referralCode ? `${frontendUrl}/beta-waitlist?ref=${user.referralCode}` : '',
+    referralCode: user.referralCode!,
+    referralLink: `${frontendUrl}/signup?ref=${user.referralCode}`,
     pendingCount,
     completedCount,
   };

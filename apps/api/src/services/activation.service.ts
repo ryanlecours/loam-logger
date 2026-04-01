@@ -81,7 +81,7 @@ export async function activateWaitlistUser({
   // 1. Verify user exists and is in WAITLIST state
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { id: true, email: true, name: true, role: true, isFoundingRider: true },
+    select: { id: true, email: true, name: true, role: true, isFoundingRider: true, referralCode: true },
   });
 
   if (!user) {
@@ -102,7 +102,7 @@ export async function activateWaitlistUser({
   // the user is still activated but we return the temp password for manual sharing.
   // This is preferable to leaving a user in WAITLIST state indefinitely.
   // Founding riders get lifetime PRO access; regular users get FREE tier.
-  const referralCode = await generateReferralCode();
+  const referralCode = user.referralCode ?? await generateReferralCode();
 
   await prisma.user.update({
     where: { id: userId },

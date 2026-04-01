@@ -4,7 +4,7 @@ import { validateEmailFormat } from '../auth/email.utils';
 import { normalizeEmail } from '../auth/utils';
 import { sendBadRequest, sendError, sendSuccess, sendInternalError, sendTooManyRequests } from '../lib/api-response';
 import { checkAuthRateLimit } from '../lib/rate-limit';
-import { generateReferralCode, applyReferralCode } from '../services/referral.service';
+import { generateReferralCode, resolveReferrer } from '../services/referral.service';
 import { logger } from '../lib/logger';
 import { config } from '../config/env';
 import { validatePassword, hashPassword } from '../auth/password.utils';
@@ -87,25 +87,30 @@ router.post('/waitlist', express.json(), async (req: Request, res) => {
       }
 
       const passwordHash = await hashPassword(password);
-      const newUser = await prisma.user.create({
-        data: {
-          email,
-          name: trimmedName,
-          role: 'FREE',
-          subscriptionTier: 'FREE_LIGHT',
-          referralCode,
-          passwordHash,
-        },
-      });
 
-      // Apply referral code if provided
-      if (ref) {
-        try {
-          await applyReferralCode(newUser.id, ref);
-        } catch (refErr) {
-          logger.error({ error: refErr instanceof Error ? refErr.message : String(refErr) }, 'Failed to apply referral code during signup');
+      // Resolve referrer before transaction so we can create both atomically
+      const referrerId = ref ? await resolveReferrer(ref) : null;
+
+      const newUser = await prisma.$transaction(async (tx) => {
+        const user = await tx.user.create({
+          data: {
+            email,
+            name: trimmedName,
+            role: 'FREE',
+            subscriptionTier: 'FREE_LIGHT',
+            referralCode,
+            passwordHash,
+          },
+        });
+
+        if (referrerId) {
+          await tx.referral.create({
+            data: { referrerUserId: referrerId, referredUserId: user.id },
+          });
         }
-      }
+
+        return user;
+      });
 
       // Auto-login: set session cookie
       setSessionCookie(res, { uid: newUser.id, email: newUser.email, authAt: Date.now() });
@@ -121,23 +126,24 @@ router.post('/waitlist', express.json(), async (req: Request, res) => {
     }
 
     // Waitlist flow — create user with WAITLIST role (no password)
-    const newUser = await prisma.user.create({
-      data: {
-        email,
-        name: trimmedName,
-        role: 'WAITLIST',
-        referralCode,
-      },
-    });
+    const referrerId = ref ? await resolveReferrer(ref) : null;
 
-    // Apply referral code if provided
-    if (ref) {
-      try {
-        await applyReferralCode(newUser.id, ref);
-      } catch (refErr) {
-        logger.error({ error: refErr instanceof Error ? refErr.message : String(refErr) }, 'Failed to apply referral code during waitlist signup');
+    await prisma.$transaction(async (tx) => {
+      const user = await tx.user.create({
+        data: {
+          email,
+          name: trimmedName,
+          role: 'WAITLIST',
+          referralCode,
+        },
+      });
+
+      if (referrerId) {
+        await tx.referral.create({
+          data: { referrerUserId: referrerId, referredUserId: user.id },
+        });
       }
-    }
+    });
 
     logger.info({ email }, 'New waitlist signup');
 

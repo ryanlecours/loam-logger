@@ -35,7 +35,7 @@ export default function ReferralCard() {
           <div>
             <p className="text-sm text-white">Share with a friend to unlock all components</p>
             <p className="text-xs text-muted mt-1">
-              When they complete onboarding, you unlock Full Bike Analysis.
+              When they complete onboarding, you unlock Full Bike Analysis — wear tracking on all 23+ component types on your bike. Upgrade to Pro for unlimited bikes.
             </p>
           </div>
         </div>
