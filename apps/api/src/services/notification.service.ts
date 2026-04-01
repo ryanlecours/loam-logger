@@ -178,11 +178,6 @@ export async function checkAndNotifyServiceDue(params: {
 
   if (newComponents.length === 0) return;
 
-  // Send one notification per bike summarizing components due
-  const componentNames = newComponents
-    .map(c => `${c.componentType.replace(/_/g, ' ').toLowerCase()}`)
-    .join(', ');
-
   const formatRemaining = (c: ComponentPrediction): string => {
     switch (mode) {
       case 'RIDES_BEFORE':
