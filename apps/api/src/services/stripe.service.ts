@@ -22,7 +22,7 @@ export async function getOrCreateStripeCustomer(userId: string): Promise<string>
   // Acquire advisory lock to serialize concurrent requests for this user.
   // Read fresh state inside the lock — another request may have just finished.
   const fresh = await prisma.$transaction(async (tx) => {
-    await tx.$queryRawUnsafe(`SELECT pg_advisory_xact_lock(hashtext($1))`, userId);
+    await tx.$queryRawUnsafe(`SELECT pg_advisory_xact_lock(hashtext($1))::text`, userId);
 
     return tx.user.findUniqueOrThrow({
       where: { id: userId },
@@ -75,42 +75,56 @@ export async function getOrCreateStripeCustomer(userId: string): Promise<string>
 }
 
 export type StripePlan = 'monthly' | 'annual';
+export type CheckoutPlatform = 'web' | 'mobile';
+
+const MOBILE_DEEP_LINK_BASE = 'loamlogger://';
 
 /**
  * Create a Stripe Checkout session for upgrading to Pro.
  */
-export async function createCheckoutSession(userId: string, plan: StripePlan) {
+export async function createCheckoutSession(userId: string, plan: StripePlan, platform: CheckoutPlatform = 'web') {
   const customerId = await getOrCreateStripeCustomer(userId);
 
   const priceId = plan === 'monthly' ? STRIPE_CONFIG.monthlyPriceId : STRIPE_CONFIG.annualPriceId;
+
+  const successUrl = platform === 'mobile'
+    ? `${MOBILE_DEEP_LINK_BASE}billing-success`
+    : `${FRONTEND_URL}/settings?billing=success`;
+  const cancelUrl = platform === 'mobile'
+    ? `${MOBILE_DEEP_LINK_BASE}billing-cancelled`
+    : `${FRONTEND_URL}/settings?billing=cancelled`;
 
   const session = await stripe.checkout.sessions.create({
     customer: customerId,
     client_reference_id: userId,
     mode: 'subscription',
     line_items: [{ price: priceId, quantity: 1 }],
-    success_url: `${FRONTEND_URL}/settings?billing=success`,
-    cancel_url: `${FRONTEND_URL}/settings?billing=cancelled`,
+    success_url: successUrl,
+    cancel_url: cancelUrl,
     subscription_data: {
       metadata: { userId },
     },
   });
 
-  logger.info({ userId, plan, sessionId: session.id }, 'Created Stripe checkout session');
+  logger.info({ userId, plan, platform, sessionId: session.id }, 'Created Stripe checkout session');
   return { sessionId: session.id, url: session.url };
 }
 
 /**
  * Create a Stripe Customer Portal session for managing subscription.
  */
-export async function createBillingPortalSession(userId: string) {
+export async function createBillingPortalSession(userId: string, platform: CheckoutPlatform = 'web') {
   const customerId = await getOrCreateStripeCustomer(userId);
+
+  const returnUrl = platform === 'mobile'
+    ? `${MOBILE_DEEP_LINK_BASE}billing-return`
+    : `${FRONTEND_URL}/settings`;
 
   const session = await stripe.billingPortal.sessions.create({
     customer: customerId,
-    return_url: `${FRONTEND_URL}/settings`,
+    return_url: returnUrl,
   });
 
-  logger.info({ userId }, 'Created Stripe billing portal session');
+  logger.info({ userId, platform }, 'Created Stripe billing portal session');
   return { url: session.url };
 }

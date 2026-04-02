@@ -1,6 +1,10 @@
+import { useState } from 'react';
 import { gql, useMutation } from '@apollo/client';
+import { useNavigate } from 'react-router-dom';
 import { CreditCard, ExternalLink } from 'lucide-react';
 import { useUserTier } from '../hooks/useUserTier';
+import { Modal } from './ui/Modal';
+import { Button } from './ui/Button';
 
 const CREATE_BILLING_PORTAL = gql`
   mutation CreateBillingPortalSession {
@@ -13,15 +17,17 @@ const CREATE_BILLING_PORTAL = gql`
 export default function BillingSection() {
   const { tier, isPro, isFoundingRider } = useUserTier();
   const [createPortal, { loading }] = useMutation(CREATE_BILLING_PORTAL);
+  const [showConfirm, setShowConfirm] = useState(false);
+  const navigate = useNavigate();
 
-  const handleManageBilling = async () => {
+  const handleConfirmNavigate = async () => {
     try {
       const { data } = await createPortal();
       if (data?.createBillingPortalSession?.url) {
-        window.open(data.createBillingPortalSession.url, '_blank');
+        window.location.href = data.createBillingPortalSession.url;
       }
     } catch {
-      // Error handled by Apollo
+      setShowConfirm(false);
     }
   };
 
@@ -51,16 +57,44 @@ export default function BillingSection() {
           </div>
           {isPro && !isFoundingRider && (
             <button
-              onClick={handleManageBilling}
-              disabled={loading}
+              onClick={() => setShowConfirm(true)}
               className="flex items-center gap-1.5 rounded-lg border border-white/20 px-3 py-1.5 text-xs font-medium text-white/80 transition hover:bg-white/10 disabled:opacity-50"
             >
               Manage
               <ExternalLink className="h-3 w-3" />
             </button>
           )}
+          {!isPro && (
+            <button
+              onClick={() => navigate('/pricing')}
+              className="flex items-center gap-1.5 rounded-lg bg-mint/15 border border-mint/30 px-3 py-1.5 text-xs font-medium text-mint transition hover:bg-mint/25"
+            >
+              Upgrade
+            </button>
+          )}
         </div>
       </div>
+
+      <Modal
+        isOpen={showConfirm}
+        onClose={() => setShowConfirm(false)}
+        title="Manage Subscription"
+        size="sm"
+        footer={
+          <>
+            <Button variant="outline" size="sm" onClick={() => setShowConfirm(false)} disabled={loading}>
+              Cancel
+            </Button>
+            <Button variant="primary" size="sm" onClick={handleConfirmNavigate} disabled={loading}>
+              {loading ? 'Loading...' : 'Continue to Stripe'}
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-muted">
+          You'll be redirected to Stripe to manage your subscription. You'll be brought back to LoamLogger when you're done.
+        </p>
+      </Modal>
     </div>
   );
 }

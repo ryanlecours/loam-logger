@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation } from '@apollo/client';
-import { ChevronRight, Check, Wrench } from 'lucide-react';
+import { ChevronRight, Check, Wrench, Lock } from 'lucide-react';
 import type { ComponentPrediction } from '../../types/prediction';
 import { STATUS_SEVERITY } from '../../types/prediction';
 import { formatComponentLabel } from '../../utils/formatters';
 import { useHoursDisplay } from '../../hooks/useHoursDisplay';
 import { StatusDot } from './StatusDot';
+import UpgradePrompt from '../UpgradePrompt';
+import { useUserTier } from '../../hooks/useUserTier';
+import { FREE_LIGHT_COMPONENT_TYPES } from '@loam/shared';
 import { SNOOZE_COMPONENT } from '../../graphql/calibration';
 import { BIKES } from '../../graphql/bikes';
 
@@ -318,11 +321,18 @@ function ComponentDetailOverlay({ component, onClose, onServiceLogged, onLogServ
 export function ComponentHealthPanel({ components, className = '', onLogService }: ComponentHealthPanelProps) {
   const [selectedComponent, setSelectedComponent] = useState<ComponentPrediction | null>(null);
   const { hoursDisplay } = useHoursDisplay();
+  const { isFreeLight } = useUserTier();
 
-  const sortedComponents = useMemo(
-    () => getSortedComponentsForHealth(components),
-    [components]
-  );
+  const sortedComponents = useMemo(() => {
+    const sorted = getSortedComponentsForHealth(components);
+    if (!isFreeLight) return sorted;
+    // Show unlocked components first, restricted after
+    const unlocked = sorted.filter(c =>
+      (FREE_LIGHT_COMPONENT_TYPES as readonly string[]).includes(c.componentType));
+    const restricted = sorted.filter(c =>
+      !(FREE_LIGHT_COMPONENT_TYPES as readonly string[]).includes(c.componentType));
+    return [...unlocked, ...restricted];
+  }, [components, isFreeLight]);
 
   // Empty state
   if (components.length === 0) {
@@ -348,47 +358,69 @@ export function ComponentHealthPanel({ components, className = '', onLogService 
       <div className="component-health-list list-stagger">
         {sortedComponents.map((component) => {
           const makeModel = getMakeModel(component);
+          const isRestricted = isFreeLight &&
+            !(FREE_LIGHT_COMPONENT_TYPES as readonly string[]).includes(component.componentType);
 
           return (
             <button
               key={component.componentId}
-              className="component-health-row"
-              onClick={() => setSelectedComponent(component)}
+              className={`component-health-row ${isRestricted ? 'component-health-row-restricted' : ''}`}
+              onClick={() => !isRestricted && setSelectedComponent(component)}
               type="button"
+              style={isRestricted ? { opacity: 0.4, cursor: 'default' } : undefined}
             >
-              <StatusDot status={component.status} />
+              {isRestricted ? (
+                <Lock className="h-3 w-3 shrink-0 text-muted" />
+              ) : (
+                <StatusDot status={component.status} />
+              )}
               <div className="component-health-name">
                 <span className="component-health-label">
                   {formatComponentLabel(component)}
                 </span>
                 <span className="component-health-make-model">{makeModel}</span>
               </div>
-              <div className="component-health-metrics">
-                {hoursDisplay === 'total' ? (
-                  <>
-                    <span className="component-health-hours-primary">
-                      {formatHours(component.hoursSinceService)} / {component.serviceIntervalHours}h
-                    </span>
-                    <span className="component-health-hours-secondary">
-                      {formatHours(component.hoursRemaining)} remaining · ~{component.ridesRemainingEstimate} rides
-                    </span>
-                  </>
-                ) : (
-                  <>
-                    <span className="component-health-hours-primary">
-                      {formatHours(component.hoursRemaining)} remaining
-                    </span>
-                    <span className="component-health-hours-secondary">
-                      {formatHours(component.hoursSinceService)} since service · ~{component.ridesRemainingEstimate} rides
-                    </span>
-                  </>
-                )}
-              </div>
-              <ChevronRight className="component-health-chevron" size={12} />
+              {isRestricted ? (
+                <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-bold text-amber-400">
+                  PRO
+                </span>
+              ) : (
+                <div className="component-health-metrics">
+                  {hoursDisplay === 'total' ? (
+                    <>
+                      <span className="component-health-hours-primary">
+                        {formatHours(component.hoursSinceService)} / {component.serviceIntervalHours}h
+                      </span>
+                      <span className="component-health-hours-secondary">
+                        {formatHours(component.hoursRemaining)} remaining · ~{component.ridesRemainingEstimate} rides
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="component-health-hours-primary">
+                        {formatHours(component.hoursRemaining)} remaining
+                      </span>
+                      <span className="component-health-hours-secondary">
+                        {formatHours(component.hoursSinceService)} since service · ~{component.ridesRemainingEstimate} rides
+                      </span>
+                    </>
+                  )}
+                </div>
+              )}
+              {!isRestricted && <ChevronRight className="component-health-chevron" size={12} />}
             </button>
           );
         })}
       </div>
+
+      {isFreeLight && (
+        <div className="mt-4 flex justify-center">
+          <UpgradePrompt
+            message="Help Loam Logger grow and unlock all 23+ components for free."
+            subtitle={"Refer a friend to sign up, and when they do, your account is automatically upgraded to full component tracking for your first bike.\nOr, go Pro to unlock everything instantly across unlimited bikes."}
+          />
+        </div>
+      )}
 
       {selectedComponent && (
         <ComponentDetailOverlay

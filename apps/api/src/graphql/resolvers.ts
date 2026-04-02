@@ -29,7 +29,7 @@ import { createId } from '@paralleldrive/cuid2';
 import { logError } from '../lib/logger';
 import { config } from '../config/env';
 import { requireBikeCreation, requireComponentType, getEffectiveTier, getAllowedComponentTypes, canCreateBike, isProTier } from '../auth/tier-access';
-import { createCheckoutSession, createBillingPortalSession, type StripePlan } from '../services/stripe.service';
+import { createCheckoutSession, createBillingPortalSession, type StripePlan, type CheckoutPlatform } from '../services/stripe.service';
 import { getReferralStats, completeReferral } from '../services/referral.service';
 import { TIER_LIMITS } from '@loam/shared';
 import { checkRecentAuth } from '../auth/recent-auth';
@@ -3970,7 +3970,7 @@ export const resolvers = {
 
     createCheckoutSession: async (
       _: unknown,
-      { plan }: { plan: 'MONTHLY' | 'ANNUAL' },
+      { plan, platform }: { plan: 'MONTHLY' | 'ANNUAL'; platform?: 'WEB' | 'MOBILE' },
       ctx: GraphQLContext
     ) => {
       const userId = requireUserId(ctx);
@@ -3989,10 +3989,15 @@ export const resolvers = {
       }
 
       const stripePlan: StripePlan = plan === 'MONTHLY' ? 'monthly' : 'annual';
-      return createCheckoutSession(userId, stripePlan);
+      const checkoutPlatform: CheckoutPlatform = platform === 'MOBILE' ? 'mobile' : 'web';
+      return createCheckoutSession(userId, stripePlan, checkoutPlatform);
     },
 
-    createBillingPortalSession: async (_: unknown, _args: unknown, ctx: GraphQLContext) => {
+    createBillingPortalSession: async (
+      _: unknown,
+      { platform }: { platform?: 'WEB' | 'MOBILE' },
+      ctx: GraphQLContext
+    ) => {
       const userId = requireUserId(ctx);
 
       const user = await prisma.user.findUniqueOrThrow({
@@ -4005,7 +4010,8 @@ export const resolvers = {
         });
       }
 
-      return createBillingPortalSession(userId);
+      const checkoutPlatform: CheckoutPlatform = platform === 'MOBILE' ? 'mobile' : 'web';
+      return createBillingPortalSession(userId, checkoutPlatform);
     },
 
     selectBikeForDowngrade: async (

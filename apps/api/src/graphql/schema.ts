@@ -94,6 +94,11 @@ export const typeDefs = gql`
     ANNUAL
   }
 
+  enum CheckoutPlatform {
+    WEB
+    MOBILE
+  }
+
   enum BaselineMethod {
     DEFAULT
     SLIDER
@@ -798,8 +803,8 @@ export const typeDefs = gql`
     updateBikeNotificationPreference(input: UpdateBikeNotificationPreferenceInput!): BikeNotificationPreference!
     addBikeNote(input: AddBikeNoteInput!): BikeNote!
     deleteBikeNote(id: ID!): DeleteResult!
-    createCheckoutSession(plan: StripePlan!): CheckoutSessionResult!
-    createBillingPortalSession: BillingPortalResult!
+    createCheckoutSession(plan: StripePlan!, platform: CheckoutPlatform): CheckoutSessionResult!
+    createBillingPortalSession(platform: CheckoutPlatform): BillingPortalResult!
     selectBikeForDowngrade(bikeId: ID!): Bike!
   }
 

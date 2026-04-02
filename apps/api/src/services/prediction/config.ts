@@ -137,7 +137,7 @@ export const BASE_INTERVALS_HOURS: Partial<
   TIRES: { front: 120, rear: 100 },
   FORK: 50, // lowers service
   SHOCK: 50, // air can service
-  DRIVETRAIN: 6, // clean/lube interval
+  DRIVETRAIN: 15, // clean/lube interval
   DROPPER: 150,
   PIVOT_BEARINGS: 250,
   HEADSET: 250,

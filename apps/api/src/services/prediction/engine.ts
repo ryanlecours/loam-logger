@@ -71,10 +71,15 @@ type PredictionContext = {
 /**
  * Determine prediction status from hours remaining.
  */
-function getStatus(hoursRemaining: number): PredictionStatus {
+function getStatus(hoursRemaining: number, baseInterval: number): PredictionStatus {
   if (hoursRemaining <= 0) return 'OVERDUE';
-  if (hoursRemaining <= DUE_NOW_THRESHOLD_HOURS) return 'DUE_NOW';
-  if (hoursRemaining <= DUE_SOON_THRESHOLD_HOURS) return 'DUE_SOON';
+  // Use absolute thresholds or 1/3 and 2/3 of the interval, whichever is smaller.
+  // This prevents short-interval components (e.g. 6h drivetrain) from being
+  // permanently flagged as DUE_SOON when the absolute threshold exceeds the interval.
+  const dueNow = Math.min(DUE_NOW_THRESHOLD_HOURS, baseInterval / 3);
+  const dueSoon = Math.min(DUE_SOON_THRESHOLD_HOURS, baseInterval * 2 / 3);
+  if (hoursRemaining <= dueNow) return 'DUE_NOW';
+  if (hoursRemaining <= dueSoon) return 'DUE_SOON';
   return 'ALL_GOOD';
 }
 
@@ -232,7 +237,7 @@ function predictComponent(
   }
 
   // Determine status
-  const status = getStatus(hoursRemaining);
+  const status = getStatus(hoursRemaining, baseInterval);
   const ridesRemainingEstimate = estimateRidesRemaining(hoursRemaining, recentRides);
 
   // Generate explanation for Pro tier
