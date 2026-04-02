@@ -16,7 +16,7 @@ import { createNewUser, verifyEmailAvailable } from '../services/signup.service'
 
 const router = express.Router();
 
-const { GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET } = process.env;
+const { GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_IOS_CLIENT_ID } = process.env;
 
 const googleClient = new OAuth2Client({
   clientId: GOOGLE_CLIENT_ID,
@@ -135,7 +135,7 @@ router.post('/mobile/google', express.json(), async (req, res) => {
     // Verify the Google ID token
     const ticket = await googleClient.verifyIdToken({
       idToken,
-      audience: GOOGLE_CLIENT_ID,
+      audience: [GOOGLE_CLIENT_ID!, GOOGLE_IOS_CLIENT_ID!].filter(Boolean),
     });
     const payload = ticket.getPayload();
     if (!payload?.sub) {
