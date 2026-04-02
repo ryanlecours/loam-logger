@@ -219,26 +219,28 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
         }
       }
     }
+  } else if (subscription.status === 'canceled') {
+    // Stripe can fire updated with 'canceled' before or instead of the deleted event.
+    // Trigger the same downgrade logic — it's idempotent.
+    await downgradeUser(userId);
   } else if (subscription.status === 'past_due') {
     logger.warn({ userId, subscriptionId: subscription.id }, 'Subscription is past due');
   }
 }
 
-async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
-  const userId = await resolveUserId(subscription.metadata, subscription.customer);
-  if (!userId) {
-    logger.warn({ subscriptionId: subscription.id }, 'Subscription deletion: could not resolve userId');
-    return;
-  }
-
-  // Interactive transaction: read fresh state and downgrade atomically
+/**
+ * Shared downgrade logic used by both handleSubscriptionDeleted and
+ * handleSubscriptionUpdated (status === 'canceled'). Idempotent —
+ * safe to call from both event paths.
+ */
+async function downgradeUser(userId: string): Promise<void> {
   const result = await prisma.$transaction(async (tx) => {
     const user = await tx.user.findUnique({
       where: { id: userId },
       select: { isFoundingRider: true, subscriptionTier: true, email: true, name: true },
     });
 
-    if (!user || user.isFoundingRider) return null;
+    if (!user || user.isFoundingRider || user.subscriptionTier !== 'PRO') return null;
 
     const [completedReferral, activeBikeCount] = await Promise.all([
       tx.referral.findFirst({ where: { referrerUserId: userId, status: 'COMPLETED' }, select: { id: true } }),
@@ -261,7 +263,7 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
   });
 
   if (!result) {
-    logger.info({ userId }, 'Skipping subscription deletion for founding rider or missing user');
+    logger.info({ userId }, 'Downgrade skipped (founding rider, not PRO, or missing user)');
     return;
   }
 
@@ -285,6 +287,16 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
   } catch (emailErr) {
     logger.error({ error: emailErr instanceof Error ? emailErr.message : String(emailErr), userId }, 'Failed to send downgrade notice email');
   }
+}
+
+async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
+  const userId = await resolveUserId(subscription.metadata, subscription.customer);
+  if (!userId) {
+    logger.warn({ subscriptionId: subscription.id }, 'Subscription deletion: could not resolve userId');
+    return;
+  }
+
+  await downgradeUser(userId);
 }
 
 async function handlePaymentFailed(invoice: Stripe.Invoice) {

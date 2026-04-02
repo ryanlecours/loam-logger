@@ -90,9 +90,10 @@ export async function ensureUserFromGoogle(
 
   const referrerId = ref ? await resolveReferrer(ref) : null;
 
-  return createUserWithReferralCode(async (referralCode) => {
-    return prisma.$transaction(async (tx) => {
-      const newUser = await tx.user.create({
+  try {
+    return await createUserWithReferralCode(async (referralCode) => {
+      return prisma.$transaction(async (tx) => {
+        const newUser = await tx.user.create({
         data: {
           email,
           name: claims.name ?? null,
@@ -129,6 +130,19 @@ export async function ensureUserFromGoogle(
       return newUser;
     });
   });
+  } catch (err) {
+    // A concurrent request created this user between Phase 1 and Phase 2.
+    // Re-run the full function — Phase 1 will now find the existing user.
+    const isEmailCollision =
+      err instanceof Prisma.PrismaClientKnownRequestError &&
+      err.code === 'P2002' &&
+      (err.meta?.target as string[] | undefined)?.includes('email');
+
+    if (isEmailCollision) {
+      return ensureUserFromGoogle(claims, tokens);
+    }
+    throw err;
+  }
 }
 
 async function refresh(

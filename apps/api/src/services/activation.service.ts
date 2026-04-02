@@ -82,7 +82,7 @@ export async function activateWaitlistUser({
   // 1. Verify user exists and is in WAITLIST state
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { id: true, email: true, name: true, role: true, isFoundingRider: true, referralCode: true },
+    select: { id: true, email: true, name: true, role: true, isFoundingRider: true, referralCode: true, passwordHash: true },
   });
 
   if (!user) {
@@ -93,10 +93,17 @@ export async function activateWaitlistUser({
     throw new Error(`User is already activated (current role: ${user.role})`);
   }
 
-  // 2. Generate temporary password and hash it
-  // Store in mutable variable so we can clear it after use
-  let tempPassword: string | null = generateTempPassword();
-  const passwordHash = await hashPassword(tempPassword);
+  // 2. Generate temporary password only if the user doesn't already have one
+  // (mobile signup allows setting a password at signup while on the waitlist)
+  let tempPassword: string | null = null;
+  let passwordHash: string | undefined;
+  let mustChangePassword: boolean | undefined;
+
+  if (!user.passwordHash) {
+    tempPassword = generateTempPassword();
+    passwordHash = await hashPassword(tempPassword);
+    mustChangePassword = true;
+  }
 
   // 3. Update user record
   // Note: We update the user first, then queue emails. If email queueing fails,
@@ -111,8 +118,8 @@ export async function activateWaitlistUser({
       role: user.isFoundingRider ? 'PRO' : 'FREE',
       subscriptionTier: user.isFoundingRider ? 'PRO' : 'FREE_LIGHT',
       referralCode,
-      passwordHash,
-      mustChangePassword: true,
+      ...(passwordHash ? { passwordHash } : {}),
+      ...(mustChangePassword !== undefined ? { mustChangePassword } : {}),
       activatedAt: new Date(),
       activatedBy: adminUserId,
     },
