@@ -306,7 +306,7 @@ async function handlePaymentFailed(invoice: Stripe.Invoice) {
 
   if (!customerId) return;
 
-  const user = await prisma.user.findFirst({
+  const user = await prisma.user.findUnique({
     where: { stripeCustomerId: customerId },
     select: { id: true, email: true, name: true },
   });
@@ -318,7 +318,23 @@ async function handlePaymentFailed(invoice: Stripe.Invoice) {
 
   logger.warn({ userId: user.id, invoiceId: invoice.id }, 'Payment failed');
 
-  // Send payment failed email (non-blocking, transactional — bypasses unsubscribe)
+  // Dedup: Stripe retries failed payment webhooks for up to 72 hours.
+  // Only send one payment_failed email per 24-hour window per user.
+  const recentEmail = await prisma.emailSend.findFirst({
+    where: {
+      userId: user.id,
+      emailType: 'payment_failed',
+      status: 'sent',
+      createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+    },
+    select: { id: true },
+  });
+
+  if (recentEmail) {
+    logger.info({ userId: user.id, invoiceId: invoice.id }, 'Payment failed email already sent in last 24h, skipping');
+    return;
+  }
+
   try {
     const firstName = user.name?.split(' ')[0] || undefined;
 

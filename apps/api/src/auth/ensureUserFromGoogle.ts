@@ -139,7 +139,7 @@ export async function ensureUserFromGoogle(
       (err.meta?.target as string[] | undefined)?.includes('email');
 
     if (isEmailCollision) {
-      return ensureUserFromGoogle(claims, tokens);
+      return ensureUserFromGoogle(claims, tokens, ref);
     }
     throw err;
   }
