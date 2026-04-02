@@ -18,6 +18,13 @@ const router = express.Router();
 
 const { GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_IOS_CLIENT_ID } = process.env;
 
+if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
+  logger.error('[MobileAuth] Missing GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET');
+}
+if (!GOOGLE_IOS_CLIENT_ID) {
+  logger.warn('[MobileAuth] GOOGLE_IOS_CLIENT_ID not set — iOS token audience not configured');
+}
+
 const googleClient = new OAuth2Client({
   clientId: GOOGLE_CLIENT_ID,
   clientSecret: GOOGLE_CLIENT_SECRET,
