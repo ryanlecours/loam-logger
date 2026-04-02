@@ -3,18 +3,21 @@ import { normalizeEmail, computeExpiry } from './utils';
 import type { GoogleClaims, GoogleTokens } from './types';
 import { prisma } from '../lib/prisma';
 import { config } from '../config/env';
-import { generateReferralCode } from '../services/referral.service';
-
+import { generateReferralCode, resolveReferrer } from '../services/referral.service';
 
 export async function ensureUserFromGoogle(
   claims: GoogleClaims,
-  tokens?: GoogleTokens
+  tokens?: GoogleTokens,
+  ref?: string,
 ) {
   const sub = claims.sub;
   if (!sub) throw new Error('Google sub is required');
 
   const email = normalizeEmail(claims.email);
   if (!email) throw new Error('Google login did not provide an email');
+
+  // Resolve referrer before transaction so we can create the referral atomically
+  const referrerId = ref ? await resolveReferrer(ref) : null;
 
   return prisma.$transaction(async (tx) => {
     // If Google identity already linked, refresh profile + tokens
@@ -63,6 +66,13 @@ export async function ensureUserFromGoogle(
       await tx.userAccount.create({
         data: { userId: newUser.id, provider: 'google', providerUserId: sub },
       });
+
+      // Create referral record if ref code was provided
+      if (referrerId) {
+        await tx.referral.create({
+          data: { referrerUserId: referrerId, referredUserId: newUser.id },
+        });
+      }
 
       if (tokens?.access_token || tokens?.refresh_token) {
         await tx.oauthToken.create({

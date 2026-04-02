@@ -8,23 +8,24 @@ const REQUIRED_STRIPE_VARS = [
 ] as const;
 
 /**
- * Validate that all Stripe env vars are present.
+ * Validate that all Stripe env vars are present and return the secret key.
  * Called at startup when STRIPE_SECRET_KEY is set — fails fast
  * rather than producing confusing errors during checkout.
  */
-export function validateStripeConfig(): void {
+export function validateStripeConfig(): string {
   const missing = REQUIRED_STRIPE_VARS.filter((v) => !process.env[v]);
   if (missing.length > 0) {
     throw new Error(`Missing Stripe environment variables: ${missing.join(', ')}`);
   }
+  return process.env.STRIPE_SECRET_KEY as string;
 }
 
 let _stripe: Stripe | null = null;
 
 function getStripe(): Stripe {
   if (!_stripe) {
-    validateStripeConfig();
-    _stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
+    const secretKey = validateStripeConfig();
+    _stripe = new Stripe(secretKey);
   }
   return _stripe;
 }

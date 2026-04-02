@@ -125,7 +125,7 @@ export default function BetaTesterWaitlist() {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ credential }),
+        body: JSON.stringify({ credential, ...(ref ? { ref } : {}) }),
       });
 
       if (!res.ok) {

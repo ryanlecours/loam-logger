@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma';
 import { logger } from '../lib/logger';
 import { sendEmailWithAudit } from './email.service';
 import { getReferralSuccessEmailHtml, getReferralSuccessEmailSubject, REFERRAL_SUCCESS_TEMPLATE_VERSION } from '../templates/emails/referral-success';
+import { FRONTEND_URL } from '../config/env';
 
 /**
  * Generate an 8-character hex referral code.
@@ -86,7 +87,11 @@ export async function completeReferral(referredUserId: string): Promise<void> {
 
   if (!referral || referral.status === 'COMPLETED') return;
 
-  // Abuse check: same signup IP suggests self-referral via second account
+  // Abuse check: same signup IP suggests self-referral via second account.
+  // Note: trust proxy is set to 1 in server.ts so req.ip returns the real
+  // client IP behind Railway's proxy. Users on shared NAT (corporate network,
+  // university) could be false-positived here — if this becomes an issue,
+  // consider downgrading to a warning log instead of a block.
   if (
     referral.referrer.signupIp &&
     referral.referred.signupIp &&
@@ -215,7 +220,7 @@ export async function getReferralStats(userId: string) {
     prisma.referral.count({ where: { referrerUserId: userId, status: 'COMPLETED' } }),
   ]);
 
-  const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+  const frontendUrl = FRONTEND_URL;
 
   return {
     referralCode: user.referralCode!,

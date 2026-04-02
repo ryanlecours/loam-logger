@@ -20,9 +20,9 @@ import { logError } from '../lib/logger';
 import { escapeHtml } from '../lib/html';
 import type { UserRole } from '@prisma/client';
 import { getActivationEmailHtml, getActivationEmailSubject } from '../templates/emails/activation';
+import { FRONTEND_URL } from '../config/env';
 
 const API_URL = process.env.API_URL || 'http://localhost:4000';
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 // Validation helpers
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

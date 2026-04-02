@@ -1,8 +1,7 @@
 import { stripe, STRIPE_CONFIG } from '../lib/stripe';
 import { prisma } from '../lib/prisma';
 import { logger } from '../lib/logger';
-
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+import { FRONTEND_URL } from '../config/env';
 
 /**
  * Get or create a Stripe customer for a user.

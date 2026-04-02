@@ -3,6 +3,8 @@
  * Parses environment variables once at startup for type safety and consistency.
  */
 
+export const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+
 export const config = {
   /**
    * When true, blocks manual sync operations to prevent "unprompted pull"

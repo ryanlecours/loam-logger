@@ -1,10 +1,9 @@
 import { Router, type Request, type Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { logger } from '../lib/logger';
+import { FRONTEND_URL } from '../config/env';
 
 const router = Router();
-
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 /**
  * GET /r/:code - Referral link redirect

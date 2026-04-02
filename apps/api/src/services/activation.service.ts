@@ -7,8 +7,9 @@ import { generateUnsubscribeToken } from '../lib/unsubscribe-token';
 import { PASSWORD_REQUIREMENTS } from '@loam/shared';
 import { generateReferralCode } from './referral.service';
 
+import { FRONTEND_URL } from '../config/env';
+
 const API_URL = process.env.API_URL || 'http://localhost:4000';
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 // Word list for generating memorable temporary passwords
 const WORD_LIST = [

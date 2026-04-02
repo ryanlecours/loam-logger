@@ -282,6 +282,85 @@ describe('Stripe Webhooks', () => {
     });
   });
 
+  describe('customer.subscription.updated', () => {
+    const subscription = {
+      id: 'sub_123',
+      metadata: { userId: 'user-1' },
+      customer: 'cus_123',
+      status: 'active',
+    };
+
+    it('should re-upgrade user when subscription resumes (active after past_due)', async () => {
+      mockConstructEvent.mockReturnValue(makeEvent('customer.subscription.updated', subscription));
+      (mockPrisma.user.findUnique as jest.Mock)
+        .mockResolvedValueOnce({ isFoundingRider: false }) // initial check
+        .mockResolvedValueOnce({ email: 'test@test.com', name: 'Test' }); // post-upgrade email fetch
+
+      (mockPrisma.$transaction as jest.Mock).mockImplementation(async (fn: (tx: unknown) => unknown) => {
+        const tx = {
+          user: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+          bike: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+        };
+        return fn(tx);
+      });
+
+      const res = await request(app)
+        .post('/')
+        .set('stripe-signature', 'valid')
+        .send(JSON.stringify(subscription));
+
+      expect(res.status).toBe(200);
+      expect(sendEmailWithAudit).toHaveBeenCalled();
+    });
+
+    it('should not re-upgrade if user is already PRO', async () => {
+      mockConstructEvent.mockReturnValue(makeEvent('customer.subscription.updated', subscription));
+      (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({ isFoundingRider: false });
+
+      (mockPrisma.$transaction as jest.Mock).mockImplementation(async (fn: (tx: unknown) => unknown) => {
+        const tx = {
+          user: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+          bike: { updateMany: jest.fn() },
+        };
+        return fn(tx);
+      });
+
+      const res = await request(app)
+        .post('/')
+        .set('stripe-signature', 'valid')
+        .send(JSON.stringify(subscription));
+
+      expect(res.status).toBe(200);
+      expect(sendEmailWithAudit).not.toHaveBeenCalled();
+    });
+
+    it('should skip for founding riders', async () => {
+      mockConstructEvent.mockReturnValue(makeEvent('customer.subscription.updated', subscription));
+      (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({ isFoundingRider: true });
+
+      const res = await request(app)
+        .post('/')
+        .set('stripe-signature', 'valid')
+        .send(JSON.stringify(subscription));
+
+      expect(res.status).toBe(200);
+      expect(mockPrisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('should log warning for past_due status', async () => {
+      const pastDueSub = { ...subscription, status: 'past_due' };
+      mockConstructEvent.mockReturnValue(makeEvent('customer.subscription.updated', pastDueSub));
+      (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({ isFoundingRider: false });
+
+      const res = await request(app)
+        .post('/')
+        .set('stripe-signature', 'valid')
+        .send(JSON.stringify(pastDueSub));
+
+      expect(res.status).toBe(200);
+    });
+  });
+
   describe('error handling', () => {
     it('should return 500 on transient errors so Stripe retries', async () => {
       mockConstructEvent.mockReturnValue(makeEvent('checkout.session.completed', {

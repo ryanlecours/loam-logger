@@ -22,7 +22,7 @@ const client = new OAuth2Client({
 
 router.post('/google/code', express.json(), async (req, res) => {
   try {
-    const { credential } = req.body as { credential?: string };
+    const { credential, ref } = req.body as { credential?: string; ref?: string };
     if (!credential) return res.status(400).send('Missing credential');
 
     // Verify the ID token directly
@@ -41,6 +41,8 @@ router.post('/google/code', express.json(), async (req, res) => {
         name: p.name,
         picture: p.picture,
       },
+      undefined,
+      ref,
     );
 
     // Update last auth timestamp for recent-auth gating (non-blocking)

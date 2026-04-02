@@ -44,6 +44,7 @@ import emailUnsubscribeRouter from './routes/email.unsubscribe';
 import { googleRouter, emailRouter, deleteAccountRouter, passwordRouter, attachUser, verifyCsrf } from './auth/index';
 import webhooksStripe from './routes/webhooks.stripe';
 import { validateStripeConfig } from './lib/stripe';
+import { FRONTEND_URL } from './config/env';
 import referralRouter from './routes/referral';
 import mobileAuthRouter from './auth/mobile.route';
 
@@ -85,7 +86,6 @@ const startServer = async () => {
     res.json({ sessionUser: req.sessionUser ?? null });
   });
 
-  const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
   const EXTRA_ORIGINS = (process.env.CORS_EXTRA_ORIGINS || '')
     .split(',')
     .map((s) => s.trim())
