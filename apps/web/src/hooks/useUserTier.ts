@@ -1,22 +1,40 @@
 import { useViewer } from '../graphql/me';
 
-export type UserRole = 'FREE' | 'PRO' | 'ADMIN';
+export type SubscriptionTier = 'FREE_LIGHT' | 'FREE_FULL' | 'PRO';
 
 export function useUserTier() {
   const { viewer, loading, error } = useViewer();
 
-  const role = viewer?.role as UserRole | undefined;
+  const role = viewer?.role as string | undefined;
   const isAdmin = role === 'ADMIN';
-  const isPro = role === 'PRO' || role === 'ADMIN';
-  const isFree = role === 'FREE';
   const isFoundingRider = viewer?.isFoundingRider ?? false;
 
+  const tier = (viewer?.subscriptionTier ?? 'FREE_LIGHT') as SubscriptionTier;
+  const isPro = tier === 'PRO' || isAdmin || isFoundingRider;
+  const isFree = tier === 'FREE_LIGHT' || tier === 'FREE_FULL';
+  const isFreeLight = tier === 'FREE_LIGHT' && !isFoundingRider;
+  const isFreeFull = tier === 'FREE_FULL' && !isFoundingRider;
+
+  const tierLimits = viewer?.tierLimits ?? null;
+  const canAddBike = tierLimits?.canAddBike ?? true;
+  const allowedComponentTypes = tierLimits?.allowedComponentTypes ?? [];
+  const needsDowngradeSelection = viewer?.needsDowngradeSelection ?? false;
+  const referralCode = viewer?.referralCode ?? null;
+
   return {
+    tier,
     role,
     isAdmin,
     isPro,
     isFree,
+    isFreeLight,
+    isFreeFull,
     isFoundingRider,
+    canAddBike,
+    allowedComponentTypes,
+    needsDowngradeSelection,
+    referralCode,
+    tierLimits,
     loading,
     error,
   };

@@ -13,6 +13,15 @@ export const ME_QUERY = gql`
       age
       role
       isFoundingRider
+      subscriptionTier
+      referralCode
+      needsDowngradeSelection
+      tierLimits {
+        maxBikes
+        allowedComponentTypes
+        currentBikeCount
+        canAddBike
+      }
       hasPassword
       needsReauthForSensitiveActions
       hoursDisplayPreference

@@ -42,6 +42,10 @@ import adminRouter from './routes/admin';
 import spokesRouter from './routes/spokes';
 import emailUnsubscribeRouter from './routes/email.unsubscribe';
 import { googleRouter, emailRouter, deleteAccountRouter, passwordRouter, attachUser, verifyCsrf } from './auth/index';
+import webhooksStripe from './routes/webhooks.stripe';
+import { validateStripeConfig } from './lib/stripe';
+import { FRONTEND_URL } from './config/env';
+import referralRouter from './routes/referral';
 import mobileAuthRouter from './auth/mobile.route';
 
 export type GraphQLContext = {
@@ -82,7 +86,6 @@ const startServer = async () => {
     res.json({ sessionUser: req.sessionUser ?? null });
   });
 
-  const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
   const EXTRA_ORIGINS = (process.env.CORS_EXTRA_ORIGINS || '')
     .split(',')
     .map((s) => s.trim())
@@ -134,6 +137,12 @@ const startServer = async () => {
 
   app.use(corsMw);
   app.options('*', corsMw);
+
+  // Stripe webhook must be registered before express.json() to access raw body for signature verification
+  if (process.env.STRIPE_SECRET_KEY) {
+    validateStripeConfig(); // Fail fast if any Stripe env vars are missing
+    app.use('/webhooks/stripe', express.raw({ type: 'application/json' }), webhooksStripe);
+  }
 
   app.use(express.json());
   app.use(express.urlencoded({ extended: false }));
@@ -246,6 +255,7 @@ const startServer = async () => {
   app.use('/webhooks', webhooksWhoop);
 
   app.use('/onboarding', onboardingRouter);
+  app.use(referralRouter);
   app.use(garminTest);
   app.use(mockGarmin);
 

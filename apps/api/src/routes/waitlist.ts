@@ -4,12 +4,26 @@ import { validateEmailFormat } from '../auth/email.utils';
 import { normalizeEmail } from '../auth/utils';
 import { sendBadRequest, sendError, sendSuccess, sendInternalError, sendTooManyRequests } from '../lib/api-response';
 import { checkAuthRateLimit } from '../lib/rate-limit';
+import { logger } from '../lib/logger';
+import { config } from '../config/env';
+import { validatePassword, hashPassword } from '../auth/password.utils';
+import { setSessionCookie } from '../auth/session';
+import { setCsrfCookie } from '../auth/csrf';
+import { createNewUser, verifyEmailAvailable } from '../services/signup.service';
 
 const router = express.Router();
 
 /**
+ * GET /api/config
+ * Public app configuration (e.g., whether waitlist is active)
+ */
+router.get('/config', (_req, res) => {
+  res.json({ waitlistEnabled: !config.bypassWaitlistFlow });
+});
+
+/**
  * POST /api/waitlist
- * Add email to beta waitlist
+ * Add email to beta waitlist, or register directly if waitlist is bypassed.
  * Public endpoint - no authentication required
  */
 router.post('/waitlist', express.json(), async (req: Request, res) => {
@@ -21,9 +35,11 @@ router.post('/waitlist', express.json(), async (req: Request, res) => {
       return sendTooManyRequests(res, 'Too many signup attempts. Please try again later.', rateLimit.retryAfter);
     }
 
-    const { email: rawEmail, name } = req.body as {
+    const { email: rawEmail, name, ref, password } = req.body as {
       email?: string;
       name?: string;
+      ref?: string;
+      password?: string;
     };
 
     // Validate email
@@ -42,38 +58,46 @@ router.post('/waitlist', express.json(), async (req: Request, res) => {
       return sendBadRequest(res, 'Name is too long');
     }
 
-    // Check if email already exists as a User
-    const existingUser = await prisma.user.findUnique({
-      where: { email },
-      select: { id: true, role: true },
-    });
-
-    if (existingUser) {
-      if (existingUser.role === 'WAITLIST') {
+    // Check if email already exists
+    const check = await verifyEmailAvailable(email);
+    if (!check.available) {
+      if (check.role === 'WAITLIST') {
         return sendError(res, 409, 'This email is already on the waitlist', 'ALREADY_ON_WAITLIST');
       }
       return sendError(res, 409, 'An account with this email already exists', 'ACCOUNT_EXISTS');
     }
+    const verifiedEmail = check.email;
 
-    // Create User with WAITLIST role
-    await prisma.user.create({
-      data: {
-        email,
-        name: trimmedName,
-        role: 'WAITLIST',
-        // passwordHash is null - will be set on activation
-      },
-    });
+    if (config.bypassWaitlistFlow) {
+      if (!password) {
+        return sendBadRequest(res, 'Password is required');
+      }
+      if (!trimmedName) {
+        return sendBadRequest(res, 'Name is required');
+      }
+      const validation = validatePassword(password);
+      if (!validation.isValid) {
+        return sendBadRequest(res, validation.error || 'Password does not meet requirements');
+      }
 
-    console.log(`[Waitlist] New signup: ${email}`);
+      const passwordHash = await hashPassword(password);
+      const { user } = await createNewUser({ email: verifiedEmail, name: trimmedName, passwordHash, ref });
+
+      setSessionCookie(res, { uid: user.id, email: user.email, authAt: Date.now() });
+      const csrfToken = setCsrfCookie(res);
+
+      return res.status(201).json({ ok: true, waitlist: false, csrfToken });
+    }
+
+    // Waitlist flow
+    await createNewUser({ email: verifiedEmail, name: trimmedName, passwordHash: null, ref });
 
     return sendSuccess(res, undefined, 'Successfully joined the waitlist!', 201);
 
   } catch (e) {
     const errorMessage = e instanceof Error ? e.message : String(e);
-    console.error('[Waitlist] Error:', errorMessage);
+    logger.error({ error: errorMessage }, '[Waitlist] Signup error');
 
-    // Handle duplicate email (race condition fallback)
     if (errorMessage.includes('Unique constraint failed')) {
       return sendError(res, 409, 'This email is already on the waitlist', 'ALREADY_ON_WAITLIST');
     }

@@ -1,37 +1,189 @@
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from 'react-router';
 import { motion } from 'motion/react';
-import { Card } from '../components/ui';
+import { gql, useMutation } from '@apollo/client';
+import { Check, X } from 'lucide-react';
+import { useState } from 'react';
+import { useUserTier } from '../hooks/useUserTier';
+
+const CREATE_CHECKOUT = gql`
+  mutation CreateCheckoutSession($plan: StripePlan!) {
+    createCheckoutSession(plan: $plan) {
+      sessionId
+      url
+    }
+  }
+`;
 
 export default function Pricing() {
-    const navigate = useNavigate();
+  const navigate = useNavigate();
+  const { tier, isPro, isFoundingRider } = useUserTier();
+  const [billingPeriod, setBillingPeriod] = useState<'MONTHLY' | 'ANNUAL'>('ANNUAL');
+  const [createCheckout, { loading }] = useMutation(CREATE_CHECKOUT);
 
-    return (
-        <div className="min-h-screen bg-app py-16 px-6">
-            <div className="container max-w-4xl mx-auto">
-                <motion.div
-                    initial={{ opacity: 0, y: 30 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.6 }}
-                >
-                    <button
-                        onClick={() => navigate(-1)}
-                        className="btn-secondary mb-6 inline-flex items-center gap-2"
-                    >
-                        &larr; Back
-                    </button>
+  const handleUpgrade = async () => {
+    try {
+      const { data } = await createCheckout({ variables: { plan: billingPeriod } });
+      const url = data?.createCheckoutSession?.url;
+      if (url) {
+        window.location.href = url;
+      }
+    } catch {
+      // Error handled by Apollo
+    }
+  };
 
-                    <Card variant="glass" className="p-8">
-                        <div className="space-y-6 text-center py-12">
-                            <h1 className="section-title">Pricing</h1>
-                            <p className="text-xl text-muted">Coming Soon</p>
-                            <p className="body text-muted max-w-md mx-auto">
-                                We're working on pricing plans that will help you get the most out of Loam Logger.
-                                Stay tuned for updates.
-                            </p>
-                        </div>
-                    </Card>
-                </motion.div>
+  const tiers = [
+    {
+      name: 'Free',
+      price: '$0',
+      period: '',
+      description: 'Light Bike Analysis',
+      current: tier === 'FREE_LIGHT',
+      features: [
+        { text: '1 bike', included: true },
+        { text: 'Fork & shock tracking', included: true },
+        { text: 'Brake pad tracking', included: true },
+        { text: 'Pivot bearing tracking', included: true },
+        { text: 'Full Bike Analysis (refer a friend)', included: false },
+        { text: 'Unlimited bikes (Pro only)', included: false },
+      ],
+    },
+    {
+      name: 'Free',
+      price: '$0',
+      period: '',
+      description: 'Full Bike Analysis — refer a friend to unlock',
+      current: tier === 'FREE_FULL',
+      features: [
+        { text: '1 bike', included: true },
+        { text: 'All 23+ component types unlocked', included: true },
+        { text: 'Service interval tracking', included: true },
+        { text: 'Wear predictions', included: true },
+        { text: 'Unlimited bikes (Pro only)', included: false },
+      ],
+    },
+    {
+      name: 'Pro',
+      price: billingPeriod === 'MONTHLY' ? '$5' : '$48',
+      period: billingPeriod === 'MONTHLY' ? '/mo' : '/yr',
+      description: 'Full access, unlimited bikes',
+      current: isPro && !isFoundingRider,
+      highlight: !isPro,
+      features: [
+        { text: 'Unlimited bikes', included: true },
+        { text: 'All component types', included: true },
+        { text: 'Advanced predictions', included: true },
+        { text: 'Priority support', included: true },
+      ],
+    },
+  ];
+
+  return (
+    <div className="min-h-screen bg-app py-16 px-6">
+      <div className="container max-w-4xl mx-auto">
+        <motion.div
+          initial={{ opacity: 0, y: 30 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6 }}
+        >
+          <button
+            onClick={() => navigate(-1)}
+            className="btn-secondary mb-6 inline-flex items-center gap-2"
+          >
+            &larr; Back
+          </button>
+
+          {isPro ? (
+            <div className="text-center py-12">
+              <h1 className="section-title mb-2">You're on Pro!</h1>
+              <p className="text-muted">
+                {isFoundingRider
+                  ? 'Lifetime access as a Founding Rider.'
+                  : 'You have full access to all features.'}
+              </p>
             </div>
-        </div>
-    );
+          ) : (
+            <>
+              <div className="text-center mb-8">
+                <h1 className="section-title mb-2">Choose your plan</h1>
+                <p className="text-muted">Track your bike maintenance with confidence</p>
+              </div>
+
+              {/* Billing toggle */}
+              <div className="flex items-center justify-center gap-3 mb-8">
+                <button
+                  onClick={() => setBillingPeriod('MONTHLY')}
+                  className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
+                    billingPeriod === 'MONTHLY' ? 'bg-primary text-white' : 'text-muted hover:text-white'
+                  }`}
+                >
+                  Monthly
+                </button>
+                <button
+                  onClick={() => setBillingPeriod('ANNUAL')}
+                  className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
+                    billingPeriod === 'ANNUAL' ? 'bg-primary text-white' : 'text-muted hover:text-white'
+                  }`}
+                >
+                  Annual
+                  <span className="ml-1.5 text-xs text-green-400">Save 20%</span>
+                </button>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-3">
+                {tiers.map((t) => (
+                  <div
+                    key={t.name}
+                    className={`rounded-2xl border p-6 ${
+                      t.highlight
+                        ? 'border-primary/60 bg-primary/5'
+                        : t.current
+                          ? 'border-green-500/40 bg-green-500/5'
+                          : 'border-app/60 bg-surface-2'
+                    }`}
+                  >
+                    <h3 className="text-lg font-semibold text-white">{t.name}</h3>
+                    <p className="text-xs text-muted mt-1">{t.description}</p>
+                    <div className="mt-4 mb-6">
+                      <span className="text-3xl font-bold text-white">{t.price}</span>
+                      <span className="text-sm text-muted">{t.period}</span>
+                    </div>
+
+                    <ul className="space-y-2 mb-6">
+                      {t.features.map((f) => (
+                        <li key={f.text} className="flex items-center gap-2 text-sm">
+                          {f.included ? (
+                            <Check className="h-4 w-4 text-green-400" />
+                          ) : (
+                            <X className="h-4 w-4 text-muted/40" />
+                          )}
+                          <span className={f.included ? 'text-white' : 'text-muted/60'}>
+                            {f.text}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+
+                    {t.current ? (
+                      <div className="rounded-lg border border-green-500/40 py-2 text-center text-sm text-green-400">
+                        Current plan
+                      </div>
+                    ) : t.highlight ? (
+                      <button
+                        onClick={handleUpgrade}
+                        disabled={loading}
+                        className="w-full rounded-lg bg-primary py-2 text-sm font-medium text-white transition hover:bg-primary/80 disabled:opacity-50"
+                      >
+                        {loading ? 'Loading...' : 'Upgrade to Pro'}
+                      </button>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </motion.div>
+      </div>
+    </div>
+  );
 }

@@ -11,6 +11,8 @@ import { checkAuthRateLimit, checkMutationRateLimit } from '../lib/rate-limit';
 import { sendPasswordAddedNotification, sendPasswordChangedNotification } from '../services/password-notification.service';
 import { logger } from '../lib/logger';
 import { sendUnauthorized, sendBadRequest, sendForbidden, sendConflict, sendInternalError, sendTooManyRequests } from '../lib/api-response';
+import { config } from '../config/env';
+import { createNewUser, verifyEmailAvailable } from '../services/signup.service';
 
 const router = express.Router();
 
@@ -35,10 +37,11 @@ router.post('/mobile/signup', express.json(), async (req, res) => {
       return sendTooManyRequests(res, 'Too many signup attempts. Please try again later.', rateLimit.retryAfter);
     }
 
-    const { email: rawEmail, password, name } = req.body as {
+    const { email: rawEmail, password, name, ref } = req.body as {
       email?: string;
       password?: string;
       name?: string;
+      ref?: string;
     };
 
     // Validate email
@@ -56,13 +59,9 @@ router.post('/mobile/signup', express.json(), async (req, res) => {
     }
 
     // Check if user already exists
-    const existingUser = await prisma.user.findUnique({
-      where: { email },
-      select: { role: true },
-    });
-
-    if (existingUser) {
-      if (existingUser.role === 'WAITLIST') {
+    const check = await verifyEmailAvailable(email);
+    if (!check.available) {
+      if (check.role === 'WAITLIST') {
         return sendForbidden(
           res,
           'You are already on the waitlist. We will email you when your account is activated.',
@@ -71,6 +70,7 @@ router.post('/mobile/signup', express.json(), async (req, res) => {
       }
       return sendConflict(res, 'An account with this email already exists. Please log in.');
     }
+    const verifiedEmail = check.email;
 
     // During closed beta, create user with WAITLIST role
     // Password is optional during signup - will be set during activation
@@ -88,16 +88,27 @@ router.post('/mobile/signup', express.json(), async (req, res) => {
       return sendBadRequest(res, 'Name must be 100 characters or fewer');
     }
 
-    await prisma.user.create({
-      data: {
-        email,
-        name: trimmedName,
-        role: 'WAITLIST',
-        passwordHash,
-      },
-    });
+    if (config.bypassWaitlistFlow) {
+      if (!passwordHash) {
+        return sendBadRequest(res, 'Password is required');
+      }
 
-    // Return waitlist status (not an error, but user can't login yet)
+      const { user } = await createNewUser({ email: verifiedEmail, name: trimmedName, passwordHash, ref });
+
+      const accessToken = generateAccessToken({ uid: user.id, email: user.email });
+      const refreshToken = generateRefreshToken({ uid: user.id, email: user.email });
+
+      return res.status(201).json({
+        ok: true,
+        waitlist: false,
+        accessToken,
+        refreshToken,
+      });
+    }
+
+    // Waitlist flow
+    await createNewUser({ email: verifiedEmail, name: trimmedName, passwordHash, ref });
+
     return res.status(200).json({
       ok: true,
       waitlist: true,

@@ -31,7 +31,7 @@ export default function CTASection() {
           </p>
 
           <div className="flex flex-col items-center gap-6 mb-8">
-            <MarketingButton href="/beta-waitlist" size="xl" pulse>
+            <MarketingButton href="/signup" size="xl" pulse>
               Join Beta Waitlist
             </MarketingButton>
 

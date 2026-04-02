@@ -30,7 +30,7 @@ export default function MarketingFooter() {
             <ul className="space-y-2">
               <li>
                 <Link
-                  to="/beta-waitlist"
+                  to="/signup"
                   className="text-sm text-concrete hover:text-mint transition"
                 >
                   Join Beta Waitlist

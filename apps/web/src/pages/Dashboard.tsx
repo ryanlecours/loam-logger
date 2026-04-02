@@ -15,7 +15,7 @@ import { CalibrationOverlay } from '../components/CalibrationOverlay';
 import { PairedComponentMigrationNotice } from '../components/PairedComponentMigrationNotice';
 import RideStatsCard from '../components/RideStatsCard';
 import { useCurrentUser } from '../hooks/useCurrentUser';
-import { useUserTier } from '../hooks/useUserTier';
+
 import { useConnectedAccounts } from '../hooks/useConnectedAccounts';
 import { usePriorityBike, type BikeWithPredictions } from '../hooks/usePriorityBike';
 import { ChevronDown } from 'lucide-react';
@@ -56,7 +56,6 @@ const apiBase =
 
 export default function Dashboard() {
   const { user, refetch: refetchUser } = useCurrentUser();
-  const { isPro } = useUserTier();
   const { isStravaConnected } = useConnectedAccounts();
   const navigate = useNavigate();
   const [markMigrationSeen] = useMarkPairedComponentMigrationSeen();
@@ -250,7 +249,7 @@ export default function Dashboard() {
             loading={bikesLoading}
             rides={rides}
           />
-          {isPro && sortedBikes.length > 1 && (
+          {sortedBikes.length > 1 && (
             <BikeSwitcherRow
               bikes={sortedBikes}
               selectedBikeId={displayedBike?.id ?? null}

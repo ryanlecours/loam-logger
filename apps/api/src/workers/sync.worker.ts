@@ -9,6 +9,7 @@ import { deriveLocation, deriveLocationAsync, shouldApplyAutoLocation } from '..
 import { incrementBikeComponentHours, decrementBikeComponentHours } from '../lib/component-hours';
 import { logger } from '../lib/logger';
 import { fireRideNotifications } from '../services/notification.service';
+import { completeReferral } from '../services/referral.service';
 import { config } from '../config/env';
 import type { SyncJobData, SyncJobName, SyncProvider } from '../lib/queue/sync.queue';
 import type { Prisma } from '@prisma/client';
@@ -371,6 +372,10 @@ async function upsertStravaActivity(userId: string, activity: StravaActivity): P
       distanceMeters,
       isNewRide,
     }).catch(() => {}); // swallow - already logged internally
+
+    if (isNewRide) {
+      completeReferral(userId).catch(() => {}); // swallow - already logged internally
+    }
   }
 }
 
@@ -577,6 +582,10 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
     distanceMeters,
     isNewRide,
   }).catch(() => {}); // swallow - already logged internally
+
+  if (isNewRide) {
+    completeReferral(userId).catch(() => {}); // swallow - already logged internally
+  }
 }
 
 // ============================================================================
@@ -745,6 +754,10 @@ async function upsertWhoopActivity(userId: string, workout: WhoopWorkout): Promi
       distanceMeters,
       isNewRide,
     }).catch(() => {}); // swallow - already logged internally
+
+    if (isNewRide) {
+      completeReferral(userId).catch(() => {}); // swallow - already logged internally
+    }
   }
 
   logger.debug({ whoopWorkoutId: workout.id }, '[SyncWorker] Upserted WHOOP workout');

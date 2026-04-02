@@ -339,8 +339,9 @@ function countByStatus(
 export async function generateBikePredictions(
   options: PredictionEngineOptions
 ): Promise<BikePredictionSummary> {
-  const { userId, bikeId, userRole, predictionMode, forceRefresh } = options;
-  const isPro = userRole === 'PRO' || userRole === 'ADMIN';
+  const { userId, bikeId, userRole, predictionMode, forceRefresh, isFoundingRider, subscriptionTier } = options;
+  // Use subscriptionTier if available, fall back to role-based check
+  const isPro = isFoundingRider || subscriptionTier === 'PRO' || userRole === 'PRO' || userRole === 'ADMIN';
   const planTier = isPro ? 'PRO' : 'FREE';
 
   // Check cache unless force refresh

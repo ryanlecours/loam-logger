@@ -4,7 +4,8 @@ import { type SessionUser } from '../auth/session';
 import { type AcquisitionCondition } from '@prisma/client';
 import { sendBadRequest, sendUnauthorized, sendInternalError } from '../lib/api-response';
 import { deriveBikeSpec, type SpokesComponents } from '@loam/shared';
-import { logError } from '../lib/logger';
+import { logError, logger } from '../lib/logger';
+import { completeReferral } from '../services/referral.service';
 import {
   buildBikeComponents,
   type BikeComponentInputGQL,
@@ -188,6 +189,16 @@ router.post('/complete', express.json(), async (req: Request, res) => {
 
       return { user, bike };
     });
+
+    // Complete referral if this user was referred (non-blocking)
+    try {
+      await completeReferral(userId);
+    } catch (referralErr) {
+      logger.error(
+        { error: referralErr instanceof Error ? referralErr.message : String(referralErr), userId },
+        'Failed to complete referral during onboarding'
+      );
+    }
 
     res.status(200).json({
       ok: true,

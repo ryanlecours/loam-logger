@@ -42,7 +42,7 @@ export default function HeroSection() {
           transition={{ duration: 0.8, delay: 0.6 }}
           className="flex flex-col sm:flex-row items-center justify-center gap-4"
         >
-          <MarketingButton href="/beta-waitlist" size="xl" pulse>
+          <MarketingButton href="/signup" size="xl" pulse>
             Join the Beta Waitlist
           </MarketingButton>
         </motion.div>

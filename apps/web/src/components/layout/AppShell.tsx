@@ -4,8 +4,10 @@ import { useApolloClient } from '@apollo/client';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import type { ReactNode } from 'react';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
+import { useUserTier } from '../../hooks/useUserTier';
 import { getAuthHeaders, clearCsrfToken } from '@/lib/csrf';
 import Footer from './Footer';
+import DowngradeSelectionModal from '../DowngradeSelectionModal';
 
 const BASE_NAV_LINKS = [
   { label: 'Dashboard', path: '/dashboard' },
@@ -20,6 +22,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const reduceMotion = useReducedMotion();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const { user } = useCurrentUser();
+  const { isPro, isFoundingRider, needsDowngradeSelection } = useUserTier();
 
   const navLinks = useMemo(() => {
     const links = [...BASE_NAV_LINKS];
@@ -54,14 +57,30 @@ export default function AppShell({ children }: { children: ReactNode }) {
         <div className="container">
           <div className="flex justify-between items-center h-16">
             {/* Logo/Brand */}
-            <NavLink
-              to="/dashboard"
-              className="flex items-center space-x-2 group"
-            >
-              <span className="text-2xl font-bold logo-gradient">
-                LoamLogger
-              </span>
-            </NavLink>
+            <div className="flex items-center gap-2">
+              <NavLink
+                to="/dashboard"
+                className="flex items-center space-x-2 group"
+              >
+                <span className="text-2xl font-bold logo-gradient">
+                  LoamLogger
+                </span>
+              </NavLink>
+              {user && (
+                isPro ? (
+                  <span className="rounded-full bg-primary/20 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-primary">
+                    {isFoundingRider ? 'Founding Rider' : 'Pro'}
+                  </span>
+                ) : (
+                  <NavLink
+                    to="/pricing"
+                    className="rounded-full bg-white/10 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white/50 transition hover:bg-white/20 hover:text-white/70"
+                  >
+                    Free
+                  </NavLink>
+                )
+              )}
+            </div>
 
             {/* Desktop Navigation */}
             <div className="hidden md:flex items-center space-x-2">
@@ -186,6 +205,8 @@ export default function AppShell({ children }: { children: ReactNode }) {
       </motion.main>
 
       <Footer />
+
+      {needsDowngradeSelection && <DowngradeSelectionModal />}
     </div>
   );
 }

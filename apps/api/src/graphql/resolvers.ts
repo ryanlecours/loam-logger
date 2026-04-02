@@ -28,6 +28,10 @@ import {
 import { createId } from '@paralleldrive/cuid2';
 import { logError } from '../lib/logger';
 import { config } from '../config/env';
+import { requireBikeCreation, requireComponentType, getEffectiveTier, getAllowedComponentTypes, canCreateBike, isProTier } from '../auth/tier-access';
+import { createCheckoutSession, createBillingPortalSession, type StripePlan } from '../services/stripe.service';
+import { getReferralStats, completeReferral } from '../services/referral.service';
+import { TIER_LIMITS } from '@loam/shared';
 import { checkRecentAuth } from '../auth/recent-auth';
 import type { AcquisitionCondition, BaselineMethod, BaselineConfidence, ServiceNotificationMode } from '@prisma/client';
 import { getBikeById, isSpokesConfigured } from '../services/spokes';
@@ -1066,6 +1070,8 @@ export const resolvers = {
           calibrationDismissedAt: true,
           role: true,
           predictionMode: true,
+          subscriptionTier: true,
+          isFoundingRider: true,
         },
       });
 
@@ -1105,6 +1111,8 @@ export const resolvers = {
               bikeId: bike.id,
               userRole: user.role,
               predictionMode,
+              subscriptionTier: user.subscriptionTier,
+              isFoundingRider: user.isFoundingRider,
             });
             return { bike, predictions };
           } catch {
@@ -1258,6 +1266,11 @@ export const resolvers = {
         hasMore,
       };
     },
+
+    referralStats: async (_: unknown, _args: unknown, ctx: GraphQLContext) => {
+      const userId = requireUserId(ctx);
+      return getReferralStats(userId);
+    },
   },
   Mutation: {
     addRide: async (_p: unknown, { input }: { input: AddRideInput }, ctx: GraphQLContext) => {
@@ -1336,6 +1349,13 @@ export const resolvers = {
       // Invalidate prediction cache after transaction
       if (bikeId) {
         await invalidateBikePrediction(userId, bikeId);
+      }
+
+      // Check if this ride completes a pending referral (non-blocking)
+      try {
+        await completeReferral(userId);
+      } catch (refErr) {
+        logError('Referral completion after ride', refErr);
       }
 
       return ride;
@@ -1536,6 +1556,16 @@ export const resolvers = {
 
     addBike: async (_: unknown, { input }: { input: AddBikeInputGQL }, ctx: GraphQLContext) => {
       const userId = requireUserId(ctx);
+
+      // Tier check: enforce bike creation limit
+      const [user, activeBikeCount] = await Promise.all([
+        prisma.user.findUniqueOrThrow({
+          where: { id: userId },
+          select: { subscriptionTier: true, isFoundingRider: true, needsDowngradeSelection: true },
+        }),
+        prisma.bike.count({ where: { userId, status: 'ACTIVE' } }),
+      ]);
+      requireBikeCreation(user, activeBikeCount);
 
       // Get spokesId first so we can fetch authoritative manufacturer/model
       const spokesId = cleanText(input.spokesId, 64);
@@ -1845,6 +1875,13 @@ export const resolvers = {
     ) => {
       const userId = requireUserId(ctx);
       const type = input.type;
+
+      // Tier check: enforce component type restriction
+      const tierUser = await prisma.user.findUniqueOrThrow({
+        where: { id: userId },
+        select: { subscriptionTier: true, isFoundingRider: true, needsDowngradeSelection: true },
+      });
+      requireComponentType(tierUser, type);
 
       if (bikeId) {
         const bike = await prisma.bike.findUnique({
@@ -3320,6 +3357,13 @@ export const resolvers = {
 
       const { type: slotType, location: slotLocation } = parseSlotKey(slotKey);
 
+      // Tier check: enforce component type restriction
+      const installTierUser = await prisma.user.findUniqueOrThrow({
+        where: { id: userId },
+        select: { subscriptionTier: true, isFoundingRider: true, needsDowngradeSelection: true },
+      });
+      requireComponentType(installTierUser, slotType as ComponentTypeLiteral);
+
       // Validate bike ownership
       const bike = await prisma.bike.findFirst({ where: { id: bikeId, userId } });
       if (!bike) {
@@ -3923,6 +3967,90 @@ export const resolvers = {
         components: [...updatedFrontComponents, ...allNewComponents],
       };
     },
+
+    createCheckoutSession: async (
+      _: unknown,
+      { plan }: { plan: 'MONTHLY' | 'ANNUAL' },
+      ctx: GraphQLContext
+    ) => {
+      const userId = requireUserId(ctx);
+
+      // Reject if user is already PRO (paid or founding rider).
+      // A future gifting flow would create checkout for a *different* userId,
+      // so this guard only blocks redundant self-upgrades.
+      const user = await prisma.user.findUniqueOrThrow({
+        where: { id: userId },
+        select: { subscriptionTier: true, isFoundingRider: true },
+      });
+      if (isProTier(user)) {
+        throw new GraphQLError('You already have Pro access.', {
+          extensions: { code: 'ALREADY_PRO' },
+        });
+      }
+
+      const stripePlan: StripePlan = plan === 'MONTHLY' ? 'monthly' : 'annual';
+      return createCheckoutSession(userId, stripePlan);
+    },
+
+    createBillingPortalSession: async (_: unknown, _args: unknown, ctx: GraphQLContext) => {
+      const userId = requireUserId(ctx);
+
+      const user = await prisma.user.findUniqueOrThrow({
+        where: { id: userId },
+        select: { subscriptionTier: true, isFoundingRider: true },
+      });
+      if (!isProTier(user)) {
+        throw new GraphQLError('Billing portal is only available to Pro subscribers.', {
+          extensions: { code: 'NOT_PRO' },
+        });
+      }
+
+      return createBillingPortalSession(userId);
+    },
+
+    selectBikeForDowngrade: async (
+      _: unknown,
+      { bikeId }: { bikeId: string },
+      ctx: GraphQLContext
+    ) => {
+      const userId = requireUserId(ctx);
+
+      // All reads and writes in a single interactive transaction
+      return prisma.$transaction(async (tx) => {
+        const user = await tx.user.findUniqueOrThrow({
+          where: { id: userId },
+          select: { needsDowngradeSelection: true },
+        });
+
+        if (!user.needsDowngradeSelection) {
+          throw new GraphQLError('No downgrade selection needed', {
+            extensions: { code: 'BAD_REQUEST' },
+          });
+        }
+
+        const bike = await tx.bike.findFirst({
+          where: { id: bikeId, userId, status: 'ACTIVE' },
+        });
+
+        if (!bike) {
+          throw new GraphQLError('Bike not found or not active', {
+            extensions: { code: 'NOT_FOUND' },
+          });
+        }
+
+        await tx.bike.updateMany({
+          where: { userId, status: 'ACTIVE', id: { not: bikeId } },
+          data: { status: 'ARCHIVED' },
+        });
+
+        await tx.user.update({
+          where: { id: userId },
+          data: { needsDowngradeSelection: false },
+        });
+
+        return bike;
+      });
+    },
   },
 
   Bike: {
@@ -3954,7 +4082,7 @@ export const resolvers = {
 
       const user = await prisma.user.findUnique({
         where: { id: userId },
-        select: { role: true, predictionMode: true },
+        select: { role: true, predictionMode: true, subscriptionTier: true, isFoundingRider: true },
       });
 
       if (!user) return null;
@@ -3967,6 +4095,8 @@ export const resolvers = {
           bikeId: bike.id,
           userRole: user.role,
           predictionMode,
+          subscriptionTier: user.subscriptionTier,
+          isFoundingRider: user.isFoundingRider,
         });
       } catch (error) {
         logError('Resolver Prediction generation', error);
@@ -4069,6 +4199,37 @@ export const resolvers = {
       return prisma.userServicePreference.findMany({
         where: { userId: parent.id },
       });
+    },
+    subscriptionTier: (parent: { subscriptionTier: string; isFoundingRider?: boolean }) => {
+      // Founding riders always appear as PRO
+      if (parent.isFoundingRider) return 'PRO';
+      return parent.subscriptionTier;
+    },
+    tierLimits: async (parent: { id: string; subscriptionTier: string; isFoundingRider?: boolean }) => {
+      const tier = getEffectiveTier({
+        subscriptionTier: parent.subscriptionTier as 'FREE_LIGHT' | 'FREE_FULL' | 'PRO',
+        isFoundingRider: parent.isFoundingRider ?? false,
+      });
+      const tierConfig = TIER_LIMITS[tier];
+      const currentBikeCount = await prisma.bike.count({
+        where: { userId: parent.id, status: 'ACTIVE' },
+      });
+      const allowed = getAllowedComponentTypes({
+        subscriptionTier: parent.subscriptionTier as 'FREE_LIGHT' | 'FREE_FULL' | 'PRO',
+        isFoundingRider: parent.isFoundingRider ?? false,
+      });
+
+      return {
+        maxBikes: tierConfig.maxBikes === Infinity ? null : tierConfig.maxBikes,
+        allowedComponentTypes: allowed === 'ALL'
+          ? Object.values(ComponentTypeEnum)
+          : allowed,
+        currentBikeCount,
+        canAddBike: canCreateBike(
+          { subscriptionTier: parent.subscriptionTier as 'FREE_LIGHT' | 'FREE_FULL' | 'PRO', isFoundingRider: parent.isFoundingRider ?? false },
+          currentBikeCount
+        ),
+      };
     },
   },
 };

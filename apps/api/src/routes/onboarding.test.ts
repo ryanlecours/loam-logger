@@ -27,6 +27,12 @@ jest.mock('../graphql/resolvers', () => ({
 // Mock logger
 jest.mock('../lib/logger', () => ({
   logError: jest.fn(),
+  logger: { error: jest.fn(), info: jest.fn(), warn: jest.fn() },
+}));
+
+// Mock referral service
+jest.mock('../services/referral.service', () => ({
+  completeReferral: jest.fn().mockResolvedValue(undefined),
 }));
 
 // Import router after mocks

@@ -15,5 +15,8 @@ export * from './componentCatalog';
 // Password
 export * from './password';
 
+// Tiers
+export * from './tiers';
+
 // Legal
 export * from './legal/terms';

@@ -11,6 +11,8 @@ import { sendBadRequest, sendUnauthorized, sendForbidden, sendConflict, sendInte
 import { checkAuthRateLimit, checkMutationRateLimit } from '../lib/rate-limit';
 import { sendPasswordChangedNotification } from '../services/password-notification.service';
 import { logger } from '../lib/logger';
+import { config } from '../config/env';
+import { createNewUser, verifyEmailAvailable } from '../services/signup.service';
 
 const router = express.Router();
 
@@ -27,9 +29,10 @@ router.post('/signup', express.json(), async (req, res) => {
       return sendTooManyRequests(res, 'Too many signup attempts. Please try again later.', rateLimit.retryAfter);
     }
 
-    const { email: rawEmail, name } = req.body as {
+    const { email: rawEmail, name, ref } = req.body as {
       email?: string;
       name?: string;
+      ref?: string;
     };
 
     // Validate input - password not required during closed beta
@@ -56,33 +59,37 @@ router.post('/signup', express.json(), async (req, res) => {
     }
 
     // Check if user already exists
-    const existingUser = await prisma.user.findUnique({
-      where: { email },
-      select: { role: true },
-    });
-
-    if (existingUser) {
-      if (existingUser.role === 'WAITLIST') {
-        // User is already on the waitlist
+    const check = await verifyEmailAvailable(email);
+    if (!check.available) {
+      if (check.role === 'WAITLIST') {
         return sendForbidden(res, 'You are already on the waitlist. We will email you when your account is activated.', 'ALREADY_ON_WAITLIST');
       }
-      // User has an activated account
       return sendConflict(res, 'An account with this email already exists. Please log in.');
     }
+    const verifiedEmail = check.email;
 
-    // During closed beta, create user with WAITLIST role (no password yet)
-    // Admin will activate them later, which generates a temporary password
-    // and sends it via email. User must change it on first login.
-    await prisma.user.create({
-      data: {
-        email,
-        name: name.trim(),
-        role: 'WAITLIST',
-        // passwordHash intentionally null - will be set during activation
-      },
-    });
+    if (config.bypassWaitlistFlow) {
+      const { password } = req.body as { password?: string };
+      if (!password) {
+        return sendBadRequest(res, 'Password is required');
+      }
+      const validation = validatePassword(password);
+      if (!validation.isValid) {
+        return sendBadRequest(res, validation.error || 'Password does not meet requirements');
+      }
 
-    // User is now on the waitlist - redirect to already-on-waitlist page
+      const passwordHash = await hashPassword(password);
+      const { user } = await createNewUser({ email: verifiedEmail, name: name.trim(), passwordHash, ref });
+
+      setSessionCookie(res, { uid: user.id, email: user.email, authAt: Date.now() });
+      const csrfToken = setCsrfCookie(res);
+
+      return res.status(201).json({ ok: true, waitlist: false, csrfToken });
+    }
+
+    // Waitlist flow
+    await createNewUser({ email: verifiedEmail, name: name.trim(), passwordHash: null, ref });
+
     return sendForbidden(res, 'You have been added to the waitlist. We will email you when your account is activated.', 'ALREADY_ON_WAITLIST');
   } catch (e) {
     logger.error({ err: e }, '[EmailAuth] Signup failed');
