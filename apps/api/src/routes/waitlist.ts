@@ -9,7 +9,7 @@ import { config } from '../config/env';
 import { validatePassword, hashPassword } from '../auth/password.utils';
 import { setSessionCookie } from '../auth/session';
 import { setCsrfCookie } from '../auth/csrf';
-import { createNewUser } from '../services/signup.service';
+import { createNewUser, verifyEmailAvailable } from '../services/signup.service';
 
 const router = express.Router();
 
@@ -58,18 +58,15 @@ router.post('/waitlist', express.json(), async (req: Request, res) => {
       return sendBadRequest(res, 'Name is too long');
     }
 
-    // Check if email already exists as a User
-    const existingUser = await prisma.user.findUnique({
-      where: { email },
-      select: { id: true, role: true },
-    });
-
-    if (existingUser) {
-      if (existingUser.role === 'WAITLIST') {
+    // Check if email already exists
+    const check = await verifyEmailAvailable(email);
+    if (!check.available) {
+      if (check.role === 'WAITLIST') {
         return sendError(res, 409, 'This email is already on the waitlist', 'ALREADY_ON_WAITLIST');
       }
       return sendError(res, 409, 'An account with this email already exists', 'ACCOUNT_EXISTS');
     }
+    const verifiedEmail = check.email;
 
     if (config.bypassWaitlistFlow) {
       if (!password) {
@@ -84,7 +81,7 @@ router.post('/waitlist', express.json(), async (req: Request, res) => {
       }
 
       const passwordHash = await hashPassword(password);
-      const { user } = await createNewUser({ email, name: trimmedName, passwordHash, ref });
+      const { user } = await createNewUser({ email: verifiedEmail, name: trimmedName, passwordHash, ref });
 
       setSessionCookie(res, { uid: user.id, email: user.email, authAt: Date.now() });
       const csrfToken = setCsrfCookie(res);
@@ -93,7 +90,7 @@ router.post('/waitlist', express.json(), async (req: Request, res) => {
     }
 
     // Waitlist flow
-    await createNewUser({ email, name: trimmedName, passwordHash: null, ref });
+    await createNewUser({ email: verifiedEmail, name: trimmedName, passwordHash: null, ref });
 
     return sendSuccess(res, undefined, 'Successfully joined the waitlist!', 201);
 

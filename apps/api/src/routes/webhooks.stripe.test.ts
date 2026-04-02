@@ -390,8 +390,8 @@ describe('Stripe Webhooks', () => {
       };
       mockConstructEvent.mockReturnValue(makeEvent('customer.subscription.deleted', subscription));
 
-      // resolveUserId falls back to findFirst by stripeCustomerId
-      (mockPrisma.user.findFirst as jest.Mock).mockResolvedValue({ id: 'user-found' });
+      // resolveUserId falls back to findUnique by stripeCustomerId
+      (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 'user-found' });
 
       (mockPrisma.$transaction as jest.Mock).mockImplementation(async (fn: (tx: unknown) => unknown) => {
         const tx = {
@@ -411,7 +411,7 @@ describe('Stripe Webhooks', () => {
         .send(JSON.stringify(subscription));
 
       expect(res.status).toBe(200);
-      expect(mockPrisma.user.findFirst).toHaveBeenCalledWith({
+      expect(mockPrisma.user.findUnique).toHaveBeenCalledWith({
         where: { stripeCustomerId: 'cus_456' },
         select: { id: true },
       });

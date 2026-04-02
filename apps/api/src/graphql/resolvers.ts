@@ -30,7 +30,7 @@ import { logError } from '../lib/logger';
 import { config } from '../config/env';
 import { requireBikeCreation, requireComponentType, getEffectiveTier, getAllowedComponentTypes, canCreateBike, isProTier } from '../auth/tier-access';
 import { createCheckoutSession, createBillingPortalSession, type StripePlan } from '../services/stripe.service';
-import { getReferralStats } from '../services/referral.service';
+import { getReferralStats, completeReferral } from '../services/referral.service';
 import { TIER_LIMITS } from '@loam/shared';
 import { checkRecentAuth } from '../auth/recent-auth';
 import type { AcquisitionCondition, BaselineMethod, BaselineConfidence, ServiceNotificationMode } from '@prisma/client';
@@ -1353,7 +1353,6 @@ export const resolvers = {
 
       // Check if this ride completes a pending referral (non-blocking)
       try {
-        const { completeReferral } = await import('../services/referral.service');
         await completeReferral(userId);
       } catch (refErr) {
         logError('Referral completion after ride', refErr);
@@ -3995,6 +3994,17 @@ export const resolvers = {
 
     createBillingPortalSession: async (_: unknown, _args: unknown, ctx: GraphQLContext) => {
       const userId = requireUserId(ctx);
+
+      const user = await prisma.user.findUniqueOrThrow({
+        where: { id: userId },
+        select: { subscriptionTier: true, isFoundingRider: true },
+      });
+      if (!isProTier(user)) {
+        throw new GraphQLError('Billing portal is only available to Pro subscribers.', {
+          extensions: { code: 'NOT_PRO' },
+        });
+      }
+
       return createBillingPortalSession(userId);
     },
 

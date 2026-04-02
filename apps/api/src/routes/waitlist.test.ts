@@ -36,8 +36,10 @@ jest.mock('../services/referral.service', () => ({
 }));
 
 const mockCreateNewUser = jest.fn();
+const mockVerifyEmailAvailable = jest.fn();
 jest.mock('../services/signup.service', () => ({
   createNewUser: (...args: unknown[]) => mockCreateNewUser(...args),
+  verifyEmailAvailable: (...args: unknown[]) => mockVerifyEmailAvailable(...args),
 }));
 
 jest.mock('../auth/password.utils', () => ({
@@ -88,7 +90,7 @@ describe('POST /api/waitlist', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockConfig.bypassWaitlistFlow = false;
-    mockUserFindUnique.mockResolvedValue(null); // no existing user
+    mockVerifyEmailAvailable.mockResolvedValue({ available: true, email: 'test@test.com' });
   });
 
   describe('waitlist mode (bypass OFF)', () => {

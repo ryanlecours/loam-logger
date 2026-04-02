@@ -12,7 +12,7 @@ import { sendPasswordAddedNotification, sendPasswordChangedNotification } from '
 import { logger } from '../lib/logger';
 import { sendUnauthorized, sendBadRequest, sendForbidden, sendConflict, sendInternalError, sendTooManyRequests } from '../lib/api-response';
 import { config } from '../config/env';
-import { createNewUser } from '../services/signup.service';
+import { createNewUser, verifyEmailAvailable } from '../services/signup.service';
 
 const router = express.Router();
 
@@ -59,13 +59,9 @@ router.post('/mobile/signup', express.json(), async (req, res) => {
     }
 
     // Check if user already exists
-    const existingUser = await prisma.user.findUnique({
-      where: { email },
-      select: { role: true },
-    });
-
-    if (existingUser) {
-      if (existingUser.role === 'WAITLIST') {
+    const check = await verifyEmailAvailable(email);
+    if (!check.available) {
+      if (check.role === 'WAITLIST') {
         return sendForbidden(
           res,
           'You are already on the waitlist. We will email you when your account is activated.',
@@ -74,6 +70,7 @@ router.post('/mobile/signup', express.json(), async (req, res) => {
       }
       return sendConflict(res, 'An account with this email already exists. Please log in.');
     }
+    const verifiedEmail = check.email;
 
     // During closed beta, create user with WAITLIST role
     // Password is optional during signup - will be set during activation
@@ -96,7 +93,7 @@ router.post('/mobile/signup', express.json(), async (req, res) => {
         return sendBadRequest(res, 'Password is required');
       }
 
-      const { user } = await createNewUser({ email, name: trimmedName, passwordHash, ref });
+      const { user } = await createNewUser({ email: verifiedEmail, name: trimmedName, passwordHash, ref });
 
       const accessToken = generateAccessToken({ uid: user.id, email: user.email });
       const refreshToken = generateRefreshToken({ uid: user.id, email: user.email });
@@ -110,7 +107,7 @@ router.post('/mobile/signup', express.json(), async (req, res) => {
     }
 
     // Waitlist flow
-    await createNewUser({ email, name: trimmedName, passwordHash, ref });
+    await createNewUser({ email: verifiedEmail, name: trimmedName, passwordHash, ref });
 
     return res.status(200).json({
       ok: true,

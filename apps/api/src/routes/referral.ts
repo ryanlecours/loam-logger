@@ -12,6 +12,11 @@ const router = Router();
 router.get('/r/:code', async (req: Request, res: Response) => {
   const { code } = req.params;
 
+  if (!/^[0-9a-f]{8}$/.test(code)) {
+    res.redirect(`${FRONTEND_URL}/signup`);
+    return;
+  }
+
   try {
     const user = await prisma.user.findUnique({
       where: { referralCode: code },

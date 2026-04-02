@@ -12,7 +12,7 @@ import { checkAuthRateLimit, checkMutationRateLimit } from '../lib/rate-limit';
 import { sendPasswordChangedNotification } from '../services/password-notification.service';
 import { logger } from '../lib/logger';
 import { config } from '../config/env';
-import { createNewUser } from '../services/signup.service';
+import { createNewUser, verifyEmailAvailable } from '../services/signup.service';
 
 const router = express.Router();
 
@@ -59,19 +59,14 @@ router.post('/signup', express.json(), async (req, res) => {
     }
 
     // Check if user already exists
-    const existingUser = await prisma.user.findUnique({
-      where: { email },
-      select: { role: true },
-    });
-
-    if (existingUser) {
-      if (existingUser.role === 'WAITLIST') {
-        // User is already on the waitlist
+    const check = await verifyEmailAvailable(email);
+    if (!check.available) {
+      if (check.role === 'WAITLIST') {
         return sendForbidden(res, 'You are already on the waitlist. We will email you when your account is activated.', 'ALREADY_ON_WAITLIST');
       }
-      // User has an activated account
       return sendConflict(res, 'An account with this email already exists. Please log in.');
     }
+    const verifiedEmail = check.email;
 
     if (config.bypassWaitlistFlow) {
       const { password } = req.body as { password?: string };
@@ -84,7 +79,7 @@ router.post('/signup', express.json(), async (req, res) => {
       }
 
       const passwordHash = await hashPassword(password);
-      const { user } = await createNewUser({ email, name: name.trim(), passwordHash, ref });
+      const { user } = await createNewUser({ email: verifiedEmail, name: name.trim(), passwordHash, ref });
 
       setSessionCookie(res, { uid: user.id, email: user.email, authAt: Date.now() });
       const csrfToken = setCsrfCookie(res);
@@ -93,7 +88,7 @@ router.post('/signup', express.json(), async (req, res) => {
     }
 
     // Waitlist flow
-    await createNewUser({ email, name: name.trim(), passwordHash: null, ref });
+    await createNewUser({ email: verifiedEmail, name: name.trim(), passwordHash: null, ref });
 
     return sendForbidden(res, 'You have been added to the waitlist. We will email you when your account is activated.', 'ALREADY_ON_WAITLIST');
   } catch (e) {

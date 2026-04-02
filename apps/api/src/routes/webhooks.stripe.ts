@@ -19,7 +19,7 @@ async function resolveUserId(metadata: Stripe.Metadata | undefined | null, custo
   const cid = typeof customerId === 'string' ? customerId : customerId?.id;
   if (!cid) return null;
 
-  const user = await prisma.user.findFirst({
+  const user = await prisma.user.findUnique({
     where: { stripeCustomerId: cid },
     select: { id: true },
   });
