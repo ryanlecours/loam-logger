@@ -140,7 +140,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
         html: await getUpgradeConfirmationEmailHtml({ name: firstName }),
         userId,
         emailType: 'upgrade_confirmation',
-        triggerSource: 'user_action',
+        triggerSource: 'stripe_webhook',
         templateVersion: UPGRADE_CONFIRMATION_TEMPLATE_VERSION,
         bypassUnsubscribe: true,
       });
@@ -210,7 +210,7 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
             html: await getUpgradeConfirmationEmailHtml({ name: firstName }),
             userId,
             emailType: 'upgrade_confirmation',
-            triggerSource: 'user_action',
+            triggerSource: 'stripe_webhook',
             templateVersion: UPGRADE_CONFIRMATION_TEMPLATE_VERSION,
             bypassUnsubscribe: true,
           });
@@ -278,7 +278,7 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
       html: await getDowngradeNoticeEmailHtml({ name: firstName }),
       userId,
       emailType: 'downgrade_notice',
-      triggerSource: 'user_action',
+      triggerSource: 'stripe_webhook',
       templateVersion: DOWNGRADE_NOTICE_TEMPLATE_VERSION,
       bypassUnsubscribe: true,
     });
@@ -316,7 +316,7 @@ async function handlePaymentFailed(invoice: Stripe.Invoice) {
       html: await getPaymentFailedEmailHtml({ name: firstName }),
       userId: user.id,
       emailType: 'payment_failed',
-      triggerSource: 'user_action',
+      triggerSource: 'stripe_webhook',
       templateVersion: PAYMENT_FAILED_TEMPLATE_VERSION,
       bypassUnsubscribe: true,
     });

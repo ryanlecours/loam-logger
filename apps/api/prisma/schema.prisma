@@ -439,6 +439,7 @@ enum TriggerSource {
   system_welcome_series
   scheduled
   user_action
+  stripe_webhook
 }
 
 enum EmailStatus {

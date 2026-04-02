@@ -19,8 +19,8 @@ jest.mock('../lib/logger', () => ({
 }));
 
 jest.mock('../services/referral.service', () => ({
-  generateReferralCode: () => 'abc12345',
   resolveReferrer: jest.fn().mockResolvedValue(null),
+  createUserWithReferralCode: jest.fn(async (fn: (code: string) => Promise<unknown>) => fn('abc12345')),
 }));
 
 const mockConfig = { bypassWaitlistFlow: false };
@@ -77,9 +77,9 @@ describe('ensureUserFromGoogle', () => {
 
   it('should create FREE user when bypass is on and user is new', async () => {
     mockConfig.bypassWaitlistFlow = true;
-    const tx = createTx();
     const createdUser = { id: 'new-user', email: 'test@test.com', role: 'FREE' };
-    mockTransaction.mockImplementation(async (fn: (t: unknown) => unknown) => fn(tx));
+    // Phase 1 returns null (no existing user), Phase 2 creates the user
+    mockTransaction.mockImplementation(async (fn: (t: unknown) => unknown) => fn(createTx()));
     mockUserAccountFindUnique.mockResolvedValue(null);
     mockUserFindUnique.mockResolvedValue(null);
     mockUserCreate.mockResolvedValue(createdUser);
@@ -104,8 +104,7 @@ describe('ensureUserFromGoogle', () => {
   it('should create referral record when ref is provided', async () => {
     mockConfig.bypassWaitlistFlow = true;
     (resolveReferrer as jest.Mock).mockResolvedValue('referrer-id');
-    const tx = createTx();
-    mockTransaction.mockImplementation(async (fn: (t: unknown) => unknown) => fn(tx));
+    mockTransaction.mockImplementation(async (fn: (t: unknown) => unknown) => fn(createTx()));
     mockUserAccountFindUnique.mockResolvedValue(null);
     mockUserFindUnique.mockResolvedValue(null);
     mockUserCreate.mockResolvedValue({ id: 'new-user', email: 'test@test.com' });
@@ -121,8 +120,7 @@ describe('ensureUserFromGoogle', () => {
 
   it('should not create referral when ref is not provided', async () => {
     mockConfig.bypassWaitlistFlow = true;
-    const tx = createTx();
-    mockTransaction.mockImplementation(async (fn: (t: unknown) => unknown) => fn(tx));
+    mockTransaction.mockImplementation(async (fn: (t: unknown) => unknown) => fn(createTx()));
     mockUserAccountFindUnique.mockResolvedValue(null);
     mockUserFindUnique.mockResolvedValue(null);
     mockUserCreate.mockResolvedValue({ id: 'new-user', email: 'test@test.com' });

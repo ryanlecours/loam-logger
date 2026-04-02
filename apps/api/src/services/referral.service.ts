@@ -70,9 +70,8 @@ const MIN_RIDES_FOR_REFERRAL = 1;
 
 /**
  * Attempt to complete a referral for a referred user. Called from onboarding
- * and after ride creation. The referral only completes when:
- * 1. The referred user has logged at least MIN_RIDES_FOR_REFERRAL rides
- * 2. The referred user's signup IP differs from the referrer's (abuse check)
+ * and after ride creation. The referral only completes when the referred user
+ * has logged at least MIN_RIDES_FOR_REFERRAL rides.
  *
  * Safe to call multiple times — idempotent via atomic PENDING → COMPLETED claim.
  */

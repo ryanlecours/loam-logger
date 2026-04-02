@@ -3,7 +3,7 @@ import { normalizeEmail, computeExpiry } from './utils';
 import type { GoogleClaims, GoogleTokens } from './types';
 import { prisma } from '../lib/prisma';
 import { config } from '../config/env';
-import { generateReferralCode, resolveReferrer } from '../services/referral.service';
+import { resolveReferrer, createUserWithReferralCode } from '../services/referral.service';
 
 export async function ensureUserFromGoogle(
   claims: GoogleClaims,
@@ -16,10 +16,8 @@ export async function ensureUserFromGoogle(
   const email = normalizeEmail(claims.email);
   if (!email) throw new Error('Google login did not provide an email');
 
-  // Resolve referrer before transaction so we can create the referral atomically
-  const referrerId = ref ? await resolveReferrer(ref) : null;
-
-  return prisma.$transaction(async (tx) => {
+  // Phase 1: Check for existing users
+  const existing = await prisma.$transaction(async (tx) => {
     // If Google identity already linked, refresh profile + tokens
     const existingAccount = await tx.userAccount.findUnique({
       where: { provider_providerUserId: { provider: 'google', providerUserId: sub } },
@@ -27,29 +25,73 @@ export async function ensureUserFromGoogle(
     });
     if (existingAccount) {
       await refresh(tx, existingAccount.user.id, claims, tokens);
-      // Block WAITLIST users from logging in via OAuth
       if (existingAccount.user.role === 'WAITLIST') {
         throw new Error('ALREADY_ON_WAITLIST');
       }
       return existingAccount.user;
     }
 
-    // During closed beta, check if user exists and is activated
     const user = await tx.user.findUnique({ where: { email } });
 
-    // Block WAITLIST users from logging in via OAuth
     if (user?.role === 'WAITLIST') {
       throw new Error('ALREADY_ON_WAITLIST');
     }
 
-    // New user trying to sign up via Google
-    if (!user) {
-      if (!config.bypassWaitlistFlow) {
-        throw new Error('CLOSED_BETA');
+    if (user) {
+      // User exists and is activated — update profile and link Google account
+      await tx.user.update({
+        where: { id: user.id },
+        data: {
+          name: claims.name ?? undefined,
+          avatarUrl: claims.picture ?? undefined,
+          emailVerified: claims.email_verified ? new Date() : undefined,
+        },
+      });
+
+      try {
+        await tx.userAccount.create({
+          data: { userId: user.id, provider: 'google', providerUserId: sub },
+        });
+      } catch (e) {
+        if (!(e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002')) throw e;
       }
 
-      // Direct registration via Google OAuth
-      const referralCode = generateReferralCode();
+      if (tokens?.access_token || tokens?.refresh_token) {
+        await tx.oauthToken.upsert({
+          where: { userId_provider: { userId: user.id, provider: 'google' } },
+          update: {
+            accessToken: tokens.access_token ?? undefined,
+            refreshToken: tokens.refresh_token ?? undefined,
+            expiresAt: computeExpiry(tokens.expires_in) ?? undefined,
+          },
+          create: {
+            userId: user.id,
+            provider: 'google',
+            accessToken: tokens.access_token ?? '',
+            refreshToken: tokens.refresh_token ?? null,
+            expiresAt: computeExpiry(tokens.expires_in) ?? new Date(Date.now() + 3600 * 1000),
+          },
+        });
+      }
+
+      return user;
+    }
+
+    // No existing user found
+    return null;
+  });
+
+  if (existing) return existing;
+
+  // Phase 2: New user — create with referral code retry handling
+  if (!config.bypassWaitlistFlow) {
+    throw new Error('CLOSED_BETA');
+  }
+
+  const referrerId = ref ? await resolveReferrer(ref) : null;
+
+  return createUserWithReferralCode(async (referralCode) => {
+    return prisma.$transaction(async (tx) => {
       const newUser = await tx.user.create({
         data: {
           email,
@@ -62,12 +104,10 @@ export async function ensureUserFromGoogle(
         },
       });
 
-      // Link Google account
       await tx.userAccount.create({
         data: { userId: newUser.id, provider: 'google', providerUserId: sub },
       });
 
-      // Create referral record if ref code was provided
       if (referrerId) {
         await tx.referral.create({
           data: { referrerUserId: referrerId, referredUserId: newUser.id },
@@ -87,47 +127,7 @@ export async function ensureUserFromGoogle(
       }
 
       return newUser;
-    }
-
-    // User exists and is activated - update profile and link Google account
-    await tx.user.update({
-      where: { id: user.id },
-      data: {
-        name: claims.name ?? undefined,
-        avatarUrl: claims.picture ?? undefined,
-        emailVerified: claims.email_verified ? new Date() : undefined,
-      },
     });
-
-    // Create the external identity link if it doesn't exist
-    try {
-      await tx.userAccount.create({
-        data: { userId: user.id, provider: 'google', providerUserId: sub },
-      });
-    } catch (e) {
-      if (!(e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002')) throw e;
-    }
-
-    // Optional: store tokens (only if you plan to call Google APIs later)
-    if (tokens?.access_token || tokens?.refresh_token) {
-      await tx.oauthToken.upsert({
-        where: { userId_provider: { userId: user.id, provider: 'google' } },
-        update: {
-          accessToken: tokens.access_token ?? undefined,
-          refreshToken: tokens.refresh_token ?? undefined,
-          expiresAt: computeExpiry(tokens.expires_in) ?? undefined,
-        },
-        create: {
-          userId: user.id,
-          provider: 'google',
-          accessToken: tokens.access_token ?? '',
-          refreshToken: tokens.refresh_token ?? null,
-          expiresAt: computeExpiry(tokens.expires_in) ?? new Date(Date.now() + 3600 * 1000),
-        },
-      });
-    }
-
-    return user;
   });
 }
 
