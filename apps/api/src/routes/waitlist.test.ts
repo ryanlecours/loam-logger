@@ -106,7 +106,6 @@ describe('POST /api/waitlist', () => {
           name: 'Test',
           passwordHash: null,
           ref: undefined,
-          signupIp: expect.any(String),
         })
       );
     });

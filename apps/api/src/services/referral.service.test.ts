@@ -65,8 +65,8 @@ describe('completeReferral', () => {
     mockReferralFindUnique.mockResolvedValue({
       id: 'ref-1',
       status: 'COMPLETED',
-      referrer: { id: 'referrer-1', email: 'r@test.com', name: 'R', subscriptionTier: 'FREE_LIGHT', isFoundingRider: false, signupIp: '1.1.1.1' },
-      referred: { name: 'Friend', signupIp: '2.2.2.2' },
+      referrer: { id: 'referrer-1', email: 'r@test.com', name: 'R', subscriptionTier: 'FREE_LIGHT', isFoundingRider: false },
+      referred: { name: 'Friend' },
     });
 
     await completeReferral('user-1');
@@ -78,8 +78,8 @@ describe('completeReferral', () => {
     mockReferralFindUnique.mockResolvedValue({
       id: 'ref-1',
       status: 'PENDING',
-      referrer: { id: 'referrer-1', email: 'r@test.com', name: 'Referrer', subscriptionTier: 'FREE_LIGHT', isFoundingRider: false, signupIp: '1.1.1.1' },
-      referred: { name: 'Friend', signupIp: '2.2.2.2' },
+      referrer: { id: 'referrer-1', email: 'r@test.com', name: 'Referrer', subscriptionTier: 'FREE_LIGHT', isFoundingRider: false },
+      referred: { name: 'Friend' },
     });
 
     // Interactive transaction: execute the callback
@@ -103,8 +103,8 @@ describe('completeReferral', () => {
     mockReferralFindUnique.mockResolvedValue({
       id: 'ref-1',
       status: 'PENDING',
-      referrer: { id: 'referrer-1', email: 'r@test.com', name: 'Referrer', subscriptionTier: 'FREE_FULL', isFoundingRider: false, signupIp: '1.1.1.1' },
-      referred: { name: 'Friend', signupIp: '2.2.2.2' },
+      referrer: { id: 'referrer-1', email: 'r@test.com', name: 'Referrer', subscriptionTier: 'FREE_FULL', isFoundingRider: false },
+      referred: { name: 'Friend' },
     });
 
     let userUpdateCalled = false;
@@ -128,8 +128,8 @@ describe('completeReferral', () => {
     mockReferralFindUnique.mockResolvedValue({
       id: 'ref-1',
       status: 'PENDING',
-      referrer: { id: 'referrer-1', email: 'r@test.com', name: 'Referrer', subscriptionTier: 'FREE_LIGHT', isFoundingRider: true, signupIp: '1.1.1.1' },
-      referred: { name: 'Friend', signupIp: '2.2.2.2' },
+      referrer: { id: 'referrer-1', email: 'r@test.com', name: 'Referrer', subscriptionTier: 'FREE_LIGHT', isFoundingRider: true },
+      referred: { name: 'Friend' },
     });
 
     let userUpdateCalled = false;
@@ -153,8 +153,8 @@ describe('completeReferral', () => {
     mockReferralFindUnique.mockResolvedValue({
       id: 'ref-1',
       status: 'PENDING',
-      referrer: { id: 'referrer-1', email: 'r@test.com', name: 'R', subscriptionTier: 'FREE_LIGHT', isFoundingRider: false, signupIp: '1.1.1.1' },
-      referred: { name: 'F', signupIp: '2.2.2.2' },
+      referrer: { id: 'referrer-1', email: 'r@test.com', name: 'R', subscriptionTier: 'FREE_LIGHT', isFoundingRider: false },
+      referred: { name: 'F' },
     });
 
     mockTransaction.mockImplementation(async (fn: (tx: unknown) => unknown) => {

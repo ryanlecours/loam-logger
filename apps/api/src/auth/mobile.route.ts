@@ -96,7 +96,7 @@ router.post('/mobile/signup', express.json(), async (req, res) => {
         return sendBadRequest(res, 'Password is required');
       }
 
-      const { user } = await createNewUser({ email, name: trimmedName, passwordHash, ref, signupIp: clientIp });
+      const { user } = await createNewUser({ email, name: trimmedName, passwordHash, ref });
 
       const accessToken = generateAccessToken({ uid: user.id, email: user.email });
       const refreshToken = generateRefreshToken({ uid: user.id, email: user.email });
@@ -110,7 +110,7 @@ router.post('/mobile/signup', express.json(), async (req, res) => {
     }
 
     // Waitlist flow
-    await createNewUser({ email, name: trimmedName, passwordHash, ref, signupIp: clientIp });
+    await createNewUser({ email, name: trimmedName, passwordHash, ref });
 
     return res.status(200).json({
       ok: true,

@@ -80,29 +80,12 @@ export async function completeReferral(referredUserId: string): Promise<void> {
   const referral = await prisma.referral.findUnique({
     where: { referredUserId },
     include: {
-      referrer: { select: { id: true, email: true, name: true, subscriptionTier: true, isFoundingRider: true, signupIp: true } },
-      referred: { select: { name: true, signupIp: true } },
+      referrer: { select: { id: true, email: true, name: true, subscriptionTier: true, isFoundingRider: true } },
+      referred: { select: { name: true } },
     },
   });
 
   if (!referral || referral.status === 'COMPLETED') return;
-
-  // Abuse check: same signup IP suggests self-referral via second account.
-  // Note: trust proxy is set to 1 in server.ts so req.ip returns the real
-  // client IP behind Railway's proxy. Users on shared NAT (corporate network,
-  // university) could be false-positived here — if this becomes an issue,
-  // consider downgrading to a warning log instead of a block.
-  if (
-    referral.referrer.signupIp &&
-    referral.referred.signupIp &&
-    referral.referrer.signupIp === referral.referred.signupIp
-  ) {
-    logger.warn(
-      { referralId: referral.id, referrerId: referral.referrer.id, referredUserId, ip: referral.referred.signupIp },
-      'Referral blocked: same signup IP as referrer (possible self-referral)'
-    );
-    return;
-  }
 
   // Ride gate: referred user must have logged at least 1 ride
   const rideCount = await prisma.ride.count({

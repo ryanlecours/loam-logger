@@ -9,8 +9,6 @@ export type CreateNewUserOpts = {
   name: string | null;
   passwordHash: string | null;
   ref?: string | null;
-  /** Client IP address for referral abuse detection */
-  signupIp?: string | null;
 };
 
 export type CreateNewUserResult = {
@@ -30,7 +28,7 @@ export type CreateNewUserResult = {
  * - Setting up the auth response (session cookie vs tokens)
  */
 export async function createNewUser(opts: CreateNewUserOpts): Promise<CreateNewUserResult> {
-  const { email, name, passwordHash, ref, signupIp } = opts;
+  const { email, name, passwordHash, ref } = opts;
 
   const referrerId = ref ? await resolveReferrer(ref) : null;
   const bypass = config.bypassWaitlistFlow;
@@ -48,7 +46,6 @@ export async function createNewUser(opts: CreateNewUserOpts): Promise<CreateNewU
           ...(subscriptionTier ? { subscriptionTier } : {}),
           referralCode,
           passwordHash,
-          signupIp: signupIp ?? null,
         },
       });
 

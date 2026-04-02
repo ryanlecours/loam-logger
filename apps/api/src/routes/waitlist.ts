@@ -84,7 +84,7 @@ router.post('/waitlist', express.json(), async (req: Request, res) => {
       }
 
       const passwordHash = await hashPassword(password);
-      const { user } = await createNewUser({ email, name: trimmedName, passwordHash, ref, signupIp: clientIp });
+      const { user } = await createNewUser({ email, name: trimmedName, passwordHash, ref });
 
       setSessionCookie(res, { uid: user.id, email: user.email, authAt: Date.now() });
       const csrfToken = setCsrfCookie(res);
@@ -93,7 +93,7 @@ router.post('/waitlist', express.json(), async (req: Request, res) => {
     }
 
     // Waitlist flow
-    await createNewUser({ email, name: trimmedName, passwordHash: null, ref, signupIp: clientIp });
+    await createNewUser({ email, name: trimmedName, passwordHash: null, ref });
 
     return sendSuccess(res, undefined, 'Successfully joined the waitlist!', 201);
 

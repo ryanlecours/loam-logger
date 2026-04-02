@@ -51,26 +51,12 @@ UPDATE "User" SET "subscriptionTier" = 'PRO' WHERE "role" IN ('PRO', 'ADMIN');
 UPDATE "User" SET "subscriptionTier" = 'FREE_LIGHT' WHERE "role" = 'WAITLIST';
 
 -- Data Migration: Generate unique referral codes for all existing users
--- Uses id as salt to minimize collisions, with a retry loop to guarantee uniqueness
-DO $$
-DECLARE
-  user_record RECORD;
-  new_code TEXT;
-  attempts INT;
-BEGIN
-  FOR user_record IN SELECT id FROM "User" WHERE "referralCode" IS NULL LOOP
-    attempts := 0;
-    LOOP
-      new_code := substr(md5(user_record.id || random()::text || attempts::text), 1, 8);
-      BEGIN
-        UPDATE "User" SET "referralCode" = new_code WHERE id = user_record.id;
-        EXIT; -- success, move to next user
-      EXCEPTION WHEN unique_violation THEN
-        attempts := attempts + 1;
-        IF attempts > 100 THEN
-          RAISE EXCEPTION 'Failed to generate unique referral code for user %', user_record.id;
-        END IF;
-      END;
-    END LOOP;
-  END LOOP;
-END $$;
+-- Uses row_number to guarantee uniqueness without retries
+UPDATE "User" u
+SET "referralCode" = sub.code
+FROM (
+  SELECT id, lpad(to_hex(row_number() OVER (ORDER BY "createdAt")), 8, '0') AS code
+  FROM "User"
+  WHERE "referralCode" IS NULL
+) sub
+WHERE u.id = sub.id;

@@ -84,7 +84,7 @@ router.post('/signup', express.json(), async (req, res) => {
       }
 
       const passwordHash = await hashPassword(password);
-      const { user } = await createNewUser({ email, name: name.trim(), passwordHash, ref, signupIp: clientIp });
+      const { user } = await createNewUser({ email, name: name.trim(), passwordHash, ref });
 
       setSessionCookie(res, { uid: user.id, email: user.email, authAt: Date.now() });
       const csrfToken = setCsrfCookie(res);
@@ -93,7 +93,7 @@ router.post('/signup', express.json(), async (req, res) => {
     }
 
     // Waitlist flow
-    await createNewUser({ email, name: name.trim(), passwordHash: null, ref, signupIp: clientIp });
+    await createNewUser({ email, name: name.trim(), passwordHash: null, ref });
 
     return sendForbidden(res, 'You have been added to the waitlist. We will email you when your account is activated.', 'ALREADY_ON_WAITLIST');
   } catch (e) {
