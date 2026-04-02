@@ -56,17 +56,23 @@ describe('getOrCreateStripeCustomer', () => {
       id: 'user-1', email: 'test@test.com', name: 'Test', stripeCustomerId: null,
     });
 
+    // Transaction does lock + re-read (returns fresh user with no stripeCustomerId)
     mockTransaction.mockImplementation(async (fn: (tx: unknown) => unknown) => {
       const tx = {
-        $queryRawUnsafe: jest.fn(), // advisory lock
+        $queryRawUnsafe: jest.fn(),
         user: {
           findUniqueOrThrow: jest.fn().mockResolvedValue({ email: 'test@test.com', name: 'Test', stripeCustomerId: null }),
-          update: jest.fn(),
         },
       };
-      mockCustomersCreate.mockResolvedValue({ id: 'cus_new' });
       return fn(tx);
     });
+
+    mockCustomersCreate.mockResolvedValue({ id: 'cus_new' });
+    mockUserUpdate.mockResolvedValue({});
+
+    // Mock updateMany for the conditional DB write
+    const { prisma } = await import('../lib/prisma');
+    (prisma.user as unknown as Record<string, jest.Mock>).updateMany = jest.fn().mockResolvedValue({ count: 1 });
 
     const result = await getOrCreateStripeCustomer('user-1');
 

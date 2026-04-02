@@ -5,8 +5,10 @@ import { FRONTEND_URL } from '../config/env';
 
 /**
  * Get or create a Stripe customer for a user.
- * Uses a PostgreSQL advisory lock keyed on user ID to prevent concurrent
- * requests from creating duplicate Stripe customers.
+ *
+ * Uses an advisory lock to prevent concurrent Stripe customer creation,
+ * and keeps the Stripe API call outside the DB transaction so a transaction
+ * rollback can't orphan a customer without cleanup.
  */
 export async function getOrCreateStripeCustomer(userId: string): Promise<string> {
   // Fast path — no lock needed if already set
@@ -17,36 +19,59 @@ export async function getOrCreateStripeCustomer(userId: string): Promise<string>
 
   if (user.stripeCustomerId) return user.stripeCustomerId;
 
-  // Serialize concurrent requests for this user via an interactive transaction
-  // with a PostgreSQL advisory lock. Only one caller enters the create path.
-  return prisma.$transaction(async (tx) => {
-    // Acquire advisory lock scoped to this transaction (auto-released on commit/rollback).
-    // hashtext returns a stable int4 for the userId string.
+  // Acquire advisory lock to serialize concurrent requests for this user.
+  // Read fresh state inside the lock — another request may have just finished.
+  const fresh = await prisma.$transaction(async (tx) => {
     await tx.$queryRawUnsafe(`SELECT pg_advisory_xact_lock(hashtext($1))`, userId);
 
-    // Re-check inside the lock — another request may have just finished
-    const fresh = await tx.user.findUniqueOrThrow({
+    return tx.user.findUniqueOrThrow({
       where: { id: userId },
       select: { email: true, name: true, stripeCustomerId: true },
     });
+  });
 
-    if (fresh.stripeCustomerId) return fresh.stripeCustomerId;
+  // Another request already created the customer while we waited for the lock
+  if (fresh.stripeCustomerId) return fresh.stripeCustomerId;
 
-    // We hold the lock — safe to create exactly one Stripe customer
-    const customer = await stripe.customers.create({
-      email: fresh.email,
-      name: fresh.name ?? undefined,
-      metadata: { userId },
-    });
+  // Create Stripe customer outside the transaction — if the DB write below
+  // fails, we clean up the orphaned Stripe customer.
+  const customer = await stripe.customers.create({
+    email: fresh.email,
+    name: fresh.name ?? undefined,
+    metadata: { userId },
+  });
 
-    await tx.user.update({
-      where: { id: userId },
+  try {
+    // Conditional update: only set if still null (guards against a race
+    // between lock release and this write, however unlikely)
+    const result = await prisma.user.updateMany({
+      where: { id: userId, stripeCustomerId: null },
       data: { stripeCustomerId: customer.id },
     });
 
-    logger.info({ userId, stripeCustomerId: customer.id }, 'Created Stripe customer');
-    return customer.id;
-  });
+    if (result.count === 1) {
+      logger.info({ userId, stripeCustomerId: customer.id }, 'Created Stripe customer');
+      return customer.id;
+    }
+
+    // Another request set it — re-read the winner and clean up ours
+    const winner = await prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { stripeCustomerId: true },
+    });
+
+    await stripe.customers.del(customer.id).catch((err) => {
+      logger.warn({ userId, orphanedCustomerId: customer.id, error: err instanceof Error ? err.message : String(err) }, 'Failed to delete orphaned Stripe customer');
+    });
+
+    return winner.stripeCustomerId!;
+  } catch (err) {
+    // DB write failed — clean up the Stripe customer we just created
+    await stripe.customers.del(customer.id).catch((delErr) => {
+      logger.warn({ userId, orphanedCustomerId: customer.id, error: delErr instanceof Error ? delErr.message : String(delErr) }, 'Failed to delete orphaned Stripe customer after DB error');
+    });
+    throw err;
+  }
 }
 
 export type StripePlan = 'monthly' | 'annual';

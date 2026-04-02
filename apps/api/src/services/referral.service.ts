@@ -76,6 +76,15 @@ const MIN_RIDES_FOR_REFERRAL = 1;
  * Safe to call multiple times — idempotent via atomic PENDING → COMPLETED claim.
  */
 export async function completeReferral(referredUserId: string): Promise<void> {
+  // Fast path: cheap indexed lookup without joins. Most users were never
+  // referred or their referral already completed — skip the expensive include.
+  const stub = await prisma.referral.findUnique({
+    where: { referredUserId },
+    select: { id: true, status: true },
+  });
+  if (!stub || stub.status === 'COMPLETED') return;
+
+  // Full fetch with relations — only runs for pending referrals
   const referral = await prisma.referral.findUnique({
     where: { referredUserId },
     include: {
