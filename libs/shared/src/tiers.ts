@@ -7,6 +7,11 @@ export const FREE_LIGHT_COMPONENT_TYPES = [
 
 export type FreeLightComponentType = (typeof FREE_LIGHT_COMPONENT_TYPES)[number];
 
+/** Check if a component type is included in the free-light tier. */
+export function isFreeLightComponent(type: string): boolean {
+  return (FREE_LIGHT_COMPONENT_TYPES as readonly string[]).includes(type);
+}
+
 export const TIER_LIMITS = {
   FREE_LIGHT: { maxBikes: 1, componentTypes: FREE_LIGHT_COMPONENT_TYPES },
   FREE_FULL: { maxBikes: 1, componentTypes: 'ALL' as const },

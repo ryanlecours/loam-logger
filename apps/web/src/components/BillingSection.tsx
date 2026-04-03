@@ -18,16 +18,18 @@ export default function BillingSection() {
   const { tier, isPro, isFoundingRider } = useUserTier();
   const [createPortal, { loading }] = useMutation(CREATE_BILLING_PORTAL);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
 
   const handleConfirmNavigate = async () => {
+    setError(null);
     try {
       const { data } = await createPortal();
       if (data?.createBillingPortalSession?.url) {
         window.location.href = data.createBillingPortalSession.url;
       }
     } catch {
-      setShowConfirm(false);
+      setError('Unable to reach Stripe. Please try again.');
     }
   };
 
@@ -57,7 +59,7 @@ export default function BillingSection() {
           </div>
           {isPro && !isFoundingRider && (
             <button
-              onClick={() => setShowConfirm(true)}
+              onClick={() => { setError(null); setShowConfirm(true); }}
               className="flex items-center gap-1.5 rounded-lg border border-white/20 px-3 py-1.5 text-xs font-medium text-white/80 transition hover:bg-white/10 disabled:opacity-50"
             >
               Manage
@@ -94,6 +96,7 @@ export default function BillingSection() {
         <p className="text-sm text-muted">
           You'll be redirected to Stripe to manage your subscription. You'll be brought back to LoamLogger when you're done.
         </p>
+        {error && <p className="mt-2 text-sm text-red-400">{error}</p>}
       </Modal>
     </div>
   );

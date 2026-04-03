@@ -7,9 +7,10 @@ import { LOG_COMPONENT_SERVICE } from '../../graphql/logComponentService';
 import { BIKES } from '../../graphql/bikes';
 import { formatComponentLabel, getBikeName } from '../../utils/formatters';
 import { useUserTier } from '../../hooks/useUserTier';
-import { FREE_LIGHT_COMPONENT_TYPES } from '@loam/shared';
+import { isFreeLightComponent } from '@loam/shared';
 import type { BikeWithPredictions } from '../../hooks/usePriorityBike';
 import { StatusDot } from './StatusDot';
+import { ProBadge } from '../ui/ProBadge';
 
 interface LogServiceModalProps {
   isOpen: boolean;
@@ -87,7 +88,7 @@ export function LogServiceModal({
   const { isFreeLight } = useUserTier();
 
   const isRestricted = useCallback((componentType: string) =>
-    isFreeLight && !(FREE_LIGHT_COMPONENT_TYPES as readonly string[]).includes(componentType),
+    isFreeLight && !isFreeLightComponent(componentType),
   [isFreeLight]);
 
   const components = useMemo(() =>
@@ -154,12 +155,11 @@ export function LogServiceModal({
               return (
                 <div
                   key={component.componentId}
-                  className={`log-service-item ${isSelected ? 'log-service-item-selected' : ''}`}
+                  className={`log-service-item ${isSelected ? 'log-service-item-selected' : ''} ${restricted ? 'opacity-40 cursor-default' : ''}`}
                   onClick={() => !restricted && toggleComponent(component.componentId)}
                   role="checkbox"
                   aria-checked={isSelected}
                   tabIndex={restricted ? -1 : 0}
-                  style={restricted ? { opacity: 0.4, cursor: 'default' } : undefined}
                   onKeyDown={(e) => {
                     if (!restricted && (e.key === 'Enter' || e.key === ' ')) {
                       e.preventDefault();
@@ -181,9 +181,9 @@ export function LogServiceModal({
                     {formatComponentLabel(component)}
                   </span>
                   {restricted ? (
-                    <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-bold text-amber-400">
-                      PRO
-                    </span>
+                    <ProBadge>
+                      <Lock className="h-3.5 w-3.5 text-amber-400" />
+                    </ProBadge>
                   ) : (
                     <span className="log-service-item-hours">
                       {component.hoursRemaining.toFixed(1)} hrs

@@ -57,6 +57,8 @@ export type PairedComponentType = (typeof PAIRED_COMPONENT_TYPES)[number];
 
 // ============================================================================
 // Component Catalog - THE SINGLE SOURCE OF TRUTH
+// IMPORTANT: Service intervals here must stay in sync with
+// apps/api/src/services/prediction/config.ts (BASE_INTERVALS_HOURS).
 // ============================================================================
 
 export const COMPONENT_CATALOG: ComponentDefinition[] = [

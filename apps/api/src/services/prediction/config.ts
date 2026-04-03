@@ -117,6 +117,9 @@ export const DEFAULT_WEIGHTS: ComponentWearWeights = {
 
 // =============================================================================
 // Base Service Intervals (in hours)
+// IMPORTANT: These must stay in sync with libs/shared/src/componentCatalog.ts
+// (COMPONENT_CATALOG.serviceIntervalHours). The catalog is the user-facing
+// source; these are the prediction-engine copy used at runtime.
 // =============================================================================
 
 /** Service intervals that vary by location (front/rear) */

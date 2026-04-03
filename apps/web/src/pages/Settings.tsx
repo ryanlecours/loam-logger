@@ -23,6 +23,7 @@ import { usePreferences } from "../hooks/usePreferences";
 import { useUserTier } from "../hooks/useUserTier";
 import { getAuthHeaders } from "@/lib/csrf";
 import { UPDATE_USER_PREFERENCES_MUTATION } from "../graphql/userPreferences";
+import { ProBadge } from "../components/ui/ProBadge";
 import ServicePreferencesEditor from "../components/ServicePreferencesEditor";
 import BillingSection from "../components/BillingSection";
 import ReferralCard from "../components/ReferralCard";
@@ -763,9 +764,7 @@ export default function Settings() {
                 />
                 Predictive (ride-adjusted)
                 {!isPro && (
-                  <span className="ml-2 inline-flex items-center gap-1 rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-bold text-amber-400">
-                    PRO
-                  </span>
+                  <ProBadge className="ml-2 inline-flex items-center gap-1" />
                 )}
               </label>
             </div>

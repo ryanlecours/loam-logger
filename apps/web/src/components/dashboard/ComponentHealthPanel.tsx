@@ -8,7 +8,7 @@ import { useHoursDisplay } from '../../hooks/useHoursDisplay';
 import { StatusDot } from './StatusDot';
 import UpgradePrompt from '../UpgradePrompt';
 import { useUserTier } from '../../hooks/useUserTier';
-import { FREE_LIGHT_COMPONENT_TYPES } from '@loam/shared';
+import { isFreeLightComponent } from '@loam/shared';
 import { SNOOZE_COMPONENT } from '../../graphql/calibration';
 import { BIKES } from '../../graphql/bikes';
 
@@ -327,10 +327,8 @@ export function ComponentHealthPanel({ components, className = '', onLogService 
     const sorted = getSortedComponentsForHealth(components);
     if (!isFreeLight) return sorted;
     // Show unlocked components first, restricted after
-    const unlocked = sorted.filter(c =>
-      (FREE_LIGHT_COMPONENT_TYPES as readonly string[]).includes(c.componentType));
-    const restricted = sorted.filter(c =>
-      !(FREE_LIGHT_COMPONENT_TYPES as readonly string[]).includes(c.componentType));
+    const unlocked = sorted.filter(c => isFreeLightComponent(c.componentType));
+    const restricted = sorted.filter(c => !isFreeLightComponent(c.componentType));
     return [...unlocked, ...restricted];
   }, [components, isFreeLight]);
 
@@ -358,19 +356,17 @@ export function ComponentHealthPanel({ components, className = '', onLogService 
       <div className="component-health-list list-stagger">
         {sortedComponents.map((component) => {
           const makeModel = getMakeModel(component);
-          const isRestricted = isFreeLight &&
-            !(FREE_LIGHT_COMPONENT_TYPES as readonly string[]).includes(component.componentType);
+          const isRestricted = isFreeLight && !isFreeLightComponent(component.componentType);
 
           return (
             <button
               key={component.componentId}
-              className={`component-health-row ${isRestricted ? 'component-health-row-restricted' : ''}`}
+              className={`component-health-row ${isRestricted ? 'component-health-row-restricted opacity-40 cursor-default' : ''}`}
               onClick={() => !isRestricted && setSelectedComponent(component)}
               type="button"
-              style={isRestricted ? { opacity: 0.4, cursor: 'default' } : undefined}
             >
               {isRestricted ? (
-                <Lock className="h-3 w-3 shrink-0 text-muted" />
+                <Lock className="h-3.5 w-3.5 text-amber-400" />
               ) : (
                 <StatusDot status={component.status} />
               )}
@@ -381,9 +377,7 @@ export function ComponentHealthPanel({ components, className = '', onLogService 
                 <span className="component-health-make-model">{makeModel}</span>
               </div>
               {isRestricted ? (
-                <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-bold text-amber-400">
-                  PRO
-                </span>
+                    <Lock className="h-3 w-3 shrink-0 text-muted" />
               ) : (
                 <div className="component-health-metrics">
                   {hoursDisplay === 'total' ? (
@@ -416,8 +410,7 @@ export function ComponentHealthPanel({ components, className = '', onLogService 
       {isFreeLight && (
         <div className="mt-4 flex justify-center">
           <UpgradePrompt
-            message="Help Loam Logger grow and unlock all 23+ components for free."
-            subtitle={"Refer a friend to sign up, and when they do, your account is automatically upgraded to full component tracking for your first bike.\nOr, go Pro to unlock everything instantly across unlimited bikes."}
+            message="Unlock all 23+ components for free by referring a friend, or go Pro for unlimited bikes."
           />
         </div>
       )}
