@@ -364,6 +364,8 @@ export function ComponentHealthPanel({ components, className = '', onLogService 
               className={`component-health-row ${isRestricted ? 'component-health-row-restricted opacity-40 cursor-default' : ''}`}
               onClick={() => !isRestricted && setSelectedComponent(component)}
               type="button"
+              disabled={isRestricted}
+              aria-disabled={isRestricted}
             >
               {isRestricted ? (
                 <Lock className="h-3.5 w-3.5 text-amber-400" />

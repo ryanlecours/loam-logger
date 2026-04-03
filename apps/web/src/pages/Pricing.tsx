@@ -38,8 +38,8 @@ export default function Pricing() {
       price: '$0',
       period: '',
       description: 'Light Bike Analysis',
-      current: tier === 'FREE_LIGHT' || tier === 'FREE_FULL' || isPro,
-      currentLabel: tier === 'FREE_LIGHT' ? 'Current plan' : 'Included',
+      current: tier === 'FREE_LIGHT',
+      currentLabel: 'Current plan',
       accent: 'neutral',
       features: [
         { text: '1 bike', included: true },
@@ -147,13 +147,10 @@ export default function Pricing() {
                     className={`flex flex-col rounded-2xl border p-6 ${
                       t.highlight
                         ? 'border-amber-500/60 bg-amber-500/5'
-                        : t.current && t.accent !== 'neutral'
-                          ? 'border-green-500/40 bg-green-500/5'
-                          : t.accent === 'green'
-                            ? 'border-green-500/40 bg-green-500/5'
-                            : t.accent === 'neutral'
-                              ? 'border-white/20 bg-transparent'
-                              : 'border-app/60 bg-surface-2'
+                        : {
+                            green: 'border-green-500/40 bg-green-500/5',
+                            neutral: 'border-white/20 bg-transparent',
+                          }[t.accent as string] ?? 'border-app/60 bg-surface-2'
                     }`}
                   >
                     <h3 className="text-lg font-semibold text-white">{t.name}</h3>
