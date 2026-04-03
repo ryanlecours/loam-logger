@@ -741,10 +741,9 @@ describe('ComponentHealthPanel', () => {
 
       render(<MemoryRouter><ComponentHealthPanel components={components} /></MemoryRouter>);
 
-      const buttons = screen.getAllByRole('button', { includeHiddenElements: false });
       // FORK is allowed in FREE_LIGHT, CHAIN is restricted
-      const forkButton = buttons.find(b => b.textContent?.includes('Fork'));
-      const chainButton = buttons.find(b => b.textContent?.includes('Chain'));
+      const forkButton = screen.getByText('Fork').closest('button')!;
+      const chainButton = screen.getByText('Chain').closest('button')!;
 
       expect(forkButton).not.toBeDisabled();
       expect(chainButton).toBeDisabled();
@@ -758,10 +757,12 @@ describe('ComponentHealthPanel', () => {
 
       render(<MemoryRouter><ComponentHealthPanel components={components} /></MemoryRouter>);
 
-      const buttons = screen.getAllByRole('button', { includeHiddenElements: false });
+      // Get component row buttons (exclude UpgradePrompt buttons by targeting the list container)
+      const list = document.querySelector('.component-health-list')!;
+      const rowButtons = Array.from(list.querySelectorAll('button'));
       // FORK (unlocked) should come before CHAIN (restricted) even though CHAIN is more urgent
-      expect(buttons[0]).toHaveTextContent('Fork');
-      expect(buttons[1]).toHaveTextContent('Chain');
+      expect(rowButtons[0]).toHaveTextContent('Fork');
+      expect(rowButtons[1]).toHaveTextContent('Chain');
     });
 
     it('does not open modal when clicking restricted component', async () => {
