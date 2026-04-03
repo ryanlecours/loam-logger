@@ -4,11 +4,17 @@ import { LogServiceModal } from './LogServiceModal';
 import type { BikeWithPredictions } from '../../hooks/usePriorityBike';
 import type { BikePredictionSummary, ComponentPrediction } from '../../types/prediction';
 
-// Mock useMutation from Apollo Client to avoid React 19 compatibility issues
+// Mock useMutation and useQuery from Apollo Client
 const mockLogService = vi.fn();
 vi.mock('@apollo/client', () => ({
   useMutation: vi.fn(() => [mockLogService, { loading: false }]),
   gql: vi.fn((strings: TemplateStringsArray) => strings[0]),
+  useQuery: () => ({
+    data: { me: { subscriptionTier: 'PRO', isFoundingRider: false, role: 'USER' } },
+    loading: false,
+    error: undefined,
+    refetch: vi.fn(),
+  }),
 }));
 
 // Mock the Modal to avoid createPortal issues

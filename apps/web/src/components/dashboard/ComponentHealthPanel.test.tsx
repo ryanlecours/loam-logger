@@ -13,11 +13,17 @@ vi.mock('../../hooks/useHoursDisplay', () => ({
   }),
 }));
 
-// Mock Apollo Client useMutation for ComponentDetailOverlay
+// Mock Apollo Client useMutation for ComponentDetailOverlay and useQuery for useUserTier
 const mockSnoozeComponent = vi.fn().mockResolvedValue({ data: { snoozeComponent: { id: 'test', serviceDueAtHours: 100 } } });
 vi.mock('@apollo/client', () => ({
   gql: (strings: TemplateStringsArray) => strings.join(''),
   useMutation: () => [mockSnoozeComponent, { loading: false }],
+  useQuery: () => ({
+    data: { me: { subscriptionTier: 'PRO', isFoundingRider: false, role: 'USER' } },
+    loading: false,
+    error: undefined,
+    refetch: vi.fn(),
+  }),
 }));
 
 // Factory for creating test components
