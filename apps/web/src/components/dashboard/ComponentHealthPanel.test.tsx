@@ -1,5 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router';
 import userEvent from '@testing-library/user-event';
 import { ComponentHealthPanel } from './ComponentHealthPanel';
 import type { ComponentPrediction } from '../../types/prediction';
@@ -15,15 +16,16 @@ vi.mock('../../hooks/useHoursDisplay', () => ({
 
 // Mock Apollo Client useMutation for ComponentDetailOverlay and useQuery for useUserTier
 const mockSnoozeComponent = vi.fn().mockResolvedValue({ data: { snoozeComponent: { id: 'test', serviceDueAtHours: 100 } } });
+const mockUseQuery = vi.fn().mockReturnValue({
+  data: { me: { subscriptionTier: 'PRO', isFoundingRider: false, role: 'USER' } },
+  loading: false,
+  error: undefined,
+  refetch: vi.fn(),
+});
 vi.mock('@apollo/client', () => ({
   gql: (strings: TemplateStringsArray) => strings.join(''),
   useMutation: () => [mockSnoozeComponent, { loading: false }],
-  useQuery: () => ({
-    data: { me: { subscriptionTier: 'PRO', isFoundingRider: false, role: 'USER' } },
-    loading: false,
-    error: undefined,
-    refetch: vi.fn(),
-  }),
+  useQuery: (...args: unknown[]) => mockUseQuery(...args),
 }));
 
 // Factory for creating test components
@@ -709,6 +711,83 @@ describe('ComponentHealthPanel', () => {
       await user.click(screen.getByText('Log Service'));
 
       expect(onLogService).toHaveBeenCalledWith('test-component-id');
+    });
+  });
+
+  describe('free-light tier gating', () => {
+    beforeEach(() => {
+      mockUseQuery.mockReturnValue({
+        data: { me: { subscriptionTier: 'FREE_LIGHT', isFoundingRider: false, role: 'USER' } },
+        loading: false,
+        error: undefined,
+        refetch: vi.fn(),
+      });
+    });
+
+    afterEach(() => {
+      mockUseQuery.mockReturnValue({
+        data: { me: { subscriptionTier: 'PRO', isFoundingRider: false, role: 'USER' } },
+        loading: false,
+        error: undefined,
+        refetch: vi.fn(),
+      });
+    });
+
+    it('renders restricted components as disabled buttons', () => {
+      const components = [
+        createComponent({ componentId: 'fork', componentType: 'FORK' }),
+        createComponent({ componentId: 'chain', componentType: 'CHAIN' }),
+      ];
+
+      render(<MemoryRouter><ComponentHealthPanel components={components} /></MemoryRouter>);
+
+      const buttons = screen.getAllByRole('button', { includeHiddenElements: false });
+      // FORK is allowed in FREE_LIGHT, CHAIN is restricted
+      const forkButton = buttons.find(b => b.textContent?.includes('Fork'));
+      const chainButton = buttons.find(b => b.textContent?.includes('Chain'));
+
+      expect(forkButton).not.toBeDisabled();
+      expect(chainButton).toBeDisabled();
+    });
+
+    it('sorts unlocked components before restricted ones', () => {
+      const components = [
+        createComponent({ componentId: 'chain', componentType: 'CHAIN', status: 'OVERDUE', hoursRemaining: 0 }),
+        createComponent({ componentId: 'fork', componentType: 'FORK', status: 'ALL_GOOD', hoursRemaining: 100 }),
+      ];
+
+      render(<MemoryRouter><ComponentHealthPanel components={components} /></MemoryRouter>);
+
+      const buttons = screen.getAllByRole('button', { includeHiddenElements: false });
+      // FORK (unlocked) should come before CHAIN (restricted) even though CHAIN is more urgent
+      expect(buttons[0]).toHaveTextContent('Fork');
+      expect(buttons[1]).toHaveTextContent('Chain');
+    });
+
+    it('does not open modal when clicking restricted component', async () => {
+      const user = userEvent.setup();
+      const components = [
+        createComponent({ componentId: 'chain', componentType: 'CHAIN' }),
+      ];
+
+      render(<MemoryRouter><ComponentHealthPanel components={components} /></MemoryRouter>);
+
+      // The component row button is disabled, clicking should not open a modal
+      const rowButton = screen.getByText('Chain').closest('button')!;
+      await user.click(rowButton);
+
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+
+    it('restricted rows have opacity-40 class', () => {
+      const components = [
+        createComponent({ componentId: 'chain', componentType: 'CHAIN' }),
+      ];
+
+      render(<MemoryRouter><ComponentHealthPanel components={components} /></MemoryRouter>);
+
+      const rowButton = screen.getByText('Chain').closest('button')!;
+      expect(rowButton).toHaveClass('opacity-40');
     });
   });
 });

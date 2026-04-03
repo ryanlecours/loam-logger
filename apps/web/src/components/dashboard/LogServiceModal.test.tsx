@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { LogServiceModal } from './LogServiceModal';
 import type { BikeWithPredictions } from '../../hooks/usePriorityBike';
@@ -6,15 +6,16 @@ import type { BikePredictionSummary, ComponentPrediction } from '../../types/pre
 
 // Mock useMutation and useQuery from Apollo Client
 const mockLogService = vi.fn();
+const mockUseQuery = vi.fn().mockReturnValue({
+  data: { me: { subscriptionTier: 'PRO', isFoundingRider: false, role: 'USER' } },
+  loading: false,
+  error: undefined,
+  refetch: vi.fn(),
+});
 vi.mock('@apollo/client', () => ({
   useMutation: vi.fn(() => [mockLogService, { loading: false }]),
   gql: vi.fn((strings: TemplateStringsArray) => strings[0]),
-  useQuery: () => ({
-    data: { me: { subscriptionTier: 'PRO', isFoundingRider: false, role: 'USER' } },
-    loading: false,
-    error: undefined,
-    refetch: vi.fn(),
-  }),
+  useQuery: (...args: unknown[]) => mockUseQuery(...args),
 }));
 
 // Mock the Modal to avoid createPortal issues
@@ -355,6 +356,68 @@ describe('LogServiceModal', () => {
       fireEvent.click(screen.getByText('Cancel'));
 
       expect(onClose).toHaveBeenCalled();
+    });
+  });
+
+  describe('free-light tier gating', () => {
+    beforeEach(() => {
+      mockUseQuery.mockReturnValue({
+        data: { me: { subscriptionTier: 'FREE_LIGHT', isFoundingRider: false, role: 'USER' } },
+        loading: false,
+        error: undefined,
+        refetch: vi.fn(),
+      });
+    });
+
+    afterEach(() => {
+      mockUseQuery.mockReturnValue({
+        data: { me: { subscriptionTier: 'PRO', isFoundingRider: false, role: 'USER' } },
+        loading: false,
+        error: undefined,
+        refetch: vi.fn(),
+      });
+    });
+
+    it('renders restricted components as non-interactive', () => {
+      const bike = createBike([
+        createComponent('comp-fork', { componentType: 'FORK' }),
+        createComponent('comp-chain', { componentType: 'CHAIN' }),
+      ]);
+
+      render(<LogServiceModal {...defaultProps} bike={bike} />);
+
+      const checkboxes = screen.getAllByRole('checkbox');
+      // FORK is allowed, CHAIN is restricted
+      const forkCheckbox = checkboxes.find(cb => cb.textContent?.includes('Fork'));
+      const chainCheckbox = checkboxes.find(cb => cb.textContent?.includes('Chain'));
+
+      expect(forkCheckbox).toHaveAttribute('tabindex', '0');
+      expect(chainCheckbox).toHaveAttribute('tabindex', '-1');
+    });
+
+    it('does not toggle restricted component on click', () => {
+      const bike = createBike([
+        createComponent('comp-chain', { componentType: 'CHAIN' }),
+      ]);
+
+      render(<LogServiceModal {...defaultProps} bike={bike} />);
+
+      const checkbox = screen.getByRole('checkbox');
+      fireEvent.click(checkbox);
+
+      // Should remain unchecked since CHAIN is restricted in FREE_LIGHT
+      expect(checkbox).toHaveAttribute('aria-checked', 'false');
+    });
+
+    it('restricted components have opacity-40 class', () => {
+      const bike = createBike([
+        createComponent('comp-chain', { componentType: 'CHAIN' }),
+      ]);
+
+      render(<LogServiceModal {...defaultProps} bike={bike} />);
+
+      const checkbox = screen.getByRole('checkbox');
+      expect(checkbox).toHaveClass('opacity-40');
     });
   });
 });
