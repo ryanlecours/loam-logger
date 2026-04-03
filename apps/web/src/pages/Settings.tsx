@@ -4,7 +4,7 @@ import { useSearchParams, useNavigate } from "react-router-dom";
 import { Mountain, Activity } from "lucide-react";
 import { StravaIcon, GoogleIcon } from '../components/icons/BrandIcons';
 import { formatDistanceToNow } from "date-fns";
-import ThemeToggle from "../components/ThemeToggleButton";
+
 import DeleteAccountModal from "../components/DeleteAccountModal";
 import SetPasswordModal from "../components/SetPasswordModal";
 import ConnectGarminLink from "../components/ConnectGarminLink";
@@ -23,6 +23,7 @@ import { usePreferences } from "../hooks/usePreferences";
 import { useUserTier } from "../hooks/useUserTier";
 import { getAuthHeaders } from "@/lib/csrf";
 import { UPDATE_USER_PREFERENCES_MUTATION } from "../graphql/userPreferences";
+import { ProBadge } from "../components/ui/ProBadge";
 import ServicePreferencesEditor from "../components/ServicePreferencesEditor";
 import BillingSection from "../components/BillingSection";
 import ReferralCard from "../components/ReferralCard";
@@ -415,7 +416,6 @@ export default function Settings() {
               Manage account links, display preferences, and appearance so ride data flows exactly the way you want.
             </p>
           </div>
-          <ThemeToggle />
         </div>
       </section>
 
@@ -720,51 +720,60 @@ export default function Settings() {
           <h2 className="title-section">Display & Predictions</h2>
         </div>
 
-          {/* Prediction Mode - Pro users only */}
-          {isPro && (
-            <div className="space-y-3">
-              <h3 className="text-sm font-medium text-white">Prediction Algorithm</h3>
-              <div className="grid gap-3 md:grid-cols-2">
-                <label
-                  className={`cursor-pointer rounded-2xl border px-4 py-3 transition ${
-                    predictionMode === "simple"
-                      ? "border-primary/60 bg-surface-accent/60"
-                      : "border-app/60 bg-surface-2"
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="prediction-mode"
-                    value="simple"
-                    className="mr-2"
-                    checked={predictionMode === "simple"}
-                    onChange={() => setPredictionMode("simple")}
-                  />
-                  Simple (hours-based)
-                </label>
-                <label
-                  className={`cursor-pointer rounded-2xl border px-4 py-3 transition ${
-                    predictionMode === "predictive"
-                      ? "border-primary/60 bg-surface-accent/60"
-                      : "border-app/60 bg-surface-2"
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="prediction-mode"
-                    value="predictive"
-                    className="mr-2"
-                    checked={predictionMode === "predictive"}
-                    onChange={() => setPredictionMode("predictive")}
-                  />
-                  Predictive (ride-adjusted)
-                </label>
-              </div>
-              <p className="text-xs text-muted">
-                Predictive mode adjusts service intervals based on your riding intensity and terrain. Still in beta.
-              </p>
+          {/* Prediction Mode */}
+          <div className="space-y-3">
+            <h3 className="text-sm font-medium text-white">Prediction Algorithm</h3>
+            <div className="grid gap-3 md:grid-cols-2">
+              <label
+                className={`cursor-pointer rounded-2xl border px-4 py-3 transition ${
+                  predictionMode === "simple"
+                    ? "border-primary/60 bg-surface-accent/60"
+                    : "border-app/60 bg-surface-2"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="prediction-mode"
+                  value="simple"
+                  className="mr-2"
+                  checked={predictionMode === "simple"}
+                  onChange={() => setPredictionMode("simple")}
+                />
+                Simple (hours-based)
+              </label>
+              <label
+                className={`rounded-2xl border px-4 py-3 transition ${
+                  isPro
+                    ? `cursor-pointer ${
+                        predictionMode === "predictive"
+                          ? "border-primary/60 bg-surface-accent/60"
+                          : "border-app/60 bg-surface-2"
+                      }`
+                    : "cursor-not-allowed border-app/40 bg-surface-2 opacity-60"
+                }`}
+                onClick={!isPro ? (e) => { e.preventDefault(); navigate('/pricing'); } : undefined}
+              >
+                <input
+                  type="radio"
+                  name="prediction-mode"
+                  value="predictive"
+                  className="mr-2"
+                  checked={predictionMode === "predictive"}
+                  onChange={() => isPro && setPredictionMode("predictive")}
+                  disabled={!isPro}
+                />
+                Predictive (ride-adjusted)
+                {!isPro && (
+                  <ProBadge className="ml-2 inline-flex items-center gap-1" />
+                )}
+              </label>
             </div>
-          )}
+            <p className="text-xs text-muted">
+              {isPro
+                ? 'Predictive mode adjusts service intervals based on your riding intensity and terrain. Still in beta.'
+                : 'Upgrade to Pro to unlock predictive wear analysis based on your riding intensity and terrain.'}
+            </p>
+          </div>
 
           {/* Hours Display */}
           <div className="space-y-3">

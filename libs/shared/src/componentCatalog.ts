@@ -44,6 +44,8 @@ export interface ComponentDefinition {
   requiresPairing?: boolean;
   /** 99Spokes API key for this component (null if not available from 99Spokes) */
   spokesKey?: string | null;
+  /** User-facing hint shown when this component is due for service */
+  serviceHint?: string;
 }
 
 /**
@@ -55,6 +57,8 @@ export type PairedComponentType = (typeof PAIRED_COMPONENT_TYPES)[number];
 
 // ============================================================================
 // Component Catalog - THE SINGLE SOURCE OF TRUTH
+// IMPORTANT: Service intervals here must stay in sync with
+// apps/api/src/services/prediction/config.ts (BASE_INTERVALS_HOURS).
 // ============================================================================
 
 export const COMPONENT_CATALOG: ComponentDefinition[] = [
@@ -123,9 +127,10 @@ export const COMPONENT_CATALOG: ComponentDefinition[] = [
     type: 'DRIVETRAIN',
     displayName: 'Drivetrain Clean/Lube',
     category: 'DRIVETRAIN',
-    serviceIntervalHours: 6,
+    serviceIntervalHours: 15,
     defaultBaselineWearPercent: 0, // resets after each service
     isApplicable: () => true,
+    serviceHint: 'Clean and lube your chain, and inspect the drivetrain for wear.',
   },
 
   // ---------------------------------------------------------------------------

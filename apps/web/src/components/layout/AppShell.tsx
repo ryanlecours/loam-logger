@@ -8,6 +8,7 @@ import { useUserTier } from '../../hooks/useUserTier';
 import { getAuthHeaders, clearCsrfToken } from '@/lib/csrf';
 import Footer from './Footer';
 import DowngradeSelectionModal from '../DowngradeSelectionModal';
+import { ProBadge } from '../ui/ProBadge';
 
 const BASE_NAV_LINKS = [
   { label: 'Dashboard', path: '/dashboard' },
@@ -68,9 +69,9 @@ export default function AppShell({ children }: { children: ReactNode }) {
               </NavLink>
               {user && (
                 isPro ? (
-                  <span className="rounded-full bg-primary/20 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-primary">
+                  <ProBadge className="uppercase tracking-wider">
                     {isFoundingRider ? 'Founding Rider' : 'Pro'}
-                  </span>
+                  </ProBadge>
                 ) : (
                   <NavLink
                     to="/pricing"

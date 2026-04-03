@@ -117,6 +117,9 @@ export const DEFAULT_WEIGHTS: ComponentWearWeights = {
 
 // =============================================================================
 // Base Service Intervals (in hours)
+// IMPORTANT: These must stay in sync with libs/shared/src/componentCatalog.ts
+// (COMPONENT_CATALOG.serviceIntervalHours). The catalog is the user-facing
+// source; these are the prediction-engine copy used at runtime.
 // =============================================================================
 
 /** Service intervals that vary by location (front/rear) */
@@ -137,7 +140,7 @@ export const BASE_INTERVALS_HOURS: Partial<
   TIRES: { front: 120, rear: 100 },
   FORK: 50, // lowers service
   SHOCK: 50, // air can service
-  DRIVETRAIN: 6, // clean/lube interval
+  DRIVETRAIN: 15, // clean/lube interval
   DROPPER: 150,
   PIVOT_BEARINGS: 250,
   HEADSET: 250,

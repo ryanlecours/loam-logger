@@ -140,6 +140,32 @@ describe('createCheckoutSession', () => {
       })
     );
   });
+
+  it('should use web URLs by default', async () => {
+    mockCheckoutSessionsCreate.mockResolvedValue({ id: 'cs_test', url: 'https://checkout.stripe.com/test' });
+
+    await createCheckoutSession('user-1', 'monthly');
+
+    expect(mockCheckoutSessionsCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        success_url: expect.stringContaining('/settings?billing=success'),
+        cancel_url: expect.stringContaining('/settings?billing=cancelled'),
+      })
+    );
+  });
+
+  it('should use deep link URLs for mobile platform', async () => {
+    mockCheckoutSessionsCreate.mockResolvedValue({ id: 'cs_test', url: 'https://checkout.stripe.com/test' });
+
+    await createCheckoutSession('user-1', 'monthly', 'mobile');
+
+    expect(mockCheckoutSessionsCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        success_url: 'loamlogger://billing-success',
+        cancel_url: 'loamlogger://billing-cancelled',
+      })
+    );
+  });
 });
 
 describe('createBillingPortalSession', () => {
@@ -150,14 +176,29 @@ describe('createBillingPortalSession', () => {
     });
   });
 
-  it('should create a billing portal session', async () => {
+  it('should create a billing portal session with web return URL by default', async () => {
     mockBillingPortalSessionsCreate.mockResolvedValue({ url: 'https://billing.stripe.com/portal' });
 
     const result = await createBillingPortalSession('user-1');
 
     expect(result).toEqual({ url: 'https://billing.stripe.com/portal' });
     expect(mockBillingPortalSessionsCreate).toHaveBeenCalledWith(
-      expect.objectContaining({ customer: 'cus_123' })
+      expect.objectContaining({
+        customer: 'cus_123',
+        return_url: expect.stringContaining('/settings'),
+      })
+    );
+  });
+
+  it('should use deep link return URL for mobile platform', async () => {
+    mockBillingPortalSessionsCreate.mockResolvedValue({ url: 'https://billing.stripe.com/portal' });
+
+    await createBillingPortalSession('user-1', 'mobile');
+
+    expect(mockBillingPortalSessionsCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        return_url: 'loamlogger://billing-return',
+      })
     );
   });
 });

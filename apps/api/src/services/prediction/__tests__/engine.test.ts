@@ -36,7 +36,7 @@ jest.mock('../../../lib/redis', () => ({
 import { prisma } from '../../../lib/prisma';
 import { generateBikePredictions } from '../engine';
 import { clearMemoryCache } from '../cache';
-import type { RideMetrics } from '../types';
+import { RideMetrics } from '../types';
 
 const mockIsRedisReady = redisModule.isRedisReady as jest.MockedFunction<typeof redisModule.isRedisReady>;
 
@@ -683,6 +683,239 @@ describe('prediction engine', () => {
       // Priority 4: System default (40h for front brake pad)
       expect(brakePadPrediction).toBeDefined();
       expect(brakePadPrediction!.serviceIntervalHours).toBe(40);
+    });
+  });
+
+  describe('relative status thresholds (getStatus)', () => {
+    // getStatus(hoursRemaining, baseInterval) uses:
+    //   dueNow  = min(DUE_NOW_THRESHOLD_HOURS, baseInterval / 3)
+    //   dueSoon = min(DUE_SOON_THRESHOLD_HOURS, baseInterval * 2 / 3)
+    // With DUE_NOW_THRESHOLD_HOURS=2, DUE_SOON_THRESHOLD_HOURS=10.
+
+    // Helper: create a single-component bike where hoursRemaining = serviceDueAtHours - totalRideHours.
+    // Splits rides into <=24h chunks to avoid sanitizeRideMetrics capping.
+    // Max rideHours: 360 (15 days × 24h) before date arithmetic produces invalid dates.
+    function setupSingleComponentTest(serviceDueAtHours: number, rideHours: number) {
+      const component = {
+        id: 'comp-test',
+        type: 'CHAIN',
+        location: 'NONE',
+        brand: 'Test',
+        model: 'Test',
+        hoursUsed: 0,
+        serviceDueAtHours,
+      };
+
+      const rides: RideMetrics[] = [];
+      let remaining = rideHours;
+      let day = 15;
+      while (remaining > 0) {
+        const chunk = Math.min(remaining, 24);
+        rides.push({
+          durationSeconds: chunk * 3600,
+          distanceMeters: 16093,
+          elevationGainMeters: 457,
+          startTime: new Date(`2024-01-${String(day).padStart(2, '0')}`),
+        });
+        remaining -= chunk;
+        day--;
+      }
+
+      (prisma.bike.findUnique as jest.Mock).mockResolvedValue({
+        ...mockBike,
+        components: [component],
+      });
+      (prisma.ride.findMany as jest.Mock).mockResolvedValue(rides);
+      (prisma.serviceLog.findMany as jest.Mock).mockResolvedValue([]);
+      (prisma.ride.findFirst as jest.Mock).mockResolvedValue(
+        rides.length > 0 ? { startTime: new Date('2023-12-01') } : null
+      );
+    }
+
+    describe('short interval (baseInterval=6, smaller than DUE_SOON_THRESHOLD)', () => {
+      // dueNow  = min(2, 6/3)  = min(2, 2) = 2
+      // dueSoon = min(10, 6*2/3) = min(10, 4) = 4
+
+      it('should return ALL_GOOD when hoursRemaining > dueSoon (4h)', async () => {
+        // 6h interval, 1h ridden => 5h remaining > 4h dueSoon
+        setupSingleComponentTest(6, 1);
+
+        const result = await generateBikePredictions({
+          userId: 'user-123',
+          bikeId: 'bike-123',
+          userRole: 'FREE',
+        });
+
+        expect(result.components[0].status).toBe('ALL_GOOD');
+        expect(result.components[0].hoursRemaining).toBe(5);
+      });
+
+      it('should return DUE_SOON at exactly 2/3 boundary (4h remaining)', async () => {
+        // 6h interval, 2h ridden => 4h remaining = dueSoon boundary
+        setupSingleComponentTest(6, 2);
+
+        const result = await generateBikePredictions({
+          userId: 'user-123',
+          bikeId: 'bike-123',
+          userRole: 'FREE',
+        });
+
+        expect(result.components[0].status).toBe('DUE_SOON');
+        expect(result.components[0].hoursRemaining).toBe(4);
+      });
+
+      it('should return DUE_SOON between 1/3 and 2/3 boundaries', async () => {
+        // 6h interval, 3h ridden => 3h remaining (between 2h dueNow and 4h dueSoon)
+        setupSingleComponentTest(6, 3);
+
+        const result = await generateBikePredictions({
+          userId: 'user-123',
+          bikeId: 'bike-123',
+          userRole: 'FREE',
+        });
+
+        expect(result.components[0].status).toBe('DUE_SOON');
+        expect(result.components[0].hoursRemaining).toBe(3);
+      });
+
+      it('should return DUE_NOW at exactly 1/3 boundary (2h remaining)', async () => {
+        // 6h interval, 4h ridden => 2h remaining = dueNow boundary
+        setupSingleComponentTest(6, 4);
+
+        const result = await generateBikePredictions({
+          userId: 'user-123',
+          bikeId: 'bike-123',
+          userRole: 'FREE',
+        });
+
+        expect(result.components[0].status).toBe('DUE_NOW');
+        expect(result.components[0].hoursRemaining).toBe(2);
+      });
+
+      it('should return OVERDUE when hoursRemaining <= 0', async () => {
+        // 6h interval, 7h ridden => clamped to 0 => OVERDUE
+        setupSingleComponentTest(6, 7);
+
+        const result = await generateBikePredictions({
+          userId: 'user-123',
+          bikeId: 'bike-123',
+          userRole: 'FREE',
+        });
+
+        expect(result.components[0].status).toBe('OVERDUE');
+        expect(result.components[0].hoursRemaining).toBe(0);
+      });
+    });
+
+    describe('very short interval (baseInterval=3, shorter than DUE_NOW_THRESHOLD)', () => {
+      // dueNow  = min(2, 3/3)   = min(2, 1) = 1
+      // dueSoon = min(10, 3*2/3) = min(10, 2) = 2
+      // Without relative thresholds, this component would jump straight from ALL_GOOD to DUE_NOW.
+
+      it('should return ALL_GOOD above dueSoon (>2h remaining)', async () => {
+        // 3h interval, 0.5h ridden => 2.5h remaining > 2h dueSoon
+        setupSingleComponentTest(3, 0.5);
+
+        const result = await generateBikePredictions({
+          userId: 'user-123',
+          bikeId: 'bike-123',
+          userRole: 'FREE',
+        });
+
+        expect(result.components[0].status).toBe('ALL_GOOD');
+        expect(result.components[0].hoursRemaining).toBe(2.5);
+      });
+
+      it('should return DUE_SOON at 2/3 boundary (2h remaining)', async () => {
+        // 3h interval, 1h ridden => 2h remaining = dueSoon
+        setupSingleComponentTest(3, 1);
+
+        const result = await generateBikePredictions({
+          userId: 'user-123',
+          bikeId: 'bike-123',
+          userRole: 'FREE',
+        });
+
+        expect(result.components[0].status).toBe('DUE_SOON');
+        expect(result.components[0].hoursRemaining).toBe(2);
+      });
+
+      it('should return DUE_NOW at 1/3 boundary (1h remaining)', async () => {
+        // 3h interval, 2h ridden => 1h remaining = dueNow
+        setupSingleComponentTest(3, 2);
+
+        const result = await generateBikePredictions({
+          userId: 'user-123',
+          bikeId: 'bike-123',
+          userRole: 'FREE',
+        });
+
+        expect(result.components[0].status).toBe('DUE_NOW');
+        expect(result.components[0].hoursRemaining).toBe(1);
+      });
+
+      it('should return DUE_SOON not DUE_NOW at 1.5h (between relative boundaries)', async () => {
+        // 3h interval, 1.5h ridden => 1.5h remaining
+        // With absolute thresholds (dueNow=2), this would be DUE_NOW.
+        // With relative thresholds (dueNow=1), this is DUE_SOON.
+        setupSingleComponentTest(3, 1.5);
+
+        const result = await generateBikePredictions({
+          userId: 'user-123',
+          bikeId: 'bike-123',
+          userRole: 'FREE',
+        });
+
+        expect(result.components[0].status).toBe('DUE_SOON');
+        expect(result.components[0].hoursRemaining).toBe(1.5);
+      });
+    });
+
+    describe('large interval (baseInterval=200, absolute thresholds apply)', () => {
+      // dueNow  = min(2, 200/3)   = min(2, 66.7) = 2
+      // dueSoon = min(10, 200*2/3) = min(10, 133.3) = 10
+      // Absolute thresholds are smaller, so they apply.
+
+      it('should return DUE_NOW at 2h remaining (absolute threshold)', async () => {
+        // 200h interval, 198h ridden => 2h remaining = absolute dueNow
+        setupSingleComponentTest(200, 198);
+
+        const result = await generateBikePredictions({
+          userId: 'user-123',
+          bikeId: 'bike-123',
+          userRole: 'FREE',
+        });
+
+        expect(result.components[0].status).toBe('DUE_NOW');
+        expect(result.components[0].hoursRemaining).toBe(2);
+      });
+
+      it('should return DUE_SOON at 10h remaining (absolute threshold)', async () => {
+        // 200h interval, 190h ridden => 10h remaining = absolute dueSoon
+        setupSingleComponentTest(200, 190);
+
+        const result = await generateBikePredictions({
+          userId: 'user-123',
+          bikeId: 'bike-123',
+          userRole: 'FREE',
+        });
+
+        expect(result.components[0].status).toBe('DUE_SOON');
+        expect(result.components[0].hoursRemaining).toBe(10);
+      });
+
+      it('should return ALL_GOOD at 11h remaining', async () => {
+        setupSingleComponentTest(200, 189);
+
+        const result = await generateBikePredictions({
+          userId: 'user-123',
+          bikeId: 'bike-123',
+          userRole: 'FREE',
+        });
+
+        expect(result.components[0].status).toBe('ALL_GOOD');
+        expect(result.components[0].hoursRemaining).toBe(11);
+      });
     });
   });
 });

@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router';
 import { motion } from 'motion/react';
 import { gql, useMutation } from '@apollo/client';
-import { Check, X } from 'lucide-react';
+import { Check, X, Share2 } from 'lucide-react';
 import { useState } from 'react';
 import { useUserTier } from '../hooks/useUserTier';
 
@@ -34,11 +34,13 @@ export default function Pricing() {
 
   const tiers = [
     {
-      name: 'Free',
+      name: 'Free - Light',
       price: '$0',
       period: '',
       description: 'Light Bike Analysis',
       current: tier === 'FREE_LIGHT',
+      currentLabel: 'Current plan',
+      accent: 'neutral',
       features: [
         { text: '1 bike', included: true },
         { text: 'Fork & shock tracking', included: true },
@@ -49,29 +51,34 @@ export default function Pricing() {
       ],
     },
     {
-      name: 'Free',
+      name: 'Free - Full',
       price: '$0',
       period: '',
       description: 'Full Bike Analysis — refer a friend to unlock',
       current: tier === 'FREE_FULL',
+      showReferral: tier === 'FREE_LIGHT',
+      accent: 'green',
       features: [
         { text: '1 bike', included: true },
         { text: 'All 23+ component types unlocked', included: true },
         { text: 'Service interval tracking', included: true },
         { text: 'Wear predictions', included: true },
-        { text: 'Unlimited bikes (Pro only)', included: false },
+        { text: 'Track multiple bikes (Pro only)', included: false },
+        { text: 'Advanced analytics (Pro only)', included: false },
       ],
     },
     {
       name: 'Pro',
-      price: billingPeriod === 'MONTHLY' ? '$5' : '$48',
-      period: billingPeriod === 'MONTHLY' ? '/mo' : '/yr',
+      price: billingPeriod === 'MONTHLY' ? '$9.99' : '$7.50',
+      period: '/mo',
+      billedNote: billingPeriod === 'ANNUAL' ? 'Billed at $90 for 12 months' : undefined,
       description: 'Full access, unlimited bikes',
       current: isPro && !isFoundingRider,
       highlight: !isPro,
       features: [
         { text: 'Unlimited bikes', included: true },
-        { text: 'All component types', included: true },
+        { text: 'All 23+ component types unlocked', included: true },
+        { text: 'Service interval tracking', included: true },
         { text: 'Advanced predictions', included: true },
         { text: 'Priority support', included: true },
       ],
@@ -79,7 +86,10 @@ export default function Pricing() {
   ];
 
   return (
-    <div className="min-h-screen bg-app py-16 px-6">
+    <div
+      className="min-h-screen py-16 px-6 bg-fixed"
+      style={{ backgroundImage: 'linear-gradient(to bottom, rgba(10,10,10,0.85), rgba(10,10,10,0.8)), url(https://loamlogger.app/dakotaWhis.jpg)', backgroundSize: 'cover', backgroundPosition: 'center' }}
+    >
       <div className="container max-w-4xl mx-auto">
         <motion.div
           initial={{ opacity: 0, y: 30 }}
@@ -88,7 +98,7 @@ export default function Pricing() {
         >
           <button
             onClick={() => navigate(-1)}
-            className="btn-secondary mb-6 inline-flex items-center gap-2"
+            className="btn-secondary btn-md mb-6 inline-flex items-center gap-2"
           >
             &larr; Back
           </button>
@@ -105,8 +115,8 @@ export default function Pricing() {
           ) : (
             <>
               <div className="text-center mb-8">
-                <h1 className="section-title mb-2">Choose your plan</h1>
-                <p className="text-muted">Track your bike maintenance with confidence</p>
+                <h1 className="text-3xl font-bold text-white mb-3">Choose your plan</h1>
+                <p className="text-lg text-muted">Track your bike maintenance with confidence</p>
               </div>
 
               {/* Billing toggle */}
@@ -126,7 +136,7 @@ export default function Pricing() {
                   }`}
                 >
                   Annual
-                  <span className="ml-1.5 text-xs text-green-400">Save 20%</span>
+                  <span className="ml-1.5 text-xs text-green-400">Save 25%</span>
                 </button>
               </div>
 
@@ -134,12 +144,13 @@ export default function Pricing() {
                 {tiers.map((t) => (
                   <div
                     key={t.name}
-                    className={`rounded-2xl border p-6 ${
+                    className={`flex flex-col rounded-2xl border p-6 ${
                       t.highlight
-                        ? 'border-primary/60 bg-primary/5'
-                        : t.current
-                          ? 'border-green-500/40 bg-green-500/5'
-                          : 'border-app/60 bg-surface-2'
+                        ? 'border-amber-500/60 bg-amber-500/5'
+                        : {
+                            green: 'border-green-500/40 bg-green-500/5',
+                            neutral: 'border-white/20 bg-transparent',
+                          }[t.accent as string] ?? 'border-app/60 bg-surface-2'
                     }`}
                   >
                     <h3 className="text-lg font-semibold text-white">{t.name}</h3>
@@ -147,9 +158,12 @@ export default function Pricing() {
                     <div className="mt-4 mb-6">
                       <span className="text-3xl font-bold text-white">{t.price}</span>
                       <span className="text-sm text-muted">{t.period}</span>
+                      {t.billedNote && (
+                        <p className="text-xs text-muted mt-1">{t.billedNote}</p>
+                      )}
                     </div>
 
-                    <ul className="space-y-2 mb-6">
+                    <ul className="flex-1 space-y-2 mb-6">
                       {t.features.map((f) => (
                         <li key={f.text} className="flex items-center gap-2 text-sm">
                           {f.included ? (
@@ -165,16 +179,24 @@ export default function Pricing() {
                     </ul>
 
                     {t.current ? (
-                      <div className="rounded-lg border border-green-500/40 py-2 text-center text-sm text-green-400">
-                        Current plan
+                      <div className="rounded-lg border border-green-500/40 py-2 text-center text-sm text-green-400" >
+                        {t.currentLabel || 'Current plan'}
                       </div>
                     ) : t.highlight ? (
                       <button
                         onClick={handleUpgrade}
                         disabled={loading}
-                        className="w-full rounded-lg bg-primary py-2 text-sm font-medium text-white transition hover:bg-primary/80 disabled:opacity-50"
+                        className="w-full rounded-lg bg-amber-500 py-2 text-sm font-medium text-white transition hover:bg-amber-500/80 disabled:opacity-50"
                       >
                         {loading ? 'Loading...' : 'Upgrade to Pro'}
+                      </button>
+                    ) : t.showReferral ? (
+                      <button
+                        onClick={() => navigate('/settings#referral')}
+                        className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-green-400 py-2 text-sm font-medium text-white transition bg-green-500/10 hover:bg-green-500/20"
+                      >
+                        <Share2 className="h-4 w-4" />
+                        Refer a friend
                       </button>
                     ) : null}
                   </div>

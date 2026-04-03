@@ -1,6 +1,4 @@
-import { useState, type ReactNode } from 'react';
-import { Mountain, Pencil } from 'lucide-react';
-import { StravaIcon } from './icons/BrandIcons';
+import { useState } from 'react';
 import { useMutation } from '@apollo/client';
 import { UPDATE_RIDE } from '../graphql/updateRide';
 import { RIDES } from '../graphql/rides';
@@ -9,15 +7,8 @@ import DeleteRideButton from './DeleteRideButton';
 import EditRideModal from './EditRideModal';
 import { fmtDateTime, fmtDuration, fmtDistance, fmtElevation } from '../lib/format';
 import { usePreferences } from '../hooks/usePreferences';
-import { Badge, Select } from './ui';
-
-const WhoopLogo = () => (
-  <img
-    src="/logos/WHOOP_Circle_Teal.png"
-    alt="WHOOP"
-    style={{ width: '1em', height: '1em', objectFit: 'contain' }}
-  />
-);
+import { Select } from './ui';
+import { getRideSource, SOURCE_LABELS } from '../utils/rideSource';
 
 type Ride = {
   id: string;
@@ -48,25 +39,6 @@ type RideCardProps = {
   bikes?: Bike[];
 };
 
-type RideSource = 'garmin' | 'strava' | 'whoop' | 'manual';
-
-const getRideSource = (ride: Ride): RideSource => {
-  if (ride.garminActivityId) return 'garmin';
-  if (ride.stravaActivityId) return 'strava';
-  if (ride.whoopWorkoutId) return 'whoop';
-  return 'manual';
-};
-
-const SOURCE_BADGES: Record<
-  RideSource,
-  { label: string; color: string; icon: ReactNode }
-> = {
-  garmin: { label: 'Garmin', color: '#11A9ED', icon: <Mountain /> },
-  strava: { label: 'Strava', color: '#FC4C02', icon: <StravaIcon /> },
-  whoop: { label: 'WHOOP', color: '#00FF87', icon: <WhoopLogo /> },
-  manual: { label: 'Manual', color: '#9CA3AF', icon: <Pencil /> },
-};
-
 const formatTitle = (ride: Ride) => {
   const trimmedLocation = ride.location?.trim();
   const trimmedTrail = ride.trailSystem?.trim();
@@ -93,7 +65,6 @@ export default function RideCard({ ride, bikes = [] }: RideCardProps) {
   const title = formatTitle(ride);
   const needsBikeAssignment = !ride.bikeId && bikes.length > 1;
   const source = getRideSource(ride);
-  const sourceBadge = SOURCE_BADGES[source];
 
   const handleAssignBike = async () => {
     if (!selectedBikeId) return;
@@ -128,24 +99,9 @@ export default function RideCard({ ride, bikes = [] }: RideCardProps) {
         <div className="ride-content">
           <div className="ride-header">
             <h3 className="ride-title" title={title}>{title}</h3>
-            {sourceBadge && (
-              <Badge
-                variant="custom"
-                color={sourceBadge.color}
-                icon={sourceBadge.icon}
-                title={
-                  source === 'garmin'
-                    ? 'From Garmin Connect'
-                    : source === 'strava'
-                      ? 'From Strava'
-                      : source === 'whoop'
-                        ? 'From WHOOP'
-                        : 'Manual entry'
-                }
-              >
-                {sourceBadge.label}
-              </Badge>
-            )}
+            <span className={`source-badge source-badge-${source}`}>
+              {SOURCE_LABELS[source]}
+            </span>
           </div>
 
           <div className="ride-metadata">
