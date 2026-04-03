@@ -376,9 +376,7 @@ export function ComponentHealthPanel({ components, className = '', onLogService 
                 </span>
                 <span className="component-health-make-model">{makeModel}</span>
               </div>
-              {isRestricted ? (
-                    <Lock className="h-3 w-3 shrink-0 text-muted" />
-              ) : (
+              {!isRestricted && (
                 <div className="component-health-metrics">
                   {hoursDisplay === 'total' ? (
                     <>

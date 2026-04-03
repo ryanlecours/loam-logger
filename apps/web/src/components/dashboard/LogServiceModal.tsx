@@ -10,7 +10,6 @@ import { useUserTier } from '../../hooks/useUserTier';
 import { isFreeLightComponent } from '@loam/shared';
 import type { BikeWithPredictions } from '../../hooks/usePriorityBike';
 import { StatusDot } from './StatusDot';
-import { ProBadge } from '../ui/ProBadge';
 
 interface LogServiceModalProps {
   isOpen: boolean;
@@ -180,11 +179,7 @@ export function LogServiceModal({
                   <span className="log-service-item-label">
                     {formatComponentLabel(component)}
                   </span>
-                  {restricted ? (
-                    <ProBadge>
-                      <Lock className="h-3.5 w-3.5 text-amber-400" />
-                    </ProBadge>
-                  ) : (
+                  {!restricted && (
                     <span className="log-service-item-hours">
                       {component.hoursRemaining.toFixed(1)} hrs
                     </span>

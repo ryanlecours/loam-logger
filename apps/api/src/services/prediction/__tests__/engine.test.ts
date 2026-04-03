@@ -694,6 +694,7 @@ describe('prediction engine', () => {
 
     // Helper: create a single-component bike where hoursRemaining = serviceDueAtHours - totalRideHours.
     // Splits rides into <=24h chunks to avoid sanitizeRideMetrics capping.
+    // Max rideHours: 360 (15 days × 24h) before date arithmetic produces invalid dates.
     function setupSingleComponentTest(serviceDueAtHours: number, rideHours: number) {
       const component = {
         id: 'comp-test',
