@@ -255,6 +255,8 @@ export async function fireRideNotifications(params: {
         distanceUnit: true,
         role: true,
         predictionMode: true,
+        subscriptionTier: true,
+        isFoundingRider: true,
       },
     });
 
@@ -293,6 +295,8 @@ export async function fireRideNotifications(params: {
         bikeId,
         userRole: user.role,
         predictionMode,
+        subscriptionTier: user.subscriptionTier,
+        isFoundingRider: user.isFoundingRider,
       });
       if (summary?.components) {
         const serviceTicketId = await checkAndNotifyServiceDue({

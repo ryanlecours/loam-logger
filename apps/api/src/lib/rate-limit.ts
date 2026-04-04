@@ -70,6 +70,10 @@ export const MUTATION_RATE_LIMITS = {
   changePassword: { windowSeconds: 3600, maxRequests: 5 },
   /** oauthStart: max 5 requests per 10 minutes per user (creates DB row each call) */
   oauthStart: { windowSeconds: 600, maxRequests: 5 },
+  /** updateUserPreferences: max 20 requests per minute per user */
+  updateUserPreferences: { windowSeconds: 60, maxRequests: 20 },
+  /** updateBikeNotificationPreference: max 20 requests per minute per user */
+  updateBikeNotificationPreference: { windowSeconds: 60, maxRequests: 20 },
 } as const;
 
 /**

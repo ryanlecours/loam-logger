@@ -11,7 +11,7 @@ export function useUserTier() {
 
   const tier = (viewer?.subscriptionTier ?? 'FREE_LIGHT') as SubscriptionTier;
   const isPro = tier === 'PRO' || isAdmin || isFoundingRider;
-  const isFree = tier === 'FREE_LIGHT' || tier === 'FREE_FULL';
+  const isFree = (tier === 'FREE_LIGHT' || tier === 'FREE_FULL') && !isAdmin && !isFoundingRider;
   const isFreeLight = tier === 'FREE_LIGHT' && !isFoundingRider;
   const isFreeFull = tier === 'FREE_FULL' && !isFoundingRider;
 
