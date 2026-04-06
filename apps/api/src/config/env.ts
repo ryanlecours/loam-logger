@@ -40,5 +40,5 @@ export const config = {
   /**
    * iOS bundle identifier for Apple Sign-In token audience validation.
    */
-  appleBundleId: process.env.APPLE_BUNDLE_ID || undefined,
+  appleBundleId: process.env.APPLE_BUNDLE_ID,
 } as const;

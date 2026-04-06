@@ -81,7 +81,9 @@ async function ensureUserFromAppleInner(
 
   if (existing) return existing;
 
-  // Phase 2: New user — fall back to client email if token had none
+  // Phase 2: New user — fall back to untrusted client email if token had none.
+  // When clientEmail is used, claims.email_verified will be false (the token had
+  // no email to verify), so the user is created with emailVerified: null.
   const emailForCreation = trustedEmail ?? clientEmail;
   if (!emailForCreation) {
     throw new Error('Apple login did not provide an email');
