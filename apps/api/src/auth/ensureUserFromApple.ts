@@ -9,9 +9,7 @@ export async function ensureUserFromApple(
   claims: AppleClaims,
   ref?: string,
 ) {
-  const sub = claims.sub;
-  if (!sub) throw new Error('Apple sub is required');
-
+  const { sub } = claims;
   const email = normalizeEmail(claims.email);
 
   // Phase 1: Check for existing users

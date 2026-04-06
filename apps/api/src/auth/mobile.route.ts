@@ -3,7 +3,7 @@ import { OAuth2Client } from 'google-auth-library';
 import { ensureUserFromGoogle } from './ensureUserFromGoogle';
 import { ensureUserFromApple } from './ensureUserFromApple';
 import { verifyAppleIdentityToken } from './appleTokenVerifier';
-import { normalizeEmail } from './utils';
+import { normalizeEmail, getClientIp } from './utils';
 import { validateEmailFormat } from './email.utils';
 import { verifyPassword, validatePassword, hashPassword } from './password.utils';
 import { generateAccessToken, generateRefreshToken, verifyToken } from './token';
@@ -46,7 +46,7 @@ const googleClient = new OAuth2Client({
 router.post('/mobile/signup', express.json(), async (req, res) => {
   try {
     // Rate limit by IP to prevent automated spam signups
-    const clientIp = req.ip || (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || 'unknown';
+    const clientIp = getClientIp(req);
     const rateLimit = await checkAuthRateLimit('signup', clientIp);
     if (!rateLimit.allowed) {
       return sendTooManyRequests(res, 'Too many signup attempts. Please try again later.', rateLimit.retryAfter);
@@ -142,7 +142,7 @@ router.post('/mobile/signup', express.json(), async (req, res) => {
  */
 router.post('/mobile/google', express.json(), async (req, res) => {
   try {
-    const clientIp = req.ip || (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || 'unknown';
+    const clientIp = getClientIp(req);
     const rateLimit = await checkAuthRateLimit('oauth-login', clientIp);
     if (!rateLimit.allowed) {
       return sendTooManyRequests(res, 'Too many login attempts. Please try again later.', rateLimit.retryAfter);
@@ -197,11 +197,11 @@ router.post('/mobile/google', express.json(), async (req, res) => {
 
     // Handle closed beta - new users
     if (errorMessage === AUTH_ERROR.CLOSED_BETA) {
-      return res.status(403).send('CLOSED_BETA');
+      return res.status(403).send(AUTH_ERROR.CLOSED_BETA);
     }
     // Handle waitlist users trying to login
     if (errorMessage === AUTH_ERROR.ALREADY_ON_WAITLIST) {
-      return res.status(403).send('ALREADY_ON_WAITLIST');
+      return res.status(403).send(AUTH_ERROR.ALREADY_ON_WAITLIST);
     }
 
     res.status(500).send('Authentication failed');
@@ -218,7 +218,7 @@ router.post('/mobile/google', express.json(), async (req, res) => {
  */
 router.post('/mobile/apple', express.json(), async (req, res) => {
   try {
-    const clientIp = req.ip || (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || 'unknown';
+    const clientIp = getClientIp(req);
     const rateLimit = await checkAuthRateLimit('oauth-login', clientIp);
     if (!rateLimit.allowed) {
       return sendTooManyRequests(res, 'Too many login attempts. Please try again later.', rateLimit.retryAfter);
@@ -244,6 +244,7 @@ router.post('/mobile/apple', express.json(), async (req, res) => {
 
     // Build claims — token email takes precedence over client-provided email
     const email = applePayload.email ?? clientEmail;
+    // Apple sends email_verified as the string "true"/"false", not a boolean
     const emailVerified = applePayload.email_verified === 'true';
     const name = [fullName?.givenName, fullName?.familyName].filter(Boolean).join(' ') || null;
 
@@ -280,11 +281,11 @@ router.post('/mobile/apple', express.json(), async (req, res) => {
 
     // Handle closed beta - new users
     if (errorMessage === AUTH_ERROR.CLOSED_BETA) {
-      return res.status(403).send('CLOSED_BETA');
+      return res.status(403).send(AUTH_ERROR.CLOSED_BETA);
     }
     // Handle waitlist users trying to login
     if (errorMessage === AUTH_ERROR.ALREADY_ON_WAITLIST) {
-      return res.status(403).send('ALREADY_ON_WAITLIST');
+      return res.status(403).send(AUTH_ERROR.ALREADY_ON_WAITLIST);
     }
 
     res.status(500).send('Authentication failed');
@@ -335,7 +336,7 @@ router.post('/mobile/login', express.json(), async (req, res) => {
 
     // Block WAITLIST users - they cannot login until activated
     if (user.role === 'WAITLIST') {
-      return res.status(403).send('ALREADY_ON_WAITLIST');
+      return res.status(403).send(AUTH_ERROR.ALREADY_ON_WAITLIST);
     }
 
     // Update last auth timestamp for recent-auth gating (non-blocking)

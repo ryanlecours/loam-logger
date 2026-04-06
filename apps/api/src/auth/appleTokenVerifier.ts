@@ -23,6 +23,12 @@ export type AppleTokenPayload = {
  *
  * Uses Apple's public JWKS endpoint for RS256 signature verification.
  * Validates issuer, audience, and expiration automatically via jose.
+ *
+ * Nonce validation is intentionally omitted. The mobile auth flow is stateless
+ * (no server-side session exists before login), so there is no pre-stored nonce
+ * to compare against. Token replay is mitigated by the short exp window and
+ * the audience/issuer checks enforced by jose. This matches our Google handler
+ * which also operates without nonces.
  */
 export async function verifyAppleIdentityToken(
   identityToken: string,
