@@ -234,9 +234,12 @@ router.post('/mobile/apple', express.json(), async (req, res) => {
     if (!identityToken) {
       return res.status(400).send('Missing identityToken');
     }
+    if (ref && ref.length > 20) {
+      return res.status(400).send('Invalid ref');
+    }
     if (!APPLE_BUNDLE_ID) {
       logger.error('[MobileAuth] APPLE_BUNDLE_ID not configured');
-      return res.status(500).send('Apple Sign-In not configured');
+      return res.status(500).send('Authentication failed');
     }
 
     // Verify Apple identity token signature and claims
@@ -246,7 +249,9 @@ router.post('/mobile/apple', express.json(), async (req, res) => {
     const email = applePayload.email ?? clientEmail;
     // Apple sends email_verified as the string "true"/"false", not a boolean
     const emailVerified = applePayload.email_verified === 'true';
-    const name = [fullName?.givenName, fullName?.familyName].filter(Boolean).join(' ') || null;
+    const givenName = fullName?.givenName?.slice(0, 50) || null;
+    const familyName = fullName?.familyName?.slice(0, 50) || null;
+    const name = [givenName, familyName].filter(Boolean).join(' ') || null;
 
     // Create or update user
     const user = await ensureUserFromApple({

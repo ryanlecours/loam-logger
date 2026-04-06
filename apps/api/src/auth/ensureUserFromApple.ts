@@ -8,6 +8,7 @@ import { resolveReferrer, createUserWithReferralCode } from '../services/referra
 export async function ensureUserFromApple(
   claims: AppleClaims,
   ref?: string,
+  _retries = 0,
 ) {
   const { sub } = claims;
   const email = normalizeEmail(claims.email);
@@ -25,7 +26,7 @@ export async function ensureUserFromApple(
       }
       // Optionally fill in name if user doesn't have one yet (Apple only sends name on first auth)
       if (!existingAccount.user.name && claims.name) {
-        await tx.user.update({
+        return tx.user.update({
           where: { id: existingAccount.user.id },
           data: { name: claims.name },
         });
@@ -120,7 +121,8 @@ export async function ensureUserFromApple(
       (err.meta?.target as string[] | undefined)?.includes('email');
 
     if (isEmailCollision) {
-      return ensureUserFromApple(claims, ref);
+      if (_retries >= 2) throw err;
+      return ensureUserFromApple(claims, ref, _retries + 1);
     }
     throw err;
   }

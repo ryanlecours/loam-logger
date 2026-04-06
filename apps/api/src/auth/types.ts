@@ -22,6 +22,7 @@ export type GoogleTokens = {
 export type AppleClaims = {
   sub: string
   email?: string
+  /** Normalized to boolean by the route handler (Apple sends string "true"/"false" in the identity token) */
   email_verified?: boolean
   name?: string | null
 }

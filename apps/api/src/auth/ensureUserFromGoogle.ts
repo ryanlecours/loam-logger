@@ -9,6 +9,7 @@ export async function ensureUserFromGoogle(
   claims: GoogleClaims,
   tokens?: GoogleTokens,
   ref?: string,
+  _retries = 0,
 ) {
   const sub = claims.sub;
   if (!sub) throw new Error('Google sub is required');
@@ -139,7 +140,8 @@ export async function ensureUserFromGoogle(
       (err.meta?.target as string[] | undefined)?.includes('email');
 
     if (isEmailCollision) {
-      return ensureUserFromGoogle(claims, tokens, ref);
+      if (_retries >= 2) throw err;
+      return ensureUserFromGoogle(claims, tokens, ref, _retries + 1);
     }
     throw err;
   }

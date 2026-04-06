@@ -170,19 +170,21 @@ describe('ensureUserFromApple', () => {
     });
   });
 
-  it('should update name for existing linked user with no name', async () => {
+  it('should update name for existing linked user with no name and return updated user', async () => {
     const existingUser = { id: 'nameless', email: 'test@test.com', role: 'FREE', name: null };
+    const updatedUser = { ...existingUser, name: 'Test User' };
     const tx = createTx();
     mockTransaction.mockImplementation(async (fn: (t: unknown) => unknown) => fn(tx));
     mockUserAccountFindUnique.mockResolvedValue({ user: existingUser });
-    mockUserUpdate.mockResolvedValue({ ...existingUser, name: 'Test User' });
+    mockUserUpdate.mockResolvedValue(updatedUser);
 
-    await ensureUserFromApple(baseClaims);
+    const result = await ensureUserFromApple(baseClaims);
 
     expect(mockUserUpdate).toHaveBeenCalledWith({
       where: { id: 'nameless' },
       data: { name: 'Test User' },
     });
+    expect(result.name).toBe('Test User');
   });
 
   it('should throw when no email and no existing account', async () => {
