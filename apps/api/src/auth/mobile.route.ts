@@ -231,6 +231,9 @@ router.post('/mobile/apple', express.json(), async (req, res) => {
     if (!identityToken) {
       return res.status(400).send('Missing identityToken');
     }
+    if (clientEmail && !validateEmailFormat(clientEmail)) {
+      return res.status(400).send('Invalid email');
+    }
     if (ref && ref.length > 20) {
       return res.status(400).send('Invalid ref');
     }
