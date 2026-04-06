@@ -1,7 +1,7 @@
 import express, { type Request } from 'express';
 import { prisma } from '../lib/prisma';
 import { validateEmailFormat } from '../auth/email.utils';
-import { normalizeEmail } from '../auth/utils';
+import { normalizeEmail, getClientIp } from '../auth/utils';
 import { sendBadRequest, sendError, sendSuccess, sendInternalError, sendTooManyRequests } from '../lib/api-response';
 import { checkAuthRateLimit } from '../lib/rate-limit';
 import { logger } from '../lib/logger';
@@ -29,7 +29,7 @@ router.get('/config', (_req, res) => {
 router.post('/waitlist', express.json(), async (req: Request, res) => {
   try {
     // Rate limit by IP to prevent automated spam signups
-    const clientIp = req.ip || (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || 'unknown';
+    const clientIp = getClientIp(req);
     const rateLimit = await checkAuthRateLimit('signup', clientIp);
     if (!rateLimit.allowed) {
       return sendTooManyRequests(res, 'Too many signup attempts. Please try again later.', rateLimit.retryAfter);

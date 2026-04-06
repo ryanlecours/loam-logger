@@ -61,6 +61,7 @@ jest.mock('../auth/email.utils', () => ({
 
 jest.mock('../auth/utils', () => ({
   normalizeEmail: jest.fn((e: string) => e.toLowerCase()),
+  getClientIp: jest.fn(() => '127.0.0.1'),
 }));
 
 // Must mock config BEFORE importing the router

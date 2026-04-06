@@ -1,7 +1,9 @@
 import express from 'express';
 import { OAuth2Client } from 'google-auth-library';
 import { ensureUserFromGoogle } from './ensureUserFromGoogle';
-import { normalizeEmail } from './utils';
+import { ensureUserFromApple } from './ensureUserFromApple';
+import { verifyAppleIdentityToken } from './appleTokenVerifier';
+import { normalizeEmail, getClientIp } from './utils';
 import { validateEmailFormat } from './email.utils';
 import { verifyPassword, validatePassword, hashPassword } from './password.utils';
 import { generateAccessToken, generateRefreshToken, verifyToken } from './token';
@@ -12,6 +14,7 @@ import { sendPasswordAddedNotification, sendPasswordChangedNotification } from '
 import { logger } from '../lib/logger';
 import { sendUnauthorized, sendBadRequest, sendForbidden, sendConflict, sendInternalError, sendTooManyRequests } from '../lib/api-response';
 import { config } from '../config/env';
+import { AUTH_ERROR } from './types';
 import { createNewUser, verifyEmailAvailable } from '../services/signup.service';
 
 const router = express.Router();
@@ -23,6 +26,10 @@ if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
 }
 if (!GOOGLE_IOS_CLIENT_ID) {
   logger.warn('[MobileAuth] GOOGLE_IOS_CLIENT_ID not set — iOS token audience not configured');
+}
+
+if (!config.appleBundleId) {
+  logger.warn('[MobileAuth] APPLE_BUNDLE_ID not set — Apple Sign-In will not work');
 }
 
 const googleClient = new OAuth2Client({
@@ -38,7 +45,7 @@ const googleClient = new OAuth2Client({
 router.post('/mobile/signup', express.json(), async (req, res) => {
   try {
     // Rate limit by IP to prevent automated spam signups
-    const clientIp = req.ip || (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || 'unknown';
+    const clientIp = getClientIp(req);
     const rateLimit = await checkAuthRateLimit('signup', clientIp);
     if (!rateLimit.allowed) {
       return sendTooManyRequests(res, 'Too many signup attempts. Please try again later.', rateLimit.retryAfter);
@@ -134,6 +141,12 @@ router.post('/mobile/signup', express.json(), async (req, res) => {
  */
 router.post('/mobile/google', express.json(), async (req, res) => {
   try {
+    const clientIp = getClientIp(req);
+    const rateLimit = await checkAuthRateLimit('oauth-login', clientIp);
+    if (!rateLimit.allowed) {
+      return sendTooManyRequests(res, 'Too many login attempts. Please try again later.', rateLimit.retryAfter);
+    }
+
     const { idToken } = req.body as { idToken?: string };
     if (!idToken) {
       return res.status(400).send('Missing idToken');
@@ -179,17 +192,15 @@ router.post('/mobile/google', express.json(), async (req, res) => {
     });
   } catch (e) {
     const errorMessage = e instanceof Error ? e.message : String(e);
+
+    if (errorMessage === AUTH_ERROR.CLOSED_BETA) {
+      return res.status(403).send(AUTH_ERROR.CLOSED_BETA);
+    }
+    if (errorMessage === AUTH_ERROR.ALREADY_ON_WAITLIST) {
+      return res.status(403).send(AUTH_ERROR.ALREADY_ON_WAITLIST);
+    }
+
     logger.error({ err: e }, '[MobileAuth] Google login failed');
-
-    // Handle closed beta - new users
-    if (errorMessage === 'CLOSED_BETA') {
-      return res.status(403).send('CLOSED_BETA');
-    }
-    // Handle waitlist users trying to login
-    if (errorMessage === 'ALREADY_ON_WAITLIST') {
-      return res.status(403).send('ALREADY_ON_WAITLIST');
-    }
-
     res.status(500).send('Authentication failed');
   }
 });
@@ -199,25 +210,86 @@ router.post('/mobile/google', express.json(), async (req, res) => {
  * Authenticate mobile user with Apple ID token
  * Returns access token and refresh token for mobile app
  *
- * Note: This is a placeholder for Apple Sign-In.
- * Full implementation requires Apple Sign-In credentials and verification logic.
+ * Apple only sends the user's email and name on the first authorization.
+ * The mobile client must capture and forward these alongside the identity token.
  */
 router.post('/mobile/apple', express.json(), async (req, res) => {
   try {
-    const { identityToken } = req.body as { identityToken?: string };
+    const clientIp = getClientIp(req);
+    const rateLimit = await checkAuthRateLimit('oauth-login', clientIp);
+    if (!rateLimit.allowed) {
+      return sendTooManyRequests(res, 'Too many login attempts. Please try again later.', rateLimit.retryAfter);
+    }
+
+    const { identityToken, fullName, email: clientEmail, ref } = req.body as {
+      identityToken?: string;
+      fullName?: { givenName?: string | null; familyName?: string | null } | null;
+      email?: string;
+      ref?: string;
+    };
+
     if (!identityToken) {
       return res.status(400).send('Missing identityToken');
     }
+    if (clientEmail && !validateEmailFormat(clientEmail)) {
+      return res.status(400).send('Invalid email');
+    }
+    if (ref && ref.length > 20) {
+      return res.status(400).send('Invalid ref');
+    }
+    if (!config.appleBundleId) {
+      logger.error('[MobileAuth] APPLE_BUNDLE_ID not configured');
+      return res.status(500).send('Authentication failed');
+    }
 
-    // TODO: Implement Apple ID token verification
-    // This requires:
-    // 1. Fetch Apple's public keys from https://appleid.apple.com/auth/keys
-    // 2. Verify JWT signature using Apple's public key
-    // 3. Validate claims (iss, aud, exp)
-    // 4. Extract user information (sub, email, email_verified)
+    // Verify Apple identity token signature and claims
+    const applePayload = await verifyAppleIdentityToken(identityToken, config.appleBundleId);
 
-    res.status(501).send('Apple Sign-In not yet implemented');
+    // Apple sends email_verified as the string "true"/"false", not a boolean
+    const emailVerified = applePayload.email_verified === 'true';
+    const givenName = fullName?.givenName?.slice(0, 50) || null;
+    const familyName = fullName?.familyName?.slice(0, 50) || null;
+    const name = [givenName, familyName].filter(Boolean).join(' ') || null;
+
+    // Token email is trusted (verified by Apple) — used for account lookup/linking.
+    // Client email is untrusted — only used for new user creation as a fallback.
+    const user = await ensureUserFromApple({
+      sub: applePayload.sub,
+      email: applePayload.email,
+      clientEmail: clientEmail || undefined,
+      email_verified: emailVerified,
+      name,
+    }, ref);
+
+    // Update last auth timestamp for recent-auth gating (non-blocking)
+    updateLastAuthAt(user.id).catch((err) =>
+      logger.error({ err, userId: user.id }, '[MobileAuth] Failed to update lastAuthAt')
+    );
+
+    // Generate tokens for mobile
+    const accessToken = generateAccessToken({ uid: user.id, email: user.email });
+    const refreshToken = generateRefreshToken({ uid: user.id, email: user.email });
+
+    res.status(200).json({
+      accessToken,
+      refreshToken,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        avatarUrl: user.avatarUrl,
+      },
+    });
   } catch (e) {
+    const errorMessage = e instanceof Error ? e.message : String(e);
+
+    if (errorMessage === AUTH_ERROR.CLOSED_BETA) {
+      return res.status(403).send(AUTH_ERROR.CLOSED_BETA);
+    }
+    if (errorMessage === AUTH_ERROR.ALREADY_ON_WAITLIST) {
+      return res.status(403).send(AUTH_ERROR.ALREADY_ON_WAITLIST);
+    }
+
     logger.error({ err: e }, '[MobileAuth] Apple login failed');
     res.status(500).send('Authentication failed');
   }
@@ -267,7 +339,7 @@ router.post('/mobile/login', express.json(), async (req, res) => {
 
     // Block WAITLIST users - they cannot login until activated
     if (user.role === 'WAITLIST') {
-      return res.status(403).send('ALREADY_ON_WAITLIST');
+      return res.status(403).send(AUTH_ERROR.ALREADY_ON_WAITLIST);
     }
 
     // Update last auth timestamp for recent-auth gating (non-blocking)

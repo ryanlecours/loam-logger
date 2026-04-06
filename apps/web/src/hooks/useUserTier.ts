@@ -11,9 +11,9 @@ export function useUserTier() {
 
   const tier = (viewer?.subscriptionTier ?? 'FREE_LIGHT') as SubscriptionTier;
   const isPro = tier === 'PRO' || isAdmin || isFoundingRider;
-  const isFree = tier === 'FREE_LIGHT' || tier === 'FREE_FULL';
-  const isFreeLight = tier === 'FREE_LIGHT' && !isFoundingRider;
-  const isFreeFull = tier === 'FREE_FULL' && !isFoundingRider;
+  const isFree = (tier === 'FREE_LIGHT' || tier === 'FREE_FULL') && !isAdmin && !isFoundingRider;
+  const isFreeLight = tier === 'FREE_LIGHT' && !isFoundingRider && !isAdmin;
+  const isFreeFull = tier === 'FREE_FULL' && !isFoundingRider && !isAdmin;
 
   const tierLimits = viewer?.tierLimits ?? null;
   const canAddBike = tierLimits?.canAddBike ?? true;

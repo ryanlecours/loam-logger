@@ -1,5 +1,5 @@
 import express from 'express';
-import { normalizeEmail } from './utils';
+import { normalizeEmail, getClientIp } from './utils';
 import { hashPassword, verifyPassword, validatePassword } from './password.utils';
 import { validateEmailFormat } from './email.utils';
 import { setSessionCookie } from './session';
@@ -23,7 +23,7 @@ const router = express.Router();
 router.post('/signup', express.json(), async (req, res) => {
   try {
     // Rate limit by IP to prevent automated spam signups
-    const clientIp = req.ip || (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || 'unknown';
+    const clientIp = getClientIp(req);
     const rateLimit = await checkAuthRateLimit('signup', clientIp);
     if (!rateLimit.allowed) {
       return sendTooManyRequests(res, 'Too many signup attempts. Please try again later.', rateLimit.retryAfter);

@@ -136,6 +136,18 @@ STRAVA_WEBHOOK_VERIFY_TOKEN="your-webhook-verify-token"
 # WHOOP API
 WHOOP_CLIENT_ID="your-whoop-client-id"
 WHOOP_CLIENT_SECRET="your-whoop-client-secret"
+
+# Google OAuth (web + mobile)
+GOOGLE_CLIENT_ID="your-google-client-id.apps.googleusercontent.com"
+GOOGLE_CLIENT_SECRET="your-google-client-secret"
+GOOGLE_IOS_CLIENT_ID="your-google-ios-client-id.apps.googleusercontent.com"
+
+# Apple Sign-In (mobile)
+APPLE_BUNDLE_ID="com.example.yourapp"
+
+# Auth
+JWT_SECRET="your-jwt-secret"
+SESSION_SECRET="your-session-secret"
 ```
 
 #### Frontend (`apps/web/.env`)

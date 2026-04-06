@@ -1,14 +1,23 @@
 import { Prisma } from '@prisma/client';
 import { normalizeEmail, computeExpiry } from './utils';
-import type { GoogleClaims, GoogleTokens } from './types';
+import { AUTH_ERROR, type GoogleClaims, type GoogleTokens } from './types';
 import { prisma } from '../lib/prisma';
 import { config } from '../config/env';
 import { resolveReferrer, createUserWithReferralCode } from '../services/referral.service';
 
-export async function ensureUserFromGoogle(
+export function ensureUserFromGoogle(
   claims: GoogleClaims,
   tokens?: GoogleTokens,
   ref?: string,
+) {
+  return ensureUserFromGoogleInner(claims, tokens, ref, 0);
+}
+
+async function ensureUserFromGoogleInner(
+  claims: GoogleClaims,
+  tokens: GoogleTokens | undefined,
+  ref: string | undefined,
+  retries: number,
 ) {
   const sub = claims.sub;
   if (!sub) throw new Error('Google sub is required');
@@ -26,7 +35,7 @@ export async function ensureUserFromGoogle(
     if (existingAccount) {
       await refresh(tx, existingAccount.user.id, claims, tokens);
       if (existingAccount.user.role === 'WAITLIST') {
-        throw new Error('ALREADY_ON_WAITLIST');
+        throw new Error(AUTH_ERROR.ALREADY_ON_WAITLIST);
       }
       return existingAccount.user;
     }
@@ -34,7 +43,7 @@ export async function ensureUserFromGoogle(
     const user = await tx.user.findUnique({ where: { email } });
 
     if (user?.role === 'WAITLIST') {
-      throw new Error('ALREADY_ON_WAITLIST');
+      throw new Error(AUTH_ERROR.ALREADY_ON_WAITLIST);
     }
 
     if (user) {
@@ -85,7 +94,7 @@ export async function ensureUserFromGoogle(
 
   // Phase 2: New user — create with referral code retry handling
   if (!config.bypassWaitlistFlow) {
-    throw new Error('CLOSED_BETA');
+    throw new Error(AUTH_ERROR.CLOSED_BETA);
   }
 
   const referrerId = ref ? await resolveReferrer(ref) : null;
@@ -139,7 +148,8 @@ export async function ensureUserFromGoogle(
       (err.meta?.target as string[] | undefined)?.includes('email');
 
     if (isEmailCollision) {
-      return ensureUserFromGoogle(claims, tokens, ref);
+      if (retries >= 2) throw err;
+      return ensureUserFromGoogleInner(claims, tokens, ref, retries + 1);
     }
     throw err;
   }
