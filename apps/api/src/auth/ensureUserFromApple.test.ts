@@ -46,6 +46,8 @@ function createTx() {
   };
 }
 
+// Uses AppleClaims (boolean email_verified), not AppleTokenPayload (string).
+// The route handler converts the raw token string "true"/"false" to boolean before calling ensureUserFromApple.
 const baseClaims = {
   sub: 'apple-001.abc123',
   email: 'test@test.com',

@@ -3,7 +3,12 @@ import { createRemoteJWKSet, jwtVerify } from 'jose';
 const APPLE_JWKS_URL = new URL('https://appleid.apple.com/auth/keys');
 const APPLE_ISSUER = 'https://appleid.apple.com';
 
-/** Cached JWKS fetcher — handles key rotation and caching automatically */
+/**
+ * Cached JWKS fetcher — handles key rotation and caching automatically.
+ * Apple rotates keys infrequently (weeks/months). cacheMaxAge of 10 minutes
+ * balances freshness with avoiding redundant fetches. cooldownDuration of 30s
+ * prevents rapid re-fetches when an unknown kid is encountered during rotation.
+ */
 const appleJWKS = createRemoteJWKSet(APPLE_JWKS_URL, {
   cooldownDuration: 30_000,
   cacheMaxAge: 600_000,

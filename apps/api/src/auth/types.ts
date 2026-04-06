@@ -21,7 +21,10 @@ export type GoogleTokens = {
 
 export type AppleClaims = {
   sub: string
+  /** Trusted email from the identity token — used for account lookup and linking */
   email?: string
+  /** Untrusted email from the mobile client — only used for new user creation when token has no email */
+  clientEmail?: string
   /** Normalized to boolean by the route handler (Apple sends string "true"/"false" in the identity token) */
   email_verified?: boolean
   name?: string | null

@@ -5,11 +5,19 @@ import { prisma } from '../lib/prisma';
 import { config } from '../config/env';
 import { resolveReferrer, createUserWithReferralCode } from '../services/referral.service';
 
-export async function ensureUserFromGoogle(
+export function ensureUserFromGoogle(
   claims: GoogleClaims,
   tokens?: GoogleTokens,
   ref?: string,
-  _retries = 0,
+) {
+  return ensureUserFromGoogleInner(claims, tokens, ref, 0);
+}
+
+async function ensureUserFromGoogleInner(
+  claims: GoogleClaims,
+  tokens: GoogleTokens | undefined,
+  ref: string | undefined,
+  retries: number,
 ) {
   const sub = claims.sub;
   if (!sub) throw new Error('Google sub is required');
@@ -140,8 +148,8 @@ export async function ensureUserFromGoogle(
       (err.meta?.target as string[] | undefined)?.includes('email');
 
     if (isEmailCollision) {
-      if (_retries >= 2) throw err;
-      return ensureUserFromGoogle(claims, tokens, ref, _retries + 1);
+      if (retries >= 2) throw err;
+      return ensureUserFromGoogleInner(claims, tokens, ref, retries + 1);
     }
     throw err;
   }

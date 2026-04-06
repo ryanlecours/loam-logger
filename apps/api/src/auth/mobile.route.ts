@@ -28,8 +28,7 @@ if (!GOOGLE_IOS_CLIENT_ID) {
   logger.warn('[MobileAuth] GOOGLE_IOS_CLIENT_ID not set — iOS token audience not configured');
 }
 
-const { APPLE_BUNDLE_ID } = process.env;
-if (!APPLE_BUNDLE_ID) {
+if (!config.appleBundleId) {
   logger.warn('[MobileAuth] APPLE_BUNDLE_ID not set — Apple Sign-In will not work');
 }
 
@@ -193,17 +192,15 @@ router.post('/mobile/google', express.json(), async (req, res) => {
     });
   } catch (e) {
     const errorMessage = e instanceof Error ? e.message : String(e);
-    logger.error({ err: e }, '[MobileAuth] Google login failed');
 
-    // Handle closed beta - new users
     if (errorMessage === AUTH_ERROR.CLOSED_BETA) {
       return res.status(403).send(AUTH_ERROR.CLOSED_BETA);
     }
-    // Handle waitlist users trying to login
     if (errorMessage === AUTH_ERROR.ALREADY_ON_WAITLIST) {
       return res.status(403).send(AUTH_ERROR.ALREADY_ON_WAITLIST);
     }
 
+    logger.error({ err: e }, '[MobileAuth] Google login failed');
     res.status(500).send('Authentication failed');
   }
 });
@@ -237,26 +234,26 @@ router.post('/mobile/apple', express.json(), async (req, res) => {
     if (ref && ref.length > 20) {
       return res.status(400).send('Invalid ref');
     }
-    if (!APPLE_BUNDLE_ID) {
+    if (!config.appleBundleId) {
       logger.error('[MobileAuth] APPLE_BUNDLE_ID not configured');
       return res.status(500).send('Authentication failed');
     }
 
     // Verify Apple identity token signature and claims
-    const applePayload = await verifyAppleIdentityToken(identityToken, APPLE_BUNDLE_ID);
+    const applePayload = await verifyAppleIdentityToken(identityToken, config.appleBundleId);
 
-    // Build claims — token email takes precedence over client-provided email
-    const email = applePayload.email ?? clientEmail;
     // Apple sends email_verified as the string "true"/"false", not a boolean
     const emailVerified = applePayload.email_verified === 'true';
     const givenName = fullName?.givenName?.slice(0, 50) || null;
     const familyName = fullName?.familyName?.slice(0, 50) || null;
     const name = [givenName, familyName].filter(Boolean).join(' ') || null;
 
-    // Create or update user
+    // Token email is trusted (verified by Apple) — used for account lookup/linking.
+    // Client email is untrusted — only used for new user creation as a fallback.
     const user = await ensureUserFromApple({
       sub: applePayload.sub,
-      email,
+      email: applePayload.email,
+      clientEmail: clientEmail || undefined,
       email_verified: emailVerified,
       name,
     }, ref);
@@ -282,17 +279,15 @@ router.post('/mobile/apple', express.json(), async (req, res) => {
     });
   } catch (e) {
     const errorMessage = e instanceof Error ? e.message : String(e);
-    logger.error({ err: e }, '[MobileAuth] Apple login failed');
 
-    // Handle closed beta - new users
     if (errorMessage === AUTH_ERROR.CLOSED_BETA) {
       return res.status(403).send(AUTH_ERROR.CLOSED_BETA);
     }
-    // Handle waitlist users trying to login
     if (errorMessage === AUTH_ERROR.ALREADY_ON_WAITLIST) {
       return res.status(403).send(AUTH_ERROR.ALREADY_ON_WAITLIST);
     }
 
+    logger.error({ err: e }, '[MobileAuth] Apple login failed');
     res.status(500).send('Authentication failed');
   }
 });

@@ -56,16 +56,13 @@ jest.mock('../services/password-notification.service', () => ({
 }));
 
 jest.mock('../config/env', () => ({
-  config: { bypassWaitlistFlow: true },
+  config: { bypassWaitlistFlow: true, appleBundleId: 'com.loamlabs.loamlogger' },
 }));
 
 jest.mock('../services/signup.service', () => ({
   createNewUser: jest.fn(),
   verifyEmailAvailable: jest.fn(),
 }));
-
-// Set env before importing router
-process.env.APPLE_BUNDLE_ID = 'com.loamlabs.loamlogger';
 
 import router from './mobile.route';
 
@@ -215,7 +212,7 @@ describe('POST /mobile/apple', () => {
     );
   });
 
-  it('should prefer token email over client-provided email', async () => {
+  it('should pass token email as trusted and client email separately', async () => {
     const mockUser = { id: 'u1', email: 'token@apple.com', name: null, avatarUrl: null };
     mockVerifyAppleIdentityToken.mockResolvedValue({
       sub: 'apple-001',
@@ -234,12 +231,15 @@ describe('POST /mobile/apple', () => {
     await invokeHandler(handler, req, res as unknown as Response);
 
     expect(mockEnsureUserFromApple).toHaveBeenCalledWith(
-      expect.objectContaining({ email: 'token@apple.com' }),
+      expect.objectContaining({
+        email: 'token@apple.com',
+        clientEmail: 'client@user.com',
+      }),
       undefined,
     );
   });
 
-  it('should fall back to client email when token has none', async () => {
+  it('should pass clientEmail when token has no email', async () => {
     const mockUser = { id: 'u1', email: 'client@user.com', name: null, avatarUrl: null };
     mockVerifyAppleIdentityToken.mockResolvedValue({
       sub: 'apple-001',
@@ -257,7 +257,10 @@ describe('POST /mobile/apple', () => {
     await invokeHandler(handler, req, res as unknown as Response);
 
     expect(mockEnsureUserFromApple).toHaveBeenCalledWith(
-      expect.objectContaining({ email: 'client@user.com' }),
+      expect.objectContaining({
+        email: undefined,
+        clientEmail: 'client@user.com',
+      }),
       undefined,
     );
   });

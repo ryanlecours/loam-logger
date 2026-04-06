@@ -5,13 +5,20 @@ import { prisma } from '../lib/prisma';
 import { config } from '../config/env';
 import { resolveReferrer, createUserWithReferralCode } from '../services/referral.service';
 
-export async function ensureUserFromApple(
+export function ensureUserFromApple(claims: AppleClaims, ref?: string) {
+  return ensureUserFromAppleInner(claims, ref, 0);
+}
+
+async function ensureUserFromAppleInner(
   claims: AppleClaims,
-  ref?: string,
-  _retries = 0,
+  ref: string | undefined,
+  retries: number,
 ) {
   const { sub } = claims;
-  const email = normalizeEmail(claims.email);
+  // Trusted email from the identity token — safe for account lookup/linking
+  const trustedEmail = normalizeEmail(claims.email);
+  // Untrusted client-provided email — only used for new user creation
+  const clientEmail = normalizeEmail(claims.clientEmail);
 
   // Phase 1: Check for existing users
   const existing = await prisma.$transaction(async (tx) => {
@@ -34,9 +41,10 @@ export async function ensureUserFromApple(
       return existingAccount.user;
     }
 
-    if (!email) return null;
+    // Only use trusted (token-verified) email for account lookup/linking
+    if (!trustedEmail) return null;
 
-    const user = await tx.user.findUnique({ where: { email } });
+    const user = await tx.user.findUnique({ where: { email: trustedEmail } });
 
     if (user?.role === 'WAITLIST') {
       throw new Error(AUTH_ERROR.ALREADY_ON_WAITLIST);
@@ -73,8 +81,9 @@ export async function ensureUserFromApple(
 
   if (existing) return existing;
 
-  // Phase 2: New user — create with referral code retry handling
-  if (!email) {
+  // Phase 2: New user — fall back to client email if token had none
+  const emailForCreation = trustedEmail ?? clientEmail;
+  if (!emailForCreation) {
     throw new Error('Apple login did not provide an email');
   }
 
@@ -89,7 +98,7 @@ export async function ensureUserFromApple(
       return prisma.$transaction(async (tx) => {
         const newUser = await tx.user.create({
           data: {
-            email,
+            email: emailForCreation,
             name: claims.name ?? null,
             avatarUrl: null,
             emailVerified: claims.email_verified ? new Date() : null,
@@ -121,8 +130,8 @@ export async function ensureUserFromApple(
       (err.meta?.target as string[] | undefined)?.includes('email');
 
     if (isEmailCollision) {
-      if (_retries >= 2) throw err;
-      return ensureUserFromApple(claims, ref, _retries + 1);
+      if (retries >= 2) throw err;
+      return ensureUserFromAppleInner(claims, ref, retries + 1);
     }
     throw err;
   }
