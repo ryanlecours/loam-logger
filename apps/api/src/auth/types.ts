@@ -12,3 +12,10 @@ export type GoogleTokens = {
   refresh_token?: string
   expires_in?: number
 }
+
+export type AppleClaims = {
+  sub: string
+  email?: string
+  email_verified?: boolean
+  name?: string | null
+}

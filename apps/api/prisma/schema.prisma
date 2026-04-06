@@ -274,6 +274,7 @@ model ServiceLog {
 }
 
 enum AuthProvider {
+  apple
   garmin
   google
   strava

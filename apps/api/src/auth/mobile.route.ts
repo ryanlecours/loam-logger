@@ -1,6 +1,8 @@
 import express from 'express';
 import { OAuth2Client } from 'google-auth-library';
 import { ensureUserFromGoogle } from './ensureUserFromGoogle';
+import { ensureUserFromApple } from './ensureUserFromApple';
+import { verifyAppleIdentityToken } from './appleTokenVerifier';
 import { normalizeEmail } from './utils';
 import { validateEmailFormat } from './email.utils';
 import { verifyPassword, validatePassword, hashPassword } from './password.utils';
@@ -23,6 +25,11 @@ if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
 }
 if (!GOOGLE_IOS_CLIENT_ID) {
   logger.warn('[MobileAuth] GOOGLE_IOS_CLIENT_ID not set — iOS token audience not configured');
+}
+
+const { APPLE_BUNDLE_ID } = process.env;
+if (!APPLE_BUNDLE_ID) {
+  logger.warn('[MobileAuth] APPLE_BUNDLE_ID not set — Apple Sign-In will not work');
 }
 
 const googleClient = new OAuth2Client({
@@ -199,26 +206,73 @@ router.post('/mobile/google', express.json(), async (req, res) => {
  * Authenticate mobile user with Apple ID token
  * Returns access token and refresh token for mobile app
  *
- * Note: This is a placeholder for Apple Sign-In.
- * Full implementation requires Apple Sign-In credentials and verification logic.
+ * Apple only sends the user's email and name on the first authorization.
+ * The mobile client must capture and forward these alongside the identity token.
  */
 router.post('/mobile/apple', express.json(), async (req, res) => {
   try {
-    const { identityToken } = req.body as { identityToken?: string };
+    const { identityToken, fullName, email: clientEmail } = req.body as {
+      identityToken?: string;
+      fullName?: { givenName?: string | null; familyName?: string | null } | null;
+      email?: string;
+    };
+
     if (!identityToken) {
       return res.status(400).send('Missing identityToken');
     }
+    if (!APPLE_BUNDLE_ID) {
+      logger.error('[MobileAuth] APPLE_BUNDLE_ID not configured');
+      return res.status(500).send('Apple Sign-In not configured');
+    }
 
-    // TODO: Implement Apple ID token verification
-    // This requires:
-    // 1. Fetch Apple's public keys from https://appleid.apple.com/auth/keys
-    // 2. Verify JWT signature using Apple's public key
-    // 3. Validate claims (iss, aud, exp)
-    // 4. Extract user information (sub, email, email_verified)
+    // Verify Apple identity token signature and claims
+    const applePayload = await verifyAppleIdentityToken(identityToken, APPLE_BUNDLE_ID);
 
-    res.status(501).send('Apple Sign-In not yet implemented');
+    // Build claims — token email takes precedence over client-provided email
+    const email = applePayload.email ?? clientEmail;
+    const emailVerified = applePayload.email_verified === 'true';
+    const name = [fullName?.givenName, fullName?.familyName].filter(Boolean).join(' ') || null;
+
+    // Create or update user
+    const user = await ensureUserFromApple({
+      sub: applePayload.sub,
+      email,
+      email_verified: emailVerified,
+      name,
+    });
+
+    // Update last auth timestamp for recent-auth gating (non-blocking)
+    updateLastAuthAt(user.id).catch((err) =>
+      logger.error({ err, userId: user.id }, '[MobileAuth] Failed to update lastAuthAt')
+    );
+
+    // Generate tokens for mobile
+    const accessToken = generateAccessToken({ uid: user.id, email: user.email });
+    const refreshToken = generateRefreshToken({ uid: user.id, email: user.email });
+
+    res.status(200).json({
+      accessToken,
+      refreshToken,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        avatarUrl: user.avatarUrl,
+      },
+    });
   } catch (e) {
+    const errorMessage = e instanceof Error ? e.message : String(e);
     logger.error({ err: e }, '[MobileAuth] Apple login failed');
+
+    // Handle closed beta - new users
+    if (errorMessage === 'CLOSED_BETA') {
+      return res.status(403).send('CLOSED_BETA');
+    }
+    // Handle waitlist users trying to login
+    if (errorMessage === 'ALREADY_ON_WAITLIST') {
+      return res.status(403).send('ALREADY_ON_WAITLIST');
+    }
+
     res.status(500).send('Authentication failed');
   }
 });
