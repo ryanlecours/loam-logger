@@ -34,9 +34,16 @@ export async function verifyAppleIdentityToken(
     algorithms: ['RS256'],
   });
 
-  if (!payload.sub) {
+  const sub = payload.sub;
+  if (!sub) {
     throw new Error('Apple identity token missing sub claim');
   }
 
-  return payload as unknown as AppleTokenPayload;
+  return {
+    sub,
+    email: typeof payload.email === 'string' ? payload.email : undefined,
+    email_verified: typeof payload.email_verified === 'string' ? payload.email_verified : undefined,
+    is_private_email: typeof payload.is_private_email === 'string' ? payload.is_private_email : undefined,
+    nonce: typeof payload.nonce === 'string' ? payload.nonce : undefined,
+  };
 }

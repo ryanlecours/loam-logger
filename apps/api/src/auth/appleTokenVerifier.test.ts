@@ -14,18 +14,25 @@ describe('verifyAppleIdentityToken', () => {
   });
 
   it('should return payload for valid token', async () => {
-    const payload = {
+    const jwtPayload = {
       sub: 'apple-001.abc123',
       email: 'user@privaterelay.appleid.com',
       email_verified: 'true',
+      is_private_email: 'true',
       iss: 'https://appleid.apple.com',
       aud: BUNDLE_ID,
     };
-    mockJwtVerify.mockResolvedValue({ payload });
+    mockJwtVerify.mockResolvedValue({ payload: jwtPayload });
 
     const result = await verifyAppleIdentityToken('valid-token', BUNDLE_ID);
 
-    expect(result).toEqual(payload);
+    expect(result).toEqual({
+      sub: 'apple-001.abc123',
+      email: 'user@privaterelay.appleid.com',
+      email_verified: 'true',
+      is_private_email: 'true',
+      nonce: undefined,
+    });
     expect(mockJwtVerify).toHaveBeenCalledWith('valid-token', 'mock-jwks', {
       issuer: 'https://appleid.apple.com',
       audience: BUNDLE_ID,

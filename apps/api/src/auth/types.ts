@@ -1,3 +1,9 @@
+/** Auth error codes thrown by ensureUser* helpers and matched in route handlers */
+export const AUTH_ERROR = {
+  CLOSED_BETA: 'CLOSED_BETA',
+  ALREADY_ON_WAITLIST: 'ALREADY_ON_WAITLIST',
+} as const;
+
 export type GoogleClaims = {
   sub: string
   email?: string

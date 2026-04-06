@@ -1,6 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { normalizeEmail, computeExpiry } from './utils';
-import type { GoogleClaims, GoogleTokens } from './types';
+import { AUTH_ERROR, type GoogleClaims, type GoogleTokens } from './types';
 import { prisma } from '../lib/prisma';
 import { config } from '../config/env';
 import { resolveReferrer, createUserWithReferralCode } from '../services/referral.service';
@@ -26,7 +26,7 @@ export async function ensureUserFromGoogle(
     if (existingAccount) {
       await refresh(tx, existingAccount.user.id, claims, tokens);
       if (existingAccount.user.role === 'WAITLIST') {
-        throw new Error('ALREADY_ON_WAITLIST');
+        throw new Error(AUTH_ERROR.ALREADY_ON_WAITLIST);
       }
       return existingAccount.user;
     }
@@ -34,7 +34,7 @@ export async function ensureUserFromGoogle(
     const user = await tx.user.findUnique({ where: { email } });
 
     if (user?.role === 'WAITLIST') {
-      throw new Error('ALREADY_ON_WAITLIST');
+      throw new Error(AUTH_ERROR.ALREADY_ON_WAITLIST);
     }
 
     if (user) {
@@ -85,7 +85,7 @@ export async function ensureUserFromGoogle(
 
   // Phase 2: New user — create with referral code retry handling
   if (!config.bypassWaitlistFlow) {
-    throw new Error('CLOSED_BETA');
+    throw new Error(AUTH_ERROR.CLOSED_BETA);
   }
 
   const referrerId = ref ? await resolveReferrer(ref) : null;

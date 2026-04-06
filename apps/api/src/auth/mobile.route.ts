@@ -14,6 +14,7 @@ import { sendPasswordAddedNotification, sendPasswordChangedNotification } from '
 import { logger } from '../lib/logger';
 import { sendUnauthorized, sendBadRequest, sendForbidden, sendConflict, sendInternalError, sendTooManyRequests } from '../lib/api-response';
 import { config } from '../config/env';
+import { AUTH_ERROR } from './types';
 import { createNewUser, verifyEmailAvailable } from '../services/signup.service';
 
 const router = express.Router();
@@ -141,6 +142,12 @@ router.post('/mobile/signup', express.json(), async (req, res) => {
  */
 router.post('/mobile/google', express.json(), async (req, res) => {
   try {
+    const clientIp = req.ip || (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || 'unknown';
+    const rateLimit = await checkAuthRateLimit('oauth-login', clientIp);
+    if (!rateLimit.allowed) {
+      return sendTooManyRequests(res, 'Too many login attempts. Please try again later.', rateLimit.retryAfter);
+    }
+
     const { idToken } = req.body as { idToken?: string };
     if (!idToken) {
       return res.status(400).send('Missing idToken');
@@ -189,11 +196,11 @@ router.post('/mobile/google', express.json(), async (req, res) => {
     logger.error({ err: e }, '[MobileAuth] Google login failed');
 
     // Handle closed beta - new users
-    if (errorMessage === 'CLOSED_BETA') {
+    if (errorMessage === AUTH_ERROR.CLOSED_BETA) {
       return res.status(403).send('CLOSED_BETA');
     }
     // Handle waitlist users trying to login
-    if (errorMessage === 'ALREADY_ON_WAITLIST') {
+    if (errorMessage === AUTH_ERROR.ALREADY_ON_WAITLIST) {
       return res.status(403).send('ALREADY_ON_WAITLIST');
     }
 
@@ -211,10 +218,17 @@ router.post('/mobile/google', express.json(), async (req, res) => {
  */
 router.post('/mobile/apple', express.json(), async (req, res) => {
   try {
-    const { identityToken, fullName, email: clientEmail } = req.body as {
+    const clientIp = req.ip || (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || 'unknown';
+    const rateLimit = await checkAuthRateLimit('oauth-login', clientIp);
+    if (!rateLimit.allowed) {
+      return sendTooManyRequests(res, 'Too many login attempts. Please try again later.', rateLimit.retryAfter);
+    }
+
+    const { identityToken, fullName, email: clientEmail, ref } = req.body as {
       identityToken?: string;
       fullName?: { givenName?: string | null; familyName?: string | null } | null;
       email?: string;
+      ref?: string;
     };
 
     if (!identityToken) {
@@ -239,7 +253,7 @@ router.post('/mobile/apple', express.json(), async (req, res) => {
       email,
       email_verified: emailVerified,
       name,
-    });
+    }, ref);
 
     // Update last auth timestamp for recent-auth gating (non-blocking)
     updateLastAuthAt(user.id).catch((err) =>
@@ -265,11 +279,11 @@ router.post('/mobile/apple', express.json(), async (req, res) => {
     logger.error({ err: e }, '[MobileAuth] Apple login failed');
 
     // Handle closed beta - new users
-    if (errorMessage === 'CLOSED_BETA') {
+    if (errorMessage === AUTH_ERROR.CLOSED_BETA) {
       return res.status(403).send('CLOSED_BETA');
     }
     // Handle waitlist users trying to login
-    if (errorMessage === 'ALREADY_ON_WAITLIST') {
+    if (errorMessage === AUTH_ERROR.ALREADY_ON_WAITLIST) {
       return res.status(403).send('ALREADY_ON_WAITLIST');
     }
 

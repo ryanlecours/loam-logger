@@ -1,6 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { normalizeEmail } from './utils';
-import type { AppleClaims } from './types';
+import { AUTH_ERROR, type AppleClaims } from './types';
 import { prisma } from '../lib/prisma';
 import { config } from '../config/env';
 import { resolveReferrer, createUserWithReferralCode } from '../services/referral.service';
@@ -22,15 +22,15 @@ export async function ensureUserFromApple(
       include: { user: true },
     });
     if (existingAccount) {
+      if (existingAccount.user.role === 'WAITLIST') {
+        throw new Error(AUTH_ERROR.ALREADY_ON_WAITLIST);
+      }
       // Optionally fill in name if user doesn't have one yet (Apple only sends name on first auth)
       if (!existingAccount.user.name && claims.name) {
         await tx.user.update({
           where: { id: existingAccount.user.id },
           data: { name: claims.name },
         });
-      }
-      if (existingAccount.user.role === 'WAITLIST') {
-        throw new Error('ALREADY_ON_WAITLIST');
       }
       return existingAccount.user;
     }
@@ -40,18 +40,22 @@ export async function ensureUserFromApple(
     const user = await tx.user.findUnique({ where: { email } });
 
     if (user?.role === 'WAITLIST') {
-      throw new Error('ALREADY_ON_WAITLIST');
+      throw new Error(AUTH_ERROR.ALREADY_ON_WAITLIST);
     }
 
     if (user) {
       // User exists and is activated — update profile and link Apple account
-      await tx.user.update({
-        where: { id: user.id },
-        data: {
-          name: user.name || claims.name || undefined,
-          emailVerified: claims.email_verified ? new Date() : undefined,
-        },
-      });
+      const needsNameUpdate = !user.name && claims.name;
+      const needsEmailVerified = claims.email_verified && !user.emailVerified;
+      if (needsNameUpdate || needsEmailVerified) {
+        await tx.user.update({
+          where: { id: user.id },
+          data: {
+            name: needsNameUpdate ? claims.name : undefined,
+            emailVerified: needsEmailVerified ? new Date() : undefined,
+          },
+        });
+      }
 
       try {
         await tx.userAccount.create({
@@ -76,7 +80,7 @@ export async function ensureUserFromApple(
   }
 
   if (!config.bypassWaitlistFlow) {
-    throw new Error('CLOSED_BETA');
+    throw new Error(AUTH_ERROR.CLOSED_BETA);
   }
 
   const referrerId = ref ? await resolveReferrer(ref) : null;
