@@ -43,6 +43,8 @@ import spokesRouter from './routes/spokes';
 import emailUnsubscribeRouter from './routes/email.unsubscribe';
 import { googleRouter, emailRouter, deleteAccountRouter, passwordRouter, attachUser, verifyCsrf } from './auth/index';
 import webhooksStripe from './routes/webhooks.stripe';
+import webhooksRevenueCat from './routes/webhooks.revenuecat';
+import { validateRevenueCatConfig } from './lib/revenuecat';
 import { validateStripeConfig } from './lib/stripe';
 import { FRONTEND_URL } from './config/env';
 import referralRouter from './routes/referral';
@@ -142,6 +144,12 @@ const startServer = async () => {
   if (process.env.STRIPE_SECRET_KEY) {
     validateStripeConfig(); // Fail fast if any Stripe env vars are missing
     app.use('/webhooks/stripe', express.raw({ type: 'application/json' }), webhooksStripe);
+  }
+
+  // RevenueCat webhook uses standard JSON (no raw body signature like Stripe)
+  if (process.env.REVENUECAT_WEBHOOK_AUTH_KEY) {
+    validateRevenueCatConfig();
+    app.use('/webhooks/revenuecat', express.json(), webhooksRevenueCat);
   }
 
   app.use(express.json());

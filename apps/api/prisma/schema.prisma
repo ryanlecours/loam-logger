@@ -37,6 +37,8 @@ model User {
   stripeSubscriptionId String?            @unique
   referralCode        String?             @unique
   needsDowngradeSelection Boolean         @default(false)
+  subscriptionProvider    SubscriptionProvider?
+  revenuecatAppUserId     String?             @unique
   emailUnsubscribed   Boolean             @default(false)
   hoursDisplayPreference String?          @default("remaining")
   predictionMode         String?          @default("simple")
@@ -342,6 +344,12 @@ enum SubscriptionTier {
   FREE_LIGHT
   FREE_FULL
   PRO
+}
+
+enum SubscriptionProvider {
+  STRIPE
+  APPLE
+  GOOGLE
 }
 
 enum ReferralStatus {

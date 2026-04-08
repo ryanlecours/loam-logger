@@ -6,13 +6,14 @@ type TierUser = {
   subscriptionTier: SubscriptionTier;
   isFoundingRider: boolean;
   needsDowngradeSelection?: boolean;
+  role?: string;
 };
 
 /**
- * Returns the effective tier, accounting for founding riders who always get PRO.
+ * Returns the effective tier, accounting for founding riders and admins who always get PRO.
  */
 export function getEffectiveTier(user: TierUser): SubscriptionTier {
-  if (user.isFoundingRider) return 'PRO';
+  if (user.isFoundingRider || user.role === 'ADMIN') return 'PRO';
   return user.subscriptionTier;
 }
 

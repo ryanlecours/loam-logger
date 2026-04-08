@@ -145,6 +145,9 @@ GOOGLE_IOS_CLIENT_ID="your-google-ios-client-id.apps.googleusercontent.com"
 # Apple Sign-In (mobile)
 APPLE_BUNDLE_ID="com.example.yourapp"
 
+# RevenueCat (IAP webhooks)
+REVENUECAT_WEBHOOK_AUTH_KEY="your-revenuecat-webhook-auth-key"
+
 # Auth
 JWT_SECRET="your-jwt-secret"
 SESSION_SECRET="your-session-secret"

@@ -2061,10 +2061,10 @@ export const resolvers = {
           },
         });
 
-        // Reset component hours
+        // Reset component hours and record service date
         return tx.component.update({
           where: { id },
-          data: { hoursUsed: 0 },
+          data: { hoursUsed: 0, lastServicedAt: serviceDate },
         });
       });
 
@@ -2132,10 +2132,10 @@ export const resolvers = {
           },
         });
 
-        // Reset component hours
+        // Reset component hours and record service date
         await tx.component.update({
           where: { id: input.componentId },
-          data: { hoursUsed: 0 },
+          data: { hoursUsed: 0, lastServicedAt: performedAt },
         });
 
         return log;
@@ -4132,6 +4132,10 @@ export const resolvers = {
   },
 
   Component: {
+    lastServicedAt: (component: ComponentModel & { lastServicedAt?: Date | string | null }) =>
+      component.lastServicedAt instanceof Date
+        ? component.lastServicedAt.toISOString()
+        : component.lastServicedAt ?? null,
     isSpare: (component: ComponentModel & { status?: string }) =>
       component.status === 'INVENTORY' || (component.status == null && component.bikeId == null),
     status: (component: ComponentModel & { status?: string }) => {
@@ -4206,24 +4210,23 @@ export const resolvers = {
         where: { userId: parent.id },
       });
     },
-    subscriptionTier: (parent: { subscriptionTier: string; isFoundingRider?: boolean }) => {
-      // Founding riders always appear as PRO
-      if (parent.isFoundingRider) return 'PRO';
+    subscriptionTier: (parent: { subscriptionTier: string; isFoundingRider?: boolean; role?: string }) => {
+      // Founding riders and admins always appear as PRO
+      if (parent.isFoundingRider || parent.role === 'ADMIN') return 'PRO';
       return parent.subscriptionTier;
     },
-    tierLimits: async (parent: { id: string; subscriptionTier: string; isFoundingRider?: boolean }) => {
-      const tier = getEffectiveTier({
+    tierLimits: async (parent: { id: string; subscriptionTier: string; isFoundingRider?: boolean; role?: string }) => {
+      const tierUser = {
         subscriptionTier: parent.subscriptionTier as 'FREE_LIGHT' | 'FREE_FULL' | 'PRO',
         isFoundingRider: parent.isFoundingRider ?? false,
-      });
+        role: parent.role,
+      };
+      const tier = getEffectiveTier(tierUser);
       const tierConfig = TIER_LIMITS[tier];
       const currentBikeCount = await prisma.bike.count({
         where: { userId: parent.id, status: 'ACTIVE' },
       });
-      const allowed = getAllowedComponentTypes({
-        subscriptionTier: parent.subscriptionTier as 'FREE_LIGHT' | 'FREE_FULL' | 'PRO',
-        isFoundingRider: parent.isFoundingRider ?? false,
-      });
+      const allowed = getAllowedComponentTypes(tierUser);
 
       return {
         maxBikes: tierConfig.maxBikes === Infinity ? null : tierConfig.maxBikes,
@@ -4231,10 +4234,7 @@ export const resolvers = {
           ? Object.values(ComponentTypeEnum)
           : allowed,
         currentBikeCount,
-        canAddBike: canCreateBike(
-          { subscriptionTier: parent.subscriptionTier as 'FREE_LIGHT' | 'FREE_FULL' | 'PRO', isFoundingRider: parent.isFoundingRider ?? false },
-          currentBikeCount
-        ),
+        canAddBike: canCreateBike(tierUser, currentBikeCount),
       };
     },
   },

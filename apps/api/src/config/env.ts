@@ -41,4 +41,9 @@ export const config = {
    * iOS bundle identifier for Apple Sign-In token audience validation.
    */
   appleBundleId: process.env.APPLE_BUNDLE_ID,
+
+  /**
+   * RevenueCat webhook authorization key for verifying inbound IAP webhooks.
+   */
+  revenuecatWebhookAuthKey: process.env.REVENUECAT_WEBHOOK_AUTH_KEY,
 } as const;

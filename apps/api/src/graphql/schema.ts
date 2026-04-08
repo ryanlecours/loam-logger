@@ -89,6 +89,12 @@ export const typeDefs = gql`
     PRO
   }
 
+  enum SubscriptionProvider {
+    STRIPE
+    APPLE
+    GOOGLE
+  }
+
   enum StripePlan {
     MONTHLY
     ANNUAL
@@ -854,6 +860,7 @@ export const typeDefs = gql`
     needsReauthForSensitiveActions: Boolean!
     isFoundingRider: Boolean!
     subscriptionTier: SubscriptionTier!
+    subscriptionProvider: SubscriptionProvider
     referralCode: String
     needsDowngradeSelection: Boolean!
     tierLimits: TierLimits!
