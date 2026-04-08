@@ -121,6 +121,7 @@ export async function downgradeUser(userId: string, triggerSource: string): Prom
         stripeSubscriptionId: null,
         subscriptionProvider: null,
         needsDowngradeSelection: needsSelection,
+        // stripeCustomerId intentionally preserved — reused if the user re-subscribes via Stripe
       },
     });
 

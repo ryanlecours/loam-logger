@@ -41,16 +41,11 @@ router.post('/', async (req: Request, res: Response) => {
       case 'INITIAL_PURCHASE':
       case 'RENEWAL':
       case 'UNCANCELLATION': {
+        if (!store) {
+          logger.warn({ eventType, appUserId }, 'RevenueCat webhook missing store field');
+        }
         const provider = storeToProvider(store || 'PLAY_STORE');
         await upgradeUser(appUserId, provider, 'revenuecat_webhook');
-
-        // Store the RevenueCat app user ID for future lookups
-        await prisma.user.updateMany({
-          where: { id: appUserId, revenuecatAppUserId: null },
-          data: { revenuecatAppUserId: appUserId },
-        }).catch(() => {
-          // Ignore if already set or constraint violation
-        });
         break;
       }
 

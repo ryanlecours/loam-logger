@@ -449,6 +449,7 @@ enum TriggerSource {
   scheduled
   user_action
   stripe_webhook
+  revenuecat_webhook
 }
 
 enum EmailStatus {

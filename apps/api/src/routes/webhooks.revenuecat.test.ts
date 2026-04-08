@@ -44,6 +44,11 @@ jest.mock('../lib/revenuecat', () => ({
 }));
 
 import router from './webhooks.revenuecat';
+import { prisma } from '../lib/prisma';
+import { sendEmailWithAudit } from '../services/email.service';
+
+const mockPrisma = prisma as jest.Mocked<typeof prisma>;
+const mockSendEmailWithAudit = sendEmailWithAudit as jest.Mock;
 
 interface RouteLayer {
   route?: {
@@ -191,5 +196,70 @@ describe('POST /webhooks/revenuecat', () => {
     await invokeHandler(handler, req, res as unknown as Response);
 
     expect(res.status).toHaveBeenCalledWith(500);
+  });
+
+  it('should upgrade user on UNCANCELLATION', async () => {
+    const req = createWebhookRequest('UNCANCELLATION');
+    const res = createMockResponse();
+
+    await invokeHandler(handler, req, res as unknown as Response);
+
+    expect(mockUpgradeUser).toHaveBeenCalledWith('user-123', 'APPLE', 'revenuecat_webhook');
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  describe('BILLING_ISSUE', () => {
+    it('should send payment failed email', async () => {
+      (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({
+        id: 'user-123',
+        email: 'test@test.com',
+        name: 'Test User',
+      });
+      (mockPrisma.emailSend.findFirst as jest.Mock).mockResolvedValue(null);
+
+      const req = createWebhookRequest('BILLING_ISSUE');
+      const res = createMockResponse();
+
+      await invokeHandler(handler, req, res as unknown as Response);
+
+      expect(mockSendEmailWithAudit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          to: 'test@test.com',
+          emailType: 'payment_failed',
+          triggerSource: 'revenuecat_webhook',
+          bypassUnsubscribe: true,
+        })
+      );
+      expect(res.status).toHaveBeenCalledWith(200);
+    });
+
+    it('should skip email if one was sent in last 24h', async () => {
+      (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({
+        id: 'user-123',
+        email: 'test@test.com',
+        name: 'Test User',
+      });
+      (mockPrisma.emailSend.findFirst as jest.Mock).mockResolvedValue({ id: 'recent-email' });
+
+      const req = createWebhookRequest('BILLING_ISSUE');
+      const res = createMockResponse();
+
+      await invokeHandler(handler, req, res as unknown as Response);
+
+      expect(mockSendEmailWithAudit).not.toHaveBeenCalled();
+      expect(res.status).toHaveBeenCalledWith(200);
+    });
+
+    it('should handle unknown user gracefully', async () => {
+      (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue(null);
+
+      const req = createWebhookRequest('BILLING_ISSUE');
+      const res = createMockResponse();
+
+      await invokeHandler(handler, req, res as unknown as Response);
+
+      expect(mockSendEmailWithAudit).not.toHaveBeenCalled();
+      expect(res.status).toHaveBeenCalledWith(200);
+    });
   });
 });
