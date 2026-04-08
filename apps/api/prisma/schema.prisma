@@ -37,6 +37,7 @@ model User {
   stripeSubscriptionId String?            @unique
   referralCode        String?             @unique
   needsDowngradeSelection Boolean         @default(false)
+  subscriptionProvider    SubscriptionProvider?
   emailUnsubscribed   Boolean             @default(false)
   hoursDisplayPreference String?          @default("remaining")
   predictionMode         String?          @default("simple")
@@ -344,6 +345,12 @@ enum SubscriptionTier {
   PRO
 }
 
+enum SubscriptionProvider {
+  STRIPE
+  APPLE
+  GOOGLE
+}
+
 enum ReferralStatus {
   PENDING
   COMPLETED
@@ -441,6 +448,7 @@ enum TriggerSource {
   scheduled
   user_action
   stripe_webhook
+  revenuecat_webhook
 }
 
 enum EmailStatus {

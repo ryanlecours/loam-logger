@@ -70,7 +70,7 @@ export async function notifyRideUploaded(params: {
   bikeName?: string;
   user: NotificationUser;
 }): Promise<string | undefined> {
-  const { userId, rideId, durationSeconds, distanceMeters, bikeName, user } = params;
+  const { rideId, durationSeconds, distanceMeters, bikeName, user } = params;
 
   if (!user.notifyOnRideUpload) return;
 

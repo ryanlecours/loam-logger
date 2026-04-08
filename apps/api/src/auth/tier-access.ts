@@ -1,4 +1,4 @@
-import type { SubscriptionTier, ComponentType } from '@prisma/client';
+import type { SubscriptionTier, ComponentType, UserRole } from '@prisma/client';
 import { GraphQLError } from 'graphql';
 import { FREE_LIGHT_COMPONENT_TYPES, TIER_LIMITS, TIER_DISPLAY_NAMES } from '@loam/shared';
 
@@ -6,13 +6,14 @@ type TierUser = {
   subscriptionTier: SubscriptionTier;
   isFoundingRider: boolean;
   needsDowngradeSelection?: boolean;
+  role?: UserRole;
 };
 
 /**
- * Returns the effective tier, accounting for founding riders who always get PRO.
+ * Returns the effective tier, accounting for founding riders and admins who always get PRO.
  */
 export function getEffectiveTier(user: TierUser): SubscriptionTier {
-  if (user.isFoundingRider) return 'PRO';
+  if (user.isFoundingRider || user.role === 'ADMIN') return 'PRO';
   return user.subscriptionTier;
 }
 

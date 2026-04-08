@@ -249,7 +249,7 @@ describe('GraphQL Resolvers', () => {
         });
         expect(mockPrisma.component.update).toHaveBeenCalledWith({
           where: { id: 'comp-1' },
-          data: { hoursUsed: 0 },
+          data: { hoursUsed: 0, lastServicedAt: expect.any(Date) },
         });
         expect(result).toEqual({ id: 'comp-1', hoursUsed: 0 });
       });
