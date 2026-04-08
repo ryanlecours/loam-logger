@@ -40,7 +40,6 @@ jest.mock('../config/env', () => ({
 
 jest.mock('../lib/revenuecat', () => ({
   storeToProvider: jest.fn((store: string) => store === 'APP_STORE' ? 'APPLE' : 'GOOGLE'),
-  validateRevenueCatConfig: jest.fn(),
 }));
 
 import router from './webhooks.revenuecat';

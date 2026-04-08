@@ -38,7 +38,6 @@ model User {
   referralCode        String?             @unique
   needsDowngradeSelection Boolean         @default(false)
   subscriptionProvider    SubscriptionProvider?
-  revenuecatAppUserId     String?             @unique
   emailUnsubscribed   Boolean             @default(false)
   hoursDisplayPreference String?          @default("remaining")
   predictionMode         String?          @default("simple")

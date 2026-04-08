@@ -145,7 +145,8 @@ const startServer = async () => {
     app.use('/webhooks/stripe', express.raw({ type: 'application/json' }), webhooksStripe);
   }
 
-  // RevenueCat webhook uses standard JSON (no raw body signature like Stripe)
+  // RevenueCat webhook registered before global express.json() — needs its own
+  // JSON parser since the global middleware hasn't been applied yet at this point.
   if (process.env.REVENUECAT_WEBHOOK_AUTH_KEY) {
     app.use('/webhooks/revenuecat', express.json(), webhooksRevenueCat);
   }

@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'crypto';
 import { Router, type Request, type Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { logger } from '../lib/logger';
@@ -9,10 +10,16 @@ import { getPaymentFailedEmailHtml, getPaymentFailedEmailSubject, PAYMENT_FAILED
 
 const router = Router();
 
+function verifyWebhookAuth(authHeader: string | undefined): boolean {
+  const expected = Buffer.from(`Bearer ${config.revenuecatWebhookAuthKey}`);
+  const received = Buffer.from(authHeader ?? '');
+  if (expected.length !== received.length) return false;
+  return timingSafeEqual(expected, received);
+}
+
 router.post('/', async (req: Request, res: Response) => {
-  // Verify authorization
-  const authHeader = req.headers['authorization'];
-  if (authHeader !== `Bearer ${config.revenuecatWebhookAuthKey}`) {
+  // Verify authorization using constant-time comparison
+  if (!verifyWebhookAuth(req.headers['authorization'] as string | undefined)) {
     logger.warn('RevenueCat webhook: invalid authorization');
     res.status(401).send('Unauthorized');
     return;
@@ -25,6 +32,8 @@ router.post('/', async (req: Request, res: Response) => {
   }
 
   const eventType: string = event.type;
+  // app_user_id is set to the Loam Logger user.id during SDK initialization
+  // in the mobile app (src/lib/revenuecat.ts). This is the database primary key.
   const appUserId: string | undefined = event.app_user_id;
   const store: string | undefined = event.store;
 
@@ -83,18 +92,18 @@ router.post('/', async (req: Request, res: Response) => {
   res.status(200).json({ received: true });
 });
 
-async function handleBillingIssue(userId: string): Promise<void> {
+async function handleBillingIssue(appUserId: string): Promise<void> {
   const user = await prisma.user.findUnique({
-    where: { id: userId },
+    where: { id: appUserId },
     select: { id: true, email: true, name: true },
   });
 
   if (!user) {
-    logger.warn({ userId }, 'Billing issue for unknown user');
+    logger.warn({ appUserId }, 'Billing issue for unknown user (RevenueCat app_user_id not found in DB)');
     return;
   }
 
-  logger.warn({ userId }, 'IAP billing issue');
+  logger.warn({ userId: user.id }, 'IAP billing issue');
 
   // Dedup: only send one payment_failed email per 24-hour window per user
   const recentEmail = await prisma.emailSend.findFirst({
@@ -108,7 +117,7 @@ async function handleBillingIssue(userId: string): Promise<void> {
   });
 
   if (recentEmail) {
-    logger.info({ userId }, 'Payment failed email already sent in last 24h, skipping');
+    logger.info({ userId: user.id }, 'Payment failed email already sent in last 24h, skipping');
     return;
   }
 
@@ -125,7 +134,7 @@ async function handleBillingIssue(userId: string): Promise<void> {
       bypassUnsubscribe: true,
     });
   } catch (emailErr) {
-    logger.error({ error: emailErr instanceof Error ? emailErr.message : String(emailErr), userId }, 'Failed to send payment failed email');
+    logger.error({ error: emailErr instanceof Error ? emailErr.message : String(emailErr), userId: user.id }, 'Failed to send payment failed email');
   }
 }
 

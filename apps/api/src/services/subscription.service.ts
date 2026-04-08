@@ -1,10 +1,9 @@
+import type { SubscriptionProvider, TriggerSource } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { logger } from '../lib/logger';
 import { sendEmailWithAudit } from './email.service';
 import { getUpgradeConfirmationEmailHtml, getUpgradeConfirmationEmailSubject, UPGRADE_CONFIRMATION_TEMPLATE_VERSION } from '../templates/emails/upgrade-confirmation';
 import { getDowngradeNoticeEmailHtml, getDowngradeNoticeEmailSubject, DOWNGRADE_NOTICE_TEMPLATE_VERSION } from '../templates/emails/downgrade-notice';
-
-type SubscriptionProvider = 'STRIPE' | 'APPLE' | 'GOOGLE';
 
 interface UpgradeOptions {
   stripeCustomerId?: string | null;
@@ -21,7 +20,7 @@ interface UpgradeOptions {
 export async function upgradeUser(
   userId: string,
   provider: SubscriptionProvider,
-  triggerSource: string,
+  triggerSource: TriggerSource,
   options: UpgradeOptions = {},
 ): Promise<boolean> {
   const upgraded = await prisma.$transaction(async (tx) => {
@@ -97,7 +96,7 @@ export async function upgradeUser(
  * FREE_LIGHT otherwise). Sets needsDowngradeSelection if user has >1 active bikes.
  * Clears provider-specific subscription fields and sends a downgrade email.
  */
-export async function downgradeUser(userId: string, triggerSource: string): Promise<void> {
+export async function downgradeUser(userId: string, triggerSource: TriggerSource): Promise<void> {
   const result = await prisma.$transaction(async (tx) => {
     const user = await tx.user.findUnique({
       where: { id: userId },
