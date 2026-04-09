@@ -241,8 +241,10 @@ export async function fireRideNotifications(params: {
   isNewRide: boolean;
   /** When set, this ride came from a bulk backfill — suppress per-ride notifications */
   isBackfill?: boolean;
+  /** Pre-fetched active bike count — avoids redundant DB query when caller already has it */
+  activeBikeCount?: number;
 }): Promise<void> {
-  const { userId, rideId, bikeId, durationSeconds, distanceMeters, isNewRide, isBackfill } = params;
+  const { userId, rideId, bikeId, durationSeconds, distanceMeters, isNewRide, isBackfill, activeBikeCount: providedBikeCount } = params;
 
   // Only notify for newly created rides, not updates or bulk backfills
   if (!isNewRide || isBackfill) return;
@@ -291,7 +293,7 @@ export async function fireRideNotifications(params: {
 
     // Notify multi-bike users when a ride is imported without a bike assignment
     if (!bikeId) {
-      const activeBikeCount = await prisma.bike.count({ where: { userId, status: 'ACTIVE' } });
+      const activeBikeCount = providedBikeCount ?? await prisma.bike.count({ where: { userId, status: 'ACTIVE' } });
       if (activeBikeCount > 1) {
         const unassignedTicketId = await sendPushNotification({
           pushToken: user.expoPushToken,

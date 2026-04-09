@@ -530,14 +530,19 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
   const isNewRide = !existing;
   const locationUpdate = shouldApplyAutoLocation(existing?.location ?? null, autoLocation?.title ?? null);
 
-  // Auto-assign bike if user has exactly one active bike (Garmin has no gear tagging)
+  // Auto-assign bike if user has exactly one active bike (Garmin has no gear tagging).
+  // Only query on new rides — updates preserve the existing bikeId.
   let bikeId: string | null = null;
-  const userBikes = await prisma.bike.findMany({
-    where: { userId, status: 'ACTIVE' },
-    select: { id: true },
-  });
-  if (userBikes.length === 1) {
-    bikeId = userBikes[0].id;
+  let activeBikeCount = 0;
+  if (isNewRide) {
+    const userBikes = await prisma.bike.findMany({
+      where: { userId, status: 'ACTIVE' },
+      select: { id: true },
+    });
+    activeBikeCount = userBikes.length;
+    if (userBikes.length === 1) {
+      bikeId = userBikes[0].id;
+    }
   }
 
   // Look up running ImportSession for this user (if any)
@@ -546,45 +551,52 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
     select: { id: true },
   });
 
-  const { syncedRideId, syncedBikeId } = await prisma.$transaction(async (tx) => {
-    const ride = await tx.ride.upsert({
-      where: { garminActivityId: activity.summaryId },
-      create: {
-        userId,
-        garminActivityId: activity.summaryId,
-        startTime,
-        durationSeconds: activity.durationInSeconds,
-        distanceMeters,
-        elevationGainMeters,
-        averageHr: activity.averageHeartRateInBeatsPerMinute ?? null,
-        rideType: activity.activityType,
-        notes: activity.activityName ?? null,
-        location: autoLocation?.title ?? null,
-        importSessionId: runningSession?.id ?? null,
-        bikeId,
-      },
-      update: {
-        startTime,
-        durationSeconds: activity.durationInSeconds,
-        distanceMeters,
-        elevationGainMeters,
-        averageHr: activity.averageHeartRateInBeatsPerMinute ?? null,
-        rideType: activity.activityType,
-        notes: activity.activityName ?? null,
-        ...(locationUpdate !== undefined ? { location: locationUpdate } : {}),
-      },
-    });
-
-    // Sync component hours
-    await syncBikeComponentHours(
-      tx,
+  // Upsert ride first — this is the primary data, must not be lost
+  const ride = await prisma.ride.upsert({
+    where: { garminActivityId: activity.summaryId },
+    create: {
       userId,
-      { bikeId: existing?.bikeId ?? null, durationSeconds: existing?.durationSeconds ?? null },
-      { bikeId: ride.bikeId ?? null, durationSeconds: ride.durationSeconds }
-    );
-
-    return { syncedRideId: ride.id, syncedBikeId: ride.bikeId ?? null };
+      garminActivityId: activity.summaryId,
+      startTime,
+      durationSeconds: activity.durationInSeconds,
+      distanceMeters,
+      elevationGainMeters,
+      averageHr: activity.averageHeartRateInBeatsPerMinute ?? null,
+      rideType: activity.activityType,
+      notes: activity.activityName ?? null,
+      location: autoLocation?.title ?? null,
+      importSessionId: runningSession?.id ?? null,
+      bikeId,
+    },
+    update: {
+      startTime,
+      durationSeconds: activity.durationInSeconds,
+      distanceMeters,
+      elevationGainMeters,
+      averageHr: activity.averageHeartRateInBeatsPerMinute ?? null,
+      rideType: activity.activityType,
+      notes: activity.activityName ?? null,
+      ...(locationUpdate !== undefined ? { location: locationUpdate } : {}),
+    },
   });
+
+  const syncedRideId = ride.id;
+  const syncedBikeId = ride.bikeId ?? null;
+
+  // Sync component hours separately — secondary to recording the ride.
+  // A failure here should not roll back the ride (Garmin won't resend it).
+  try {
+    await prisma.$transaction(async (tx) => {
+      await syncBikeComponentHours(
+        tx,
+        userId,
+        { bikeId: existing?.bikeId ?? null, durationSeconds: existing?.durationSeconds ?? null },
+        { bikeId: ride.bikeId ?? null, durationSeconds: ride.durationSeconds }
+      );
+    });
+  } catch (err) {
+    logger.error({ err, userId, rideId: ride.id }, '[SyncWorker] Failed to sync component hours for Garmin activity');
+  }
 
   // Update session's lastActivityReceivedAt if there's a running session
   if (runningSession) {
@@ -605,6 +617,7 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
     distanceMeters,
     isNewRide,
     isBackfill: !!runningSession,
+    activeBikeCount,
   }).catch(() => {}); // swallow - already logged internally
 
   if (isNewRide) {
