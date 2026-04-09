@@ -50,6 +50,7 @@ const CSRF_EXEMPT_PATHS = new Set([
   '/auth/strava/callback', // Strava OAuth callback - creates session
   '/webhooks/garmin',      // Garmin webhooks - authenticated via signature
   '/webhooks/strava',      // Strava webhooks - authenticated via signature
+  '/api/waitlist',         // Public waitlist signup - no session required
 ]);
 
 /**
