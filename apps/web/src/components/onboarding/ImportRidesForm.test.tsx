@@ -157,80 +157,6 @@ describe('ImportRidesForm', () => {
         json: () => Promise.resolve({
           success: true,
           requests: [
-            { id: '1', provider: 'garmin', year: '2024', status: 'completed', ridesFound: 50 },
-            { id: '2', provider: 'garmin', year: 'ytd', status: 'in_progress', ridesFound: null },
-          ],
-        }),
-      });
-
-      render(<ImportRidesForm connectedProviders={['garmin']} />);
-
-      fireEvent.click(screen.getByRole('button', { name: /Import past rides/i }));
-
-      await waitFor(() => {
-        // Check for the "Previously requested" section which contains history pills
-        expect(screen.getByText('Previously requested')).toBeInTheDocument();
-        // Use getAllByText since there are now multiple "2024" elements (checkbox label + history pill)
-        const elements2024 = screen.getAllByText('2024');
-        expect(elements2024.length).toBeGreaterThanOrEqual(2); // checkbox label + pill
-        // YTD appears in checkbox label and as history pill
-        const ytdElements = screen.getAllByText('YTD');
-        expect(ytdElements.length).toBeGreaterThanOrEqual(1);
-      });
-    });
-
-    it('shows checkmark for completed years (Garmin)', async () => {
-      mockFetch.mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve({
-          success: true,
-          requests: [
-            { id: '1', provider: 'garmin', year: '2024', status: 'completed', ridesFound: 50 },
-          ],
-        }),
-      });
-
-      render(<ImportRidesForm connectedProviders={['garmin']} />);
-
-      fireEvent.click(screen.getByRole('button', { name: /Import past rides/i }));
-
-      await waitFor(() => {
-        // Garmin uses checkboxes - completed year checkbox should be disabled
-        const checkbox2024 = screen.getByRole('checkbox', { name: /2024/i });
-        expect(checkbox2024).toBeDisabled();
-      });
-    });
-  });
-
-  describe('Duplicate Prevention (Garmin)', () => {
-    it('disables checkbox for already backfilled year', async () => {
-      mockFetch.mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve({
-          success: true,
-          requests: [
-            { id: '1', provider: 'garmin', year: '2024', status: 'completed', ridesFound: 50 },
-          ],
-        }),
-      });
-
-      render(<ImportRidesForm connectedProviders={['garmin']} />);
-
-      fireEvent.click(screen.getByRole('button', { name: /Import past rides/i }));
-
-      await waitFor(() => {
-        // Garmin uses checkboxes - completed year checkbox should be disabled
-        const checkbox2024 = screen.getByRole('checkbox', { name: /2024/i });
-        expect(checkbox2024).toBeDisabled();
-      });
-    });
-
-    it('allows YTD even if previously backfilled (incremental)', async () => {
-      mockFetch.mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve({
-          success: true,
-          requests: [
             { id: '1', provider: 'garmin', year: 'ytd', status: 'completed', ridesFound: 50 },
           ],
         }),
@@ -241,13 +167,48 @@ describe('ImportRidesForm', () => {
       fireEvent.click(screen.getByRole('button', { name: /Import past rides/i }));
 
       await waitFor(() => {
-        // YTD checkbox should be enabled even after previous backfill (incremental)
-        const ytdCheckbox = screen.getByRole('checkbox', { name: /Year to Date/i });
-        expect(ytdCheckbox).not.toBeDisabled();
+        expect(screen.getByText('Previously requested')).toBeInTheDocument();
       });
     });
 
-    it('disables YTD checkbox when already in progress', async () => {
+    it('shows Garmin restriction note', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ success: true, requests: [] }),
+      });
+
+      render(<ImportRidesForm connectedProviders={['garmin']} />);
+
+      fireEvent.click(screen.getByRole('button', { name: /Import past rides/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/Garmin limits historical data access/i)).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe('Garmin Last 30 Days', () => {
+    it('shows Last 30 Days as the only Garmin option', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ success: true, requests: [] }),
+      });
+
+      render(<ImportRidesForm connectedProviders={['garmin']} />);
+
+      fireEvent.click(screen.getByRole('button', { name: /Import past rides/i }));
+
+      await waitFor(() => {
+        const checkbox = screen.getByRole('checkbox', { name: /Last 30 Days/i });
+        expect(checkbox).toBeInTheDocument();
+      });
+
+      // Should not have year checkboxes
+      expect(screen.queryByRole('checkbox', { name: /2024/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('checkbox', { name: /2025/i })).not.toBeInTheDocument();
+    });
+
+    it('disables Last 30 Days checkbox when in progress', async () => {
       mockFetch.mockResolvedValue({
         ok: true,
         json: () => Promise.resolve({
@@ -263,19 +224,18 @@ describe('ImportRidesForm', () => {
       fireEvent.click(screen.getByRole('button', { name: /Import past rides/i }));
 
       await waitFor(() => {
-        // YTD checkbox should be disabled when in progress
-        const ytdCheckbox = screen.getByRole('checkbox', { name: /Year to Date/i });
-        expect(ytdCheckbox).toBeDisabled();
+        const checkbox = screen.getByRole('checkbox', { name: /Last 30 Days/i });
+        expect(checkbox).toBeDisabled();
       });
     });
 
-    it('allows retry for failed backfills', async () => {
+    it('enables Last 30 Days checkbox when not in progress', async () => {
       mockFetch.mockResolvedValue({
         ok: true,
         json: () => Promise.resolve({
           success: true,
           requests: [
-            { id: '1', provider: 'garmin', year: '2024', status: 'failed', ridesFound: null },
+            { id: '1', provider: 'garmin', year: 'ytd', status: 'completed', ridesFound: 50 },
           ],
         }),
       });
@@ -285,9 +245,8 @@ describe('ImportRidesForm', () => {
       fireEvent.click(screen.getByRole('button', { name: /Import past rides/i }));
 
       await waitFor(() => {
-        // Failed year checkbox should be enabled for retry
-        const checkbox2024 = screen.getByRole('checkbox', { name: /2024/i });
-        expect(checkbox2024).not.toBeDisabled();
+        const checkbox = screen.getByRole('checkbox', { name: /Last 30 Days/i });
+        expect(checkbox).not.toBeDisabled();
       });
     });
   });

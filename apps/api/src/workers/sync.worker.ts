@@ -524,11 +524,26 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
 
   const existing = await prisma.ride.findUnique({
     where: { garminActivityId: activity.summaryId },
-    select: { location: true },
+    select: { id: true, location: true, bikeId: true, durationSeconds: true },
   });
 
   const isNewRide = !existing;
   const locationUpdate = shouldApplyAutoLocation(existing?.location ?? null, autoLocation?.title ?? null);
+
+  // Auto-assign bike if user has exactly one active bike (Garmin has no gear tagging).
+  // Only query on new rides — updates preserve the existing bikeId.
+  let bikeId: string | null = null;
+  let activeBikeCount = 0;
+  if (isNewRide) {
+    const userBikes = await prisma.bike.findMany({
+      where: { userId, status: 'ACTIVE' },
+      select: { id: true },
+    });
+    activeBikeCount = userBikes.length;
+    if (userBikes.length === 1) {
+      bikeId = userBikes[0].id;
+    }
+  }
 
   // Look up running ImportSession for this user (if any)
   const runningSession = await prisma.importSession.findFirst({
@@ -536,6 +551,7 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
     select: { id: true },
   });
 
+  // Upsert ride first — this is the primary data, must not be lost
   const ride = await prisma.ride.upsert({
     where: { garminActivityId: activity.summaryId },
     create: {
@@ -550,6 +566,7 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
       notes: activity.activityName ?? null,
       location: autoLocation?.title ?? null,
       importSessionId: runningSession?.id ?? null,
+      bikeId,
     },
     update: {
       startTime,
@@ -562,6 +579,24 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
       ...(locationUpdate !== undefined ? { location: locationUpdate } : {}),
     },
   });
+
+  const syncedRideId = ride.id;
+  const syncedBikeId = ride.bikeId ?? null;
+
+  // Sync component hours separately — secondary to recording the ride.
+  // A failure here should not roll back the ride (Garmin won't resend it).
+  try {
+    await prisma.$transaction(async (tx) => {
+      await syncBikeComponentHours(
+        tx,
+        userId,
+        { bikeId: existing?.bikeId ?? null, durationSeconds: existing?.durationSeconds ?? null },
+        { bikeId: ride.bikeId ?? null, durationSeconds: ride.durationSeconds }
+      );
+    });
+  } catch (err) {
+    logger.error({ err, userId, rideId: ride.id }, '[SyncWorker] Failed to sync component hours for Garmin activity');
+  }
 
   // Update session's lastActivityReceivedAt if there's a running session
   if (runningSession) {
@@ -576,11 +611,13 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
   // Fire-and-forget notifications
   fireRideNotifications({
     userId,
-    rideId: ride.id,
-    bikeId: ride.bikeId,
+    rideId: syncedRideId,
+    bikeId: syncedBikeId,
     durationSeconds: activity.durationInSeconds,
     distanceMeters,
     isNewRide,
+    isBackfill: !!runningSession,
+    activeBikeCount,
   }).catch(() => {}); // swallow - already logged internally
 
   if (isNewRide) {

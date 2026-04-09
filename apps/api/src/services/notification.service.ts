@@ -239,11 +239,15 @@ export async function fireRideNotifications(params: {
   durationSeconds: number;
   distanceMeters: number;
   isNewRide: boolean;
+  /** When set, this ride came from a bulk backfill — suppress per-ride notifications */
+  isBackfill?: boolean;
+  /** Pre-fetched active bike count — avoids redundant DB query when caller already has it */
+  activeBikeCount?: number;
 }): Promise<void> {
-  const { userId, rideId, bikeId, durationSeconds, distanceMeters, isNewRide } = params;
+  const { userId, rideId, bikeId, durationSeconds, distanceMeters, isNewRide, isBackfill, activeBikeCount: providedBikeCount } = params;
 
-  // Only notify for newly created rides, not updates
-  if (!isNewRide) return;
+  // Only notify for newly created rides, not updates or bulk backfills
+  if (!isNewRide || isBackfill) return;
 
   try {
     // Single user query for all notification needs
@@ -286,6 +290,20 @@ export async function fireRideNotifications(params: {
       },
     });
     if (rideTicketId) ticketIds.push(rideTicketId);
+
+    // Notify multi-bike users when a ride is imported without a bike assignment
+    if (!bikeId) {
+      const activeBikeCount = providedBikeCount ?? await prisma.bike.count({ where: { userId, status: 'ACTIVE' } });
+      if (activeBikeCount > 1) {
+        const unassignedTicketId = await sendPushNotification({
+          pushToken: user.expoPushToken,
+          title: 'Assign a Bike',
+          body: 'A ride was imported without a bike. Tap to assign it so component hours are tracked.',
+          data: { screen: 'ride', rideId },
+        });
+        if (unassignedTicketId) ticketIds.push(unassignedTicketId);
+      }
+    }
 
     // Service due check (only if ride is assigned to a bike)
     if (bikeId && bikeName) {
