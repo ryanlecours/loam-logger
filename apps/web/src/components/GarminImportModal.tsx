@@ -1,5 +1,4 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Check } from 'lucide-react';
 import { Modal, Button } from './ui';
 import { getAuthHeaders } from '@/lib/csrf';
 
@@ -36,20 +35,6 @@ export default function GarminImportModal({ open, onClose, onSuccess, onDuplicat
   const [historyLoading, setHistoryLoading] = useState(true);
   const [duplicatesFound, setDuplicatesFound] = useState(0);
 
-  // Get years that are already backfilled (YTD is always allowed - incremental)
-  const backfilledYears = useMemo(() => {
-    return new Set(
-      backfillHistory
-        .filter(
-          (req) =>
-            req.provider === 'garmin' &&
-            req.year !== 'ytd' && // YTD is always allowed (incremental)
-            req.status !== 'failed' // Failed can be retried
-        )
-        .map((req) => req.year)
-    );
-  }, [backfillHistory]);
-
   // Get years that are in progress
   const inProgressYears = useMemo(() => {
     return new Set(
@@ -62,14 +47,6 @@ export default function GarminImportModal({ open, onClose, onSuccess, onDuplicat
         .map((req) => req.year)
     );
   }, [backfillHistory]);
-
-  // Helper to check if a year can be selected
-  const canSelectYear = (year: string): boolean => {
-    if (year === 'ytd') {
-      return !inProgressYears.has('ytd');
-    }
-    return !backfilledYears.has(year) && !inProgressYears.has(year);
-  };
 
   // Toggle year selection
   const toggleYearSelection = (year: string) => {

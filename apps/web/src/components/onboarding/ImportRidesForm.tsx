@@ -98,14 +98,6 @@ export function ImportRidesForm({ connectedProviders }: ImportRidesFormProps) {
     );
   }, [backfillHistory, selectedProvider, selectedYear]);
 
-  // Helper to check if a year can be selected for Garmin
-  const canSelectYear = (year: string): boolean => {
-    if (year === 'ytd') {
-      return !garminInProgressYears.has('ytd');
-    }
-    return !garminBackfilledYears.has(year) && !garminInProgressYears.has(year);
-  };
-
   // Toggle year selection for Garmin multi-select
   const toggleYearSelection = (year: string) => {
     setSelectedYears((prev) => {
