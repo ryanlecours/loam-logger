@@ -547,6 +547,7 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
   });
 
   let syncedRideId: string | null = null;
+  let syncedBikeId: string | null = null;
 
   await prisma.$transaction(async (tx) => {
     const ride = await tx.ride.upsert({
@@ -578,6 +579,7 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
     });
 
     syncedRideId = ride.id;
+    syncedBikeId = ride.bikeId ?? null;
 
     // Sync component hours
     await syncBikeComponentHours(
@@ -599,11 +601,12 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
   logger.debug({ summaryId: activity.summaryId }, '[SyncWorker] Upserted Garmin activity');
 
   // Fire-and-forget notifications
+  // Guard is for TypeScript narrowing — transaction either sets syncedRideId or throws
   if (syncedRideId) {
     fireRideNotifications({
       userId,
       rideId: syncedRideId,
-      bikeId,
+      bikeId: syncedBikeId,
       durationSeconds: activity.durationInSeconds,
       distanceMeters,
       isNewRide,
