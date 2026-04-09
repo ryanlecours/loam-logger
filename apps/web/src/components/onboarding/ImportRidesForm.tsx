@@ -57,20 +57,6 @@ export function ImportRidesForm({ connectedProviders }: ImportRidesFormProps) {
   const [backfillHistory, setBackfillHistory] = useState<BackfillRequest[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
 
-  // Get years that are already backfilled for Garmin (YTD is always allowed - incremental)
-  const garminBackfilledYears = useMemo(() => {
-    return new Set(
-      backfillHistory
-        .filter(
-          (req) =>
-            req.provider === 'garmin' &&
-            req.year !== 'ytd' && // YTD is always allowed (incremental)
-            req.status !== 'failed' // Failed can be retried
-        )
-        .map((req) => req.year)
-    );
-  }, [backfillHistory]);
-
   // Get years that are in progress for Garmin
   const garminInProgressYears = useMemo(() => {
     return new Set(
@@ -83,12 +69,6 @@ export function ImportRidesForm({ connectedProviders }: ImportRidesFormProps) {
         .map((req) => req.year)
     );
   }, [backfillHistory]);
-
-  // Check if the selected year is already backfilled (Garmin only, for single-select compatibility)
-  const isYearAlreadyBackfilled =
-    selectedProvider === 'garmin' &&
-    selectedYear !== 'ytd' &&
-    garminBackfilledYears.has(selectedYear);
 
   // Check if YTD is currently in progress (Garmin only - blocks re-triggering)
   const isYtdInProgress = useMemo(() => {
@@ -473,14 +453,14 @@ export function ImportRidesForm({ connectedProviders }: ImportRidesFormProps) {
               !selectedProvider ||
               importState === 'loading' ||
               (selectedProvider === 'garmin' && selectableYearsCount === 0) ||
-              (selectedProvider === 'strava' && (isYearAlreadyBackfilled || isYtdInProgress))
+              (selectedProvider === 'strava' && isYtdInProgress)
             }
             className={`
               w-full py-3 px-4 rounded-lg text-sm font-medium transition-all
               ${!selectedProvider ||
                 importState === 'loading' ||
                 (selectedProvider === 'garmin' && selectableYearsCount === 0) ||
-                (selectedProvider === 'strava' && (isYearAlreadyBackfilled || isYtdInProgress))
+                (selectedProvider === 'strava' && isYtdInProgress)
                 ? 'bg-gray-300 dark:bg-gray-700 text-gray-500 cursor-not-allowed'
                 : 'bg-accent text-white hover:bg-accent-hover'}
             `}
@@ -489,13 +469,11 @@ export function ImportRidesForm({ connectedProviders }: ImportRidesFormProps) {
               ? 'Importing...'
               : selectedProvider === 'garmin'
                 ? selectableYearsCount === 0
-                  ? 'Select years to import'
-                  : `Start Import (${selectableYearsCount} ${selectableYearsCount === 1 ? 'year' : 'years'})`
+                  ? 'Select a period to import'
+                  : 'Start Import'
                 : isYtdInProgress
                   ? 'Import In Progress'
-                  : isYearAlreadyBackfilled
-                    ? 'Already Imported'
-                    : 'Start Import'}
+                  : 'Start Import'}
           </button>
         </div>
       )}

@@ -239,11 +239,13 @@ export async function fireRideNotifications(params: {
   durationSeconds: number;
   distanceMeters: number;
   isNewRide: boolean;
+  /** When set, this ride came from a bulk backfill — suppress per-ride notifications */
+  isBackfill?: boolean;
 }): Promise<void> {
-  const { userId, rideId, bikeId, durationSeconds, distanceMeters, isNewRide } = params;
+  const { userId, rideId, bikeId, durationSeconds, distanceMeters, isNewRide, isBackfill } = params;
 
-  // Only notify for newly created rides, not updates
-  if (!isNewRide) return;
+  // Only notify for newly created rides, not updates or bulk backfills
+  if (!isNewRide || isBackfill) return;
 
   try {
     // Single user query for all notification needs

@@ -546,10 +546,7 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
     select: { id: true },
   });
 
-  let syncedRideId: string | null = null;
-  let syncedBikeId: string | null = null;
-
-  await prisma.$transaction(async (tx) => {
+  const { syncedRideId, syncedBikeId } = await prisma.$transaction(async (tx) => {
     const ride = await tx.ride.upsert({
       where: { garminActivityId: activity.summaryId },
       create: {
@@ -578,9 +575,6 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
       },
     });
 
-    syncedRideId = ride.id;
-    syncedBikeId = ride.bikeId ?? null;
-
     // Sync component hours
     await syncBikeComponentHours(
       tx,
@@ -588,6 +582,8 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
       { bikeId: existing?.bikeId ?? null, durationSeconds: existing?.durationSeconds ?? null },
       { bikeId: ride.bikeId ?? null, durationSeconds: ride.durationSeconds }
     );
+
+    return { syncedRideId: ride.id, syncedBikeId: ride.bikeId ?? null };
   });
 
   // Update session's lastActivityReceivedAt if there's a running session
@@ -601,20 +597,18 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
   logger.debug({ summaryId: activity.summaryId }, '[SyncWorker] Upserted Garmin activity');
 
   // Fire-and-forget notifications
-  // Guard is for TypeScript narrowing — transaction either sets syncedRideId or throws
-  if (syncedRideId) {
-    fireRideNotifications({
-      userId,
-      rideId: syncedRideId,
-      bikeId: syncedBikeId,
-      durationSeconds: activity.durationInSeconds,
-      distanceMeters,
-      isNewRide,
-    }).catch(() => {}); // swallow - already logged internally
+  fireRideNotifications({
+    userId,
+    rideId: syncedRideId,
+    bikeId: syncedBikeId,
+    durationSeconds: activity.durationInSeconds,
+    distanceMeters,
+    isNewRide,
+    isBackfill: !!runningSession,
+  }).catch(() => {}); // swallow - already logged internally
 
-    if (isNewRide) {
-      completeReferral(userId).catch(() => {}); // swallow - already logged internally
-    }
+  if (isNewRide) {
+    completeReferral(userId).catch(() => {}); // swallow - already logged internally
   }
 }
 
