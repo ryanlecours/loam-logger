@@ -27,13 +27,18 @@ interface BackfillRequest {
 
 const CURRENT_YEAR = new Date().getFullYear();
 
-// Generate year options: YTD + 5 previous years (current year is redundant with YTD)
-const YEAR_OPTIONS = [
+// Strava allows full historical backfills
+const STRAVA_YEAR_OPTIONS = [
   { value: 'ytd', label: `Year to Date (${CURRENT_YEAR})` },
   ...Array.from({ length: 5 }, (_, i) => ({
     value: String(CURRENT_YEAR - 1 - i),
     label: String(CURRENT_YEAR - 1 - i),
   })),
+];
+
+// Garmin limits historical data access to the past 30 days
+const GARMIN_YEAR_OPTIONS = [
+  { value: 'ytd', label: 'Last 30 Days' },
 ];
 
 const PROVIDER_LABELS: Record<string, string> = {
@@ -352,16 +357,15 @@ export function ImportRidesForm({ connectedProviders }: ImportRidesFormProps) {
           {/* Year selector - Garmin uses multi-select checkboxes, Strava uses dropdown */}
           <div className="space-y-2">
             <label className="block text-sm font-medium text-muted">
-              {selectedProvider === 'garmin' ? 'Years to import' : 'Year to import'}
+              {selectedProvider === 'garmin' ? 'Import period' : 'Year to import'}
             </label>
 
             {selectedProvider === 'garmin' ? (
-              // Multi-select checkbox grid for Garmin
-              <div className="grid grid-cols-2 gap-2">
-                {YEAR_OPTIONS.map((option) => {
-                  const isBackfilled = garminBackfilledYears.has(option.value);
+              // Garmin: restricted to last 30 days
+              <div className="space-y-3">
+                {GARMIN_YEAR_OPTIONS.map((option) => {
                   const isInProgress = garminInProgressYears.has(option.value);
-                  const isDisabled = !canSelectYear(option.value) || importState === 'loading';
+                  const isDisabled = isInProgress || importState === 'loading';
                   const isSelected = selectedYears.has(option.value);
 
                   return (
@@ -385,25 +389,25 @@ export function ImportRidesForm({ connectedProviders }: ImportRidesFormProps) {
                       <span className={`flex-1 text-sm ${isDisabled ? 'text-muted' : 'text-primary'}`}>
                         {option.label}
                       </span>
-                      {isBackfilled && (
-                        <span title="Already imported"><Check className="w-3 h-3 text-green-400" /></span>
-                      )}
-                      {isInProgress && !isBackfilled && (
+                      {isInProgress && (
                         <div className="w-3 h-3 border border-yellow-400 border-t-transparent rounded-full animate-spin" title="In progress" />
                       )}
                     </label>
                   );
                 })}
+                <p className="text-xs text-muted">
+                  Garmin limits historical data access to the past 30 days. New rides sync automatically going forward.
+                </p>
               </div>
             ) : (
-              // Single-select dropdown for Strava
+              // Strava: full year selection
               <select
                 value={selectedYear}
                 onChange={(e) => setSelectedYear(e.target.value)}
                 className="w-full input-soft"
                 disabled={importState === 'loading'}
               >
-                {YEAR_OPTIONS.map((option) => (
+                {STRAVA_YEAR_OPTIONS.map((option) => (
                   <option key={option.value} value={option.value}>
                     {option.label}
                   </option>

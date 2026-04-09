@@ -287,6 +287,20 @@ export async function fireRideNotifications(params: {
     });
     if (rideTicketId) ticketIds.push(rideTicketId);
 
+    // Notify multi-bike users when a ride is imported without a bike assignment
+    if (!bikeId) {
+      const activeBikeCount = await prisma.bike.count({ where: { userId, status: 'ACTIVE' } });
+      if (activeBikeCount > 1) {
+        const unassignedTicketId = await sendPushNotification({
+          pushToken: user.expoPushToken,
+          title: 'Assign a Bike',
+          body: 'A ride was imported without a bike. Tap to assign it so component hours are tracked.',
+          data: { screen: 'ride', rideId },
+        });
+        if (unassignedTicketId) ticketIds.push(unassignedTicketId);
+      }
+    }
+
     // Service due check (only if ride is assigned to a bike)
     if (bikeId && bikeName) {
       const predictionMode = (user.predictionMode === 'predictive' ? 'predictive' : 'simple') as 'simple' | 'predictive';

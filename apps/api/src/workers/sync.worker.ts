@@ -524,11 +524,21 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
 
   const existing = await prisma.ride.findUnique({
     where: { garminActivityId: activity.summaryId },
-    select: { location: true },
+    select: { id: true, location: true, bikeId: true, durationSeconds: true },
   });
 
   const isNewRide = !existing;
   const locationUpdate = shouldApplyAutoLocation(existing?.location ?? null, autoLocation?.title ?? null);
+
+  // Auto-assign bike if user has exactly one active bike (Garmin has no gear tagging)
+  let bikeId: string | null = null;
+  const userBikes = await prisma.bike.findMany({
+    where: { userId, status: 'ACTIVE' },
+    select: { id: true },
+  });
+  if (userBikes.length === 1) {
+    bikeId = userBikes[0].id;
+  }
 
   // Look up running ImportSession for this user (if any)
   const runningSession = await prisma.importSession.findFirst({
@@ -536,31 +546,46 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
     select: { id: true },
   });
 
-  const ride = await prisma.ride.upsert({
-    where: { garminActivityId: activity.summaryId },
-    create: {
+  let syncedRideId: string | null = null;
+
+  await prisma.$transaction(async (tx) => {
+    const ride = await tx.ride.upsert({
+      where: { garminActivityId: activity.summaryId },
+      create: {
+        userId,
+        garminActivityId: activity.summaryId,
+        startTime,
+        durationSeconds: activity.durationInSeconds,
+        distanceMeters,
+        elevationGainMeters,
+        averageHr: activity.averageHeartRateInBeatsPerMinute ?? null,
+        rideType: activity.activityType,
+        notes: activity.activityName ?? null,
+        location: autoLocation?.title ?? null,
+        importSessionId: runningSession?.id ?? null,
+        bikeId,
+      },
+      update: {
+        startTime,
+        durationSeconds: activity.durationInSeconds,
+        distanceMeters,
+        elevationGainMeters,
+        averageHr: activity.averageHeartRateInBeatsPerMinute ?? null,
+        rideType: activity.activityType,
+        notes: activity.activityName ?? null,
+        ...(locationUpdate !== undefined ? { location: locationUpdate } : {}),
+      },
+    });
+
+    syncedRideId = ride.id;
+
+    // Sync component hours
+    await syncBikeComponentHours(
+      tx,
       userId,
-      garminActivityId: activity.summaryId,
-      startTime,
-      durationSeconds: activity.durationInSeconds,
-      distanceMeters,
-      elevationGainMeters,
-      averageHr: activity.averageHeartRateInBeatsPerMinute ?? null,
-      rideType: activity.activityType,
-      notes: activity.activityName ?? null,
-      location: autoLocation?.title ?? null,
-      importSessionId: runningSession?.id ?? null,
-    },
-    update: {
-      startTime,
-      durationSeconds: activity.durationInSeconds,
-      distanceMeters,
-      elevationGainMeters,
-      averageHr: activity.averageHeartRateInBeatsPerMinute ?? null,
-      rideType: activity.activityType,
-      notes: activity.activityName ?? null,
-      ...(locationUpdate !== undefined ? { location: locationUpdate } : {}),
-    },
+      { bikeId: existing?.bikeId ?? null, durationSeconds: existing?.durationSeconds ?? null },
+      { bikeId: ride.bikeId ?? null, durationSeconds: ride.durationSeconds }
+    );
   });
 
   // Update session's lastActivityReceivedAt if there's a running session
@@ -574,17 +599,19 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
   logger.debug({ summaryId: activity.summaryId }, '[SyncWorker] Upserted Garmin activity');
 
   // Fire-and-forget notifications
-  fireRideNotifications({
-    userId,
-    rideId: ride.id,
-    bikeId: ride.bikeId,
-    durationSeconds: activity.durationInSeconds,
-    distanceMeters,
-    isNewRide,
-  }).catch(() => {}); // swallow - already logged internally
+  if (syncedRideId) {
+    fireRideNotifications({
+      userId,
+      rideId: syncedRideId,
+      bikeId,
+      durationSeconds: activity.durationInSeconds,
+      distanceMeters,
+      isNewRide,
+    }).catch(() => {}); // swallow - already logged internally
 
-  if (isNewRide) {
-    completeReferral(userId).catch(() => {}); // swallow - already logged internally
+    if (isNewRide) {
+      completeReferral(userId).catch(() => {}); // swallow - already logged internally
+    }
   }
 }
 

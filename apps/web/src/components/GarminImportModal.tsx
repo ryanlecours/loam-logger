@@ -22,15 +22,9 @@ interface BackfillRequest {
   completedAt: string | null;
 }
 
-const CURRENT_YEAR = new Date().getFullYear();
-
-// Generate year options: YTD + 5 previous years (current year is redundant with YTD)
-const YEAR_OPTIONS = [
-  { value: 'ytd', label: `Year to Date (${CURRENT_YEAR})` },
-  ...Array.from({ length: 5 }, (_, i) => ({
-    value: String(CURRENT_YEAR - 1 - i),
-    label: String(CURRENT_YEAR - 1 - i),
-  })),
+// Garmin's API only allows backfills for the past 30 days
+const GARMIN_YEAR_OPTIONS = [
+  { value: 'ytd', label: 'Last 30 Days' },
 ];
 
 export default function GarminImportModal({ open, onClose, onSuccess, onDuplicatesFound }: Props) {
@@ -213,13 +207,9 @@ export default function GarminImportModal({ open, onClose, onSuccess, onDuplicat
         <div className="space-y-6">
           <div>
             <p className="text-sm text-muted mb-4">
-              Select years to import your historical Garmin cycling activities.
+              Import your recent Garmin cycling activities.
               Garmin will send your rides via webhooks, and they'll appear automatically.
             </p>
-
-            <label className="block text-sm font-medium text-muted mb-2">
-              Years to import
-            </label>
 
             {historyLoading ? (
               <div className="flex items-center gap-2 text-sm text-muted py-4">
@@ -227,11 +217,9 @@ export default function GarminImportModal({ open, onClose, onSuccess, onDuplicat
                 Loading...
               </div>
             ) : (
-              <div className="grid grid-cols-2 gap-2">
-                {YEAR_OPTIONS.map((option) => {
-                  const isBackfilled = backfilledYears.has(option.value);
+              <div className="space-y-3">
+                {GARMIN_YEAR_OPTIONS.map((option) => {
                   const isInProgress = inProgressYears.has(option.value);
-                  const isDisabled = !canSelectYear(option.value);
                   const isSelected = selectedYears.has(option.value);
 
                   return (
@@ -239,8 +227,8 @@ export default function GarminImportModal({ open, onClose, onSuccess, onDuplicat
                       key={option.value}
                       className={`
                         flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer transition-colors
-                        ${isDisabled ? 'opacity-50 cursor-not-allowed' : ''}
-                        ${isSelected && !isDisabled
+                        ${isInProgress ? 'opacity-50 cursor-not-allowed' : ''}
+                        ${isSelected && !isInProgress
                           ? 'border-accent bg-accent/10'
                           : 'border-app hover:border-accent/50'}
                       `}
@@ -248,22 +236,22 @@ export default function GarminImportModal({ open, onClose, onSuccess, onDuplicat
                       <input
                         type="checkbox"
                         checked={isSelected}
-                        disabled={isDisabled}
-                        onChange={() => !isDisabled && toggleYearSelection(option.value)}
+                        disabled={isInProgress}
+                        onChange={() => !isInProgress && toggleYearSelection(option.value)}
                         className="w-4 h-4 text-accent border-gray-500 focus:ring-accent rounded"
                       />
-                      <span className={`flex-1 text-sm ${isDisabled ? 'text-muted' : 'text-primary'}`}>
+                      <span className={`flex-1 text-sm ${isInProgress ? 'text-muted' : 'text-primary'}`}>
                         {option.label}
                       </span>
-                      {isBackfilled && (
-                        <span title="Already imported"><Check className="w-3 h-3 text-green-400" /></span>
-                      )}
-                      {isInProgress && !isBackfilled && (
+                      {isInProgress && (
                         <div className="w-3 h-3 border border-yellow-400 border-t-transparent rounded-full animate-spin" title="In progress" />
                       )}
                     </label>
                   );
                 })}
+                <p className="text-xs text-muted mt-2">
+                  Garmin limits historical data access to the past 30 days. New rides sync automatically going forward.
+                </p>
               </div>
             )}
 
