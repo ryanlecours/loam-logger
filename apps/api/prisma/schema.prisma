@@ -439,6 +439,7 @@ enum EmailType {
   downgrade_notice
   payment_failed
   referral_success
+  mobile_app_launch
 }
 
 enum TriggerSource {
