@@ -324,7 +324,7 @@ const startServer = async () => {
     await stopImportSessionChecker();
     stopOAuthCleanup();
     await stopWorkers();
-    await Sentry.flush(2000);
+    await Sentry.flush(2000).catch(() => {});
     await server.stop();
     process.exit(0);
   });
