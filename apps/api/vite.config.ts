@@ -17,6 +17,8 @@ export default defineConfig({
         // keep native/binary deps and prisma external
         "@prisma/client",
         "prisma",
+        // Sentry must be external so --require instrument.cjs can init before express loads
+        "@sentry/node",
       ],
       output: {
         // CommonJS is simplest for Node start
