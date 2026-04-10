@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import './instrument';
 import * as Sentry from '@sentry/node';
 import crypto from 'crypto';
 import express, { type NextFunction, type Request, type Response } from 'express';
@@ -65,12 +66,6 @@ const startServer = async () => {
   validateEncryptionKey();
 
   const app = express();
-
-  Sentry.init({
-    dsn: process.env.SENTRY_DSN,
-    tracesSampleRate: 0.2,
-    enabled: process.env.NODE_ENV === 'production',
-  });
 
   // Railway / proxies so secure cookies & IPs work right
   app.set('trust proxy', 1);

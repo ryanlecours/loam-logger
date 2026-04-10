@@ -1,3 +1,4 @@
+import '../instrument'; // Ensure Sentry is initialized even if worker runs in a separate process
 import { Worker, Job } from 'bullmq';
 import * as Sentry from '@sentry/node';
 import type { ExpoPushReceipt } from 'expo-server-sdk';
