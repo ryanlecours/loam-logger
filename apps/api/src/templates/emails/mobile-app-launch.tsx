@@ -131,18 +131,15 @@ export default function MobileAppLaunchEmail({
               without checking the app
             </Text>
             <Text className="ll-bullets" style={styles.bullets}>
-              • <span className="ll-emph" style={styles.emph}>Trailhead ready</span>
-              {" "}. Check your bike status before you ride without opening a
+              • <span className="ll-emph" style={styles.emph}>Trailhead ready</span>. Check your bike status before you ride without opening a
               browser
             </Text>
             <Text className="ll-bullets" style={styles.bullets}>
-              • <span className="ll-emph" style={styles.emph}>Log services on the go</span>
-              {" "}. Record maintenance and snooze alerts right from your
+              • <span className="ll-emph" style={styles.emph}>Log services on the go</span>. Record maintenance and snooze alerts right from your
               workbench
             </Text>
             <Text className="ll-bullets" style={styles.bullets}>
-              • <span className="ll-emph" style={styles.emph}>Full gear and ride tracking</span>
-              {" "}. Everything from the web app, optimized for your phone
+              • <span className="ll-emph" style={styles.emph}>Full gear and ride tracking</span>. Everything from the web app, optimized for your phone
             </Text>
 
             <Text className="ll-p" style={styles.p}>
@@ -194,10 +191,9 @@ export default function MobileAppLaunchEmail({
             </Heading>
 
             <Text className="ll-p" style={styles.p}>
-              You have been with Loam Logger since the early days, and your input
-              has directly shaped what this product has become. That has not
-              changed. I want to hear everything: ideas, critiques, things that
-              feel awkward, things that feel great. No detail is too small.
+              As a beta tester, your input has directly shaped what this product
+              has become. I want to hear everything: ideas, critiques, things
+              that feel awkward, things that feel great. No detail is too small.
             </Text>
 
             <Section style={{ paddingTop: 8, paddingBottom: 12, textAlign: "center" }}>
