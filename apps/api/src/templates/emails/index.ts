@@ -10,6 +10,7 @@ import { templateConfig as foundingRidersConfig } from './founding-riders';
 import { templateConfig as preAccessConfig } from './pre-access';
 import { templateConfig as stravaEnabledConfig } from './strava-enabled';
 import { templateConfig as betaFeatureRoundupConfig } from './beta-feature-roundup';
+import { templateConfig as mobileAppLaunchConfig } from './mobile-app-launch';
 // Note: activation template excluded - it's system-triggered, not admin-sendable
 
 import type { TemplateConfig, TemplateConfigDTO } from './types';
@@ -24,6 +25,7 @@ const allTemplates: TemplateConfig[] = [
   preAccessConfig,
   stravaEnabledConfig,
   betaFeatureRoundupConfig,
+  mobileAppLaunchConfig,
 ];
 
 /** Templates visible in admin UI (excludes system-only templates) */

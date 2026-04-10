@@ -15,8 +15,8 @@ export default defineConfig({
     react(),
     nxViteTsPaths(),
     sentryVitePlugin({
-      org: "loam-labs-gq",
-      project: "loam-logger-web",
+      org: "loam-labs-llc",
+      project: "javascript-react",
       authToken: process.env.SENTRY_AUTH_TOKEN,
       disable: !process.env.SENTRY_AUTH_TOKEN,
     }),

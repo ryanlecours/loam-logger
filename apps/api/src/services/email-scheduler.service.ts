@@ -6,6 +6,7 @@ import { getAnnouncementEmailHtml, ANNOUNCEMENT_TEMPLATE_VERSION } from '../temp
 import Welcome1Email, { WELCOME_1_TEMPLATE_VERSION } from '../templates/emails/welcome-1';
 import Welcome2Email, { WELCOME_2_TEMPLATE_VERSION } from '../templates/emails/welcome-2';
 import Welcome3Email, { WELCOME_3_TEMPLATE_VERSION } from '../templates/emails/welcome-3';
+import MobileAppLaunchEmail, { MOBILE_APP_LAUNCH_TEMPLATE_VERSION } from '../templates/emails/mobile-app-launch';
 import { generateUnsubscribeToken } from '../lib/unsubscribe-token';
 import { getRedisConnection, isRedisReady } from '../lib/redis';
 import type { EmailType } from '@prisma/client';
@@ -44,6 +45,8 @@ function getEmailTypeAndVersion(templateType: string | null): {
       return { emailType: 'welcome_series', templateVersion: WELCOME_3_TEMPLATE_VERSION };
     case 'announcement':
       return { emailType: 'announcement', templateVersion: ANNOUNCEMENT_TEMPLATE_VERSION };
+    case 'mobile_app_launch':
+      return { emailType: 'mobile_app_launch', templateVersion: MOBILE_APP_LAUNCH_TEMPLATE_VERSION };
     default:
       return { emailType: 'custom', templateVersion: ANNOUNCEMENT_TEMPLATE_VERSION };
   }
@@ -87,6 +90,13 @@ async function renderEmailHtml(
           settingsUrl: `${FRONTEND_URL}/settings`,
           dashboardUrl: `${FRONTEND_URL}/dashboard`,
           gearUrl: `${FRONTEND_URL}/gear`,
+          unsubscribeUrl,
+        })
+      );
+    case 'mobile_app_launch':
+      return render(
+        React.createElement(MobileAppLaunchEmail, {
+          recipientFirstName,
           unsubscribeUrl,
         })
       );
