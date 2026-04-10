@@ -51,13 +51,9 @@ export default function MobileAppLaunchEmail({
 
   const hello = safeName ? `${safeName},` : "Hey,";
 
-  const mailFeedbackHref = `mailto:${encodeURIComponent(
-    safeSupportEmail
-  )}?subject=${encodeURIComponent("Loam Logger Mobile App Feedback")}`;
+  const mailFeedbackHref = `mailto:${safeSupportEmail}?subject=${encodeURIComponent("Loam Logger Mobile App Feedback")}`;
 
-  const mailBugHref = `mailto:${encodeURIComponent(
-    safeSupportEmail
-  )}?subject=${encodeURIComponent("Loam Logger Mobile App Bug Report")}`;
+  const mailBugHref = `mailto:${safeSupportEmail}?subject=${encodeURIComponent("Loam Logger Mobile App Bug Report")}`;
 
   return (
     <Html>
