@@ -1,4 +1,5 @@
 import { Worker, Job, DelayedError } from 'bullmq';
+import * as Sentry from '@sentry/node';
 import { getQueueConnection } from '../lib/queue/connection';
 import { acquireLock, releaseLock } from '../lib/rate-limit';
 import { prisma } from '../lib/prisma';
@@ -868,10 +869,12 @@ export function createSyncWorker(): Worker<SyncJobData, void, SyncJobName> {
 
   syncWorker.on('failed', (job, err) => {
     logger.error({ jobId: job?.id, jobName: job?.name, error: err.message }, '[SyncWorker] Job failed');
+    Sentry.captureException(err, { tags: { worker: 'sync', jobName: job?.name } });
   });
 
   syncWorker.on('error', (err) => {
     logger.error({ error: err.message }, '[SyncWorker] Worker error');
+    Sentry.captureException(err, { tags: { worker: 'sync' } });
   });
 
   logger.info('[SyncWorker] Started');

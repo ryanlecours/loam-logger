@@ -1,4 +1,5 @@
 import { Worker, Job } from 'bullmq';
+import * as Sentry from '@sentry/node';
 import type { ExpoPushReceipt } from 'expo-server-sdk';
 import { expo } from '../lib/expo';
 import { getQueueConnection } from '../lib/queue/connection';
@@ -76,10 +77,12 @@ export function createNotificationWorker(): Worker<NotificationJobData, void, No
 
   notificationWorker.on('failed', (job, err) => {
     logger.warn({ jobId: job?.id, error: err.message }, '[NotificationWorker] Receipt check failed');
+    Sentry.captureException(err, { tags: { worker: 'notification' } });
   });
 
   notificationWorker.on('error', (err) => {
     logger.error({ error: err.message }, '[NotificationWorker] Worker error');
+    Sentry.captureException(err, { tags: { worker: 'notification' } });
   });
 
   return notificationWorker;

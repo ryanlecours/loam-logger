@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import * as Sentry from '@sentry/node';
 import crypto from 'crypto';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import cors from 'cors';
@@ -64,6 +65,12 @@ const startServer = async () => {
   validateEncryptionKey();
 
   const app = express();
+
+  Sentry.init({
+    dsn: process.env.SENTRY_DSN,
+    tracesSampleRate: 0.2,
+    enabled: process.env.NODE_ENV === 'production',
+  });
 
   // Railway / proxies so secure cookies & IPs work right
   app.set('trust proxy', 1);
@@ -199,6 +206,7 @@ const startServer = async () => {
     const userId = req.sessionUser?.uid ?? req.user?.id;
     if (userId) {
       enrichRequestContext({ userId });
+      Sentry.setUser({ id: userId });
     }
     next();
   });
@@ -265,6 +273,9 @@ const startServer = async () => {
   app.use(referralRouter);
   app.use(garminTest);
   app.use(mockGarmin);
+
+  // Sentry error handler must come before custom error handler
+  Sentry.setupExpressErrorHandler(app);
 
   // Error handler (so you see thrown middleware errors)
   // Note: Express requires all 4 params for error middleware to be recognized
