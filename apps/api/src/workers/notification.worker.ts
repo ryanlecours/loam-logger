@@ -77,8 +77,8 @@ export function createNotificationWorker(): Worker<NotificationJobData, void, No
   });
 
   notificationWorker.on('failed', (job, err) => {
-    logger.warn({ jobId: job?.id, error: err.message }, '[NotificationWorker] Receipt check failed');
-    Sentry.captureException(err, { tags: { worker: 'notification' } });
+    logger.warn({ jobId: job?.id, error: err.message }, '[NotificationWorker] Job failed');
+    Sentry.captureException(err, { tags: { worker: 'notification' }, extra: { jobId: job?.id } });
   });
 
   notificationWorker.on('error', (err) => {

@@ -870,7 +870,7 @@ export function createSyncWorker(): Worker<SyncJobData, void, SyncJobName> {
 
   syncWorker.on('failed', (job, err) => {
     logger.error({ jobId: job?.id, jobName: job?.name, error: err.message }, '[SyncWorker] Job failed');
-    Sentry.captureException(err, { tags: { worker: 'sync', jobName: job?.name } });
+    Sentry.captureException(err, { tags: { worker: 'sync', jobName: job?.name }, extra: { jobId: job?.id } });
   });
 
   syncWorker.on('error', (err) => {

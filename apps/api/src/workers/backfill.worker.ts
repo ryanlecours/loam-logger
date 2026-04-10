@@ -487,7 +487,7 @@ export function createBackfillWorker(): Worker<BackfillJobData, void, BackfillJo
       { jobId: job?.id, jobName: job?.name, year: job?.data.year, error: err.message },
       'Backfill job failed'
     );
-    Sentry.captureException(err, { tags: { worker: 'backfill', jobName: job?.name } });
+    Sentry.captureException(err, { tags: { worker: 'backfill', jobName: job?.name }, extra: { jobId: job?.id } });
   });
 
   backfillWorker.on('error', (err) => {
