@@ -8,7 +8,7 @@ import path from "path";
 export default defineConfig({
   root: __dirname,
   build: {
-    sourcemap: true,
+    sourcemap: 'hidden',
   },
   plugins: [
     tailwindcss(),

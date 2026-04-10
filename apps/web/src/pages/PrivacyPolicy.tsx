@@ -25,7 +25,7 @@ export default function PrivacyPolicy() {
                         <div className="space-y-6">
                             <div>
                                 <h1 className="section-title mb-2">Privacy Policy</h1>
-                                <p className="text-sm text-muted">Last updated: November 13, 2025</p>
+                                <p className="text-sm text-muted">Last updated: April 9, 2026</p>
                             </div>
 
                             <div className="max-h-[70vh] overflow-y-auto space-y-6 pr-4">
@@ -63,13 +63,20 @@ export default function PrivacyPolicy() {
                                 <section>
                                     <h2 className="card-title mb-3">4. Sharing</h2>
                                     <p className="body text-muted">
-                                        We do not sell personal data. We may share with trusted processors (e.g., hosting, analytics) under data-processing terms.
+                                        We do not sell personal data. We may share with trusted processors (e.g., hosting, analytics, error tracking) under data-processing terms.
                                         We may disclose if required by law or to protect rights and safety.
                                     </p>
                                 </section>
 
                                 <section>
-                                    <h2 className="card-title mb-3">5. Retention & Deletion</h2>
+                                    <h2 className="card-title mb-3">5. Error Tracking & Crash Reporting</h2>
+                                    <p className="body text-muted">
+                                        We use Sentry (<a className="text-mint hover:text-sage transition-colors underline" href="https://sentry.io" target="_blank" rel="noopener noreferrer">sentry.io</a>), a third-party error tracking service, to monitor application stability and diagnose crashes. When an error occurs, Sentry may receive a pseudonymized user identifier (an internal ID, not your name or email), device and OS information, and technical details about the error. No fitness data, ride information, or personal content is sent to Sentry. For more information, see <a className="text-mint hover:text-sage transition-colors underline" href="https://sentry.io/privacy/" target="_blank" rel="noopener noreferrer">Sentry's privacy policy</a>.
+                                    </p>
+                                </section>
+
+                                <section>
+                                    <h2 className="card-title mb-3">6. Retention & Deletion</h2>
                                     <p className="body text-muted">
                                         We retain data while your account is active and as needed for service integrity.
                                         You can request deletion of your account and associated data at any time (see "Contact").
@@ -78,35 +85,35 @@ export default function PrivacyPolicy() {
                                 </section>
 
                                 <section>
-                                    <h2 className="card-title mb-3">6. Security</h2>
+                                    <h2 className="card-title mb-3">7. Security</h2>
                                     <p className="body text-muted">
                                         We use industry-standard security controls; however, no method of transmission or storage is 100% secure.
                                     </p>
                                 </section>
 
                                 <section>
-                                    <h2 className="card-title mb-3">7. Children</h2>
+                                    <h2 className="card-title mb-3">8. Children</h2>
                                     <p className="body text-muted">
                                         Loam Logger is not intended for children under 18. We do not knowingly collect data from children.
                                     </p>
                                 </section>
 
                                 <section>
-                                    <h2 className="card-title mb-3">8. International Transfers</h2>
+                                    <h2 className="card-title mb-3">9. International Transfers</h2>
                                     <p className="body text-muted">
                                         Data may be processed in the United States or other countries with appropriate safeguards.
                                     </p>
                                 </section>
 
                                 <section>
-                                    <h2 className="card-title mb-3">9. Changes</h2>
+                                    <h2 className="card-title mb-3">10. Changes</h2>
                                     <p className="body text-muted">
                                         We may update this policy. We'll post the new date above and, if material, notify you in-app.
                                     </p>
                                 </section>
 
                                 <section>
-                                    <h2 className="card-title mb-3">10. Contact</h2>
+                                    <h2 className="card-title mb-3">11. Contact</h2>
                                     <p className="body">
                                         Questions or deletion requests: <a className="text-mint hover:text-sage transition-colors underline" href="mailto:ryan.lecours@loamlogger.app">ryan.lecours@loamlogger.app</a>
                                     </p>

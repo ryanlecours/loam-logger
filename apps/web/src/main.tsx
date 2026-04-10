@@ -15,7 +15,7 @@ Sentry.init({
   integrations: [
     Sentry.browserTracingIntegration(),
   ],
-  tracesSampleRate: 0.2,
+  tracesSampleRate: 0.05,
   enabled: import.meta.env.PROD,
 });
 
@@ -25,7 +25,17 @@ createRoot(document.getElementById('root')!).render(
     <ApolloProvider client={client}>
       <ThemeProvider>
         <PreferencesProvider>
-          <Sentry.ErrorBoundary fallback={<div style={{ padding: 40, textAlign: 'center' }}>Something went wrong. Please refresh the page.</div>}>
+          <Sentry.ErrorBoundary fallback={
+            <div className="min-h-screen bg-app flex items-center justify-center px-6">
+              <div className="text-center max-w-md">
+                <h1 className="text-2xl font-bold text-cream mb-3">Something went wrong</h1>
+                <p className="text-muted mb-6">An unexpected error occurred. Please refresh the page to try again.</p>
+                <button onClick={() => window.location.reload()} className="btn-primary px-6 py-3">
+                  Refresh Page
+                </button>
+              </div>
+            </div>
+          }>
             <App />
           </Sentry.ErrorBoundary>
         </PreferencesProvider>
