@@ -1,4 +1,6 @@
 import 'dotenv/config';
+import './instrument';
+import * as Sentry from '@sentry/node';
 import crypto from 'crypto';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import cors from 'cors';
@@ -199,6 +201,7 @@ const startServer = async () => {
     const userId = req.sessionUser?.uid ?? req.user?.id;
     if (userId) {
       enrichRequestContext({ userId });
+      Sentry.setUser({ id: userId });
     }
     next();
   });
@@ -266,6 +269,9 @@ const startServer = async () => {
   app.use(garminTest);
   app.use(mockGarmin);
 
+  // Sentry error handler must come before custom error handler
+  Sentry.setupExpressErrorHandler(app);
+
   // Error handler (so you see thrown middleware errors)
   // Note: Express requires all 4 params for error middleware to be recognized
   app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
@@ -318,6 +324,7 @@ const startServer = async () => {
     await stopImportSessionChecker();
     stopOAuthCleanup();
     await stopWorkers();
+    await Sentry.flush(2000).catch(() => {});
     await server.stop();
     process.exit(0);
   });

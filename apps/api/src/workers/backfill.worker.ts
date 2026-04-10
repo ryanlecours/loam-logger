@@ -1,4 +1,6 @@
+import '../instrument'; // Ensure Sentry is initialized even if worker runs in a separate process
 import { Worker, Job } from 'bullmq';
+import * as Sentry from '@sentry/node';
 import { getQueueConnection } from '../lib/queue/connection';
 import { acquireLock, releaseLock } from '../lib/rate-limit';
 import { prisma } from '../lib/prisma';
@@ -485,10 +487,12 @@ export function createBackfillWorker(): Worker<BackfillJobData, void, BackfillJo
       { jobId: job?.id, jobName: job?.name, year: job?.data.year, error: err.message },
       'Backfill job failed'
     );
+    Sentry.captureException(err, { tags: { worker: 'backfill', jobName: job?.name }, extra: { jobId: job?.id } });
   });
 
   backfillWorker.on('error', (err) => {
     logger.error({ error: err.message }, 'BackfillWorker error');
+    Sentry.captureException(err, { tags: { worker: 'backfill' } });
   });
 
   logger.info('BackfillWorker started');
