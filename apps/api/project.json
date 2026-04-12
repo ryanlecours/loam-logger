@@ -10,14 +10,18 @@
       "executor": "nx:run-commands",
       "outputs": ["{workspaceRoot}/dist/apps/api"],
       "options": {
-        "command": "npx vite build",
-        "cwd": "apps/api"
+        "commands": [
+          "npx vite build",
+          "npx esbuild src/instrument.ts --bundle --platform=node --format=cjs --outfile=../../dist/apps/api/instrument.cjs --external:@sentry/node --external:dotenv"
+        ],
+        "cwd": "apps/api",
+        "parallel": false
       }
     },
     "serve": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "tsx --env-file=.env src/server.ts",
+        "command": "tsx --env-file=.env --import ./src/instrument.ts src/server.ts",
         "cwd": "apps/api"
       }
     },

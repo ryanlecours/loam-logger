@@ -216,12 +216,12 @@ export default function MobileAppLaunchEmail({
             </Heading>
 
             <Text className="ll-p" style={styles.p}>
-              Know someone who would find this useful? Share the TestFlight link
+              <span className="ll-emph" style={styles.emph}>Feel free to share Loam Logger beta with friends!</span> Share the TestFlight link
               or send them to{" "}
               <Link href={safeDashboardUrl} className="ll-link" style={styles.link}>
                 loamlogger.app
               </Link>{" "}
-              to create an account. The more riders testing before launch, the
+              to create an account. I will get them online with beta test accounts as soon as possible. The more riders testing before launch, the
               better Loam Logger will be on day one.
             </Text>
 
