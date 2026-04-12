@@ -44,7 +44,7 @@ jobs:
           timeout_minutes: 10
           max_attempts: 3
           retry_wait_seconds: 30
-          command: npm ci --include=optional
+          command: npm install
 
       - name: Remove duplicate React copies (prevent test failures)
         run: |
