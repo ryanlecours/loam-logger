@@ -1,4 +1,3 @@
-import './instrument';
 import * as Sentry from '@sentry/node';
 import crypto from 'crypto';
 import express, { type NextFunction, type Request, type Response } from 'express';

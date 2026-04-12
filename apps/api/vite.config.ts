@@ -9,7 +9,7 @@ export default defineConfig({
     },
   },
   build: {
-    ssr: "src/server.ts",         // your entry file
+    ssr: "src/server.ts",
     outDir: "../../dist/apps/api",
     target: "node18",
     rollupOptions: {
