@@ -19,6 +19,8 @@ libs/**/package-lock.json
 .env.*.local
 apps/**/.env
 apps/**/.env.local
+.env.sentry-build-plugin
+**/.env.sentry-build-plugin
 
 # OS files
 .DS_Store
