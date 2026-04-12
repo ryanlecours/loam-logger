@@ -17,8 +17,10 @@ export default defineConfig({
         // keep native/binary deps and prisma external
         "@prisma/client",
         "prisma",
-        // Sentry must be external so --require instrument.cjs can init before express loads
+        // Sentry and Express must be external so Sentry's OpenTelemetry
+        // monkey-patching can instrument Express at require() time
         "@sentry/node",
+        "express",
       ],
       output: {
         // CommonJS is simplest for Node start
