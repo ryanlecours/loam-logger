@@ -24,12 +24,19 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
 
       - name: Verify Node/npm versions
         run: |
           node -v
           npm -v
+
+      - name: Clean nested node_modules before install
+        run: |
+          rm -rf apps/web/node_modules
+          rm -rf apps/api/node_modules
 
       - name: Install dependencies (with retry for Prisma CDN)
         uses: nick-fields/retry@v3
@@ -37,7 +44,7 @@ jobs:
           timeout_minutes: 10
           max_attempts: 3
           retry_wait_seconds: 30
-          command: rm -rf node_modules package-lock.json && npm install
+          command: npm ci
 
       - name: Remove duplicate React copies (prevent test failures)
         run: |
