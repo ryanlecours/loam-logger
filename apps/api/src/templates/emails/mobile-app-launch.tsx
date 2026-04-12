@@ -131,18 +131,15 @@ export default function MobileAppLaunchEmail({
               without checking the app
             </Text>
             <Text className="ll-bullets" style={styles.bullets}>
-              • <span className="ll-emph" style={styles.emph}>Trailhead ready</span>
-              {" "}. Check your bike status before you ride without opening a
+              • <span className="ll-emph" style={styles.emph}>Trailhead ready</span>. Check your bike status before you ride without opening a
               browser
             </Text>
             <Text className="ll-bullets" style={styles.bullets}>
-              • <span className="ll-emph" style={styles.emph}>Log services on the go</span>
-              {" "}. Record maintenance and snooze alerts right from your
+              • <span className="ll-emph" style={styles.emph}>Log services on the go</span>. Record maintenance and snooze alerts right from your
               workbench
             </Text>
             <Text className="ll-bullets" style={styles.bullets}>
-              • <span className="ll-emph" style={styles.emph}>Full gear and ride tracking</span>
-              {" "}. Everything from the web app, optimized for your phone
+              • <span className="ll-emph" style={styles.emph}>Full gear and ride tracking</span>. Everything from the web app, optimized for your phone
             </Text>
 
             <Text className="ll-p" style={styles.p}>
@@ -152,19 +149,20 @@ export default function MobileAppLaunchEmail({
             </Text>
 
             <Text className="ll-p" style={styles.p}>
-              The iPhone app is available first, and an Android version is
-              coming shortly after launch.
+              The iPhone app is available first. A native Android app as well as
+              Suunto integration are both in the works and will be live
+              before launch.
             </Text>
 
             <Hr className="ll-hr" style={styles.hr} />
 
             <Heading as="h2" className="ll-h2" style={styles.h2}>
-              Official launch: April 28th, 2026
+              Official launch: May 12th, 2026
             </Heading>
 
             <Text className="ll-p" style={styles.p}>
               Loam Logger's official launch date is set for{" "}
-              <span className="ll-emph" style={styles.emph}>April 28th, 2026</span>.
+              <span className="ll-emph" style={styles.emph}>May 12th, 2026</span>.
               Between now and then, this is your window to explore the mobile app,
               push it to its limits, and help shape what ships on day one.
             </Text>
@@ -194,10 +192,9 @@ export default function MobileAppLaunchEmail({
             </Heading>
 
             <Text className="ll-p" style={styles.p}>
-              You have been with Loam Logger since the early days, and your input
-              has directly shaped what this product has become. That has not
-              changed. I want to hear everything: ideas, critiques, things that
-              feel awkward, things that feel great. No detail is too small.
+              As a beta tester, your input has directly shaped what this product
+              has become. I want to hear everything: ideas, critiques, things
+              that feel awkward, things that feel great. No detail is too small.
             </Text>
 
             <Section style={{ paddingTop: 8, paddingBottom: 12, textAlign: "center" }}>
@@ -244,7 +241,7 @@ export default function MobileAppLaunchEmail({
 
             <Text className="ll-p" style={styles.p}>
               Thank you for being part of this from the beginning. Seeing this
-              hit the App Store on the 28th is going to be a big moment, and it
+              hit the App Store on the 12th is going to be a big moment, and it
               would not be happening without you.
             </Text>
 
@@ -410,7 +407,7 @@ export const templateConfig: TemplateConfig = {
   id: "mobile-app-launch",
   displayName: "Mobile App Launch (TestFlight)",
   description:
-    "Announces the iPhone app is ready for TestFlight beta testing, shares mobile app benefits, and announces the April 28th launch date",
+    "Announces the iPhone app is ready for TestFlight beta testing, shares mobile app benefits, and announces the May 12th launch date",
   defaultSubject:
     "Loam Logger for iPhone is ready. Join the TestFlight beta.",
   emailType: "mobile_app_launch",

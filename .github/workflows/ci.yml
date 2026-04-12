@@ -24,7 +24,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: 'npm'
           cache-dependency-path: package-lock.json
 
@@ -44,7 +44,7 @@ jobs:
           timeout_minutes: 10
           max_attempts: 3
           retry_wait_seconds: 30
-          command: npm ci --include=optional
+          command: npm ci
 
       - name: Remove duplicate React copies (prevent test failures)
         run: |
