@@ -14,7 +14,10 @@ export default function ResetPassword() {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [success, setSuccess] = useState(false);
-  const [expired, setExpired] = useState(false);
+  // Missing-token and expired-token land on the same UX: the link can't be
+  // completed, so offer a fresh reset. Distinguishing the two wouldn't give
+  // the user an actionable difference.
+  const [expired, setExpired] = useState(!token);
 
   // If the user is on a phone and has the app installed, try to hand off to it.
   // On iOS with universal links configured, the OS intercepts the https:// link
@@ -33,10 +36,7 @@ export default function ResetPassword() {
     event.preventDefault();
     setError(null);
 
-    if (!token) {
-      setError('This reset link is missing its token. Please request a new one.');
-      return;
-    }
+    if (!token) return; // Defensive: the form shouldn't render when token is missing.
 
     if (newPassword !== confirmPassword) {
       setError('New passwords do not match.');

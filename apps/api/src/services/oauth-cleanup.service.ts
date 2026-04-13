@@ -29,6 +29,9 @@ export function startOAuthCleanup(): void {
   }
 
   log.info('Starting OAuth attempt cleanup (hourly)');
+  // Run once immediately so a fresh deploy doesn't wait a full interval
+  // before pruning the table.
+  void runCleanup();
   cleanupInterval = setInterval(runCleanup, CLEANUP_INTERVAL_MS);
 }
 
