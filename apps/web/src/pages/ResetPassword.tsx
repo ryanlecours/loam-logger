@@ -14,6 +14,7 @@ export default function ResetPassword() {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [expired, setExpired] = useState(false);
 
   // If the user is on a phone and has the app installed, try to hand off to it.
   // On iOS with universal links configured, the OS intercepts the https:// link
@@ -59,6 +60,10 @@ export default function ResetPassword() {
 
       if (!res.ok) {
         const data = await res.json();
+        if (data.code === 'TOKEN_EXPIRED') {
+          setExpired(true);
+          return;
+        }
         setError(data.error || 'Failed to reset password.');
         return;
       }
@@ -116,16 +121,37 @@ export default function ResetPassword() {
               Loam Logger
             </p>
             <h1 className="text-2xl font-semibold" style={{ color: 'var(--cream)' }}>
-              Reset Password
+              {expired ? 'Link Expired' : 'Reset Password'}
             </h1>
             <p className="text-sm" style={{ color: 'var(--concrete)' }}>
-              {success
-                ? 'Your password has been updated. You can now sign in.'
-                : 'Choose a new password for your account.'}
+              {expired
+                ? 'This reset link has expired. Request a new one to continue.'
+                : success
+                  ? 'Your password has been updated. You can now sign in.'
+                  : 'Choose a new password for your account.'}
             </p>
           </div>
 
-          {success ? (
+          {expired ? (
+            <div className="space-y-3">
+              <Button
+                type="button"
+                variant="primary"
+                className="w-full justify-center text-base"
+                onClick={() => navigate('/forgot-password', { replace: true })}
+              >
+                Request a New Link
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full justify-center text-base"
+                onClick={() => navigate('/login', { replace: true })}
+              >
+                Back to Sign In
+              </Button>
+            </div>
+          ) : success ? (
             <Button
               type="button"
               variant="primary"

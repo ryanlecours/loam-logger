@@ -91,11 +91,15 @@ export async function sendPasswordResetEmail(
 
 export type ConsumeResult =
   | { ok: true; userId: string }
-  | { ok: false; reason: 'not_found' | 'expired' | 'already_used' };
+  | { ok: false; reason: 'not_found' | 'expired' }
+  | { ok: false; reason: 'already_used'; userId: string };
 
 /**
  * Verify a raw token and mark it used. Returns the associated userId on success.
  * Safe against token reuse — the same token cannot be consumed twice.
+ *
+ * `already_used` results include the userId so callers can log which user's
+ * reset link may have leaked, without exposing that distinction to the client.
  */
 export async function consumePasswordResetToken(rawToken: string): Promise<ConsumeResult> {
   const tokenHash = hashToken(rawToken);
@@ -107,7 +111,7 @@ export async function consumePasswordResetToken(rawToken: string): Promise<Consu
     return { ok: false, reason: 'not_found' };
   }
   if (record.usedAt) {
-    return { ok: false, reason: 'already_used' };
+    return { ok: false, reason: 'already_used', userId: record.userId };
   }
   if (record.expiresAt.getTime() < Date.now()) {
     return { ok: false, reason: 'expired' };
@@ -119,7 +123,8 @@ export async function consumePasswordResetToken(rawToken: string): Promise<Consu
   });
 
   if (updated.count === 0) {
-    return { ok: false, reason: 'already_used' };
+    // Race: someone else consumed this token between our findUnique and updateMany.
+    return { ok: false, reason: 'already_used', userId: record.userId };
   }
 
   return { ok: true, userId: record.userId };

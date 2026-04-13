@@ -322,18 +322,31 @@ export default function Login() {
             />
           </label>
           {mode === 'login' && (
-            <label className="block text-xs uppercase tracking-[0.3em]" style={{ color: 'var(--concrete)' }}>
-              Password
-              <input
-                type="password"
-                className="mt-1 w-full input-soft"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="********"
-                disabled={isLoading}
-                required
-              />
-            </label>
+            <>
+              <label className="block text-xs uppercase tracking-[0.3em]" style={{ color: 'var(--concrete)' }}>
+                Password
+                <input
+                  type="password"
+                  className="mt-1 w-full input-soft"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="********"
+                  disabled={isLoading}
+                  required
+                />
+              </label>
+              <div className="text-right text-sm">
+                <button
+                  type="button"
+                  onClick={() => navigate('/forgot-password')}
+                  disabled={isLoading}
+                  className="hover:underline"
+                  style={{ color: 'var(--sage)' }}
+                >
+                  Forgot password?
+                </button>
+              </div>
+            </>
           )}
           {mode === 'signup' && waitlistEnabled && (
             <div className="text-sm p-3 rounded-lg" style={{ backgroundColor: 'rgba(134, 169, 139, 0.15)', color: 'var(--sage)' }}>

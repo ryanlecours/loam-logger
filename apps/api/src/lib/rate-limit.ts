@@ -188,6 +188,8 @@ export const AUTH_RATE_LIMITS = {
   'public-stats': { windowSeconds: 60, maxRequests: 30 },
   /** reset-password: max 10 requests per minute per IP (prevents token-guessing floods) */
   'reset-password': { windowSeconds: 60, maxRequests: 10 },
+  /** forgot-password: max 5 requests per minute per IP (public; prevents email-blast abuse) */
+  'forgot-password': { windowSeconds: 60, maxRequests: 5 },
 } as const;
 
 export type AuthRateLimitType = keyof typeof AUTH_RATE_LIMITS;

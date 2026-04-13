@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Navigate } from 'react-router-dom';
+import { toast } from 'sonner';
+import { formatDistanceToNow } from 'date-fns';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { getAuthHeaders } from '@/lib/csrf';
 
@@ -22,6 +24,7 @@ interface UserEntry {
   activatedAt: string | null;
   emailUnsubscribed: boolean;
   isFoundingRider: boolean;
+  lastPasswordResetEmailAt: string | null;
 }
 
 interface AdminStats {
@@ -593,7 +596,15 @@ export default function Admin() {
   };
 
   const handleSendPasswordReset = async (userId: string, email: string) => {
-    if (!confirm(`Email a password reset link to ${email}?`)) {
+    // Guard against accidental double-sends: if a reset was emailed recently,
+    // show the admin when it was sent before they confirm a new one.
+    const user = users.find((u) => u.id === userId);
+    const lastSent = user?.lastPasswordResetEmailAt;
+    const prompt = lastSent
+      ? `A reset link was already sent to ${email} ${formatDistanceToNow(new Date(lastSent))} ago. Send another?`
+      : `Email a password reset link to ${email}?`;
+
+    if (!confirm(prompt)) {
       return;
     }
 
@@ -613,10 +624,17 @@ export default function Admin() {
         throw new Error(data.error || 'Failed to send password reset email');
       }
 
-      alert(`Password reset link sent to ${email}.`);
+      // Update the local timestamp so the admin sees the new "sent just now"
+      // value without a full refetch.
+      const now = new Date().toISOString();
+      setUsers((prev) =>
+        prev.map((u) => (u.id === userId ? { ...u, lastPasswordResetEmailAt: now } : u))
+      );
+
+      toast.success(`Password reset link sent to ${email}.`);
     } catch (err) {
       console.error('Send password reset failed:', err);
-      alert(err instanceof Error ? err.message : 'Failed to send password reset email');
+      toast.error(err instanceof Error ? err.message : 'Failed to send password reset email');
     } finally {
       setResettingPassword(null);
     }
@@ -1895,7 +1913,11 @@ export default function Admin() {
                         onClick={() => handleSendPasswordReset(u.id, u.email)}
                         disabled={resettingPassword === u.id || deleting === u.id || demoting === u.id}
                         className="btn-sm rounded-xl px-3 py-1.5 text-xs font-medium text-white bg-primary hover:bg-primary/80 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                        title="Email a password reset link"
+                        title={
+                          u.lastPasswordResetEmailAt
+                            ? `Last reset sent ${formatDistanceToNow(new Date(u.lastPasswordResetEmailAt))} ago`
+                            : 'Email a password reset link'
+                        }
                       >
                         {resettingPassword === u.id ? 'Sending...' : 'Reset Pwd'}
                       </button>

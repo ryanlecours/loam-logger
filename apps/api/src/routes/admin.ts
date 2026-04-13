@@ -725,13 +725,26 @@ router.get('/users', async (req, res) => {
           activatedAt: true,
           emailUnsubscribed: true,
           isFoundingRider: true,
+          emailSends: {
+            where: { emailType: 'password_reset', status: 'sent' },
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+            select: { createdAt: true },
+          },
         },
       }),
       prisma.user.count({ where: { role: { in: ['FREE', 'PRO', 'ADMIN'] } } }),
     ]);
 
+    // Flatten the relation into a single timestamp field so the frontend
+    // doesn't need to know about the EmailSend table.
+    const usersWithResetTimestamp = users.map(({ emailSends, ...user }) => ({
+      ...user,
+      lastPasswordResetEmailAt: emailSends[0]?.createdAt ?? null,
+    }));
+
     res.json({
-      users,
+      users: usersWithResetTimestamp,
       pagination: {
         page,
         limit,

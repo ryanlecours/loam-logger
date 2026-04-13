@@ -10,7 +10,11 @@ import { prisma } from '../lib/prisma';
 import { sendBadRequest, sendUnauthorized, sendForbidden, sendConflict, sendInternalError, sendTooManyRequests } from '../lib/api-response';
 import { checkAuthRateLimit, checkMutationRateLimit } from '../lib/rate-limit';
 import { sendPasswordChangedNotification } from '../services/password-notification.service';
-import { consumePasswordResetToken } from '../services/password-reset.service';
+import {
+  consumePasswordResetToken,
+  createPasswordResetToken,
+  sendPasswordResetEmail,
+} from '../services/password-reset.service';
 import { logger } from '../lib/logger';
 import { config } from '../config/env';
 import { createNewUser, verifyEmailAvailable } from '../services/signup.service';
@@ -263,6 +267,58 @@ router.post('/change-password', express.json(), requireRecentAuth, async (req, r
 });
 
 /**
+ * POST /auth/forgot-password
+ * Start a self-service password reset. Emails a reset link to the user if the
+ * address is on file.
+ *
+ * Always returns 200 regardless of whether the email matches a user — this
+ * prevents email enumeration via the response.
+ */
+router.post('/forgot-password', express.json(), async (req, res) => {
+  try {
+    const clientIp = getClientIp(req);
+    const rateLimit = await checkAuthRateLimit('forgot-password', clientIp);
+    if (!rateLimit.allowed) {
+      return sendTooManyRequests(res, 'Too many attempts. Please try again later.', rateLimit.retryAfter);
+    }
+
+    const { email: rawEmail } = req.body as { email?: string };
+
+    if (!rawEmail) {
+      return sendBadRequest(res, 'Email is required');
+    }
+
+    const email = normalizeEmail(rawEmail);
+    if (!email || !validateEmailFormat(email)) {
+      // Still return 200 to avoid leaking which strings are valid emails on file.
+      return res.json({ ok: true });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { email },
+      select: { id: true, email: true, name: true },
+    });
+
+    if (user) {
+      try {
+        const rawToken = await createPasswordResetToken(user.id);
+        await sendPasswordResetEmail(user, rawToken, 'user_action');
+      } catch (err) {
+        // Log but still return 200 — we don't want the client to infer anything
+        // from timing or error state.
+        logger.error({ err, userId: user.id }, '[EmailAuth] Forgot password email send failed');
+      }
+    }
+
+    res.json({ ok: true });
+  } catch (e) {
+    logger.error({ err: e }, '[EmailAuth] Forgot password failed');
+    // Return 200 anyway — failure modes here shouldn't be distinguishable from success.
+    res.json({ ok: true });
+  }
+});
+
+/**
  * POST /auth/reset-password
  * Complete a password reset using a token emailed to the user.
  * This endpoint is unauthenticated — the reset token is the authorization.
@@ -291,7 +347,21 @@ router.post('/reset-password', express.json(), async (req, res) => {
 
     const result = await consumePasswordResetToken(token);
     if (!result.ok) {
-      return sendBadRequest(res, 'Reset link is invalid or has expired');
+      // Reuse of an already-consumed token is a signal the reset email may have
+      // leaked — log it server-side without tipping off the client.
+      if (result.reason === 'already_used') {
+        logger.warn(
+          { userId: result.userId, clientIp: getClientIp(req) },
+          '[EmailAuth] Password reset token reuse attempted',
+        );
+      }
+      // Distinguish expired vs invalid so the client can show a dedicated
+      // "request a new link" screen for expired tokens. not_found and
+      // already_used collapse into a single generic code to avoid enumeration.
+      if (result.reason === 'expired') {
+        return sendBadRequest(res, 'Reset link has expired', 'TOKEN_EXPIRED');
+      }
+      return sendBadRequest(res, 'Reset link is invalid or has expired', 'TOKEN_INVALID');
     }
 
     const user = await prisma.user.findUnique({
