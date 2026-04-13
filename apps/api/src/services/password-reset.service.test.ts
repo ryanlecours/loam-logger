@@ -191,17 +191,20 @@ describe('consumePasswordResetToken', () => {
     expect(mockPasswordResetToken.updateMany).not.toHaveBeenCalled();
   });
 
-  it('returns { ok: false, reason: "already_used", userId } when the atomic update loses the race (count=0)', async () => {
-    // Both reads see usedAt: null, but only one updateMany wins.
-    mockPasswordResetToken.findUnique.mockResolvedValue({
+  it('returns { ok: false, reason: "already_used", userId } when the atomic update loses the race to a concurrent consumer', async () => {
+    const record = {
       id: 'tok_1',
       userId: 'user_7',
       tokenHash: 'hash',
       expiresAt: new Date(Date.now() + 60_000),
       usedAt: null,
       createdAt: new Date(),
-    });
-    // This call loses the race — count is 0.
+    };
+    // First call: the initial lookup. Second call: the race-disambiguation
+    // re-read that now shows the row has been consumed by someone else.
+    mockPasswordResetToken.findUnique
+      .mockResolvedValueOnce(record)
+      .mockResolvedValueOnce({ usedAt: new Date(), expiresAt: record.expiresAt });
     mockPasswordResetToken.updateMany.mockResolvedValue({ count: 0 });
 
     const result = await consumePasswordResetToken('raw-token');
@@ -209,18 +212,71 @@ describe('consumePasswordResetToken', () => {
     expect(result).toEqual({ ok: false, reason: 'already_used', userId: 'user_7' });
   });
 
+  it('returns { ok: false, reason: "race_expired", userId } when the atomic update loses the race to expiry (benign)', async () => {
+    // Initial read sees a valid token, but in the sub-ms gap to updateMany
+    // the token expires, so the expiresAt guard excludes it. The follow-up
+    // read confirms it's still unused — so this is expiry, not reuse.
+    const expiredRow = new Date(Date.now() - 1);
+    const record = {
+      id: 'tok_1',
+      userId: 'user_11',
+      tokenHash: 'hash',
+      expiresAt: new Date(Date.now() + 1), // valid at first read
+      usedAt: null,
+      createdAt: new Date(),
+    };
+    mockPasswordResetToken.findUnique
+      .mockResolvedValueOnce(record)
+      .mockResolvedValueOnce({ usedAt: null, expiresAt: expiredRow });
+    mockPasswordResetToken.updateMany.mockResolvedValue({ count: 0 });
+
+    const result = await consumePasswordResetToken('raw-token');
+
+    expect(result).toEqual({ ok: false, reason: 'race_expired', userId: 'user_11' });
+  });
+
+  it('returns race_expired (not already_used) when the follow-up read finds the row missing', async () => {
+    const record = {
+      id: 'tok_1',
+      userId: 'user_12',
+      tokenHash: 'hash',
+      expiresAt: new Date(Date.now() + 60_000),
+      usedAt: null,
+      createdAt: new Date(),
+    };
+    mockPasswordResetToken.findUnique
+      .mockResolvedValueOnce(record)
+      .mockResolvedValueOnce(null); // row vanished
+    mockPasswordResetToken.updateMany.mockResolvedValue({ count: 0 });
+
+    const result = await consumePasswordResetToken('raw-token');
+
+    // Unknown cause — default to the non-alerting branch to avoid false positives.
+    expect(result).toEqual({ ok: false, reason: 'race_expired', userId: 'user_12' });
+  });
+
   it('prevents double-consumption under concurrent calls (only one succeeds)', async () => {
-    // Both concurrent calls see the same unused record
-    mockPasswordResetToken.findUnique.mockResolvedValue({
+    const activeRecord = {
       id: 'tok_1',
       userId: 'user_1',
       tokenHash: 'hash',
       expiresAt: new Date(Date.now() + 60_000),
       usedAt: null,
       createdAt: new Date(),
+    };
+
+    // Both concurrent calls see the same unused record on the initial lookup.
+    // The loser's follow-up disambiguation read sees the row as used (the
+    // winner just consumed it), so the loser resolves to `already_used`.
+    let lookupCount = 0;
+    mockPasswordResetToken.findUnique.mockImplementation(async () => {
+      lookupCount += 1;
+      // First two calls are the concurrent initial lookups — both see unused.
+      if (lookupCount <= 2) return activeRecord;
+      // The loser's follow-up read sees the winner's write.
+      return { usedAt: new Date(), expiresAt: activeRecord.expiresAt };
     });
 
-    // Simulate a DB race: the first updateMany returns count=1, the second returns count=0.
     let winnerAcknowledged = false;
     mockPasswordResetToken.updateMany.mockImplementation(async () => {
       if (!winnerAcknowledged) {

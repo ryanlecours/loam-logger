@@ -21,13 +21,22 @@ export default function ForgotPassword() {
     setIsLoading(true);
 
     try {
-      await fetch(`${import.meta.env.VITE_API_URL}/auth/forgot-password`, {
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/auth/forgot-password`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: email.trim() }),
       });
-      // The server always returns 200 to avoid leaking which emails are registered.
-      // Show the same confirmation regardless.
+
+      // Surface rate-limit specifically so the user knows to retry later.
+      // Other non-200 codes still fall through to the generic "Check Your Email"
+      // screen to preserve enumeration resistance.
+      if (res.status === 429) {
+        const data = await res.json().catch(() => ({}));
+        const retryAfter = typeof data.retryAfter === 'number' ? data.retryAfter : 60;
+        setError(`Too many attempts. Please try again in ${retryAfter} seconds.`);
+        return;
+      }
+
       setSubmitted(true);
     } catch (err) {
       console.error('[ForgotPassword] Network error', err);

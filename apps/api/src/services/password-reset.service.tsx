@@ -92,7 +92,12 @@ export async function sendPasswordResetEmail(
 export type ConsumeResult =
   | { ok: true; userId: string }
   | { ok: false; reason: 'not_found' | 'expired' }
-  | { ok: false; reason: 'already_used'; userId: string };
+  | { ok: false; reason: 'already_used'; userId: string }
+  // Atomic update lost the race (count=0 after passing the initial checks).
+  // The cause is either a concurrent consumer or sub-ms expiry — a follow-up
+  // read disambiguates. Surfaced separately so the caller doesn't log the
+  // benign expiry case as a security event.
+  | { ok: false; reason: 'race_expired'; userId: string };
 
 /**
  * Verify a raw token and mark it used. Returns the associated userId on success.
@@ -125,10 +130,19 @@ export async function consumePasswordResetToken(rawToken: string): Promise<Consu
   });
 
   if (updated.count === 0) {
-    // Race: either another request consumed it, or it expired in the sub-ms
-    // gap between our read and write. Treat both as already_used for the
-    // caller — we already logged the userId so the signal isn't lost.
-    return { ok: false, reason: 'already_used', userId: record.userId };
+    // Atomic update lost the race. Re-read to tell "concurrent consumer
+    // (security signal)" apart from "just expired between our read and
+    // write (benign, no alert)".
+    const refreshed = await prisma.passwordResetToken.findUnique({
+      where: { id: record.id },
+      select: { usedAt: true, expiresAt: true },
+    });
+    if (refreshed?.usedAt) {
+      return { ok: false, reason: 'already_used', userId: record.userId };
+    }
+    // Either the row vanished (unlikely) or it's past expiry now — treat as
+    // a benign expiry race. No security alert warranted.
+    return { ok: false, reason: 'race_expired', userId: record.userId };
   }
 
   return { ok: true, userId: record.userId };

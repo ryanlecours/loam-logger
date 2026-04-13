@@ -349,16 +349,23 @@ router.post('/reset-password', express.json(), async (req, res) => {
     if (!result.ok) {
       // Reuse of an already-consumed token is a signal the reset email may have
       // leaked — log it server-side without tipping off the client.
+      // `race_expired` is the benign "expired between read and write" case,
+      // logged at debug rather than warn to avoid false-positive alerts.
       if (result.reason === 'already_used') {
         logger.warn(
           { userId: result.userId, clientIp },
           '[EmailAuth] Password reset token reuse attempted',
         );
+      } else if (result.reason === 'race_expired') {
+        logger.debug(
+          { userId: result.userId, clientIp },
+          '[EmailAuth] Password reset token expired during consumption',
+        );
       }
       // Distinguish expired vs invalid so the client can show a dedicated
       // "request a new link" screen for expired tokens. not_found and
       // already_used collapse into a single generic code to avoid enumeration.
-      if (result.reason === 'expired') {
+      if (result.reason === 'expired' || result.reason === 'race_expired') {
         return sendBadRequest(res, 'Reset link has expired', 'TOKEN_EXPIRED');
       }
       return sendBadRequest(res, 'Reset link is invalid or has expired', 'TOKEN_INVALID');
