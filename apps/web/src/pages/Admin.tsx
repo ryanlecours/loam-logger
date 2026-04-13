@@ -115,6 +115,7 @@ export default function Admin() {
   const [activating, setActivating] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [demoting, setDemoting] = useState<string | null>(null);
+  const [resettingPassword, setResettingPassword] = useState<string | null>(null);
   const [showAddUserForm, setShowAddUserForm] = useState(false);
   const [addingUser, setAddingUser] = useState(false);
   const [addUserForm, setAddUserForm] = useState<AddUserForm>({
@@ -588,6 +589,36 @@ export default function Admin() {
       alert(err instanceof Error ? err.message : 'Failed to delete user');
     } finally {
       setDeleting(null);
+    }
+  };
+
+  const handleSendPasswordReset = async (userId: string, email: string) => {
+    if (!confirm(`Email a password reset link to ${email}?`)) {
+      return;
+    }
+
+    try {
+      setResettingPassword(userId);
+      const res = await fetch(
+        `${import.meta.env.VITE_API_URL}/api/admin/users/${userId}/send-password-reset`,
+        {
+          method: 'POST',
+          credentials: 'include',
+          headers: getAuthHeaders(),
+        }
+      );
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to send password reset email');
+      }
+
+      alert(`Password reset link sent to ${email}.`);
+    } catch (err) {
+      console.error('Send password reset failed:', err);
+      alert(err instanceof Error ? err.message : 'Failed to send password reset email');
+    } finally {
+      setResettingPassword(null);
     }
   };
 
@@ -1859,6 +1890,14 @@ export default function Admin() {
                         title={u.emailUnsubscribed ? 'User has unsubscribed' : 'Send email'}
                       >
                         Email
+                      </button>
+                      <button
+                        onClick={() => handleSendPasswordReset(u.id, u.email)}
+                        disabled={resettingPassword === u.id || deleting === u.id || demoting === u.id}
+                        className="btn-sm rounded-xl px-3 py-1.5 text-xs font-medium text-white bg-primary hover:bg-primary/80 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                        title="Email a password reset link"
+                      >
+                        {resettingPassword === u.id ? 'Sending...' : 'Reset Pwd'}
                       </button>
                       <button
                         onClick={() => handleDemoteUser(u.id, u.email)}

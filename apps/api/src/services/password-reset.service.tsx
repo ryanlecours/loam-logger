@@ -1,0 +1,126 @@
+import crypto from 'crypto';
+import { prisma } from '../lib/prisma';
+import { logger } from '../lib/logger';
+import { sendReactEmailWithAudit } from './email.service';
+import PasswordResetEmail, {
+  getPasswordResetEmailSubject,
+  PASSWORD_RESET_TEMPLATE_VERSION,
+} from '../templates/emails/password-reset';
+import { FRONTEND_URL } from '../config/env';
+import type { TriggerSource } from '@prisma/client';
+
+export const PASSWORD_RESET_TTL_MINUTES = 60;
+const TOKEN_BYTES = 32;
+
+export type PasswordResetUser = {
+  id: string;
+  email: string;
+  name?: string | null;
+};
+
+function hashToken(rawToken: string): string {
+  return crypto.createHash('sha256').update(rawToken).digest('hex');
+}
+
+/**
+ * Generate a new password reset token for a user.
+ * Invalidates any existing unused tokens for the same user.
+ * Returns the raw token — store only the hash, never persist the raw token.
+ */
+export async function createPasswordResetToken(userId: string): Promise<string> {
+  const rawToken = crypto.randomBytes(TOKEN_BYTES).toString('base64url');
+  const tokenHash = hashToken(rawToken);
+  const expiresAt = new Date(Date.now() + PASSWORD_RESET_TTL_MINUTES * 60 * 1000);
+
+  await prisma.$transaction([
+    prisma.passwordResetToken.updateMany({
+      where: { userId, usedAt: null },
+      data: { usedAt: new Date() },
+    }),
+    prisma.passwordResetToken.create({
+      data: { userId, tokenHash, expiresAt },
+    }),
+  ]);
+
+  return rawToken;
+}
+
+/**
+ * Build the reset URL that lands on the web app's reset-password page.
+ * The web page handles redirecting to the mobile deep link for app users
+ * (iOS/Android universal link interception also handled via expo scheme).
+ */
+export function buildResetUrl(rawToken: string): string {
+  const url = new URL('/reset-password', FRONTEND_URL);
+  url.searchParams.set('token', rawToken);
+  return url.toString();
+}
+
+/**
+ * Send a password reset email to a user.
+ * Bypasses the emailUnsubscribed flag (security notification).
+ */
+export async function sendPasswordResetEmail(
+  user: PasswordResetUser,
+  rawToken: string,
+  triggerSource: TriggerSource,
+): Promise<void> {
+  const firstName = user.name?.split(' ')[0];
+  const resetUrl = buildResetUrl(rawToken);
+
+  await sendReactEmailWithAudit({
+    to: user.email,
+    subject: getPasswordResetEmailSubject(),
+    reactElement: (
+      <PasswordResetEmail
+        recipientFirstName={firstName}
+        email={user.email}
+        resetUrl={resetUrl}
+        expiresInMinutes={PASSWORD_RESET_TTL_MINUTES}
+      />
+    ),
+    userId: user.id,
+    emailType: 'password_reset',
+    triggerSource,
+    templateVersion: PASSWORD_RESET_TEMPLATE_VERSION,
+    bypassUnsubscribe: true,
+  });
+
+  logger.info({ userId: user.id }, 'Password reset email sent');
+}
+
+export type ConsumeResult =
+  | { ok: true; userId: string }
+  | { ok: false; reason: 'not_found' | 'expired' | 'already_used' };
+
+/**
+ * Verify a raw token and mark it used. Returns the associated userId on success.
+ * Safe against token reuse — the same token cannot be consumed twice.
+ */
+export async function consumePasswordResetToken(rawToken: string): Promise<ConsumeResult> {
+  const tokenHash = hashToken(rawToken);
+  const record = await prisma.passwordResetToken.findUnique({
+    where: { tokenHash },
+  });
+
+  if (!record) {
+    return { ok: false, reason: 'not_found' };
+  }
+  if (record.usedAt) {
+    return { ok: false, reason: 'already_used' };
+  }
+  if (record.expiresAt.getTime() < Date.now()) {
+    return { ok: false, reason: 'expired' };
+  }
+
+  const updated = await prisma.passwordResetToken.updateMany({
+    where: { id: record.id, usedAt: null },
+    data: { usedAt: new Date() },
+  });
+
+  if (updated.count === 0) {
+    return { ok: false, reason: 'already_used' };
+  }
+
+  return { ok: true, userId: record.userId };
+}

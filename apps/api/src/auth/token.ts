@@ -6,6 +6,8 @@ const { SESSION_SECRET } = process.env;
 export type TokenPayload = {
   uid: string;
   email?: string;
+  /** User's sessionTokenVersion at token issue time — used to revoke tokens after password reset */
+  v?: number;
 };
 
 /**

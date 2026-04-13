@@ -6,7 +6,8 @@ import { verifyAppleIdentityToken } from './appleTokenVerifier';
 import { normalizeEmail, getClientIp } from './utils';
 import { validateEmailFormat } from './email.utils';
 import { verifyPassword, validatePassword, hashPassword } from './password.utils';
-import { generateAccessToken, generateRefreshToken, verifyToken } from './token';
+import { generateAccessToken, verifyToken } from './token';
+import { issueMobileTokens } from './session-issuer';
 import { updateLastAuthAt } from './recent-auth';
 import { prisma } from '../lib/prisma';
 import { checkAuthRateLimit, checkMutationRateLimit } from '../lib/rate-limit';
@@ -109,8 +110,7 @@ router.post('/mobile/signup', express.json(), async (req, res) => {
 
       const { user } = await createNewUser({ email: verifiedEmail, name: trimmedName, passwordHash, ref });
 
-      const accessToken = generateAccessToken({ uid: user.id, email: user.email });
-      const refreshToken = generateRefreshToken({ uid: user.id, email: user.email });
+      const { accessToken, refreshToken } = await issueMobileTokens({ id: user.id, email: user.email });
 
       return res.status(201).json({
         ok: true,
@@ -177,8 +177,7 @@ router.post('/mobile/google', express.json(), async (req, res) => {
     );
 
     // Generate tokens for mobile
-    const accessToken = generateAccessToken({ uid: user.id, email: user.email });
-    const refreshToken = generateRefreshToken({ uid: user.id, email: user.email });
+    const { accessToken, refreshToken } = await issueMobileTokens({ id: user.id, email: user.email });
 
     res.status(200).json({
       accessToken,
@@ -267,8 +266,7 @@ router.post('/mobile/apple', express.json(), async (req, res) => {
     );
 
     // Generate tokens for mobile
-    const accessToken = generateAccessToken({ uid: user.id, email: user.email });
-    const refreshToken = generateRefreshToken({ uid: user.id, email: user.email });
+    const { accessToken, refreshToken } = await issueMobileTokens({ id: user.id, email: user.email });
 
     res.status(200).json({
       accessToken,
@@ -348,8 +346,7 @@ router.post('/mobile/login', express.json(), async (req, res) => {
     );
 
     // Generate tokens for mobile
-    const accessToken = generateAccessToken({ uid: user.id, email: user.email });
-    const refreshToken = generateRefreshToken({ uid: user.id, email: user.email });
+    const { accessToken, refreshToken } = await issueMobileTokens({ id: user.id, email: user.email });
 
     res.status(200).json({
       accessToken,
@@ -390,14 +387,24 @@ router.post('/mobile/refresh', express.json(), async (req, res) => {
     // Verify user still exists
     const user = await prisma.user.findUnique({
       where: { id: payload.uid },
+      select: { id: true, email: true, sessionTokenVersion: true },
     });
 
     if (!user) {
       return res.status(401).send('User not found');
     }
 
-    // Generate new access token
-    const accessToken = generateAccessToken({ uid: user.id, email: user.email });
+    // Reject refresh tokens issued before a session invalidation (e.g. password reset)
+    if ((payload.v ?? 0) !== user.sessionTokenVersion) {
+      return res.status(401).send('Refresh token has been revoked');
+    }
+
+    // Generate new access token stamped with the current token version
+    const accessToken = generateAccessToken({
+      uid: user.id,
+      email: user.email,
+      v: user.sessionTokenVersion,
+    });
 
     res.status(200).json({ accessToken });
   } catch (e) {
@@ -557,14 +564,23 @@ router.post('/mobile/password/change', express.json(), async (req, res) => {
       return sendUnauthorized(res, 'Current password is incorrect');
     }
 
-    // Hash and save new password, clear mustChangePassword flag
+    // Hash and save new password, clear mustChangePassword flag, and bump
+    // sessionTokenVersion to invalidate all other active sessions. We issue a
+    // fresh token pair below so this device stays logged in.
     const newHash = await hashPassword(newPassword);
     await prisma.user.update({
       where: { id: sessionUser.uid },
       data: {
         passwordHash: newHash,
         mustChangePassword: false,
+        sessionTokenVersion: { increment: 1 },
       },
+    });
+
+    // Issue fresh tokens stamped with the new version so the caller stays logged in
+    const { accessToken, refreshToken } = await issueMobileTokens({
+      id: user.id,
+      email: user.email,
     });
 
     // Send notification email (non-blocking)
@@ -572,7 +588,7 @@ router.post('/mobile/password/change', express.json(), async (req, res) => {
       // Already logged in the service
     });
 
-    res.json({ ok: true });
+    res.json({ ok: true, accessToken, refreshToken });
   } catch (e) {
     logger.error({ err: e }, '[MobileAuth] Change password failed');
     return sendInternalError(res, 'Failed to change password');

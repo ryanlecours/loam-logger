@@ -3,7 +3,13 @@
   "outputDirectory": "dist/apps/web",
   "installCommand": "npm ci",
   "framework": "vite",
+  "headers": [
+    {
+      "source": "/.well-known/apple-app-site-association",
+      "headers": [{ "key": "Content-Type", "value": "application/json" }]
+    }
+  ],
   "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
+    { "source": "/((?!\\.well-known/).*)", "destination": "/index.html" }
   ]
 }

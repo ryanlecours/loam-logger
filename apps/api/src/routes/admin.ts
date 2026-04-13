@@ -3,6 +3,10 @@ import { prisma } from '../lib/prisma';
 import { requireAdmin } from '../auth/adminMiddleware';
 import { activateWaitlistUser, generateTempPassword } from '../services/activation.service';
 import { hashPassword } from '../auth/password.utils';
+import {
+  createPasswordResetToken,
+  sendPasswordResetEmail,
+} from '../services/password-reset.service';
 import { sendEmail, sendReactEmailWithAudit } from '../services/email.service';
 import {
   getTemplateListForAPI,
@@ -392,7 +396,8 @@ router.post('/users/:userId/demote', async (req, res) => {
       }
     }
 
-    // Demote user to WAITLIST and clear activation fields
+    // Demote user to WAITLIST, clear activation fields, and invalidate any
+    // active sessions so the demoted user is logged out everywhere.
     const updated = await prisma.user.update({
       where: { id: userId },
       data: {
@@ -401,6 +406,7 @@ router.post('/users/:userId/demote', async (req, res) => {
         activatedBy: null,
         mustChangePassword: false,
         passwordHash: null,
+        sessionTokenVersion: { increment: 1 },
       },
       select: {
         id: true,
@@ -415,6 +421,54 @@ router.post('/users/:userId/demote', async (req, res) => {
   } catch (error) {
     logError('Admin demote user', error);
     return sendInternalError(res, 'Failed to demote user');
+  }
+});
+
+/**
+ * POST /api/admin/users/:userId/send-password-reset
+ * Email a password reset link to the user.
+ */
+router.post('/users/:userId/send-password-reset', async (req, res) => {
+  try {
+    const adminUserId = req.sessionUser?.uid;
+    const { userId } = req.params;
+
+    if (!adminUserId) {
+      return sendUnauthorized(res);
+    }
+
+    if (!isValidId(userId)) {
+      return sendBadRequest(res, 'Invalid user ID');
+    }
+
+    const rateLimit = await checkAdminRateLimit('sendPasswordReset', userId);
+    if (!rateLimit.allowed) {
+      res.setHeader('Retry-After', rateLimit.retryAfter.toString());
+      return res.status(429).json({
+        success: false,
+        error: 'Too many password reset requests for this user',
+        retryAfter: rateLimit.retryAfter,
+      });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, email: true, name: true },
+    });
+
+    if (!user) {
+      return sendBadRequest(res, 'User not found');
+    }
+
+    const rawToken = await createPasswordResetToken(user.id);
+    await sendPasswordResetEmail(user, rawToken, 'admin_password_reset');
+
+    console.log(`[Admin] Password reset emailed to ${user.email} by ${adminUserId}`);
+
+    res.json({ success: true });
+  } catch (error) {
+    logError('Admin send password reset', error);
+    return sendInternalError(res, 'Failed to send password reset email');
   }
 });
 

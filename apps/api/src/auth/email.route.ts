@@ -2,7 +2,7 @@ import express from 'express';
 import { normalizeEmail, getClientIp } from './utils';
 import { hashPassword, verifyPassword, validatePassword } from './password.utils';
 import { validateEmailFormat } from './email.utils';
-import { setSessionCookie } from './session';
+import { issueWebSession } from './session-issuer';
 import { setCsrfCookie } from './csrf'; // Used by /auth/csrf-token endpoint
 import { updateLastAuthAt } from './recent-auth';
 import { requireRecentAuth } from './requireRecentAuth';
@@ -10,6 +10,7 @@ import { prisma } from '../lib/prisma';
 import { sendBadRequest, sendUnauthorized, sendForbidden, sendConflict, sendInternalError, sendTooManyRequests } from '../lib/api-response';
 import { checkAuthRateLimit, checkMutationRateLimit } from '../lib/rate-limit';
 import { sendPasswordChangedNotification } from '../services/password-notification.service';
+import { consumePasswordResetToken } from '../services/password-reset.service';
 import { logger } from '../lib/logger';
 import { config } from '../config/env';
 import { createNewUser, verifyEmailAvailable } from '../services/signup.service';
@@ -81,7 +82,7 @@ router.post('/signup', express.json(), async (req, res) => {
       const passwordHash = await hashPassword(password);
       const { user } = await createNewUser({ email: verifiedEmail, name: name.trim(), passwordHash, ref });
 
-      setSessionCookie(res, { uid: user.id, email: user.email, authAt: Date.now() });
+      await issueWebSession(res, { id: user.id, email: user.email });
       const csrfToken = setCsrfCookie(res);
 
       return res.status(201).json({ ok: true, waitlist: false, csrfToken });
@@ -157,7 +158,7 @@ router.post('/login', express.json(), async (req, res) => {
 
     // Set session and CSRF cookies, return CSRF token for immediate use
     // Include authAt as fallback in case DB lastAuthAt write failed
-    setSessionCookie(res, { uid: user.id, email: user.email, authAt: Date.now() });
+    await issueWebSession(res, { id: user.id, email: user.email });
     const csrfToken = setCsrfCookie(res);
 
     // Return success with mustChangePassword flag and CSRF token
@@ -233,15 +234,21 @@ router.post('/change-password', express.json(), requireRecentAuth, async (req, r
       return sendUnauthorized(res, 'Current password is incorrect');
     }
 
-    // Hash and save new password, clear mustChangePassword flag
+    // Hash and save new password, clear mustChangePassword flag, and bump the
+    // session token version to invalidate all other active sessions. We re-issue
+    // the current session cookie below so the caller stays logged in on this device.
     const newHash = await hashPassword(newPassword);
     await prisma.user.update({
       where: { id: userId },
       data: {
         passwordHash: newHash,
         mustChangePassword: false,
+        sessionTokenVersion: { increment: 1 },
       },
     });
+
+    // Re-issue the web session cookie stamped with the new sessionTokenVersion
+    await issueWebSession(res, { id: user.id, email: user.email });
 
     // Send notification email (non-blocking)
     sendPasswordChangedNotification({ id: user.id, email: user.email, name: user.name }).catch(() => {
@@ -252,6 +259,70 @@ router.post('/change-password', express.json(), requireRecentAuth, async (req, r
   } catch (e) {
     logger.error({ err: e }, '[EmailAuth] Change password failed');
     return sendInternalError(res, 'Failed to change password');
+  }
+});
+
+/**
+ * POST /auth/reset-password
+ * Complete a password reset using a token emailed to the user.
+ * This endpoint is unauthenticated — the reset token is the authorization.
+ */
+router.post('/reset-password', express.json(), async (req, res) => {
+  try {
+    const clientIp = getClientIp(req);
+    const rateLimit = await checkAuthRateLimit('reset-password', clientIp);
+    if (!rateLimit.allowed) {
+      return sendTooManyRequests(res, 'Too many attempts. Please try again later.', rateLimit.retryAfter);
+    }
+
+    const { token, newPassword } = req.body as {
+      token?: string;
+      newPassword?: string;
+    };
+
+    if (!token || !newPassword) {
+      return sendBadRequest(res, 'Token and new password are required');
+    }
+
+    const validation = validatePassword(newPassword);
+    if (!validation.isValid) {
+      return sendBadRequest(res, validation.error || 'Password does not meet requirements');
+    }
+
+    const result = await consumePasswordResetToken(token);
+    if (!result.ok) {
+      return sendBadRequest(res, 'Reset link is invalid or has expired');
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: result.userId },
+      select: { id: true, email: true, name: true },
+    });
+
+    if (!user) {
+      return sendBadRequest(res, 'Reset link is invalid or has expired');
+    }
+
+    const passwordHash = await hashPassword(newPassword);
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        passwordHash,
+        mustChangePassword: false,
+        // Invalidate all existing sessions — any active cookie/token issued before
+        // this reset will fail the version check in attachUser.
+        sessionTokenVersion: { increment: 1 },
+      },
+    });
+
+    sendPasswordChangedNotification({ id: user.id, email: user.email, name: user.name }).catch(() => {
+      // Already logged in the service
+    });
+
+    res.json({ ok: true });
+  } catch (e) {
+    logger.error({ err: e }, '[EmailAuth] Reset password failed');
+    return sendInternalError(res, 'Failed to reset password');
   }
 });
 

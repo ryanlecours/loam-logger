@@ -167,6 +167,8 @@ export const ADMIN_RATE_LIMITS = {
   createUser: 5 * SECONDS,
   /** User demotion cooldown: 5 seconds per target user (prevents accidental spam) */
   demoteUser: 5 * SECONDS,
+  /** Password reset email cooldown: 30 seconds per target user (prevents accidental double-click + email spam) */
+  sendPasswordReset: 30 * SECONDS,
   /** Bulk email cooldown: 60 seconds per admin (prevents spam) */
   bulkEmail: 60 * SECONDS,
   /** Waitlist import cooldown: 60 seconds per admin (prevents spam) */
@@ -184,6 +186,8 @@ export const AUTH_RATE_LIMITS = {
   'oauth-login': { windowSeconds: 60, maxRequests: 10 },
   /** public-stats: max 30 requests per minute per IP (cached endpoint, prevent abuse) */
   'public-stats': { windowSeconds: 60, maxRequests: 30 },
+  /** reset-password: max 10 requests per minute per IP (prevents token-guessing floods) */
+  'reset-password': { windowSeconds: 60, maxRequests: 10 },
 } as const;
 
 export type AuthRateLimitType = keyof typeof AUTH_RATE_LIMITS;
