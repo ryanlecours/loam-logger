@@ -351,7 +351,7 @@ router.post('/reset-password', express.json(), async (req, res) => {
       // leaked — log it server-side without tipping off the client.
       if (result.reason === 'already_used') {
         logger.warn(
-          { userId: result.userId, clientIp: getClientIp(req) },
+          { userId: result.userId, clientIp },
           '[EmailAuth] Password reset token reuse attempted',
         );
       }
