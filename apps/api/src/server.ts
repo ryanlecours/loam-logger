@@ -13,6 +13,10 @@ import { getRedisConnection, checkRedisHealth } from './lib/redis';
 import { startEmailScheduler, stopEmailScheduler } from './services/email-scheduler.service';
 import { startImportSessionChecker, stopImportSessionChecker } from './services/import-session-checker.service';
 import { startOAuthCleanup, stopOAuthCleanup } from './services/oauth-cleanup.service';
+import {
+  startPasswordResetCleanup,
+  stopPasswordResetCleanup,
+} from './services/password-reset-cleanup.service';
 import { rootLogger, logger } from './lib/logger';
 import { validateEncryptionKey } from './lib/crypto';
 import {
@@ -313,6 +317,9 @@ const startServer = async () => {
   // Start OAuth attempt cleanup (deletes expired records hourly)
   startOAuthCleanup();
 
+  // Start password reset token cleanup (deletes tokens expired >7d ago, daily)
+  startPasswordResetCleanup();
+
   app.listen(PORT, HOST, () => {
     logger.info({ port: PORT }, 'LoamLogger backend running (GraphQL at /graphql)');
   });
@@ -321,6 +328,7 @@ const startServer = async () => {
     await stopEmailScheduler();
     await stopImportSessionChecker();
     stopOAuthCleanup();
+    stopPasswordResetCleanup();
     await stopWorkers();
     await Sentry.flush(2000).catch(() => {});
     await server.stop();

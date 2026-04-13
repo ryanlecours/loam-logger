@@ -20,7 +20,7 @@ import React from 'react';
 import { generateUnsubscribeToken } from '../lib/unsubscribe-token';
 import { sendUnauthorized, sendBadRequest, sendInternalError } from '../lib/api-response';
 import { checkAdminRateLimit } from '../lib/rate-limit';
-import { logError } from '../lib/logger';
+import { logError, logger } from '../lib/logger';
 import { escapeHtml } from '../lib/html';
 import type { UserRole } from '@prisma/client';
 import { getActivationEmailHtml, getActivationEmailSubject } from '../templates/emails/activation';
@@ -463,7 +463,7 @@ router.post('/users/:userId/send-password-reset', async (req, res) => {
     const rawToken = await createPasswordResetToken(user.id);
     await sendPasswordResetEmail(user, rawToken, 'admin_password_reset');
 
-    console.log(`[Admin] Password reset emailed to ${user.email} by ${adminUserId}`);
+    logger.info({ userId: user.id, adminUserId }, '[Admin] Password reset emailed');
 
     res.json({ success: true });
   } catch (error) {

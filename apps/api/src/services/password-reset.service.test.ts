@@ -5,6 +5,7 @@ jest.mock('../lib/prisma', () => ({
       findUnique: jest.fn(),
       create: jest.fn(),
       updateMany: jest.fn(),
+      deleteMany: jest.fn(),
     },
     $transaction: jest.fn(),
   },
@@ -29,6 +30,7 @@ import {
   consumePasswordResetToken,
   sendPasswordResetEmail,
   buildResetUrl,
+  cleanupExpiredPasswordResetTokens,
   PASSWORD_RESET_TTL_MINUTES,
 } from './password-reset.service';
 
@@ -40,6 +42,7 @@ const mockPasswordResetToken = mockPrisma.passwordResetToken as unknown as {
   findUnique: jest.Mock;
   create: jest.Mock;
   updateMany: jest.Mock;
+  deleteMany: jest.Mock;
 };
 const mockTransaction = mockPrisma.$transaction as unknown as jest.Mock;
 
@@ -139,8 +142,10 @@ describe('consumePasswordResetToken', () => {
     const result = await consumePasswordResetToken('raw-token');
 
     expect(result).toEqual({ ok: true, userId: 'user_1' });
+    // Atomic update must re-check both usedAt AND expiresAt to prevent a
+    // token expiring between the findUnique and the write from slipping through.
     expect(mockPasswordResetToken.updateMany).toHaveBeenCalledWith({
-      where: { id: 'tok_1', usedAt: null },
+      where: { id: 'tok_1', usedAt: null, expiresAt: { gt: expect.any(Date) } },
       data: { usedAt: expect.any(Date) },
     });
   });
@@ -278,5 +283,47 @@ describe('sendPasswordResetEmail', () => {
     );
 
     expect(mockSendReactEmailWithAudit.mock.calls[0][0].triggerSource).toBe('user_action');
+  });
+});
+
+describe('cleanupExpiredPasswordResetTokens', () => {
+  it('deletes tokens whose expiresAt is older than the cutoff (default: 7 days)', async () => {
+    mockPasswordResetToken.deleteMany.mockResolvedValue({ count: 42 });
+
+    const before = Date.now();
+    const deleted = await cleanupExpiredPasswordResetTokens();
+    const after = Date.now();
+
+    expect(deleted).toBe(42);
+    expect(mockPasswordResetToken.deleteMany).toHaveBeenCalledTimes(1);
+
+    const call = mockPasswordResetToken.deleteMany.mock.calls[0][0];
+    const cutoff = (call.where.expiresAt.lt as Date).getTime();
+    const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+    // cutoff should be roughly `now - 7 days`
+    expect(cutoff).toBeGreaterThanOrEqual(before - sevenDaysMs - 1000);
+    expect(cutoff).toBeLessThanOrEqual(after - sevenDaysMs + 1000);
+  });
+
+  it('honors a custom olderThanHours argument', async () => {
+    mockPasswordResetToken.deleteMany.mockResolvedValue({ count: 0 });
+
+    const before = Date.now();
+    await cleanupExpiredPasswordResetTokens(1); // 1 hour ago
+    const after = Date.now();
+
+    const call = mockPasswordResetToken.deleteMany.mock.calls[0][0];
+    const cutoff = (call.where.expiresAt.lt as Date).getTime();
+    const oneHourMs = 60 * 60 * 1000;
+    expect(cutoff).toBeGreaterThanOrEqual(before - oneHourMs - 1000);
+    expect(cutoff).toBeLessThanOrEqual(after - oneHourMs + 1000);
+  });
+
+  it('returns 0 when there is nothing to clean up', async () => {
+    mockPasswordResetToken.deleteMany.mockResolvedValue({ count: 0 });
+
+    const deleted = await cleanupExpiredPasswordResetTokens();
+
+    expect(deleted).toBe(0);
   });
 });

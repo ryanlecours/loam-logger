@@ -118,14 +118,32 @@ export async function consumePasswordResetToken(rawToken: string): Promise<Consu
   }
 
   const updated = await prisma.passwordResetToken.updateMany({
-    where: { id: record.id, usedAt: null },
+    // Re-check both unused and not-yet-expired atomically so a token expiring
+    // between the findUnique above and this write can't slip through.
+    where: { id: record.id, usedAt: null, expiresAt: { gt: new Date() } },
     data: { usedAt: new Date() },
   });
 
   if (updated.count === 0) {
-    // Race: someone else consumed this token between our findUnique and updateMany.
+    // Race: either another request consumed it, or it expired in the sub-ms
+    // gap between our read and write. Treat both as already_used for the
+    // caller — we already logged the userId so the signal isn't lost.
     return { ok: false, reason: 'already_used', userId: record.userId };
   }
 
   return { ok: true, userId: record.userId };
+}
+
+/**
+ * Delete password reset tokens whose `expiresAt` was more than `olderThanHours`
+ * hours ago. Invalidated-but-never-used and expired tokens accumulate
+ * indefinitely otherwise; a scheduled job calls this to keep the table bounded.
+ * Returns the number of deleted rows.
+ */
+export async function cleanupExpiredPasswordResetTokens(olderThanHours = 7 * 24): Promise<number> {
+  const cutoff = new Date(Date.now() - olderThanHours * 60 * 60 * 1000);
+  const result = await prisma.passwordResetToken.deleteMany({
+    where: { expiresAt: { lt: cutoff } },
+  });
+  return result.count;
 }
