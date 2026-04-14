@@ -51,14 +51,19 @@ beforeEach(() => {
 });
 
 describe('buildResetUrl', () => {
-  it('builds a URL at /reset-password with the token in the query string', () => {
+  it('builds a URL at /reset-password with the token and source=email in the query string', () => {
     const url = buildResetUrl('abc123');
-    expect(url).toBe('https://loamlogger.app/reset-password?token=abc123');
+    expect(url).toBe('https://loamlogger.app/reset-password?token=abc123&source=email');
   });
 
   it('URL-encodes token characters that need escaping', () => {
     const url = buildResetUrl('a+b/c=d');
     expect(url).toContain('token=a%2Bb%2Fc%3Dd');
+  });
+
+  it('always includes source=email so the web page knows to attempt the app hand-off', () => {
+    const url = new URL(buildResetUrl('abc123'));
+    expect(url.searchParams.get('source')).toBe('email');
   });
 });
 

@@ -347,17 +347,18 @@ router.post('/reset-password', express.json(), async (req, res) => {
 
     const result = await consumePasswordResetToken(token);
     if (!result.ok) {
-      // Reuse of an already-consumed token is a signal the reset email may have
-      // leaked — log it server-side without tipping off the client.
-      // `race_expired` is the benign "expired between read and write" case,
-      // logged at debug rather than warn to avoid false-positive alerts.
+      // Reuse of an already-consumed token is a signal the reset email may
+      // have leaked — warn-level so it surfaces on the security channel.
+      // `race_expired` is the benign "expired between read and write" case —
+      // info-level so it's visible for debugging concurrent-submission
+      // behavior without triggering on-call alerts.
       if (result.reason === 'already_used') {
         logger.warn(
           { userId: result.userId, clientIp },
           '[EmailAuth] Password reset token reuse attempted',
         );
       } else if (result.reason === 'race_expired') {
-        logger.debug(
+        logger.info(
           { userId: result.userId, clientIp },
           '[EmailAuth] Password reset token expired during consumption',
         );

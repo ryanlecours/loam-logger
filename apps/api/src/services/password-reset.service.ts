@@ -50,10 +50,17 @@ export async function createPasswordResetToken(userId: string): Promise<string> 
  * Build the reset URL that lands on the web app's reset-password page.
  * The web page handles redirecting to the mobile deep link for app users
  * (iOS/Android universal link interception also handled via expo scheme).
+ *
+ * The `source=email` query param signals to the web page that the visitor
+ * arrived by tapping an email link, so the mobile deep-link hand-off fires
+ * only in that context. Direct visits (typed URL, bookmark, re-nav) skip it
+ * to avoid triggering spurious "Open in app?" prompts or error dialogs on
+ * mobile browsers when the app isn't installed.
  */
 export function buildResetUrl(rawToken: string): string {
   const url = new URL('/reset-password', FRONTEND_URL);
   url.searchParams.set('token', rawToken);
+  url.searchParams.set('source', 'email');
   return url.toString();
 }
 

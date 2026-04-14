@@ -90,7 +90,7 @@ const mockValidateEmailFormat = validateEmailFormat as jest.Mock;
 const mockHashPassword = hashPassword as jest.Mock;
 const mockValidatePassword = validatePassword as jest.Mock;
 const mockLoggerWarn = logger.warn as unknown as jest.Mock;
-const mockLoggerDebug = logger.debug as unknown as jest.Mock;
+const mockLoggerInfo = logger.info as unknown as jest.Mock;
 
 interface RouteLayer {
   route?: {
@@ -360,7 +360,7 @@ describe('POST /reset-password', () => {
       expect(mockLoggerWarn).not.toHaveBeenCalled();
     });
 
-    it('returns TOKEN_EXPIRED (400) for race_expired and logs at debug (not warn)', async () => {
+    it('returns TOKEN_EXPIRED (400) for race_expired and logs at info (not warn, not debug)', async () => {
       mockConsumeToken.mockResolvedValue({
         ok: false,
         reason: 'race_expired',
@@ -375,9 +375,10 @@ describe('POST /reset-password', () => {
       expect(res.json).toHaveBeenCalledWith(
         expect.objectContaining({ code: 'TOKEN_EXPIRED' }),
       );
-      // Benign case — should NOT trigger the security-alert warn log.
+      // Benign case — should NOT trigger the security-alert warn log, but
+      // should still be visible in production log pipelines (hence info, not debug).
       expect(mockLoggerWarn).not.toHaveBeenCalled();
-      expect(mockLoggerDebug).toHaveBeenCalledWith(
+      expect(mockLoggerInfo).toHaveBeenCalledWith(
         expect.objectContaining({ userId: 'user_11' }),
         expect.any(String),
       );

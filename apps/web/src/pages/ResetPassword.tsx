@@ -19,18 +19,25 @@ export default function ResetPassword() {
   // the user an actionable difference.
   const [expired, setExpired] = useState(!token);
 
-  // If the user is on a phone and has the app installed, try to hand off to it.
-  // On iOS with universal links configured, the OS intercepts the https:// link
-  // before we even load — this fallback only fires when that didn't happen
-  // (app not installed, old build without entitlement, in-app browser, etc.).
-  // If the scheme isn't registered the navigation silently fails and the web form stays visible.
+  // If the user is on a phone and arrived from an email link, try to hand off
+  // to the app. On iOS with universal links configured, the OS intercepts the
+  // https:// link before we even load — this fallback only fires when that
+  // didn't happen (app not installed, old build without entitlement, in-app
+  // browser, etc.).
+  //
+  // Gated on `?source=email` so only users arriving from the email attempt the
+  // hand-off. Direct visits (typed URL, bookmark, redirect from the expired
+  // screen) skip it — otherwise mobile browsers can show "Open in app?"
+  // prompts or error dialogs even when the user is intentionally using the
+  // web flow.
   useEffect(() => {
     if (!token) return;
+    if (searchParams.get('source') !== 'email') return;
     const ua = navigator.userAgent;
     const isMobile = /iPhone|iPad|iPod|Android/i.test(ua);
     if (!isMobile) return;
     window.location.href = `loamlogger://reset-password?token=${encodeURIComponent(token)}`;
-  }, [token]);
+  }, [token, searchParams]);
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();

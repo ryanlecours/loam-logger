@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { Navigate, useLocation } from 'react-router-dom'
 import { useQuery } from '@apollo/client'
 import { ME_QUERY } from '../graphql/me'
+import { useSentryUser } from '../hooks/useSentryUser'
 
 export default function AuthGate({ children }: { children: ReactNode }) {
   const location = useLocation()
@@ -9,6 +10,10 @@ export default function AuthGate({ children }: { children: ReactNode }) {
     fetchPolicy: 'cache-and-network',
     nextFetchPolicy: 'cache-first',
   })
+
+  // Tag browser-side Sentry events with the authenticated user's id so alerts
+  // can surface who was affected. Clears on logout.
+  useSentryUser()
 
   if (loading && !data?.me) return <div className="p-6">Loading…</div>
   if (!data?.me) {
