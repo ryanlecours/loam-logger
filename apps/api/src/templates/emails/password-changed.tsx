@@ -26,3 +26,11 @@ export default function PasswordChangedEmail(props: PasswordSecurityEmailProps) 
 export function getPasswordChangedEmailSubject(): string {
   return "Your Loam Logger password was changed";
 }
+
+/**
+ * Build the React element for the password-changed email.
+ * Keeping the JSX in the template module lets consumer service files stay .ts.
+ */
+export function buildPasswordChangedEmailElement(props: PasswordSecurityEmailProps) {
+  return <PasswordChangedEmail {...props} />;
+}

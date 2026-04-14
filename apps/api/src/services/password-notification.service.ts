@@ -1,9 +1,11 @@
 import { sendReactEmailWithAudit } from './email.service';
-import PasswordAddedEmail, {
+import {
+  buildPasswordAddedEmailElement,
   getPasswordAddedEmailSubject,
   PASSWORD_ADDED_TEMPLATE_VERSION,
 } from '../templates/emails/password-added';
-import PasswordChangedEmail, {
+import {
+  buildPasswordChangedEmailElement,
   getPasswordChangedEmailSubject,
   PASSWORD_CHANGED_TEMPLATE_VERSION,
 } from '../templates/emails/password-changed';
@@ -26,12 +28,10 @@ export async function sendPasswordAddedNotification(user: PasswordNotificationUs
     await sendReactEmailWithAudit({
       to: user.email,
       subject: getPasswordAddedEmailSubject(),
-      reactElement: (
-        <PasswordAddedEmail
-          recipientFirstName={firstName}
-          email={user.email}
-        />
-      ),
+      reactElement: buildPasswordAddedEmailElement({
+        recipientFirstName: firstName,
+        email: user.email,
+      }),
       userId: user.id,
       emailType: 'password_added',
       triggerSource: 'user_action',
@@ -57,12 +57,10 @@ export async function sendPasswordChangedNotification(user: PasswordNotification
     await sendReactEmailWithAudit({
       to: user.email,
       subject: getPasswordChangedEmailSubject(),
-      reactElement: (
-        <PasswordChangedEmail
-          recipientFirstName={firstName}
-          email={user.email}
-        />
-      ),
+      reactElement: buildPasswordChangedEmailElement({
+        recipientFirstName: firstName,
+        email: user.email,
+      }),
       userId: user.id,
       emailType: 'password_changed',
       triggerSource: 'user_action',

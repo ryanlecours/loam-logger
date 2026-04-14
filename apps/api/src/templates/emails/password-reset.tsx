@@ -142,3 +142,11 @@ export default function PasswordResetEmail({
 export function getPasswordResetEmailSubject(): string {
   return "Reset your Loam Logger password";
 }
+
+/**
+ * Build the React element for the password reset email.
+ * Keeping the JSX in the template module lets the service file stay .ts.
+ */
+export function buildPasswordResetEmailElement(props: PasswordResetEmailProps) {
+  return <PasswordResetEmail {...props} />;
+}

@@ -26,3 +26,11 @@ export default function PasswordAddedEmail(props: PasswordSecurityEmailProps) {
 export function getPasswordAddedEmailSubject(): string {
   return "Password added to your Loam Logger account";
 }
+
+/**
+ * Build the React element for the password-added email.
+ * Keeping the JSX in the template module lets consumer service files stay .ts.
+ */
+export function buildPasswordAddedEmailElement(props: PasswordSecurityEmailProps) {
+  return <PasswordAddedEmail {...props} />;
+}

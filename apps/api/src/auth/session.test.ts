@@ -18,19 +18,27 @@ jest.mock('../lib/prisma', () => ({
   },
 }));
 jest.mock('../lib/logger', () => ({
-  logger: { error: jest.fn(), info: jest.fn(), warn: jest.fn() },
+  logger: { error: jest.fn(), info: jest.fn(), warn: jest.fn(), debug: jest.fn() },
+}));
+jest.mock('@sentry/node', () => ({
+  captureException: jest.fn(),
 }));
 
 import * as jwt from 'jsonwebtoken';
+import * as Sentry from '@sentry/node';
 import { attachUser, type SessionUser } from './session';
 import { extractBearerToken, verifyToken } from './token';
 import { prisma } from '../lib/prisma';
+import { logger } from '../lib/logger';
 
 const mockedJwt = jwt as jest.Mocked<typeof jwt>;
 const mockExtractBearerToken = extractBearerToken as jest.Mock;
 const mockVerifyToken = verifyToken as jest.Mock;
 const mockPrisma = prisma as jest.Mocked<typeof prisma>;
 const mockUserFindUnique = mockPrisma.user.findUnique as unknown as jest.Mock;
+const mockSentryCapture = Sentry.captureException as jest.Mock;
+const mockLoggerError = logger.error as unknown as jest.Mock;
+const mockLoggerDebug = logger.debug as unknown as jest.Mock;
 
 afterAll(() => {
   process.env = originalEnv;
@@ -136,14 +144,79 @@ describe('attachUser — cookie session (web)', () => {
     expect(req.sessionUser).toBeUndefined();
   });
 
-  it('rejects the cookie when the DB lookup errors (fail-closed)', async () => {
+  it('rejects the cookie when the DB lookup errors (fail-closed) and alerts Sentry + error log', async () => {
     mockedJwt.verify.mockReturnValue({ uid: 'user_1', v: 0 } as never);
-    mockUserFindUnique.mockRejectedValue(new Error('DB unavailable'));
+    const dbErr = new Error('DB unavailable');
+    mockUserFindUnique.mockRejectedValue(dbErr);
 
     const req = makeReq({ cookies: { ll_session: 'signed-jwt' } });
     await runAttachUser(req);
 
     expect(req.sessionUser).toBeUndefined();
+    // Auth failing closed is critical — on-call needs to see this immediately.
+    expect(mockSentryCapture).toHaveBeenCalledWith(dbErr, expect.objectContaining({
+      tags: expect.objectContaining({ component: 'auth', severity: 'critical' }),
+    }));
+    expect(mockLoggerError).toHaveBeenCalled();
+  });
+
+  it('rate-limits Sentry alerts during a sustained DB outage (first fires, bursts suppressed)', async () => {
+    // Fresh module load so the alert-cooldown state is zeroed for this test.
+    await jest.isolateModulesAsync(async () => {
+      jest.doMock('@sentry/node', () => ({ captureException: jest.fn() }));
+      jest.doMock('jsonwebtoken');
+      jest.doMock('./token', () => ({
+        extractBearerToken: jest.fn().mockReturnValue(null),
+        verifyToken: jest.fn(),
+      }));
+      jest.doMock('../lib/prisma', () => ({
+        prisma: { user: { findUnique: jest.fn() } },
+      }));
+      jest.doMock('../lib/logger', () => ({
+        logger: { error: jest.fn(), info: jest.fn(), warn: jest.fn(), debug: jest.fn() },
+      }));
+
+      const freshJwt = (await import('jsonwebtoken')) as jest.Mocked<typeof import('jsonwebtoken')>;
+      const freshSentry = (await import('@sentry/node')) as unknown as {
+        captureException: jest.Mock;
+      };
+      const freshLogger = ((await import('../lib/logger')) as unknown as {
+        logger: { error: jest.Mock; debug: jest.Mock };
+      }).logger;
+      const freshPrismaFindUnique = ((await import('../lib/prisma')) as unknown as {
+        prisma: { user: { findUnique: jest.Mock } };
+      }).prisma.user.findUnique;
+      const { attachUser: freshAttachUser } = await import('./session');
+
+      freshJwt.verify.mockReturnValue({ uid: 'user_x', v: 0 } as never);
+      freshPrismaFindUnique.mockRejectedValue(new Error('DB down'));
+
+      const run = () =>
+        new Promise<void>((resolve) => {
+          const next: NextFunction = () => resolve();
+          freshAttachUser(
+            { cookies: { ll_session: 'jwt' }, headers: {} } as Request,
+            {} as Response,
+            next,
+          );
+        });
+
+      // First hit during the outage should alert.
+      await run();
+      expect(freshSentry.captureException).toHaveBeenCalledTimes(1);
+      expect(freshLogger.error).toHaveBeenCalledTimes(1);
+
+      // Next several hits within the cooldown window should stay silent on
+      // Sentry/error, going to debug instead — otherwise a DB outage floods the
+      // alert channel with thousands of duplicates per minute.
+      await run();
+      await run();
+      await run();
+
+      expect(freshSentry.captureException).toHaveBeenCalledTimes(1);
+      expect(freshLogger.error).toHaveBeenCalledTimes(1);
+      expect(freshLogger.debug).toHaveBeenCalledTimes(3);
+    });
   });
 });
 

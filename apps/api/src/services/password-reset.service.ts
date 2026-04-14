@@ -2,7 +2,8 @@ import crypto from 'crypto';
 import { prisma } from '../lib/prisma';
 import { logger } from '../lib/logger';
 import { sendReactEmailWithAudit } from './email.service';
-import PasswordResetEmail, {
+import {
+  buildPasswordResetEmailElement,
   getPasswordResetEmailSubject,
   PASSWORD_RESET_TEMPLATE_VERSION,
 } from '../templates/emails/password-reset';
@@ -71,14 +72,12 @@ export async function sendPasswordResetEmail(
   await sendReactEmailWithAudit({
     to: user.email,
     subject: getPasswordResetEmailSubject(),
-    reactElement: (
-      <PasswordResetEmail
-        recipientFirstName={firstName}
-        email={user.email}
-        resetUrl={resetUrl}
-        expiresInMinutes={PASSWORD_RESET_TTL_MINUTES}
-      />
-    ),
+    reactElement: buildPasswordResetEmailElement({
+      recipientFirstName: firstName,
+      email: user.email,
+      resetUrl,
+      expiresInMinutes: PASSWORD_RESET_TTL_MINUTES,
+    }),
     userId: user.id,
     emailType: 'password_reset',
     triggerSource,
