@@ -30,13 +30,39 @@ export default function ResetPassword() {
   // screen) skip it — otherwise mobile browsers can show "Open in app?"
   // prompts or error dialogs even when the user is intentionally using the
   // web flow.
+  //
+  // Uses a hidden iframe rather than `window.location.href` so a failed scheme
+  // (app not installed) doesn't navigate the main frame to a broken URL — the
+  // user stays on the web form, which is already rendered. If the app DOES
+  // launch, the tab is backgrounded; `visibilitychange` tells us to clean up.
   useEffect(() => {
     if (!token) return;
     if (searchParams.get('source') !== 'email') return;
     const ua = navigator.userAgent;
     const isMobile = /iPhone|iPad|iPod|Android/i.test(ua);
     if (!isMobile) return;
-    window.location.href = `loamlogger://reset-password?token=${encodeURIComponent(token)}`;
+
+    const deepLink = `loamlogger://reset-password?token=${encodeURIComponent(token)}`;
+    const iframe = document.createElement('iframe');
+    iframe.style.display = 'none';
+    iframe.src = deepLink;
+    document.body.appendChild(iframe);
+
+    // If the app opens, the page goes into the background. Clean up silently.
+    // If 1.5s passes with the page still visible, the app didn't open — also
+    // clean up (the web form is already behind the form UI and fully usable).
+    const cleanup = () => {
+      iframe.remove();
+      document.removeEventListener('visibilitychange', onVisibility);
+      clearTimeout(timer);
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') cleanup();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    const timer = setTimeout(cleanup, 1500);
+
+    return cleanup;
   }, [token, searchParams]);
 
   async function handleSubmit(event: React.FormEvent) {
