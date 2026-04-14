@@ -7,7 +7,7 @@ import { checkAuthRateLimit } from '../lib/rate-limit';
 import { logger } from '../lib/logger';
 import { config } from '../config/env';
 import { validatePassword, hashPassword } from '../auth/password.utils';
-import { setSessionCookie } from '../auth/session';
+import { issueWebSession } from '../auth/session-issuer';
 import { setCsrfCookie } from '../auth/csrf';
 import { createNewUser, verifyEmailAvailable } from '../services/signup.service';
 
@@ -83,7 +83,7 @@ router.post('/waitlist', express.json(), async (req: Request, res) => {
       const passwordHash = await hashPassword(password);
       const { user } = await createNewUser({ email: verifiedEmail, name: trimmedName, passwordHash, ref });
 
-      setSessionCookie(res, { uid: user.id, email: user.email, authAt: Date.now() });
+      await issueWebSession(res, { id: user.id, email: user.email });
       const csrfToken = setCsrfCookie(res);
 
       return res.status(201).json({ ok: true, waitlist: false, csrfToken });

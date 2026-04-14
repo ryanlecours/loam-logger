@@ -5,6 +5,7 @@ import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import pinoHttp from 'pino-http';
 import { ApolloServer } from '@apollo/server';
+import { sentryApolloPlugin } from './lib/sentry-apollo-plugin';
 import { expressMiddleware, type ExpressContextFunctionArgument } from '@as-integrations/express4';
 import { typeDefs } from './graphql/schema';
 import { resolvers } from './graphql/resolvers';
@@ -13,6 +14,10 @@ import { getRedisConnection, checkRedisHealth } from './lib/redis';
 import { startEmailScheduler, stopEmailScheduler } from './services/email-scheduler.service';
 import { startImportSessionChecker, stopImportSessionChecker } from './services/import-session-checker.service';
 import { startOAuthCleanup, stopOAuthCleanup } from './services/oauth-cleanup.service';
+import {
+  startPasswordResetCleanup,
+  stopPasswordResetCleanup,
+} from './services/password-reset-cleanup.service';
 import { rootLogger, logger } from './lib/logger';
 import { validateEncryptionKey } from './lib/crypto';
 import {
@@ -208,8 +213,24 @@ const startServer = async () => {
   // Skips: GET/HEAD/OPTIONS, Bearer token auth (mobile), unauthenticated requests
   app.use(verifyCsrf);
 
+  // Sentry smoke-test endpoint. Only active when ENABLE_SENTRY_TEST=true in
+  // the environment. Used to verify source maps + release tags after a deploy:
+  //   curl https://<api>/debug-sentry
+  // Unset the env var once you've confirmed the Sentry event looks right.
+  if (process.env.ENABLE_SENTRY_TEST === 'true') {
+    app.get('/debug-sentry', () => {
+      throw new Error(`Sentry smoke test — ${new Date().toISOString()}`);
+    });
+  }
+
   // ---- GraphQL ----
-  const server = new ApolloServer<GraphQLContext>({ typeDefs, resolvers });
+  const server = new ApolloServer<GraphQLContext>({
+    typeDefs,
+    resolvers,
+    // Turn resolver-thrown errors into first-class Sentry events with the
+    // operation name + variables + query, instead of generic Express noise.
+    plugins: [sentryApolloPlugin()],
+  });
   await server.start();
 
   // Explicitly handle GET /graphql (helps debugging and some tooling)
@@ -313,6 +334,9 @@ const startServer = async () => {
   // Start OAuth attempt cleanup (deletes expired records hourly)
   startOAuthCleanup();
 
+  // Start password reset token cleanup (deletes tokens expired >7d ago, daily)
+  startPasswordResetCleanup();
+
   app.listen(PORT, HOST, () => {
     logger.info({ port: PORT }, 'LoamLogger backend running (GraphQL at /graphql)');
   });
@@ -321,6 +345,7 @@ const startServer = async () => {
     await stopEmailScheduler();
     await stopImportSessionChecker();
     stopOAuthCleanup();
+    stopPasswordResetCleanup();
     await stopWorkers();
     await Sentry.flush(2000).catch(() => {});
     await server.stop();

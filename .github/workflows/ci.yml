@@ -72,7 +72,19 @@ jobs:
       - name: Type check affected projects
         run: npx nx affected -t type-check --parallel=3 || echo "No type-check target defined"
 
+      - name: Compute Sentry release (short git SHA)
+        id: sentry-release
+        run: echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
       - name: Build affected projects
+        # SENTRY_AUTH_TOKEN enables @sentry/vite-plugin to upload source maps
+        # during the build. Without it the plugin is a no-op (disable: !token).
+        # SENTRY_RELEASE tags the uploaded maps so they bind to the matching
+        # runtime release in each app's Sentry.init.
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_RELEASE: ${{ steps.sentry-release.outputs.sha }}
+          VITE_SENTRY_RELEASE: ${{ steps.sentry-release.outputs.sha }}
         run: npx nx affected -t build --parallel=3 --verbose
 
       - name: Verify API build has no orphan SSR chunks

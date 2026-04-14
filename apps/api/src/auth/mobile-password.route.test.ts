@@ -51,6 +51,13 @@ jest.mock('./token', () => ({
   verifyToken: jest.fn(),
 }));
 
+jest.mock('./session-issuer', () => ({
+  issueMobileTokens: jest.fn().mockResolvedValue({
+    accessToken: 'new_access_token',
+    refreshToken: 'new_refresh_token',
+  }),
+}));
+
 jest.mock('./recent-auth', () => ({
   updateLastAuthAt: jest.fn().mockResolvedValue(undefined),
 }));
@@ -473,9 +480,14 @@ describe('POST /mobile/password/change', () => {
         data: {
           passwordHash: 'new_hashed_password',
           mustChangePassword: false,
+          sessionTokenVersion: { increment: 1 },
         },
       });
-      expect(res.json).toHaveBeenCalledWith({ ok: true });
+      expect(res.json).toHaveBeenCalledWith({
+        ok: true,
+        accessToken: 'new_access_token',
+        refreshToken: 'new_refresh_token',
+      });
     });
 
     it('should send notification email on success', async () => {

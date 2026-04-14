@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Navigate } from 'react-router-dom';
+import { toast } from 'sonner';
+import { formatDistanceToNow } from 'date-fns';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { getAuthHeaders } from '@/lib/csrf';
 
@@ -22,6 +24,7 @@ interface UserEntry {
   activatedAt: string | null;
   emailUnsubscribed: boolean;
   isFoundingRider: boolean;
+  lastPasswordResetEmailAt: string | null;
 }
 
 interface AdminStats {
@@ -115,6 +118,7 @@ export default function Admin() {
   const [activating, setActivating] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [demoting, setDemoting] = useState<string | null>(null);
+  const [resettingPassword, setResettingPassword] = useState<string | null>(null);
   const [showAddUserForm, setShowAddUserForm] = useState(false);
   const [addingUser, setAddingUser] = useState(false);
   const [addUserForm, setAddUserForm] = useState<AddUserForm>({
@@ -588,6 +592,51 @@ export default function Admin() {
       alert(err instanceof Error ? err.message : 'Failed to delete user');
     } finally {
       setDeleting(null);
+    }
+  };
+
+  const handleSendPasswordReset = async (userId: string, email: string) => {
+    // Guard against accidental double-sends: if a reset was emailed recently,
+    // show the admin when it was sent before they confirm a new one.
+    const user = users.find((u) => u.id === userId);
+    const lastSent = user?.lastPasswordResetEmailAt;
+    const prompt = lastSent
+      ? `A reset link was already sent to ${email} ${formatDistanceToNow(new Date(lastSent))} ago. Send another?`
+      : `Email a password reset link to ${email}?`;
+
+    if (!confirm(prompt)) {
+      return;
+    }
+
+    try {
+      setResettingPassword(userId);
+      const res = await fetch(
+        `${import.meta.env.VITE_API_URL}/api/admin/users/${userId}/send-password-reset`,
+        {
+          method: 'POST',
+          credentials: 'include',
+          headers: getAuthHeaders(),
+        }
+      );
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to send password reset email');
+      }
+
+      // Update the local timestamp so the admin sees the new "sent just now"
+      // value without a full refetch.
+      const now = new Date().toISOString();
+      setUsers((prev) =>
+        prev.map((u) => (u.id === userId ? { ...u, lastPasswordResetEmailAt: now } : u))
+      );
+
+      toast.success(`Password reset link sent to ${email}.`);
+    } catch (err) {
+      console.error('Send password reset failed:', err);
+      toast.error(err instanceof Error ? err.message : 'Failed to send password reset email');
+    } finally {
+      setResettingPassword(null);
     }
   };
 
@@ -1859,6 +1908,18 @@ export default function Admin() {
                         title={u.emailUnsubscribed ? 'User has unsubscribed' : 'Send email'}
                       >
                         Email
+                      </button>
+                      <button
+                        onClick={() => handleSendPasswordReset(u.id, u.email)}
+                        disabled={resettingPassword === u.id || deleting === u.id || demoting === u.id}
+                        className="btn-sm rounded-xl px-3 py-1.5 text-xs font-medium text-white bg-primary hover:bg-primary/80 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                        title={
+                          u.lastPasswordResetEmailAt
+                            ? `Last reset sent ${formatDistanceToNow(new Date(u.lastPasswordResetEmailAt))} ago`
+                            : 'Email a password reset link'
+                        }
+                      >
+                        {resettingPassword === u.id ? 'Sending...' : 'Reset Pwd'}
                       </button>
                       <button
                         onClick={() => handleDemoteUser(u.id, u.email)}

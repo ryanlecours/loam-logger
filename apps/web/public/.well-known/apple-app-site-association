@@ -1,0 +1,19 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["57Z6GUJL4D.com.loamlabs.loamlogger"],
+        "components": [
+          {
+            "/": "/reset-password",
+            "comment": "Opens the reset-password screen in the mobile app"
+          },
+          {
+            "/": "/reset-password/*",
+            "comment": "Opens the reset-password screen in the mobile app"
+          }
+        ]
+      }
+    ]
+  }
+}

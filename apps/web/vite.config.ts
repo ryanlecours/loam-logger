@@ -19,6 +19,11 @@ export default defineConfig({
       project: "javascript-react",
       authToken: process.env.SENTRY_AUTH_TOKEN,
       disable: !process.env.SENTRY_AUTH_TOKEN,
+      // Same release tag the runtime uses so uploaded source maps bind to the
+      // right build in Sentry. Set in CI from the short git SHA.
+      release: process.env.SENTRY_RELEASE
+        ? { name: process.env.SENTRY_RELEASE }
+        : undefined,
     }),
   ],
   cacheDir: path.resolve(__dirname, '../../.cache/vite/web'),

@@ -29,6 +29,7 @@ model User {
   whoopUserId         String?             @unique
   role                UserRole            @default(WAITLIST)
   mustChangePassword  Boolean             @default(false)
+  sessionTokenVersion Int                 @default(0)
   activatedAt         DateTime?
   activatedBy         String?
   isFoundingRider     Boolean             @default(false)
@@ -63,6 +64,7 @@ model User {
   notificationLogs    NotificationLog[]
   referralsMade       Referral[]          @relation("ReferralsMade")
   referralReceived    Referral?           @relation("ReferralReceived")
+  passwordResetTokens PasswordResetToken[]
 
   // Push notification preferences
   expoPushToken       String?
@@ -435,6 +437,7 @@ enum EmailType {
   beta_feature_roundup
   password_added
   password_changed
+  password_reset
   upgrade_confirmation
   downgrade_notice
   payment_failed
@@ -444,6 +447,7 @@ enum EmailType {
 
 enum TriggerSource {
   admin_manual
+  admin_password_reset
   system_activation
   system_welcome_series
   scheduled
@@ -675,6 +679,19 @@ model NotificationLog {
   @@index([userId])
   @@index([componentId])
   @@index([bikeId])
+}
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
 }
 
 model Referral {

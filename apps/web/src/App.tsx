@@ -16,6 +16,8 @@ import BetaTesterWaitlist from './pages/BetaTesterWaitlist';
 import ClosedBeta from './pages/ClosedBeta';
 import AlreadyOnWaitlist from './pages/AlreadyOnWaitlist';
 import ChangePassword from './pages/ChangePassword';
+import ResetPassword from './pages/ResetPassword';
+import ForgotPassword from './pages/ForgotPassword';
 
 import AuthGate from './components/AuthGate';
 import AppShell from './components/layout/AppShell';
@@ -81,6 +83,8 @@ function AppRoutes() {
           <Route path="/closed-beta" element={<Page><ClosedBeta /></Page>} />
           <Route path="/already-on-waitlist" element={<Page><AlreadyOnWaitlist /></Page>} />
           <Route path="/change-password" element={<Page><ChangePassword /></Page>} />
+          <Route path="/reset-password" element={<Page><ResetPassword /></Page>} />
+          <Route path="/forgot-password" element={<Page><ForgotPassword /></Page>} />
           <Route path="/auth/complete" element={<AuthComplete />} />
 
           {/* Onboarding */}

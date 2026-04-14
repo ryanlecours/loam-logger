@@ -1,7 +1,8 @@
 import express from 'express';
 import { OAuth2Client } from 'google-auth-library';
 import { ensureUserFromGoogle } from './ensureUserFromGoogle';
-import { setSessionCookie, clearSessionCookie } from './session';
+import { clearSessionCookie } from './session';
+import { issueWebSession } from './session-issuer';
 import { setCsrfCookie, clearCsrfCookie } from './csrf';
 import { updateLastAuthAt } from './recent-auth';
 import { logger } from '../lib/logger';
@@ -53,7 +54,7 @@ router.post('/google/code', express.json(), async (req, res) => {
 
     // Set session and CSRF cookies, return CSRF token for immediate use
     // Include authAt as fallback in case DB lastAuthAt write failed
-    setSessionCookie(res, { uid: user.id, email: user.email, authAt: Date.now() });
+    await issueWebSession(res, { id: user.id, email: user.email });
     const csrfToken = setCsrfCookie(res);
     res.status(200).json({ ok: true, csrfToken });
   } catch (e) {
