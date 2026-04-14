@@ -77,6 +77,7 @@ export function scrubKnownSecrets<T extends ScrubbableSentryEvent>(event: T): T 
   if (event.request) scrubInPlace(event.request as Scrubable, 0, seen);
   if (event.contexts) scrubInPlace(event.contexts as Scrubable, 0, seen);
   if (event.extra) scrubInPlace(event.extra as Scrubable, 0, seen);
+  if (event.tags) scrubInPlace(event.tags as Scrubable, 0, seen);
   if (event.breadcrumbs) {
     for (const bc of event.breadcrumbs) {
       if (bc.data) scrubInPlace(bc.data as Scrubable, 0, seen);

@@ -115,6 +115,24 @@ describe('scrubKnownSecrets', () => {
     expect(event.request.headers['User-Agent']).toBe('test');
   });
 
+  it('scrubs sensitive-keyed values in tags', () => {
+    // Tags shouldn't normally contain secrets — they're for filtering — but the
+    // type advertises support and we'd rather scrub than leak if someone slips one in.
+    const event = {
+      tags: {
+        environment: 'production',
+        password: 'should-not-be-here',
+        token: 'also-should-not-be-here',
+      },
+    };
+    scrubKnownSecrets(event);
+    expect(event.tags).toEqual({
+      environment: 'production',
+      password: '[Filtered]',
+      token: '[Filtered]',
+    });
+  });
+
   it('returns the same event object (in-place mutation)', () => {
     const event = { request: { data: { password: 'x' } } };
     const result = scrubKnownSecrets(event);
