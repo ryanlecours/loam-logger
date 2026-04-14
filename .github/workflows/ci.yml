@@ -77,14 +77,37 @@ jobs:
         # during the build. Without it the plugin is a no-op (disable: !token).
         # SENTRY_RELEASE tags the uploaded maps so they bind to the matching
         # runtime release in each app's Sentry.init. Uses the full commit SHA
-        # ($GITHUB_SHA) so releases match Railway's $RAILWAY_GIT_COMMIT_SHA —
-        # which is also full-length. Mixing short + long SHAs would fragment
-        # the release tags across source-map uploads vs runtime events.
+        # ($GITHUB_SHA) so releases match the value we push to Railway's
+        # SENTRY_RELEASE env var in the next step — keeping source-map uploads
+        # and runtime events on the same release tag.
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           SENTRY_RELEASE: ${{ github.sha }}
           VITE_SENTRY_RELEASE: ${{ github.sha }}
         run: npx nx affected -t build --parallel=3 --verbose
+
+      - name: Update Railway SENTRY_RELEASE to this commit SHA
+        # Railway doesn't auto-provide RAILWAY_GIT_COMMIT_SHA on this plan, so
+        # push the current commit SHA into Railway's env as a regular variable.
+        # Runs only on pushes to main where RAILWAY_TOKEN is available.
+        #
+        # This step must run BEFORE Railway deploys — which is why the Railway
+        # service has "Wait for CI" enabled (Settings > Source). That flag makes
+        # Railway hold off on deploying until this workflow finishes green, so
+        # the new SENTRY_RELEASE value is in place when the API boots. Without
+        # "Wait for CI", Railway would auto-deploy on push immediately and the
+        # first deploy would run with the previous commit's SENTRY_RELEASE.
+        #
+        # If this step fails (expired token, renamed service), the workflow
+        # fails and Railway won't deploy — intentional fail-closed behavior.
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          npx -y @railway/cli@4 variables \
+            --service loam-logger \
+            --environment production \
+            --set "SENTRY_RELEASE=${{ github.sha }}"
 
       - name: Verify API build has no orphan SSR chunks
         run: |
