@@ -213,16 +213,6 @@ const startServer = async () => {
   // Skips: GET/HEAD/OPTIONS, Bearer token auth (mobile), unauthenticated requests
   app.use(verifyCsrf);
 
-  // Sentry smoke-test endpoint. Only active when ENABLE_SENTRY_TEST=true in
-  // the environment. Used to verify source maps + release tags after a deploy:
-  //   curl https://<api>/debug-sentry
-  // Unset the env var once you've confirmed the Sentry event looks right.
-  if (process.env.ENABLE_SENTRY_TEST === 'true') {
-    app.get('/debug-sentry', () => {
-      throw new Error(`Sentry smoke test — ${new Date().toISOString()}`);
-    });
-  }
-
   // ---- GraphQL ----
   const server = new ApolloServer<GraphQLContext>({
     typeDefs,
