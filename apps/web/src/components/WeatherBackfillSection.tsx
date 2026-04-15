@@ -7,9 +7,12 @@ import {
   BACKFILL_WEATHER_FOR_MY_RIDES,
   RIDES_MISSING_WEATHER,
 } from '../graphql/backfillWeather';
+import { RIDES } from '../graphql/rides';
+import { useApolloClient } from '@apollo/client';
 
 export default function WeatherBackfillSection() {
   const { isPro } = useUserTier();
+  const apolloClient = useApolloClient();
   const { data: countData } = useQuery<{ me: { id: string; ridesMissingWeather: number } | null }>(
     RIDES_MISSING_WEATHER,
     { fetchPolicy: 'cache-and-network' }
@@ -44,6 +47,16 @@ export default function WeatherBackfillSection() {
         remaining: res?.remainingAfterBatch ?? 0,
         withoutCoords: res?.ridesWithoutCoords ?? 0,
       });
+      // The queue drains asynchronously. Refetch the rides list once workers
+      // have had a chance to populate weather rows so the freshly-fetched
+      // weather tiles actually appear without a manual page reload. The
+      // window is a heuristic; stragglers catch up on next navigation via
+      // the list query's cache-and-network fetch policy.
+      if ((res?.enqueuedCount ?? 0) > 0) {
+        setTimeout(() => {
+          apolloClient.refetchQueries({ include: [RIDES] }).catch(() => {});
+        }, 15_000);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong.');
     }

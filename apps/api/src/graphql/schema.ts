@@ -174,6 +174,11 @@ export const typeDefs = gql`
   }
 
   type RideWeather {
+    # Exposed so Apollo can normalize RideWeather as a standalone cache
+    # entry. Without an id, the weather blob is stored embedded inside its
+    # parent Ride, which breaks partial-update patterns (e.g. refetching
+    # only the weather fields after a backfill completes).
+    id: ID!
     tempC: Float!
     feelsLikeC: Float
     precipitationMm: Float!

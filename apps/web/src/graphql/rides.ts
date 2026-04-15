@@ -7,6 +7,7 @@ import { gql } from '@apollo/client';
 // fragment is the first thing to hoist into a lazy per-ride query.
 const RIDE_WEATHER_FIELDS = gql`
   fragment RideWeatherFields on RideWeather {
+    id
     tempC
     feelsLikeC
     precipitationMm
