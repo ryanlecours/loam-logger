@@ -1,3 +1,4 @@
+import { WeatherCondition } from '@prisma/client';
 import { wmoToCondition, applyWindyOverride } from './normalize';
 
 describe('wmoToCondition', () => {
@@ -40,19 +41,19 @@ describe('wmoToCondition', () => {
 
 describe('applyWindyOverride', () => {
   it('promotes SUNNY to WINDY at high wind speeds', () => {
-    expect(applyWindyOverride('SUNNY' as any, 45)).toBe('WINDY');
+    expect(applyWindyOverride(WeatherCondition.SUNNY, 45)).toBe(WeatherCondition.WINDY);
   });
 
   it('promotes CLOUDY to WINDY at high wind speeds', () => {
-    expect(applyWindyOverride('CLOUDY' as any, 50)).toBe('WINDY');
+    expect(applyWindyOverride(WeatherCondition.CLOUDY, 50)).toBe(WeatherCondition.WINDY);
   });
 
   it('does not override RAINY or SNOWY', () => {
-    expect(applyWindyOverride('RAINY' as any, 60)).toBe('RAINY');
-    expect(applyWindyOverride('SNOWY' as any, 60)).toBe('SNOWY');
+    expect(applyWindyOverride(WeatherCondition.RAINY, 60)).toBe(WeatherCondition.RAINY);
+    expect(applyWindyOverride(WeatherCondition.SNOWY, 60)).toBe(WeatherCondition.SNOWY);
   });
 
   it('does not promote at low winds', () => {
-    expect(applyWindyOverride('SUNNY' as any, 10)).toBe('SUNNY');
+    expect(applyWindyOverride(WeatherCondition.SUNNY, 10)).toBe(WeatherCondition.SUNNY);
   });
 });

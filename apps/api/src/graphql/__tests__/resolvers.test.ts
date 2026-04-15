@@ -2884,6 +2884,16 @@ describe('GraphQL Resolvers', () => {
       expect(enqueueWeatherJob).not.toHaveBeenCalled();
     });
 
+    it('rejects calls that exceed the rate limit before touching Prisma or queue', async () => {
+      mockCheckMutationRateLimit.mockResolvedValueOnce({ allowed: false, retryAfter: 45 });
+      const ctx = createMockContext('user-123');
+      await expect(mutation({}, {}, ctx as never)).rejects.toThrow(
+        'Rate limit exceeded. Try again in 45 seconds.'
+      );
+      expect(mockFindUniqueOrThrow).not.toHaveBeenCalled();
+      expect(enqueueWeatherJob).not.toHaveBeenCalled();
+    });
+
     it('enqueues jobs for Pro users and returns counts', async () => {
       mockFindUniqueOrThrow.mockResolvedValueOnce({
         subscriptionTier: 'PRO',

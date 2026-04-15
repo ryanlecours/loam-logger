@@ -1,6 +1,6 @@
 import type { WeatherStats } from '../types';
 import type { WeatherCondition } from '../../../models/Ride';
-import { conditionIcon, conditionLabel, conditionTint } from '../../../lib/weather';
+import { renderConditionIcon, conditionLabel, conditionTint } from '../../../lib/weather';
 
 const ORDER: WeatherCondition[] = [
   'SUNNY',
@@ -25,14 +25,17 @@ export default function WeatherSection({ stats }: { stats: WeatherStats }) {
         {ORDER.map((cond) => {
           const count = stats.breakdown[cond];
           if (count === 0) return null;
-          const Icon = conditionIcon(cond);
           const tint = cond === 'UNKNOWN' ? undefined : conditionTint(cond);
           return (
             <div
               key={cond}
               className="flex flex-col items-center rounded-md border border-[color:var(--surface-2)] bg-[color:var(--surface-1)] px-2 py-3"
             >
-              <Icon size={20} color={tint} className={tint ? '' : 'text-[color:var(--text-muted)]'} />
+              {renderConditionIcon(cond, {
+                size: 20,
+                color: tint,
+                className: tint ? '' : 'text-[color:var(--text-muted)]',
+              })}
               <div className="mt-1 text-sm font-semibold text-[color:var(--text)]">{count}</div>
               <div className="text-[11px] text-[color:var(--text-muted)]">
                 {conditionLabel(cond)}

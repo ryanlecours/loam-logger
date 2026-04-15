@@ -7,8 +7,22 @@ describe('worstHourWmoCode', () => {
   });
 
   it('picks the highest severity from a mixed rainy ride', () => {
-    // Drizzle (53), rain showers (81), heavy rain (65) → 81 is the highest.
-    expect(worstHourWmoCode([53, 81, 65, 1])).toBe(81);
+    // Drizzle (53), moderate rain (63), partly cloudy (2) → heavy rain wins.
+    expect(worstHourWmoCode([53, 63, 2])).toBe(63);
+  });
+
+  it('ranks freezing rain above plain showers despite lower numeric code', () => {
+    // 67 = heavy freezing rain (severe winter), 80 = slight rain showers (mild).
+    // Raw numeric max would have incorrectly picked 80.
+    expect(worstHourWmoCode([67, 80, 80, 1])).toBe(67);
+  });
+
+  it('ranks thunderstorms above any rain/snow', () => {
+    expect(worstHourWmoCode([65, 82, 75, 95])).toBe(95);
+  });
+
+  it('treats snow showers (86) as worse than steady snow (73)', () => {
+    expect(worstHourWmoCode([73, 73, 86])).toBe(86);
   });
 
   it('returns the sole code when input is length 1', () => {
@@ -16,12 +30,13 @@ describe('worstHourWmoCode', () => {
     expect(worstHourWmoCode([95])).toBe(95);
   });
 
-  it('keeps the max when all codes are equal', () => {
+  it('keeps the code when all are equal', () => {
     expect(worstHourWmoCode([3, 3, 3])).toBe(3);
   });
 
-  it('treats snow showers (86) as worse than steady snow (73)', () => {
-    expect(worstHourWmoCode([73, 73, 86])).toBe(86);
+  it('gracefully handles an unknown WMO code alongside known ones', () => {
+    // Unknown codes get severity -1, so any known code beats them.
+    expect(worstHourWmoCode([999, 0, 999])).toBe(0);
   });
 });
 

@@ -4079,6 +4079,15 @@ export const resolvers = {
       ctx: GraphQLContext
     ) => {
       const userId = requireUserId(ctx);
+
+      const rateLimit = await checkMutationRateLimit('backfillWeatherForMyRides', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(
+          `Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`,
+          { extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter } }
+        );
+      }
+
       const user = await prisma.user.findUniqueOrThrow({
         where: { id: userId },
         select: { subscriptionTier: true, isFoundingRider: true, role: true },
@@ -4137,6 +4146,15 @@ export const resolvers = {
         }
       }
 
+      // Rides beyond this batch's slice — i.e. eligible rides we deliberately
+      // didn't attempt because of BATCH_LIMIT. This intentionally does NOT
+      // count rides in this batch that failed to enqueue (see the
+      // Promise.allSettled rejection branch above): those will reappear in
+      // the next call because the eligibility query filter (`weather: null`)
+      // will still match them, and BullMQ's deterministic job IDs make a
+      // retry safe. The next call's `ridesRemaining` count picks them up
+      // naturally. So `remainingAfterBatch` is "known not-yet-attempted,"
+      // not "known not-yet-queued" — the next fetch self-heals.
       const remainingAfterBatch = Math.max(0, ridesRemaining - ridesWithCoords.length);
 
       return { enqueuedCount, ridesWithoutCoords, remainingAfterBatch };

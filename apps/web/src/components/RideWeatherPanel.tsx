@@ -1,7 +1,7 @@
 import { Thermometer, Droplets, Wind } from 'lucide-react';
 import type { RideWeather } from '../models/Ride';
 import {
-  conditionIcon,
+  renderConditionIcon,
   conditionLabel,
   conditionTint,
   celsiusToFahrenheit,
@@ -11,12 +11,11 @@ import {
 
 type Props = {
   weather: RideWeather;
-  distanceUnit?: 'mi' | 'km' | string;
+  distanceUnit?: 'mi' | 'km';
 };
 
 export default function RideWeatherPanel({ weather, distanceUnit = 'mi' }: Props) {
   const isImperial = distanceUnit === 'mi';
-  const ConditionIcon = conditionIcon(weather.condition);
   const tint = conditionTint(weather.condition);
 
   const tempValue = isImperial
@@ -45,7 +44,7 @@ export default function RideWeatherPanel({ weather, distanceUnit = 'mi' }: Props
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <Tile
-          icon={<ConditionIcon size={20} color={tint} />}
+          icon={renderConditionIcon(weather.condition, { size: 20, color: tint })}
           value={conditionLabel(weather.condition)}
           label="Condition"
         />

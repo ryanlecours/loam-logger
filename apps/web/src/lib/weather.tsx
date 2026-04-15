@@ -1,5 +1,5 @@
 import { Sun, Cloud, CloudRain, CloudSnow, Wind, CloudFog, HelpCircle } from 'lucide-react';
-import type { LucideIcon } from 'lucide-react';
+import type { ReactNode } from 'react';
 import type { WeatherCondition } from '../models/Ride';
 
 export const conditionLabel = (c: WeatherCondition): string => {
@@ -14,15 +14,20 @@ export const conditionLabel = (c: WeatherCondition): string => {
   }
 };
 
-export const conditionIcon = (c: WeatherCondition): LucideIcon => {
+type IconProps = { size?: number; color?: string; className?: string };
+
+// Returns a rendered icon node rather than a component reference so callers
+// never have to bind a dynamic component to a variable (which trips
+// react-hooks/static-components).
+export const renderConditionIcon = (c: WeatherCondition, props: IconProps = {}): ReactNode => {
   switch (c) {
-    case 'SUNNY': return Sun;
-    case 'CLOUDY': return Cloud;
-    case 'RAINY': return CloudRain;
-    case 'SNOWY': return CloudSnow;
-    case 'WINDY': return Wind;
-    case 'FOGGY': return CloudFog;
-    default: return HelpCircle;
+    case 'SUNNY': return <Sun {...props} />;
+    case 'CLOUDY': return <Cloud {...props} />;
+    case 'RAINY': return <CloudRain {...props} />;
+    case 'SNOWY': return <CloudSnow {...props} />;
+    case 'WINDY': return <Wind {...props} />;
+    case 'FOGGY': return <CloudFog {...props} />;
+    default: return <HelpCircle {...props} />;
   }
 };
 
