@@ -10,7 +10,7 @@ import type {
   Component as ComponentModel,
 } from '@prisma/client';
 import { checkRateLimit, checkMutationRateLimit, checkQueryRateLimit } from '../lib/rate-limit';
-import { enqueueSyncJob, type SyncProvider } from '../lib/queue';
+import { enqueueSyncJob, enqueueWeatherJob, type SyncProvider } from '../lib/queue';
 import { invalidateBikePrediction } from '../services/prediction/cache';
 import { clearServiceNotificationLogs, isValidExpoPushToken } from '../services/notification.service';
 import { getBaseInterval, BASE_INTERVALS_HOURS, DEFAULT_INTERVAL_HOURS } from '../services/prediction/config';
@@ -4083,8 +4083,6 @@ export const resolvers = {
         });
       }
 
-      const { enqueueWeatherJob } = await import('../lib/queue/weather.queue');
-
       // Cap the batch so one click can't fire thousands of Open-Meteo requests.
       // Client re-invokes the mutation while ridesMissingWeather > 0 to drain
       // the rest — lets us pace the provider load even for very active users.
@@ -4119,15 +4117,24 @@ export const resolvers = {
         }),
       ]);
 
-      const results = await Promise.allSettled(
-        ridesWithCoords.map((r) => enqueueWeatherJob({ rideId: r.id }))
-      );
+      // Enqueue in serial chunks to cap concurrent Redis round-trips.
+      // Each enqueueWeatherJob does a getJob + add (2 commands), so firing
+      // all 500 at once would blow 1k concurrent commands per click. A chunk
+      // of 50 gives us ~100 concurrent commands, well within ioredis defaults,
+      // and still drains the batch in ~10 serial round-trips total.
+      const ENQUEUE_CHUNK = 50;
       let enqueuedCount = 0;
-      for (const result of results) {
-        if (result.status === 'fulfilled' && result.value.status === 'queued') {
-          enqueuedCount += 1;
-        } else if (result.status === 'rejected') {
-          console.warn('[BackfillWeather] enqueue failed', result.reason);
+      for (let i = 0; i < ridesWithCoords.length; i += ENQUEUE_CHUNK) {
+        const chunk = ridesWithCoords.slice(i, i + ENQUEUE_CHUNK);
+        const results = await Promise.allSettled(
+          chunk.map((r) => enqueueWeatherJob({ rideId: r.id }))
+        );
+        for (const result of results) {
+          if (result.status === 'fulfilled' && result.value.status === 'queued') {
+            enqueuedCount += 1;
+          } else if (result.status === 'rejected') {
+            console.warn('[BackfillWeather] enqueue failed', result.reason);
+          }
         }
       }
 

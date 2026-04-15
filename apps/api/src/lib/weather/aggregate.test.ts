@@ -38,6 +38,12 @@ describe('worstHourWmoCode', () => {
     // Unknown codes get severity -1, so any known code beats them.
     expect(worstHourWmoCode([999, 0, 999])).toBe(0);
   });
+
+  it('throws on empty input rather than returning undefined', () => {
+    expect(() => worstHourWmoCode([])).toThrow(
+      'worstHourWmoCode requires at least one WMO code'
+    );
+  });
 });
 
 describe('mean', () => {

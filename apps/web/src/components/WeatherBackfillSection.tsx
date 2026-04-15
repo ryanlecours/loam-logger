@@ -18,6 +18,7 @@ export default function WeatherBackfillSection() {
   const [lastResult, setLastResult] = useState<{
     enqueued: number;
     remaining: number;
+    withoutCoords: number;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -41,6 +42,7 @@ export default function WeatherBackfillSection() {
       setLastResult({
         enqueued: res?.enqueuedCount ?? 0,
         remaining: res?.remainingAfterBatch ?? 0,
+        withoutCoords: res?.ridesWithoutCoords ?? 0,
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong.');
@@ -65,6 +67,13 @@ export default function WeatherBackfillSection() {
                     : `Queued ${lastResult.enqueued} ride${lastResult.enqueued === 1 ? '' : 's'}. Weather will appear as it's fetched.`
                   : `${missing} ride${missing === 1 ? '' : 's'} missing weather data.`}
               </p>
+              {lastResult !== null && lastResult.withoutCoords > 0 && (
+                <p className="text-xs text-muted mt-1">
+                  {lastResult.withoutCoords} ride
+                  {lastResult.withoutCoords === 1 ? '' : 's'} can't get weather —
+                  no GPS data on file.
+                </p>
+              )}
             </div>
           </div>
           {isPro ? (

@@ -181,6 +181,14 @@ export const typeDefs = gql`
     humidity: Float
     wmoCode: Int!
     condition: WeatherCondition!
+    # Coords actually used for the fetch (rounded to the cache grid, may
+    # differ slightly from Ride.startLat/startLng). Useful for debugging
+    # "why is my weather wrong?" questions.
+    lat: Float!
+    lng: Float!
+    # Which provider supplied this weather row (e.g. "open-meteo"). Exposed
+    # so future clients can distinguish between providers if we ever add one.
+    source: String!
     fetchedAt: String!
   }
 

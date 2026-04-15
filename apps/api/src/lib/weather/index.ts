@@ -61,7 +61,14 @@ const severity = (code: number): number => WMO_SEVERITY[code] ?? -1;
 // exposure to rain/snow affects components — and matches how riders describe
 // a ride ("got caught in a storm" beats "mostly sunny"). Ties fall back to
 // numeric code to keep output deterministic.
+//
+// Throws on empty input rather than returning an unsound default. Callers
+// that might have nothing to aggregate must guard upstream (getWeatherForRide
+// bails on samples.length === 0 before it ever gets here).
 export const worstHourWmoCode = (codes: number[]): number => {
+  if (codes.length === 0) {
+    throw new Error('worstHourWmoCode requires at least one WMO code');
+  }
   return codes.reduce((worst, code) => {
     if (severity(code) > severity(worst)) return code;
     return worst;
