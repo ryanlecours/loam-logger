@@ -2895,7 +2895,9 @@ describe('GraphQL Resolvers', () => {
         { id: 'ride-2' },
         { id: 'ride-3' },
       ]);
-      mockRideCount.mockResolvedValueOnce(4); // rides without coords
+      mockRideCount
+        .mockResolvedValueOnce(3) // rides remaining (matches ridesWithCoords length)
+        .mockResolvedValueOnce(4); // rides without coords
       enqueueWeatherJob
         .mockResolvedValueOnce({ status: 'queued', jobId: 'j1' })
         .mockResolvedValueOnce({ status: 'queued', jobId: 'j2' })
@@ -2904,7 +2906,11 @@ describe('GraphQL Resolvers', () => {
       const ctx = createMockContext('user-123');
       const result = await mutation({}, {}, ctx as never);
 
-      expect(result).toEqual({ enqueuedCount: 2, ridesWithoutCoords: 4 });
+      expect(result).toEqual({
+        enqueuedCount: 2,
+        ridesWithoutCoords: 4,
+        remainingAfterBatch: 0,
+      });
       expect(enqueueWeatherJob).toHaveBeenCalledTimes(3);
     });
 
@@ -2915,12 +2921,16 @@ describe('GraphQL Resolvers', () => {
         role: 'FREE',
       });
       mockRideFindMany.mockResolvedValueOnce([]);
-      mockRideCount.mockResolvedValueOnce(0);
+      mockRideCount.mockResolvedValueOnce(0).mockResolvedValueOnce(0);
 
       const ctx = createMockContext('user-123');
       const result = await mutation({}, {}, ctx as never);
 
-      expect(result).toEqual({ enqueuedCount: 0, ridesWithoutCoords: 0 });
+      expect(result).toEqual({
+        enqueuedCount: 0,
+        ridesWithoutCoords: 0,
+        remainingAfterBatch: 0,
+      });
     });
 
     it('does not let one enqueue failure abort the rest', async () => {
@@ -2934,7 +2944,7 @@ describe('GraphQL Resolvers', () => {
         { id: 'ride-2' },
         { id: 'ride-3' },
       ]);
-      mockRideCount.mockResolvedValueOnce(0);
+      mockRideCount.mockResolvedValueOnce(3).mockResolvedValueOnce(0);
       enqueueWeatherJob
         .mockResolvedValueOnce({ status: 'queued', jobId: 'j1' })
         .mockRejectedValueOnce(new Error('redis down'))
@@ -2943,7 +2953,30 @@ describe('GraphQL Resolvers', () => {
       const ctx = createMockContext('user-123');
       const result = await mutation({}, {}, ctx as never);
 
-      expect(result).toEqual({ enqueuedCount: 2, ridesWithoutCoords: 0 });
+      expect(result).toEqual({
+        enqueuedCount: 2,
+        ridesWithoutCoords: 0,
+        remainingAfterBatch: 0,
+      });
+    });
+
+    it('reports remainingAfterBatch when hitting the batch cap', async () => {
+      mockFindUniqueOrThrow.mockResolvedValueOnce({
+        subscriptionTier: 'PRO',
+        isFoundingRider: false,
+        role: 'FREE',
+      });
+      // Simulate the cap: findMany returns 500, count says 850 eligible total.
+      const batch = Array.from({ length: 500 }, (_, i) => ({ id: `ride-${i}` }));
+      mockRideFindMany.mockResolvedValueOnce(batch);
+      mockRideCount.mockResolvedValueOnce(850).mockResolvedValueOnce(0);
+      enqueueWeatherJob.mockResolvedValue({ status: 'queued', jobId: 'j' });
+
+      const ctx = createMockContext('user-123');
+      const result = await mutation({}, {}, ctx as never);
+
+      expect(result.remainingAfterBatch).toBe(350);
+      expect(result.enqueuedCount).toBe(500);
     });
   });
 });

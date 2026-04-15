@@ -1,4 +1,4 @@
-import { Thermometer, Droplets, Gauge } from 'lucide-react';
+import { Thermometer, Droplets, Wind } from 'lucide-react';
 import type { RideWeather } from '../models/Ride';
 import {
   conditionIcon,
@@ -60,7 +60,7 @@ export default function RideWeatherPanel({ weather, distanceUnit = 'mi' }: Props
           label="Precip"
         />
         <Tile
-          icon={<Gauge size={20} className="text-[color:var(--text-muted)]" />}
+          icon={<Wind size={20} className="text-[color:var(--text-muted)]" />}
           value={windValue}
           label="Wind"
         />

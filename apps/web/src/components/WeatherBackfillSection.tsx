@@ -1,25 +1,33 @@
 import { useState } from 'react';
-import { useMutation } from '@apollo/client';
+import { useMutation, useQuery } from '@apollo/client';
 import { useNavigate } from 'react-router-dom';
 import { CloudSun, Lock } from 'lucide-react';
 import { useUserTier } from '../hooks/useUserTier';
-import { useViewer, ME_QUERY } from '../graphql/me';
-import { BACKFILL_WEATHER_FOR_MY_RIDES } from '../graphql/backfillWeather';
+import {
+  BACKFILL_WEATHER_FOR_MY_RIDES,
+  RIDES_MISSING_WEATHER,
+} from '../graphql/backfillWeather';
 
 export default function WeatherBackfillSection() {
   const { isPro } = useUserTier();
-  const { viewer } = useViewer();
+  const { data: countData } = useQuery<{ ridesMissingWeather: number }>(
+    RIDES_MISSING_WEATHER,
+    { fetchPolicy: 'cache-and-network' }
+  );
   const navigate = useNavigate();
-  const [queued, setQueued] = useState<number | null>(null);
+  const [lastResult, setLastResult] = useState<{
+    enqueued: number;
+    remaining: number;
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const [backfill, { loading }] = useMutation(BACKFILL_WEATHER_FOR_MY_RIDES, {
-    refetchQueries: [{ query: ME_QUERY }],
+    refetchQueries: [{ query: RIDES_MISSING_WEATHER }],
   });
 
-  const missing = viewer?.ridesMissingWeather ?? 0;
+  const missing = countData?.ridesMissingWeather ?? 0;
 
-  if (missing === 0 && queued === null) return null;
+  if (missing === 0 && lastResult === null) return null;
 
   const onClick = async () => {
     if (!isPro) {
@@ -29,11 +37,17 @@ export default function WeatherBackfillSection() {
     setError(null);
     try {
       const { data } = await backfill();
-      setQueued(data?.backfillWeatherForMyRides?.enqueuedCount ?? 0);
+      const res = data?.backfillWeatherForMyRides;
+      setLastResult({
+        enqueued: res?.enqueuedCount ?? 0,
+        remaining: res?.remainingAfterBatch ?? 0,
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong.');
     }
   };
+
+  const hasMore = (lastResult?.remaining ?? 0) > 0;
 
   return (
     <div className="space-y-3">
@@ -45,8 +59,10 @@ export default function WeatherBackfillSection() {
             <div>
               <p className="text-sm font-medium text-white">Weather for past rides</p>
               <p className="text-xs text-muted">
-                {queued !== null
-                  ? `Queued ${queued} ride${queued === 1 ? '' : 's'}. Weather will appear as it's fetched.`
+                {lastResult !== null
+                  ? hasMore
+                    ? `Queued ${lastResult.enqueued} ride${lastResult.enqueued === 1 ? '' : 's'}. ${lastResult.remaining} more remain — click Fetch more when these finish.`
+                    : `Queued ${lastResult.enqueued} ride${lastResult.enqueued === 1 ? '' : 's'}. Weather will appear as it's fetched.`
                   : `${missing} ride${missing === 1 ? '' : 's'} missing weather data.`}
               </p>
             </div>
@@ -54,10 +70,16 @@ export default function WeatherBackfillSection() {
           {isPro ? (
             <button
               onClick={onClick}
-              disabled={loading || queued !== null}
+              disabled={loading || (lastResult !== null && !hasMore)}
               className="flex items-center gap-1.5 rounded-lg border border-white/20 px-3 py-1.5 text-xs font-medium text-white/80 transition hover:bg-white/10 disabled:opacity-50"
             >
-              {loading ? 'Queuing…' : queued !== null ? 'Queued' : 'Fetch weather'}
+              {loading
+                ? 'Queuing…'
+                : lastResult === null
+                  ? 'Fetch weather'
+                  : hasMore
+                    ? 'Fetch more'
+                    : 'Queued'}
             </button>
           ) : (
             <button

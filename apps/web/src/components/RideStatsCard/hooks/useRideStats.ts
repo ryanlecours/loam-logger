@@ -194,12 +194,17 @@ function computeStatsForTimeframe(
 }
 
 function computeWeatherStats(rides: Ride[]): WeatherStats {
+  // Only rides with fetched weather contribute to the breakdown. Rides that
+  // are still pending a fetch are reported via (totalRides - totalWithWeather)
+  // so they don't pollute the UNKNOWN bucket, which is reserved for rides
+  // whose WMO code didn't map to a known condition.
   const breakdown: WeatherBreakdown = EMPTY_WEATHER_BREAKDOWN();
   let totalWithWeather = 0;
   for (const r of rides) {
-    const cond: WeatherCondition = r.weather?.condition ?? 'UNKNOWN';
+    if (!r.weather) continue;
+    const cond: WeatherCondition = r.weather.condition;
     breakdown[cond] += 1;
-    if (r.weather) totalWithWeather += 1;
+    totalWithWeather += 1;
   }
   return { breakdown, totalWithWeather, totalRides: rides.length };
 }

@@ -187,6 +187,7 @@ export const typeDefs = gql`
   type BackfillWeatherResult {
     enqueuedCount: Int!
     ridesWithoutCoords: Int!
+    remainingAfterBatch: Int!
   }
 
   type Component {
@@ -899,7 +900,6 @@ export const typeDefs = gql`
     servicePreferences: [UserServicePreference!]!
     notifyOnRideUpload: Boolean!
     createdAt: String!
-    ridesMissingWeather: Int!
   }
 
   input RidesFilterInput {
@@ -910,6 +910,7 @@ export const typeDefs = gql`
 
   type Query {
     me: User
+    ridesMissingWeather: Int!
     user(id: ID!): User
     rides(take: Int = 1000, after: ID, filter: RidesFilterInput): [Ride!]!
     rideTypes: [RideType!]!

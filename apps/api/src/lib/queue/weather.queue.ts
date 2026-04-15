@@ -40,10 +40,13 @@ export type EnqueueWeatherResult =
   | { status: 'queued'; jobId: string }
   | { status: 'already_queued'; jobId: string };
 
-// BullMQ `add` with a static jobId is idempotent: if a job with the same id
-// already exists in waiting/active/delayed, BullMQ returns the existing job
-// instead of creating a new one. We check existence first so callers can tell
-// whether this call actually enqueued work or deduped.
+// BullMQ `add` with a static jobId is idempotent: Redis dedupes at the queue
+// level, so no duplicate work runs even under concurrent calls for the same
+// rideId. We check existence first to report `already_queued` as a hint to
+// callers, but this check is best-effort: two concurrent callers can both see
+// "not existing" and both call add — Redis absorbs the second call, but both
+// return `queued`. Downstream code must not treat `enqueuedCount` as a
+// Redis-accurate counter; it's a soft upper bound on jobs-added-this-call.
 export async function enqueueWeatherJob(data: WeatherJobData): Promise<EnqueueWeatherResult> {
   const queue = getWeatherQueue();
   const jobId = buildWeatherJobId(data.rideId);

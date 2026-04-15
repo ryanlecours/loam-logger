@@ -91,7 +91,24 @@ export const fetchHourlyRange = async (opts: {
   }
 
   await acquireSlot();
-  const res = await fetch(url.toString(), { headers: { Accept: 'application/json' } });
+  // Bound every HTTP call so a slow/hung Open-Meteo response can't pin a
+  // worker concurrency slot indefinitely. BullMQ retries the job on throw.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15_000);
+  let res: Response;
+  try {
+    res = await fetch(url.toString(), {
+      headers: { Accept: 'application/json' },
+      signal: controller.signal,
+    });
+  } catch (err) {
+    if ((err as { name?: string }).name === 'AbortError') {
+      throw new Error(`Open-Meteo ${endpoint} request timed out after 15s`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
   if (!res.ok) {
     throw new Error(`Open-Meteo ${endpoint} request failed: ${res.status}`);
   }
