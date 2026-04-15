@@ -1,4 +1,5 @@
-import { Sun, Cloud, CloudRain, CloudSnow, Wind, CloudFog, HelpCircle, LucideIcon } from 'lucide-react';
+import { Sun, Cloud, CloudRain, CloudSnow, Wind, CloudFog, HelpCircle } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import type { WeatherCondition } from '../models/Ride';
 
 export const conditionLabel = (c: WeatherCondition): string => {
