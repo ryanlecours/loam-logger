@@ -14,6 +14,7 @@ import { fireRideNotifications } from '../services/notification.service';
 import { completeReferral } from '../services/referral.service';
 import { config } from '../config/env';
 import type { SyncJobData, SyncJobName, SyncProvider } from '../lib/queue/sync.queue';
+import { enqueueWeatherJob } from '../lib/queue/weather.queue';
 import type { Prisma } from '@prisma/client';
 import {
   WHOOP_API_BASE,
@@ -321,6 +322,9 @@ async function upsertStravaActivity(userId: string, activity: StravaActivity): P
     isNewRide = !existing;
     const locationUpdate = shouldApplyAutoLocation(existing?.location ?? null, autoLocation);
 
+    const startLat = activity.start_latlng?.[0] ?? null;
+    const startLng = activity.start_latlng?.[1] ?? null;
+
     const ride = await tx.ride.upsert({
       where: { stravaActivityId: activity.id.toString() },
       create: {
@@ -336,6 +340,8 @@ async function upsertStravaActivity(userId: string, activity: StravaActivity): P
         notes: activity.name || null,
         bikeId,
         location: autoLocation,
+        startLat,
+        startLng,
       },
       update: {
         startTime,
@@ -348,6 +354,8 @@ async function upsertStravaActivity(userId: string, activity: StravaActivity): P
         notes: activity.name || null,
         bikeId,
         ...(locationUpdate !== undefined ? { location: locationUpdate } : {}),
+        ...(startLat != null ? { startLat } : {}),
+        ...(startLng != null ? { startLng } : {}),
       },
     });
 
@@ -363,6 +371,11 @@ async function upsertStravaActivity(userId: string, activity: StravaActivity): P
   });
 
   logger.debug({ stravaActivityId: activity.id }, '[SyncWorker] Upserted Strava activity');
+
+  // Fire-and-forget weather fetch
+  if (syncedRideId && activity.start_latlng) {
+    enqueueWeatherJob({ rideId: syncedRideId }).catch(() => {});
+  }
 
   // Fire-and-forget notifications
   if (syncedRideId) {
@@ -553,6 +566,9 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
     select: { id: true },
   });
 
+  const startLat = activity.startLatitudeInDegrees ?? activity.beginLatitude ?? null;
+  const startLng = activity.startLongitudeInDegrees ?? activity.beginLongitude ?? null;
+
   // Upsert ride first — this is the primary data, must not be lost
   const ride = await prisma.ride.upsert({
     where: { garminActivityId: activity.summaryId },
@@ -569,6 +585,8 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
       location: autoLocation?.title ?? null,
       importSessionId: runningSession?.id ?? null,
       bikeId,
+      startLat,
+      startLng,
     },
     update: {
       startTime,
@@ -579,6 +597,8 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
       rideType: activity.activityType,
       notes: activity.activityName ?? null,
       ...(locationUpdate !== undefined ? { location: locationUpdate } : {}),
+      ...(startLat != null ? { startLat } : {}),
+      ...(startLng != null ? { startLng } : {}),
     },
   });
 
@@ -609,6 +629,11 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
   }
 
   logger.debug({ summaryId: activity.summaryId }, '[SyncWorker] Upserted Garmin activity');
+
+  // Fire-and-forget weather fetch
+  if (startLat != null && startLng != null) {
+    enqueueWeatherJob({ rideId: syncedRideId }).catch(() => {});
+  }
 
   // Fire-and-forget notifications
   fireRideNotifications({

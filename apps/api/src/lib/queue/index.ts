@@ -8,5 +8,8 @@ export type { BackfillJobName, BackfillJobData, BackfillProvider, EnqueueBackfil
 export { getNotificationQueue, closeNotificationQueue, enqueueReceiptCheck } from './notification.queue';
 export type { NotificationJobName, NotificationJobData } from './notification.queue';
 
+export { getWeatherQueue, closeWeatherQueue, enqueueWeatherJob, buildWeatherJobId } from './weather.queue';
+export type { WeatherJobName, WeatherJobData, EnqueueWeatherResult } from './weather.queue';
+
 // Connection
 export { getQueueConnection } from './connection';

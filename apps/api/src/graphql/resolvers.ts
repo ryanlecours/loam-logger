@@ -4057,6 +4057,56 @@ export const resolvers = {
         return bike;
       });
     },
+
+    backfillWeatherForMyRides: async (
+      _: unknown,
+      _args: unknown,
+      ctx: GraphQLContext
+    ) => {
+      const userId = requireUserId(ctx);
+      const user = await prisma.user.findUniqueOrThrow({
+        where: { id: userId },
+        select: { subscriptionTier: true, isFoundingRider: true, role: true },
+      });
+      if (!isProTier(user)) {
+        throw new GraphQLError('Weather backfill is a Pro feature.', {
+          extensions: { code: 'NOT_PRO' },
+        });
+      }
+
+      const { enqueueWeatherJob } = await import('../lib/queue/weather.queue');
+
+      const [ridesWithCoords, ridesWithoutCoords] = await Promise.all([
+        prisma.ride.findMany({
+          where: {
+            userId,
+            startLat: { not: null },
+            startLng: { not: null },
+            weather: null,
+          },
+          select: { id: true },
+        }),
+        prisma.ride.count({
+          where: {
+            userId,
+            OR: [{ startLat: null }, { startLng: null }],
+            weather: null,
+          },
+        }),
+      ]);
+
+      let enqueuedCount = 0;
+      for (const r of ridesWithCoords) {
+        try {
+          const res = await enqueueWeatherJob({ rideId: r.id });
+          if (res.status === 'queued') enqueuedCount += 1;
+        } catch (err) {
+          console.warn('[BackfillWeather] enqueue failed', r.id, err);
+        }
+      }
+
+      return { enqueuedCount, ridesWithoutCoords };
+    },
   },
 
   Bike: {
@@ -4129,6 +4179,16 @@ export const resolvers = {
       ride.startTime instanceof Date
         ? ride.startTime.toISOString()
         : ride.startTime,
+    weather: async (ride: { id: string; weather?: unknown }) => {
+      // If resolver was called with an included weather relation, use it.
+      if (ride.weather !== undefined) return ride.weather;
+      return prisma.rideWeather.findUnique({ where: { rideId: ride.id } });
+    },
+  },
+
+  RideWeather: {
+    fetchedAt: (w: { fetchedAt: Date | string }) =>
+      w.fetchedAt instanceof Date ? w.fetchedAt.toISOString() : w.fetchedAt,
   },
 
   Component: {
@@ -4205,6 +4265,16 @@ export const resolvers = {
       parent.pairedComponentMigrationSeenAt?.toISOString() ?? null,
     notifyOnRideUpload: (parent: { notifyOnRideUpload?: boolean }) => parent.notifyOnRideUpload ?? true,
     createdAt: (parent: { createdAt: Date }) => parent.createdAt.toISOString(),
+    ridesMissingWeather: async (parent: { id: string }) => {
+      return prisma.ride.count({
+        where: {
+          userId: parent.id,
+          weather: null,
+          startLat: { not: null },
+          startLng: { not: null },
+        },
+      });
+    },
     servicePreferences: async (parent: { id: string }) => {
       return prisma.userServicePreference.findMany({
         where: { userId: parent.id },

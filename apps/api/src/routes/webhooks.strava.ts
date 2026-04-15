@@ -6,6 +6,7 @@ import { deriveLocationAsync, shouldApplyAutoLocation } from '../lib/location';
 import { incrementBikeComponentHours, decrementBikeComponentHours } from '../lib/component-hours';
 import { logError } from '../lib/logger';
 import { fireRideNotifications } from '../services/notification.service';
+import { enqueueWeatherJob } from '../lib/queue/weather.queue';
 import { isActiveSource } from '../lib/active-source';
 
 type Empty = Record<string, never>;
@@ -357,6 +358,9 @@ async function processActivityEvent(event: StravaWebhookEvent): Promise<void> {
 
         const locationUpdate = shouldApplyAutoLocation(existing?.location ?? null, autoLocation?.title ?? null);
 
+        const startLat = activity.start_latlng?.[0] ?? null;
+        const startLng = activity.start_latlng?.[1] ?? null;
+
         const ride = await tx.ride.upsert({
           where: {
             stravaActivityId: activityId.toString(),
@@ -374,6 +378,8 @@ async function processActivityEvent(event: StravaWebhookEvent): Promise<void> {
             notes: activity.name || null,
             bikeId,
             location: autoLocation?.title ?? null,
+            startLat,
+            startLng,
           },
           update: {
             startTime,
@@ -386,6 +392,8 @@ async function processActivityEvent(event: StravaWebhookEvent): Promise<void> {
             notes: activity.name || null,
             bikeId,
             ...(locationUpdate !== undefined ? { location: locationUpdate } : {}),
+            ...(startLat != null ? { startLat } : {}),
+            ...(startLng != null ? { startLng } : {}),
           },
         });
 
@@ -417,6 +425,10 @@ async function processActivityEvent(event: StravaWebhookEvent): Promise<void> {
           distanceMeters,
           isNewRide,
         }).catch(() => {}); // swallow - already logged internally
+
+        if (activity.start_latlng) {
+          enqueueWeatherJob({ rideId: syncedRideId }).catch(() => {});
+        }
       }
     } catch (error) {
       logError(`Strava Activity Event ${activityId}`, error);

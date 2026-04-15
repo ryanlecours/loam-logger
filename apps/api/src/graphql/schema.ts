@@ -160,6 +160,33 @@ export const typeDefs = gql`
     location: String
     createdAt: String!
     updatedAt: String!
+    weather: RideWeather
+  }
+
+  enum WeatherCondition {
+    SUNNY
+    CLOUDY
+    RAINY
+    SNOWY
+    WINDY
+    FOGGY
+    UNKNOWN
+  }
+
+  type RideWeather {
+    tempC: Float!
+    feelsLikeC: Float
+    precipitationMm: Float!
+    windSpeedKph: Float!
+    humidity: Float
+    wmoCode: Int!
+    condition: WeatherCondition!
+    fetchedAt: String!
+  }
+
+  type BackfillWeatherResult {
+    enqueuedCount: Int!
+    ridesWithoutCoords: Int!
   }
 
   type Component {
@@ -812,6 +839,7 @@ export const typeDefs = gql`
     createCheckoutSession(plan: StripePlan!, platform: CheckoutPlatform): CheckoutSessionResult!
     createBillingPortalSession(platform: CheckoutPlatform): BillingPortalResult!
     selectBikeForDowngrade(bikeId: ID!): Bike!
+    backfillWeatherForMyRides: BackfillWeatherResult!
   }
 
   type ConnectedAccount {
@@ -871,6 +899,7 @@ export const typeDefs = gql`
     servicePreferences: [UserServicePreference!]!
     notifyOnRideUpload: Boolean!
     createdAt: String!
+    ridesMissingWeather: Int!
   }
 
   input RidesFilterInput {
