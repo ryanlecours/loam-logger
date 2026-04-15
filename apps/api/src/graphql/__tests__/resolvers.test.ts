@@ -2884,14 +2884,33 @@ describe('GraphQL Resolvers', () => {
       expect(enqueueWeatherJob).not.toHaveBeenCalled();
     });
 
-    it('rejects calls that exceed the rate limit before touching Prisma or queue', async () => {
+    it('rejects Pro calls that exceed the rate limit before touching the queue', async () => {
+      // Pro check runs first so the Prisma lookup still happens; only the
+      // queue work is short-circuited by the rate limit.
+      mockFindUniqueOrThrow.mockResolvedValueOnce({
+        subscriptionTier: 'PRO',
+        isFoundingRider: false,
+        role: 'FREE',
+      });
       mockCheckMutationRateLimit.mockResolvedValueOnce({ allowed: false, retryAfter: 45 });
       const ctx = createMockContext('user-123');
       await expect(mutation({}, {}, ctx as never)).rejects.toThrow(
         'Rate limit exceeded. Try again in 45 seconds.'
       );
-      expect(mockFindUniqueOrThrow).not.toHaveBeenCalled();
       expect(enqueueWeatherJob).not.toHaveBeenCalled();
+    });
+
+    it('does not consume a rate-limit token for free-user calls', async () => {
+      mockFindUniqueOrThrow.mockResolvedValueOnce({
+        subscriptionTier: 'FREE_LIGHT',
+        isFoundingRider: false,
+        role: 'FREE',
+      });
+      const ctx = createMockContext('user-123');
+      await expect(mutation({}, {}, ctx as never)).rejects.toThrow(
+        'Weather backfill is a Pro feature.'
+      );
+      expect(mockCheckMutationRateLimit).not.toHaveBeenCalled();
     });
 
     it('enqueues jobs for Pro users and returns counts', async () => {

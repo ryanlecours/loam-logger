@@ -4065,14 +4065,10 @@ export const resolvers = {
     ) => {
       const userId = requireUserId(ctx);
 
-      const rateLimit = await checkMutationRateLimit('backfillWeatherForMyRides', userId);
-      if (!rateLimit.allowed) {
-        throw new GraphQLError(
-          `Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`,
-          { extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter } }
-        );
-      }
-
+      // Pro check first so free-user calls are rejected immediately without
+      // consuming a rate-limit token. The rate limit exists to stop Pro
+      // users (or a misbehaving Pro client) from flooding the queue — it
+      // doesn't need to gate users who can't reach the work at all.
       const user = await prisma.user.findUniqueOrThrow({
         where: { id: userId },
         select: { subscriptionTier: true, isFoundingRider: true, role: true },
@@ -4081,6 +4077,14 @@ export const resolvers = {
         throw new GraphQLError('Weather backfill is a Pro feature.', {
           extensions: { code: 'NOT_PRO' },
         });
+      }
+
+      const rateLimit = await checkMutationRateLimit('backfillWeatherForMyRides', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(
+          `Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`,
+          { extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter } }
+        );
       }
 
       // Cap the batch so one click can't fire thousands of Open-Meteo requests.
