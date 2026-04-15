@@ -59,9 +59,16 @@ export const getHourlySamples = async (opts: {
       lngKey,
       hourUtc: { in: hoursNeeded },
     },
+    // Today the unique constraint on (latKey, lngKey, hourUtc) prevents
+    // duplicate rows, so this ordering is a no-op. Kept explicit so that if
+    // the constraint is ever relaxed (or disabled temporarily during a
+    // migration), the Map below deterministically keeps the newest write
+    // rather than whatever row the query planner returns first.
+    orderBy: { createdAt: 'asc' },
   });
   const cachedByHour = new Map<number, HourlyWeather>();
   for (const row of cached) {
+    // Later rows (newer createdAt) win via Map.set overwrite semantics.
     cachedByHour.set(row.hourUtc.getTime(), row.payload as unknown as HourlyWeather);
   }
 

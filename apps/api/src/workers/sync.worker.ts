@@ -374,7 +374,9 @@ async function upsertStravaActivity(userId: string, activity: StravaActivity): P
 
   // Fire-and-forget weather fetch
   if (syncedRideId && activity.start_latlng) {
-    enqueueWeatherJob({ rideId: syncedRideId }).catch(() => {});
+    enqueueWeatherJob({ rideId: syncedRideId }).catch((err) =>
+      logger.warn({ rideId: syncedRideId, err }, '[SyncWorker] Failed to enqueue weather job (Strava)')
+    );
   }
 
   // Fire-and-forget notifications
@@ -632,7 +634,9 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
 
   // Fire-and-forget weather fetch
   if (startLat != null && startLng != null) {
-    enqueueWeatherJob({ rideId: syncedRideId }).catch(() => {});
+    enqueueWeatherJob({ rideId: syncedRideId }).catch((err) =>
+      logger.warn({ rideId: syncedRideId, err }, '[SyncWorker] Failed to enqueue weather job (Garmin)')
+    );
   }
 
   // Fire-and-forget notifications

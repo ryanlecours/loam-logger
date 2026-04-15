@@ -3,9 +3,18 @@ const ARCHIVE_BASE =
 const FORECAST_BASE =
   process.env.WEATHER_FORECAST_API_BASE || 'https://api.open-meteo.com/v1/forecast';
 
-// Open-Meteo allows ~10k requests/day free. Serialize with mutex + spacing
-// to stay well under burst limits during backfill.
-const MIN_INTERVAL_MS = 250;
+// Open-Meteo free tier allows ~10k requests/day sustained (~0.12 req/s) with
+// larger short-term bursts. We serialize requests with a mutex and enforce a
+// minimum interval between fetches from this process.
+//
+// IMPORTANT: this throttle is PER-PROCESS. With N horizontal replicas each
+// running `concurrency: 3` workers, cluster-wide burst rate is
+// ~N × (1000 / MIN_INTERVAL_MS) req/s. For the default 250ms and 1 replica
+// that's 4 req/s; at 4 replicas it's 16 req/s. If you scale out workers or
+// run backfills for many users at once, raise MIN_INTERVAL_MS proportionally
+// via the env var below. Distributed rate limiting (Redis token bucket) is
+// the right tool if/when we hit a paid Open-Meteo tier with hard limits.
+const MIN_INTERVAL_MS = Number(process.env.WEATHER_MIN_INTERVAL_MS) || 250;
 let lastRequest = 0;
 let mutex: Promise<void> = Promise.resolve();
 

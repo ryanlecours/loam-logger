@@ -216,7 +216,9 @@ r.get<Empty, void, Empty, { year?: string }>(
             console.warn(`[Strava Backfill] Failed to geocode ride ${ride.id}:`, err);
           }
 
-          enqueueWeatherJob({ rideId: ride.id }).catch(() => {});
+          enqueueWeatherJob({ rideId: ride.id }).catch((err) =>
+            logError(`Strava Backfill weather enqueue ${ride.id}`, err)
+          );
         }
 
         importedCount++;

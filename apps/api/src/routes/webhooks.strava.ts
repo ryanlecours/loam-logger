@@ -427,7 +427,9 @@ async function processActivityEvent(event: StravaWebhookEvent): Promise<void> {
         }).catch(() => {}); // swallow - already logged internally
 
         if (activity.start_latlng) {
-          enqueueWeatherJob({ rideId: syncedRideId }).catch(() => {});
+          enqueueWeatherJob({ rideId: syncedRideId }).catch((err) =>
+            logError(`Strava Webhook weather enqueue ${syncedRideId}`, err)
+          );
         }
       }
     } catch (error) {

@@ -130,6 +130,10 @@ model Ride {
   weather           RideWeather?
 
   @@index([importSessionId, bikeId])
+  // NOTE: a partial index on (userId) WHERE startLat IS NOT NULL AND startLng IS NOT NULL
+  // is defined via raw SQL in migration 20260415121000_ride_missing_weather_index
+  // to keep the ridesMissingWeather COUNT(*) fast once the RideWeather table fills up.
+  // Prisma doesn't support partial-index predicates, so the index is managed there.
 }
 
 enum WeatherCondition {

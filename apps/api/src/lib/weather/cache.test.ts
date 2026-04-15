@@ -158,6 +158,38 @@ describe('getHourlySamples', () => {
     warn.mockRestore();
   });
 
+  it('orders cached reads by createdAt so the newest row wins on duplicates', async () => {
+    // Simulates a hypothetical race where two workers both wrote for the same
+    // (latKey, lngKey, hourUtc) before the unique constraint is enforced or
+    // after a constraint-dropping migration. The query must order by createdAt
+    // so the later row overwrites the earlier one deterministically.
+    mockFindMany.mockResolvedValueOnce([
+      {
+        hourUtc: new Date('2026-04-15T10:00:00Z'),
+        createdAt: new Date('2026-04-15T10:01:00Z'),
+        payload: sample('2026-04-15T10:00', { tempC: 10 }), // older
+      },
+      {
+        hourUtc: new Date('2026-04-15T10:00:00Z'),
+        createdAt: new Date('2026-04-15T10:02:00Z'),
+        payload: sample('2026-04-15T10:00', { tempC: 20 }), // newer
+      },
+    ]);
+
+    const result = await getHourlySamples({
+      lat: 45.12,
+      lng: -122.34,
+      startUtc: new Date('2026-04-15T10:15:00Z'),
+      endUtc: new Date('2026-04-15T10:45:00Z'),
+    });
+
+    expect(mockFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({ orderBy: { createdAt: 'asc' } })
+    );
+    expect(result).toHaveLength(1);
+    expect(result[0].tempC).toBe(20);
+  });
+
   it('omits hours Open-Meteo failed to return from the result', async () => {
     mockFindMany.mockResolvedValueOnce([]);
     // Open-Meteo returns only 2 of 3 requested hours (e.g. range-edge gap).

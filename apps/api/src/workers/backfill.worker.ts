@@ -423,7 +423,9 @@ async function processGarminCallback(userId: string, callbackURL: string): Promi
     });
 
     if (startLat != null && startLng != null) {
-      enqueueWeatherJob({ rideId: upsertedRide.id }).catch(() => {});
+      enqueueWeatherJob({ rideId: upsertedRide.id }).catch((err) =>
+        logger.warn({ rideId: upsertedRide.id, err }, '[BackfillWorker] Failed to enqueue weather job')
+      );
     }
 
     processedActivityCount++;

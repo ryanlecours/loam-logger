@@ -1,3 +1,5 @@
+import type { WeatherCondition } from '../../models/Ride';
+
 // Timeframes for ride statistics
 // Can be a preset timeframe or a specific year (as a number)
 export type Timeframe = '1w' | '1m' | '3m' | 'YTD' | number;
@@ -55,8 +57,6 @@ export interface LocationStats {
   topLocations: LocationBreakdown[];
   topTrailSystems: LocationBreakdown[];
 }
-
-import type { WeatherCondition } from '../../models/Ride';
 
 export type WeatherBreakdown = Record<WeatherCondition, number>;
 
