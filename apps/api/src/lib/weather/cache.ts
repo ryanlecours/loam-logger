@@ -33,6 +33,14 @@ const hourBoundary = (d: Date): Date => {
 // If this assumption changes (e.g., we start fetching weather for in-progress
 // rides), revisit: forecast rows would then represent predictions of the
 // future and would need a TTL or staleness check.
+//
+// Growth profile: WeatherCache is keyed by (lat-2dp, lng-2dp, hourUtc) and
+// shared across all users, so it scales with unique (location-cell, hour)
+// pairs — not per user. Back-of-envelope: ~200 B per row, ~8760 rows per
+// year per actively-ridden cell. A future cleanup job that drops rows with
+// `hourUtc < NOW() - interval '2 years'` is a safe-always operation (archive
+// data can be re-fetched if needed). Not implemented yet because the table
+// is cheap to keep; revisit if disk usage becomes a concern.
 export const getHourlySamples = async (opts: {
   lat: number;
   lng: number;

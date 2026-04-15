@@ -392,6 +392,9 @@ async function processActivityEvent(event: StravaWebhookEvent): Promise<void> {
             notes: activity.name || null,
             bikeId,
             ...(locationUpdate !== undefined ? { location: locationUpdate } : {}),
+            // Known limitation: coords are only written, never cleared on
+            // re-sync. See sync.worker.ts for full rationale (Strava
+            // privacy zones are the most likely trigger).
             ...(startLat != null ? { startLat } : {}),
             ...(startLng != null ? { startLng } : {}),
           },

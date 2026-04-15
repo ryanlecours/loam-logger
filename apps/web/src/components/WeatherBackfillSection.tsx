@@ -10,7 +10,7 @@ import {
 
 export default function WeatherBackfillSection() {
   const { isPro } = useUserTier();
-  const { data: countData } = useQuery<{ ridesMissingWeather: number }>(
+  const { data: countData } = useQuery<{ me: { id: string; ridesMissingWeather: number } | null }>(
     RIDES_MISSING_WEATHER,
     { fetchPolicy: 'cache-and-network' }
   );
@@ -25,7 +25,7 @@ export default function WeatherBackfillSection() {
     refetchQueries: [{ query: RIDES_MISSING_WEATHER }],
   });
 
-  const missing = countData?.ridesMissingWeather ?? 0;
+  const missing = countData?.me?.ridesMissingWeather ?? 0;
 
   if (missing === 0 && lastResult === null) return null;
 

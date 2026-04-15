@@ -416,6 +416,8 @@ async function processGarminCallback(userId: string, callbackURL: string): Promi
         rideType: activity.activityType,
         notes: activity.activityName ?? null,
         ...(locationUpdate !== undefined ? { location: locationUpdate } : {}),
+        // Known limitation: coords are only written, never cleared on
+        // re-sync. See sync.worker.ts for full rationale.
         ...(startLat != null ? { startLat } : {}),
         ...(startLng != null ? { startLng } : {}),
       },

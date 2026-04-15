@@ -798,21 +798,6 @@ export const resolvers = {
         include: { rides: true },
       }),
 
-    // Dedicated endpoint instead of a Viewer field so the count only runs
-    // when the Settings backfill UI explicitly asks for it. Keeping it off
-    // the hot Me path avoids a COUNT(*) on every page load.
-    ridesMissingWeather: async (_: unknown, _args: unknown, ctx: GraphQLContext) => {
-      const userId = requireUserId(ctx);
-      return prisma.ride.count({
-        where: {
-          userId,
-          weather: null,
-          startLat: { not: null },
-          startLng: { not: null },
-        },
-      });
-    },
-
     rides: async (_: unknown, { take = 1000, after, filter }: RidesArgs, ctx: GraphQLContext) => {
       if (!ctx.user?.id) throw new Error('Unauthorized');
       const limit = Math.min(10000, Math.max(1, take));
@@ -4322,6 +4307,22 @@ export const resolvers = {
       parent.pairedComponentMigrationSeenAt?.toISOString() ?? null,
     notifyOnRideUpload: (parent: { notifyOnRideUpload?: boolean }) => parent.notifyOnRideUpload ?? true,
     createdAt: (parent: { createdAt: Date }) => parent.createdAt.toISOString(),
+    // Scoped to the viewer's User type so the shape matches other user-owned
+    // fields. GraphQL's lazy field resolution means this COUNT only runs
+    // when a client explicitly selects `ridesMissingWeather` (e.g. the
+    // Settings backfill section) — not on every Me query. A partial index
+    // on Ride(userId) WHERE startLat IS NOT NULL AND startLng IS NOT NULL
+    // keeps the COUNT cheap (see migration 20260415121000).
+    ridesMissingWeather: async (parent: { id: string }) => {
+      return prisma.ride.count({
+        where: {
+          userId: parent.id,
+          weather: null,
+          startLat: { not: null },
+          startLng: { not: null },
+        },
+      });
+    },
     servicePreferences: async (parent: { id: string }) => {
       return prisma.userServicePreference.findMany({
         where: { userId: parent.id },

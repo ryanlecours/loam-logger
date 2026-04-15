@@ -12,6 +12,9 @@ export const BACKFILL_WEATHER_FOR_MY_RIDES = gql`
 
 export const RIDES_MISSING_WEATHER = gql`
   query RidesMissingWeather {
-    ridesMissingWeather
+    me {
+      id
+      ridesMissingWeather
+    }
   }
 `;

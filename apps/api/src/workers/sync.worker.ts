@@ -354,6 +354,11 @@ async function upsertStravaActivity(userId: string, activity: StravaActivity): P
         notes: activity.name || null,
         bikeId,
         ...(locationUpdate !== undefined ? { location: locationUpdate } : {}),
+        // Known limitation: coords are only written, never cleared. If a
+        // privacy zone is later added to a Strava activity and coords are
+        // stripped on re-sync, the originally-stored startLat/startLng
+        // stick around. Weather already fetched is unaffected; a
+        // hypothetical future weather re-fetch would use the stale coord.
         ...(startLat != null ? { startLat } : {}),
         ...(startLng != null ? { startLng } : {}),
       },
@@ -599,6 +604,11 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
       rideType: activity.activityType,
       notes: activity.activityName ?? null,
       ...(locationUpdate !== undefined ? { location: locationUpdate } : {}),
+      // Known limitation: coords are only written, never cleared. If a
+      // Garmin activity's coords become unavailable on a later re-sync,
+      // the originally-stored startLat/startLng stick around. Weather
+      // already fetched is unaffected; a hypothetical future weather
+      // re-fetch would use the stale coord.
       ...(startLat != null ? { startLat } : {}),
       ...(startLng != null ? { startLng } : {}),
     },
