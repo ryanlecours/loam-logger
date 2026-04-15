@@ -56,6 +56,16 @@ export interface LocationStats {
   topTrailSystems: LocationBreakdown[];
 }
 
+import type { WeatherCondition } from '../../models/Ride';
+
+export type WeatherBreakdown = Record<WeatherCondition, number>;
+
+export interface WeatherStats {
+  breakdown: WeatherBreakdown;
+  totalWithWeather: number;
+  totalRides: number;
+}
+
 // Complete ride statistics for a timeframe
 export interface RideStats {
   // Primary metrics
@@ -69,7 +79,18 @@ export interface RideStats {
   trends: TrendStats;
   heartRate: HeartRateStats;
   locations: LocationStats;
+  weather: WeatherStats;
 }
+
+export const EMPTY_WEATHER_BREAKDOWN = (): WeatherBreakdown => ({
+  SUNNY: 0,
+  CLOUDY: 0,
+  RAINY: 0,
+  SNOWY: 0,
+  WINDY: 0,
+  FOGGY: 0,
+  UNKNOWN: 0,
+});
 
 // Preset timeframe values (excludes year numbers)
 export type PresetTimeframe = '1w' | '1m' | '3m' | 'YTD';
@@ -105,5 +126,10 @@ export const EMPTY_STATS: RideStats = {
   locations: {
     topLocations: [],
     topTrailSystems: [],
+  },
+  weather: {
+    breakdown: EMPTY_WEATHER_BREAKDOWN(),
+    totalWithWeather: 0,
+    totalRides: 0,
   },
 };

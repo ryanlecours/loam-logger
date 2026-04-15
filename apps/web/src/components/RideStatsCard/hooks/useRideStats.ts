@@ -11,7 +11,11 @@ import type {
   LocationBreakdown,
   BikeTimeData,
   PersonalRecord,
+  WeatherStats,
+  WeatherBreakdown,
 } from '../types';
+import { EMPTY_WEATHER_BREAKDOWN } from '../types';
+import type { WeatherCondition } from '../../../models/Ride';
 
 const DAYS_MS = 24 * 60 * 60 * 1000;
 const SECONDS_TO_HOURS = 1 / 3600;
@@ -185,7 +189,19 @@ function computeStatsForTimeframe(
     trends: computeTrendStats(filteredRides, allRides),
     heartRate: computeHeartRateStats(filteredRides),
     locations: computeLocationStats(filteredRides),
+    weather: computeWeatherStats(filteredRides),
   };
+}
+
+function computeWeatherStats(rides: Ride[]): WeatherStats {
+  const breakdown: WeatherBreakdown = EMPTY_WEATHER_BREAKDOWN();
+  let totalWithWeather = 0;
+  for (const r of rides) {
+    const cond: WeatherCondition = r.weather?.condition ?? 'UNKNOWN';
+    breakdown[cond] += 1;
+    if (r.weather) totalWithWeather += 1;
+  }
+  return { breakdown, totalWithWeather, totalRides: rides.length };
 }
 
 function computeRideCountStats(rides: Ride[]): RideCountStats {

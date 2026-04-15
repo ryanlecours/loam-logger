@@ -29,6 +29,7 @@ export const ME_QUERY = gql`
       distanceUnit
       pairedComponentMigrationSeenAt
       createdAt
+      ridesMissingWeather
     }
   }
 `

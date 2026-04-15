@@ -1,0 +1,71 @@
+import { Thermometer, Droplets, Gauge } from 'lucide-react';
+import type { RideWeather } from '../models/Ride';
+import {
+  conditionIcon,
+  conditionLabel,
+  conditionTint,
+  celsiusToFahrenheit,
+  mmToInches,
+  kphToMph,
+} from '../lib/weather';
+
+type Props = {
+  weather: RideWeather;
+  distanceUnit?: 'mi' | 'km' | string;
+};
+
+export default function RideWeatherPanel({ weather, distanceUnit = 'mi' }: Props) {
+  const isImperial = distanceUnit === 'mi';
+  const ConditionIcon = conditionIcon(weather.condition);
+  const tint = conditionTint(weather.condition);
+
+  const tempValue = isImperial
+    ? `${Math.round(celsiusToFahrenheit(weather.tempC))}°F`
+    : `${Math.round(weather.tempC)}°C`;
+  const precipValue = isImperial
+    ? `${mmToInches(weather.precipitationMm).toFixed(2)} in`
+    : `${weather.precipitationMm.toFixed(1)} mm`;
+  const windValue = isImperial
+    ? `${Math.round(kphToMph(weather.windSpeedKph))} mph`
+    : `${Math.round(weather.windSpeedKph)} kph`;
+
+  return (
+    <div className="rounded-lg border border-[color:var(--surface-2)] bg-[color:var(--surface-1)] p-4">
+      <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--text-muted)] mb-3">
+        Weather
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <Tile
+          icon={<ConditionIcon size={20} color={tint} />}
+          value={conditionLabel(weather.condition)}
+          label="Condition"
+        />
+        <Tile
+          icon={<Thermometer size={20} className="text-[color:var(--text-muted)]" />}
+          value={tempValue}
+          label="Temp"
+        />
+        <Tile
+          icon={<Droplets size={20} className="text-[color:var(--text-muted)]" />}
+          value={precipValue}
+          label="Precip"
+        />
+        <Tile
+          icon={<Gauge size={20} className="text-[color:var(--text-muted)]" />}
+          value={windValue}
+          label="Wind"
+        />
+      </div>
+    </div>
+  );
+}
+
+function Tile({ icon, value, label }: { icon: React.ReactNode; value: string; label: string }) {
+  return (
+    <div className="flex flex-col items-center text-center py-2">
+      {icon}
+      <div className="mt-1 text-sm font-semibold text-[color:var(--text)]">{value}</div>
+      <div className="text-[11px] text-[color:var(--text-muted)]">{label}</div>
+    </div>
+  );
+}

@@ -17,6 +17,14 @@ export const RIDES = gql`
       notes
       trailSystem
       location
+      weather {
+        tempC
+        feelsLikeC
+        precipitationMm
+        windSpeedKph
+        wmoCode
+        condition
+      }
     }
   }
 `;
