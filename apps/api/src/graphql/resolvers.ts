@@ -4095,13 +4095,15 @@ export const resolvers = {
         }),
       ]);
 
+      const results = await Promise.allSettled(
+        ridesWithCoords.map((r) => enqueueWeatherJob({ rideId: r.id }))
+      );
       let enqueuedCount = 0;
-      for (const r of ridesWithCoords) {
-        try {
-          const res = await enqueueWeatherJob({ rideId: r.id });
-          if (res.status === 'queued') enqueuedCount += 1;
-        } catch (err) {
-          console.warn('[BackfillWeather] enqueue failed', r.id, err);
+      for (const result of results) {
+        if (result.status === 'fulfilled' && result.value.status === 'queued') {
+          enqueuedCount += 1;
+        } else if (result.status === 'rejected') {
+          console.warn('[BackfillWeather] enqueue failed', result.reason);
         }
       }
 
@@ -4179,10 +4181,15 @@ export const resolvers = {
       ride.startTime instanceof Date
         ? ride.startTime.toISOString()
         : ride.startTime,
-    weather: async (ride: { id: string; weather?: unknown }) => {
+    weather: async (
+      ride: { id: string; weather?: unknown },
+      _args: unknown,
+      ctx: GraphQLContext
+    ) => {
       // If resolver was called with an included weather relation, use it.
       if (ride.weather !== undefined) return ride.weather;
-      return prisma.rideWeather.findUnique({ where: { rideId: ride.id } });
+      // Otherwise batch-load via DataLoader to avoid N+1 on list queries.
+      return ctx.loaders.weatherByRideId.load(ride.id);
     },
   },
 

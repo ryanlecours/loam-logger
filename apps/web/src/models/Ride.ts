@@ -12,6 +12,7 @@ export interface RideWeather {
   feelsLikeC?: number | null;
   precipitationMm: number;
   windSpeedKph: number;
+  humidity?: number | null;
   wmoCode: number;
   condition: WeatherCondition;
 }

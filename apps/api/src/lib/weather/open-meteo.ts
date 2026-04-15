@@ -50,7 +50,7 @@ const ARCHIVE_LAG_DAYS = 5;
 
 const formatDate = (d: Date): string => d.toISOString().slice(0, 10);
 
-const pickEndpoint = (startUtc: Date): 'archive' | 'forecast' => {
+export const pickEndpoint = (startUtc: Date): 'archive' | 'forecast' => {
   const ageMs = Date.now() - startUtc.getTime();
   const ageDays = ageMs / (1000 * 60 * 60 * 24);
   return ageDays >= ARCHIVE_LAG_DAYS ? 'archive' : 'forecast';

@@ -49,6 +49,8 @@ export async function processWeatherJob(
     return;
   }
 
+  const rawJson = { samples: summary.samples };
+
   await prisma.rideWeather.upsert({
     where: { rideId },
     create: {
@@ -63,6 +65,7 @@ export async function processWeatherJob(
       lat: ride.startLat,
       lng: ride.startLng,
       source: summary.source,
+      rawJson,
     },
     update: {
       tempC: summary.tempC,
@@ -74,6 +77,7 @@ export async function processWeatherJob(
       condition: summary.condition,
       source: summary.source,
       fetchedAt: new Date(),
+      rawJson,
     },
   });
 }

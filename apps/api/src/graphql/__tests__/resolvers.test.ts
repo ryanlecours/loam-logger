@@ -27,6 +27,7 @@ jest.mock('../../lib/prisma', () => ({
     ride: {
       findMany: jest.fn(),
       updateMany: jest.fn(),
+      count: jest.fn().mockResolvedValue(0),
     },
     stravaGearMapping: {
       deleteMany: jest.fn(),
@@ -73,6 +74,10 @@ jest.mock('../../services/notification.service', () => ({
   isValidExpoPushToken: jest.fn((token: string) => token.startsWith('ExponentPushToken[') || token.startsWith('ExpoPushToken[')),
 }));
 
+jest.mock('../../lib/queue/weather.queue', () => ({
+  enqueueWeatherJob: jest.fn(),
+}));
+
 import { resolvers } from '../resolvers';
 import { prisma } from '../../lib/prisma';
 import { checkMutationRateLimit } from '../../lib/rate-limit';
@@ -92,6 +97,7 @@ const createMockContext = (
   user: userId ? { id: userId } : null,
   loaders: {
     serviceLogsByComponentId: { load: jest.fn() },
+    weatherByRideId: { load: jest.fn() },
   },
   req: {
     // Only use default IP if ip is not explicitly passed in reqOverrides
@@ -2848,6 +2854,96 @@ describe('GraphQL Resolvers', () => {
         where: { id: 'user-123' },
         data: { needsDowngradeSelection: false },
       });
+    });
+  });
+
+  describe('backfillWeatherForMyRides', () => {
+    const mutation = resolvers.Mutation.backfillWeatherForMyRides;
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { enqueueWeatherJob } = require('../../lib/queue/weather.queue') as {
+      enqueueWeatherJob: jest.Mock;
+    };
+    const mockFindUniqueOrThrow = prisma.user.findUniqueOrThrow as jest.Mock;
+    const mockRideFindMany = prisma.ride.findMany as jest.Mock;
+    const mockRideCount = prisma.ride.count as jest.Mock;
+
+    beforeEach(() => {
+      enqueueWeatherJob.mockReset();
+    });
+
+    it('rejects free users with NOT_PRO', async () => {
+      mockFindUniqueOrThrow.mockResolvedValueOnce({
+        subscriptionTier: 'FREE_LIGHT',
+        isFoundingRider: false,
+        role: 'FREE',
+      });
+      const ctx = createMockContext('user-123');
+      await expect(
+        mutation({}, {}, ctx as never)
+      ).rejects.toThrow('Weather backfill is a Pro feature.');
+      expect(enqueueWeatherJob).not.toHaveBeenCalled();
+    });
+
+    it('enqueues jobs for Pro users and returns counts', async () => {
+      mockFindUniqueOrThrow.mockResolvedValueOnce({
+        subscriptionTier: 'PRO',
+        isFoundingRider: false,
+        role: 'FREE',
+      });
+      mockRideFindMany.mockResolvedValueOnce([
+        { id: 'ride-1' },
+        { id: 'ride-2' },
+        { id: 'ride-3' },
+      ]);
+      mockRideCount.mockResolvedValueOnce(4); // rides without coords
+      enqueueWeatherJob
+        .mockResolvedValueOnce({ status: 'queued', jobId: 'j1' })
+        .mockResolvedValueOnce({ status: 'queued', jobId: 'j2' })
+        .mockResolvedValueOnce({ status: 'already_queued', jobId: 'j3' });
+
+      const ctx = createMockContext('user-123');
+      const result = await mutation({}, {}, ctx as never);
+
+      expect(result).toEqual({ enqueuedCount: 2, ridesWithoutCoords: 4 });
+      expect(enqueueWeatherJob).toHaveBeenCalledTimes(3);
+    });
+
+    it('treats founding riders as Pro', async () => {
+      mockFindUniqueOrThrow.mockResolvedValueOnce({
+        subscriptionTier: 'FREE_LIGHT',
+        isFoundingRider: true,
+        role: 'FREE',
+      });
+      mockRideFindMany.mockResolvedValueOnce([]);
+      mockRideCount.mockResolvedValueOnce(0);
+
+      const ctx = createMockContext('user-123');
+      const result = await mutation({}, {}, ctx as never);
+
+      expect(result).toEqual({ enqueuedCount: 0, ridesWithoutCoords: 0 });
+    });
+
+    it('does not let one enqueue failure abort the rest', async () => {
+      mockFindUniqueOrThrow.mockResolvedValueOnce({
+        subscriptionTier: 'PRO',
+        isFoundingRider: false,
+        role: 'FREE',
+      });
+      mockRideFindMany.mockResolvedValueOnce([
+        { id: 'ride-1' },
+        { id: 'ride-2' },
+        { id: 'ride-3' },
+      ]);
+      mockRideCount.mockResolvedValueOnce(0);
+      enqueueWeatherJob
+        .mockResolvedValueOnce({ status: 'queued', jobId: 'j1' })
+        .mockRejectedValueOnce(new Error('redis down'))
+        .mockResolvedValueOnce({ status: 'queued', jobId: 'j3' });
+
+      const ctx = createMockContext('user-123');
+      const result = await mutation({}, {}, ctx as never);
+
+      expect(result).toEqual({ enqueuedCount: 2, ridesWithoutCoords: 0 });
     });
   });
 });

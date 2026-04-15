@@ -22,6 +22,7 @@ export const RIDES = gql`
         feelsLikeC
         precipitationMm
         windSpeedKph
+        humidity
         wmoCode
         condition
       }

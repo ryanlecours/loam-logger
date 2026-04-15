@@ -29,6 +29,15 @@ export default function RideWeatherPanel({ weather, distanceUnit = 'mi' }: Props
     ? `${Math.round(kphToMph(weather.windSpeedKph))} mph`
     : `${Math.round(weather.windSpeedKph)} kph`;
 
+  const feelsLikeValue =
+    weather.feelsLikeC != null
+      ? isImperial
+        ? `${Math.round(celsiusToFahrenheit(weather.feelsLikeC))}°F`
+        : `${Math.round(weather.feelsLikeC)}°C`
+      : null;
+  const humidityValue =
+    weather.humidity != null ? `${Math.round(weather.humidity)}%` : null;
+
   return (
     <div className="rounded-lg border border-[color:var(--surface-2)] bg-[color:var(--surface-1)] p-4">
       <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--text-muted)] mb-3">
@@ -56,6 +65,12 @@ export default function RideWeatherPanel({ weather, distanceUnit = 'mi' }: Props
           label="Wind"
         />
       </div>
+      {(feelsLikeValue || humidityValue) && (
+        <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[color:var(--text-muted)]">
+          {feelsLikeValue && <span>Feels like {feelsLikeValue}</span>}
+          {humidityValue && <span>Humidity {humidityValue}</span>}
+        </div>
+      )}
     </div>
   );
 }

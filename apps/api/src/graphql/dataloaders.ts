@@ -1,6 +1,6 @@
 import DataLoader from 'dataloader';
 import { prisma } from '../lib/prisma';
-import type { ServiceLog } from '@prisma/client';
+import type { ServiceLog, RideWeather } from '@prisma/client';
 
 /**
  * Batch loads service logs for multiple components in a single query.
@@ -28,6 +28,21 @@ async function batchServiceLogsByComponentId(
 }
 
 /**
+ * Batch loads RideWeather rows for many rides in one query.
+ * Solves N+1 when Ride.weather is resolved across a rides list.
+ */
+async function batchWeatherByRideId(
+  rideIds: readonly string[]
+): Promise<(RideWeather | null)[]> {
+  const rows = await prisma.rideWeather.findMany({
+    where: { rideId: { in: [...rideIds] } },
+  });
+  const byRide = new Map<string, RideWeather>();
+  for (const row of rows) byRide.set(row.rideId, row);
+  return rideIds.map((id) => byRide.get(id) ?? null);
+}
+
+/**
  * Creates fresh DataLoader instances for a single request.
  * DataLoaders cache within a request, so create new instances per request
  * to avoid data leakage between users/requests.
@@ -36,6 +51,9 @@ export function createDataLoaders() {
   return {
     serviceLogsByComponentId: new DataLoader<string, ServiceLog[]>(
       batchServiceLogsByComponentId
+    ),
+    weatherByRideId: new DataLoader<string, RideWeather | null>(
+      batchWeatherByRideId
     ),
   };
 }

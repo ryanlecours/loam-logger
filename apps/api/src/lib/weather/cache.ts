@@ -56,16 +56,16 @@ export const getHourlySamples = async (opts: {
     for (const f of fetched) {
       fetchedByHour.set(new Date(f.timeUtc + 'Z').getTime(), f);
     }
+    const rowsToInsert: { latKey: number; lngKey: number; hourUtc: Date; payload: object }[] = [];
     for (const h of missing) {
       const sample = fetchedByHour.get(h.getTime());
       if (!sample) continue;
       cachedByHour.set(h.getTime(), sample);
+      rowsToInsert.push({ latKey, lngKey, hourUtc: h, payload: sample as object });
+    }
+    if (rowsToInsert.length > 0) {
       await prisma.weatherCache
-        .upsert({
-          where: { latKey_lngKey_hourUtc: { latKey, lngKey, hourUtc: h } },
-          create: { latKey, lngKey, hourUtc: h, payload: sample as object },
-          update: { payload: sample as object },
-        })
+        .createMany({ data: rowsToInsert, skipDuplicates: true })
         .catch((err) => console.warn('[WeatherCache] write failed:', err));
     }
   }

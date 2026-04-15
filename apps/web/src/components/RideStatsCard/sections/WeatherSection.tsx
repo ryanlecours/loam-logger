@@ -21,7 +21,7 @@ export default function WeatherSection({ stats }: { stats: WeatherStats }) {
     <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">
       {ORDER.map((cond) => {
         const count = stats.breakdown[cond];
-        if (cond === 'UNKNOWN' && count === 0) return null;
+        if (count === 0) return null;
         const Icon = conditionIcon(cond);
         const tint = cond === 'UNKNOWN' ? undefined : conditionTint(cond);
         return (

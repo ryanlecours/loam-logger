@@ -40,19 +40,23 @@ export type EnqueueWeatherResult =
   | { status: 'queued'; jobId: string }
   | { status: 'already_queued'; jobId: string };
 
+// BullMQ `add` with a static jobId is idempotent: if a job with the same id
+// already exists in waiting/active/delayed, BullMQ returns the existing job
+// instead of creating a new one. We check existence first so callers can tell
+// whether this call actually enqueued work or deduped.
 export async function enqueueWeatherJob(data: WeatherJobData): Promise<EnqueueWeatherResult> {
   const queue = getWeatherQueue();
   const jobId = buildWeatherJobId(data.rideId);
-  try {
-    await queue.add('fetchWeather', data, { jobId });
-    return { status: 'queued', jobId };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (msg.includes('Job') && msg.includes('already exists')) {
+  const existing = await queue.getJob(jobId);
+  if (existing) {
+    const state = await existing.getState();
+    // completed/failed jobs are gone (or soon to be) — re-adding is fine.
+    if (state !== 'completed' && state !== 'failed' && state !== 'unknown') {
       return { status: 'already_queued', jobId };
     }
-    throw err;
   }
+  await queue.add('fetchWeather', data, { jobId });
+  return { status: 'queued', jobId };
 }
 
 export async function closeWeatherQueue(): Promise<void> {

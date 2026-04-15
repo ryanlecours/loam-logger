@@ -1,5 +1,6 @@
 import { WeatherCondition } from '@prisma/client';
 import { getHourlySamples } from './cache';
+import type { HourlyWeather } from './open-meteo';
 import { applyWindyOverride, wmoToCondition } from './normalize';
 
 export type RideWeatherSummary = {
@@ -11,26 +12,21 @@ export type RideWeatherSummary = {
   wmoCode: number;
   condition: WeatherCondition;
   source: string;
+  samples: HourlyWeather[];
 };
 
-const dominantWmoCode = (codes: number[]): number => {
-  // Pick the most "severe" code — highest numeric category tends to indicate
-  // precipitation/thunder over clear-sky codes, which is the right signal for rides.
-  const counts = new Map<number, number>();
-  for (const c of codes) counts.set(c, (counts.get(c) || 0) + 1);
-  let best = codes[0];
-  let bestScore = -Infinity;
-  for (const [code, n] of counts) {
-    const score = code + n * 0.01; // severity + tiebreaker by frequency
-    if (score > bestScore) {
-      bestScore = score;
-      best = code;
-    }
-  }
-  return best;
+// "Worst hour wins": a single shower or thunderstorm hour dominates an
+// otherwise clear ride. This is the signal wear modeling cares about — any
+// exposure to rain/snow affects components — and matches how riders describe
+// a ride ("got caught in a storm" beats "mostly sunny").
+// WMO code ordering is roughly severity-ordered: 0 clear, 1-3 cloudy, 45/48
+// fog, 51-67 drizzle/rain, 71-77 snow, 80-82 showers, 85-86 snow showers,
+// 95-99 thunderstorms. Higher = worse within that ordering.
+export const worstHourWmoCode = (codes: number[]): number => {
+  return codes.reduce((worst, code) => (code > worst ? code : worst), codes[0]);
 };
 
-const mean = (nums: Array<number | null>): number | null => {
+export const mean = (nums: Array<number | null>): number | null => {
   const valid = nums.filter((n): n is number => n != null);
   if (valid.length === 0) return null;
   return valid.reduce((a, b) => a + b, 0) / valid.length;
@@ -51,7 +47,7 @@ export const getWeatherForRide = async (opts: {
   });
   if (samples.length === 0) return null;
 
-  const wmo = dominantWmoCode(samples.map((s) => s.wmoCode));
+  const wmo = worstHourWmoCode(samples.map((s) => s.wmoCode));
   const maxPrecip = Math.max(...samples.map((s) => s.precipitationMm));
   const maxWind = Math.max(...samples.map((s) => s.windSpeedKph));
   const avgTemp = mean(samples.map((s) => s.tempC)) ?? samples[0].tempC;
@@ -70,5 +66,6 @@ export const getWeatherForRide = async (opts: {
     wmoCode: wmo,
     condition,
     source: 'open-meteo',
+    samples,
   };
 };
