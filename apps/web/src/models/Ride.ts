@@ -8,6 +8,7 @@ export type WeatherCondition =
   | 'UNKNOWN';
 
 export interface RideWeather {
+  id: string;
   tempC: number;
   feelsLikeC?: number | null;
   precipitationMm: number;

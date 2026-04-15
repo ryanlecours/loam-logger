@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useMutation, useQuery } from '@apollo/client';
+import { useApolloClient, useMutation, useQuery } from '@apollo/client';
 import { useNavigate } from 'react-router-dom';
 import { CloudSun, Lock } from 'lucide-react';
 import { useUserTier } from '../hooks/useUserTier';
@@ -8,7 +8,6 @@ import {
   RIDES_MISSING_WEATHER,
 } from '../graphql/backfillWeather';
 import { RIDES } from '../graphql/rides';
-import { useApolloClient } from '@apollo/client';
 
 export default function WeatherBackfillSection() {
   const { isPro } = useUserTier();
