@@ -46,7 +46,7 @@ export default function StravaImportModal({ open, onClose, onSuccess, onDuplicat
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [importStats, setImportStats] = useState<{
     imported: number;
-    skipped: number;
+    updated: number;
     total: number;
   } | null>(null);
   const [unmappedGears, setUnmappedGears] = useState<UnmappedGear[]>([]);
@@ -172,7 +172,7 @@ export default function StravaImportModal({ open, onClose, onSuccess, onDuplicat
       setSuccessMessage(data.message || `Successfully imported rides from Strava.`);
       setImportStats({
         imported: data.imported || 0,
-        skipped: data.skipped || 0,
+        updated: data.updated || 0,
         total: data.cyclingActivities || 0,
       });
       setStep('complete');
@@ -333,7 +333,7 @@ export default function StravaImportModal({ open, onClose, onSuccess, onDuplicat
                 <div className="text-sm mt-3 opacity-90 space-y-1">
                   <p className="font-medium">Sync completed for {year === 'ytd' ? 'Year to Date' : year}</p>
                   <p>• New: {importStats.imported} rides</p>
-                  <p>• Updated: {importStats.skipped} rides</p>
+                  <p>• Updated: {importStats.updated} rides</p>
                   <p>• Total cycling activities found: {importStats.total}</p>
                   {unmappedGears.length > 0 && (
                     <p className="text-warning">• {unmappedGears.length} unmapped bike(s) - visit Gear page to map</p>

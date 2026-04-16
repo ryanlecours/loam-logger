@@ -132,11 +132,6 @@ r.get<Empty, void, Empty, { year?: string }>(
           select: { id: true, startLat: true, startLng: true, location: true },
         });
 
-        const distanceMeters = activity.distance;
-        const elevationGainMeters = activity.total_elevation_gain;
-        const startTime = new Date(activity.start_date);
-
-        const durationHours = Math.max(0, activity.moving_time) / 3600;
         const lat = activity.start_latlng?.[0] ?? null;
         const lon = activity.start_latlng?.[1] ?? null;
         const initialLocation = formatLatLon(lat, lon);
@@ -188,9 +183,15 @@ r.get<Empty, void, Empty, { year?: string }>(
           continue;
         }
 
-        // New ride — full create. Bike lookup happens here (not earlier) so
-        // we don't pay for gear-mapping + user-bikes queries on every
-        // existing-ride iteration during a re-sync.
+        // New ride — full create. Field derivation and bike lookup happen
+        // here (not earlier) so we don't pay for gear-mapping + user-bikes
+        // queries or trivially-derived fields on every existing-ride
+        // iteration during a re-sync.
+        const distanceMeters = activity.distance;
+        const elevationGainMeters = activity.total_elevation_gain;
+        const startTime = new Date(activity.start_date);
+        const durationHours = Math.max(0, activity.moving_time) / 3600;
+
         let bikeId: string | null = null;
         if (activity.gear_id) {
           const mapping = await prisma.stravaGearMapping.findUnique({
@@ -287,12 +288,20 @@ r.get<Empty, void, Empty, { year?: string }>(
 
       // Track backfill request in database
       const yearKey = yearParam || 'ytd';
+      // Semantics note: before the gap-fill rework, `ridesFound` meant
+      // "new rides created this run" (existing rides were silently skipped
+      // and excluded). It now means "rides touched this run" — new + updated.
+      // This is what the history UI on web/mobile wants ("N rides synced"),
+      // and without this change, a re-sync of a user's full history would
+      // show 0 here and look broken. WHOOP still tracks new-only because
+      // there's no gap-fill path on that provider.
+      const touchedCount = newCount + updatedCount;
       try {
         await prisma.backfillRequest.upsert({
           where: { userId_provider_year: { userId, provider: 'strava', year: yearKey } },
           update: {
             status: 'completed',
-            ridesFound: newCount + updatedCount,
+            ridesFound: touchedCount,
             completedAt: new Date(),
             updatedAt: new Date(),
           },
@@ -301,7 +310,7 @@ r.get<Empty, void, Empty, { year?: string }>(
             provider: 'strava',
             year: yearKey,
             status: 'completed',
-            ridesFound: newCount + updatedCount,
+            ridesFound: touchedCount,
             completedAt: new Date(),
           },
         });
