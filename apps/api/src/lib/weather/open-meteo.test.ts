@@ -52,7 +52,12 @@ describe('fetchHourlyRange', () => {
     jest.setSystemTime(new Date('2026-04-15T12:00:00Z'));
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    // Drain any remaining timers left by the test (e.g. the 15s abort
+    // setTimeout or the acquireSlot mutex delay) before switching back to
+    // real timers. Without this, pending setTimeout callbacks leak into
+    // subsequent test files and can cause Jest to hang on CI.
+    await jest.runAllTimersAsync();
     global.fetch = originalFetch;
     jest.useRealTimers();
     jest.restoreAllMocks();
