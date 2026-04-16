@@ -331,9 +331,9 @@ export default function StravaImportModal({ open, onClose, onSuccess, onDuplicat
               </p>
               {importStats && (
                 <div className="text-sm mt-3 opacity-90 space-y-1">
-                  <p className="font-medium">Import completed for {year === 'ytd' ? 'Year to Date' : year}</p>
-                  <p>• Imported: {importStats.imported} rides</p>
-                  <p>• Skipped (already exist): {importStats.skipped} rides</p>
+                  <p className="font-medium">Sync completed for {year === 'ytd' ? 'Year to Date' : year}</p>
+                  <p>• New: {importStats.imported} rides</p>
+                  <p>• Updated: {importStats.skipped} rides</p>
                   <p>• Total cycling activities found: {importStats.total}</p>
                   {unmappedGears.length > 0 && (
                     <p className="text-warning">• {unmappedGears.length} unmapped bike(s) - visit Gear page to map</p>
