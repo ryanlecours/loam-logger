@@ -3100,5 +3100,64 @@ describe('GraphQL Resolvers', () => {
       const groupByCall = mockGroupBy.mock.calls[0][0];
       expect(groupByCall.where.ride.bikeId).toBe('bike-mine');
     });
+
+    it('logs and skips an unknown condition value (schema drift safety)', async () => {
+      // If a future migration adds a WeatherCondition enum value before the
+      // resolver's local `breakdown` object is updated, the groupBy result
+      // could contain a condition we don't have a bucket for. The resolver
+      // should NOT throw and should NOT silently write to an undefined
+      // slot — it should warn and skip.
+      mockGroupBy.mockResolvedValueOnce([
+        { condition: 'SUNNY', _count: { _all: 4 } },
+        { condition: 'STORMY', _count: { _all: 99 } }, // hypothetical new enum
+      ]);
+      mockRideCount.mockResolvedValueOnce(0).mockResolvedValueOnce(0);
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const result = await resolver({ id: 'user-123' }, {});
+
+      expect(result.sunny).toBe(4);
+      // No new property leaks onto the returned object from the unknown key.
+      expect(Object.keys(result).sort()).toEqual(
+        [
+          'cloudy',
+          'foggy',
+          'pending',
+          'rainy',
+          'snowy',
+          'sunny',
+          'totalRides',
+          'unknown',
+          'windy',
+        ].sort()
+      );
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('STORMY')
+      );
+      warn.mockRestore();
+    });
+
+    it('excludes rides without coords from the pending count', async () => {
+      // "Pending" means fetchable-but-not-fetched, so WHOOP workouts (no
+      // GPS) and pre-weather-integration imports must NOT be in the count.
+      // Otherwise UI copy like "X rides still pending weather fetch" is a
+      // lie for users with non-GPS sources.
+      mockGroupBy.mockResolvedValueOnce([]);
+      mockRideCount.mockResolvedValueOnce(0).mockResolvedValueOnce(0);
+
+      await resolver({ id: 'user-123' }, {});
+
+      // First ride.count call is pending — must require non-null coords.
+      const pendingWhere = mockRideCount.mock.calls[0][0].where;
+      expect(pendingWhere.weather).toBeNull();
+      expect(pendingWhere.startLat).toEqual({ not: null });
+      expect(pendingWhere.startLng).toEqual({ not: null });
+
+      // Second ride.count call is totalRides — should NOT have the coord
+      // filter since it's a count of everything in the timeframe.
+      const totalWhere = mockRideCount.mock.calls[1][0].where;
+      expect(totalWhere.startLat).toBeUndefined();
+      expect(totalWhere.startLng).toBeUndefined();
+    });
   });
 });

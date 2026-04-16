@@ -4369,8 +4369,20 @@ export const resolvers = {
           where: { ride: rideWhere },
           _count: { _all: true },
         }),
+        // `pending` means "has coords but weather row not yet created" —
+        // i.e. fetchable-but-not-fetched. Rides without coords (WHOOP
+        // workouts, pre-weather-integration imports) are NOT pending
+        // because they'll never produce a weather row. This aligns with
+        // `User.ridesMissingWeather` and the Pro-gated backfill filter,
+        // and keeps the UI copy "X rides still pending weather fetch"
+        // honest for users whose sources include WHOOP.
         prisma.ride.count({
-          where: { ...rideWhere, weather: null },
+          where: {
+            ...rideWhere,
+            weather: null,
+            startLat: { not: null },
+            startLng: { not: null },
+          },
         }),
         prisma.ride.count({ where: rideWhere }),
       ]);
@@ -4385,8 +4397,20 @@ export const resolvers = {
         unknown: 0,
       };
       for (const g of grouped) {
-        const key = g.condition.toLowerCase() as keyof typeof breakdown;
-        breakdown[key] = g._count._all;
+        const key = g.condition.toLowerCase();
+        // Runtime guard instead of a bare `as keyof typeof breakdown` cast:
+        // if a future migration adds a WeatherCondition enum value before
+        // this resolver is updated, we'd silently drop the count under a
+        // `as keyof`. The `in` check makes the omission surface via the
+        // (unknown-bucket) count not matching and is safe to fall through
+        // — the missing bucket would still need a code change to render.
+        if (Object.prototype.hasOwnProperty.call(breakdown, key)) {
+          (breakdown as Record<string, number>)[key] = g._count._all;
+        } else {
+          console.warn(
+            `[weatherBreakdown] Unknown WeatherCondition "${g.condition}" — schema likely drifted; add a bucket.`
+          );
+        }
       }
 
       return { ...breakdown, pending, totalRides };

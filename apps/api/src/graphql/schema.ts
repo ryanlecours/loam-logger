@@ -215,8 +215,10 @@ export const typeDefs = gql`
     foggy: Int!
     # Rides whose WMO code didn't map to a known condition.
     unknown: Int!
-    # Rides in the timeframe that have coords but no weather row yet
-    # (fetch pending, fetch failed, or pre-weather-integration).
+    # Rides that could get weather but don't have a row yet — i.e. have
+    # coords but fetch is pending or failed. Rides without coords (WHOOP
+    # workouts, pre-weather-integration imports) are excluded because
+    # they'll never produce a weather row.
     pending: Int!
     # Total rides in the selected timeframe, including pending.
     totalRides: Int!
