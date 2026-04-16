@@ -120,13 +120,61 @@ model Ride {
   stravaGearId      String?
   whoopWorkoutId    String?         @unique
   importSessionId   String?
+  startLat          Float?
+  startLng          Float?
   bike              Bike?           @relation(fields: [bikeId], references: [id])
   duplicateOf       Ride?           @relation("DuplicateRides", fields: [duplicateOfId], references: [id], onDelete: SetNull)
   duplicates        Ride[]          @relation("DuplicateRides")
   user              User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   importSession     ImportSession?  @relation(fields: [importSessionId], references: [id], onDelete: SetNull)
+  weather           RideWeather?
 
   @@index([importSessionId, bikeId])
+  // NOTE: a partial index on (userId) WHERE startLat IS NOT NULL AND startLng IS NOT NULL
+  // is defined via raw SQL in migration 20260415121000_ride_missing_weather_index
+  // to keep the ridesMissingWeather COUNT(*) fast once the RideWeather table fills up.
+  // Prisma doesn't support partial-index predicates, so the index is managed there.
+}
+
+enum WeatherCondition {
+  SUNNY
+  CLOUDY
+  RAINY
+  SNOWY
+  WINDY
+  FOGGY
+  UNKNOWN
+}
+
+model RideWeather {
+  id               String           @id @default(uuid())
+  rideId           String           @unique
+  tempC            Float
+  feelsLikeC       Float?
+  precipitationMm  Float
+  windSpeedKph     Float
+  humidity         Float?
+  wmoCode          Int
+  condition        WeatherCondition
+  lat              Float
+  lng              Float
+  source           String
+  fetchedAt        DateTime         @default(now())
+  rawJson          Json?
+  ride             Ride             @relation(fields: [rideId], references: [id], onDelete: Cascade)
+
+  @@index([condition])
+}
+
+model WeatherCache {
+  id        String   @id @default(cuid())
+  latKey    Float
+  lngKey    Float
+  hourUtc   DateTime
+  payload   Json
+  createdAt DateTime @default(now())
+
+  @@unique([latKey, lngKey, hourUtc])
 }
 
 model Bike {

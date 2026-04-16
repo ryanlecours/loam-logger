@@ -74,6 +74,11 @@ export const MUTATION_RATE_LIMITS = {
   updateUserPreferences: { windowSeconds: 60, maxRequests: 20 },
   /** updateBikeNotificationPreference: max 20 requests per minute per user */
   updateBikeNotificationPreference: { windowSeconds: 60, maxRequests: 20 },
+  /** backfillWeatherForMyRides: max 3 requests per 5 minutes. Each call
+   *  enqueues up to BATCH_LIMIT (500) jobs against Open-Meteo, so the limit
+   *  exists to stop a runaway client loop while still allowing legitimate
+   *  "Fetch more" clicks to drain a large history over a few batches. */
+  backfillWeatherForMyRides: { windowSeconds: 300, maxRequests: 3 },
 } as const;
 
 /**

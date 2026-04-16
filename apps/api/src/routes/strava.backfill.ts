@@ -6,6 +6,7 @@ import { formatLatLon, reverseGeocode } from '../lib/location';
 import { sendBadRequest, sendUnauthorized, sendNotFound, sendInternalError } from '../lib/api-response';
 import { incrementBikeComponentHours, decrementBikeComponentHours } from '../lib/component-hours';
 import { logError } from '../lib/logger';
+import { enqueueWeatherJob } from '../lib/queue';
 
 type Empty = Record<string, never>;
 const r: Router = createRouter();
@@ -187,6 +188,8 @@ r.get<Empty, void, Empty, { year?: string }>(
               notes: activity.name || null,
               bikeId,
               location: initialLocation,
+              startLat: lat,
+              startLng: lon,
             },
           });
 
@@ -212,6 +215,10 @@ r.get<Empty, void, Empty, { year?: string }>(
             // Don't fail the import if geocoding fails
             console.warn(`[Strava Backfill] Failed to geocode ride ${ride.id}:`, err);
           }
+
+          enqueueWeatherJob({ rideId: ride.id }).catch((err) =>
+            logError(`Strava Backfill weather enqueue ${ride.id}`, err)
+          );
         }
 
         importedCount++;

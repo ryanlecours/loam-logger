@@ -1,8 +1,9 @@
 import { createSyncWorker, closeSyncWorker } from './sync.worker';
 import { createBackfillWorker, closeBackfillWorker } from './backfill.worker';
 import { createNotificationWorker, closeNotificationWorker } from './notification.worker';
+import { createWeatherWorker, closeWeatherWorker } from './weather.worker';
 import { closeRedisConnection } from '../lib/redis';
-import { closeSyncQueue, closeBackfillQueue, closeNotificationQueue } from '../lib/queue';
+import { closeSyncQueue, closeBackfillQueue, closeNotificationQueue, closeWeatherQueue } from '../lib/queue';
 
 /**
  * Start all BullMQ workers.
@@ -14,6 +15,7 @@ export function startWorkers(): void {
   createSyncWorker();
   createBackfillWorker();
   createNotificationWorker();
+  createWeatherWorker();
 
   console.log('[Workers] All workers started');
 }
@@ -34,12 +36,13 @@ export async function stopWorkers(): Promise<void> {
       closeSyncWorker(),
       closeBackfillWorker(),
       closeNotificationWorker(),
+      closeWeatherWorker(),
     ]);
 
     // Log any worker shutdown failures
     workerResults.forEach((result, index) => {
       if (result.status === 'rejected') {
-        const workerNames = ['SyncWorker', 'BackfillWorker', 'NotificationWorker'];
+        const workerNames = ['SyncWorker', 'BackfillWorker', 'NotificationWorker', 'WeatherWorker'];
         console.error(`[Workers] Failed to close ${workerNames[index]}:`, result.reason);
       }
     });
@@ -49,12 +52,13 @@ export async function stopWorkers(): Promise<void> {
       closeSyncQueue(),
       closeBackfillQueue(),
       closeNotificationQueue(),
+      closeWeatherQueue(),
     ]);
 
     // Log any queue shutdown failures
     queueResults.forEach((result, index) => {
       if (result.status === 'rejected') {
-        const queueNames = ['SyncQueue', 'BackfillQueue', 'NotificationQueue'];
+        const queueNames = ['SyncQueue', 'BackfillQueue', 'NotificationQueue', 'WeatherQueue'];
         console.error(`[Workers] Failed to close ${queueNames[index]}:`, result.reason);
       }
     });

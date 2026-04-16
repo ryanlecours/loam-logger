@@ -1,3 +1,23 @@
+export type WeatherCondition =
+  | 'SUNNY'
+  | 'CLOUDY'
+  | 'RAINY'
+  | 'SNOWY'
+  | 'WINDY'
+  | 'FOGGY'
+  | 'UNKNOWN';
+
+export interface RideWeather {
+  id: string;
+  tempC: number;
+  feelsLikeC?: number | null;
+  precipitationMm: number;
+  windSpeedKph: number;
+  humidity?: number | null;
+  wmoCode: number;
+  condition: WeatherCondition;
+}
+
 export interface Ride {
   id: string;
   startTime: string;
@@ -13,4 +33,5 @@ export interface Ride {
   stravaActivityId?: string | null;
   garminActivityId?: string | null;
   whoopWorkoutId?: string | null;
+  weather?: RideWeather | null;
 }

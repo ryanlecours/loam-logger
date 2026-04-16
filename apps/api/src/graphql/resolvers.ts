@@ -10,7 +10,7 @@ import type {
   Component as ComponentModel,
 } from '@prisma/client';
 import { checkRateLimit, checkMutationRateLimit, checkQueryRateLimit } from '../lib/rate-limit';
-import { enqueueSyncJob, type SyncProvider } from '../lib/queue';
+import { enqueueSyncJob, enqueueWeatherJob, type SyncProvider } from '../lib/queue';
 import { invalidateBikePrediction } from '../services/prediction/cache';
 import { clearServiceNotificationLogs, isValidExpoPushToken } from '../services/notification.service';
 import { getBaseInterval, BASE_INTERVALS_HOURS, DEFAULT_INTERVAL_HOURS } from '../services/prediction/config';
@@ -4057,6 +4057,104 @@ export const resolvers = {
         return bike;
       });
     },
+
+    backfillWeatherForMyRides: async (
+      _: unknown,
+      _args: unknown,
+      ctx: GraphQLContext
+    ) => {
+      const userId = requireUserId(ctx);
+
+      // Pro check first so free-user calls are rejected immediately without
+      // consuming a rate-limit token. The rate limit exists to stop Pro
+      // users (or a misbehaving Pro client) from flooding the queue — it
+      // doesn't need to gate users who can't reach the work at all.
+      const user = await prisma.user.findUniqueOrThrow({
+        where: { id: userId },
+        select: { subscriptionTier: true, isFoundingRider: true, role: true },
+      });
+      if (!isProTier(user)) {
+        throw new GraphQLError('Weather backfill is a Pro feature.', {
+          extensions: { code: 'NOT_PRO' },
+        });
+      }
+
+      const rateLimit = await checkMutationRateLimit('backfillWeatherForMyRides', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(
+          `Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`,
+          { extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter } }
+        );
+      }
+
+      // Cap the batch so one click can't fire thousands of Open-Meteo requests.
+      // Client re-invokes the mutation while ridesMissingWeather > 0 to drain
+      // the rest — lets us pace the provider load even for very active users.
+      const BATCH_LIMIT = 500;
+
+      const [ridesWithCoords, ridesRemaining, ridesWithoutCoords] = await Promise.all([
+        prisma.ride.findMany({
+          where: {
+            userId,
+            startLat: { not: null },
+            startLng: { not: null },
+            weather: null,
+          },
+          select: { id: true },
+          orderBy: { startTime: 'desc' },
+          take: BATCH_LIMIT,
+        }),
+        prisma.ride.count({
+          where: {
+            userId,
+            startLat: { not: null },
+            startLng: { not: null },
+            weather: null,
+          },
+        }),
+        prisma.ride.count({
+          where: {
+            userId,
+            OR: [{ startLat: null }, { startLng: null }],
+            weather: null,
+          },
+        }),
+      ]);
+
+      // Enqueue in serial chunks to cap concurrent Redis round-trips.
+      // Each enqueueWeatherJob does a getJob + add (2 commands), so firing
+      // all 500 at once would blow 1k concurrent commands per click. A chunk
+      // of 50 gives us ~100 concurrent commands, well within ioredis defaults,
+      // and still drains the batch in ~10 serial round-trips total.
+      const ENQUEUE_CHUNK = 50;
+      let enqueuedCount = 0;
+      for (let i = 0; i < ridesWithCoords.length; i += ENQUEUE_CHUNK) {
+        const chunk = ridesWithCoords.slice(i, i + ENQUEUE_CHUNK);
+        const results = await Promise.allSettled(
+          chunk.map((r) => enqueueWeatherJob({ rideId: r.id }))
+        );
+        for (const result of results) {
+          if (result.status === 'fulfilled' && result.value.status === 'queued') {
+            enqueuedCount += 1;
+          } else if (result.status === 'rejected') {
+            console.warn('[BackfillWeather] enqueue failed', result.reason);
+          }
+        }
+      }
+
+      // Rides beyond this batch's slice — i.e. eligible rides we deliberately
+      // didn't attempt because of BATCH_LIMIT. This intentionally does NOT
+      // count rides in this batch that failed to enqueue (see the
+      // Promise.allSettled rejection branch above): those will reappear in
+      // the next call because the eligibility query filter (`weather: null`)
+      // will still match them, and BullMQ's deterministic job IDs make a
+      // retry safe. The next call's `ridesRemaining` count picks them up
+      // naturally. So `remainingAfterBatch` is "known not-yet-attempted,"
+      // not "known not-yet-queued" — the next fetch self-heals.
+      const remainingAfterBatch = Math.max(0, ridesRemaining - ridesWithCoords.length);
+
+      return { enqueuedCount, ridesWithoutCoords, remainingAfterBatch };
+    },
   },
 
   Bike: {
@@ -4129,6 +4227,21 @@ export const resolvers = {
       ride.startTime instanceof Date
         ? ride.startTime.toISOString()
         : ride.startTime,
+    weather: async (
+      ride: { id: string; weather?: unknown },
+      _args: unknown,
+      ctx: GraphQLContext
+    ) => {
+      // If resolver was called with an included weather relation, use it.
+      if (ride.weather !== undefined) return ride.weather;
+      // Otherwise batch-load via DataLoader to avoid N+1 on list queries.
+      return ctx.loaders.weatherByRideId.load(ride.id);
+    },
+  },
+
+  RideWeather: {
+    fetchedAt: (w: { fetchedAt: Date | string }) =>
+      w.fetchedAt instanceof Date ? w.fetchedAt.toISOString() : w.fetchedAt,
   },
 
   Component: {
@@ -4205,6 +4318,22 @@ export const resolvers = {
       parent.pairedComponentMigrationSeenAt?.toISOString() ?? null,
     notifyOnRideUpload: (parent: { notifyOnRideUpload?: boolean }) => parent.notifyOnRideUpload ?? true,
     createdAt: (parent: { createdAt: Date }) => parent.createdAt.toISOString(),
+    // Scoped to the viewer's User type so the shape matches other user-owned
+    // fields. GraphQL's lazy field resolution means this COUNT only runs
+    // when a client explicitly selects `ridesMissingWeather` (e.g. the
+    // Settings backfill section) — not on every Me query. A partial index
+    // on Ride(userId) WHERE startLat IS NOT NULL AND startLng IS NOT NULL
+    // keeps the COUNT cheap (see migration 20260415121000).
+    ridesMissingWeather: async (parent: { id: string }) => {
+      return prisma.ride.count({
+        where: {
+          userId: parent.id,
+          weather: null,
+          startLat: { not: null },
+          startLng: { not: null },
+        },
+      });
+    },
     servicePreferences: async (parent: { id: string }) => {
       return prisma.userServicePreference.findMany({
         where: { userId: parent.id },

@@ -9,6 +9,7 @@ import { deriveLocationAsync, shouldApplyAutoLocation } from '../lib/location';
 import { logError, logger } from '../lib/logger';
 import { config } from '../config/env';
 import type { BackfillJobData, BackfillJobName } from '../lib/queue/backfill.queue';
+import { enqueueWeatherJob } from '../lib/queue';
 
 // Garmin API limits backfill requests to 30-day chunks
 const CHUNK_DAYS = 30;
@@ -385,8 +386,11 @@ async function processGarminCallback(userId: string, callbackURL: string): Promi
       autoLocation?.title ?? null
     );
 
+    const startLat = activity.startLatitudeInDegrees ?? activity.beginLatitude ?? null;
+    const startLng = activity.startLongitudeInDegrees ?? activity.beginLongitude ?? null;
+
     // Upsert the ride
-    await prisma.ride.upsert({
+    const upsertedRide = await prisma.ride.upsert({
       where: { garminActivityId: activity.summaryId },
       create: {
         userId,
@@ -400,6 +404,8 @@ async function processGarminCallback(userId: string, callbackURL: string): Promi
         notes: activity.activityName ?? null,
         location: autoLocation?.title ?? null,
         importSessionId: runningSession?.id ?? null,
+        startLat,
+        startLng,
       },
       update: {
         startTime,
@@ -410,8 +416,19 @@ async function processGarminCallback(userId: string, callbackURL: string): Promi
         rideType: activity.activityType,
         notes: activity.activityName ?? null,
         ...(locationUpdate !== undefined ? { location: locationUpdate } : {}),
+        // Known limitation: coords are only written, never cleared on
+        // re-sync. See sync.worker.ts for full rationale.
+        ...(startLat != null ? { startLat } : {}),
+        ...(startLng != null ? { startLng } : {}),
       },
+      select: { id: true },
     });
+
+    if (startLat != null && startLng != null) {
+      enqueueWeatherJob({ rideId: upsertedRide.id }).catch((err) =>
+        logger.warn({ rideId: upsertedRide.id, err }, '[BackfillWorker] Failed to enqueue weather job')
+      );
+    }
 
     processedActivityCount++;
     logger.debug({ summaryId: activity.summaryId }, '[BackfillWorker] Upserted ride from callback');

@@ -160,6 +160,47 @@ export const typeDefs = gql`
     location: String
     createdAt: String!
     updatedAt: String!
+    weather: RideWeather
+  }
+
+  enum WeatherCondition {
+    SUNNY
+    CLOUDY
+    RAINY
+    SNOWY
+    WINDY
+    FOGGY
+    UNKNOWN
+  }
+
+  type RideWeather {
+    # Exposed so Apollo can normalize RideWeather as a standalone cache
+    # entry. Without an id, the weather blob is stored embedded inside its
+    # parent Ride, which breaks partial-update patterns (e.g. refetching
+    # only the weather fields after a backfill completes).
+    id: ID!
+    tempC: Float!
+    feelsLikeC: Float
+    precipitationMm: Float!
+    windSpeedKph: Float!
+    humidity: Float
+    wmoCode: Int!
+    condition: WeatherCondition!
+    # Coords actually used for the fetch (rounded to the cache grid, may
+    # differ slightly from Ride.startLat/startLng). Useful for debugging
+    # "why is my weather wrong?" questions.
+    lat: Float!
+    lng: Float!
+    # Which provider supplied this weather row (e.g. "open-meteo"). Exposed
+    # so future clients can distinguish between providers if we ever add one.
+    source: String!
+    fetchedAt: String!
+  }
+
+  type BackfillWeatherResult {
+    enqueuedCount: Int!
+    ridesWithoutCoords: Int!
+    remainingAfterBatch: Int!
   }
 
   type Component {
@@ -812,6 +853,7 @@ export const typeDefs = gql`
     createCheckoutSession(plan: StripePlan!, platform: CheckoutPlatform): CheckoutSessionResult!
     createBillingPortalSession(platform: CheckoutPlatform): BillingPortalResult!
     selectBikeForDowngrade(bikeId: ID!): Bike!
+    backfillWeatherForMyRides: BackfillWeatherResult!
   }
 
   type ConnectedAccount {
@@ -871,6 +913,7 @@ export const typeDefs = gql`
     servicePreferences: [UserServicePreference!]!
     notifyOnRideUpload: Boolean!
     createdAt: String!
+    ridesMissingWeather: Int!
   }
 
   input RidesFilterInput {

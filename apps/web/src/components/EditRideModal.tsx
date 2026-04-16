@@ -6,6 +6,8 @@ import { BIKES_LIGHT } from '../graphql/bikes';
 import { toLocalInputValue, fromLocalInputValue } from '../lib/format';
 import { Modal, Input, Textarea, Select, Button } from './ui';
 import { usePreferences } from '../hooks/usePreferences';
+import RideWeatherPanel from './RideWeatherPanel';
+import type { RideWeather } from '../models/Ride';
 
 type BikeSummary = { id: string; nickname?: string | null; manufacturer: string; model: string };
 const formatBikeName = (bike: BikeSummary) =>
@@ -23,6 +25,7 @@ type Ride = {
   notes?: string | null;
   trailSystem?: string | null;
   location?: string | null;
+  weather?: RideWeather | null;
 };
 
 export default function EditRideModal({
@@ -230,6 +233,10 @@ export default function EditRideModal({
           rows={3}
           maxLength={2000}
         />
+
+        {ride.weather && (
+          <RideWeatherPanel weather={ride.weather} distanceUnit={distanceUnit} />
+        )}
 
         {error && <div className="text-sm text-danger">{error.message}</div>}
       </form>

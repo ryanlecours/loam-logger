@@ -26,6 +26,7 @@ import { UPDATE_USER_PREFERENCES_MUTATION } from "../graphql/userPreferences";
 import { ProBadge } from "../components/ui/ProBadge";
 import ServicePreferencesEditor from "../components/ServicePreferencesEditor";
 import BillingSection from "../components/BillingSection";
+import WeatherBackfillSection from "../components/WeatherBackfillSection";
 import ReferralCard from "../components/ReferralCard";
 
 const CONNECTED_ACCOUNTS_QUERY = gql`
@@ -427,6 +428,7 @@ export default function Settings() {
             <h2 className="title-section">Subscription & Billing</h2>
           </div>
           <BillingSection />
+          <WeatherBackfillSection />
           <ReferralCard />
         </div>
       </section>

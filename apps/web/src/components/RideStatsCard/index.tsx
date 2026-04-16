@@ -6,6 +6,7 @@ import {
   HeartPulse,
   MapPin,
   Bike,
+  CloudSun,
 } from 'lucide-react';
 
 import TimeframeDropdown from './TimeframeDropdown';
@@ -17,6 +18,7 @@ import TrendsSection from './sections/TrendsSection';
 import HeartRateSection from './sections/HeartRateSection';
 import LocationSection from './sections/LocationSection';
 import BikeUsageSection from './sections/BikeUsageSection';
+import WeatherSection from './sections/WeatherSection';
 
 import { useRideStats, useRideStatsForRides, useRideStatsForYear, buildBikeNameMap, getYearsWithRides } from './hooks/useRideStats';
 import { RIDES } from '../../graphql/rides';
@@ -223,6 +225,15 @@ export default function RideStatsCard({ showHeading = true, rides: externalRides
                 emptyMessage="No bike data for this timeframe"
               >
                 <BikeUsageSection data={selectedStats.bikeTime} />
+              </ExpandableSection>
+
+              <ExpandableSection
+                title="Weather"
+                icon={<CloudSun size={14} />}
+                isEmpty={selectedStats.weather.totalWithWeather === 0}
+                emptyMessage="No weather data yet for this timeframe"
+              >
+                <WeatherSection stats={selectedStats.weather} />
               </ExpandableSection>
             </div>
           </>
