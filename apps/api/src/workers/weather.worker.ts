@@ -4,7 +4,7 @@ import * as Sentry from '@sentry/node';
 import { getQueueConnection } from '../lib/queue/connection';
 import { prisma } from '../lib/prisma';
 import { logger } from '../lib/logger';
-import type { WeatherJobData, WeatherJobName } from '../lib/queue/weather.queue';
+import type { WeatherJobData, WeatherJobName } from '../lib/queue';
 import { getWeatherForRide } from '../lib/weather';
 
 export async function processWeatherJob(

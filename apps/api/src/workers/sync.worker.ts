@@ -14,7 +14,7 @@ import { fireRideNotifications } from '../services/notification.service';
 import { completeReferral } from '../services/referral.service';
 import { config } from '../config/env';
 import type { SyncJobData, SyncJobName, SyncProvider } from '../lib/queue/sync.queue';
-import { enqueueWeatherJob } from '../lib/queue/weather.queue';
+import { enqueueWeatherJob } from '../lib/queue';
 import type { Prisma } from '@prisma/client';
 import {
   WHOOP_API_BASE,

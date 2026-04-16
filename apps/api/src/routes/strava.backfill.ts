@@ -6,7 +6,7 @@ import { formatLatLon, reverseGeocode } from '../lib/location';
 import { sendBadRequest, sendUnauthorized, sendNotFound, sendInternalError } from '../lib/api-response';
 import { incrementBikeComponentHours, decrementBikeComponentHours } from '../lib/component-hours';
 import { logError } from '../lib/logger';
-import { enqueueWeatherJob } from '../lib/queue/weather.queue';
+import { enqueueWeatherJob } from '../lib/queue';
 
 type Empty = Record<string, never>;
 const r: Router = createRouter();

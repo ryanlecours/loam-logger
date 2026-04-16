@@ -9,7 +9,7 @@ import { deriveLocationAsync, shouldApplyAutoLocation } from '../lib/location';
 import { logError, logger } from '../lib/logger';
 import { config } from '../config/env';
 import type { BackfillJobData, BackfillJobName } from '../lib/queue/backfill.queue';
-import { enqueueWeatherJob } from '../lib/queue/weather.queue';
+import { enqueueWeatherJob } from '../lib/queue';
 
 // Garmin API limits backfill requests to 30-day chunks
 const CHUNK_DAYS = 30;

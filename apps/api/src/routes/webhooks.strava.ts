@@ -6,7 +6,7 @@ import { deriveLocationAsync, shouldApplyAutoLocation } from '../lib/location';
 import { incrementBikeComponentHours, decrementBikeComponentHours } from '../lib/component-hours';
 import { logError } from '../lib/logger';
 import { fireRideNotifications } from '../services/notification.service';
-import { enqueueWeatherJob } from '../lib/queue/weather.queue';
+import { enqueueWeatherJob } from '../lib/queue';
 import { isActiveSource } from '../lib/active-source';
 
 type Empty = Record<string, never>;

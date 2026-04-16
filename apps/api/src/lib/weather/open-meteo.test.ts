@@ -44,21 +44,47 @@ describe('pickEndpoint', () => {
 describe('fetchHourlyRange', () => {
   const originalFetch = global.fetch;
 
+  // Use fake timers throughout so the module-level acquireSlot mutex (which
+  // uses setTimeout for its MIN_INTERVAL_MS delay) resolves instantly via
+  // timer advancement rather than blocking the test with real 250ms sleeps.
   beforeEach(() => {
-    jest.useRealTimers();
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-04-15T12:00:00Z'));
   });
 
   afterEach(() => {
     global.fetch = originalFetch;
+    jest.useRealTimers();
     jest.restoreAllMocks();
   });
 
-  const mockFetchOnce = (impl: () => Promise<Response>) => {
+  const mockFetchOnce = (impl: (...args: unknown[]) => Promise<Response>) => {
     global.fetch = jest.fn(impl) as unknown as typeof fetch;
   };
 
   const okResponse = (body: unknown): Response =>
     ({ ok: true, status: 200, json: async () => body } as unknown as Response);
+
+  // Start fetchHourlyRange and advance fake timers so the module-level
+  // acquireSlot mutex (setTimeout-based) and the 15s abort timer both
+  // resolve. Returns the still-pending promise for the caller to assert on.
+  const callAndDrain = (opts: Parameters<typeof fetchHourlyRange>[0]) => {
+    const p = fetchHourlyRange(opts);
+    // Drain timers after the promise is in-flight so rejections are captured
+    // by the returned promise, not thrown as unhandled rejections.
+    const drain = jest.advanceTimersByTimeAsync(16_000);
+    // Callers must `await` the returned promise. The drain settles
+    // independently; we just need to make sure it doesn't leak.
+    drain.catch(() => {});
+    return p;
+  };
+
+  const archiveOpts = {
+    lat: 45.1,
+    lng: -122.3,
+    startUtc: new Date('2020-01-01T10:00:00Z'),
+    endUtc: new Date('2020-01-01T11:00:00Z'),
+  };
 
   it('parses a successful archive response into HourlyWeather rows', async () => {
     mockFetchOnce(async () =>
@@ -75,12 +101,7 @@ describe('fetchHourlyRange', () => {
       })
     );
 
-    const rows = await fetchHourlyRange({
-      lat: 45.1,
-      lng: -122.3,
-      startUtc: new Date('2020-01-01T10:00:00Z'),
-      endUtc: new Date('2020-01-01T11:00:00Z'),
-    });
+    const rows = await callAndDrain(archiveOpts);
 
     expect(rows).toHaveLength(2);
     expect(rows[0]).toEqual({
@@ -110,14 +131,11 @@ describe('fetchHourlyRange', () => {
       })
     );
 
-    const rows = await fetchHourlyRange({
-      lat: 45.1,
-      lng: -122.3,
-      startUtc: new Date('2020-01-01T10:00:00Z'),
+    const rows = await callAndDrain({
+      ...archiveOpts,
       endUtc: new Date('2020-01-01T12:00:00Z'),
     });
 
-    // Only the 10:00 row has both temp and wmo populated.
     expect(rows).toHaveLength(1);
     expect(rows[0].timeUtc).toBe('2020-01-01T10:00');
     expect(rows[0].feelsLikeC).toBeNull();
@@ -126,12 +144,7 @@ describe('fetchHourlyRange', () => {
 
   it('returns [] when the response has no hourly block', async () => {
     mockFetchOnce(async () => okResponse({}));
-    const rows = await fetchHourlyRange({
-      lat: 45.1,
-      lng: -122.3,
-      startUtc: new Date('2020-01-01T10:00:00Z'),
-      endUtc: new Date('2020-01-01T11:00:00Z'),
-    });
+    const rows = await callAndDrain(archiveOpts);
     expect(rows).toEqual([]);
   });
 
@@ -139,19 +152,14 @@ describe('fetchHourlyRange', () => {
     mockFetchOnce(async () =>
       ({ ok: false, status: 503, json: async () => ({}) } as unknown as Response)
     );
-    await expect(
-      fetchHourlyRange({
-        lat: 45.1,
-        lng: -122.3,
-        startUtc: new Date('2020-01-01T10:00:00Z'),
-        endUtc: new Date('2020-01-01T11:00:00Z'),
-      })
-    ).rejects.toThrow('Open-Meteo archive request failed: 503');
+    await expect(callAndDrain(archiveOpts)).rejects.toThrow(
+      'Open-Meteo archive request failed: 503'
+    );
   });
 
   it('throws a timeout error when the fetch is aborted', async () => {
-    // Simulate fetch() honoring the AbortController signal.
-    global.fetch = jest.fn((_url: string, init?: RequestInit) => {
+    // fetch never resolves — the AbortController will fire after 15s.
+    global.fetch = jest.fn((_url: unknown, init?: RequestInit) => {
       return new Promise<Response>((_resolve, reject) => {
         init?.signal?.addEventListener('abort', () => {
           const err: Error & { name?: string } = new Error('aborted');
@@ -161,17 +169,9 @@ describe('fetchHourlyRange', () => {
       });
     }) as unknown as typeof fetch;
 
-    // Advance past the 15s timeout using fake timers.
-    jest.useFakeTimers();
-    const p = fetchHourlyRange({
-      lat: 45.1,
-      lng: -122.3,
-      startUtc: new Date('2020-01-01T10:00:00Z'),
-      endUtc: new Date('2020-01-01T11:00:00Z'),
-    });
-    jest.advanceTimersByTime(16_000);
-
-    await expect(p).rejects.toThrow('Open-Meteo archive request timed out after 15s');
+    await expect(callAndDrain(archiveOpts)).rejects.toThrow(
+      'Open-Meteo archive request timed out after 15s'
+    );
   });
 
   it('rethrows non-abort fetch errors unchanged', async () => {
@@ -179,13 +179,6 @@ describe('fetchHourlyRange', () => {
       throw new Error('ECONNREFUSED');
     });
 
-    await expect(
-      fetchHourlyRange({
-        lat: 45.1,
-        lng: -122.3,
-        startUtc: new Date('2020-01-01T10:00:00Z'),
-        endUtc: new Date('2020-01-01T11:00:00Z'),
-      })
-    ).rejects.toThrow('ECONNREFUSED');
+    await expect(callAndDrain(archiveOpts)).rejects.toThrow('ECONNREFUSED');
   });
 });
