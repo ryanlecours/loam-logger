@@ -122,20 +122,15 @@ r.get<Empty, void, Empty, { year?: string }>(
       console.log(`[Strava Backfill] Cycling activities: ${cyclingActivities.length}`);
 
       // Import each cycling activity
-      let importedCount = 0;
-      let skippedCount = 0;
+      let newCount = 0;
+      let updatedCount = 0;
       let geocodedCount = 0;
 
       for (const activity of cyclingActivities) {
-        // Check if activity already exists
         const existing = await prisma.ride.findUnique({
           where: { stravaActivityId: activity.id.toString() },
+          select: { id: true, startLat: true, startLng: true, location: true, bikeId: true, durationSeconds: true },
         });
-
-        if (existing) {
-          skippedCount++;
-          continue;
-        }
 
         // Look up bike mapping if gear_id exists
         let bikeId: string | null = null;
@@ -162,7 +157,6 @@ r.get<Empty, void, Empty, { year?: string }>(
           }
         }
 
-        // Convert activity to Ride format
         const distanceMeters = activity.distance;
         const elevationGainMeters = activity.total_elevation_gain;
         const startTime = new Date(activity.start_date);
@@ -170,9 +164,51 @@ r.get<Empty, void, Empty, { year?: string }>(
         const durationHours = Math.max(0, activity.moving_time) / 3600;
         const lat = activity.start_latlng?.[0] ?? null;
         const lon = activity.start_latlng?.[1] ?? null;
-        // Use lat/lon format initially, geocode in background
         const initialLocation = formatLatLon(lat, lon);
 
+        if (existing) {
+          // Backfill any fields the existing ride is missing (e.g. startLat/startLng
+          // for rides imported before coord persistence was added).
+          const patch: Record<string, unknown> = {};
+          if (existing.startLat == null && lat != null) patch.startLat = lat;
+          if (existing.startLng == null && lon != null) patch.startLng = lon;
+          if (!existing.location && initialLocation) patch.location = initialLocation;
+
+          if (Object.keys(patch).length > 0) {
+            await prisma.ride.update({
+              where: { id: existing.id },
+              data: patch,
+            });
+            updatedCount++;
+          }
+
+          // Geocode if the ride was missing a location and we now have coords
+          if (!existing.location && lat !== null && lon !== null) {
+            try {
+              const locationResult = await reverseGeocode(lat, lon);
+              if (locationResult) {
+                await prisma.ride.update({
+                  where: { id: existing.id },
+                  data: { location: locationResult.title },
+                });
+                geocodedCount++;
+              }
+            } catch (err) {
+              console.warn(`[Strava Sync] Failed to geocode ride ${existing.id}:`, err);
+            }
+          }
+
+          // Enqueue weather if coords now exist but weather doesn't
+          if ((patch.startLat || existing.startLat) && (patch.startLng || existing.startLng)) {
+            enqueueWeatherJob({ rideId: existing.id }).catch((err) =>
+              logError(`Strava Sync weather enqueue ${existing.id}`, err)
+            );
+          }
+
+          continue;
+        }
+
+        // New ride — full create
         const ride = await prisma.$transaction(async (tx) => {
           const createdRide = await tx.ride.create({
             data: {
@@ -200,7 +236,6 @@ r.get<Empty, void, Empty, { year?: string }>(
           return createdRide;
         });
 
-        // Geocode synchronously if we have coordinates
         if (lat !== null && lon !== null) {
           try {
             const locationResult = await reverseGeocode(lat, lon);
@@ -212,19 +247,18 @@ r.get<Empty, void, Empty, { year?: string }>(
               geocodedCount++;
             }
           } catch (err) {
-            // Don't fail the import if geocoding fails
-            console.warn(`[Strava Backfill] Failed to geocode ride ${ride.id}:`, err);
+            console.warn(`[Strava Sync] Failed to geocode ride ${ride.id}:`, err);
           }
 
           enqueueWeatherJob({ rideId: ride.id }).catch((err) =>
-            logError(`Strava Backfill weather enqueue ${ride.id}`, err)
+            logError(`Strava Sync weather enqueue ${ride.id}`, err)
           );
         }
 
-        importedCount++;
+        newCount++;
       }
 
-      console.log(`[Strava Backfill] Imported: ${importedCount}, Skipped (existing): ${skippedCount}`);
+      console.log(`[Strava Sync] New: ${newCount}, Updated: ${updatedCount}, Geocoded: ${geocodedCount}`);
 
       // Detect unmapped gears
       const unmappedGearIds = cyclingActivities
@@ -254,7 +288,7 @@ r.get<Empty, void, Empty, { year?: string }>(
           where: { userId_provider_year: { userId, provider: 'strava', year: yearKey } },
           update: {
             status: 'completed',
-            ridesFound: importedCount,
+            ridesFound: newCount + updatedCount,
             completedAt: new Date(),
             updatedAt: new Date(),
           },
@@ -263,7 +297,7 @@ r.get<Empty, void, Empty, { year?: string }>(
             provider: 'strava',
             year: yearKey,
             status: 'completed',
-            ridesFound: importedCount,
+            ridesFound: newCount + updatedCount,
             completedAt: new Date(),
           },
         });
@@ -274,11 +308,11 @@ r.get<Empty, void, Empty, { year?: string }>(
 
       return res.json({
         success: true,
-        message: `Successfully imported ${importedCount} rides from Strava.`,
+        message: `Synced ${newCount} new and ${updatedCount} updated rides from Strava.`,
         totalActivities: activities.length,
         cyclingActivities: cyclingActivities.length,
-        imported: importedCount,
-        skipped: skippedCount,
+        imported: newCount,
+        updated: updatedCount,
         geocoded: geocodedCount,
         unmappedGears,
       });
