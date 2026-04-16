@@ -23,6 +23,7 @@ import WeatherSection from './sections/WeatherSection';
 import { useRideStats, useRideStatsForRides, useRideStatsForYear, buildBikeNameMap, getYearsWithRides } from './hooks/useRideStats';
 import { RIDES } from '../../graphql/rides';
 import { BIKES } from '../../graphql/bikes';
+import { WEATHER_BREAKDOWN } from '../../graphql/weatherBreakdown';
 import type { Ride } from '../../models/Ride';
 import type { Timeframe, PresetTimeframe } from './types';
 import { EMPTY_STATS } from './types';
@@ -41,6 +42,35 @@ type BikeSummary = {
 
 // 400 rides accounts for ~1 ride/day for a year plus some twice-a-day rides
 const MAX_RIDES_FOR_STATS = 400;
+
+const DAYS_MS = 24 * 60 * 60 * 1000;
+
+/** Converts a Timeframe to the RidesFilterInput shape the API expects. */
+const timeframeToFilter = (tf: Timeframe, bikeId: string | null) => {
+  const now = new Date();
+  let startDate: Date;
+  let endDate: Date | undefined;
+
+  if (typeof tf === 'number') {
+    startDate = new Date(tf, 0, 1);
+    endDate = new Date(tf + 1, 0, 1);
+  } else if (tf === '1w') {
+    startDate = new Date(now.getTime() - 7 * DAYS_MS);
+  } else if (tf === '1m') {
+    startDate = new Date(now.getTime() - 30 * DAYS_MS);
+  } else if (tf === '3m') {
+    startDate = new Date(now.getTime() - 90 * DAYS_MS);
+  } else {
+    // YTD
+    startDate = new Date(now.getFullYear(), 0, 1);
+  }
+
+  return {
+    startDate: startDate.toISOString(),
+    ...(endDate ? { endDate: endDate.toISOString() } : {}),
+    ...(bikeId ? { bikeId } : {}),
+  };
+};
 
 interface RideStatsCardProps {
   showHeading?: boolean;
@@ -82,6 +112,11 @@ export default function RideStatsCard({ showHeading = true, rides: externalRides
     [ridesData?.rides]
   );
 
+  // True when the server returned a full page — the user has ≥ the cap
+  // and client-computed stats (streaks, PRs, totals) may be incomplete.
+  // Weather breakdown uses the server-side aggregation and is unaffected.
+  const truncated = !isExternalMode && allRides.length >= MAX_RIDES_FOR_STATS;
+
   // Stats from internal timeframe-based fetching (presets only)
   const internalStats = useRideStats({
     rides: allRides,
@@ -114,13 +149,64 @@ export default function RideStatsCard({ showHeading = true, rides: externalRides
     }));
   }, [bikes]);
 
-  // Determine which stats to show
+  // Server-side aggregation for weather — avoids iterating the full rides
+  // list client-side just to count buckets. Skipped in external mode
+  // because the parent is already providing pre-computed stats.
+  const weatherFilter = useMemo(
+    () => timeframeToFilter(selectedTf, selectedBikeId),
+    [selectedTf, selectedBikeId]
+  );
+  const { data: weatherData } = useQuery<{
+    me: {
+      id: string;
+      weatherBreakdown: {
+        sunny: number;
+        cloudy: number;
+        rainy: number;
+        snowy: number;
+        windy: number;
+        foggy: number;
+        unknown: number;
+        pending: number;
+        totalRides: number;
+      };
+    } | null;
+  }>(WEATHER_BREAKDOWN, {
+    variables: { filter: weatherFilter },
+    fetchPolicy: 'cache-and-network',
+    skip: isExternalMode,
+  });
+
+  // Determine which stats to show, overriding the client-computed weather
+  // block with the server aggregation when available.
   const selectedStats = useMemo(() => {
-    if (isExternalMode) return externalStats;
-    if (selectedYear !== null) return yearStats;
-    if (isPresetTimeframe(selectedTf)) return internalStats[selectedTf] ?? EMPTY_STATS;
-    return EMPTY_STATS;
-  }, [isExternalMode, externalStats, selectedYear, yearStats, selectedTf, internalStats]);
+    let base;
+    if (isExternalMode) base = externalStats;
+    else if (selectedYear !== null) base = yearStats;
+    else if (isPresetTimeframe(selectedTf)) base = internalStats[selectedTf] ?? EMPTY_STATS;
+    else base = EMPTY_STATS;
+
+    const wb = weatherData?.me?.weatherBreakdown;
+    if (!wb || isExternalMode) return base;
+
+    const totalWithWeather = wb.sunny + wb.cloudy + wb.rainy + wb.snowy + wb.windy + wb.foggy + wb.unknown;
+    return {
+      ...base,
+      weather: {
+        breakdown: {
+          SUNNY: wb.sunny,
+          CLOUDY: wb.cloudy,
+          RAINY: wb.rainy,
+          SNOWY: wb.snowy,
+          WINDY: wb.windy,
+          FOGGY: wb.foggy,
+          UNKNOWN: wb.unknown,
+        },
+        totalWithWeather,
+        totalRides: wb.totalRides,
+      },
+    };
+  }, [isExternalMode, externalStats, selectedYear, yearStats, selectedTf, internalStats, weatherData]);
 
   const hasRides = isExternalMode ? (externalRides?.length ?? 0) > 0 : allRides.length > 0;
 
@@ -149,6 +235,13 @@ export default function RideStatsCard({ showHeading = true, rides: externalRides
           <span className="text-sm text-muted">{filterLabel}</span>
         )}
       </div>
+
+      {truncated && (
+        <p className="text-xs text-muted italic px-4 pb-2">
+          Showing stats based on your most recent {MAX_RIDES_FOR_STATS} rides.
+          Weather totals cover your full history.
+        </p>
+      )}
 
       {/* Scrollable content area */}
       <div className="stats-content">

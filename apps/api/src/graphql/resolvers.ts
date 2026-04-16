@@ -4334,6 +4334,63 @@ export const resolvers = {
         },
       });
     },
+    // Server-side aggregation over the user's rides in a date/bike window.
+    // Single groupBy + one count — constant-size response regardless of
+    // history length. Saves clients from pulling the full rides list just
+    // to bucket by condition.
+    weatherBreakdown: async (
+      parent: { id: string },
+      { filter }: { filter?: { startDate?: string | null; endDate?: string | null; bikeId?: string | null } | null }
+    ) => {
+      const rideWhere: Prisma.RideWhereInput = { userId: parent.id };
+
+      if (filter?.startDate || filter?.endDate) {
+        rideWhere.startTime = {};
+        if (filter.startDate) rideWhere.startTime.gte = new Date(filter.startDate);
+        if (filter.endDate) rideWhere.startTime.lte = new Date(filter.endDate);
+      }
+
+      if (filter?.bikeId) {
+        const bike = await prisma.bike.findUnique({
+          where: { id: filter.bikeId },
+          select: { userId: true },
+        });
+        if (!bike || bike.userId !== parent.id) {
+          throw new GraphQLError('Bike not found', {
+            extensions: { code: 'NOT_FOUND' },
+          });
+        }
+        rideWhere.bikeId = filter.bikeId;
+      }
+
+      const [grouped, pending, totalRides] = await Promise.all([
+        prisma.rideWeather.groupBy({
+          by: ['condition'],
+          where: { ride: rideWhere },
+          _count: { _all: true },
+        }),
+        prisma.ride.count({
+          where: { ...rideWhere, weather: null },
+        }),
+        prisma.ride.count({ where: rideWhere }),
+      ]);
+
+      const breakdown = {
+        sunny: 0,
+        cloudy: 0,
+        rainy: 0,
+        snowy: 0,
+        windy: 0,
+        foggy: 0,
+        unknown: 0,
+      };
+      for (const g of grouped) {
+        const key = g.condition.toLowerCase() as keyof typeof breakdown;
+        breakdown[key] = g._count._all;
+      }
+
+      return { ...breakdown, pending, totalRides };
+    },
     servicePreferences: async (parent: { id: string }) => {
       return prisma.userServicePreference.findMany({
         where: { userId: parent.id },
