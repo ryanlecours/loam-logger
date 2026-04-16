@@ -29,6 +29,9 @@ jest.mock('../../lib/prisma', () => ({
       updateMany: jest.fn(),
       count: jest.fn().mockResolvedValue(0),
     },
+    rideWeather: {
+      groupBy: jest.fn().mockResolvedValue([]),
+    },
     stravaGearMapping: {
       deleteMany: jest.fn(),
     },
@@ -3006,6 +3009,155 @@ describe('GraphQL Resolvers', () => {
 
       expect(result.remainingAfterBatch).toBe(350);
       expect(result.enqueuedCount).toBe(500);
+    });
+  });
+
+  describe('User.weatherBreakdown', () => {
+    const resolver = resolvers.User.weatherBreakdown;
+    const mockGroupBy = prisma.rideWeather.groupBy as jest.Mock;
+    const mockRideCount = prisma.ride.count as jest.Mock;
+    const mockBikeFindUnique = prisma.bike.findUnique as jest.Mock;
+
+    beforeEach(() => {
+      mockGroupBy.mockReset();
+      mockRideCount.mockReset();
+      mockBikeFindUnique.mockReset();
+    });
+
+    it('returns zero counts for a user with no rides', async () => {
+      mockGroupBy.mockResolvedValueOnce([]);
+      mockRideCount.mockResolvedValueOnce(0).mockResolvedValueOnce(0);
+
+      const result = await resolver({ id: 'user-123' }, {});
+
+      expect(result).toEqual({
+        sunny: 0,
+        cloudy: 0,
+        rainy: 0,
+        snowy: 0,
+        windy: 0,
+        foggy: 0,
+        unknown: 0,
+        pending: 0,
+        totalRides: 0,
+      });
+    });
+
+    it('buckets grouped results and includes pending + total counts', async () => {
+      mockGroupBy.mockResolvedValueOnce([
+        { condition: 'SUNNY', _count: { _all: 12 } },
+        { condition: 'RAINY', _count: { _all: 3 } },
+        { condition: 'CLOUDY', _count: { _all: 7 } },
+      ]);
+      mockRideCount.mockResolvedValueOnce(5).mockResolvedValueOnce(27);
+
+      const result = await resolver({ id: 'user-123' }, {});
+
+      expect(result).toEqual({
+        sunny: 12,
+        cloudy: 7,
+        rainy: 3,
+        snowy: 0,
+        windy: 0,
+        foggy: 0,
+        unknown: 0,
+        pending: 5,
+        totalRides: 27,
+      });
+    });
+
+    it('applies date range filters to the underlying queries', async () => {
+      mockGroupBy.mockResolvedValueOnce([]);
+      mockRideCount.mockResolvedValueOnce(0).mockResolvedValueOnce(0);
+
+      await resolver({ id: 'user-123' }, {
+        filter: { startDate: '2026-01-01T00:00:00Z', endDate: '2026-04-01T00:00:00Z' },
+      });
+
+      const groupByCall = mockGroupBy.mock.calls[0][0];
+      expect(groupByCall.where.ride.userId).toBe('user-123');
+      expect(groupByCall.where.ride.startTime.gte).toEqual(new Date('2026-01-01T00:00:00Z'));
+      expect(groupByCall.where.ride.startTime.lte).toEqual(new Date('2026-04-01T00:00:00Z'));
+    });
+
+    it('verifies bike ownership before applying bikeId filter', async () => {
+      mockBikeFindUnique.mockResolvedValueOnce({ userId: 'other-user' });
+
+      await expect(
+        resolver({ id: 'user-123' }, { filter: { bikeId: 'bike-stolen' } })
+      ).rejects.toThrow('Bike not found');
+
+      expect(mockGroupBy).not.toHaveBeenCalled();
+    });
+
+    it('applies bikeId filter when ownership checks out', async () => {
+      mockBikeFindUnique.mockResolvedValueOnce({ userId: 'user-123' });
+      mockGroupBy.mockResolvedValueOnce([]);
+      mockRideCount.mockResolvedValueOnce(0).mockResolvedValueOnce(0);
+
+      await resolver({ id: 'user-123' }, { filter: { bikeId: 'bike-mine' } });
+
+      const groupByCall = mockGroupBy.mock.calls[0][0];
+      expect(groupByCall.where.ride.bikeId).toBe('bike-mine');
+    });
+
+    it('logs and skips an unknown condition value (schema drift safety)', async () => {
+      // If a future migration adds a WeatherCondition enum value before the
+      // resolver's local `breakdown` object is updated, the groupBy result
+      // could contain a condition we don't have a bucket for. The resolver
+      // should NOT throw and should NOT silently write to an undefined
+      // slot — it should warn and skip.
+      mockGroupBy.mockResolvedValueOnce([
+        { condition: 'SUNNY', _count: { _all: 4 } },
+        { condition: 'STORMY', _count: { _all: 99 } }, // hypothetical new enum
+      ]);
+      mockRideCount.mockResolvedValueOnce(0).mockResolvedValueOnce(0);
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const result = await resolver({ id: 'user-123' }, {});
+
+      expect(result.sunny).toBe(4);
+      // No new property leaks onto the returned object from the unknown key.
+      expect(Object.keys(result).sort()).toEqual(
+        [
+          'cloudy',
+          'foggy',
+          'pending',
+          'rainy',
+          'snowy',
+          'sunny',
+          'totalRides',
+          'unknown',
+          'windy',
+        ].sort()
+      );
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('STORMY')
+      );
+      warn.mockRestore();
+    });
+
+    it('excludes rides without coords from the pending count', async () => {
+      // "Pending" means fetchable-but-not-fetched, so WHOOP workouts (no
+      // GPS) and pre-weather-integration imports must NOT be in the count.
+      // Otherwise UI copy like "X rides still pending weather fetch" is a
+      // lie for users with non-GPS sources.
+      mockGroupBy.mockResolvedValueOnce([]);
+      mockRideCount.mockResolvedValueOnce(0).mockResolvedValueOnce(0);
+
+      await resolver({ id: 'user-123' }, {});
+
+      // First ride.count call is pending — must require non-null coords.
+      const pendingWhere = mockRideCount.mock.calls[0][0].where;
+      expect(pendingWhere.weather).toBeNull();
+      expect(pendingWhere.startLat).toEqual({ not: null });
+      expect(pendingWhere.startLng).toEqual({ not: null });
+
+      // Second ride.count call is totalRides — should NOT have the coord
+      // filter since it's a count of everything in the timeframe.
+      const totalWhere = mockRideCount.mock.calls[1][0].where;
+      expect(totalWhere.startLat).toBeUndefined();
+      expect(totalWhere.startLng).toBeUndefined();
     });
   });
 });

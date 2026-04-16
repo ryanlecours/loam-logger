@@ -203,6 +203,27 @@ export const typeDefs = gql`
     remainingAfterBatch: Int!
   }
 
+  # Server-side aggregation so dashboards don't have to pull a full list of
+  # weather blobs just to count buckets. Returned for the authenticated user
+  # only — the resolver enforces userId from context.
+  type WeatherBreakdown {
+    sunny: Int!
+    cloudy: Int!
+    rainy: Int!
+    snowy: Int!
+    windy: Int!
+    foggy: Int!
+    # Rides whose WMO code didn't map to a known condition.
+    unknown: Int!
+    # Rides that could get weather but don't have a row yet — i.e. have
+    # coords but fetch is pending or failed. Rides without coords (WHOOP
+    # workouts, pre-weather-integration imports) are excluded because
+    # they'll never produce a weather row.
+    pending: Int!
+    # Total rides in the selected timeframe, including pending.
+    totalRides: Int!
+  }
+
   type Component {
     id: ID!
     type: ComponentType!
@@ -914,6 +935,10 @@ export const typeDefs = gql`
     notifyOnRideUpload: Boolean!
     createdAt: String!
     ridesMissingWeather: Int!
+    # Aggregated condition counts across the authenticated user's rides,
+    # filtered by date/bike. Replaces client-side aggregation over the
+    # rides list so dashboards don't have to pull full weather blobs.
+    weatherBreakdown(filter: RidesFilterInput): WeatherBreakdown!
   }
 
   input RidesFilterInput {
