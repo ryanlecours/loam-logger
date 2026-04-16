@@ -472,7 +472,7 @@ export default function Settings() {
                       onClick={() => setImportModalOpen(true)}
                       className="rounded-xl px-3 py-1.5 text-xs font-medium text-blue-400/80 bg-surface-2/50 border border-blue-400/30 hover:bg-surface-2 hover:text-blue-400 hover:border-blue-400/50 hover:cursor-pointer transition"
                     >
-                      Import Previous Rides
+                      Sync Previous Rides
                     </button>
                     {isAdmin && (
                       <button
@@ -514,7 +514,7 @@ export default function Settings() {
                       onClick={() => setStravaImportModalOpen(true)}
                       className="rounded-xl px-3 py-1.5 text-xs font-medium text-[#FC4C02]/80 bg-surface-2/50 border border-[#FC4C02]/30 hover:bg-surface-2 hover:text-[#FC4C02] hover:border-[#FC4C02]/50 hover:cursor-pointer transition"
                     >
-                      Import Previous Rides
+                      Sync Previous Rides
                     </button>
                     {isAdmin && (
                       <button
@@ -556,7 +556,7 @@ export default function Settings() {
                       onClick={() => setWhoopImportModalOpen(true)}
                       className="rounded-xl px-3 py-1.5 text-xs font-medium text-[#00FF87]/80 bg-surface-2/50 border border-[#00FF87]/30 hover:bg-surface-2 hover:text-[#00FF87] hover:border-[#00FF87]/50 hover:cursor-pointer transition"
                     >
-                      Import Previous Rides
+                      Sync Previous Rides
                     </button>
                     {isAdmin && (
                       <button

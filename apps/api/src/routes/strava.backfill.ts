@@ -55,7 +55,7 @@ r.get<Empty, void, Empty, { year?: string }>(
       const afterTimestamp = Math.floor(startDate.getTime() / 1000);
       const beforeTimestamp = Math.floor(endDate.getTime() / 1000);
 
-      console.log(`[Strava Backfill] Fetching ${yearParam || currentYear} activities from ${startDate.toISOString()} to ${endDate.toISOString()}`);
+      console.log(`[Strava Sync] Fetching ${yearParam || currentYear} activities from ${startDate.toISOString()} to ${endDate.toISOString()}`);
 
       // Fetch activities from Strava API
       // https://developers.strava.com/docs/reference/#api-Activities-getLoggedInAthleteActivities
@@ -80,14 +80,14 @@ r.get<Empty, void, Empty, { year?: string }>(
 
         if (!activitiesRes.ok) {
           const text = await activitiesRes.text();
-          console.error(`[Strava Backfill] Failed to fetch activities: ${activitiesRes.status} ${text}`);
+          console.error(`[Strava Sync] Failed to fetch activities: ${activitiesRes.status} ${text}`);
           throw new Error(`Failed to fetch activities: ${activitiesRes.status}`);
         }
 
         const pageActivities = (await activitiesRes.json()) as StravaActivity[];
         activities.push(...pageActivities);
 
-        console.log(`[Strava Backfill] Fetched page ${page}: ${pageActivities.length} activities`);
+        console.log(`[Strava Sync] Fetched page ${page}: ${pageActivities.length} activities`);
 
         if (pageActivities.length < perPage) {
           hasMore = false;
@@ -97,12 +97,12 @@ r.get<Empty, void, Empty, { year?: string }>(
 
         // Safety: Limit to 50 pages (2500 activities max)
         if (page > 50) {
-          console.warn('[Strava Backfill] Reached page limit (50), stopping pagination');
+          console.warn('[Strava Sync] Reached page limit (50), stopping pagination');
           hasMore = false;
         }
       }
 
-      console.log(`[Strava Backfill] Total activities fetched: ${activities.length}`);
+      console.log(`[Strava Sync] Total activities fetched: ${activities.length}`);
 
       // Filter cycling activities
       const CYCLING_SPORT_TYPES = [
@@ -119,25 +119,79 @@ r.get<Empty, void, Empty, { year?: string }>(
         CYCLING_SPORT_TYPES.includes(a.sport_type)
       );
 
-      console.log(`[Strava Backfill] Cycling activities: ${cyclingActivities.length}`);
+      console.log(`[Strava Sync] Cycling activities: ${cyclingActivities.length}`);
 
       // Import each cycling activity
-      let importedCount = 0;
-      let skippedCount = 0;
+      let newCount = 0;
+      let updatedCount = 0;
       let geocodedCount = 0;
 
       for (const activity of cyclingActivities) {
-        // Check if activity already exists
         const existing = await prisma.ride.findUnique({
           where: { stravaActivityId: activity.id.toString() },
+          select: { id: true, startLat: true, startLng: true, location: true },
         });
 
+        const lat = activity.start_latlng?.[0] ?? null;
+        const lon = activity.start_latlng?.[1] ?? null;
+        const initialLocation = formatLatLon(lat, lon);
+
         if (existing) {
-          skippedCount++;
+          // Backfill any fields the existing ride is missing (e.g. startLat/startLng
+          // for rides imported before coord persistence was added).
+          const patch: Record<string, unknown> = {};
+          if (existing.startLat == null && lat != null) patch.startLat = lat;
+          if (existing.startLng == null && lon != null) patch.startLng = lon;
+
+          // Resolve location before writing so we don't do two round-trips
+          // for the same field: prefer a geocoded name, fall back to the
+          // coord-formatted string only if geocoding fails or isn't possible.
+          if (!existing.location) {
+            let resolvedLocation: string | null = initialLocation;
+            if (lat !== null && lon !== null) {
+              try {
+                const locationResult = await reverseGeocode(lat, lon);
+                if (locationResult) {
+                  resolvedLocation = locationResult.title;
+                  geocodedCount++;
+                }
+              } catch (err) {
+                console.warn(`[Strava Sync] Failed to geocode ride ${existing.id}:`, err);
+              }
+            }
+            if (resolvedLocation) patch.location = resolvedLocation;
+          }
+
+          if (Object.keys(patch).length > 0) {
+            await prisma.ride.update({
+              where: { id: existing.id },
+              data: patch,
+            });
+            updatedCount++;
+          }
+
+          // Only enqueue weather if coords were JUST added on this sync.
+          // Rides that already had coords either already have weather or have
+          // a job in flight — the weather worker would skip them anyway, but
+          // enqueuing N redundant jobs per re-sync is a needless Redis hit.
+          if (patch.startLat !== undefined && patch.startLng !== undefined) {
+            enqueueWeatherJob({ rideId: existing.id }).catch((err) =>
+              logError(`Strava Sync weather enqueue ${existing.id}`, err)
+            );
+          }
+
           continue;
         }
 
-        // Look up bike mapping if gear_id exists
+        // New ride — full create. Field derivation and bike lookup happen
+        // here (not earlier) so we don't pay for gear-mapping + user-bikes
+        // queries or trivially-derived fields on every existing-ride
+        // iteration during a re-sync.
+        const distanceMeters = activity.distance;
+        const elevationGainMeters = activity.total_elevation_gain;
+        const startTime = new Date(activity.start_date);
+        const durationHours = Math.max(0, activity.moving_time) / 3600;
+
         let bikeId: string | null = null;
         if (activity.gear_id) {
           const mapping = await prisma.stravaGearMapping.findUnique({
@@ -150,8 +204,6 @@ r.get<Empty, void, Empty, { year?: string }>(
           });
           bikeId = mapping?.bikeId ?? null;
         }
-
-        // If no bike assigned yet, check if user has exactly one bike (auto-assign)
         if (!bikeId) {
           const userBikes = await prisma.bike.findMany({
             where: { userId },
@@ -161,17 +213,6 @@ r.get<Empty, void, Empty, { year?: string }>(
             bikeId = userBikes[0].id;
           }
         }
-
-        // Convert activity to Ride format
-        const distanceMeters = activity.distance;
-        const elevationGainMeters = activity.total_elevation_gain;
-        const startTime = new Date(activity.start_date);
-
-        const durationHours = Math.max(0, activity.moving_time) / 3600;
-        const lat = activity.start_latlng?.[0] ?? null;
-        const lon = activity.start_latlng?.[1] ?? null;
-        // Use lat/lon format initially, geocode in background
-        const initialLocation = formatLatLon(lat, lon);
 
         const ride = await prisma.$transaction(async (tx) => {
           const createdRide = await tx.ride.create({
@@ -200,7 +241,6 @@ r.get<Empty, void, Empty, { year?: string }>(
           return createdRide;
         });
 
-        // Geocode synchronously if we have coordinates
         if (lat !== null && lon !== null) {
           try {
             const locationResult = await reverseGeocode(lat, lon);
@@ -212,19 +252,18 @@ r.get<Empty, void, Empty, { year?: string }>(
               geocodedCount++;
             }
           } catch (err) {
-            // Don't fail the import if geocoding fails
-            console.warn(`[Strava Backfill] Failed to geocode ride ${ride.id}:`, err);
+            console.warn(`[Strava Sync] Failed to geocode ride ${ride.id}:`, err);
           }
 
           enqueueWeatherJob({ rideId: ride.id }).catch((err) =>
-            logError(`Strava Backfill weather enqueue ${ride.id}`, err)
+            logError(`Strava Sync weather enqueue ${ride.id}`, err)
           );
         }
 
-        importedCount++;
+        newCount++;
       }
 
-      console.log(`[Strava Backfill] Imported: ${importedCount}, Skipped (existing): ${skippedCount}`);
+      console.log(`[Strava Sync] New: ${newCount}, Updated: ${updatedCount}, Geocoded: ${geocodedCount}`);
 
       // Detect unmapped gears
       const unmappedGearIds = cyclingActivities
@@ -245,16 +284,24 @@ r.get<Empty, void, Empty, { year?: string }>(
         }
       }
 
-      console.log(`[Strava Backfill] Unmapped gears: ${unmappedGears.length}`);
+      console.log(`[Strava Sync] Unmapped gears: ${unmappedGears.length}`);
 
       // Track backfill request in database
       const yearKey = yearParam || 'ytd';
+      // Semantics note: before the gap-fill rework, `ridesFound` meant
+      // "new rides created this run" (existing rides were silently skipped
+      // and excluded). It now means "rides touched this run" — new + updated.
+      // This is what the history UI on web/mobile wants ("N rides synced"),
+      // and without this change, a re-sync of a user's full history would
+      // show 0 here and look broken. WHOOP still tracks new-only because
+      // there's no gap-fill path on that provider.
+      const touchedCount = newCount + updatedCount;
       try {
         await prisma.backfillRequest.upsert({
           where: { userId_provider_year: { userId, provider: 'strava', year: yearKey } },
           update: {
             status: 'completed',
-            ridesFound: importedCount,
+            ridesFound: touchedCount,
             completedAt: new Date(),
             updatedAt: new Date(),
           },
@@ -263,22 +310,29 @@ r.get<Empty, void, Empty, { year?: string }>(
             provider: 'strava',
             year: yearKey,
             status: 'completed',
-            ridesFound: importedCount,
+            ridesFound: touchedCount,
             completedAt: new Date(),
           },
         });
       } catch (dbError) {
-        logError('Strava Backfill DB tracking', dbError);
+        logError('Strava Sync DB tracking', dbError);
         // Don't fail the request if tracking fails
       }
 
       return res.json({
         success: true,
-        message: `Successfully imported ${importedCount} rides from Strava.`,
+        message: `Synced ${newCount} new and ${updatedCount} updated rides from Strava.`,
         totalActivities: activities.length,
         cyclingActivities: cyclingActivities.length,
-        imported: importedCount,
-        skipped: skippedCount,
+        imported: newCount,
+        updated: updatedCount,
+        // Legacy alias for `updated`, kept so older clients that read
+        // `response.skipped` (pre-gap-fill, when existing rides were
+        // silently skipped) still get a number rather than undefined. The
+        // meaning has shifted — it's now the count of existing rides that
+        // were touched — which is actually closer to what users cared
+        // about anyway. New clients should read `updated`.
+        skipped: updatedCount,
         geocoded: geocodedCount,
         unmappedGears,
       });
@@ -294,7 +348,7 @@ r.get<Empty, void, Empty, { year?: string }>(
       } catch {
         // Ignore tracking errors
       }
-      logError('Strava Backfill', error);
+      logError('Strava Sync', error);
       return sendInternalError(res, 'Failed to fetch activities');
     }
   }
@@ -385,7 +439,7 @@ r.get<Empty, void, Empty, Empty>(
         message: `Found ${recentStravaRides.length} recent Strava rides (last 30 days), ${totalStravaRides} total`,
       });
     } catch (error) {
-      logError('Strava Backfill Status', error);
+      logError('Strava Sync Status', error);
       return sendInternalError(res, 'Failed to fetch backfill status');
     }
   }

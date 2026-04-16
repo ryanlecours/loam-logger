@@ -270,6 +270,9 @@ export default function WhoopImportModal({ open, onClose, onSuccess, onDuplicate
             <p className="text-xs text-muted mt-1">
               Note: WHOOP does not support gear tracking, so rides will be auto-assigned to your bike if you only have one.
             </p>
+            <p className="text-xs text-muted mt-1">
+              WHOOP doesn't share GPS coordinates for workouts, so location and weather data won't be available for WHOOP rides.
+            </p>
           </div>
 
           {error && (
