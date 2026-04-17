@@ -37,6 +37,7 @@ jest.mock('../../lib/prisma', () => ({
     },
     serviceLog: {
       create: jest.fn(),
+      findMany: jest.fn().mockResolvedValue([]),
     },
     termsAcceptance: {
       findUnique: jest.fn(),
@@ -57,6 +58,7 @@ jest.mock('../../lib/prisma', () => ({
     },
     bikeComponentInstall: {
       findFirst: jest.fn(),
+      findMany: jest.fn().mockResolvedValue([]),
       create: jest.fn(),
       update: jest.fn(),
     },
@@ -3158,6 +3160,178 @@ describe('GraphQL Resolvers', () => {
       const totalWhere = mockRideCount.mock.calls[1][0].where;
       expect(totalWhere.startLat).toBeUndefined();
       expect(totalWhere.startLng).toBeUndefined();
+    });
+  });
+
+  describe('Query.bikeHistory', () => {
+    const resolver = resolvers.Query.bikeHistory;
+    const mockBikeFindFirst = mockPrisma.bike.findFirst as jest.Mock;
+    const mockRideFindMany = mockPrisma.ride.findMany as jest.Mock;
+    const mockServiceLogFindMany = mockPrisma.serviceLog.findMany as jest.Mock;
+    const mockInstallFindMany = mockPrisma.bikeComponentInstall.findMany as jest.Mock;
+    const mockUserFindUniqueOrThrow = mockPrisma.user.findUniqueOrThrow as jest.Mock;
+
+    beforeEach(() => {
+      mockBikeFindFirst.mockReset();
+      mockRideFindMany.mockReset().mockResolvedValue([]);
+      mockServiceLogFindMany.mockReset().mockResolvedValue([]);
+      mockInstallFindMany.mockReset().mockResolvedValue([]);
+      // Default to PRO so existing tests see every event type. Individual tests
+      // can override for tier-gated assertions.
+      mockUserFindUniqueOrThrow.mockReset().mockResolvedValue({
+        subscriptionTier: 'PRO',
+        isFoundingRider: false,
+        role: 'FREE',
+      });
+    });
+
+    it('rejects when the bike is not owned by the viewer', async () => {
+      mockBikeFindFirst.mockResolvedValueOnce(null);
+      const ctx = createMockContext('user-123');
+
+      await expect(
+        resolver({}, { bikeId: 'bike-stolen' }, ctx as never)
+      ).rejects.toThrow('Bike not found');
+
+      expect(mockRideFindMany).not.toHaveBeenCalled();
+    });
+
+    it('returns merged totals and events within the timeframe', async () => {
+      mockBikeFindFirst.mockResolvedValueOnce({ id: 'bike-1', userId: 'user-123' });
+      mockRideFindMany.mockResolvedValueOnce([
+        { id: 'r1', distanceMeters: 10000, durationSeconds: 3600, elevationGainMeters: 300 },
+        { id: 'r2', distanceMeters: 5000, durationSeconds: 1800, elevationGainMeters: 150 },
+      ]);
+      mockServiceLogFindMany.mockResolvedValueOnce([
+        {
+          id: 's1',
+          performedAt: new Date('2026-01-15T00:00:00Z'),
+          notes: 'fork lowers',
+          hoursAtService: 120,
+          component: { id: 'c1' },
+        },
+      ]);
+      mockInstallFindMany.mockResolvedValueOnce([]);
+
+      const ctx = createMockContext('user-123');
+      const result = await resolver(
+        {},
+        { bikeId: 'bike-1', startDate: '2026-01-01T00:00:00Z', endDate: '2026-12-31T23:59:59Z' },
+        ctx as never
+      );
+
+      expect(result.totals).toEqual({
+        rideCount: 2,
+        totalDistanceMeters: 15000,
+        totalDurationSeconds: 5400,
+        totalElevationGainMeters: 450,
+        serviceEventCount: 1,
+        installEventCount: 0,
+      });
+      expect(result.serviceEvents[0].performedAt).toBe('2026-01-15T00:00:00.000Z');
+      expect(result.truncated).toBe(false);
+    });
+
+    it('splits a BikeComponentInstall with removedAt into two events', async () => {
+      mockBikeFindFirst.mockResolvedValueOnce({ id: 'bike-1', userId: 'user-123' });
+      mockInstallFindMany.mockResolvedValueOnce([
+        {
+          id: 'i1',
+          installedAt: new Date('2026-01-10T00:00:00Z'),
+          removedAt: new Date('2026-03-20T00:00:00Z'),
+          component: { id: 'c1' },
+        },
+      ]);
+
+      const ctx = createMockContext('user-123');
+      const result = await resolver({}, { bikeId: 'bike-1' }, ctx as never);
+
+      expect(result.installs).toHaveLength(2);
+      expect(result.installs.map((i: { eventType: string }) => i.eventType).sort()).toEqual([
+        'INSTALLED',
+        'REMOVED',
+      ]);
+      expect(result.installs.find((i: { eventType: string }) => i.eventType === 'INSTALLED').occurredAt)
+        .toBe('2026-01-10T00:00:00.000Z');
+      expect(result.installs.find((i: { eventType: string }) => i.eventType === 'REMOVED').occurredAt)
+        .toBe('2026-03-20T00:00:00.000Z');
+    });
+
+    it('drops install/remove events outside the requested timeframe', async () => {
+      mockBikeFindFirst.mockResolvedValueOnce({ id: 'bike-1', userId: 'user-123' });
+      // Install in 2025, removed in 2026 — with a 2026-only filter, only REMOVED should show.
+      mockInstallFindMany.mockResolvedValueOnce([
+        {
+          id: 'i1',
+          installedAt: new Date('2025-06-01T00:00:00Z'),
+          removedAt: new Date('2026-02-01T00:00:00Z'),
+          component: { id: 'c1' },
+        },
+      ]);
+
+      const ctx = createMockContext('user-123');
+      const result = await resolver(
+        {},
+        { bikeId: 'bike-1', startDate: '2026-01-01T00:00:00Z', endDate: '2026-12-31T23:59:59Z' },
+        ctx as never
+      );
+
+      expect(result.installs).toHaveLength(1);
+      expect(result.installs[0].eventType).toBe('REMOVED');
+    });
+
+    it('restricts service & install events to unlocked component types on Free Light', async () => {
+      mockBikeFindFirst.mockResolvedValueOnce({ id: 'bike-1', userId: 'user-123' });
+      mockUserFindUniqueOrThrow.mockReset().mockResolvedValue({
+        subscriptionTier: 'FREE_LIGHT',
+        isFoundingRider: false,
+        role: 'FREE',
+      });
+
+      const ctx = createMockContext('user-123');
+      await resolver({}, { bikeId: 'bike-1' }, ctx as never);
+
+      // Service query's component filter must restrict to unlocked types.
+      const serviceWhere = mockServiceLogFindMany.mock.calls[0][0].where;
+      expect(serviceWhere.component.bikeId).toBe('bike-1');
+      expect(serviceWhere.component.type.in).toEqual(
+        expect.arrayContaining(['FORK', 'SHOCK', 'BRAKE_PAD', 'PIVOT_BEARINGS'])
+      );
+
+      // Install query must scope the same filter onto its joined component.
+      const installWhere = mockInstallFindMany.mock.calls[0][0].where;
+      expect(installWhere.component.type.in).toEqual(
+        expect.arrayContaining(['FORK', 'SHOCK', 'BRAKE_PAD', 'PIVOT_BEARINGS'])
+      );
+    });
+
+    it('does not apply a component type filter for Pro users', async () => {
+      mockBikeFindFirst.mockResolvedValueOnce({ id: 'bike-1', userId: 'user-123' });
+      // Default PRO mock from beforeEach applies.
+
+      const ctx = createMockContext('user-123');
+      await resolver({}, { bikeId: 'bike-1' }, ctx as never);
+
+      const serviceWhere = mockServiceLogFindMany.mock.calls[0][0].where;
+      expect(serviceWhere.component).toEqual({ bikeId: 'bike-1' });
+      const installWhere = mockInstallFindMany.mock.calls[0][0].where;
+      expect(installWhere.component).toBeUndefined();
+    });
+
+    it('marks truncated=true when the ride cap is hit', async () => {
+      mockBikeFindFirst.mockResolvedValueOnce({ id: 'bike-1', userId: 'user-123' });
+      const lotsOfRides = Array.from({ length: 2000 }, (_, i) => ({
+        id: `r${i}`,
+        distanceMeters: 1000,
+        durationSeconds: 600,
+        elevationGainMeters: 50,
+      }));
+      mockRideFindMany.mockResolvedValueOnce(lotsOfRides);
+
+      const ctx = createMockContext('user-123');
+      const result = await resolver({}, { bikeId: 'bike-1' }, ctx as never);
+
+      expect(result.truncated).toBe(true);
     });
   });
 });

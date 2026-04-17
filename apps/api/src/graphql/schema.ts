@@ -947,6 +947,44 @@ export const typeDefs = gql`
     bikeId: ID
   }
 
+  enum ComponentInstallEventType {
+    INSTALLED
+    REMOVED
+  }
+
+  type ServiceEvent {
+    id: ID!
+    performedAt: String!
+    notes: String
+    hoursAtService: Float!
+    component: Component!
+  }
+
+  type ComponentInstallEvent {
+    id: ID!
+    eventType: ComponentInstallEventType!
+    occurredAt: String!
+    component: Component!
+  }
+
+  type BikeHistoryTotals {
+    rideCount: Int!
+    totalDistanceMeters: Float!
+    totalDurationSeconds: Int!
+    totalElevationGainMeters: Float!
+    serviceEventCount: Int!
+    installEventCount: Int!
+  }
+
+  type BikeHistoryPayload {
+    bike: Bike!
+    rides: [Ride!]!
+    serviceEvents: [ServiceEvent!]!
+    installs: [ComponentInstallEvent!]!
+    totals: BikeHistoryTotals!
+    truncated: Boolean!
+  }
+
   type Query {
     me: User
     user(id: ID!): User
@@ -962,5 +1000,6 @@ export const typeDefs = gql`
     servicePreferenceDefaults: [ServicePreferenceDefault!]!
     bikeNotes(bikeId: ID!, take: Int = 20, after: ID): BikeNotesPage!
     referralStats: ReferralStats!
+    bikeHistory(bikeId: ID!, startDate: String, endDate: String): BikeHistoryPayload!
   }
 `;

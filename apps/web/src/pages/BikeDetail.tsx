@@ -378,6 +378,14 @@ export default function BikeDetail() {
               <Wrench size={12} className="icon-left" />
               Log Service
             </Button>
+            {bikeId && (
+              <Link
+                to={`/gear/${bikeId}/history`}
+                className="text-xs text-mint hover:underline mt-1"
+              >
+                View full history →
+              </Link>
+            )}
           </div>
         </div>
 

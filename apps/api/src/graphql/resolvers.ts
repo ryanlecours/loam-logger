@@ -1271,6 +1271,147 @@ export const resolvers = {
       const userId = requireUserId(ctx);
       return getReferralStats(userId);
     },
+
+    bikeHistory: async (
+      _: unknown,
+      { bikeId, startDate, endDate }: { bikeId: string; startDate?: string | null; endDate?: string | null },
+      ctx: GraphQLContext
+    ) => {
+      const userId = requireUserId(ctx);
+
+      const [bike, tierUser] = await Promise.all([
+        prisma.bike.findFirst({ where: { id: bikeId, userId } }),
+        prisma.user.findUniqueOrThrow({
+          where: { id: userId },
+          select: { subscriptionTier: true, isFoundingRider: true, role: true },
+        }),
+      ]);
+      if (!bike) {
+        throw new GraphQLError('Bike not found', { extensions: { code: 'NOT_FOUND' } });
+      }
+
+      // Tier gate: a Free Light user only sees component events whose type is
+      // unlocked for their tier — mirrors the BikeDetail gating so the PDF they
+      // hand a buyer can't accidentally surface data the app hides elsewhere.
+      const allowedTypes = getAllowedComponentTypes(tierUser);
+      const componentTypeFilter: Prisma.ComponentWhereInput | undefined =
+        allowedTypes === 'ALL' ? undefined : { type: { in: allowedTypes } };
+
+      const gte = startDate ? new Date(startDate) : undefined;
+      const lte = endDate ? new Date(endDate) : undefined;
+      const dateRange = gte || lte ? { ...(gte ? { gte } : {}), ...(lte ? { lte } : {}) } : undefined;
+
+      const RIDE_CAP = 2000;
+      const SERVICE_CAP = 1000;
+      const INSTALL_CAP = 1000;
+
+      const [rides, serviceLogs, installs] = await Promise.all([
+        prisma.ride.findMany({
+          where: {
+            userId,
+            bikeId,
+            ...(dateRange ? { startTime: dateRange } : {}),
+          },
+          orderBy: { startTime: 'desc' },
+          take: RIDE_CAP,
+        }),
+        prisma.serviceLog.findMany({
+          where: {
+            component: { bikeId, ...(componentTypeFilter ?? {}) },
+            ...(dateRange ? { performedAt: dateRange } : {}),
+          },
+          include: { component: true },
+          orderBy: { performedAt: 'desc' },
+          take: SERVICE_CAP,
+        }),
+        prisma.bikeComponentInstall.findMany({
+          where: {
+            bikeId,
+            ...(componentTypeFilter ? { component: componentTypeFilter } : {}),
+            ...(dateRange
+              ? {
+                  OR: [
+                    { installedAt: dateRange },
+                    { removedAt: dateRange },
+                  ],
+                }
+              : {}),
+          },
+          include: { component: true },
+          orderBy: { installedAt: 'desc' },
+          take: INSTALL_CAP,
+        }),
+      ]);
+
+      const serviceEvents = serviceLogs.map((log) => ({
+        id: log.id,
+        performedAt: log.performedAt.toISOString(),
+        notes: log.notes,
+        hoursAtService: log.hoursAtService,
+        component: log.component,
+      }));
+
+      const installEvents: Array<{
+        id: string;
+        eventType: 'INSTALLED' | 'REMOVED';
+        occurredAt: string;
+        component: unknown;
+      }> = [];
+      for (const i of installs) {
+        const installedInRange =
+          !dateRange ||
+          ((!gte || i.installedAt >= gte) && (!lte || i.installedAt <= lte));
+        if (installedInRange) {
+          installEvents.push({
+            id: `${i.id}:installed`,
+            eventType: 'INSTALLED',
+            occurredAt: i.installedAt.toISOString(),
+            component: i.component,
+          });
+        }
+        if (i.removedAt) {
+          const removedInRange =
+            !dateRange ||
+            ((!gte || i.removedAt >= gte) && (!lte || i.removedAt <= lte));
+          if (removedInRange) {
+            installEvents.push({
+              id: `${i.id}:removed`,
+              eventType: 'REMOVED',
+              occurredAt: i.removedAt.toISOString(),
+              component: i.component,
+            });
+          }
+        }
+      }
+
+      let totalDistanceMeters = 0;
+      let totalDurationSeconds = 0;
+      let totalElevationGainMeters = 0;
+      for (const r of rides) {
+        totalDistanceMeters += r.distanceMeters;
+        totalDurationSeconds += r.durationSeconds;
+        totalElevationGainMeters += r.elevationGainMeters;
+      }
+
+      return {
+        bike,
+        rides,
+        serviceEvents,
+        installs: installEvents,
+        totals: {
+          rideCount: rides.length,
+          totalDistanceMeters,
+          totalDurationSeconds,
+          totalElevationGainMeters,
+          serviceEventCount: serviceEvents.length,
+          installEventCount: installEvents.length,
+        },
+        truncated:
+          rides.length >= RIDE_CAP ||
+          serviceLogs.length >= SERVICE_CAP ||
+          installs.length >= INSTALL_CAP,
+      };
+    },
   },
   Mutation: {
     addRide: async (_p: unknown, { input }: { input: AddRideInput }, ctx: GraphQLContext) => {
