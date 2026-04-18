@@ -121,6 +121,9 @@ export interface BikeFormValues {
   batteryWh?: number | null;
   // Acquisition condition for baseline tracking
   acquisitionCondition?: 'NEW' | 'USED' | 'MIXED' | null;
+  // ISO date string — when the user acquired the bike. Drives installedAt
+  // for every auto-created stock component + BikeComponentInstall row.
+  acquisitionDate?: string | null;
   // 99spokes components for auto-creation
   spokesComponents?: SpokesComponentsData | null;
   components: Record<BikeComponentKey, GearComponentState>;

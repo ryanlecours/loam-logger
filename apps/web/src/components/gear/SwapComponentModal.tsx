@@ -51,6 +51,7 @@ export function SwapComponentModal({
 }: SwapComponentModalProps) {
   const [swappingTargetId, setSwappingTargetId] = useState<string | null>(null);
   const [noteText, setNoteText] = useState('');
+  const [installedAt, setInstalledAt] = useState(() => new Date().toISOString().slice(0, 10));
   const [error, setError] = useState<string | null>(null);
 
   const [swapComponents] = useMutation(SWAP_COMPONENTS, {
@@ -97,6 +98,7 @@ export function SwapComponentModal({
             bikeIdB: targetBike.id,
             slotKeyB,
             noteText: trimmedNoteText,
+            installedAt: installedAt ? new Date(installedAt).toISOString() : undefined,
           },
         },
       });
@@ -123,6 +125,24 @@ export function SwapComponentModal({
         <p className="text-sm text-amber-300">
           Compatibility is not validated. Ensure both components fit their destination bikes.
         </p>
+      </div>
+
+      {/* Swap date */}
+      <div className="mb-4 flex flex-col gap-1">
+        <label
+          htmlFor="swap-installed-at"
+          className="text-xs font-medium text-muted"
+        >
+          Swap date
+        </label>
+        <input
+          id="swap-installed-at"
+          type="date"
+          value={installedAt}
+          max={new Date().toISOString().slice(0, 10)}
+          onChange={(e) => setInstalledAt(e.target.value)}
+          className="rounded-md border border-app bg-surface px-3 py-2 text-sm text-app focus:border-forest focus:outline-none focus:ring-1 focus:ring-forest"
+        />
       </div>
 
       {/* Note textarea */}

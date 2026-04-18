@@ -28,6 +28,7 @@ jest.mock('../../lib/prisma', () => ({
       findMany: jest.fn(),
       updateMany: jest.fn(),
       count: jest.fn().mockResolvedValue(0),
+      aggregate: jest.fn(),
     },
     rideWeather: {
       groupBy: jest.fn().mockResolvedValue([]),
@@ -38,6 +39,10 @@ jest.mock('../../lib/prisma', () => ({
     serviceLog: {
       create: jest.fn(),
       findMany: jest.fn().mockResolvedValue([]),
+      findUnique: jest.fn(),
+      findFirst: jest.fn(),
+      update: jest.fn(),
+      delete: jest.fn(),
     },
     termsAcceptance: {
       findUnique: jest.fn(),
@@ -57,10 +62,13 @@ jest.mock('../../lib/prisma', () => ({
       upsert: jest.fn(),
     },
     bikeComponentInstall: {
+      findUnique: jest.fn(),
       findFirst: jest.fn(),
       findMany: jest.fn().mockResolvedValue([]),
       create: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+      delete: jest.fn(),
     },
     $transaction: jest.fn(),
   },
@@ -1086,6 +1094,10 @@ describe('GraphQL Resolvers', () => {
             serviceLog: {
               create: jest.fn().mockResolvedValue({ id: 'log-1' }),
             },
+            bikeComponentInstall: {
+              updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+              create: jest.fn().mockResolvedValue({ id: 'install-1' }),
+            },
           };
           return fn(mockTx);
         }
@@ -1151,6 +1163,10 @@ describe('GraphQL Resolvers', () => {
             },
             serviceLog: {
               create: jest.fn().mockResolvedValue({ id: 'log-1' }),
+            },
+            bikeComponentInstall: {
+              updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+              create: jest.fn().mockResolvedValue({ id: 'install-1' }),
             },
           };
           return fn(mockTx);
@@ -2782,6 +2798,386 @@ describe('GraphQL Resolvers', () => {
       await mutation(null, { id: 'comp-1' }, ctx);
 
       expect(clearServiceNotificationLogs).toHaveBeenCalledWith('comp-1', 'user-123');
+    });
+  });
+
+  describe('Mutation.updateServiceLog', () => {
+    const mutation = resolvers.Mutation.updateServiceLog;
+    const mockLogFindUnique = mockPrisma.serviceLog.findUnique as jest.Mock;
+    const mockLogFindFirst = mockPrisma.serviceLog.findFirst as jest.Mock;
+    const mockLogUpdate = mockPrisma.serviceLog.update as jest.Mock;
+    const mockComponentFindUnique = mockPrisma.component.findUnique as jest.Mock;
+    const mockComponentUpdate = mockPrisma.component.update as jest.Mock;
+    const mockRideAggregate = mockPrisma.ride.aggregate as jest.Mock;
+    const mockTransaction = mockPrisma.$transaction as jest.Mock;
+
+    // Build a tx client that mirrors the module-level prisma mock so the
+    // resolver's inner transaction calls hit the same jest functions we
+    // assert against.
+    const setTransactionPassthrough = () => {
+      mockTransaction.mockImplementation(async (fn: (tx: unknown) => unknown) => {
+        const tx = {
+          serviceLog: {
+            findFirst: mockLogFindFirst,
+            update: mockLogUpdate,
+            delete: mockPrisma.serviceLog.delete,
+          },
+          component: {
+            findUnique: mockComponentFindUnique,
+            update: mockComponentUpdate,
+          },
+          ride: { aggregate: mockRideAggregate },
+        };
+        return fn(tx);
+      });
+    };
+
+    beforeEach(() => {
+      mockLogFindUnique.mockReset();
+      mockLogFindFirst.mockReset();
+      mockLogUpdate.mockReset().mockResolvedValue({ id: 'log-1' });
+      mockComponentFindUnique.mockReset();
+      mockComponentUpdate.mockReset().mockResolvedValue({ id: 'comp-1' });
+      mockRideAggregate.mockReset().mockResolvedValue({ _sum: { durationSeconds: 0 } });
+      mockTransaction.mockReset();
+      setTransactionPassthrough();
+    });
+
+    it('rejects when the log component belongs to a different user', async () => {
+      mockLogFindUnique.mockResolvedValueOnce({
+        id: 'log-1',
+        component: { id: 'comp-1', userId: 'other-user', bikeId: 'bike-1' },
+      });
+      const ctx = createMockContext('user-123');
+      await expect(
+        mutation({}, { id: 'log-1', input: { notes: 'hi' } }, ctx as never)
+      ).rejects.toThrow('Service log not found');
+      expect(mockLogUpdate).not.toHaveBeenCalled();
+    });
+
+    it('does not touch component anchor when editing a non-latest log', async () => {
+      mockLogFindUnique.mockResolvedValueOnce({
+        id: 'log-old',
+        component: { id: 'comp-1', userId: 'user-123', bikeId: 'bike-1' },
+      });
+      // Latest is a different log
+      mockLogFindFirst.mockResolvedValueOnce({ id: 'log-newer', performedAt: new Date('2026-04-01') });
+
+      const ctx = createMockContext('user-123');
+      await mutation(
+        {},
+        { id: 'log-old', input: { notes: 'typo fixed' } },
+        ctx as never
+      );
+
+      expect(mockLogUpdate).toHaveBeenCalledWith({
+        where: { id: 'log-old' },
+        data: { notes: 'typo fixed' },
+      });
+      // Non-latest + no date change → recompute helper should NOT run
+      expect(mockComponentUpdate).not.toHaveBeenCalled();
+      expect(mockRideAggregate).not.toHaveBeenCalled();
+    });
+
+    it('recomputes anchor + hoursUsed when editing the latest log date', async () => {
+      mockLogFindUnique.mockResolvedValueOnce({
+        id: 'log-latest',
+        component: { id: 'comp-1', userId: 'user-123', bikeId: 'bike-1' },
+      });
+      // This log IS the latest
+      mockLogFindFirst
+        .mockResolvedValueOnce({ id: 'log-latest', performedAt: new Date('2026-03-01') })
+        // Second call: recompute helper asks for the newest remaining log
+        .mockResolvedValueOnce({ performedAt: new Date('2026-04-15') });
+      mockComponentFindUnique.mockResolvedValueOnce({ id: 'comp-1', bikeId: 'bike-1' });
+      mockRideAggregate.mockResolvedValueOnce({ _sum: { durationSeconds: 7200 } }); // 2 hours
+
+      const ctx = createMockContext('user-123');
+      await mutation(
+        {},
+        { id: 'log-latest', input: { performedAt: '2026-04-15T00:00:00.000Z' } },
+        ctx as never
+      );
+
+      expect(mockRideAggregate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            bikeId: 'bike-1',
+            startTime: { gte: new Date('2026-04-15') },
+          }),
+        })
+      );
+      expect(mockComponentUpdate).toHaveBeenCalledWith({
+        where: { id: 'comp-1' },
+        data: { lastServicedAt: new Date('2026-04-15'), hoursUsed: 2 },
+      });
+    });
+
+    it('invalidates prediction cache before and after the transaction', async () => {
+      mockLogFindUnique.mockResolvedValueOnce({
+        id: 'log-1',
+        component: { id: 'comp-1', userId: 'user-123', bikeId: 'bike-7' },
+      });
+      mockLogFindFirst.mockResolvedValue({ id: 'log-other', performedAt: new Date() });
+      const ctx = createMockContext('user-123');
+
+      await mutation({}, { id: 'log-1', input: { notes: 'x' } }, ctx as never);
+
+      const calls = (invalidateBikePrediction as jest.Mock).mock.calls.filter(
+        (c) => c[1] === 'bike-7'
+      );
+      expect(calls.length).toBeGreaterThanOrEqual(2);
+    });
+  });
+
+  describe('Mutation.deleteServiceLog', () => {
+    const mutation = resolvers.Mutation.deleteServiceLog;
+    const mockLogFindUnique = mockPrisma.serviceLog.findUnique as jest.Mock;
+    const mockLogFindFirst = mockPrisma.serviceLog.findFirst as jest.Mock;
+    const mockLogDelete = mockPrisma.serviceLog.delete as jest.Mock;
+    const mockComponentFindUnique = mockPrisma.component.findUnique as jest.Mock;
+    const mockComponentUpdate = mockPrisma.component.update as jest.Mock;
+    const mockRideAggregate = mockPrisma.ride.aggregate as jest.Mock;
+    const mockTransaction = mockPrisma.$transaction as jest.Mock;
+
+    const setTransactionPassthrough = () => {
+      mockTransaction.mockImplementation(async (fn: (tx: unknown) => unknown) => {
+        const tx = {
+          serviceLog: {
+            findFirst: mockLogFindFirst,
+            update: mockPrisma.serviceLog.update,
+            delete: mockLogDelete,
+          },
+          component: {
+            findUnique: mockComponentFindUnique,
+            update: mockComponentUpdate,
+          },
+          ride: { aggregate: mockRideAggregate },
+        };
+        return fn(tx);
+      });
+    };
+
+    beforeEach(() => {
+      mockLogFindUnique.mockReset();
+      mockLogFindFirst.mockReset();
+      mockLogDelete.mockReset().mockResolvedValue({ id: 'log-1' });
+      mockComponentFindUnique.mockReset();
+      mockComponentUpdate.mockReset().mockResolvedValue({ id: 'comp-1' });
+      mockRideAggregate.mockReset().mockResolvedValue({ _sum: { durationSeconds: 0 } });
+      mockTransaction.mockReset();
+      setTransactionPassthrough();
+    });
+
+    it('rejects when the log is not owned by the viewer', async () => {
+      mockLogFindUnique.mockResolvedValueOnce({
+        id: 'log-1',
+        component: { id: 'comp-1', userId: 'other-user', bikeId: 'bike-1' },
+      });
+      const ctx = createMockContext('user-123');
+
+      await expect(
+        mutation({}, { id: 'log-1' }, ctx as never)
+      ).rejects.toThrow('Service log not found');
+      expect(mockLogDelete).not.toHaveBeenCalled();
+    });
+
+    it('leaves the anchor alone when deleting a non-latest log', async () => {
+      mockLogFindUnique.mockResolvedValueOnce({
+        id: 'log-old',
+        component: { id: 'comp-1', userId: 'user-123', bikeId: 'bike-1' },
+      });
+      mockLogFindFirst.mockResolvedValueOnce({ id: 'log-newer' });
+
+      const ctx = createMockContext('user-123');
+      await mutation({}, { id: 'log-old' }, ctx as never);
+
+      expect(mockLogDelete).toHaveBeenCalledWith({ where: { id: 'log-old' } });
+      expect(mockComponentUpdate).not.toHaveBeenCalled();
+      expect(mockRideAggregate).not.toHaveBeenCalled();
+    });
+
+    it('rolls anchor back to the prior log when deleting the latest', async () => {
+      mockLogFindUnique.mockResolvedValueOnce({
+        id: 'log-latest',
+        component: { id: 'comp-1', userId: 'user-123', bikeId: 'bike-1' },
+      });
+      mockLogFindFirst
+        .mockResolvedValueOnce({ id: 'log-latest' }) // was latest
+        .mockResolvedValueOnce({ performedAt: new Date('2026-01-01') }); // prior log after delete
+      mockComponentFindUnique.mockResolvedValueOnce({ id: 'comp-1', bikeId: 'bike-1' });
+      mockRideAggregate.mockResolvedValueOnce({ _sum: { durationSeconds: 18000 } }); // 5 hours
+
+      const ctx = createMockContext('user-123');
+      await mutation({}, { id: 'log-latest' }, ctx as never);
+
+      expect(mockComponentUpdate).toHaveBeenCalledWith({
+        where: { id: 'comp-1' },
+        data: { lastServicedAt: new Date('2026-01-01'), hoursUsed: 5 },
+      });
+    });
+
+    it('sets anchor to null when the last remaining log is deleted', async () => {
+      mockLogFindUnique.mockResolvedValueOnce({
+        id: 'log-last',
+        component: { id: 'comp-1', userId: 'user-123', bikeId: 'bike-1' },
+      });
+      mockLogFindFirst
+        .mockResolvedValueOnce({ id: 'log-last' })
+        .mockResolvedValueOnce(null); // no remaining logs
+      mockComponentFindUnique.mockResolvedValueOnce({ id: 'comp-1', bikeId: 'bike-1' });
+      mockRideAggregate.mockResolvedValueOnce({ _sum: { durationSeconds: 360000 } }); // 100 hours
+
+      const ctx = createMockContext('user-123');
+      await mutation({}, { id: 'log-last' }, ctx as never);
+
+      expect(mockRideAggregate).toHaveBeenCalledWith({
+        where: { bikeId: 'bike-1' },
+        _sum: { durationSeconds: true },
+      });
+      expect(mockComponentUpdate).toHaveBeenCalledWith({
+        where: { id: 'comp-1' },
+        data: { lastServicedAt: null, hoursUsed: 100 },
+      });
+    });
+
+    it('clears notification dedup so overdue alerts can re-trigger', async () => {
+      mockLogFindUnique.mockResolvedValueOnce({
+        id: 'log-1',
+        component: { id: 'comp-1', userId: 'user-123', bikeId: 'bike-1' },
+      });
+      mockLogFindFirst.mockResolvedValueOnce({ id: 'log-other' });
+      const { clearServiceNotificationLogs } = jest.requireMock<typeof import('../../services/notification.service')>('../../services/notification.service');
+      (clearServiceNotificationLogs as jest.Mock).mockClear();
+
+      const ctx = createMockContext('user-123');
+      await mutation({}, { id: 'log-1' }, ctx as never);
+
+      expect(clearServiceNotificationLogs).toHaveBeenCalledWith('comp-1', 'user-123');
+    });
+  });
+
+  describe('Mutation.updateBikeComponentInstall', () => {
+    const mutation = resolvers.Mutation.updateBikeComponentInstall;
+    const mockFindUnique = mockPrisma.bikeComponentInstall.findUnique as jest.Mock;
+    const mockUpdate = mockPrisma.bikeComponentInstall.update as jest.Mock;
+
+    beforeEach(() => {
+      mockFindUnique.mockReset();
+      mockUpdate.mockReset().mockResolvedValue({ id: 'install-1' });
+    });
+
+    it('rejects when the install belongs to a different user', async () => {
+      mockFindUnique.mockResolvedValueOnce({
+        id: 'install-1',
+        userId: 'other-user',
+        bikeId: 'bike-1',
+      });
+      const ctx = createMockContext('user-123');
+      await expect(
+        mutation({}, { id: 'install-1', input: { installedAt: '2026-01-01T00:00:00Z' } }, ctx as never)
+      ).rejects.toThrow('Install record not found');
+      expect(mockUpdate).not.toHaveBeenCalled();
+    });
+
+    it('rejects future install dates', async () => {
+      mockFindUnique.mockResolvedValueOnce({
+        id: 'install-1',
+        userId: 'user-123',
+        bikeId: 'bike-1',
+      });
+      const future = new Date(Date.now() + 1000 * 60 * 60 * 24).toISOString();
+      const ctx = createMockContext('user-123');
+      await expect(
+        mutation({}, { id: 'install-1', input: { installedAt: future } }, ctx as never)
+      ).rejects.toThrow('Install date cannot be in the future');
+      expect(mockUpdate).not.toHaveBeenCalled();
+    });
+
+    it('updates installedAt and invalidates prediction cache before and after', async () => {
+      mockFindUnique.mockResolvedValueOnce({
+        id: 'install-1',
+        userId: 'user-123',
+        bikeId: 'bike-7',
+      });
+      const ctx = createMockContext('user-123');
+
+      await mutation(
+        {},
+        { id: 'install-1', input: { installedAt: '2025-06-01T00:00:00Z' } },
+        ctx as never
+      );
+
+      expect(mockUpdate).toHaveBeenCalledWith({
+        where: { id: 'install-1' },
+        data: { installedAt: new Date('2025-06-01T00:00:00Z') },
+      });
+      const calls = (invalidateBikePrediction as jest.Mock).mock.calls.filter(
+        (c) => c[1] === 'bike-7'
+      );
+      expect(calls.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it('supports clearing removedAt with null', async () => {
+      mockFindUnique.mockResolvedValueOnce({
+        id: 'install-1',
+        userId: 'user-123',
+        bikeId: 'bike-1',
+      });
+      const ctx = createMockContext('user-123');
+
+      await mutation(
+        {},
+        { id: 'install-1', input: { removedAt: null } },
+        ctx as never
+      );
+
+      expect(mockUpdate).toHaveBeenCalledWith({
+        where: { id: 'install-1' },
+        data: { removedAt: null },
+      });
+    });
+  });
+
+  describe('Mutation.deleteBikeComponentInstall', () => {
+    const mutation = resolvers.Mutation.deleteBikeComponentInstall;
+    const mockFindUnique = mockPrisma.bikeComponentInstall.findUnique as jest.Mock;
+    const mockDelete = mockPrisma.bikeComponentInstall.delete as jest.Mock;
+
+    beforeEach(() => {
+      mockFindUnique.mockReset();
+      mockDelete.mockReset().mockResolvedValue({ id: 'install-1' });
+    });
+
+    it('rejects when the install is not owned by the viewer', async () => {
+      mockFindUnique.mockResolvedValueOnce({
+        id: 'install-1',
+        userId: 'other-user',
+        bikeId: 'bike-1',
+      });
+      const ctx = createMockContext('user-123');
+      await expect(
+        mutation({}, { id: 'install-1' }, ctx as never)
+      ).rejects.toThrow('Install record not found');
+      expect(mockDelete).not.toHaveBeenCalled();
+    });
+
+    it('deletes the row and invalidates prediction cache', async () => {
+      mockFindUnique.mockResolvedValueOnce({
+        id: 'install-1',
+        userId: 'user-123',
+        bikeId: 'bike-9',
+      });
+      const ctx = createMockContext('user-123');
+
+      const result = await mutation({}, { id: 'install-1' }, ctx as never);
+
+      expect(mockDelete).toHaveBeenCalledWith({ where: { id: 'install-1' } });
+      expect(result).toBe(true);
+      const calls = (invalidateBikePrediction as jest.Mock).mock.calls.filter(
+        (c) => c[1] === 'bike-9'
+      );
+      expect(calls.length).toBeGreaterThanOrEqual(2);
     });
   });
 

@@ -326,6 +326,7 @@ export const typeDefs = gql`
     motorTorqueNm: Int
     batteryWh: Int
     acquisitionCondition: AcquisitionCondition
+    acquisitionDate: String
     status: BikeStatus!
     retiredAt: String
     fork: Component
@@ -452,6 +453,7 @@ export const typeDefs = gql`
     motorTorqueNm: Int
     batteryWh: Int
     acquisitionCondition: AcquisitionCondition
+    acquisitionDate: String
     spokesComponents: SpokesComponentsInput
     fork: BikeComponentInput
     shock: BikeComponentInput
@@ -487,6 +489,7 @@ export const typeDefs = gql`
     motorPowerW: Int
     motorTorqueNm: Int
     batteryWh: Int
+    acquisitionDate: String
     spokesComponents: SpokesComponentsInput
     fork: BikeComponentInput
     shock: BikeComponentInput
@@ -504,6 +507,7 @@ export const typeDefs = gql`
     isStock: Boolean
     hoursUsed: Float
     serviceDueAtHours: Float
+    installedAt: String
   }
 
   input UpdateComponentInput {
@@ -526,6 +530,17 @@ export const typeDefs = gql`
     componentId: ID!
     notes: String
     performedAt: String
+  }
+
+  input UpdateServiceLogInput {
+    performedAt: String
+    notes: String
+    hoursAtService: Float
+  }
+
+  input UpdateBikeComponentInstallInput {
+    installedAt: String
+    removedAt: String
   }
 
   input ComponentBaselineInput {
@@ -704,6 +719,7 @@ export const typeDefs = gql`
     alsoReplacePair: Boolean
     pairBrand: String
     pairModel: String
+    installedAt: String
   }
 
   type ReplaceComponentResult {
@@ -734,6 +750,7 @@ export const typeDefs = gql`
     pairNewComponent: NewComponentInput
     # Optional note text for creating a SWAP note with before/after snapshots
     noteText: String
+    installedAt: String
   }
 
   type InstallComponentResult {
@@ -749,6 +766,7 @@ export const typeDefs = gql`
     slotKeyB: String!
     # Optional note text for creating SWAP notes with before/after snapshots
     noteText: String
+    installedAt: String
   }
 
   type SwapComponentsResult {
@@ -848,6 +866,8 @@ export const typeDefs = gql`
     deleteComponent(id: ID!): DeleteResult!
     logComponentService(id: ID!, performedAt: String): Component!
     logService(input: LogServiceInput!): ServiceLog!
+    updateServiceLog(id: ID!, input: UpdateServiceLogInput!): ServiceLog!
+    deleteServiceLog(id: ID!): Boolean!
     snoozeComponent(id: ID!, hours: Float): Component!
     createStravaGearMapping(input: CreateStravaGearMappingInput!): StravaGearMapping!
     deleteStravaGearMapping(id: ID!): DeleteResult!
@@ -871,6 +891,8 @@ export const typeDefs = gql`
     updateBikeNotificationPreference(input: UpdateBikeNotificationPreferenceInput!): BikeNotificationPreference!
     addBikeNote(input: AddBikeNoteInput!): BikeNote!
     deleteBikeNote(id: ID!): DeleteResult!
+    updateBikeComponentInstall(id: ID!, input: UpdateBikeComponentInstallInput!): BikeComponentInstall!
+    deleteBikeComponentInstall(id: ID!): Boolean!
     createCheckoutSession(plan: StripePlan!, platform: CheckoutPlatform): CheckoutSessionResult!
     createBillingPortalSession(platform: CheckoutPlatform): BillingPortalResult!
     selectBikeForDowngrade(bikeId: ID!): Bike!

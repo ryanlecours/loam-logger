@@ -32,6 +32,14 @@ export const MUTATION_RATE_LIMITS = {
   logService: { windowSeconds: 60, maxRequests: 20 },
   /** logComponentService (reset hours): max 20 requests per minute per user */
   logComponentService: { windowSeconds: 60, maxRequests: 20 },
+  /** updateServiceLog: max 30 requests per minute per user */
+  updateServiceLog: { windowSeconds: 60, maxRequests: 30 },
+  /** deleteServiceLog: max 30 requests per minute per user */
+  deleteServiceLog: { windowSeconds: 60, maxRequests: 30 },
+  /** updateBikeComponentInstall: max 30 requests per minute per user */
+  updateBikeComponentInstall: { windowSeconds: 60, maxRequests: 30 },
+  /** deleteBikeComponentInstall: max 30 requests per minute per user */
+  deleteBikeComponentInstall: { windowSeconds: 60, maxRequests: 30 },
   /** logBulkComponentService (calibration): max 20 requests per minute per user */
   logBulkComponentService: { windowSeconds: 60, maxRequests: 20 },
   /** updateComponent: max 30 requests per minute per user */

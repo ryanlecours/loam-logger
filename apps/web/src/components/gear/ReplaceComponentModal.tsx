@@ -58,6 +58,7 @@ export function ReplaceComponentModal({
   const [newBrand, setNewBrand] = useState('');
   const [newModel, setNewModel] = useState('');
   const [noteText, setNoteText] = useState('');
+  const [installedAt, setInstalledAt] = useState(() => new Date().toISOString().slice(0, 10));
   const [error, setError] = useState<string | null>(null);
 
   // ---- derived ------------------------------------------------------------
@@ -87,6 +88,7 @@ export function ReplaceComponentModal({
       setNewBrand('');
       setNewModel('');
       setNoteText('');
+      setInstalledAt(new Date().toISOString().slice(0, 10));
       setError(null);
     }
   }, [isOpen, matchingSpares.length]);
@@ -103,6 +105,7 @@ export function ReplaceComponentModal({
 
     try {
       const trimmedNoteText = noteText.trim() || null;
+      const installedAtIso = installedAt ? new Date(installedAt).toISOString() : undefined;
 
       if (activeTab === 'spare') {
         await installComponent({
@@ -112,6 +115,7 @@ export function ReplaceComponentModal({
               slotKey,
               existingComponentId: selectedSpareId,
               noteText: trimmedNoteText,
+              installedAt: installedAtIso,
             },
           },
         });
@@ -126,6 +130,7 @@ export function ReplaceComponentModal({
                 model: newModel.trim(),
               },
               noteText: trimmedNoteText,
+              installedAt: installedAtIso,
             },
           },
         });
@@ -145,6 +150,7 @@ export function ReplaceComponentModal({
     bikeId,
     canConfirm,
     installComponent,
+    installedAt,
     newBrand,
     newModel,
     noteText,
@@ -313,6 +319,24 @@ export function ReplaceComponentModal({
             </div>
           </div>
         )}
+
+        {/* Install date */}
+        <div className="flex flex-col gap-1">
+          <label
+            htmlFor="replace-installed-at"
+            className="text-xs font-medium text-muted"
+          >
+            Installed on
+          </label>
+          <input
+            id="replace-installed-at"
+            type="date"
+            value={installedAt}
+            max={new Date().toISOString().slice(0, 10)}
+            onChange={(e) => setInstalledAt(e.target.value)}
+            className="rounded-md border border-app bg-surface px-3 py-2 text-sm text-app focus:border-forest focus:outline-none focus:ring-1 focus:ring-forest"
+          />
+        </div>
 
         {/* Note textarea */}
         <div className="flex flex-col gap-1">

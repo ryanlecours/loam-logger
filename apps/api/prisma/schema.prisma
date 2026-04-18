@@ -208,6 +208,7 @@ model Bike {
   motorTorqueNm      Int?
   thumbnailUrl         String?
   acquisitionCondition AcquisitionCondition?
+  acquisitionDate      DateTime?
   status               BikeStatus          @default(ACTIVE)
   retiredAt            DateTime?
   user                 User                @relation(fields: [userId], references: [id], onDelete: Cascade)

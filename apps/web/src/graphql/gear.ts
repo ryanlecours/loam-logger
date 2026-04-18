@@ -18,6 +18,12 @@ export const COMPONENT_FIELDS = gql`
     lastServicedAt
     location
     status
+    serviceLogs {
+      id
+      performedAt
+      notes
+      hoursAtService
+    }
   }
 `;
 
@@ -91,6 +97,7 @@ export const BIKE_FIELDS_LIGHT = gql`
     motorTorqueNm
     batteryWh
     acquisitionCondition
+    acquisitionDate
     status
     retiredAt
     components {
@@ -132,6 +139,7 @@ export const BIKE_FIELDS = gql`
     motorTorqueNm
     batteryWh
     acquisitionCondition
+    acquisitionDate
     status
     retiredAt
     components {

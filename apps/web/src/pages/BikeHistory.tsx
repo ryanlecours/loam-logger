@@ -5,6 +5,8 @@ import { ArrowLeft, Bike as BikeIcon, FileDown, MinusCircle, PlusCircle, Wrench 
 
 import { BIKE_HISTORY } from '@/graphql/bikeHistory';
 import { Button } from '@/components/ui/Button';
+import { EditServiceModal, type EditableServiceLog } from '@/components/dashboard/EditServiceModal';
+import { EditInstallModal, type EditableInstallEvent } from '@/components/dashboard/EditInstallModal';
 import { fmtDateTime, fmtDistance, fmtDuration, fmtElevation } from '@/lib/format';
 import { usePreferences } from '@/hooks/usePreferences';
 import { getComponentLabel } from '@/constants/componentLabels';
@@ -35,6 +37,14 @@ export default function BikeHistory() {
   const [timeframe, setTimeframe] = useState<Timeframe>('all');
   const [showRides, setShowRides] = useState(true);
   const [showService, setShowService] = useState(true);
+  const [editingService, setEditingService] = useState<{
+    log: EditableServiceLog;
+    componentLabel: string;
+  } | null>(null);
+  const [editingInstall, setEditingInstall] = useState<{
+    event: EditableInstallEvent;
+    componentLabel: string;
+  } | null>(null);
 
   const range = useMemo(() => computeTimeframeRange(timeframe), [timeframe]);
 
@@ -144,8 +154,37 @@ export default function BikeHistory() {
                     {items.map((item, idx) => (
                       <li key={`${item.kind}-${idx}`} className="py-2 border-b border-border last:border-b-0">
                         {item.kind === 'ride' && <RideRow ride={item.ride} distanceUnit={distanceUnit} />}
-                        {item.kind === 'service' && <ServiceRow service={item.service} />}
-                        {item.kind === 'install' && <InstallRow install={item.install} />}
+                        {item.kind === 'service' && (
+                          <ServiceRow
+                            service={item.service}
+                            onEdit={() =>
+                              setEditingService({
+                                log: {
+                                  id: item.service.id,
+                                  performedAt: item.service.performedAt,
+                                  notes: item.service.notes,
+                                  hoursAtService: item.service.hoursAtService,
+                                },
+                                componentLabel: componentDisplay(item.service.component),
+                              })
+                            }
+                          />
+                        )}
+                        {item.kind === 'install' && (
+                          <InstallRow
+                            install={item.install}
+                            onEdit={() =>
+                              setEditingInstall({
+                                event: {
+                                  id: item.install.id,
+                                  eventType: item.install.eventType,
+                                  occurredAt: item.install.occurredAt,
+                                },
+                                componentLabel: componentDisplay(item.install.component),
+                              })
+                            }
+                          />
+                        )}
                       </li>
                     ))}
                   </ul>
@@ -155,6 +194,20 @@ export default function BikeHistory() {
           )}
         </>
       )}
+
+      <EditServiceModal
+        log={editingService?.log ?? null}
+        componentLabel={editingService?.componentLabel ?? ''}
+        bikeId={bikeId}
+        onClose={() => setEditingService(null)}
+      />
+
+      <EditInstallModal
+        event={editingInstall?.event ?? null}
+        componentLabel={editingInstall?.componentLabel ?? ''}
+        bikeId={bikeId}
+        onClose={() => setEditingInstall(null)}
+      />
     </div>
   );
 }
@@ -195,9 +248,14 @@ function RideRow({ ride, distanceUnit }: { ride: HistoryRide; distanceUnit: 'mi'
   );
 }
 
-function ServiceRow({ service }: { service: HistoryServiceEvent }) {
+function ServiceRow({ service, onEdit }: { service: HistoryServiceEvent; onEdit?: () => void }) {
   return (
-    <div className="flex items-baseline justify-between gap-3">
+    <button
+      type="button"
+      onClick={onEdit}
+      className="w-full text-left flex items-baseline justify-between gap-3 hover:bg-surface-2/40 rounded px-1 -mx-1 py-0.5"
+      aria-label={`Edit service for ${componentDisplay(service.component)}`}
+    >
       <div className="min-w-0">
         <div className="text-sm font-medium truncate">
           Service · {componentDisplay(service.component)}
@@ -208,15 +266,20 @@ function ServiceRow({ service }: { service: HistoryServiceEvent }) {
         </div>
       </div>
       <Wrench size={14} className="text-muted shrink-0" />
-    </div>
+    </button>
   );
 }
 
-function InstallRow({ install }: { install: HistoryInstallEvent }) {
+function InstallRow({ install, onEdit }: { install: HistoryInstallEvent; onEdit?: () => void }) {
   const Icon = install.eventType === 'INSTALLED' ? PlusCircle : MinusCircle;
   const verb = install.eventType === 'INSTALLED' ? 'Installed' : 'Removed';
   return (
-    <div className="flex items-baseline justify-between gap-3">
+    <button
+      type="button"
+      onClick={onEdit}
+      className="w-full text-left flex items-baseline justify-between gap-3 hover:bg-surface-2/40 rounded px-1 -mx-1 py-0.5"
+      aria-label={`Edit ${verb.toLowerCase()} event for ${componentDisplay(install.component)}`}
+    >
       <div className="min-w-0">
         <div className="text-sm font-medium truncate">
           {verb} · {componentDisplay(install.component)}
@@ -224,6 +287,6 @@ function InstallRow({ install }: { install: HistoryInstallEvent }) {
         <div className="text-xs text-muted">{fmtDateTime(install.occurredAt)}</div>
       </div>
       <Icon size={14} className="text-muted shrink-0" />
-    </div>
+    </button>
   );
 }

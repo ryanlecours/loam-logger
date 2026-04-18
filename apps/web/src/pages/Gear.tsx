@@ -244,6 +244,8 @@ export default function Gear() {
       motorPowerW: form.motorPowerW || undefined,
       motorTorqueNm: form.motorTorqueNm || undefined,
       batteryWh: form.batteryWh || undefined,
+      acquisitionCondition: form.acquisitionCondition ?? undefined,
+      acquisitionDate: form.acquisitionDate ?? undefined,
       spokesComponents: form.spokesComponents || undefined,
       fork: componentInput(form.components.fork),
       shock: componentInput(form.components.shock),

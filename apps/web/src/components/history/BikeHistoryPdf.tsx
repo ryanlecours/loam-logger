@@ -31,6 +31,7 @@ const styles = StyleSheet.create({
   totalValue: { fontSize: 12, fontFamily: 'Helvetica-Bold', marginTop: 2, color: INK },
   yearHeader: { fontSize: 11, fontFamily: 'Helvetica-Bold', color: SAGE, marginTop: 10, marginBottom: 4, borderBottom: `1pt solid ${BORDER}`, paddingBottom: 3 },
   row: { flexDirection: 'row', paddingVertical: 4, borderBottom: `0.5pt solid ${BORDER}` },
+  rideRow: { paddingLeft: 24 },
   rowIcon: { width: 56, color: MUTED, fontSize: 8, fontFamily: 'Helvetica-Bold', letterSpacing: 0.5 },
   rowTitle: { flex: 1, fontSize: 10 },
   rowMeta: { color: MUTED, fontSize: 9 },
@@ -117,7 +118,7 @@ export function BikeHistoryPdf({ bike, totals, yearGroups, distanceUnit, timefra
                   const { ride } = item;
                   const title = ride.trailSystem || ride.location || `${ride.rideType} ride`;
                   return (
-                    <View key={`r-${idx}`} style={styles.row} wrap={false}>
+                    <View key={`r-${idx}`} style={[styles.row, styles.rideRow]} wrap={false}>
                       <Text style={styles.rowIcon}>RIDE</Text>
                       <View style={styles.rowTitle}>
                         <Text>{title}</Text>

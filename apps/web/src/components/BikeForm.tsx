@@ -156,6 +156,9 @@ export function BikeForm({
   const [form, setForm] = useState<BikeFormValues>(initial);
   const [showManualEntry, setShowManualEntry] = useState(false);
   const [spokesDetails, setSpokesDetails] = useState<SpokesBikeDetails | null>(null);
+  const [acquisitionDate, setAcquisitionDate] = useState<string>(
+    initial.acquisitionDate ? initial.acquisitionDate.slice(0, 10) : ''
+  );
   const [acquisitionCondition, setAcquisitionCondition] = useState<AcquisitionCondition | null>(
     initial.acquisitionCondition ?? (mode === 'create' ? 'NEW' : null)
   );
@@ -325,6 +328,7 @@ export function BikeForm({
     const finalForm: BikeFormValues = {
       ...form,
       acquisitionCondition: acquisitionCondition ?? 'NEW',
+      acquisitionDate: acquisitionDate ? new Date(acquisitionDate).toISOString() : null,
       spokesComponents: filterNonNullComponents(spokesComponents),
       // Default component state - backend will create actual components
       components: {
@@ -739,6 +743,8 @@ export function BikeForm({
       <WearStartStep
         selected={acquisitionCondition}
         onSelect={setAcquisitionCondition}
+        acquisitionDate={acquisitionDate}
+        onAcquisitionDateChange={setAcquisitionDate}
         onBack={handleBackToStep2}
         onSubmit={handleCreateSubmit}
         submitting={submitting}
