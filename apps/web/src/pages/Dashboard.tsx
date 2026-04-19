@@ -46,11 +46,7 @@ interface Ride {
   stravaActivityId?: string | null;
   garminActivityId?: string | null;
   whoopWorkoutId?: string | null;
-  weather?: {
-    id: string;
-    tempC: number;
-    condition: import('../models/Ride').WeatherCondition;
-  } | null;
+  weather?: import('../models/Ride').RideWeather | null;
 }
 
 const RECENT_COUNT = 20;
