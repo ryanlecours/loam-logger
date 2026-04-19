@@ -6,6 +6,7 @@ import { Button } from '../ui/Button';
 import { LOG_COMPONENT_SERVICE } from '../../graphql/logComponentService';
 import { BIKES } from '../../graphql/bikes';
 import { formatComponentLabel, getBikeName } from '../../utils/formatters';
+import { todayDateInput } from '../../lib/format';
 import { useUserTier } from '../../hooks/useUserTier';
 import { isFreeLightComponent } from '@loam/shared';
 import type { BikeWithPredictions } from '../../hooks/usePriorityBike';
@@ -26,7 +27,7 @@ export function LogServiceModal({
 }: LogServiceModalProps) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [serviceDate, setServiceDate] = useState(() =>
-    new Date().toISOString().split('T')[0]
+    todayDateInput()
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -41,7 +42,7 @@ export function LogServiceModal({
       // Set initial selection based on defaultComponentId
       const initialSelection = defaultComponentId ? new Set([defaultComponentId]) : new Set<string>();
       setSelectedIds(initialSelection);
-      setServiceDate(new Date().toISOString().split('T')[0]);
+      setServiceDate(todayDateInput());
       setError(null);
     }
   }, [isOpen, defaultComponentId]);
@@ -137,7 +138,7 @@ export function LogServiceModal({
             type="date"
             value={serviceDate}
             onChange={(e) => setServiceDate(e.target.value)}
-            max={new Date().toISOString().split('T')[0]}
+            max={todayDateInput()}
             className="log-service-date-input"
           />
         </div>

@@ -9,6 +9,8 @@ import { fmtDateTime, fmtDuration, fmtDistance, fmtElevation } from '../lib/form
 import { usePreferences } from '../hooks/usePreferences';
 import { Select } from './ui';
 import { getRideSource, SOURCE_LABELS } from '../utils/rideSource';
+import WeatherBadge from './WeatherBadge';
+import type { RideWeather } from '../models/Ride';
 
 type Ride = {
   id: string;
@@ -25,6 +27,7 @@ type Ride = {
   notes?: string | null;
   trailSystem?: string | null;
   location?: string | null;
+  weather?: RideWeather | null;
 };
 
 type Bike = {
@@ -111,6 +114,11 @@ export default function RideCard({ ride, bikes = [] }: RideCardProps) {
             <span className="meta-item">{fmtElevation(ride.elevationGainMeters)}</span>
             {typeof ride.averageHr === 'number' && (
               <span className="meta-item">{ride.averageHr} bpm</span>
+            )}
+            {ride.weather && (
+              <span className="meta-item">
+                <WeatherBadge weather={ride.weather} distanceUnit={distanceUnit} />
+              </span>
             )}
           </div>
 

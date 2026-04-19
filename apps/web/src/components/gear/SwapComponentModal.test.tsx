@@ -228,15 +228,17 @@ describe('SwapComponentModal', () => {
       fireEvent.click(swapButtons[0]);
 
       await waitFor(() => {
+        // objectContaining lets the component thread an optional installedAt
+        // (defaults to today) without pinning the test to a specific date.
         expect(mockSwapComponents).toHaveBeenCalledWith({
           variables: {
-            input: {
+            input: expect.objectContaining({
               bikeIdA: 'bike-1',
               slotKeyA: 'FORK_NONE',
               bikeIdB: 'bike-2',
               slotKeyB: 'FORK_NONE',
               noteText: null,
-            },
+            }),
           },
         });
       });

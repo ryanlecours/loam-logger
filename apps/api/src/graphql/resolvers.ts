@@ -119,6 +119,7 @@ type ReplaceComponentInputGQL = {
   alsoReplacePair?: boolean | null;
   pairBrand?: string | null;
   pairModel?: string | null;
+  installedAt?: string | null;
 };
 
 type NewComponentInputGQL = {
@@ -135,6 +136,7 @@ type InstallComponentInputGQL = {
   alsoReplacePair?: boolean | null;
   pairNewComponent?: NewComponentInputGQL | null;
   noteText?: string | null;
+  installedAt?: string | null;
 };
 
 type SwapComponentsInputGQL = {
@@ -143,6 +145,7 @@ type SwapComponentsInputGQL = {
   bikeIdB: string;
   slotKeyB: string;
   noteText?: string | null;
+  installedAt?: string | null;
 };
 
 type AddBikeNoteInputGQL = {
@@ -177,6 +180,7 @@ type AddBikeInputGQL = {
   motorTorqueNm?: number | null;
   batteryWh?: number | null;
   acquisitionCondition?: AcquisitionCondition | null;
+  acquisitionDate?: string | null;
   spokesComponents?: SpokesComponentsInputGQL | null;
   fork?: BikeComponentInputGQL | null;
   shock?: BikeComponentInputGQL | null;
@@ -210,6 +214,7 @@ type AddComponentInputGQL = {
   isStock?: boolean | null;
   hoursUsed?: number | null;
   serviceDueAtHours?: number | null;
+  installedAt?: string | null;
 };
 
 type UpdateComponentInputGQL = {
@@ -249,6 +254,16 @@ const MAX_NOTES_LEN = 2000;
 const MAX_LABEL_LEN = 120;
 
 /**
+ * Upper bound for user-supplied "hours at service" values. 100,000 is ~11
+ * years of continuous use — well beyond any realistic component lifetime
+ * (even a 30-hr/week rider accumulates under 50k over a lifetime). Blocks
+ * bogus submissions like 1e15 that would otherwise silently skew wear
+ * predictions, which compare this value against service-interval caps of
+ * 1000h.
+ */
+const MAX_SERVICE_HOURS = 100_000;
+
+/**
  * Clean user input text.
  * - Trims whitespace
  * - Truncates to max length
@@ -259,6 +274,64 @@ const MAX_LABEL_LEN = 120;
  */
 const cleanText = (v: unknown, max = MAX_LABEL_LEN) =>
   typeof v === 'string' ? (v.trim().slice(0, max) || null) : null;
+
+/**
+ * Re-anchor a component to whatever its newest remaining ServiceLog is,
+ * and recompute hoursUsed from the ride log.
+ *
+ * Called when an edit or delete might have moved the "most recent service"
+ * anchor for a component. `hoursUsed` represents hours accumulated since
+ * the last anchor, so anchor changes require recomputing it from scratch —
+ * otherwise the counter keeps the old window of rides baked in.
+ *
+ * Uses ride duration on the component's current bike as the wear proxy,
+ * matching how `incrementBikeComponentHours` ticks the counter on ride upload.
+ *
+ * **Missing-component tolerance:** the initial `component.findUnique` can
+ * return null if the component was deleted between the caller's ownership
+ * check and this helper (e.g. racing against an account teardown or a
+ * concurrent cascade). In that case the helper silently no-ops — the row
+ * is gone, there's nothing to anchor. Callers don't need to special-case
+ * this: the outer transaction is already doing the "correct" work (the
+ * edit/delete of the triggering ServiceLog), and a missing component just
+ * means the recompute half has no target. Returning void rather than
+ * throwing keeps the mutation's primary effect from rolling back for a
+ * recompute-stage anomaly.
+ */
+async function recomputeComponentAfterServiceChange(
+  tx: Prisma.TransactionClient,
+  componentId: string
+): Promise<void> {
+  const component = await tx.component.findUnique({
+    where: { id: componentId },
+    select: { id: true, bikeId: true },
+  });
+  if (!component) return;
+
+  const latestLog = await tx.serviceLog.findFirst({
+    where: { componentId },
+    orderBy: [{ performedAt: 'desc' }, { createdAt: 'desc' }],
+    select: { performedAt: true },
+  });
+  const newAnchor = latestLog?.performedAt ?? null;
+
+  let hoursUsed = 0;
+  if (component.bikeId) {
+    const { _sum } = await tx.ride.aggregate({
+      where: {
+        bikeId: component.bikeId,
+        ...(newAnchor ? { startTime: { gte: newAnchor } } : {}),
+      },
+      _sum: { durationSeconds: true },
+    });
+    hoursUsed = (_sum.durationSeconds ?? 0) / 3600;
+  }
+
+  await tx.component.update({
+    where: { id: componentId },
+    data: { lastServicedAt: newAnchor, hoursUsed },
+  });
+}
 
 const componentLabelMap: Partial<Record<ComponentType, string>> = {
   FORK: 'Fork',
@@ -479,6 +552,13 @@ export async function buildBikeComponents(
     userOverrides?: Partial<Record<BikeComponentKey, BikeComponentInputGQL | null>>;
     pairedComponentConfigs?: PairedComponentConfigInputGQL[] | null;
     acquisitionCondition?: string;
+    /**
+     * When the user said they acquired the bike. Used as the installedAt for
+     * all stock + user-override components, matching how a real-world bike
+     * would have those parts installed on the acquisition day.
+     * Defaults to now when unspecified (keeps pre-acquisitionDate bikes working).
+     */
+    installedAt?: Date;
   }
 ): Promise<void> {
   const { bikeId, userId, bikeSpec, spokesComponents, userOverrides, pairedComponentConfigs } = opts;
@@ -495,7 +575,10 @@ export async function buildBikeComponents(
   const baselineWearPercent = 0;
   const baselineMethod: BaselineMethod = 'DEFAULT';
   const baselineConfidence: BaselineConfidence = 'LOW';  // Until refined by user
-  const baselineSetAt = new Date();
+  // If the user told us when they acquired the bike, use that as the install
+  // anchor. Otherwise today — preserves old behavior for callers that don't
+  // pass the field.
+  const baselineSetAt = opts.installedAt ?? new Date();
 
   // Get applicable components from the catalog
   const applicableComponents = getApplicableComponents(bikeSpec);
@@ -1271,6 +1354,202 @@ export const resolvers = {
       const userId = requireUserId(ctx);
       return getReferralStats(userId);
     },
+
+    bikeHistory: async (
+      _: unknown,
+      { bikeId, startDate, endDate }: { bikeId: string; startDate?: string | null; endDate?: string | null },
+      ctx: GraphQLContext
+    ) => {
+      const userId = requireUserId(ctx);
+
+      // Read rate limit: each call fans out to three findMany queries
+      // (rides + serviceLogs + installs, up to ~4k rows combined). Higher
+      // ceiling than mutations because toggle/filter/cache-and-network
+      // churn legitimately hits this in bursts, but capped to stop a
+      // polling loop from hammering the DB.
+      const rateLimit = await checkMutationRateLimit('bikeHistory', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(
+          `Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`,
+          { extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter } }
+        );
+      }
+
+      const [bike, tierUser] = await Promise.all([
+        prisma.bike.findFirst({ where: { id: bikeId, userId } }),
+        prisma.user.findUniqueOrThrow({
+          where: { id: userId },
+          select: { subscriptionTier: true, isFoundingRider: true, role: true },
+        }),
+      ]);
+      if (!bike) {
+        throw new GraphQLError('Bike not found', { extensions: { code: 'NOT_FOUND' } });
+      }
+
+      // Tier gate: a Free Light user only sees component events whose type is
+      // unlocked for their tier — mirrors the BikeDetail gating so the PDF they
+      // hand a buyer can't accidentally surface data the app hides elsewhere.
+      const allowedTypes = getAllowedComponentTypes(tierUser);
+      const componentTypeFilter: Prisma.ComponentWhereInput | undefined =
+        allowedTypes === 'ALL' ? undefined : { type: { in: allowedTypes } };
+
+      const gte = startDate ? new Date(startDate) : undefined;
+      const lte = endDate ? new Date(endDate) : undefined;
+      const dateRange = gte || lte ? { ...(gte ? { gte } : {}), ...(lte ? { lte } : {}) } : undefined;
+
+      const RIDE_CAP = 2000;
+      const SERVICE_CAP = 1000;
+      const INSTALL_CAP = 1000;
+
+      // Defense-in-depth: even though bike ownership is pre-validated above,
+      // every sub-query redundantly filters by userId (directly where the
+      // column exists, or via the joined Component) so a future refactor
+      // that skips the ownership check above still can't leak cross-user data.
+      const [rides, serviceLogs, installs] = await Promise.all([
+        prisma.ride.findMany({
+          where: {
+            userId,
+            bikeId,
+            ...(dateRange ? { startTime: dateRange } : {}),
+          },
+          orderBy: { startTime: 'desc' },
+          take: RIDE_CAP,
+          // Explicit allow-list: keeps the query cheap at the 2000-row cap
+          // as the Ride model grows. Matches the fields that both the web
+          // and mobile BikeHistory ride fragments consume — if a client
+          // adds a new field here, this projection must grow too. The
+          // Ride.weather field resolver lazy-loads via DataLoader from the
+          // ride id, so we deliberately skip including it.
+          select: {
+            id: true,
+            startTime: true,
+            durationSeconds: true,
+            distanceMeters: true,
+            elevationGainMeters: true,
+            averageHr: true,
+            rideType: true,
+            trailSystem: true,
+            location: true,
+          },
+        }),
+        prisma.serviceLog.findMany({
+          where: {
+            component: { bikeId, userId, ...(componentTypeFilter ?? {}) },
+            ...(dateRange ? { performedAt: dateRange } : {}),
+          },
+          include: { component: true },
+          orderBy: { performedAt: 'desc' },
+          take: SERVICE_CAP,
+        }),
+        // Each BikeComponentInstall row carries TWO potential timeline
+        // events (installedAt, and optionally removedAt). The OR filter
+        // selects any row where *either* date touches the range, because
+        // we need rows that contribute *any* visible event. But a selected
+        // row can still hold one in-range and one out-of-range date — e.g.
+        // installed 2020, removed 2026, with the user filtering "past
+        // year" should emit only the REMOVED event, not the old INSTALLED.
+        // The per-event `installedInRange` / `removedInRange` checks below
+        // do that second pass; the Prisma filter alone is intentionally
+        // too permissive.
+        prisma.bikeComponentInstall.findMany({
+          where: {
+            userId,
+            bikeId,
+            ...(componentTypeFilter ? { component: componentTypeFilter } : {}),
+            ...(dateRange
+              ? {
+                  OR: [
+                    { installedAt: dateRange },
+                    { removedAt: dateRange },
+                  ],
+                }
+              : {}),
+          },
+          include: { component: true },
+          orderBy: { installedAt: 'desc' },
+          take: INSTALL_CAP,
+        }),
+      ]);
+
+      const serviceEvents = serviceLogs.map((log) => ({
+        id: log.id,
+        performedAt: log.performedAt.toISOString(),
+        notes: log.notes,
+        hoursAtService: log.hoursAtService,
+        component: log.component,
+      }));
+
+      const installEvents: Array<{
+        id: string;
+        eventType: 'INSTALLED' | 'REMOVED';
+        occurredAt: string;
+        component: unknown;
+      }> = [];
+      for (const i of installs) {
+        const installedInRange =
+          !dateRange ||
+          ((!gte || i.installedAt >= gte) && (!lte || i.installedAt <= lte));
+        if (installedInRange) {
+          installEvents.push({
+            id: `${i.id}:installed`,
+            eventType: 'INSTALLED',
+            occurredAt: i.installedAt.toISOString(),
+            component: i.component,
+          });
+        }
+        if (i.removedAt) {
+          const removedInRange =
+            !dateRange ||
+            ((!gte || i.removedAt >= gte) && (!lte || i.removedAt <= lte));
+          if (removedInRange) {
+            installEvents.push({
+              id: `${i.id}:removed`,
+              eventType: 'REMOVED',
+              occurredAt: i.removedAt.toISOString(),
+              component: i.component,
+            });
+          }
+        }
+      }
+
+      let totalDistanceMeters = 0;
+      let totalDurationSeconds = 0;
+      let totalElevationGainMeters = 0;
+      for (const r of rides) {
+        totalDistanceMeters += r.distanceMeters;
+        totalDurationSeconds += r.durationSeconds;
+        totalElevationGainMeters += r.elevationGainMeters;
+      }
+
+      // `rides` is returned raw from Prisma; the GraphQL `Ride` type at
+      // schema.ts:144 is the authoritative allow-list — graphql-js only
+      // serializes declared fields, so Prisma-internal columns (startLat,
+      // startLng, importSessionId, etc.) never leave the server. We keep
+      // this shape (rather than explicitly projecting like `serviceEvents`
+      // and `installs`) because the existing `rides` query does the same,
+      // and Date → ISO coercion is already handled by the Ride.startTime
+      // field resolver. `serviceEvents` and `installs` are projected only
+      // because they need genuine reshaping (Date → string, splitting one
+      // install row into INSTALLED/REMOVED pair events).
+      return {
+        bike,
+        rides,
+        serviceEvents,
+        installs: installEvents,
+        totals: {
+          rideCount: rides.length,
+          totalDistanceMeters,
+          totalDurationSeconds,
+          totalElevationGainMeters,
+          serviceEventCount: serviceEvents.length,
+          installEventCount: installEvents.length,
+        },
+        truncated:
+          rides.length >= RIDE_CAP ||
+          serviceLogs.length >= SERVICE_CAP ||
+          installs.length >= INSTALL_CAP,
+      };
+    },
   },
   Mutation: {
     addRide: async (_p: unknown, { input }: { input: AddRideInput }, ctx: GraphQLContext) => {
@@ -1620,6 +1899,16 @@ export const resolvers = {
       // Acquisition condition for baseline tracking (default to USED for backwards compatibility)
       const acquisitionCondition: AcquisitionCondition = input.acquisitionCondition ?? 'USED';
 
+      // Optional: when the user says they got the bike. Drives the install
+      // date stamped onto every stock component + BikeComponentInstall row.
+      let acquisitionDate: Date | null = null;
+      if (input.acquisitionDate) {
+        const parsed = parseISO(input.acquisitionDate);
+        if (isNaN(parsed.getTime())) throw new Error('Invalid acquisitionDate');
+        if (parsed > new Date()) throw new Error('acquisitionDate cannot be in the future');
+        acquisitionDate = parsed;
+      }
+
       // Derive BikeSpec for dynamic component creation
       const bikeSpec = deriveBikeSpec(
         { travelForkMm, travelShockMm },
@@ -1654,6 +1943,7 @@ export const resolvers = {
             motorTorqueNm,
             batteryWh,
             acquisitionCondition,
+            acquisitionDate,
             userId,
           },
         });
@@ -1672,6 +1962,7 @@ export const resolvers = {
             pivotBearings: input.pivotBearings,
           },
           pairedComponentConfigs: input.pairedComponentConfigs,
+          installedAt: acquisitionDate ?? undefined,
         });
 
         // Create default notification preference for the new bike
@@ -1907,6 +2198,16 @@ export const resolvers = {
         const location = input.location ?? 'NONE';
         const status = bikeId ? 'INSTALLED' : 'INVENTORY';
 
+        // Honor user-provided install date. Default: today. Null when this is
+        // a spare (no bike) — the component doesn't need an install anchor.
+        let installedAt: Date | null = bikeId ? now : null;
+        if (bikeId && input.installedAt) {
+          const parsed = parseISO(input.installedAt);
+          if (isNaN(parsed.getTime())) throw new Error('Invalid installedAt date');
+          if (parsed > now) throw new Error('Install date cannot be in the future');
+          installedAt = parsed;
+        }
+
         const component = await prisma.$transaction(async (tx) => {
           const created = await tx.component.create({
             data: {
@@ -1915,20 +2216,20 @@ export const resolvers = {
               location,
               bikeId: bikeId ?? null,
               userId,
-              installedAt: bikeId ? now : null,
+              installedAt,
               status,
             },
           });
 
           // Create install record if component is being installed on a bike
-          if (bikeId) {
+          if (bikeId && installedAt) {
             await tx.bikeComponentInstall.create({
               data: {
                 userId,
                 bikeId,
                 componentId: created.id,
                 slotKey: getSlotKey(type, location),
-                installedAt: now,
+                installedAt,
               },
             });
 
@@ -1936,7 +2237,7 @@ export const resolvers = {
             await tx.serviceLog.create({
               data: {
                 componentId: created.id,
-                performedAt: now,
+                performedAt: installedAt,
                 hoursAtService: 0,
               },
             });
@@ -2150,6 +2451,293 @@ export const resolvers = {
       clearServiceNotificationLogs(input.componentId, userId).catch((err) => logError('clearServiceNotificationLogs', err));
 
       return serviceLog;
+    },
+
+    updateServiceLog: async (
+      _: unknown,
+      {
+        id,
+        input,
+      }: {
+        id: string;
+        input: { performedAt?: string | null; notes?: string | null; hoursAtService?: number | null };
+      },
+      ctx: GraphQLContext
+    ) => {
+      const userId = requireUserId(ctx);
+
+      const rateLimit = await checkMutationRateLimit('updateServiceLog', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
+
+      // SECURITY: fetch log + component owner/bike before touching input.
+      const existing = await prisma.serviceLog.findUnique({
+        where: { id },
+        include: { component: { select: { id: true, userId: true, bikeId: true } } },
+      });
+      if (!existing || existing.component.userId !== userId) {
+        throw new GraphQLError('Service log not found', { extensions: { code: 'NOT_FOUND' } });
+      }
+
+      // Validate input after auth.
+      let newPerformedAt: Date | undefined;
+      if (input.performedAt !== undefined && input.performedAt !== null) {
+        newPerformedAt = parseISO(input.performedAt);
+        if (isNaN(newPerformedAt.getTime())) throw new Error('Invalid date format');
+        if (newPerformedAt > new Date()) throw new Error('Service date cannot be in the future');
+      }
+      const newNotes =
+        input.notes === undefined ? undefined : input.notes === null ? null : cleanText(input.notes, MAX_NOTES_LEN);
+      let newHoursAtService: number | undefined;
+      if (input.hoursAtService !== undefined && input.hoursAtService !== null) {
+        // Upper cap guards the wear engine. 100,000 hours is ~11 years of
+        // continuous use — well above any realistic component lifetime
+        // (even a 30-hr/week rider tops out near 50k over a lifetime).
+        // The engine compares this value against service-interval caps of
+        // 1000h, so bogus inputs like 1e15 would silently skew every
+        // downstream prediction.
+        if (
+          !Number.isFinite(input.hoursAtService) ||
+          input.hoursAtService < 0 ||
+          input.hoursAtService > MAX_SERVICE_HOURS
+        ) {
+          throw new Error(
+            `hoursAtService must be between 0 and ${MAX_SERVICE_HOURS}`
+          );
+        }
+        newHoursAtService = input.hoursAtService;
+      }
+
+      const bikeId = existing.component.bikeId;
+      if (bikeId) await invalidateBikePrediction(userId, bikeId);
+
+      const updated = await prisma.$transaction(async (tx) => {
+        // Is this row currently the most recent for its component?
+        const currentLatest = await tx.serviceLog.findFirst({
+          where: { componentId: existing.component.id },
+          orderBy: [{ performedAt: 'desc' }, { createdAt: 'desc' }],
+          select: { id: true, performedAt: true },
+        });
+        const wasLatest = currentLatest?.id === id;
+
+        const updatedLog = await tx.serviceLog.update({
+          where: { id },
+          data: {
+            ...(newPerformedAt ? { performedAt: newPerformedAt } : {}),
+            ...(newNotes !== undefined ? { notes: newNotes } : {}),
+            ...(newHoursAtService !== undefined ? { hoursAtService: newHoursAtService } : {}),
+          },
+        });
+
+        // Recompute anchor + hoursUsed only when the edit could have moved
+        // `max(performedAt)` for this component:
+        //   a) This log WAS the latest and its date changed. Either it's
+        //      still latest at a new date, or it moved behind another log
+        //      that's now latest — either way, the anchor shifts.
+        //   b) This log WAS NOT the latest but its new date is later than
+        //      the previous latest, meaning it just became latest.
+        //
+        // Non-latest edits with non-anchor-crossing date shifts (e.g. moving
+        // a mid-history log a few days within its window) and
+        // metadata-only edits (notes/hours on any log) leave the anchor
+        // untouched — skipping the helper saves a ride-aggregate query and
+        // a component.update round-trip.
+        const dateChanged = !!newPerformedAt;
+        const becameLatest =
+          !wasLatest &&
+          dateChanged &&
+          !!currentLatest &&
+          newPerformedAt! > currentLatest.performedAt;
+        if ((wasLatest && dateChanged) || becameLatest) {
+          await recomputeComponentAfterServiceChange(tx, existing.component.id);
+        }
+
+        return updatedLog;
+      });
+
+      if (bikeId) await invalidateBikePrediction(userId, bikeId);
+
+      return updated;
+    },
+
+    deleteServiceLog: async (
+      _: unknown,
+      { id }: { id: string },
+      ctx: GraphQLContext
+    ) => {
+      const userId = requireUserId(ctx);
+
+      const rateLimit = await checkMutationRateLimit('deleteServiceLog', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
+
+      const existing = await prisma.serviceLog.findUnique({
+        where: { id },
+        include: { component: { select: { id: true, userId: true, bikeId: true } } },
+      });
+      if (!existing || existing.component.userId !== userId) {
+        throw new GraphQLError('Service log not found', { extensions: { code: 'NOT_FOUND' } });
+      }
+
+      const componentId = existing.component.id;
+      const bikeId = existing.component.bikeId;
+
+      if (bikeId) await invalidateBikePrediction(userId, bikeId);
+
+      await prisma.$transaction(async (tx) => {
+        const currentLatest = await tx.serviceLog.findFirst({
+          where: { componentId },
+          orderBy: [{ performedAt: 'desc' }, { createdAt: 'desc' }],
+          select: { id: true },
+        });
+        const wasLatest = currentLatest?.id === id;
+
+        await tx.serviceLog.delete({ where: { id } });
+
+        if (wasLatest) {
+          await recomputeComponentAfterServiceChange(tx, componentId);
+        }
+      });
+
+      if (bikeId) await invalidateBikePrediction(userId, bikeId);
+
+      // Reset notification dedup — if removing the latest service makes the
+      // component "overdue" again, it should be free to re-alert.
+      clearServiceNotificationLogs(componentId, userId).catch((err) =>
+        logError('clearServiceNotificationLogs', err)
+      );
+
+      return true;
+    },
+
+    updateBikeComponentInstall: async (
+      _: unknown,
+      {
+        id,
+        input,
+      }: {
+        id: string;
+        input: { installedAt?: string | null; removedAt?: string | null };
+      },
+      ctx: GraphQLContext
+    ) => {
+      const userId = requireUserId(ctx);
+
+      const rateLimit = await checkMutationRateLimit('updateBikeComponentInstall', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
+
+      const existing = await prisma.bikeComponentInstall.findUnique({
+        where: { id },
+      });
+      if (!existing || existing.userId !== userId) {
+        throw new GraphQLError('Install record not found', { extensions: { code: 'NOT_FOUND' } });
+      }
+
+      const now = new Date();
+      const data: Prisma.BikeComponentInstallUpdateInput = {};
+
+      if (input.installedAt !== undefined && input.installedAt !== null) {
+        const parsed = parseISO(input.installedAt);
+        if (isNaN(parsed.getTime())) throw new Error('Invalid installedAt date');
+        if (parsed > now) throw new Error('Install date cannot be in the future');
+        data.installedAt = parsed;
+      }
+
+      if (input.removedAt !== undefined) {
+        if (input.removedAt === null) {
+          data.removedAt = null;
+        } else {
+          const parsed = parseISO(input.removedAt);
+          if (isNaN(parsed.getTime())) throw new Error('Invalid removedAt date');
+          if (parsed > now) throw new Error('Remove date cannot be in the future');
+          data.removedAt = parsed;
+        }
+      }
+
+      // Chronology guard: a component can't come off a bike before it was
+      // installed. Compare the POST-UPDATE state of both timestamps — a
+      // user who just moves `installedAt` forward past an already-persisted
+      // `removedAt` would otherwise invert the range silently.
+      //
+      // Explicit `removedAt: null` (clearing) skips the check — no removal
+      // date to violate.
+      const effectiveInstalledAt =
+        data.installedAt instanceof Date ? data.installedAt : existing.installedAt;
+      const effectiveRemovedAt: Date | null =
+        data.removedAt === null
+          ? null
+          : data.removedAt instanceof Date
+          ? data.removedAt
+          : existing.removedAt;
+      if (effectiveRemovedAt && effectiveRemovedAt < effectiveInstalledAt) {
+        throw new Error('Removal date cannot be before install date');
+      }
+
+      // Nothing to change — skip the Prisma round-trip and the pair of cache
+      // invalidations. Callers get back the current row, matching the
+      // semantic "update with no fields is a no-op."
+      //
+      // NOTE: `existing` was fetched with no `include`, so any future
+      // nested field resolver on BikeComponentInstall (e.g. a `bike` or
+      // `component` sub-selection) would see `undefined` here instead of
+      // the hydrated relation. Today the type is all scalars, so that's
+      // fine — if a relation gets added, hoist `existing` to include the
+      // same selections the post-update branch returns, or drop this
+      // short-circuit in favor of a regular `update()` round-trip.
+      if (Object.keys(data).length === 0) {
+        return existing;
+      }
+
+      if (existing.bikeId) await invalidateBikePrediction(userId, existing.bikeId);
+
+      const updated = await prisma.bikeComponentInstall.update({
+        where: { id },
+        data,
+      });
+
+      if (existing.bikeId) await invalidateBikePrediction(userId, existing.bikeId);
+
+      return updated;
+    },
+
+    deleteBikeComponentInstall: async (
+      _: unknown,
+      { id }: { id: string },
+      ctx: GraphQLContext
+    ) => {
+      const userId = requireUserId(ctx);
+
+      const rateLimit = await checkMutationRateLimit('deleteBikeComponentInstall', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
+
+      const existing = await prisma.bikeComponentInstall.findUnique({
+        where: { id },
+      });
+      if (!existing || existing.userId !== userId) {
+        throw new GraphQLError('Install record not found', { extensions: { code: 'NOT_FOUND' } });
+      }
+
+      if (existing.bikeId) await invalidateBikePrediction(userId, existing.bikeId);
+
+      await prisma.bikeComponentInstall.delete({ where: { id } });
+
+      if (existing.bikeId) await invalidateBikePrediction(userId, existing.bikeId);
+
+      return true;
     },
 
     snoozeComponent: async (
@@ -3206,20 +3794,55 @@ export const resolvers = {
         throw new GraphQLError('Component not found', { extensions: { code: 'NOT_FOUND' } });
       }
 
+      // Parse optional installedAt for the replacement. Default: today.
+      //
+      // This single Date is used as every timestamp inside the transaction —
+      // the new component's install anchor, the old component's retiredAt,
+      // the closing removedAt on the old install row, and the new install
+      // row's installedAt. Intentional: a replacement is a single event, so
+      // the "old came off" and "new went on" moments must line up.
+      //
+      // One subtle consequence: if the user backdates the replacement (e.g.
+      // "I actually swapped forks 3 months ago"), the old component's
+      // retiredAt also moves back 3 months. Any service logs or wear
+      // progression the user recorded after that date for the old component
+      // will look chronologically off — they'll pre-date the component's own
+      // retirement. This is correct for the common case (you stopped using
+      // the old part when you took it off) and the alternative (keeping
+      // retiredAt = now while backdating everything else) would leave the
+      // component looking active-yet-uninstalled for 3 months. Documenting
+      // here rather than complicating the UI around it.
+      const now = new Date();
+      let installedAt = now;
+      if (input.installedAt) {
+        const parsed = parseISO(input.installedAt);
+        if (isNaN(parsed.getTime())) throw new Error('Invalid installedAt date');
+        if (parsed > now) throw new Error('Install date cannot be in the future');
+        installedAt = parsed;
+      }
+
       const replacedComponents: ComponentModel[] = [];
       const newComponents: ComponentModel[] = [];
 
       await prisma.$transaction(async (tx) => {
-        const now = new Date();
         const newPairGroupId = createId();
 
         // Retire the existing component
         // Set bikeId to null to avoid unique constraint violation when creating replacement
         const retired = await tx.component.update({
           where: { id: componentId },
-          data: { retiredAt: now, bikeId: null },
+          data: { retiredAt: installedAt, bikeId: null },
         });
         replacedComponents.push(retired);
+
+        // Mark any open install record for the retired component as removed.
+        // Without this, BikeHistory shows the component as still installed.
+        if (existingComponent.bikeId) {
+          await tx.bikeComponentInstall.updateMany({
+            where: { componentId, removedAt: null },
+            data: { removedAt: installedAt },
+          });
+        }
 
         // Create the new component
         const newComponent = await tx.component.create({
@@ -3232,21 +3855,35 @@ export const resolvers = {
             model: newModel,
             isStock: false,
             hoursUsed: 0,
-            installedAt: now,
+            installedAt,
             baselineWearPercent: 0,
             baselineMethod: 'DEFAULT',
             baselineConfidence: 'HIGH',
-            baselineSetAt: now,
+            baselineSetAt: installedAt,
             pairGroupId: requiresPairing(existingComponent.type) ? newPairGroupId : null,
           },
         });
         newComponents.push(newComponent);
 
+        // Create install record for the new component (previously skipped —
+        // meant BikeHistory couldn't show replacement installs).
+        if (existingComponent.bikeId) {
+          await tx.bikeComponentInstall.create({
+            data: {
+              userId,
+              bikeId: existingComponent.bikeId,
+              componentId: newComponent.id,
+              slotKey: getSlotKey(existingComponent.type, existingComponent.location ?? 'NONE'),
+              installedAt,
+            },
+          });
+        }
+
         // Create initial service log so predictions start from installation date
         await tx.serviceLog.create({
           data: {
             componentId: newComponent.id,
-            performedAt: now,
+            performedAt: installedAt,
             hoursAtService: 0,
           },
         });
@@ -3273,9 +3910,16 @@ export const resolvers = {
             // Set bikeId to null to avoid unique constraint violation when creating replacement
             const retiredPair = await tx.component.update({
               where: { id: pairedComponent.id },
-              data: { retiredAt: now, bikeId: null },
+              data: { retiredAt: installedAt, bikeId: null },
             });
             replacedComponents.push(retiredPair);
+
+            if (pairedComponent.bikeId) {
+              await tx.bikeComponentInstall.updateMany({
+                where: { componentId: pairedComponent.id, removedAt: null },
+                data: { removedAt: installedAt },
+              });
+            }
 
             // Create the new paired component
             const newPairedComponent = await tx.component.create({
@@ -3288,21 +3932,33 @@ export const resolvers = {
                 model: pairModel || newModel,
                 isStock: false,
                 hoursUsed: 0,
-                installedAt: now,
+                installedAt,
                 baselineWearPercent: 0,
                 baselineMethod: 'DEFAULT',
                 baselineConfidence: 'HIGH',
-                baselineSetAt: now,
+                baselineSetAt: installedAt,
                 pairGroupId: newPairGroupId,
               },
             });
             newComponents.push(newPairedComponent);
 
+            if (pairedComponent.bikeId) {
+              await tx.bikeComponentInstall.create({
+                data: {
+                  userId,
+                  bikeId: pairedComponent.bikeId,
+                  componentId: newPairedComponent.id,
+                  slotKey: getSlotKey(pairedComponent.type, pairedComponent.location ?? 'NONE'),
+                  installedAt,
+                },
+              });
+            }
+
             // Create initial service log for paired component
             await tx.serviceLog.create({
               data: {
                 componentId: newPairedComponent.id,
-                performedAt: now,
+                performedAt: installedAt,
                 hoursAtService: 0,
               },
             });
@@ -3391,8 +4047,20 @@ export const resolvers = {
       let createdNote: { id: string; bikeId: string; userId: string; text: string; noteType: string; createdAt: Date; snapshot: unknown; snapshotBefore: unknown; snapshotAfter: unknown; installEventId: string | null } | null = null;
       const bikesToInvalidate = new Set<string>([bikeId]);
 
-      await prisma.$transaction(async (tx) => {
+      // Honor user-specified install date. Default to today if omitted. All
+      // derived timestamps inside the transaction use this same value so the
+      // install/remove pair appears at a single moment in the history.
+      const resolvedInstalledAt = (() => {
         const now = new Date();
+        if (!input.installedAt) return now;
+        const parsed = parseISO(input.installedAt);
+        if (isNaN(parsed.getTime())) throw new Error('Invalid installedAt date');
+        if (parsed > now) throw new Error('Install date cannot be in the future');
+        return parsed;
+      })();
+
+      await prisma.$transaction(async (tx) => {
+        const now = resolvedInstalledAt;
 
         // Capture snapshot BEFORE the change if noteText is provided
         let snapshotBefore: SetupSnapshot | null = null;
@@ -3718,8 +4386,19 @@ export const resolvers = {
       let createdNoteA: BikeNoteRecord | null = null;
       let createdNoteB: BikeNoteRecord | null = null;
 
-      await prisma.$transaction(async (tx) => {
+      // Honor user-specified swap date. All remove/install timestamps use the
+      // same value so the history pair renders at one moment.
+      const resolvedInstalledAt = (() => {
         const now = new Date();
+        if (!input.installedAt) return now;
+        const parsed = parseISO(input.installedAt);
+        if (isNaN(parsed.getTime())) throw new Error('Invalid installedAt date');
+        if (parsed > now) throw new Error('Install date cannot be in the future');
+        return parsed;
+      })();
+
+      await prisma.$transaction(async (tx) => {
+        const now = resolvedInstalledAt;
 
         // Capture snapshots BEFORE the swap if noteText is provided
         let snapshotBeforeA: SetupSnapshot | null = null;
@@ -4265,6 +4944,8 @@ export const resolvers = {
       component.location ?? 'NONE',
     serviceLogs: (component: ComponentModel, _args: unknown, ctx: GraphQLContext) =>
       ctx.loaders.serviceLogsByComponentId.load(component.id),
+    latestServiceLog: (component: ComponentModel, _args: unknown, ctx: GraphQLContext) =>
+      ctx.loaders.latestServiceLogByComponentId.load(component.id),
     pairedComponent: async (component: ComponentModel) => {
       if (!component.pairGroupId) return null;
       return prisma.component.findFirst({

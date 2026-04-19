@@ -7,6 +7,8 @@ describe('WearStartStep', () => {
   const defaultProps = {
     selected: null,
     onSelect: vi.fn(),
+    acquisitionDate: '',
+    onAcquisitionDateChange: vi.fn(),
     onBack: vi.fn(),
     onSubmit: vi.fn(),
     submitting: false,

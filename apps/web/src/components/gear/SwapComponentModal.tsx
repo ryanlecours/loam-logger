@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation } from '@apollo/client';
 import { getSlotKey } from '@loam/shared';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
 import { SWAP_COMPONENTS, GEAR_QUERY_LIGHT } from '../../graphql/gear';
 import { formatComponentLabel, getBikeName } from '../../utils/formatters';
+import { dateInputToIsoNoon, todayDateInput } from '../../lib/format';
 
 interface SwapComponentModalProps {
   isOpen: boolean;
@@ -51,7 +52,21 @@ export function SwapComponentModal({
 }: SwapComponentModalProps) {
   const [swappingTargetId, setSwappingTargetId] = useState<string | null>(null);
   const [noteText, setNoteText] = useState('');
+  const [installedAt, setInstalledAt] = useState(() => todayDateInput());
   const [error, setError] = useState<string | null>(null);
+
+  // Reset state every time the modal re-opens. Without this, a user who
+  // picks a past date (or types a note), closes without submitting, and
+  // reopens for a different swap would see the stale values pre-filled.
+  // Mirrors ReplaceComponentModal's open-reset pattern.
+  useEffect(() => {
+    if (isOpen) {
+      setSwappingTargetId(null);
+      setNoteText('');
+      setInstalledAt(todayDateInput());
+      setError(null);
+    }
+  }, [isOpen]);
 
   const [swapComponents] = useMutation(SWAP_COMPONENTS, {
     refetchQueries: [{ query: GEAR_QUERY_LIGHT }],
@@ -97,6 +112,7 @@ export function SwapComponentModal({
             bikeIdB: targetBike.id,
             slotKeyB,
             noteText: trimmedNoteText,
+            installedAt: installedAt ? dateInputToIsoNoon(installedAt) : undefined,
           },
         },
       });
@@ -123,6 +139,24 @@ export function SwapComponentModal({
         <p className="text-sm text-amber-300">
           Compatibility is not validated. Ensure both components fit their destination bikes.
         </p>
+      </div>
+
+      {/* Swap date */}
+      <div className="mb-4 flex flex-col gap-1">
+        <label
+          htmlFor="swap-installed-at"
+          className="text-xs font-medium text-muted"
+        >
+          Swap date
+        </label>
+        <input
+          id="swap-installed-at"
+          type="date"
+          value={installedAt}
+          max={todayDateInput()}
+          onChange={(e) => setInstalledAt(e.target.value)}
+          className="rounded-md border border-app bg-surface px-3 py-2 text-sm text-app focus:border-forest focus:outline-none focus:ring-1 focus:ring-forest"
+        />
       </div>
 
       {/* Note textarea */}

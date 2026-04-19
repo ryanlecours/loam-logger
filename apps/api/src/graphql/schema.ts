@@ -244,6 +244,10 @@ export const typeDefs = gql`
     baselineSetAt: String
     lastServicedAt: String
     serviceLogs: [ServiceLog!]!
+    # The single most recent ServiceLog — lets clients that only render
+    # "last serviced" metadata avoid pulling a component's entire service
+    # history over the wire.
+    latestServiceLog: ServiceLog
     createdAt: String!
     updatedAt: String!
     # Front/rear pairing support
@@ -326,6 +330,7 @@ export const typeDefs = gql`
     motorTorqueNm: Int
     batteryWh: Int
     acquisitionCondition: AcquisitionCondition
+    acquisitionDate: String
     status: BikeStatus!
     retiredAt: String
     fork: Component
@@ -452,6 +457,7 @@ export const typeDefs = gql`
     motorTorqueNm: Int
     batteryWh: Int
     acquisitionCondition: AcquisitionCondition
+    acquisitionDate: String
     spokesComponents: SpokesComponentsInput
     fork: BikeComponentInput
     shock: BikeComponentInput
@@ -487,6 +493,7 @@ export const typeDefs = gql`
     motorPowerW: Int
     motorTorqueNm: Int
     batteryWh: Int
+    acquisitionDate: String
     spokesComponents: SpokesComponentsInput
     fork: BikeComponentInput
     shock: BikeComponentInput
@@ -504,6 +511,7 @@ export const typeDefs = gql`
     isStock: Boolean
     hoursUsed: Float
     serviceDueAtHours: Float
+    installedAt: String
   }
 
   input UpdateComponentInput {
@@ -526,6 +534,31 @@ export const typeDefs = gql`
     componentId: ID!
     notes: String
     performedAt: String
+  }
+
+  input UpdateServiceLogInput {
+    performedAt: String
+    notes: String
+    hoursAtService: Float
+  }
+
+  """
+  Patch fields on a BikeComponentInstall row.
+
+  **Null handling is asymmetric**, mirroring the underlying Prisma schema:
+
+  - \`installedAt\`: an ISO date string updates the value. \`null\` or omitted
+    is a no-op. You cannot clear this field — \`installedAt\` is required at
+    the database level.
+  - \`removedAt\`: an ISO date string updates the value. Explicit \`null\`
+    **clears** the field (the component is no longer marked as removed).
+    Omitting the key is a no-op.
+  """
+  input UpdateBikeComponentInstallInput {
+    """ISO date string. Pass to update; null or omitted is ignored (cannot be cleared)."""
+    installedAt: String
+    """ISO date string to set, or explicit null to clear."""
+    removedAt: String
   }
 
   input ComponentBaselineInput {
@@ -704,6 +737,7 @@ export const typeDefs = gql`
     alsoReplacePair: Boolean
     pairBrand: String
     pairModel: String
+    installedAt: String
   }
 
   type ReplaceComponentResult {
@@ -734,6 +768,7 @@ export const typeDefs = gql`
     pairNewComponent: NewComponentInput
     # Optional note text for creating a SWAP note with before/after snapshots
     noteText: String
+    installedAt: String
   }
 
   type InstallComponentResult {
@@ -749,6 +784,7 @@ export const typeDefs = gql`
     slotKeyB: String!
     # Optional note text for creating SWAP notes with before/after snapshots
     noteText: String
+    installedAt: String
   }
 
   type SwapComponentsResult {
@@ -848,6 +884,8 @@ export const typeDefs = gql`
     deleteComponent(id: ID!): DeleteResult!
     logComponentService(id: ID!, performedAt: String): Component!
     logService(input: LogServiceInput!): ServiceLog!
+    updateServiceLog(id: ID!, input: UpdateServiceLogInput!): ServiceLog!
+    deleteServiceLog(id: ID!): Boolean!
     snoozeComponent(id: ID!, hours: Float): Component!
     createStravaGearMapping(input: CreateStravaGearMappingInput!): StravaGearMapping!
     deleteStravaGearMapping(id: ID!): DeleteResult!
@@ -871,6 +909,8 @@ export const typeDefs = gql`
     updateBikeNotificationPreference(input: UpdateBikeNotificationPreferenceInput!): BikeNotificationPreference!
     addBikeNote(input: AddBikeNoteInput!): BikeNote!
     deleteBikeNote(id: ID!): DeleteResult!
+    updateBikeComponentInstall(id: ID!, input: UpdateBikeComponentInstallInput!): BikeComponentInstall!
+    deleteBikeComponentInstall(id: ID!): Boolean!
     createCheckoutSession(plan: StripePlan!, platform: CheckoutPlatform): CheckoutSessionResult!
     createBillingPortalSession(platform: CheckoutPlatform): BillingPortalResult!
     selectBikeForDowngrade(bikeId: ID!): Bike!
@@ -947,6 +987,44 @@ export const typeDefs = gql`
     bikeId: ID
   }
 
+  enum ComponentInstallEventType {
+    INSTALLED
+    REMOVED
+  }
+
+  type ServiceEvent {
+    id: ID!
+    performedAt: String!
+    notes: String
+    hoursAtService: Float!
+    component: Component!
+  }
+
+  type ComponentInstallEvent {
+    id: ID!
+    eventType: ComponentInstallEventType!
+    occurredAt: String!
+    component: Component!
+  }
+
+  type BikeHistoryTotals {
+    rideCount: Int!
+    totalDistanceMeters: Float!
+    totalDurationSeconds: Int!
+    totalElevationGainMeters: Float!
+    serviceEventCount: Int!
+    installEventCount: Int!
+  }
+
+  type BikeHistoryPayload {
+    bike: Bike!
+    rides: [Ride!]!
+    serviceEvents: [ServiceEvent!]!
+    installs: [ComponentInstallEvent!]!
+    totals: BikeHistoryTotals!
+    truncated: Boolean!
+  }
+
   type Query {
     me: User
     user(id: ID!): User
@@ -962,5 +1040,6 @@ export const typeDefs = gql`
     servicePreferenceDefaults: [ServicePreferenceDefault!]!
     bikeNotes(bikeId: ID!, take: Int = 20, after: ID): BikeNotesPage!
     referralStats: ReferralStats!
+    bikeHistory(bikeId: ID!, startDate: String, endDate: String): BikeHistoryPayload!
   }
 `;

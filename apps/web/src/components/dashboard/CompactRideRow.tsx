@@ -3,6 +3,8 @@ import { formatDurationCompact, formatRideDate } from '../../utils/formatters';
 import { getRideSource, SOURCE_LABELS } from '../../utils/rideSource';
 import { usePreferences } from '../../hooks/usePreferences';
 import EditRideModal from '../EditRideModal';
+import WeatherBadge from '../WeatherBadge';
+import type { RideWeather } from '../../models/Ride';
 
 interface Ride {
   id: string;
@@ -19,6 +21,7 @@ interface Ride {
   garminActivityId?: string | null;
   whoopWorkoutId?: string | null;
   bikeId?: string | null;
+  weather?: RideWeather | null;
 }
 
 interface CompactRideRowProps {
@@ -58,6 +61,12 @@ export function CompactRideRow({ ride, bikeName, onLinkBike }: CompactRideRowPro
             <span>{duration}</span>
             <span className="compact-ride-meta-sep">&bull;</span>
             <span>{climb} {climbUnit}</span>
+            {ride.weather && (
+              <>
+                <span className="compact-ride-meta-sep">&bull;</span>
+                <WeatherBadge weather={ride.weather} distanceUnit={distanceUnit} />
+              </>
+            )}
           </div>
           {bikeName ? (
             <div className="compact-ride-bike">

@@ -1,10 +1,18 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ChevronDown, Pencil, ArrowLeftRight, RefreshCw } from 'lucide-react';
+import { ChevronDown, Pencil, ArrowLeftRight, RefreshCw, Wrench } from 'lucide-react';
 import { StatusDot } from '../dashboard/StatusDot';
 import type { PredictionStatus } from '../../types/prediction';
 import { formatComponentLabel } from '../../utils/formatters';
 import { useHoursDisplay } from '../../hooks/useHoursDisplay';
+import { EditServiceModal, type EditableServiceLog } from '../dashboard/EditServiceModal';
+
+type ServiceLogDto = {
+  id: string;
+  performedAt: string;
+  notes?: string | null;
+  hoursAtService: number;
+};
 
 type ComponentDto = {
   id: string;
@@ -21,6 +29,7 @@ type ComponentDto = {
   baselineConfidence?: string | null;
   lastServicedAt?: string | null;
   location?: string | null;
+  latestServiceLog?: ServiceLogDto | null;
 };
 
 type ComponentPrediction = {
@@ -90,7 +99,10 @@ export function ComponentDetailRow({
   showSwap = false,
 }: ComponentDetailRowProps) {
   const [isExpanded, setIsExpanded] = useState(false);
+  const [editingService, setEditingService] = useState<EditableServiceLog | null>(null);
   const { hoursDisplay } = useHoursDisplay();
+
+  const latestServiceLog = component.latestServiceLog ?? null;
 
   const status = prediction?.status ?? 'ALL_GOOD';
   const hoursRemaining = prediction?.hoursRemaining;
@@ -228,8 +240,22 @@ export function ComponentDetailRow({
               {/* Last Serviced */}
               <div className="component-detail-field">
                 <span className="component-detail-field-label">Last Serviced</span>
-                <span className="component-detail-field-value">
+                <span className="component-detail-field-value flex items-center gap-2">
                   {formatDate(component.lastServicedAt)}
+                  {latestServiceLog && (
+                    <button
+                      type="button"
+                      className="component-detail-edit-btn"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditingService(latestServiceLog);
+                      }}
+                      aria-label="Edit last service"
+                    >
+                      <Wrench size={10} />
+                      Edit
+                    </button>
+                  )}
                 </span>
               </div>
 
@@ -313,6 +339,18 @@ export function ComponentDetailRow({
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Mount the modal only while an edit is in flight. Avoids calling
+          useMutation() (and therefore requiring an Apollo provider) on every
+          ComponentDetailRow render just to render null. */}
+      {editingService && (
+        <EditServiceModal
+          log={editingService}
+          componentLabel={fullLabel}
+          bikeId={component.bikeId ?? undefined}
+          onClose={() => setEditingService(null)}
+        />
+      )}
     </div>
   );
 }

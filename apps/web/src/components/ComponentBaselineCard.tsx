@@ -3,6 +3,7 @@ import {
   type ComponentBaseline,
   BASELINE_WEAR_SNAP_POINTS,
 } from '@loam/shared';
+import { todayDateInput } from '../lib/format';
 
 interface ComponentBaselineCardProps {
   componentType: string;
@@ -132,7 +133,7 @@ export function ComponentBaselineCard({
             type="date"
             value={lastServicedAt}
             onChange={(e) => handleDateChange(e.target.value)}
-            max={new Date().toISOString().split('T')[0]}
+            max={todayDateInput()}
             className="w-full px-3 py-2 rounded-lg border border-app bg-surface text-primary focus:border-accent focus:ring-1 focus:ring-accent outline-none"
           />
           <p className="text-xs text-muted">

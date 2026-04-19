@@ -32,6 +32,22 @@ export const MUTATION_RATE_LIMITS = {
   logService: { windowSeconds: 60, maxRequests: 20 },
   /** logComponentService (reset hours): max 20 requests per minute per user */
   logComponentService: { windowSeconds: 60, maxRequests: 20 },
+  /** updateServiceLog: max 30 requests per minute per user */
+  updateServiceLog: { windowSeconds: 60, maxRequests: 30 },
+  /** deleteServiceLog: max 30 requests per minute per user */
+  deleteServiceLog: { windowSeconds: 60, maxRequests: 30 },
+  /** updateBikeComponentInstall: max 30 requests per minute per user */
+  updateBikeComponentInstall: { windowSeconds: 60, maxRequests: 30 },
+  /** deleteBikeComponentInstall: max 30 requests per minute per user */
+  deleteBikeComponentInstall: { windowSeconds: 60, maxRequests: 30 },
+  /**
+   * bikeHistory query: max 60 requests per minute per user. Higher than
+   * mutations because it's a read (filter toggling, timeframe changes,
+   * cache-and-network refetches all hit it), but capped to prevent a
+   * polling loop from saturating the DB — each call fires up to three
+   * findMany queries returning ~4k rows combined.
+   */
+  bikeHistory: { windowSeconds: 60, maxRequests: 60 },
   /** logBulkComponentService (calibration): max 20 requests per minute per user */
   logBulkComponentService: { windowSeconds: 60, maxRequests: 20 },
   /** updateComponent: max 30 requests per minute per user */

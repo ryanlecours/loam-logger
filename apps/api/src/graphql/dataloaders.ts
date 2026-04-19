@@ -28,6 +28,34 @@ async function batchServiceLogsByComponentId(
 }
 
 /**
+ * Batch loads only the single most recent ServiceLog per component.
+ *
+ * Used by Component.latestServiceLog so pages that only show "last serviced"
+ * metadata don't pay the full-history payload cost. Uses Postgres DISTINCT
+ * ON for a one-query fan-out — cheaper than N separate findFirst calls and
+ * cheaper than fetching every row and picking the first.
+ */
+async function batchLatestServiceLogByComponentId(
+  componentIds: readonly string[]
+): Promise<(ServiceLog | null)[]> {
+  if (componentIds.length === 0) return [];
+  // Explicit column list — keeps the DataLoader cheap as ServiceLog evolves.
+  // Every field below is exposed on the GraphQL ServiceLog type; anything
+  // internal (e.g. updatedAt today, or a future rawJson column) stays out
+  // of the batched fetch path automatically.
+  const rows = await prisma.$queryRaw<ServiceLog[]>`
+    SELECT DISTINCT ON ("componentId")
+      "id", "componentId", "performedAt", "notes", "hoursAtService", "createdAt"
+    FROM "ServiceLog"
+    WHERE "componentId" = ANY(${[...componentIds]}::text[])
+    ORDER BY "componentId", "performedAt" DESC, "createdAt" DESC
+  `;
+  const byComponent = new Map<string, ServiceLog>();
+  for (const row of rows) byComponent.set(row.componentId, row);
+  return componentIds.map((id) => byComponent.get(id) ?? null);
+}
+
+/**
  * Batch loads RideWeather rows for many rides in one query.
  * Solves N+1 when Ride.weather is resolved across a rides list.
  */
@@ -51,6 +79,9 @@ export function createDataLoaders() {
   return {
     serviceLogsByComponentId: new DataLoader<string, ServiceLog[]>(
       batchServiceLogsByComponentId
+    ),
+    latestServiceLogByComponentId: new DataLoader<string, ServiceLog | null>(
+      batchLatestServiceLogByComponentId
     ),
     weatherByRideId: new DataLoader<string, RideWeather | null>(
       batchWeatherByRideId

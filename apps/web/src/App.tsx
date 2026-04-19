@@ -1,4 +1,4 @@
-﻿import type { ReactNode } from 'react';
+﻿import { lazy, Suspense, type ReactNode } from 'react';
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 
@@ -10,6 +10,12 @@ import Rides from './pages/Rides';
 import Settings from './pages/Settings';
 import Gear from './pages/Gear';
 import BikeDetail from './pages/BikeDetail';
+
+// Lazy-loaded: only users who navigate to bike history pay for this chunk
+// (which further pulls @react-pdf/renderer's fontkit/crypto tree when the
+// Export button is clicked). Keeps the main bundle lean for the 99% of
+// sessions that never open it.
+const BikeHistory = lazy(() => import('./pages/BikeHistory'));
 import Admin from './pages/Admin';
 import AuthComplete from './pages/AuthComplete';
 import BetaTesterWaitlist from './pages/BetaTesterWaitlist';
@@ -95,6 +101,16 @@ function AppRoutes() {
           <Route path="/rides" element={<ProtectedRoute><Rides /></ProtectedRoute>} />
           <Route path="/gear" element={<ProtectedRoute><Gear /></ProtectedRoute>} />
           <Route path="/gear/:bikeId" element={<ProtectedRoute><BikeDetail /></ProtectedRoute>} />
+          <Route
+            path="/gear/:bikeId/history"
+            element={
+              <ProtectedRoute>
+                <Suspense fallback={<div className="p-6 text-muted">Loading history…</div>}>
+                  <BikeHistory />
+                </Suspense>
+              </ProtectedRoute>
+            }
+          />
           <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
           <Route path="/admin" element={<ProtectedRoute><Admin /></ProtectedRoute>} />
 

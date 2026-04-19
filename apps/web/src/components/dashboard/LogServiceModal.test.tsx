@@ -101,8 +101,9 @@ const createBike = (
   } as BikePredictionSummary,
 });
 
-// Get today's date in YYYY-MM-DD format
-const getTodayDate = () => new Date().toISOString().split('T')[0];
+// Match the component's behavior — local date, not UTC. See todayDateInput.
+import { todayDateInput } from '../../lib/format';
+const getTodayDate = () => todayDateInput();
 
 describe('LogServiceModal', () => {
   const components = [

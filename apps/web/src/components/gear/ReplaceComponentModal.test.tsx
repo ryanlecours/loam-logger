@@ -243,14 +243,16 @@ describe('ReplaceComponentModal', () => {
       fireEvent.click(screen.getByText('Confirm'));
 
       await waitFor(() => {
+        // objectContaining lets the component thread an optional installedAt
+        // (defaults to today) without pinning the test to a specific date.
         expect(mockInstallComponent).toHaveBeenCalledWith({
           variables: {
-            input: {
+            input: expect.objectContaining({
               bikeId: 'bike-1',
               slotKey: 'FORK_NONE',
               existingComponentId: 'spare-1',
               noteText: null,
-            },
+            }),
           },
         });
       });
@@ -271,12 +273,12 @@ describe('ReplaceComponentModal', () => {
       await waitFor(() => {
         expect(mockInstallComponent).toHaveBeenCalledWith({
           variables: {
-            input: {
+            input: expect.objectContaining({
               bikeId: 'bike-1',
               slotKey: 'FORK_NONE',
               newComponent: { brand: 'Fox', model: '38 Factory' },
               noteText: null,
-            },
+            }),
           },
         });
       });

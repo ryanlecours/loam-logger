@@ -239,7 +239,7 @@ export default function RideStatsCard({ showHeading = true, rides: externalRides
       {truncated && (
         <p className="text-xs text-muted italic px-4 pb-2">
           Showing stats based on your most recent {MAX_RIDES_FOR_STATS} rides.
-          Weather totals cover your full history.
+          Weather totals cover the full selected timeframe.
         </p>
       )}
 

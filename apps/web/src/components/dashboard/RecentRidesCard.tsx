@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { Route } from 'lucide-react';
 import { CompactRideRow } from './CompactRideRow';
 import { getBikeName } from '../../utils/formatters';
+import type { RideWeather } from '../../models/Ride';
 
 interface Ride {
   id: string;
@@ -18,6 +19,7 @@ interface Ride {
   garminActivityId?: string | null;
   whoopWorkoutId?: string | null;
   bikeId?: string | null;
+  weather?: RideWeather | null;
 }
 
 interface Bike {

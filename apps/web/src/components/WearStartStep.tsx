@@ -1,10 +1,13 @@
 import { type AcquisitionCondition } from '@loam/shared';
 import { Sparkles, Clock } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
+import { todayDateInput } from '@/lib/format';
 
 interface WearStartStepProps {
   selected: AcquisitionCondition | null;
   onSelect: (condition: AcquisitionCondition) => void;
+  acquisitionDate: string;
+  onAcquisitionDateChange: (value: string) => void;
   onBack: () => void;
   onSubmit: () => void;
   submitting: boolean;
@@ -40,10 +43,13 @@ const STOCK_OPTIONS: StockOption[] = [
 export function WearStartStep({
   selected,
   onSelect,
+  acquisitionDate,
+  onAcquisitionDateChange,
   onBack,
   onSubmit,
   submitting,
 }: WearStartStepProps) {
+  const todayIso = todayDateInput();
   return (
     <div className="bg-surface border border-app rounded-xl shadow p-6 space-y-6">
       <div>
@@ -89,6 +95,23 @@ export function WearStartStep({
             </div>
           </button>
         ))}
+      </div>
+
+      <div className="border-t border-app pt-4">
+        <label htmlFor="acquisition-date" className="block text-sm font-medium text-primary mb-1">
+          When did you get this bike?
+        </label>
+        <p className="text-xs text-muted mb-2">
+          Sets the "installed" date for every stock component. Leave blank to use today.
+        </p>
+        <input
+          id="acquisition-date"
+          type="date"
+          value={acquisitionDate}
+          max={todayIso}
+          onChange={(e) => onAcquisitionDateChange(e.target.value)}
+          className="w-full px-3 py-2 rounded-lg border border-app bg-transparent text-sm text-primary focus:outline-none focus:border-accent"
+        />
       </div>
 
       <div className="flex justify-between pt-2">
