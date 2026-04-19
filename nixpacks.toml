@@ -19,4 +19,9 @@ cmds = [
 ]
 
 [start]
-cmd = "node dist/apps/api/server.cjs"
+# Run pending Prisma migrations before starting the server. `migrate deploy`
+# is idempotent (skips migrations already recorded in _prisma_migrations),
+# so the repeated boot-time cost is a single round-trip. If a migration
+# fails, the server won't start — better than booting with a schema
+# mismatch and throwing at runtime query time.
+cmd = "npx prisma migrate deploy --schema=apps/api/prisma/schema.prisma && node dist/apps/api/server.cjs"
