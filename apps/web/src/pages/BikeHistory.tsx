@@ -44,6 +44,7 @@ export default function BikeHistory() {
   const [editingInstall, setEditingInstall] = useState<{
     event: EditableInstallEvent;
     componentLabel: string;
+    hasPairedEvent: boolean;
   } | null>(null);
 
   const range = useMemo(() => computeTimeframeRange(timeframe), [timeframe]);
@@ -55,6 +56,24 @@ export default function BikeHistory() {
   });
 
   const payload = data?.bikeHistory;
+
+  // Base install-row ids that have BOTH an INSTALLED and a REMOVED event in
+  // the timeline. Used so the delete-confirmation copy on EditInstallModal
+  // can accurately say "one event" vs "both events."
+  const pairedBaseIds = useMemo(() => {
+    if (!payload) return new Set<string>();
+    const baseOf = (id: string) => {
+      const i = id.lastIndexOf(':');
+      return i > 0 ? id.slice(0, i) : id;
+    };
+    const seen = new Map<string, number>();
+    for (const ev of payload.installs) {
+      const base = baseOf(ev.id);
+      seen.set(base, (seen.get(base) ?? 0) + 1);
+    }
+    return new Set(Array.from(seen).filter(([, n]) => n >= 2).map(([b]) => b));
+  }, [payload]);
+
   const yearGroups = useMemo(() => {
     if (!payload) return [];
     return mergeAndGroupByYear({
@@ -183,7 +202,10 @@ export default function BikeHistory() {
                         {item.kind === 'install' && (
                           <InstallRow
                             install={item.install}
-                            onEdit={() =>
+                            onEdit={() => {
+                              const baseIdx = item.install.id.lastIndexOf(':');
+                              const baseId =
+                                baseIdx > 0 ? item.install.id.slice(0, baseIdx) : item.install.id;
                               setEditingInstall({
                                 event: {
                                   id: item.install.id,
@@ -191,8 +213,9 @@ export default function BikeHistory() {
                                   occurredAt: item.install.occurredAt,
                                 },
                                 componentLabel: componentDisplay(item.install.component),
-                              })
-                            }
+                                hasPairedEvent: pairedBaseIds.has(baseId),
+                              });
+                            }}
                           />
                         )}
                       </li>
@@ -220,6 +243,7 @@ export default function BikeHistory() {
           event={editingInstall.event}
           componentLabel={editingInstall.componentLabel}
           bikeId={bikeId}
+          hasPairedEvent={editingInstall.hasPairedEvent}
           onClose={() => setEditingInstall(null)}
         />
       )}

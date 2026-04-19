@@ -7,6 +7,7 @@ import { Button } from '../ui/Button';
 import { UPDATE_SERVICE_LOG, DELETE_SERVICE_LOG } from '../../graphql/serviceLog';
 import { BIKES } from '../../graphql/bikes';
 import { BIKE_HISTORY } from '../../graphql/bikeHistory';
+import { dateInputToIsoNoon, isoToDateInput } from '../../lib/format';
 
 export interface EditableServiceLog {
   id: string;
@@ -20,13 +21,6 @@ interface EditServiceModalProps {
   componentLabel: string;
   bikeId?: string;
   onClose: () => void;
-}
-
-function toDateInput(iso: string): string {
-  const d = new Date(iso);
-  if (!Number.isFinite(d.getTime())) return '';
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
 export function EditServiceModal({ log, componentLabel, bikeId, onClose }: EditServiceModalProps) {
@@ -47,7 +41,7 @@ export function EditServiceModal({ log, componentLabel, bikeId, onClose }: EditS
 
   useEffect(() => {
     if (log) {
-      setPerformedAt(toDateInput(log.performedAt));
+      setPerformedAt(isoToDateInput(log.performedAt));
       setNotes(log.notes ?? '');
       setHours(String(log.hoursAtService ?? 0));
       setError(null);
@@ -71,7 +65,7 @@ export function EditServiceModal({ log, componentLabel, bikeId, onClose }: EditS
         variables: {
           id: log.id,
           input: {
-            performedAt: new Date(performedAt).toISOString(),
+            performedAt: dateInputToIsoNoon(performedAt),
             notes: notes.trim() || null,
             hoursAtService: hoursNum,
           },
@@ -169,7 +163,7 @@ export function EditServiceModal({ log, componentLabel, bikeId, onClose }: EditS
             min="0"
             value={hours}
             onChange={(e) => setHours(e.target.value)}
-            className="log-service-date-input w-full"
+            className="w-full rounded-md border border-app bg-surface px-3 py-2 text-sm text-app focus:border-forest focus:outline-none focus:ring-1 focus:ring-forest"
           />
         </div>
 
@@ -182,7 +176,7 @@ export function EditServiceModal({ log, componentLabel, bikeId, onClose }: EditS
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             rows={3}
-            className="log-service-date-input w-full"
+            className="w-full rounded-md border border-app bg-surface px-3 py-2 text-sm text-app placeholder:text-muted focus:border-forest focus:outline-none focus:ring-1 focus:ring-forest resize-none"
             placeholder="Optional notes about this service"
           />
         </div>

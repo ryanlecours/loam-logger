@@ -39,8 +39,13 @@ async function batchLatestServiceLogByComponentId(
   componentIds: readonly string[]
 ): Promise<(ServiceLog | null)[]> {
   if (componentIds.length === 0) return [];
+  // Explicit column list — keeps the DataLoader cheap as ServiceLog evolves.
+  // Every field below is exposed on the GraphQL ServiceLog type; anything
+  // internal (e.g. updatedAt today, or a future rawJson column) stays out
+  // of the batched fetch path automatically.
   const rows = await prisma.$queryRaw<ServiceLog[]>`
-    SELECT DISTINCT ON ("componentId") *
+    SELECT DISTINCT ON ("componentId")
+      "id", "componentId", "performedAt", "notes", "hoursAtService", "createdAt"
     FROM "ServiceLog"
     WHERE "componentId" = ANY(${[...componentIds]}::text[])
     ORDER BY "componentId", "performedAt" DESC, "createdAt" DESC

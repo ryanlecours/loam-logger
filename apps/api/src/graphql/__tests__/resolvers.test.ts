@@ -1115,6 +1115,86 @@ describe('GraphQL Resolvers', () => {
       expect(result.newComponents).toHaveLength(1);
     });
 
+    it('closes the old install row and creates a new one stamped with installedAt', async () => {
+      // Pins the replace-component install-row fix: the old component's
+      // open BikeComponentInstall row must be closed (removedAt stamped
+      // with the new install date), AND a fresh install row created for
+      // the replacement with the same date. Without these writes, the
+      // BikeHistory timeline would show the old component as still
+      // installed and the new component with no install event at all.
+      const ctx = createMockContext('user-123');
+      const existingComponent = {
+        id: 'comp-1',
+        type: 'TIRES',
+        location: 'FRONT',
+        brand: 'Maxxis',
+        model: 'Minion DHF',
+        bikeId: 'bike-1',
+        userId: 'user-123',
+        pairGroupId: null,
+      };
+      mockPrisma.component.findFirst.mockResolvedValue(existingComponent as never);
+
+      const userInstalledAt = '2025-11-15T00:00:00.000Z';
+      const installUpdateMany = jest.fn().mockResolvedValue({ count: 1 });
+      const installCreate = jest.fn().mockResolvedValue({ id: 'install-new' });
+      mockPrisma.$transaction.mockImplementation(async (fn) => {
+        if (typeof fn !== 'function') return [];
+        const mockTx = {
+          component: {
+            update: jest
+              .fn()
+              .mockResolvedValueOnce({ ...existingComponent, retiredAt: new Date(userInstalledAt) })
+              .mockResolvedValueOnce({ ...existingComponent, replacedById: 'comp-new' }),
+            create: jest.fn().mockResolvedValue({
+              id: 'comp-new',
+              type: 'TIRES',
+              location: 'FRONT',
+              bikeId: 'bike-1',
+            }),
+            findFirst: jest.fn().mockResolvedValue(null),
+          },
+          serviceLog: { create: jest.fn().mockResolvedValue({ id: 'log-new' }) },
+          bikeComponentInstall: {
+            updateMany: installUpdateMany,
+            create: installCreate,
+          },
+        };
+        return fn(mockTx);
+      });
+
+      await mutation(
+        {},
+        {
+          input: {
+            componentId: 'comp-1',
+            newBrand: 'Maxxis',
+            newModel: 'Assegai',
+            installedAt: userInstalledAt,
+          },
+        },
+        ctx as never
+      );
+
+      // Old install row closed: filtered to this component's open install,
+      // stamped with the user-chosen install date.
+      expect(installUpdateMany).toHaveBeenCalledWith({
+        where: { componentId: 'comp-1', removedAt: null },
+        data: { removedAt: new Date(userInstalledAt) },
+      });
+
+      // New install row opened: same date as the closure, pointing at the
+      // replacement component on the same bike/slot.
+      expect(installCreate).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          userId: 'user-123',
+          bikeId: 'bike-1',
+          componentId: 'comp-new',
+          installedAt: new Date(userInstalledAt),
+        }),
+      });
+    });
+
     it('should replace paired component when alsoReplacePair is true', async () => {
       const ctx = createMockContext('user-123');
       const existingComponent = {
@@ -2878,6 +2958,86 @@ describe('GraphQL Resolvers', () => {
       // Non-latest + no date change → recompute helper should NOT run
       expect(mockComponentUpdate).not.toHaveBeenCalled();
       expect(mockRideAggregate).not.toHaveBeenCalled();
+    });
+
+    it('skips recompute when editing notes/hours on the latest log (no date change)', async () => {
+      // Regression: previously the resolver recomputed on ANY edit to the
+      // latest log. Metadata-only edits don't move the anchor, so we
+      // shouldn't aggregate ride hours or touch Component.
+      mockLogFindUnique.mockResolvedValueOnce({
+        id: 'log-latest',
+        component: { id: 'comp-1', userId: 'user-123', bikeId: 'bike-1' },
+      });
+      mockLogFindFirst.mockResolvedValueOnce({
+        id: 'log-latest',
+        performedAt: new Date('2026-03-01'),
+      });
+
+      const ctx = createMockContext('user-123');
+      await mutation(
+        {},
+        { id: 'log-latest', input: { notes: 'updated notes' } },
+        ctx as never
+      );
+
+      expect(mockLogUpdate).toHaveBeenCalledWith({
+        where: { id: 'log-latest' },
+        data: { notes: 'updated notes' },
+      });
+      expect(mockComponentUpdate).not.toHaveBeenCalled();
+      expect(mockRideAggregate).not.toHaveBeenCalled();
+    });
+
+    it('skips recompute when a non-latest date shift stays behind the previous latest', async () => {
+      // Regression: previously any date change triggered recompute. Moving
+      // an old log forward a few days but still earlier than the latest log
+      // leaves the anchor untouched, so no aggregate query is needed.
+      mockLogFindUnique.mockResolvedValueOnce({
+        id: 'log-old',
+        component: { id: 'comp-1', userId: 'user-123', bikeId: 'bike-1' },
+      });
+      mockLogFindFirst.mockResolvedValueOnce({
+        id: 'log-latest',
+        performedAt: new Date('2026-04-01'),
+      });
+
+      const ctx = createMockContext('user-123');
+      await mutation(
+        {},
+        { id: 'log-old', input: { performedAt: '2026-02-20T00:00:00.000Z' } },
+        ctx as never
+      );
+
+      expect(mockLogUpdate).toHaveBeenCalled();
+      expect(mockComponentUpdate).not.toHaveBeenCalled();
+      expect(mockRideAggregate).not.toHaveBeenCalled();
+    });
+
+    it('recomputes when a non-latest log is moved past the previous latest', async () => {
+      // A previously-non-latest log was moved forward to a date that now
+      // beats the old latest — the anchor moves and the helper must run.
+      mockLogFindUnique.mockResolvedValueOnce({
+        id: 'log-old',
+        component: { id: 'comp-1', userId: 'user-123', bikeId: 'bike-1' },
+      });
+      mockLogFindFirst
+        .mockResolvedValueOnce({ id: 'log-latest', performedAt: new Date('2026-01-01') })
+        // After the update, log-old is now the newest.
+        .mockResolvedValueOnce({ performedAt: new Date('2026-03-10') });
+      mockComponentFindUnique.mockResolvedValueOnce({ id: 'comp-1', bikeId: 'bike-1' });
+      mockRideAggregate.mockResolvedValueOnce({ _sum: { durationSeconds: 3600 } });
+
+      const ctx = createMockContext('user-123');
+      await mutation(
+        {},
+        { id: 'log-old', input: { performedAt: '2026-03-10T00:00:00.000Z' } },
+        ctx as never
+      );
+
+      expect(mockComponentUpdate).toHaveBeenCalledWith({
+        where: { id: 'comp-1' },
+        data: { lastServicedAt: new Date('2026-03-10'), hoursUsed: 1 },
+      });
     });
 
     it('recomputes anchor + hoursUsed when editing the latest log date', async () => {

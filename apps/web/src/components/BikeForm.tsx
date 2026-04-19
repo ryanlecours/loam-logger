@@ -18,6 +18,7 @@ import {
 } from '@/utils/bikeFormHelpers';
 import { WearStartStep } from './WearStartStep';
 import { parseTravelFromDescription, type AcquisitionCondition } from '@loam/shared';
+import { dateInputToIsoNoon } from '@/lib/format';
 
 /**
  * Props for ComponentRow - memoized to prevent re-renders on sibling changes
@@ -328,7 +329,7 @@ export function BikeForm({
     const finalForm: BikeFormValues = {
       ...form,
       acquisitionCondition: acquisitionCondition ?? 'NEW',
-      acquisitionDate: acquisitionDate ? new Date(acquisitionDate).toISOString() : null,
+      acquisitionDate: acquisitionDate ? dateInputToIsoNoon(acquisitionDate) : null,
       spokesComponents: filterNonNullComponents(spokesComponents),
       // Default component state - backend will create actual components
       components: {

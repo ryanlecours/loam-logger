@@ -276,6 +276,17 @@ const cleanText = (v: unknown, max = MAX_LABEL_LEN) =>
  *
  * Uses ride duration on the component's current bike as the wear proxy,
  * matching how `incrementBikeComponentHours` ticks the counter on ride upload.
+ *
+ * **Missing-component tolerance:** the initial `component.findUnique` can
+ * return null if the component was deleted between the caller's ownership
+ * check and this helper (e.g. racing against an account teardown or a
+ * concurrent cascade). In that case the helper silently no-ops — the row
+ * is gone, there's nothing to anchor. Callers don't need to special-case
+ * this: the outer transaction is already doing the "correct" work (the
+ * edit/delete of the triggering ServiceLog), and a missing component just
+ * means the recompute half has no target. Returning void rather than
+ * throwing keeps the mutation's primary effect from rolling back for a
+ * recompute-stage anomaly.
  */
 async function recomputeComponentAfterServiceChange(
   tx: Prisma.TransactionClient,
@@ -1380,6 +1391,23 @@ export const resolvers = {
           },
           orderBy: { startTime: 'desc' },
           take: RIDE_CAP,
+          // Explicit allow-list: keeps the query cheap at the 2000-row cap
+          // as the Ride model grows. Matches the fields that both the web
+          // and mobile BikeHistory ride fragments consume — if a client
+          // adds a new field here, this projection must grow too. The
+          // Ride.weather field resolver lazy-loads via DataLoader from the
+          // ride id, so we deliberately skip including it.
+          select: {
+            id: true,
+            startTime: true,
+            durationSeconds: true,
+            distanceMeters: true,
+            elevationGainMeters: true,
+            averageHr: true,
+            rideType: true,
+            trailSystem: true,
+            location: true,
+          },
         }),
         prisma.serviceLog.findMany({
           where: {
@@ -1390,6 +1418,16 @@ export const resolvers = {
           orderBy: { performedAt: 'desc' },
           take: SERVICE_CAP,
         }),
+        // Each BikeComponentInstall row carries TWO potential timeline
+        // events (installedAt, and optionally removedAt). The OR filter
+        // selects any row where *either* date touches the range, because
+        // we need rows that contribute *any* visible event. But a selected
+        // row can still hold one in-range and one out-of-range date — e.g.
+        // installed 2020, removed 2026, with the user filtering "past
+        // year" should emit only the REMOVED event, not the old INSTALLED.
+        // The per-event `installedInRange` / `removedInRange` checks below
+        // do that second pass; the Prisma filter alone is intentionally
+        // too permissive.
         prisma.bikeComponentInstall.findMany({
           where: {
             userId,
@@ -1460,6 +1498,16 @@ export const resolvers = {
         totalElevationGainMeters += r.elevationGainMeters;
       }
 
+      // `rides` is returned raw from Prisma; the GraphQL `Ride` type at
+      // schema.ts:144 is the authoritative allow-list — graphql-js only
+      // serializes declared fields, so Prisma-internal columns (startLat,
+      // startLng, importSessionId, etc.) never leave the server. We keep
+      // this shape (rather than explicitly projecting like `serviceEvents`
+      // and `installs`) because the existing `rides` query does the same,
+      // and Date → ISO coercion is already handled by the Ride.startTime
+      // field resolver. `serviceEvents` and `installs` are projected only
+      // because they need genuine reshaping (Date → string, splitting one
+      // install row into INSTALLED/REMOVED pair events).
       return {
         bike,
         rides,
@@ -2449,11 +2497,26 @@ export const resolvers = {
           },
         });
 
-        // Recompute anchor + hoursUsed if this edit could have moved the anchor:
-        //   - was the latest AND date/order changed
-        //   - was NOT the latest but new date makes it the latest
+        // Recompute anchor + hoursUsed only when the edit could have moved
+        // `max(performedAt)` for this component:
+        //   a) This log WAS the latest and its date changed. Either it's
+        //      still latest at a new date, or it moved behind another log
+        //      that's now latest — either way, the anchor shifts.
+        //   b) This log WAS NOT the latest but its new date is later than
+        //      the previous latest, meaning it just became latest.
+        //
+        // Non-latest edits with non-anchor-crossing date shifts (e.g. moving
+        // a mid-history log a few days within its window) and
+        // metadata-only edits (notes/hours on any log) leave the anchor
+        // untouched — skipping the helper saves a ride-aggregate query and
+        // a component.update round-trip.
         const dateChanged = !!newPerformedAt;
-        if (wasLatest || dateChanged) {
+        const becameLatest =
+          !wasLatest &&
+          dateChanged &&
+          !!currentLatest &&
+          newPerformedAt! > currentLatest.performedAt;
+        if ((wasLatest && dateChanged) || becameLatest) {
           await recomputeComponentAfterServiceChange(tx, existing.component.id);
         }
 

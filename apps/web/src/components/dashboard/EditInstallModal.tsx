@@ -11,6 +11,7 @@ import {
 import { BIKES } from '../../graphql/bikes';
 import { BIKE_HISTORY } from '../../graphql/bikeHistory';
 import { GEAR_QUERY_LIGHT } from '../../graphql/gear';
+import { dateInputToIsoNoon, isoToDateInput } from '../../lib/format';
 
 export interface EditableInstallEvent {
   /** Composite id from BikeHistory (e.g. "abc:installed" or "abc:removed"). */
@@ -23,15 +24,15 @@ interface EditInstallModalProps {
   event: EditableInstallEvent | null;
   componentLabel: string;
   bikeId?: string;
+  /**
+   * True when the underlying BikeComponentInstall row has BOTH installedAt
+   * and removedAt — i.e. the timeline shows both an "Installed" and a
+   * "Removed" entry for this component. Controls the delete-confirmation
+   * copy so we don't claim "removes two events" on a component that was
+   * never taken off the bike.
+   */
+  hasPairedEvent?: boolean;
   onClose: () => void;
-}
-
-function toDateInput(iso: string | null | undefined): string {
-  if (!iso) return '';
-  const d = new Date(iso);
-  if (!Number.isFinite(d.getTime())) return '';
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
 function baseInstallId(compositeId: string): string {
@@ -42,7 +43,13 @@ function baseInstallId(compositeId: string): string {
   return idx > 0 ? compositeId.slice(0, idx) : compositeId;
 }
 
-export function EditInstallModal({ event, componentLabel, bikeId, onClose }: EditInstallModalProps) {
+export function EditInstallModal({
+  event,
+  componentLabel,
+  bikeId,
+  hasPairedEvent = false,
+  onClose,
+}: EditInstallModalProps) {
   const [dateValue, setDateValue] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -59,7 +66,7 @@ export function EditInstallModal({ event, componentLabel, bikeId, onClose }: Edi
 
   useEffect(() => {
     if (event) {
-      setDateValue(toDateInput(event.occurredAt));
+      setDateValue(isoToDateInput(event.occurredAt));
       setError(null);
       setConfirmingDelete(false);
     }
@@ -74,7 +81,7 @@ export function EditInstallModal({ event, componentLabel, bikeId, onClose }: Edi
     setBusy(true);
     setError(null);
     try {
-      const iso = dateValue ? new Date(dateValue).toISOString() : undefined;
+      const iso = dateValue ? dateInputToIsoNoon(dateValue) : undefined;
       if (!iso) {
         setError('Pick a valid date.');
         setBusy(false);
@@ -128,7 +135,9 @@ export function EditInstallModal({ event, componentLabel, bikeId, onClose }: Edi
           ) : (
             <div className="flex items-center gap-2">
               <span className="text-xs text-muted">
-                Delete both the install and removal events?
+                {hasPairedEvent
+                  ? 'Delete both the install and removal events?'
+                  : 'Delete this install event?'}
               </span>
               <Button variant="primary" size="sm" onClick={handleDelete} disabled={busy}>
                 {busy ? 'Deleting…' : 'Yes, delete'}
@@ -156,7 +165,9 @@ export function EditInstallModal({ event, componentLabel, bikeId, onClose }: Edi
         </div>
 
         <p className="text-xs text-muted">
-          This will remove both the install and removal events for this component.
+          {hasPairedEvent
+            ? 'Deleting this entry removes both the install and removal events for this component.'
+            : 'Deleting this entry removes the install record for this component.'}
         </p>
 
         <div>

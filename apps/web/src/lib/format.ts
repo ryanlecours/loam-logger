@@ -44,3 +44,28 @@ export function toLocalInputValue(v: string | number | Date): string {
 export function fromLocalInputValue(s: string): string {
   return new Date(s).toISOString();
 }
+
+/**
+ * Convert a `<input type="date">` value (yyyy-mm-dd, timezone-less) to an
+ * ISO string anchored at local noon. `new Date('2021-08-15')` parses as
+ * UTC midnight, which in UTC-5 would shift to 2021-08-14 on the server —
+ * the "my date was saved a day early" bug. Anchoring at local noon keeps
+ * the calendar day stable across reasonable timezones.
+ */
+export function dateInputToIsoNoon(dateValue: string): string {
+  return new Date(`${dateValue}T12:00:00`).toISOString();
+}
+
+/**
+ * Convert an ISO timestamp back to a `<input type="date">` value
+ * (yyyy-mm-dd in the user's local timezone). Returns '' for null,
+ * undefined, or unparseable input so callers can feed it directly into an
+ * `<input value={...}>` without extra null-checks.
+ */
+export function isoToDateInput(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}

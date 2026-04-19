@@ -5,6 +5,7 @@ import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
 import { SWAP_COMPONENTS, GEAR_QUERY_LIGHT } from '../../graphql/gear';
 import { formatComponentLabel, getBikeName } from '../../utils/formatters';
+import { dateInputToIsoNoon } from '../../lib/format';
 
 interface SwapComponentModalProps {
   isOpen: boolean;
@@ -98,7 +99,7 @@ export function SwapComponentModal({
             bikeIdB: targetBike.id,
             slotKeyB,
             noteText: trimmedNoteText,
-            installedAt: installedAt ? new Date(installedAt).toISOString() : undefined,
+            installedAt: installedAt ? dateInputToIsoNoon(installedAt) : undefined,
           },
         },
       });

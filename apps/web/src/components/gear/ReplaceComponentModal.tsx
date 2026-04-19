@@ -6,6 +6,7 @@ import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
 import { INSTALL_COMPONENT, GEAR_QUERY_LIGHT } from '../../graphql/gear';
 import { getComponentLabel } from '../../constants/componentLabels';
+import { dateInputToIsoNoon } from '../../lib/format';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -105,7 +106,7 @@ export function ReplaceComponentModal({
 
     try {
       const trimmedNoteText = noteText.trim() || null;
-      const installedAtIso = installedAt ? new Date(installedAt).toISOString() : undefined;
+      const installedAtIso = installedAt ? dateInputToIsoNoon(installedAt) : undefined;
 
       if (activeTab === 'spare') {
         await installComponent({

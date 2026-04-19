@@ -542,8 +542,22 @@ export const typeDefs = gql`
     hoursAtService: Float
   }
 
+  """
+  Patch fields on a BikeComponentInstall row.
+
+  **Null handling is asymmetric**, mirroring the underlying Prisma schema:
+
+  - \`installedAt\`: an ISO date string updates the value. \`null\` or omitted
+    is a no-op. You cannot clear this field — \`installedAt\` is required at
+    the database level.
+  - \`removedAt\`: an ISO date string updates the value. Explicit \`null\`
+    **clears** the field (the component is no longer marked as removed).
+    Omitting the key is a no-op.
+  """
   input UpdateBikeComponentInstallInput {
+    """ISO date string. Pass to update; null or omitted is ignored (cannot be cleared)."""
     installedAt: String
+    """ISO date string to set, or explicit null to clear."""
     removedAt: String
   }
 
