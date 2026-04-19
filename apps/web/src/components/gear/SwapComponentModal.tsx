@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation } from '@apollo/client';
 import { getSlotKey } from '@loam/shared';
 import { Modal } from '../ui/Modal';
@@ -54,6 +54,19 @@ export function SwapComponentModal({
   const [noteText, setNoteText] = useState('');
   const [installedAt, setInstalledAt] = useState(() => todayDateInput());
   const [error, setError] = useState<string | null>(null);
+
+  // Reset state every time the modal re-opens. Without this, a user who
+  // picks a past date (or types a note), closes without submitting, and
+  // reopens for a different swap would see the stale values pre-filled.
+  // Mirrors ReplaceComponentModal's open-reset pattern.
+  useEffect(() => {
+    if (isOpen) {
+      setSwappingTargetId(null);
+      setNoteText('');
+      setInstalledAt(todayDateInput());
+      setError(null);
+    }
+  }, [isOpen]);
 
   const [swapComponents] = useMutation(SWAP_COMPONENTS, {
     refetchQueries: [{ query: GEAR_QUERY_LIGHT }],

@@ -3362,6 +3362,53 @@ describe('GraphQL Resolvers', () => {
       expect(mockUpdate).not.toHaveBeenCalled();
     });
 
+    it('rejects a new installedAt later than the existing removedAt', async () => {
+      // Only installedAt is in the payload, but the row already has a
+      // removedAt. Without guarding against the persisted removedAt, the
+      // row ends up inverted (installed 2026-02, removed 2026-01).
+      mockFindUnique.mockResolvedValueOnce({
+        id: 'install-1',
+        userId: 'user-123',
+        bikeId: 'bike-1',
+        installedAt: new Date('2025-06-01T00:00:00Z'),
+        removedAt: new Date('2026-01-01T00:00:00Z'),
+      });
+      const ctx = createMockContext('user-123');
+
+      await expect(
+        mutation(
+          {},
+          { id: 'install-1', input: { installedAt: '2026-02-15T00:00:00Z' } },
+          ctx as never
+        )
+      ).rejects.toThrow('Removal date cannot be before install date');
+      expect(mockUpdate).not.toHaveBeenCalled();
+    });
+
+    it('allows updating installedAt on a row with a non-conflicting existing removedAt', async () => {
+      // Complement to the case above — if the new installedAt still sits
+      // before the persisted removedAt, the update should proceed normally.
+      mockFindUnique.mockResolvedValueOnce({
+        id: 'install-1',
+        userId: 'user-123',
+        bikeId: 'bike-1',
+        installedAt: new Date('2025-01-01T00:00:00Z'),
+        removedAt: new Date('2026-03-01T00:00:00Z'),
+      });
+      const ctx = createMockContext('user-123');
+
+      await mutation(
+        {},
+        { id: 'install-1', input: { installedAt: '2025-06-15T00:00:00Z' } },
+        ctx as never
+      );
+
+      expect(mockUpdate).toHaveBeenCalledWith({
+        where: { id: 'install-1' },
+        data: { installedAt: new Date('2025-06-15T00:00:00Z') },
+      });
+    });
+
     it('short-circuits empty input without touching Prisma or the cache', async () => {
       const existing = { id: 'install-1', userId: 'user-123', bikeId: 'bike-1' };
       mockFindUnique.mockResolvedValueOnce(existing);

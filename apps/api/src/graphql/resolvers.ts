@@ -2652,15 +2652,22 @@ export const resolvers = {
       }
 
       // Chronology guard: a component can't come off a bike before it was
-      // installed. Compare against the effective install anchor (the new
-      // value if we're also updating installedAt in the same mutation,
-      // otherwise the persisted value).
-      if (data.removedAt instanceof Date) {
-        const effectiveInstalledAt =
-          data.installedAt instanceof Date ? data.installedAt : existing.installedAt;
-        if (data.removedAt < effectiveInstalledAt) {
-          throw new Error('Removal date cannot be before install date');
-        }
+      // installed. Compare the POST-UPDATE state of both timestamps — a
+      // user who just moves `installedAt` forward past an already-persisted
+      // `removedAt` would otherwise invert the range silently.
+      //
+      // Explicit `removedAt: null` (clearing) skips the check — no removal
+      // date to violate.
+      const effectiveInstalledAt =
+        data.installedAt instanceof Date ? data.installedAt : existing.installedAt;
+      const effectiveRemovedAt: Date | null =
+        data.removedAt === null
+          ? null
+          : data.removedAt instanceof Date
+          ? data.removedAt
+          : existing.removedAt;
+      if (effectiveRemovedAt && effectiveRemovedAt < effectiveInstalledAt) {
+        throw new Error('Removal date cannot be before install date');
       }
 
       // Nothing to change — skip the Prisma round-trip and the pair of cache
