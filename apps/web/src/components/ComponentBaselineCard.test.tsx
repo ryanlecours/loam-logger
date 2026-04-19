@@ -2,9 +2,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { ComponentBaselineCard } from './ComponentBaselineCard';
 import type { ComponentBaseline } from '@loam/shared';
+import { todayDateInput } from '../lib/format';
 
-// Get today's date in YYYY-MM-DD format
-const getTodayDate = () => new Date().toISOString().split('T')[0];
+// Match the component's behavior — local date, not UTC. See todayDateInput.
+const getTodayDate = () => todayDateInput();
 
 describe('ComponentBaselineCard', () => {
   const defaultBaseline: ComponentBaseline = {

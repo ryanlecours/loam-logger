@@ -11,7 +11,7 @@ import {
 import { BIKES } from '../../graphql/bikes';
 import { BIKE_HISTORY } from '../../graphql/bikeHistory';
 import { GEAR_QUERY_LIGHT } from '../../graphql/gear';
-import { dateInputToIsoNoon, isoToDateInput } from '../../lib/format';
+import { dateInputToIsoNoon, isoToDateInput, todayDateInput } from '../../lib/format';
 
 export interface EditableInstallEvent {
   /** Composite id from BikeHistory (e.g. "abc:installed" or "abc:removed"). */
@@ -178,7 +178,7 @@ export function EditInstallModal({
             id="edit-install-date"
             type="date"
             value={dateValue}
-            max={new Date().toISOString().split('T')[0]}
+            max={todayDateInput()}
             onChange={(e) => setDateValue(e.target.value)}
             className="log-service-date-input w-full"
           />

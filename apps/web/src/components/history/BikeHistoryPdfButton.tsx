@@ -4,6 +4,7 @@ import { FileDown } from 'lucide-react';
 
 import { Button } from '@/components/ui/Button';
 import { bikeName, slugify } from '@/lib/bikeHistory';
+import { todayDateInput } from '@/lib/format';
 import type {
   HistoryBike,
   HistoryInstallEvent,
@@ -43,7 +44,7 @@ export default function BikeHistoryPdfButton(props: Props) {
         <BikeHistoryPdf {...props} logoSrc={LOGO_SRC} />
       ).toBlob();
       const url = URL.createObjectURL(blob);
-      const dateStr = new Date().toISOString().slice(0, 10);
+      const dateStr = todayDateInput();
       const filename = `${slugify(bikeName(props.bike))}-history-${dateStr}.pdf`;
       const link = document.createElement('a');
       link.href = url;

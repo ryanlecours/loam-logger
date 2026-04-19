@@ -5,7 +5,7 @@ import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
 import { SWAP_COMPONENTS, GEAR_QUERY_LIGHT } from '../../graphql/gear';
 import { formatComponentLabel, getBikeName } from '../../utils/formatters';
-import { dateInputToIsoNoon } from '../../lib/format';
+import { dateInputToIsoNoon, todayDateInput } from '../../lib/format';
 
 interface SwapComponentModalProps {
   isOpen: boolean;
@@ -52,7 +52,7 @@ export function SwapComponentModal({
 }: SwapComponentModalProps) {
   const [swappingTargetId, setSwappingTargetId] = useState<string | null>(null);
   const [noteText, setNoteText] = useState('');
-  const [installedAt, setInstalledAt] = useState(() => new Date().toISOString().slice(0, 10));
+  const [installedAt, setInstalledAt] = useState(() => todayDateInput());
   const [error, setError] = useState<string | null>(null);
 
   const [swapComponents] = useMutation(SWAP_COMPONENTS, {
@@ -140,7 +140,7 @@ export function SwapComponentModal({
           id="swap-installed-at"
           type="date"
           value={installedAt}
-          max={new Date().toISOString().slice(0, 10)}
+          max={todayDateInput()}
           onChange={(e) => setInstalledAt(e.target.value)}
           className="rounded-md border border-app bg-surface px-3 py-2 text-sm text-app focus:border-forest focus:outline-none focus:ring-1 focus:ring-forest"
         />

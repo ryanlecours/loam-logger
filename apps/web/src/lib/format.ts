@@ -69,3 +69,13 @@ export function isoToDateInput(iso: string | null | undefined): string {
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
+
+/**
+ * Today's date as a `<input type="date">` value (yyyy-mm-dd in the user's
+ * local timezone). Use for `max` attributes and default values on date
+ * inputs. The naive `new Date().toISOString().slice(0, 10)` returns UTC
+ * today, which is wrong near midnight for any non-UTC user.
+ */
+export function todayDateInput(): string {
+  return isoToDateInput(new Date().toISOString());
+}

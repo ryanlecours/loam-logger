@@ -1,6 +1,7 @@
 import { type AcquisitionCondition } from '@loam/shared';
 import { Sparkles, Clock } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
+import { todayDateInput } from '@/lib/format';
 
 interface WearStartStepProps {
   selected: AcquisitionCondition | null;
@@ -48,7 +49,7 @@ export function WearStartStep({
   onSubmit,
   submitting,
 }: WearStartStepProps) {
-  const todayIso = new Date().toISOString().slice(0, 10);
+  const todayIso = todayDateInput();
   return (
     <div className="bg-surface border border-app rounded-xl shadow p-6 space-y-6">
       <div>

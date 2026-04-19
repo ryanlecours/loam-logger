@@ -6,7 +6,7 @@ import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
 import { INSTALL_COMPONENT, GEAR_QUERY_LIGHT } from '../../graphql/gear';
 import { getComponentLabel } from '../../constants/componentLabels';
-import { dateInputToIsoNoon } from '../../lib/format';
+import { dateInputToIsoNoon, todayDateInput } from '../../lib/format';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -59,7 +59,7 @@ export function ReplaceComponentModal({
   const [newBrand, setNewBrand] = useState('');
   const [newModel, setNewModel] = useState('');
   const [noteText, setNoteText] = useState('');
-  const [installedAt, setInstalledAt] = useState(() => new Date().toISOString().slice(0, 10));
+  const [installedAt, setInstalledAt] = useState(() => todayDateInput());
   const [error, setError] = useState<string | null>(null);
 
   // ---- derived ------------------------------------------------------------
@@ -89,7 +89,7 @@ export function ReplaceComponentModal({
       setNewBrand('');
       setNewModel('');
       setNoteText('');
-      setInstalledAt(new Date().toISOString().slice(0, 10));
+      setInstalledAt(todayDateInput());
       setError(null);
     }
   }, [isOpen, matchingSpares.length]);
@@ -333,7 +333,7 @@ export function ReplaceComponentModal({
             id="replace-installed-at"
             type="date"
             value={installedAt}
-            max={new Date().toISOString().slice(0, 10)}
+            max={todayDateInput()}
             onChange={(e) => setInstalledAt(e.target.value)}
             className="rounded-md border border-app bg-surface px-3 py-2 text-sm text-app focus:border-forest focus:outline-none focus:ring-1 focus:ring-forest"
           />

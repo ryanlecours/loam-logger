@@ -7,7 +7,7 @@ import { Button } from '../ui/Button';
 import { UPDATE_SERVICE_LOG, DELETE_SERVICE_LOG } from '../../graphql/serviceLog';
 import { BIKES } from '../../graphql/bikes';
 import { BIKE_HISTORY } from '../../graphql/bikeHistory';
-import { dateInputToIsoNoon, isoToDateInput } from '../../lib/format';
+import { dateInputToIsoNoon, isoToDateInput, todayDateInput } from '../../lib/format';
 
 export interface EditableServiceLog {
   id: string;
@@ -147,7 +147,7 @@ export function EditServiceModal({ log, componentLabel, bikeId, onClose }: EditS
             type="date"
             value={performedAt}
             onChange={(e) => setPerformedAt(e.target.value)}
-            max={new Date().toISOString().split('T')[0]}
+            max={todayDateInput()}
             className="log-service-date-input w-full"
           />
         </div>

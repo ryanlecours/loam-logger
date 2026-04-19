@@ -2936,6 +2936,22 @@ describe('GraphQL Resolvers', () => {
       expect(mockLogUpdate).not.toHaveBeenCalled();
     });
 
+    it('rejects hoursAtService above the upper cap', async () => {
+      // Blocks wear-engine-blowing submissions like 1e15. The cap is
+      // 100,000 — way above any realistic lifetime — so a normal user
+      // never trips it, but bogus input fails fast instead of silently
+      // skewing every downstream prediction.
+      mockLogFindUnique.mockResolvedValueOnce({
+        id: 'log-1',
+        component: { id: 'comp-1', userId: 'user-123', bikeId: 'bike-1' },
+      });
+      const ctx = createMockContext('user-123');
+      await expect(
+        mutation({}, { id: 'log-1', input: { hoursAtService: 1e15 } }, ctx as never)
+      ).rejects.toThrow('hoursAtService must be between 0 and 100000');
+      expect(mockLogUpdate).not.toHaveBeenCalled();
+    });
+
     it('does not touch component anchor when editing a non-latest log', async () => {
       mockLogFindUnique.mockResolvedValueOnce({
         id: 'log-old',

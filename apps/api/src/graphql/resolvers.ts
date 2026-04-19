@@ -254,6 +254,16 @@ const MAX_NOTES_LEN = 2000;
 const MAX_LABEL_LEN = 120;
 
 /**
+ * Upper bound for user-supplied "hours at service" values. 100,000 is ~11
+ * years of continuous use — well beyond any realistic component lifetime
+ * (even a 30-hr/week rider accumulates under 50k over a lifetime). Blocks
+ * bogus submissions like 1e15 that would otherwise silently skew wear
+ * predictions, which compare this value against service-interval caps of
+ * 1000h.
+ */
+const MAX_SERVICE_HOURS = 100_000;
+
+/**
  * Clean user input text.
  * - Trims whitespace
  * - Truncates to max length
@@ -2456,7 +2466,7 @@ export const resolvers = {
         include: { component: { select: { id: true, userId: true, bikeId: true } } },
       });
       if (!existing || existing.component.userId !== userId) {
-        throw new Error('Service log not found');
+        throw new GraphQLError('Service log not found', { extensions: { code: 'NOT_FOUND' } });
       }
 
       // Validate input after auth.
@@ -2470,8 +2480,20 @@ export const resolvers = {
         input.notes === undefined ? undefined : input.notes === null ? null : cleanText(input.notes, MAX_NOTES_LEN);
       let newHoursAtService: number | undefined;
       if (input.hoursAtService !== undefined && input.hoursAtService !== null) {
-        if (!Number.isFinite(input.hoursAtService) || input.hoursAtService < 0) {
-          throw new Error('hoursAtService must be a non-negative number');
+        // Upper cap guards the wear engine. 100,000 hours is ~11 years of
+        // continuous use — well above any realistic component lifetime
+        // (even a 30-hr/week rider tops out near 50k over a lifetime).
+        // The engine compares this value against service-interval caps of
+        // 1000h, so bogus inputs like 1e15 would silently skew every
+        // downstream prediction.
+        if (
+          !Number.isFinite(input.hoursAtService) ||
+          input.hoursAtService < 0 ||
+          input.hoursAtService > MAX_SERVICE_HOURS
+        ) {
+          throw new Error(
+            `hoursAtService must be between 0 and ${MAX_SERVICE_HOURS}`
+          );
         }
         newHoursAtService = input.hoursAtService;
       }
@@ -2547,7 +2569,7 @@ export const resolvers = {
         include: { component: { select: { id: true, userId: true, bikeId: true } } },
       });
       if (!existing || existing.component.userId !== userId) {
-        throw new Error('Service log not found');
+        throw new GraphQLError('Service log not found', { extensions: { code: 'NOT_FOUND' } });
       }
 
       const componentId = existing.component.id;
@@ -2605,7 +2627,7 @@ export const resolvers = {
         where: { id },
       });
       if (!existing || existing.userId !== userId) {
-        throw new Error('Install record not found');
+        throw new GraphQLError('Install record not found', { extensions: { code: 'NOT_FOUND' } });
       }
 
       const now = new Date();
@@ -2644,6 +2666,14 @@ export const resolvers = {
       // Nothing to change — skip the Prisma round-trip and the pair of cache
       // invalidations. Callers get back the current row, matching the
       // semantic "update with no fields is a no-op."
+      //
+      // NOTE: `existing` was fetched with no `include`, so any future
+      // nested field resolver on BikeComponentInstall (e.g. a `bike` or
+      // `component` sub-selection) would see `undefined` here instead of
+      // the hydrated relation. Today the type is all scalars, so that's
+      // fine — if a relation gets added, hoist `existing` to include the
+      // same selections the post-update branch returns, or drop this
+      // short-circuit in favor of a regular `update()` round-trip.
       if (Object.keys(data).length === 0) {
         return existing;
       }
@@ -2678,7 +2708,7 @@ export const resolvers = {
         where: { id },
       });
       if (!existing || existing.userId !== userId) {
-        throw new Error('Install record not found');
+        throw new GraphQLError('Install record not found', { extensions: { code: 'NOT_FOUND' } });
       }
 
       if (existing.bikeId) await invalidateBikePrediction(userId, existing.bikeId);
