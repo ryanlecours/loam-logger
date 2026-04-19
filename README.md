@@ -295,6 +295,17 @@ Defined in [`styles/design-system/colors.css`](apps/web/src/styles/design-system
 - Deploy backend using the Railway CLI or GitHub integration.
 - Set your production `DATABASE_URL`, `JWT_SECRET`, and `CORS_ORIGIN` variables.
 
+> **Why the container might fail to start:** `nixpacks.toml` runs
+> `prisma migrate deploy` before the server process on every boot, so the
+> service will not come up if pending migrations can't apply. Most often
+> this means `DATABASE_URL` is missing or points at an unreachable
+> Postgres instance — Railway's logs will show `Environment variable not
+> found: DATABASE_URL` or a connection error from Prisma. Confirm the var
+> is set on the service's Variables tab in Railway before retrying the
+> deploy. This "fail-fast on schema mismatch" is intentional: we'd rather
+> the container refuse to start than boot and throw cryptic "column does
+> not exist" errors at runtime.
+
 ### Vercel → Frontend
 - Set `VITE_API_URL` to your Railway backend endpoint.
 - Enable automatic redeploys from `main`.

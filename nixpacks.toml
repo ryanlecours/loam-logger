@@ -24,4 +24,8 @@ cmds = [
 # so the repeated boot-time cost is a single round-trip. If a migration
 # fails, the server won't start — better than booting with a schema
 # mismatch and throwing at runtime query time.
-cmd = "npx prisma migrate deploy --schema=apps/api/prisma/schema.prisma && node dist/apps/api/server.cjs"
+#
+# Using the local binary (not `npx prisma`) avoids npx's version-resolution
+# overhead and a potential network check on cold starts, and guarantees we
+# run the exact Prisma version that's locked in package-lock.json.
+cmd = "./node_modules/.bin/prisma migrate deploy --schema=apps/api/prisma/schema.prisma && node dist/apps/api/server.cjs"
