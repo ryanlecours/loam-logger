@@ -28,4 +28,20 @@ cmds = [
 # Using the local binary (not `npx prisma`) avoids npx's version-resolution
 # overhead and a potential network check on cold starts, and guarantees we
 # run the exact Prisma version that's locked in package-lock.json.
-cmd = "./node_modules/.bin/prisma migrate deploy --schema=apps/api/prisma/schema.prisma && node dist/apps/api/server.cjs"
+#
+# Bounded retry loop (5 attempts × 5s = up to 25s) absorbs the cold-start
+# race where the Postgres service hasn't finished accepting connections
+# before the API container boots. `exec` replaces the shell with the node
+# process on success so signals propagate cleanly. After 5 failures the
+# container exits non-zero and Railway's restart policy takes over —
+# intentionally bounded so a genuinely broken DB doesn't leave us hung in
+# an infinite retry loop.
+cmd = '''
+for i in 1 2 3 4 5; do
+  ./node_modules/.bin/prisma migrate deploy --schema=apps/api/prisma/schema.prisma && exec node dist/apps/api/server.cjs
+  echo "Migration attempt $i failed, retrying in 5s..." >&2
+  sleep 5
+done
+echo "Migration failed after 5 attempts; aborting boot" >&2
+exit 1
+'''
