@@ -1362,6 +1362,19 @@ export const resolvers = {
     ) => {
       const userId = requireUserId(ctx);
 
+      // Read rate limit: each call fans out to three findMany queries
+      // (rides + serviceLogs + installs, up to ~4k rows combined). Higher
+      // ceiling than mutations because toggle/filter/cache-and-network
+      // churn legitimately hits this in bursts, but capped to stop a
+      // polling loop from hammering the DB.
+      const rateLimit = await checkMutationRateLimit('bikeHistory', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(
+          `Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`,
+          { extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter } }
+        );
+      }
+
       const [bike, tierUser] = await Promise.all([
         prisma.bike.findFirst({ where: { id: bikeId, userId } }),
         prisma.user.findUniqueOrThrow({

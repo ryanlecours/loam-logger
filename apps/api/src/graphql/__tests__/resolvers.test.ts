@@ -3880,6 +3880,24 @@ describe('GraphQL Resolvers', () => {
       expect(mockRideFindMany).not.toHaveBeenCalled();
     });
 
+    it('enforces the rate limit before any DB work', async () => {
+      // Protects against a polling loop fanning out to three findMany
+      // queries per hit. Rate-limit rejection must short-circuit before
+      // the ownership check and before the data queries — so a rejected
+      // caller can't even confirm whether the bike exists.
+      mockCheckMutationRateLimit.mockResolvedValueOnce({ allowed: false, retryAfter: 42 });
+      const ctx = createMockContext('user-123');
+
+      await expect(
+        resolver({}, { bikeId: 'bike-1' }, ctx as never)
+      ).rejects.toThrow('Rate limit exceeded. Try again in 42 seconds.');
+
+      expect(mockBikeFindFirst).not.toHaveBeenCalled();
+      expect(mockRideFindMany).not.toHaveBeenCalled();
+      expect(mockServiceLogFindMany).not.toHaveBeenCalled();
+      expect(mockInstallFindMany).not.toHaveBeenCalled();
+    });
+
     it('returns merged totals and events within the timeframe', async () => {
       mockBikeFindFirst.mockResolvedValueOnce({ id: 'bike-1', userId: 'user-123' });
       mockRideFindMany.mockResolvedValueOnce([
