@@ -244,6 +244,10 @@ export const typeDefs = gql`
     baselineSetAt: String
     lastServicedAt: String
     serviceLogs: [ServiceLog!]!
+    # The single most recent ServiceLog — lets clients that only render
+    # "last serviced" metadata avoid pulling a component's entire service
+    # history over the wire.
+    latestServiceLog: ServiceLog
     createdAt: String!
     updatedAt: String!
     # Front/rear pairing support

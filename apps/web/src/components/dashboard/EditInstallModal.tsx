@@ -127,7 +127,9 @@ export function EditInstallModal({ event, componentLabel, bikeId, onClose }: Edi
             </Button>
           ) : (
             <div className="flex items-center gap-2">
-              <span className="text-xs text-muted">Delete this install record?</span>
+              <span className="text-xs text-muted">
+                Delete both the install and removal events?
+              </span>
               <Button variant="primary" size="sm" onClick={handleDelete} disabled={busy}>
                 {busy ? 'Deleting…' : 'Yes, delete'}
               </Button>
@@ -154,7 +156,7 @@ export function EditInstallModal({ event, componentLabel, bikeId, onClose }: Edi
         </div>
 
         <p className="text-xs text-muted">
-          Deleting removes the entire install/remove pair for this component.
+          This will remove both the install and removal events for this component.
         </p>
 
         <div>

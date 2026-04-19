@@ -1367,6 +1367,10 @@ export const resolvers = {
       const SERVICE_CAP = 1000;
       const INSTALL_CAP = 1000;
 
+      // Defense-in-depth: even though bike ownership is pre-validated above,
+      // every sub-query redundantly filters by userId (directly where the
+      // column exists, or via the joined Component) so a future refactor
+      // that skips the ownership check above still can't leak cross-user data.
       const [rides, serviceLogs, installs] = await Promise.all([
         prisma.ride.findMany({
           where: {
@@ -1379,7 +1383,7 @@ export const resolvers = {
         }),
         prisma.serviceLog.findMany({
           where: {
-            component: { bikeId, ...(componentTypeFilter ?? {}) },
+            component: { bikeId, userId, ...(componentTypeFilter ?? {}) },
             ...(dateRange ? { performedAt: dateRange } : {}),
           },
           include: { component: true },
@@ -1388,6 +1392,7 @@ export const resolvers = {
         }),
         prisma.bikeComponentInstall.findMany({
           where: {
+            userId,
             bikeId,
             ...(componentTypeFilter ? { component: componentTypeFilter } : {}),
             ...(dateRange
@@ -2561,6 +2566,25 @@ export const resolvers = {
         }
       }
 
+      // Chronology guard: a component can't come off a bike before it was
+      // installed. Compare against the effective install anchor (the new
+      // value if we're also updating installedAt in the same mutation,
+      // otherwise the persisted value).
+      if (data.removedAt instanceof Date) {
+        const effectiveInstalledAt =
+          data.installedAt instanceof Date ? data.installedAt : existing.installedAt;
+        if (data.removedAt < effectiveInstalledAt) {
+          throw new Error('Removal date cannot be before install date');
+        }
+      }
+
+      // Nothing to change — skip the Prisma round-trip and the pair of cache
+      // invalidations. Callers get back the current row, matching the
+      // semantic "update with no fields is a no-op."
+      if (Object.keys(data).length === 0) {
+        return existing;
+      }
+
       if (existing.bikeId) await invalidateBikePrediction(userId, existing.bikeId);
 
       const updated = await prisma.bikeComponentInstall.update({
@@ -3658,6 +3682,23 @@ export const resolvers = {
       }
 
       // Parse optional installedAt for the replacement. Default: today.
+      //
+      // This single Date is used as every timestamp inside the transaction —
+      // the new component's install anchor, the old component's retiredAt,
+      // the closing removedAt on the old install row, and the new install
+      // row's installedAt. Intentional: a replacement is a single event, so
+      // the "old came off" and "new went on" moments must line up.
+      //
+      // One subtle consequence: if the user backdates the replacement (e.g.
+      // "I actually swapped forks 3 months ago"), the old component's
+      // retiredAt also moves back 3 months. Any service logs or wear
+      // progression the user recorded after that date for the old component
+      // will look chronologically off — they'll pre-date the component's own
+      // retirement. This is correct for the common case (you stopped using
+      // the old part when you took it off) and the alternative (keeping
+      // retiredAt = now while backdating everything else) would leave the
+      // component looking active-yet-uninstalled for 3 months. Documenting
+      // here rather than complicating the UI around it.
       const now = new Date();
       let installedAt = now;
       if (input.installedAt) {
@@ -4790,6 +4831,8 @@ export const resolvers = {
       component.location ?? 'NONE',
     serviceLogs: (component: ComponentModel, _args: unknown, ctx: GraphQLContext) =>
       ctx.loaders.serviceLogsByComponentId.load(component.id),
+    latestServiceLog: (component: ComponentModel, _args: unknown, ctx: GraphQLContext) =>
+      ctx.loaders.latestServiceLogByComponentId.load(component.id),
     pairedComponent: async (component: ComponentModel) => {
       if (!component.pairGroupId) return null;
       return prisma.component.findFirst({

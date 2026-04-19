@@ -29,7 +29,7 @@ type ComponentDto = {
   baselineConfidence?: string | null;
   lastServicedAt?: string | null;
   location?: string | null;
-  serviceLogs?: ServiceLogDto[] | null;
+  latestServiceLog?: ServiceLogDto | null;
 };
 
 type ComponentPrediction = {
@@ -102,11 +102,7 @@ export function ComponentDetailRow({
   const [editingService, setEditingService] = useState<EditableServiceLog | null>(null);
   const { hoursDisplay } = useHoursDisplay();
 
-  const latestServiceLog = component.serviceLogs && component.serviceLogs.length > 0
-    ? [...component.serviceLogs].sort(
-        (a, b) => new Date(b.performedAt).getTime() - new Date(a.performedAt).getTime()
-      )[0]
-    : null;
+  const latestServiceLog = component.latestServiceLog ?? null;
 
   const status = prediction?.status ?? 'ALL_GOOD';
   const hoursRemaining = prediction?.hoursRemaining;
@@ -344,12 +340,17 @@ export function ComponentDetailRow({
         )}
       </AnimatePresence>
 
-      <EditServiceModal
-        log={editingService}
-        componentLabel={fullLabel}
-        bikeId={component.bikeId ?? undefined}
-        onClose={() => setEditingService(null)}
-      />
+      {/* Mount the modal only while an edit is in flight. Avoids calling
+          useMutation() (and therefore requiring an Apollo provider) on every
+          ComponentDetailRow render just to render null. */}
+      {editingService && (
+        <EditServiceModal
+          log={editingService}
+          componentLabel={fullLabel}
+          bikeId={component.bikeId ?? undefined}
+          onClose={() => setEditingService(null)}
+        />
+      )}
     </div>
   );
 }

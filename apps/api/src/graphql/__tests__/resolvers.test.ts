@@ -110,6 +110,7 @@ const createMockContext = (
   user: userId ? { id: userId } : null,
   loaders: {
     serviceLogsByComponentId: { load: jest.fn() },
+    latestServiceLogByComponentId: { load: jest.fn() },
     weatherByRideId: { load: jest.fn() },
   },
   req: {
@@ -3137,6 +3138,70 @@ describe('GraphQL Resolvers', () => {
         data: { removedAt: null },
       });
     });
+
+    it('rejects a removedAt earlier than the existing installedAt', async () => {
+      mockFindUnique.mockResolvedValueOnce({
+        id: 'install-1',
+        userId: 'user-123',
+        bikeId: 'bike-1',
+        installedAt: new Date('2026-03-01T00:00:00Z'),
+      });
+      const ctx = createMockContext('user-123');
+
+      await expect(
+        mutation(
+          {},
+          { id: 'install-1', input: { removedAt: '2026-02-15T00:00:00Z' } },
+          ctx as never
+        )
+      ).rejects.toThrow('Removal date cannot be before install date');
+      expect(mockUpdate).not.toHaveBeenCalled();
+    });
+
+    it('rejects removedAt earlier than a same-mutation installedAt', async () => {
+      // User is updating both fields at once — check the NEW installedAt,
+      // not the persisted value, so we don't block a legitimate correction
+      // that moves both dates together.
+      mockFindUnique.mockResolvedValueOnce({
+        id: 'install-1',
+        userId: 'user-123',
+        bikeId: 'bike-1',
+        installedAt: new Date('2020-01-01T00:00:00Z'),
+      });
+      const ctx = createMockContext('user-123');
+
+      await expect(
+        mutation(
+          {},
+          {
+            id: 'install-1',
+            input: {
+              installedAt: '2026-04-01T00:00:00Z',
+              removedAt: '2026-03-15T00:00:00Z',
+            },
+          },
+          ctx as never
+        )
+      ).rejects.toThrow('Removal date cannot be before install date');
+      expect(mockUpdate).not.toHaveBeenCalled();
+    });
+
+    it('short-circuits empty input without touching Prisma or the cache', async () => {
+      const existing = { id: 'install-1', userId: 'user-123', bikeId: 'bike-1' };
+      mockFindUnique.mockResolvedValueOnce(existing);
+      (invalidateBikePrediction as jest.Mock).mockClear();
+
+      const ctx = createMockContext('user-123');
+      const result = await mutation({}, { id: 'install-1', input: {} }, ctx as never);
+
+      // Empty update is a no-op: no write, no cache invalidation, return the
+      // existing row so clients still get a consistent response shape.
+      expect(result).toBe(existing);
+      expect(mockUpdate).not.toHaveBeenCalled();
+      expect(
+        (invalidateBikePrediction as jest.Mock).mock.calls.filter((c) => c[1] === 'bike-1').length
+      ).toBe(0);
+    });
   });
 
   describe('Mutation.deleteBikeComponentInstall', () => {
@@ -3708,10 +3773,32 @@ describe('GraphQL Resolvers', () => {
       const ctx = createMockContext('user-123');
       await resolver({}, { bikeId: 'bike-1' }, ctx as never);
 
+      // Pro tier: no `type` restriction on the joined Component, but the
+      // defense-in-depth userId filter still applies everywhere.
       const serviceWhere = mockServiceLogFindMany.mock.calls[0][0].where;
-      expect(serviceWhere.component).toEqual({ bikeId: 'bike-1' });
+      expect(serviceWhere.component).toEqual({ bikeId: 'bike-1', userId: 'user-123' });
       const installWhere = mockInstallFindMany.mock.calls[0][0].where;
       expect(installWhere.component).toBeUndefined();
+      expect(installWhere.userId).toBe('user-123');
+    });
+
+    it('applies a defense-in-depth userId filter on every sub-query', async () => {
+      // Ownership check above is the primary guard, but every inner query
+      // redundantly restricts by userId so a future refactor can't silently
+      // leak cross-user data.
+      mockBikeFindFirst.mockResolvedValueOnce({ id: 'bike-1', userId: 'user-123' });
+
+      const ctx = createMockContext('user-123');
+      await resolver({}, { bikeId: 'bike-1' }, ctx as never);
+
+      const rideWhere = mockRideFindMany.mock.calls[0][0].where;
+      expect(rideWhere.userId).toBe('user-123');
+
+      const serviceWhere = mockServiceLogFindMany.mock.calls[0][0].where;
+      expect(serviceWhere.component.userId).toBe('user-123');
+
+      const installWhere = mockInstallFindMany.mock.calls[0][0].where;
+      expect(installWhere.userId).toBe('user-123');
     });
 
     it('marks truncated=true when the ride cap is hit', async () => {

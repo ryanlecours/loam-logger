@@ -151,8 +151,18 @@ export default function BikeHistory() {
                     {year}
                   </h2>
                   <ul className="space-y-1">
-                    {items.map((item, idx) => (
-                      <li key={`${item.kind}-${idx}`} className="py-2 border-b border-border last:border-b-0">
+                    {items.map((item) => {
+                      // Real id-based keys so re-ordering (timeframe change,
+                      // toggle filter) doesn't leave React reusing DOM nodes
+                      // against the wrong items.
+                      const key =
+                        item.kind === 'ride'
+                          ? `r:${item.ride.id}`
+                          : item.kind === 'service'
+                          ? `s:${item.service.id}`
+                          : `i:${item.install.id}`;
+                      return (
+                      <li key={key} className="py-2 border-b border-border last:border-b-0">
                         {item.kind === 'ride' && <RideRow ride={item.ride} distanceUnit={distanceUnit} />}
                         {item.kind === 'service' && (
                           <ServiceRow
@@ -186,7 +196,8 @@ export default function BikeHistory() {
                           />
                         )}
                       </li>
-                    ))}
+                      );
+                    })}
                   </ul>
                 </section>
               ))}
@@ -195,19 +206,23 @@ export default function BikeHistory() {
         </>
       )}
 
-      <EditServiceModal
-        log={editingService?.log ?? null}
-        componentLabel={editingService?.componentLabel ?? ''}
-        bikeId={bikeId}
-        onClose={() => setEditingService(null)}
-      />
+      {editingService && (
+        <EditServiceModal
+          log={editingService.log}
+          componentLabel={editingService.componentLabel}
+          bikeId={bikeId}
+          onClose={() => setEditingService(null)}
+        />
+      )}
 
-      <EditInstallModal
-        event={editingInstall?.event ?? null}
-        componentLabel={editingInstall?.componentLabel ?? ''}
-        bikeId={bikeId}
-        onClose={() => setEditingInstall(null)}
-      />
+      {editingInstall && (
+        <EditInstallModal
+          event={editingInstall.event}
+          componentLabel={editingInstall.componentLabel}
+          bikeId={bikeId}
+          onClose={() => setEditingInstall(null)}
+        />
+      )}
     </div>
   );
 }

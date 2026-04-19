@@ -18,7 +18,11 @@ export const COMPONENT_FIELDS = gql`
     lastServicedAt
     location
     status
-    serviceLogs {
+    # Only the newest service log — the inline "Edit last service" button
+    # on ComponentDetailRow is the only web consumer. Pulling the full
+    # serviceLogs list here was scaling linearly with per-component history
+    # for no UI win.
+    latestServiceLog {
       id
       performedAt
       notes

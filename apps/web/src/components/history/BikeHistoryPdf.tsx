@@ -113,12 +113,12 @@ export function BikeHistoryPdf({ bike, totals, yearGroups, distanceUnit, timefra
           yearGroups.map(({ year, items }) => (
             <View key={year} wrap>
               <Text style={styles.yearHeader}>{year}</Text>
-              {items.map((item, idx) => {
+              {items.map((item) => {
                 if (item.kind === 'ride') {
                   const { ride } = item;
                   const title = ride.trailSystem || ride.location || `${ride.rideType} ride`;
                   return (
-                    <View key={`r-${idx}`} style={[styles.row, styles.rideRow]} wrap={false}>
+                    <View key={`r:${ride.id}`} style={[styles.row, styles.rideRow]} wrap={false}>
                       <Text style={styles.rowIcon}>RIDE</Text>
                       <View style={styles.rowTitle}>
                         <Text>{title}</Text>
@@ -132,7 +132,7 @@ export function BikeHistoryPdf({ bike, totals, yearGroups, distanceUnit, timefra
                 if (item.kind === 'service') {
                   const s = item.service;
                   return (
-                    <View key={`s-${idx}`} style={styles.row} wrap={false}>
+                    <View key={`s:${s.id}`} style={styles.row} wrap={false}>
                       <Text style={styles.rowIcon}>SERVICE</Text>
                       <View style={styles.rowTitle}>
                         <Text>{componentText(s.component)}</Text>
@@ -145,7 +145,7 @@ export function BikeHistoryPdf({ bike, totals, yearGroups, distanceUnit, timefra
                 }
                 const inst = item.install;
                 return (
-                  <View key={`i-${idx}`} style={styles.row} wrap={false}>
+                  <View key={`i:${inst.id}`} style={styles.row} wrap={false}>
                     <Text style={styles.rowIcon}>{inst.eventType === 'INSTALLED' ? 'INSTALL' : 'REMOVE'}</Text>
                     <View style={styles.rowTitle}>
                       <Text>{componentText(inst.component)}</Text>
