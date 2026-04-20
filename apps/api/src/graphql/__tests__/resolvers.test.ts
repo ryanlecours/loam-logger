@@ -3613,9 +3613,11 @@ describe('GraphQL Resolvers', () => {
       mockFindMany.mockReset();
       mockUpdateMany.mockReset().mockResolvedValue({ count: 0 });
       mockServiceLogUpdateMany.mockReset().mockResolvedValue({ count: 0 });
+      // findMany is now called via the transaction client (race-closure
+      // fix), so the tx mock needs to expose it alongside updateMany.
       mockTransaction.mockReset().mockImplementation(async (fn: (tx: unknown) => unknown) =>
         fn({
-          bikeComponentInstall: { updateMany: mockUpdateMany },
+          bikeComponentInstall: { findMany: mockFindMany, updateMany: mockUpdateMany },
           serviceLog: { updateMany: mockServiceLogUpdateMany },
         })
       );

@@ -138,6 +138,36 @@ export default function BikeHistory() {
     });
   }, [payload, showRides, showService]);
 
+  const renderInstallRow = (install: HistoryInstallEvent) => {
+    const baseIdx = install.id.lastIndexOf(':');
+    const baseId = baseIdx > 0 ? install.id.slice(0, baseIdx) : install.id;
+    const isInstallEvent = install.eventType === 'INSTALLED';
+    const isSelectable = selectionMode && isInstallEvent;
+    const isSelected = isSelectable && selectedInstallIds.has(baseId);
+    return (
+      <InstallRow
+        install={install}
+        selectable={isSelectable}
+        selected={isSelected}
+        onEdit={() => {
+          if (selectionMode) {
+            if (isSelectable) toggleInstallSelection(baseId);
+            return;
+          }
+          setEditingInstall({
+            event: {
+              id: install.id,
+              eventType: install.eventType,
+              occurredAt: install.occurredAt,
+            },
+            componentLabel: componentDisplay(install.component),
+            hasPairedEvent: pairedBaseIds.has(baseId),
+          });
+        }}
+      />
+    );
+  };
+
   if (!bikeId) {
     return <div className="p-6">Missing bike id.</div>;
   }
@@ -264,36 +294,7 @@ export default function BikeHistory() {
                             }
                           />
                         )}
-                        {item.kind === 'install' && (() => {
-                          const baseIdx = item.install.id.lastIndexOf(':');
-                          const baseId =
-                            baseIdx > 0 ? item.install.id.slice(0, baseIdx) : item.install.id;
-                          const isInstallEvent = item.install.eventType === 'INSTALLED';
-                          const isSelectable = selectionMode && isInstallEvent;
-                          const isSelected = isSelectable && selectedInstallIds.has(baseId);
-                          return (
-                            <InstallRow
-                              install={item.install}
-                              selectable={isSelectable}
-                              selected={isSelected}
-                              onEdit={() => {
-                                if (selectionMode) {
-                                  if (isSelectable) toggleInstallSelection(baseId);
-                                  return;
-                                }
-                                setEditingInstall({
-                                  event: {
-                                    id: item.install.id,
-                                    eventType: item.install.eventType,
-                                    occurredAt: item.install.occurredAt,
-                                  },
-                                  componentLabel: componentDisplay(item.install.component),
-                                  hasPairedEvent: pairedBaseIds.has(baseId),
-                                });
-                              }}
-                            />
-                          );
-                        })()}
+                        {item.kind === 'install' && renderInstallRow(item.install)}
                       </li>
                       );
                     })}
