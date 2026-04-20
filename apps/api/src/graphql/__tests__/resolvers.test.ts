@@ -3693,6 +3693,38 @@ describe('GraphQL Resolvers', () => {
       expect(mockFindMany).not.toHaveBeenCalled();
     });
 
+    it('deduplicates repeated ids before validation (no spurious NOT_FOUND)', async () => {
+      // Client submits the same id twice. After dedup, findMany returns
+      // one row and the length check passes — the mutation proceeds
+      // rather than throwing NOT_FOUND on a length mismatch.
+      mockFindMany.mockResolvedValueOnce([
+        {
+          id: 'i1',
+          userId: 'user-123',
+          bikeId: 'bike-1',
+          componentId: 'c1',
+          installedAt: new Date('2024-02-01T00:00:00Z'),
+          removedAt: null,
+        },
+      ]);
+      mockUpdateMany.mockResolvedValueOnce({ count: 1 });
+
+      const ctx = createMockContext('user-123');
+      const result = await mutation(
+        {},
+        { input: { ids: ['i1', 'i1'], installedAt: '2024-06-01T00:00:00Z' } },
+        ctx as never
+      );
+
+      expect(result.updatedCount).toBe(1);
+      // findMany queried with the deduped set, not the raw duplicates.
+      expect(mockFindMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ id: { in: ['i1'] } }),
+        })
+      );
+    });
+
     it('updates installs and moves baseline service logs grouped by old date', async () => {
       const oldDateA = new Date('2024-02-01T00:00:00Z');
       const oldDateB = new Date('2024-03-10T00:00:00Z');

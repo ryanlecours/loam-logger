@@ -2903,12 +2903,18 @@ export const resolvers = {
         });
       }
 
-      if (input.ids.length === 0) {
+      // Deduplicate first: a repeated id would make findMany return fewer
+      // rows than input.ids.length and trip the ownership check below with
+      // a misleading NOT_FOUND. Dedupe also tightens the batch-size cap
+      // against a client that pads the array with duplicates.
+      const ids = [...new Set(input.ids)];
+
+      if (ids.length === 0) {
         return { updatedCount: 0, serviceLogsMoved: 0 };
       }
       // Defensive cap. Realistic bikes have <20 installs. 100 gives wide
       // headroom without letting a malicious client sweep the table.
-      if (input.ids.length > 100) {
+      if (ids.length > 100) {
         throw new GraphQLError('Cannot update more than 100 install rows at once', {
           extensions: { code: 'BATCH_TOO_LARGE' },
         });
@@ -2942,7 +2948,7 @@ export const resolvers = {
       const { updatedCount, serviceLogsMoved, affectedBikeIds } = await prisma.$transaction(
         async (tx) => {
           const existing = await tx.bikeComponentInstall.findMany({
-            where: { id: { in: input.ids } },
+            where: { id: { in: ids } },
             select: {
               id: true,
               userId: true,
@@ -2958,7 +2964,7 @@ export const resolvers = {
           // catches the shorter-than-expected result that happens when
           // an id doesn't exist at all.
           if (
-            existing.length !== input.ids.length ||
+            existing.length !== ids.length ||
             existing.some((row) => row.userId !== userId)
           ) {
             throw new GraphQLError('Install record not found', {
@@ -2980,7 +2986,7 @@ export const resolvers = {
           }
 
           const { count: updated } = await tx.bikeComponentInstall.updateMany({
-            where: { id: { in: input.ids } },
+            where: { id: { in: ids } },
             data: { installedAt },
           });
 
