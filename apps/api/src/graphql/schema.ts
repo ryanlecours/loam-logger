@@ -543,6 +543,44 @@ export const typeDefs = gql`
   }
 
   """
+  Retroactively fix a bike's acquisition date and, when requested, the
+  install dates of every stock component + any install whose date was
+  auto-stamped at bike creation. Built for users who added bikes before
+  the acquisition-date feature existed and now see every stock part
+  installed on the same day on BikeHistory.
+  """
+  input UpdateBikeAcquisitionInput {
+    acquisitionDate: String!
+    """
+    When true (default), move the installedAt on every BikeComponentInstall
+    matching the "buggy auto-date" predicate to the new acquisitionDate,
+    and move the corresponding synthetic baseline ServiceLog alongside.
+    """
+    cascadeInstalls: Boolean = true
+  }
+
+  type UpdateBikeAcquisitionResult {
+    bike: Bike!
+    installsMoved: Int!
+    serviceLogsMoved: Int!
+  }
+
+  """
+  Apply the same installedAt to multiple BikeComponentInstall rows in a
+  single mutation. All rows must belong to the viewer — the batch is
+  all-or-nothing to avoid leaking which ids they don't own.
+  """
+  input BulkUpdateBikeComponentInstallsInput {
+    ids: [ID!]!
+    installedAt: String!
+  }
+
+  type BulkUpdateBikeComponentInstallsResult {
+    updatedCount: Int!
+    serviceLogsMoved: Int!
+  }
+
+  """
   Patch fields on a BikeComponentInstall row.
 
   **Null handling is asymmetric**, mirroring the underlying Prisma schema:
@@ -911,6 +949,8 @@ export const typeDefs = gql`
     deleteBikeNote(id: ID!): DeleteResult!
     updateBikeComponentInstall(id: ID!, input: UpdateBikeComponentInstallInput!): BikeComponentInstall!
     deleteBikeComponentInstall(id: ID!): Boolean!
+    updateBikeAcquisition(bikeId: ID!, input: UpdateBikeAcquisitionInput!): UpdateBikeAcquisitionResult!
+    bulkUpdateBikeComponentInstalls(input: BulkUpdateBikeComponentInstallsInput!): BulkUpdateBikeComponentInstallsResult!
     createCheckoutSession(plan: StripePlan!, platform: CheckoutPlatform): CheckoutSessionResult!
     createBillingPortalSession(platform: CheckoutPlatform): BillingPortalResult!
     selectBikeForDowngrade(bikeId: ID!): Bike!

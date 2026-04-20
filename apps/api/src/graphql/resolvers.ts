@@ -2740,6 +2740,249 @@ export const resolvers = {
       return true;
     },
 
+    updateBikeAcquisition: async (
+      _: unknown,
+      {
+        bikeId,
+        input,
+      }: {
+        bikeId: string;
+        input: { acquisitionDate: string; cascadeInstalls?: boolean | null };
+      },
+      ctx: GraphQLContext
+    ) => {
+      const userId = requireUserId(ctx);
+
+      const rateLimit = await checkMutationRateLimit('updateBikeAcquisition', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
+
+      const bike = await prisma.bike.findFirst({ where: { id: bikeId, userId } });
+      if (!bike) {
+        throw new GraphQLError('Bike not found', { extensions: { code: 'NOT_FOUND' } });
+      }
+
+      const now = new Date();
+      const acquisitionDate = parseISO(input.acquisitionDate);
+      if (isNaN(acquisitionDate.getTime())) {
+        throw new Error('Invalid acquisitionDate');
+      }
+      if (acquisitionDate > now) {
+        throw new Error('acquisitionDate cannot be in the future');
+      }
+
+      const cascade = input.cascadeInstalls !== false;
+
+      await invalidateBikePrediction(userId, bikeId);
+
+      const result = await prisma.$transaction(async (tx) => {
+        await tx.bike.update({
+          where: { id: bikeId },
+          data: { acquisitionDate },
+        });
+
+        if (!cascade) {
+          return { installsMoved: 0, serviceLogsMoved: 0 };
+        }
+
+        // "Buggy auto-date" predicate: the old code path always stamped
+        // the install within the bike-creation transaction, so every
+        // affected row sits within a narrow window after bike.createdAt.
+        // 60s is generous — real user-driven installs happen minutes to
+        // years later, so the window comfortably discriminates. Widening
+        // this just means catching slower-than-usual creations, narrowing
+        // risks missing legitimate migration rows.
+        const windowEnd = new Date(bike.createdAt.getTime() + 60_000);
+
+        const eligible = await tx.bikeComponentInstall.findMany({
+          where: {
+            userId,
+            bikeId,
+            OR: [
+              { component: { isStock: true } },
+              { installedAt: { gte: bike.createdAt, lte: windowEnd } },
+            ],
+          },
+          select: { id: true, componentId: true, installedAt: true },
+        });
+
+        if (eligible.length === 0) {
+          return { installsMoved: 0, serviceLogsMoved: 0 };
+        }
+
+        const installIds = eligible.map((e) => e.id);
+        const componentIds = Array.from(new Set(eligible.map((e) => e.componentId)));
+
+        // Move all install rows in one query.
+        const { count: installsMoved } = await tx.bikeComponentInstall.updateMany({
+          where: { id: { in: installIds } },
+          data: { installedAt: acquisitionDate },
+        });
+
+        // Move Component.installedAt too, but only for still-active
+        // installs (removedAt is null). If a component has been swapped
+        // off since, Component.installedAt tracks a newer install and
+        // shouldn't be touched by this migration.
+        await tx.component.updateMany({
+          where: { id: { in: componentIds }, retiredAt: null },
+          data: { installedAt: acquisitionDate },
+        });
+
+        // Move the paired baseline ServiceLog (hoursAtService=0, same
+        // performedAt as the old install date). Group by old-installedAt
+        // so the common migration case (one shared date) collapses to a
+        // single UPDATE; multi-select across different dates would pay
+        // one UPDATE per group.
+        const byOldDate = new Map<number, string[]>();
+        for (const e of eligible) {
+          const key = e.installedAt.getTime();
+          const list = byOldDate.get(key) ?? [];
+          list.push(e.componentId);
+          byOldDate.set(key, list);
+        }
+
+        let serviceLogsMoved = 0;
+        for (const [ts, compIds] of byOldDate) {
+          const { count } = await tx.serviceLog.updateMany({
+            where: {
+              componentId: { in: compIds },
+              performedAt: new Date(ts),
+              hoursAtService: 0,
+            },
+            data: { performedAt: acquisitionDate },
+          });
+          serviceLogsMoved += count;
+        }
+
+        return { installsMoved, serviceLogsMoved };
+      });
+
+      await invalidateBikePrediction(userId, bikeId);
+
+      const updatedBike = await prisma.bike.findUnique({ where: { id: bikeId } });
+
+      return {
+        bike: updatedBike,
+        installsMoved: result.installsMoved,
+        serviceLogsMoved: result.serviceLogsMoved,
+      };
+    },
+
+    bulkUpdateBikeComponentInstalls: async (
+      _: unknown,
+      { input }: { input: { ids: string[]; installedAt: string } },
+      ctx: GraphQLContext
+    ) => {
+      const userId = requireUserId(ctx);
+
+      const rateLimit = await checkMutationRateLimit('bulkUpdateBikeComponentInstalls', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
+
+      if (input.ids.length === 0) {
+        return { updatedCount: 0, serviceLogsMoved: 0 };
+      }
+      // Defensive cap. Realistic bikes have <20 installs. 100 gives wide
+      // headroom without letting a malicious client sweep the table.
+      if (input.ids.length > 100) {
+        throw new Error('Cannot update more than 100 install rows at once');
+      }
+
+      const now = new Date();
+      const installedAt = parseISO(input.installedAt);
+      if (isNaN(installedAt.getTime())) {
+        throw new Error('Invalid installedAt date');
+      }
+      if (installedAt > now) {
+        throw new Error('Install date cannot be in the future');
+      }
+
+      const existing = await prisma.bikeComponentInstall.findMany({
+        where: { id: { in: input.ids } },
+        select: {
+          id: true,
+          userId: true,
+          bikeId: true,
+          componentId: true,
+          installedAt: true,
+          removedAt: true,
+        },
+      });
+
+      // All-or-nothing ownership: if any id isn't owned, reject the whole
+      // batch with NOT_FOUND (don't leak which one). Also catches the
+      // shorter-than-expected result that happens when an id doesn't
+      // exist at all.
+      if (
+        existing.length !== input.ids.length ||
+        existing.some((row) => row.userId !== userId)
+      ) {
+        throw new GraphQLError('Install record not found', { extensions: { code: 'NOT_FOUND' } });
+      }
+
+      // Chronology guard: a component can't come off before it went on.
+      // For each selected row, the proposed new installedAt must be <=
+      // the row's existing removedAt (if any). If ANY row fails this,
+      // reject the whole batch so the user can fix their selection.
+      for (const row of existing) {
+        if (row.removedAt && installedAt > row.removedAt) {
+          throw new Error('Removal date cannot be before install date');
+        }
+      }
+
+      const affectedBikeIds = Array.from(
+        new Set(existing.map((r) => r.bikeId).filter((id): id is string => id !== null))
+      );
+
+      for (const bikeId of affectedBikeIds) {
+        await invalidateBikePrediction(userId, bikeId);
+      }
+
+      const { updatedCount, serviceLogsMoved } = await prisma.$transaction(async (tx) => {
+        const { count: updated } = await tx.bikeComponentInstall.updateMany({
+          where: { id: { in: input.ids } },
+          data: { installedAt },
+        });
+
+        // Same baseline-log-migration logic as updateBikeAcquisition:
+        // group by old date to minimize UPDATE count.
+        const byOldDate = new Map<number, string[]>();
+        for (const row of existing) {
+          const key = row.installedAt.getTime();
+          const list = byOldDate.get(key) ?? [];
+          list.push(row.componentId);
+          byOldDate.set(key, list);
+        }
+
+        let movedLogs = 0;
+        for (const [ts, compIds] of byOldDate) {
+          const { count } = await tx.serviceLog.updateMany({
+            where: {
+              componentId: { in: compIds },
+              performedAt: new Date(ts),
+              hoursAtService: 0,
+            },
+            data: { performedAt: installedAt },
+          });
+          movedLogs += count;
+        }
+
+        return { updatedCount: updated, serviceLogsMoved: movedLogs };
+      });
+
+      for (const bikeId of affectedBikeIds) {
+        await invalidateBikePrediction(userId, bikeId);
+      }
+
+      return { updatedCount, serviceLogsMoved };
+    },
+
     snoozeComponent: async (
       _: unknown,
       { id, hours }: { id: string; hours?: number },

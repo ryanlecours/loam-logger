@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import {
   ArrowLeft,
   Bike,
+  CalendarClock,
   Pencil,
   Wrench,
   ExternalLink,
@@ -17,6 +18,7 @@ import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { StatusPill } from '@/components/dashboard/StatusPill';
 import { LogServiceModal } from '@/components/dashboard/LogServiceModal';
+import { UpdateAcquisitionModal } from '@/components/gear/UpdateAcquisitionModal';
 import { ComponentDetailRow } from '@/components/gear/ComponentDetailRow';
 import { ReplaceComponentModal } from '@/components/gear/ReplaceComponentModal';
 import { SwapComponentModal } from '@/components/gear/SwapComponentModal';
@@ -88,6 +90,7 @@ type BikeDto = {
   motorPowerW?: number | null;
   motorTorqueNm?: number | null;
   batteryWh?: number | null;
+  acquisitionDate?: string | null;
   components: ComponentDto[];
   predictions?: BikePredictionSummary | null;
   servicePreferences?: BikeServicePreferenceDto[];
@@ -158,6 +161,7 @@ export default function BikeDetail() {
 
   // Modal states
   const [serviceModalOpen, setServiceModalOpen] = useState(false);
+  const [acquisitionModalOpen, setAcquisitionModalOpen] = useState(false);
   const [editingComponent, setEditingComponent] = useState<ComponentDto | null>(null);
   const [editingTravel, setEditingTravel] = useState<'fork' | 'shock' | null>(null);
   const [travelValue, setTravelValue] = useState('');
@@ -377,6 +381,14 @@ export default function BikeDetail() {
             <Button variant="primary" size="sm" onClick={() => setServiceModalOpen(true)}>
               <Wrench size={12} className="icon-left" />
               Log Service
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setAcquisitionModalOpen(true)}
+            >
+              <CalendarClock size={12} className="icon-left" />
+              Update acquisition date
             </Button>
             {bikeId && (
               <Link
@@ -606,6 +618,17 @@ export default function BikeDetail() {
             sortOrder: 0,
             predictions: bike.predictions ?? null,
           }}
+        />
+      )}
+
+      {/* Update Acquisition Modal */}
+      {bike && bikeId && (
+        <UpdateAcquisitionModal
+          isOpen={acquisitionModalOpen}
+          onClose={() => setAcquisitionModalOpen(false)}
+          bikeId={bikeId}
+          bikeName={bike.nickname || `${bike.manufacturer} ${bike.model}`}
+          currentAcquisitionDate={bike.acquisitionDate ?? null}
         />
       )}
 

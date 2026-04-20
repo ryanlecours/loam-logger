@@ -1,13 +1,15 @@
 import { Suspense, lazy, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { useQuery } from '@apollo/client';
-import { ArrowLeft, Bike as BikeIcon, FileDown, MinusCircle, PlusCircle, Wrench } from 'lucide-react';
+import { useMutation, useQuery } from '@apollo/client';
+import { ArrowLeft, Bike as BikeIcon, CalendarClock, Check, FileDown, MinusCircle, PlusCircle, TriangleAlert, Wrench } from 'lucide-react';
 
 import { BIKE_HISTORY } from '@/graphql/bikeHistory';
+import { BULK_UPDATE_BIKE_COMPONENT_INSTALLS } from '@/graphql/bike';
+import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { EditServiceModal, type EditableServiceLog } from '@/components/dashboard/EditServiceModal';
 import { EditInstallModal, type EditableInstallEvent } from '@/components/dashboard/EditInstallModal';
-import { fmtDateTime, fmtDistance, fmtDuration, fmtElevation } from '@/lib/format';
+import { fmtDateTime, fmtDistance, fmtDuration, fmtElevation, dateInputToIsoNoon, todayDateInput } from '@/lib/format';
 import { usePreferences } from '@/hooks/usePreferences';
 import { getComponentLabel } from '@/constants/componentLabels';
 import {
@@ -46,6 +48,18 @@ export default function BikeHistory() {
     componentLabel: string;
     hasPairedEvent: boolean;
   } | null>(null);
+  // Multi-select state — enabled via "Edit dates" button. Only INSTALLED
+  // events are selectable; the backend's bulk mutation only moves
+  // installedAt (not removedAt), and mixing both in one selection would
+  // create ambiguous "apply this date to what?" semantics. REMOVED
+  // events remain individually editable via the single-event modal.
+  // Stored as install base ids (composite id with the ":installed" suffix
+  // stripped) so we can send them straight to the backend.
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedInstallIds, setSelectedInstallIds] = useState<Set<string>>(new Set());
+  const [bulkDateOpen, setBulkDateOpen] = useState(false);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkError, setBulkError] = useState<string | null>(null);
 
   const range = useMemo(() => computeTimeframeRange(timeframe), [timeframe]);
 
@@ -54,6 +68,45 @@ export default function BikeHistory() {
     skip: !bikeId,
     fetchPolicy: 'cache-and-network',
   });
+
+  const [bulkUpdateInstalls] = useMutation(BULK_UPDATE_BIKE_COMPONENT_INSTALLS, {
+    refetchQueries: bikeId ? [{ query: BIKE_HISTORY, variables: { bikeId } }] : [],
+  });
+
+  const exitSelectionMode = () => {
+    setSelectionMode(false);
+    setSelectedInstallIds(new Set());
+  };
+
+  const toggleInstallSelection = (baseId: string) => {
+    setSelectedInstallIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(baseId)) next.delete(baseId);
+      else next.add(baseId);
+      return next;
+    });
+  };
+
+  const handleBulkSetDate = async (isoDate: string) => {
+    setBulkBusy(true);
+    setBulkError(null);
+    try {
+      await bulkUpdateInstalls({
+        variables: {
+          input: {
+            ids: Array.from(selectedInstallIds),
+            installedAt: isoDate,
+          },
+        },
+      });
+      setBulkDateOpen(false);
+      exitSelectionMode();
+    } catch (err) {
+      setBulkError(err instanceof Error ? err.message : 'Failed to update install dates.');
+    } finally {
+      setBulkBusy(false);
+    }
+  };
 
   const payload = data?.bikeHistory;
 
@@ -113,16 +166,28 @@ export default function BikeHistory() {
                 {payload.bike.year ? `${payload.bike.year} · ` : ''}History
               </div>
             </div>
-            <Suspense fallback={<Button variant="outline" size="sm" disabled><FileDown size={14} className="icon-left" /> Preparing…</Button>}>
-              <BikeHistoryPdfButton
-                bike={payload.bike}
-                totals={payload.totals}
-                yearGroups={yearGroups}
-                distanceUnit={distanceUnit}
-                timeframeLabel={TIMEFRAME_LABEL[timeframe]}
-                truncated={payload.truncated}
-              />
-            </Suspense>
+            <div className="flex items-center gap-2">
+              {!selectionMode ? (
+                <Button variant="outline" size="sm" onClick={() => setSelectionMode(true)}>
+                  <CalendarClock size={14} className="icon-left" />
+                  Edit dates
+                </Button>
+              ) : (
+                <Button variant="outline" size="sm" onClick={exitSelectionMode}>
+                  Cancel
+                </Button>
+              )}
+              <Suspense fallback={<Button variant="outline" size="sm" disabled><FileDown size={14} className="icon-left" /> Preparing…</Button>}>
+                <BikeHistoryPdfButton
+                  bike={payload.bike}
+                  totals={payload.totals}
+                  yearGroups={yearGroups}
+                  distanceUnit={distanceUnit}
+                  timeframeLabel={TIMEFRAME_LABEL[timeframe]}
+                  truncated={payload.truncated}
+                />
+              </Suspense>
+            </div>
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
@@ -199,25 +264,36 @@ export default function BikeHistory() {
                             }
                           />
                         )}
-                        {item.kind === 'install' && (
-                          <InstallRow
-                            install={item.install}
-                            onEdit={() => {
-                              const baseIdx = item.install.id.lastIndexOf(':');
-                              const baseId =
-                                baseIdx > 0 ? item.install.id.slice(0, baseIdx) : item.install.id;
-                              setEditingInstall({
-                                event: {
-                                  id: item.install.id,
-                                  eventType: item.install.eventType,
-                                  occurredAt: item.install.occurredAt,
-                                },
-                                componentLabel: componentDisplay(item.install.component),
-                                hasPairedEvent: pairedBaseIds.has(baseId),
-                              });
-                            }}
-                          />
-                        )}
+                        {item.kind === 'install' && (() => {
+                          const baseIdx = item.install.id.lastIndexOf(':');
+                          const baseId =
+                            baseIdx > 0 ? item.install.id.slice(0, baseIdx) : item.install.id;
+                          const isInstallEvent = item.install.eventType === 'INSTALLED';
+                          const isSelectable = selectionMode && isInstallEvent;
+                          const isSelected = isSelectable && selectedInstallIds.has(baseId);
+                          return (
+                            <InstallRow
+                              install={item.install}
+                              selectable={isSelectable}
+                              selected={isSelected}
+                              onEdit={() => {
+                                if (selectionMode) {
+                                  if (isSelectable) toggleInstallSelection(baseId);
+                                  return;
+                                }
+                                setEditingInstall({
+                                  event: {
+                                    id: item.install.id,
+                                    eventType: item.install.eventType,
+                                    occurredAt: item.install.occurredAt,
+                                  },
+                                  componentLabel: componentDisplay(item.install.component),
+                                  hasPairedEvent: pairedBaseIds.has(baseId),
+                                });
+                              }}
+                            />
+                          );
+                        })()}
                       </li>
                       );
                     })}
@@ -247,7 +323,105 @@ export default function BikeHistory() {
           onClose={() => setEditingInstall(null)}
         />
       )}
+
+      {/* Bulk action bar, pinned to the bottom of the viewport while in
+          selection mode. Always rendered (not conditional) so the
+          transition in/out feels intentional; visibility is gated by
+          the `hidden` class swap. */}
+      {selectionMode && (
+        <div className="fixed inset-x-0 bottom-0 z-20 border-t border-border bg-surface-2/95 backdrop-blur px-4 py-3">
+          <div className="mx-auto max-w-3xl flex items-center justify-between gap-3">
+            <span className="text-sm">
+              <span className="font-semibold">{selectedInstallIds.size}</span> selected
+              {selectedInstallIds.size === 0 && (
+                <span className="text-muted"> &middot; tap install events to select</span>
+              )}
+            </span>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={exitSelectionMode}>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => {
+                  setBulkError(null);
+                  setBulkDateOpen(true);
+                }}
+                disabled={selectedInstallIds.size === 0}
+              >
+                <CalendarClock size={14} className="icon-left" />
+                Set date
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <BulkDateModal
+        isOpen={bulkDateOpen}
+        count={selectedInstallIds.size}
+        busy={bulkBusy}
+        error={bulkError}
+        onClose={() => setBulkDateOpen(false)}
+        onConfirm={handleBulkSetDate}
+      />
     </div>
+  );
+}
+
+function BulkDateModal({
+  isOpen,
+  count,
+  busy,
+  error,
+  onClose,
+  onConfirm,
+}: {
+  isOpen: boolean;
+  count: number;
+  busy: boolean;
+  error: string | null;
+  onClose: () => void;
+  onConfirm: (isoDate: string) => void;
+}) {
+  // Seeded with today; if the user enters a date, closes, reopens — they
+  // get their last entry back, which matches iOS/Android native forms.
+  const [dateValue, setDateValue] = useState(todayDateInput());
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title={`Set date for ${count} install${count === 1 ? '' : 's'}`} size="sm" footer={
+      <>
+        <Button variant="outline" size="sm" onClick={onClose} disabled={busy}>Cancel</Button>
+        <Button
+          variant="primary"
+          size="sm"
+          onClick={() => dateValue && onConfirm(dateInputToIsoNoon(dateValue))}
+          disabled={busy || !dateValue}
+        >
+          {busy ? 'Updating…' : 'Apply'}
+        </Button>
+      </>
+    }>
+      <div className="space-y-3">
+        <input
+          type="date"
+          value={dateValue}
+          max={todayDateInput()}
+          onChange={(e) => setDateValue(e.target.value)}
+          className="log-service-date-input w-full"
+        />
+        <p className="text-xs text-muted">
+          Updates the installed date for all selected install events. Matching baseline service
+          anchors move alongside automatically.
+        </p>
+        {error && (
+          <div className="alert-inline alert-inline-error">
+            <TriangleAlert size={14} />
+            {error}
+          </div>
+        )}
+      </div>
+    </Modal>
   );
 }
 
@@ -309,17 +483,35 @@ function ServiceRow({ service, onEdit }: { service: HistoryServiceEvent; onEdit?
   );
 }
 
-function InstallRow({ install, onEdit }: { install: HistoryInstallEvent; onEdit?: () => void }) {
+function InstallRow({
+  install,
+  onEdit,
+  selectable = false,
+  selected = false,
+}: {
+  install: HistoryInstallEvent;
+  onEdit?: () => void;
+  selectable?: boolean;
+  selected?: boolean;
+}) {
   const Icon = install.eventType === 'INSTALLED' ? PlusCircle : MinusCircle;
   const verb = install.eventType === 'INSTALLED' ? 'Installed' : 'Removed';
   return (
     <button
       type="button"
       onClick={onEdit}
-      className="w-full text-left flex items-baseline justify-between gap-3 hover:bg-surface-2/40 rounded px-1 -mx-1 py-0.5"
+      className={`w-full text-left flex items-baseline justify-between gap-3 hover:bg-surface-2/40 rounded px-1 -mx-1 py-0.5 ${selected ? 'bg-mint/10' : ''}`}
       aria-label={`Edit ${verb.toLowerCase()} event for ${componentDisplay(install.component)}`}
     >
-      <div className="min-w-0">
+      {selectable && (
+        <span
+          className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border ${selected ? 'bg-mint border-mint' : 'border-border'}`}
+          aria-hidden
+        >
+          {selected && <Check size={10} className="text-white" />}
+        </span>
+      )}
+      <div className="min-w-0 flex-1">
         <div className="text-sm font-medium truncate">
           {verb} · {componentDisplay(install.component)}
         </div>

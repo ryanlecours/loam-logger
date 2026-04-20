@@ -42,6 +42,7 @@ jest.mock('../../lib/prisma', () => ({
       findUnique: jest.fn(),
       findFirst: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn().mockResolvedValue({ count: 0 }),
       delete: jest.fn(),
     },
     termsAcceptance: {
@@ -3466,6 +3467,254 @@ describe('GraphQL Resolvers', () => {
         (c) => c[1] === 'bike-9'
       );
       expect(calls.length).toBeGreaterThanOrEqual(2);
+    });
+  });
+
+  describe('Mutation.updateBikeAcquisition', () => {
+    const mutation = resolvers.Mutation.updateBikeAcquisition;
+    const mockBikeFindFirst = mockPrisma.bike.findFirst as jest.Mock;
+    const mockBikeFindUnique = mockPrisma.bike.findUnique as jest.Mock;
+    const mockBikeUpdate = mockPrisma.bike.update as jest.Mock;
+    const mockInstallFindMany = mockPrisma.bikeComponentInstall.findMany as jest.Mock;
+    const mockInstallUpdateMany = mockPrisma.bikeComponentInstall.updateMany as jest.Mock;
+    const mockComponentUpdateMany = mockPrisma.component.updateMany as jest.Mock;
+    const mockServiceLogUpdateMany = mockPrisma.serviceLog.updateMany as jest.Mock;
+    const mockTransaction = mockPrisma.$transaction as jest.Mock;
+
+    const setTransactionPassthrough = () => {
+      mockTransaction.mockImplementation(async (fn: (tx: unknown) => unknown) => {
+        return fn({
+          bike: { update: mockBikeUpdate },
+          bikeComponentInstall: {
+            findMany: mockInstallFindMany,
+            updateMany: mockInstallUpdateMany,
+          },
+          component: { updateMany: mockComponentUpdateMany },
+          serviceLog: { updateMany: mockServiceLogUpdateMany },
+        });
+      });
+    };
+
+    beforeEach(() => {
+      mockBikeFindFirst.mockReset();
+      mockBikeFindUnique.mockReset();
+      mockBikeUpdate.mockReset().mockResolvedValue({ id: 'bike-1' });
+      mockInstallFindMany.mockReset().mockResolvedValue([]);
+      mockInstallUpdateMany.mockReset().mockResolvedValue({ count: 0 });
+      mockComponentUpdateMany.mockReset().mockResolvedValue({ count: 0 });
+      mockServiceLogUpdateMany.mockReset().mockResolvedValue({ count: 0 });
+      mockTransaction.mockReset();
+      setTransactionPassthrough();
+    });
+
+    it('rejects when the bike is not owned by the viewer', async () => {
+      mockBikeFindFirst.mockResolvedValueOnce(null);
+      const ctx = createMockContext('user-123');
+
+      await expect(
+        mutation(
+          {},
+          { bikeId: 'bike-stolen', input: { acquisitionDate: '2023-01-01T00:00:00Z' } },
+          ctx as never
+        )
+      ).rejects.toThrow('Bike not found');
+      expect(mockBikeUpdate).not.toHaveBeenCalled();
+    });
+
+    it('rejects future acquisition dates', async () => {
+      mockBikeFindFirst.mockResolvedValueOnce({
+        id: 'bike-1',
+        userId: 'user-123',
+        createdAt: new Date('2026-04-01T00:00:00Z'),
+      });
+      const future = new Date(Date.now() + 1000 * 60 * 60 * 24).toISOString();
+      const ctx = createMockContext('user-123');
+
+      await expect(
+        mutation({}, { bikeId: 'bike-1', input: { acquisitionDate: future } }, ctx as never)
+      ).rejects.toThrow('acquisitionDate cannot be in the future');
+    });
+
+    it('cascades to eligible installs and groups baseline service logs by old date', async () => {
+      // Two components with the same buggy creation date (common migration
+      // case) + one pre-existing install on a later date that must NOT be
+      // moved by the cascade.
+      mockBikeFindFirst.mockResolvedValueOnce({
+        id: 'bike-1',
+        userId: 'user-123',
+        createdAt: new Date('2026-04-01T00:00:00Z'),
+      });
+      const oldDate = new Date('2026-04-01T00:00:05Z');
+      mockInstallFindMany.mockResolvedValueOnce([
+        { id: 'i1', componentId: 'c1', installedAt: oldDate },
+        { id: 'i2', componentId: 'c2', installedAt: oldDate },
+      ]);
+      mockInstallUpdateMany.mockResolvedValueOnce({ count: 2 });
+      mockComponentUpdateMany.mockResolvedValueOnce({ count: 2 });
+      mockServiceLogUpdateMany.mockResolvedValueOnce({ count: 2 });
+      mockBikeFindUnique.mockResolvedValueOnce({ id: 'bike-1', acquisitionDate: new Date('2024-05-10') });
+
+      const ctx = createMockContext('user-123');
+      const result = await mutation(
+        {},
+        { bikeId: 'bike-1', input: { acquisitionDate: '2024-05-10T00:00:00Z' } },
+        ctx as never
+      );
+
+      expect(result.installsMoved).toBe(2);
+      expect(result.serviceLogsMoved).toBe(2);
+
+      // Single updateMany call because both installs share the same old
+      // date — grouping collapsed them.
+      expect(mockServiceLogUpdateMany).toHaveBeenCalledTimes(1);
+      expect(mockServiceLogUpdateMany).toHaveBeenCalledWith({
+        where: {
+          componentId: { in: ['c1', 'c2'] },
+          performedAt: oldDate,
+          hoursAtService: 0,
+        },
+        data: { performedAt: new Date('2024-05-10T00:00:00Z') },
+      });
+    });
+
+    it('skips the cascade when cascadeInstalls is false', async () => {
+      mockBikeFindFirst.mockResolvedValueOnce({
+        id: 'bike-1',
+        userId: 'user-123',
+        createdAt: new Date('2026-04-01T00:00:00Z'),
+      });
+      mockBikeFindUnique.mockResolvedValueOnce({ id: 'bike-1' });
+
+      const ctx = createMockContext('user-123');
+      const result = await mutation(
+        {},
+        {
+          bikeId: 'bike-1',
+          input: { acquisitionDate: '2024-05-10T00:00:00Z', cascadeInstalls: false },
+        },
+        ctx as never
+      );
+
+      expect(mockInstallFindMany).not.toHaveBeenCalled();
+      expect(mockInstallUpdateMany).not.toHaveBeenCalled();
+      expect(result.installsMoved).toBe(0);
+      expect(result.serviceLogsMoved).toBe(0);
+    });
+  });
+
+  describe('Mutation.bulkUpdateBikeComponentInstalls', () => {
+    const mutation = resolvers.Mutation.bulkUpdateBikeComponentInstalls;
+    const mockFindMany = mockPrisma.bikeComponentInstall.findMany as jest.Mock;
+    const mockUpdateMany = mockPrisma.bikeComponentInstall.updateMany as jest.Mock;
+    const mockServiceLogUpdateMany = mockPrisma.serviceLog.updateMany as jest.Mock;
+    const mockTransaction = mockPrisma.$transaction as jest.Mock;
+
+    beforeEach(() => {
+      mockFindMany.mockReset();
+      mockUpdateMany.mockReset().mockResolvedValue({ count: 0 });
+      mockServiceLogUpdateMany.mockReset().mockResolvedValue({ count: 0 });
+      mockTransaction.mockReset().mockImplementation(async (fn: (tx: unknown) => unknown) =>
+        fn({
+          bikeComponentInstall: { updateMany: mockUpdateMany },
+          serviceLog: { updateMany: mockServiceLogUpdateMany },
+        })
+      );
+    });
+
+    it('rejects the whole batch when any id is not owned by the viewer', async () => {
+      // Two ids requested, one belongs to someone else — the batch is
+      // all-or-nothing so the whole thing fails with NOT_FOUND.
+      mockFindMany.mockResolvedValueOnce([
+        { id: 'i1', userId: 'user-123', bikeId: 'bike-1', componentId: 'c1', installedAt: new Date(), removedAt: null },
+        { id: 'i2', userId: 'other', bikeId: 'bike-1', componentId: 'c2', installedAt: new Date(), removedAt: null },
+      ]);
+
+      const ctx = createMockContext('user-123');
+      await expect(
+        mutation(
+          {},
+          { input: { ids: ['i1', 'i2'], installedAt: '2024-05-10T00:00:00Z' } },
+          ctx as never
+        )
+      ).rejects.toThrow('Install record not found');
+      expect(mockUpdateMany).not.toHaveBeenCalled();
+    });
+
+    it('rejects when an id does not exist (length mismatch)', async () => {
+      mockFindMany.mockResolvedValueOnce([
+        { id: 'i1', userId: 'user-123', bikeId: 'bike-1', componentId: 'c1', installedAt: new Date(), removedAt: null },
+      ]);
+
+      const ctx = createMockContext('user-123');
+      await expect(
+        mutation(
+          {},
+          { input: { ids: ['i1', 'i-missing'], installedAt: '2024-05-10T00:00:00Z' } },
+          ctx as never
+        )
+      ).rejects.toThrow('Install record not found');
+    });
+
+    it('rejects when any row has a removedAt earlier than the target date', async () => {
+      mockFindMany.mockResolvedValueOnce([
+        {
+          id: 'i1',
+          userId: 'user-123',
+          bikeId: 'bike-1',
+          componentId: 'c1',
+          installedAt: new Date('2020-01-01'),
+          removedAt: new Date('2024-01-01'),
+        },
+      ]);
+
+      const ctx = createMockContext('user-123');
+      await expect(
+        mutation(
+          {},
+          { input: { ids: ['i1'], installedAt: '2024-06-01T00:00:00Z' } },
+          ctx as never
+        )
+      ).rejects.toThrow('Removal date cannot be before install date');
+      expect(mockUpdateMany).not.toHaveBeenCalled();
+    });
+
+    it('rejects batches larger than the cap', async () => {
+      const ids = Array.from({ length: 101 }, (_, i) => `i${i}`);
+      const ctx = createMockContext('user-123');
+      await expect(
+        mutation(
+          {},
+          { input: { ids, installedAt: '2024-05-10T00:00:00Z' } },
+          ctx as never
+        )
+      ).rejects.toThrow('Cannot update more than 100');
+      expect(mockFindMany).not.toHaveBeenCalled();
+    });
+
+    it('updates installs and moves baseline service logs grouped by old date', async () => {
+      const oldDateA = new Date('2024-02-01T00:00:00Z');
+      const oldDateB = new Date('2024-03-10T00:00:00Z');
+      mockFindMany.mockResolvedValueOnce([
+        { id: 'i1', userId: 'user-123', bikeId: 'bike-1', componentId: 'c1', installedAt: oldDateA, removedAt: null },
+        { id: 'i2', userId: 'user-123', bikeId: 'bike-1', componentId: 'c2', installedAt: oldDateA, removedAt: null },
+        { id: 'i3', userId: 'user-123', bikeId: 'bike-1', componentId: 'c3', installedAt: oldDateB, removedAt: null },
+      ]);
+      mockUpdateMany.mockResolvedValueOnce({ count: 3 });
+      mockServiceLogUpdateMany
+        .mockResolvedValueOnce({ count: 2 })
+        .mockResolvedValueOnce({ count: 1 });
+
+      const ctx = createMockContext('user-123');
+      const result = await mutation(
+        {},
+        { input: { ids: ['i1', 'i2', 'i3'], installedAt: '2024-06-01T00:00:00Z' } },
+        ctx as never
+      );
+
+      expect(result.updatedCount).toBe(3);
+      expect(result.serviceLogsMoved).toBe(3);
+      // Two groups → two serviceLog.updateMany calls.
+      expect(mockServiceLogUpdateMany).toHaveBeenCalledTimes(2);
     });
   });
 
