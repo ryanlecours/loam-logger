@@ -98,7 +98,7 @@ export default function FoundingRidersAprilUpdateEmail({
           {/* Main Card */}
           <Section className="ll-card" style={styles.card}>
             <Heading className="ll-h1" style={styles.h1}>
-              A big bike history update
+              A big bike history update, weather tracking, and more.
             </Heading>
 
             <Text className="ll-p" style={styles.p}>{hello}</Text>
@@ -220,6 +220,28 @@ export default function FoundingRidersAprilUpdateEmail({
             <Text className="ll-p" style={styles.p}>
               Both tools also move the underlying service-log "anchors" the wear-prediction engine
               uses, so your prediction math stays honest after you correct dates.
+            </Text>
+
+            <Hr className="ll-hr" style={styles.hr} />
+
+            {/* Section: Weather history */}
+            <Heading as="h2" className="ll-h2" style={styles.h2}>
+              Weather history on rides
+            </Heading>
+
+            <Text className="ll-p" style={styles.p}>
+              New rides now pick up the weather they happened in automatically. Over time this
+              lets you see how many days you've ridden wet vs. dry, how often you're out in hot
+              vs. cold, or how much of a season was dust versus loam. It's also the groundwork
+              for weather-aware wear calculations down the road.
+            </Text>
+
+            <Text className="ll-p" style={styles.p}>
+              For rides imported before this feature shipped, head to{" "}
+              <span className="ll-emph" style={styles.emph}>Settings</span> and tap{" "}
+              <span className="ll-emph" style={styles.emph}>Resync rides</span>. That kicks off
+              a background pass that fills in weather for your backlog, so your history ends up
+              complete.
             </Text>
 
             <Hr className="ll-hr" style={styles.hr} />
