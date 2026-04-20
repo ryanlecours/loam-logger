@@ -380,16 +380,16 @@ describe('BikeOverviewCard', () => {
       expect(onLogService).toHaveBeenCalledTimes(1);
     });
 
-    it('renders Edit details link', () => {
+    it('renders Bike Details link', () => {
       renderWithRouter(<BikeOverviewCard {...defaultProps} />);
 
-      expect(screen.getByText('Edit details')).toBeInTheDocument();
+      expect(screen.getByText('Bike Details')).toBeInTheDocument();
     });
 
-    it('Edit details links to correct path', () => {
+    it('Bike Details links to correct path', () => {
       renderWithRouter(<BikeOverviewCard {...defaultProps} />);
 
-      const link = screen.getByText('Edit details').closest('a');
+      const link = screen.getByText('Bike Details').closest('a');
       expect(link).toHaveAttribute('href', '/gear/bike-1');
     });
 

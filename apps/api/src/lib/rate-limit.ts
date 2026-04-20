@@ -40,6 +40,10 @@ export const MUTATION_RATE_LIMITS = {
   updateBikeComponentInstall: { windowSeconds: 60, maxRequests: 30 },
   /** deleteBikeComponentInstall: max 30 requests per minute per user */
   deleteBikeComponentInstall: { windowSeconds: 60, maxRequests: 30 },
+  /** updateBikeAcquisition: max 20 requests per minute per user */
+  updateBikeAcquisition: { windowSeconds: 60, maxRequests: 20 },
+  /** bulkUpdateBikeComponentInstalls: max 20 requests per minute per user */
+  bulkUpdateBikeComponentInstalls: { windowSeconds: 60, maxRequests: 20 },
   /**
    * bikeHistory query: max 60 requests per minute per user. Higher than
    * mutations because it's a read (filter toggling, timeframe changes,

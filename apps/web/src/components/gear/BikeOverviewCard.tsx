@@ -241,9 +241,13 @@ export function BikeOverviewCard({
 
           {/* Actions */}
           <div className="bike-card-actions">
+            <Link to={`/gear/${bike.id}`} className="btn-primary btn-sm">
+              <Bike size={12} className="icon-left" />
+              Bike Details
+            </Link>
             {onLogService && (
               <Button
-                variant="primary"
+                variant="outline"
                 size="sm"
                 onClick={onLogService}
               >
@@ -251,10 +255,6 @@ export function BikeOverviewCard({
                 Log service
               </Button>
             )}
-            <Link to={`/gear/${bike.id}`} className="btn-secondary btn-sm">
-              <Pencil size={12} className="icon-left" />
-              Edit details
-            </Link>
             {isValid99SpokesUrl(bike.spokesUrl) && (
               <a
                 href={bike.spokesUrl!}

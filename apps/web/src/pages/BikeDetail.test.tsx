@@ -104,6 +104,7 @@ vi.mock('@/components/SpareComponentForm', () => ({
 
 vi.mock('@/graphql/gear', () => ({
   GEAR_QUERY: 'GEAR_QUERY',
+  GEAR_QUERY_LIGHT: 'GEAR_QUERY_LIGHT',
   UPDATE_BIKE: 'UPDATE_BIKE',
   UPDATE_COMPONENT: 'UPDATE_COMPONENT',
   BIKE_NOTES_QUERY: 'BIKE_NOTES_QUERY',
