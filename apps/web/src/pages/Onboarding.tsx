@@ -294,7 +294,6 @@ export default function Onboarding() {
   };
 
   const handleNext = () => {
-    // Step 1 (Terms) has its own navigation via TermsAcceptanceStep
     // Step 1 (terms) advances via TermsAcceptanceStep after its own mutation
     // resolves; the authoritative analytics signal is the server-side
     // `terms_accepted` event. No client-side step_completed for step 1.

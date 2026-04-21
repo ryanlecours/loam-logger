@@ -1,6 +1,13 @@
 import { __test } from './posthog';
 
-const { scrub, FILTERED } = __test;
+const { scrub, FILTERED, clearOptOutCache } = __test;
+
+// Opt-out cache is module-level state shared across tests in the same
+// process; clear it between cases so tests that may touch isOptedOut()
+// don't leak state into others.
+afterEach(() => {
+  clearOptOutCache();
+});
 
 describe('posthog scrub', () => {
   describe('flat properties', () => {

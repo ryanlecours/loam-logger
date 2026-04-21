@@ -9,16 +9,18 @@
  * the client is a no-op — capture/flush calls return immediately.
  */
 
+import * as Sentry from '@sentry/node';
 import { PostHog } from 'posthog-node';
 import { logger } from './logger';
 import { prisma } from './prisma';
 
-// Broad by design. `token` already subsumes access_token / refresh_token /
-// id_token / resetToken / sessionToken (kept for readability). `auth` is
-// deliberately omitted — it false-positives on words like "author" and
-// "authentic". If you add a pattern, add a test in posthog.test.ts that
-// proves it matches the expected key shapes.
-const SENSITIVE_KEY_PATTERN = /password|token|secret|cookie|authorization|bearer|apiKey|api_key|resetToken|sessionToken|jwt|credential/i;
+// Broad by design. `token` subsumes access_token / refresh_token / id_token /
+// resetToken / sessionToken via substring match. `apiKey` and `api_key` are
+// both listed because neither matches the other as a substring (camelCase vs
+// snake_case). `auth` is deliberately omitted — it false-positives on words
+// like "author" and "authentic". If you add a pattern, add a test in
+// posthog.test.ts that proves it matches the expected key shapes.
+const SENSITIVE_KEY_PATTERN = /password|token|secret|cookie|authorization|bearer|apiKey|api_key|jwt|credential/i;
 const FILTERED = '[Filtered]';
 const MAX_DEPTH = 8;
 
@@ -99,7 +101,22 @@ async function isOptedOut(userId: string): Promise<boolean> {
     // to the safer-for-product behavior. The alternative (blocking all
     // events on a transient DB blip) is worse ops-wise and doesn't
     // protect anyone who isn't already opted out.
+    //
+    // GDPR caveat: inverts Article 7(3) for users who *had* opted out —
+    // their events will flow while the DB is unavailable. We alert on this
+    // specifically so the frequency is visible, not just buried in pino
+    // warnings. If it ever becomes non-trivial, revisit the default.
     logger?.warn?.({ err, userId }, 'PostHog opt-out lookup failed');
+    try {
+      Sentry.withScope((scope) => {
+        scope.setTag('posthog.opt_out_lookup', 'failed');
+        scope.setTag('compliance.risk', 'gdpr-art-7-3');
+        scope.setContext('posthog', { userId });
+        Sentry.captureException(err);
+      });
+    } catch {
+      // Sentry not initialized in some environments — don't amplify failures
+    }
     return false;
   }
 }
@@ -113,6 +130,14 @@ export function invalidateOptOutCache(userId: string): void {
   optOutCache.delete(userId);
 }
 
+/**
+ * Wipe the entire opt-out cache. Intended for test teardown — the cache is
+ * module-level state that otherwise leaks across tests in the same process.
+ */
+export function clearOptOutCache(): void {
+  optOutCache.clear();
+}
+
 // Exported for unit tests. Not part of the public API — consumers should call
 // captureServerEvent, which scrubs internally.
 export const __test = {
@@ -121,6 +146,7 @@ export const __test = {
   MAX_DEPTH,
   FILTERED,
   optOutCache,
+  clearOptOutCache,
 };
 
 /**
@@ -160,11 +186,17 @@ export function captureServerEvent(
  *
  * Bounded at 2s to match Sentry's flush timeout in server.ts — a PostHog
  * outage during deploy shouldn't stall SIGTERM indefinitely.
+ *
+ * Routes through getClient() rather than reading the module-level `client`
+ * directly so the lazy-init path runs here too. Prevents a no-op flush
+ * when SIGTERM arrives before any captureServerEvent call has triggered
+ * initialization (fast-shutdown tests, health-check-only deploys).
  */
 export async function flushPostHog(): Promise<void> {
-  if (!client) return;
+  const c = getClient();
+  if (!c) return;
   try {
-    await client.shutdown(2000);
+    await c.shutdown(2000);
   } catch (err) {
     logger?.warn?.({ err }, 'PostHog flush failed');
   }
