@@ -119,42 +119,31 @@ router.post('/complete', express.json(), async (req: Request, res) => {
 
     const userId = sessionUser.uid;
 
-    // Idempotency guard. Without this, any repeat POST (rage-click, client
-    // retry, service-worker replay, test harness loop, bookmark back-nav)
-    // creates a NEW bike and re-fires analytics events. One real user hit
-    // this 272 times in a week, generating 272 duplicate bikes + 272 each
-    // of bike_added / onboarding_completed.
+    // Idempotency guard, atomic inside the transaction. Without this, any
+    // repeat POST (rage-click, client retry, service-worker replay, test
+    // harness loop, bookmark back-nav) would create a NEW bike and re-fire
+    // analytics events.
     //
-    // If onboardingCompleted is already true, the work was done on a prior
-    // call — return success without side effects. The 200 status keeps the
-    // client happy; the `alreadyCompleted` flag lets the client log or
-    // branch if it wants.
-    const existingUser = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { onboardingCompleted: true },
-    });
-    if (existingUser?.onboardingCompleted) {
-      logger.warn({ userId }, '[Onboarding] /complete called for already-onboarded user; ignoring duplicate');
-      return res.status(200).json({
-        ok: true,
-        alreadyCompleted: true,
-        message: 'Onboarding already completed',
-      });
-    }
-
-    // Use transaction to ensure atomicity: all writes succeed or all fail
+    // The guard uses updateMany with `onboardingCompleted: false` in the
+    // where clause as a single check-and-set — the DB either flips the flag
+    // (count === 1) or does nothing (count === 0). A simple findUnique +
+    // conditional before the transaction would have a TOCTOU window that
+    // two concurrent requests could both clear.
+    //
+    // If count === 0, the transaction returns null to signal "already
+    // onboarded" without doing any bike/component writes.
     const result = await prisma.$transaction(async (tx) => {
-      // Update user with onboarding data
-      const user = await tx.user.update({
-        where: { id: userId },
+      const { count } = await tx.user.updateMany({
+        where: { id: userId, onboardingCompleted: false },
         data: {
           age: age || null,
           location: location || null,
           onboardingCompleted: true,
         },
       });
+      if (count === 0) return null;
 
-      console.log(`[Onboarding] Updated user profile for: ${userId}`);
+      logger.info({ userId }, '[Onboarding] Updated user profile');
 
       // Create bike with all metadata
       const bikeIsEbike = isEbike ?? false;
@@ -190,7 +179,7 @@ router.post('/complete', express.json(), async (req: Request, res) => {
         },
       });
 
-      console.log(`[Onboarding] Created bike for user: ${userId}`);
+      logger.info({ userId, bikeId: bike.id }, '[Onboarding] Created bike');
 
       // Derive BikeSpec from travel values and 99spokes component data
       // This detects suspension from either travel values OR component presence
@@ -209,10 +198,21 @@ router.post('/complete', express.json(), async (req: Request, res) => {
         acquisitionCondition: acquisitionCondition ?? 'NEW',
       });
 
-      console.log(`[Onboarding] Created components for bike: ${bike.id}`);
+      logger.info({ bikeId: bike.id }, '[Onboarding] Created components');
 
-      return { user, bike };
+      return { bike };
     });
+
+    // updateMany above returned 0 rows — user was already onboarded. Exit
+    // without firing analytics events or running the referral completion.
+    if (!result) {
+      logger.warn({ userId }, '[Onboarding] /complete called for already-onboarded user; ignoring duplicate');
+      return res.status(200).json({
+        ok: true,
+        alreadyCompleted: true,
+        message: 'Onboarding already completed',
+      });
+    }
 
     // Complete referral if this user was referred (non-blocking)
     try {

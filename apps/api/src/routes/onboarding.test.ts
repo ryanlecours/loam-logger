@@ -2,16 +2,14 @@ import type { Request, Response, NextFunction, RequestHandler } from 'express';
 
 // Mock Prisma
 const mockTransaction = jest.fn();
-const mockUserUpdate = jest.fn();
-const mockUserFindUnique = jest.fn();
+const mockUserUpdateMany = jest.fn();
 const mockBikeCreate = jest.fn();
 
 jest.mock('../lib/prisma', () => ({
   prisma: {
     $transaction: mockTransaction,
     user: {
-      update: mockUserUpdate,
-      findUnique: mockUserFindUnique,
+      updateMany: mockUserUpdateMany,
     },
     bike: {
       create: mockBikeCreate,
@@ -114,14 +112,14 @@ describe('POST /onboarding/complete', () => {
     // Setup default successful transaction behavior
     mockTransaction.mockImplementation(async (fn) => {
       const tx = {
-        user: { update: mockUserUpdate },
+        user: { updateMany: mockUserUpdateMany },
         bike: { create: mockBikeCreate },
       };
       return fn(tx);
     });
 
-    mockUserUpdate.mockResolvedValue({ id: 'user-123' });
-    mockUserFindUnique.mockResolvedValue({ onboardingCompleted: false });
+    // Default: first-time onboarding (updateMany flips the flag, count=1)
+    mockUserUpdateMany.mockResolvedValue({ count: 1 });
     mockBikeCreate.mockResolvedValue({ id: 'bike-456' });
     mockBuildBikeComponents.mockResolvedValue(undefined);
   });
@@ -149,8 +147,10 @@ describe('POST /onboarding/complete', () => {
   });
 
   describe('Idempotency', () => {
-    it('should short-circuit with alreadyCompleted=true when user is already onboarded (prevents duplicate bikes + analytics spam)', async () => {
-      mockUserFindUnique.mockResolvedValueOnce({ onboardingCompleted: true });
+    it('should short-circuit with alreadyCompleted=true when updateMany reports count=0 (prevents duplicate bikes + analytics spam, TOCTOU-safe)', async () => {
+      // updateMany with `onboardingCompleted: false` in the where clause
+      // matches 0 rows → user already onboarded.
+      mockUserUpdateMany.mockResolvedValueOnce({ count: 0 });
 
       await invokeHandler(handler, mockReq as Request, mockRes as Response);
 
@@ -159,10 +159,14 @@ describe('POST /onboarding/complete', () => {
         ok: true,
         alreadyCompleted: true,
       });
-      // No DB writes, no bike created
-      expect(mockTransaction).not.toHaveBeenCalled();
+      // updateMany is called (that's the atomic check-and-set), but no bike
+      // row is created and the referral / analytics side-effects are skipped.
+      expect(mockUserUpdateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ onboardingCompleted: false }),
+        })
+      );
       expect(mockBikeCreate).not.toHaveBeenCalled();
-      expect(mockUserUpdate).not.toHaveBeenCalled();
     });
   });
 
@@ -259,8 +263,8 @@ describe('POST /onboarding/complete', () => {
 
       await invokeHandler(handler, mockReq as Request, mockRes as Response);
 
-      expect(mockUserUpdate).toHaveBeenCalledWith({
-        where: { id: 'user-123' },
+      expect(mockUserUpdateMany).toHaveBeenCalledWith({
+        where: { id: 'user-123', onboardingCompleted: false },
         data: {
           age: 30,
           location: 'California',
@@ -277,8 +281,8 @@ describe('POST /onboarding/complete', () => {
 
       await invokeHandler(handler, mockReq as Request, mockRes as Response);
 
-      expect(mockUserUpdate).toHaveBeenCalledWith({
-        where: { id: 'user-123' },
+      expect(mockUserUpdateMany).toHaveBeenCalledWith({
+        where: { id: 'user-123', onboardingCompleted: false },
         data: {
           age: null,
           location: null,
@@ -568,13 +572,13 @@ describe('POST /onboarding/complete', () => {
 
       expect(mockTransaction).toHaveBeenCalled();
       // Verify user update and bike create were called within transaction
-      expect(mockUserUpdate).toHaveBeenCalled();
+      expect(mockUserUpdateMany).toHaveBeenCalled();
       expect(mockBikeCreate).toHaveBeenCalled();
       expect(mockBuildBikeComponents).toHaveBeenCalled();
     });
 
     it('should rollback on user update failure', async () => {
-      mockUserUpdate.mockRejectedValue(new Error('User update failed'));
+      mockUserUpdateMany.mockRejectedValue(new Error('User update failed'));
 
       await invokeHandler(handler, mockReq as Request, mockRes as Response);
 
