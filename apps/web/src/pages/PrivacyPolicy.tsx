@@ -25,7 +25,7 @@ export default function PrivacyPolicy() {
                         <div className="space-y-6">
                             <div>
                                 <h1 className="section-title mb-2">Privacy Policy</h1>
-                                <p className="text-sm text-muted">Last updated: April 9, 2026</p>
+                                <p className="text-sm text-muted">Last updated: April 20, 2026</p>
                             </div>
 
                             <div className="max-h-[70vh] overflow-y-auto space-y-6 pr-4">
@@ -39,7 +39,7 @@ export default function PrivacyPolicy() {
                                     <ul className="list-disc pl-6 space-y-2 body text-muted">
                                         <li><strong className="text-cream">Account & Auth:</strong> Basic profile info from OAuth providers (e.g., Garmin), such as your name, email, and provider ID.</li>
                                         <li><strong className="text-cream">Fitness Data (when connected):</strong> Rides, distance, elevation, duration, heart rate metrics, activity metadata.</li>
-                                        <li><strong className="text-cream">App Usage:</strong> Device/browser info and in-app events for diagnostics and performance.</li>
+                                        <li><strong className="text-cream">App Usage & Behavioral Analytics:</strong> Device/browser info, IP address, page visits, clicks, feature-level events (e.g., bike added, ride logged, subscription started), and — on a sampled basis — session recordings of your interactions with the app. See Section 6 for details on what's captured and what's masked.</li>
                                     </ul>
                                 </section>
 
@@ -76,7 +76,23 @@ export default function PrivacyPolicy() {
                                 </section>
 
                                 <section>
-                                    <h2 className="card-title mb-3">6. Retention & Deletion</h2>
+                                    <h2 className="card-title mb-3">6. Product Analytics & Session Replay</h2>
+                                    <p className="body text-muted mb-3">
+                                        We use PostHog (<a className="text-mint hover:text-sage transition-colors underline" href="https://posthog.com" target="_blank" rel="noopener noreferrer">posthog.com</a>), operated by PostHog Inc. and hosted in the United States, as a third-party data processor to understand how people use Loam Logger so we can improve it. PostHog receives:
+                                    </p>
+                                    <ul className="list-disc pl-6 space-y-2 body text-muted mb-3">
+                                        <li><strong className="text-cream">Identity:</strong> your internal user ID, email, name, subscription tier, and role. This lets us associate events with your account across sessions and devices.</li>
+                                        <li><strong className="text-cream">Behavioral events:</strong> pages visited, buttons clicked, and product-level events such as "bike added", "ride logged", "subscription started", or "provider connected".</li>
+                                        <li><strong className="text-cream">Technical context:</strong> IP address, browser and device information, and the referring URL.</li>
+                                        <li><strong className="text-cream">Session recordings (sampled):</strong> on a small percentage of sessions, plus sessions where an error occurs, PostHog records a video-like playback of your interactions with the app. All <em>form inputs</em> (text fields, passwords, selects, textareas) are masked by default so their contents are not captured. Fields that render sensitive text can be additionally tagged for masking. No fitness data, ride details, or bike photos are included in the analytics event stream.</li>
+                                    </ul>
+                                    <p className="body text-muted">
+                                        PostHog acts as our data processor under a data-processing agreement. They do not sell your data. For details on their practices, see <a className="text-mint hover:text-sage transition-colors underline" href="https://posthog.com/privacy" target="_blank" rel="noopener noreferrer">PostHog's privacy policy</a>. You can opt out of PostHog analytics at any time from the <strong className="text-cream">Privacy → Product Analytics</strong> section in your account <a className="text-mint hover:text-sage transition-colors underline" href="/settings">Settings</a>. The opt-out is stored on your account, so it applies everywhere you're signed in — both browser activity (pageviews, clicks, session recordings) and server-side events tied to your account (bike/ride updates, subscription events, provider syncs) will be suppressed.
+                                    </p>
+                                </section>
+
+                                <section>
+                                    <h2 className="card-title mb-3">7. Retention & Deletion</h2>
                                     <p className="body text-muted">
                                         We retain data while your account is active and as needed for service integrity.
                                         You can request deletion of your account and associated data at any time (see "Contact").
@@ -85,35 +101,35 @@ export default function PrivacyPolicy() {
                                 </section>
 
                                 <section>
-                                    <h2 className="card-title mb-3">7. Security</h2>
+                                    <h2 className="card-title mb-3">8. Security</h2>
                                     <p className="body text-muted">
                                         We use industry-standard security controls; however, no method of transmission or storage is 100% secure.
                                     </p>
                                 </section>
 
                                 <section>
-                                    <h2 className="card-title mb-3">8. Children</h2>
+                                    <h2 className="card-title mb-3">9. Children</h2>
                                     <p className="body text-muted">
                                         Loam Logger is not intended for children under 18. We do not knowingly collect data from children.
                                     </p>
                                 </section>
 
                                 <section>
-                                    <h2 className="card-title mb-3">9. International Transfers</h2>
+                                    <h2 className="card-title mb-3">10. International Transfers</h2>
                                     <p className="body text-muted">
                                         Data may be processed in the United States or other countries with appropriate safeguards.
                                     </p>
                                 </section>
 
                                 <section>
-                                    <h2 className="card-title mb-3">10. Changes</h2>
+                                    <h2 className="card-title mb-3">11. Changes</h2>
                                     <p className="body text-muted">
                                         We may update this policy. We'll post the new date above and, if material, notify you in-app.
                                     </p>
                                 </section>
 
                                 <section>
-                                    <h2 className="card-title mb-3">11. Contact</h2>
+                                    <h2 className="card-title mb-3">12. Contact</h2>
                                     <p className="body">
                                         Questions or deletion requests: <a className="text-mint hover:text-sage transition-colors underline" href="mailto:ryan.lecours@loamlogger.app">ryan.lecours@loamlogger.app</a>
                                     </p>

@@ -4,6 +4,7 @@ import { gql, useMutation } from '@apollo/client';
 import { Check, X, Share2 } from 'lucide-react';
 import { useState } from 'react';
 import { useUserTier } from '../hooks/useUserTier';
+import { posthog } from '../lib/posthog';
 
 const CREATE_CHECKOUT = gql`
   mutation CreateCheckoutSession($plan: StripePlan!) {
@@ -21,10 +22,19 @@ export default function Pricing() {
   const [createCheckout, { loading }] = useMutation(CREATE_CHECKOUT);
 
   const handleUpgrade = async () => {
+    // Three-stage funnel:
+    //   1. `checkout_session_started` — intent (fires on click)
+    //   2. `checkout_session_created` — Stripe session URL returned (fires
+    //      only when the mutation resolves with a URL; gap from #1 measures
+    //      pre-Stripe failures: rate limits, network errors, validation)
+    //   3. `subscription_checkout_completed` — payment succeeded (fires
+    //      server-side from the Stripe webhook; authoritative)
+    posthog.capture('checkout_session_started', { plan: billingPeriod, currentTier: tier });
     try {
       const { data } = await createCheckout({ variables: { plan: billingPeriod } });
       const url = data?.createCheckoutSession?.url;
       if (url) {
+        posthog.capture('checkout_session_created', { plan: billingPeriod, currentTier: tier });
         window.location.href = url;
       }
     } catch {

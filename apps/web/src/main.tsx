@@ -11,6 +11,9 @@ import { PreferencesProvider } from './providers/PreferencesProvider';
 import { GoogleOAuthProvider } from '@react-oauth/google';
 import { inject } from '@vercel/analytics';
 import client from './lib/apolloClient';
+import { initPostHog } from './lib/posthog';
+
+initPostHog();
 
 createRoot(document.getElementById('root')!, {
   onUncaughtError: reactErrorHandler(),

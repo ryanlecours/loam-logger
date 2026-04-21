@@ -27,6 +27,7 @@ export const ME_QUERY = gql`
       hoursDisplayPreference
       predictionMode
       distanceUnit
+      analyticsOptOut
       pairedComponentMigrationSeenAt
       createdAt
     }

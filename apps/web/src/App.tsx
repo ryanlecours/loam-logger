@@ -31,6 +31,7 @@ import OnboardingGate from './components/OnboardingGate';
 import TermsGate from './components/TermsGate';
 import { ToastProvider } from './components/ui/Toast';
 import Onboarding from './pages/Onboarding';
+import { usePostHogPageviews } from './hooks/usePostHogPageviews';
 
 import './App.css';
 import PrivacyPolicy from './pages/PrivacyPolicy';
@@ -70,6 +71,7 @@ function ProtectedRoute({ children }: { children: ReactNode }) {
 
 function AppRoutes() {
   const location = useLocation();
+  usePostHogPageviews();
 
   return (
     <>

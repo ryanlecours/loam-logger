@@ -9,6 +9,7 @@ import { revokeGarminTokenForUser } from '../lib/garmin-token';
 import { createOAuthAttempt, consumeOAuthAttempt } from '../lib/oauthState';
 import { encrypt } from '../lib/crypto';
 import { renderOAuthCompletionPage } from '../lib/oauthCompletionPage';
+import { captureServerEvent } from '../lib/posthog';
 
 const log = createLogger('garmin-oauth');
 
@@ -242,6 +243,14 @@ r.get<Empty, void, Empty, { code?: string; state?: string }>(
       const garminUser = (await userIdRes.json()) as GarminUserIdResp;
       const garminUserId = garminUser.userId;
 
+      // Pre-check so the provider_connected event can distinguish a first-time
+      // connection from a re-auth. See auth.strava.ts for rationale.
+      const existingIntegration = await prisma.userIntegration.findUnique({
+        where: { userId_provider: { userId: authenticatedUserId, provider: 'GARMIN' } },
+        select: { id: true },
+      });
+      const isReconnect = Boolean(existingIntegration);
+
       // TODO: Remove OauthToken dual-write once webhooks/sync workers and token
       // refresh helpers (garmin-token.ts) are migrated to read from UserIntegration.
       // OauthToken stores plaintext tokens; UserIntegration uses AES-256-GCM encryption.
@@ -302,6 +311,8 @@ r.get<Empty, void, Empty, { code?: string; state?: string }>(
           },
         });
       });
+
+      captureServerEvent(authenticatedUserId, 'provider_connected', { provider: 'garmin', isReconnect });
 
       if (isMobileFlow && attemptId) {
         // Attempt already consumed atomically by consumeOAuthAttempt

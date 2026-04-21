@@ -28,6 +28,7 @@ import ServicePreferencesEditor from "../components/ServicePreferencesEditor";
 import BillingSection from "../components/BillingSection";
 import WeatherBackfillSection from "../components/WeatherBackfillSection";
 import ReferralCard from "../components/ReferralCard";
+import PrivacySettings from "../components/PrivacySettings";
 
 const CONNECTED_ACCOUNTS_QUERY = gql`
   query ConnectedAccounts {
@@ -898,6 +899,8 @@ export default function Settings() {
           Open Calibration
         </button>
       </section>
+
+      <PrivacySettings />
 
       {successMessage && (
         <section className="alert alert-success-dark rounded-3xl p-6">

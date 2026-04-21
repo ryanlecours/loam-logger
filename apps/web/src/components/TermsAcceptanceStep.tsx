@@ -69,6 +69,10 @@ export function TermsAcceptanceStep({ onComplete }: TermsAcceptanceStepProps) {
         },
       })
 
+      // `terms_accepted` is captured server-side in the acceptTerms resolver
+      // after the DB upsert commits — authoritative and can't be dropped by
+      // a tab close between the mutation finishing and here.
+
       // Refetch user data to update hasAcceptedCurrentTerms
       await apolloClient.refetchQueries({ include: [ME_QUERY] })
 

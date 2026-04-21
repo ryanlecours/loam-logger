@@ -6,6 +6,7 @@ import { sendBadRequest, sendUnauthorized, sendInternalError } from '../lib/api-
 import { deriveBikeSpec, type SpokesComponents } from '@loam/shared';
 import { logError, logger } from '../lib/logger';
 import { completeReferral } from '../services/referral.service';
+import { captureServerEvent } from '../lib/posthog';
 import {
   buildBikeComponents,
   type BikeComponentInputGQL,
@@ -199,6 +200,28 @@ router.post('/complete', express.json(), async (req: Request, res) => {
         'Failed to complete referral during onboarding'
       );
     }
+
+    // Mirror the `bike_added` event that `addBike` resolver fires for
+    // post-onboarding bike creation, so bike catalog metadata (manufacturer,
+    // model, year) lands in PostHog through a single, server-authoritative,
+    // scrubber-mediated path regardless of which creation flow is used.
+    captureServerEvent(userId, 'bike_added', {
+      bikeId: result.bike.id,
+      manufacturer: bikeMake,
+      model: bikeModel,
+      year: bikeYear,
+      isEbike: Boolean(isEbike),
+      hasSpokesId: Boolean(spokesId),
+    });
+
+    // Authoritative onboarding-completed signal. Fires when the DB flip to
+    // `onboardingCompleted: true` commits — can't be missed by a user who
+    // skips the post-onboarding "Personalization" screen via URL navigation.
+    captureServerEvent(userId, 'onboarding_completed', {
+      bikeId: result.bike.id,
+      isEbike: Boolean(isEbike),
+      hasSpokesId: Boolean(spokesId),
+    });
 
     res.status(200).json({
       ok: true,

@@ -27,6 +27,7 @@ import {
 } from '@loam/shared';
 import { createId } from '@paralleldrive/cuid2';
 import { logError } from '../lib/logger';
+import { captureServerEvent, invalidateOptOutCache } from '../lib/posthog';
 import { config } from '../config/env';
 import { requireBikeCreation, requireComponentType, getEffectiveTier, getAllowedComponentTypes, canCreateBike, isProTier } from '../auth/tier-access';
 import { createCheckoutSession, createBillingPortalSession, type StripePlan, type CheckoutPlatform } from '../services/stripe.service';
@@ -367,7 +368,7 @@ const componentLabel = (type: ComponentType) =>
 
 const requireUserId = (ctx: GraphQLContext) => {
   const id = ctx.user?.id;
-  if (!id) throw new Error('Unauthorized');
+  if (!id) throw new GraphQLError('Unauthorized', { extensions: { code: 'UNAUTHENTICATED' } });
   return id;
 };
 
@@ -1637,6 +1638,16 @@ export const resolvers = {
         logError('Referral completion after ride', refErr);
       }
 
+      // Funnel signal only — intentionally omits the ride's metric values
+      // (duration, distance, elevation). Those are "fitness data" per the
+      // privacy policy and must not be shipped to PostHog. If a future
+      // funnel needs aggregate distributions, compute them from the DB.
+      captureServerEvent(userId, 'ride_added_manual', {
+        rideId: ride.id,
+        rideType,
+        hasBike: Boolean(bikeId),
+      });
+
       return ride;
     },
     deleteRide: async (_: unknown, { id }: { id: string }, ctx: GraphQLContext) => {
@@ -1915,7 +1926,7 @@ export const resolvers = {
         input.spokesComponents as SpokesComponents | undefined
       );
 
-      return prisma.$transaction(async (tx) => {
+      const created = await prisma.$transaction(async (tx) => {
         const bike = await tx.bike.create({
           data: {
             nickname: nickname ?? null,
@@ -1970,11 +1981,26 @@ export const resolvers = {
           data: { bikeId: bike.id },
         });
 
-        return tx.bike.findUnique({
+        // findUniqueOrThrow here (not findUnique) because the bike was just
+        // created in this same transaction — it must exist. The Or-Throw
+        // variant narrows the TS return type from `T | null` to `T`, so the
+        // capture call below doesn't need a null guard.
+        return tx.bike.findUniqueOrThrow({
           where: { id: bike.id },
           include: { components: true },
         });
       });
+
+      captureServerEvent(userId, 'bike_added', {
+        bikeId: created.id,
+        manufacturer,
+        model,
+        year,
+        isEbike,
+        hasSpokesId: Boolean(spokesId),
+      });
+
+      return created;
     },
 
     updateBike: async (
@@ -2076,6 +2102,8 @@ export const resolvers = {
         // Delete the bike itself
         await tx.bike.delete({ where: { id } });
       });
+
+      captureServerEvent(userId, 'bike_deleted', { bikeId: id });
 
       return { ok: true, id };
     },
@@ -2376,6 +2404,14 @@ export const resolvers = {
 
       // Clear notification dedup logs so this component can trigger notifications again
       clearServiceNotificationLogs(id, userId).catch((err) => logError('clearServiceNotificationLogs', err));
+
+      // `hoursAtService` is a cumulative ride-hours metric derived from
+      // fitness data — intentionally excluded from the analytics event
+      // stream. The funnel only needs to know that service was logged.
+      captureServerEvent(userId, 'component_serviced', {
+        componentId: id,
+        bikeId: existing.bikeId,
+      });
 
       return updated;
     },
@@ -3254,6 +3290,11 @@ export const resolvers = {
         provider: providerLower,
       });
 
+      captureServerEvent(userId, 'provider_sync_triggered', {
+        provider: providerLower,
+        alreadyQueued: enqueueResult.status === 'already_queued',
+      });
+
       if (enqueueResult.status === 'already_queued') {
         return {
           status: 'ALREADY_QUEUED',
@@ -3422,6 +3463,8 @@ export const resolvers = {
         update: {}, // No update if exists - keep original timestamp
       });
 
+      captureServerEvent(userId, 'terms_accepted', { termsVersion: input.termsVersion });
+
       return {
         success: true,
         acceptedAt: acceptance.acceptedAt.toISOString(),
@@ -3521,10 +3564,38 @@ export const resolvers = {
         return prisma.user.findUnique({ where: { id: userId } });
       }
 
-      return prisma.user.update({
+      const updatedUser = await prisma.user.update({
         where: { id: userId },
         data: updateData,
       });
+      captureServerEvent(userId, 'user_preferences_updated', {
+        fields: Object.keys(updateData),
+      });
+      return updatedUser;
+    },
+
+    updateAnalyticsOptOut: async (
+      _: unknown,
+      { optOut }: { optOut: boolean },
+      ctx: GraphQLContext
+    ) => {
+      const userId = requireUserId(ctx);
+
+      const rateLimit = await checkMutationRateLimit('updateAnalyticsOptOut', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
+
+      const updated = await prisma.user.update({
+        where: { id: userId },
+        data: { analyticsOptOut: optOut },
+      });
+      // Invalidate so subsequent captureServerEvent calls respect the new
+      // value immediately, without waiting for the TTL window.
+      invalidateOptOutCache(userId);
+      return updated;
     },
 
     updateServicePreferences: async (
@@ -4620,6 +4691,14 @@ export const resolvers = {
           installEventId: note.installEventId,
         };
       }
+
+      captureServerEvent(userId, 'component_installed', {
+        bikeId,
+        slotKey,
+        componentType: slotType,
+        isNewComponent: Boolean(newComponent),
+        displaced: Boolean(displacedComponent),
+      });
 
       return {
         installedComponent: installedComponent!,

@@ -6,6 +6,7 @@ import { sendBadRequest, sendUnauthorized, sendInternalError } from '../lib/api-
 import { createLogger } from '../lib/logger';
 import { revokeWhoopTokenForUser } from '../lib/whoop-token';
 import { WHOOP_AUTH_URL, WHOOP_TOKEN_URL, type WhoopUserProfile } from '../types/whoop';
+import { captureServerEvent } from '../lib/posthog';
 
 const log = createLogger('whoop-oauth');
 
@@ -147,6 +148,17 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string }>(
 
       log.info({ whoopUserId }, 'WHOOP user ID fetched');
 
+      // Pre-check so the provider_connected event can distinguish a first-time
+      // connection from a re-auth. See auth.strava.ts for rationale. Whoop
+      // doesn't populate a `UserIntegration` row like Strava/Garmin, so we
+      // probe the `whoopUserId` column on `User` (set on connect, cleared
+      // on disconnect).
+      const priorUser = await prisma.user.findUnique({
+        where: { id: authenticatedUserId },
+        select: { whoopUserId: true },
+      });
+      const isReconnect = Boolean(priorUser?.whoopUserId);
+
       // Store OAuth token, user account, and whoopUserId atomically
       await prisma.$transaction(async (tx) => {
         await tx.oauthToken.upsert({
@@ -187,6 +199,8 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string }>(
           data: { whoopUserId },
         });
       });
+
+      captureServerEvent(authenticatedUserId, 'provider_connected', { provider: 'whoop', isReconnect });
 
       // Check if user has multiple providers connected
       const userAccounts = await prisma.userAccount.findMany({

@@ -19,6 +19,22 @@ import {
   isValidImageUrl,
   filterNonNullComponents,
 } from '@/utils/bikeFormHelpers';
+import { posthog } from '@/lib/posthog';
+
+// Step 1 (terms) is deliberately absent — it has its own authoritative
+// server-side event (`terms_accepted`, fired from the acceptTerms resolver
+// after the DB upsert commits). Emitting a client-side
+// `onboarding_step_completed { step: 1 }` would either duplicate the signal
+// or, worse, fire before the mutation resolved. `handleNext` early-returns
+// for step 1, so this map is never consulted for it.
+const ONBOARDING_STEP_NAMES: Record<number, string> = {
+  2: 'age',
+  3: 'location',
+  4: 'bike_details',
+  5: 'bike_colorway',
+  6: 'device_connect',
+  7: 'personalization',
+};
 
 const CONNECTED_ACCOUNTS_QUERY = gql`
   query ConnectedAccounts {
@@ -278,7 +294,9 @@ export default function Onboarding() {
   };
 
   const handleNext = () => {
-    // Step 1 (Terms) has its own navigation via TermsAcceptanceStep
+    // Step 1 (terms) advances via TermsAcceptanceStep after its own mutation
+    // resolves; the authoritative analytics signal is the server-side
+    // `terms_accepted` event. No client-side step_completed for step 1.
     if (currentStep === 1) {
       return;
     }
@@ -308,6 +326,10 @@ export default function Onboarding() {
     // Step 5 (colorway) has no validation - optional selection
 
     if (currentStep < 6) {
+      posthog.capture('onboarding_step_completed', {
+        step: currentStep,
+        stepName: ONBOARDING_STEP_NAMES[currentStep],
+      });
       setCurrentStep(currentStep + 1);
       setError(null);
       setShowBikeValidation(false);
@@ -378,6 +400,18 @@ export default function Onboarding() {
       sessionStorage.removeItem('onboarding_data');
 
       setLoadingState('idle');
+      posthog.capture('onboarding_step_completed', {
+        step: 6,
+        stepName: ONBOARDING_STEP_NAMES[6],
+      });
+      // Intentionally minimal — bike catalog metadata (manufacturer, model,
+      // year) ships from the server via `bike_added` on the /onboarding/
+      // complete route, where it goes through the same scrubber as every
+      // other bike creation path. Keeping the same data on a client event
+      // would be a second, un-scrubbed copy of the same disclosure surface.
+      posthog.capture('onboarding_bike_submitted', {
+        hasSpokesId: Boolean(data.spokesId),
+      });
       // Advance to Step 7 (Personalization) instead of redirecting
       setCurrentStep(7);
     } catch (err) {
@@ -403,6 +437,14 @@ export default function Onboarding() {
 
   // Step 7: Personalization handlers
   const handleGoToDashboard = () => {
+    // `onboarding_completed` is captured server-side in /onboarding/complete
+    // when onboardingCompleted flips true — authoritative, can't be missed
+    // by users who navigate directly to /dashboard from the URL bar.
+    // The step_7 completion below is best-effort informational only.
+    posthog.capture('onboarding_step_completed', {
+      step: 7,
+      stepName: ONBOARDING_STEP_NAMES[7],
+    });
     navigate('/dashboard', { replace: true });
   };
 

@@ -931,6 +931,7 @@ export const typeDefs = gql`
     bulkUpdateComponentBaselines(input: BulkUpdateBaselinesInput!): [Component!]!
     acceptTerms(input: AcceptTermsInput!): AcceptTermsResult!
     updateUserPreferences(input: UpdateUserPreferencesInput!): User!
+    updateAnalyticsOptOut(optOut: Boolean!): User!
     acknowledgeImportOverlay(importSessionId: ID!): AcknowledgeResult!
     assignBikeToRides(rideIds: [ID!]!, bikeId: ID!): BulkAssignResult!
     logBulkComponentService(input: BulkServiceLogInput!): BulkServiceResult!
@@ -1010,6 +1011,7 @@ export const typeDefs = gql`
     hoursDisplayPreference: String
     predictionMode: String
     distanceUnit: String
+    analyticsOptOut: Boolean!
     pairedComponentMigrationSeenAt: String
     servicePreferences: [UserServicePreference!]!
     notifyOnRideUpload: Boolean!
