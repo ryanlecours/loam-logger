@@ -12,7 +12,12 @@
 import { PostHog } from 'posthog-node';
 import { logger } from './logger';
 
-const SENSITIVE_KEY_PATTERN = /password|token|secret|cookie|authorization|bearer|apiKey|api_key|resetToken|sessionToken/i;
+// Broad by design. `token` already subsumes access_token / refresh_token /
+// id_token / resetToken / sessionToken (kept for readability). `auth` is
+// deliberately omitted — it false-positives on words like "author" and
+// "authentic". If you add a pattern, add a test in posthog.test.ts that
+// proves it matches the expected key shapes.
+const SENSITIVE_KEY_PATTERN = /password|token|secret|cookie|authorization|bearer|apiKey|api_key|resetToken|sessionToken|jwt|credential/i;
 const FILTERED = '[Filtered]';
 const MAX_DEPTH = 8;
 
@@ -66,6 +71,10 @@ function getClient(): PostHog | null {
 function scrub(properties: Record<string, unknown>): Record<string, unknown> {
   return scrubDeep(properties, 0, new WeakSet<object>()) as Record<string, unknown>;
 }
+
+// Exported for unit tests. Not part of the public API — consumers should call
+// captureServerEvent, which scrubs internally.
+export const __test = { scrub, SENSITIVE_KEY_PATTERN, MAX_DEPTH, FILTERED };
 
 /**
  * Capture a server-authoritative event. distinctId MUST be the user's DB id

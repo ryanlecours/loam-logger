@@ -1986,14 +1986,16 @@ export const resolvers = {
         });
       });
 
-      captureServerEvent(userId, 'bike_added', {
-        bikeId: created?.id,
-        manufacturer,
-        model,
-        year,
-        isEbike,
-        hasSpokesId: Boolean(spokesId),
-      });
+      if (created) {
+        captureServerEvent(userId, 'bike_added', {
+          bikeId: created.id,
+          manufacturer,
+          model,
+          year,
+          isEbike,
+          hasSpokesId: Boolean(spokesId),
+        });
+      }
 
       return created;
     },

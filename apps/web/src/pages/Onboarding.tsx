@@ -428,11 +428,14 @@ export default function Onboarding() {
 
   // Step 7: Personalization handlers
   const handleGoToDashboard = () => {
+    // `onboarding_completed` is captured server-side in /onboarding/complete
+    // when onboardingCompleted flips true — authoritative, can't be missed
+    // by users who navigate directly to /dashboard from the URL bar.
+    // The step_7 completion below is best-effort informational only.
     posthog.capture('onboarding_step_completed', {
       step: 7,
       stepName: ONBOARDING_STEP_NAMES[7],
     });
-    posthog.capture('onboarding_completed');
     navigate('/dashboard', { replace: true });
   };
 
