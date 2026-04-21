@@ -14,6 +14,28 @@ import { logger } from './logger';
 
 const SENSITIVE_KEY_PATTERN = /password|token|secret|cookie|authorization|bearer|apiKey|api_key|resetToken|sessionToken/i;
 const FILTERED = '[Filtered]';
+const MAX_DEPTH = 8;
+
+function scrubDeep(value: unknown, depth: number, seen: WeakSet<object>): unknown {
+  if (value === null || value === undefined) return value;
+  if (typeof value !== 'object') return value;
+  if (depth > MAX_DEPTH) return value;
+  if (seen.has(value as object)) return value;
+  seen.add(value as object);
+
+  if (Array.isArray(value)) {
+    return value.map((item) => scrubDeep(item, depth + 1, seen));
+  }
+
+  const obj = value as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const k of Object.keys(obj)) {
+    out[k] = SENSITIVE_KEY_PATTERN.test(k)
+      ? FILTERED
+      : scrubDeep(obj[k], depth + 1, seen);
+  }
+  return out;
+}
 
 let client: PostHog | null = null;
 let initialized = false;
@@ -42,11 +64,7 @@ function getClient(): PostHog | null {
 }
 
 function scrub(properties: Record<string, unknown>): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  for (const k of Object.keys(properties)) {
-    out[k] = SENSITIVE_KEY_PATTERN.test(k) ? FILTERED : properties[k];
-  }
-  return out;
+  return scrubDeep(properties, 0, new WeakSet<object>()) as Record<string, unknown>;
 }
 
 /**
@@ -76,11 +94,14 @@ export function captureServerEvent(
 /**
  * Flush pending events and shut down the client. Call from SIGTERM so in-flight
  * events aren't lost on deploy.
+ *
+ * Bounded at 2s to match Sentry's flush timeout in server.ts — a PostHog
+ * outage during deploy shouldn't stall SIGTERM indefinitely.
  */
 export async function flushPostHog(): Promise<void> {
   if (!client) return;
   try {
-    await client.shutdown();
+    await client.shutdown(2000);
   } catch (err) {
     logger?.warn?.({ err }, 'PostHog flush failed');
   }

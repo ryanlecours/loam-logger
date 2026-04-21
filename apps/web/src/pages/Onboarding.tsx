@@ -27,9 +27,8 @@ const ONBOARDING_STEP_NAMES: Record<number, string> = {
   3: 'location',
   4: 'bike_details',
   5: 'bike_colorway',
-  6: 'components',
+  6: 'device_connect',
   7: 'personalization',
-  8: 'device_connect',
 };
 
 const CONNECTED_ACCOUNTS_QUERY = gql`
@@ -429,6 +428,11 @@ export default function Onboarding() {
 
   // Step 7: Personalization handlers
   const handleGoToDashboard = () => {
+    posthog.capture('onboarding_step_completed', {
+      step: 7,
+      stepName: ONBOARDING_STEP_NAMES[7],
+    });
+    posthog.capture('onboarding_completed');
     navigate('/dashboard', { replace: true });
   };
 
