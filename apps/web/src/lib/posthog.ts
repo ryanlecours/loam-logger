@@ -7,6 +7,13 @@ let initialized = false;
 
 // Email-shaped strings in any event property get redacted before send. Broad
 // by design — false positives are cheap, a leaked email is not.
+//
+// NB: The /g flag matters for replace() (catch every occurrence in one pass)
+// but a /g regex carries lastIndex state across calls — using the same
+// instance for both .test() and .replace() would cause alternating hits and
+// misses on successive string props. We skip the pre-test and call replace
+// directly: if there's no match, replace returns the input string unchanged,
+// which is effectively the same work as test() would do anyway.
 const EMAIL_PATTERN = /[\w.+-]+@[\w-]+\.[\w.-]+/g;
 const EMAIL_REDACTED = '[email]';
 
@@ -26,8 +33,9 @@ function sanitizeProperties(
   }
   for (const k of Object.keys(out)) {
     const v = out[k];
-    if (typeof v === 'string' && EMAIL_PATTERN.test(v)) {
-      out[k] = v.replace(EMAIL_PATTERN, EMAIL_REDACTED);
+    if (typeof v === 'string') {
+      const redacted = v.replace(EMAIL_PATTERN, EMAIL_REDACTED);
+      if (redacted !== v) out[k] = redacted;
     }
   }
   return out;
