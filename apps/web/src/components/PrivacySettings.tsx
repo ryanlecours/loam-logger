@@ -1,47 +1,69 @@
 import { useEffect, useState } from 'react';
+import { gql, useMutation } from '@apollo/client';
 import { posthog } from '../lib/posthog';
+import { useCurrentUser } from '../hooks/useCurrentUser';
+import { ME_QUERY } from '../graphql/me';
+
+const UPDATE_ANALYTICS_OPT_OUT = gql`
+  mutation UpdateAnalyticsOptOut($optOut: Boolean!) {
+    updateAnalyticsOptOut(optOut: $optOut) {
+      id
+      analyticsOptOut
+    }
+  }
+`;
 
 /**
  * Self-serve analytics opt-out toggle.
  *
- * Calls into posthog-js's built-in opt-out API, which persists the choice to
- * localStorage under its own key. Once opted out, the SDK no-ops all
- * captures (pageview, autocapture, session replay, identify, feature flags)
- * until opt-in is called again. This satisfies the GDPR / ePrivacy
- * requirement for a self-serve mechanism that doesn't route through
- * support email.
+ * Source of truth is `User.analyticsOptOut` in the DB:
+ *  - On the client, we call `posthog.opt_out_capturing()` to immediately
+ *    stop all browser-SDK events (pageview, autocapture, replay, identify).
+ *  - On the server, `captureServerEvent` short-circuits for users whose
+ *    `analyticsOptOut` is true, so GraphQL/webhook/worker events are also
+ *    suppressed.
  *
- * Note: this only controls the browser SDK. Server-side events from the API
- * (triggered by GraphQL mutations, webhooks, workers) are not yet gated on a
- * per-user opt-out — that requires an `analyticsOptOut` column on User and
- * threading it through captureServerEvent. Tracked as a follow-up.
+ * Unlike a purely client-side localStorage toggle, the server-backed flag
+ * survives browser changes, new devices, and cache clears — matching the
+ * GDPR Article 7(3) requirement that withdrawal of consent stops processing
+ * system-wide, not just on one device.
  */
 export default function PrivacySettings() {
-  const [optedOut, setOptedOut] = useState<boolean | null>(null);
+  const { user, refetch } = useCurrentUser();
+  const [updateOptOut, { loading }] = useMutation(UPDATE_ANALYTICS_OPT_OUT, {
+    refetchQueries: [{ query: ME_QUERY }],
+  });
+  const [error, setError] = useState<string | null>(null);
 
-  // On mount, read current opt-out state from the SDK. Gracefully degrade
-  // when PostHog isn't initialized (dev mode, missing key) — the API still
-  // exists as a no-op but may return undefined.
+  const optedOut = Boolean(user?.analyticsOptOut);
+
+  // Keep the browser SDK's local opt-out state in lockstep with the DB flag.
+  // This ensures the SDK goes silent immediately on toggle, and that a user
+  // who opts out on one device sees it enforced on every other device they
+  // log into (the server-backed flag re-applies opt_out_capturing on mount).
   useEffect(() => {
     try {
-      const state = posthog.has_opted_out_capturing?.();
-      setOptedOut(Boolean(state));
+      if (optedOut) {
+        posthog.opt_out_capturing?.();
+      } else {
+        posthog.opt_in_capturing?.();
+      }
     } catch {
-      setOptedOut(false);
+      // SDK not initialized (dev / missing key) — no-op is fine
     }
-  }, []);
+  }, [optedOut]);
 
-  const handleToggle = () => {
-    if (optedOut) {
-      posthog.opt_in_capturing?.();
-      setOptedOut(false);
-    } else {
-      posthog.opt_out_capturing?.();
-      setOptedOut(true);
+  const handleToggle = async () => {
+    setError(null);
+    try {
+      await updateOptOut({ variables: { optOut: !optedOut } });
+      await refetch();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update preference');
     }
   };
 
-  if (optedOut === null) return null; // first paint, avoid flicker
+  if (!user) return null;
 
   return (
     <section className="panel-spaced xl:max-w-[calc(50%-0.75rem)]">
@@ -70,20 +92,24 @@ export default function PrivacySettings() {
           type="checkbox"
           checked={optedOut}
           onChange={handleToggle}
-          className="mt-1 w-5 h-5 rounded border-app bg-surface accent-accent flex-shrink-0"
+          disabled={loading}
+          className="mt-1 w-5 h-5 rounded border-app bg-surface accent-accent flex-shrink-0 disabled:opacity-50"
         />
         <span className="text-sm leading-relaxed text-primary">
-          Opt out of product analytics and session recording on this device.
-          The opt-out is stored in your browser — if you clear site data or use
-          another device, you'll need to opt out again there.
+          Opt out of product analytics and session recording. This applies
+          everywhere you're signed in — both browser activity and server-side
+          events tied to your account are suppressed.
         </span>
       </label>
 
-      {optedOut && (
+      {optedOut && !loading && (
         <p className="text-xs text-success">
-          ✓ Analytics disabled. No events, recordings, or identifying data will
-          leave this browser for PostHog.
+          ✓ Analytics disabled. No events, recordings, or identifying data are
+          being sent to PostHog for your account.
         </p>
+      )}
+      {error && (
+        <p className="text-xs text-danger">{error}</p>
       )}
     </section>
   );

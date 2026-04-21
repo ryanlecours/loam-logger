@@ -46,6 +46,12 @@ model User {
   calibrationCompletedAt DateTime?
   calibrationDismissedAt DateTime?
   pairedComponentMigrationSeenAt DateTime?
+
+  // When true, suppress all server-side PostHog events for this user
+  // (captureServerEvent short-circuits). Client-side opt-out is handled
+  // separately via posthog.opt_out_capturing() from the browser SDK.
+  analyticsOptOut     Boolean             @default(false)
+
   bikes               Bike[]
   components          Component[]
   tokens              OauthToken[]

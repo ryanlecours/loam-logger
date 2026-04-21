@@ -27,7 +27,7 @@ import {
 } from '@loam/shared';
 import { createId } from '@paralleldrive/cuid2';
 import { logError } from '../lib/logger';
-import { captureServerEvent } from '../lib/posthog';
+import { captureServerEvent, invalidateOptOutCache } from '../lib/posthog';
 import { config } from '../config/env';
 import { requireBikeCreation, requireComponentType, getEffectiveTier, getAllowedComponentTypes, canCreateBike, isProTier } from '../auth/tier-access';
 import { createCheckoutSession, createBillingPortalSession, type StripePlan, type CheckoutPlatform } from '../services/stripe.service';
@@ -1638,12 +1638,13 @@ export const resolvers = {
         logError('Referral completion after ride', refErr);
       }
 
+      // Funnel signal only — intentionally omits the ride's metric values
+      // (duration, distance, elevation). Those are "fitness data" per the
+      // privacy policy and must not be shipped to PostHog. If a future
+      // funnel needs aggregate distributions, compute them from the DB.
       captureServerEvent(userId, 'ride_added_manual', {
         rideId: ride.id,
         rideType,
-        durationSeconds,
-        distanceMeters,
-        elevationGainMeters,
         hasBike: Boolean(bikeId),
       });
 
@@ -2402,10 +2403,12 @@ export const resolvers = {
       // Clear notification dedup logs so this component can trigger notifications again
       clearServiceNotificationLogs(id, userId).catch((err) => logError('clearServiceNotificationLogs', err));
 
+      // `hoursAtService` is a cumulative ride-hours metric derived from
+      // fitness data — intentionally excluded from the analytics event
+      // stream. The funnel only needs to know that service was logged.
       captureServerEvent(userId, 'component_serviced', {
         componentId: id,
         bikeId: existing.bikeId,
-        hoursAtService: existing.hoursUsed,
       });
 
       return updated;
@@ -3567,6 +3570,22 @@ export const resolvers = {
         fields: Object.keys(updateData),
       });
       return updatedUser;
+    },
+
+    updateAnalyticsOptOut: async (
+      _: unknown,
+      { optOut }: { optOut: boolean },
+      ctx: GraphQLContext
+    ) => {
+      const userId = requireUserId(ctx);
+      const updated = await prisma.user.update({
+        where: { id: userId },
+        data: { analyticsOptOut: optOut },
+      });
+      // Invalidate so subsequent captureServerEvent calls respect the new
+      // value immediately, without waiting for the TTL window.
+      invalidateOptOutCache(userId);
+      return updated;
     },
 
     updateServicePreferences: async (

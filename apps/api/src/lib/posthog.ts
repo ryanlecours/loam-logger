@@ -11,6 +11,7 @@
 
 import { PostHog } from 'posthog-node';
 import { logger } from './logger';
+import { prisma } from './prisma';
 
 // Broad by design. `token` already subsumes access_token / refresh_token /
 // id_token / resetToken / sessionToken (kept for readability). `auth` is
@@ -72,15 +73,63 @@ function scrub(properties: Record<string, unknown>): Record<string, unknown> {
   return scrubDeep(properties, 0, new WeakSet<object>()) as Record<string, unknown>;
 }
 
+// --- Per-user opt-out cache -------------------------------------------------
+// We can't hit Prisma on every event without crushing the DB (workers fire
+// these in hot loops). Short in-memory cache of the `analyticsOptOut` flag
+// keyed on userId. On first event per user per TTL window we do one lookup;
+// subsequent events hit the cache. Invalidated explicitly when the user
+// toggles their opt-out via the mutation (invalidateOptOutCache).
+const OPT_OUT_TTL_MS = 60_000;
+const optOutCache = new Map<string, { optOut: boolean; expiresAt: number }>();
+
+async function isOptedOut(userId: string): Promise<boolean> {
+  const now = Date.now();
+  const cached = optOutCache.get(userId);
+  if (cached && cached.expiresAt > now) return cached.optOut;
+  try {
+    const row = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { analyticsOptOut: true },
+    });
+    const optOut = Boolean(row?.analyticsOptOut);
+    optOutCache.set(userId, { optOut, expiresAt: now + OPT_OUT_TTL_MS });
+    return optOut;
+  } catch (err) {
+    // On DB failure, default to NOT opted out — analytics should fall back
+    // to the safer-for-product behavior. The alternative (blocking all
+    // events on a transient DB blip) is worse ops-wise and doesn't
+    // protect anyone who isn't already opted out.
+    logger?.warn?.({ err, userId }, 'PostHog opt-out lookup failed');
+    return false;
+  }
+}
+
+/**
+ * Invalidate the cached opt-out status for a user. Call from the resolver
+ * that toggles `User.analyticsOptOut` so the next capture respects the new
+ * value immediately instead of waiting for the TTL.
+ */
+export function invalidateOptOutCache(userId: string): void {
+  optOutCache.delete(userId);
+}
+
 // Exported for unit tests. Not part of the public API — consumers should call
 // captureServerEvent, which scrubs internally.
-export const __test = { scrub, SENSITIVE_KEY_PATTERN, MAX_DEPTH, FILTERED };
+export const __test = {
+  scrub,
+  SENSITIVE_KEY_PATTERN,
+  MAX_DEPTH,
+  FILTERED,
+  optOutCache,
+};
 
 /**
  * Capture a server-authoritative event. distinctId MUST be the user's DB id
  * so events merge with the same user's client-side PostHog timeline.
  *
- * Swallows errors — analytics failures must never break a request.
+ * Fire-and-forget — callers do not await. The body is async internally to
+ * await the opt-out lookup, but the outer call resolves immediately and any
+ * errors are swallowed. Analytics failures must never break a request.
  */
 export function captureServerEvent(
   distinctId: string,
@@ -89,15 +138,20 @@ export function captureServerEvent(
 ): void {
   const c = getClient();
   if (!c) return;
-  try {
-    c.capture({
-      distinctId,
-      event,
-      properties: scrub(properties),
-    });
-  } catch (err) {
-    logger?.warn?.({ err, event }, 'PostHog capture failed');
-  }
+  // Fire and forget. The opt-out lookup + capture run on a microtask; the
+  // caller (resolver, webhook, worker) is never blocked on PostHog.
+  void (async () => {
+    try {
+      if (await isOptedOut(distinctId)) return;
+      c.capture({
+        distinctId,
+        event,
+        properties: scrub(properties),
+      });
+    } catch (err) {
+      logger?.warn?.({ err, event }, 'PostHog capture failed');
+    }
+  })();
 }
 
 /**
