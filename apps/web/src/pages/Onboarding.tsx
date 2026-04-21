@@ -21,8 +21,13 @@ import {
 } from '@/utils/bikeFormHelpers';
 import { posthog } from '@/lib/posthog';
 
+// Step 1 (terms) is deliberately absent — it has its own authoritative
+// server-side event (`terms_accepted`, fired from the acceptTerms resolver
+// after the DB upsert commits). Emitting a client-side
+// `onboarding_step_completed { step: 1 }` would either duplicate the signal
+// or, worse, fire before the mutation resolved. `handleNext` early-returns
+// for step 1, so this map is never consulted for it.
 const ONBOARDING_STEP_NAMES: Record<number, string> = {
-  1: 'terms',
   2: 'age',
   3: 'location',
   4: 'bike_details',
@@ -290,6 +295,9 @@ export default function Onboarding() {
 
   const handleNext = () => {
     // Step 1 (Terms) has its own navigation via TermsAcceptanceStep
+    // Step 1 (terms) advances via TermsAcceptanceStep after its own mutation
+    // resolves; the authoritative analytics signal is the server-side
+    // `terms_accepted` event. No client-side step_completed for step 1.
     if (currentStep === 1) {
       return;
     }

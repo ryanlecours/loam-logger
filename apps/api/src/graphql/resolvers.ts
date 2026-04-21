@@ -3578,6 +3578,14 @@ export const resolvers = {
       ctx: GraphQLContext
     ) => {
       const userId = requireUserId(ctx);
+
+      const rateLimit = await checkMutationRateLimit('updateAnalyticsOptOut', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
+
       const updated = await prisma.user.update({
         where: { id: userId },
         data: { analyticsOptOut: optOut },

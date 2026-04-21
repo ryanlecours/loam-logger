@@ -97,11 +97,13 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     stripeSubscriptionId: subscriptionId,
   });
 
+  // Financial fields (amount_total, currency) are deliberately excluded —
+  // they aren't disclosed in the privacy policy's analytics section and
+  // aren't needed for the funnel. Subscription tier is already propagated
+  // via setPersonProperties on the next ME_QUERY revalidation.
   captureServerEvent(userId, 'subscription_checkout_completed', {
     source: 'stripe',
     subscriptionId,
-    amountTotal: session.amount_total,
-    currency: session.currency,
   });
 }
 
