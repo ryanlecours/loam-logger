@@ -3,6 +3,7 @@ import { useMutation, useApolloClient } from '@apollo/client'
 import { ACCEPT_TERMS_MUTATION } from '../graphql/terms'
 import { ME_QUERY } from '../graphql/me'
 import { TERMS_VERSION, TERMS_LAST_UPDATED, TERMS_TEXT } from '../legal/terms'
+import { posthog } from '../lib/posthog'
 
 interface TermsAcceptanceStepProps {
   onComplete: () => void
@@ -68,6 +69,8 @@ export function TermsAcceptanceStep({ onComplete }: TermsAcceptanceStepProps) {
           input: { termsVersion: TERMS_VERSION },
         },
       })
+
+      posthog.capture('terms_accepted', { termsVersion: TERMS_VERSION })
 
       // Refetch user data to update hasAcceptedCurrentTerms
       await apolloClient.refetchQueries({ include: [ME_QUERY] })

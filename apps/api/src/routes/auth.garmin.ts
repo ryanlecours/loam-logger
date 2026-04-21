@@ -9,6 +9,7 @@ import { revokeGarminTokenForUser } from '../lib/garmin-token';
 import { createOAuthAttempt, consumeOAuthAttempt } from '../lib/oauthState';
 import { encrypt } from '../lib/crypto';
 import { renderOAuthCompletionPage } from '../lib/oauthCompletionPage';
+import { captureServerEvent } from '../lib/posthog';
 
 const log = createLogger('garmin-oauth');
 
@@ -302,6 +303,8 @@ r.get<Empty, void, Empty, { code?: string; state?: string }>(
           },
         });
       });
+
+      captureServerEvent(authenticatedUserId, 'provider_connected', { provider: 'garmin' });
 
       if (isMobileFlow && attemptId) {
         // Attempt already consumed atomically by consumeOAuthAttempt

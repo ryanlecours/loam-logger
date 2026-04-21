@@ -19,6 +19,18 @@ import {
   isValidImageUrl,
   filterNonNullComponents,
 } from '@/utils/bikeFormHelpers';
+import { posthog } from '@/lib/posthog';
+
+const ONBOARDING_STEP_NAMES: Record<number, string> = {
+  1: 'terms',
+  2: 'age',
+  3: 'location',
+  4: 'bike_details',
+  5: 'bike_colorway',
+  6: 'components',
+  7: 'personalization',
+  8: 'device_connect',
+};
 
 const CONNECTED_ACCOUNTS_QUERY = gql`
   query ConnectedAccounts {
@@ -308,6 +320,10 @@ export default function Onboarding() {
     // Step 5 (colorway) has no validation - optional selection
 
     if (currentStep < 6) {
+      posthog.capture('onboarding_step_completed', {
+        step: currentStep,
+        stepName: ONBOARDING_STEP_NAMES[currentStep],
+      });
       setCurrentStep(currentStep + 1);
       setError(null);
       setShowBikeValidation(false);
@@ -378,6 +394,16 @@ export default function Onboarding() {
       sessionStorage.removeItem('onboarding_data');
 
       setLoadingState('idle');
+      posthog.capture('onboarding_step_completed', {
+        step: 6,
+        stepName: ONBOARDING_STEP_NAMES[6],
+      });
+      posthog.capture('onboarding_bike_submitted', {
+        bikeMake: data.bikeMake,
+        bikeModel: data.bikeModel,
+        bikeYear: data.bikeYear,
+        hasSpokesId: Boolean(data.spokesId),
+      });
       // Advance to Step 7 (Personalization) instead of redirecting
       setCurrentStep(7);
     } catch (err) {

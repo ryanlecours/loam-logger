@@ -15,6 +15,7 @@ import { completeReferral } from '../services/referral.service';
 import { config } from '../config/env';
 import type { SyncJobData, SyncJobName, SyncProvider } from '../lib/queue/sync.queue';
 import { enqueueWeatherJob } from '../lib/queue';
+import { captureServerEvent } from '../lib/posthog';
 import type { Prisma } from '@prisma/client';
 import {
   WHOOP_API_BASE,
@@ -905,6 +906,13 @@ export function createSyncWorker(): Worker<SyncJobData, void, SyncJobName> {
 
   syncWorker.on('completed', (job) => {
     logger.info({ jobId: job.id, jobName: job.name }, '[SyncWorker] Job completed');
+    const { userId, provider } = job.data;
+    if (userId) {
+      captureServerEvent(userId, 'provider_sync_completed', {
+        provider,
+        jobName: job.name,
+      });
+    }
   });
 
   syncWorker.on('failed', (job, err) => {

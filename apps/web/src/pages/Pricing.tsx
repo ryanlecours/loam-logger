@@ -4,6 +4,7 @@ import { gql, useMutation } from '@apollo/client';
 import { Check, X, Share2 } from 'lucide-react';
 import { useState } from 'react';
 import { useUserTier } from '../hooks/useUserTier';
+import { posthog } from '../lib/posthog';
 
 const CREATE_CHECKOUT = gql`
   mutation CreateCheckoutSession($plan: StripePlan!) {
@@ -21,6 +22,7 @@ export default function Pricing() {
   const [createCheckout, { loading }] = useMutation(CREATE_CHECKOUT);
 
   const handleUpgrade = async () => {
+    posthog.capture('checkout_session_started', { plan: billingPeriod, currentTier: tier });
     try {
       const { data } = await createCheckout({ variables: { plan: billingPeriod } });
       const url = data?.createCheckoutSession?.url;

@@ -9,6 +9,7 @@ import { revokeStravaTokenForUser } from '../lib/strava-token';
 import { createOAuthAttempt, consumeOAuthAttempt } from '../lib/oauthState';
 import { encrypt } from '../lib/crypto';
 import { renderOAuthCompletionPage } from '../lib/oauthCompletionPage';
+import { captureServerEvent } from '../lib/posthog';
 
 const log = createLogger('strava-oauth');
 
@@ -280,6 +281,8 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string }>(
           },
         });
       });
+
+      captureServerEvent(authenticatedUserId, 'provider_connected', { provider: 'strava' });
 
       // Check if multiple providers are connected (for data source prompt)
       const userAccounts = await prisma.userAccount.findMany({

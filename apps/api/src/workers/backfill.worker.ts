@@ -10,6 +10,7 @@ import { logError, logger } from '../lib/logger';
 import { config } from '../config/env';
 import type { BackfillJobData, BackfillJobName } from '../lib/queue/backfill.queue';
 import { enqueueWeatherJob } from '../lib/queue';
+import { captureServerEvent } from '../lib/posthog';
 
 // Garmin API limits backfill requests to 30-day chunks
 const CHUNK_DAYS = 30;
@@ -497,6 +498,14 @@ export function createBackfillWorker(): Worker<BackfillJobData, void, BackfillJo
 
   backfillWorker.on('completed', (job) => {
     logger.info({ jobId: job.id, jobName: job.name, year: job.data.year }, 'Backfill job completed');
+    const { userId, provider, year } = job.data;
+    if (userId) {
+      captureServerEvent(userId, 'provider_backfill_completed', {
+        provider,
+        year,
+        jobName: job.name,
+      });
+    }
   });
 
   backfillWorker.on('failed', (job, err) => {

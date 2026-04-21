@@ -5,6 +5,7 @@ import { logger } from '../lib/logger';
 import { sendEmailWithAudit } from '../services/email.service';
 import { upgradeUser, downgradeUser } from '../services/subscription.service';
 import { getPaymentFailedEmailHtml, getPaymentFailedEmailSubject, PAYMENT_FAILED_TEMPLATE_VERSION } from '../templates/emails/payment-failed';
+import { captureServerEvent } from '../lib/posthog';
 import type Stripe from 'stripe';
 
 /**
@@ -95,6 +96,13 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     stripeCustomerId: customerId,
     stripeSubscriptionId: subscriptionId,
   });
+
+  captureServerEvent(userId, 'subscription_checkout_completed', {
+    source: 'stripe',
+    subscriptionId,
+    amountTotal: session.amount_total,
+    currency: session.currency,
+  });
 }
 
 async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
@@ -138,6 +146,11 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
   }
 
   await downgradeUser(userId, 'stripe_webhook');
+
+  captureServerEvent(userId, 'subscription_canceled', {
+    source: 'stripe',
+    subscriptionId: subscription.id,
+  });
 }
 
 async function handlePaymentFailed(invoice: Stripe.Invoice) {

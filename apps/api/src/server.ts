@@ -20,6 +20,7 @@ import {
 } from './services/password-reset-cleanup.service';
 import { rootLogger, logger } from './lib/logger';
 import { validateEncryptionKey } from './lib/crypto';
+import { flushPostHog } from './lib/posthog';
 import {
   runWithRequestContext,
   createRequestContext,
@@ -338,6 +339,7 @@ const startServer = async () => {
     stopPasswordResetCleanup();
     await stopWorkers();
     await Sentry.flush(2000).catch(() => {});
+    await flushPostHog();
     await server.stop();
     process.exit(0);
   });

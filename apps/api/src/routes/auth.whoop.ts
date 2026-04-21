@@ -6,6 +6,7 @@ import { sendBadRequest, sendUnauthorized, sendInternalError } from '../lib/api-
 import { createLogger } from '../lib/logger';
 import { revokeWhoopTokenForUser } from '../lib/whoop-token';
 import { WHOOP_AUTH_URL, WHOOP_TOKEN_URL, type WhoopUserProfile } from '../types/whoop';
+import { captureServerEvent } from '../lib/posthog';
 
 const log = createLogger('whoop-oauth');
 
@@ -187,6 +188,8 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string }>(
           data: { whoopUserId },
         });
       });
+
+      captureServerEvent(authenticatedUserId, 'provider_connected', { provider: 'whoop' });
 
       // Check if user has multiple providers connected
       const userAccounts = await prisma.userAccount.findMany({
