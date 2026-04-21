@@ -97,16 +97,21 @@ async function isOptedOut(userId: string): Promise<boolean> {
     optOutCache.set(userId, { optOut, expiresAt: now + OPT_OUT_TTL_MS });
     return optOut;
   } catch (err) {
-    // On DB failure, default to NOT opted out — analytics should fall back
-    // to the safer-for-product behavior. The alternative (blocking all
-    // events on a transient DB blip) is worse ops-wise and doesn't
-    // protect anyone who isn't already opted out.
+    // On DB failure, prefer a previously-cached opt-out `true` over the
+    // fail-open default. Reasoning:
+    //   - A user we've already seen as opted out continues to be honored
+    //     while the DB is unavailable (GDPR Article 7(3): withdrawal of
+    //     consent must stop processing even during outages).
+    //   - A user we've already seen as opted in stays opted in (no behavior
+    //     change; the cache value is also `false`).
+    //   - A user we've never looked up gets the fail-open default (`false`).
+    //     Blocking ALL events on a transient blip was rejected: it's worse
+    //     ops-wise and doesn't protect anyone who isn't already opted out.
     //
-    // GDPR caveat: inverts Article 7(3) for users who *had* opted out —
-    // their events will flow while the DB is unavailable. We alert on this
-    // specifically so the frequency is visible, not just buried in pino
-    // warnings. If it ever becomes non-trivial, revisit the default.
+    // We alert specifically for the never-cached case since that's where
+    // the compliance risk actually lives.
     logger?.warn?.({ err, userId }, 'PostHog opt-out lookup failed');
+    if (cached) return cached.optOut;
     try {
       Sentry.withScope((scope) => {
         scope.setTag('posthog.opt_out_lookup', 'failed');
@@ -133,8 +138,9 @@ export function invalidateOptOutCache(userId: string): void {
 /**
  * Wipe the entire opt-out cache. Intended for test teardown — the cache is
  * module-level state that otherwise leaks across tests in the same process.
+ * Exposed only via `__test` below; not a public export.
  */
-export function clearOptOutCache(): void {
+function clearOptOutCache(): void {
   optOutCache.clear();
 }
 

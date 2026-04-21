@@ -1981,22 +1981,24 @@ export const resolvers = {
           data: { bikeId: bike.id },
         });
 
-        return tx.bike.findUnique({
+        // findUniqueOrThrow here (not findUnique) because the bike was just
+        // created in this same transaction — it must exist. The Or-Throw
+        // variant narrows the TS return type from `T | null` to `T`, so the
+        // capture call below doesn't need a null guard.
+        return tx.bike.findUniqueOrThrow({
           where: { id: bike.id },
           include: { components: true },
         });
       });
 
-      if (created) {
-        captureServerEvent(userId, 'bike_added', {
-          bikeId: created.id,
-          manufacturer,
-          model,
-          year,
-          isEbike,
-          hasSpokesId: Boolean(spokesId),
-        });
-      }
+      captureServerEvent(userId, 'bike_added', {
+        bikeId: created.id,
+        manufacturer,
+        model,
+        year,
+        isEbike,
+        hasSpokesId: Boolean(spokesId),
+      });
 
       return created;
     },
