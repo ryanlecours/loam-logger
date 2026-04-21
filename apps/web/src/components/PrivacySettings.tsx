@@ -78,15 +78,16 @@ export default function PrivacySettings() {
       <label className="flex items-start gap-3 cursor-pointer select-none">
         <input
           type="checkbox"
-          checked={optedOut}
+          checked={!optedOut}
           onChange={handleToggle}
           disabled={loading}
           className="mt-1 w-5 h-5 rounded border-app bg-surface accent-accent flex-shrink-0 disabled:opacity-50"
         />
         <span className="text-sm leading-relaxed text-primary">
-          Opt out of product analytics and session recording. This applies
-          everywhere you're signed in — both browser activity and server-side
-          events tied to your account are suppressed.
+          Share product analytics and session recordings to help improve Loam
+          Logger. This applies everywhere you're signed in — uncheck to
+          suppress both browser activity and server-side events tied to your
+          account.
         </span>
       </label>
 
