@@ -215,6 +215,16 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string }>(
       const stravaUserId = t.athlete.id.toString();
       const expiresAt = new Date(t.expires_at * 1000);
 
+      // Pre-check so the provider_connected event can distinguish a first-time
+      // connection from a re-auth (user disconnected & reconnected, or OAuth
+      // re-grant of a still-active link). Without this the upsert would
+      // obscure the difference and inflate first-connection funnel metrics.
+      const existingIntegration = await prisma.userIntegration.findUnique({
+        where: { userId_provider: { userId: authenticatedUserId, provider: 'STRAVA' } },
+        select: { id: true },
+      });
+      const isReconnect = Boolean(existingIntegration);
+
       // TODO: Remove OauthToken dual-write once webhooks/sync workers and token
       // refresh helpers (strava-token.ts) are migrated to read from UserIntegration.
       // OauthToken stores plaintext tokens; UserIntegration uses AES-256-GCM encryption.
@@ -282,7 +292,7 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string }>(
         });
       });
 
-      captureServerEvent(authenticatedUserId, 'provider_connected', { provider: 'strava' });
+      captureServerEvent(authenticatedUserId, 'provider_connected', { provider: 'strava', isReconnect });
 
       // Check if multiple providers are connected (for data source prompt)
       const userAccounts = await prisma.userAccount.findMany({

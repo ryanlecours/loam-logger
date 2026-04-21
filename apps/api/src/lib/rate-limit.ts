@@ -92,6 +92,10 @@ export const MUTATION_RATE_LIMITS = {
   oauthStart: { windowSeconds: 600, maxRequests: 5 },
   /** updateUserPreferences: max 20 requests per minute per user */
   updateUserPreferences: { windowSeconds: 60, maxRequests: 20 },
+  /** updateAnalyticsOptOut: max 10 toggles per hour per user. Users rarely flip
+   *  this — a tight cap bounds cache-invalidation abuse without impacting
+   *  legitimate usage. */
+  updateAnalyticsOptOut: { windowSeconds: 3600, maxRequests: 10 },
   /** updateBikeNotificationPreference: max 20 requests per minute per user */
   updateBikeNotificationPreference: { windowSeconds: 60, maxRequests: 20 },
   /** backfillWeatherForMyRides: max 3 requests per 5 minutes. Each call
