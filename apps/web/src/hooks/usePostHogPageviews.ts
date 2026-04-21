@@ -18,5 +18,5 @@ export function usePostHogPageviews(): void {
       $current_url: window.location.href,
       pathname: location.pathname,
     });
-  }, [location.pathname, location.search]);
+  }, [location.pathname, location.search, location.hash]);
 }
