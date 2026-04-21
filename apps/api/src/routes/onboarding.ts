@@ -201,6 +201,19 @@ router.post('/complete', express.json(), async (req: Request, res) => {
       );
     }
 
+    // Mirror the `bike_added` event that `addBike` resolver fires for
+    // post-onboarding bike creation, so bike catalog metadata (manufacturer,
+    // model, year) lands in PostHog through a single, server-authoritative,
+    // scrubber-mediated path regardless of which creation flow is used.
+    captureServerEvent(userId, 'bike_added', {
+      bikeId: result.bike.id,
+      manufacturer: bikeMake,
+      model: bikeModel,
+      year: bikeYear,
+      isEbike: Boolean(isEbike),
+      hasSpokesId: Boolean(spokesId),
+    });
+
     // Authoritative onboarding-completed signal. Fires when the DB flip to
     // `onboardingCompleted: true` commits — can't be missed by a user who
     // skips the post-onboarding "Personalization" screen via URL navigation.

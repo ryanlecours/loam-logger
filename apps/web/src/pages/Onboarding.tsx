@@ -404,10 +404,12 @@ export default function Onboarding() {
         step: 6,
         stepName: ONBOARDING_STEP_NAMES[6],
       });
+      // Intentionally minimal — bike catalog metadata (manufacturer, model,
+      // year) ships from the server via `bike_added` on the /onboarding/
+      // complete route, where it goes through the same scrubber as every
+      // other bike creation path. Keeping the same data on a client event
+      // would be a second, un-scrubbed copy of the same disclosure surface.
       posthog.capture('onboarding_bike_submitted', {
-        bikeMake: data.bikeMake,
-        bikeModel: data.bikeModel,
-        bikeYear: data.bikeYear,
         hasSpokesId: Boolean(data.spokesId),
       });
       // Advance to Step 7 (Personalization) instead of redirecting
