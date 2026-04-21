@@ -3,6 +3,7 @@ import type { Request, Response, NextFunction, RequestHandler } from 'express';
 // Mock Prisma
 const mockTransaction = jest.fn();
 const mockUserUpdate = jest.fn();
+const mockUserFindUnique = jest.fn();
 const mockBikeCreate = jest.fn();
 
 jest.mock('../lib/prisma', () => ({
@@ -10,6 +11,7 @@ jest.mock('../lib/prisma', () => ({
     $transaction: mockTransaction,
     user: {
       update: mockUserUpdate,
+      findUnique: mockUserFindUnique,
     },
     bike: {
       create: mockBikeCreate,
@@ -33,6 +35,16 @@ jest.mock('../lib/logger', () => ({
 // Mock referral service
 jest.mock('../services/referral.service', () => ({
   completeReferral: jest.fn().mockResolvedValue(undefined),
+}));
+
+// Mock PostHog so the test suite never ships real events to PostHog Cloud.
+// Previously, any dev machine or CI job with POSTHOG_API_KEY set would fire
+// dozens of real events per run, attributed to the hardcoded `user-123`
+// distinctId — 272 events / week from one "user" was this test suite.
+jest.mock('../lib/posthog', () => ({
+  captureServerEvent: jest.fn(),
+  flushPostHog: jest.fn().mockResolvedValue(undefined),
+  invalidateOptOutCache: jest.fn(),
 }));
 
 // Import router after mocks
@@ -109,6 +121,7 @@ describe('POST /onboarding/complete', () => {
     });
 
     mockUserUpdate.mockResolvedValue({ id: 'user-123' });
+    mockUserFindUnique.mockResolvedValue({ onboardingCompleted: false });
     mockBikeCreate.mockResolvedValue({ id: 'bike-456' });
     mockBuildBikeComponents.mockResolvedValue(undefined);
   });
@@ -132,6 +145,24 @@ describe('POST /onboarding/complete', () => {
       await invokeHandler(handler, mockReq as Request, mockRes as Response);
 
       expect(mockRes.status).toHaveBeenCalledWith(401);
+    });
+  });
+
+  describe('Idempotency', () => {
+    it('should short-circuit with alreadyCompleted=true when user is already onboarded (prevents duplicate bikes + analytics spam)', async () => {
+      mockUserFindUnique.mockResolvedValueOnce({ onboardingCompleted: true });
+
+      await invokeHandler(handler, mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(200);
+      expect(jsonResponse).toMatchObject({
+        ok: true,
+        alreadyCompleted: true,
+      });
+      // No DB writes, no bike created
+      expect(mockTransaction).not.toHaveBeenCalled();
+      expect(mockBikeCreate).not.toHaveBeenCalled();
+      expect(mockUserUpdate).not.toHaveBeenCalled();
     });
   });
 

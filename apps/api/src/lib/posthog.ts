@@ -53,6 +53,15 @@ function getClient(): PostHog | null {
   if (initialized) return client;
   initialized = true;
 
+  // Defense-in-depth: never instantiate a real client under Jest, even if
+  // POSTHOG_API_KEY leaked into the test env. Was root cause of ~272
+  // spurious events/week previously attributed to the mock `user-123`
+  // distinctId in onboarding.test.ts and friends.
+  if (process.env.NODE_ENV === 'test' || process.env.JEST_WORKER_ID) {
+    logger?.info?.('PostHog disabled (test environment)');
+    return null;
+  }
+
   const key = process.env.POSTHOG_API_KEY;
   const host = process.env.POSTHOG_HOST || 'https://us.i.posthog.com';
 

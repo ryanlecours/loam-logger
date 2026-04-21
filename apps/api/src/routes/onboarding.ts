@@ -119,6 +119,29 @@ router.post('/complete', express.json(), async (req: Request, res) => {
 
     const userId = sessionUser.uid;
 
+    // Idempotency guard. Without this, any repeat POST (rage-click, client
+    // retry, service-worker replay, test harness loop, bookmark back-nav)
+    // creates a NEW bike and re-fires analytics events. One real user hit
+    // this 272 times in a week, generating 272 duplicate bikes + 272 each
+    // of bike_added / onboarding_completed.
+    //
+    // If onboardingCompleted is already true, the work was done on a prior
+    // call — return success without side effects. The 200 status keeps the
+    // client happy; the `alreadyCompleted` flag lets the client log or
+    // branch if it wants.
+    const existingUser = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { onboardingCompleted: true },
+    });
+    if (existingUser?.onboardingCompleted) {
+      logger.warn({ userId }, '[Onboarding] /complete called for already-onboarded user; ignoring duplicate');
+      return res.status(200).json({
+        ok: true,
+        alreadyCompleted: true,
+        message: 'Onboarding already completed',
+      });
+    }
+
     // Use transaction to ensure atomicity: all writes succeed or all fail
     const result = await prisma.$transaction(async (tx) => {
       // Update user with onboarding data
