@@ -16,10 +16,20 @@ const SENSITIVE_KEY_PATTERN = /password|token|secret|cookie|authorization|bearer
 const FILTERED = '[Filtered]';
 
 let client: PostHog | null = null;
-const key = process.env.POSTHOG_API_KEY;
-const host = process.env.POSTHOG_HOST || 'https://us.i.posthog.com';
+let initialized = false;
 
-if (key) {
+function getClient(): PostHog | null {
+  if (initialized) return client;
+  initialized = true;
+
+  const key = process.env.POSTHOG_API_KEY;
+  const host = process.env.POSTHOG_HOST || 'https://us.i.posthog.com';
+
+  if (!key) {
+    logger?.info?.('PostHog disabled (POSTHOG_API_KEY not set)');
+    return null;
+  }
+
   client = new PostHog(key, {
     host,
     // Short flush interval so events reach PostHog near-real-time. posthog-node
@@ -27,9 +37,8 @@ if (key) {
     flushAt: 20,
     flushInterval: 10_000,
   });
-  logger.info({ host }, 'PostHog server client initialized');
-} else {
-  logger.info('PostHog disabled (POSTHOG_API_KEY not set)');
+  logger?.info?.({ host }, 'PostHog server client initialized');
+  return client;
 }
 
 function scrub(properties: Record<string, unknown>): Record<string, unknown> {
@@ -51,15 +60,16 @@ export function captureServerEvent(
   event: string,
   properties: Record<string, unknown> = {}
 ): void {
-  if (!client) return;
+  const c = getClient();
+  if (!c) return;
   try {
-    client.capture({
+    c.capture({
       distinctId,
       event,
       properties: scrub(properties),
     });
   } catch (err) {
-    logger.warn({ err, event }, 'PostHog capture failed');
+    logger?.warn?.({ err, event }, 'PostHog capture failed');
   }
 }
 
@@ -72,6 +82,6 @@ export async function flushPostHog(): Promise<void> {
   try {
     await client.shutdown();
   } catch (err) {
-    logger.warn({ err }, 'PostHog flush failed');
+    logger?.warn?.({ err }, 'PostHog flush failed');
   }
 }
