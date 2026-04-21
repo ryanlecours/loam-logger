@@ -2,8 +2,10 @@ import { useEffect, useState } from 'react';
 import { gql, useMutation } from '@apollo/client';
 import { posthog } from '../lib/posthog';
 import { useCurrentUser } from '../hooks/useCurrentUser';
-import { ME_QUERY } from '../graphql/me';
 
+// Mutation returns { id, analyticsOptOut }, which Apollo normalizes into the
+// cached User entry keyed by id — so the `me` query's cached data updates
+// automatically. No manual refetch needed.
 const UPDATE_ANALYTICS_OPT_OUT = gql`
   mutation UpdateAnalyticsOptOut($optOut: Boolean!) {
     updateAnalyticsOptOut(optOut: $optOut) {
@@ -29,10 +31,8 @@ const UPDATE_ANALYTICS_OPT_OUT = gql`
  * system-wide, not just on one device.
  */
 export default function PrivacySettings() {
-  const { user, refetch } = useCurrentUser();
-  const [updateOptOut, { loading }] = useMutation(UPDATE_ANALYTICS_OPT_OUT, {
-    refetchQueries: [{ query: ME_QUERY }],
-  });
+  const { user } = useCurrentUser();
+  const [updateOptOut, { loading }] = useMutation(UPDATE_ANALYTICS_OPT_OUT);
   const [error, setError] = useState<string | null>(null);
 
   const optedOut = Boolean(user?.analyticsOptOut);
@@ -57,7 +57,6 @@ export default function PrivacySettings() {
     setError(null);
     try {
       await updateOptOut({ variables: { optOut: !optedOut } });
-      await refetch();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to update preference');
     }

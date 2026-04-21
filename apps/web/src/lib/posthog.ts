@@ -59,7 +59,12 @@ export function initPostHog(): void {
     // Pageviews are captured manually from React Router so SPA navigations
     // are tracked accurately. See usePostHogPageviews in App.tsx.
     capture_pageview: false,
-    capture_pageleave: true,
+    // $pageleave's listener fires on every pushState in a SPA, so the
+    // resulting counts don't mean "user left the app" — they mean "user
+    // navigated within the app." Misleading enough that we'd rather not
+    // have the metric at all. If we ever need true session-end signal,
+    // plumb it through `beforeunload` with an explicit event name.
+    capture_pageleave: false,
     sanitize_properties: sanitizeProperties,
     session_recording: {
       // Default-deny: every <input>, <textarea>, and <select> is masked in
