@@ -1,6 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { gql, useMutation } from '@apollo/client';
-import { posthog } from '../lib/posthog';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 
 // Mutation returns { id, analyticsOptOut }, which Apollo normalizes into the
@@ -37,21 +36,11 @@ export default function PrivacySettings() {
 
   const optedOut = Boolean(user?.analyticsOptOut);
 
-  // Keep the browser SDK's local opt-out state in lockstep with the DB flag.
-  // This ensures the SDK goes silent immediately on toggle, and that a user
-  // who opts out on one device sees it enforced on every other device they
-  // log into (the server-backed flag re-applies opt_out_capturing on mount).
-  useEffect(() => {
-    try {
-      if (optedOut) {
-        posthog.opt_out_capturing?.();
-      } else {
-        posthog.opt_in_capturing?.();
-      }
-    } catch {
-      // SDK not initialized (dev / missing key) — no-op is fine
-    }
-  }, [optedOut]);
+  // SDK-level opt_out_capturing / opt_in_capturing is applied by
+  // usePostHogUser (mounted in AuthGate), which reads the same
+  // `user.analyticsOptOut` from ME_QUERY. When the mutation below resolves,
+  // Apollo's normalized cache updates the user entry, which re-runs that
+  // effect and flips the SDK state. Nothing extra needed here.
 
   const handleToggle = async () => {
     setError(null);

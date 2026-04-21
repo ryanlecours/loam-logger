@@ -5,22 +5,24 @@ import { useCurrentUser } from './useCurrentUser';
 /**
  * Keep PostHog's identified user in sync with the current session.
  *
- * Two concerns split into two effects:
+ * Three concerns split into three effects so each has a well-defined trigger:
  *
- *  1. Identity stitching — fires ONLY when id changes (login/logout).
- *     `identify()` with the full property snapshot runs once per login;
- *     PostHog merges prior anonymous activity into the real user.
+ *  1. Opt-out enforcement — reads `user.analyticsOptOut` from ME_QUERY and
+ *     flips the SDK's opt-out flag to match. This is the ONLY place that
+ *     applies the DB-backed flag to the SDK; it fires on every authenticated
+ *     page load, so a user who opted out on another device is immediately
+ *     enforced here on login without needing to visit Settings. Previously
+ *     this lived in PrivacySettings, but that meant new devices / cleared
+ *     localStorage could leak one identify() + some events before the
+ *     Settings page rendered.
  *
- *  2. Property freshness — fires when any tracked property changes
- *     (subscriptionTier after upgrade, onboardingCompleted after finish,
- *     etc.). Uses `setPersonProperties` so we update the person record
- *     without re-stitching identity on every ME_QUERY revalidation.
+ *  2. Identity stitching — fires identify() when id changes AND the user is
+ *     not opted out. On opt-out, does NOT identify; on subsequent opt-in,
+ *     fires identify (since the ref-key treats opt-out as having no identity).
  *
- * The two effects run on the same render at login — `identify()` already
- * carried the full property snapshot, so the second effect would fire
- * `setPersonProperties` with identical data. A ref skip prevents the
- * duplicate network call. Subsequent renders (property-only changes) fall
- * through normally.
+ *  3. Property freshness — updates person properties when they change, but
+ *     only for non-opted-out users. Skipped on the render immediately after
+ *     identify() since identify carries the full property snapshot.
  *
  * Mirror of useSentryUser. Mount inside AuthGate so it fires once the viewer
  * is known.
@@ -30,13 +32,36 @@ export function usePostHogUser(): void {
   const lastAppliedIdRef = useRef<string | null>(null);
   const justIdentifiedForIdRef = useRef<string | null>(null);
 
+  // 1) Opt-out enforcement. Only touches the SDK once user data has loaded
+  //    from ME_QUERY — avoids a race where the SDK defaults to opted-in on
+  //    first render for a user who is actually opted out in the DB.
+  useEffect(() => {
+    if (!user) return;
+    try {
+      if (user.analyticsOptOut) {
+        posthog.opt_out_capturing?.();
+      } else {
+        posthog.opt_in_capturing?.();
+      }
+    } catch {
+      // SDK not initialized (dev / missing key) — no-op
+    }
+  }, [user?.id, user?.analyticsOptOut]);
+
+  // 2) Identity stitching. The "effective id" is null whenever the user is
+  //    opted out, so a toggle from opt-in → opt-out fires posthog.reset()
+  //    (clears the identified user on the SDK); a toggle back fires a fresh
+  //    identify with the current property snapshot.
   useEffect(() => {
     const id = user?.id ?? null;
-    if (id === lastAppliedIdRef.current) return;
-    lastAppliedIdRef.current = id;
+    const optedOut = Boolean(user?.analyticsOptOut);
+    const effectiveId = id && !optedOut ? id : null;
 
-    if (id) {
-      posthog.identify(id, {
+    if (effectiveId === lastAppliedIdRef.current) return;
+    lastAppliedIdRef.current = effectiveId;
+
+    if (effectiveId) {
+      posthog.identify(effectiveId, {
         email: user?.email,
         name: user?.name,
         subscriptionTier: user?.subscriptionTier,
@@ -44,20 +69,19 @@ export function usePostHogUser(): void {
         role: user?.role,
         onboardingCompleted: user?.onboardingCompleted,
       });
-      // Signal to the property-freshness effect that the snapshot it would
-      // send was already included in identify — skip the redundant call.
-      justIdentifiedForIdRef.current = id;
+      justIdentifiedForIdRef.current = effectiveId;
     } else {
       posthog.reset();
       justIdentifiedForIdRef.current = null;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id]);
+  }, [user?.id, user?.analyticsOptOut]);
 
+  // 3) Property freshness.
   useEffect(() => {
     if (!user?.id) return;
+    if (user.analyticsOptOut) return;
     if (justIdentifiedForIdRef.current === user.id) {
-      // Consume the flag — the next property change should flow through.
       justIdentifiedForIdRef.current = null;
       return;
     }
@@ -71,6 +95,7 @@ export function usePostHogUser(): void {
     });
   }, [
     user?.id,
+    user?.analyticsOptOut,
     user?.email,
     user?.name,
     user?.subscriptionTier,

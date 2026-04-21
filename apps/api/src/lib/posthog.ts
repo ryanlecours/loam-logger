@@ -10,6 +10,7 @@
  */
 
 import * as Sentry from '@sentry/node';
+import { LRUCache } from 'lru-cache';
 import { PostHog } from 'posthog-node';
 import { logger } from './logger';
 import { prisma } from './prisma';
@@ -81,8 +82,15 @@ function scrub(properties: Record<string, unknown>): Record<string, unknown> {
 // keyed on userId. On first event per user per TTL window we do one lookup;
 // subsequent events hit the cache. Invalidated explicitly when the user
 // toggles their opt-out via the mutation (invalidateOptOutCache).
+//
+// LRUCache instead of a plain Map so entries for churned users are bounded
+// by `max` rather than accumulating indefinitely. 10k users is comfortably
+// larger than active concurrent sessions for this app; spillover just means
+// a re-lookup on next event, not a correctness issue.
 const OPT_OUT_TTL_MS = 60_000;
-const optOutCache = new Map<string, { optOut: boolean; expiresAt: number }>();
+const optOutCache = new LRUCache<string, { optOut: boolean; expiresAt: number }>({
+  max: 10_000,
+});
 
 async function isOptedOut(userId: string): Promise<boolean> {
   const now = Date.now();
