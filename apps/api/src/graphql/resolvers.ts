@@ -1925,7 +1925,7 @@ export const resolvers = {
         input.spokesComponents as SpokesComponents | undefined
       );
 
-      return prisma.$transaction(async (tx) => {
+      const created = await prisma.$transaction(async (tx) => {
         const bike = await tx.bike.create({
           data: {
             nickname: nickname ?? null,
@@ -1980,22 +1980,22 @@ export const resolvers = {
           data: { bikeId: bike.id },
         });
 
-        const created = await tx.bike.findUnique({
+        return tx.bike.findUnique({
           where: { id: bike.id },
           include: { components: true },
         });
-
-        captureServerEvent(userId, 'bike_added', {
-          bikeId: bike.id,
-          manufacturer,
-          model,
-          year,
-          isEbike,
-          hasSpokesId: Boolean(spokesId),
-        });
-
-        return created;
       });
+
+      captureServerEvent(userId, 'bike_added', {
+        bikeId: created?.id,
+        manufacturer,
+        model,
+        year,
+        isEbike,
+        hasSpokesId: Boolean(spokesId),
+      });
+
+      return created;
     },
 
     updateBike: async (

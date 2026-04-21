@@ -35,7 +35,6 @@ export function initPostHog(): void {
     // Replay sample rate (10% / 100% on error) is set in the PostHog project
     // settings dashboard, not here — the SDK respects the server config.
   });
-  initialized = true;
 }
 
 export { posthog };
