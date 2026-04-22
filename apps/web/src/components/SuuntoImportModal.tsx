@@ -1,0 +1,344 @@
+import { useState, useEffect, useMemo } from 'react';
+import { Check } from 'lucide-react';
+import { Modal, Button } from './ui';
+import { getAuthHeaders } from '@/lib/csrf';
+
+type Props = {
+  open: boolean;
+  onClose: () => void;
+  onSuccess: () => void;
+  onDuplicatesFound?: (count: number) => void;
+};
+
+interface BackfillRequest {
+  id: string;
+  provider: 'strava' | 'garmin' | 'whoop' | 'suunto';
+  year: string;
+  status: 'pending' | 'in_progress' | 'completed' | 'failed';
+  ridesFound: number | null;
+  backfilledUpTo: string | null;
+  createdAt: string;
+  updatedAt: string;
+  completedAt: string | null;
+}
+
+const CURRENT_YEAR = new Date().getFullYear();
+
+const YEAR_OPTIONS = [
+  { value: 'ytd', label: `Year to Date (${CURRENT_YEAR})` },
+  ...Array.from({ length: 5 }, (_, i) => ({
+    value: String(CURRENT_YEAR - 1 - i),
+    label: String(CURRENT_YEAR - 1 - i),
+  })),
+];
+
+export default function SuuntoImportModal({ open, onClose, onSuccess, onDuplicatesFound }: Props) {
+  const [step, setStep] = useState<'period' | 'processing' | 'complete'>('period');
+  const [year, setYear] = useState<string>('ytd');
+  const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [importStats, setImportStats] = useState<{
+    imported: number;
+    skipped: number;
+    total: number;
+  } | null>(null);
+  const [duplicatesFound, setDuplicatesFound] = useState(0);
+  const [backfillHistory, setBackfillHistory] = useState<BackfillRequest[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
+
+  const backfilledYears = useMemo(() => {
+    return new Set(
+      backfillHistory
+        .filter(
+          (req) =>
+            req.provider === 'suunto' &&
+            req.year !== 'ytd' &&
+            req.status !== 'failed'
+        )
+        .map((req) => req.year)
+    );
+  }, [backfillHistory]);
+
+  const inProgressYears = useMemo(() => {
+    return new Set(
+      backfillHistory
+        .filter(
+          (req) =>
+            req.provider === 'suunto' &&
+            (req.status === 'in_progress' || req.status === 'pending')
+        )
+        .map((req) => req.year)
+    );
+  }, [backfillHistory]);
+
+  const canSelectYear = (yearValue: string): boolean => {
+    if (yearValue === 'ytd') {
+      return !inProgressYears.has('ytd');
+    }
+    return !backfilledYears.has(yearValue) && !inProgressYears.has(yearValue);
+  };
+
+  const canImport = canSelectYear(year);
+
+  const getYearStatus = (yearValue: string): 'backfilled' | 'in_progress' | 'available' => {
+    if (inProgressYears.has(yearValue)) return 'in_progress';
+    if (backfilledYears.has(yearValue)) return 'backfilled';
+    return 'available';
+  };
+
+  const fetchHistory = async () => {
+    try {
+      const baseUrl = import.meta.env.VITE_API_URL;
+      const response = await fetch(`${baseUrl}/api/backfill/history`, {
+        credentials: 'include',
+        headers: getAuthHeaders(),
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setBackfillHistory(data.requests || []);
+      }
+    } catch {
+      // Silently fail - history is supplementary
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (open) {
+      fetchHistory();
+    } else {
+      setStep('period');
+      setYear('ytd');
+      setError(null);
+      setSuccessMessage(null);
+      setImportStats(null);
+      setDuplicatesFound(0);
+      setHistoryLoading(true);
+    }
+  }, [open]);
+
+  const handleTriggerImport = async () => {
+    if (!canImport) {
+      setError('This year has already been imported');
+      return;
+    }
+
+    setError(null);
+    setStep('processing');
+
+    try {
+      const res = await fetch(
+        `${import.meta.env.VITE_API_URL}/api/suunto/backfill/fetch?year=${year}`,
+        {
+          credentials: 'include',
+          headers: getAuthHeaders(),
+        }
+      );
+
+      if (!res.ok) {
+        const errorData = await res.json();
+
+        if (res.status === 409) {
+          setSuccessMessage(errorData.message || 'This year has already been imported.');
+          setStep('complete');
+          await fetchHistory();
+          return;
+        }
+
+        throw new Error(errorData.error || 'Failed to import workouts');
+      }
+
+      const data = await res.json();
+      setSuccessMessage(data.message || `Successfully imported rides from Suunto.`);
+      setImportStats({
+        imported: data.imported || 0,
+        skipped: data.skipped || 0,
+        total: data.cyclingWorkouts || 0,
+      });
+      setStep('complete');
+
+      try {
+        const scanRes = await fetch(`${import.meta.env.VITE_API_URL}/api/duplicates/scan`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: getAuthHeaders(),
+        });
+        if (scanRes.ok) {
+          const scanData = await scanRes.json();
+          if (scanData.duplicatesFound > 0) {
+            setDuplicatesFound(scanData.duplicatesFound);
+          }
+        }
+      } catch (scanErr) {
+        console.error('Failed to scan for duplicates:', scanErr);
+      }
+
+      await fetchHistory();
+
+      onSuccess();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to import workouts');
+      setStep('period');
+    }
+  };
+
+  return (
+    <Modal
+      isOpen={open}
+      onClose={onClose}
+      title="Import Suunto Rides"
+      size="lg"
+      preventClose={step === 'processing'}
+    >
+      {step === 'period' && (
+        <div className="space-y-6">
+          <div>
+            <p className="text-sm text-muted mb-4">
+              Import your historical Suunto workouts by year.
+              Workouts will be fetched and imported immediately.
+            </p>
+
+            <label className="block text-sm font-medium text-muted mb-2">
+              Year to import
+            </label>
+
+            {historyLoading ? (
+              <div className="flex items-center gap-2 text-sm text-muted py-4">
+                <div className="w-4 h-4 border border-muted border-t-transparent rounded-full animate-spin" />
+                Loading...
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-2">
+                {YEAR_OPTIONS.map((option) => {
+                  const status = getYearStatus(option.value);
+                  const isBackfilled = status === 'backfilled';
+                  const isInProgress = status === 'in_progress';
+                  const isDisabled = !canSelectYear(option.value);
+                  const isSelected = year === option.value;
+
+                  return (
+                    <label
+                      key={option.value}
+                      className={`
+                        flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer transition-colors
+                        ${isDisabled ? 'opacity-50 cursor-not-allowed' : ''}
+                        ${isSelected && !isDisabled
+                          ? 'border-accent bg-accent/10'
+                          : 'border-app hover:border-accent/50'}
+                      `}
+                    >
+                      <input
+                        type="radio"
+                        name="suunto-year"
+                        checked={isSelected}
+                        disabled={isDisabled}
+                        onChange={() => !isDisabled && setYear(option.value)}
+                        className="w-4 h-4 text-accent border-gray-500 focus:ring-accent"
+                      />
+                      <span className={`flex-1 text-sm ${isDisabled ? 'text-muted' : 'text-primary'}`}>
+                        {option.label}
+                      </span>
+                      {isBackfilled && (
+                        <span title="Already imported"><Check className="w-3 h-3 text-green-400" /></span>
+                      )}
+                      {isInProgress && (
+                        <div className="w-3 h-3 border border-yellow-400 border-t-transparent rounded-full animate-spin" title="In progress" />
+                      )}
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+
+            <p className="text-xs text-muted mt-2">
+              Year to Date can be run multiple times to fetch new workouts since your last import.
+            </p>
+            <p className="text-xs text-muted mt-1">
+              Note: Suunto's workout list doesn't include gear mapping, so rides will be auto-assigned to your bike if you only have one.
+            </p>
+          </div>
+
+          {error && (
+            <div className="alert-danger-dark">
+              <p className="text-sm">{error}</p>
+            </div>
+          )}
+
+          <div className="flex justify-end gap-3">
+            <Button variant="secondary" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              onClick={handleTriggerImport}
+              disabled={!canImport || historyLoading}
+            >
+              {!canImport
+                ? inProgressYears.has(year)
+                  ? 'Import In Progress'
+                  : 'Already Imported'
+                : 'Import Rides'}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {step === 'processing' && (
+        <div className="space-y-6">
+          <div className="flex flex-col items-center justify-center py-8">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mb-4"></div>
+            <p className="text-muted">Importing workouts from Suunto...</p><br/>
+            <p className="text-muted text-center">Depending on how many workouts you have completed,<br/>this may take 1-2 minutes.</p>
+          </div>
+        </div>
+      )}
+
+      {step === 'complete' && (
+        <div className="space-y-6">
+          <div className="alert-success-dark">
+            <p>
+              {successMessage}
+            </p>
+            {importStats && (
+              <div className="text-sm mt-3 opacity-90 space-y-1">
+                <p className="font-medium">Import completed for {year === 'ytd' ? 'Year to Date' : year}</p>
+                <p>Imported: {importStats.imported} rides</p>
+                <p>Skipped (already exist): {importStats.skipped} rides</p>
+                <p>Total cycling workouts found: {importStats.total}</p>
+              </div>
+            )}
+          </div>
+
+          {duplicatesFound > 0 && (
+            <div className="alert-warning-dark">
+              <p>
+                Found {duplicatesFound} duplicate ride{duplicatesFound === 1 ? '' : 's'}
+              </p>
+              <p className="text-sm mt-1 opacity-90">
+                These rides may exist across multiple providers. Review them to keep only one copy.
+              </p>
+            </div>
+          )}
+
+          <div className="flex justify-end gap-3">
+            {duplicatesFound > 0 && onDuplicatesFound && (
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  onClose();
+                  onDuplicatesFound(duplicatesFound);
+                }}
+              >
+                Review Duplicates
+              </Button>
+            )}
+            <Button variant="primary" onClick={onClose}>
+              Done
+            </Button>
+          </div>
+        </div>
+      )}
+    </Modal>
+  );
+}

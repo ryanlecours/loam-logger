@@ -1,19 +1,21 @@
-export type RideSource = 'strava' | 'garmin' | 'whoop' | 'manual';
+export type RideSource = 'strava' | 'garmin' | 'whoop' | 'suunto' | 'manual';
 
 export interface RideWithSource {
   stravaActivityId?: string | null;
   garminActivityId?: string | null;
   whoopWorkoutId?: string | null;
+  suuntoWorkoutId?: string | null;
 }
 
 /**
  * Determines the source of a ride based on activity IDs.
- * Priority: Strava > Garmin > WHOOP > Manual
+ * Priority: Strava > Garmin > WHOOP > Suunto > Manual
  */
 export function getRideSource(ride: RideWithSource): RideSource {
   if (ride.stravaActivityId) return 'strava';
   if (ride.garminActivityId) return 'garmin';
   if (ride.whoopWorkoutId) return 'whoop';
+  if (ride.suuntoWorkoutId) return 'suunto';
   return 'manual';
 }
 
@@ -21,5 +23,6 @@ export const SOURCE_LABELS: Record<RideSource, string> = {
   strava: 'Strava',
   garmin: 'Garmin',
   whoop: 'WHOOP',
+  suunto: 'Suunto',
   manual: 'Manual',
 };

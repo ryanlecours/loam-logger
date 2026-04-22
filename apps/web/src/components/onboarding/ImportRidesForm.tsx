@@ -3,7 +3,7 @@ import { History, ChevronDown, ChevronUp, Check } from 'lucide-react';
 import { getAuthHeaders } from '@/lib/csrf';
 
 interface ImportRidesFormProps {
-  connectedProviders: Array<'strava' | 'garmin'>;
+  connectedProviders: Array<'strava' | 'garmin' | 'suunto'>;
 }
 
 interface ImportStats {
@@ -15,7 +15,7 @@ interface ImportStats {
 
 interface BackfillRequest {
   id: string;
-  provider: 'strava' | 'garmin';
+  provider: 'strava' | 'garmin' | 'suunto';
   year: string;
   status: 'pending' | 'in_progress' | 'completed' | 'failed';
   ridesFound: number | null;
@@ -41,15 +41,25 @@ const GARMIN_YEAR_OPTIONS = [
   { value: 'ytd', label: 'Last 30 Days' },
 ];
 
+// Suunto allows historical backfills back to 2015 (same as Strava)
+const SUUNTO_YEAR_OPTIONS = [
+  { value: 'ytd', label: `Year to Date (${CURRENT_YEAR})` },
+  ...Array.from({ length: 5 }, (_, i) => ({
+    value: String(CURRENT_YEAR - 1 - i),
+    label: String(CURRENT_YEAR - 1 - i),
+  })),
+];
+
 const PROVIDER_LABELS: Record<string, string> = {
   strava: 'Strava',
   garmin: 'Garmin Connect',
+  suunto: 'Suunto',
 };
 
 export function ImportRidesForm({ connectedProviders }: ImportRidesFormProps) {
   const [expanded, setExpanded] = useState(false);
-  const [selectedProvider, setSelectedProvider] = useState<'strava' | 'garmin' | ''>('');
-  const [selectedYear, setSelectedYear] = useState<string>('ytd'); // For Strava (single select)
+  const [selectedProvider, setSelectedProvider] = useState<'strava' | 'garmin' | 'suunto' | ''>('');
+  const [selectedYear, setSelectedYear] = useState<string>('ytd'); // For Strava/Suunto (single select)
   const [selectedYears, setSelectedYears] = useState<Set<string>>(new Set(['ytd'])); // For Garmin (multi-select)
   const [importState, setImportState] = useState<'idle' | 'loading' | 'done'>('idle');
   const [importStats, setImportStats] = useState<ImportStats | null>(null);
@@ -192,9 +202,9 @@ export function ImportRidesForm({ connectedProviders }: ImportRidesFormProps) {
         setImportState('done');
         await refreshBackfillHistory();
       } else {
-        // Strava uses single-year endpoint
+        // Strava and Suunto both use a synchronous single-year endpoint
         const response = await fetch(
-          `${baseUrl}/api/strava/backfill/fetch?year=${selectedYear}`,
+          `${baseUrl}/api/${selectedProvider}/backfill/fetch?year=${selectedYear}`,
           {
             credentials: 'include',
             headers: getAuthHeaders(),
@@ -214,7 +224,7 @@ export function ImportRidesForm({ connectedProviders }: ImportRidesFormProps) {
 
         setImportStats({
           imported: data.imported || 0,
-          skipped: data.duplicates || 0,
+          skipped: data.skipped ?? data.duplicates ?? 0,
           isAsync: false,
         });
 
@@ -309,7 +319,7 @@ export function ImportRidesForm({ connectedProviders }: ImportRidesFormProps) {
                       name="provider"
                       value={provider}
                       checked={selectedProvider === provider}
-                      onChange={(e) => setSelectedProvider(e.target.value as 'strava' | 'garmin')}
+                      onChange={(e) => setSelectedProvider(e.target.value as 'strava' | 'garmin' | 'suunto')}
                       className="w-4 h-4 text-accent border-gray-500 focus:ring-accent"
                     />
                     <span className="text-primary">{PROVIDER_LABELS[provider]}</span>
@@ -372,14 +382,14 @@ export function ImportRidesForm({ connectedProviders }: ImportRidesFormProps) {
                 </p>
               </div>
             ) : (
-              // Strava: full year selection
+              // Strava and Suunto: full year selection
               <select
                 value={selectedYear}
                 onChange={(e) => setSelectedYear(e.target.value)}
                 className="w-full input-soft"
                 disabled={importState === 'loading'}
               >
-                {STRAVA_YEAR_OPTIONS.map((option) => (
+                {(selectedProvider === 'suunto' ? SUUNTO_YEAR_OPTIONS : STRAVA_YEAR_OPTIONS).map((option) => (
                   <option key={option.value} value={option.value}>
                     {option.label}
                   </option>
@@ -436,6 +446,10 @@ export function ImportRidesForm({ connectedProviders }: ImportRidesFormProps) {
               {selectedProvider === 'garmin' ? (
                 <>
                   <span className="font-medium text-primary">Note:</span> If you rode multiple bikes, you'll need to assign the correct bike to each ride after import. Unassigned rides won't contribute to component wear tracking.
+                </>
+              ) : selectedProvider === 'suunto' ? (
+                <>
+                  <span className="font-medium text-primary">Note:</span> Suunto doesn't provide gear mapping, so rides will be auto-assigned to your bike if you only have one. Otherwise you'll need to assign each ride after import.
                 </>
               ) : (
                 <>

@@ -422,4 +422,91 @@ describe('ImportRidesForm', () => {
       });
     });
   });
+
+  describe('Suunto', () => {
+    it('auto-selects Suunto when it is the only connected provider', () => {
+      render(<ImportRidesForm connectedProviders={['suunto']} />);
+
+      fireEvent.click(screen.getByRole('button', { name: /Import past rides/i }));
+
+      expect(screen.getByText(/Importing from/)).toBeInTheDocument();
+      expect(screen.getByText('Suunto')).toBeInTheDocument();
+    });
+
+    it('shows Suunto in the provider selector alongside Strava', () => {
+      render(<ImportRidesForm connectedProviders={['strava', 'suunto']} />);
+
+      fireEvent.click(screen.getByRole('button', { name: /Import past rides/i }));
+
+      expect(screen.getByRole('radio', { name: /Strava/i })).toBeInTheDocument();
+      expect(screen.getByRole('radio', { name: /Suunto/i })).toBeInTheDocument();
+    });
+
+    it('shows 6 year options for Suunto (YTD + 5 previous)', async () => {
+      render(<ImportRidesForm connectedProviders={['suunto']} />);
+
+      fireEvent.click(screen.getByRole('button', { name: /Import past rides/i }));
+
+      await waitFor(() => {
+        expect(screen.queryByText('Loading history...')).not.toBeInTheDocument();
+      });
+
+      const select = screen.getByRole('combobox');
+      const options = select.querySelectorAll('option');
+      expect(options.length).toBe(6);
+      expect(options[0]).toHaveTextContent('Year to Date');
+    });
+
+    it('shows Suunto-specific bike-assignment note', () => {
+      render(<ImportRidesForm connectedProviders={['suunto']} />);
+
+      fireEvent.click(screen.getByRole('button', { name: /Import past rides/i }));
+
+      expect(screen.getByText(/Suunto doesn't provide gear mapping/)).toBeInTheDocument();
+    });
+
+    it('posts to /api/suunto/backfill/fetch and shows success counts', async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, requests: [] }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({
+            success: true,
+            imported: 12,
+            skipped: 3,
+            duplicatesDetected: 1,
+            totalWorkouts: 15,
+          }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, requests: [] }),
+        });
+
+      render(<ImportRidesForm connectedProviders={['suunto']} />);
+
+      fireEvent.click(screen.getByRole('button', { name: /Import past rides/i }));
+
+      await waitFor(() => {
+        expect(screen.queryByText('Loading history...')).not.toBeInTheDocument();
+      });
+
+      const importButton = screen.getByRole('button', { name: /Start Import/i });
+      fireEvent.click(importButton);
+
+      await waitFor(() => {
+        expect(screen.getByText(/12 rides imported/)).toBeInTheDocument();
+        expect(screen.getByText(/3 already existed/)).toBeInTheDocument();
+      });
+
+      const importCall = mockFetch.mock.calls.find(
+        (call) => typeof call[0] === 'string' && call[0].includes('/api/suunto/backfill/fetch')
+      );
+      expect(importCall).toBeDefined();
+      expect(importCall![0]).toMatch(/year=ytd/);
+    });
+  });
 });

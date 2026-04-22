@@ -35,6 +35,8 @@ r.get('/duplicates', async (req: Request, res: Response) => {
             elevationGainMeters: true,
             garminActivityId: true,
             stravaActivityId: true,
+            whoopWorkoutId: true,
+            suuntoWorkoutId: true,
             rideType: true,
             notes: true,
             createdAt: true,
@@ -202,7 +204,10 @@ r.post<Empty, void, { rideId: string }>(
 );
 
 /**
- * Scan all user's rides and mark duplicate pairs
+ * Scan all user's rides and mark duplicate pairs across any pair of
+ * providers (Garmin / Strava / WHOOP / Suunto). Earliest-seen ride in a
+ * same-day match becomes the primary; subsequent provider duplicates on
+ * the same day point at it.
  */
 r.post('/duplicates/scan', async (req: Request, res: Response) => {
   const userId = req.user?.id || req.sessionUser?.uid;
@@ -211,14 +216,38 @@ r.post('/duplicates/scan', async (req: Request, res: Response) => {
   }
 
   try {
-    // Get all non-duplicate rides from both providers
+    // Pull all non-duplicate single-provider rides. `isDuplicateActivity`
+    // enforces "exactly one provider per side", so mixed-provider rows are
+    // filtered out here for symmetry.
     const allRides = await prisma.ride.findMany({
       where: {
         userId,
         isDuplicate: false,
         OR: [
-          { garminActivityId: { not: null }, stravaActivityId: null },
-          { stravaActivityId: { not: null }, garminActivityId: null },
+          {
+            garminActivityId: { not: null },
+            stravaActivityId: null,
+            whoopWorkoutId: null,
+            suuntoWorkoutId: null,
+          },
+          {
+            stravaActivityId: { not: null },
+            garminActivityId: null,
+            whoopWorkoutId: null,
+            suuntoWorkoutId: null,
+          },
+          {
+            whoopWorkoutId: { not: null },
+            garminActivityId: null,
+            stravaActivityId: null,
+            suuntoWorkoutId: null,
+          },
+          {
+            suuntoWorkoutId: { not: null },
+            garminActivityId: null,
+            stravaActivityId: null,
+            whoopWorkoutId: null,
+          },
         ],
       },
       select: {
@@ -230,41 +259,41 @@ r.post('/duplicates/scan', async (req: Request, res: Response) => {
         garminActivityId: true,
         stravaActivityId: true,
         whoopWorkoutId: true,
+        suuntoWorkoutId: true,
       },
       orderBy: { startTime: 'asc' },
     });
 
-    // Separate by provider
-    const garminRides = allRides.filter(r => r.garminActivityId);
-    const stravaRides = allRides.filter(r => r.stravaActivityId);
-
-    // Index Strava rides by date (YYYY-MM-DD) for O(1) lookup
-    const stravaByDate = new Map<string, typeof stravaRides>();
-    for (const ride of stravaRides) {
+    // Index by UTC date for O(1) same-day lookup.
+    const ridesByDate = new Map<string, typeof allRides>();
+    for (const ride of allRides) {
       const dateKey = ride.startTime.toISOString().split('T')[0];
-      if (!stravaByDate.has(dateKey)) stravaByDate.set(dateKey, []);
-      stravaByDate.get(dateKey)!.push(ride);
+      if (!ridesByDate.has(dateKey)) ridesByDate.set(dateKey, []);
+      ridesByDate.get(dateKey)!.push(ride);
     }
 
     const duplicatePairs: Array<{ primaryId: string; duplicateId: string }> = [];
-    const matchedStravaIds = new Set<string>();
+    const matchedIds = new Set<string>();
 
-    // Compare each Garmin ride only against Strava rides on same date
-    for (const garminRide of garminRides) {
-      const dateKey = garminRide.startTime.toISOString().split('T')[0];
-      const candidates = stravaByDate.get(dateKey) ?? [];
+    // Walk rides chronologically. The first occurrence of a real-world
+    // ride (earliest startTime) becomes the primary; same-day rides from
+    // a different provider that match within tolerance get linked to it.
+    for (const primary of allRides) {
+      if (matchedIds.has(primary.id)) continue;
 
-      for (const stravaRide of candidates) {
-        // Skip if this Strava ride is already matched
-        if (matchedStravaIds.has(stravaRide.id)) continue;
+      const dateKey = primary.startTime.toISOString().split('T')[0];
+      const candidates = ridesByDate.get(dateKey) ?? [];
 
-        if (isDuplicateActivity(garminRide, stravaRide)) {
-          duplicatePairs.push({
-            primaryId: garminRide.id,
-            duplicateId: stravaRide.id,
-          });
-          matchedStravaIds.add(stravaRide.id);
-          break; // Move to next Garmin ride
+      for (const candidate of candidates) {
+        if (candidate.id === primary.id) continue;
+        if (matchedIds.has(candidate.id)) continue;
+
+        if (isDuplicateActivity(primary, candidate)) {
+          duplicatePairs.push({ primaryId: primary.id, duplicateId: candidate.id });
+          matchedIds.add(candidate.id);
+          // Don't break — a single primary can match duplicates from
+          // multiple other providers on the same day (e.g., a Garmin
+          // ride could be recorded on both Strava and Suunto).
         }
       }
     }

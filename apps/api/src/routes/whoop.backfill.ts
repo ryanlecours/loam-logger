@@ -201,6 +201,7 @@ r.get<Empty, void, Empty, { year?: string }>(
           garminActivityId: null,
           stravaActivityId: null,
           whoopWorkoutId: workout.id,
+          suuntoWorkoutId: null,
         };
 
         const duplicate = await findPotentialDuplicates(userId, duplicateCandidate, prisma);
