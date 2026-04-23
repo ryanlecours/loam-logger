@@ -33,5 +33,6 @@ export interface Ride {
   stravaActivityId?: string | null;
   garminActivityId?: string | null;
   whoopWorkoutId?: string | null;
+  suuntoWorkoutId?: string | null;
   weather?: RideWeather | null;
 }

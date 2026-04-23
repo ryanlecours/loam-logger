@@ -7,6 +7,7 @@ import { sendBadRequest, sendUnauthorized, sendNotFound, sendInternalError } fro
 import { incrementBikeComponentHours, decrementBikeComponentHours } from '../lib/component-hours';
 import { logError } from '../lib/logger';
 import { enqueueWeatherJob } from '../lib/queue';
+import { requireAdmin } from '../auth/adminMiddleware';
 
 type Empty = Record<string, never>;
 const r: Router = createRouter();
@@ -499,9 +500,15 @@ r.get<{ gearId: string }, void, Empty, Empty>(
 /**
  * Testing/utility endpoint: Delete all Strava-imported rides for the current user.
  * Also removes the recorded hours from associated bikes/components.
+ *
+ * Admin-gated: the "testing" path component does not provide any access
+ * control on its own; the UI hides the button behind isAdmin, but the
+ * backend must enforce the same boundary to prevent accidental or
+ * malicious wipes (e.g., a frontend bug or a non-admin discovering the route).
  */
 r.delete<Empty, void, Empty>(
   '/strava/testing/delete-imported-rides',
+  requireAdmin,
   async (req: Request, res: Response) => {
     const userId = req.user?.id || req.sessionUser?.uid;
     if (!userId) {

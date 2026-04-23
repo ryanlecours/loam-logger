@@ -9,6 +9,7 @@ export interface DuplicateCandidate {
   garminActivityId: string | null;
   stravaActivityId: string | null;
   whoopWorkoutId: string | null;
+  suuntoWorkoutId: string | null;
 }
 
 /**
@@ -23,12 +24,14 @@ export function isDuplicateActivity(
     newRide.garminActivityId,
     newRide.stravaActivityId,
     newRide.whoopWorkoutId,
+    newRide.suuntoWorkoutId,
   ].filter(Boolean);
 
   const existingProviders = [
     existingRide.garminActivityId,
     existingRide.stravaActivityId,
     existingRide.whoopWorkoutId,
+    existingRide.suuntoWorkoutId,
   ].filter(Boolean);
 
   // Each ride should have exactly one provider
@@ -38,14 +41,17 @@ export function isDuplicateActivity(
   const newIsGarmin = !!newRide.garminActivityId;
   const newIsStrava = !!newRide.stravaActivityId;
   const newIsWhoop = !!newRide.whoopWorkoutId;
+  const newIsSuunto = !!newRide.suuntoWorkoutId;
   const existingIsGarmin = !!existingRide.garminActivityId;
   const existingIsStrava = !!existingRide.stravaActivityId;
   const existingIsWhoop = !!existingRide.whoopWorkoutId;
+  const existingIsSuunto = !!existingRide.suuntoWorkoutId;
 
   const differentProviders =
     (newIsGarmin && !existingIsGarmin) ||
     (newIsStrava && !existingIsStrava) ||
-    (newIsWhoop && !existingIsWhoop);
+    (newIsWhoop && !existingIsWhoop) ||
+    (newIsSuunto && !existingIsSuunto);
 
   if (!differentProviders) return false;
 
@@ -94,22 +100,31 @@ export async function findPotentialDuplicates(
       },
       // Exclude rides that are already marked as duplicates
       isDuplicate: false,
-      // Must be from a single provider (Garmin, Strava, or WHOOP only)
+      // Must be from a single provider (Garmin, Strava, WHOOP, or Suunto only)
       OR: [
         {
           garminActivityId: { not: null },
           stravaActivityId: null,
           whoopWorkoutId: null,
+          suuntoWorkoutId: null,
         },
         {
           stravaActivityId: { not: null },
           garminActivityId: null,
           whoopWorkoutId: null,
+          suuntoWorkoutId: null,
         },
         {
           whoopWorkoutId: { not: null },
           garminActivityId: null,
           stravaActivityId: null,
+          suuntoWorkoutId: null,
+        },
+        {
+          suuntoWorkoutId: { not: null },
+          garminActivityId: null,
+          stravaActivityId: null,
+          whoopWorkoutId: null,
         },
       ],
     },
@@ -122,6 +137,7 @@ export async function findPotentialDuplicates(
       garminActivityId: true,
       stravaActivityId: true,
       whoopWorkoutId: true,
+      suuntoWorkoutId: true,
     },
   });
 

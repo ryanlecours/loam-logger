@@ -17,6 +17,7 @@ export interface BikeRide {
   stravaActivityId?: string | null;
   garminActivityId?: string | null;
   whoopWorkoutId?: string | null;
+  suuntoWorkoutId?: string | null;
 }
 
 interface UseBikeRidesResult {

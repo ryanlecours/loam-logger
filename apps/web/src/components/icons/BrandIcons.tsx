@@ -17,6 +17,21 @@ export function StravaIcon({ size = 24, ...props }: IconProps) {
   );
 }
 
+export function SuuntoIcon({ size = 24, ...props }: IconProps) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      width={size}
+      height={size}
+      fill="currentColor"
+      {...props}
+    >
+      <path d="M12 2L4 12l8 10 8-10L12 2zm0 4l5 6-5 6-5-6 5-6z" />
+    </svg>
+  );
+}
+
 export function GoogleIcon({ size = 24, ...props }: IconProps) {
   return (
     <svg

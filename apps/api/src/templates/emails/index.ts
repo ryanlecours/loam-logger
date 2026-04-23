@@ -9,6 +9,7 @@ import { templateConfig as announcementConfig } from './announcement';
 import { templateConfig as foundingRidersConfig } from './founding-riders';
 import { templateConfig as preAccessConfig } from './pre-access';
 import { templateConfig as stravaEnabledConfig } from './strava-enabled';
+import { templateConfig as suuntoEnabledConfig } from './suunto-enabled';
 import { templateConfig as betaFeatureRoundupConfig } from './beta-feature-roundup';
 import { templateConfig as mobileAppLaunchConfig } from './mobile-app-launch';
 import { templateConfig as foundingRidersAprilUpdateConfig } from './founding-riders-april-2026';
@@ -25,6 +26,7 @@ const allTemplates: TemplateConfig[] = [
   foundingRidersConfig,
   preAccessConfig,
   stravaEnabledConfig,
+  suuntoEnabledConfig,
   betaFeatureRoundupConfig,
   mobileAppLaunchConfig,
   foundingRidersAprilUpdateConfig,

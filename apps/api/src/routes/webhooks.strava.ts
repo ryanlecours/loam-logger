@@ -3,7 +3,7 @@ import type { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { getValidStravaToken } from '../lib/strava-token';
 import { deriveLocationAsync, shouldApplyAutoLocation } from '../lib/location';
-import { incrementBikeComponentHours, decrementBikeComponentHours } from '../lib/component-hours';
+import { syncBikeComponentHours } from '../lib/component-hours';
 import { logError } from '../lib/logger';
 import { fireRideNotifications } from '../services/notification.service';
 import { enqueueWeatherJob } from '../lib/queue';
@@ -184,38 +184,6 @@ r.post<Empty, void, { athlete_id: number }>(
   }
 );
 
-const secondsToHours = (seconds: number | null | undefined) => Math.max(0, seconds ?? 0) / 3600;
-
-async function syncBikeComponentHours(
-  tx: Prisma.TransactionClient,
-  userId: string,
-  previous: { bikeId: string | null; durationSeconds: number | null | undefined },
-  next: { bikeId: string | null; durationSeconds: number | null | undefined }
-) {
-  const prevBikeId = previous.bikeId;
-  const nextBikeId = next.bikeId;
-  const prevHours = secondsToHours(previous.durationSeconds);
-  const nextHours = secondsToHours(next.durationSeconds);
-  const bikeChanged = prevBikeId !== nextBikeId;
-  const hoursDiff = nextHours - prevHours;
-
-  if (prevBikeId) {
-    if (bikeChanged) {
-      await decrementBikeComponentHours(tx, { userId, bikeId: prevBikeId, hoursDelta: prevHours });
-    } else if (hoursDiff < 0) {
-      await decrementBikeComponentHours(tx, { userId, bikeId: prevBikeId, hoursDelta: Math.abs(hoursDiff) });
-    }
-  }
-
-  if (nextBikeId) {
-    if (bikeChanged) {
-      await incrementBikeComponentHours(tx, { userId, bikeId: nextBikeId, hoursDelta: nextHours });
-    } else if (hoursDiff > 0) {
-      await incrementBikeComponentHours(tx, { userId, bikeId: nextBikeId, hoursDelta: hoursDiff });
-    }
-  }
-}
-
 /**
  * Process a single Strava activity event
  */
@@ -241,7 +209,13 @@ async function processActivityEvent(event: StravaWebhookEvent): Promise<void> {
 
   console.log(`[Strava Activity Event] Found user: ${userAccount.userId}`);
 
-  // Check user's active data source
+  // Active-source policy (applied across all provider webhooks — Strava,
+  // Garmin, WHOOP, Suunto): when a user has multiple providers connected,
+  // only the `activeDataSource` one writes rides. Prevents duplicate imports
+  // when e.g. a Suunto watch also auto-syncs to Strava. The policy is
+  // surfaced to users via the DataSourceSelector in Settings, which explains
+  // the behavior and lets them switch. When no source is set, `isActiveSource`
+  // returns true for every provider (first-connected wins).
   if (!await isActiveSource(userAccount.userId, 'strava')) {
     console.log('[Strava Activity Event] User active source is not Strava, skipping');
     return;

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useApolloClient, useQuery, gql } from '@apollo/client';
 import { Mountain, Settings, Check, ChevronDown, ChevronUp, Clock } from 'lucide-react';
-import { StravaIcon } from '../components/icons/BrandIcons';
+import { StravaIcon, SuuntoIcon } from '../components/icons/BrandIcons';
 import { ME_QUERY } from '../graphql/me';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { Button } from '@/components/ui';
@@ -139,7 +139,7 @@ export default function Onboarding() {
 
   const accounts = accountsData?.me?.accounts || [];
   const hasConnectedDevice = accounts.some((acc: { provider: string }) =>
-    acc.provider === 'garmin' || acc.provider === 'strava'
+    acc.provider === 'garmin' || acc.provider === 'strava' || acc.provider === 'suunto'
   );
 
   // Load initial data from sessionStorage if available (for OAuth redirects)
@@ -428,6 +428,11 @@ export default function Onboarding() {
   const handleConnectStrava = () => {
     const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:4000';
     window.location.href = `${apiBase}/auth/strava/start`;
+  };
+
+  const handleConnectSuunto = () => {
+    const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+    window.location.href = `${apiBase}/auth/suunto/start`;
   };
 
   const handleSkipDevices = async () => {
@@ -894,12 +899,44 @@ export default function Onboarding() {
                   </button>
                 )}
 
+                {/* Suunto Connection */}
+                {accounts.find((acc: { provider: string }) => acc.provider === 'suunto') ? (
+                  <div className="w-full rounded-2xl border border-[#0072CE]/50 bg-surface-2 px-4 py-4">
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="flex items-center gap-3">
+                        <SuuntoIcon className="text-lg" style={{ color: '#0072CE' }} />
+                        <div className="text-left">
+                          <p className="font-semibold">Suunto</p>
+                          <p className="text-xs text-success">Connected ✓</p>
+                        </div>
+                      </div>
+                      <span className="text-xs text-success">Ready</span>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={handleConnectSuunto}
+                    className="w-full rounded-2xl border border-[#0072CE]/50 bg-[#0072CE]/10 hover:bg-[#0072CE]/20 px-4 py-4 transition text-left"
+                  >
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="flex items-center gap-3">
+                        <SuuntoIcon className="text-lg" style={{ color: '#0072CE' }} />
+                        <div>
+                          <p className="font-semibold">Suunto</p>
+                          <p className="text-xs text-muted">Import activities automatically</p>
+                        </div>
+                      </div>
+                      <span className="text-xs" style={{ color: '#0072CE' }}>Connect</span>
+                    </div>
+                  </button>
+                )}
+
                 {/* Coming Soon */}
                 <div className="w-full rounded-2xl border border-app/30 bg-surface-2/50 px-4 py-4 opacity-60 cursor-not-allowed">
                   <div className="flex items-center justify-between gap-4">
                     <div className="text-left">
                       <p className="font-semibold text-muted">Coming Soon</p>
-                      <p className="text-xs text-muted">Suunto, Coros, Whoop</p>
+                      <p className="text-xs text-muted">Coros, Whoop</p>
                     </div>
                   </div>
                 </div>
@@ -929,9 +966,9 @@ export default function Onboarding() {
                   <ImportRidesForm
                     connectedProviders={accounts
                       .filter((a: { provider: string }) =>
-                        a.provider === 'strava' || a.provider === 'garmin'
+                        a.provider === 'strava' || a.provider === 'garmin' || a.provider === 'suunto'
                       )
-                      .map((a: { provider: string }) => a.provider as 'strava' | 'garmin')}
+                      .map((a: { provider: string }) => a.provider as 'strava' | 'garmin' | 'suunto')}
                   />
                 )}
 

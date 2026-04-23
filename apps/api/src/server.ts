@@ -29,14 +29,17 @@ import {
 
 import authGarmin from './routes/auth.garmin';
 import authStrava from './routes/auth.strava';
+import authSuunto from './routes/auth.suunto';
 import authWhoop from './routes/auth.whoop';
 import { createDataLoaders, type DataLoaders } from './graphql/dataloaders';
 import webhooksGarmin from './routes/webhooks.garmin';
 import webhooksStrava from './routes/webhooks.strava';
+import webhooksSuunto from './routes/webhooks.suunto';
 import webhooksWhoop from './routes/webhooks.whoop';
 import garminBackfill from './routes/garmin.backfill';
 import stravaBackfill from './routes/strava.backfill';
 import whoopBackfill from './routes/whoop.backfill';
+import suuntoBackfill from './routes/suunto.backfill';
 import backfillHistory from './routes/backfill.history';
 import dataSourceRouter from './routes/data-source';
 import duplicatesRouter from './routes/duplicates';
@@ -157,6 +160,10 @@ const startServer = async () => {
     app.use('/webhooks/revenuecat', express.json(), webhooksRevenueCat);
   }
 
+  // Suunto webhook needs raw body for HMAC-SHA256 signature verification,
+  // so it must be registered before the global express.json() consumes it.
+  app.use('/webhooks/suunto', express.raw({ type: 'application/json' }), webhooksSuunto);
+
   app.use(express.json());
   app.use(express.urlencoded({ extended: false }));
   app.use(cookieParser(process.env.COOKIE_SECRET || 'dev-secret'));
@@ -257,11 +264,13 @@ const startServer = async () => {
   app.use('/auth', mobileAuthRouter);
   app.use('/auth', authGarmin);
   app.use('/auth', authStrava);
+  app.use('/auth', authSuunto);
   app.use('/auth', authWhoop);
 
   app.use('/api', garminBackfill);
   app.use('/api', stravaBackfill);
   app.use('/api', whoopBackfill);
+  app.use('/api', suuntoBackfill);
   app.use('/api', backfillHistory);
   app.use('/api', dataSourceRouter);
   app.use('/api', duplicatesRouter);

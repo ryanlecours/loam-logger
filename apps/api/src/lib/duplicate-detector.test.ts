@@ -219,4 +219,77 @@ describe('isDuplicateActivity', () => {
       expect(isDuplicateActivity(morningRide, eveningRide)).toBe(false);
     });
   });
+
+  describe('Suunto cross-provider matching', () => {
+    const baseSuuntoRide: DuplicateCandidate = {
+      id: 'suunto-1',
+      startTime: new Date('2026-01-15T10:03:00Z'),
+      durationSeconds: 3580,
+      distanceMeters: 24200,
+      elevationGainMeters: 460,
+      garminActivityId: null,
+      stravaActivityId: null,
+      whoopWorkoutId: null,
+      suuntoWorkoutId: 'suunto-key-abc',
+    };
+
+    it('should detect Suunto vs Garmin duplicates', () => {
+      expect(isDuplicateActivity(baseSuuntoRide, baseGarminRide)).toBe(true);
+      expect(isDuplicateActivity(baseGarminRide, baseSuuntoRide)).toBe(true);
+    });
+
+    it('should detect Suunto vs Strava duplicates', () => {
+      expect(isDuplicateActivity(baseSuuntoRide, baseStravaRide)).toBe(true);
+      expect(isDuplicateActivity(baseStravaRide, baseSuuntoRide)).toBe(true);
+    });
+
+    it('should detect Suunto vs WHOOP duplicates', () => {
+      const whoopRide: DuplicateCandidate = {
+        id: 'whoop-1',
+        startTime: new Date('2026-01-15T10:02:00Z'),
+        durationSeconds: 3620,
+        distanceMeters: 24050,
+        elevationGainMeters: 455,
+        garminActivityId: null,
+        stravaActivityId: null,
+        whoopWorkoutId: 'whoop-uuid-xyz',
+        suuntoWorkoutId: null,
+      };
+      expect(isDuplicateActivity(baseSuuntoRide, whoopRide)).toBe(true);
+      expect(isDuplicateActivity(whoopRide, baseSuuntoRide)).toBe(true);
+    });
+
+    it('should NOT flag two Suunto rides as duplicates', () => {
+      const suuntoRide2: DuplicateCandidate = {
+        ...baseSuuntoRide,
+        id: 'suunto-2',
+        suuntoWorkoutId: 'suunto-key-def',
+      };
+      expect(isDuplicateActivity(baseSuuntoRide, suuntoRide2)).toBe(false);
+    });
+
+    it('should reject Suunto vs Garmin on different UTC days', () => {
+      const nextDaySuunto: DuplicateCandidate = {
+        ...baseSuuntoRide,
+        startTime: new Date('2026-01-16T00:02:00Z'),
+      };
+      expect(isDuplicateActivity(nextDaySuunto, baseGarminRide)).toBe(false);
+    });
+
+    it('should reject Suunto vs Strava with distance beyond threshold', () => {
+      const tooFarSuunto: DuplicateCandidate = {
+        ...baseSuuntoRide,
+        distanceMeters: 26000, // ~7% difference from Strava's 24300
+      };
+      expect(isDuplicateActivity(tooFarSuunto, baseStravaRide)).toBe(false);
+    });
+
+    it('should reject Suunto vs Garmin with elevation beyond threshold', () => {
+      const tooMuchElevSuunto: DuplicateCandidate = {
+        ...baseSuuntoRide,
+        elevationGainMeters: 520, // ~14% difference from Garmin's 457
+      };
+      expect(isDuplicateActivity(tooMuchElevSuunto, baseGarminRide)).toBe(false);
+    });
+  });
 });

@@ -7,8 +7,9 @@ import { prisma } from '../lib/prisma';
 import { getValidStravaToken } from '../lib/strava-token';
 import { getValidGarminToken } from '../lib/garmin-token';
 import { getValidWhoopToken } from '../lib/whoop-token';
+import { getValidSuuntoToken } from '../lib/suunto-token';
 import { deriveLocation, deriveLocationAsync, shouldApplyAutoLocation } from '../lib/location';
-import { incrementBikeComponentHours, decrementBikeComponentHours } from '../lib/component-hours';
+import { syncBikeComponentHours } from '../lib/component-hours';
 import { logger } from '../lib/logger';
 import { fireRideNotifications } from '../services/notification.service';
 import { completeReferral } from '../services/referral.service';
@@ -24,6 +25,13 @@ import {
   type WhoopWorkout,
   type WhoopPaginatedResponse,
 } from '../types/whoop';
+import { isSuuntoCyclingActivity, getSuuntoRideType } from '../types/suunto';
+import {
+  SUUNTO_API_BASE,
+  suuntoApiHeaders,
+  type SuuntoWorkout,
+  type SuuntoWorkoutsResponse,
+} from '../lib/suunto-sync';
 
 // Retry delay when lock acquisition fails (30 seconds)
 const LOCK_RETRY_DELAY = 30 * 1000;
@@ -160,7 +168,7 @@ async function syncLatestActivities(userId: string, provider: SyncProvider): Pro
       await syncWhoopLatest(userId);
       break;
     case 'suunto':
-      logger.warn({ provider: 'suunto' }, '[SyncWorker] Suunto sync not yet implemented');
+      await syncSuuntoLatest(userId);
       break;
     default:
       throw new Error(`Unknown provider: ${provider}`);
@@ -188,7 +196,7 @@ async function syncSingleActivity(
       await syncWhoopActivity(userId, activityId);
       break;
     case 'suunto':
-      logger.warn({ provider: 'suunto' }, '[SyncWorker] Suunto sync not yet implemented');
+      await syncSuuntoActivity(userId, activityId);
       break;
     default:
       throw new Error(`Unknown provider: ${provider}`);
@@ -630,7 +638,25 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
       );
     });
   } catch (err) {
-    logger.error({ err, userId, rideId: ride.id }, '[SyncWorker] Failed to sync component hours for Garmin activity');
+    // Orphaned-hours warning: the ride upsert succeeded but its component
+    // hours weren't credited. A future re-sync can't auto-recover this —
+    // syncBikeComponentHours diffs prev vs next, and once the ride is in the
+    // DB both sides match, so the diff is zero. Log the bikeId + duration
+    // so an admin can credit the hours manually, and ship to Sentry so it's
+    // visible at trigger time rather than buried in log volume.
+    logger.error({
+      event: 'orphaned_component_hours',
+      provider: 'garmin',
+      err,
+      userId,
+      rideId: ride.id,
+      bikeId: ride.bikeId,
+      durationSeconds: ride.durationSeconds,
+    }, '[SyncWorker] Failed to sync component hours for Garmin activity — manual recovery required');
+    Sentry.captureException(err, {
+      tags: { worker: 'sync', provider: 'garmin', issue: 'orphaned_component_hours' },
+      extra: { userId, rideId: ride.id, bikeId: ride.bikeId, durationSeconds: ride.durationSeconds },
+    });
   }
 
   // Update session's lastActivityReceivedAt if there's a running session
@@ -843,39 +869,236 @@ async function upsertWhoopActivity(userId: string, workout: WhoopWorkout): Promi
 }
 
 // ============================================================================
-// HELPER FUNCTIONS
+// SUUNTO SYNC
 // ============================================================================
 
-const secondsToHours = (seconds: number | null | undefined) =>
-  Math.max(0, seconds ?? 0) / 3600;
+async function syncSuuntoLatest(userId: string): Promise<void> {
+  const accessToken = await getValidSuuntoToken(userId);
 
-async function syncBikeComponentHours(
-  tx: Prisma.TransactionClient,
+  if (!accessToken) {
+    throw new Error('No valid Suunto token available');
+  }
+
+  // Fetch workouts from the last 30 days. Suunto's `/v3/workouts` uses epoch ms
+  // for `since`/`until` and paginates via offset/limit (no cursor).
+  const thirtyDaysAgoMs = Date.now() - 30 * 24 * 60 * 60 * 1000;
+  const nowMs = Date.now();
+  const LIMIT = 100;
+  const MAX_PAGES = 10; // 1000 workouts in 30 days is already an absurd ceiling
+  const workouts: SuuntoWorkout[] = [];
+  let offset = 0;
+
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const url = new URL(`${SUUNTO_API_BASE}/workouts`);
+    url.searchParams.set('since', String(thirtyDaysAgoMs));
+    url.searchParams.set('until', String(nowMs));
+    url.searchParams.set('limit', String(LIMIT));
+    url.searchParams.set('offset', String(offset));
+
+    const response = await fetch(url.toString(), {
+      headers: suuntoApiHeaders(accessToken),
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Suunto API error: ${response.status} ${text.slice(0, 200)}`);
+    }
+
+    const body = (await response.json()) as SuuntoWorkoutsResponse;
+    const records = body.payload ?? [];
+    workouts.push(...records);
+
+    if (records.length < LIMIT) break;
+    offset += LIMIT;
+  }
+
+  logger.debug({ count: workouts.length }, '[SyncWorker] Fetched Suunto workouts');
+
+  const cyclingWorkouts = workouts.filter((w) => isSuuntoCyclingActivity(w.activityId));
+
+  logger.debug({ count: cyclingWorkouts.length }, '[SyncWorker] Processing cycling workouts');
+
+  // Hoist the active-bikes query out of the loop so we don't repeat it for
+  // every workout. The result feeds upsertSuuntoActivity's auto-assign logic
+  // for new rides — bike membership doesn't realistically change mid-sync,
+  // and even if it did, snapshotting at the start of the run is the right
+  // semantic (don't auto-assign to a bike the user just deleted).
+  const userBikes = cyclingWorkouts.length > 0
+    ? await prisma.bike.findMany({
+        where: { userId, status: 'ACTIVE' },
+        select: { id: true },
+      })
+    : [];
+
+  for (const workout of cyclingWorkouts) {
+    await upsertSuuntoActivity(userId, workout, userBikes);
+  }
+
+  logger.info({ userId, count: cyclingWorkouts.length }, '[SyncWorker] Suunto sync complete');
+}
+
+async function syncSuuntoActivity(userId: string, workoutKey: string): Promise<void> {
+  const accessToken = await getValidSuuntoToken(userId);
+
+  if (!accessToken) {
+    throw new Error('No valid Suunto token available');
+  }
+
+  const response = await fetch(`${SUUNTO_API_BASE}/workouts/${workoutKey}`, {
+    headers: suuntoApiHeaders(accessToken),
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Suunto API error: ${response.status} ${text.slice(0, 200)}`);
+  }
+
+  // Single-workout responses use the same envelope as the list endpoint but
+  // with a single-element payload. Unwrap defensively — if the API ever
+  // returns the bare workout object, accept that too.
+  const body = (await response.json()) as SuuntoWorkoutsResponse | SuuntoWorkout;
+  const workout: SuuntoWorkout | undefined = 'payload' in body
+    ? body.payload?.[0]
+    : body;
+
+  if (!workout) {
+    logger.warn({ workoutKey }, '[SyncWorker] Suunto workout response empty');
+    return;
+  }
+
+  if (!isSuuntoCyclingActivity(workout.activityId)) {
+    logger.debug(
+      { workoutKey, activityId: workout.activityId },
+      '[SyncWorker] Skipping non-cycling Suunto workout'
+    );
+    return;
+  }
+
+  await upsertSuuntoActivity(userId, workout);
+}
+
+async function upsertSuuntoActivity(
   userId: string,
-  previous: { bikeId: string | null; durationSeconds: number | null | undefined },
-  next: { bikeId: string | null; durationSeconds: number | null | undefined }
+  workout: SuuntoWorkout,
+  // Optional pre-fetched bike list: callers processing a batch (syncSuuntoLatest)
+  // pass it in to avoid re-querying per workout. Single-workout callers
+  // (syncSuuntoActivity) omit it — we only query on demand when isNewRide.
+  prefetchedUserBikes?: { id: string }[],
 ): Promise<void> {
-  const prevBikeId = previous.bikeId;
-  const nextBikeId = next.bikeId;
-  const prevHours = secondsToHours(previous.durationSeconds);
-  const nextHours = secondsToHours(next.durationSeconds);
-  const bikeChanged = prevBikeId !== nextBikeId;
-  const hoursDiff = nextHours - prevHours;
+  const startTime = new Date(workout.startTime);
+  const durationSeconds = workout.totalTime;
+  const distanceMeters = workout.totalDistance ?? 0;
+  const elevationGainMeters = workout.totalAscent ?? 0;
+  const startLat = workout.startPosition?.y ?? null;
+  const startLng = workout.startPosition?.x ?? null;
+  const averageHr = workout.hrdata?.workoutAvgHR != null
+    ? Math.round(workout.hrdata.workoutAvgHR)
+    : null;
+  const rideType = getSuuntoRideType(workout.activityId);
 
-  if (prevBikeId) {
-    if (bikeChanged) {
-      await decrementBikeComponentHours(tx, { userId, bikeId: prevBikeId, hoursDelta: prevHours });
-    } else if (hoursDiff < 0) {
-      await decrementBikeComponentHours(tx, { userId, bikeId: prevBikeId, hoursDelta: Math.abs(hoursDiff) });
+  const existing = await prisma.ride.findUnique({
+    where: { suuntoWorkoutId: workout.workoutKey },
+    select: { id: true, durationSeconds: true, bikeId: true },
+  });
+
+  const isNewRide = !existing;
+
+  // Auto-assign single active bike only on new rides — preserves manual
+  // assignments on re-sync, matching the Garmin pattern.
+  let bikeId: string | null = null;
+  if (isNewRide) {
+    const userBikes = prefetchedUserBikes ?? await prisma.bike.findMany({
+      where: { userId, status: 'ACTIVE' },
+      select: { id: true },
+    });
+    if (userBikes.length === 1) {
+      bikeId = userBikes[0].id;
     }
   }
 
-  if (nextBikeId) {
-    if (bikeChanged) {
-      await incrementBikeComponentHours(tx, { userId, bikeId: nextBikeId, hoursDelta: nextHours });
-    } else if (hoursDiff > 0) {
-      await incrementBikeComponentHours(tx, { userId, bikeId: nextBikeId, hoursDelta: hoursDiff });
-    }
+  // Upsert ride first — this is the primary data, must not be lost if the
+  // component-hour sync fails.
+  const ride = await prisma.ride.upsert({
+    where: { suuntoWorkoutId: workout.workoutKey },
+    create: {
+      userId,
+      suuntoWorkoutId: workout.workoutKey,
+      startTime,
+      durationSeconds,
+      distanceMeters,
+      elevationGainMeters,
+      averageHr,
+      rideType,
+      bikeId,
+      startLat,
+      startLng,
+    },
+    update: {
+      startTime,
+      durationSeconds,
+      distanceMeters,
+      elevationGainMeters,
+      averageHr,
+      rideType,
+      ...(startLat != null ? { startLat } : {}),
+      ...(startLng != null ? { startLng } : {}),
+    },
+  });
+
+  // Component hours are secondary — a failure here should not roll back the
+  // ride because Suunto won't re-deliver it.
+  try {
+    await prisma.$transaction(async (tx) => {
+      await syncBikeComponentHours(
+        tx,
+        userId,
+        { bikeId: existing?.bikeId ?? null, durationSeconds: existing?.durationSeconds ?? null },
+        { bikeId: ride.bikeId ?? null, durationSeconds: ride.durationSeconds }
+      );
+    });
+  } catch (err) {
+    // Orphaned-hours warning: the ride upsert succeeded but its component
+    // hours weren't credited. A future re-sync can't auto-recover this —
+    // syncBikeComponentHours diffs prev vs next, and once the ride is in the
+    // DB both sides match, so the diff is zero. Log the bikeId + duration
+    // so an admin can credit the hours manually, and ship to Sentry so it's
+    // visible at trigger time rather than buried in log volume.
+    logger.error({
+      event: 'orphaned_component_hours',
+      provider: 'suunto',
+      err,
+      userId,
+      rideId: ride.id,
+      bikeId: ride.bikeId,
+      durationSeconds: ride.durationSeconds,
+    }, '[SyncWorker] Failed to sync component hours for Suunto workout — manual recovery required');
+    Sentry.captureException(err, {
+      tags: { worker: 'sync', provider: 'suunto', issue: 'orphaned_component_hours' },
+      extra: { userId, rideId: ride.id, bikeId: ride.bikeId, durationSeconds: ride.durationSeconds },
+    });
+  }
+
+  logger.debug({ suuntoWorkoutId: workout.workoutKey }, '[SyncWorker] Upserted Suunto workout');
+
+  // Fire-and-forget weather fetch
+  if (startLat != null && startLng != null) {
+    enqueueWeatherJob({ rideId: ride.id }).catch((err) =>
+      logger.warn({ rideId: ride.id, err }, '[SyncWorker] Failed to enqueue weather job (Suunto)')
+    );
+  }
+
+  // Fire-and-forget notifications
+  fireRideNotifications({
+    userId,
+    rideId: ride.id,
+    bikeId: ride.bikeId ?? null,
+    durationSeconds,
+    distanceMeters,
+    isNewRide,
+  }).catch(() => {}); // swallow - already logged internally
+
+  if (isNewRide) {
+    completeReferral(userId).catch(() => {}); // swallow - already logged internally
   }
 }
 

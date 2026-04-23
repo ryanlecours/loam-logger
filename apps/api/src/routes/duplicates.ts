@@ -35,6 +35,8 @@ r.get('/duplicates', async (req: Request, res: Response) => {
             elevationGainMeters: true,
             garminActivityId: true,
             stravaActivityId: true,
+            whoopWorkoutId: true,
+            suuntoWorkoutId: true,
             rideType: true,
             notes: true,
             createdAt: true,
@@ -202,7 +204,10 @@ r.post<Empty, void, { rideId: string }>(
 );
 
 /**
- * Scan all user's rides and mark duplicate pairs
+ * Scan all user's rides and mark duplicate pairs across any pair of
+ * providers (Garmin / Strava / WHOOP / Suunto). Earliest-seen ride in a
+ * same-day match becomes the primary; subsequent provider duplicates on
+ * the same day point at it.
  */
 r.post('/duplicates/scan', async (req: Request, res: Response) => {
   const userId = req.user?.id || req.sessionUser?.uid;
@@ -211,14 +216,38 @@ r.post('/duplicates/scan', async (req: Request, res: Response) => {
   }
 
   try {
-    // Get all non-duplicate rides from both providers
+    // Pull all non-duplicate single-provider rides. `isDuplicateActivity`
+    // enforces "exactly one provider per side", so mixed-provider rows are
+    // filtered out here for symmetry.
     const allRides = await prisma.ride.findMany({
       where: {
         userId,
         isDuplicate: false,
         OR: [
-          { garminActivityId: { not: null }, stravaActivityId: null },
-          { stravaActivityId: { not: null }, garminActivityId: null },
+          {
+            garminActivityId: { not: null },
+            stravaActivityId: null,
+            whoopWorkoutId: null,
+            suuntoWorkoutId: null,
+          },
+          {
+            stravaActivityId: { not: null },
+            garminActivityId: null,
+            whoopWorkoutId: null,
+            suuntoWorkoutId: null,
+          },
+          {
+            whoopWorkoutId: { not: null },
+            garminActivityId: null,
+            stravaActivityId: null,
+            suuntoWorkoutId: null,
+          },
+          {
+            suuntoWorkoutId: { not: null },
+            garminActivityId: null,
+            stravaActivityId: null,
+            whoopWorkoutId: null,
+          },
         ],
       },
       select: {
@@ -230,41 +259,41 @@ r.post('/duplicates/scan', async (req: Request, res: Response) => {
         garminActivityId: true,
         stravaActivityId: true,
         whoopWorkoutId: true,
+        suuntoWorkoutId: true,
       },
       orderBy: { startTime: 'asc' },
     });
 
-    // Separate by provider
-    const garminRides = allRides.filter(r => r.garminActivityId);
-    const stravaRides = allRides.filter(r => r.stravaActivityId);
-
-    // Index Strava rides by date (YYYY-MM-DD) for O(1) lookup
-    const stravaByDate = new Map<string, typeof stravaRides>();
-    for (const ride of stravaRides) {
+    // Index by UTC date for O(1) same-day lookup.
+    const ridesByDate = new Map<string, typeof allRides>();
+    for (const ride of allRides) {
       const dateKey = ride.startTime.toISOString().split('T')[0];
-      if (!stravaByDate.has(dateKey)) stravaByDate.set(dateKey, []);
-      stravaByDate.get(dateKey)!.push(ride);
+      if (!ridesByDate.has(dateKey)) ridesByDate.set(dateKey, []);
+      ridesByDate.get(dateKey)!.push(ride);
     }
 
     const duplicatePairs: Array<{ primaryId: string; duplicateId: string }> = [];
-    const matchedStravaIds = new Set<string>();
+    const matchedIds = new Set<string>();
 
-    // Compare each Garmin ride only against Strava rides on same date
-    for (const garminRide of garminRides) {
-      const dateKey = garminRide.startTime.toISOString().split('T')[0];
-      const candidates = stravaByDate.get(dateKey) ?? [];
+    // Walk rides chronologically. The first occurrence of a real-world
+    // ride (earliest startTime) becomes the primary; same-day rides from
+    // a different provider that match within tolerance get linked to it.
+    for (const primary of allRides) {
+      if (matchedIds.has(primary.id)) continue;
 
-      for (const stravaRide of candidates) {
-        // Skip if this Strava ride is already matched
-        if (matchedStravaIds.has(stravaRide.id)) continue;
+      const dateKey = primary.startTime.toISOString().split('T')[0];
+      const candidates = ridesByDate.get(dateKey) ?? [];
 
-        if (isDuplicateActivity(garminRide, stravaRide)) {
-          duplicatePairs.push({
-            primaryId: garminRide.id,
-            duplicateId: stravaRide.id,
-          });
-          matchedStravaIds.add(stravaRide.id);
-          break; // Move to next Garmin ride
+      for (const candidate of candidates) {
+        if (candidate.id === primary.id) continue;
+        if (matchedIds.has(candidate.id)) continue;
+
+        if (isDuplicateActivity(primary, candidate)) {
+          duplicatePairs.push({ primaryId: primary.id, duplicateId: candidate.id });
+          matchedIds.add(candidate.id);
+          // Don't break — a single primary can match duplicates from
+          // multiple other providers on the same day (e.g., a Garmin
+          // ride could be recorded on both Strava and Suunto).
         }
       }
     }
@@ -309,8 +338,39 @@ r.post('/duplicates/scan', async (req: Request, res: Response) => {
 });
 
 /**
- * Auto-merge all duplicates based on user's preferred data source
+ * Auto-merge all duplicates based on user's preferred data source.
+ * Supported preferences: garmin, strava, whoop, suunto. Non-fitness auth
+ * providers on `activeDataSource` (apple/google) are rejected.
  */
+
+// activeDataSource is an `AuthProvider` enum including apple/google, but only
+// the four fitness providers have ride-data IDs to prefer.
+const FITNESS_PROVIDERS = ['garmin', 'strava', 'whoop', 'suunto'] as const;
+type FitnessProvider = (typeof FITNESS_PROVIDERS)[number];
+
+const PROVIDER_LABELS: Record<FitnessProvider, string> = {
+  garmin: 'Garmin',
+  strava: 'Strava',
+  whoop: 'WHOOP',
+  suunto: 'Suunto',
+};
+
+type RideProviderIds = {
+  garminActivityId: string | null;
+  stravaActivityId: string | null;
+  whoopWorkoutId: string | null;
+  suuntoWorkoutId: string | null;
+};
+
+function isFromProvider(ride: RideProviderIds, provider: FitnessProvider): boolean {
+  switch (provider) {
+    case 'garmin': return !!ride.garminActivityId;
+    case 'strava': return !!ride.stravaActivityId;
+    case 'whoop':  return !!ride.whoopWorkoutId;
+    case 'suunto': return !!ride.suuntoWorkoutId;
+  }
+}
+
 r.post('/duplicates/auto-merge', async (req: Request, res: Response) => {
   const userId = req.user?.id || req.sessionUser?.uid;
   if (!userId) {
@@ -318,7 +378,6 @@ r.post('/duplicates/auto-merge', async (req: Request, res: Response) => {
   }
 
   try {
-    // Get user's preferred data source
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: { activeDataSource: true },
@@ -328,9 +387,12 @@ r.post('/duplicates/auto-merge', async (req: Request, res: Response) => {
       return sendBadRequest(res, 'No active data source set. Please set your preferred data source in Settings before auto-merging.');
     }
 
-    const preferredSource = user.activeDataSource;
+    if (!FITNESS_PROVIDERS.includes(user.activeDataSource as FitnessProvider)) {
+      return sendBadRequest(res, 'Active data source must be a fitness provider (Garmin, Strava, WHOOP, or Suunto) to auto-merge.');
+    }
 
-    // Find all rides marked as duplicates with their primary ride info
+    const preferredSource = user.activeDataSource as FitnessProvider;
+
     const duplicateRides = await prisma.ride.findMany({
       where: {
         userId,
@@ -343,6 +405,8 @@ r.post('/duplicates/auto-merge', async (req: Request, res: Response) => {
         bikeId: true,
         garminActivityId: true,
         stravaActivityId: true,
+        whoopWorkoutId: true,
+        suuntoWorkoutId: true,
         duplicateOfId: true,
       },
     });
@@ -367,6 +431,8 @@ r.post('/duplicates/auto-merge', async (req: Request, res: Response) => {
         bikeId: true,
         garminActivityId: true,
         stravaActivityId: true,
+        whoopWorkoutId: true,
+        suuntoWorkoutId: true,
       },
     });
     const primaryRideMap = new Map(primaryRides.map(r => [r.id, r]));
@@ -378,13 +444,9 @@ r.post('/duplicates/auto-merge', async (req: Request, res: Response) => {
       const primaryRide = primaryRideMap.get(dupRide.duplicateOfId!);
       if (!primaryRide) continue;
 
-      // Determine which is from preferred source
-      const dupIsFromPreferred = preferredSource === 'garmin'
-        ? !!dupRide.garminActivityId
-        : !!dupRide.stravaActivityId;
-      const primaryIsFromPreferred = preferredSource === 'garmin'
-        ? !!primaryRide.garminActivityId
-        : !!primaryRide.stravaActivityId;
+      // Determine which side comes from the preferred source
+      const dupIsFromPreferred = isFromProvider(dupRide, preferredSource);
+      const primaryIsFromPreferred = isFromProvider(primaryRide, preferredSource);
 
       let rideToDelete: typeof dupRide | typeof primaryRide;
 
@@ -392,7 +454,9 @@ r.post('/duplicates/auto-merge', async (req: Request, res: Response) => {
         // Keep duplicate, delete primary
         rideToDelete = primaryRide;
       } else {
-        // Keep primary, delete duplicate
+        // Keep primary, delete duplicate (covers: both-preferred, neither-preferred,
+        // and primary-only-preferred). Falling through to the primary when neither
+        // side matches preserves the scan's earliest-seen primary choice.
         rideToDelete = dupRide;
       }
 
@@ -450,7 +514,7 @@ r.post('/duplicates/auto-merge', async (req: Request, res: Response) => {
       success: true,
       merged: ridesToDelete.length,
       preferredSource,
-      message: `Merged ${ridesToDelete.length} duplicate rides, keeping ${preferredSource === 'garmin' ? 'Garmin' : 'Strava'} data`,
+      message: `Merged ${ridesToDelete.length} duplicate rides, keeping ${PROVIDER_LABELS[preferredSource]} data`,
     });
   } catch (error) {
     logError('Duplicates auto-merge', error);

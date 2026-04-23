@@ -80,7 +80,12 @@ r.post('/whoop', async (req: Request, res: Response) => {
       return;
     }
 
-    // Check user's active data source
+    // Active-source policy (shared with Strava/Garmin/Suunto webhooks): when
+    // a user has multiple providers connected, only the `activeDataSource`
+    // one writes rides. Prevents duplicate imports when e.g. a Suunto watch
+    // also auto-syncs to WHOOP. Users configure this via the DataSourceSelector
+    // in Settings, which explains the behavior. No-active-source → every
+    // provider passes.
     if (!await isActiveSource(user.id, 'whoop')) {
       logger.info(
         { whoopUserId: user_id },

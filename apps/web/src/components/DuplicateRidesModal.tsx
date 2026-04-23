@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Modal, Button } from './ui';
 import { getAuthHeaders } from '@/lib/csrf';
 import { usePreferences } from '../hooks/usePreferences';
+import { getRideSource, SOURCE_LABELS, type RideSource } from '../utils/rideSource';
 
 type Ride = {
   id: string;
@@ -11,9 +12,36 @@ type Ride = {
   elevationGainMeters: number;
   garminActivityId: string | null;
   stravaActivityId: string | null;
+  whoopWorkoutId: string | null;
+  suuntoWorkoutId: string | null;
   rideType: string;
   notes: string | null;
   createdAt: string;
+};
+
+// Brand-colored styling per provider. Fallback to a neutral shade for any
+// source the catalog doesn't define a color for.
+const SOURCE_STYLES: Record<RideSource, { border: string; button: string }> = {
+  garmin: {
+    border: 'border border-[#00a0df]/30',
+    button: 'bg-[#00a0df]/20 border border-[#00a0df]/50 text-[#00a0df] hover:bg-[#00a0df]/30',
+  },
+  strava: {
+    border: 'border border-[#fc4c02]/30',
+    button: 'bg-[#fc4c02]/20 border border-[#fc4c02]/50 text-[#fc4c02] hover:bg-[#fc4c02]/30',
+  },
+  whoop: {
+    border: 'border border-[#00FF87]/30',
+    button: 'bg-[#00FF87]/20 border border-[#00FF87]/50 text-[#00FF87] hover:bg-[#00FF87]/30',
+  },
+  suunto: {
+    border: 'border border-[#0072CE]/30',
+    button: 'bg-[#0072CE]/20 border border-[#0072CE]/50 text-[#0072CE] hover:bg-[#0072CE]/30',
+  },
+  manual: {
+    border: 'border border-app/30',
+    button: 'bg-surface-2 border border-app/50 text-primary hover:bg-surface-1',
+  },
 };
 
 type DuplicateGroup = {
@@ -241,7 +269,9 @@ export default function DuplicateRidesModal({ open, onClose }: Props) {
         <div className="space-y-6">
           {duplicateGroups.map((group) => {
             const primaryRide = group as unknown as Ride;
-            const primaryIsGarmin = !!primaryRide.garminActivityId;
+            const primarySource = getRideSource(primaryRide);
+            const primaryLabel = SOURCE_LABELS[primarySource];
+            const primaryStyle = SOURCE_STYLES[primarySource];
 
             return (
               <div key={group.id} className="border border-app/50 rounded-2xl p-4 space-y-3">
@@ -250,12 +280,12 @@ export default function DuplicateRidesModal({ open, onClose }: Props) {
                 </p>
 
                 {/* Primary ride */}
-                <div className={`bg-surface-2 rounded-xl p-3 ${primaryIsGarmin ? 'border border-[#00a0df]/30' : 'border border-[#fc4c02]/30'}`}>
+                <div className={`bg-surface-2 rounded-xl p-3 ${primaryStyle.border}`}>
                   <div className="flex items-center justify-between">
                     <div className="flex-1 min-w-0">
                       <p className="font-semibold truncate">{primaryRide.notes || 'Ride'}</p>
                       <p className="text-xs text-muted">
-                        Source: {primaryIsGarmin ? 'Garmin' : 'Strava'}
+                        Source: {primaryLabel}
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
@@ -264,14 +294,10 @@ export default function DuplicateRidesModal({ open, onClose }: Props) {
                         <button
                           key={`keep-primary-${dup.id}`}
                           onClick={() => handleMerge(group.id, dup.id)}
-                          aria-label={`Keep ${primaryIsGarmin ? 'Garmin' : 'Strava'} ride and delete duplicate`}
-                          className={`text-xs px-3 py-1.5 rounded-lg font-medium ${
-                            primaryIsGarmin
-                              ? 'bg-[#00a0df]/20 border border-[#00a0df]/50 text-[#00a0df] hover:bg-[#00a0df]/30'
-                              : 'bg-[#fc4c02]/20 border border-[#fc4c02]/50 text-[#fc4c02] hover:bg-[#fc4c02]/30'
-                          }`}
+                          aria-label={`Keep ${primaryLabel} ride and delete duplicate`}
+                          className={`text-xs px-3 py-1.5 rounded-lg font-medium ${primaryStyle.button}`}
                         >
-                          Keep {primaryIsGarmin ? 'Garmin' : 'Strava'}
+                          Keep {primaryLabel}
                         </button>
                       ))}
                     </div>
@@ -280,27 +306,25 @@ export default function DuplicateRidesModal({ open, onClose }: Props) {
 
                 {/* Duplicate rides */}
                 {group.duplicates.map((dup) => {
-                  const dupIsGarmin = !!dup.garminActivityId;
+                  const dupSource = getRideSource(dup);
+                  const dupLabel = SOURCE_LABELS[dupSource];
+                  const dupStyle = SOURCE_STYLES[dupSource];
 
                   return (
-                    <div key={dup.id} className={`bg-surface-2 rounded-xl p-3 ${dupIsGarmin ? 'border border-[#00a0df]/30' : 'border border-[#fc4c02]/30'}`}>
+                    <div key={dup.id} className={`bg-surface-2 rounded-xl p-3 ${dupStyle.border}`}>
                       <div className="flex items-center justify-between">
                         <div className="flex-1 min-w-0">
                           <p className="font-semibold truncate">{dup.notes || 'Ride'}</p>
                           <p className="text-xs text-muted">
-                            Source: {dupIsGarmin ? 'Garmin' : 'Strava'}
+                            Source: {dupLabel}
                           </p>
                         </div>
                         <button
                           onClick={() => handleMerge(dup.id, group.id)}
-                          aria-label={`Keep ${dupIsGarmin ? 'Garmin' : 'Strava'} ride and delete primary`}
-                          className={`text-xs px-3 py-1.5 rounded-lg font-medium ${
-                            dupIsGarmin
-                              ? 'bg-[#00a0df]/20 border border-[#00a0df]/50 text-[#00a0df] hover:bg-[#00a0df]/30'
-                              : 'bg-[#fc4c02]/20 border border-[#fc4c02]/50 text-[#fc4c02] hover:bg-[#fc4c02]/30'
-                          }`}
+                          aria-label={`Keep ${dupLabel} ride and delete primary`}
+                          className={`text-xs px-3 py-1.5 rounded-lg font-medium ${dupStyle.button}`}
                         >
-                          Keep {dupIsGarmin ? 'Garmin' : 'Strava'}
+                          Keep {dupLabel}
                         </button>
                       </div>
                     </div>

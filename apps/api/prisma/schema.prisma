@@ -26,6 +26,7 @@ model User {
   onboardingCompleted Boolean             @default(false)
   activeDataSource    AuthProvider?
   stravaUserId        String?             @unique
+  suuntoUserId        String?             @unique
   whoopUserId         String?             @unique
   role                UserRole            @default(WAITLIST)
   mustChangePassword  Boolean             @default(false)
@@ -125,6 +126,7 @@ model Ride {
   stravaActivityId  String?         @unique
   stravaGearId      String?
   whoopWorkoutId    String?         @unique
+  suuntoWorkoutId   String?         @unique
   importSessionId   String?
   startLat          Float?
   startLng          Float?
@@ -336,12 +338,14 @@ enum AuthProvider {
   garmin
   google
   strava
+  suunto
   whoop
 }
 
 enum IntegrationProvider {
   GARMIN
   STRAVA
+  SUUNTO
   WHOOP
 }
 
@@ -489,6 +493,7 @@ enum EmailType {
   founding_welcome
   founding_post_activation_info
   strava_integration_live
+  suunto_integration_live
   beta_feature_roundup
   password_added
   password_changed

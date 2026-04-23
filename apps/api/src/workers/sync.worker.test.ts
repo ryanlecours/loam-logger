@@ -45,6 +45,10 @@ jest.mock('../lib/whoop-token', () => ({
   getValidWhoopToken: jest.fn(),
 }));
 
+jest.mock('../lib/suunto-token', () => ({
+  getValidSuuntoToken: jest.fn(),
+}));
+
 jest.mock('../lib/queue/notification.queue', () => ({
   enqueueReceiptCheck: jest.fn().mockResolvedValue(undefined),
 }));
@@ -75,6 +79,7 @@ import { prisma } from '../lib/prisma';
 import { getValidStravaToken } from '../lib/strava-token';
 import { getValidGarminToken } from '../lib/garmin-token';
 import { getValidWhoopToken } from '../lib/whoop-token';
+import { getValidSuuntoToken } from '../lib/suunto-token';
 
 const MockedWorker = Worker as jest.MockedClass<typeof Worker>;
 const mockAcquireLock = acquireLock as jest.MockedFunction<typeof acquireLock>;
@@ -83,7 +88,24 @@ const mockPrisma = prisma as jest.Mocked<typeof prisma>;
 const mockGetValidStravaToken = getValidStravaToken as jest.MockedFunction<typeof getValidStravaToken>;
 const mockGetValidWhoopToken = getValidWhoopToken as jest.MockedFunction<typeof getValidWhoopToken>;
 const mockGetValidGarminToken = getValidGarminToken as jest.MockedFunction<typeof getValidGarminToken>;
+const mockGetValidSuuntoToken = getValidSuuntoToken as jest.MockedFunction<typeof getValidSuuntoToken>;
 const mockFetch = global.fetch as jest.MockedFunction<typeof fetch>;
+
+// The Suunto code path calls `suuntoApiHeaders()` which throws if
+// SUUNTO_SUBSCRIPTION_KEY is unset. Local dev machines usually have it via
+// .env, but CI / fresh clones don't — so set it explicitly here to keep the
+// test deterministic. Mirrors the pattern in suunto.backfill.test.ts.
+const originalSuuntoSubscriptionKey = process.env.SUUNTO_SUBSCRIPTION_KEY;
+beforeAll(() => {
+  process.env.SUUNTO_SUBSCRIPTION_KEY = 'test-subscription-key';
+});
+afterAll(() => {
+  if (originalSuuntoSubscriptionKey === undefined) {
+    delete process.env.SUUNTO_SUBSCRIPTION_KEY;
+  } else {
+    process.env.SUUNTO_SUBSCRIPTION_KEY = originalSuuntoSubscriptionKey;
+  }
+});
 
 describe('createSyncWorker', () => {
   beforeEach(() => {
@@ -339,19 +361,34 @@ describe('processSyncJob (via worker processor)', () => {
       ).rejects.toThrow('No valid Garmin token available');
     });
 
-    it('should handle suunto provider gracefully', async () => {
+    it('should sync Suunto workouts', async () => {
       mockAcquireLock.mockResolvedValue({
         acquired: true,
         lockKey: 'lock:suunto:user123',
         lockValue: 'value123',
         redisAvailable: true,
       });
+      mockGetValidSuuntoToken.mockResolvedValue('valid-suunto-token');
+      mockFetch.mockResolvedValue({
+        ok: true,
+        text: () => Promise.resolve(''),
+        json: () => Promise.resolve({ payload: [], metadata: {} }),
+      } as Response);
 
-      // Should not throw
       await processSyncJob({
         name: 'syncLatest',
         data: { userId: 'user123', provider: 'suunto' },
       });
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringContaining('cloudapi.suunto.com/v3/workouts'),
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            Authorization: 'Bearer valid-suunto-token',
+          }),
+        })
+      );
+      expect(mockReleaseLock).toHaveBeenCalled();
     });
 
     it('should sync WHOOP workouts', async () => {

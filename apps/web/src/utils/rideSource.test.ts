@@ -70,6 +70,28 @@ describe('getRideSource', () => {
 
     expect(getRideSource(ride)).toBe('garmin');
   });
+
+  it('returns "suunto" when only suuntoWorkoutId is present', () => {
+    const ride: RideWithSource = {
+      stravaActivityId: null,
+      garminActivityId: null,
+      whoopWorkoutId: null,
+      suuntoWorkoutId: 'suunto-key-abc',
+    };
+
+    expect(getRideSource(ride)).toBe('suunto');
+  });
+
+  it('deprioritizes Suunto behind Strava/Garmin/WHOOP', () => {
+    const ride: RideWithSource = {
+      stravaActivityId: null,
+      garminActivityId: null,
+      whoopWorkoutId: 'whoop-uuid',
+      suuntoWorkoutId: 'suunto-key-abc',
+    };
+
+    expect(getRideSource(ride)).toBe('whoop');
+  });
 });
 
 describe('SOURCE_LABELS', () => {
@@ -79,6 +101,14 @@ describe('SOURCE_LABELS', () => {
 
   it('has correct label for garmin', () => {
     expect(SOURCE_LABELS.garmin).toBe('Garmin');
+  });
+
+  it('has correct label for whoop', () => {
+    expect(SOURCE_LABELS.whoop).toBe('WHOOP');
+  });
+
+  it('has correct label for suunto', () => {
+    expect(SOURCE_LABELS.suunto).toBe('Suunto');
   });
 
   it('has correct label for manual', () => {

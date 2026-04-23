@@ -1,21 +1,24 @@
 import { Mountain, Activity } from 'lucide-react';
-import { StravaIcon } from './icons/BrandIcons';
+import { StravaIcon, SuuntoIcon } from './icons/BrandIcons';
 
 type Props = {
-  currentSource: 'garmin' | 'strava' | 'whoop' | null;
+  currentSource: 'garmin' | 'strava' | 'whoop' | 'suunto' | null;
   hasGarmin: boolean;
   hasStrava: boolean;
   hasWhoop?: boolean;
-  onSelect: (provider: 'garmin' | 'strava' | 'whoop') => void;
+  hasSuunto?: boolean;
+  onSelect: (provider: 'garmin' | 'strava' | 'whoop' | 'suunto') => void;
 };
 
-export default function DataSourceSelector({ currentSource, hasGarmin, hasStrava, hasWhoop = false, onSelect }: Props) {
+export default function DataSourceSelector({ currentSource, hasGarmin, hasStrava, hasWhoop = false, hasSuunto = false, onSelect }: Props) {
   // Count connected providers
-  const connectedCount = [hasGarmin, hasStrava, hasWhoop].filter(Boolean).length;
+  const connectedCount = [hasGarmin, hasStrava, hasWhoop, hasSuunto].filter(Boolean).length;
 
   if (connectedCount < 2) {
     return null; // Only show if multiple providers are connected
   }
+
+  const gridCols = connectedCount >= 4 ? 'grid-cols-4' : connectedCount === 3 ? 'grid-cols-3' : 'grid-cols-2';
 
   return (
     <div className="space-y-4">
@@ -25,9 +28,15 @@ export default function DataSourceSelector({ currentSource, hasGarmin, hasStrava
         <p className="text-body-muted mt-1">
           Choose which provider to sync activities from. Only one can be active at a time.
         </p>
+        <p className="text-body-muted mt-2 text-sm">
+          Real-time ride uploads from the other connected providers are ignored while this is set.
+          This prevents duplicate imports when, for example, your watch auto-uploads to both
+          Strava and Garmin. You can switch at any time, or disconnect a provider entirely in
+          the section above.
+        </p>
       </div>
 
-      <div className={`grid gap-4 ${connectedCount === 3 ? 'grid-cols-3' : 'grid-cols-2'}`}>
+      <div className={`grid gap-4 ${gridCols}`}>
         {/* Garmin Card */}
         {hasGarmin && (
           <button
@@ -104,6 +113,33 @@ export default function DataSourceSelector({ currentSource, hasGarmin, hasStrava
               <p className="font-semibold">WHOOP</p>
               <p className="text-xs text-muted mt-1">
                 Sync from WHOOP
+              </p>
+            </div>
+          </button>
+        )}
+
+        {/* Suunto Card */}
+        {hasSuunto && (
+          <button
+            onClick={() => onSelect('suunto')}
+            className={`relative flex flex-col items-center gap-3 p-6 rounded-2xl border-2 transition ${
+              currentSource === 'suunto'
+                ? 'border-[#0072CE] bg-[#0072CE]/20 ring-2 ring-[#0072CE]/50'
+                : 'border-app/50 bg-surface-2/50 hover:border-[#0072CE]/50 hover:bg-[#0072CE]/10'
+            }`}
+          >
+            {currentSource === 'suunto' && (
+              <div className="absolute top-3 right-3 flex items-center gap-1 text-xs font-semibold text-[#0072CE]">
+                <span>✓</span>
+                <span>Active</span>
+              </div>
+            )}
+
+            <SuuntoIcon size={32} className={currentSource === 'suunto' ? 'text-[#0072CE]' : 'text-muted'} />
+            <div className="text-center">
+              <p className="font-semibold">Suunto</p>
+              <p className="text-xs text-muted mt-1">
+                Sync from Suunto
               </p>
             </div>
           </button>
