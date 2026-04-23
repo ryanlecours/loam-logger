@@ -918,8 +918,20 @@ async function syncSuuntoLatest(userId: string): Promise<void> {
 
   logger.debug({ count: cyclingWorkouts.length }, '[SyncWorker] Processing cycling workouts');
 
+  // Hoist the active-bikes query out of the loop so we don't repeat it for
+  // every workout. The result feeds upsertSuuntoActivity's auto-assign logic
+  // for new rides — bike membership doesn't realistically change mid-sync,
+  // and even if it did, snapshotting at the start of the run is the right
+  // semantic (don't auto-assign to a bike the user just deleted).
+  const userBikes = cyclingWorkouts.length > 0
+    ? await prisma.bike.findMany({
+        where: { userId, status: 'ACTIVE' },
+        select: { id: true },
+      })
+    : [];
+
   for (const workout of cyclingWorkouts) {
-    await upsertSuuntoActivity(userId, workout);
+    await upsertSuuntoActivity(userId, workout, userBikes);
   }
 
   logger.info({ userId, count: cyclingWorkouts.length }, '[SyncWorker] Suunto sync complete');
@@ -965,7 +977,14 @@ async function syncSuuntoActivity(userId: string, workoutKey: string): Promise<v
   await upsertSuuntoActivity(userId, workout);
 }
 
-async function upsertSuuntoActivity(userId: string, workout: SuuntoWorkout): Promise<void> {
+async function upsertSuuntoActivity(
+  userId: string,
+  workout: SuuntoWorkout,
+  // Optional pre-fetched bike list: callers processing a batch (syncSuuntoLatest)
+  // pass it in to avoid re-querying per workout. Single-workout callers
+  // (syncSuuntoActivity) omit it — we only query on demand when isNewRide.
+  prefetchedUserBikes?: { id: string }[],
+): Promise<void> {
   const startTime = new Date(workout.startTime);
   const durationSeconds = workout.totalTime;
   const distanceMeters = workout.totalDistance ?? 0;
@@ -988,7 +1007,7 @@ async function upsertSuuntoActivity(userId: string, workout: SuuntoWorkout): Pro
   // assignments on re-sync, matching the Garmin pattern.
   let bikeId: string | null = null;
   if (isNewRide) {
-    const userBikes = await prisma.bike.findMany({
+    const userBikes = prefetchedUserBikes ?? await prisma.bike.findMany({
       where: { userId, status: 'ACTIVE' },
       select: { id: true },
     });

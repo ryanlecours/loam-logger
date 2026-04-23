@@ -12,7 +12,7 @@ import {
   decrementBikeComponentHours,
 } from '../lib/component-hours';
 import { logError, logger } from '../lib/logger';
-import { acquireLock, releaseLock } from '../lib/rate-limit';
+import { acquireLock, releaseLock, extendLock, LOCK_TTL } from '../lib/rate-limit';
 import {
   findPotentialDuplicates,
   type DuplicateCandidate,
@@ -165,6 +165,11 @@ r.get<Empty, void, Empty, { year?: string }>(
           '[Suunto Backfill] Fetched page'
         );
 
+        // Refresh the lock TTL on every page so a slow Suunto API can't let
+        // the lock expire mid-fetch and allow a concurrent backfill in.
+        // No-op when Redis is unavailable (lockKey/lockValue are null).
+        await extendLock(lockResult.lockKey, lockResult.lockValue, LOCK_TTL.backfill);
+
         if (records.length < PAGE_LIMIT) break;
         offset += PAGE_LIMIT;
       }
@@ -279,6 +284,15 @@ r.get<Empty, void, Empty, { year?: string }>(
         });
 
         importedCount++;
+
+        // Periodically refresh the lock during the upsert loop too.
+        // Pre-write extension prevents a stuck-DB scenario from letting the
+        // TTL elapse while we hold the lock. Every 25 imports keeps the
+        // Redis-traffic overhead tiny while staying well inside the 10-min
+        // TTL even on extremely slow DBs.
+        if (importedCount % 25 === 0) {
+          await extendLock(lockResult.lockKey, lockResult.lockValue, LOCK_TTL.backfill);
+        }
       }
 
       logger.info(

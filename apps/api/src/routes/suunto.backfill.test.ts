@@ -54,6 +54,9 @@ const mockReleaseLock = jest.fn();
 jest.mock('../lib/rate-limit', () => ({
   acquireLock: mockAcquireLock,
   releaseLock: mockReleaseLock,
+  // Lock-renewal calls during the long backfill loops — no-op in tests.
+  extendLock: jest.fn().mockResolvedValue(true),
+  LOCK_TTL: { sync: 300, backfill: 600 },
 }));
 
 const mockFindPotentialDuplicates = jest.fn();
