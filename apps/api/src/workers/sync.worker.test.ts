@@ -91,6 +91,22 @@ const mockGetValidGarminToken = getValidGarminToken as jest.MockedFunction<typeo
 const mockGetValidSuuntoToken = getValidSuuntoToken as jest.MockedFunction<typeof getValidSuuntoToken>;
 const mockFetch = global.fetch as jest.MockedFunction<typeof fetch>;
 
+// The Suunto code path calls `suuntoApiHeaders()` which throws if
+// SUUNTO_SUBSCRIPTION_KEY is unset. Local dev machines usually have it via
+// .env, but CI / fresh clones don't — so set it explicitly here to keep the
+// test deterministic. Mirrors the pattern in suunto.backfill.test.ts.
+const originalSuuntoSubscriptionKey = process.env.SUUNTO_SUBSCRIPTION_KEY;
+beforeAll(() => {
+  process.env.SUUNTO_SUBSCRIPTION_KEY = 'test-subscription-key';
+});
+afterAll(() => {
+  if (originalSuuntoSubscriptionKey === undefined) {
+    delete process.env.SUUNTO_SUBSCRIPTION_KEY;
+  } else {
+    process.env.SUUNTO_SUBSCRIPTION_KEY = originalSuuntoSubscriptionKey;
+  }
+});
+
 describe('createSyncWorker', () => {
   beforeEach(() => {
     jest.clearAllMocks();
