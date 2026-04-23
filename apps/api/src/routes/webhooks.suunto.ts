@@ -4,6 +4,7 @@ import { prisma } from '../lib/prisma';
 import { createLogger, logError } from '../lib/logger';
 import { isActiveSource } from '../lib/active-source';
 import { isSuuntoCyclingActivity, getSuuntoRideType } from '../types/suunto';
+import { syncBikeComponentHours } from '../lib/component-hours';
 
 const log = createLogger('suunto-webhook');
 const r: Router = createRouter();
@@ -149,33 +150,64 @@ async function processWorkoutCreated(event: WorkoutCreatedEvent): Promise<void> 
     : null;
   const rideType = getSuuntoRideType(workout.activityId);
 
-  await prisma.ride.upsert({
+  // Read existing ride before upsert so we can diff bikeId/duration into
+  // component hours. A missing record means this is a new ride; in that
+  // case we also auto-assign the user's single active bike to keep webhook
+  // behavior aligned with the sync worker and backfill paths.
+  const existing = await prisma.ride.findUnique({
     where: { suuntoWorkoutId: workout.workoutKey },
-    create: {
-      userId: userAccount.userId,
-      suuntoWorkoutId: workout.workoutKey,
-      startTime,
-      durationSeconds: workout.totalTime,
-      distanceMeters,
-      elevationGainMeters,
-      averageHr,
-      rideType,
-      startLat,
-      startLng,
-    },
-    update: {
-      startTime,
-      durationSeconds: workout.totalTime,
-      distanceMeters,
-      elevationGainMeters,
-      averageHr,
-      rideType,
-      ...(startLat != null ? { startLat } : {}),
-      ...(startLng != null ? { startLng } : {}),
-    },
+    select: { id: true, durationSeconds: true, bikeId: true },
   });
 
-  log.info({ userId: userAccount.userId, workoutKey: workout.workoutKey, activityId: workout.activityId }, 'Suunto workout upserted');
+  const isNewRide = !existing;
+  let bikeId: string | null = null;
+  if (isNewRide) {
+    const userBikes = await prisma.bike.findMany({
+      where: { userId: userAccount.userId, status: 'ACTIVE' },
+      select: { id: true },
+    });
+    if (userBikes.length === 1) {
+      bikeId = userBikes[0].id;
+    }
+  }
+
+  await prisma.$transaction(async (tx) => {
+    const ride = await tx.ride.upsert({
+      where: { suuntoWorkoutId: workout.workoutKey },
+      create: {
+        userId: userAccount.userId,
+        suuntoWorkoutId: workout.workoutKey,
+        startTime,
+        durationSeconds: workout.totalTime,
+        distanceMeters,
+        elevationGainMeters,
+        averageHr,
+        rideType,
+        bikeId,
+        startLat,
+        startLng,
+      },
+      update: {
+        startTime,
+        durationSeconds: workout.totalTime,
+        distanceMeters,
+        elevationGainMeters,
+        averageHr,
+        rideType,
+        ...(startLat != null ? { startLat } : {}),
+        ...(startLng != null ? { startLng } : {}),
+      },
+    });
+
+    await syncBikeComponentHours(
+      tx,
+      userAccount.userId,
+      { bikeId: existing?.bikeId ?? null, durationSeconds: existing?.durationSeconds ?? null },
+      { bikeId: ride.bikeId ?? null, durationSeconds: ride.durationSeconds }
+    );
+  });
+
+  log.info({ userId: userAccount.userId, workoutKey: workout.workoutKey, activityId: workout.activityId, isNewRide }, 'Suunto workout upserted');
 }
 
 export default r;

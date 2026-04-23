@@ -18,6 +18,8 @@ import {
   type DuplicateCandidate,
 } from '../lib/duplicate-detector';
 import { isSuuntoCyclingActivity, getSuuntoRideType } from '../types/suunto';
+import { suuntoApiHeaders } from '../lib/suunto-sync';
+import { enqueueBackfillJob } from '../lib/queue/backfill.queue';
 
 type Empty = Record<string, never>;
 const r: Router = createRouter();
@@ -159,10 +161,7 @@ r.get<Empty, void, Empty, { year?: string }>(
         url.searchParams.set('offset', String(offset));
 
         const apiRes = await fetch(url.toString(), {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            Accept: 'application/json',
-          },
+          headers: suuntoApiHeaders(accessToken),
         });
 
         if (!apiRes.ok) {
@@ -364,6 +363,138 @@ r.get<Empty, void, Empty, { year?: string }>(
       return sendInternalError(res, 'Failed to fetch workouts');
     } finally {
       await releaseLock(lockResult.lockKey, lockResult.lockValue);
+    }
+  }
+);
+
+/**
+ * Queue multi-year backfill jobs into the backfill worker.
+ *
+ * The synchronous `/suunto/backfill/fetch` endpoint above blocks for the whole
+ * fetch; this endpoint returns immediately after enqueueing one job per year.
+ * Mirrors the Garmin pattern so the UI can treat providers uniformly.
+ */
+r.post<Empty, void, { years: string[] }, Empty>(
+  '/suunto/backfill/batch',
+  async (req: Request<Empty, void, { years: string[] }, Empty>, res: Response) => {
+    const userId = req.user?.id || req.sessionUser?.uid;
+    if (!userId) {
+      return sendUnauthorized(res, 'Not authenticated');
+    }
+
+    const { years } = req.body;
+    if (!Array.isArray(years) || years.length === 0) {
+      return sendBadRequest(res, 'At least one year is required');
+    }
+
+    if (years.length > 10) {
+      return sendBadRequest(res, 'Maximum 10 years can be queued at once');
+    }
+
+    const currentYear = new Date().getFullYear();
+    for (const year of years) {
+      if (year !== 'ytd') {
+        const yearNum = parseInt(year, 10);
+        if (isNaN(yearNum) || yearNum < MIN_BACKFILL_YEAR || yearNum > currentYear) {
+          return sendBadRequest(
+            res,
+            `Invalid year: ${year}. Must be between ${MIN_BACKFILL_YEAR} and ${currentYear}, or 'ytd'`
+          );
+        }
+      }
+    }
+
+    try {
+      const existingImportSession = await prisma.importSession.findFirst({
+        where: { userId, provider: 'suunto', status: 'running' },
+      });
+
+      if (existingImportSession) {
+        return res.status(409).json({
+          error: 'Import already in progress',
+          message: 'A Suunto import is already in progress. Please wait for it to complete before starting another.',
+        });
+      }
+
+      const existingBackfills = await prisma.backfillRequest.findMany({
+        where: {
+          userId,
+          provider: 'suunto',
+          year: { in: years.filter((y) => y !== 'ytd') },
+          status: { notIn: ['failed'] },
+        },
+        select: { year: true, status: true },
+      });
+
+      const alreadyBackfilled = new Map(existingBackfills.map((b) => [b.year, b.status]));
+
+      if (years.includes('ytd')) {
+        const ytdBackfill = await prisma.backfillRequest.findUnique({
+          where: { userId_provider_year: { userId, provider: 'suunto', year: 'ytd' } },
+          select: { status: true },
+        });
+        if (ytdBackfill?.status === 'in_progress') {
+          alreadyBackfilled.set('ytd', 'in_progress');
+        }
+      }
+
+      const yearsToProcess = years.filter((y) => {
+        if (y === 'ytd') {
+          return alreadyBackfilled.get('ytd') !== 'in_progress';
+        }
+        return !alreadyBackfilled.has(y);
+      });
+
+      if (yearsToProcess.length === 0) {
+        return res.status(409).json({
+          error: 'All years already backfilled or in progress',
+          message: 'All selected years have already been imported or are currently being processed.',
+          skipped: years,
+        });
+      }
+
+      const importSession = await prisma.importSession.create({
+        data: {
+          userId,
+          provider: 'suunto',
+          status: 'running',
+          startedAt: new Date(),
+        },
+      });
+
+      logger.info({ importSessionId: importSession.id }, '[Suunto Backfill Batch] Created import session');
+
+      const results: Array<{ year: string; status: string; jobId?: string }> = [];
+
+      for (const year of yearsToProcess) {
+        await prisma.backfillRequest.upsert({
+          where: { userId_provider_year: { userId, provider: 'suunto', year } },
+          update: { status: 'pending', updatedAt: new Date() },
+          create: { userId, provider: 'suunto', year, status: 'pending' },
+        });
+
+        const result = await enqueueBackfillJob({
+          userId,
+          provider: 'suunto',
+          year,
+        });
+
+        results.push({ year, status: result.status, jobId: result.jobId });
+      }
+
+      const skipped = years.filter((y) => !yearsToProcess.includes(y));
+
+      logger.info({ userId, count: results.length }, '[Suunto Backfill Batch] Jobs queued');
+
+      return res.json({
+        success: true,
+        message: `Queued ${results.length} backfill request(s). Your rides will sync automatically in the background.`,
+        queued: results,
+        skipped: skipped.length > 0 ? skipped : undefined,
+      });
+    } catch (error) {
+      logError('Suunto Backfill Batch', error);
+      return sendInternalError(res, 'Failed to queue backfill requests');
     }
   }
 );

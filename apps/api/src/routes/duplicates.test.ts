@@ -3,12 +3,21 @@ import type { Request, Response, NextFunction, RequestHandler } from 'express';
 const mockFindMany = jest.fn();
 const mockTransaction = jest.fn();
 const mockUpdate = jest.fn();
+const mockUserFindUnique = jest.fn();
+const mockDeleteMany = jest.fn();
+const mockUpdateMany = jest.fn();
+const mockExecuteRaw = jest.fn();
 
 jest.mock('../lib/prisma', () => ({
   prisma: {
     ride: {
       findMany: mockFindMany,
       update: mockUpdate,
+      deleteMany: mockDeleteMany,
+      updateMany: mockUpdateMany,
+    },
+    user: {
+      findUnique: mockUserFindUnique,
     },
     $transaction: mockTransaction,
   },
@@ -235,5 +244,153 @@ describe('POST /duplicates/scan', () => {
         }),
       })
     );
+  });
+});
+
+describe('POST /duplicates/auto-merge', () => {
+  let handler: RequestHandler | undefined;
+  let mockReq: Partial<Request>;
+  let mockRes: Partial<Response>;
+  let jsonResponse: unknown;
+
+  type DupRow = TestRide & { duplicateOfId: string | null };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    handler = getHandler('/duplicates/auto-merge', 'post');
+    jsonResponse = undefined;
+
+    mockReq = { user: { id: 'user-123' }, sessionUser: undefined };
+    mockRes = {
+      status: jest.fn().mockReturnThis(),
+      json: jest.fn().mockImplementation((data) => {
+        jsonResponse = data;
+        return mockRes;
+      }),
+    };
+
+    // Transaction runs the callback against a tx object exposing the same shape
+    mockTransaction.mockImplementation(async (fn) =>
+      fn({
+        $executeRaw: mockExecuteRaw,
+        ride: { deleteMany: mockDeleteMany, updateMany: mockUpdateMany },
+      })
+    );
+    mockExecuteRaw.mockResolvedValue(undefined);
+    mockDeleteMany.mockResolvedValue({ count: 0 });
+    mockUpdateMany.mockResolvedValue({ count: 0 });
+  });
+
+  function seedRides(preferred: string, dups: DupRow[], primaries: TestRide[]) {
+    mockUserFindUnique.mockResolvedValue({ activeDataSource: preferred });
+    // First findMany call = duplicates; second = primaries.
+    mockFindMany
+      .mockResolvedValueOnce(dups)
+      .mockResolvedValueOnce(primaries);
+  }
+
+  it('rejects unauthenticated requests', async () => {
+    mockReq.user = undefined;
+
+    await invokeHandler(handler, mockReq as Request, mockRes as Response);
+
+    expect(mockRes.status).toHaveBeenCalledWith(401);
+  });
+
+  it('rejects when activeDataSource is null', async () => {
+    mockUserFindUnique.mockResolvedValue({ activeDataSource: null });
+
+    await invokeHandler(handler, mockReq as Request, mockRes as Response);
+
+    expect(mockRes.status).toHaveBeenCalledWith(400);
+    expect(jsonResponse).toMatchObject({ error: expect.stringContaining('No active data source') });
+  });
+
+  it('rejects non-fitness activeDataSource (apple/google)', async () => {
+    mockUserFindUnique.mockResolvedValue({ activeDataSource: 'google' });
+
+    await invokeHandler(handler, mockReq as Request, mockRes as Response);
+
+    expect(mockRes.status).toHaveBeenCalledWith(400);
+    expect(jsonResponse).toMatchObject({ error: expect.stringContaining('fitness provider') });
+  });
+
+  it('returns 0 when there are no duplicate rides', async () => {
+    mockUserFindUnique.mockResolvedValue({ activeDataSource: 'suunto' });
+    mockFindMany.mockResolvedValueOnce([]);
+
+    await invokeHandler(handler, mockReq as Request, mockRes as Response);
+
+    expect(jsonResponse).toMatchObject({ success: true, merged: 0 });
+    expect(mockTransaction).not.toHaveBeenCalled();
+  });
+
+  it('keeps Suunto and deletes the Garmin primary when Suunto is preferred', async () => {
+    const dup: DupRow = {
+      ...makeRide({ id: 'su-dup', suuntoWorkoutId: 'SU-1' }),
+      duplicateOfId: 'g-primary',
+    };
+    const primary: TestRide = makeRide({ id: 'g-primary', garminActivityId: 'G-1' });
+    seedRides('suunto', [dup], [primary]);
+
+    await invokeHandler(handler, mockReq as Request, mockRes as Response);
+
+    expect(jsonResponse).toMatchObject({ success: true, merged: 1, preferredSource: 'suunto' });
+    expect(mockDeleteMany).toHaveBeenCalledWith({ where: { id: { in: ['g-primary'] } } });
+  });
+
+  it('keeps WHOOP and deletes the Strava primary when WHOOP is preferred', async () => {
+    const dup: DupRow = {
+      ...makeRide({ id: 'w-dup', whoopWorkoutId: 'W-1' }),
+      duplicateOfId: 's-primary',
+    };
+    const primary: TestRide = makeRide({ id: 's-primary', stravaActivityId: 'S-1' });
+    seedRides('whoop', [dup], [primary]);
+
+    await invokeHandler(handler, mockReq as Request, mockRes as Response);
+
+    expect(jsonResponse).toMatchObject({ success: true, merged: 1, preferredSource: 'whoop' });
+    expect(mockDeleteMany).toHaveBeenCalledWith({ where: { id: { in: ['s-primary'] } } });
+  });
+
+  it('deletes the duplicate when neither side matches the preferred provider', async () => {
+    const dup: DupRow = {
+      ...makeRide({ id: 's-dup', stravaActivityId: 'S-1' }),
+      duplicateOfId: 'g-primary',
+    };
+    const primary: TestRide = makeRide({ id: 'g-primary', garminActivityId: 'G-1' });
+    seedRides('suunto', [dup], [primary]);
+
+    await invokeHandler(handler, mockReq as Request, mockRes as Response);
+
+    expect(jsonResponse).toMatchObject({ success: true, merged: 1 });
+    expect(mockDeleteMany).toHaveBeenCalledWith({ where: { id: { in: ['s-dup'] } } });
+  });
+
+  it('labels the success message with the correct provider name', async () => {
+    mockUserFindUnique.mockResolvedValue({ activeDataSource: 'whoop' });
+    mockFindMany.mockResolvedValueOnce([]);
+
+    await invokeHandler(handler, mockReq as Request, mockRes as Response);
+
+    // Empty-duplicates path returns a simple message, but on success it uses PROVIDER_LABELS.
+    // Re-run with a real pair to hit the labeled message.
+    jest.clearAllMocks();
+    mockTransaction.mockImplementation(async (fn) =>
+      fn({
+        $executeRaw: mockExecuteRaw,
+        ride: { deleteMany: mockDeleteMany, updateMany: mockUpdateMany },
+      })
+    );
+    const dup: DupRow = {
+      ...makeRide({ id: 'su-dup', suuntoWorkoutId: 'SU-1' }),
+      duplicateOfId: 'g-primary',
+    };
+    const primary: TestRide = makeRide({ id: 'g-primary', garminActivityId: 'G-1' });
+    seedRides('suunto', [dup], [primary]);
+
+    await invokeHandler(handler, mockReq as Request, mockRes as Response);
+
+    expect(jsonResponse).toMatchObject({ message: expect.stringContaining('Suunto data') });
   });
 });

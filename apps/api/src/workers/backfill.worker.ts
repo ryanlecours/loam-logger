@@ -5,12 +5,22 @@ import { getQueueConnection } from '../lib/queue/connection';
 import { acquireLock, releaseLock } from '../lib/rate-limit';
 import { prisma } from '../lib/prisma';
 import { getValidGarminToken } from '../lib/garmin-token';
+import { getValidSuuntoToken } from '../lib/suunto-token';
 import { deriveLocationAsync, shouldApplyAutoLocation } from '../lib/location';
 import { logError, logger } from '../lib/logger';
 import { config } from '../config/env';
 import type { BackfillJobData, BackfillJobName } from '../lib/queue/backfill.queue';
 import { enqueueWeatherJob } from '../lib/queue';
 import { captureServerEvent } from '../lib/posthog';
+import { incrementBikeComponentHours, syncBikeComponentHours } from '../lib/component-hours';
+import { isSuuntoCyclingActivity, getSuuntoRideType } from '../types/suunto';
+import {
+  SUUNTO_API_BASE,
+  suuntoApiHeaders,
+  type SuuntoWorkout,
+  type SuuntoWorkoutsResponse,
+} from '../lib/suunto-sync';
+import { findPotentialDuplicates, type DuplicateCandidate } from '../lib/duplicate-detector';
 
 // Garmin API limits backfill requests to 30-day chunks
 const CHUNK_DAYS = 30;
@@ -110,6 +120,8 @@ async function processBackfillJob(job: Job<BackfillJobData, void, BackfillJobNam
   try {
     if (provider === 'garmin') {
       await processGarminBackfill(userId, year);
+    } else if (provider === 'suunto') {
+      await processSuuntoBackfill(userId, year);
     } else {
       throw new Error(`Unsupported provider for backfill: ${provider}`);
     }
@@ -286,6 +298,239 @@ async function processGarminBackfill(userId: string, year: string): Promise<void
   // when all activities have been delivered
 }
 
+// ============================================================================
+// SUUNTO BACKFILL
+// ============================================================================
+
+const SUUNTO_PAGE_LIMIT = 100;
+const SUUNTO_MAX_PAGES = 100;
+const SUUNTO_MIN_BACKFILL_YEAR = 2015;
+
+/**
+ * Process Suunto backfill for a specific year.
+ *
+ * Unlike Garmin, Suunto has no webhook-driven backfill mechanism. We page
+ * through GET /v3/workouts synchronously and upsert cycling rides directly.
+ * Cross-provider duplicate detection skips rides that already exist from
+ * Garmin/Strava/WHOOP on the same day.
+ */
+async function processSuuntoBackfill(userId: string, year: string): Promise<void> {
+  const accessToken = await getValidSuuntoToken(userId);
+
+  if (!accessToken) {
+    throw new Error('Suunto token expired or not connected');
+  }
+
+  const currentYear = new Date().getFullYear();
+  let startDate: Date;
+  let endDate: Date;
+
+  if (year === 'ytd') {
+    const existingYtd = await prisma.backfillRequest.findUnique({
+      where: { userId_provider_year: { userId, provider: 'suunto', year: 'ytd' } },
+    });
+
+    // Resume YTD from the last checkpoint if there is one. Note: status was
+    // already flipped to in_progress before we got here, so we rely solely on
+    // backfilledUpTo to tell us whether a prior run left us a checkpoint.
+    if (existingYtd?.backfilledUpTo) {
+      startDate = new Date(existingYtd.backfilledUpTo.getTime() + 1000);
+    } else {
+      startDate = new Date(currentYear, 0, 1);
+    }
+    endDate = new Date();
+  } else {
+    const yearNum = parseInt(year, 10);
+    if (isNaN(yearNum) || yearNum < SUUNTO_MIN_BACKFILL_YEAR || yearNum > currentYear) {
+      throw new Error(
+        `Invalid year: ${year}. Must be between ${SUUNTO_MIN_BACKFILL_YEAR} and ${currentYear}, or "ytd".`
+      );
+    }
+    startDate = new Date(yearNum, 0, 1);
+    endDate = new Date(yearNum, 11, 31, 23, 59, 59);
+  }
+
+  if (startDate >= endDate) {
+    logger.info({ userId, year }, '[BackfillWorker] Suunto backfill already up to date');
+    await prisma.backfillRequest.updateMany({
+      where: { userId, provider: 'suunto', year },
+      data: { status: 'completed', completedAt: new Date(), updatedAt: new Date() },
+    });
+    return;
+  }
+
+  logger.info(
+    { userId, year, startDate: startDate.toISOString(), endDate: endDate.toISOString() },
+    '[BackfillWorker] Starting Suunto backfill'
+  );
+
+  const workouts: SuuntoWorkout[] = [];
+  let offset = 0;
+  let pageCount = 0;
+
+  while (pageCount < SUUNTO_MAX_PAGES) {
+    const url = new URL(`${SUUNTO_API_BASE}/workouts`);
+    url.searchParams.set('since', String(startDate.getTime()));
+    url.searchParams.set('until', String(endDate.getTime()));
+    url.searchParams.set('limit', String(SUUNTO_PAGE_LIMIT));
+    url.searchParams.set('offset', String(offset));
+
+    const apiRes = await fetch(url.toString(), {
+      headers: suuntoApiHeaders(accessToken),
+    });
+
+    if (!apiRes.ok) {
+      const text = await apiRes.text();
+      throw new Error(`Suunto API error: ${apiRes.status} ${text.slice(0, 200)}`);
+    }
+
+    const page = (await apiRes.json()) as SuuntoWorkoutsResponse;
+    const records = page.payload ?? [];
+    workouts.push(...records);
+    pageCount++;
+
+    if (records.length < SUUNTO_PAGE_LIMIT) break;
+    offset += SUUNTO_PAGE_LIMIT;
+  }
+
+  if (pageCount >= SUUNTO_MAX_PAGES) {
+    logger.warn(
+      { userId, year, totalFetched: workouts.length },
+      '[BackfillWorker] Suunto page cap hit; some workouts may be missing'
+    );
+  }
+
+  const cyclingWorkouts = workouts.filter((w) => isSuuntoCyclingActivity(w.activityId));
+
+  // Auto-assign to the single active bike if the user has exactly one; Suunto
+  // has no gear tagging in the workout list so this is our only signal.
+  const userBikes = await prisma.bike.findMany({
+    where: { userId, status: 'ACTIVE' },
+    select: { id: true },
+  });
+  const autoAssignBikeId = userBikes.length === 1 ? userBikes[0].id : null;
+
+  // Look up running ImportSession so new rides get tagged for progress tracking.
+  const runningSession = await prisma.importSession.findFirst({
+    where: { userId, provider: 'suunto', status: 'running' },
+    select: { id: true },
+  });
+
+  let importedCount = 0;
+  let skippedCount = 0;
+  let duplicatesDetected = 0;
+
+  for (const workout of cyclingWorkouts) {
+    // Same-provider dedup via the unique index on suuntoWorkoutId.
+    const existing = await prisma.ride.findUnique({
+      where: { suuntoWorkoutId: workout.workoutKey },
+    });
+    if (existing) {
+      skippedCount++;
+      continue;
+    }
+
+    const startTime = new Date(workout.startTime);
+    const durationSeconds = workout.totalTime;
+    const durationHours = Math.max(0, durationSeconds) / 3600;
+    const distanceMeters = workout.totalDistance ?? 0;
+    const elevationGainMeters = workout.totalAscent ?? 0;
+    const averageHr = workout.hrdata?.workoutAvgHR != null
+      ? Math.round(workout.hrdata.workoutAvgHR)
+      : null;
+    const startLat = workout.startPosition?.y ?? null;
+    const startLng = workout.startPosition?.x ?? null;
+
+    // Cross-provider dedup: skip if an overlapping ride already came from
+    // Garmin/Strava/WHOOP on the same day.
+    const duplicateCandidate: DuplicateCandidate = {
+      id: '',
+      startTime,
+      durationSeconds,
+      distanceMeters,
+      elevationGainMeters,
+      garminActivityId: null,
+      stravaActivityId: null,
+      whoopWorkoutId: null,
+      suuntoWorkoutId: workout.workoutKey,
+    };
+
+    const duplicate = await findPotentialDuplicates(userId, duplicateCandidate, prisma);
+    if (duplicate) {
+      duplicatesDetected++;
+      skippedCount++;
+      continue;
+    }
+
+    let createdRideId: string | null = null;
+
+    await prisma.$transaction(async (tx) => {
+      const ride = await tx.ride.create({
+        data: {
+          userId,
+          suuntoWorkoutId: workout.workoutKey,
+          startTime,
+          durationSeconds,
+          distanceMeters,
+          elevationGainMeters,
+          averageHr,
+          rideType: getSuuntoRideType(workout.activityId),
+          startLat,
+          startLng,
+          bikeId: autoAssignBikeId,
+          importSessionId: runningSession?.id ?? null,
+        },
+        select: { id: true },
+      });
+
+      createdRideId = ride.id;
+
+      if (autoAssignBikeId) {
+        await incrementBikeComponentHours(tx, {
+          userId,
+          bikeId: autoAssignBikeId,
+          hoursDelta: durationHours,
+        });
+      }
+    });
+
+    importedCount++;
+
+    // Fire-and-forget weather fetch so the ride gets enriched later without
+    // blocking the backfill loop.
+    if (createdRideId && startLat != null && startLng != null) {
+      enqueueWeatherJob({ rideId: createdRideId }).catch((err) =>
+        logger.warn({ rideId: createdRideId, err }, '[BackfillWorker] Failed to enqueue weather job (Suunto)')
+      );
+    }
+  }
+
+  // Update session's lastActivityReceivedAt if any rides were created, so the
+  // idle-session checker doesn't prematurely close the import.
+  if (runningSession && importedCount > 0) {
+    await prisma.importSession.update({
+      where: { id: runningSession.id },
+      data: { lastActivityReceivedAt: new Date() },
+    });
+  }
+
+  await prisma.backfillRequest.updateMany({
+    where: { userId, provider: 'suunto', year },
+    data: {
+      status: 'completed',
+      ridesFound: importedCount,
+      backfilledUpTo: endDate,
+      completedAt: new Date(),
+      updatedAt: new Date(),
+    },
+  });
+
+  logger.info(
+    { userId, year, imported: importedCount, skipped: skippedCount, duplicatesDetected },
+    '[BackfillWorker] Suunto backfill complete'
+  );
+}
+
 /**
  * Process a Garmin callback URL (used for backfill webhook responses).
  * Fetches activities from the callback URL and upserts them.
@@ -379,7 +624,7 @@ async function processGarminCallback(userId: string, callbackURL: string): Promi
 
     const existingRide = await prisma.ride.findUnique({
       where: { garminActivityId: activity.summaryId },
-      select: { location: true },
+      select: { location: true, bikeId: true, durationSeconds: true },
     });
 
     const locationUpdate = shouldApplyAutoLocation(
@@ -390,39 +635,53 @@ async function processGarminCallback(userId: string, callbackURL: string): Promi
     const startLat = activity.startLatitudeInDegrees ?? activity.beginLatitude ?? null;
     const startLng = activity.startLongitudeInDegrees ?? activity.beginLongitude ?? null;
 
-    // Upsert the ride
-    const upsertedRide = await prisma.ride.upsert({
-      where: { garminActivityId: activity.summaryId },
-      create: {
+    // Upsert the ride + sync component hours together so callback-delivered
+    // rides match the behavior of webhook-delivered ones (see sync.worker.ts
+    // `upsertGarminActivity`). Missing this was why Garmin backfill-imported
+    // rides didn't accrue component wear.
+    const upsertedRide = await prisma.$transaction(async (tx) => {
+      const ride = await tx.ride.upsert({
+        where: { garminActivityId: activity.summaryId },
+        create: {
+          userId,
+          garminActivityId: activity.summaryId,
+          startTime,
+          durationSeconds: activity.durationInSeconds,
+          distanceMeters,
+          elevationGainMeters,
+          averageHr: activity.averageHeartRateInBeatsPerMinute ?? null,
+          rideType: activity.activityType,
+          notes: activity.activityName ?? null,
+          location: autoLocation?.title ?? null,
+          importSessionId: runningSession?.id ?? null,
+          startLat,
+          startLng,
+        },
+        update: {
+          startTime,
+          durationSeconds: activity.durationInSeconds,
+          distanceMeters,
+          elevationGainMeters,
+          averageHr: activity.averageHeartRateInBeatsPerMinute ?? null,
+          rideType: activity.activityType,
+          notes: activity.activityName ?? null,
+          ...(locationUpdate !== undefined ? { location: locationUpdate } : {}),
+          // Known limitation: coords are only written, never cleared on
+          // re-sync. See sync.worker.ts for full rationale.
+          ...(startLat != null ? { startLat } : {}),
+          ...(startLng != null ? { startLng } : {}),
+        },
+        select: { id: true, bikeId: true, durationSeconds: true },
+      });
+
+      await syncBikeComponentHours(
+        tx,
         userId,
-        garminActivityId: activity.summaryId,
-        startTime,
-        durationSeconds: activity.durationInSeconds,
-        distanceMeters,
-        elevationGainMeters,
-        averageHr: activity.averageHeartRateInBeatsPerMinute ?? null,
-        rideType: activity.activityType,
-        notes: activity.activityName ?? null,
-        location: autoLocation?.title ?? null,
-        importSessionId: runningSession?.id ?? null,
-        startLat,
-        startLng,
-      },
-      update: {
-        startTime,
-        durationSeconds: activity.durationInSeconds,
-        distanceMeters,
-        elevationGainMeters,
-        averageHr: activity.averageHeartRateInBeatsPerMinute ?? null,
-        rideType: activity.activityType,
-        notes: activity.activityName ?? null,
-        ...(locationUpdate !== undefined ? { location: locationUpdate } : {}),
-        // Known limitation: coords are only written, never cleared on
-        // re-sync. See sync.worker.ts for full rationale.
-        ...(startLat != null ? { startLat } : {}),
-        ...(startLng != null ? { startLng } : {}),
-      },
-      select: { id: true },
+        { bikeId: existingRide?.bikeId ?? null, durationSeconds: existingRide?.durationSeconds ?? null },
+        { bikeId: ride.bikeId ?? null, durationSeconds: ride.durationSeconds }
+      );
+
+      return ride;
     });
 
     if (startLat != null && startLng != null) {

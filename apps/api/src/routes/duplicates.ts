@@ -338,8 +338,39 @@ r.post('/duplicates/scan', async (req: Request, res: Response) => {
 });
 
 /**
- * Auto-merge all duplicates based on user's preferred data source
+ * Auto-merge all duplicates based on user's preferred data source.
+ * Supported preferences: garmin, strava, whoop, suunto. Non-fitness auth
+ * providers on `activeDataSource` (apple/google) are rejected.
  */
+
+// activeDataSource is an `AuthProvider` enum including apple/google, but only
+// the four fitness providers have ride-data IDs to prefer.
+const FITNESS_PROVIDERS = ['garmin', 'strava', 'whoop', 'suunto'] as const;
+type FitnessProvider = (typeof FITNESS_PROVIDERS)[number];
+
+const PROVIDER_LABELS: Record<FitnessProvider, string> = {
+  garmin: 'Garmin',
+  strava: 'Strava',
+  whoop: 'WHOOP',
+  suunto: 'Suunto',
+};
+
+type RideProviderIds = {
+  garminActivityId: string | null;
+  stravaActivityId: string | null;
+  whoopWorkoutId: string | null;
+  suuntoWorkoutId: string | null;
+};
+
+function isFromProvider(ride: RideProviderIds, provider: FitnessProvider): boolean {
+  switch (provider) {
+    case 'garmin': return !!ride.garminActivityId;
+    case 'strava': return !!ride.stravaActivityId;
+    case 'whoop':  return !!ride.whoopWorkoutId;
+    case 'suunto': return !!ride.suuntoWorkoutId;
+  }
+}
+
 r.post('/duplicates/auto-merge', async (req: Request, res: Response) => {
   const userId = req.user?.id || req.sessionUser?.uid;
   if (!userId) {
@@ -347,7 +378,6 @@ r.post('/duplicates/auto-merge', async (req: Request, res: Response) => {
   }
 
   try {
-    // Get user's preferred data source
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: { activeDataSource: true },
@@ -357,9 +387,12 @@ r.post('/duplicates/auto-merge', async (req: Request, res: Response) => {
       return sendBadRequest(res, 'No active data source set. Please set your preferred data source in Settings before auto-merging.');
     }
 
-    const preferredSource = user.activeDataSource;
+    if (!FITNESS_PROVIDERS.includes(user.activeDataSource as FitnessProvider)) {
+      return sendBadRequest(res, 'Active data source must be a fitness provider (Garmin, Strava, WHOOP, or Suunto) to auto-merge.');
+    }
 
-    // Find all rides marked as duplicates with their primary ride info
+    const preferredSource = user.activeDataSource as FitnessProvider;
+
     const duplicateRides = await prisma.ride.findMany({
       where: {
         userId,
@@ -372,6 +405,8 @@ r.post('/duplicates/auto-merge', async (req: Request, res: Response) => {
         bikeId: true,
         garminActivityId: true,
         stravaActivityId: true,
+        whoopWorkoutId: true,
+        suuntoWorkoutId: true,
         duplicateOfId: true,
       },
     });
@@ -396,6 +431,8 @@ r.post('/duplicates/auto-merge', async (req: Request, res: Response) => {
         bikeId: true,
         garminActivityId: true,
         stravaActivityId: true,
+        whoopWorkoutId: true,
+        suuntoWorkoutId: true,
       },
     });
     const primaryRideMap = new Map(primaryRides.map(r => [r.id, r]));
@@ -407,13 +444,9 @@ r.post('/duplicates/auto-merge', async (req: Request, res: Response) => {
       const primaryRide = primaryRideMap.get(dupRide.duplicateOfId!);
       if (!primaryRide) continue;
 
-      // Determine which is from preferred source
-      const dupIsFromPreferred = preferredSource === 'garmin'
-        ? !!dupRide.garminActivityId
-        : !!dupRide.stravaActivityId;
-      const primaryIsFromPreferred = preferredSource === 'garmin'
-        ? !!primaryRide.garminActivityId
-        : !!primaryRide.stravaActivityId;
+      // Determine which side comes from the preferred source
+      const dupIsFromPreferred = isFromProvider(dupRide, preferredSource);
+      const primaryIsFromPreferred = isFromProvider(primaryRide, preferredSource);
 
       let rideToDelete: typeof dupRide | typeof primaryRide;
 
@@ -421,7 +454,9 @@ r.post('/duplicates/auto-merge', async (req: Request, res: Response) => {
         // Keep duplicate, delete primary
         rideToDelete = primaryRide;
       } else {
-        // Keep primary, delete duplicate
+        // Keep primary, delete duplicate (covers: both-preferred, neither-preferred,
+        // and primary-only-preferred). Falling through to the primary when neither
+        // side matches preserves the scan's earliest-seen primary choice.
         rideToDelete = dupRide;
       }
 
@@ -479,7 +514,7 @@ r.post('/duplicates/auto-merge', async (req: Request, res: Response) => {
       success: true,
       merged: ridesToDelete.length,
       preferredSource,
-      message: `Merged ${ridesToDelete.length} duplicate rides, keeping ${preferredSource === 'garmin' ? 'Garmin' : 'Strava'} data`,
+      message: `Merged ${ridesToDelete.length} duplicate rides, keeping ${PROVIDER_LABELS[preferredSource]} data`,
     });
   } catch (error) {
     logError('Duplicates auto-merge', error);

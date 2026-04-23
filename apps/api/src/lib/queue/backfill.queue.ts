@@ -14,7 +14,7 @@ const COMPLETED_JOBS_TO_KEEP = 50;
 const FAILED_JOBS_TO_KEEP = 100;
 const LOW_PRIORITY = 10; // Lower priority than sync jobs (which are 1)
 
-export type BackfillProvider = 'garmin';
+export type BackfillProvider = 'garmin' | 'suunto';
 
 export type BackfillJobName = 'backfillYear' | 'processCallback';
 

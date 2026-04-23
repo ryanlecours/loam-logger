@@ -75,7 +75,7 @@ export default function Settings() {
   const [suuntoImportModalOpen, setSuuntoImportModalOpen] = useState(false);
   const [duplicatesModalOpen, setDuplicatesModalOpen] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [activeDataSource, setActiveDataSource] = useState<'garmin' | 'strava' | 'whoop' | null>(null);
+  const [activeDataSource, setActiveDataSource] = useState<'garmin' | 'strava' | 'whoop' | 'suunto' | null>(null);
   const [stravaDeleteLoading, setStravaDeleteLoading] = useState(false);
   const [garminDeleteLoading, setGarminDeleteLoading] = useState(false);
   const [whoopDeleteLoading, setWhoopDeleteLoading] = useState(false);
@@ -278,7 +278,7 @@ export default function Settings() {
     }
   };
 
-  const handleDataSourceSelect = async (provider: 'garmin' | 'strava' | 'whoop') => {
+  const handleDataSourceSelect = async (provider: 'garmin' | 'strava' | 'whoop' | 'suunto') => {
     try {
       const res = await fetch(`${import.meta.env.VITE_API_URL}/api/data-source/preference`, {
         method: 'POST',
@@ -652,13 +652,14 @@ export default function Settings() {
         </div>
 
         {/* Data Source Selector - only show when multiple providers are connected */}
-        {([isGarminConnected, isStravaConnected, isWhoopConnected].filter(Boolean).length >= 2) && (
+        {([isGarminConnected, isStravaConnected, isWhoopConnected, isSuuntoConnected].filter(Boolean).length >= 2) && (
           <div className="panel">
             <DataSourceSelector
               currentSource={activeDataSource}
               hasGarmin={isGarminConnected}
               hasStrava={isStravaConnected}
               hasWhoop={isWhoopConnected}
+              hasSuunto={isSuuntoConnected}
               onSelect={handleDataSourceSelect}
             />
           </div>

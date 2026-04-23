@@ -493,6 +493,7 @@ enum EmailType {
   founding_welcome
   founding_post_activation_info
   strava_integration_live
+  suunto_integration_live
   beta_feature_roundup
   password_added
   password_changed

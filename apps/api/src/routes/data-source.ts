@@ -41,9 +41,12 @@ r.get<Empty, void, Empty, Empty>(
 /**
  * Set user's active data source preference
  */
-r.post<Empty, void, { provider: 'garmin' | 'strava' }>(
+type DataSourceProvider = 'garmin' | 'strava' | 'whoop' | 'suunto';
+const VALID_PROVIDERS: readonly DataSourceProvider[] = ['garmin', 'strava', 'whoop', 'suunto'];
+
+r.post<Empty, void, { provider: DataSourceProvider }>(
   '/data-source/preference',
-  async (req: Request<Empty, void, { provider: 'garmin' | 'strava' }>, res: Response) => {
+  async (req: Request<Empty, void, { provider: DataSourceProvider }>, res: Response) => {
     const userId = req.user?.id || req.sessionUser?.uid;
     if (!userId) {
       return sendUnauthorized(res, 'Not authenticated');
@@ -51,13 +54,13 @@ r.post<Empty, void, { provider: 'garmin' | 'strava' }>(
 
     const { provider } = req.body;
 
-    if (!provider || (provider !== 'garmin' && provider !== 'strava')) {
-      return sendBadRequest(res, 'Invalid provider. Must be "garmin" or "strava"');
+    if (!provider || !VALID_PROVIDERS.includes(provider)) {
+      return sendBadRequest(res, `Invalid provider. Must be one of: ${VALID_PROVIDERS.join(', ')}`);
     }
 
     try {
       // Verify user has this provider connected (check integrations, not login accounts)
-      const integrationProvider = provider.toUpperCase() as 'GARMIN' | 'STRAVA';
+      const integrationProvider = provider.toUpperCase() as 'GARMIN' | 'STRAVA' | 'WHOOP' | 'SUUNTO';
       const integration = await prisma.userIntegration.findFirst({
         where: {
           userId,
