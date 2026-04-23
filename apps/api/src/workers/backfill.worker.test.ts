@@ -17,22 +17,34 @@ jest.mock('../lib/rate-limit', () => ({
   releaseLock: jest.fn(),
 }));
 
-jest.mock('../lib/prisma', () => ({
-  prisma: {
+jest.mock('../lib/prisma', () => {
+  const prisma: Record<string, unknown> = {
     backfillRequest: {
       updateMany: jest.fn(),
       findUnique: jest.fn(),
+      upsert: jest.fn(),
     },
     ride: {
       findUnique: jest.fn(),
       upsert: jest.fn(),
+      create: jest.fn(),
     },
     importSession: {
       findFirst: jest.fn(),
       update: jest.fn(),
+      create: jest.fn(),
     },
-  },
-}));
+    // Needed by syncBikeComponentHours, which now runs inside the Garmin
+    // callback's $transaction wrapper as part of the component-hour fix.
+    component: { updateMany: jest.fn() },
+    bike: { findMany: jest.fn() },
+    userAccount: { findUnique: jest.fn() },
+    // Pass the same mock as the transaction client so any tx.* calls hit the
+    // same jest.fn instances the tests configure.
+    $transaction: jest.fn(async (cb: (tx: unknown) => Promise<unknown>) => cb(prisma)),
+  };
+  return { prisma };
+});
 
 jest.mock('../lib/garmin-token', () => ({
   getValidGarminToken: jest.fn(),
@@ -51,6 +63,15 @@ jest.mock('../lib/logger', () => ({
     error: jest.fn(),
   },
   logError: jest.fn(),
+  // suunto-token.ts (loaded transitively via backfill.worker → suunto handlers)
+  // calls createLogger at module load. Without this mock the test suite fails
+  // before any test runs.
+  createLogger: jest.fn(() => ({
+    info: jest.fn(),
+    debug: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+  })),
 }));
 
 jest.mock('../config/env', () => ({

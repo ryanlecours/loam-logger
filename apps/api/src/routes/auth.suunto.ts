@@ -1,5 +1,6 @@
 import { Router as createRouter, type Router, type Request, type Response } from 'express';
 import { Prisma } from '@prisma/client';
+import { decodeJwt } from 'jose';
 import { prisma } from '../lib/prisma';
 import { randomString } from '../lib/pcke';
 import { sendBadRequest, sendUnauthorized, sendInternalError, sendSuccess, sendTooManyRequests } from '../lib/api-response';
@@ -21,16 +22,23 @@ const TOKEN_URL = 'https://cloudapi-oauth.suunto.com/oauth/token';
 const SCOPE = 'workout';
 
 // Suunto's JWT access tokens carry a `user` claim holding the username; we use
-// that as the providerUserId. This is a plain base64-url decode — we trust the
-// token because we just received it from the OAuth exchange.
+// that as the providerUserId. We rely on TLS to Suunto's token endpoint for
+// authenticity — if an attacker ever controls the token-exchange response
+// (SSRF, rogue proxy, etc.) they could inject an arbitrary `user` claim here.
+//
+// We use `jose.decodeJwt` for structural validation (proper header.payload.sig
+// shape, valid base64url, JSON body) rather than hand-rolled parsing — safer
+// against malformed inputs without changing the trust model.
+//
+// TODO: upgrade to full signature verification (`jose.jwtVerify` with a
+// JWKS via `createRemoteJWKSet`) if/when Suunto publishes a JWKS endpoint.
+// None is documented as of the public Cloud API docs.
 function extractSuuntoUsername(accessToken: string): string | null {
   try {
-    const parts = accessToken.split('.');
-    if (parts.length !== 3) return null;
-    const payload = JSON.parse(
-      Buffer.from(parts[1].replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf-8')
-    ) as { user?: string };
-    return typeof payload.user === 'string' ? payload.user : null;
+    const payload = decodeJwt(accessToken) as { user?: unknown };
+    return typeof payload.user === 'string' && payload.user.length > 0
+      ? payload.user
+      : null;
   } catch {
     return null;
   }
