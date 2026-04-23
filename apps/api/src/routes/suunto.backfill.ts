@@ -468,13 +468,26 @@ r.post<Empty, void, { years: string[] }, Empty>(
           create: { userId, provider: 'suunto', year, status: 'pending' },
         });
 
-        const result = await enqueueBackfillJob({
-          userId,
-          provider: 'suunto',
-          year,
-        });
-
-        results.push({ year, status: result.status, jobId: result.jobId });
+        // If enqueue fails (Redis down, BullMQ error, etc.) the BackfillRequest
+        // row already says 'pending' but no worker job exists to process it,
+        // leaving it phantom-pending forever. Catch here so we can mark this
+        // year failed and continue queuing the rest — partial success is
+        // better than silent corruption + a 500.
+        try {
+          const result = await enqueueBackfillJob({
+            userId,
+            provider: 'suunto',
+            year,
+          });
+          results.push({ year, status: result.status, jobId: result.jobId });
+        } catch (enqueueErr) {
+          logError(`Suunto Backfill Batch enqueue ${year}`, enqueueErr);
+          await prisma.backfillRequest.updateMany({
+            where: { userId, provider: 'suunto', year },
+            data: { status: 'failed', updatedAt: new Date() },
+          });
+          results.push({ year, status: 'failed' });
+        }
       }
 
       const skipped = years.filter((y) => !yearsToProcess.includes(y));

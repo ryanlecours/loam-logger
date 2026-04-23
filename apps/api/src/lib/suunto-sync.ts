@@ -33,6 +33,18 @@ export type SuuntoWorkoutsResponse = {
   payload: SuuntoWorkout[];
 };
 
+// OAuth token-endpoint response shape used by both the initial code exchange
+// (in `auth.suunto.ts`) and the refresh flow (in `suunto-token.ts`). Suunto's
+// JWT `access_token` can be decoded for a `user` claim containing the Suunto
+// username; see `extractSuuntoUsername` for the trust model.
+export type SuuntoTokenResp = {
+  access_token: string;
+  refresh_token: string;
+  expires_in: number;
+  token_type: string;
+  scope?: string;
+};
+
 /**
  * Standard headers for every data-API call. The APIM gateway requires the
  * subscription key on top of the per-user bearer token; without it, requests

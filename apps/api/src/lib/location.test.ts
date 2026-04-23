@@ -158,6 +158,17 @@ describe('shouldApplyAutoLocation', () => {
 });
 
 describe('reverseGeocode', () => {
+  // Several tests in this block deliberately exercise the error paths in
+  // location.ts, which call console.warn(). Stub it so the test output
+  // stays clean without losing the production-side logging behavior.
+  let warnSpy: jest.SpyInstance;
+  beforeAll(() => {
+    warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+  afterAll(() => {
+    warnSpy.mockRestore();
+  });
+
   beforeEach(() => {
     jest.clearAllMocks();
     mockGeoCache.findUnique.mockResolvedValue(null);
@@ -719,6 +730,16 @@ describe('reverseGeocode', () => {
 });
 
 describe('deriveLocationAsync', () => {
+  // Same console.warn stub as reverseGeocode — tests here also exercise
+  // the network-error / non-OK-response paths in location.ts.
+  let warnSpy: jest.SpyInstance;
+  beforeAll(() => {
+    warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+  afterAll(() => {
+    warnSpy.mockRestore();
+  });
+
   beforeEach(() => {
     jest.clearAllMocks();
     mockGeoCache.findUnique.mockResolvedValue(null);

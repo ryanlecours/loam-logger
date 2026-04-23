@@ -638,7 +638,25 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
       );
     });
   } catch (err) {
-    logger.error({ err, userId, rideId: ride.id }, '[SyncWorker] Failed to sync component hours for Garmin activity');
+    // Orphaned-hours warning: the ride upsert succeeded but its component
+    // hours weren't credited. A future re-sync can't auto-recover this —
+    // syncBikeComponentHours diffs prev vs next, and once the ride is in the
+    // DB both sides match, so the diff is zero. Log the bikeId + duration
+    // so an admin can credit the hours manually, and ship to Sentry so it's
+    // visible at trigger time rather than buried in log volume.
+    logger.error({
+      event: 'orphaned_component_hours',
+      provider: 'garmin',
+      err,
+      userId,
+      rideId: ride.id,
+      bikeId: ride.bikeId,
+      durationSeconds: ride.durationSeconds,
+    }, '[SyncWorker] Failed to sync component hours for Garmin activity — manual recovery required');
+    Sentry.captureException(err, {
+      tags: { worker: 'sync', provider: 'garmin', issue: 'orphaned_component_hours' },
+      extra: { userId, rideId: ride.id, bikeId: ride.bikeId, durationSeconds: ride.durationSeconds },
+    });
   }
 
   // Update session's lastActivityReceivedAt if there's a running session
@@ -1020,7 +1038,25 @@ async function upsertSuuntoActivity(userId: string, workout: SuuntoWorkout): Pro
       );
     });
   } catch (err) {
-    logger.error({ err, userId, rideId: ride.id }, '[SyncWorker] Failed to sync component hours for Suunto workout');
+    // Orphaned-hours warning: the ride upsert succeeded but its component
+    // hours weren't credited. A future re-sync can't auto-recover this —
+    // syncBikeComponentHours diffs prev vs next, and once the ride is in the
+    // DB both sides match, so the diff is zero. Log the bikeId + duration
+    // so an admin can credit the hours manually, and ship to Sentry so it's
+    // visible at trigger time rather than buried in log volume.
+    logger.error({
+      event: 'orphaned_component_hours',
+      provider: 'suunto',
+      err,
+      userId,
+      rideId: ride.id,
+      bikeId: ride.bikeId,
+      durationSeconds: ride.durationSeconds,
+    }, '[SyncWorker] Failed to sync component hours for Suunto workout — manual recovery required');
+    Sentry.captureException(err, {
+      tags: { worker: 'sync', provider: 'suunto', issue: 'orphaned_component_hours' },
+      extra: { userId, rideId: ride.id, bikeId: ride.bikeId, durationSeconds: ride.durationSeconds },
+    });
   }
 
   logger.debug({ suuntoWorkoutId: workout.workoutKey }, '[SyncWorker] Upserted Suunto workout');

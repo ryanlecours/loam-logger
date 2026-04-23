@@ -3,6 +3,7 @@
 // auth.suunto.ts and drop the OauthToken table. Mirrors strava-token.ts.
 import { prisma } from './prisma';
 import { createLogger } from './logger';
+import type { SuuntoTokenResp } from './suunto-sync';
 
 const log = createLogger('suunto-token');
 
@@ -154,14 +155,6 @@ async function refreshSuuntoToken(userId: string, refreshToken: string): Promise
       log.error({ status: refreshRes.status, userId, body }, 'Token refresh failed');
       return null;
     }
-
-    type SuuntoTokenResp = {
-      access_token: string;
-      refresh_token: string;
-      expires_in: number;
-      token_type: string;
-      scope?: string;
-    };
 
     const newTokens = (await refreshRes.json()) as SuuntoTokenResp;
     const newExpiresAt = new Date(Date.now() + newTokens.expires_in * 1000);

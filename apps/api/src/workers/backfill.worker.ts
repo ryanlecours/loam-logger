@@ -514,11 +514,15 @@ async function processSuuntoBackfill(userId: string, year: string): Promise<void
     });
   }
 
+  // Increment rather than overwrite so the cumulative count survives
+  // re-runs (e.g. YTD backfill called multiple times to pick up new
+  // workouts since the last checkpoint). Matches the synchronous
+  // /suunto/backfill/fetch endpoint's behavior.
   await prisma.backfillRequest.updateMany({
     where: { userId, provider: 'suunto', year },
     data: {
       status: 'completed',
-      ridesFound: importedCount,
+      ridesFound: { increment: importedCount },
       backfilledUpTo: endDate,
       completedAt: new Date(),
       updatedAt: new Date(),

@@ -11,6 +11,7 @@ import { createOAuthAttempt, consumeOAuthAttempt } from '../lib/oauthState';
 import { encrypt } from '../lib/crypto';
 import { renderOAuthCompletionPage } from '../lib/oauthCompletionPage';
 import { captureServerEvent } from '../lib/posthog';
+import type { SuuntoTokenResp } from '../lib/suunto-sync';
 
 const log = createLogger('suunto-oauth');
 
@@ -142,6 +143,13 @@ r.get<Empty, void, Empty, { code?: string; state?: string }>(
     const { code, state } = req.query;
 
     function redirectError(reason: string) {
+      // Clear the web-flow state cookie on every failure path so a retry
+      // starts clean. Safe to call for the mobile flow too — no cookie was
+      // set there, so the clear is a no-op. (State replay is already blocked
+      // by the state-vs-cookie match check, but leaving dead cookies around
+      // for their 10-minute TTL is noise that confuses later debugging.)
+      res.clearCookie('ll_suunto_state', { path: '/' });
+
       if (isMobileFlow) {
         return res.redirect(`/auth/suunto/mobile/complete?status=error&reason=${encodeURIComponent(reason)}`);
       }
@@ -221,14 +229,6 @@ r.get<Empty, void, Empty, { code?: string; state?: string }>(
         log.error({ status: tokenRes.status, userId, attemptId, body: body.slice(0, 200) }, 'Suunto token exchange failed');
         return redirectError('token_exchange_failed');
       }
-
-      type SuuntoTokenResp = {
-        access_token: string;
-        refresh_token: string;
-        expires_in: number;
-        token_type: string;
-        scope?: string;
-      };
 
       const t = (await tokenRes.json()) as SuuntoTokenResp;
       const suuntoUsername = extractSuuntoUsername(t.access_token);
