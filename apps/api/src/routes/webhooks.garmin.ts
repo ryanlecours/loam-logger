@@ -249,7 +249,12 @@ r.post<Empty, void, GarminPingPayload>(
             return { status: 'skipped', reason: 'unknown_user' };
           }
 
-          // Check user's active data source
+          // Active-source policy (shared with Strava/WHOOP/Suunto webhooks):
+          // when a user has multiple providers connected, only the
+          // `activeDataSource` one writes rides. Prevents duplicate imports
+          // when e.g. a Suunto watch also auto-syncs to Garmin. Users
+          // configure this via the DataSourceSelector in Settings, which
+          // explains the behavior. No-active-source → every provider passes.
           if (!await isActiveSource(userAccount.userId, 'garmin')) {
             logger.info(
               { requestId, garminUserId },
@@ -342,7 +347,8 @@ r.post<Empty, void, GarminPingPayload>(
             return { status: 'skipped', summaryId, reason: 'unknown_user' };
           }
 
-          // Check user's active data source
+          // Active-source policy (see callback branch above for the full
+          // explanation — same gate applied to PING-mode activity deliveries).
           if (!await isActiveSource(userAccount.userId, 'garmin')) {
             logger.info(
               { requestId, garminUserId, summaryId },

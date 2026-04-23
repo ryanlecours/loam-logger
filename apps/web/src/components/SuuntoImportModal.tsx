@@ -33,15 +33,15 @@ const YEAR_OPTIONS = [
 ];
 
 export default function SuuntoImportModal({ open, onClose, onSuccess, onDuplicatesFound }: Props) {
+  // Uses POST /api/suunto/backfill/batch — returns immediately after enqueuing
+  // jobs into the backfill worker. Multi-year selection mirrors Garmin's modal.
+  // The previous version called the synchronous GET /api/suunto/backfill/fetch
+  // which blocked the browser until import completed (minutes for users with
+  // years of history) and only handled one year per request.
   const [step, setStep] = useState<'period' | 'processing' | 'complete'>('period');
-  const [year, setYear] = useState<string>('ytd');
+  const [selectedYears, setSelectedYears] = useState<Set<string>>(new Set(['ytd']));
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [importStats, setImportStats] = useState<{
-    imported: number;
-    skipped: number;
-    total: number;
-  } | null>(null);
   const [duplicatesFound, setDuplicatesFound] = useState(0);
   const [backfillHistory, setBackfillHistory] = useState<BackfillRequest[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
@@ -78,13 +78,26 @@ export default function SuuntoImportModal({ open, onClose, onSuccess, onDuplicat
     return !backfilledYears.has(yearValue) && !inProgressYears.has(yearValue);
   };
 
-  const canImport = canSelectYear(year);
-
   const getYearStatus = (yearValue: string): 'backfilled' | 'in_progress' | 'available' => {
     if (inProgressYears.has(yearValue)) return 'in_progress';
     if (backfilledYears.has(yearValue)) return 'backfilled';
     return 'available';
   };
+
+  const toggleYearSelection = (yearValue: string) => {
+    if (!canSelectYear(yearValue)) return;
+    setSelectedYears((prev) => {
+      const next = new Set(prev);
+      if (next.has(yearValue)) {
+        next.delete(yearValue);
+      } else {
+        next.add(yearValue);
+      }
+      return next;
+    });
+  };
+
+  const selectableYearsCount = selectedYears.size;
 
   const fetchHistory = async () => {
     try {
@@ -109,18 +122,18 @@ export default function SuuntoImportModal({ open, onClose, onSuccess, onDuplicat
       fetchHistory();
     } else {
       setStep('period');
-      setYear('ytd');
+      setSelectedYears(new Set(['ytd']));
       setError(null);
       setSuccessMessage(null);
-      setImportStats(null);
       setDuplicatesFound(0);
       setHistoryLoading(true);
     }
   }, [open]);
 
-  const handleTriggerImport = async () => {
-    if (!canImport) {
-      setError('This year has already been imported');
+  const handleTriggerBackfill = async () => {
+    const yearsArray = Array.from(selectedYears);
+    if (yearsArray.length === 0) {
+      setError('Please select at least one year');
       return;
     }
 
@@ -129,33 +142,37 @@ export default function SuuntoImportModal({ open, onClose, onSuccess, onDuplicat
 
     try {
       const res = await fetch(
-        `${import.meta.env.VITE_API_URL}/api/suunto/backfill/fetch?year=${year}`,
+        `${import.meta.env.VITE_API_URL}/api/suunto/backfill/batch`,
         {
+          method: 'POST',
           credentials: 'include',
-          headers: getAuthHeaders(),
+          headers: {
+            ...getAuthHeaders(),
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ years: yearsArray }),
         }
       );
 
-      if (!res.ok) {
-        const errorData = await res.json();
+      const data = await res.json();
 
+      if (!res.ok) {
         if (res.status === 409) {
-          setSuccessMessage(errorData.message || 'This year has already been imported.');
+          setSuccessMessage(data.message || 'Selected years are already imported or in progress.');
           setStep('complete');
           await fetchHistory();
           return;
         }
 
-        throw new Error(errorData.error || 'Failed to import workouts');
+        throw new Error(data.message || data.error || 'Failed to trigger backfill');
       }
 
-      const data = await res.json();
-      setSuccessMessage(data.message || `Successfully imported rides from Suunto.`);
-      setImportStats({
-        imported: data.imported || 0,
-        skipped: data.skipped || 0,
-        total: data.cyclingWorkouts || 0,
-      });
+      const queuedCount = data.queued?.length || 0;
+      const skippedCount = data.skipped?.length || 0;
+      setSuccessMessage(
+        data.message ||
+        `Queued ${queuedCount} year${queuedCount !== 1 ? 's' : ''} for import.${skippedCount > 0 ? ` ${skippedCount} already imported.` : ''}`
+      );
       setStep('complete');
 
       try {
@@ -178,7 +195,7 @@ export default function SuuntoImportModal({ open, onClose, onSuccess, onDuplicat
 
       onSuccess();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to import workouts');
+      setError(err instanceof Error ? err.message : 'Failed to trigger backfill');
       setStep('period');
     }
   };
@@ -195,12 +212,12 @@ export default function SuuntoImportModal({ open, onClose, onSuccess, onDuplicat
         <div className="space-y-6">
           <div>
             <p className="text-sm text-muted mb-4">
-              Import your historical Suunto workouts by year.
-              Workouts will be fetched and imported immediately.
+              Import your historical Suunto workouts by year. Selected years will be queued
+              and processed in the background — you can close this modal once they're queued.
             </p>
 
             <label className="block text-sm font-medium text-muted mb-2">
-              Year to import
+              Years to import
             </label>
 
             {historyLoading ? (
@@ -215,7 +232,7 @@ export default function SuuntoImportModal({ open, onClose, onSuccess, onDuplicat
                   const isBackfilled = status === 'backfilled';
                   const isInProgress = status === 'in_progress';
                   const isDisabled = !canSelectYear(option.value);
-                  const isSelected = year === option.value;
+                  const isSelected = selectedYears.has(option.value);
 
                   return (
                     <label
@@ -229,12 +246,11 @@ export default function SuuntoImportModal({ open, onClose, onSuccess, onDuplicat
                       `}
                     >
                       <input
-                        type="radio"
-                        name="suunto-year"
+                        type="checkbox"
                         checked={isSelected}
                         disabled={isDisabled}
-                        onChange={() => !isDisabled && setYear(option.value)}
-                        className="w-4 h-4 text-accent border-gray-500 focus:ring-accent"
+                        onChange={() => toggleYearSelection(option.value)}
+                        className="w-4 h-4 text-accent border-gray-500 focus:ring-accent rounded"
                       />
                       <span className={`flex-1 text-sm ${isDisabled ? 'text-muted' : 'text-primary'}`}>
                         {option.label}
@@ -271,14 +287,12 @@ export default function SuuntoImportModal({ open, onClose, onSuccess, onDuplicat
             </Button>
             <Button
               variant="primary"
-              onClick={handleTriggerImport}
-              disabled={!canImport || historyLoading}
+              onClick={handleTriggerBackfill}
+              disabled={selectableYearsCount === 0 || historyLoading}
             >
-              {!canImport
-                ? inProgressYears.has(year)
-                  ? 'Import In Progress'
-                  : 'Already Imported'
-                : 'Import Rides'}
+              {selectableYearsCount === 0
+                ? 'Select years to import'
+                : `Import ${selectableYearsCount} ${selectableYearsCount === 1 ? 'Year' : 'Years'}`}
             </Button>
           </div>
         </div>
@@ -288,8 +302,7 @@ export default function SuuntoImportModal({ open, onClose, onSuccess, onDuplicat
         <div className="space-y-6">
           <div className="flex flex-col items-center justify-center py-8">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mb-4"></div>
-            <p className="text-muted">Importing workouts from Suunto...</p><br/>
-            <p className="text-muted text-center">Depending on how many workouts you have completed,<br/>this may take 1-2 minutes.</p>
+            <p className="text-muted">Queuing backfill request...</p>
           </div>
         </div>
       )}
@@ -298,22 +311,18 @@ export default function SuuntoImportModal({ open, onClose, onSuccess, onDuplicat
         <div className="space-y-6">
           <div className="alert-success-dark">
             <p>
-              {successMessage}
+              ✓ {successMessage}
             </p>
-            {importStats && (
-              <div className="text-sm mt-3 opacity-90 space-y-1">
-                <p className="font-medium">Import completed for {year === 'ytd' ? 'Year to Date' : year}</p>
-                <p>Imported: {importStats.imported} rides</p>
-                <p>Skipped (already exist): {importStats.skipped} rides</p>
-                <p>Total cycling workouts found: {importStats.total}</p>
-              </div>
-            )}
+            <p className="text-sm mt-2 opacity-90">
+              Your rides will appear in the Rides page as Suunto data is processed.
+              This may take a few minutes per year.
+            </p>
           </div>
 
           {duplicatesFound > 0 && (
             <div className="alert-warning-dark">
               <p>
-                Found {duplicatesFound} duplicate ride{duplicatesFound === 1 ? '' : 's'}
+                ⚠ Found {duplicatesFound} existing duplicate ride{duplicatesFound === 1 ? '' : 's'}
               </p>
               <p className="text-sm mt-1 opacity-90">
                 These rides may exist across multiple providers. Review them to keep only one copy.

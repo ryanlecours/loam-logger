@@ -209,7 +209,13 @@ async function processActivityEvent(event: StravaWebhookEvent): Promise<void> {
 
   console.log(`[Strava Activity Event] Found user: ${userAccount.userId}`);
 
-  // Check user's active data source
+  // Active-source policy (applied across all provider webhooks — Strava,
+  // Garmin, WHOOP, Suunto): when a user has multiple providers connected,
+  // only the `activeDataSource` one writes rides. Prevents duplicate imports
+  // when e.g. a Suunto watch also auto-syncs to Strava. The policy is
+  // surfaced to users via the DataSourceSelector in Settings, which explains
+  // the behavior and lets them switch. When no source is set, `isActiveSource`
+  // returns true for every provider (first-connected wins).
   if (!await isActiveSource(userAccount.userId, 'strava')) {
     console.log('[Strava Activity Event] User active source is not Strava, skipping');
     return;

@@ -37,15 +37,21 @@ export type SuuntoWorkoutsResponse = {
  * Standard headers for every data-API call. The APIM gateway requires the
  * subscription key on top of the per-user bearer token; without it, requests
  * 401 before ever reaching the workout service.
+ *
+ * We throw instead of silently falling back — a missing env var would cause
+ * every Suunto API call to fail with an opaque 401 from the APIM gateway,
+ * which is much harder to diagnose than a clear startup-time error. Callers
+ * are worker handlers and route handlers with normal error handling (BullMQ
+ * retry + Sentry, or 500 response), so throwing here propagates cleanly.
  */
 export function suuntoApiHeaders(accessToken: string): HeadersInit {
-  const headers: Record<string, string> = {
+  const subscriptionKey = process.env.SUUNTO_SUBSCRIPTION_KEY;
+  if (!subscriptionKey) {
+    throw new Error('SUUNTO_SUBSCRIPTION_KEY is not set');
+  }
+  return {
     Authorization: `Bearer ${accessToken}`,
     Accept: 'application/json',
+    'Ocp-Apim-Subscription-Key': subscriptionKey,
   };
-  const subscriptionKey = process.env.SUUNTO_SUBSCRIPTION_KEY;
-  if (subscriptionKey) {
-    headers['Ocp-Apim-Subscription-Key'] = subscriptionKey;
-  }
-  return headers;
 }

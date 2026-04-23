@@ -28,6 +28,12 @@ export default function DataSourceSelector({ currentSource, hasGarmin, hasStrava
         <p className="text-body-muted mt-1">
           Choose which provider to sync activities from. Only one can be active at a time.
         </p>
+        <p className="text-body-muted mt-2 text-sm">
+          Real-time ride uploads from the other connected providers are ignored while this is set.
+          This prevents duplicate imports when, for example, your watch auto-uploads to both
+          Strava and Garmin. You can switch at any time, or disconnect a provider entirely in
+          the section above.
+        </p>
       </div>
 
       <div className={`grid gap-4 ${gridCols}`}>

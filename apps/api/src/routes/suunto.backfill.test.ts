@@ -124,6 +124,22 @@ const sampleRunningWorkout = {
 };
 
 describe('suunto.backfill routes', () => {
+  const originalSubscriptionKey = process.env.SUUNTO_SUBSCRIPTION_KEY;
+
+  beforeAll(() => {
+    // suuntoApiHeaders() throws if this isn't set; the route calls fetch()
+    // in tests with a mocked global fetch, but the header builder still runs.
+    process.env.SUUNTO_SUBSCRIPTION_KEY = 'test-subscription-key';
+  });
+
+  afterAll(() => {
+    if (originalSubscriptionKey === undefined) {
+      delete process.env.SUUNTO_SUBSCRIPTION_KEY;
+    } else {
+      process.env.SUUNTO_SUBSCRIPTION_KEY = originalSubscriptionKey;
+    }
+  });
+
   beforeEach(() => {
     jest.clearAllMocks();
   });

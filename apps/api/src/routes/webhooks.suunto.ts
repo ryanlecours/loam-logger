@@ -127,6 +127,13 @@ async function processWorkoutCreated(event: WorkoutCreatedEvent): Promise<void> 
     return;
   }
 
+  // Active-source policy (applied consistently across Strava, Garmin, WHOOP,
+  // Suunto webhooks): when a user has multiple providers connected, only the
+  // one they've chosen as `activeDataSource` writes rides. This prevents
+  // duplicate imports when e.g. a Suunto watch also auto-syncs to Strava.
+  // Users select the active source via the DataSourceSelector in Settings,
+  // and the helper text there explains the behavior. When no source is set,
+  // `isActiveSource` returns true for every provider (first-connected wins).
   if (!await isActiveSource(userAccount.userId, 'suunto')) {
     log.info({ userId: userAccount.userId }, 'Suunto webhook: user active source is not Suunto, skipping');
     return;

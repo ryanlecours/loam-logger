@@ -18,40 +18,21 @@ import {
   type DuplicateCandidate,
 } from '../lib/duplicate-detector';
 import { isSuuntoCyclingActivity, getSuuntoRideType } from '../types/suunto';
-import { suuntoApiHeaders } from '../lib/suunto-sync';
+import {
+  SUUNTO_API_BASE,
+  suuntoApiHeaders,
+  type SuuntoWorkout,
+  type SuuntoWorkoutsResponse,
+} from '../lib/suunto-sync';
 import { enqueueBackfillJob } from '../lib/queue/backfill.queue';
 import { requireAdmin } from '../auth/adminMiddleware';
 
 type Empty = Record<string, never>;
 const r: Router = createRouter();
 
-const SUUNTO_API_BASE = 'https://cloudapi.suunto.com/v3';
 const MIN_BACKFILL_YEAR = 2015;
 const PAGE_LIMIT = 100;
 const MAX_PAGES = 100;
-
-// Shape of an individual workout as returned by GET /v3/workouts. Matches the
-// webhook WORKOUT_CREATED payload — timestamps are epoch ms, distances meters,
-// durations seconds.
-interface SuuntoWorkout {
-  workoutKey: string;
-  activityId: number;
-  startTime: number;
-  totalTime: number;
-  totalDistance?: number;
-  totalAscent?: number;
-  totalDescent?: number;
-  startPosition?: { x: number; y: number };
-  hrdata?: { workoutAvgHR?: number; workoutMaxHR?: number };
-  timeOffsetInMinutes?: number;
-}
-
-// Suunto CloudAPI v3 wraps list responses in { error, metadata, payload }.
-interface SuuntoWorkoutsResponse {
-  error: unknown;
-  metadata?: { totalCount?: number } & Record<string, unknown>;
-  payload: SuuntoWorkout[];
-}
 
 /**
  * Fetch historical workouts from Suunto for a given year or YTD.
