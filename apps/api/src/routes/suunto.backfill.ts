@@ -405,6 +405,19 @@ r.post<Empty, void, { years: string[] }, Empty>(
       }
     }
 
+    // Acquire the same distributed lock the synchronous /fetch endpoint uses.
+    // Without this, two simultaneous batch requests could both pass the
+    // ImportSession existence check, both create an ImportSession row, and
+    // race on BackfillRequest upserts. Job-level dedup via BullMQ jobId
+    // would still reject duplicate jobs, but the DB state would be muddled.
+    const lockResult = await acquireLock('backfill', 'suunto', userId);
+    if (!lockResult.acquired) {
+      return res.status(409).json({
+        error: 'Import already in progress',
+        message: 'A Suunto import is already in progress. Please wait for it to complete before starting another.',
+      });
+    }
+
     try {
       const existingImportSession = await prisma.importSession.findFirst({
         where: { userId, provider: 'suunto', status: 'running' },
@@ -496,6 +509,10 @@ r.post<Empty, void, { years: string[] }, Empty>(
     } catch (error) {
       logError('Suunto Backfill Batch', error);
       return sendInternalError(res, 'Failed to queue backfill requests');
+    } finally {
+      // Release the enqueue-time lock. The worker reacquires its own lock
+      // per job at execution time, so jobs remain serialized after this returns.
+      await releaseLock(lockResult.lockKey, lockResult.lockValue);
     }
   }
 );
