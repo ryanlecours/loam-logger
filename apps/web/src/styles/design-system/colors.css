@@ -28,6 +28,13 @@
   --mahogany-light: rgb(140, 82, 68);    /* #8C5244 - Lighter mahogany */
   --terracotta: rgb(176, 106, 88);       /* #B06A58 - Warm terracotta */
 
+  /* Third-party brand colors — tokenized so components can reference them
+     instead of inlining hex codes. Do not use for Loam-Logger UI. */
+  --brand-garmin: #11A9ED;
+  --brand-strava: #FC4C02;
+  --brand-whoop:  #00FF87;
+  --brand-suunto: #F5A623;
+
   /* Neutrals - Warm-tinted grays */
   --ash: rgb(58, 58, 62);                /* #3A3A3E - Warm dark gray */
   --stone: rgb(88, 88, 94);              /* #58585E - Mid gray */
