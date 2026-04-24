@@ -15,7 +15,7 @@ export default function ConnectSuuntoLink() {
     <a
       href={`${apiBase}/auth/suunto/start`}
       className="flex items-center justify-center gap-3 w-full rounded-2xl border px-4 py-3 font-medium transition no-underline
-        border-[#0072CE]/50 bg-[#0072CE]/20 text-[#0072CE] hover:bg-[#0072CE]/30 hover:border-[#0072CE]/70 hover:cursor-pointer"
+        border-[#F5A623]/50 bg-[#F5A623]/20 text-[#F5A623] hover:bg-[#F5A623]/30 hover:border-[#F5A623]/70 hover:cursor-pointer"
     >
       <SuuntoIcon size={18} />
       <span>Connect Suunto</span>
