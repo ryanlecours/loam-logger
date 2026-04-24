@@ -10,7 +10,7 @@ export default function SettingsSectionHeader({ eyebrow, title, description }: P
   return (
     <div>
       <p className="label-section">{eyebrow}</p>
-      <h1 className="title-page">{title}</h1>
+      <h2 className="title-page">{title}</h2>
       {description && <p className="text-body-muted mt-1 max-w-2xl">{description}</p>}
     </div>
   );

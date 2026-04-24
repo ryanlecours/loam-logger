@@ -1,5 +1,5 @@
 import { useSearchParams } from 'react-router-dom';
-import { useCallback, useMemo } from 'react';
+import { useCallback } from 'react';
 
 export type SettingsSectionId =
   | 'account'
@@ -45,5 +45,5 @@ export function useSettingsSection() {
     [setSearchParams],
   );
 
-  return useMemo(() => ({ section, setSection }), [section, setSection]);
+  return { section, setSection };
 }

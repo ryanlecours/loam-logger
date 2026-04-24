@@ -162,85 +162,85 @@ export default function DataSourcesSection() {
             <div className="skeleton skeleton-row" />
           </div>
         ) : (
-        <div className="space-y-3">
-          {/* Google — always connected via login */}
-          <div className="w-full rounded-2xl border border-app/70 bg-surface-2 px-4 py-3">
-            <div className="flex items-center justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <GoogleIcon className="text-lg text-blue-400" />
-                <div>
-                  <p className="font-semibold">Google</p>
-                  <p className="text-body-muted">Used for login</p>
+          <div className="space-y-3">
+            {/* Google — always connected via login */}
+            <div className="w-full rounded-2xl border border-app/70 bg-surface-2 px-4 py-3">
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <GoogleIcon className="text-lg text-blue-400" />
+                  <div>
+                    <p className="font-semibold">Google</p>
+                    <p className="text-body-muted">Used for login</p>
+                  </div>
                 </div>
+                <span className="text-xs text-success">Connected</span>
               </div>
-              <span className="text-xs text-success">Connected</span>
             </div>
+
+            {garminAccount ? (
+              <ProviderCard
+                icon={<Mountain />}
+                displayName="Garmin Connect"
+                brandColorVar="--brand-garmin"
+                connectedAt={garminAccount.connectedAt}
+                onSyncPrevious={() => setGarminImportOpen(true)}
+                onDisconnect={() => setConfirmState({ kind: 'disconnect', provider: 'garmin' })}
+                showAdminClear={isAdmin}
+                onClearRides={() => setConfirmState({ kind: 'delete-rides', provider: 'garmin' })}
+                clearRidesLoading={garminDeleteLoading}
+                clearRidesLabel="Clear Garmin Rides"
+              />
+            ) : (
+              <ConnectGarminLink />
+            )}
+
+            {stravaAccount ? (
+              <ProviderCard
+                icon={<StravaIcon />}
+                displayName="Strava"
+                brandColorVar="--brand-strava"
+                connectedAt={stravaAccount.connectedAt}
+                onSyncPrevious={() => setStravaImportOpen(true)}
+                onDisconnect={() => setConfirmState({ kind: 'disconnect', provider: 'strava' })}
+                showAdminClear={isAdmin}
+                onClearRides={() => setConfirmState({ kind: 'delete-rides', provider: 'strava' })}
+                clearRidesLoading={stravaDeleteLoading}
+                clearRidesLabel="Clear Strava Rides"
+              />
+            ) : (
+              <ConnectStravaLink />
+            )}
+
+            {whoopAccount ? (
+              <ProviderCard
+                icon={<Activity />}
+                displayName="WHOOP"
+                brandColorVar="--brand-whoop"
+                connectedAt={whoopAccount.connectedAt}
+                onSyncPrevious={() => setWhoopImportOpen(true)}
+                onDisconnect={() => setConfirmState({ kind: 'disconnect', provider: 'whoop' })}
+                showAdminClear={isAdmin}
+                onClearRides={() => setConfirmState({ kind: 'delete-rides', provider: 'whoop' })}
+                clearRidesLoading={whoopDeleteLoading}
+                clearRidesLabel="Clear WHOOP Rides"
+              />
+            ) : (
+              <ConnectWhoopLink />
+            )}
+
+            {suuntoAccount ? (
+              <ProviderCard
+                icon={<SuuntoIcon />}
+                displayName="Suunto"
+                brandColorVar="--brand-suunto"
+                connectedAt={suuntoAccount.connectedAt}
+                onSyncPrevious={() => setSuuntoImportOpen(true)}
+                onDisconnect={() => setConfirmState({ kind: 'disconnect', provider: 'suunto' })}
+              />
+            ) : (
+              <ConnectSuuntoLink />
+            )}
           </div>
-
-          {garminAccount ? (
-            <ProviderCard
-              icon={<Mountain />}
-              displayName="Garmin Connect"
-              brandColorVar="--brand-garmin"
-              connectedAt={garminAccount.connectedAt}
-              onSyncPrevious={() => setGarminImportOpen(true)}
-              onDisconnect={() => setConfirmState({ kind: 'disconnect', provider: 'garmin' })}
-              showAdminClear={isAdmin}
-              onClearRides={() => setConfirmState({ kind: 'delete-rides', provider: 'garmin' })}
-              clearRidesLoading={garminDeleteLoading}
-              clearRidesLabel="Clear Garmin Rides"
-            />
-          ) : (
-            <ConnectGarminLink />
-          )}
-
-          {stravaAccount ? (
-            <ProviderCard
-              icon={<StravaIcon />}
-              displayName="Strava"
-              brandColorVar="--brand-strava"
-              connectedAt={stravaAccount.connectedAt}
-              onSyncPrevious={() => setStravaImportOpen(true)}
-              onDisconnect={() => setConfirmState({ kind: 'disconnect', provider: 'strava' })}
-              showAdminClear={isAdmin}
-              onClearRides={() => setConfirmState({ kind: 'delete-rides', provider: 'strava' })}
-              clearRidesLoading={stravaDeleteLoading}
-              clearRidesLabel="Clear Strava Rides"
-            />
-          ) : (
-            <ConnectStravaLink />
-          )}
-
-          {whoopAccount ? (
-            <ProviderCard
-              icon={<Activity />}
-              displayName="WHOOP"
-              brandColorVar="--brand-whoop"
-              connectedAt={whoopAccount.connectedAt}
-              onSyncPrevious={() => setWhoopImportOpen(true)}
-              onDisconnect={() => setConfirmState({ kind: 'disconnect', provider: 'whoop' })}
-              showAdminClear={isAdmin}
-              onClearRides={() => setConfirmState({ kind: 'delete-rides', provider: 'whoop' })}
-              clearRidesLoading={whoopDeleteLoading}
-              clearRidesLabel="Clear WHOOP Rides"
-            />
-          ) : (
-            <ConnectWhoopLink />
-          )}
-
-          {suuntoAccount ? (
-            <ProviderCard
-              icon={<SuuntoIcon />}
-              displayName="Suunto"
-              brandColorVar="--brand-suunto"
-              connectedAt={suuntoAccount.connectedAt}
-              onSyncPrevious={() => setSuuntoImportOpen(true)}
-              onDisconnect={() => setConfirmState({ kind: 'disconnect', provider: 'suunto' })}
-            />
-          ) : (
-            <ConnectSuuntoLink />
-          )}
-        </div>
         )}
       </div>
 

@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, type ReactElement } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useApolloClient } from '@apollo/client';
 import { toast } from 'sonner';
@@ -58,7 +58,7 @@ function useOAuthCallback() {
   }, [searchParams, setSearchParams, apollo]);
 }
 
-const SECTION_COMPONENTS: Record<SettingsSectionId, () => React.ReactElement> = {
+const SECTION_COMPONENTS: Record<SettingsSectionId, () => ReactElement> = {
   account: AccountSection,
   'data-sources': DataSourcesSection,
   preferences: PreferencesSection,

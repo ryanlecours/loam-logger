@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback } from 'react';
 import { useMutation } from '@apollo/client';
 import { useNavigate } from 'react-router-dom';
 import { useCurrentUser } from '../../../hooks/useCurrentUser';
@@ -20,47 +20,6 @@ export default function PreferencesSection() {
   const { hoursDisplay, setHoursDisplay, predictionMode, setPredictionMode, distanceUnit, setDistanceUnit } =
     usePreferences();
 
-  const [savedHoursDisplay, setSavedHoursDisplay] = useState<HoursDisplay>(hoursDisplay);
-  const [savedPredictionMode, setSavedPredictionMode] = useState<PredictionMode>(predictionMode);
-  const [savedDistanceUnit, setSavedDistanceUnit] = useState<DistanceUnit>(distanceUnit);
-
-  const hoursSyncedRef = useRef(false);
-  const predictionSyncedRef = useRef(false);
-  const distanceSyncedRef = useRef(false);
-  const [hoursSynced, setHoursSynced] = useState(false);
-  const [predictionSynced, setPredictionSynced] = useState(false);
-  const [distanceSynced, setDistanceSynced] = useState(false);
-
-  useEffect(() => {
-    if (user?.hoursDisplayPreference && !hoursSyncedRef.current) {
-      const v = user.hoursDisplayPreference as HoursDisplay;
-      setSavedHoursDisplay(v);
-      setHoursDisplay(v);
-      hoursSyncedRef.current = true;
-      setHoursSynced(true);
-    }
-  }, [user?.hoursDisplayPreference, setHoursDisplay]);
-
-  useEffect(() => {
-    if (user?.predictionMode && !predictionSyncedRef.current) {
-      const v = user.predictionMode as PredictionMode;
-      setSavedPredictionMode(v);
-      setPredictionMode(v);
-      predictionSyncedRef.current = true;
-      setPredictionSynced(true);
-    }
-  }, [user?.predictionMode, setPredictionMode]);
-
-  useEffect(() => {
-    if (user?.distanceUnit && !distanceSyncedRef.current) {
-      const v = user.distanceUnit as DistanceUnit;
-      setSavedDistanceUnit(v);
-      setDistanceUnit(v);
-      distanceSyncedRef.current = true;
-      setDistanceSynced(true);
-    }
-  }, [user?.distanceUnit, setDistanceUnit]);
-
   const [updateUserPreferences] = useMutation(UPDATE_USER_PREFERENCES_MUTATION);
 
   const mutateHours = useCallback(
@@ -80,32 +39,26 @@ export default function PreferencesSection() {
 
   useAutoSavePreference<HoursDisplay>({
     value: hoursDisplay,
-    savedValue: savedHoursDisplay,
-    setSavedValue: setSavedHoursDisplay,
-    onRevert: setHoursDisplay,
+    setValue: setHoursDisplay,
+    dbValue: user?.hoursDisplayPreference as HoursDisplay | null | undefined,
     mutate: mutateHours,
     label: 'Component hours display',
-    isSynced: hoursSynced,
   });
 
   useAutoSavePreference<PredictionMode>({
     value: predictionMode,
-    savedValue: savedPredictionMode,
-    setSavedValue: setSavedPredictionMode,
-    onRevert: setPredictionMode,
+    setValue: setPredictionMode,
+    dbValue: user?.predictionMode as PredictionMode | null | undefined,
     mutate: mutatePrediction,
     label: 'Prediction algorithm',
-    isSynced: predictionSynced,
   });
 
   useAutoSavePreference<DistanceUnit>({
     value: distanceUnit,
-    savedValue: savedDistanceUnit,
-    setSavedValue: setSavedDistanceUnit,
-    onRevert: setDistanceUnit,
+    setValue: setDistanceUnit,
+    dbValue: user?.distanceUnit as DistanceUnit | null | undefined,
     mutate: mutateDistance,
     label: 'Distance unit',
-    isSynced: distanceSynced,
   });
 
   return (

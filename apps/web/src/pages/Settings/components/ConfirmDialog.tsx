@@ -49,7 +49,8 @@ export default function ConfirmDialog({
   return (
     <Modal
       isOpen={isOpen}
-      onClose={loading ? () => {} : onClose}
+      onClose={onClose}
+      preventClose={loading}
       title={title}
       size="sm"
       showCloseButton={!loading}
