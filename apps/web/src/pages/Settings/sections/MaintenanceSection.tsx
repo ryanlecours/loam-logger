@@ -1,4 +1,5 @@
 import { useNavigate } from 'react-router-dom';
+import { toast } from 'sonner';
 import { useResetCalibration } from '../../../graphql/calibration';
 import SettingsSectionHeader from '../SettingsSectionHeader';
 
@@ -7,8 +8,15 @@ export default function MaintenanceSection() {
   const [resetCalibration] = useResetCalibration();
 
   const handleReset = async () => {
-    await resetCalibration();
-    navigate('/dashboard');
+    try {
+      await resetCalibration();
+      navigate('/dashboard');
+    } catch (err) {
+      console.error('Failed to reset calibration:', err);
+      toast.error("Couldn't start calibration", {
+        description: err instanceof Error ? err.message : 'Please try again.',
+      });
+    }
   };
 
   return (

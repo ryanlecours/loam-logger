@@ -27,9 +27,9 @@ export default function ConfirmDialog({
 
   useEffect(() => {
     if (!isOpen) return;
-    // Focus Cancel on open — safer default for destructive dialogs.
-    const t = setTimeout(() => cancelRef.current?.focus(), 0);
-    return () => clearTimeout(t);
+    // Focus Cancel on open — safer default for destructive dialogs. The Modal
+    // primitive does no focus management of its own, so this runs unopposed.
+    cancelRef.current?.focus();
   }, [isOpen]);
 
   const handleConfirm = async () => {

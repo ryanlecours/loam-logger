@@ -33,7 +33,6 @@ type Props = {
 };
 
 export default function SettingsSidebar({ activeId, onSelect }: Props) {
-  const desktopListRef = useRef<HTMLDivElement | null>(null);
   const mobileListRef = useRef<HTMLDivElement | null>(null);
 
   // Scroll active pill into view on mobile when section changes.
@@ -75,7 +74,6 @@ export default function SettingsSidebar({ activeId, onSelect }: Props) {
         style={{ top: 'calc(4rem + 1.5rem)' }}
       >
         <div
-          ref={desktopListRef}
           role="tablist"
           aria-orientation="vertical"
           aria-label="Settings sections"

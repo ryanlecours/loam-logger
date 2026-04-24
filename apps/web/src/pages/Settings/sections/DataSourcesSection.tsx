@@ -21,6 +21,7 @@ import { getAuthHeaders } from '@/lib/csrf';
 import SettingsSectionHeader from '../SettingsSectionHeader';
 import ProviderCard from '../components/ProviderCard';
 import ConfirmDialog from '../components/ConfirmDialog';
+import { PROVIDER_LABELS, type DataSource } from '../providers';
 
 const CONNECTED_ACCOUNTS_QUERY = gql`
   query ConnectedAccounts {
@@ -36,7 +37,6 @@ const CONNECTED_ACCOUNTS_QUERY = gql`
 `;
 
 type Account = { provider: string; connectedAt: string };
-type DataSource = 'garmin' | 'strava' | 'whoop' | 'suunto';
 
 export default function DataSourcesSection() {
   const { isAdmin } = useUserTier();
@@ -71,13 +71,6 @@ export default function DataSourcesSection() {
   const suuntoAccount = accounts.find((a) => a.provider === 'suunto');
   const activeDataSource = (accountsData?.me?.activeDataSource ?? null) as DataSource | null;
   const connectedCount = [garminAccount, stravaAccount, whoopAccount, suuntoAccount].filter(Boolean).length;
-
-  const PROVIDER_LABELS: Record<DataSource, string> = {
-    garmin: 'Garmin',
-    strava: 'Strava',
-    whoop: 'WHOOP',
-    suunto: 'Suunto',
-  };
 
   const runDisconnect = async (provider: DataSource) => {
     const label = PROVIDER_LABELS[provider];

@@ -11,16 +11,7 @@ import MaintenanceSection from './sections/MaintenanceSection';
 import PrivacySection from './sections/PrivacySection';
 import DangerZoneSection from './sections/DangerZoneSection';
 import type { SettingsSectionId } from './useSettingsSection';
-
-type OAuthProvider = 'garmin' | 'strava' | 'whoop' | 'suunto';
-const OAUTH_PROVIDERS: readonly OAuthProvider[] = ['garmin', 'strava', 'whoop', 'suunto'];
-
-const PROVIDER_LABELS: Record<OAuthProvider, string> = {
-  garmin: 'Garmin',
-  strava: 'Strava',
-  whoop: 'WHOOP',
-  suunto: 'Suunto',
-};
+import { DATA_SOURCES, PROVIDER_LABELS } from './providers';
 
 /**
  * Refetches ConnectedAccounts queries after an OAuth callback. Can't use a
@@ -32,7 +23,7 @@ function useOAuthCallback() {
   const apollo = useApolloClient();
 
   useEffect(() => {
-    const connectedProvider = OAUTH_PROVIDERS.find(
+    const connectedProvider = DATA_SOURCES.find(
       (p) => searchParams.get(p) === 'connected',
     );
     if (!connectedProvider) return;
@@ -56,7 +47,7 @@ function useOAuthCallback() {
     setSearchParams(
       (prev) => {
         const n = new URLSearchParams(prev);
-        for (const p of OAUTH_PROVIDERS) n.delete(p);
+        for (const p of DATA_SOURCES) n.delete(p);
         n.delete('prompt');
         // Land the user on the Data Sources pane when arriving from OAuth.
         if (!n.get('section')) n.set('section', 'data-sources');
