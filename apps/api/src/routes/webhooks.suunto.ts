@@ -5,6 +5,7 @@ import { createLogger, logError } from '../lib/logger';
 import { isActiveSource } from '../lib/active-source';
 import { isSuuntoCyclingActivity, getSuuntoRideType } from '../types/suunto';
 import { syncBikeComponentHours } from '../lib/component-hours';
+import { fireRideNotifications } from '../services/notification.service';
 
 const log = createLogger('suunto-webhook');
 const r: Router = createRouter();
@@ -178,6 +179,9 @@ async function processWorkoutCreated(event: WorkoutCreatedEvent): Promise<void> 
     }
   }
 
+  let syncedRideId = '';
+  let syncedBikeId: string | null = null;
+
   await prisma.$transaction(async (tx) => {
     const ride = await tx.ride.upsert({
       where: { suuntoWorkoutId: workout.workoutKey },
@@ -212,7 +216,25 @@ async function processWorkoutCreated(event: WorkoutCreatedEvent): Promise<void> 
       { bikeId: existing?.bikeId ?? null, durationSeconds: existing?.durationSeconds ?? null },
       { bikeId: ride.bikeId ?? null, durationSeconds: ride.durationSeconds }
     );
+
+    syncedRideId = ride.id;
+    syncedBikeId = ride.bikeId ?? null;
   });
+
+  // Fire-and-forget: send "Ride Synced" + bike-select prompt for new rides.
+  // Mirrors the Strava webhook + Garmin/WHOOP sync-worker call sites so all
+  // four providers fire the same notification flow. fireRideNotifications
+  // internally suppresses non-new rides (updates) and backfill rides, so the
+  // call is safe even on the update path.
+  fireRideNotifications({
+    userId: userAccount.userId,
+    rideId: syncedRideId,
+    bikeId: syncedBikeId,
+    durationSeconds: workout.totalTime,
+    distanceMeters,
+    isNewRide,
+    isBackfill: false,
+  }).catch(() => {}); // swallow - already logged internally
 
   log.info({ userId: userAccount.userId, workoutKey: workout.workoutKey, activityId: workout.activityId, isNewRide }, 'Suunto workout upserted');
 }

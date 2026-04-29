@@ -465,6 +465,58 @@ describe('notification.service', () => {
 
       expect(enqueueReceiptCheck).not.toHaveBeenCalled();
     });
+
+    it('should send a bike-pick prompt with action:pickBike payload when bike is unassigned and user has 2+ bikes', async () => {
+      mockSendPushNotificationsAsync.mockResolvedValue([{ status: 'ok', id: 'ticket-pick' }]);
+
+      await fireRideNotifications({
+        ...baseParams,
+        bikeId: null,
+        activeBikeCount: 3,
+      });
+
+      // Find the call that's the bike-pick prompt (second push, since the
+      // first is the standard "Ride Synced"). Match by data.action.
+      const bikePickCall = mockSendPushNotificationsAsync.mock.calls.find(
+        (call) => call[0]?.[0]?.data?.action === 'pickBike'
+      );
+      expect(bikePickCall).toBeDefined();
+      expect(bikePickCall![0][0]).toMatchObject({
+        title: 'Assign a Bike',
+        body: expect.stringContaining('Which bike did you ride'),
+        data: { screen: 'ride', rideId: 'ride-1', action: 'pickBike' },
+      });
+    });
+
+    it('should not send a bike-pick prompt when user has only one bike', async () => {
+      mockSendPushNotificationsAsync.mockResolvedValue([{ status: 'ok', id: 'ticket-x' }]);
+
+      await fireRideNotifications({
+        ...baseParams,
+        bikeId: null,
+        activeBikeCount: 1,
+      });
+
+      const bikePickCall = mockSendPushNotificationsAsync.mock.calls.find(
+        (call) => call[0]?.[0]?.data?.action === 'pickBike'
+      );
+      expect(bikePickCall).toBeUndefined();
+    });
+
+    it('should not send a bike-pick prompt when bike is already assigned', async () => {
+      mockSendPushNotificationsAsync.mockResolvedValue([{ status: 'ok', id: 'ticket-y' }]);
+
+      await fireRideNotifications({
+        ...baseParams,
+        bikeId: 'bike-1',
+        activeBikeCount: 5,
+      });
+
+      const bikePickCall = mockSendPushNotificationsAsync.mock.calls.find(
+        (call) => call[0]?.[0]?.data?.action === 'pickBike'
+      );
+      expect(bikePickCall).toBeUndefined();
+    });
   });
 
   describe('clearServiceNotificationLogs', () => {

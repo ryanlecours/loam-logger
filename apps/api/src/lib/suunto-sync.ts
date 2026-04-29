@@ -67,3 +67,44 @@ export function suuntoApiHeaders(accessToken: string): HeadersInit {
     'Ocp-Apim-Subscription-Key': subscriptionKey,
   };
 }
+
+import { acquireSuuntoApiCall } from './rate-limit';
+
+/**
+ * Thrown by `suuntoFetch` when the per-minute Suunto quota is exhausted.
+ * Carries `retryAfterSec` so callers (workers, routes) can surface it to
+ * the user or back off appropriately.
+ */
+export class SuuntoQuotaExceededError extends Error {
+  readonly retryAfterSec: number;
+
+  constructor(retryAfterSec: number) {
+    super(`Suunto API per-minute quota exhausted; retry after ${retryAfterSec}s`);
+    this.name = 'SuuntoQuotaExceededError';
+    this.retryAfterSec = retryAfterSec;
+  }
+}
+
+/**
+ * Throttled fetch wrapper for Suunto's data API. Acquires a slot from the
+ * app-wide minute/week quota (see `acquireSuuntoApiCall`) before issuing the
+ * underlying `fetch`, throwing `SuuntoQuotaExceededError` if the per-minute
+ * cap is hit so the caller can decide to fail the job or retry later.
+ *
+ * All callers of `cloudapi.suunto.com/v3/*` should use this wrapper instead
+ * of `fetch + suuntoApiHeaders` directly so quota tracking stays accurate.
+ */
+export async function suuntoFetch(
+  url: string,
+  accessToken: string,
+  init?: Omit<RequestInit, 'headers'>
+): Promise<Response> {
+  const slot = await acquireSuuntoApiCall();
+  if (!slot.allowed) {
+    throw new SuuntoQuotaExceededError(slot.retryAfter);
+  }
+  return fetch(url, {
+    ...init,
+    headers: suuntoApiHeaders(accessToken),
+  });
+}

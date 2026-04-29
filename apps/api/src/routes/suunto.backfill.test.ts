@@ -51,12 +51,20 @@ jest.mock('../lib/logger', () => ({
 
 const mockAcquireLock = jest.fn();
 const mockReleaseLock = jest.fn();
+const mockGetSuuntoWeekCount = jest.fn();
+const mockAcquireSuuntoApiCall = jest.fn();
 jest.mock('../lib/rate-limit', () => ({
   acquireLock: mockAcquireLock,
   releaseLock: mockReleaseLock,
   // Lock-renewal calls during the long backfill loops — no-op in tests.
   extendLock: jest.fn().mockResolvedValue(true),
   LOCK_TTL: { sync: 300, backfill: 600 },
+  // Suunto outbound quota helpers — default to "always allowed, week empty"
+  // so existing tests keep passing. Tests that exercise quota behavior
+  // override these per-case.
+  getSuuntoWeekCount: mockGetSuuntoWeekCount,
+  acquireSuuntoApiCall: mockAcquireSuuntoApiCall,
+  SUUNTO_QUOTA: { perMinute: 10, perWeek: 200, weeklyStartRejectAt: 150 },
 }));
 
 const mockFindPotentialDuplicates = jest.fn();
@@ -184,6 +192,14 @@ describe('suunto.backfill routes', () => {
       mockReleaseLock.mockResolvedValue(undefined);
       mockFindPotentialDuplicates.mockResolvedValue(null);
       mockIncrementBikeComponentHours.mockResolvedValue(undefined);
+      // Default Suunto quota: well below thresholds so the gate is a no-op.
+      mockGetSuuntoWeekCount.mockResolvedValue(0);
+      mockAcquireSuuntoApiCall.mockResolvedValue({
+        allowed: true,
+        minuteCount: 1,
+        weekCount: 1,
+        redisAvailable: true,
+      });
     });
 
     it('should return error if not authenticated', async () => {
@@ -223,6 +239,51 @@ describe('suunto.backfill routes', () => {
       await invokeHandler(handler, mockReq as Request, mockRes as Response);
 
       expect(mockReleaseLock).toHaveBeenCalledWith('lk', 'lv');
+    });
+
+    it('should refuse to start when weekly Suunto quota is at the safety threshold', async () => {
+      mockGetSuuntoWeekCount.mockResolvedValue(150);
+
+      await invokeHandler(handler, mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(400);
+      expect(jsonResponse).toMatchObject({
+        error: expect.stringContaining('temporarily limiting imports this week'),
+      });
+      // Pre-flight gate runs before lock acquisition, so no lock should fire.
+      expect(mockAcquireLock).not.toHaveBeenCalled();
+    });
+
+    it('should still start when weekly quota is one below the threshold', async () => {
+      mockGetSuuntoWeekCount.mockResolvedValue(149);
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ payload: [] }),
+      });
+
+      await invokeHandler(handler, mockReq as Request, mockRes as Response);
+
+      expect(mockAcquireLock).toHaveBeenCalled();
+    });
+
+    it('should 400 with a Retry-After header when per-minute quota is exhausted mid-pagination', async () => {
+      mockAcquireSuuntoApiCall.mockResolvedValue({
+        allowed: false,
+        retryAfter: 42,
+        minuteCount: 10,
+        weekCount: 50,
+        redisAvailable: true,
+      });
+      const setHeader = jest.fn();
+      mockRes.setHeader = setHeader;
+
+      await invokeHandler(handler, mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(400);
+      expect(jsonResponse).toMatchObject({
+        error: expect.stringContaining('rate limit hit'),
+      });
+      expect(setHeader).toHaveBeenCalledWith('Retry-After', '42');
     });
 
     it('should call Suunto /v3/workouts with since/until/limit/offset', async () => {

@@ -246,6 +246,13 @@ export async function fireRideNotifications(params: {
 }): Promise<void> {
   const { userId, rideId, bikeId, durationSeconds, distanceMeters, isNewRide, isBackfill, activeBikeCount: providedBikeCount } = params;
 
+  // Single structured log per call so missed-notification reports are
+  // traceable end-to-end. Cardinality is ~one per ride sync — safe.
+  logger.info(
+    { userId, rideId, bikeId, isNewRide, isBackfill, providedBikeCount },
+    '[notifications] fireRideNotifications invoked'
+  );
+
   // Only notify for newly created rides, not updates or bulk backfills
   if (!isNewRide || isBackfill) return;
 
@@ -291,15 +298,18 @@ export async function fireRideNotifications(params: {
     });
     if (rideTicketId) ticketIds.push(rideTicketId);
 
-    // Notify multi-bike users when a ride is imported without a bike assignment
+    // Notify multi-bike users when a ride is imported without a bike assignment.
+    // The `action: 'pickBike'` data hint tells mobile's notification listener
+    // to auto-open the bike-picker on the ride detail screen rather than just
+    // landing there (handled in src/lib/notifications.ts).
     if (!bikeId) {
       const activeBikeCount = providedBikeCount ?? await prisma.bike.count({ where: { userId, status: 'ACTIVE' } });
       if (activeBikeCount > 1) {
         const unassignedTicketId = await sendPushNotification({
           pushToken: user.expoPushToken,
           title: 'Assign a Bike',
-          body: 'A ride was imported without a bike. Tap to assign it so component hours are tracked.',
-          data: { screen: 'ride', rideId },
+          body: 'Which bike did you ride? Tap to choose so component hours track correctly.',
+          data: { screen: 'ride', rideId, action: 'pickBike' },
         });
         if (unassignedTicketId) ticketIds.push(unassignedTicketId);
       }

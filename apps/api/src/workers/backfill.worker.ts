@@ -16,11 +16,12 @@ import { incrementBikeComponentHours, syncBikeComponentHours } from '../lib/comp
 import { isSuuntoCyclingActivity, getSuuntoRideType } from '../types/suunto';
 import {
   SUUNTO_API_BASE,
-  suuntoApiHeaders,
+  suuntoFetch,
   type SuuntoWorkout,
   type SuuntoWorkoutsResponse,
 } from '../lib/suunto-sync';
 import { findPotentialDuplicates, type DuplicateCandidate } from '../lib/duplicate-detector';
+import { fireRideNotifications } from '../services/notification.service';
 
 // Garmin API limits backfill requests to 30-day chunks
 const CHUNK_DAYS = 30;
@@ -303,7 +304,10 @@ async function processGarminBackfill(userId: string, year: string): Promise<void
 // ============================================================================
 
 const SUUNTO_PAGE_LIMIT = 100;
-const SUUNTO_MAX_PAGES = 100;
+// 20 pages × 100 workouts/page = 2000 workouts/year. Caps a runaway loop
+// from burning 10% of Suunto's weekly app-wide quota in one job. Mirrors the
+// MAX_PAGES in routes/suunto.backfill.ts.
+const SUUNTO_MAX_PAGES = 20;
 const SUUNTO_MIN_BACKFILL_YEAR = 2015;
 
 /**
@@ -375,9 +379,11 @@ async function processSuuntoBackfill(userId: string, year: string): Promise<void
     url.searchParams.set('limit', String(SUUNTO_PAGE_LIMIT));
     url.searchParams.set('offset', String(offset));
 
-    const apiRes = await fetch(url.toString(), {
-      headers: suuntoApiHeaders(accessToken),
-    });
+    // suuntoFetch throws SuuntoQuotaExceededError on per-minute throttle.
+    // We let it bubble — BullMQ's retry-with-backoff (configured in
+    // backfill.queue.ts at 1-minute initial delay) will naturally re-attempt
+    // after the bucket rolls over. No need for in-job sleep.
+    const apiRes = await suuntoFetch(url.toString(), accessToken);
 
     if (!apiRes.ok) {
       const text = await apiRes.text();
@@ -693,6 +699,23 @@ async function processGarminCallback(userId: string, callbackURL: string): Promi
         logger.warn({ rideId: upsertedRide.id, err }, '[BackfillWorker] Failed to enqueue weather job')
       );
     }
+
+    // Fire-and-forget notification. Mirrors sync.worker.ts:680 — the only
+    // reason it wasn't here was an oversight when this callback path was
+    // first written. Without this call, real-time Garmin activities arriving
+    // via the Pull Notification (callbackURL) pattern silently skip the
+    // "Ride Synced" + bike-pick prompt that other providers fire. Backfill
+    // jobs (runningSession is set) correctly suppress the notification via
+    // the isBackfill flag inside fireRideNotifications.
+    fireRideNotifications({
+      userId,
+      rideId: upsertedRide.id,
+      bikeId: upsertedRide.bikeId ?? null,
+      durationSeconds: activity.durationInSeconds,
+      distanceMeters,
+      isNewRide: !existingRide,
+      isBackfill: !!runningSession,
+    }).catch(() => {}); // swallow - already logged internally
 
     processedActivityCount++;
     logger.debug({ summaryId: activity.summaryId }, '[BackfillWorker] Upserted ride from callback');
