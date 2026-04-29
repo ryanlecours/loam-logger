@@ -530,7 +530,7 @@ describe('acquireSuuntoApiCall', () => {
     expect(mockRedis.expire).not.toHaveBeenCalled();
   });
 
-  it('denies when the per-minute cap is hit and rolls back the counter', async () => {
+  it('denies when the per-minute cap is hit and rolls back BOTH counters', async () => {
     mockIsRedisReady.mockReturnValue(true);
     // 11th call in the minute → over 10/min cap.
     mockRedis.incr.mockResolvedValueOnce(11).mockResolvedValueOnce(50);
@@ -539,14 +539,18 @@ describe('acquireSuuntoApiCall', () => {
 
     const result = await acquireSuuntoApiCall();
 
+    // Both counters reflect the rollback: a denied call doesn't actually
+    // hit Suunto's API, so it shouldn't burn either the per-minute or the
+    // weekly slot. Without the week rollback, a 20-call burst would burn
+    // 20 of the 200 weekly slots and trip the start-rejection gate early.
     expect(result).toEqual({
       allowed: false,
       retryAfter: 35,
       minuteCount: 10,
-      weekCount: 50,
+      weekCount: 49,
       redisAvailable: true,
     });
-    expect(mockRedis.decr).toHaveBeenCalledTimes(1);
+    expect(mockRedis.decr).toHaveBeenCalledTimes(2);
   });
 
   it('falls back to retryAfter=60 when TTL is unavailable', async () => {

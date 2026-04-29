@@ -21,7 +21,7 @@ import { getAuthHeaders } from '@/lib/csrf';
 import SettingsSectionHeader from '../SettingsSectionHeader';
 import ProviderCard from '../components/ProviderCard';
 import ConfirmDialog from '../components/ConfirmDialog';
-import { PROVIDER_LABELS, type DataSource } from '../providers';
+import { PROVIDER_LABELS, isDataSource, type DataSource } from '../providers';
 
 const CONNECTED_ACCOUNTS_QUERY = gql`
   query ConnectedAccounts {
@@ -69,7 +69,14 @@ export default function DataSourcesSection() {
   const stravaAccount = accounts.find((a) => a.provider === 'strava');
   const whoopAccount = accounts.find((a) => a.provider === 'whoop');
   const suuntoAccount = accounts.find((a) => a.provider === 'suunto');
-  const activeDataSource = (accountsData?.me?.activeDataSource ?? null) as DataSource | null;
+  // The backend's activeDataSource is typed as the broader `AuthProvider`
+  // enum (which also includes apple/google). Narrow at the boundary so a
+  // future schema drift or unexpected value doesn't silently propagate as
+  // a "valid" provider into PROVIDER_LABELS lookups, the selector UI, etc.
+  const rawActiveDataSource = accountsData?.me?.activeDataSource ?? null;
+  const activeDataSource: DataSource | null = isDataSource(rawActiveDataSource)
+    ? rawActiveDataSource
+    : null;
   const connectedCount = [garminAccount, stravaAccount, whoopAccount, suuntoAccount].filter(Boolean).length;
 
   const runDisconnect = async (provider: DataSource) => {
