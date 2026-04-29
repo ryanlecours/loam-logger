@@ -6,6 +6,7 @@ import {
   sendBadRequest,
   sendUnauthorized,
   sendInternalError,
+  sendTooManyRequests,
 } from '../lib/api-response';
 import {
   incrementBikeComponentHours,
@@ -20,10 +21,12 @@ import {
 import { isSuuntoCyclingActivity, getSuuntoRideType } from '../types/suunto';
 import {
   SUUNTO_API_BASE,
-  suuntoApiHeaders,
+  suuntoFetch,
+  SuuntoQuotaExceededError,
   type SuuntoWorkout,
   type SuuntoWorkoutsResponse,
 } from '../lib/suunto-sync';
+import { getSuuntoWeekCount, SUUNTO_QUOTA } from '../lib/rate-limit';
 import { enqueueBackfillJob } from '../lib/queue/backfill.queue';
 import { requireAdmin } from '../auth/adminMiddleware';
 
@@ -32,7 +35,10 @@ const r: Router = createRouter();
 
 const MIN_BACKFILL_YEAR = 2015;
 const PAGE_LIMIT = 100;
-const MAX_PAGES = 100;
+// 20 pages × 100 workouts/page = 2000 workouts/year — 10× the typical prolific
+// user. Lowering from 100 prevents a runaway pagination loop from consuming
+// 10% of Suunto's weekly app-wide quota in a single invocation.
+const MAX_PAGES = 20;
 
 /**
  * Fetch historical workouts from Suunto for a given year or YTD.
@@ -54,6 +60,21 @@ r.get<Empty, void, Empty, { year?: string }>(
     const userId = req.user?.id || req.sessionUser?.uid;
     if (!userId) {
       return sendUnauthorized(res, 'Not authenticated');
+    }
+
+    // Pre-flight against the weekly app-wide quota. Refuse to start a fresh
+    // backfill if we're already near the cap so the next user doesn't burn
+    // the remaining budget in a single in-flight pagination loop.
+    const weekCount = await getSuuntoWeekCount();
+    if (weekCount >= SUUNTO_QUOTA.weeklyStartRejectAt) {
+      logger.warn(
+        { userId, weekCount, threshold: SUUNTO_QUOTA.weeklyStartRejectAt },
+        '[Suunto Backfill] Weekly quota threshold hit, refusing new start'
+      );
+      return sendBadRequest(
+        res,
+        'Suunto is temporarily limiting imports this week. Please try again next week.'
+      );
     }
 
     const lockResult = await acquireLock('backfill', 'suunto', userId);
@@ -142,9 +163,28 @@ r.get<Empty, void, Empty, { year?: string }>(
         url.searchParams.set('limit', String(PAGE_LIMIT));
         url.searchParams.set('offset', String(offset));
 
-        const apiRes = await fetch(url.toString(), {
-          headers: suuntoApiHeaders(accessToken),
-        });
+        let apiRes: Response;
+        try {
+          apiRes = await suuntoFetch(url.toString(), accessToken);
+        } catch (err) {
+          // Per-minute quota exhausted mid-pagination. Surface as 429
+          // (Too Many Requests) so the client knows it's a transient
+          // throttle, not a server bug, and can retry after the bucket
+          // rolls over. Retry-After is RFC 7231-valid only on 429/503,
+          // which sendTooManyRequests sets via api-response helper.
+          if (err instanceof SuuntoQuotaExceededError) {
+            logger.warn(
+              { userId, retryAfterSec: err.retryAfterSec, pageCount },
+              '[Suunto Backfill] Per-minute quota hit mid-pagination'
+            );
+            return sendTooManyRequests(
+              res,
+              `Suunto API rate limit hit. Try again in ${err.retryAfterSec} seconds.`,
+              err.retryAfterSec,
+            );
+          }
+          throw err;
+        }
 
         if (!apiRes.ok) {
           const text = await apiRes.text();
@@ -376,6 +416,21 @@ r.post<Empty, void, { years: string[] }, Empty>(
     const userId = req.user?.id || req.sessionUser?.uid;
     if (!userId) {
       return sendUnauthorized(res, 'Not authenticated');
+    }
+
+    // Same pre-flight as the synchronous route. Multi-year batches will burn
+    // even more quota than a single fetch, so refusing at threshold is more
+    // important here.
+    const weekCount = await getSuuntoWeekCount();
+    if (weekCount >= SUUNTO_QUOTA.weeklyStartRejectAt) {
+      logger.warn(
+        { userId, weekCount, threshold: SUUNTO_QUOTA.weeklyStartRejectAt },
+        '[Suunto Backfill Batch] Weekly quota threshold hit, refusing new start'
+      );
+      return sendBadRequest(
+        res,
+        'Suunto is temporarily limiting imports this week. Please try again next week.'
+      );
     }
 
     const { years } = req.body;

@@ -54,7 +54,7 @@ export default function PrivacySettings() {
   if (!user) return null;
 
   return (
-    <section className="panel-spaced xl:max-w-[calc(50%-0.75rem)]">
+    <section className="panel-spaced">
       <div>
         <p className="label-section">Privacy</p>
         <h2 className="title-section">Product Analytics</h2>

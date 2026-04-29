@@ -124,18 +124,18 @@ export default function DataSourceSelector({ currentSource, hasGarmin, hasStrava
             onClick={() => onSelect('suunto')}
             className={`relative flex flex-col items-center gap-3 p-6 rounded-2xl border-2 transition ${
               currentSource === 'suunto'
-                ? 'border-[#0072CE] bg-[#0072CE]/20 ring-2 ring-[#0072CE]/50'
-                : 'border-app/50 bg-surface-2/50 hover:border-[#0072CE]/50 hover:bg-[#0072CE]/10'
+                ? 'border-[#F5A623] bg-[#F5A623]/20 ring-2 ring-[#F5A623]/50'
+                : 'border-app/50 bg-surface-2/50 hover:border-[#F5A623]/50 hover:bg-[#F5A623]/10'
             }`}
           >
             {currentSource === 'suunto' && (
-              <div className="absolute top-3 right-3 flex items-center gap-1 text-xs font-semibold text-[#0072CE]">
+              <div className="absolute top-3 right-3 flex items-center gap-1 text-xs font-semibold text-[#F5A623]">
                 <span>✓</span>
                 <span>Active</span>
               </div>
             )}
 
-            <SuuntoIcon size={32} className={currentSource === 'suunto' ? 'text-[#0072CE]' : 'text-muted'} />
+            <SuuntoIcon size={32} className={currentSource === 'suunto' ? 'text-[#F5A623]' : 'text-muted'} />
             <div className="text-center">
               <p className="font-semibold">Suunto</p>
               <p className="text-xs text-muted mt-1">

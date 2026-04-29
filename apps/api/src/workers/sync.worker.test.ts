@@ -21,6 +21,15 @@ jest.mock('bullmq', () => ({
 jest.mock('../lib/rate-limit', () => ({
   acquireLock: jest.fn(),
   releaseLock: jest.fn(),
+  // Suunto outbound quota — always-allow default so existing tests pass.
+  acquireSuuntoApiCall: jest.fn().mockResolvedValue({
+    allowed: true,
+    minuteCount: 1,
+    weekCount: 1,
+    redisAvailable: true,
+  }),
+  getSuuntoWeekCount: jest.fn().mockResolvedValue(0),
+  SUUNTO_QUOTA: { perMinute: 10, perWeek: 200, weeklyStartRejectAt: 150 },
 }));
 
 jest.mock('../lib/prisma', () => ({

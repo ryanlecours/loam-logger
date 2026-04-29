@@ -4,6 +4,7 @@
 import { prisma } from './prisma';
 import { createLogger } from './logger';
 import type { SuuntoTokenResp } from './suunto-sync';
+import { acquireSuuntoApiCall } from './rate-limit';
 
 const log = createLogger('suunto-token');
 
@@ -124,6 +125,21 @@ async function refreshSuuntoToken(userId: string, refreshToken: string): Promise
 
     if (!CLIENT_ID || !CLIENT_SECRET) {
       log.error('Missing SUUNTO_CLIENT_ID or SUUNTO_CLIENT_SECRET');
+      return null;
+    }
+
+    // Defensively count token-refresh calls against the Suunto weekly quota.
+    // Suunto support couldn't confirm whether OAuth endpoints count, so we
+    // assume yes — refresh storms (e.g., a wave of webhook deliveries after
+    // an outage) shouldn't burn the data-API budget. If the per-minute slot
+    // is denied we abort the refresh and return null so the caller falls back
+    // to its standard "no valid token" path.
+    const slot = await acquireSuuntoApiCall();
+    if (!slot.allowed) {
+      log.warn(
+        { userId, retryAfter: slot.retryAfter },
+        'Token refresh deferred: Suunto per-minute quota exhausted'
+      );
       return null;
     }
 

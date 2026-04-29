@@ -2196,6 +2196,92 @@ describe('GraphQL Resolvers', () => {
         expect(result.installedComponent).toEqual(newComp);
         expect(result.displacedComponent).toEqual(retiredComp);
       });
+
+      it('should retire an orphan Component row even when no install record exists (regression: hub replacement unique-constraint failure)', async () => {
+        // Repro for the user-reported "Unique constraint failed on (bikeId,
+        // type, location)" error: a stale Component row at the slot has
+        // bikeId set but no matching open install record. Without the
+        // defensive cleanup, step 3's component.create would collide on
+        // the unique constraint.
+        const ctx = createMockContext('user-123');
+        const mockTx = createMockTx();
+
+        (mockPrisma.bike.findFirst as jest.Mock).mockResolvedValue({ id: 'bike-1', userId: 'user-123' });
+
+        // No open install record on the target slot — the bug condition.
+        mockTx.bikeComponentInstall.findFirst.mockResolvedValue(null as never);
+
+        // But a Component row is still attached to the slot (orphan).
+        const orphanComponent = {
+          id: 'orphan-hub-1',
+          bikeId: 'bike-1',
+          type: 'WHEEL_HUBS',
+          location: 'FRONT',
+          status: 'INSTALLED',
+          retiredAt: null,
+        };
+        mockTx.component.findFirst.mockResolvedValue(orphanComponent as never);
+
+        // The new replacement component the user is creating.
+        const newComp = {
+          id: 'new-hub-1',
+          type: 'WHEEL_HUBS',
+          location: 'FRONT',
+          brand: 'DT Swiss',
+          model: '350',
+          status: 'INSTALLED',
+          bikeId: 'bike-1',
+        };
+        mockTx.component.create.mockResolvedValue(newComp as never);
+
+        // Two component.update calls expected: one for the orphan retire,
+        // one for any subsequent updates (e.g., replacedById chain).
+        mockTx.component.update.mockResolvedValue({} as never);
+        mockTx.bikeComponentInstall.create.mockResolvedValue({} as never);
+
+        mockPrisma.$transaction.mockImplementation(async (fn) => {
+          if (typeof fn === 'function') return fn(mockTx);
+          return [];
+        });
+
+        await mutation(
+          {},
+          {
+            input: {
+              bikeId: 'bike-1',
+              slotKey: 'WHEEL_HUBS_FRONT',
+              newComponent: { brand: 'DT Swiss', model: '350' },
+            },
+          },
+          ctx as never
+        );
+
+        // The orphan must be retired BEFORE the create. Asserting the
+        // update call was made with the orphan's id and a retire payload.
+        expect(mockTx.component.update).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: { id: 'orphan-hub-1' },
+            data: expect.objectContaining({
+              bikeId: null,
+              status: 'RETIRED',
+              retiredAt: expect.any(Date),
+            }),
+          })
+        );
+
+        // And the new component still gets created with the slot's keys.
+        expect(mockTx.component.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({
+              type: 'WHEEL_HUBS',
+              location: 'FRONT',
+              bikeId: 'bike-1',
+              brand: 'DT Swiss',
+              model: '350',
+            }),
+          })
+        );
+      });
     });
 
     describe('install component from another bike', () => {

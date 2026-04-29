@@ -1,5 +1,13 @@
 import { getRedisConnection, isRedisReady } from './redis';
+import { createLogger } from './logger';
 import type { SyncProvider } from './queue';
+
+// Module-scoped child logger for the Suunto outbound-quota helpers below.
+// The legacy rate-limit functions in this file still use console.* for
+// historical reasons; new code (acquireSuuntoApiCall, getSuuntoWeekCount)
+// goes through pino so the logs flow into the structured pipeline with
+// timestamps, levels, and the `suunto-quota` service tag.
+const quotaLog = createLogger('suunto-quota');
 
 // Time constants in seconds (for Redis TTL)
 const SECONDS = 1;
@@ -578,6 +586,181 @@ export async function clearRateLimit(
       `[RateLimit] Failed to clear ${operation} for ${provider}:${userId}:`,
       err instanceof Error ? err.message : 'Unknown error'
     );
+  }
+}
+
+// ----------------------------------------------------------------------------
+// Suunto outbound API quota
+// ----------------------------------------------------------------------------
+//
+// Suunto Developer API enforces 10 calls/minute and 200 calls/week per
+// subscription key (we use one app-wide). Suunto support couldn't confirm
+// whether OAuth refreshes count, so we throttle them too — better to over-
+// throttle than to silently get 429ed by Suunto and have webhooks/backfills
+// fail mid-flight.
+//
+// The per-minute throttle uses an INCR sliding window keyed by the current
+// minute bucket. The weekly counter uses an INCR keyed by ISO week. Both
+// share the same `acquireSuuntoApiCall` entrypoint so every outbound call
+// updates both counters atomically.
+
+export const SUUNTO_QUOTA = {
+  /** Hard cap from Suunto: 10 calls/minute per subscription. */
+  perMinute: 10,
+  /** Hard cap from Suunto: 200 calls/week per subscription. */
+  perWeek: 200,
+  /**
+   * Reject new backfill starts when the week counter has reached this value.
+   * The 50-call gap below `perWeek` reserves headroom for in-flight workers,
+   * webhook-triggered token refreshes, and on-demand syncs to finish without
+   * tripping the hard cap.
+   */
+  weeklyStartRejectAt: 150,
+} as const;
+
+/** Result of calling `acquireSuuntoApiCall`. */
+export type SuuntoQuotaResult =
+  | { allowed: true; minuteCount: number; weekCount: number; redisAvailable: boolean }
+  | { allowed: false; retryAfter: number; minuteCount: number; weekCount: number; redisAvailable: true };
+
+function buildSuuntoMinuteKey(): string {
+  // Minute bucket — Math.floor(Date.now() / 60_000) gives an integer that
+  // changes every 60 seconds. Window naturally rolls over without explicit
+  // expiry coordination; expiry is just garbage collection.
+  const minuteBucket = Math.floor(Date.now() / 60_000);
+  return `rl:suunto:quota:minute:${minuteBucket}`;
+}
+
+function buildSuuntoWeekKey(): string {
+  // ISO-week bucket — ISO weeks start Monday 00:00 UTC. Using
+  // floor(Date.now() / weekMs) gives a stable integer for the current week
+  // since 1970-01-05 (the first Monday of the Unix epoch's week-aligned
+  // calendar). Equivalent calendars across all callers, no library needed.
+  const ISO_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+  const weekBucket = Math.floor((Date.now() - 4 * 24 * 60 * 60 * 1000) / ISO_WEEK_MS);
+  return `rl:suunto:quota:week:${weekBucket}`;
+}
+
+/**
+ * Increment the per-minute and weekly Suunto API call counters atomically,
+ * returning whether the call is allowed under both caps.
+ *
+ * Behavior:
+ * - If Redis is unavailable, allows the call (graceful degradation — same
+ *   policy as the other rate-limit helpers in this file). Logs a warning so
+ *   we notice if the system runs uncapped for long.
+ * - If the per-minute cap is hit, returns `allowed: false` with `retryAfter`
+ *   (seconds until the minute bucket rolls). Caller must NOT make the API
+ *   call. BOTH counters are rolled back via DECR — a denied call doesn't
+ *   actually hit Suunto's API, so neither the per-minute window nor the
+ *   weekly budget should be charged for it. Counting denied calls against
+ *   the weekly cap would make the `weeklyStartRejectAt` gate trip earlier
+ *   than necessary (e.g., a 20-call burst that all 429 would burn 20
+ *   slots out of the 200/week budget without making a single real call).
+ *
+ * The counters track API calls we ACTUALLY made, not call attempts. Caller
+ * is responsible for executing the fetch when allowed; if the fetch itself
+ * throws after acquiring a slot, that slot is lost (acceptable — fetch
+ * errors are a separate failure mode and very rare in practice).
+ */
+export async function acquireSuuntoApiCall(): Promise<SuuntoQuotaResult> {
+  if (!isRedisReady()) {
+    quotaLog.warn('Redis unavailable, allowing Suunto API call without throttling');
+    return { allowed: true, minuteCount: 0, weekCount: 0, redisAvailable: false };
+  }
+
+  try {
+    const redis = getRedisConnection();
+    const minuteKey = buildSuuntoMinuteKey();
+    const weekKey = buildSuuntoWeekKey();
+
+    const minuteCount = await redis.incr(minuteKey);
+    if (minuteCount === 1) {
+      // First hit in this bucket — set TTL slightly longer than the bucket
+      // window so a slow rollover doesn't leave the key dangling forever.
+      await redis.expire(minuteKey, 90);
+    }
+
+    const weekCount = await redis.incr(weekKey);
+    if (weekCount === 1) {
+      // 8 days TTL — slightly longer than a week to avoid early eviction
+      // around the bucket boundary.
+      await redis.expire(weekKey, 8 * 24 * 60 * 60);
+    }
+
+    if (minuteCount > SUUNTO_QUOTA.perMinute) {
+      // Roll back BOTH counters: the call is being denied so it never hits
+      // Suunto's API and shouldn't count against either budget. Without
+      // the week DECR, a burst of 429'd requests (e.g., 20 retries during
+      // a hot moment) would burn 20 of the 200/week slots and trip the
+      // weeklyStartRejectAt gate earlier than necessary.
+      await redis.decr(minuteKey);
+      await redis.decr(weekKey);
+      const ttl = await redis.ttl(minuteKey);
+      const retryAfter = ttl > 0 ? ttl : 60;
+      quotaLog.warn(
+        { minuteCount, weekCount, retryAfter },
+        'Per-minute cap hit'
+      );
+      return {
+        allowed: false,
+        retryAfter,
+        minuteCount: minuteCount - 1,
+        weekCount: weekCount - 1,
+        redisAvailable: true,
+      };
+    }
+
+    // Observability log for SUUNTO_TODO item 11 mitigation 4. Two tiers so
+    // we don't pollute info-level logs at steady-state traffic:
+    //   - debug: every allowed call (full audit trail when explicitly enabled)
+    //   - info: only when usage crosses 70% of either cap (the actually
+    //     interesting moments — approaching the throttle or weekly limit)
+    // At full per-minute throttle (10/min sustained) this still keeps info
+    // volume bounded to ~3 lines/minute (calls 8, 9, 10 per minute) instead
+    // of 10, and tells ops at a glance when we're hot.
+    const minuteWarnAt = Math.ceil(SUUNTO_QUOTA.perMinute * 0.7);
+    const weekWarnAt = Math.ceil(SUUNTO_QUOTA.perWeek * 0.7);
+    const elevated = minuteCount >= minuteWarnAt || weekCount >= weekWarnAt;
+    const fields = {
+      minuteCount,
+      perMinute: SUUNTO_QUOTA.perMinute,
+      weekCount,
+      perWeek: SUUNTO_QUOTA.perWeek,
+    };
+    if (elevated) {
+      quotaLog.info(fields, 'call allowed (elevated)');
+    } else {
+      quotaLog.debug(fields, 'call allowed');
+    }
+
+    return { allowed: true, minuteCount, weekCount, redisAvailable: true };
+  } catch (err) {
+    quotaLog.warn(
+      { err: err instanceof Error ? err.message : 'Unknown error' },
+      'Redis error, allowing Suunto API call without throttling'
+    );
+    return { allowed: true, minuteCount: 0, weekCount: 0, redisAvailable: false };
+  }
+}
+
+/**
+ * Read the current week's Suunto API call count without incrementing it.
+ * Used by backfill route and batch route as a pre-flight gate — if the
+ * counter is already at `weeklyStartRejectAt`, we refuse to start a new
+ * backfill rather than queueing work that would 429 mid-flight.
+ *
+ * Returns 0 if Redis is unavailable so we don't block backfills on infra
+ * outages.
+ */
+export async function getSuuntoWeekCount(): Promise<number> {
+  if (!isRedisReady()) return 0;
+  try {
+    const redis = getRedisConnection();
+    const value = await redis.get(buildSuuntoWeekKey());
+    return value ? parseInt(value, 10) : 0;
+  } catch {
+    return 0;
   }
 }
 

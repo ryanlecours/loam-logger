@@ -28,7 +28,7 @@ import {
 import { isSuuntoCyclingActivity, getSuuntoRideType } from '../types/suunto';
 import {
   SUUNTO_API_BASE,
-  suuntoApiHeaders,
+  suuntoFetch,
   type SuuntoWorkout,
   type SuuntoWorkoutsResponse,
 } from '../lib/suunto-sync';
@@ -895,9 +895,7 @@ async function syncSuuntoLatest(userId: string): Promise<void> {
     url.searchParams.set('limit', String(LIMIT));
     url.searchParams.set('offset', String(offset));
 
-    const response = await fetch(url.toString(), {
-      headers: suuntoApiHeaders(accessToken),
-    });
+    const response = await suuntoFetch(url.toString(), accessToken);
 
     if (!response.ok) {
       const text = await response.text();
@@ -944,9 +942,7 @@ async function syncSuuntoActivity(userId: string, workoutKey: string): Promise<v
     throw new Error('No valid Suunto token available');
   }
 
-  const response = await fetch(`${SUUNTO_API_BASE}/workouts/${workoutKey}`, {
-    headers: suuntoApiHeaders(accessToken),
-  });
+  const response = await suuntoFetch(`${SUUNTO_API_BASE}/workouts/${workoutKey}`, accessToken);
 
   if (!response.ok) {
     const text = await response.text();

@@ -69,7 +69,7 @@ AuthGate → TermsGate → OnboardingGate → Tabs (Main App)
 | ONB-05 | 99Spokes bike search | Confirmed | Not started | Yes | `searchBikes` query | Auto-complete with metadata |
 | ONB-06 | Manual bike entry fallback | Confirmed | Not started | Yes | Onboarding | Toggle when bike not found in 99Spokes |
 | ONB-07 | Colorway selection | Confirmed | Not started | No | 99Spokes | Enhancement - can default to first image |
-| ONB-08 | Device connections (Strava/Garmin OAuth) | Confirmed | Not started | No | OAuth | Phase 2 - requires deep linking |
+| ONB-08 | Device connections (Strava/Garmin/WHOOP/Suunto OAuth) | Confirmed | Not started | No | OAuth | Phase 2 - requires deep linking. Web supports all four providers |
 | ONB-10 | OnboardingGate redirect | Confirmed | Not started | Yes | Auth, `me` query | Check `onboardingCompleted` flag |
 | ONB-11 | Image URL validation (XSS prevention) | Confirmed | Not started | Yes | Security | Validate image URLs before display |
 
@@ -227,7 +227,7 @@ Top features deferred from MVP, ordered by user value:
 | 2 | RIDES-06 | Manual Ride Entry | Rides | Add rides without device sync |
 | 3 | MISSING-04 | Edit Ride | Rides | Modify existing ride data |
 | 4 | DETAIL-04 | Component Swap | Bike Detail | Move components between bikes |
-| 5 | ONB-08 | Device Connections (OAuth) | Onboarding | Strava/Garmin/WHOOP sync |
+| 5 | ONB-08 | Device Connections (OAuth) | Onboarding | Strava/Garmin/WHOOP/Suunto sync |
 | 6 | DASH-03 | Strava Gear Mapping | Dashboard | Auto-assign bikes to rides |
 | 7 | SETTINGS-10 | Re-calibrate Components | Settings | Reset baseline wear |
 | 8 | DETAIL-07 | Add Bike Note | Bike Detail | Setup snapshots |

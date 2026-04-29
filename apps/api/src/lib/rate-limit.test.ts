@@ -8,12 +8,15 @@ import {
   RATE_LIMITS,
   ADMIN_RATE_LIMITS,
   LOCK_TTL,
+  SUUNTO_QUOTA,
   checkRateLimit,
   checkAdminRateLimit,
   clearRateLimit,
   acquireLock,
   releaseLock,
   extendLock,
+  acquireSuuntoApiCall,
+  getSuuntoWeekCount,
 } from './rate-limit';
 import { isRedisReady, getRedisConnection } from './redis';
 
@@ -467,5 +470,163 @@ describe('extendLock', () => {
     const result = await extendLock('lock:strava:user123', 'value123', 300);
 
     expect(result).toBe(false);
+  });
+});
+
+describe('SUUNTO_QUOTA constant', () => {
+  it('matches Suunto Developer API caps (10/min, 200/week, reject at 150)', () => {
+    expect(SUUNTO_QUOTA).toEqual({
+      perMinute: 10,
+      perWeek: 200,
+      weeklyStartRejectAt: 150,
+    });
+  });
+});
+
+describe('acquireSuuntoApiCall', () => {
+  let mockRedis: {
+    incr: jest.Mock;
+    decr: jest.Mock;
+    expire: jest.Mock;
+    ttl: jest.Mock;
+    get: jest.Mock;
+  };
+
+  beforeEach(() => {
+    mockRedis = {
+      incr: jest.fn(),
+      decr: jest.fn(),
+      expire: jest.fn().mockResolvedValue(1),
+      ttl: jest.fn(),
+      get: jest.fn(),
+    };
+    mockGetRedisConnection.mockReturnValue(mockRedis as never);
+  });
+
+  it('allows the call when both counters are well under cap', async () => {
+    mockIsRedisReady.mockReturnValue(true);
+    // First INCR is the minute counter, second is the week counter.
+    mockRedis.incr.mockResolvedValueOnce(1).mockResolvedValueOnce(1);
+
+    const result = await acquireSuuntoApiCall();
+
+    expect(result).toEqual({
+      allowed: true,
+      minuteCount: 1,
+      weekCount: 1,
+      redisAvailable: true,
+    });
+    // First-hit-of-bucket TTLs should be set on both counters.
+    expect(mockRedis.expire).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not re-set the expiry on subsequent calls in the same bucket', async () => {
+    mockIsRedisReady.mockReturnValue(true);
+    mockRedis.incr.mockResolvedValueOnce(5).mockResolvedValueOnce(42);
+
+    const result = await acquireSuuntoApiCall();
+
+    expect(result.allowed).toBe(true);
+    expect(mockRedis.expire).not.toHaveBeenCalled();
+  });
+
+  it('denies when the per-minute cap is hit and rolls back BOTH counters', async () => {
+    mockIsRedisReady.mockReturnValue(true);
+    // 11th call in the minute → over 10/min cap.
+    mockRedis.incr.mockResolvedValueOnce(11).mockResolvedValueOnce(50);
+    mockRedis.decr.mockResolvedValue(10);
+    mockRedis.ttl.mockResolvedValue(35);
+
+    const result = await acquireSuuntoApiCall();
+
+    // Both counters reflect the rollback: a denied call doesn't actually
+    // hit Suunto's API, so it shouldn't burn either the per-minute or the
+    // weekly slot. Without the week rollback, a 20-call burst would burn
+    // 20 of the 200 weekly slots and trip the start-rejection gate early.
+    expect(result).toEqual({
+      allowed: false,
+      retryAfter: 35,
+      minuteCount: 10,
+      weekCount: 49,
+      redisAvailable: true,
+    });
+    expect(mockRedis.decr).toHaveBeenCalledTimes(2);
+  });
+
+  it('falls back to retryAfter=60 when TTL is unavailable', async () => {
+    mockIsRedisReady.mockReturnValue(true);
+    mockRedis.incr.mockResolvedValueOnce(11).mockResolvedValueOnce(50);
+    mockRedis.decr.mockResolvedValue(10);
+    mockRedis.ttl.mockResolvedValue(-1);
+
+    const result = await acquireSuuntoApiCall();
+
+    expect(result.allowed).toBe(false);
+    if (!result.allowed) expect(result.retryAfter).toBe(60);
+  });
+
+  it('allows the call (graceful degradation) when Redis is unavailable', async () => {
+    mockIsRedisReady.mockReturnValue(false);
+
+    const result = await acquireSuuntoApiCall();
+
+    expect(result).toEqual({
+      allowed: true,
+      minuteCount: 0,
+      weekCount: 0,
+      redisAvailable: false,
+    });
+  });
+
+  it('allows the call when Redis throws (graceful degradation)', async () => {
+    mockIsRedisReady.mockReturnValue(true);
+    mockRedis.incr.mockRejectedValue(new Error('Connection failed'));
+
+    const result = await acquireSuuntoApiCall();
+
+    expect(result).toEqual({
+      allowed: true,
+      minuteCount: 0,
+      weekCount: 0,
+      redisAvailable: false,
+    });
+  });
+});
+
+describe('getSuuntoWeekCount', () => {
+  let mockRedis: { get: jest.Mock };
+
+  beforeEach(() => {
+    mockRedis = { get: jest.fn() };
+    mockGetRedisConnection.mockReturnValue(mockRedis as never);
+  });
+
+  it('returns the parsed integer count for the current week', async () => {
+    mockIsRedisReady.mockReturnValue(true);
+    mockRedis.get.mockResolvedValue('148');
+
+    const count = await getSuuntoWeekCount();
+
+    expect(count).toBe(148);
+  });
+
+  it('returns 0 when no key exists yet', async () => {
+    mockIsRedisReady.mockReturnValue(true);
+    mockRedis.get.mockResolvedValue(null);
+
+    expect(await getSuuntoWeekCount()).toBe(0);
+  });
+
+  it('returns 0 (graceful degradation) when Redis is unavailable', async () => {
+    mockIsRedisReady.mockReturnValue(false);
+
+    expect(await getSuuntoWeekCount()).toBe(0);
+  });
+
+  it('returns 0 when Redis throws', async () => {
+    mockIsRedisReady.mockReturnValue(true);
+    mockRedis.get.mockRejectedValue(new Error('Connection failed'));
+
+    expect(await getSuuntoWeekCount()).toBe(0);
   });
 });

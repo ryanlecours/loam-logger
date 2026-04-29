@@ -81,6 +81,11 @@ jest.mock('../config/env', () => ({
   },
 }));
 
+const mockFireRideNotifications = jest.fn().mockResolvedValue(undefined);
+jest.mock('../services/notification.service', () => ({
+  fireRideNotifications: (...args: unknown[]) => mockFireRideNotifications(...args),
+}));
+
 // Mock global fetch
 global.fetch = jest.fn();
 
@@ -255,6 +260,95 @@ describe('processBackfillJob (via worker processor)', () => {
             rideType: 'cycling',
           }),
         })
+      );
+    });
+
+    it('should fire fireRideNotifications after upserting a real-time callback ride (no active backfill session)', async () => {
+      // No runningSession → isBackfill must be false so the user gets the
+      // "Ride Synced" + bike-pick prompt push notifications. Regression
+      // guard for the silent-Garmin-notification bug — processGarminCallback
+      // previously upserted the ride but never called fireRideNotifications.
+      (mockPrisma.importSession.findFirst as jest.Mock).mockResolvedValue(null);
+      (mockPrisma.ride.findUnique as jest.Mock).mockResolvedValue(null); // new ride
+      (mockPrisma.ride.upsert as jest.Mock).mockResolvedValue({
+        id: 'ride-from-callback',
+        bikeId: null,
+        durationSeconds: 3600,
+      });
+
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve([
+          {
+            summaryId: 'activity-realtime',
+            activityType: 'cycling',
+            startTimeInSeconds: 1706123456,
+            durationInSeconds: 3600,
+            distanceInMeters: 50000,
+            totalElevationGainInMeters: 500,
+          },
+        ]),
+      } as Response);
+
+      await processBackfillJob({
+        name: 'processCallback',
+        id: 'job-realtime',
+        data: {
+          userId: 'user-123',
+          provider: 'garmin',
+          callbackURL: 'https://apis.garmin.com/callback/realtime',
+        },
+      });
+
+      expect(mockFireRideNotifications).toHaveBeenCalledTimes(1);
+      expect(mockFireRideNotifications).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'user-123',
+          rideId: 'ride-from-callback',
+          isNewRide: true,
+          isBackfill: false,
+        })
+      );
+    });
+
+    it('should pass isBackfill:true when a running ImportSession is present', async () => {
+      // Running backfill session → fireRideNotifications still gets called
+      // but with isBackfill: true so it suppresses the per-ride toast.
+      // Important to assert that the call happens at all so backfilled rides
+      // still trigger downstream side-effects (e.g., service-due check).
+      (mockPrisma.importSession.findFirst as jest.Mock).mockResolvedValue({ id: 'session-1' });
+      (mockPrisma.ride.findUnique as jest.Mock).mockResolvedValue(null);
+      (mockPrisma.ride.upsert as jest.Mock).mockResolvedValue({
+        id: 'ride-from-backfill',
+        bikeId: null,
+        durationSeconds: 3600,
+      });
+
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve([
+          {
+            summaryId: 'activity-backfill',
+            activityType: 'cycling',
+            startTimeInSeconds: 1706123456,
+            durationInSeconds: 3600,
+            distanceInMeters: 50000,
+          },
+        ]),
+      } as Response);
+
+      await processBackfillJob({
+        name: 'processCallback',
+        id: 'job-backfill',
+        data: {
+          userId: 'user-123',
+          provider: 'garmin',
+          callbackURL: 'https://apis.garmin.com/callback/backfill',
+        },
+      });
+
+      expect(mockFireRideNotifications).toHaveBeenCalledWith(
+        expect.objectContaining({ isBackfill: true })
       );
     });
 
