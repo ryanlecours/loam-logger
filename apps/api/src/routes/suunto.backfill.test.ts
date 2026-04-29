@@ -266,7 +266,7 @@ describe('suunto.backfill routes', () => {
       expect(mockAcquireLock).toHaveBeenCalled();
     });
 
-    it('should 400 with a Retry-After header when per-minute quota is exhausted mid-pagination', async () => {
+    it('should 429 with a Retry-After header when per-minute quota is exhausted mid-pagination', async () => {
       mockAcquireSuuntoApiCall.mockResolvedValue({
         allowed: false,
         retryAfter: 42,
@@ -279,9 +279,13 @@ describe('suunto.backfill routes', () => {
 
       await invokeHandler(handler, mockReq as Request, mockRes as Response);
 
-      expect(mockRes.status).toHaveBeenCalledWith(400);
+      // 429 Too Many Requests is the only RFC 7231-valid status for a
+      // Retry-After-bearing throttle response (alongside 503).
+      expect(mockRes.status).toHaveBeenCalledWith(429);
       expect(jsonResponse).toMatchObject({
         error: expect.stringContaining('rate limit hit'),
+        code: 'TOO_MANY_REQUESTS',
+        details: { retryAfter: 42 },
       });
       expect(setHeader).toHaveBeenCalledWith('Retry-After', '42');
     });

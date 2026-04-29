@@ -6,6 +6,7 @@ import {
   sendBadRequest,
   sendUnauthorized,
   sendInternalError,
+  sendTooManyRequests,
 } from '../lib/api-response';
 import {
   incrementBikeComponentHours,
@@ -166,18 +167,20 @@ r.get<Empty, void, Empty, { year?: string }>(
         try {
           apiRes = await suuntoFetch(url.toString(), accessToken);
         } catch (err) {
-          // Per-minute quota exhausted mid-pagination. Surface as 429 rather
-          // than 500 so the client knows it's a transient throttle, not a
-          // server bug, and can retry after the bucket rolls over.
+          // Per-minute quota exhausted mid-pagination. Surface as 429
+          // (Too Many Requests) so the client knows it's a transient
+          // throttle, not a server bug, and can retry after the bucket
+          // rolls over. Retry-After is RFC 7231-valid only on 429/503,
+          // which sendTooManyRequests sets via api-response helper.
           if (err instanceof SuuntoQuotaExceededError) {
             logger.warn(
               { userId, retryAfterSec: err.retryAfterSec, pageCount },
               '[Suunto Backfill] Per-minute quota hit mid-pagination'
             );
-            res.setHeader('Retry-After', String(err.retryAfterSec));
-            return sendBadRequest(
+            return sendTooManyRequests(
               res,
-              `Suunto API rate limit hit. Try again in ${err.retryAfterSec} seconds.`
+              `Suunto API rate limit hit. Try again in ${err.retryAfterSec} seconds.`,
+              err.retryAfterSec,
             );
           }
           throw err;

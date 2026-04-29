@@ -693,11 +693,23 @@ export async function acquireSuuntoApiCall(): Promise<SuuntoQuotaResult> {
       };
     }
 
-    // Structured log for observability (mitigation 4 in SUUNTO_TODO item 11).
-    // Lets ops see weekly burn rate without a separate metrics pipeline.
-    console.info(
-      `[SuuntoQuota] call allowed minute=${minuteCount}/${SUUNTO_QUOTA.perMinute} week=${weekCount}/${SUUNTO_QUOTA.perWeek}`
-    );
+    // Observability log for SUUNTO_TODO item 11 mitigation 4. Two tiers so
+    // we don't pollute info-level logs at steady-state traffic:
+    //   - debug: every allowed call (full audit trail when explicitly enabled)
+    //   - info: only when usage crosses 70% of either cap (the actually
+    //     interesting moments — approaching the throttle or weekly limit)
+    // At full per-minute throttle (10/min sustained) this still keeps info
+    // volume bounded to ~3 lines/minute (calls 8, 9, 10 per minute) instead
+    // of 10, and tells ops at a glance when we're hot.
+    const minuteWarnAt = Math.ceil(SUUNTO_QUOTA.perMinute * 0.7);
+    const weekWarnAt = Math.ceil(SUUNTO_QUOTA.perWeek * 0.7);
+    const elevated = minuteCount >= minuteWarnAt || weekCount >= weekWarnAt;
+    const message = `[SuuntoQuota] call allowed minute=${minuteCount}/${SUUNTO_QUOTA.perMinute} week=${weekCount}/${SUUNTO_QUOTA.perWeek}`;
+    if (elevated) {
+      console.info(message);
+    } else {
+      console.debug(message);
+    }
 
     return { allowed: true, minuteCount, weekCount, redisAvailable: true };
   } catch (err) {

@@ -26,7 +26,7 @@ import {
   COMPONENT_CATALOG,
 } from '@loam/shared';
 import { createId } from '@paralleldrive/cuid2';
-import { logError } from '../lib/logger';
+import { logError, logger } from '../lib/logger';
 import { captureServerEvent, invalidateOptOutCache } from '../lib/posthog';
 import { config } from '../config/env';
 import { requireBikeCreation, requireComponentType, getEffectiveTier, getAllowedComponentTypes, canCreateBike, isProTier } from '../auth/tier-access';
@@ -4480,6 +4480,44 @@ export const resolvers = {
               data: { bikeId: null, status: 'INVENTORY', installedAt: null },
             });
           }
+        }
+
+        // 2b. Defensive orphan-Component cleanup. The unique constraint
+        // @@unique([bikeId, type, location]) lives on Component, but the
+        // displacement above only fires when there's an open install
+        // record. If a Component row exists at this slot with bikeId set
+        // but no matching open install record (legacy data, an interrupted
+        // previous operation, or a migration state), the create at step 3
+        // would 500 with `Unique constraint failed on the fields:
+        // (bikeId, type, location)`. Sweep up any such orphan here so the
+        // downstream create can succeed. Logged at warn level so the
+        // frequency is visible — if this fires often, the underlying data
+        // inconsistency warrants a one-shot cleanup migration.
+        const orphanComponent = await tx.component.findFirst({
+          where: {
+            bikeId,
+            type: slotType as ComponentTypeLiteral,
+            location: slotLocation as ComponentLocation,
+            retiredAt: null,
+          },
+        });
+        if (
+          orphanComponent &&
+          (!currentInstall || orphanComponent.id !== currentInstall.componentId)
+        ) {
+          await tx.component.update({
+            where: { id: orphanComponent.id },
+            data: { bikeId: null, status: 'RETIRED', retiredAt: now },
+          });
+          logger.warn(
+            {
+              bikeId,
+              slotKey,
+              orphanComponentId: orphanComponent.id,
+              hadInstallRecord: !!currentInstall,
+            },
+            '[installComponent] Cleaned up orphan Component row before install'
+          );
         }
 
         // 3. Create or use existing component
