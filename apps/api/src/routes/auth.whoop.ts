@@ -293,8 +293,14 @@ r.get('/whoop/status', async (req: Request, res: Response) => {
   }
 
   try {
+    // `select` scoped to only the column we render. Without it Prisma
+    // pulls `accessToken` and `refreshToken` (sensitive credential
+    // material) into the API process's memory — unnecessary for a status
+    // check, and a free way to reduce the data those fields could leak
+    // into via stack traces, error-path logs, or future debug breakpoints.
     const oauthToken = await prisma.oauthToken.findUnique({
       where: { userId_provider: { userId, provider: 'whoop' } },
+      select: { createdAt: true },
     });
 
     if (oauthToken) {

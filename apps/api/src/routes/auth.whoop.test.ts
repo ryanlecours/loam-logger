@@ -554,8 +554,12 @@ describe('auth.whoop routes', () => {
 
       await invokeHandler(handler, mockReq as Request, mockRes as Response);
 
+      // Pinned to assert that `select` scopes the read to `createdAt` only —
+      // dropping the select would silently start pulling accessToken /
+      // refreshToken into memory on every status check.
       expect(mockOauthTokenFindUnique).toHaveBeenCalledWith({
         where: { userId_provider: { userId: 'user-123', provider: 'whoop' } },
+        select: { createdAt: true },
       });
       expect(mockRes.status).toHaveBeenCalledWith(200);
       // Payload is intentionally narrower than the Suunto/Garmin/Strava
