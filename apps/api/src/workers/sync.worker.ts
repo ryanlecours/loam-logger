@@ -28,6 +28,7 @@ import {
 import {
   isSuuntoCyclingActivity,
   getSuuntoRideType,
+  isKnownSuuntoActivity,
   detectUnknownSuuntoActivityIds,
 } from '../types/suunto';
 import {

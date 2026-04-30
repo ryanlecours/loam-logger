@@ -12,6 +12,7 @@ jest.mock('../lib/pcke', () => ({
 }));
 
 const mockFindUnique = jest.fn();
+const mockOauthTokenFindUnique = jest.fn();
 const mockFindMany = jest.fn();
 const mockUpsert = jest.fn();
 const mockUpdate = jest.fn();
@@ -22,6 +23,7 @@ const mockPrisma = {
   oauthToken: {
     upsert: mockUpsert,
     deleteMany: mockDeleteMany,
+    findUnique: mockOauthTokenFindUnique,
   },
   userAccount: {
     upsert: mockUpsert,
@@ -498,6 +500,180 @@ describe('auth.whoop routes', () => {
       await invokeHandler(handler, mockReq as Request, mockRes as Response);
 
       expect(mockRevokeWhoopTokenForUser).toHaveBeenCalledWith('session-user-789');
+    });
+  });
+
+  describe('GET /whoop/status', () => {
+    let handler: RequestHandler | undefined;
+    let mockReq: Partial<Request>;
+    let mockRes: Partial<Response>;
+
+    beforeEach(() => {
+      handler = getHandler('/whoop/status', 'get');
+
+      // Mobile-only route — caller is identified via sessionUser (bearer
+      // token), not req.user (web cookie). See comment in auth.whoop.ts.
+      mockReq = {
+        user: undefined,
+        sessionUser: { uid: 'user-123' },
+      };
+
+      mockRes = {
+        status: jest.fn().mockReturnThis(),
+        json: jest.fn().mockReturnThis(),
+      };
+    });
+
+    it('should return connected: true when an oauth token exists', async () => {
+      const createdAt = new Date('2026-04-01T10:00:00.000Z');
+      mockOauthTokenFindUnique.mockResolvedValue({ createdAt });
+
+      await invokeHandler(handler, mockReq as Request, mockRes as Response);
+
+      expect(mockOauthTokenFindUnique).toHaveBeenCalledWith({
+        where: { userId_provider: { userId: 'user-123', provider: 'whoop' } },
+      });
+      expect(mockRes.status).toHaveBeenCalledWith(200);
+      expect(mockRes.json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          ok: true,
+          data: expect.objectContaining({
+            connected: true,
+            connectedAt: createdAt.toISOString(),
+            revokedAt: null,
+            lastSyncAt: null,
+            scopes: null,
+          }),
+        }),
+      );
+    });
+
+    it('should return connected: false when no oauth token exists', async () => {
+      mockOauthTokenFindUnique.mockResolvedValue(null);
+
+      await invokeHandler(handler, mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(200);
+      expect(mockRes.json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          ok: true,
+          data: { connected: false },
+        }),
+      );
+    });
+
+    it('should return 401 when sessionUser is missing', async () => {
+      mockReq.sessionUser = undefined;
+
+      await invokeHandler(handler, mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(401);
+      expect(mockOauthTokenFindUnique).not.toHaveBeenCalled();
+    });
+
+    it('should NOT fall back to req.user — mobile-only route', async () => {
+      // The auth-strategy comment in auth.whoop.ts explicitly documents that
+      // status is a mobile-only surface. Setting only `req.user` (web cookie
+      // path) without `sessionUser` (mobile bearer path) should fail auth,
+      // not silently succeed via the fallback we use on DELETE.
+      mockReq.user = { id: 'web-user-456' };
+      mockReq.sessionUser = undefined;
+
+      await invokeHandler(handler, mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(401);
+      expect(mockOauthTokenFindUnique).not.toHaveBeenCalled();
+    });
+
+    it('should return 500 when the database query fails', async () => {
+      mockOauthTokenFindUnique.mockRejectedValue(new Error('DB down'));
+
+      await invokeHandler(handler, mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(500);
+    });
+  });
+
+  describe('POST /whoop/disconnect', () => {
+    let handler: RequestHandler | undefined;
+    let mockReq: Partial<Request>;
+    let mockRes: Partial<Response>;
+
+    beforeEach(() => {
+      handler = getHandler('/whoop/disconnect', 'post');
+
+      // Mobile-only route — same auth-strategy split as GET /whoop/status.
+      mockReq = {
+        user: undefined,
+        sessionUser: { uid: 'user-123' },
+      };
+
+      mockRes = {
+        status: jest.fn().mockReturnThis(),
+        json: jest.fn().mockReturnThis(),
+      };
+
+      mockRevokeWhoopTokenForUser.mockResolvedValue(true);
+      mockFindUnique.mockResolvedValue({ activeDataSource: 'garmin' });
+      mockTransaction.mockResolvedValue(undefined);
+    });
+
+    it('should return 401 when sessionUser is missing', async () => {
+      mockReq.sessionUser = undefined;
+
+      await invokeHandler(handler, mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(401);
+      expect(mockRevokeWhoopTokenForUser).not.toHaveBeenCalled();
+      expect(mockTransaction).not.toHaveBeenCalled();
+    });
+
+    it('should NOT fall back to req.user — mobile-only route', async () => {
+      mockReq.user = { id: 'web-user-456' };
+      mockReq.sessionUser = undefined;
+
+      await invokeHandler(handler, mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(401);
+      expect(mockRevokeWhoopTokenForUser).not.toHaveBeenCalled();
+    });
+
+    it('should revoke and disconnect, returning the canonical envelope', async () => {
+      await invokeHandler(handler, mockReq as Request, mockRes as Response);
+
+      expect(mockRevokeWhoopTokenForUser).toHaveBeenCalledWith('user-123');
+      expect(mockTransaction).toHaveBeenCalled();
+      // Same `{ ok: true }` envelope as DELETE — single contract for both
+      // verbs, asserted on the response shape, not the HTTP method.
+      expect(mockRes.status).toHaveBeenCalledWith(200);
+      expect(mockRes.json).toHaveBeenCalledWith({ ok: true });
+    });
+
+    it('should warn and proceed when token revocation fails', async () => {
+      mockRevokeWhoopTokenForUser.mockResolvedValue(false);
+
+      await invokeHandler(handler, mockReq as Request, mockRes as Response);
+
+      // Warn captured by the shared handleWhoopDisconnect helper, then
+      // local cleanup proceeds and the response is still success.
+      expect(mockLog.warn).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: 'user-123' }),
+        expect.stringContaining('WHOOP token revocation failed'),
+      );
+      expect(mockTransaction).toHaveBeenCalled();
+      expect(mockRes.status).toHaveBeenCalledWith(200);
+      expect(mockRes.json).toHaveBeenCalledWith({ ok: true });
+    });
+
+    it('should return 500 when the disconnect transaction fails', async () => {
+      mockTransaction.mockRejectedValue(new Error('Database error'));
+
+      await invokeHandler(handler, mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(500);
+      expect(mockRes.json).toHaveBeenCalledWith(
+        expect.objectContaining({ error: 'Failed to disconnect' }),
+      );
     });
   });
 });
