@@ -18,7 +18,11 @@ import {
   findPotentialDuplicates,
   type DuplicateCandidate,
 } from '../lib/duplicate-detector';
-import { isSuuntoCyclingActivity, getSuuntoRideType, isKnownSuuntoActivity } from '../types/suunto';
+import {
+  isSuuntoCyclingActivity,
+  getSuuntoRideType,
+  detectUnknownSuuntoActivityIds,
+} from '../types/suunto';
 import {
   SUUNTO_API_BASE,
   suuntoFetch,
@@ -230,17 +234,7 @@ r.get<Empty, void, Empty, { year?: string }>(
         isSuuntoCyclingActivity(w.activityId)
       );
 
-      // Surface catalog drift: any non-cycling activityId we don't even
-      // recognize is a signal that Suunto added a new sport since our
-      // last Activities.pdf review. Dedupe so a year of the same unknown
-      // sport doesn't blow up logs. Backfill is bulk so we batch the warn.
-      const unknownActivityIds = Array.from(
-        new Set(
-          workouts
-            .filter((w) => !isSuuntoCyclingActivity(w.activityId) && !isKnownSuuntoActivity(w.activityId))
-            .map((w) => w.activityId)
-        )
-      );
+      const unknownActivityIds = detectUnknownSuuntoActivityIds(workouts);
       if (unknownActivityIds.length > 0) {
         logger.warn(
           { userId, unknownActivityIds, totalWorkouts: workouts.length },

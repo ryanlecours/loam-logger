@@ -13,7 +13,11 @@ import type { BackfillJobData, BackfillJobName } from '../lib/queue/backfill.que
 import { enqueueWeatherJob } from '../lib/queue';
 import { captureServerEvent } from '../lib/posthog';
 import { incrementBikeComponentHours, syncBikeComponentHours } from '../lib/component-hours';
-import { isSuuntoCyclingActivity, getSuuntoRideType, isKnownSuuntoActivity } from '../types/suunto';
+import {
+  isSuuntoCyclingActivity,
+  getSuuntoRideType,
+  detectUnknownSuuntoActivityIds,
+} from '../types/suunto';
 import {
   SUUNTO_API_BASE,
   suuntoFetch,
@@ -408,16 +412,7 @@ async function processSuuntoBackfill(userId: string, year: string): Promise<void
 
   const cyclingWorkouts = workouts.filter((w) => isSuuntoCyclingActivity(w.activityId));
 
-  // Surface catalog drift, same as the synchronous backfill route. Deduped
-  // so one year of the same unknown sport produces a single warn instead
-  // of one per workout.
-  const unknownActivityIds = Array.from(
-    new Set(
-      workouts
-        .filter((w) => !isSuuntoCyclingActivity(w.activityId) && !isKnownSuuntoActivity(w.activityId))
-        .map((w) => w.activityId)
-    )
-  );
+  const unknownActivityIds = detectUnknownSuuntoActivityIds(workouts);
   if (unknownActivityIds.length > 0) {
     logger.warn(
       { userId, unknownActivityIds, totalWorkouts: workouts.length },

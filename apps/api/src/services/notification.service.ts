@@ -65,9 +65,14 @@ type NotificationUser = {
  * If `needsBikeAssignment` is true (unassigned ride on a multi-bike account),
  * the body is extended with a tap-to-pick prompt and `data.action = 'pickBike'`
  * is set so the mobile listener deep-links straight into the bike picker on
- * the ride detail screen. Sends regardless of `notifyOnRideUpload` in that
- * case — the picker prompt is a one-shot affordance independent of the
- * recurring "you uploaded a ride" preference.
+ * the ride detail screen.
+ *
+ * Always gated on `notifyOnRideUpload`. The user's notification preference
+ * is the source of truth — if they've opted out of ride-upload notifications
+ * we don't surface the bike-pick prompt either, even though it's a one-shot
+ * affordance. The unassigned ride still surfaces the next time they open the
+ * app via the in-app rides list, so we're not silently dropping data on the
+ * floor; we're just respecting their choice to keep the lockscreen quiet.
  */
 export async function notifyRideUploaded(params: {
   userId: string;
@@ -80,7 +85,7 @@ export async function notifyRideUploaded(params: {
 }): Promise<string | undefined> {
   const { rideId, durationSeconds, distanceMeters, bikeName, needsBikeAssignment, user } = params;
 
-  if (!user.notifyOnRideUpload && !needsBikeAssignment) return;
+  if (!user.notifyOnRideUpload) return;
 
   const durationMin = Math.round(durationSeconds / 60);
   const isKm = user.distanceUnit === 'km';

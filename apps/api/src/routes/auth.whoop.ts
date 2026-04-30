@@ -254,6 +254,24 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string }>(
 );
 
 // ---------------------------------------------------------------------------
+// Auth strategy for the routes below
+// ---------------------------------------------------------------------------
+// `req.sessionUser` is populated by the mobile bearer-token middleware;
+// `req.user` is populated by the web session-cookie middleware. The two
+// upstream auth flows are independent, so each route below picks the
+// resolver that matches its caller.
+//
+// - `GET /whoop/status` and `POST /whoop/disconnect` are mobile-only
+//   surfaces (the web app reads connection state via its own data path
+//   and disconnects via DELETE), so they only consult `req.sessionUser`.
+// - `DELETE /whoop/disconnect` is the web's path but falls back to
+//   `req.sessionUser` to keep it usable from a mobile client too — no
+//   reason to gate it.
+//
+// Mirrors the Suunto pattern in auth.suunto.ts.
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
 // 3) Status — connection status for mobile UI
 // ---------------------------------------------------------------------------
 // WHOOP doesn't use the `UserIntegration` table (see comment in callback);
@@ -332,7 +350,7 @@ r.post('/whoop/disconnect', async (req: Request, res: Response) => {
   try {
     const revoked = await handleWhoopDisconnect(userId);
     log.info({ userId, revoked }, 'WHOOP disconnected (mobile)');
-    return sendSuccess(res, { ok: true });
+    return sendSuccess(res);
   } catch (err) {
     log.error({ err, userId }, 'WHOOP disconnect failed');
     return sendInternalError(res, 'Failed to disconnect');
@@ -348,7 +366,7 @@ r.delete<Empty, void, Empty>('/whoop/disconnect', async (req: Request, res: Resp
   try {
     const revoked = await handleWhoopDisconnect(userId);
     log.info({ userId, revoked }, 'WHOOP disconnected (web)');
-    return res.status(200).json({ success: true });
+    return sendSuccess(res);
   } catch (error) {
     log.error({ err: error, userId }, 'WHOOP disconnect failed');
     return sendInternalError(res, 'Failed to disconnect');

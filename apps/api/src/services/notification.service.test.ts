@@ -105,7 +105,10 @@ describe('notification.service', () => {
       ]);
     });
 
-    it('should send the pick-bike prompt even when notifyOnRideUpload is false', async () => {
+    it('should suppress the pick-bike prompt when notifyOnRideUpload is false', async () => {
+      // The user's notification preference wins over the bike-pick prompt.
+      // Surfacing the unassigned ride is deferred to the in-app rides list
+      // rather than overriding their opt-out at the lockscreen.
       await notifyRideUploaded({
         ...baseParams,
         bikeName: undefined,
@@ -113,7 +116,7 @@ describe('notification.service', () => {
         user: { ...baseUser, notifyOnRideUpload: false },
       });
 
-      expect(mockSendPushNotificationsAsync).toHaveBeenCalledTimes(1);
+      expect(mockSendPushNotificationsAsync).not.toHaveBeenCalled();
     });
 
     it('should send notification with miles when user prefers mi', async () => {

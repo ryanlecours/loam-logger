@@ -88,3 +88,31 @@ const KNOWN_SUUNTO_ACTIVITY_IDS: ReadonlySet<number> = new Set(
 export function isKnownSuuntoActivity(activityId: number): boolean {
   return KNOWN_SUUNTO_ACTIVITY_IDS.has(activityId);
 }
+
+/**
+ * Extracts deduped activity IDs that are neither cycling nor in the known
+ * Suunto catalog — i.e. evidence that Suunto added a sport since the last
+ * Activities.pdf review. Callers (sync worker, backfill worker, backfill
+ * route) feed the result into a logger.warn at their own log prefix; the
+ * empty array means "no drift detected."
+ *
+ * Dedupe matters: a sync of 100 workouts of the same unknown sport should
+ * produce one warn, not 100. Centralizing the predicate also means future
+ * additions (a metric counter, Sentry breadcrumb, etc.) are a one-line
+ * change instead of three.
+ */
+export function detectUnknownSuuntoActivityIds(
+  workouts: { activityId: number }[],
+): number[] {
+  return Array.from(
+    new Set(
+      workouts
+        .filter(
+          (w) =>
+            !isSuuntoCyclingActivity(w.activityId) &&
+            !isKnownSuuntoActivity(w.activityId),
+        )
+        .map((w) => w.activityId),
+    ),
+  );
+}

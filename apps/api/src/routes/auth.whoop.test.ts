@@ -454,8 +454,10 @@ describe('auth.whoop routes', () => {
     it('should return success response', async () => {
       await invokeHandler(handler, mockReq as Request, mockRes as Response);
 
+      // Standardized envelope shape (sendSuccess) — same shape POST and
+      // DELETE return so callers get a single contract.
       expect(mockRes.status).toHaveBeenCalledWith(200);
-      expect(mockRes.json).toHaveBeenCalledWith({ success: true });
+      expect(mockRes.json).toHaveBeenCalledWith({ ok: true });
     });
 
     it('should proceed even if token revocation fails', async () => {
