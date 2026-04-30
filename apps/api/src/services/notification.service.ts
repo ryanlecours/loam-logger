@@ -97,7 +97,7 @@ export async function notifyRideUploaded(params: {
   const bikeLabel = bikeName ? ` on ${bikeName}` : '';
   const baseBody = `${durationMin} min, ${distance} ${unit}${bikeLabel}`;
   const body = needsBikeAssignment
-    ? `${baseBody} · Tap to choose which bike you rode.`
+    ? `${baseBody} · Tap to choose which bike you rode`
     : baseBody;
 
   const ticketId = await sendPushNotification({

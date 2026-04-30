@@ -3,6 +3,7 @@ import {
   isSuuntoCyclingActivity,
   isKnownSuuntoActivity,
   getSuuntoRideType,
+  detectUnknownSuuntoActivityIds,
 } from './suunto';
 
 describe('SUUNTO_CYCLING_ACTIVITY_IDS', () => {
@@ -111,5 +112,61 @@ describe('isKnownSuuntoActivity', () => {
     [-1, 'negative (defensive)'],
   ])('returns false for undocumented activity id %i (%s)', (id) => {
     expect(isKnownSuuntoActivity(id)).toBe(false);
+  });
+});
+
+describe('detectUnknownSuuntoActivityIds', () => {
+  it('returns [] for empty input', () => {
+    expect(detectUnknownSuuntoActivityIds([])).toEqual([]);
+  });
+
+  it('returns [] when all workouts are cycling activities', () => {
+    // Cycling IDs are categorically excluded — they're the ones we DO ingest.
+    const workouts = [
+      { activityId: 2 },   // cycling
+      { activityId: 10 },  // mountain biking
+      { activityId: 99 },  // gravel
+      { activityId: 114 }, // cyclocross
+    ];
+    expect(detectUnknownSuuntoActivityIds(workouts)).toEqual([]);
+  });
+
+  it('returns [] when all workouts are documented non-cycling activities', () => {
+    // Known but not imported — running/swimming/etc. are still in the
+    // Activities.pdf catalog so they don't signal drift.
+    const workouts = [
+      { activityId: 0 },  // walking
+      { activityId: 1 },  // running
+      { activityId: 21 }, // swimming
+      { activityId: 11 }, // hiking
+    ];
+    expect(detectUnknownSuuntoActivityIds(workouts)).toEqual([]);
+  });
+
+  it('returns only the unknown IDs from a mixed batch', () => {
+    const workouts = [
+      { activityId: 2 },     // cycling — excluded
+      { activityId: 1 },     // running — known
+      { activityId: 10 },    // mountain biking — excluded
+      { activityId: 200 },   // unknown
+      { activityId: 21 },    // swimming — known
+      { activityId: 9999 },  // unknown
+    ];
+    expect(detectUnknownSuuntoActivityIds(workouts).sort((a, b) => a - b)).toEqual([200, 9999]);
+  });
+
+  it('dedupes repeated unknown IDs so a year of one bad sport produces one entry', () => {
+    // The whole point of using a Set internally — a sync of 100 of the same
+    // unknown sport should produce a single drift signal, not 100.
+    const workouts = Array.from({ length: 50 }, () => ({ activityId: 200 })).concat(
+      Array.from({ length: 30 }, () => ({ activityId: 9999 })),
+    );
+    expect(detectUnknownSuuntoActivityIds(workouts).sort((a, b) => a - b)).toEqual([200, 9999]);
+  });
+
+  it('treats activityId 89 (the documented gap) as unknown', () => {
+    // Mirrors the isKnownSuuntoActivity(89) === false case — if Suunto ever
+    // fills the 88→90 gap with a new sport, we want drift detection to fire.
+    expect(detectUnknownSuuntoActivityIds([{ activityId: 89 }])).toEqual([89]);
   });
 });
