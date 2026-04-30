@@ -93,6 +93,29 @@ describe('notification.service', () => {
       expect(mockSendPushNotificationsAsync).not.toHaveBeenCalled();
     });
 
+    it('should send a combined upload + pick-bike notification when needsBikeAssignment is true', async () => {
+      await notifyRideUploaded({ ...baseParams, bikeName: undefined, needsBikeAssignment: true });
+
+      expect(mockSendPushNotificationsAsync).toHaveBeenCalledWith([
+        expect.objectContaining({
+          title: 'Ride Synced',
+          body: expect.stringContaining('Tap to choose which bike'),
+          data: { screen: 'ride', rideId: 'ride-1', action: 'pickBike' },
+        }),
+      ]);
+    });
+
+    it('should send the pick-bike prompt even when notifyOnRideUpload is false', async () => {
+      await notifyRideUploaded({
+        ...baseParams,
+        bikeName: undefined,
+        needsBikeAssignment: true,
+        user: { ...baseUser, notifyOnRideUpload: false },
+      });
+
+      expect(mockSendPushNotificationsAsync).toHaveBeenCalledTimes(1);
+    });
+
     it('should send notification with miles when user prefers mi', async () => {
       await notifyRideUploaded(baseParams);
 
@@ -466,7 +489,7 @@ describe('notification.service', () => {
       expect(enqueueReceiptCheck).not.toHaveBeenCalled();
     });
 
-    it('should send a bike-pick prompt with action:pickBike payload when bike is unassigned and user has 2+ bikes', async () => {
+    it('should fold the pick-bike prompt into the upload notification when bike is unassigned and user has 2+ bikes', async () => {
       mockSendPushNotificationsAsync.mockResolvedValue([{ status: 'ok', id: 'ticket-pick' }]);
 
       await fireRideNotifications({
@@ -475,20 +498,20 @@ describe('notification.service', () => {
         activeBikeCount: 3,
       });
 
-      // Find the call that's the bike-pick prompt (second push, since the
-      // first is the standard "Ride Synced"). Match by data.action.
-      const bikePickCall = mockSendPushNotificationsAsync.mock.calls.find(
+      const bikePickCalls = mockSendPushNotificationsAsync.mock.calls.filter(
         (call) => call[0]?.[0]?.data?.action === 'pickBike'
       );
-      expect(bikePickCall).toBeDefined();
-      expect(bikePickCall![0][0]).toMatchObject({
-        title: 'Assign a Bike',
-        body: expect.stringContaining('Which bike did you ride'),
+      // Exactly one push carries the pickBike hint — no separate "Assign a
+      // Bike" notification.
+      expect(bikePickCalls).toHaveLength(1);
+      expect(bikePickCalls[0][0][0]).toMatchObject({
+        title: 'Ride Synced',
+        body: expect.stringContaining('Tap to choose which bike'),
         data: { screen: 'ride', rideId: 'ride-1', action: 'pickBike' },
       });
     });
 
-    it('should not send a bike-pick prompt when user has only one bike', async () => {
+    it('should not fold in the pick-bike prompt when user has only one bike', async () => {
       mockSendPushNotificationsAsync.mockResolvedValue([{ status: 'ok', id: 'ticket-x' }]);
 
       await fireRideNotifications({
@@ -503,7 +526,7 @@ describe('notification.service', () => {
       expect(bikePickCall).toBeUndefined();
     });
 
-    it('should not send a bike-pick prompt when bike is already assigned', async () => {
+    it('should not fold in the pick-bike prompt when bike is already assigned', async () => {
       mockSendPushNotificationsAsync.mockResolvedValue([{ status: 'ok', id: 'ticket-y' }]);
 
       await fireRideNotifications({

@@ -1,6 +1,7 @@
 import {
   SUUNTO_CYCLING_ACTIVITY_IDS,
   isSuuntoCyclingActivity,
+  isKnownSuuntoActivity,
   getSuuntoRideType,
 } from './suunto';
 
@@ -79,5 +80,36 @@ describe('getSuuntoRideType', () => {
 
   it('falls back to "Cycling" for unknown ids (defensive)', () => {
     expect(getSuuntoRideType(9999)).toBe('Cycling');
+  });
+});
+
+describe('isKnownSuuntoActivity', () => {
+  it.each([
+    [0, 'walking — first ID in catalog'],
+    [1, 'running'],
+    [37, 'baseball'],
+    [88, 'paragliding — last ID before the 89 gap'],
+    [90, 'snorkeling — first ID after the 89 gap'],
+    [121, 'yoga — highest ID in the current catalog'],
+    [2, 'cycling — also a cycling ID'],
+    [114, 'cyclocross — also a cycling ID'],
+  ])('returns true for documented activity id %i (%s)', (id) => {
+    expect(isKnownSuuntoActivity(id)).toBe(true);
+  });
+
+  it('returns false for activityId 89 (the documented gap in Suunto\'s catalog)', () => {
+    // The PDF jumps from 88 Paragliding straight to 90 Snorkeling. ID 89 is
+    // unused. Treating it as known would mask drift if Suunto ever fills the
+    // gap with a new sport.
+    expect(isKnownSuuntoActivity(89)).toBe(false);
+  });
+
+  it.each([
+    [122, 'one past the highest documented ID'],
+    [200, 'far future ID'],
+    [9999, 'absurd future ID'],
+    [-1, 'negative (defensive)'],
+  ])('returns false for undocumented activity id %i (%s)', (id) => {
+    expect(isKnownSuuntoActivity(id)).toBe(false);
   });
 });

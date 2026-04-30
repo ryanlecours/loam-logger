@@ -3,7 +3,7 @@ import { createHmac, timingSafeEqual } from 'crypto';
 import { prisma } from '../lib/prisma';
 import { createLogger, logError } from '../lib/logger';
 import { isActiveSource } from '../lib/active-source';
-import { isSuuntoCyclingActivity, getSuuntoRideType } from '../types/suunto';
+import { isSuuntoCyclingActivity, getSuuntoRideType, isKnownSuuntoActivity } from '../types/suunto';
 import { syncBikeComponentHours } from '../lib/component-hours';
 import { fireRideNotifications } from '../services/notification.service';
 
@@ -141,10 +141,26 @@ async function processWorkoutCreated(event: WorkoutCreatedEvent): Promise<void> 
   }
 
   if (!isSuuntoCyclingActivity(workout.activityId)) {
-    log.info(
-      { userId: userAccount.userId, activityId: workout.activityId, workoutKey: workout.workoutKey },
-      'Suunto webhook: non-cycling activity, skipping'
-    );
+    // Two flavors of non-cycling. Known IDs (running, swimming, etc.) are
+    // routine; log at info. Unknown IDs are a catalog-drift signal — Suunto
+    // added a sport since our last Activities.pdf review, and we should
+    // evaluate whether it belongs in SUUNTO_CYCLING_ACTIVITY_IDS. Log at
+    // warn so it surfaces in error dashboards without being lost in info
+    // volume.
+    const isKnown = isKnownSuuntoActivity(workout.activityId);
+    const fields = {
+      userId: userAccount.userId,
+      activityId: workout.activityId,
+      workoutKey: workout.workoutKey,
+    };
+    if (isKnown) {
+      log.info(fields, 'Suunto webhook: non-cycling activity, skipping');
+    } else {
+      log.warn(
+        fields,
+        'Suunto webhook: unknown activity ID — Suunto catalog may have drifted; review Activities.pdf and update KNOWN_SUUNTO_ACTIVITY_IDS / SUUNTO_CYCLING_ACTIVITY_IDS in types/suunto.ts'
+      );
+    }
     return;
   }
 

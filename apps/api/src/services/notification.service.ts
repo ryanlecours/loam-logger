@@ -60,7 +60,14 @@ type NotificationUser = {
 };
 
 /**
- * Send a notification when a ride is synced from an integration (Strava/Garmin).
+ * Send a notification when a ride is synced from an integration (Strava/Garmin/Whoop/Suunto).
+ *
+ * If `needsBikeAssignment` is true (unassigned ride on a multi-bike account),
+ * the body is extended with a tap-to-pick prompt and `data.action = 'pickBike'`
+ * is set so the mobile listener deep-links straight into the bike picker on
+ * the ride detail screen. Sends regardless of `notifyOnRideUpload` in that
+ * case — the picker prompt is a one-shot affordance independent of the
+ * recurring "you uploaded a ride" preference.
  */
 export async function notifyRideUploaded(params: {
   userId: string;
@@ -68,11 +75,12 @@ export async function notifyRideUploaded(params: {
   durationSeconds: number;
   distanceMeters: number;
   bikeName?: string;
+  needsBikeAssignment?: boolean;
   user: NotificationUser;
 }): Promise<string | undefined> {
-  const { rideId, durationSeconds, distanceMeters, bikeName, user } = params;
+  const { rideId, durationSeconds, distanceMeters, bikeName, needsBikeAssignment, user } = params;
 
-  if (!user.notifyOnRideUpload) return;
+  if (!user.notifyOnRideUpload && !needsBikeAssignment) return;
 
   const durationMin = Math.round(durationSeconds / 60);
   const isKm = user.distanceUnit === 'km';
@@ -82,13 +90,18 @@ export async function notifyRideUploaded(params: {
   const unit = isKm ? 'km' : 'mi';
 
   const bikeLabel = bikeName ? ` on ${bikeName}` : '';
-  const body = `${durationMin} min, ${distance} ${unit}${bikeLabel}`;
+  const baseBody = `${durationMin} min, ${distance} ${unit}${bikeLabel}`;
+  const body = needsBikeAssignment
+    ? `${baseBody} · Tap to choose which bike you rode.`
+    : baseBody;
 
   const ticketId = await sendPushNotification({
     pushToken: user.expoPushToken,
     title: 'Ride Synced',
     body,
-    data: { screen: 'ride', rideId },
+    data: needsBikeAssignment
+      ? { screen: 'ride', rideId, action: 'pickBike' }
+      : { screen: 'ride', rideId },
   });
 
   return ticketId ?? undefined;
@@ -287,9 +300,19 @@ export async function fireRideNotifications(params: {
 
     const ticketIds: string[] = [];
 
-    // Ride upload notification
+    // Decide up-front whether the ride needs a bike-pick prompt so the upload
+    // notification can be folded in. Previously this fired as a SECOND push
+    // on multi-bike accounts (one "Ride Synced" + one "Assign a Bike"); with
+    // multiple sync sources (Garmin/Strava/Whoop/Suunto) producing their own
+    // pair each, the lockscreen got noisy. One consolidated push now carries
+    // both the upload summary and the `action: 'pickBike'` deep-link hint.
+    const needsBikeAssignment =
+      !bikeId &&
+      (providedBikeCount ?? (await prisma.bike.count({ where: { userId, status: 'ACTIVE' } }))) > 1;
+
     const rideTicketId = await notifyRideUploaded({
       userId, rideId, durationSeconds, distanceMeters, bikeName,
+      needsBikeAssignment,
       user: {
         expoPushToken: user.expoPushToken,
         notifyOnRideUpload: user.notifyOnRideUpload,
@@ -297,23 +320,6 @@ export async function fireRideNotifications(params: {
       },
     });
     if (rideTicketId) ticketIds.push(rideTicketId);
-
-    // Notify multi-bike users when a ride is imported without a bike assignment.
-    // The `action: 'pickBike'` data hint tells mobile's notification listener
-    // to auto-open the bike-picker on the ride detail screen rather than just
-    // landing there (handled in src/lib/notifications.ts).
-    if (!bikeId) {
-      const activeBikeCount = providedBikeCount ?? await prisma.bike.count({ where: { userId, status: 'ACTIVE' } });
-      if (activeBikeCount > 1) {
-        const unassignedTicketId = await sendPushNotification({
-          pushToken: user.expoPushToken,
-          title: 'Assign a Bike',
-          body: 'Which bike did you ride? Tap to choose so component hours track correctly.',
-          data: { screen: 'ride', rideId, action: 'pickBike' },
-        });
-        if (unassignedTicketId) ticketIds.push(unassignedTicketId);
-      }
-    }
 
     // Service due check (only if ride is assigned to a bike)
     if (bikeId && bikeName) {

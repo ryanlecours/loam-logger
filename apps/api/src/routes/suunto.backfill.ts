@@ -18,7 +18,7 @@ import {
   findPotentialDuplicates,
   type DuplicateCandidate,
 } from '../lib/duplicate-detector';
-import { isSuuntoCyclingActivity, getSuuntoRideType } from '../types/suunto';
+import { isSuuntoCyclingActivity, getSuuntoRideType, isKnownSuuntoActivity } from '../types/suunto';
 import {
   SUUNTO_API_BASE,
   suuntoFetch,
@@ -229,6 +229,24 @@ r.get<Empty, void, Empty, { year?: string }>(
       const cyclingWorkouts = workouts.filter((w) =>
         isSuuntoCyclingActivity(w.activityId)
       );
+
+      // Surface catalog drift: any non-cycling activityId we don't even
+      // recognize is a signal that Suunto added a new sport since our
+      // last Activities.pdf review. Dedupe so a year of the same unknown
+      // sport doesn't blow up logs. Backfill is bulk so we batch the warn.
+      const unknownActivityIds = Array.from(
+        new Set(
+          workouts
+            .filter((w) => !isSuuntoCyclingActivity(w.activityId) && !isKnownSuuntoActivity(w.activityId))
+            .map((w) => w.activityId)
+        )
+      );
+      if (unknownActivityIds.length > 0) {
+        logger.warn(
+          { userId, unknownActivityIds, totalWorkouts: workouts.length },
+          '[Suunto Backfill] Unknown activity IDs encountered — Suunto catalog may have drifted; review Activities.pdf and update KNOWN_SUUNTO_ACTIVITY_IDS / SUUNTO_CYCLING_ACTIVITY_IDS in types/suunto.ts'
+        );
+      }
 
       logger.info(
         { cyclingWorkouts: cyclingWorkouts.length },
