@@ -276,8 +276,16 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string }>(
 // ---------------------------------------------------------------------------
 // WHOOP doesn't use the `UserIntegration` table (see comment in callback);
 // connection state lives in `oauthToken` keyed on (userId, provider='whoop').
-// Presence of that row is the single source of truth — same row that the
+// Presence of that row is the single source of truth — same row the
 // disconnect handler below clears.
+//
+// The response payload is intentionally narrower than Suunto/Garmin/Strava
+// status: `OauthToken` doesn't carry `revokedAt`, `lastSyncAt`, or `scopes`
+// columns (those live on `UserIntegration`, which WHOOP doesn't populate).
+// We omit those fields rather than emit hardcoded `null`s — the mobile
+// `IntegrationStatus` type already declares them optional, and explicit
+// nulls would falsely suggest the data is "available but currently empty"
+// when it doesn't exist anywhere in our schema.
 r.get('/whoop/status', async (req: Request, res: Response) => {
   const userId = req.sessionUser?.uid;
   if (!userId) {
@@ -293,9 +301,6 @@ r.get('/whoop/status', async (req: Request, res: Response) => {
       return sendSuccess(res, {
         connected: true,
         connectedAt: oauthToken.createdAt.toISOString(),
-        revokedAt: null,
-        lastSyncAt: null,
-        scopes: null,
       });
     }
 
@@ -317,11 +322,17 @@ async function handleWhoopDisconnect(userId: string): Promise<boolean> {
     log.warn({ userId }, 'WHOOP token revocation failed, proceeding with local cleanup');
   }
 
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { activeDataSource: true },
-  });
-
+  // Atomic-ish cleanup. The pre-refactor code did a `findUnique` of
+  // `activeDataSource` outside the transaction, then conditionally set it to
+  // null inside — a TOCTOU window where a concurrent request (e.g. user
+  // toggling data source from another device) could change the value
+  // between read and write, leaving stale state.
+  //
+  // Replaced with a SQL-level conditional: an `updateMany` whose `where`
+  // clause includes `activeDataSource: 'whoop'` runs as a single statement
+  // and only writes the row if the value is still 'whoop' at execution
+  // time. Two separate writes — `whoopUserId` always cleared on the user,
+  // `activeDataSource` cleared only if it still points at WHOOP.
   await prisma.$transaction([
     prisma.oauthToken.deleteMany({
       where: { userId, provider: 'whoop' },
@@ -331,10 +342,11 @@ async function handleWhoopDisconnect(userId: string): Promise<boolean> {
     }),
     prisma.user.update({
       where: { id: userId },
-      data: {
-        whoopUserId: null,
-        ...(user?.activeDataSource === 'whoop' ? { activeDataSource: null } : {}),
-      },
+      data: { whoopUserId: null },
+    }),
+    prisma.user.updateMany({
+      where: { id: userId, activeDataSource: 'whoop' },
+      data: { activeDataSource: null },
     }),
   ]);
 
@@ -357,6 +369,21 @@ r.post('/whoop/disconnect', async (req: Request, res: Response) => {
   }
 });
 
+// CONTRACT CHANGE (this PR): the response body shape changed from
+// `{ success: true }` to `{ ok: true }`. This is an intentional unification
+// with the new POST /whoop/disconnect — both verbs now return the canonical
+// `sendSuccess` envelope so callers don't have to branch on the field name.
+//
+// Audited consumers before changing:
+//   - Web: apps/web/src/pages/Settings/sections/DataSourcesSection.tsx
+//     `runDisconnect` only checks `res.ok` (HTTP status), never reads the
+//     body field. Safe.
+//   - Mobile: src/api/integrations.ts `disconnectIntegration` only checks
+//     `response.ok` and parses errors from `response.json()`; the success
+//     body is ignored. Safe.
+//
+// If a future external consumer relies on `{ success: true }`, surface
+// that in the PR description / changelog before merging this rename.
 r.delete<Empty, void, Empty>('/whoop/disconnect', async (req: Request, res: Response) => {
   const userId = req.user?.id || req.sessionUser?.uid;
   if (!userId) {
@@ -367,8 +394,8 @@ r.delete<Empty, void, Empty>('/whoop/disconnect', async (req: Request, res: Resp
     const revoked = await handleWhoopDisconnect(userId);
     log.info({ userId, revoked }, 'WHOOP disconnected (web)');
     return sendSuccess(res);
-  } catch (error) {
-    log.error({ err: error, userId }, 'WHOOP disconnect failed');
+  } catch (err) {
+    log.error({ err, userId }, 'WHOOP disconnect failed');
     return sendInternalError(res, 'Failed to disconnect');
   }
 });

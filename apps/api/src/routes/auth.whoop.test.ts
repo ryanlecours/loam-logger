@@ -16,6 +16,7 @@ const mockOauthTokenFindUnique = jest.fn();
 const mockFindMany = jest.fn();
 const mockUpsert = jest.fn();
 const mockUpdate = jest.fn();
+const mockUpdateMany = jest.fn();
 const mockDeleteMany = jest.fn();
 const mockTransaction = jest.fn();
 
@@ -33,6 +34,7 @@ const mockPrisma = {
   user: {
     findUnique: mockFindUnique,
     update: mockUpdate,
+    updateMany: mockUpdateMany,
   },
   $transaction: mockTransaction,
 };
@@ -424,7 +426,6 @@ describe('auth.whoop routes', () => {
       };
 
       mockRevokeWhoopTokenForUser.mockResolvedValue(true);
-      mockFindUnique.mockResolvedValue({ activeDataSource: 'garmin' });
       mockTransaction.mockResolvedValue(undefined);
     });
 
@@ -453,6 +454,18 @@ describe('auth.whoop routes', () => {
       expect(mockTransaction).toHaveBeenCalled();
     });
 
+    it('should not pre-read activeDataSource (no TOCTOU window)', async () => {
+      // The pre-refactor code did a `user.findUnique({ select: activeDataSource })`
+      // outside the transaction, then conditionally cleared inside — the
+      // window between read and write was a race against concurrent updates
+      // from another device. The new code uses a SQL-level conditional
+      // updateMany instead. Pin that the read is gone so a future
+      // contributor can't quietly reintroduce the race.
+      await invokeHandler(handler, mockReq as Request, mockRes as Response);
+
+      expect(mockFindUnique).not.toHaveBeenCalled();
+    });
+
     it('should return success response', async () => {
       await invokeHandler(handler, mockReq as Request, mockRes as Response);
 
@@ -471,13 +484,24 @@ describe('auth.whoop routes', () => {
       expect(mockRes.status).toHaveBeenCalledWith(200);
     });
 
-    it('should clear activeDataSource if it was whoop', async () => {
-      mockFindUnique.mockResolvedValue({ activeDataSource: 'whoop' });
-
+    it('should issue a SQL-conditional updateMany to clear activeDataSource only if it still equals whoop', async () => {
+      // Stronger than the pre-refactor "include clearing activeDataSource"
+      // assertion: pins the exact `where` shape of the conditional update.
+      // If a future contributor drops `activeDataSource: 'whoop'` from the
+      // where clause, the update would clobber a value another device just
+      // wrote — re-introducing the TOCTOU bug this fix eliminated.
       await invokeHandler(handler, mockReq as Request, mockRes as Response);
 
-      // Transaction should include clearing activeDataSource
-      expect(mockTransaction).toHaveBeenCalled();
+      expect(mockUpdateMany).toHaveBeenCalledWith({
+        where: { id: 'user-123', activeDataSource: 'whoop' },
+        data: { activeDataSource: null },
+      });
+      // The unconditional clear of whoopUserId is a separate update, scoped
+      // to the user by primary key only — that one always runs.
+      expect(mockUpdate).toHaveBeenCalledWith({
+        where: { id: 'user-123' },
+        data: { whoopUserId: null },
+      });
     });
 
     it('should handle database errors gracefully', async () => {
@@ -534,18 +558,18 @@ describe('auth.whoop routes', () => {
         where: { userId_provider: { userId: 'user-123', provider: 'whoop' } },
       });
       expect(mockRes.status).toHaveBeenCalledWith(200);
-      expect(mockRes.json).toHaveBeenCalledWith(
-        expect.objectContaining({
-          ok: true,
-          data: expect.objectContaining({
-            connected: true,
-            connectedAt: createdAt.toISOString(),
-            revokedAt: null,
-            lastSyncAt: null,
-            scopes: null,
-          }),
-        }),
-      );
+      // Payload is intentionally narrower than the Suunto/Garmin/Strava
+      // status shape — WHOOP's OauthToken row has no revokedAt/lastSyncAt/
+      // scopes columns, so we omit those fields rather than emit
+      // hardcoded nulls. Pinned by exact-shape assertion so a future
+      // contributor can't quietly re-add misleading null placeholders.
+      expect(mockRes.json).toHaveBeenCalledWith({
+        ok: true,
+        data: {
+          connected: true,
+          connectedAt: createdAt.toISOString(),
+        },
+      });
     });
 
     it('should return connected: false when no oauth token exists', async () => {
@@ -614,7 +638,6 @@ describe('auth.whoop routes', () => {
       };
 
       mockRevokeWhoopTokenForUser.mockResolvedValue(true);
-      mockFindUnique.mockResolvedValue({ activeDataSource: 'garmin' });
       mockTransaction.mockResolvedValue(undefined);
     });
 
