@@ -18,7 +18,11 @@ import {
   findPotentialDuplicates,
   type DuplicateCandidate,
 } from '../lib/duplicate-detector';
-import { isSuuntoCyclingActivity, getSuuntoRideType } from '../types/suunto';
+import {
+  isSuuntoCyclingActivity,
+  getSuuntoRideType,
+  detectUnknownSuuntoActivityIds,
+} from '../types/suunto';
 import {
   SUUNTO_API_BASE,
   suuntoFetch,
@@ -229,6 +233,14 @@ r.get<Empty, void, Empty, { year?: string }>(
       const cyclingWorkouts = workouts.filter((w) =>
         isSuuntoCyclingActivity(w.activityId)
       );
+
+      const unknownActivityIds = detectUnknownSuuntoActivityIds(workouts);
+      if (unknownActivityIds.length > 0) {
+        logger.warn(
+          { userId, unknownActivityIds, totalWorkouts: workouts.length },
+          '[Suunto Backfill] Unknown activity IDs encountered — Suunto catalog may have drifted; review Activities.pdf and update KNOWN_SUUNTO_ACTIVITY_IDS / SUUNTO_CYCLING_ACTIVITY_IDS in types/suunto.ts'
+        );
+      }
 
       logger.info(
         { cyclingWorkouts: cyclingWorkouts.length },

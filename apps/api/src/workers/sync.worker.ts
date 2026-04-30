@@ -25,7 +25,12 @@ import {
   type WhoopWorkout,
   type WhoopPaginatedResponse,
 } from '../types/whoop';
-import { isSuuntoCyclingActivity, getSuuntoRideType } from '../types/suunto';
+import {
+  isSuuntoCyclingActivity,
+  getSuuntoRideType,
+  isKnownSuuntoActivity,
+  detectUnknownSuuntoActivityIds,
+} from '../types/suunto';
 import {
   SUUNTO_API_BASE,
   suuntoFetch,
@@ -914,6 +919,14 @@ async function syncSuuntoLatest(userId: string): Promise<void> {
 
   const cyclingWorkouts = workouts.filter((w) => isSuuntoCyclingActivity(w.activityId));
 
+  const unknownActivityIds = detectUnknownSuuntoActivityIds(workouts);
+  if (unknownActivityIds.length > 0) {
+    logger.warn(
+      { userId, unknownActivityIds, totalWorkouts: workouts.length },
+      '[SyncWorker] Unknown Suunto activity IDs encountered — Suunto catalog may have drifted; review Activities.pdf and update KNOWN_SUUNTO_ACTIVITY_IDS / SUUNTO_CYCLING_ACTIVITY_IDS in types/suunto.ts'
+    );
+  }
+
   logger.debug({ count: cyclingWorkouts.length }, '[SyncWorker] Processing cycling workouts');
 
   // Hoist the active-bikes query out of the loop so we don't repeat it for
@@ -963,10 +976,19 @@ async function syncSuuntoActivity(userId: string, workoutKey: string): Promise<v
   }
 
   if (!isSuuntoCyclingActivity(workout.activityId)) {
-    logger.debug(
-      { workoutKey, activityId: workout.activityId },
-      '[SyncWorker] Skipping non-cycling Suunto workout'
-    );
+    // Known sport (running/swimming/etc.) → debug. Unknown sport →
+    // warn so Suunto catalog drift surfaces in error dashboards.
+    if (isKnownSuuntoActivity(workout.activityId)) {
+      logger.debug(
+        { workoutKey, activityId: workout.activityId },
+        '[SyncWorker] Skipping non-cycling Suunto workout'
+      );
+    } else {
+      logger.warn(
+        { workoutKey, activityId: workout.activityId },
+        '[SyncWorker] Unknown Suunto activity ID — review Activities.pdf and update types/suunto.ts'
+      );
+    }
     return;
   }
 

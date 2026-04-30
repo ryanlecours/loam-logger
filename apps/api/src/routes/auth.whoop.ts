@@ -2,7 +2,7 @@ import { Router as createRouter, type Router, type Request, type Response } from
 import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { randomString } from '../lib/pcke';
-import { sendBadRequest, sendUnauthorized, sendInternalError } from '../lib/api-response';
+import { sendBadRequest, sendSuccess, sendUnauthorized, sendInternalError } from '../lib/api-response';
 import { createLogger } from '../lib/logger';
 import { revokeWhoopTokenForUser } from '../lib/whoop-token';
 import { WHOOP_AUTH_URL, WHOOP_TOKEN_URL, type WhoopUserProfile } from '../types/whoop';
@@ -253,10 +253,143 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string }>(
   }
 );
 
-/**
- * 3) Disconnect WHOOP account
- * Revokes OAuth token with WHOOP, then removes from database
- */
+// ---------------------------------------------------------------------------
+// Auth strategy for the routes below
+// ---------------------------------------------------------------------------
+// `req.sessionUser` is populated by the mobile bearer-token middleware;
+// `req.user` is populated by the web session-cookie middleware. The two
+// upstream auth flows are independent, so each route below picks the
+// resolver that matches its caller.
+//
+// - `GET /whoop/status` and `POST /whoop/disconnect` are mobile-only
+//   surfaces (the web app reads connection state via its own data path
+//   and disconnects via DELETE), so they only consult `req.sessionUser`.
+// - `DELETE /whoop/disconnect` is the web's path but falls back to
+//   `req.sessionUser` to keep it usable from a mobile client too — no
+//   reason to gate it.
+//
+// Mirrors the Suunto pattern in auth.suunto.ts.
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// 3) Status — connection status for mobile UI
+// ---------------------------------------------------------------------------
+// WHOOP doesn't use the `UserIntegration` table (see comment in callback);
+// connection state lives in `oauthToken` keyed on (userId, provider='whoop').
+// Presence of that row is the single source of truth — same row the
+// disconnect handler below clears.
+//
+// The response payload is intentionally narrower than Suunto/Garmin/Strava
+// status: `OauthToken` doesn't carry `revokedAt`, `lastSyncAt`, or `scopes`
+// columns (those live on `UserIntegration`, which WHOOP doesn't populate).
+// We omit those fields rather than emit hardcoded `null`s — the mobile
+// `IntegrationStatus` type already declares them optional, and explicit
+// nulls would falsely suggest the data is "available but currently empty"
+// when it doesn't exist anywhere in our schema.
+r.get('/whoop/status', async (req: Request, res: Response) => {
+  const userId = req.sessionUser?.uid;
+  if (!userId) {
+    return sendUnauthorized(res, 'Not authenticated');
+  }
+
+  try {
+    // `select` scoped to only the column we render. Without it Prisma
+    // pulls `accessToken` and `refreshToken` (sensitive credential
+    // material) into the API process's memory — unnecessary for a status
+    // check, and a free way to reduce the data those fields could leak
+    // into via stack traces, error-path logs, or future debug breakpoints.
+    const oauthToken = await prisma.oauthToken.findUnique({
+      where: { userId_provider: { userId, provider: 'whoop' } },
+      select: { createdAt: true },
+    });
+
+    if (oauthToken) {
+      return sendSuccess(res, {
+        connected: true,
+        connectedAt: oauthToken.createdAt.toISOString(),
+      });
+    }
+
+    return sendSuccess(res, { connected: false });
+  } catch (err) {
+    log.error({ err, userId }, 'Failed to get WHOOP status');
+    return sendInternalError(res);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 4/5) Disconnect — shared logic for POST (mobile) and DELETE (web)
+// ---------------------------------------------------------------------------
+async function handleWhoopDisconnect(userId: string): Promise<boolean> {
+  // Revoke the token with WHOOP BEFORE deleting locally so the token is
+  // invalidated on WHOOP's servers even if the local cleanup fails.
+  const revoked = await revokeWhoopTokenForUser(userId);
+  if (!revoked) {
+    log.warn({ userId }, 'WHOOP token revocation failed, proceeding with local cleanup');
+  }
+
+  // Atomic-ish cleanup. The pre-refactor code did a `findUnique` of
+  // `activeDataSource` outside the transaction, then conditionally set it to
+  // null inside — a TOCTOU window where a concurrent request (e.g. user
+  // toggling data source from another device) could change the value
+  // between read and write, leaving stale state.
+  //
+  // Replaced with a SQL-level conditional: an `updateMany` whose `where`
+  // clause includes `activeDataSource: 'whoop'` runs as a single statement
+  // and only writes the row if the value is still 'whoop' at execution
+  // time. Two separate writes — `whoopUserId` always cleared on the user,
+  // `activeDataSource` cleared only if it still points at WHOOP.
+  await prisma.$transaction([
+    prisma.oauthToken.deleteMany({
+      where: { userId, provider: 'whoop' },
+    }),
+    prisma.userAccount.deleteMany({
+      where: { userId, provider: 'whoop' },
+    }),
+    prisma.user.update({
+      where: { id: userId },
+      data: { whoopUserId: null },
+    }),
+    prisma.user.updateMany({
+      where: { id: userId, activeDataSource: 'whoop' },
+      data: { activeDataSource: null },
+    }),
+  ]);
+
+  return revoked;
+}
+
+r.post('/whoop/disconnect', async (req: Request, res: Response) => {
+  const userId = req.sessionUser?.uid;
+  if (!userId) {
+    return sendUnauthorized(res, 'Not authenticated');
+  }
+
+  try {
+    const revoked = await handleWhoopDisconnect(userId);
+    log.info({ userId, revoked }, 'WHOOP disconnected (mobile)');
+    return sendSuccess(res);
+  } catch (err) {
+    log.error({ err, userId }, 'WHOOP disconnect failed');
+    return sendInternalError(res, 'Failed to disconnect');
+  }
+});
+
+// CONTRACT CHANGE (this PR): the response body shape changed from
+// `{ success: true }` to `{ ok: true }`. This is an intentional unification
+// with the new POST /whoop/disconnect — both verbs now return the canonical
+// `sendSuccess` envelope so callers don't have to branch on the field name.
+//
+// Audited consumers before changing:
+//   - Web: apps/web/src/pages/Settings/sections/DataSourcesSection.tsx
+//     `runDisconnect` only checks `res.ok` (HTTP status), never reads the
+//     body field. Safe.
+//   - Mobile: src/api/integrations.ts `disconnectIntegration` only checks
+//     `response.ok` and parses errors from `response.json()`; the success
+//     body is ignored. Safe.
+//
+// If a future external consumer relies on `{ success: true }`, surface
+// that in the PR description / changelog before merging this rename.
 r.delete<Empty, void, Empty>('/whoop/disconnect', async (req: Request, res: Response) => {
   const userId = req.user?.id || req.sessionUser?.uid;
   if (!userId) {
@@ -264,46 +397,11 @@ r.delete<Empty, void, Empty>('/whoop/disconnect', async (req: Request, res: Resp
   }
 
   try {
-    // Revoke the token with WHOOP BEFORE deleting locally
-    // This ensures the token is invalidated on WHOOP's servers
-    const revoked = await revokeWhoopTokenForUser(userId);
-    if (!revoked) {
-      log.warn({ userId }, 'WHOOP token revocation failed, proceeding with local cleanup');
-    }
-
-    // Get user to check if WHOOP is the active source
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { activeDataSource: true },
-    });
-
-    // Delete tokens and account record, and clear activeDataSource if it was WHOOP
-    await prisma.$transaction([
-      prisma.oauthToken.deleteMany({
-        where: {
-          userId,
-          provider: 'whoop',
-        },
-      }),
-      prisma.userAccount.deleteMany({
-        where: {
-          userId,
-          provider: 'whoop',
-        },
-      }),
-      prisma.user.update({
-        where: { id: userId },
-        data: {
-          whoopUserId: null,
-          ...(user?.activeDataSource === 'whoop' ? { activeDataSource: null } : {}),
-        },
-      }),
-    ]);
-
-    log.info({ userId, revoked }, 'WHOOP disconnected');
-    return res.status(200).json({ success: true });
-  } catch (error) {
-    log.error({ err: error, userId }, 'WHOOP disconnect failed');
+    const revoked = await handleWhoopDisconnect(userId);
+    log.info({ userId, revoked }, 'WHOOP disconnected (web)');
+    return sendSuccess(res);
+  } catch (err) {
+    log.error({ err, userId }, 'WHOOP disconnect failed');
     return sendInternalError(res, 'Failed to disconnect');
   }
 });

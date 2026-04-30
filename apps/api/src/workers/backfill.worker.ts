@@ -13,7 +13,11 @@ import type { BackfillJobData, BackfillJobName } from '../lib/queue/backfill.que
 import { enqueueWeatherJob } from '../lib/queue';
 import { captureServerEvent } from '../lib/posthog';
 import { incrementBikeComponentHours, syncBikeComponentHours } from '../lib/component-hours';
-import { isSuuntoCyclingActivity, getSuuntoRideType } from '../types/suunto';
+import {
+  isSuuntoCyclingActivity,
+  getSuuntoRideType,
+  detectUnknownSuuntoActivityIds,
+} from '../types/suunto';
 import {
   SUUNTO_API_BASE,
   suuntoFetch,
@@ -407,6 +411,14 @@ async function processSuuntoBackfill(userId: string, year: string): Promise<void
   }
 
   const cyclingWorkouts = workouts.filter((w) => isSuuntoCyclingActivity(w.activityId));
+
+  const unknownActivityIds = detectUnknownSuuntoActivityIds(workouts);
+  if (unknownActivityIds.length > 0) {
+    logger.warn(
+      { userId, unknownActivityIds, totalWorkouts: workouts.length },
+      '[BackfillWorker] Unknown Suunto activity IDs encountered — Suunto catalog may have drifted; review Activities.pdf and update KNOWN_SUUNTO_ACTIVITY_IDS / SUUNTO_CYCLING_ACTIVITY_IDS in types/suunto.ts'
+    );
+  }
 
   // Auto-assign to the single active bike if the user has exactly one; Suunto
   // has no gear tagging in the workout list so this is our only signal.
