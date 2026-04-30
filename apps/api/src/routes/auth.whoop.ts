@@ -2,7 +2,7 @@ import { Router as createRouter, type Router, type Request, type Response } from
 import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { randomString } from '../lib/pcke';
-import { sendBadRequest, sendUnauthorized, sendInternalError } from '../lib/api-response';
+import { sendBadRequest, sendSuccess, sendUnauthorized, sendInternalError } from '../lib/api-response';
 import { createLogger } from '../lib/logger';
 import { revokeWhoopTokenForUser } from '../lib/whoop-token';
 import { WHOOP_AUTH_URL, WHOOP_TOKEN_URL, type WhoopUserProfile } from '../types/whoop';
@@ -253,10 +253,92 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string }>(
   }
 );
 
-/**
- * 3) Disconnect WHOOP account
- * Revokes OAuth token with WHOOP, then removes from database
- */
+// ---------------------------------------------------------------------------
+// 3) Status — connection status for mobile UI
+// ---------------------------------------------------------------------------
+// WHOOP doesn't use the `UserIntegration` table (see comment in callback);
+// connection state lives in `oauthToken` keyed on (userId, provider='whoop').
+// Presence of that row is the single source of truth — same row that the
+// disconnect handler below clears.
+r.get('/whoop/status', async (req: Request, res: Response) => {
+  const userId = req.sessionUser?.uid;
+  if (!userId) {
+    return sendUnauthorized(res, 'Not authenticated');
+  }
+
+  try {
+    const oauthToken = await prisma.oauthToken.findUnique({
+      where: { userId_provider: { userId, provider: 'whoop' } },
+    });
+
+    if (oauthToken) {
+      return sendSuccess(res, {
+        connected: true,
+        connectedAt: oauthToken.createdAt.toISOString(),
+        revokedAt: null,
+        lastSyncAt: null,
+        scopes: null,
+      });
+    }
+
+    return sendSuccess(res, { connected: false });
+  } catch (err) {
+    log.error({ err, userId }, 'Failed to get WHOOP status');
+    return sendInternalError(res);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 4/5) Disconnect — shared logic for POST (mobile) and DELETE (web)
+// ---------------------------------------------------------------------------
+async function handleWhoopDisconnect(userId: string): Promise<boolean> {
+  // Revoke the token with WHOOP BEFORE deleting locally so the token is
+  // invalidated on WHOOP's servers even if the local cleanup fails.
+  const revoked = await revokeWhoopTokenForUser(userId);
+  if (!revoked) {
+    log.warn({ userId }, 'WHOOP token revocation failed, proceeding with local cleanup');
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { activeDataSource: true },
+  });
+
+  await prisma.$transaction([
+    prisma.oauthToken.deleteMany({
+      where: { userId, provider: 'whoop' },
+    }),
+    prisma.userAccount.deleteMany({
+      where: { userId, provider: 'whoop' },
+    }),
+    prisma.user.update({
+      where: { id: userId },
+      data: {
+        whoopUserId: null,
+        ...(user?.activeDataSource === 'whoop' ? { activeDataSource: null } : {}),
+      },
+    }),
+  ]);
+
+  return revoked;
+}
+
+r.post('/whoop/disconnect', async (req: Request, res: Response) => {
+  const userId = req.sessionUser?.uid;
+  if (!userId) {
+    return sendUnauthorized(res, 'Not authenticated');
+  }
+
+  try {
+    const revoked = await handleWhoopDisconnect(userId);
+    log.info({ userId, revoked }, 'WHOOP disconnected (mobile)');
+    return sendSuccess(res, { ok: true });
+  } catch (err) {
+    log.error({ err, userId }, 'WHOOP disconnect failed');
+    return sendInternalError(res, 'Failed to disconnect');
+  }
+});
+
 r.delete<Empty, void, Empty>('/whoop/disconnect', async (req: Request, res: Response) => {
   const userId = req.user?.id || req.sessionUser?.uid;
   if (!userId) {
@@ -264,43 +346,8 @@ r.delete<Empty, void, Empty>('/whoop/disconnect', async (req: Request, res: Resp
   }
 
   try {
-    // Revoke the token with WHOOP BEFORE deleting locally
-    // This ensures the token is invalidated on WHOOP's servers
-    const revoked = await revokeWhoopTokenForUser(userId);
-    if (!revoked) {
-      log.warn({ userId }, 'WHOOP token revocation failed, proceeding with local cleanup');
-    }
-
-    // Get user to check if WHOOP is the active source
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { activeDataSource: true },
-    });
-
-    // Delete tokens and account record, and clear activeDataSource if it was WHOOP
-    await prisma.$transaction([
-      prisma.oauthToken.deleteMany({
-        where: {
-          userId,
-          provider: 'whoop',
-        },
-      }),
-      prisma.userAccount.deleteMany({
-        where: {
-          userId,
-          provider: 'whoop',
-        },
-      }),
-      prisma.user.update({
-        where: { id: userId },
-        data: {
-          whoopUserId: null,
-          ...(user?.activeDataSource === 'whoop' ? { activeDataSource: null } : {}),
-        },
-      }),
-    ]);
-
-    log.info({ userId, revoked }, 'WHOOP disconnected');
+    const revoked = await handleWhoopDisconnect(userId);
+    log.info({ userId, revoked }, 'WHOOP disconnected (web)');
     return res.status(200).json({ success: true });
   } catch (error) {
     log.error({ err: error, userId }, 'WHOOP disconnect failed');
