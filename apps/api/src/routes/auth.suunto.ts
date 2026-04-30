@@ -78,6 +78,20 @@ r.get<Empty, void, Empty>('/suunto/start', async (_req: Request, res: Response) 
   url.searchParams.set('scope', SCOPE);
   url.searchParams.set('state', state);
 
+  // Diagnostic log for `invalid_client` debugging. Suunto's OAuth server
+  // rejects the AUTHORIZE call when client_id or redirect_uri don't match
+  // what's registered in API Zone, and the failure renders on Suunto's
+  // own domain — our callback never runs. Logging the values we send here
+  // is the only way to confirm what Suunto saw. Safe-to-log fields only:
+  // never the full client_id, never the secret.
+  log.info({
+    clientIdPrefix: CLIENT_ID.slice(0, 8),
+    clientIdLen: CLIENT_ID.length,
+    hasWhitespaceInId: /\s/.test(CLIENT_ID),
+    redirectUri: REDIRECT_URI,
+    statePrefix: state.slice(0, 6),
+  }, 'Suunto OAuth start (web): redirecting user to authorize');
+
   return res.redirect(url.toString());
 });
 
@@ -122,7 +136,18 @@ r.post<Empty, unknown, Empty>('/suunto/start', async (req: Request, res: Respons
     url.searchParams.set('scope', SCOPE);
     url.searchParams.set('state', state);
 
-    log.info({ userId, attemptId: attempt.id, provider: 'SUUNTO' }, 'Suunto OAuth start (mobile)');
+    // Same diagnostic shape as the web Start route — see comment there for
+    // why this is here (`invalid_client` debugging).
+    log.info({
+      userId,
+      attemptId: attempt.id,
+      provider: 'SUUNTO',
+      clientIdPrefix: CLIENT_ID.slice(0, 8),
+      clientIdLen: CLIENT_ID.length,
+      hasWhitespaceInId: /\s/.test(CLIENT_ID),
+      redirectUri: REDIRECT_URI,
+      statePrefix: state.slice(0, 6),
+    }, 'Suunto OAuth start (mobile): authorizeUrl issued');
     return sendSuccess(res, { authorizeUrl: url.toString() });
   } catch (err) {
     log.error({ err, userId }, 'Failed to create Suunto OAuth attempt');
@@ -214,6 +239,23 @@ r.get<Empty, void, Empty, { code?: string; state?: string }>(
       });
 
       const basicAuth = Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString('base64');
+
+      // Diagnostic log for `invalid_client` debugging on the TOKEN leg.
+      // If Suunto rejects this exchange after the AUTHORIZE leg succeeded,
+      // the credential pair (id+secret) likely drifted from what API Zone
+      // has registered. Length and whitespace fields catch the most common
+      // copy-paste artifacts. Never log the secret itself.
+      log.info({
+        userId,
+        attemptId,
+        clientIdPrefix: CLIENT_ID.slice(0, 8),
+        clientIdLen: CLIENT_ID.length,
+        clientSecretLen: CLIENT_SECRET.length,
+        hasWhitespaceInId: /\s/.test(CLIENT_ID),
+        hasWhitespaceInSecret: /\s/.test(CLIENT_SECRET),
+        redirectUri: REDIRECT_URI,
+        codePrefix: code.slice(0, 6),
+      }, 'Suunto OAuth callback: about to exchange code for token');
 
       const tokenRes = await fetch(TOKEN_URL, {
         method: 'POST',
