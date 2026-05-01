@@ -63,7 +63,7 @@ export default function PrivacyPolicy() {
                                     </p>
                                     <ul className="list-disc pl-6 space-y-2 body text-muted mt-3">
                                         <li><strong className="text-cream">Contractual necessity:</strong> Account data, fitness data, and subscription data are processed to provide the service you signed up for.</li>
-                                        <li><strong className="text-cream">Legitimate interest:</strong> Error tracking (Sentry), product analytics (PostHog), and security monitoring are processed to maintain and improve the service. You may object to analytics processing by opting out in Settings.</li>
+                                        <li><strong className="text-cream">Legitimate interest:</strong> Error tracking (Sentry), product analytics (PostHog), and security monitoring are processed to maintain and improve the service. You may object to analytics processing by opting out in Settings (see Section 6 for details).</li>
                                         <li><strong className="text-cream">Consent:</strong> Where required by law, we obtain your consent before processing (e.g., push notifications, optional integrations).</li>
                                     </ul>
                                 </section>
@@ -152,14 +152,14 @@ export default function PrivacyPolicy() {
                                 <section>
                                     <h2 className="card-title mb-3">11. Children</h2>
                                     <p className="body text-muted">
-                                        Loam Logger is not intended for children under 18. We do not knowingly collect data from children under 13 (the age threshold under COPPA). If we learn that we have collected data from a child under 13, we will delete it promptly.
+                                        You must be at least 16 years old to use Loam Logger (see our Terms of Service). We do not knowingly collect data from anyone under 16. If we learn that a user is under 16, we will delete their account and associated data promptly.
                                     </p>
                                 </section>
 
                                 <section>
                                     <h2 className="card-title mb-3">12. International Transfers</h2>
                                     <p className="body text-muted">
-                                        Your data is processed in the United States. If you are located outside the United States, your data will be transferred to the U.S. for processing. Where required by law (e.g., GDPR), we rely on Standard Contractual Clauses or other approved transfer mechanisms to ensure appropriate safeguards.
+                                        Your data is processed in the United States. If you are located outside the United States, your data will be transferred to the U.S. for processing. Where required by law (e.g., GDPR), we rely on Standard Contractual Clauses (SCCs) or other approved transfer mechanisms to ensure appropriate safeguards. Copies of applicable SCCs are available upon request by contacting us at the email below.
                                     </p>
                                 </section>
 
