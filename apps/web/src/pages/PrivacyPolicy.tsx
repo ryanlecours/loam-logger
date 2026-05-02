@@ -25,21 +25,24 @@ export default function PrivacyPolicy() {
                         <div className="space-y-6">
                             <div>
                                 <h1 className="section-title mb-2">Privacy Policy</h1>
-                                <p className="text-sm text-muted">Last updated: April 20, 2026</p>
+                                <p className="text-sm text-muted">Last updated: May 2, 2026</p>
                             </div>
 
                             <div className="max-h-[70vh] overflow-y-auto space-y-6 pr-4">
                                 <p className="body">
-                                    Loam Logger ("we," "us," or "our") is an application built by Ryan LeCours.
+                                    Loam Logger ("we," "us," or "our") is operated by Loam Labs LLC.
                                     This policy explains what data we collect, how we use it, and your choices.
                                 </p>
 
                                 <section>
                                     <h2 className="card-title mb-3">1. Data We Collect</h2>
                                     <ul className="list-disc pl-6 space-y-2 body text-muted">
-                                        <li><strong className="text-cream">Account & Auth:</strong> Basic profile info from OAuth providers (e.g., Garmin), such as your name, email, and provider ID.</li>
+                                        <li><strong className="text-cream">Account & Auth:</strong> Basic profile info from OAuth providers (e.g., Garmin, Strava, WHOOP, Suunto, Google, Apple), such as your name, email, and provider ID.</li>
                                         <li><strong className="text-cream">Fitness Data (when connected):</strong> Rides, distance, elevation, duration, heart rate metrics, activity metadata.</li>
-                                        <li><strong className="text-cream">App Usage & Behavioral Analytics:</strong> Device/browser info, IP address, page visits, clicks, feature-level events (e.g., bike added, ride logged, subscription started), and — on a sampled basis — session recordings of your interactions with the app. See Section 6 for details on what's captured and what's masked.</li>
+                                        <li><strong className="text-cream">Payment & Subscription Data:</strong> Subscription tier, purchase history, and transaction identifiers processed through Apple In-App Purchase (via RevenueCat) or Stripe. We do not store full payment card details.</li>
+                                        <li><strong className="text-cream">App Usage & Behavioral Analytics:</strong> Device/browser info, IP address, in-app events (e.g., bike added, ride logged), and technical diagnostics for performance monitoring. On the web app, a small percentage of sessions may be recorded for playback (see Section 6).</li>
+                                        <li><strong className="text-cream">Location Data:</strong> Ride start coordinates (latitude/longitude) from your connected fitness provider, used to display ride location names and fetch weather conditions. We do not track your location in real time.</li>
+                                        <li><strong className="text-cream">Biometric Authentication:</strong> The mobile app supports Face ID and Touch ID for convenient app unlock. All biometric data is processed entirely on your device by Apple's Secure Enclave. We never receive, transmit, or store your biometric data.</li>
                                     </ul>
                                 </section>
 
@@ -47,31 +50,49 @@ export default function PrivacyPolicy() {
                                     <h2 className="card-title mb-3">2. How We Use Data</h2>
                                     <ul className="list-disc pl-6 space-y-2 body text-muted">
                                         <li>Provide core features (ride import, analytics, bike/component tracking).</li>
+                                        <li>Process subscriptions and manage account entitlements.</li>
                                         <li>Improve reliability, performance, and user experience.</li>
                                         <li>Secure accounts and prevent abuse.</li>
                                     </ul>
                                 </section>
 
                                 <section>
-                                    <h2 className="card-title mb-3">3. Garmin Data</h2>
+                                    <h2 className="card-title mb-3">3. Legal Basis for Processing</h2>
                                     <p className="body text-muted">
-                                        If you connect Garmin, we access data via Garmin's APIs solely to deliver Loam Logger features.
-                                        We do not sell Garmin-derived data. Access is limited to the scopes you approve and can be revoked at any time via Garmin or within Loam Logger.
+                                        If you are located in the European Economic Area (EEA), United Kingdom, or Switzerland, our legal basis for processing your data depends on the type of data and the context:
+                                    </p>
+                                    <ul className="list-disc pl-6 space-y-2 body text-muted mt-3">
+                                        <li><strong className="text-cream">Contractual necessity:</strong> Account data, fitness data, and subscription data are processed to provide the service you signed up for.</li>
+                                        <li><strong className="text-cream">Legitimate interest:</strong> Error tracking (Sentry), product analytics (PostHog), and security monitoring are processed to maintain and improve the service. You may object to analytics processing by opting out in Settings (see Section 6 for details).</li>
+                                        <li><strong className="text-cream">Consent:</strong> Where required by law, we obtain your consent before processing (e.g., push notifications, optional integrations).</li>
+                                    </ul>
+                                </section>
+
+                                <section>
+                                    <h2 className="card-title mb-3">4. Integration Provider Data</h2>
+                                    <p className="body text-muted">
+                                        When you connect a fitness platform, we access data via that provider's APIs solely to deliver Loam Logger features. We do not sell provider-derived data. Access is limited to the scopes you approve and can be revoked at any time within Loam Logger or through the provider.
+                                    </p>
+                                    <p className="body text-muted mt-2">
+                                        Supported providers: Garmin, Strava, WHOOP, and Suunto. Each provider has its own terms and privacy policy governing your data on their platform.
                                     </p>
                                 </section>
 
                                 <section>
-                                    <h2 className="card-title mb-3">4. Sharing</h2>
-                                    <p className="body text-muted">
-                                        We do not sell personal data. We may share with trusted processors (e.g., hosting, analytics, error tracking) under data-processing terms.
-                                        We may disclose if required by law or to protect rights and safety.
+                                    <h2 className="card-title mb-3">5. Sharing & Third-Party Processors</h2>
+                                    <p className="body text-muted mb-3">
+                                        We do not sell personal data. We share data with the following categories of trusted processors under data-processing terms:
                                     </p>
-                                </section>
-
-                                <section>
-                                    <h2 className="card-title mb-3">5. Error Tracking & Crash Reporting</h2>
-                                    <p className="body text-muted">
-                                        We use Sentry (<a className="text-mint hover:text-sage transition-colors underline" href="https://sentry.io" target="_blank" rel="noopener noreferrer">sentry.io</a>), a third-party error tracking service, to monitor application stability and diagnose crashes. When an error occurs, Sentry may receive a pseudonymized user identifier (an internal ID, not your name or email), device and OS information, and technical details about the error. No fitness data, ride information, or personal content is sent to Sentry. For more information, see <a className="text-mint hover:text-sage transition-colors underline" href="https://sentry.io/privacy/" target="_blank" rel="noopener noreferrer">Sentry's privacy policy</a>.
+                                    <ul className="list-disc pl-6 space-y-2 body text-muted">
+                                        <li><strong className="text-cream">Hosting & Infrastructure:</strong> Railway (API hosting), Vercel (web hosting), Neon (database).</li>
+                                        <li><strong className="text-cream">Error Tracking:</strong> Sentry (see Section 7).</li>
+                                        <li><strong className="text-cream">Product Analytics:</strong> PostHog (see Section 6).</li>
+                                        <li><strong className="text-cream">Subscription Management:</strong> RevenueCat (manages Apple and Google in-app purchases; receives your user ID, subscription status, and purchase events).</li>
+                                        <li><strong className="text-cream">Payment Processing:</strong> Stripe (processes web subscription payments; receives your email and payment details).</li>
+                                        <li><strong className="text-cream">Email:</strong> Resend (transactional and product emails).</li>
+                                    </ul>
+                                    <p className="body text-muted mt-3">
+                                        We may also disclose data if required by law or to protect rights and safety.
                                     </p>
                                 </section>
 
@@ -84,54 +105,93 @@ export default function PrivacyPolicy() {
                                         <li><strong className="text-cream">Identity:</strong> your internal user ID, email, name, subscription tier, and role. This lets us associate events with your account across sessions and devices.</li>
                                         <li><strong className="text-cream">Behavioral events:</strong> pages visited, buttons clicked, and product-level events such as "bike added", "ride logged", "subscription started", or "provider connected".</li>
                                         <li><strong className="text-cream">Technical context:</strong> IP address, browser and device information, and the referring URL.</li>
-                                        <li><strong className="text-cream">Session recordings (sampled):</strong> on a small percentage of sessions, plus sessions where an error occurs, PostHog records a video-like playback of your interactions with the app. All <em>form inputs</em> (text fields, passwords, selects, textareas) are masked by default so their contents are not captured. Fields that render sensitive text can be additionally tagged for masking. No fitness data, ride details, or bike photos are included in the analytics event stream.</li>
+                                        <li><strong className="text-cream">Session recordings (sampled, web only):</strong> on a small percentage of sessions, plus sessions where an error occurs, PostHog records a video-like playback of your interactions with the app. All <em>form inputs</em> (text fields, passwords, selects, textareas) are masked by default so their contents are not captured. No fitness data, ride details, or bike photos are included in the analytics event stream.</li>
                                     </ul>
                                     <p className="body text-muted">
-                                        PostHog acts as our data processor under a data-processing agreement. They do not sell your data. For details on their practices, see <a className="text-mint hover:text-sage transition-colors underline" href="https://posthog.com/privacy" target="_blank" rel="noopener noreferrer">PostHog's privacy policy</a>. You can opt out of PostHog analytics at any time from the <strong className="text-cream">Privacy → Product Analytics</strong> section in your account <a className="text-mint hover:text-sage transition-colors underline" href="/settings">Settings</a>. The opt-out is stored on your account, so it applies everywhere you're signed in — both browser activity (pageviews, clicks, session recordings) and server-side events tied to your account (bike/ride updates, subscription events, provider syncs) will be suppressed.
+                                        PostHog acts as our data processor under a data-processing agreement. They do not sell your data. For details on their practices, see <a className="text-mint hover:text-sage transition-colors underline" href="https://posthog.com/privacy" target="_blank" rel="noopener noreferrer">PostHog's privacy policy</a>. You can opt out of PostHog analytics at any time from the <strong className="text-cream">Privacy</strong> section in your account <a className="text-mint hover:text-sage transition-colors underline" href="/settings">Settings</a>. The opt-out is stored on your account, so it applies everywhere you're signed in.
                                     </p>
                                 </section>
 
                                 <section>
-                                    <h2 className="card-title mb-3">7. Retention & Deletion</h2>
+                                    <h2 className="card-title mb-3">7. Error Tracking & Crash Reporting</h2>
                                     <p className="body text-muted">
-                                        We retain data while your account is active and as needed for service integrity.
-                                        You can request deletion of your account and associated data at any time (see "Contact").
-                                        Disconnecting Garmin stops new imports; you may also request removal of previously imported Garmin data.
+                                        We use Sentry (<a className="text-mint hover:text-sage transition-colors underline" href="https://sentry.io" target="_blank" rel="noopener noreferrer">sentry.io</a>), a third-party error tracking service, to monitor application stability and diagnose crashes. When an error occurs, Sentry may receive a pseudonymized user identifier (an internal ID, not your name or email), device and OS information, and technical details about the error. No fitness data, ride information, or personal content is sent to Sentry. Sentry retains error data for 90 days by default. For more information, see <a className="text-mint hover:text-sage transition-colors underline" href="https://sentry.io/privacy/" target="_blank" rel="noopener noreferrer">Sentry's privacy policy</a>.
                                     </p>
                                 </section>
 
                                 <section>
-                                    <h2 className="card-title mb-3">8. Security</h2>
+                                    <h2 className="card-title mb-3">8. Cookies & Local Storage</h2>
                                     <p className="body text-muted">
-                                        We use industry-standard security controls; however, no method of transmission or storage is 100% secure.
+                                        The web app uses cookies for session authentication and CSRF protection. The mobile app uses encrypted on-device storage (Keychain/SecureStore) for authentication tokens and preferences. We do not use cookies for advertising or cross-site tracking.
                                     </p>
                                 </section>
 
                                 <section>
-                                    <h2 className="card-title mb-3">9. Children</h2>
+                                    <h2 className="card-title mb-3">9. Retention & Deletion</h2>
+                                    <p className="body text-muted mb-3">
+                                        We retain your data while your account is active and for a reasonable period afterward as needed for service integrity and legal obligations. Specifically:
+                                    </p>
+                                    <ul className="list-disc pl-6 space-y-2 body text-muted mb-3">
+                                        <li><strong className="text-cream">Account and ride data:</strong> Retained until you delete your account.</li>
+                                        <li><strong className="text-cream">Error tracking data (Sentry):</strong> Retained for 90 days.</li>
+                                        <li><strong className="text-cream">Analytics data (PostHog):</strong> Retained for up to 12 months.</li>
+                                    </ul>
                                     <p className="body text-muted">
-                                        Loam Logger is not intended for children under 18. We do not knowingly collect data from children.
+                                        You can delete your account and all associated data at any time from Settings or by contacting us.
+                                        Disconnecting a provider stops new imports; you may also request removal of previously imported data from that provider.
                                     </p>
                                 </section>
 
                                 <section>
-                                    <h2 className="card-title mb-3">10. International Transfers</h2>
+                                    <h2 className="card-title mb-3">10. Security</h2>
                                     <p className="body text-muted">
-                                        Data may be processed in the United States or other countries with appropriate safeguards.
+                                        We use industry-standard security controls including encrypted storage, HTTPS for all communications, and access controls. However, no method of transmission or storage is 100% secure.
                                     </p>
                                 </section>
 
                                 <section>
-                                    <h2 className="card-title mb-3">11. Changes</h2>
+                                    <h2 className="card-title mb-3">11. Children</h2>
                                     <p className="body text-muted">
-                                        We may update this policy. We'll post the new date above and, if material, notify you in-app.
+                                        You must be at least 16 years old to use Loam Logger (see our Terms of Service). We do not knowingly collect data from anyone under 16. If we learn that a user is under 16, we will delete their account and associated data promptly.
                                     </p>
                                 </section>
 
                                 <section>
-                                    <h2 className="card-title mb-3">12. Contact</h2>
+                                    <h2 className="card-title mb-3">12. International Transfers</h2>
+                                    <p className="body text-muted">
+                                        Your data is processed in the United States. If you are located outside the United States, your data will be transferred to the U.S. for processing. Where required by law (e.g., GDPR), we rely on Standard Contractual Clauses (SCCs) or other approved transfer mechanisms to ensure appropriate safeguards. Copies of applicable SCCs are available upon request by contacting us at the email below.
+                                    </p>
+                                </section>
+
+                                <section>
+                                    <h2 className="card-title mb-3">13. Your Rights</h2>
+                                    <p className="body text-muted mb-3">
+                                        Depending on your jurisdiction, you may have the right to:
+                                    </p>
+                                    <ul className="list-disc pl-6 space-y-2 body text-muted mb-3">
+                                        <li>Access the personal data we hold about you</li>
+                                        <li>Correct inaccurate data</li>
+                                        <li>Delete your account and associated data</li>
+                                        <li>Object to processing based on legitimate interest</li>
+                                        <li>Export your data in a portable format</li>
+                                        <li>Opt out of analytics (via Settings)</li>
+                                    </ul>
+                                    <p className="body text-muted">
+                                        To exercise any of these rights, contact us at the email below or use the in-app controls where available.
+                                    </p>
+                                </section>
+
+                                <section>
+                                    <h2 className="card-title mb-3">14. Changes</h2>
+                                    <p className="body text-muted">
+                                        We may update this policy. We will post the new date above and, if the changes are material, notify you in-app or by email.
+                                    </p>
+                                </section>
+
+                                <section>
+                                    <h2 className="card-title mb-3">15. Contact</h2>
                                     <p className="body">
-                                        Questions or deletion requests: <a className="text-mint hover:text-sage transition-colors underline" href="mailto:ryan.lecours@loamlogger.app">ryan.lecours@loamlogger.app</a>
+                                        Questions, deletion requests, or data rights inquiries: <a className="text-mint hover:text-sage transition-colors underline" href="mailto:ryan.lecours@loamlogger.app">ryan.lecours@loamlogger.app</a>
                                     </p>
                                 </section>
                             </div>
