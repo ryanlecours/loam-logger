@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { OverviewSection } from './OverviewSection';
+import { AdminStatsProvider } from '../AdminStatsProvider';
 
 const originalFetch = globalThis.fetch;
 const fetchMock = vi.fn();
@@ -13,6 +14,15 @@ afterEach(() => {
   globalThis.fetch = originalFetch;
 });
 
+// Helper — OverviewSection now consumes the AdminStats context, so every
+// test must mount it inside the provider. The provider also fires the
+// initial /api/admin/stats fetch on mount, so callers are responsible for
+// queueing that first response (or never resolving it, for the loading-state
+// test).
+function renderInProvider(ui: React.ReactElement) {
+  return render(<AdminStatsProvider>{ui}</AdminStatsProvider>);
+}
+
 describe('OverviewSection', () => {
   it('renders the three stat cards once /api/admin/stats resolves', async () => {
     fetchMock.mockResolvedValueOnce(
@@ -22,7 +32,7 @@ describe('OverviewSection', () => {
       ),
     );
 
-    render(<OverviewSection />);
+    renderInProvider(<OverviewSection />);
 
     expect(await screen.findByText('42')).toBeInTheDocument();
     expect(screen.getByText('3')).toBeInTheDocument();
@@ -33,7 +43,7 @@ describe('OverviewSection', () => {
     // Never-resolving fetch — captures the loading state.
     fetchMock.mockImplementationOnce(() => new Promise(() => undefined));
 
-    const { container } = render(<OverviewSection />);
+    const { container } = renderInProvider(<OverviewSection />);
     // Three skeleton spans (one per stat card) — distinct from the spinner
     // because we want to keep the card layout stable while loading.
     const skeletons = container.querySelectorAll('.animate-pulse');
@@ -64,7 +74,7 @@ describe('OverviewSection', () => {
       ),
     );
 
-    render(<OverviewSection />);
+    renderInProvider(<OverviewSection />);
 
     fireEvent.change(screen.getByLabelText('Email Address'), {
       target: { value: 'rider@example.com' },
@@ -90,7 +100,7 @@ describe('OverviewSection', () => {
     );
     fetchMock.mockResolvedValueOnce(new Response(null, { status: 404 }));
 
-    render(<OverviewSection />);
+    renderInProvider(<OverviewSection />);
 
     fireEvent.change(screen.getByLabelText('Email Address'), {
       target: { value: 'ghost@example.com' },
@@ -106,7 +116,7 @@ describe('OverviewSection', () => {
     fetchMock.mockResolvedValueOnce(
       new Response(JSON.stringify({}), { status: 200 }),
     );
-    render(<OverviewSection />);
+    renderInProvider(<OverviewSection />);
     expect(screen.getByRole('button', { name: 'Lookup' })).toBeDisabled();
   });
 });

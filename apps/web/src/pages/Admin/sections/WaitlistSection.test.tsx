@@ -1,6 +1,18 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { WaitlistSection } from './WaitlistSection';
+import { AdminStatsProvider } from '../AdminStatsProvider';
+
+function renderInProvider(ui: React.ReactElement) {
+  return render(<AdminStatsProvider>{ui}</AdminStatsProvider>);
+}
+
+function statsResponse() {
+  return new Response(
+    JSON.stringify({ users: 0, waitlist: 0, foundingRiders: 0 }),
+    { status: 200 },
+  );
+}
 
 vi.mock('@/lib/csrf', () => ({
   getAuthHeaders: () => ({ 'x-csrf-token': 'test-csrf' }),
@@ -83,44 +95,80 @@ afterEach(() => {
   window.confirm = originalConfirm;
 });
 
+// URL-based fetch dispatch — independent of the order in which the
+// AdminStatsProvider's stats fetch and the section's list fetch fire,
+// and tolerant of post-mutation `refreshStats()` calls.
+function setupFetchHandlers(
+  handlers: Partial<{
+    waitlist: () => Response;
+    stats: () => Response;
+    activate: () => Response;
+    delete: () => Response;
+    foundingRider: () => Response;
+    bulkFoundingRider: () => Response;
+  }>,
+) {
+  fetchMock.mockImplementation(async (input: string, init?: RequestInit) => {
+    const url = String(input);
+    const method = init?.method ?? 'GET';
+    if (url.includes('/api/admin/stats')) return handlers.stats?.() ?? statsResponse();
+    if (url.includes('/api/admin/waitlist') && method === 'GET')
+      return handlers.waitlist?.() ?? waitlistResponse([]);
+    if (url.includes('/api/admin/activate/')) return handlers.activate?.() ?? new Response(null, { status: 200 });
+    if (url.match(/\/waitlist\/[^/]+$/) && method === 'DELETE')
+      return handlers.delete?.() ?? new Response(null, { status: 204 });
+    if (url.includes('founding-rider/bulk'))
+      return handlers.bulkFoundingRider?.() ?? new Response(JSON.stringify({ updatedCount: 0 }), { status: 200 });
+    if (url.includes('/founding-rider'))
+      return handlers.foundingRider?.() ?? new Response(null, { status: 200 });
+    throw new Error(`Unhandled fetch: ${method} ${url}`);
+  });
+}
+
 describe('WaitlistSection', () => {
   it('renders waitlist entries from /api/admin/waitlist', async () => {
-    fetchMock.mockResolvedValueOnce(
-      waitlistResponse([{}, { id: 'entry-2', email: 'second@example.com' }]),
-    );
+    setupFetchHandlers({
+      waitlist: () =>
+        waitlistResponse([{}, { id: 'entry-2', email: 'second@example.com' }]),
+    });
 
-    render(<WaitlistSection />);
+    renderInProvider(<WaitlistSection />);
 
     expect(await screen.findByText('beta@example.com')).toBeInTheDocument();
     expect(screen.getByText('second@example.com')).toBeInTheDocument();
 
-    const url = fetchMock.mock.calls[0][0] as string;
-    expect(url).toContain('/api/admin/waitlist');
-    expect(url).toContain('page=1');
+    const waitlistCall = fetchMock.mock.calls.find(
+      (call) => String(call[0]).includes('/api/admin/waitlist') && String(call[0]).includes('page=1'),
+    );
+    expect(waitlistCall).toBeDefined();
   });
 
   it('shows the empty state when no entries are returned', async () => {
-    fetchMock.mockResolvedValueOnce(waitlistResponse([]));
-    render(<WaitlistSection />);
+    setupFetchHandlers({ waitlist: () => waitlistResponse([]) });
+    renderInProvider(<WaitlistSection />);
 
     expect(await screen.findByText('No waitlist entries yet.')).toBeInTheDocument();
   });
 
   it('toggles founding-rider via PATCH and updates the local row state', async () => {
-    fetchMock.mockResolvedValueOnce(waitlistResponse([{ isFoundingRider: false }]));
-    fetchMock.mockResolvedValueOnce(new Response(null, { status: 200 }));
+    setupFetchHandlers({
+      waitlist: () => waitlistResponse([{ isFoundingRider: false }]),
+    });
 
-    render(<WaitlistSection />);
+    renderInProvider(<WaitlistSection />);
 
     // The toggle button shows "No" when not a founding rider.
     const toggle = await screen.findByRole('button', { name: 'No' });
     fireEvent.click(toggle);
 
     await waitFor(() => {
-      const lastCall = fetchMock.mock.calls.at(-1);
-      expect(lastCall?.[0]).toContain('/api/admin/users/entry-1/founding-rider');
-      expect(lastCall?.[1]).toMatchObject({ method: 'PATCH' });
-      expect(JSON.parse((lastCall?.[1] as RequestInit).body as string)).toEqual({
+      const patchCall = fetchMock.mock.calls.find(
+        (call) =>
+          String(call[0]).includes('/api/admin/users/entry-1/founding-rider') &&
+          (call[1] as RequestInit | undefined)?.method === 'PATCH',
+      );
+      expect(patchCall).toBeDefined();
+      expect(JSON.parse((patchCall![1] as RequestInit).body as string)).toEqual({
         isFoundingRider: true,
       });
     });
@@ -136,16 +184,17 @@ describe('WaitlistSection', () => {
     // mis-tap, so the old Admin.tsx confirmed before toggling. This test
     // pins that the gate stays in place — a future contributor removing
     // the confirm() would have to update this assertion.
-    fetchMock.mockResolvedValueOnce(waitlistResponse([{ isFoundingRider: false }]));
+    setupFetchHandlers({
+      waitlist: () => waitlistResponse([{ isFoundingRider: false }]),
+    });
     window.confirm = vi.fn(() => false);
 
-    render(<WaitlistSection />);
+    renderInProvider(<WaitlistSection />);
 
     const toggle = await screen.findByRole('button', { name: 'No' });
     fireEvent.click(toggle);
 
     expect(window.confirm).toHaveBeenCalledOnce();
-    // Only the initial GET should have fired — no PATCH.
     const patches = fetchMock.mock.calls.filter(
       (call) => (call[1] as RequestInit | undefined)?.method === 'PATCH',
     );
@@ -153,10 +202,9 @@ describe('WaitlistSection', () => {
   });
 
   it('opens a confirm modal for delete and only fires DELETE on confirm', async () => {
-    fetchMock.mockResolvedValueOnce(waitlistResponse([{}]));
-    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
+    setupFetchHandlers({ waitlist: () => waitlistResponse([{}]) });
 
-    render(<WaitlistSection />);
+    renderInProvider(<WaitlistSection />);
 
     fireEvent.click(await screen.findByRole('button', { name: 'Delete' }));
 
@@ -167,9 +215,12 @@ describe('WaitlistSection', () => {
     fireEvent.click(within(footer).getByRole('button', { name: 'Remove' }));
 
     await waitFor(() => {
-      const lastCall = fetchMock.mock.calls.at(-1);
-      expect(lastCall?.[0]).toContain('/api/admin/waitlist/entry-1');
-      expect(lastCall?.[1]).toMatchObject({ method: 'DELETE' });
+      const deleteCall = fetchMock.mock.calls.find(
+        (call) =>
+          String(call[0]).includes('/api/admin/waitlist/entry-1') &&
+          (call[1] as RequestInit | undefined)?.method === 'DELETE',
+      );
+      expect(deleteCall).toBeDefined();
     });
   });
 
@@ -177,10 +228,9 @@ describe('WaitlistSection', () => {
     // Activation goes through ConfirmDeleteModal (warning tone) — it
     // provisions a real account + sends a transactional email, so it
     // shouldn't ride on a native window.confirm. Pin the modal flow.
-    fetchMock.mockResolvedValueOnce(waitlistResponse([{}]));
-    fetchMock.mockResolvedValueOnce(new Response(null, { status: 200 }));
+    setupFetchHandlers({ waitlist: () => waitlistResponse([{}]) });
 
-    render(<WaitlistSection />);
+    renderInProvider(<WaitlistSection />);
 
     fireEvent.click(await screen.findByRole('button', { name: 'Activate' }));
 
@@ -196,13 +246,41 @@ describe('WaitlistSection', () => {
     fireEvent.click(within(footer).getByRole('button', { name: 'Activate' }));
 
     await waitFor(() => {
-      const lastCall = fetchMock.mock.calls.at(-1);
-      expect(lastCall?.[0]).toContain('/api/admin/activate/entry-1');
-      expect(lastCall?.[1]).toMatchObject({ method: 'POST' });
+      const activateCall = fetchMock.mock.calls.find(
+        (call) =>
+          String(call[0]).includes('/api/admin/activate/entry-1') &&
+          (call[1] as RequestInit | undefined)?.method === 'POST',
+      );
+      expect(activateCall).toBeDefined();
     });
 
     // The window.confirm is no longer used for activation — it's only
     // used for the founding-rider toggle in this section now.
     expect(window.confirm).not.toHaveBeenCalled();
+  });
+
+  it('refreshes admin stats after a successful activate', async () => {
+    // Activate moves the row out of the waitlist and into /api/admin/users —
+    // both userCount and waitlistCount in the Overview header shift. Pin
+    // that the post-activate path triggers a stats refresh.
+    setupFetchHandlers({ waitlist: () => waitlistResponse([{}]) });
+
+    renderInProvider(<WaitlistSection />);
+    await screen.findByText('beta@example.com');
+
+    const statsBefore = fetchMock.mock.calls.filter((call) =>
+      String(call[0]).includes('/api/admin/stats'),
+    ).length;
+
+    fireEvent.click(screen.getByRole('button', { name: 'Activate' }));
+    const footer = screen.getByTestId('modal-footer');
+    fireEvent.click(within(footer).getByRole('button', { name: 'Activate' }));
+
+    await waitFor(() => {
+      const statsAfter = fetchMock.mock.calls.filter((call) =>
+        String(call[0]).includes('/api/admin/stats'),
+      ).length;
+      expect(statsAfter).toBeGreaterThan(statsBefore);
+    });
   });
 });
