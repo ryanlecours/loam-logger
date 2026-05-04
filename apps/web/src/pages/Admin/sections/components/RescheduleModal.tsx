@@ -2,13 +2,15 @@ import { useEffect, useState } from 'react';
 import { Modal } from '../../../../components/ui/Modal';
 import { Button } from '../../../../components/ui/Button';
 import { getAuthHeaders } from '@/lib/csrf';
+import type { ScheduledEmail } from '../../types';
 
-type ScheduledEmailLite = {
-  id: string;
-  subject: string;
-  scheduledFor: string;
-  recipientEmails: string[];
-};
+// Narrowed projection — only the fields the reschedule UI displays. Tied
+// to `ScheduledEmail` via `Pick` so adding a field there can't silently
+// drift away from the source-of-truth shape.
+type ScheduledEmailLite = Pick<
+  ScheduledEmail,
+  'id' | 'subject' | 'scheduledFor' | 'recipientEmails'
+>;
 
 type Props = {
   email: ScheduledEmailLite | null;

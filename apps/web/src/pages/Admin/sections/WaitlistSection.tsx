@@ -8,17 +8,10 @@ import {
   IndividualEmailModal,
   type IndividualEmailTarget,
 } from '../components/IndividualEmailModal';
+import type { WaitlistEntry } from '../types';
 
-interface WaitlistEntry {
-  id: string;
-  email: string;
-  name: string | null;
-  referrer: string | null;
-  createdAt: string;
-  emailUnsubscribed: boolean;
-  isFoundingRider: boolean;
-}
-
+// CSV import response shape — kept inline since it's only consumed by this
+// section's import results banner and isn't part of any other endpoint.
 interface ImportResults {
   imported: number;
   skipped: number;

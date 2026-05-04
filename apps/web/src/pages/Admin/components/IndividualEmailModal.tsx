@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { toast } from 'sonner';
 import { Modal } from '../../../components/ui/Modal';
 import { Button } from '../../../components/ui/Button';
 import { Input, Textarea, Select } from '../../../components/ui/Input';
@@ -56,14 +57,14 @@ export function IndividualEmailModal({ target, onClose }: Props) {
       });
       const data = await res.json();
       if (res.ok) {
-        alert(`Email sent to ${target.email}!`);
+        toast.success(`Email sent to ${target.email}.`);
         onClose();
       } else {
-        alert(data.error || 'Failed to send email');
+        toast.error(data.error || 'Failed to send email');
       }
     } catch (err) {
       console.error('Individual email failed:', err);
-      alert('Failed to send email');
+      toast.error('Failed to send email');
     } finally {
       setSending(false);
     }

@@ -1,22 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Input } from '../../../components/ui/Input';
 import { Button } from '../../../components/ui/Button';
-
-interface AdminStats {
-  userCount: number;
-  waitlistCount: number;
-  foundingRidersCount: number;
-}
-
-interface LookupResult {
-  id: string;
-  email: string;
-  name: string | null;
-  role: string;
-  createdAt: string;
-  activatedAt: string | null;
-  isFoundingRider: boolean;
-}
+import type { AdminStats, LookupResult } from '../types';
 
 /**
  * Overview section: at-a-glance platform stats plus a developer-tools

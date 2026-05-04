@@ -8,61 +8,14 @@ import { ConfirmDeleteModal } from '../components/ConfirmDeleteModal';
 import { StatusPill } from '../components/StatusPill';
 import { EmailPreviewModal } from './components/EmailPreviewModal';
 import { RescheduleModal } from './components/RescheduleModal';
-
-type EmailSegment =
-  | 'WAITLIST'
-  | 'WAITLIST_FOUNDING'
-  | 'WAITLIST_REGULAR'
-  | 'ACTIVE_ALL'
-  | 'ACTIVE_FREE'
-  | 'ACTIVE_PRO';
-
-interface EmailRecipient {
-  id: string;
-  email: string;
-  name: string | null;
-  emailUnsubscribed: boolean;
-  isFoundingRider: boolean;
-}
-
-interface TemplateParameter {
-  key: string;
-  label: string;
-  type: 'text' | 'textarea' | 'url' | 'hidden';
-  required: boolean;
-  defaultValue?: string;
-  helpText?: string;
-}
-
-interface EmailTemplate {
-  id: string;
-  displayName: string;
-  description: string;
-  defaultSubject: string;
-  parameters: TemplateParameter[];
-}
-
-interface ScheduledEmail {
-  id: string;
-  subject: string;
-  scheduledFor: string;
-  recipientCount: number;
-  recipientEmails: string[];
-  status: 'pending' | 'processing' | 'sent' | 'cancelled' | 'failed';
-  createdAt: string;
-  sentCount?: number;
-  failedCount?: number;
-  suppressedCount?: number;
-  processedAt?: string;
-  errorMessage?: string;
-}
-
-interface SendResult {
-  sent: number;
-  failed: number;
-  suppressed: number;
-  total: number;
-}
+import type {
+  EmailRecipient,
+  EmailSegment,
+  EmailTemplate,
+  ScheduledEmail,
+  SendResult,
+  TemplateParameter,
+} from '../types';
 
 const SEGMENT_OPTIONS: { id: EmailSegment; label: string; group: 'active' | 'waitlist' }[] = [
   { id: 'ACTIVE_ALL', label: 'All Active Users', group: 'active' },

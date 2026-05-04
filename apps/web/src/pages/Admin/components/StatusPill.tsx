@@ -1,4 +1,4 @@
-type ScheduledEmailStatus = 'pending' | 'processing' | 'sent' | 'cancelled' | 'failed';
+import type { ScheduledEmailStatus } from '../types';
 
 const TONE_BY_STATUS: Record<ScheduledEmailStatus, string> = {
   pending: 'bg-warning text-warning-foreground',

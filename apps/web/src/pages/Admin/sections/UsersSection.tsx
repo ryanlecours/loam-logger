@@ -12,18 +12,7 @@ import {
   type IndividualEmailTarget,
 } from '../components/IndividualEmailModal';
 import { AddUserModal } from './components/AddUserModal';
-
-interface UserEntry {
-  id: string;
-  email: string;
-  name: string | null;
-  role: 'FREE' | 'PRO' | 'ADMIN';
-  createdAt: string;
-  activatedAt: string | null;
-  emailUnsubscribed: boolean;
-  isFoundingRider: boolean;
-  lastPasswordResetEmailAt: string | null;
-}
+import type { UserEntry } from '../types';
 
 const PAGE_SIZE = 50;
 

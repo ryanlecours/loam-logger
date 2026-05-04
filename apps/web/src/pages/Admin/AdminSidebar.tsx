@@ -63,6 +63,19 @@ export default function AdminSidebar({ activeId, onSelect }: Props) {
   return (
     <>
       {/* Desktop: vertical sticky sidebar */}
+      {/*
+        Desktop and mobile sidebars are both rendered into the DOM at all
+        times — only their `display` toggles via the Tailwind `hidden /
+        md:block` classes. That means the buttons' `id` attributes have to
+        be distinct between the two trees ('admin-tab-desktop-…' vs
+        'admin-tab-mobile-…'). Sharing one id across both branches would
+        produce duplicate ids in the DOM, which invalidates HTML and breaks
+        aria-controls / aria-labelledby — `getElementById` would return
+        whichever button appears first in source order, regardless of which
+        viewport the user is actually on. The matching panel in
+        AdminShell.tsx references both ids via `aria-labelledby` so the
+        visible-to-AT button is always the one ATs read.
+      */}
       <aside
         className="hidden md:block md:sticky md:self-start"
         style={{ top: 'calc(4rem + 1.5rem)' }}
@@ -83,7 +96,7 @@ export default function AdminSidebar({ activeId, onSelect }: Props) {
                 role="tab"
                 aria-selected={isActive}
                 aria-controls={`admin-panel-${id}`}
-                id={`admin-tab-${id}`}
+                id={`admin-tab-desktop-${id}`}
                 tabIndex={isActive ? 0 : -1}
                 data-section-id={id}
                 onClick={() => onSelect(id)}
@@ -128,7 +141,7 @@ export default function AdminSidebar({ activeId, onSelect }: Props) {
                 role="tab"
                 aria-selected={isActive}
                 aria-controls={`admin-panel-${id}`}
-                id={`admin-tab-${id}`}
+                id={`admin-tab-mobile-${id}`}
                 tabIndex={isActive ? 0 : -1}
                 data-section-id={id}
                 onClick={() => onSelect(id)}

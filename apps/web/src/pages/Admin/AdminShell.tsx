@@ -28,7 +28,14 @@ export default function AdminShell({ children }: Props) {
               key={section}
               id={`admin-panel-${section}`}
               role="tabpanel"
-              aria-labelledby={`admin-tab-${section}`}
+              // The sidebar renders the same set of section buttons twice
+              // — once for desktop (md+), once for mobile — into a single
+              // DOM. To avoid duplicate ids we suffix each branch's button
+              // ids with -desktop / -mobile (see AdminSidebar.tsx). Listing
+              // both ids here means whichever branch is currently visible
+              // to ATs (the other has display:none and is excluded from
+              // the accessibility tree) provides the panel's label.
+              aria-labelledby={`admin-tab-desktop-${section} admin-tab-mobile-${section}`}
               tabIndex={0}
               initial={{ opacity: 0, y: reduceMotion ? 0 : 6 }}
               animate={{ opacity: 1, y: 0 }}
