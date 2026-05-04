@@ -1,38 +1,32 @@
 import { useEffect, useRef } from 'react';
 import {
-  User,
-  Link as LinkIcon,
-  Sliders,
-  Wrench,
-  Activity,
-  Shield,
-  AlertTriangle,
+  LayoutDashboard,
+  Users,
+  ClipboardList,
+  Mail,
   type LucideIcon,
 } from 'lucide-react';
-import type { SettingsSectionId } from './useSettingsSection';
+import type { AdminSectionId } from './useAdminSection';
 
-type SettingsSectionMeta = {
-  id: SettingsSectionId;
+type AdminSectionMeta = {
+  id: AdminSectionId;
   label: string;
   icon: LucideIcon;
 };
 
-const SETTINGS_SECTIONS: readonly SettingsSectionMeta[] = [
-  { id: 'account', label: 'Account', icon: User },
-  { id: 'data-sources', label: 'Data Sources', icon: LinkIcon },
-  { id: 'preferences', label: 'Preferences', icon: Sliders },
-  { id: 'service-intervals', label: 'Service Intervals', icon: Wrench },
-  { id: 'maintenance', label: 'Maintenance', icon: Activity },
-  { id: 'privacy', label: 'Privacy', icon: Shield },
-  { id: 'danger', label: 'Danger Zone', icon: AlertTriangle },
+const ADMIN_SECTIONS: readonly AdminSectionMeta[] = [
+  { id: 'overview', label: 'Overview', icon: LayoutDashboard },
+  { id: 'users', label: 'Users', icon: Users },
+  { id: 'waitlist', label: 'Waitlist', icon: ClipboardList },
+  { id: 'email', label: 'Email', icon: Mail },
 ];
 
 type Props = {
-  activeId: SettingsSectionId;
-  onSelect: (id: SettingsSectionId) => void;
+  activeId: AdminSectionId;
+  onSelect: (id: AdminSectionId) => void;
 };
 
-export default function SettingsSidebar({ activeId, onSelect }: Props) {
+export default function AdminSidebar({ activeId, onSelect }: Props) {
   const mobileListRef = useRef<HTMLDivElement | null>(null);
 
   // Scroll active pill into view on mobile when section changes.
@@ -46,24 +40,24 @@ export default function SettingsSidebar({ activeId, onSelect }: Props) {
   }, [activeId]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    const currentIndex = SETTINGS_SECTIONS.findIndex((s) => s.id === activeId);
+    const currentIndex = ADMIN_SECTIONS.findIndex((s) => s.id === activeId);
     if (currentIndex < 0) return;
 
     let nextIndex = currentIndex;
     if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
-      nextIndex = (currentIndex + 1) % SETTINGS_SECTIONS.length;
+      nextIndex = (currentIndex + 1) % ADMIN_SECTIONS.length;
     } else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
-      nextIndex = (currentIndex - 1 + SETTINGS_SECTIONS.length) % SETTINGS_SECTIONS.length;
+      nextIndex = (currentIndex - 1 + ADMIN_SECTIONS.length) % ADMIN_SECTIONS.length;
     } else if (e.key === 'Home') {
       nextIndex = 0;
     } else if (e.key === 'End') {
-      nextIndex = SETTINGS_SECTIONS.length - 1;
+      nextIndex = ADMIN_SECTIONS.length - 1;
     } else {
       return;
     }
 
     e.preventDefault();
-    onSelect(SETTINGS_SECTIONS[nextIndex].id);
+    onSelect(ADMIN_SECTIONS[nextIndex].id);
   };
 
   return (
@@ -73,13 +67,13 @@ export default function SettingsSidebar({ activeId, onSelect }: Props) {
         Desktop and mobile sidebars are both rendered into the DOM at all
         times — only their `display` toggles via the Tailwind `hidden /
         md:block` classes. That means the buttons' `id` attributes have to
-        be distinct between the two trees ('settings-tab-desktop-…' vs
-        'settings-tab-mobile-…'). Sharing one id across both branches would
+        be distinct between the two trees ('admin-tab-desktop-…' vs
+        'admin-tab-mobile-…'). Sharing one id across both branches would
         produce duplicate ids in the DOM, which invalidates HTML and breaks
         aria-controls / aria-labelledby — `getElementById` would return
         whichever button appears first in source order, regardless of which
         viewport the user is actually on. The matching panel in
-        SettingsShell.tsx references both ids via `aria-labelledby` so the
+        AdminShell.tsx references both ids via `aria-labelledby` so the
         visible-to-AT button is always the one ATs read.
       */}
       <aside
@@ -89,11 +83,11 @@ export default function SettingsSidebar({ activeId, onSelect }: Props) {
         <div
           role="tablist"
           aria-orientation="vertical"
-          aria-label="Settings sections"
+          aria-label="Admin sections"
           onKeyDown={handleKeyDown}
           className="flex flex-col gap-1"
         >
-          {SETTINGS_SECTIONS.map(({ id, label, icon: Icon }) => {
+          {ADMIN_SECTIONS.map(({ id, label, icon: Icon }) => {
             const isActive = id === activeId;
             return (
               <button
@@ -101,8 +95,8 @@ export default function SettingsSidebar({ activeId, onSelect }: Props) {
                 type="button"
                 role="tab"
                 aria-selected={isActive}
-                aria-controls={`settings-panel-${id}`}
-                id={`settings-tab-desktop-${id}`}
+                aria-controls={`admin-panel-${id}`}
+                id={`admin-tab-desktop-${id}`}
                 tabIndex={isActive ? 0 : -1}
                 data-section-id={id}
                 onClick={() => onSelect(id)}
@@ -133,12 +127,12 @@ export default function SettingsSidebar({ activeId, onSelect }: Props) {
           ref={mobileListRef}
           role="tablist"
           aria-orientation="horizontal"
-          aria-label="Settings sections"
+          aria-label="Admin sections"
           onKeyDown={handleKeyDown}
           className="flex gap-2 overflow-x-auto pb-1 scrollbar-none"
           style={{ scrollbarWidth: 'none' }}
         >
-          {SETTINGS_SECTIONS.map(({ id, label, icon: Icon }) => {
+          {ADMIN_SECTIONS.map(({ id, label, icon: Icon }) => {
             const isActive = id === activeId;
             return (
               <button
@@ -146,8 +140,8 @@ export default function SettingsSidebar({ activeId, onSelect }: Props) {
                 type="button"
                 role="tab"
                 aria-selected={isActive}
-                aria-controls={`settings-panel-${id}`}
-                id={`settings-tab-mobile-${id}`}
+                aria-controls={`admin-panel-${id}`}
+                id={`admin-tab-mobile-${id}`}
                 tabIndex={isActive ? 0 : -1}
                 data-section-id={id}
                 onClick={() => onSelect(id)}
