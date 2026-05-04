@@ -22,14 +22,23 @@ vi.mock('./sections/EmailSection', () => ({
 // Stub the shell so we don't drag in framer-motion or the sidebar markup.
 // The shell forwards the resolved `section` to its children render-prop —
 // reproduce that contract using the underlying `useAdminSection` hook.
+//
+// The inner component is named (not anonymous via `default: () => …`) so
+// react-hooks/rules-of-hooks recognises it as a React component and
+// permits the `useAdminSection()` call. An anonymous arrow inside the
+// mock factory triggers the rule's "Hook called in function `default`
+// that is neither a component nor a custom Hook" error.
 vi.mock('./AdminShell', async () => {
   const { useAdminSection } = await import('./useAdminSection');
-  return {
-    default: ({ children }: { children: (section: unknown) => React.ReactNode }) => {
-      const { section } = useAdminSection();
-      return <>{children(section)}</>;
-    },
-  };
+  function MockAdminShell({
+    children,
+  }: {
+    children: (section: unknown) => React.ReactNode;
+  }) {
+    const { section } = useAdminSection();
+    return <>{children(section)}</>;
+  }
+  return { default: MockAdminShell };
 });
 
 const mockUseCurrentUser = vi.fn();

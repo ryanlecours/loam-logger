@@ -127,6 +127,29 @@ describe('WaitlistSection', () => {
 
     // Optimistic update flips the pill label to "Yes".
     expect(await screen.findByRole('button', { name: 'Yes' })).toBeInTheDocument();
+    // Confirm gate fired exactly once for this single-row toggle.
+    expect(window.confirm).toHaveBeenCalledOnce();
+  });
+
+  it('does NOT fire PATCH if the user dismisses the founding-rider confirm', async () => {
+    // Regression test: the toggle pill sits in a dense row and is easy to
+    // mis-tap, so the old Admin.tsx confirmed before toggling. This test
+    // pins that the gate stays in place — a future contributor removing
+    // the confirm() would have to update this assertion.
+    fetchMock.mockResolvedValueOnce(waitlistResponse([{ isFoundingRider: false }]));
+    window.confirm = vi.fn(() => false);
+
+    render(<WaitlistSection />);
+
+    const toggle = await screen.findByRole('button', { name: 'No' });
+    fireEvent.click(toggle);
+
+    expect(window.confirm).toHaveBeenCalledOnce();
+    // Only the initial GET should have fired — no PATCH.
+    const patches = fetchMock.mock.calls.filter(
+      (call) => (call[1] as RequestInit | undefined)?.method === 'PATCH',
+    );
+    expect(patches).toHaveLength(0);
   });
 
   it('opens a confirm modal for delete and only fires DELETE on confirm', async () => {
@@ -150,7 +173,10 @@ describe('WaitlistSection', () => {
     });
   });
 
-  it('Activate button confirms and POSTs to /activate', async () => {
+  it('Activate opens a styled confirm modal and POSTs only on confirm', async () => {
+    // Activation goes through ConfirmDeleteModal (warning tone) — it
+    // provisions a real account + sends a transactional email, so it
+    // shouldn't ride on a native window.confirm. Pin the modal flow.
     fetchMock.mockResolvedValueOnce(waitlistResponse([{}]));
     fetchMock.mockResolvedValueOnce(new Response(null, { status: 200 }));
 
@@ -158,11 +184,25 @@ describe('WaitlistSection', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Activate' }));
 
+    expect(await screen.findByText('Activate user')).toBeInTheDocument();
+    // No POST yet — only the initial GET should have fired.
+    expect(
+      fetchMock.mock.calls.filter(
+        (call) => (call[1] as RequestInit | undefined)?.method === 'POST',
+      ),
+    ).toHaveLength(0);
+
+    const footer = screen.getByTestId('modal-footer');
+    fireEvent.click(within(footer).getByRole('button', { name: 'Activate' }));
+
     await waitFor(() => {
       const lastCall = fetchMock.mock.calls.at(-1);
       expect(lastCall?.[0]).toContain('/api/admin/activate/entry-1');
       expect(lastCall?.[1]).toMatchObject({ method: 'POST' });
     });
-    expect(window.confirm).toHaveBeenCalledOnce();
+
+    // The window.confirm is no longer used for activation — it's only
+    // used for the founding-rider toggle in this section now.
+    expect(window.confirm).not.toHaveBeenCalled();
   });
 });

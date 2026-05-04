@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { Modal } from '../../../components/ui/Modal';
 import { Button } from '../../../components/ui/Button';
 
@@ -44,6 +44,14 @@ export function ConfirmDeleteModal({
   loading,
 }: Props) {
   const [typed, setTyped] = useState('');
+  // Use React's per-instance id generator so two ConfirmDeleteModal
+  // instances mounted at the same time (e.g. UsersSection renders one for
+  // demote + one for delete; only one is open in current UI but the
+  // markup of both can coexist briefly during open/close transitions)
+  // don't produce duplicate `id="confirm-delete-input"` in the DOM. The
+  // <label htmlFor> below uses the same id, so screen readers still get
+  // the right input/label association per modal instance.
+  const inputId = useId();
 
   // Reset the typed-confirm field whenever the modal closes so a re-open of
   // a different target doesn't inherit the previous typed value.
@@ -86,11 +94,11 @@ export function ConfirmDeleteModal({
 
         {requiresType && (
           <div>
-            <label className="label-form" htmlFor="confirm-delete-input">
+            <label className="label-form" htmlFor={inputId}>
               Type <code className="text-xs bg-surface-2 px-1.5 py-0.5 rounded font-mono">{confirmText}</code> to confirm
             </label>
             <input
-              id="confirm-delete-input"
+              id={inputId}
               type="text"
               value={typed}
               onChange={(e) => setTyped(e.target.value)}

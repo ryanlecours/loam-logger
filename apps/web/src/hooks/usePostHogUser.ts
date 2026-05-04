@@ -46,6 +46,12 @@ export function usePostHogUser(): void {
     } catch {
       // SDK not initialized (dev / missing key) — no-op
     }
+    // Deps deliberately list only the two fields the effect reads from
+    // `user` — opt-out enforcement should re-run on identity change or an
+    // analyticsOptOut flip, not on every unrelated user-property change
+    // (name, role, etc.). Adding `user` to the deps would trigger
+    // object-identity re-runs and double-call the SDK on benign re-renders.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id, user?.analyticsOptOut]);
 
   // 2) Identity stitching. The "effective id" is null whenever the user is

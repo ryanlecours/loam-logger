@@ -76,6 +76,7 @@ export function WaitlistSection() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [emailTarget, setEmailTarget] = useState<IndividualEmailTarget | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<WaitlistEntry | null>(null);
+  const [activateTarget, setActivateTarget] = useState<WaitlistEntry | null>(null);
 
   const fetchWaitlist = async (pageNum: number) => {
     try {
@@ -199,28 +200,23 @@ export function WaitlistSection() {
     }
   };
 
-  const handleActivate = async (entry: WaitlistEntry) => {
-    if (
-      !confirm(
-        `Activate ${entry.email}? They will receive an email with a temporary password.`,
-      )
-    ) {
-      return;
-    }
-
+  const handleConfirmActivate = async () => {
+    if (!activateTarget) return;
     try {
-      setActivating(entry.id);
+      setActivating(activateTarget.id);
       const res = await fetch(
-        `${import.meta.env.VITE_API_URL}/api/admin/activate/${entry.id}`,
+        `${import.meta.env.VITE_API_URL}/api/admin/activate/${activateTarget.id}`,
         { method: 'POST', credentials: 'include', headers: getAuthHeaders() },
       );
       if (!res.ok) {
         const data = await res.json();
         throw new Error(data.error || 'Failed to activate');
       }
-      setWaitlist((prev) => prev.filter((e) => e.id !== entry.id));
+      const activated = activateTarget;
+      setWaitlist((prev) => prev.filter((e) => e.id !== activated.id));
+      setActivateTarget(null);
       toast.success(
-        `${entry.email} activated! They will receive an email with login instructions.`,
+        `${activated.email} activated. They will receive an email with login instructions.`,
       );
     } catch (err) {
       console.error('Activation failed:', err);
@@ -232,6 +228,17 @@ export function WaitlistSection() {
 
   const handleToggleFoundingRider = async (entry: WaitlistEntry) => {
     const newStatus = !entry.isFoundingRider;
+    // Confirmation gate — the old Admin.tsx had this and it's worth keeping:
+    // the toggle pill sits inside a dense table row, easy to mis-tap, and
+    // flipping someone's founding-rider status (especially OFF) is a
+    // semi-irreversible decision an admin should pause on. Mirrors the
+    // confirm() prompts used by Activate and the bulk toggle.
+    const action = newStatus
+      ? 'mark as Founding Rider'
+      : 'remove Founding Rider status from';
+    if (!confirm(`${action.charAt(0).toUpperCase() + action.slice(1)} ${entry.email}?`)) {
+      return;
+    }
     try {
       setPromoting(entry.id);
       const res = await fetch(
@@ -548,7 +555,7 @@ export function WaitlistSection() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => handleActivate(entry)}
+                    onClick={() => setActivateTarget(entry)}
                     disabled={
                       activating === entry.id ||
                       deleting === entry.id ||
@@ -593,6 +600,31 @@ export function WaitlistSection() {
         }
         confirmLabel="Remove"
         loading={deleting !== null}
+      />
+
+      {/*
+        Activation goes through ConfirmDeleteModal (warning tone) rather
+        than window.confirm because it's not low-stakes: it provisions a
+        real account, sends a transactional welcome email with a temp
+        password, and removes the user from the waitlist. Worth a styled
+        modal that surfaces the consequences and matches the rest of the
+        admin UI's confirmation pattern.
+      */}
+      <ConfirmDeleteModal
+        isOpen={activateTarget !== null}
+        onClose={() => setActivateTarget(null)}
+        onConfirm={handleConfirmActivate}
+        title="Activate user"
+        message={
+          activateTarget && (
+            <>
+              Activate <strong className="text-white">{activateTarget.email}</strong>? They will receive an email with a temporary password and be removed from the waitlist.
+            </>
+          )
+        }
+        confirmLabel="Activate"
+        tone="warning"
+        loading={activating !== null}
       />
     </>
   );

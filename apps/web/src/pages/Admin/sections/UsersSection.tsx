@@ -80,6 +80,19 @@ export function UsersSection() {
   }, []);
 
   const handleSendPasswordReset = async (target: UserEntry) => {
+    // Stays on window.confirm rather than ConfirmDeleteModal because:
+    //   1. The send is idempotent — re-sending invalidates the prior link
+    //      server-side, so a mistaken click is fully recoverable.
+    //   2. The prompt copy is dynamic per row (incorporates "Xm ago" via
+    //      formatDistanceToNow on `lastPasswordResetEmailAt`), and each row
+    //      can have a different last-sent timestamp. Modeling that in a
+    //      shared modal's state would require a per-target message field
+    //      that buys nothing UX-wise — the prompt's main job is to
+    //      surface "you already sent one recently," which a native confirm
+    //      does just as well.
+    //   3. Activation, demote, and delete all use ConfirmDeleteModal
+    //      because they're either irreversible or mid-stakes; password
+    //      reset is neither.
     const lastSent = target.lastPasswordResetEmailAt;
     const prompt = lastSent
       ? `A reset link was already sent to ${target.email} ${formatDistanceToNow(new Date(lastSent))} ago. Send another?`
