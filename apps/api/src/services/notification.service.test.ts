@@ -225,12 +225,14 @@ describe('notification.service', () => {
 
       await checkAndNotifyServiceDue(baseParams);
 
-      // comp-1 has 2 rides remaining (< 3 threshold), comp-2 has 10 (> 3)
+      // comp-1 has 2 rides remaining (< 3 threshold), comp-2 has 10 (> 3).
+      // Single-component notification → componentId in payload so the mobile
+      // bike screen can scroll/focus the offending component on tap.
       expect(mockSendPushNotificationsAsync).toHaveBeenCalledWith([
         expect.objectContaining({
           title: 'Enduro Bike - Service Due',
           body: expect.stringContaining('2 rides left'),
-          data: { screen: 'bike', bikeId: 'bike-1' },
+          data: { screen: 'bike', bikeId: 'bike-1', componentId: 'comp-1' },
         }),
       ]);
     });
@@ -360,7 +362,7 @@ describe('notification.service', () => {
       expect(mockSendPushNotificationsAsync).not.toHaveBeenCalled();
     });
 
-    it('should send summary notification when multiple components due', async () => {
+    it('should send summary notification when multiple components due (no componentId in payload)', async () => {
       (mockPrisma.bikeNotificationPreference.findUnique as jest.Mock).mockResolvedValue({
         serviceNotificationsEnabled: true,
         serviceNotificationMode: 'RIDES_BEFORE',
@@ -374,9 +376,15 @@ describe('notification.service', () => {
       ];
       await checkAndNotifyServiceDue({ ...baseParams, predictions });
 
+      // Multi-component notifications omit componentId — there's no single
+      // component to focus, so the bike screen lands without a deep-link
+      // hint and lets the user pick from the highlighted "needs attention"
+      // group. Pin the exact shape so a future contributor can't re-add a
+      // misleading "first component" id.
       expect(mockSendPushNotificationsAsync).toHaveBeenCalledWith([
         expect.objectContaining({
           body: expect.stringMatching(/2 components need service: chain \(2 rides left\), brake pad \(\d+ rides left\)/),
+          data: { screen: 'bike', bikeId: 'bike-1' },
         }),
       ]);
     });

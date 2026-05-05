@@ -882,6 +882,23 @@ export const resolvers = {
         include: { rides: true },
       }),
 
+    // Single-ride lookup keyed on (id, userId) so a foreign-user id resolves
+    // to null instead of leaking another user's ride. Returning null on miss
+    // (rather than throwing) lets the mobile ride-detail screen render its
+    // existing "Ride not found" branch deterministically.
+    //
+    // Mobile uses this for notification deep-links. `useRidesPageQuery({
+    // take: 100 })` was the prior pattern, but a freshly-synced or
+    // backfilled ride could fall outside the first 100 and the .find()
+    // returned undefined, producing a spurious not-found flash. A direct
+    // keyed read sidesteps the entire pagination class of races.
+    ride: async (_: unknown, { id }: { id: string }, ctx: GraphQLContext) => {
+      const userId = requireUserId(ctx);
+      return prisma.ride.findFirst({
+        where: { id, userId },
+      });
+    },
+
     rides: async (_: unknown, { take = 1000, after, filter }: RidesArgs, ctx: GraphQLContext) => {
       if (!ctx.user?.id) throw new Error('Unauthorized');
       const limit = Math.min(10000, Math.max(1, take));
@@ -931,6 +948,18 @@ export const resolvers = {
     me: async (_: unknown, _args: unknown, ctx: GraphQLContext) => {
       const id = ctx.user?.id;
       return id ? prisma.user.findUnique({ where: { id } }) : null;
+    },
+
+    // Single-bike lookup keyed on (id, userId). Used by the mobile bike
+    // detail screen for service-due notification deep-links so the user
+    // doesn't see a spurious "Bike not found" flash when their cached
+    // bike list is stale (newly-added bike, fresh login, etc.). Returning
+    // null on miss/cross-user matches the established Query.ride pattern.
+    bike: async (_: unknown, { id }: { id: string }, ctx: GraphQLContext) => {
+      const userId = requireUserId(ctx);
+      return prisma.bike.findFirst({
+        where: { id, userId },
+      });
     },
 
     bikes: async (_: unknown, args: { includeInactive?: boolean }, ctx: GraphQLContext) => {

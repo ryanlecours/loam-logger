@@ -222,11 +222,22 @@ export async function checkAndNotifyServiceDue(params: {
       : `${newComponents.length} components need service: ${listed}`;
   }
 
+  // For single-component notifications, surface the componentId so the
+  // mobile bike detail screen can scroll the offending component into view
+  // and auto-open its action sheet instead of dumping the user on the
+  // bike page to scan for the alert. Multi-component notifications omit
+  // it — there's no single component to focus, and the bike screen
+  // already highlights "needs attention" components at the top.
+  const data: Record<string, string> =
+    newComponents.length === 1
+      ? { screen: 'bike', bikeId, componentId: newComponents[0].componentId }
+      : { screen: 'bike', bikeId };
+
   const ticketId = await sendPushNotification({
     pushToken,
     title: `${bikeName} - Service Due`,
     body,
-    data: { screen: 'bike', bikeId },
+    data,
   });
 
   if (!ticketId) {
