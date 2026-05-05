@@ -25,6 +25,7 @@ jest.mock('../../lib/prisma', () => ({
       count: jest.fn().mockResolvedValue(0),
     },
     ride: {
+      findFirst: jest.fn(),
       findMany: jest.fn(),
       updateMany: jest.fn(),
       count: jest.fn().mockResolvedValue(0),
@@ -1821,6 +1822,110 @@ describe('GraphQL Resolvers', () => {
       (mockPrisma.bikeNotificationPreference.findUnique as jest.Mock).mockResolvedValue(null);
 
       const result = await resolver(bike as never, {}, {} as never);
+
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('Query.ride (single-ride lookup)', () => {
+    const query = resolvers.Query.ride;
+
+    it('should throw UNAUTHENTICATED when no user', async () => {
+      // Mirrors the requireUserId pattern — a missing session must not leak
+      // any ride data, even on a "look up by id" path.
+      const ctx = createMockContext(null);
+
+      await expect(
+        query({}, { id: 'ride-1' }, ctx as never)
+      ).rejects.toThrow('Unauthorized');
+
+      expect(mockPrisma.ride.findFirst).not.toHaveBeenCalled();
+    });
+
+    it("should return the ride when it belongs to the authenticated user", async () => {
+      const ctx = createMockContext('user-123');
+      const ownRide = { id: 'ride-1', userId: 'user-123', bikeId: 'bike-1' };
+      mockPrisma.ride.findFirst.mockResolvedValue(ownRide as never);
+
+      const result = await query({}, { id: 'ride-1' }, ctx as never);
+
+      // Pin the where clause: id AND userId. Dropping `userId` here would
+      // turn this into a global ride lookup — a cross-tenant data leak.
+      expect(mockPrisma.ride.findFirst).toHaveBeenCalledWith({
+        where: { id: 'ride-1', userId: 'user-123' },
+      });
+      expect(result).toEqual(ownRide);
+    });
+
+    it("should return null when the ride belongs to another user (cross-tenant guard)", async () => {
+      // Prisma returns null when (id, userId) doesn't match — we don't
+      // throw, we surface the same not-found UX as a missing id.
+      const ctx = createMockContext('user-123');
+      mockPrisma.ride.findFirst.mockResolvedValue(null);
+
+      const result = await query({}, { id: 'foreign-ride' }, ctx as never);
+
+      expect(result).toBeNull();
+      expect(mockPrisma.ride.findFirst).toHaveBeenCalledWith({
+        where: { id: 'foreign-ride', userId: 'user-123' },
+      });
+    });
+
+    it('should return null for a non-existent id', async () => {
+      const ctx = createMockContext('user-123');
+      mockPrisma.ride.findFirst.mockResolvedValue(null);
+
+      const result = await query({}, { id: 'does-not-exist' }, ctx as never);
+
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('Query.bike (single-bike lookup)', () => {
+    const query = resolvers.Query.bike;
+
+    it('should throw UNAUTHENTICATED when no user', async () => {
+      const ctx = createMockContext(null);
+
+      await expect(
+        query({}, { id: 'bike-1' }, ctx as never)
+      ).rejects.toThrow('Unauthorized');
+
+      expect(mockPrisma.bike.findFirst).not.toHaveBeenCalled();
+    });
+
+    it("should return the bike when it belongs to the authenticated user", async () => {
+      const ctx = createMockContext('user-123');
+      const ownBike = { id: 'bike-1', userId: 'user-123', manufacturer: 'Trek', model: 'Fuel' };
+      mockPrisma.bike.findFirst.mockResolvedValue(ownBike as never);
+
+      const result = await query({}, { id: 'bike-1' }, ctx as never);
+
+      // Pin the where clause: id AND userId. Dropping `userId` here would
+      // turn this into a global bike lookup — a cross-tenant data leak.
+      expect(mockPrisma.bike.findFirst).toHaveBeenCalledWith({
+        where: { id: 'bike-1', userId: 'user-123' },
+      });
+      expect(result).toEqual(ownBike);
+    });
+
+    it("should return null when the bike belongs to another user (cross-tenant guard)", async () => {
+      const ctx = createMockContext('user-123');
+      mockPrisma.bike.findFirst.mockResolvedValue(null);
+
+      const result = await query({}, { id: 'foreign-bike' }, ctx as never);
+
+      expect(result).toBeNull();
+      expect(mockPrisma.bike.findFirst).toHaveBeenCalledWith({
+        where: { id: 'foreign-bike', userId: 'user-123' },
+      });
+    });
+
+    it('should return null for a non-existent id', async () => {
+      const ctx = createMockContext('user-123');
+      mockPrisma.bike.findFirst.mockResolvedValue(null);
+
+      const result = await query({}, { id: 'does-not-exist' }, ctx as never);
 
       expect(result).toBeNull();
     });

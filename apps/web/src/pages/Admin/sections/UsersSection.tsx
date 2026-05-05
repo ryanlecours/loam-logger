@@ -13,6 +13,7 @@ import {
 } from '../components/IndividualEmailModal';
 import { AddUserModal } from './components/AddUserModal';
 import type { UserEntry } from '../types';
+import { useAdminStats } from '../useAdminStats';
 
 const PAGE_SIZE = 50;
 
@@ -33,6 +34,7 @@ const COLUMNS = [
  */
 export function UsersSection() {
   const { user: currentUser } = useCurrentUser();
+  const { refresh: refreshStats } = useAdminStats();
 
   const [users, setUsers] = useState<UserEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -140,6 +142,10 @@ export function UsersSection() {
       }
       setUsers((prev) => prev.filter((u) => u.id !== demoteTarget.id));
       setDemoteTarget(null);
+      // Demote moves a row out of /api/admin/users and into the waitlist —
+      // both the userCount AND waitlistCount in the Overview header need
+      // to update.
+      void refreshStats();
       toast.success(`${demoteTarget.email} demoted to waitlist.`);
     } catch (err) {
       console.error('Demote user failed:', err);
@@ -163,6 +169,7 @@ export function UsersSection() {
       }
       setUsers((prev) => prev.filter((u) => u.id !== deleteTarget.id));
       setDeleteTarget(null);
+      void refreshStats();
       toast.success(`${deleteTarget.email} deleted.`);
     } catch (err) {
       console.error('Delete user failed:', err);
@@ -289,7 +296,12 @@ export function UsersSection() {
       <AddUserModal
         isOpen={showAddUser}
         onClose={() => setShowAddUser(false)}
-        onCreated={() => fetchUsers(1)}
+        onCreated={() => {
+          fetchUsers(1);
+          // New user lands in /api/admin/users → bump userCount in the
+          // Overview header.
+          void refreshStats();
+        }}
       />
 
       <IndividualEmailModal target={emailTarget} onClose={() => setEmailTarget(null)} />

@@ -9,6 +9,7 @@ import {
   type IndividualEmailTarget,
 } from '../components/IndividualEmailModal';
 import type { WaitlistEntry } from '../types';
+import { useAdminStats } from '../useAdminStats';
 
 // CSV import response shape — kept inline since it's only consumed by this
 // section's import results banner and isn't part of any other endpoint.
@@ -58,6 +59,7 @@ function parseCSVLine(line: string): string[] {
 
 export function WaitlistSection() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const { refresh: refreshStats } = useAdminStats();
 
   const [waitlist, setWaitlist] = useState<WaitlistEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -186,6 +188,8 @@ export function WaitlistSection() {
       setImportResults(data);
       if (data.imported > 0) {
         fetchWaitlist(1);
+        // Bulk import shifts waitlistCount; refresh the Overview header.
+        void refreshStats();
       }
 
       let message = `Import complete: ${data.imported} imported`;
@@ -215,6 +219,9 @@ export function WaitlistSection() {
       const activated = activateTarget;
       setWaitlist((prev) => prev.filter((e) => e.id !== activated.id));
       setActivateTarget(null);
+      // Activate moves the row out of the waitlist into /api/admin/users —
+      // both userCount AND waitlistCount in the Overview header shift.
+      void refreshStats();
       toast.success(
         `${activated.email} activated. They will receive an email with login instructions.`,
       );
@@ -259,6 +266,9 @@ export function WaitlistSection() {
           e.id === entry.id ? { ...e, isFoundingRider: newStatus } : e,
         ),
       );
+      // Founding-rider toggle shifts foundingRidersCount in the Overview
+      // header.
+      void refreshStats();
     } catch (err) {
       console.error('Toggle founding rider failed:', err);
       toast.error(
@@ -304,6 +314,7 @@ export function WaitlistSection() {
         ),
       );
       setSelected(new Set());
+      void refreshStats();
       toast.success(
         `${data.updatedCount} user(s) ${
           setAsFoundingRider ? 'marked as' : 'removed from'
@@ -333,6 +344,9 @@ export function WaitlistSection() {
       }
       setWaitlist((prev) => prev.filter((e) => e.id !== deleteTarget.id));
       setDeleteTarget(null);
+      // Removing a waitlist entry shifts waitlistCount (and possibly
+      // foundingRidersCount if they were a founding rider).
+      void refreshStats();
       toast.success(`${deleteTarget.email} removed from waitlist.`);
     } catch (err) {
       console.error('Delete waitlist entry failed:', err);

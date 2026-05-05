@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Input } from '../../../components/ui/Input';
 import { Button } from '../../../components/ui/Button';
-import type { AdminStats, LookupResult } from '../types';
+import type { LookupResult } from '../types';
+import { useAdminStats } from '../useAdminStats';
 
 /**
  * Overview section: at-a-glance platform stats plus a developer-tools
@@ -11,36 +12,15 @@ import type { AdminStats, LookupResult } from '../types';
  * surfaces and an admin landing on /admin usually wants one or the other.
  */
 export function OverviewSection() {
-  const [stats, setStats] = useState<AdminStats | null>(null);
+  // Stats live in <AdminStatsProvider> so mutations elsewhere in the page
+  // (delete a user from UsersSection, activate someone from WaitlistSection,
+  // etc.) can call `refresh()` and the counts here stay in sync.
+  const { stats } = useAdminStats();
 
   const [lookupEmail, setLookupEmail] = useState('');
   const [lookupResult, setLookupResult] = useState<LookupResult | null>(null);
   const [lookingUp, setLookingUp] = useState(false);
   const [lookupError, setLookupError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch(`${import.meta.env.VITE_API_URL}/api/admin/stats`, {
-          credentials: 'include',
-        });
-        if (!res.ok) throw new Error('Failed to fetch stats');
-        const data = await res.json();
-        if (cancelled) return;
-        setStats({
-          userCount: data.users,
-          waitlistCount: data.waitlist,
-          foundingRidersCount: data.foundingRiders || 0,
-        });
-      } catch (err) {
-        console.error('Failed to fetch stats:', err);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   const handleLookupUser = async (e: React.FormEvent) => {
     e.preventDefault();

@@ -1,6 +1,23 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { UsersSection } from './UsersSection';
+import { AdminStatsProvider } from '../AdminStatsProvider';
+
+// UsersSection now consumes the AdminStats context to refresh Overview
+// counts after delete/demote/add. Wrap renders in the provider — its
+// initial /api/admin/stats fetch fires once per mount, so each test queues
+// a stats response BEFORE the user-list response (the order of fetchMock
+// calls follows the order of side-effect chains in the providers/sections).
+function renderInProvider(ui: React.ReactElement) {
+  return render(<AdminStatsProvider>{ui}</AdminStatsProvider>);
+}
+
+function statsResponse() {
+  return new Response(
+    JSON.stringify({ users: 0, waitlist: 0, foundingRiders: 0 }),
+    { status: 200 },
+  );
+}
 
 vi.mock('@/lib/csrf', () => ({
   getAuthHeaders: () => ({ 'x-csrf-token': 'test-csrf' }),
@@ -94,32 +111,67 @@ afterEach(() => {
   window.confirm = originalConfirm;
 });
 
+// URL-based fetch dispatch — independent of the order in which the
+// provider's stats fetch and the section's list fetch fire (React effect
+// ordering can vary), and tolerant of post-mutation `refreshStats()` calls
+// without each test having to enumerate every chained response.
+function setupFetchHandlers(
+  handlers: Partial<{
+    users: () => Response;
+    waitlist: () => Response;
+    stats: () => Response;
+    delete: () => Response;
+    demote: () => Response;
+    addUser: () => Response;
+    sendReset: () => Response;
+  }>,
+) {
+  fetchMock.mockImplementation(async (input: string, init?: RequestInit) => {
+    const url = String(input);
+    const method = init?.method ?? 'GET';
+    if (url.includes('/api/admin/stats')) return handlers.stats?.() ?? statsResponse();
+    if (url.includes('/api/admin/users') && method === 'GET') return handlers.users?.() ?? userListResponse([]);
+    if (url.includes('/users/') && url.includes('/demote')) return handlers.demote?.() ?? new Response(null, { status: 200 });
+    if (url.match(/\/users\/[^/]+$/) && method === 'DELETE')
+      return handlers.delete?.() ?? new Response(null, { status: 204 });
+    if (url.includes('/api/admin/users') && method === 'POST')
+      return handlers.addUser?.() ?? new Response(JSON.stringify({}), { status: 200 });
+    if (url.includes('send-password-reset'))
+      return handlers.sendReset?.() ?? new Response(null, { status: 200 });
+    throw new Error(`Unhandled fetch: ${method} ${url}`);
+  });
+}
+
 describe('UsersSection', () => {
   it('renders an active user row with the role badge after the initial fetch', async () => {
-    fetchMock.mockResolvedValueOnce(userListResponse([{}]));
+    setupFetchHandlers({ users: () => userListResponse([{}]) });
 
-    render(<UsersSection />);
+    renderInProvider(<UsersSection />);
 
     expect(await screen.findByText('rider@example.com')).toBeInTheDocument();
     expect(screen.getByText('Test Rider')).toBeInTheDocument();
     expect(screen.getByText('PRO')).toBeInTheDocument();
 
-    // Initial fetch call: GET on /api/admin/users with page=1 and credentials.
-    const url = fetchMock.mock.calls[0][0] as string;
-    expect(url).toContain('/api/admin/users');
-    expect(url).toContain('page=1');
+    // Pin that the user-list fetch was made with the expected paging param.
+    // Use a `find` rather than positional indexing because the provider's
+    // stats fetch races with the section's user-list fetch and either may
+    // come first in `fetchMock.mock.calls`.
+    const userListCall = fetchMock.mock.calls.find((call) =>
+      String(call[0]).includes('/api/admin/users') && String(call[0]).includes('page=1'),
+    );
+    expect(userListCall).toBeDefined();
   });
 
   it('shows the empty state when no users come back', async () => {
-    fetchMock.mockResolvedValueOnce(userListResponse([]));
-    render(<UsersSection />);
+    setupFetchHandlers({ users: () => userListResponse([]) });
+    renderInProvider(<UsersSection />);
 
     expect(await screen.findByText('No active users yet.')).toBeInTheDocument();
   });
 
   it('disables Demote and Delete on the current admin own row', async () => {
-    fetchMock.mockResolvedValueOnce(userListResponse([{ id: 'self-id' }]));
-    render(<UsersSection />);
+    setupFetchHandlers({ users: () => userListResponse([{ id: 'self-id' }]) });
+    renderInProvider(<UsersSection />);
 
     const row = (await screen.findByText('rider@example.com')).closest('tr');
     expect(row).toBeTruthy();
@@ -131,11 +183,9 @@ describe('UsersSection', () => {
   });
 
   it('opens a typed-confirm delete modal and only fires DELETE after the email matches', async () => {
-    // First call: list. Second call: DELETE.
-    fetchMock.mockResolvedValueOnce(userListResponse([{}]));
-    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
+    setupFetchHandlers({ users: () => userListResponse([{}]) });
 
-    render(<UsersSection />);
+    renderInProvider(<UsersSection />);
 
     fireEvent.click(await screen.findByRole('button', { name: 'Delete' }));
 
@@ -148,12 +198,18 @@ describe('UsersSection', () => {
     const confirmBtn = within(footer).getByRole('button', { name: 'Delete user' });
     expect(confirmBtn).toBeDisabled();
 
-    // Wrong typed value — still disabled.
+    const findDeleteCall = () =>
+      fetchMock.mock.calls.find(
+        (call) =>
+          String(call[0]).match(/\/users\/user-1$/) &&
+          (call[1] as RequestInit | undefined)?.method === 'DELETE',
+      );
+
+    // Wrong typed value — still disabled, no DELETE fired.
     const input = screen.getByPlaceholderText('rider@example.com');
     fireEvent.change(input, { target: { value: 'wrong@example.com' } });
     expect(confirmBtn).toBeDisabled();
-    // Sanity check: no DELETE fired.
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(findDeleteCall()).toBeUndefined();
 
     // Right typed value — enables; click fires the DELETE.
     fireEvent.change(input, { target: { value: 'rider@example.com' } });
@@ -161,9 +217,7 @@ describe('UsersSection', () => {
     fireEvent.click(confirmBtn);
 
     await waitFor(() => {
-      const lastCall = fetchMock.mock.calls.at(-1);
-      expect(lastCall?.[0]).toContain('/api/admin/users/user-1');
-      expect(lastCall?.[1]).toMatchObject({ method: 'DELETE' });
+      expect(findDeleteCall()).toBeDefined();
     });
 
     // After success, the row is removed locally.
@@ -173,10 +227,9 @@ describe('UsersSection', () => {
   });
 
   it('confirms before demoting and POSTs to the demote endpoint', async () => {
-    fetchMock.mockResolvedValueOnce(userListResponse([{}]));
-    fetchMock.mockResolvedValueOnce(new Response(null, { status: 200 }));
+    setupFetchHandlers({ users: () => userListResponse([{}]) });
 
-    render(<UsersSection />);
+    renderInProvider(<UsersSection />);
 
     fireEvent.click(await screen.findByRole('button', { name: 'Demote' }));
 
@@ -189,9 +242,42 @@ describe('UsersSection', () => {
     fireEvent.click(within(footer).getByRole('button', { name: 'Demote' }));
 
     await waitFor(() => {
-      const lastCall = fetchMock.mock.calls.at(-1);
-      expect(lastCall?.[0]).toContain('/api/admin/users/user-1/demote');
-      expect(lastCall?.[1]).toMatchObject({ method: 'POST' });
+      const demoteCall = fetchMock.mock.calls.find(
+        (call) =>
+          String(call[0]).includes('/api/admin/users/user-1/demote') &&
+          (call[1] as RequestInit | undefined)?.method === 'POST',
+      );
+      expect(demoteCall).toBeDefined();
+    });
+  });
+
+  it('refreshes admin stats after a successful delete', async () => {
+    // Cross-section coupling: deleting from /api/admin/users shifts the
+    // userCount in the Overview header. Pin that the post-delete success
+    // path triggers a stats refresh — without this, an admin landing on
+    // Overview after a delete spree would see stale counters.
+    setupFetchHandlers({ users: () => userListResponse([{}]) });
+
+    renderInProvider(<UsersSection />);
+    await screen.findByText('rider@example.com');
+
+    // Snapshot the count of stats fetches before the mutation so we can
+    // assert that another one fires after.
+    const statsBefore = fetchMock.mock.calls.filter((call) =>
+      String(call[0]).includes('/api/admin/stats'),
+    ).length;
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    const footer = screen.getByTestId('modal-footer');
+    const input = screen.getByPlaceholderText('rider@example.com');
+    fireEvent.change(input, { target: { value: 'rider@example.com' } });
+    fireEvent.click(within(footer).getByRole('button', { name: 'Delete user' }));
+
+    await waitFor(() => {
+      const statsAfter = fetchMock.mock.calls.filter((call) =>
+        String(call[0]).includes('/api/admin/stats'),
+      ).length;
+      expect(statsAfter).toBeGreaterThan(statsBefore);
     });
   });
 });

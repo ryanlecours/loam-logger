@@ -6,6 +6,7 @@ import { UsersSection } from './sections/UsersSection';
 import { WaitlistSection } from './sections/WaitlistSection';
 import { EmailSection } from './sections/EmailSection';
 import type { AdminSectionId } from './useAdminSection';
+import { AdminStatsProvider } from './AdminStatsProvider';
 
 /**
  * Admin page entry point. Mounts the sectioned shell; the role gate lives
@@ -33,19 +34,27 @@ export default function Admin() {
   }
 
   return (
-    <AdminShell>
-      {(section: AdminSectionId) => {
-        switch (section) {
-          case 'overview':
-            return <OverviewSection />;
-          case 'users':
-            return <UsersSection />;
-          case 'waitlist':
-            return <WaitlistSection />;
-          case 'email':
-            return <EmailSection />;
-        }
-      }}
-    </AdminShell>
+    // Stats provider wraps the whole admin tree so any section's mutation
+    // handlers can call `refresh()` to keep the Overview counters fresh
+    // — even when the admin is on a different tab during the mutation.
+    // Lives at this level so the stats survive section-tab transitions
+    // (each section unmounts via AnimatePresence's mode="wait", so a
+    // section-local store would lose data on every navigation).
+    <AdminStatsProvider>
+      <AdminShell>
+        {(section: AdminSectionId) => {
+          switch (section) {
+            case 'overview':
+              return <OverviewSection />;
+            case 'users':
+              return <UsersSection />;
+            case 'waitlist':
+              return <WaitlistSection />;
+            case 'email':
+              return <EmailSection />;
+          }
+        }}
+      </AdminShell>
+    </AdminStatsProvider>
   );
 }
