@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { CURRENT_TERMS_VERSION } from '@loam/shared';
 import { TermsAcceptanceStep } from './TermsAcceptanceStep';
 
 // Mock ResizeObserver (not available in jsdom)
@@ -24,7 +25,7 @@ vi.mock('@apollo/client', () => ({
 
 // Mock the terms content to avoid rendering the full legal text
 vi.mock('../legal/terms', () => ({
-  TERMS_VERSION: '1.2.0',
+  TERMS_VERSION: CURRENT_TERMS_VERSION,
   TERMS_LAST_UPDATED: 'January 2026',
   TERMS_TEXT: `# Test Terms
 
@@ -213,7 +214,7 @@ describe('TermsAcceptanceStep', () => {
       await waitFor(() => {
         expect(mockAcceptTerms).toHaveBeenCalledWith({
           variables: {
-            input: { termsVersion: '1.2.0' },
+            input: { termsVersion: CURRENT_TERMS_VERSION },
           },
         });
       });
