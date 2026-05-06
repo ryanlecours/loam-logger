@@ -107,6 +107,7 @@ import { resolvers } from '../resolvers';
 import { prisma } from '../../lib/prisma';
 import { checkMutationRateLimit } from '../../lib/rate-limit';
 import { invalidateBikePrediction } from '../../services/prediction/cache';
+import { CURRENT_TERMS_VERSION } from '@loam/shared';
 
 const mockPrisma = prisma as jest.Mocked<typeof prisma>;
 const mockCheckMutationRateLimit = checkMutationRateLimit as jest.MockedFunction<typeof checkMutationRateLimit>;
@@ -672,7 +673,7 @@ describe('GraphQL Resolvers', () => {
       const mockAcceptance = {
         id: 'acceptance-1',
         userId: 'user-123',
-        termsVersion: '1.2.0',
+        termsVersion: CURRENT_TERMS_VERSION,
         acceptedAt: new Date('2026-01-14T12:00:00Z'),
         ipAddress: '127.0.0.1',
         userAgent: 'test-agent',
@@ -682,7 +683,7 @@ describe('GraphQL Resolvers', () => {
 
       const result = await mutation(
         {},
-        { input: { termsVersion: '1.2.0' } },
+        { input: { termsVersion: CURRENT_TERMS_VERSION } },
         ctx as never
       );
 
@@ -694,12 +695,12 @@ describe('GraphQL Resolvers', () => {
         where: {
           userId_termsVersion: {
             userId: 'user-123',
-            termsVersion: '1.2.0',
+            termsVersion: CURRENT_TERMS_VERSION,
           },
         },
         create: {
           userId: 'user-123',
-          termsVersion: '1.2.0',
+          termsVersion: CURRENT_TERMS_VERSION,
           ipAddress: '127.0.0.1',
           userAgent: 'test-agent',
         },
@@ -723,7 +724,7 @@ describe('GraphQL Resolvers', () => {
       const mockAcceptance = {
         id: 'acceptance-1',
         userId: 'user-123',
-        termsVersion: '1.2.0',
+        termsVersion: CURRENT_TERMS_VERSION,
         acceptedAt: originalDate,
         ipAddress: '127.0.0.1',
         userAgent: 'test-agent',
@@ -734,7 +735,7 @@ describe('GraphQL Resolvers', () => {
 
       const result = await mutation(
         {},
-        { input: { termsVersion: '1.2.0' } },
+        { input: { termsVersion: CURRENT_TERMS_VERSION } },
         ctx as never
       );
 
@@ -755,7 +756,7 @@ describe('GraphQL Resolvers', () => {
       const mockAcceptance = {
         id: 'acceptance-1',
         userId: 'user-123',
-        termsVersion: '1.2.0',
+        termsVersion: CURRENT_TERMS_VERSION,
         acceptedAt: new Date(),
         ipAddress: '192.168.1.100',
         userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
@@ -763,7 +764,7 @@ describe('GraphQL Resolvers', () => {
 
       mockPrisma.termsAcceptance.upsert.mockResolvedValue(mockAcceptance as never);
 
-      await mutation({}, { input: { termsVersion: '1.2.0' } }, ctx as never);
+      await mutation({}, { input: { termsVersion: CURRENT_TERMS_VERSION } }, ctx as never);
 
       expect(mockPrisma.termsAcceptance.upsert).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -786,7 +787,7 @@ describe('GraphQL Resolvers', () => {
       const mockAcceptance = {
         id: 'acceptance-1',
         userId: 'user-123',
-        termsVersion: '1.2.0',
+        termsVersion: CURRENT_TERMS_VERSION,
         acceptedAt: new Date(),
         ipAddress: '10.0.0.1',
         userAgent: 'test-agent',
@@ -794,7 +795,7 @@ describe('GraphQL Resolvers', () => {
 
       mockPrisma.termsAcceptance.upsert.mockResolvedValue(mockAcceptance as never);
 
-      await mutation({}, { input: { termsVersion: '1.2.0' } }, ctx as never);
+      await mutation({}, { input: { termsVersion: CURRENT_TERMS_VERSION } }, ctx as never);
 
       expect(mockPrisma.termsAcceptance.upsert).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -809,7 +810,7 @@ describe('GraphQL Resolvers', () => {
       const ctx = createMockContext(null);
 
       await expect(
-        mutation({}, { input: { termsVersion: '1.2.0' } }, ctx as never)
+        mutation({}, { input: { termsVersion: CURRENT_TERMS_VERSION } }, ctx as never)
       ).rejects.toThrow('Unauthorized');
 
       expect(mockPrisma.termsAcceptance.upsert).not.toHaveBeenCalled();
@@ -829,7 +830,7 @@ describe('GraphQL Resolvers', () => {
         where: {
           userId_termsVersion: {
             userId: 'user-123',
-            termsVersion: '1.2.0',
+            termsVersion: CURRENT_TERMS_VERSION,
           },
         },
       });
@@ -839,7 +840,7 @@ describe('GraphQL Resolvers', () => {
       mockPrisma.termsAcceptance.findUnique.mockResolvedValue({
         id: 'acceptance-1',
         userId: 'user-123',
-        termsVersion: '1.2.0',
+        termsVersion: CURRENT_TERMS_VERSION,
         acceptedAt: new Date(),
       } as never);
 
@@ -849,8 +850,8 @@ describe('GraphQL Resolvers', () => {
     });
 
     it('should return false when old version accepted (queries for current version)', async () => {
-      // The resolver queries for current version, so if user only accepted 1.1.0,
-      // findUnique for 1.2.0 returns null
+      // The resolver queries for current version, so if user only accepted an older
+      // version, findUnique for CURRENT_TERMS_VERSION returns null
       mockPrisma.termsAcceptance.findUnique.mockResolvedValue(null);
 
       const result = await resolver({ id: 'user-123' });
@@ -861,7 +862,7 @@ describe('GraphQL Resolvers', () => {
         where: {
           userId_termsVersion: {
             userId: 'user-123',
-            termsVersion: '1.2.0',
+            termsVersion: CURRENT_TERMS_VERSION,
           },
         },
       });
