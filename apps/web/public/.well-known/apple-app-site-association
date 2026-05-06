@@ -11,6 +11,14 @@
           {
             "/": "/reset-password/*",
             "comment": "Opens the reset-password screen in the mobile app"
+          },
+          {
+            "/": "/signup",
+            "comment": "Opens the signup screen in the mobile app, capturing any ?ref= query param for referral attribution"
+          },
+          {
+            "/": "/signup/*",
+            "comment": "Same as /signup, with trailing path segments"
           }
         ]
       }
