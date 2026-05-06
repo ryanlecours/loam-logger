@@ -671,7 +671,7 @@ describe('GraphQL Resolvers', () => {
       const mockAcceptance = {
         id: 'acceptance-1',
         userId: 'user-123',
-        termsVersion: '1.2.0',
+        termsVersion: '1.3.0',
         acceptedAt: new Date('2026-01-14T12:00:00Z'),
         ipAddress: '127.0.0.1',
         userAgent: 'test-agent',
@@ -681,7 +681,7 @@ describe('GraphQL Resolvers', () => {
 
       const result = await mutation(
         {},
-        { input: { termsVersion: '1.2.0' } },
+        { input: { termsVersion: '1.3.0' } },
         ctx as never
       );
 
@@ -693,12 +693,12 @@ describe('GraphQL Resolvers', () => {
         where: {
           userId_termsVersion: {
             userId: 'user-123',
-            termsVersion: '1.2.0',
+            termsVersion: '1.3.0',
           },
         },
         create: {
           userId: 'user-123',
-          termsVersion: '1.2.0',
+          termsVersion: '1.3.0',
           ipAddress: '127.0.0.1',
           userAgent: 'test-agent',
         },
@@ -722,7 +722,7 @@ describe('GraphQL Resolvers', () => {
       const mockAcceptance = {
         id: 'acceptance-1',
         userId: 'user-123',
-        termsVersion: '1.2.0',
+        termsVersion: '1.3.0',
         acceptedAt: originalDate,
         ipAddress: '127.0.0.1',
         userAgent: 'test-agent',
@@ -733,7 +733,7 @@ describe('GraphQL Resolvers', () => {
 
       const result = await mutation(
         {},
-        { input: { termsVersion: '1.2.0' } },
+        { input: { termsVersion: '1.3.0' } },
         ctx as never
       );
 
@@ -754,7 +754,7 @@ describe('GraphQL Resolvers', () => {
       const mockAcceptance = {
         id: 'acceptance-1',
         userId: 'user-123',
-        termsVersion: '1.2.0',
+        termsVersion: '1.3.0',
         acceptedAt: new Date(),
         ipAddress: '192.168.1.100',
         userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
@@ -762,7 +762,7 @@ describe('GraphQL Resolvers', () => {
 
       mockPrisma.termsAcceptance.upsert.mockResolvedValue(mockAcceptance as never);
 
-      await mutation({}, { input: { termsVersion: '1.2.0' } }, ctx as never);
+      await mutation({}, { input: { termsVersion: '1.3.0' } }, ctx as never);
 
       expect(mockPrisma.termsAcceptance.upsert).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -785,7 +785,7 @@ describe('GraphQL Resolvers', () => {
       const mockAcceptance = {
         id: 'acceptance-1',
         userId: 'user-123',
-        termsVersion: '1.2.0',
+        termsVersion: '1.3.0',
         acceptedAt: new Date(),
         ipAddress: '10.0.0.1',
         userAgent: 'test-agent',
@@ -793,7 +793,7 @@ describe('GraphQL Resolvers', () => {
 
       mockPrisma.termsAcceptance.upsert.mockResolvedValue(mockAcceptance as never);
 
-      await mutation({}, { input: { termsVersion: '1.2.0' } }, ctx as never);
+      await mutation({}, { input: { termsVersion: '1.3.0' } }, ctx as never);
 
       expect(mockPrisma.termsAcceptance.upsert).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -808,7 +808,7 @@ describe('GraphQL Resolvers', () => {
       const ctx = createMockContext(null);
 
       await expect(
-        mutation({}, { input: { termsVersion: '1.2.0' } }, ctx as never)
+        mutation({}, { input: { termsVersion: '1.3.0' } }, ctx as never)
       ).rejects.toThrow('Unauthorized');
 
       expect(mockPrisma.termsAcceptance.upsert).not.toHaveBeenCalled();
@@ -828,7 +828,7 @@ describe('GraphQL Resolvers', () => {
         where: {
           userId_termsVersion: {
             userId: 'user-123',
-            termsVersion: '1.2.0',
+            termsVersion: '1.3.0',
           },
         },
       });
@@ -838,7 +838,7 @@ describe('GraphQL Resolvers', () => {
       mockPrisma.termsAcceptance.findUnique.mockResolvedValue({
         id: 'acceptance-1',
         userId: 'user-123',
-        termsVersion: '1.2.0',
+        termsVersion: '1.3.0',
         acceptedAt: new Date(),
       } as never);
 
@@ -860,7 +860,7 @@ describe('GraphQL Resolvers', () => {
         where: {
           userId_termsVersion: {
             userId: 'user-123',
-            termsVersion: '1.2.0',
+            termsVersion: '1.3.0',
           },
         },
       });
