@@ -4,6 +4,7 @@ import { useCallback } from 'react';
 export type SettingsSectionId =
   | 'account'
   | 'data-sources'
+  | 'trail-stewardship'
   | 'preferences'
   | 'service-intervals'
   | 'maintenance'
@@ -13,6 +14,7 @@ export type SettingsSectionId =
 const KNOWN_SECTIONS: readonly SettingsSectionId[] = [
   'account',
   'data-sources',
+  'trail-stewardship',
   'preferences',
   'service-intervals',
   'maintenance',

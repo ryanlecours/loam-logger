@@ -6,6 +6,7 @@ import {
   Wrench,
   Activity,
   Shield,
+  Mountain,
   AlertTriangle,
   type LucideIcon,
 } from 'lucide-react';
@@ -20,6 +21,7 @@ type SettingsSectionMeta = {
 const SETTINGS_SECTIONS: readonly SettingsSectionMeta[] = [
   { id: 'account', label: 'Account', icon: User },
   { id: 'data-sources', label: 'Data Sources', icon: LinkIcon },
+  { id: 'trail-stewardship', label: 'Trail Stewardship', icon: Mountain },
   { id: 'preferences', label: 'Preferences', icon: Sliders },
   { id: 'service-intervals', label: 'Service Intervals', icon: Wrench },
   { id: 'maintenance', label: 'Maintenance', icon: Activity },
