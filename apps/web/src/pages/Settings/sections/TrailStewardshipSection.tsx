@@ -7,14 +7,7 @@ import {
   type StewardshipProviderId,
 } from '@loam/shared';
 import SettingsSectionHeader from '../SettingsSectionHeader';
-
-// Brand color CSS variable per provider, matching DataSourcesSection.
-const BRAND_COLOR_VARS: Record<StewardshipProviderId, string> = {
-  strava: '--brand-strava',
-  garmin: '--brand-garmin',
-  suunto: '--brand-suunto',
-  whoop: '--brand-whoop',
-};
+import { STEWARDSHIP_BRAND_COLOR_VARS } from '../components/trailStewardshipBrandColors';
 
 const STEWARDSHIP_ACCOUNTS_QUERY = gql`
   query StewardshipAccounts {
@@ -85,7 +78,7 @@ export default function TrailStewardshipSection() {
           <div className="space-y-3">
             {visibleProviders.map((provider) => {
               const isExpanded = expanded === provider.provider;
-              const brandColor = `var(${BRAND_COLOR_VARS[provider.provider]})`;
+              const brandColor = `var(${STEWARDSHIP_BRAND_COLOR_VARS[provider.provider]})`;
 
               if (!provider.hasPublicHeatmap) {
                 return (
@@ -106,6 +99,7 @@ export default function TrailStewardshipSection() {
                 );
               }
 
+              const panelId = `stewardship-panel-${provider.provider}`;
               return (
                 <div
                   key={provider.provider}
@@ -116,6 +110,7 @@ export default function TrailStewardshipSection() {
                     onClick={() => setExpanded(isExpanded ? null : provider.provider)}
                     className="w-full px-4 py-3 flex items-center gap-3 text-left hover:bg-surface-3/40 transition"
                     aria-expanded={isExpanded}
+                    aria-controls={panelId}
                   >
                     <AlertTriangle className="h-5 w-5 shrink-0 text-amber-400" />
                     <div className="flex-1">
@@ -132,11 +127,11 @@ export default function TrailStewardshipSection() {
                   </button>
 
                   {isExpanded && (
-                    <div className="border-t border-app/50 px-4 py-3 space-y-3">
+                    <div id={panelId} className="border-t border-app/50 px-4 py-3 space-y-3">
                       <p className="label-section">How to opt out</p>
                       <ol className="space-y-2 text-sm">
                         {provider.steps.map((step, i) => (
-                          <li key={i} className="flex gap-3">
+                          <li key={step} className="flex gap-3">
                             <span className="font-semibold text-muted shrink-0 w-5">
                               {i + 1}.
                             </span>

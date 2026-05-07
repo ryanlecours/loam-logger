@@ -18,8 +18,18 @@ import { useViewer } from '../../graphql/me';
 import type { StewardshipProviderId } from '@loam/shared';
 
 // Heatmap-publishing providers. Connecting any of these for the first time
-// triggers the stewardship modal.
-const HEATMAP_PROVIDERS: ReadonlySet<DataSource> = new Set(['strava', 'garmin', 'suunto']);
+// triggers the stewardship modal. Typed as ReadonlySet<StewardshipProviderId>
+// so the `isHeatmapProvider` guard can narrow a DataSource into the
+// shared-library type without an `as` cast at the call site.
+const HEATMAP_PROVIDERS: ReadonlySet<StewardshipProviderId> = new Set([
+  'strava',
+  'garmin',
+  'suunto',
+]);
+
+function isHeatmapProvider(p: DataSource): p is DataSource & StewardshipProviderId {
+  return (HEATMAP_PROVIDERS as ReadonlySet<string>).has(p);
+}
 
 /**
  * Refetches ConnectedAccounts queries after an OAuth callback. Can't use a
@@ -97,9 +107,9 @@ export default function Settings() {
 
   useEffect(() => {
     if (!justConnected) return;
-    if (!HEATMAP_PROVIDERS.has(justConnected)) return;
+    if (!isHeatmapProvider(justConnected)) return;
     if (viewer?.trailStewardshipNoticeSeenAt) return;
-    setStewardshipProvider(justConnected as StewardshipProviderId);
+    setStewardshipProvider(justConnected);
     setStewardshipModalOpen(true);
   }, [justConnected, viewer?.trailStewardshipNoticeSeenAt]);
 
