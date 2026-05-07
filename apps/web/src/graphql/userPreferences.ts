@@ -24,6 +24,19 @@ export function useMarkPairedComponentMigrationSeen() {
   return useMutation(MARK_PAIRED_COMPONENT_MIGRATION_SEEN_MUTATION)
 }
 
+export const MARK_TRAIL_STEWARDSHIP_NOTICE_SEEN_MUTATION = gql`
+  mutation MarkTrailStewardshipNoticeSeen {
+    markTrailStewardshipNoticeSeen {
+      id
+      trailStewardshipNoticeSeenAt
+    }
+  }
+`
+
+export function useMarkTrailStewardshipNoticeSeen() {
+  return useMutation(MARK_TRAIL_STEWARDSHIP_NOTICE_SEEN_MUTATION)
+}
+
 export const MIGRATE_PAIRED_COMPONENTS_MUTATION = gql`
   mutation MigratePairedComponents {
     migratePairedComponents {

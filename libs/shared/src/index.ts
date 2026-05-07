@@ -20,3 +20,4 @@ export * from './tiers';
 
 // Legal
 export * from './legal/terms';
+export * from './legal/trail-stewardship';

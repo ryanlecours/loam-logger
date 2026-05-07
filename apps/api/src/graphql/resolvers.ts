@@ -4166,6 +4166,24 @@ export const resolvers = {
       });
     },
 
+    markTrailStewardshipNoticeSeen: async (_: unknown, __: unknown, ctx: GraphQLContext) => {
+      const userId = requireUserId(ctx);
+
+      const rateLimit = await checkMutationRateLimit('markTrailStewardshipNoticeSeen', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
+
+      return prisma.user.update({
+        where: { id: userId },
+        data: {
+          trailStewardshipNoticeSeenAt: new Date(),
+        },
+      });
+    },
+
     replaceComponent: async (
       _: unknown,
       { input }: { input: ReplaceComponentInputGQL },
@@ -5441,6 +5459,8 @@ export const resolvers = {
     },
     pairedComponentMigrationSeenAt: (parent: { pairedComponentMigrationSeenAt?: Date | null }) =>
       parent.pairedComponentMigrationSeenAt?.toISOString() ?? null,
+    trailStewardshipNoticeSeenAt: (parent: { trailStewardshipNoticeSeenAt?: Date | null }) =>
+      parent.trailStewardshipNoticeSeenAt?.toISOString() ?? null,
     notifyOnRideUpload: (parent: { notifyOnRideUpload?: boolean }) => parent.notifyOnRideUpload ?? true,
     createdAt: (parent: { createdAt: Date }) => parent.createdAt.toISOString(),
     // Scoped to the viewer's User type so the shape matches other user-owned
