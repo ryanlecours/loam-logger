@@ -200,10 +200,25 @@ export function CalibrationOverlay({ isOpen, onClose }: CalibrationOverlayProps)
 
   const toggleAllComponents = useCallback((bikeId: string, components: ComponentPrediction[], selectAll: boolean) => {
     setSelectedComponents((prev) => {
-      const uncalibrated = components.filter((c) => !calibratedIds.has(c.componentId));
-      const next = selectAll
-        ? new Set(uncalibrated.map((c) => c.componentId))
-        : new Set<string>();
+      const current = prev[bikeId] ?? new Set<string>();
+      // The header checkbox governs needs-attention (OVERDUE / DUE_NOW) rows
+      // ONLY — that's the bulk flow's primary intent and it matches the
+      // pre-selection on modal open. Healthy DUE_SOON / ALL_GOOD rows are
+      // left untouched: ticking the header can't accidentally sweep a
+      // healthy component into the batch, and unticking it can't silently
+      // drop a healthy component the user deliberately picked per-row.
+      // Healthy components stay fully serviceable via their own checkbox or
+      // the per-row Log Service button — a real use case (you might service
+      // an "all good" component because of a creak or a sloppy bleed).
+      const needsAttentionUncalibrated = components.filter(
+        (c) => !calibratedIds.has(c.componentId) && isNeedsAttention(c.status),
+      );
+      const next = new Set(current);
+      if (selectAll) {
+        needsAttentionUncalibrated.forEach((c) => next.add(c.componentId));
+      } else {
+        needsAttentionUncalibrated.forEach((c) => next.delete(c.componentId));
+      }
       return { ...prev, [bikeId]: next };
     });
   }, [calibratedIds]);
@@ -554,7 +569,8 @@ function BikeSection({
   // "Needs attention" is the gate the overlay scopes itself to. After the
   // resolver change, `bike.components` includes DUE_SOON / ALL_GOOD too, so
   // we have to derive the badge from status, not from the array length.
-  const needsAttentionCount = uncalibratedComponents.filter((c) => isNeedsAttention(c.status)).length;
+  const needsAttentionUncalibrated = uncalibratedComponents.filter((c) => isNeedsAttention(c.status));
+  const needsAttentionCount = needsAttentionUncalibrated.length;
   const allNeedsAttentionAddressed = needsAttentionCount === 0;
   // Distinct from `allNeedsAttentionAddressed`: this is true only when every
   // component (healthy ones included) has been calibrated. Used to collapse
@@ -573,9 +589,18 @@ function BikeSection({
     });
   }, [bike.components]);
 
-  // Count selected uncalibrated components
+  // `selectedCount` drives the bulk button and counts EVERY selected
+  // uncalibrated row — including healthy ones the user deliberately ticked
+  // per-row — because the button should log exactly what's selected.
   const selectedCount = uncalibratedComponents.filter((c) => selectedIds.has(c.componentId)).length;
-  const allSelected = selectedCount === uncalibratedComponents.length && uncalibratedComponents.length > 0;
+  // `allSelected` drives the header checkbox and is scoped to needs-attention
+  // rows only: the checkbox is a shortcut for "all the overdue stuff", not
+  // "literally everything", so it can't be used to bulk-batch healthy
+  // components by accident. (See toggleAllComponents for the matching toggle
+  // logic and the rationale.)
+  const allSelected =
+    needsAttentionCount > 0 &&
+    needsAttentionUncalibrated.every((c) => selectedIds.has(c.componentId));
 
   return (
     <div className={`calibration-bike ${allNeedsAttentionAddressed ? 'calibration-bike-done' : ''}`}>
@@ -611,7 +636,10 @@ function BikeSection({
       {/* Expanded content */}
       {isExpanded && !allComponentsCalibrated && (
         <div className="calibration-bike-content">
-          {/* Bulk action */}
+          {/* Bulk action. The checkbox label says "all overdue" explicitly
+              because the checkbox is scoped to needs-attention rows — see
+              allSelected / toggleAllComponents. Healthy components are not
+              swept in by this control; they're handled per-row. */}
           <div className="calibration-bulk-action">
             <label className="calibration-select-all">
               <input
@@ -620,7 +648,7 @@ function BikeSection({
                 onChange={(e) => onToggleAll(e.target.checked)}
                 disabled={isSubmitting}
               />
-              <span>Mark serviced in:</span>
+              <span>Mark all overdue serviced in:</span>
             </label>
             <input
               type="month"

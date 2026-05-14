@@ -273,7 +273,7 @@ describe('CalibrationOverlay', () => {
       render(<CalibrationOverlay isOpen={true} onClose={defaultOnClose} />);
 
       // The component details should be visible (bulk action section)
-      expect(screen.getByText('Mark serviced in:')).toBeInTheDocument();
+      expect(screen.getByText('Mark all overdue serviced in:')).toBeInTheDocument();
     });
 
     it('toggles bike section on click', () => {
@@ -283,19 +283,19 @@ describe('CalibrationOverlay', () => {
       render(<CalibrationOverlay isOpen={true} onClose={defaultOnClose} />);
 
       // Initially expanded
-      expect(screen.getByText('Mark serviced in:')).toBeInTheDocument();
+      expect(screen.getByText('Mark all overdue serviced in:')).toBeInTheDocument();
 
       // Click to collapse
       fireEvent.click(screen.getByText('Trail Bike'));
 
       // Content should be hidden
-      expect(screen.queryByText('Mark serviced in:')).not.toBeInTheDocument();
+      expect(screen.queryByText('Mark all overdue serviced in:')).not.toBeInTheDocument();
 
       // Click to expand again
       fireEvent.click(screen.getByText('Trail Bike'));
 
       // Content should be visible again
-      expect(screen.getByText('Mark serviced in:')).toBeInTheDocument();
+      expect(screen.getByText('Mark all overdue serviced in:')).toBeInTheDocument();
     });
   });
 
@@ -592,6 +592,43 @@ describe('CalibrationOverlay', () => {
       await waitFor(() => {
         expect(screen.getByText(/Log Service \(1\)/)).toBeInTheDocument();
       });
+    });
+
+    it('select-all is scoped to needs-attention rows, not healthy ones', async () => {
+      // OVERDUE sorts before ALL_GOOD, so checkbox order is:
+      // [0] header select-all, [1] comp-1 (OVERDUE), [2] comp-2 (ALL_GOOD).
+      const bike = createBike('bike-1', 'Trail Bike', [
+        createComponent('comp-1', { status: 'OVERDUE' }),
+        createComponent('comp-2', { status: 'ALL_GOOD', hoursRemaining: 40 }),
+      ]);
+      setupCalibrationState([bike]);
+
+      render(<CalibrationOverlay isOpen={true} onClose={defaultOnClose} />);
+
+      // Only the OVERDUE row is pre-selected on open — the ALL_GOOD one is
+      // not swept in. Subtitle counts needs-attention only.
+      expect(screen.getByText(/Log Service \(1\)/)).toBeInTheDocument();
+      expect(screen.getByTestId('subtitle')).toHaveTextContent(
+        '1 component needs attention'
+      );
+
+      // Header checkbox is checked (every needs-attention row is selected);
+      // toggling it off clears only the needs-attention selection.
+      expect(screen.getAllByRole('checkbox')[0]).toBeChecked();
+      fireEvent.click(screen.getAllByRole('checkbox')[0]);
+      await waitFor(() => {
+        expect(screen.getByText(/Log Service \(0\)/)).toBeInTheDocument();
+      });
+
+      // The healthy component is still selectable individually — servicing
+      // an "all good" component (a creak, a sloppy bleed) is a real case.
+      fireEvent.click(screen.getAllByRole('checkbox')[2]);
+      await waitFor(() => {
+        expect(screen.getByText(/Log Service \(1\)/)).toBeInTheDocument();
+      });
+      // Selecting the healthy row does not check the header checkbox — the
+      // header tracks needs-attention rows only.
+      expect(screen.getAllByRole('checkbox')[0]).not.toBeChecked();
     });
   });
 
