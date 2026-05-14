@@ -603,7 +603,13 @@ function BikeSection({
     needsAttentionUncalibrated.every((c) => selectedIds.has(c.componentId));
 
   return (
-    <div className={`calibration-bike ${allNeedsAttentionAddressed ? 'calibration-bike-done' : ''}`}>
+    // `calibration-bike-done` dims the whole section (opacity 0.7). Key it on
+    // `allComponentsCalibrated`, NOT `allNeedsAttentionAddressed`: in the
+    // mixed case (overdue items handled, healthy components still present)
+    // the body stays expanded with live Log Service / Acknowledge / Snooze
+    // buttons, and dimming those would make them read as disabled. Only dim
+    // once the section is genuinely finished and its body has collapsed.
+    <div className={`calibration-bike ${allComponentsCalibrated ? 'calibration-bike-done' : ''}`}>
       {/* Bike header */}
       <button
         type="button"
@@ -623,7 +629,14 @@ function BikeSection({
             <span className="calibration-bike-title">{bike.bikeName}</span>
             <span className="calibration-bike-count">
               {allNeedsAttentionAddressed ? (
-                <><Check size={12} className="icon-success" /> All set</>
+                <>
+                  <Check size={12} className="icon-success" />{' '}
+                  {/* "All set" only when there's literally nothing left.
+                      When healthy components remain uncalibrated the body
+                      is still showing optional Log Service buttons, so the
+                      badge must not claim the section is fully done. */}
+                  {allComponentsCalibrated ? 'All set' : 'Nothing due'}
+                </>
               ) : (
                 `${needsAttentionCount} need${needsAttentionCount === 1 ? 's' : ''} attention`
               )}
