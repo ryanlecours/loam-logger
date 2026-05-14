@@ -5480,6 +5480,14 @@
     align-items: stretch;
   }
 
+  /* The bulk-action row stacks vertically here, so the select-all label
+     gets its own full-width line. Override the desktop `white-space: nowrap`
+     so a long label wraps gracefully instead of overflowing the modal on
+     narrow viewports. */
+  .calibration-select-all {
+    white-space: normal;
+  }
+
   .calibration-bulk-action .form-select-sm,
   .calibration-bulk-action .form-input-sm {
     width: 100%;

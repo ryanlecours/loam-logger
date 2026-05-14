@@ -663,7 +663,10 @@ function BikeSection({
           {/* Bulk action. The checkbox label says "all overdue" explicitly
               because the checkbox is scoped to needs-attention rows — see
               allSelected / toggleAllComponents. Healthy components are not
-              swept in by this control; they're handled per-row. */}
+              swept in by this control; they're handled per-row. Kept short
+              ("All overdue, serviced in:") so it doesn't crowd the row on
+              small viewports; it also wraps rather than overflows there
+              (see .calibration-select-all in the mobile media query). */}
           <div className="calibration-bulk-action">
             <label className="calibration-select-all">
               <input
@@ -672,7 +675,7 @@ function BikeSection({
                 onChange={(e) => onToggleAll(e.target.checked)}
                 disabled={isSubmitting}
               />
-              <span>Mark all overdue serviced in:</span>
+              <span>All overdue, serviced in:</span>
             </label>
             <input
               type="month"

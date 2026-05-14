@@ -273,7 +273,7 @@ describe('CalibrationOverlay', () => {
       render(<CalibrationOverlay isOpen={true} onClose={defaultOnClose} />);
 
       // The component details should be visible (bulk action section)
-      expect(screen.getByText('Mark all overdue serviced in:')).toBeInTheDocument();
+      expect(screen.getByText('All overdue, serviced in:')).toBeInTheDocument();
     });
 
     it('toggles bike section on click', () => {
@@ -283,19 +283,19 @@ describe('CalibrationOverlay', () => {
       render(<CalibrationOverlay isOpen={true} onClose={defaultOnClose} />);
 
       // Initially expanded
-      expect(screen.getByText('Mark all overdue serviced in:')).toBeInTheDocument();
+      expect(screen.getByText('All overdue, serviced in:')).toBeInTheDocument();
 
       // Click to collapse
       fireEvent.click(screen.getByText('Trail Bike'));
 
       // Content should be hidden
-      expect(screen.queryByText('Mark all overdue serviced in:')).not.toBeInTheDocument();
+      expect(screen.queryByText('All overdue, serviced in:')).not.toBeInTheDocument();
 
       // Click to expand again
       fireEvent.click(screen.getByText('Trail Bike'));
 
       // Content should be visible again
-      expect(screen.getByText('Mark all overdue serviced in:')).toBeInTheDocument();
+      expect(screen.getByText('All overdue, serviced in:')).toBeInTheDocument();
     });
   });
 
