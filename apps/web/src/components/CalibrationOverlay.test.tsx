@@ -273,7 +273,7 @@ describe('CalibrationOverlay', () => {
       render(<CalibrationOverlay isOpen={true} onClose={defaultOnClose} />);
 
       // The component details should be visible (bulk action section)
-      expect(screen.getByText('Serviced in:')).toBeInTheDocument();
+      expect(screen.getByText('Mark serviced in:')).toBeInTheDocument();
     });
 
     it('toggles bike section on click', () => {
@@ -283,19 +283,19 @@ describe('CalibrationOverlay', () => {
       render(<CalibrationOverlay isOpen={true} onClose={defaultOnClose} />);
 
       // Initially expanded
-      expect(screen.getByText('Serviced in:')).toBeInTheDocument();
+      expect(screen.getByText('Mark serviced in:')).toBeInTheDocument();
 
       // Click to collapse
       fireEvent.click(screen.getByText('Trail Bike'));
 
       // Content should be hidden
-      expect(screen.queryByText('Serviced in:')).not.toBeInTheDocument();
+      expect(screen.queryByText('Mark serviced in:')).not.toBeInTheDocument();
 
       // Click to expand again
       fireEvent.click(screen.getByText('Trail Bike'));
 
       // Content should be visible again
-      expect(screen.getByText('Serviced in:')).toBeInTheDocument();
+      expect(screen.getByText('Mark serviced in:')).toBeInTheDocument();
     });
   });
 
@@ -310,11 +310,12 @@ describe('CalibrationOverlay', () => {
       const monthInput = document.querySelector('input[type="month"]');
       expect(monthInput).toBeInTheDocument();
 
-      // Should have Apply button
-      expect(screen.getByText(/Apply to All \(1\)/)).toBeInTheDocument();
+      // Should have the bulk Log Service button (needs-attention rows are
+      // pre-selected on open, so the count reflects the one component)
+      expect(screen.getByText(/Log Service \(1\)/)).toBeInTheDocument();
     });
 
-    it('marks components as calibrated on Apply and submits on Complete', async () => {
+    it('marks components as calibrated on bulk Log Service and submits on Complete', async () => {
       const bike = createBike('bike-1', 'Trail Bike', [
         createComponent('comp-1'),
         createComponent('comp-2'),
@@ -323,8 +324,8 @@ describe('CalibrationOverlay', () => {
 
       render(<CalibrationOverlay isOpen={true} onClose={defaultOnClose} />);
 
-      // Click Apply button
-      fireEvent.click(screen.getByText(/Apply to All \(2\)/));
+      // Click the bulk Log Service button (both rows pre-selected on open)
+      fireEvent.click(screen.getByText(/Log Service \(2\)/));
 
       // Progress should update (components marked locally)
       await waitFor(() => {
@@ -353,7 +354,7 @@ describe('CalibrationOverlay', () => {
 
       render(<CalibrationOverlay isOpen={true} onClose={defaultOnClose} />);
 
-      fireEvent.click(screen.getByText(/Apply to All \(1\)/));
+      fireEvent.click(screen.getByText(/Log Service \(1\)/));
 
       await waitFor(() => {
         expect(screen.getByText(/Marked 1 component as serviced/)).toBeInTheDocument();
@@ -371,11 +372,49 @@ describe('CalibrationOverlay', () => {
 
       expect(screen.getByText('0 of 2 calibrated')).toBeInTheDocument();
 
-      fireEvent.click(screen.getByText(/Apply to All \(2\)/));
+      fireEvent.click(screen.getByText(/Log Service \(2\)/));
 
       await waitFor(() => {
         expect(screen.getByText('2 of 2 calibrated')).toBeInTheDocument();
       });
+    });
+  });
+
+  describe('state freeze across refetch', () => {
+    it('preserves in-progress calibration when calibrationState refetches mid-session', async () => {
+      const bike = createBike('bike-1', 'Trail Bike', [
+        createComponent('comp-1'),
+        createComponent('comp-2'),
+      ]);
+      setupCalibrationState([bike]);
+
+      const { rerender } = render(
+        <CalibrationOverlay isOpen={true} onClose={defaultOnClose} />
+      );
+
+      // Stage work: acknowledge one component.
+      const acknowledgeButtons = screen.getAllByRole('button', { name: 'Acknowledge' });
+      fireEvent.click(acknowledgeButtons[0]);
+      await waitFor(() => {
+        expect(screen.getByText('1 of 2 calibrated')).toBeInTheDocument();
+      });
+
+      // Simulate a `cache-and-network` background refetch: Apollo hands back
+      // a brand-new calibrationState object reference (same underlying data).
+      setupCalibrationState([
+        createBike('bike-1', 'Trail Bike', [
+          createComponent('comp-1'),
+          createComponent('comp-2'),
+        ]),
+      ]);
+      rerender(<CalibrationOverlay isOpen={true} onClose={defaultOnClose} />);
+
+      // The staged calibration must survive — the init effect is guarded so
+      // it does not re-run and wipe calibratedIds / pendingServiceLogs.
+      await waitFor(() => {
+        expect(screen.getByText('1 of 2 calibrated')).toBeInTheDocument();
+      });
+      expect(screen.getByText('Calibrated')).toBeInTheDocument();
     });
   });
 
@@ -541,16 +580,17 @@ describe('CalibrationOverlay', () => {
 
       render(<CalibrationOverlay isOpen={true} onClose={defaultOnClose} />);
 
-      // All components are selected by default, so button shows Apply to All (2)
-      expect(screen.getByText(/Apply to All \(2\)/)).toBeInTheDocument();
+      // Needs-attention rows are pre-selected on open, so the bulk button
+      // starts at Log Service (2)
+      expect(screen.getByText(/Log Service \(2\)/)).toBeInTheDocument();
 
       // Deselect one component (component checkboxes are after the select-all)
       const checkboxes = screen.getAllByRole('checkbox');
       fireEvent.click(checkboxes[1]); // First component checkbox
 
-      // Button should now show Apply to Selected (1)
+      // Button should now show Log Service (1)
       await waitFor(() => {
-        expect(screen.getByText(/Apply to Selected \(1\)/)).toBeInTheDocument();
+        expect(screen.getByText(/Log Service \(1\)/)).toBeInTheDocument();
       });
     });
   });

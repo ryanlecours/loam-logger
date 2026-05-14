@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { BellOff, Bike, Check, ChevronDown, ChevronUp, TriangleAlert, CircleCheck } from 'lucide-react';
 import { Modal } from './ui/Modal';
 import { Button } from './ui/Button';
@@ -94,7 +94,17 @@ export function CalibrationOverlay({ isOpen, onClose }: CalibrationOverlayProps)
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const calibrationState = data?.calibrationState;
-  const bikes = useMemo(() => calibrationState?.bikes ?? [], [calibrationState?.bikes]);
+  // `useCalibrationState` uses `cache-and-network`, so Apollo can hand us a
+  // fresh `calibrationState` reference mid-session — a background refetch,
+  // or a `refetchQueries: [CALIBRATION_STATE]` fired by a sibling mutation.
+  // We snapshot the bikes into state ONCE per modal-open (see the init
+  // effect below) and render/handle off that frozen copy, so an async
+  // refetch can't wipe the user's in-progress pendingServiceLogs /
+  // calibratedIds / inline-picker state out from under them.
+  const [bikes, setBikes] = useState<BikeCalibrationInfo[]>([]);
+  // Guards the init effect so it runs exactly once per modal-open, not on
+  // every `calibrationState` reference change.
+  const hasInitializedRef = useRef(false);
 
   // Calculate progress using initial total (stable across refetches).
   // Progress denominator is "needs-attention components at open" so the
@@ -106,51 +116,70 @@ export function CalibrationOverlay({ isOpen, onClose }: CalibrationOverlayProps)
   );
   const remainingCount = Math.max(0, initialTotal - calibratedNeedsAttentionCount);
 
-  // Reset state when modal opens
+  // Snapshot + initialize state once per modal-open.
+  //
+  // Deliberately gated by `hasInitializedRef` rather than re-running on every
+  // `bikes` change: the query is `cache-and-network`, so a background refetch
+  // (or a sibling mutation's `refetchQueries`) lands a new `calibrationState`
+  // reference mid-session. Re-running this effect on that would reset
+  // `pendingServiceLogs`, `calibratedIds`, and the inline-picker state —
+  // silently discarding everything the user has staged before they hit
+  // "Complete Calibration." Snapshot once; ignore later refetches.
   useEffect(() => {
-    if (isOpen) {
-      setCalibratedIds(new Set());
-      setPendingServiceLogs(new Map());
-      setInlineDateComponentId(null);
-      setInlineDate(null);
-      setError(null);
-      setSuccessMessage(null);
-
-      // Initial total / pre-selection / bike-section badge all key off the
-      // needs-attention subset, NOT the full components array. The resolver
-      // returns every component on bikes that have at least one overdue
-      // item — without filtering here, the "5 components need attention"
-      // subtitle would balloon into the full bike inventory.
-      const attentionIds = new Set<string>();
-      bikes.forEach((bike) => {
-        bike.components.forEach((c) => {
-          if (isNeedsAttention(c.status)) attentionIds.add(c.componentId);
-        });
-      });
-      setNeedsAttentionIds(attentionIds);
-      setInitialTotal(attentionIds.size);
-
-      if (bikes.length > 0) {
-        setExpandedBikeId(bikes[0].bikeId);
-      }
-      const now = new Date();
-      const initialDates: Record<string, { month: number; year: number }> = {};
-      const initialSelected: Record<string, Set<string>> = {};
-      bikes.forEach((bike) => {
-        initialDates[bike.bikeId] = { month: now.getMonth(), year: now.getFullYear() };
-        // Pre-select needs-attention rows only — that's the most common
-        // intent ("I just serviced everything that's overdue"). Users can
-        // uncheck or extend selection manually.
-        initialSelected[bike.bikeId] = new Set(
-          bike.components
-            .filter((c) => isNeedsAttention(c.status))
-            .map((c) => c.componentId),
-        );
-      });
-      setBulkDates(initialDates);
-      setSelectedComponents(initialSelected);
+    if (!isOpen) {
+      // Modal closed — clear the guard so the next open re-snapshots fresh data.
+      hasInitializedRef.current = false;
+      return;
     }
-  }, [isOpen, bikes]);
+    if (hasInitializedRef.current) return;
+    // Wait for the query to resolve (from cache or network) before snapshotting.
+    if (!calibrationState) return;
+    hasInitializedRef.current = true;
+
+    const snapshot = calibrationState.bikes ?? [];
+    setBikes(snapshot);
+
+    setCalibratedIds(new Set());
+    setPendingServiceLogs(new Map());
+    setInlineDateComponentId(null);
+    setInlineDate(null);
+    setError(null);
+    setSuccessMessage(null);
+
+    // Initial total / pre-selection / bike-section badge all key off the
+    // needs-attention subset, NOT the full components array. The resolver
+    // returns every component on bikes that have at least one overdue
+    // item — without filtering here, the "5 components need attention"
+    // subtitle would balloon into the full bike inventory.
+    const attentionIds = new Set<string>();
+    snapshot.forEach((bike) => {
+      bike.components.forEach((c) => {
+        if (isNeedsAttention(c.status)) attentionIds.add(c.componentId);
+      });
+    });
+    setNeedsAttentionIds(attentionIds);
+    setInitialTotal(attentionIds.size);
+
+    if (snapshot.length > 0) {
+      setExpandedBikeId(snapshot[0].bikeId);
+    }
+    const now = new Date();
+    const initialDates: Record<string, { month: number; year: number }> = {};
+    const initialSelected: Record<string, Set<string>> = {};
+    snapshot.forEach((bike) => {
+      initialDates[bike.bikeId] = { month: now.getMonth(), year: now.getFullYear() };
+      // Pre-select needs-attention rows only — that's the most common
+      // intent ("I just serviced everything that's overdue"). Users can
+      // uncheck or extend selection manually.
+      initialSelected[bike.bikeId] = new Set(
+        bike.components
+          .filter((c) => isNeedsAttention(c.status))
+          .map((c) => c.componentId),
+      );
+    });
+    setBulkDates(initialDates);
+    setSelectedComponents(initialSelected);
+  }, [isOpen, calibrationState]);
 
   const toggleBikeExpanded = useCallback((bikeId: string) => {
     setExpandedBikeId((prev) => (prev === bikeId ? null : bikeId));
