@@ -684,6 +684,10 @@ function BikeSection({
                 onSnoozeAlert={() => onSnoozeAlert(component.componentId)}
                 onAcknowledge={() => onAcknowledge(component.componentId)}
                 isInlineDateOpen={inlineDateComponentId === component.componentId}
+                isAnotherRowEditing={
+                  inlineDateComponentId !== null &&
+                  inlineDateComponentId !== component.componentId
+                }
                 inlineDate={inlineDate}
                 monthBounds={monthBounds}
                 onOpenInlineLogService={() => onOpenInlineLogService(component.componentId)}
@@ -708,6 +712,16 @@ interface ComponentRowProps {
   onSnoozeAlert: () => void;
   onAcknowledge: () => void;
   isInlineDateOpen: boolean;
+  /**
+   * True when ANOTHER row's inline date picker is currently open. Used to
+   * disable this row's "Log Service" button: only one inline picker can be
+   * open at a time (state is a single `inlineDateComponentId`), and opening
+   * a second one would silently replace the first — discarding whatever date
+   * the user had started entering there. Disabling the button makes the
+   * "finish or cancel the open one first" constraint visible instead of
+   * letting the discard happen silently.
+   */
+  isAnotherRowEditing: boolean;
   inlineDate: { month: number; year: number } | null;
   monthBounds: { min: string; max: string };
   onOpenInlineLogService: () => void;
@@ -725,6 +739,7 @@ function ComponentRow({
   onSnoozeAlert,
   onAcknowledge,
   isInlineDateOpen,
+  isAnotherRowEditing,
   inlineDate,
   monthBounds,
   onOpenInlineLogService,
@@ -822,8 +837,12 @@ function ComponentRow({
         variant="primary"
         size="sm"
         onClick={onOpenInlineLogService}
-        disabled={isSubmitting}
-        title="Record a date you serviced this component"
+        disabled={isSubmitting || isAnotherRowEditing}
+        title={
+          isAnotherRowEditing
+            ? 'Finish or cancel the date you started on another component first'
+            : 'Record a date you serviced this component'
+        }
       >
         Log Service
       </Button>

@@ -418,6 +418,46 @@ describe('CalibrationOverlay', () => {
     });
   });
 
+  describe('inline Log Service picker', () => {
+    it('disables Log Service on other rows while one inline picker is open', async () => {
+      const bike = createBike('bike-1', 'Trail Bike', [
+        createComponent('comp-1'),
+        createComponent('comp-2'),
+      ]);
+      setupCalibrationState([bike]);
+
+      render(<CalibrationOverlay isOpen={true} onClose={defaultOnClose} />);
+
+      // Per-row "Log Service" buttons (exact name — the bulk button reads
+      // "Log Service (2)" so it doesn't match).
+      const logServiceButtons = screen.getAllByRole('button', { name: 'Log Service' });
+      expect(logServiceButtons).toHaveLength(2);
+      expect(logServiceButtons[0]).not.toBeDisabled();
+      expect(logServiceButtons[1]).not.toBeDisabled();
+
+      // Open the inline picker on the first row.
+      fireEvent.click(logServiceButtons[0]);
+
+      // Row 1 is now in edit mode (Save/Cancel), so only row 2's per-row
+      // Log Service button remains — and it's disabled, so the open picker
+      // can't be silently replaced.
+      await waitFor(() => {
+        const remaining = screen.getAllByRole('button', { name: 'Log Service' });
+        expect(remaining).toHaveLength(1);
+        expect(remaining[0]).toBeDisabled();
+      });
+
+      // Cancelling the picker re-enables the other row.
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+      await waitFor(() => {
+        const restored = screen.getAllByRole('button', { name: 'Log Service' });
+        expect(restored).toHaveLength(2);
+        expect(restored[0]).not.toBeDisabled();
+        expect(restored[1]).not.toBeDisabled();
+      });
+    });
+  });
+
   describe('individual component actions', () => {
     it('renders Acknowledge and Snooze buttons for each uncalibrated component', () => {
       const bike = createBike('bike-1', 'Trail Bike', [
