@@ -83,11 +83,14 @@ export function CalibrationOverlay({ isOpen, onClose }: CalibrationOverlayProps)
   const [initialTotal, setInitialTotal] = useState(0);
   // Track pending service logs to batch submit on completion (componentId -> performedAt)
   const [pendingServiceLogs, setPendingServiceLogs] = useState<Map<string, string>>(new Map());
-  // Per-row inline Log Service flow. Only one row may have its inline date
-  // picker open at a time; second open replaces the first. `inlineDate` holds
-  // the month/year currently in the picker for that row.
-  const [inlineDateComponentId, setInlineDateComponentId] = useState<string | null>(null);
-  const [inlineDate, setInlineDate] = useState<{ month: number; year: number } | null>(null);
+  // Per-row inline Log Service flow. A single nullable object: the component
+  // id and the in-progress date are inseparable, so storing them together
+  // makes "they're always in sync" structural rather than convention. Only
+  // one row's picker is open at a time; opening another replaces this object.
+  const [inlinePicker, setInlinePicker] = useState<{
+    componentId: string;
+    date: { month: number; year: number };
+  } | null>(null);
   // UI state
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -141,8 +144,7 @@ export function CalibrationOverlay({ isOpen, onClose }: CalibrationOverlayProps)
 
     setCalibratedIds(new Set());
     setPendingServiceLogs(new Map());
-    setInlineDateComponentId(null);
-    setInlineDate(null);
+    setInlinePicker(null);
     setError(null);
     setSuccessMessage(null);
 
@@ -293,22 +295,32 @@ export function CalibrationOverlay({ isOpen, onClose }: CalibrationOverlayProps)
   }, []);
 
   const handleOpenInlineLogService = useCallback((componentId: string) => {
-    setInlineDateComponentId(componentId);
     const now = new Date();
-    setInlineDate({ month: now.getMonth(), year: now.getFullYear() });
+    setInlinePicker({
+      componentId,
+      date: { month: now.getMonth(), year: now.getFullYear() },
+    });
   }, []);
 
   const handleCancelInlineLogService = useCallback(() => {
-    setInlineDateComponentId(null);
-    setInlineDate(null);
+    setInlinePicker(null);
+  }, []);
+
+  const handleInlineDateChange = useCallback((date: { month: number; year: number }) => {
+    // No-op if the picker somehow isn't open — the date input only renders
+    // while it is, so `prev` is realistically always non-null here.
+    setInlinePicker((prev) => (prev ? { ...prev, date } : prev));
   }, []);
 
   // Stages the log in `pendingServiceLogs` — the same Map the bulk flow
   // writes to — so handleComplete's single LOG_BULK_SERVICE call persists
-  // per-row and bulk logs together.
-  const handleConfirmInlineLogService = useCallback((componentId: string) => {
-    if (!inlineDate) return;
-    const performedAt = new Date(inlineDate.year, inlineDate.month, 1).toISOString();
+  // per-row and bulk logs together. Both the component id and the date come
+  // from `inlinePicker`, so there's no separate componentId param to keep
+  // in sync with the open row.
+  const handleConfirmInlineLogService = useCallback(() => {
+    if (!inlinePicker) return;
+    const { componentId, date } = inlinePicker;
+    const performedAt = new Date(date.year, date.month, 1).toISOString();
 
     setPendingServiceLogs((prev) => {
       const next = new Map(prev);
@@ -318,8 +330,7 @@ export function CalibrationOverlay({ isOpen, onClose }: CalibrationOverlayProps)
     setCalibratedIds((prev) => new Set([...prev, componentId]));
     // Clean up inline picker state and any lingering bulk-selection for
     // this component so it doesn't double-count if the bulk button fires.
-    setInlineDateComponentId(null);
-    setInlineDate(null);
+    setInlinePicker(null);
     setSelectedComponents((prev) => {
       const updated: Record<string, Set<string>> = {};
       for (const [bikeId, ids] of Object.entries(prev)) {
@@ -336,7 +347,7 @@ export function CalibrationOverlay({ isOpen, onClose }: CalibrationOverlayProps)
 
     setSuccessMessage('Service logged');
     setTimeout(() => setSuccessMessage(null), 3000);
-  }, [inlineDate]);
+  }, [inlinePicker]);
 
   // When the user changes a bike's bulk date AND no rows are currently
   // selected for that bike, auto-check the needs-attention rows. Removes
@@ -491,10 +502,9 @@ export function CalibrationOverlay({ isOpen, onClose }: CalibrationOverlayProps)
               onBulkService={() => handleBulkServiceDate(bike.bikeId)}
               onSnoozeAlert={handleSnooze}
               onAcknowledge={handleAcknowledge}
-              inlineDateComponentId={inlineDateComponentId}
-              inlineDate={inlineDate}
+              inlinePicker={inlinePicker}
               onOpenInlineLogService={handleOpenInlineLogService}
-              onInlineDateChange={setInlineDate}
+              onInlineDateChange={handleInlineDateChange}
               onConfirmInlineLogService={handleConfirmInlineLogService}
               onCancelInlineLogService={handleCancelInlineLogService}
               isSubmitting={isSubmitting}
@@ -545,11 +555,11 @@ interface BikeSectionProps {
   onBulkService: () => void;
   onSnoozeAlert: (componentId: string) => void;
   onAcknowledge: (componentId: string) => void;
-  inlineDateComponentId: string | null;
-  inlineDate: { month: number; year: number } | null;
+  /** The single open inline-picker (component id + in-progress date), or null. */
+  inlinePicker: { componentId: string; date: { month: number; year: number } } | null;
   onOpenInlineLogService: (componentId: string) => void;
-  onInlineDateChange: (date: { month: number; year: number } | null) => void;
-  onConfirmInlineLogService: (componentId: string) => void;
+  onInlineDateChange: (date: { month: number; year: number }) => void;
+  onConfirmInlineLogService: () => void;
   onCancelInlineLogService: () => void;
   isSubmitting: boolean;
 }
@@ -567,8 +577,7 @@ function BikeSection({
   onBulkService,
   onSnoozeAlert,
   onAcknowledge,
-  inlineDateComponentId,
-  inlineDate,
+  inlinePicker,
   onOpenInlineLogService,
   onInlineDateChange,
   onConfirmInlineLogService,
@@ -708,16 +717,22 @@ function BikeSection({
                 onToggleSelection={() => onToggleSelection(component.componentId)}
                 onSnoozeAlert={() => onSnoozeAlert(component.componentId)}
                 onAcknowledge={() => onAcknowledge(component.componentId)}
-                isInlineDateOpen={inlineDateComponentId === component.componentId}
-                isAnotherRowEditing={
-                  inlineDateComponentId !== null &&
-                  inlineDateComponentId !== component.componentId
+                // `inlineDate` is non-null exactly for the row whose picker
+                // is open — that's how ComponentRow knows it's the open row,
+                // no separate boolean needed.
+                inlineDate={
+                  inlinePicker?.componentId === component.componentId
+                    ? inlinePicker.date
+                    : null
                 }
-                inlineDate={inlineDate}
+                isAnotherRowEditing={
+                  inlinePicker !== null &&
+                  inlinePicker.componentId !== component.componentId
+                }
                 monthBounds={monthBounds}
                 onOpenInlineLogService={() => onOpenInlineLogService(component.componentId)}
                 onInlineDateChange={onInlineDateChange}
-                onConfirmInlineLogService={() => onConfirmInlineLogService(component.componentId)}
+                onConfirmInlineLogService={onConfirmInlineLogService}
                 onCancelInlineLogService={onCancelInlineLogService}
                 isSubmitting={isSubmitting}
               />
@@ -736,21 +751,26 @@ interface ComponentRowProps {
   onToggleSelection: () => void;
   onSnoozeAlert: () => void;
   onAcknowledge: () => void;
-  isInlineDateOpen: boolean;
+  /**
+   * The in-progress date when THIS row's inline picker is open, else null.
+   * Non-null is the single signal that this row is the open one — derived
+   * from the overlay's single `inlinePicker` object, so there's no separate
+   * "is open" boolean that could drift out of sync with the date.
+   */
+  inlineDate: { month: number; year: number } | null;
   /**
    * True when ANOTHER row's inline date picker is currently open. Used to
    * disable this row's "Log Service" button: only one inline picker can be
-   * open at a time (state is a single `inlineDateComponentId`), and opening
-   * a second one would silently replace the first — discarding whatever date
-   * the user had started entering there. Disabling the button makes the
-   * "finish or cancel the open one first" constraint visible instead of
-   * letting the discard happen silently.
+   * open at a time (the overlay holds a single `inlinePicker` object), and
+   * opening a second one would silently replace the first — discarding
+   * whatever date the user had started entering there. Disabling the button
+   * makes the "finish or cancel the open one first" constraint visible
+   * instead of letting the discard happen silently.
    */
   isAnotherRowEditing: boolean;
-  inlineDate: { month: number; year: number } | null;
   monthBounds: { min: string; max: string };
   onOpenInlineLogService: () => void;
-  onInlineDateChange: (date: { month: number; year: number } | null) => void;
+  onInlineDateChange: (date: { month: number; year: number }) => void;
   onConfirmInlineLogService: () => void;
   onCancelInlineLogService: () => void;
   isSubmitting: boolean;
@@ -763,9 +783,8 @@ function ComponentRow({
   onToggleSelection,
   onSnoozeAlert,
   onAcknowledge,
-  isInlineDateOpen,
-  isAnotherRowEditing,
   inlineDate,
+  isAnotherRowEditing,
   monthBounds,
   onOpenInlineLogService,
   onInlineDateChange,
@@ -791,18 +810,12 @@ function ComponentRow({
     );
   }
 
-  // Inline Log Service flow: this row owns the inline date picker until
-  // the user confirms or cancels. The row's normal action buttons are
-  // swapped out for the picker + Save/Cancel so the user can't fire a
-  // second action mid-edit.
-  //
-  // `isInlineDateOpen` and `inlineDate` are a coupled pair — the parent
-  // sets/clears `inlineDateComponentId` and `inlineDate` together — so
-  // checking both here lets TypeScript narrow `inlineDate` to non-null
-  // (no `!` assertion, no unreachable fallback). If the invariant is ever
-  // violated, the row falls through to the normal render: a safe
-  // degradation rather than a crash.
-  if (isInlineDateOpen && inlineDate) {
+  // Inline Log Service flow: a non-null `inlineDate` means this row owns
+  // the inline date picker. Its normal action buttons are swapped out for
+  // the picker + Save/Cancel so the user can't fire a second action
+  // mid-edit. The nullable prop is the only "is this row open" signal —
+  // no separate boolean to drift out of sync.
+  if (inlineDate) {
     const monthValue = formatMonthValue(inlineDate.month, inlineDate.year);
     return (
       <div className="calibration-component">

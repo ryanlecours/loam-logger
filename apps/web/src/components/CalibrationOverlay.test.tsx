@@ -378,6 +378,62 @@ describe('CalibrationOverlay', () => {
         expect(screen.getByText('2 of 2 calibrated')).toBeInTheDocument();
       });
     });
+
+    it('auto-checks needs-attention rows when the bulk date changes and nothing is selected', async () => {
+      const bike = createBike('bike-1', 'Trail Bike', [
+        createComponent('comp-1'),
+        createComponent('comp-2'),
+      ]);
+      setupCalibrationState([bike]);
+
+      render(<CalibrationOverlay isOpen={true} onClose={defaultOnClose} />);
+
+      // Both needs-attention rows are pre-selected on open; clear them.
+      fireEvent.click(screen.getAllByRole('checkbox')[0]);
+      await waitFor(() => {
+        expect(screen.getByText(/Log Service \(0\)/)).toBeInTheDocument();
+      });
+
+      // Changing the bulk month with an empty selection auto-checks the
+      // needs-attention rows. fireEvent.change flushes synchronously.
+      const monthInput = document.querySelector('input[type="month"]') as HTMLInputElement;
+      fireEvent.change(monthInput, { target: { value: '2025-06' } });
+
+      await waitFor(() => {
+        expect(screen.getByText(/Log Service \(2\)/)).toBeInTheDocument();
+      });
+      const checkboxes = screen.getAllByRole('checkbox');
+      expect(checkboxes[1]).toBeChecked();
+      expect(checkboxes[2]).toBeChecked();
+    });
+
+    it('leaves an existing selection untouched when the bulk date changes', () => {
+      const bike = createBike('bike-1', 'Trail Bike', [
+        createComponent('comp-1'),
+        createComponent('comp-2'),
+      ]);
+      setupCalibrationState([bike]);
+
+      render(<CalibrationOverlay isOpen={true} onClose={defaultOnClose} />);
+
+      // Deselect just comp-1, leaving comp-2 selected (a non-empty selection).
+      fireEvent.click(screen.getAllByRole('checkbox')[1]);
+      expect(screen.getByText(/Log Service \(1\)/)).toBeInTheDocument();
+      expect(screen.getAllByRole('checkbox')[1]).not.toBeChecked();
+      expect(screen.getAllByRole('checkbox')[2]).toBeChecked();
+
+      // Changing the bulk month must NOT re-check comp-1 — auto-check only
+      // fires when the selection is empty.
+      const monthInput = document.querySelector('input[type="month"]') as HTMLInputElement;
+      fireEvent.change(monthInput, { target: { value: '2025-06' } });
+
+      // The date change took effect (proves handleBulkDateChange ran)...
+      expect(monthInput.value).toBe('2025-06');
+      // ...but the existing selection is unchanged.
+      expect(screen.getByText(/Log Service \(1\)/)).toBeInTheDocument();
+      expect(screen.getAllByRole('checkbox')[1]).not.toBeChecked();
+      expect(screen.getAllByRole('checkbox')[2]).toBeChecked();
+    });
   });
 
   describe('state freeze across refetch', () => {
@@ -454,6 +510,52 @@ describe('CalibrationOverlay', () => {
         expect(restored).toHaveLength(2);
         expect(restored[0]).not.toBeDisabled();
         expect(restored[1]).not.toBeDisabled();
+      });
+    });
+
+    it('logs a per-row service: open picker, pick date, Save, then Complete submits it', async () => {
+      const bike = createBike('bike-1', 'Trail Bike', [
+        createComponent('comp-1'),
+        createComponent('comp-2'),
+      ]);
+      setupCalibrationState([bike]);
+
+      render(<CalibrationOverlay isOpen={true} onClose={defaultOnClose} />);
+
+      // Open the inline picker on the first row.
+      const logServiceButtons = screen.getAllByRole('button', { name: 'Log Service' });
+      fireEvent.click(logServiceButtons[0]);
+
+      // Pick a specific month in that row's inline date input. The inline
+      // input is the only one with an accessible name (the bulk one has none).
+      const monthInput = await screen.findByLabelText('Service date for FORK');
+      fireEvent.change(monthInput, { target: { value: '2025-03' } });
+
+      // Save stages the log and marks the component calibrated locally —
+      // only comp-1, not the still-untouched comp-2.
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+      await waitFor(() => {
+        expect(screen.getByText('Calibrated')).toBeInTheDocument();
+        expect(screen.getByText('1 of 2 calibrated')).toBeInTheDocument();
+      });
+
+      // Complete Calibration flushes pendingServiceLogs via LOG_BULK_SERVICE
+      // — proof the staged entry carried the right componentId + performedAt.
+      fireEvent.click(screen.getByText('Complete Calibration'));
+
+      // performedAt is the 1st of the picked month; compute it the same way
+      // the component does so the assertion is timezone-independent.
+      const expectedPerformedAt = new Date(2025, 2, 1).toISOString();
+      await waitFor(() => {
+        expect(mockLogBulkService).toHaveBeenCalledTimes(1);
+        expect(mockLogBulkService).toHaveBeenCalledWith({
+          variables: {
+            input: {
+              componentIds: ['comp-1'],
+              performedAt: expectedPerformedAt,
+            },
+          },
+        });
       });
     });
   });
