@@ -1265,18 +1265,28 @@ export const resolvers = {
 
         totalComponents += predictions.components.length;
 
-        // Filter to OVERDUE and DUE_NOW components
+        // Bike-inclusion gate: only include bikes that have at least one
+        // OVERDUE / DUE_NOW component so the overlay still scopes itself to
+        // bikes that genuinely need attention. `totalOverdue` keeps using
+        // this strict filter — it drives `showOverlay` and the subtitle
+        // count, neither of which should fire on healthy components.
         const needsAttention = predictions.components.filter(
           (c) => c.status === 'OVERDUE' || c.status === 'DUE_NOW'
         );
 
         if (needsAttention.length > 0) {
           totalOverdue += needsAttention.length;
+          // Return ALL components on the included bike (not just needs-
+          // attention) so users can record historical service for a
+          // component currently in DUE_SOON / ALL_GOOD — e.g. brake pads
+          // they swapped last month that aren't due now but should still
+          // be on record. Each component carries its own `status`, so the
+          // frontend can sort and badge appropriately.
           bikesNeedingCalibration.push({
             bikeId: bike.id,
             bikeName: bike.nickname || `${bike.year || ''} ${bike.manufacturer} ${bike.model}`.trim(),
             thumbnailUrl: bike.thumbnailUrl,
-            components: needsAttention,
+            components: predictions.components,
           });
         }
       }

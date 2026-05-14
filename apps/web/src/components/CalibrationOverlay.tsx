@@ -41,6 +41,24 @@ function getMonthInputBounds(): { min: string; max: string } {
   };
 }
 
+// "Needs attention" matches the criterion the calibrationState resolver uses
+// to decide which bikes trigger the overlay. The resolver now returns all
+// components on those bikes (not just needs-attention ones), so this helper
+// is what the frontend uses to badge, sort, pre-select, and gate the
+// completion counter. Keep in sync with apps/api/src/graphql/resolvers.ts.
+function isNeedsAttention(status: string): boolean {
+  return status === 'OVERDUE' || status === 'DUE_NOW';
+}
+
+// Sort key used to render OVERDUE/DUE_NOW rows above DUE_SOON/ALL_GOOD ones
+// once the components array contains all statuses. Lower = earlier in list.
+const STATUS_PRIORITY: Record<string, number> = {
+  OVERDUE: 0,
+  DUE_NOW: 1,
+  DUE_SOON: 2,
+  ALL_GOOD: 3,
+};
+
 export function CalibrationOverlay({ isOpen, onClose }: CalibrationOverlayProps) {
   const { data } = useCalibrationState();
   const [logBulkService] = useLogBulkService();
@@ -56,10 +74,20 @@ export function CalibrationOverlay({ isOpen, onClose }: CalibrationOverlayProps)
   const [bulkDates, setBulkDates] = useState<Record<string, { month: number; year: number }>>({});
   // Track selected components per bike for bulk action
   const [selectedComponents, setSelectedComponents] = useState<Record<string, Set<string>>>({});
+  // Snapshot of components flagged "needs attention" at modal open. Drives the
+  // progress denominator and the bike-section badge so adding a historical
+  // service for an ALL_GOOD component doesn't inflate the "X need attention"
+  // count. Stable for the life of the modal (not refetched mid-session).
+  const [needsAttentionIds, setNeedsAttentionIds] = useState<Set<string>>(new Set());
   // Track initial total for progress (captured when modal opens, doesn't change on refetch)
   const [initialTotal, setInitialTotal] = useState(0);
   // Track pending service logs to batch submit on completion (componentId -> performedAt)
   const [pendingServiceLogs, setPendingServiceLogs] = useState<Map<string, string>>(new Map());
+  // Per-row inline Log Service flow. Only one row may have its inline date
+  // picker open at a time; second open replaces the first. `inlineDate` holds
+  // the month/year currently in the picker for that row.
+  const [inlineDateComponentId, setInlineDateComponentId] = useState<string | null>(null);
+  const [inlineDate, setInlineDate] = useState<{ month: number; year: number } | null>(null);
   // UI state
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -68,19 +96,40 @@ export function CalibrationOverlay({ isOpen, onClose }: CalibrationOverlayProps)
   const calibrationState = data?.calibrationState;
   const bikes = useMemo(() => calibrationState?.bikes ?? [], [calibrationState?.bikes]);
 
-  // Calculate progress using initial total (stable across refetches)
-  const calibratedCount = calibratedIds.size;
-  const remainingCount = initialTotal - calibratedCount;
+  // Calculate progress using initial total (stable across refetches).
+  // Progress denominator is "needs-attention components at open" so the
+  // user logging an extra historical service on a healthy DUE_SOON
+  // component doesn't push remainingCount negative.
+  const calibratedNeedsAttentionCount = useMemo(
+    () => Array.from(calibratedIds).filter((id) => needsAttentionIds.has(id)).length,
+    [calibratedIds, needsAttentionIds],
+  );
+  const remainingCount = Math.max(0, initialTotal - calibratedNeedsAttentionCount);
 
   // Reset state when modal opens
   useEffect(() => {
     if (isOpen) {
       setCalibratedIds(new Set());
       setPendingServiceLogs(new Map());
+      setInlineDateComponentId(null);
+      setInlineDate(null);
       setError(null);
       setSuccessMessage(null);
-      const total = bikes.reduce((sum, bike) => sum + bike.components.length, 0);
-      setInitialTotal(total);
+
+      // Initial total / pre-selection / bike-section badge all key off the
+      // needs-attention subset, NOT the full components array. The resolver
+      // returns every component on bikes that have at least one overdue
+      // item — without filtering here, the "5 components need attention"
+      // subtitle would balloon into the full bike inventory.
+      const attentionIds = new Set<string>();
+      bikes.forEach((bike) => {
+        bike.components.forEach((c) => {
+          if (isNeedsAttention(c.status)) attentionIds.add(c.componentId);
+        });
+      });
+      setNeedsAttentionIds(attentionIds);
+      setInitialTotal(attentionIds.size);
+
       if (bikes.length > 0) {
         setExpandedBikeId(bikes[0].bikeId);
       }
@@ -89,7 +138,14 @@ export function CalibrationOverlay({ isOpen, onClose }: CalibrationOverlayProps)
       const initialSelected: Record<string, Set<string>> = {};
       bikes.forEach((bike) => {
         initialDates[bike.bikeId] = { month: now.getMonth(), year: now.getFullYear() };
-        initialSelected[bike.bikeId] = new Set(bike.components.map((c) => c.componentId));
+        // Pre-select needs-attention rows only — that's the most common
+        // intent ("I just serviced everything that's overdue"). Users can
+        // uncheck or extend selection manually.
+        initialSelected[bike.bikeId] = new Set(
+          bike.components
+            .filter((c) => isNeedsAttention(c.status))
+            .map((c) => c.componentId),
+        );
       });
       setBulkDates(initialDates);
       setSelectedComponents(initialSelected);
@@ -192,6 +248,74 @@ export function CalibrationOverlay({ isOpen, onClose }: CalibrationOverlayProps)
     setTimeout(() => setSuccessMessage(null), 3000);
   }, []);
 
+  // Per-row Log Service flow. Opens an inline month picker on a single
+  // component row. Confirming pushes the (componentId, performedAt) pair
+  // into pendingServiceLogs — the same Map the bulk flow uses — so a single
+  // LOG_BULK_SERVICE call on handleComplete persists everything together.
+  const handleOpenInlineLogService = useCallback((componentId: string) => {
+    setInlineDateComponentId(componentId);
+    const now = new Date();
+    setInlineDate({ month: now.getMonth(), year: now.getFullYear() });
+  }, []);
+
+  const handleCancelInlineLogService = useCallback(() => {
+    setInlineDateComponentId(null);
+    setInlineDate(null);
+  }, []);
+
+  const handleConfirmInlineLogService = useCallback((componentId: string) => {
+    if (!inlineDate) return;
+    const performedAt = new Date(inlineDate.year, inlineDate.month, 1).toISOString();
+
+    setPendingServiceLogs((prev) => {
+      const next = new Map(prev);
+      next.set(componentId, performedAt);
+      return next;
+    });
+    setCalibratedIds((prev) => new Set([...prev, componentId]));
+    // Clean up inline picker state and any lingering bulk-selection for
+    // this component so it doesn't double-count if the bulk button fires.
+    setInlineDateComponentId(null);
+    setInlineDate(null);
+    setSelectedComponents((prev) => {
+      const updated: Record<string, Set<string>> = {};
+      for (const [bikeId, ids] of Object.entries(prev)) {
+        if (ids.has(componentId)) {
+          const next = new Set(ids);
+          next.delete(componentId);
+          updated[bikeId] = next;
+        } else {
+          updated[bikeId] = ids;
+        }
+      }
+      return updated;
+    });
+
+    setSuccessMessage('Service logged');
+    setTimeout(() => setSuccessMessage(null), 3000);
+  }, [inlineDate]);
+
+  // When the user changes a bike's bulk date AND no rows are currently
+  // selected for that bike, auto-check the needs-attention rows. Removes
+  // the discoverability tax for the most common flow ("I just serviced
+  // the overdue stuff in <month>"). User can still uncheck individual
+  // rows after the auto-fill.
+  const handleBulkDateChange = useCallback((bikeId: string, month: number, year: number) => {
+    setBulkDates((prev) => ({ ...prev, [bikeId]: { month, year } }));
+    setSelectedComponents((prev) => {
+      const existing = prev[bikeId];
+      if (existing && existing.size > 0) return prev;
+      const bike = bikes.find((b) => b.bikeId === bikeId);
+      if (!bike) return prev;
+      const next = new Set(
+        bike.components
+          .filter((c) => isNeedsAttention(c.status) && !calibratedIds.has(c.componentId))
+          .map((c) => c.componentId),
+      );
+      return { ...prev, [bikeId]: next };
+    });
+  }, [bikes, calibratedIds]);
+
   const handleDismiss = useCallback(async () => {
     try {
       await dismissCalibration();
@@ -263,16 +387,19 @@ export function CalibrationOverlay({ isOpen, onClose }: CalibrationOverlayProps)
       preventClose={isSubmitting}
     >
       <div className="calibration-overlay-content">
-        {/* Progress bar */}
+        {/* Progress bar — needs-attention-scoped so historical service logs
+            on healthy DUE_SOON/ALL_GOOD components don't push the bar past
+            100%. Those services still persist; they just don't count toward
+            "have you addressed everything that's overdue?" */}
         <div className="calibration-progress">
           <div className="calibration-progress-bar">
             <div
               className="calibration-progress-fill"
-              style={{ width: `${initialTotal > 0 ? (calibratedCount / initialTotal) * 100 : 0}%` }}
+              style={{ width: `${initialTotal > 0 ? (calibratedNeedsAttentionCount / initialTotal) * 100 : 0}%` }}
             />
           </div>
           <span className="calibration-progress-text">
-            {calibratedCount} of {initialTotal} calibrated
+            {calibratedNeedsAttentionCount} of {initialTotal} calibrated
           </span>
         </div>
 
@@ -287,6 +414,7 @@ export function CalibrationOverlay({ isOpen, onClose }: CalibrationOverlayProps)
         {/* Button explanation */}
         <div className="calibration-info-secondary">
           <p>
+            <strong>Log Service</strong> — Record a date you serviced this component.<br />
             <strong>Acknowledge</strong> — Hours are accurate, no service performed yet.<br />
             <strong>Snooze</strong> — Visually inspected, extend interval by 50%.
           </p>
@@ -305,15 +433,16 @@ export function CalibrationOverlay({ isOpen, onClose }: CalibrationOverlayProps)
               onToggleSelection={(componentId) => toggleComponentSelection(bike.bikeId, componentId)}
               onToggleAll={(selectAll) => toggleAllComponents(bike.bikeId, bike.components, selectAll)}
               bulkDate={bulkDates[bike.bikeId]}
-              onBulkDateChange={(month, year) => {
-                setBulkDates((prev) => ({
-                  ...prev,
-                  [bike.bikeId]: { month, year },
-                }));
-              }}
+              onBulkDateChange={(month, year) => handleBulkDateChange(bike.bikeId, month, year)}
               onBulkService={() => handleBulkServiceDate(bike.bikeId)}
               onSnoozeAlert={handleSnooze}
               onAcknowledge={handleAcknowledge}
+              inlineDateComponentId={inlineDateComponentId}
+              inlineDate={inlineDate}
+              onOpenInlineLogService={handleOpenInlineLogService}
+              onInlineDateChange={setInlineDate}
+              onConfirmInlineLogService={handleConfirmInlineLogService}
+              onCancelInlineLogService={handleCancelInlineLogService}
               isSubmitting={isSubmitting}
             />
           ))}
@@ -362,6 +491,12 @@ interface BikeSectionProps {
   onBulkService: () => void;
   onSnoozeAlert: (componentId: string) => void;
   onAcknowledge: (componentId: string) => void;
+  inlineDateComponentId: string | null;
+  inlineDate: { month: number; year: number } | null;
+  onOpenInlineLogService: (componentId: string) => void;
+  onInlineDateChange: (date: { month: number; year: number } | null) => void;
+  onConfirmInlineLogService: (componentId: string) => void;
+  onCancelInlineLogService: () => void;
   isSubmitting: boolean;
 }
 
@@ -378,19 +513,43 @@ function BikeSection({
   onBulkService,
   onSnoozeAlert,
   onAcknowledge,
+  inlineDateComponentId,
+  inlineDate,
+  onOpenInlineLogService,
+  onInlineDateChange,
+  onConfirmInlineLogService,
+  onCancelInlineLogService,
   isSubmitting,
 }: BikeSectionProps) {
   const uncalibratedComponents = bike.components.filter((c) => !calibratedIds.has(c.componentId));
-  const uncalibratedCount = uncalibratedComponents.length;
-  const allCalibrated = uncalibratedCount === 0;
+  // "Needs attention" is the gate the overlay scopes itself to. After the
+  // resolver change, `bike.components` includes DUE_SOON / ALL_GOOD too, so
+  // we have to derive the badge from status, not from the array length.
+  const needsAttentionCount = uncalibratedComponents.filter((c) => isNeedsAttention(c.status)).length;
+  const allNeedsAttentionAddressed = needsAttentionCount === 0;
+  // Distinct from `allNeedsAttentionAddressed`: this is true only when every
+  // component (healthy ones included) has been calibrated. Used to collapse
+  // the section's content entirely — nothing left to act on or confirm.
+  const allComponentsCalibrated = uncalibratedComponents.length === 0;
   const monthBounds = useMemo(() => getMonthInputBounds(), []);
+
+  // Sort components so OVERDUE/DUE_NOW render at the top, then DUE_SOON,
+  // then ALL_GOOD. Tie-break by componentId for stable ordering.
+  const sortedComponents = useMemo(() => {
+    return [...bike.components].sort((a, b) => {
+      const aPri = STATUS_PRIORITY[a.status] ?? 99;
+      const bPri = STATUS_PRIORITY[b.status] ?? 99;
+      if (aPri !== bPri) return aPri - bPri;
+      return a.componentId.localeCompare(b.componentId);
+    });
+  }, [bike.components]);
 
   // Count selected uncalibrated components
   const selectedCount = uncalibratedComponents.filter((c) => selectedIds.has(c.componentId)).length;
-  const allSelected = selectedCount === uncalibratedCount && uncalibratedCount > 0;
+  const allSelected = selectedCount === uncalibratedComponents.length && uncalibratedComponents.length > 0;
 
   return (
-    <div className={`calibration-bike ${allCalibrated ? 'calibration-bike-done' : ''}`}>
+    <div className={`calibration-bike ${allNeedsAttentionAddressed ? 'calibration-bike-done' : ''}`}>
       {/* Bike header */}
       <button
         type="button"
@@ -409,10 +568,10 @@ function BikeSection({
           <div className="calibration-bike-name">
             <span className="calibration-bike-title">{bike.bikeName}</span>
             <span className="calibration-bike-count">
-              {allCalibrated ? (
+              {allNeedsAttentionAddressed ? (
                 <><Check size={12} className="icon-success" /> All set</>
               ) : (
-                `${uncalibratedCount} need${uncalibratedCount === 1 ? 's' : ''} attention`
+                `${needsAttentionCount} need${needsAttentionCount === 1 ? 's' : ''} attention`
               )}
             </span>
           </div>
@@ -421,7 +580,7 @@ function BikeSection({
       </button>
 
       {/* Expanded content */}
-      {isExpanded && !allCalibrated && (
+      {isExpanded && !allComponentsCalibrated && (
         <div className="calibration-bike-content">
           {/* Bulk action */}
           <div className="calibration-bulk-action">
@@ -432,7 +591,7 @@ function BikeSection({
                 onChange={(e) => onToggleAll(e.target.checked)}
                 disabled={isSubmitting}
               />
-              <span>Serviced in:</span>
+              <span>Mark serviced in:</span>
             </label>
             <input
               type="month"
@@ -452,13 +611,13 @@ function BikeSection({
               onClick={onBulkService}
               disabled={isSubmitting || selectedCount === 0}
             >
-              Apply to {selectedCount === uncalibratedCount ? 'All' : 'Selected'} ({selectedCount})
+              Log Service ({selectedCount})
             </Button>
           </div>
 
           {/* Component list */}
           <div className="calibration-components">
-            {bike.components.map((component) => (
+            {sortedComponents.map((component) => (
               <ComponentRow
                 key={component.componentId}
                 component={component}
@@ -467,6 +626,13 @@ function BikeSection({
                 onToggleSelection={() => onToggleSelection(component.componentId)}
                 onSnoozeAlert={() => onSnoozeAlert(component.componentId)}
                 onAcknowledge={() => onAcknowledge(component.componentId)}
+                isInlineDateOpen={inlineDateComponentId === component.componentId}
+                inlineDate={inlineDate}
+                monthBounds={monthBounds}
+                onOpenInlineLogService={() => onOpenInlineLogService(component.componentId)}
+                onInlineDateChange={onInlineDateChange}
+                onConfirmInlineLogService={() => onConfirmInlineLogService(component.componentId)}
+                onCancelInlineLogService={onCancelInlineLogService}
                 isSubmitting={isSubmitting}
               />
             ))}
@@ -484,10 +650,32 @@ interface ComponentRowProps {
   onToggleSelection: () => void;
   onSnoozeAlert: () => void;
   onAcknowledge: () => void;
+  isInlineDateOpen: boolean;
+  inlineDate: { month: number; year: number } | null;
+  monthBounds: { min: string; max: string };
+  onOpenInlineLogService: () => void;
+  onInlineDateChange: (date: { month: number; year: number } | null) => void;
+  onConfirmInlineLogService: () => void;
+  onCancelInlineLogService: () => void;
   isSubmitting: boolean;
 }
 
-function ComponentRow({ component, isCalibrated, isSelected, onToggleSelection, onSnoozeAlert, onAcknowledge, isSubmitting }: ComponentRowProps) {
+function ComponentRow({
+  component,
+  isCalibrated,
+  isSelected,
+  onToggleSelection,
+  onSnoozeAlert,
+  onAcknowledge,
+  isInlineDateOpen,
+  inlineDate,
+  monthBounds,
+  onOpenInlineLogService,
+  onInlineDateChange,
+  onConfirmInlineLogService,
+  onCancelInlineLogService,
+  isSubmitting,
+}: ComponentRowProps) {
   const label = formatComponentLabel(component);
   const makeModel = [component.brand, component.model].filter(Boolean).join(' ') || 'Stock';
 
@@ -502,6 +690,55 @@ function ComponentRow({ component, isCalibrated, isSelected, onToggleSelection, 
           <span className="calibration-component-make">{makeModel}</span>
         </div>
         <span className="calibration-component-status">Calibrated</span>
+      </div>
+    );
+  }
+
+  // Inline Log Service flow: this row owns the inline date picker until
+  // the user confirms or cancels. The row's normal action buttons are
+  // swapped out for the picker + Save/Cancel so the user can't fire a
+  // second action mid-edit.
+  if (isInlineDateOpen) {
+    const now = new Date();
+    const monthValue = inlineDate
+      ? formatMonthValue(inlineDate.month, inlineDate.year)
+      : formatMonthValue(now.getMonth(), now.getFullYear());
+    return (
+      <div className="calibration-component">
+        <StatusDot status={component.status as PredictionStatus} />
+        <div className="calibration-component-info">
+          <span className="calibration-component-label">{label}</span>
+          <span className="calibration-component-make">{makeModel}</span>
+        </div>
+        <input
+          type="month"
+          className="form-input form-input-sm"
+          value={monthValue}
+          onChange={(e) => {
+            const { month, year } = parseMonthValue(e.target.value);
+            onInlineDateChange({ month, year });
+          }}
+          min={monthBounds.min}
+          max={monthBounds.max}
+          disabled={isSubmitting}
+          aria-label={`Service date for ${label}`}
+        />
+        <Button
+          variant="primary"
+          size="sm"
+          onClick={onConfirmInlineLogService}
+          disabled={isSubmitting || !inlineDate}
+        >
+          Save
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onCancelInlineLogService}
+          disabled={isSubmitting}
+        >
+          Cancel
+        </Button>
       </div>
     );
   }
@@ -524,6 +761,15 @@ function ComponentRow({ component, isCalibrated, isSelected, onToggleSelection, 
       <span className="calibration-component-hours">
         {Math.round(component.hoursSinceService)}h since service
       </span>
+      <Button
+        variant="primary"
+        size="sm"
+        onClick={onOpenInlineLogService}
+        disabled={isSubmitting}
+        title="Record a date you serviced this component"
+      >
+        Log Service
+      </Button>
       <Button
         variant="outline"
         size="sm"
