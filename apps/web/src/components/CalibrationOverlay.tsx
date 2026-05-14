@@ -346,17 +346,28 @@ export function CalibrationOverlay({ isOpen, onClose }: CalibrationOverlayProps)
   // rows after the auto-fill.
   const handleBulkDateChange = useCallback((bikeId: string, month: number, year: number) => {
     setBulkDates((prev) => ({ ...prev, [bikeId]: { month, year } }));
+
+    // Compute the auto-check candidate set from closure state (`bikes`,
+    // `calibratedIds`) up front, so the functional updater below only
+    // reads `prev` — the genuinely-fresh selection map. Reading
+    // `calibratedIds` *inside* the updater would mix a closure snapshot
+    // with `prev`'s fresh value, a stale-closure footgun even though the
+    // useCallback dep list keeps it mostly honest.
+    const bike = bikes.find((b) => b.bikeId === bikeId);
+    const autoCheckIds = bike
+      ? new Set(
+          bike.components
+            .filter((c) => isNeedsAttention(c.status) && !calibratedIds.has(c.componentId))
+            .map((c) => c.componentId),
+        )
+      : null;
+
     setSelectedComponents((prev) => {
       const existing = prev[bikeId];
+      // Only auto-check when the user has nothing selected for this bike.
       if (existing && existing.size > 0) return prev;
-      const bike = bikes.find((b) => b.bikeId === bikeId);
-      if (!bike) return prev;
-      const next = new Set(
-        bike.components
-          .filter((c) => isNeedsAttention(c.status) && !calibratedIds.has(c.componentId))
-          .map((c) => c.componentId),
-      );
-      return { ...prev, [bikeId]: next };
+      if (!autoCheckIds) return prev;
+      return { ...prev, [bikeId]: autoCheckIds };
     });
   }, [bikes, calibratedIds]);
 
