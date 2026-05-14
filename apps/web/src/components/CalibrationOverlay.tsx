@@ -292,10 +292,6 @@ export function CalibrationOverlay({ isOpen, onClose }: CalibrationOverlayProps)
     setTimeout(() => setSuccessMessage(null), 3000);
   }, []);
 
-  // Per-row Log Service flow. Opens an inline month picker on a single
-  // component row. Confirming pushes the (componentId, performedAt) pair
-  // into pendingServiceLogs — the same Map the bulk flow uses — so a single
-  // LOG_BULK_SERVICE call on handleComplete persists everything together.
   const handleOpenInlineLogService = useCallback((componentId: string) => {
     setInlineDateComponentId(componentId);
     const now = new Date();
@@ -307,6 +303,9 @@ export function CalibrationOverlay({ isOpen, onClose }: CalibrationOverlayProps)
     setInlineDate(null);
   }, []);
 
+  // Stages the log in `pendingServiceLogs` — the same Map the bulk flow
+  // writes to — so handleComplete's single LOG_BULK_SERVICE call persists
+  // per-row and bulk logs together.
   const handleConfirmInlineLogService = useCallback((componentId: string) => {
     if (!inlineDate) return;
     const performedAt = new Date(inlineDate.year, inlineDate.month, 1).toISOString();
@@ -589,13 +588,12 @@ function BikeSection({
   const allComponentsCalibrated = uncalibratedComponents.length === 0;
   const monthBounds = useMemo(() => getMonthInputBounds(), []);
 
-  // Sort components so OVERDUE/DUE_NOW render at the top, then DUE_SOON,
-  // then ALL_GOOD. Tie-break by componentId for stable ordering.
   const sortedComponents = useMemo(() => {
     return [...bike.components].sort((a, b) => {
       const aPri = STATUS_PRIORITY[a.status] ?? 99;
       const bPri = STATUS_PRIORITY[b.status] ?? 99;
       if (aPri !== bPri) return aPri - bPri;
+      // Stable tie-break so same-status rows don't reshuffle between renders.
       return a.componentId.localeCompare(b.componentId);
     });
   }, [bike.components]);
@@ -797,11 +795,15 @@ function ComponentRow({
   // the user confirms or cancels. The row's normal action buttons are
   // swapped out for the picker + Save/Cancel so the user can't fire a
   // second action mid-edit.
-  if (isInlineDateOpen) {
-    const now = new Date();
-    const monthValue = inlineDate
-      ? formatMonthValue(inlineDate.month, inlineDate.year)
-      : formatMonthValue(now.getMonth(), now.getFullYear());
+  //
+  // `isInlineDateOpen` and `inlineDate` are a coupled pair — the parent
+  // sets/clears `inlineDateComponentId` and `inlineDate` together — so
+  // checking both here lets TypeScript narrow `inlineDate` to non-null
+  // (no `!` assertion, no unreachable fallback). If the invariant is ever
+  // violated, the row falls through to the normal render: a safe
+  // degradation rather than a crash.
+  if (isInlineDateOpen && inlineDate) {
+    const monthValue = formatMonthValue(inlineDate.month, inlineDate.year);
     return (
       <div className="calibration-component">
         <StatusDot status={component.status as PredictionStatus} />
