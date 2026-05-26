@@ -31,10 +31,16 @@ jest.mock('../lib/logger', () => ({
     error: jest.fn(),
     info: jest.fn(),
     warn: jest.fn(),
+    debug: jest.fn(),
   },
+  createLogger: () => ({ error: jest.fn(), info: jest.fn(), warn: jest.fn(), debug: jest.fn() }),
 }));
 
 // Mock other dependencies that mobile.route.ts imports
+jest.mock('@sentry/node', () => ({
+  captureException: jest.fn(),
+}));
+
 jest.mock('google-auth-library', () => ({
   OAuth2Client: jest.fn().mockImplementation(() => ({
     verifyIdToken: jest.fn(),

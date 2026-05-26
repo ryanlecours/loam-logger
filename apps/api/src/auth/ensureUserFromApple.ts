@@ -1,11 +1,14 @@
-import { Prisma } from '@prisma/client';
+import { Prisma, type User } from '@prisma/client';
 import { normalizeEmail } from './utils';
 import { AUTH_ERROR, type AppleClaims } from './types';
 import { prisma } from '../lib/prisma';
 import { config } from '../config/env';
+import { logger } from '../lib/logger';
 import { resolveReferrer, createUserWithReferralCode } from '../services/referral.service';
 
-export function ensureUserFromApple(claims: AppleClaims, ref?: string) {
+export type AppleUserResult = { user: User; wasCreated: boolean };
+
+export function ensureUserFromApple(claims: AppleClaims, ref?: string): Promise<AppleUserResult> {
   return ensureUserFromAppleInner(claims, ref, 0);
 }
 
@@ -13,7 +16,7 @@ async function ensureUserFromAppleInner(
   claims: AppleClaims,
   ref: string | undefined,
   retries: number,
-) {
+): Promise<AppleUserResult> {
   const { sub } = claims;
   // Trusted email from the identity token — safe for account lookup/linking
   const trustedEmail = normalizeEmail(claims.email);
@@ -79,7 +82,7 @@ async function ensureUserFromAppleInner(
     return null;
   });
 
-  if (existing) return existing;
+  if (existing) return { user: existing, wasCreated: false };
 
   // Phase 2: New user — fall back to untrusted client email if token had none.
   // When clientEmail is used, claims.email_verified will be false (the token had
@@ -96,9 +99,9 @@ async function ensureUserFromAppleInner(
   const referrerId = ref ? await resolveReferrer(ref) : null;
 
   try {
-    return await createUserWithReferralCode(async (referralCode) => {
+    const newUser = await createUserWithReferralCode(async (referralCode) => {
       return prisma.$transaction(async (tx) => {
-        const newUser = await tx.user.create({
+        const created = await tx.user.create({
           data: {
             email: emailForCreation,
             name: claims.name ?? null,
@@ -111,18 +114,19 @@ async function ensureUserFromAppleInner(
         });
 
         await tx.userAccount.create({
-          data: { userId: newUser.id, provider: 'apple', providerUserId: sub },
+          data: { userId: created.id, provider: 'apple', providerUserId: sub },
         });
 
         if (referrerId) {
           await tx.referral.create({
-            data: { referrerUserId: referrerId, referredUserId: newUser.id },
+            data: { referrerUserId: referrerId, referredUserId: created.id },
           });
         }
 
-        return newUser;
+        return created;
       });
     });
+    return { user: newUser, wasCreated: true };
   } catch (err) {
     // A concurrent request created this user between Phase 1 and Phase 2.
     // Re-run the full function — Phase 1 will now find the existing user.
@@ -132,6 +136,7 @@ async function ensureUserFromAppleInner(
       (err.meta?.target as string[] | undefined)?.includes('email');
 
     if (isEmailCollision) {
+      logger.warn({ sub, retries }, 'Apple sign-in email-collision retry');
       if (retries >= 2) throw err;
       return ensureUserFromAppleInner(claims, ref, retries + 1);
     }

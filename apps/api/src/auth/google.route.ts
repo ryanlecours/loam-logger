@@ -35,7 +35,7 @@ router.post('/google/code', express.json(), async (req, res) => {
     const p = ticket.getPayload();
     if (!p?.sub) return res.status(401).send('Invalid Google token');
 
-    const user = await ensureUserFromGoogle(
+    const { user } = await ensureUserFromGoogle(
       {
         sub: p.sub,
         email: p.email ?? undefined,
