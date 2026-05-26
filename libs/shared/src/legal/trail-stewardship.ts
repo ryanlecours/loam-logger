@@ -27,7 +27,7 @@ export const STEWARDSHIP_HEADER = {
   body: "Strava, Garmin, and Suunto can publish your rides on global heat maps, exposing your regular trails, your home patterns, and any unsanctioned lines you ride. Here's how to opt out, per provider. Two minutes per service. Your call.",
 };
 
-export const TRAIL_STEWARDSHIP_PROVIDERS: StewardshipProvider[] = [
+export const TRAIL_STEWARDSHIP_PROVIDERS: readonly StewardshipProvider[] = [
   {
     provider: 'strava',
     name: 'Strava',
