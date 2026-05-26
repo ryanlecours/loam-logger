@@ -44,6 +44,9 @@ const REDACT_PATHS = [
   'userEmail',
   'phoneNumber',
   'phone',
+  'clientIp',
+  'ip',
+  'remoteAddress',
   // GPS coordinates (protect location privacy)
   'startLatitude',
   'startLongitude',
