@@ -87,7 +87,7 @@ describe('ensureUserFromGoogle', () => {
 
     const result = await ensureUserFromGoogle(baseClaims);
 
-    expect(result).toEqual(createdUser);
+    expect(result).toEqual({ user: createdUser, wasCreated: true });
     expect(mockUserCreate).toHaveBeenCalledWith({
       data: expect.objectContaining({
         email: 'test@test.com',
@@ -149,7 +149,7 @@ describe('ensureUserFromGoogle', () => {
 
     const result = await ensureUserFromGoogle(baseClaims);
 
-    expect(result).toEqual(existingUser);
+    expect(result).toEqual({ user: existingUser, wasCreated: false });
     expect(mockUserCreate).not.toHaveBeenCalled();
   });
 });

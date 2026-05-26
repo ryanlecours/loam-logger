@@ -193,7 +193,7 @@ router.post('/mobile/google', express.json(), async (req, res) => {
     googleSub = payload.sub;
 
     // Create or update user
-    const user = await ensureUserFromGoogle({
+    const { user, wasCreated } = await ensureUserFromGoogle({
       sub: payload.sub,
       email: payload.email ?? undefined,
       email_verified: payload.email_verified,
@@ -209,7 +209,10 @@ router.post('/mobile/google', express.json(), async (req, res) => {
     // Generate tokens for mobile
     const { accessToken, refreshToken } = await issueMobileTokens({ id: user.id, email: user.email });
 
-    auditLogger.info({ userId: user.id, sub: payload.sub, provider: 'google' }, 'Mobile sign-in succeeded');
+    auditLogger.info(
+      { userId: user.id, sub: payload.sub, provider: 'google', wasCreated },
+      wasCreated ? 'Mobile account created' : 'Mobile sign-in succeeded'
+    );
 
     res.status(200).json({
       accessToken,
@@ -235,7 +238,7 @@ router.post('/mobile/google', express.json(), async (req, res) => {
 
     logger.error({ err: e, sub: googleSub, route: 'mobile/google' }, '[MobileAuth] Google login failed');
     Sentry.captureException(e, { tags: { route: 'mobile/google', stage: 'ensure-user' }, contexts: { google_signin: { sub: googleSub ?? 'unknown' } } });
-    sendInternalError(res, 'Authentication failed');
+    return sendInternalError(res, 'Authentication failed');
   }
 });
 
@@ -364,7 +367,7 @@ router.post('/mobile/apple', express.json(), async (req, res) => {
       tags: { route: 'mobile/apple', stage: 'ensure-user' },
       contexts: { apple_signin: { sub: appleSub ?? 'unknown' } },
     });
-    sendInternalError(res, 'Authentication failed');
+    return sendInternalError(res, 'Authentication failed');
   }
 });
 
@@ -446,7 +449,7 @@ router.post('/mobile/login', express.json(), async (req, res) => {
   } catch (e) {
     logger.error({ err: e, route: 'mobile/login' }, '[MobileAuth] Email login failed');
     Sentry.captureException(e, { tags: { route: 'mobile/login' } });
-    sendInternalError(res, 'Login failed');
+    return sendInternalError(res, 'Login failed');
   }
 });
 
@@ -502,7 +505,7 @@ router.post('/mobile/refresh', express.json(), async (req, res) => {
   } catch (e) {
     logger.error({ err: e, route: 'mobile/refresh' }, '[MobileAuth] Token refresh failed');
     Sentry.captureException(e, { tags: { route: 'mobile/refresh' } });
-    sendInternalError(res, 'Token refresh failed');
+    return sendInternalError(res, 'Token refresh failed');
   }
 });
 
