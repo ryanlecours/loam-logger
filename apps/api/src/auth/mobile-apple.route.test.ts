@@ -128,13 +128,10 @@ describe('POST /mobile/apple', () => {
   });
 
   beforeEach(() => {
+    // clearAllMocks already resets every jest.fn() in the registry, including
+    // the logger / Sentry mocks. Only restore the rate-limit default after.
     jest.clearAllMocks();
     mockCheckAuthRateLimit.mockResolvedValue({ allowed: true });
-    mockLoggerWarn.mockClear();
-    mockLoggerInfo.mockClear();
-    mockLoggerError.mockClear();
-    mockLoggerDebug.mockClear();
-    mockSentryCaptureException.mockClear();
   });
 
   it('should return 400 when identityToken is missing', async () => {
