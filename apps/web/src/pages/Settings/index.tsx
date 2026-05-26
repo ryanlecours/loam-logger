@@ -107,11 +107,12 @@ export default function Settings() {
 
   useEffect(() => {
     if (!justConnected) return;
+    if (!viewer) return;
     if (!isHeatmapProvider(justConnected)) return;
-    if (viewer?.trailStewardshipNoticeSeenAt) return;
+    if (viewer.trailStewardshipNoticeSeenAt) return;
     setStewardshipProvider(justConnected);
     setStewardshipModalOpen(true);
-  }, [justConnected, viewer?.trailStewardshipNoticeSeenAt]);
+  }, [justConnected, viewer]);
 
   return (
     <>
