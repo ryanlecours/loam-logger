@@ -1,8 +1,9 @@
 import express from 'express';
+import * as Sentry from '@sentry/node';
 import { OAuth2Client } from 'google-auth-library';
 import { ensureUserFromGoogle } from './ensureUserFromGoogle';
 import { ensureUserFromApple } from './ensureUserFromApple';
-import { verifyAppleIdentityToken } from './appleTokenVerifier';
+import { verifyAppleIdentityToken, type AppleVerifyErrorDetail } from './appleTokenVerifier';
 import { normalizeEmail, getClientIp } from './utils';
 import { validateEmailFormat } from './email.utils';
 import { verifyPassword, validatePassword, hashPassword } from './password.utils';
@@ -12,11 +13,15 @@ import { updateLastAuthAt } from './recent-auth';
 import { prisma } from '../lib/prisma';
 import { checkAuthRateLimit, checkMutationRateLimit } from '../lib/rate-limit';
 import { sendPasswordAddedNotification, sendPasswordChangedNotification } from '../services/password-notification.service';
-import { logger } from '../lib/logger';
+import { logger, createLogger } from '../lib/logger';
 import { sendUnauthorized, sendBadRequest, sendForbidden, sendConflict, sendInternalError, sendTooManyRequests } from '../lib/api-response';
 import { config } from '../config/env';
 import { AUTH_ERROR } from './types';
 import { createNewUser, verifyEmailAvailable } from '../services/signup.service';
+
+// Filter Railway logs with `module:"auth-audit"` to see only successful sign-ins and
+// account creations — the audit stream. Failure-side logs use the regular `logger`.
+const auditLogger = createLogger('auth-audit');
 
 const router = express.Router();
 
@@ -49,6 +54,7 @@ router.post('/mobile/signup', express.json(), async (req, res) => {
     const clientIp = getClientIp(req);
     const rateLimit = await checkAuthRateLimit('signup', clientIp);
     if (!rateLimit.allowed) {
+      logger.warn({ clientIp, operation: 'signup', retryAfter: rateLimit.retryAfter, route: 'mobile/signup' }, 'Mobile signup rate-limited');
       return sendTooManyRequests(res, 'Too many signup attempts. Please try again later.', rateLimit.retryAfter);
     }
 
@@ -61,15 +67,18 @@ router.post('/mobile/signup', express.json(), async (req, res) => {
 
     // Validate email
     if (!rawEmail) {
+      logger.warn({ field: 'email', route: 'mobile/signup' }, 'Signup 400: email required');
       return sendBadRequest(res, 'Email is required');
     }
 
     const email = normalizeEmail(rawEmail);
     if (!email) {
+      logger.warn({ field: 'email', route: 'mobile/signup' }, 'Signup 400: invalid email');
       return sendBadRequest(res, 'Invalid email');
     }
 
     if (!validateEmailFormat(email)) {
+      logger.warn({ field: 'email', route: 'mobile/signup' }, 'Signup 400: invalid email format');
       return sendBadRequest(res, 'Invalid email format');
     }
 
@@ -77,12 +86,14 @@ router.post('/mobile/signup', express.json(), async (req, res) => {
     const check = await verifyEmailAvailable(email);
     if (!check.available) {
       if (check.role === 'WAITLIST') {
+        logger.info({ code: 'ALREADY_ON_WAITLIST', route: 'mobile/signup' }, 'Signup blocked: already on waitlist');
         return sendForbidden(
           res,
           'You are already on the waitlist. We will email you when your account is activated.',
           'ALREADY_ON_WAITLIST'
         );
       }
+      logger.info({ code: 'EMAIL_EXISTS', route: 'mobile/signup' }, 'Signup 409: account exists');
       return sendConflict(res, 'An account with this email already exists. Please log in.');
     }
     const verifiedEmail = check.email;
@@ -93,6 +104,7 @@ router.post('/mobile/signup', express.json(), async (req, res) => {
     if (password) {
       const validation = validatePassword(password);
       if (!validation.isValid) {
+        logger.warn({ field: 'password', route: 'mobile/signup' }, 'Signup 400: password validation failed');
         return sendBadRequest(res, validation.error || 'Password does not meet requirements');
       }
       passwordHash = await hashPassword(password);
@@ -100,17 +112,21 @@ router.post('/mobile/signup', express.json(), async (req, res) => {
 
     const trimmedName = name?.trim() || null;
     if (trimmedName && trimmedName.length > 100) {
+      logger.warn({ field: 'name', nameLength: trimmedName.length, route: 'mobile/signup' }, 'Signup 400: name too long');
       return sendBadRequest(res, 'Name must be 100 characters or fewer');
     }
 
     if (config.bypassWaitlistFlow) {
       if (!passwordHash) {
+        logger.warn({ field: 'password', route: 'mobile/signup' }, 'Signup 400: password required when bypass is on');
         return sendBadRequest(res, 'Password is required');
       }
 
       const { user } = await createNewUser({ email: verifiedEmail, name: trimmedName, passwordHash, ref });
 
       const { accessToken, refreshToken } = await issueMobileTokens({ id: user.id, email: user.email });
+
+      auditLogger.info({ userId: user.id, provider: 'email', wasCreated: true, hasRef: !!ref }, 'Mobile account created');
 
       return res.status(201).json({
         ok: true,
@@ -121,7 +137,8 @@ router.post('/mobile/signup', express.json(), async (req, res) => {
     }
 
     // Waitlist flow
-    await createNewUser({ email: verifiedEmail, name: trimmedName, passwordHash, ref });
+    const { user } = await createNewUser({ email: verifiedEmail, name: trimmedName, passwordHash, ref });
+    auditLogger.info({ userId: user.id, provider: 'email', role: 'WAITLIST', hasRef: !!ref }, 'Mobile waitlist signup');
 
     return res.status(200).json({
       ok: true,
@@ -129,7 +146,8 @@ router.post('/mobile/signup', express.json(), async (req, res) => {
       message: 'You have been added to the waitlist. We will email you when your account is activated.',
     });
   } catch (e) {
-    logger.error({ err: e }, '[MobileAuth] Signup failed');
+    logger.error({ err: e, route: 'mobile/signup' }, '[MobileAuth] Signup failed');
+    Sentry.captureException(e, { tags: { route: 'mobile/signup' } });
     return sendInternalError(res, 'Signup failed');
   }
 });
@@ -140,27 +158,39 @@ router.post('/mobile/signup', express.json(), async (req, res) => {
  * Returns access token and refresh token for mobile app
  */
 router.post('/mobile/google', express.json(), async (req, res) => {
+  let googleSub: string | undefined;
   try {
     const clientIp = getClientIp(req);
     const rateLimit = await checkAuthRateLimit('oauth-login', clientIp);
     if (!rateLimit.allowed) {
+      logger.warn({ clientIp, operation: 'oauth-login', retryAfter: rateLimit.retryAfter, route: 'mobile/google' }, 'Mobile auth rate-limited');
       return sendTooManyRequests(res, 'Too many login attempts. Please try again later.', rateLimit.retryAfter);
     }
 
     const { idToken } = req.body as { idToken?: string };
     if (!idToken) {
-      return res.status(400).send('Missing idToken');
+      logger.warn({ field: 'idToken', route: 'mobile/google' }, 'Google sign-in 400: missing idToken');
+      return sendBadRequest(res, 'Missing idToken', 'MISSING_TOKEN');
     }
 
-    // Verify the Google ID token
-    const ticket = await googleClient.verifyIdToken({
-      idToken,
-      audience: [GOOGLE_CLIENT_ID!, GOOGLE_IOS_CLIENT_ID!].filter(Boolean),
-    });
-    const payload = ticket.getPayload();
-    if (!payload?.sub) {
-      return res.status(401).send('Invalid Google token');
+    // Verify the Google ID token. googleClient.verifyIdToken throws on bad sig / wrong aud / exp.
+    let payload;
+    try {
+      const ticket = await googleClient.verifyIdToken({
+        idToken,
+        audience: [GOOGLE_CLIENT_ID!, GOOGLE_IOS_CLIENT_ID!].filter(Boolean),
+      });
+      payload = ticket.getPayload();
+    } catch (err) {
+      logger.warn({ err, route: 'mobile/google' }, 'Google token verification failed');
+      Sentry.captureException(err, { tags: { route: 'mobile/google', stage: 'token-verify' } });
+      return sendUnauthorized(res, 'Invalid Google token');
     }
+    if (!payload?.sub) {
+      logger.warn({ route: 'mobile/google' }, 'Google token missing sub claim');
+      return sendUnauthorized(res, 'Invalid Google token');
+    }
+    googleSub = payload.sub;
 
     // Create or update user
     const user = await ensureUserFromGoogle({
@@ -179,6 +209,8 @@ router.post('/mobile/google', express.json(), async (req, res) => {
     // Generate tokens for mobile
     const { accessToken, refreshToken } = await issueMobileTokens({ id: user.id, email: user.email });
 
+    auditLogger.info({ userId: user.id, sub: payload.sub, provider: 'google' }, 'Mobile sign-in succeeded');
+
     res.status(200).json({
       accessToken,
       refreshToken,
@@ -193,14 +225,17 @@ router.post('/mobile/google', express.json(), async (req, res) => {
     const errorMessage = e instanceof Error ? e.message : String(e);
 
     if (errorMessage === AUTH_ERROR.CLOSED_BETA) {
-      return res.status(403).send(AUTH_ERROR.CLOSED_BETA);
+      logger.info({ sub: googleSub, code: 'CLOSED_BETA', route: 'mobile/google' }, 'Google sign-in blocked: closed beta');
+      return sendForbidden(res, AUTH_ERROR.CLOSED_BETA, 'CLOSED_BETA');
     }
     if (errorMessage === AUTH_ERROR.ALREADY_ON_WAITLIST) {
-      return res.status(403).send(AUTH_ERROR.ALREADY_ON_WAITLIST);
+      logger.info({ sub: googleSub, code: 'ALREADY_ON_WAITLIST', route: 'mobile/google' }, 'Google sign-in blocked: waitlist');
+      return sendForbidden(res, AUTH_ERROR.ALREADY_ON_WAITLIST, 'ALREADY_ON_WAITLIST');
     }
 
-    logger.error({ err: e }, '[MobileAuth] Google login failed');
-    res.status(500).send('Authentication failed');
+    logger.error({ err: e, sub: googleSub, route: 'mobile/google' }, '[MobileAuth] Google login failed');
+    Sentry.captureException(e, { tags: { route: 'mobile/google', stage: 'ensure-user' }, contexts: { google_signin: { sub: googleSub ?? 'unknown' } } });
+    sendInternalError(res, 'Authentication failed');
   }
 });
 
@@ -213,46 +248,75 @@ router.post('/mobile/google', express.json(), async (req, res) => {
  * The mobile client must capture and forward these alongside the identity token.
  */
 router.post('/mobile/apple', express.json(), async (req, res) => {
+  // Track the verified Apple sub across the function so catch-block logs can include it.
+  let appleSub: string | undefined;
   try {
     const clientIp = getClientIp(req);
     const rateLimit = await checkAuthRateLimit('oauth-login', clientIp);
     if (!rateLimit.allowed) {
+      logger.warn({ clientIp, operation: 'oauth-login', retryAfter: rateLimit.retryAfter, route: 'mobile/apple' }, 'Mobile auth rate-limited');
       return sendTooManyRequests(res, 'Too many login attempts. Please try again later.', rateLimit.retryAfter);
     }
 
-    const { identityToken, fullName, email: clientEmail, ref } = req.body as {
+    // Mobile client sends `{ user: { email, name: { firstName, lastName } } }` — Apple only
+    // populates these on the FIRST sign-in per Apple ID, so they may be undefined.
+    const { identityToken, user: clientUser, ref } = req.body as {
       identityToken?: string;
-      fullName?: { givenName?: string | null; familyName?: string | null } | null;
-      email?: string;
+      user?: {
+        email?: string;
+        name?: { firstName?: string; lastName?: string } | null;
+      } | null;
       ref?: string;
     };
+    const clientEmail = clientUser?.email;
 
     if (!identityToken) {
-      return res.status(400).send('Missing identityToken');
+      logger.warn({ field: 'identityToken', route: 'mobile/apple' }, 'Apple sign-in 400: missing identityToken');
+      return sendBadRequest(res, 'Missing identityToken', 'MISSING_TOKEN');
     }
     if (clientEmail && !validateEmailFormat(clientEmail)) {
-      return res.status(400).send('Invalid email');
+      logger.warn({ field: 'email', route: 'mobile/apple' }, 'Apple sign-in 400: invalid client email');
+      return sendBadRequest(res, 'Invalid email', 'INVALID_EMAIL');
     }
     if (ref && ref.length > 20) {
-      return res.status(400).send('Invalid ref');
+      logger.warn({ field: 'ref', refLength: ref.length, route: 'mobile/apple' }, 'Apple sign-in 400: invalid ref');
+      return sendBadRequest(res, 'Invalid ref', 'INVALID_REF');
     }
     if (!config.appleBundleId) {
-      logger.error('[MobileAuth] APPLE_BUNDLE_ID not configured');
-      return res.status(500).send('Authentication failed');
+      logger.error({ route: 'mobile/apple' }, '[MobileAuth] APPLE_BUNDLE_ID not configured');
+      return sendInternalError(res, 'Authentication failed');
     }
 
-    // Verify Apple identity token signature and claims
-    const applePayload = await verifyAppleIdentityToken(identityToken, config.appleBundleId);
+    // Verify Apple identity token signature and claims. jose errors are tagged with
+    // `_apple = { reason, claim }` by the verifier so we can log a specific reason
+    // (e.g. JWTClaimsValidationFailed on 'aud') without re-parsing message text.
+    let applePayload;
+    try {
+      applePayload = await verifyAppleIdentityToken(identityToken, config.appleBundleId);
+    } catch (err) {
+      const detail = (err as Error & { _apple?: AppleVerifyErrorDetail })._apple;
+      logger.warn(
+        { err, reason: detail?.reason, claim: detail?.claim, expectedAudience: config.appleBundleId, route: 'mobile/apple' },
+        'Apple token verification failed'
+      );
+      Sentry.captureException(err, {
+        tags: { route: 'mobile/apple', stage: 'token-verify' },
+        contexts: { apple_signin: { reason: detail?.reason ?? 'UNKNOWN', claim: String(detail?.claim ?? '') } },
+      });
+      return sendUnauthorized(res, 'Invalid Apple identity token');
+    }
+    appleSub = applePayload.sub;
+    logger.debug({ sub: applePayload.sub, hasEmail: !!applePayload.email, emailVerified: applePayload.email_verified }, 'Apple token verified');
 
     // Apple sends email_verified as the string "true"/"false", not a boolean
     const emailVerified = applePayload.email_verified === 'true';
-    const givenName = fullName?.givenName?.slice(0, 50) || null;
-    const familyName = fullName?.familyName?.slice(0, 50) || null;
+    const givenName = clientUser?.name?.firstName?.slice(0, 50) || null;
+    const familyName = clientUser?.name?.lastName?.slice(0, 50) || null;
     const name = [givenName, familyName].filter(Boolean).join(' ') || null;
 
     // Token email is trusted (verified by Apple) — used for account lookup/linking.
     // Client email is untrusted — only used for new user creation as a fallback.
-    const user = await ensureUserFromApple({
+    const { user, wasCreated } = await ensureUserFromApple({
       sub: applePayload.sub,
       email: applePayload.email,
       clientEmail: clientEmail || undefined,
@@ -268,6 +332,11 @@ router.post('/mobile/apple', express.json(), async (req, res) => {
     // Generate tokens for mobile
     const { accessToken, refreshToken } = await issueMobileTokens({ id: user.id, email: user.email });
 
+    auditLogger.info(
+      { userId: user.id, sub: applePayload.sub, provider: 'apple', wasCreated },
+      wasCreated ? 'Mobile account created' : 'Mobile sign-in succeeded'
+    );
+
     res.status(200).json({
       accessToken,
       refreshToken,
@@ -282,14 +351,20 @@ router.post('/mobile/apple', express.json(), async (req, res) => {
     const errorMessage = e instanceof Error ? e.message : String(e);
 
     if (errorMessage === AUTH_ERROR.CLOSED_BETA) {
-      return res.status(403).send(AUTH_ERROR.CLOSED_BETA);
+      logger.info({ sub: appleSub, code: 'CLOSED_BETA', route: 'mobile/apple' }, 'Apple sign-in blocked: closed beta');
+      return sendForbidden(res, AUTH_ERROR.CLOSED_BETA, 'CLOSED_BETA');
     }
     if (errorMessage === AUTH_ERROR.ALREADY_ON_WAITLIST) {
-      return res.status(403).send(AUTH_ERROR.ALREADY_ON_WAITLIST);
+      logger.info({ sub: appleSub, code: 'ALREADY_ON_WAITLIST', route: 'mobile/apple' }, 'Apple sign-in blocked: waitlist');
+      return sendForbidden(res, AUTH_ERROR.ALREADY_ON_WAITLIST, 'ALREADY_ON_WAITLIST');
     }
 
-    logger.error({ err: e }, '[MobileAuth] Apple login failed');
-    res.status(500).send('Authentication failed');
+    logger.error({ err: e, sub: appleSub, route: 'mobile/apple' }, '[MobileAuth] Apple login failed');
+    Sentry.captureException(e, {
+      tags: { route: 'mobile/apple', stage: 'ensure-user' },
+      contexts: { apple_signin: { sub: appleSub ?? 'unknown' } },
+    });
+    sendInternalError(res, 'Authentication failed');
   }
 });
 
@@ -299,6 +374,8 @@ router.post('/mobile/apple', express.json(), async (req, res) => {
  * Returns access token and refresh token for mobile app
  */
 router.post('/mobile/login', express.json(), async (req, res) => {
+  // NOTE: this route currently has no rate-limit check — out of scope for this change,
+  // but worth adding to match /mobile/google and /mobile/apple. Tracked separately.
   try {
     const { email: rawEmail, password } = req.body as {
       email?: string;
@@ -307,12 +384,14 @@ router.post('/mobile/login', express.json(), async (req, res) => {
 
     // Validate input
     if (!rawEmail || !password) {
-      return res.status(400).send('Email and password are required');
+      logger.warn({ field: !rawEmail ? 'email' : 'password', route: 'mobile/login' }, 'Email login 400: missing credentials');
+      return sendBadRequest(res, 'Email and password are required', 'MISSING_CREDENTIALS');
     }
 
     const email = normalizeEmail(rawEmail);
     if (!email) {
-      return res.status(400).send('Invalid email');
+      logger.warn({ field: 'email', route: 'mobile/login' }, 'Email login 400: invalid email');
+      return sendBadRequest(res, 'Invalid email', 'INVALID_EMAIL');
     }
 
     // Find user by email
@@ -321,23 +400,27 @@ router.post('/mobile/login', express.json(), async (req, res) => {
     });
 
     if (!user) {
-      return res.status(401).send('Invalid email or password');
+      logger.info({ reason: 'no-such-user', route: 'mobile/login' }, 'Email login 401');
+      return sendUnauthorized(res, 'Invalid email or password');
     }
 
     // Check if user has a password (created via email/password signup)
     if (!user.passwordHash) {
-      return res.status(401).send('This account uses OAuth login only');
+      logger.info({ userId: user.id, reason: 'oauth-only', route: 'mobile/login' }, 'Email login 401: account is OAuth-only');
+      return sendUnauthorized(res, 'This account uses OAuth login only');
     }
 
     // Verify password
     const isValid = await verifyPassword(password, user.passwordHash);
     if (!isValid) {
-      return res.status(401).send('Invalid email or password');
+      logger.info({ userId: user.id, reason: 'bad-password', route: 'mobile/login' }, 'Email login 401: bad password');
+      return sendUnauthorized(res, 'Invalid email or password');
     }
 
     // Block WAITLIST users - they cannot login until activated
     if (user.role === 'WAITLIST') {
-      return res.status(403).send(AUTH_ERROR.ALREADY_ON_WAITLIST);
+      logger.info({ userId: user.id, code: 'ALREADY_ON_WAITLIST', route: 'mobile/login' }, 'Email login blocked: waitlist');
+      return sendForbidden(res, AUTH_ERROR.ALREADY_ON_WAITLIST, 'ALREADY_ON_WAITLIST');
     }
 
     // Update last auth timestamp for recent-auth gating (non-blocking)
@@ -347,6 +430,8 @@ router.post('/mobile/login', express.json(), async (req, res) => {
 
     // Generate tokens for mobile
     const { accessToken, refreshToken } = await issueMobileTokens({ id: user.id, email: user.email });
+
+    auditLogger.info({ userId: user.id, provider: 'email' }, 'Mobile sign-in succeeded');
 
     res.status(200).json({
       accessToken,
@@ -359,8 +444,9 @@ router.post('/mobile/login', express.json(), async (req, res) => {
       },
     });
   } catch (e) {
-    logger.error({ err: e }, '[MobileAuth] Email login failed');
-    res.status(500).send('Login failed');
+    logger.error({ err: e, route: 'mobile/login' }, '[MobileAuth] Email login failed');
+    Sentry.captureException(e, { tags: { route: 'mobile/login' } });
+    sendInternalError(res, 'Login failed');
   }
 });
 
@@ -375,13 +461,16 @@ router.post('/mobile/refresh', express.json(), async (req, res) => {
   try {
     const { refreshToken } = req.body as { refreshToken?: string };
     if (!refreshToken) {
-      return res.status(400).send('Missing refreshToken');
+      logger.warn({ field: 'refreshToken', route: 'mobile/refresh' }, 'Refresh 400: missing refreshToken');
+      return sendBadRequest(res, 'Missing refreshToken', 'MISSING_TOKEN');
     }
 
     // Verify refresh token
     const payload = verifyToken(refreshToken);
     if (!payload) {
-      return res.status(401).send('Invalid or expired refresh token');
+      // Stale / malformed token is the common case here — info, not warn.
+      logger.info({ reason: 'invalid-or-expired', route: 'mobile/refresh' }, 'Refresh 401: token invalid or expired');
+      return sendUnauthorized(res, 'Invalid or expired refresh token');
     }
 
     // Verify user still exists
@@ -391,12 +480,15 @@ router.post('/mobile/refresh', express.json(), async (req, res) => {
     });
 
     if (!user) {
-      return res.status(401).send('User not found');
+      // Token signature was valid but the user row is gone — likely deletion or DB drift.
+      logger.error({ uid: payload.uid, route: 'mobile/refresh' }, 'Refresh 401: user not found for valid token');
+      return sendUnauthorized(res, 'User not found');
     }
 
     // Reject refresh tokens issued before a session invalidation (e.g. password reset)
     if ((payload.v ?? 0) !== user.sessionTokenVersion) {
-      return res.status(401).send('Refresh token has been revoked');
+      logger.info({ userId: user.id, tokenVersion: payload.v, currentVersion: user.sessionTokenVersion, route: 'mobile/refresh' }, 'Refresh 401: token revoked by version bump');
+      return sendUnauthorized(res, 'Refresh token has been revoked');
     }
 
     // Generate new access token stamped with the current token version
@@ -408,8 +500,9 @@ router.post('/mobile/refresh', express.json(), async (req, res) => {
 
     res.status(200).json({ accessToken });
   } catch (e) {
-    logger.error({ err: e }, '[MobileAuth] Token refresh failed');
-    res.status(500).send('Token refresh failed');
+    logger.error({ err: e, route: 'mobile/refresh' }, '[MobileAuth] Token refresh failed');
+    Sentry.captureException(e, { tags: { route: 'mobile/refresh' } });
+    sendInternalError(res, 'Token refresh failed');
   }
 });
 

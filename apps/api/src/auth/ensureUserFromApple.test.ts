@@ -81,7 +81,7 @@ describe('ensureUserFromApple', () => {
 
     const result = await ensureUserFromApple(baseClaims);
 
-    expect(result).toEqual(createdUser);
+    expect(result).toEqual({ user: createdUser, wasCreated: true });
     expect(mockUserCreate).toHaveBeenCalledWith({
       data: expect.objectContaining({
         email: 'test@test.com',
@@ -151,7 +151,7 @@ describe('ensureUserFromApple', () => {
 
     const result = await ensureUserFromApple(baseClaims);
 
-    expect(result).toEqual(existingUser);
+    expect(result).toEqual({ user: existingUser, wasCreated: false });
     expect(mockUserCreate).not.toHaveBeenCalled();
   });
 
@@ -166,7 +166,7 @@ describe('ensureUserFromApple', () => {
 
     const result = await ensureUserFromApple(baseClaims);
 
-    expect(result).toEqual(existingUser);
+    expect(result).toEqual({ user: existingUser, wasCreated: false });
     expect(mockUserAccountCreate).toHaveBeenCalledWith({
       data: { userId: 'email-user', provider: 'apple', providerUserId: 'apple-001.abc123' },
     });
@@ -186,7 +186,8 @@ describe('ensureUserFromApple', () => {
       where: { id: 'nameless' },
       data: { name: 'Test User' },
     });
-    expect(result.name).toBe('Test User');
+    expect(result.user.name).toBe('Test User');
+    expect(result.wasCreated).toBe(false);
   });
 
   it('should throw when no email and no existing account', async () => {

@@ -6,6 +6,15 @@ const mockGenerateAccessToken = jest.fn().mockReturnValue('mock-access-token');
 const mockGenerateRefreshToken = jest.fn().mockReturnValue('mock-refresh-token');
 const mockUpdateLastAuthAt = jest.fn().mockResolvedValue(undefined);
 const mockCheckAuthRateLimit = jest.fn().mockResolvedValue({ allowed: true });
+const mockLoggerWarn = jest.fn();
+const mockLoggerInfo = jest.fn();
+const mockLoggerError = jest.fn();
+const mockLoggerDebug = jest.fn();
+const mockSentryCaptureException = jest.fn();
+
+jest.mock('@sentry/node', () => ({
+  captureException: (...args: unknown[]) => mockSentryCaptureException(...args),
+}));
 
 jest.mock('./appleTokenVerifier', () => ({
   verifyAppleIdentityToken: (...args: unknown[]) => mockVerifyAppleIdentityToken(...args),
@@ -46,9 +55,18 @@ jest.mock('../lib/prisma', () => ({
   },
 }));
 
-jest.mock('../lib/logger', () => ({
-  logger: { error: jest.fn(), info: jest.fn(), warn: jest.fn() },
-}));
+jest.mock('../lib/logger', () => {
+  const auditLogger = { error: jest.fn(), info: jest.fn(), warn: jest.fn(), debug: jest.fn() };
+  return {
+    logger: {
+      error: (...args: unknown[]) => mockLoggerError(...args),
+      info: (...args: unknown[]) => mockLoggerInfo(...args),
+      warn: (...args: unknown[]) => mockLoggerWarn(...args),
+      debug: (...args: unknown[]) => mockLoggerDebug(...args),
+    },
+    createLogger: () => auditLogger,
+  };
+});
 
 jest.mock('../services/password-notification.service', () => ({
   sendPasswordAddedNotification: jest.fn(),
@@ -112,6 +130,11 @@ describe('POST /mobile/apple', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockCheckAuthRateLimit.mockResolvedValue({ allowed: true });
+    mockLoggerWarn.mockClear();
+    mockLoggerInfo.mockClear();
+    mockLoggerError.mockClear();
+    mockLoggerDebug.mockClear();
+    mockSentryCaptureException.mockClear();
   });
 
   it('should return 400 when identityToken is missing', async () => {
@@ -121,7 +144,7 @@ describe('POST /mobile/apple', () => {
     await invokeHandler(handler, req, res as unknown as Response);
 
     expect(res.status).toHaveBeenCalledWith(400);
-    expect(res.send).toHaveBeenCalledWith('Missing identityToken');
+    expect(res.json).toHaveBeenCalledWith({ error: 'Missing identityToken', code: 'MISSING_TOKEN' });
   });
 
   it('should return 429 when rate limited', async () => {
@@ -134,19 +157,19 @@ describe('POST /mobile/apple', () => {
     expect(res.status).toHaveBeenCalledWith(429);
   });
 
-  it('should assemble fullName from givenName and familyName', async () => {
+  it('should assemble name from firstName and lastName', async () => {
     const mockUser = { id: 'u1', email: 'jane@example.com', name: 'Jane Doe', avatarUrl: null };
     mockVerifyAppleIdentityToken.mockResolvedValue({
       sub: 'apple-001',
       email: 'jane@example.com',
       email_verified: 'true',
     });
-    mockEnsureUserFromApple.mockResolvedValue(mockUser);
+    mockEnsureUserFromApple.mockResolvedValue({ user: mockUser, wasCreated: false });
 
     const req = {
       body: {
         identityToken: 'valid-token',
-        fullName: { givenName: 'Jane', familyName: 'Doe' },
+        user: { name: { firstName: 'Jane', lastName: 'Doe' } },
       },
       ip: '127.0.0.1',
       headers: {},
@@ -161,19 +184,19 @@ describe('POST /mobile/apple', () => {
     );
   });
 
-  it('should handle givenName only', async () => {
+  it('should handle firstName only', async () => {
     const mockUser = { id: 'u1', email: 'j@example.com', name: 'Jane', avatarUrl: null };
     mockVerifyAppleIdentityToken.mockResolvedValue({
       sub: 'apple-001',
       email: 'j@example.com',
       email_verified: 'false',
     });
-    mockEnsureUserFromApple.mockResolvedValue(mockUser);
+    mockEnsureUserFromApple.mockResolvedValue({ user: mockUser, wasCreated: false });
 
     const req = {
       body: {
         identityToken: 'valid-token',
-        fullName: { givenName: 'Jane', familyName: null },
+        user: { name: { firstName: 'Jane' } },
       },
       ip: '127.0.0.1',
       headers: {},
@@ -195,7 +218,7 @@ describe('POST /mobile/apple', () => {
       email: 'a@b.com',
       email_verified: 'true',
     });
-    mockEnsureUserFromApple.mockResolvedValue(mockUser);
+    mockEnsureUserFromApple.mockResolvedValue({ user: mockUser, wasCreated: false });
 
     const req = {
       body: { identityToken: 'valid-token' },
@@ -219,10 +242,10 @@ describe('POST /mobile/apple', () => {
       email: 'token@apple.com',
       email_verified: 'true',
     });
-    mockEnsureUserFromApple.mockResolvedValue(mockUser);
+    mockEnsureUserFromApple.mockResolvedValue({ user: mockUser, wasCreated: false });
 
     const req = {
-      body: { identityToken: 'valid-token', email: 'client@user.com' },
+      body: { identityToken: 'valid-token', user: { email: 'client@user.com' } },
       ip: '127.0.0.1',
       headers: {},
     } as unknown as Request;
@@ -245,10 +268,10 @@ describe('POST /mobile/apple', () => {
       sub: 'apple-001',
       email_verified: 'false',
     });
-    mockEnsureUserFromApple.mockResolvedValue(mockUser);
+    mockEnsureUserFromApple.mockResolvedValue({ user: mockUser, wasCreated: false });
 
     const req = {
-      body: { identityToken: 'valid-token', email: 'client@user.com' },
+      body: { identityToken: 'valid-token', user: { email: 'client@user.com' } },
       ip: '127.0.0.1',
       headers: {},
     } as unknown as Request;
@@ -272,7 +295,7 @@ describe('POST /mobile/apple', () => {
       email: 'a@b.com',
       email_verified: 'true',
     });
-    mockEnsureUserFromApple.mockResolvedValue(mockUser);
+    mockEnsureUserFromApple.mockResolvedValue({ user: mockUser, wasCreated: false });
 
     const req = {
       body: { identityToken: 'valid-token', ref: 'abc123' },
@@ -296,7 +319,7 @@ describe('POST /mobile/apple', () => {
       email: 'jane@example.com',
       email_verified: 'true',
     });
-    mockEnsureUserFromApple.mockResolvedValue(mockUser);
+    mockEnsureUserFromApple.mockResolvedValue({ user: mockUser, wasCreated: false });
 
     const req = {
       body: { identityToken: 'valid-token' },
@@ -321,7 +344,7 @@ describe('POST /mobile/apple', () => {
     expect(mockUpdateLastAuthAt).toHaveBeenCalledWith('u1');
   });
 
-  it('should return 403 for CLOSED_BETA error', async () => {
+  it('should return 403 for CLOSED_BETA error and log it with sub', async () => {
     mockVerifyAppleIdentityToken.mockResolvedValue({
       sub: 'apple-001',
       email: 'new@user.com',
@@ -339,7 +362,37 @@ describe('POST /mobile/apple', () => {
     await invokeHandler(handler, req, res as unknown as Response);
 
     expect(res.status).toHaveBeenCalledWith(403);
-    expect(res.send).toHaveBeenCalledWith('CLOSED_BETA');
+    expect(res.json).toHaveBeenCalledWith({ error: 'CLOSED_BETA', code: 'CLOSED_BETA' });
+    // Anchor assertion: gate hits are logged at info level with the apple sub
+    // and the closed-beta discriminator so Railway can filter to them.
+    expect(mockLoggerInfo).toHaveBeenCalledWith(
+      expect.objectContaining({ code: 'CLOSED_BETA', sub: 'apple-001' }),
+      expect.any(String)
+    );
+  });
+
+  it('should return 401 when Apple token verification fails and log the reason', async () => {
+    const verifyErr = new Error('audience mismatch') as Error & { _apple?: { reason: string; claim?: unknown } };
+    verifyErr._apple = { reason: 'ERR_JWT_CLAIM_VALIDATION_FAILED', claim: 'aud' };
+    mockVerifyAppleIdentityToken.mockRejectedValue(verifyErr);
+
+    const req = {
+      body: { identityToken: 'forged-token' },
+      ip: '127.0.0.1',
+      headers: {},
+    } as unknown as Request;
+    const res = createMockResponse();
+
+    await invokeHandler(handler, req, res as unknown as Response);
+
+    expect(res.status).toHaveBeenCalledWith(401);
+    // Anchor assertion: token-verify failures emit a warn-level log with the
+    // jose error discriminator so the failure mode is debuggable from Railway alone.
+    expect(mockLoggerWarn).toHaveBeenCalledWith(
+      expect.objectContaining({ reason: 'ERR_JWT_CLAIM_VALIDATION_FAILED', claim: 'aud' }),
+      expect.stringMatching(/token verification failed/i)
+    );
+    expect(mockSentryCaptureException).toHaveBeenCalled();
   });
 
   it('should return 403 for ALREADY_ON_WAITLIST error', async () => {
@@ -360,6 +413,6 @@ describe('POST /mobile/apple', () => {
     await invokeHandler(handler, req, res as unknown as Response);
 
     expect(res.status).toHaveBeenCalledWith(403);
-    expect(res.send).toHaveBeenCalledWith('ALREADY_ON_WAITLIST');
+    expect(res.json).toHaveBeenCalledWith({ error: 'ALREADY_ON_WAITLIST', code: 'ALREADY_ON_WAITLIST' });
   });
 });
