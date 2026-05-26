@@ -47,6 +47,7 @@ model User {
   calibrationCompletedAt DateTime?
   calibrationDismissedAt DateTime?
   pairedComponentMigrationSeenAt DateTime?
+  trailStewardshipNoticeSeenAt   DateTime?
 
   // When true, suppress all server-side PostHog events for this user
   // (captureServerEvent short-circuits). Client-side opt-out is handled

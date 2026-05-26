@@ -940,6 +940,7 @@ export const typeDefs = gql`
     completeCalibration: User!
     resetCalibration: User!
     markPairedComponentMigrationSeen: User!
+    markTrailStewardshipNoticeSeen: User!
     replaceComponent(input: ReplaceComponentInput!): ReplaceComponentResult!
     installComponent(input: InstallComponentInput!): InstallComponentResult!
     swapComponents(input: SwapComponentsInput!): SwapComponentsResult!
@@ -1014,6 +1015,7 @@ export const typeDefs = gql`
     distanceUnit: String
     analyticsOptOut: Boolean!
     pairedComponentMigrationSeenAt: String
+    trailStewardshipNoticeSeenAt: String
     servicePreferences: [UserServicePreference!]!
     notifyOnRideUpload: Boolean!
     createdAt: String!
