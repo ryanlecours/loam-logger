@@ -513,11 +513,17 @@ router.patch('/users/:userId/founding-rider', async (req, res) => {
       return sendBadRequest(res, 'User not found');
     }
 
-    // Grant PRO access only when promoting an already-activated, non-admin account.
-    // Waitlist users get the flag now and PRO at activation time. ADMIN is excluded
-    // because PRO is *lower* than ADMIN — writing role: 'PRO' would demote them.
+    // Grant PRO access only when promoting an already-activated, non-admin account
+    // that isn't already a founding rider. Waitlist users get the flag now and PRO
+    // at activation time. ADMIN is excluded because PRO is *lower* than ADMIN —
+    // writing role: 'PRO' would demote them. The !user.isFoundingRider check makes
+    // the grant (and its welcome email) idempotent: re-promoting an existing founding
+    // rider is a no-op rather than a duplicate email.
     const grantProAccess =
-      isFoundingRider && user.role !== 'WAITLIST' && user.role !== 'ADMIN';
+      isFoundingRider &&
+      !user.isFoundingRider &&
+      user.role !== 'WAITLIST' &&
+      user.role !== 'ADMIN';
 
     const updated = await prisma.user.update({
       where: { id: userId },
