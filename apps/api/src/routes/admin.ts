@@ -513,9 +513,11 @@ router.patch('/users/:userId/founding-rider', async (req, res) => {
       return sendBadRequest(res, 'User not found');
     }
 
-    // Grant PRO access only when promoting an already-activated account.
-    // Waitlist users get the flag now and PRO at activation time.
-    const grantProAccess = isFoundingRider && user.role !== 'WAITLIST';
+    // Grant PRO access only when promoting an already-activated, non-admin account.
+    // Waitlist users get the flag now and PRO at activation time. ADMIN is excluded
+    // because PRO is *lower* than ADMIN — writing role: 'PRO' would demote them.
+    const grantProAccess =
+      isFoundingRider && user.role !== 'WAITLIST' && user.role !== 'ADMIN';
 
     const updated = await prisma.user.update({
       where: { id: userId },

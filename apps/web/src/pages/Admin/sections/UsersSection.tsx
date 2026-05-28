@@ -307,7 +307,7 @@ export function UsersSection() {
                     >
                       {resettingPassword === u.id ? 'Sending…' : 'Reset Pwd'}
                     </button>
-                    {!u.isFoundingRider && (
+                    {!u.isFoundingRider && u.role !== 'ADMIN' && (
                       <button
                         type="button"
                         onClick={() => setFoundingTarget(u)}
