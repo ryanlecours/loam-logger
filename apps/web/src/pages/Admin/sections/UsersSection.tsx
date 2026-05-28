@@ -45,6 +45,7 @@ export function UsersSection() {
   const [resettingPassword, setResettingPassword] = useState<string | null>(null);
   const [demoting, setDemoting] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [promoting, setPromoting] = useState<string | null>(null);
 
   const [emailTarget, setEmailTarget] = useState<IndividualEmailTarget | null>(null);
 
@@ -53,6 +54,7 @@ export function UsersSection() {
   // own its own copy without runtime narrowing at every render.
   const [demoteTarget, setDemoteTarget] = useState<UserEntry | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<UserEntry | null>(null);
+  const [foundingTarget, setFoundingTarget] = useState<UserEntry | null>(null);
 
   const fetchUsers = async (pageNum: number) => {
     try {
@@ -152,6 +154,44 @@ export function UsersSection() {
       toast.error(err instanceof Error ? err.message : 'Failed to demote user');
     } finally {
       setDemoting(null);
+    }
+  };
+
+  const handleConfirmMakeFoundingRider = async () => {
+    if (!foundingTarget) return;
+    try {
+      setPromoting(foundingTarget.id);
+      const res = await fetch(
+        `${import.meta.env.VITE_API_URL}/api/admin/users/${foundingTarget.id}/founding-rider`,
+        {
+          method: 'PATCH',
+          credentials: 'include',
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ isFoundingRider: true }),
+        },
+      );
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to upgrade user');
+      }
+      // Reflect the server's authoritative role (upgraded to PRO) + the flag.
+      const { user: updated } = await res.json();
+      setUsers((prev) =>
+        prev.map((u) =>
+          u.id === foundingTarget.id
+            ? { ...u, isFoundingRider: true, role: updated.role }
+            : u,
+        ),
+      );
+      setFoundingTarget(null);
+      // PRO grant shifts the FREE/PRO split in the Overview header.
+      void refreshStats();
+      toast.success(`${foundingTarget.email} upgraded to founding rider.`);
+    } catch (err) {
+      console.error('Make founding rider failed:', err);
+      toast.error(err instanceof Error ? err.message : 'Failed to upgrade user');
+    } finally {
+      setPromoting(null);
     }
   };
 
@@ -267,6 +307,19 @@ export function UsersSection() {
                     >
                       {resettingPassword === u.id ? 'Sending…' : 'Reset Pwd'}
                     </button>
+                    {!u.isFoundingRider && u.role !== 'ADMIN' && (
+                      <button
+                        type="button"
+                        onClick={() => setFoundingTarget(u)}
+                        disabled={
+                          promoting === u.id || deleting === u.id || demoting === u.id
+                        }
+                        className="btn-sm rounded-xl px-3 py-1.5 text-xs font-medium text-white bg-success hover:bg-success/80 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                        title="Upgrade to founding rider (grants lifetime PRO)"
+                      >
+                        {promoting === u.id ? 'Upgrading…' : 'Make Founder'}
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => setDemoteTarget(u)}
@@ -321,6 +374,23 @@ export function UsersSection() {
         confirmLabel="Demote"
         tone="warning"
         loading={demoting !== null}
+      />
+
+      <ConfirmDeleteModal
+        isOpen={foundingTarget !== null}
+        onClose={() => setFoundingTarget(null)}
+        onConfirm={handleConfirmMakeFoundingRider}
+        title="Make founding rider"
+        message={
+          foundingTarget && (
+            <>
+              Upgrade <strong className="text-white">{foundingTarget.email}</strong> to founding rider? This grants lifetime <strong className="text-white">PRO</strong> access.
+            </>
+          )
+        }
+        confirmLabel="Make founding rider"
+        tone="warning"
+        loading={promoting !== null}
       />
 
       <ConfirmDeleteModal

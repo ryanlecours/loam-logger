@@ -14,6 +14,10 @@ import {
   type TemplateConfig,
 } from '../templates/emails';
 import FoundingRidersEmail, { FOUNDING_RIDERS_TEMPLATE_VERSION } from '../templates/emails/founding-riders';
+import FoundingRiderUpgradeEmail, {
+  FOUNDING_RIDER_UPGRADE_TEMPLATE_VERSION,
+  getFoundingRiderUpgradeEmailSubject,
+} from '../templates/emails/founding-rider-upgrade';
 import FoundingRidersLaunchEmail, { FOUNDING_RIDERS_POST_ACTIVATION_INFO_TEMPLATE_VERSION } from '../templates/emails/pre-access';
 import { render } from '@react-email/render';
 import React from 'react';
@@ -474,8 +478,16 @@ router.post('/users/:userId/send-password-reset', async (req, res) => {
 
 /**
  * PATCH /api/admin/users/:userId/founding-rider
- * Toggle the isFoundingRider flag for a WAITLIST user
+ * Set the isFoundingRider flag for a user.
  * Body: { isFoundingRider: boolean }
+ *
+ * For an already-activated account (FREE/PRO/ADMIN), granting founding-rider
+ * status also upgrades the account to PRO role + PRO tier — matching the
+ * lifetime access founding riders receive at waitlist activation.
+ *
+ * For a WAITLIST user this only sets the flag (no PRO grant): they have no
+ * password yet, so PRO access is conferred when they're activated. Revoking
+ * the flag (false) only clears it and never downgrades a user's tier.
  */
 router.patch('/users/:userId/founding-rider', async (req, res) => {
   try {
@@ -491,7 +503,7 @@ router.patch('/users/:userId/founding-rider', async (req, res) => {
       return sendBadRequest(res, 'isFoundingRider must be a boolean');
     }
 
-    // Verify user exists and is WAITLIST
+    // Verify user exists
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: { id: true, email: true, role: true, isFoundingRider: true },
@@ -501,14 +513,24 @@ router.patch('/users/:userId/founding-rider', async (req, res) => {
       return sendBadRequest(res, 'User not found');
     }
 
-    if (user.role !== 'WAITLIST') {
-      return sendBadRequest(res, 'Can only toggle founding rider status for waitlist users');
-    }
+    // Grant PRO access only when promoting an already-activated, non-admin account
+    // that isn't already a founding rider. Waitlist users get the flag now and PRO
+    // at activation time. ADMIN is excluded because PRO is *lower* than ADMIN —
+    // writing role: 'PRO' would demote them. The !user.isFoundingRider check makes
+    // the grant (and its welcome email) idempotent: re-promoting an existing founding
+    // rider is a no-op rather than a duplicate email.
+    const grantProAccess =
+      isFoundingRider &&
+      !user.isFoundingRider &&
+      user.role !== 'WAITLIST' &&
+      user.role !== 'ADMIN';
 
-    // Update founding rider flag
     const updated = await prisma.user.update({
       where: { id: userId },
-      data: { isFoundingRider },
+      data: {
+        isFoundingRider,
+        ...(grantProAccess ? { role: 'PRO', subscriptionTier: 'PRO' } : {}),
+      },
       select: {
         id: true,
         email: true,
@@ -519,8 +541,31 @@ router.patch('/users/:userId/founding-rider', async (req, res) => {
     });
 
     console.log(
-      `[Admin] User ${user.email} founding rider status set to ${isFoundingRider} by ${adminUserId}`
+      `[Admin] User ${user.email} founding rider status set to ${isFoundingRider}` +
+        `${grantProAccess ? ' (upgraded to PRO)' : ''} by ${adminUserId}`
     );
+
+    // Welcome the newly-upgraded founding rider: confirm the upgrade and ask for
+    // feedback, shares, and an App Store rating. Fire-and-forget — a mail failure
+    // must not fail the upgrade itself. sendReactEmailWithAudit respects the
+    // unsubscribe flag and records the send in the EmailSend audit table. Only
+    // fires when actually granting access to an activated account (not for the
+    // waitlist flag-only path, and not when revoking).
+    if (grantProAccess) {
+      const unsubscribeUrl = `${API_URL}/api/email/unsubscribe?token=${generateUnsubscribeToken(userId)}`;
+      sendReactEmailWithAudit({
+        to: updated.email,
+        subject: getFoundingRiderUpgradeEmailSubject(),
+        reactElement: React.createElement(FoundingRiderUpgradeEmail, {
+          recipientFirstName: updated.name?.split(' ')[0],
+          unsubscribeUrl,
+        }),
+        userId,
+        emailType: 'upgrade_confirmation',
+        triggerSource: 'admin_manual',
+        templateVersion: FOUNDING_RIDER_UPGRADE_TEMPLATE_VERSION,
+      }).catch((err) => logError('Admin founding rider upgrade email', err));
+    }
 
     res.json({ success: true, user: updated });
   } catch (error) {
