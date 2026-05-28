@@ -43,7 +43,6 @@ export function UsersSection() {
 
   const [showAddUser, setShowAddUser] = useState(false);
   const [resettingPassword, setResettingPassword] = useState<string | null>(null);
-  const [demoting, setDemoting] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [promoting, setPromoting] = useState<string | null>(null);
 
@@ -52,7 +51,6 @@ export function UsersSection() {
   // Per-action confirmation state. We model these as separate small pieces
   // rather than a single `confirmModal: { kind, target }` so each modal can
   // own its own copy without runtime narrowing at every render.
-  const [demoteTarget, setDemoteTarget] = useState<UserEntry | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<UserEntry | null>(null);
   const [foundingTarget, setFoundingTarget] = useState<UserEntry | null>(null);
 
@@ -127,33 +125,6 @@ export function UsersSection() {
       toast.error(err instanceof Error ? err.message : 'Failed to send password reset email');
     } finally {
       setResettingPassword(null);
-    }
-  };
-
-  const handleConfirmDemote = async () => {
-    if (!demoteTarget) return;
-    try {
-      setDemoting(demoteTarget.id);
-      const res = await fetch(
-        `${import.meta.env.VITE_API_URL}/api/admin/users/${demoteTarget.id}/demote`,
-        { method: 'POST', credentials: 'include', headers: getAuthHeaders() },
-      );
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || 'Failed to demote user');
-      }
-      setUsers((prev) => prev.filter((u) => u.id !== demoteTarget.id));
-      setDemoteTarget(null);
-      // Demote moves a row out of /api/admin/users and into the waitlist —
-      // both the userCount AND waitlistCount in the Overview header need
-      // to update.
-      void refreshStats();
-      toast.success(`${demoteTarget.email} demoted to waitlist.`);
-    } catch (err) {
-      console.error('Demote user failed:', err);
-      toast.error(err instanceof Error ? err.message : 'Failed to demote user');
-    } finally {
-      setDemoting(null);
     }
   };
 
@@ -295,8 +266,7 @@ export function UsersSection() {
                       onClick={() => handleSendPasswordReset(u)}
                       disabled={
                         resettingPassword === u.id ||
-                        deleting === u.id ||
-                        demoting === u.id
+                        deleting === u.id
                       }
                       className="btn-sm rounded-xl px-3 py-1.5 text-xs font-medium text-white bg-primary hover:bg-primary/80 transition disabled:opacity-50 disabled:cursor-not-allowed"
                       title={
@@ -311,9 +281,7 @@ export function UsersSection() {
                       <button
                         type="button"
                         onClick={() => setFoundingTarget(u)}
-                        disabled={
-                          promoting === u.id || deleting === u.id || demoting === u.id
-                        }
+                        disabled={promoting === u.id || deleting === u.id}
                         className="btn-sm rounded-xl px-3 py-1.5 text-xs font-medium text-white bg-success hover:bg-success/80 transition disabled:opacity-50 disabled:cursor-not-allowed"
                         title="Upgrade to founding rider (grants lifetime PRO)"
                       >
@@ -322,17 +290,8 @@ export function UsersSection() {
                     )}
                     <button
                       type="button"
-                      onClick={() => setDemoteTarget(u)}
-                      disabled={demoting === u.id || deleting === u.id || isSelf}
-                      className="btn-warning btn-sm"
-                      title={isSelf ? "Can't demote yourself" : 'Demote to waitlist'}
-                    >
-                      {demoting === u.id ? 'Demoting…' : 'Demote'}
-                    </button>
-                    <button
-                      type="button"
                       onClick={() => setDeleteTarget(u)}
-                      disabled={deleting === u.id || demoting === u.id || isSelf}
+                      disabled={deleting === u.id || isSelf}
                       className="btn-danger btn-sm"
                       title={isSelf ? "Can't delete yourself" : 'Delete user'}
                     >
@@ -358,23 +317,6 @@ export function UsersSection() {
       />
 
       <IndividualEmailModal target={emailTarget} onClose={() => setEmailTarget(null)} />
-
-      <ConfirmDeleteModal
-        isOpen={demoteTarget !== null}
-        onClose={() => setDemoteTarget(null)}
-        onConfirm={handleConfirmDemote}
-        title="Demote to waitlist"
-        message={
-          demoteTarget && (
-            <>
-              Demote <strong className="text-white">{demoteTarget.email}</strong> to the waitlist? They&rsquo;ll need to be re-activated to access the app.
-            </>
-          )
-        }
-        confirmLabel="Demote"
-        tone="warning"
-        loading={demoting !== null}
-      />
 
       <ConfirmDeleteModal
         isOpen={foundingTarget !== null}

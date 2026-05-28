@@ -17,13 +17,11 @@ import type {
   TemplateParameter,
 } from '../types';
 
-const SEGMENT_OPTIONS: { id: EmailSegment; label: string; group: 'active' | 'waitlist' }[] = [
-  { id: 'ACTIVE_ALL', label: 'All Active Users', group: 'active' },
-  { id: 'ACTIVE_FREE', label: 'Free', group: 'active' },
-  { id: 'ACTIVE_PRO', label: 'Pro', group: 'active' },
-  { id: 'WAITLIST', label: 'All Waitlist', group: 'waitlist' },
-  { id: 'WAITLIST_FOUNDING', label: 'Founding Riders', group: 'waitlist' },
-  { id: 'WAITLIST_REGULAR', label: 'Non-Founding', group: 'waitlist' },
+const SEGMENT_OPTIONS: { id: EmailSegment; label: string }[] = [
+  { id: 'ACTIVE_ALL', label: 'All Active Users' },
+  { id: 'ACTIVE_FREE', label: 'Free' },
+  { id: 'ACTIVE_PRO', label: 'Pro' },
+  { id: 'ACTIVE_FOUNDING', label: 'Founding Riders' },
 ];
 
 const SCHEDULED_COLUMNS = [
@@ -37,18 +35,14 @@ const SCHEDULED_COLUMNS = [
 
 function getEmailApiParams(segment: EmailSegment): string {
   switch (segment) {
-    case 'WAITLIST':
-      return 'role=WAITLIST';
-    case 'WAITLIST_FOUNDING':
-      return 'role=WAITLIST&foundingRider=true';
-    case 'WAITLIST_REGULAR':
-      return 'role=WAITLIST&foundingRider=false';
     case 'ACTIVE_ALL':
       return 'role=FREE&role=PRO';
     case 'ACTIVE_FREE':
       return 'role=FREE';
     case 'ACTIVE_PRO':
       return 'role=PRO';
+    case 'ACTIVE_FOUNDING':
+      return 'foundingRider=true';
   }
 }
 
@@ -349,16 +343,6 @@ export function EmailSection() {
                   ].join(' ')}
                 >
                   <span>{opt.label}</span>
-                  <span
-                    className={[
-                      'text-xs px-2 py-0.5 rounded-full uppercase tracking-wide',
-                      opt.group === 'active'
-                        ? 'bg-primary/15 text-[color:var(--mint)]'
-                        : 'bg-warning/15 text-warning',
-                    ].join(' ')}
-                  >
-                    {opt.group}
-                  </span>
                 </button>
               );
             })}

@@ -32,12 +32,6 @@ export const config = {
   stripeAnnualPriceId: process.env.STRIPE_ANNUAL_PRICE_ID,
 
   /**
-   * When true, new signups skip the waitlist and are created as FREE users
-   * who can log in immediately. Set to false (default) to re-enable the waitlist gate.
-   */
-  bypassWaitlistFlow: process.env.BYPASS_WAITLIST_FLOW === 'true',
-
-  /**
    * iOS bundle identifier for Apple Sign-In token audience validation.
    */
   appleBundleId: process.env.APPLE_BUNDLE_ID,

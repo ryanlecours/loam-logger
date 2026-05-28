@@ -6,7 +6,6 @@ import { issueWebSession } from './session-issuer';
 import { setCsrfCookie, clearCsrfCookie } from './csrf';
 import { updateLastAuthAt } from './recent-auth';
 import { logger } from '../lib/logger';
-import { AUTH_ERROR } from './types';
 
 const router = express.Router();
 
@@ -58,15 +57,6 @@ router.post('/google/code', express.json(), async (req, res) => {
     const csrfToken = setCsrfCookie(res);
     res.status(200).json({ ok: true, csrfToken });
   } catch (e) {
-    const errorMessage = e instanceof Error ? e.message : String(e);
-
-    if (errorMessage === AUTH_ERROR.CLOSED_BETA) {
-      return res.status(403).send(AUTH_ERROR.CLOSED_BETA);
-    }
-    if (errorMessage === AUTH_ERROR.ALREADY_ON_WAITLIST) {
-      return res.status(403).send(AUTH_ERROR.ALREADY_ON_WAITLIST);
-    }
-
     logger.error({ err: e }, '[GoogleAuth] ID-token login failed');
     res.status(500).send('Auth failed');
   }

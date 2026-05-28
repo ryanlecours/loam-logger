@@ -28,7 +28,7 @@ model User {
   stravaUserId        String?             @unique
   suuntoUserId        String?             @unique
   whoopUserId         String?             @unique
-  role                UserRole            @default(WAITLIST)
+  role                UserRole            @default(FREE)
   mustChangePassword  Boolean             @default(false)
   sessionTokenVersion Int                 @default(0)
   activatedAt         DateTime?
@@ -394,7 +394,6 @@ model UserIntegration {
 }
 
 enum UserRole {
-  WAITLIST
   FREE
   PRO
   ADMIN

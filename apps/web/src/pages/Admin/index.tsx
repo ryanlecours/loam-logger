@@ -3,7 +3,6 @@ import { useCurrentUser } from '../../hooks/useCurrentUser';
 import AdminShell from './AdminShell';
 import { OverviewSection } from './sections/OverviewSection';
 import { UsersSection } from './sections/UsersSection';
-import { WaitlistSection } from './sections/WaitlistSection';
 import { EmailSection } from './sections/EmailSection';
 import type { AdminSectionId } from './useAdminSection';
 import { AdminStatsProvider } from './AdminStatsProvider';
@@ -48,8 +47,6 @@ export default function Admin() {
               return <OverviewSection />;
             case 'users':
               return <UsersSection />;
-            case 'waitlist':
-              return <WaitlistSection />;
             case 'email':
               return <EmailSection />;
           }

@@ -33,7 +33,6 @@ export function AdminStatsProvider({ children }: { children: ReactNode }) {
       const data = await res.json();
       setStats({
         userCount: data.users,
-        waitlistCount: data.waitlist,
         foundingRidersCount: data.foundingRiders || 0,
       });
     } catch (err) {

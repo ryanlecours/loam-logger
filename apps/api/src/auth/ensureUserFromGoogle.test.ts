@@ -66,17 +66,7 @@ describe('ensureUserFromGoogle', () => {
     mockConfig.bypassWaitlistFlow = false;
   });
 
-  it('should throw CLOSED_BETA for new users when bypass is off', async () => {
-    const tx = createTx();
-    mockTransaction.mockImplementation(async (fn: (t: unknown) => unknown) => fn(tx));
-    mockUserAccountFindUnique.mockResolvedValue(null);
-    mockUserFindUnique.mockResolvedValue(null);
-
-    await expect(ensureUserFromGoogle(baseClaims)).rejects.toThrow('CLOSED_BETA');
-  });
-
-  it('should create FREE user when bypass is on and user is new', async () => {
-    mockConfig.bypassWaitlistFlow = true;
+  it('should create FREE user when user is new', async () => {
     const createdUser = { id: 'new-user', email: 'test@test.com', role: 'FREE' };
     // Phase 1 returns null (no existing user), Phase 2 creates the user
     mockTransaction.mockImplementation(async (fn: (t: unknown) => unknown) => fn(createTx()));
@@ -129,15 +119,6 @@ describe('ensureUserFromGoogle', () => {
     await ensureUserFromGoogle(baseClaims);
 
     expect(mockReferralCreate).not.toHaveBeenCalled();
-  });
-
-  it('should throw ALREADY_ON_WAITLIST for waitlist users', async () => {
-    const tx = createTx();
-    mockTransaction.mockImplementation(async (fn: (t: unknown) => unknown) => fn(tx));
-    mockUserAccountFindUnique.mockResolvedValue(null);
-    mockUserFindUnique.mockResolvedValue({ role: 'WAITLIST' });
-
-    await expect(ensureUserFromGoogle(baseClaims)).rejects.toThrow('ALREADY_ON_WAITLIST');
   });
 
   it('should return existing user for linked Google account', async () => {

@@ -57,7 +57,6 @@ export const typeDefs = gql`
   }
 
   enum UserRole {
-    WAITLIST
     FREE
     PRO
     ADMIN

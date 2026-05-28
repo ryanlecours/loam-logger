@@ -24,10 +24,10 @@ function renderInProvider(ui: React.ReactElement) {
 }
 
 describe('OverviewSection', () => {
-  it('renders the three stat cards once /api/admin/stats resolves', async () => {
+  it('renders the two stat cards once /api/admin/stats resolves', async () => {
     fetchMock.mockResolvedValueOnce(
       new Response(
-        JSON.stringify({ users: 42, waitlist: 7, foundingRiders: 3 }),
+        JSON.stringify({ users: 42, foundingRiders: 3 }),
         { status: 200 },
       ),
     );
@@ -36,7 +36,6 @@ describe('OverviewSection', () => {
 
     expect(await screen.findByText('42')).toBeInTheDocument();
     expect(screen.getByText('3')).toBeInTheDocument();
-    expect(screen.getByText('7')).toBeInTheDocument();
   });
 
   it('shows skeleton placeholders before stats resolve', () => {
@@ -44,17 +43,17 @@ describe('OverviewSection', () => {
     fetchMock.mockImplementationOnce(() => new Promise(() => undefined));
 
     const { container } = renderInProvider(<OverviewSection />);
-    // Three skeleton spans (one per stat card) — distinct from the spinner
+    // Two skeleton spans (one per stat card) — distinct from the spinner
     // because we want to keep the card layout stable while loading.
     const skeletons = container.querySelectorAll('.animate-pulse');
-    expect(skeletons).toHaveLength(3);
+    expect(skeletons).toHaveLength(2);
   });
 
   it('looks up a user by email and displays the result', async () => {
     // First fetch is the initial stats load — return whatever, we just need
     // it to settle before the lookup fires.
     fetchMock.mockResolvedValueOnce(
-      new Response(JSON.stringify({ users: 0, waitlist: 0, foundingRiders: 0 }), {
+      new Response(JSON.stringify({ users: 0, foundingRiders: 0 }), {
         status: 200,
       }),
     );

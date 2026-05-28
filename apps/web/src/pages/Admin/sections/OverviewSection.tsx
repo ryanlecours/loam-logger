@@ -13,8 +13,8 @@ import { useAdminStats } from '../useAdminStats';
  */
 export function OverviewSection() {
   // Stats live in <AdminStatsProvider> so mutations elsewhere in the page
-  // (delete a user from UsersSection, activate someone from WaitlistSection,
-  // etc.) can call `refresh()` and the counts here stay in sync.
+  // (delete a user from UsersSection, etc.) can call `refresh()` and the
+  // counts here stay in sync.
   const { stats } = useAdminStats();
 
   const [lookupEmail, setLookupEmail] = useState('');
@@ -74,7 +74,6 @@ export function OverviewSection() {
         {[
           { label: 'Total Users', value: stats?.userCount },
           { label: 'Founding Riders', value: stats?.foundingRidersCount },
-          { label: 'Waitlist Signups', value: stats?.waitlistCount },
         ].map((stat) => (
           <div key={stat.label} className="panel">
             <p className="label-section">{stat.label}</p>

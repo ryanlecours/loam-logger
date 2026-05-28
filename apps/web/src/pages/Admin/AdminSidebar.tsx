@@ -2,7 +2,6 @@ import { useEffect, useRef } from 'react';
 import {
   LayoutDashboard,
   Users,
-  ClipboardList,
   Mail,
   type LucideIcon,
 } from 'lucide-react';
@@ -17,7 +16,6 @@ type AdminSectionMeta = {
 const ADMIN_SECTIONS: readonly AdminSectionMeta[] = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
   { id: 'users', label: 'Users', icon: Users },
-  { id: 'waitlist', label: 'Waitlist', icon: ClipboardList },
   { id: 'email', label: 'Email', icon: Mail },
 ];
 

@@ -39,13 +39,9 @@ jest.mock('../lib/rate-limit', () => ({
   checkAdminRateLimit: jest.fn(),
 }));
 
-jest.mock('../services/activation.service', () => ({
-  activateWaitlistUser: jest.fn(),
-  generateTempPassword: jest.fn(),
-}));
-
 jest.mock('../auth/password.utils', () => ({
   hashPassword: jest.fn(),
+  validatePassword: jest.fn().mockReturnValue({ isValid: true }),
 }));
 
 jest.mock('../services/email.service', () => ({
@@ -70,6 +66,8 @@ jest.mock('../lib/html', () => ({
 
 jest.mock('../lib/logger', () => ({
   logError: jest.fn(),
+  logger: { error: jest.fn(), info: jest.fn(), warn: jest.fn(), debug: jest.fn() },
+  createLogger: jest.fn(() => ({ error: jest.fn(), info: jest.fn(), warn: jest.fn(), debug: jest.fn() })),
 }));
 
 jest.mock('../lib/api-response', () => ({
@@ -82,16 +80,12 @@ import type { Request, Response, RequestHandler } from 'express';
 import { prisma } from '../lib/prisma';
 import { checkAdminRateLimit } from '../lib/rate-limit';
 import { sendBadRequest } from '../lib/api-response';
-import { activateWaitlistUser } from '../services/activation.service';
 
 const mockPrisma = prisma as jest.Mocked<typeof prisma>;
 const mockCheckAdminRateLimit = checkAdminRateLimit as jest.MockedFunction<
   typeof checkAdminRateLimit
 >;
 const mockSendBadRequest = sendBadRequest as jest.MockedFunction<typeof sendBadRequest>;
-const mockActivateWaitlistUser = activateWaitlistUser as jest.MockedFunction<
-  typeof activateWaitlistUser
->;
 
 // Import router after mocks
 import router from './admin';
@@ -144,85 +138,6 @@ async function invokeHandler(
   if (!handler) throw new Error('Handler not found');
   await handler(req, res, jest.fn());
 }
-
-describe('Admin Routes - ID Validation', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-    mockCheckAdminRateLimit.mockResolvedValue({ allowed: true, redisAvailable: true });
-  });
-
-  describe('isValidId function (via bulk founding-rider toggle)', () => {
-    const handler = findHandler('patch', '/users/founding-rider/bulk');
-
-    it('should accept valid UUID format', async () => {
-      const { req, res } = createMocks();
-      req.body = { userIds: ['550e8400-e29b-41d4-a716-446655440000'], isFoundingRider: true };
-
-      (mockPrisma.$transaction as jest.Mock).mockResolvedValue({
-        updatedCount: 1,
-        updatedEmails: ['test@example.com'],
-      });
-
-      await invokeHandler(handler, req, res);
-
-      expect(mockPrisma.$transaction).toHaveBeenCalled();
-    });
-
-    it('should accept valid CUID format', async () => {
-      const { req, res } = createMocks();
-      // CUID format: 'c' + 24 alphanumeric chars
-      req.body = { userIds: ['clyj4kp8v0000qwerty123456'], isFoundingRider: true };
-
-      (mockPrisma.$transaction as jest.Mock).mockResolvedValue({
-        updatedCount: 1,
-        updatedEmails: ['test@example.com'],
-      });
-
-      await invokeHandler(handler, req, res);
-
-      expect(mockPrisma.$transaction).toHaveBeenCalled();
-    });
-
-    it('should reject SQL injection attempt in user ID', async () => {
-      const { req, res } = createMocks();
-      req.body = { userIds: ["'; DROP TABLE users; --"], isFoundingRider: true };
-
-      await invokeHandler(handler, req, res);
-
-      expect(mockSendBadRequest).toHaveBeenCalledWith(res, 'Invalid user ID format');
-    });
-
-    it('should reject malformed IDs', async () => {
-      const { req, res } = createMocks();
-      req.body = { userIds: ['not-a-valid-id'], isFoundingRider: true };
-
-      await invokeHandler(handler, req, res);
-
-      expect(mockSendBadRequest).toHaveBeenCalledWith(res, 'Invalid user ID format');
-    });
-
-    it('should reject empty strings', async () => {
-      const { req, res } = createMocks();
-      req.body = { userIds: [''], isFoundingRider: true };
-
-      await invokeHandler(handler, req, res);
-
-      expect(mockSendBadRequest).toHaveBeenCalledWith(res, 'Invalid user ID format');
-    });
-
-    it('should reject array with mixed valid and invalid IDs', async () => {
-      const { req, res } = createMocks();
-      req.body = {
-        userIds: ['550e8400-e29b-41d4-a716-446655440000', 'invalid-id'],
-        isFoundingRider: true,
-      };
-
-      await invokeHandler(handler, req, res);
-
-      expect(mockSendBadRequest).toHaveBeenCalledWith(res, 'Invalid user ID format');
-    });
-  });
-});
 
 describe('Admin Routes - Email Validation', () => {
   beforeEach(() => {
@@ -365,108 +280,9 @@ describe('Admin Routes - Subject Length Validation', () => {
   });
 });
 
-describe('Admin Routes - Bulk Operations', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-    mockCheckAdminRateLimit.mockResolvedValue({ allowed: true, redisAvailable: true });
-  });
-
-  describe('PATCH /users/founding-rider/bulk', () => {
-    const handler = findHandler('patch', '/users/founding-rider/bulk');
-
-    it('should reject empty userIds array', async () => {
-      const { req, res } = createMocks();
-      req.body = { userIds: [], isFoundingRider: true };
-
-      await invokeHandler(handler, req, res);
-
-      expect(mockSendBadRequest).toHaveBeenCalledWith(res, 'At least one user ID is required');
-    });
-
-    it('should reject non-array userIds', async () => {
-      const { req, res } = createMocks();
-      req.body = { userIds: 'not-an-array', isFoundingRider: true };
-
-      await invokeHandler(handler, req, res);
-
-      expect(mockSendBadRequest).toHaveBeenCalledWith(res, 'At least one user ID is required');
-    });
-
-    it('should reject more than 100 users', async () => {
-      const { req, res } = createMocks();
-      req.body = {
-        userIds: Array.from({ length: 101 }, (_, i) =>
-          `550e8400-e29b-41d4-a716-${String(i).padStart(12, '0')}`
-        ),
-        isFoundingRider: true,
-      };
-
-      await invokeHandler(handler, req, res);
-
-      expect(mockSendBadRequest).toHaveBeenCalledWith(
-        res,
-        'Cannot update more than 100 users at once'
-      );
-    });
-
-    it('should use transaction for atomicity', async () => {
-      const { req, res } = createMocks();
-      req.body = { userIds: ['550e8400-e29b-41d4-a716-446655440000'], isFoundingRider: true };
-
-      (mockPrisma.$transaction as jest.Mock).mockResolvedValue({
-        updatedCount: 1,
-        updatedEmails: ['test@example.com'],
-      });
-
-      await invokeHandler(handler, req, res);
-
-      expect(mockPrisma.$transaction).toHaveBeenCalled();
-    });
-  });
-
-});
-
 describe('Admin Routes - Rate Limiting', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-  });
-
-  describe('POST /activate/:userId', () => {
-    const handler = findHandler('post', '/activate/:userId');
-
-    it('should return 429 when rate limited', async () => {
-      const { req, res } = createMocks();
-      req.params = { userId: 'user-123' };
-
-      mockCheckAdminRateLimit.mockResolvedValue({
-        allowed: false,
-        retryAfter: 10,
-        redisAvailable: true,
-      });
-
-      await invokeHandler(handler, req, res);
-
-      expect(res.status).toHaveBeenCalledWith(429);
-      expect(res.setHeader).toHaveBeenCalledWith('Retry-After', '10');
-      expect(res.json).toHaveBeenCalledWith(
-        expect.objectContaining({
-          error: 'Too many activation attempts for this user',
-          retryAfter: 10,
-        })
-      );
-    });
-
-    it('should proceed when rate limit allows', async () => {
-      const { req, res } = createMocks();
-      req.params = { userId: 'user-123' };
-
-      mockCheckAdminRateLimit.mockResolvedValue({ allowed: true, redisAvailable: true });
-      mockActivateWaitlistUser.mockResolvedValue({ success: true, user: { id: 'user-123', email: 'test@example.com' } });
-
-      await invokeHandler(handler, req, res);
-
-      expect(mockActivateWaitlistUser).toHaveBeenCalled();
-    });
   });
 
   describe('POST /users (create user)', () => {
@@ -607,19 +423,6 @@ describe('Admin Routes - Self-Action Prevention', () => {
     mockCheckAdminRateLimit.mockResolvedValue({ allowed: true, redisAvailable: true });
   });
 
-  describe('POST /users/:userId/demote', () => {
-    const handler = findHandler('post', '/users/:userId/demote');
-
-    it('should prevent self-demotion', async () => {
-      const { req, res } = createMocks();
-      req.params = { userId: 'admin-123' }; // Same as sessionUser.uid
-
-      await invokeHandler(handler, req, res);
-
-      expect(mockSendBadRequest).toHaveBeenCalledWith(res, 'Cannot demote your own account');
-    });
-  });
-
   describe('DELETE /users/:userId', () => {
     const handler = findHandler('delete', '/users/:userId');
 
@@ -642,10 +445,10 @@ describe('Admin Routes - Authorization', () => {
 
   describe('All endpoints', () => {
     it('should require admin session', async () => {
-      const handler = findHandler('post', '/activate/:userId');
+      const handler = findHandler('post', '/users');
       const { req, res } = createMocks();
       req.sessionUser = undefined;
-      req.params = { userId: 'user-123' };
+      req.body = { email: 'new@example.com' };
 
       await invokeHandler(handler, req, res);
 
