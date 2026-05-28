@@ -11,8 +11,10 @@ export default function TestimonialsSection() {
     fetch(`${import.meta.env.VITE_API_URL}/api/public/stats`, { signal: controller.signal })
       .then((res) => res.ok ? res.json() : Promise.reject())
       .then((json) => {
-        if (typeof json.userCount === 'number') setUserCount(json.userCount);
-        if (typeof json.ridesTracked === 'number') setRidesTracked(json.ridesTracked);
+        // The API wraps payloads in a { ok, data } envelope (sendSuccess).
+        const data = json?.data ?? {};
+        if (typeof data.userCount === 'number') setUserCount(data.userCount);
+        if (typeof data.ridesTracked === 'number') setRidesTracked(data.ridesTracked);
       })
       .catch((err) => {
         if (err?.name !== 'AbortError') console.error('[Stats] fetch failed', err);

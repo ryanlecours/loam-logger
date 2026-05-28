@@ -218,7 +218,7 @@ router.post('/users', async (req, res) => {
       },
     });
 
-    console.log(`[Admin] User ${user.email} created by ${adminUserId}`);
+    logger.info({ userId: user.id, adminUserId }, '[Admin] User created');
 
     res.json({ success: true, user });
   } catch (error) {
@@ -334,9 +334,9 @@ router.patch('/users/:userId/founding-rider', async (req, res) => {
       },
     });
 
-    console.log(
-      `[Admin] User ${user.email} founding rider status set to ${isFoundingRider}` +
-        `${grantProAccess ? ' (upgraded to PRO)' : ''} by ${adminUserId}`
+    logger.info(
+      { userId: user.id, adminUserId, isFoundingRider, upgradedToPro: grantProAccess },
+      '[Admin] Founding rider status updated'
     );
 
     // Welcome the newly-upgraded founding rider: confirm the upgrade and ask for
@@ -411,7 +411,7 @@ router.delete('/users/:userId', async (req, res) => {
       where: { id: userId },
     });
 
-    console.log(`[Admin] User ${user.email} deleted by ${adminUserId}`);
+    logger.info({ userId: user.id, adminUserId }, '[Admin] User deleted');
 
     res.json({ success: true, deletedUserId: userId });
   } catch (error) {
@@ -678,8 +678,9 @@ router.post('/email/founding-riders', async (req, res) => {
       }
     }
 
-    console.log(
-      `[Admin] Founding riders email sent by ${adminUserId}: ${results.sent} sent, ${results.failed} failed, ${results.suppressed} suppressed`
+    logger.info(
+      { adminUserId, ...results },
+      '[Admin] Founding riders email sent'
     );
 
     res.json({
@@ -807,8 +808,9 @@ router.post('/email/pre-access', async (req, res) => {
       }
     }
 
-    console.log(
-      `[Admin] Pre-access email sent by ${adminUserId}: ${results.sent} sent, ${results.failed} failed, ${results.suppressed} suppressed`
+    logger.info(
+      { adminUserId, ...results },
+      '[Admin] Pre-access email sent'
     );
 
     res.json({
@@ -968,9 +970,14 @@ router.post('/email/schedule', async (req, res) => {
       },
     });
 
-    console.log(
-      `[Admin] Scheduled email ${scheduledEmail.id} for ${scheduledDate.toISOString()} ` +
-        `(${recipientIds.length} recipients) by ${adminUserId}`
+    logger.info(
+      {
+        scheduledEmailId: scheduledEmail.id,
+        scheduledFor: scheduledDate.toISOString(),
+        recipientCount: recipientIds.length,
+        adminUserId,
+      },
+      '[Admin] Email scheduled'
     );
 
     res.json({
@@ -1165,7 +1172,7 @@ router.put('/email/scheduled/:id', async (req, res) => {
       },
     });
 
-    console.log(`[Admin] Updated scheduled email ${id}`);
+    logger.info({ scheduledEmailId: id }, '[Admin] Scheduled email updated');
 
     res.json({ success: true, scheduledEmail: updated });
   } catch (error) {
@@ -1201,7 +1208,7 @@ router.delete('/email/scheduled/:id', async (req, res) => {
       data: { status: 'cancelled' },
     });
 
-    console.log(`[Admin] Cancelled scheduled email ${id}`);
+    logger.info({ scheduledEmailId: id }, '[Admin] Scheduled email cancelled');
 
     res.json({ success: true });
   } catch (error) {
@@ -1338,7 +1345,7 @@ router.post('/email/unified/send', async (req, res) => {
     // In production, FRONTEND_URL and API_URL should be set to actual domains
     const isLocalConfig = FRONTEND_URL.includes('localhost') || API_URL.includes('localhost');
     if (isLocalConfig && process.env.NODE_ENV === 'production') {
-      console.error('[Admin] Production environment detected but using localhost URLs. Set FRONTEND_URL and API_URL environment variables.');
+      logger.error('[Admin] Production environment detected but using localhost URLs. Set FRONTEND_URL and API_URL environment variables.');
       return sendInternalError(res, 'Server configuration error');
     }
 
@@ -1455,9 +1462,9 @@ router.post('/email/unified/send', async (req, res) => {
       }
     }
 
-    console.log(
-      `[Admin] Unified email (${templateId}) sent by ${adminUserId}: ` +
-        `${results.sent} sent, ${results.failed} failed, ${results.suppressed} suppressed`
+    logger.info(
+      { templateId, adminUserId, ...results },
+      '[Admin] Unified email sent'
     );
 
     res.json({ success: true, results, total: recipients.length });

@@ -350,6 +350,13 @@ router.post('/mobile/login', express.json(), async (req, res) => {
     // Find user by email
     const user = await prisma.user.findUnique({
       where: { email },
+      select: {
+        id: true,
+        email: true,
+        passwordHash: true,
+        name: true,
+        avatarUrl: true,
+      },
     });
 
     if (!user) {
