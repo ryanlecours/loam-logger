@@ -130,46 +130,61 @@ export async function activateWaitlistUser({
   let emailSent = false;
   let returnPassword: string | undefined;
 
-  try {
-    const unsubscribeToken = generateUnsubscribeToken(user.id);
-    const unsubscribeUrl = `${API_URL}/api/email/unsubscribe?token=${unsubscribeToken}`;
-
-    await sendEmail({
-      to: user.email,
-      subject: getActivationEmailSubject(),
-      html: await getActivationEmailHtml({
-        name: user.name || undefined,
-        email: user.email,
-        tempPassword,
-        loginUrl: `${FRONTEND_URL}/login`,
-        unsubscribeUrl,
-      }),
-    });
-
-    emailSent = true;
-    console.log(`[Activation] User ${user.email} activated by admin ${adminUserId}`);
-  } catch (emailErr) {
-    // CRITICAL: User is activated but email failed - preserve temp password for admin
-    // Log the error for debugging but don't expose the password
-    console.error(
-      `[Activation] CRITICAL: User ${user.email} (${userId}) activated but email sending failed:`,
-      emailErr instanceof Error ? emailErr.message : 'Unknown error'
+  // Founding riders receive a curated founding-riders email sent manually by an
+  // admin, so we suppress the generic activation email (and the welcome series
+  // below). When suppressed, hand any generated temp password back to the admin
+  // so they can share login credentials manually — otherwise a founding rider
+  // with no prior password would be locked out.
+  if (user.isFoundingRider) {
+    returnPassword = tempPassword ?? undefined;
+    console.log(
+      `[Activation] Founding rider ${user.email} activated by admin ${adminUserId} (auto emails suppressed)`
     );
-    returnPassword = tempPassword;
+  } else {
+    try {
+      const unsubscribeToken = generateUnsubscribeToken(user.id);
+      const unsubscribeUrl = `${API_URL}/api/email/unsubscribe?token=${unsubscribeToken}`;
+
+      await sendEmail({
+        to: user.email,
+        subject: getActivationEmailSubject(),
+        html: await getActivationEmailHtml({
+          name: user.name || undefined,
+          email: user.email,
+          tempPassword,
+          loginUrl: `${FRONTEND_URL}/login`,
+          unsubscribeUrl,
+        }),
+      });
+
+      emailSent = true;
+      console.log(`[Activation] User ${user.email} activated by admin ${adminUserId}`);
+    } catch (emailErr) {
+      // CRITICAL: User is activated but email failed - preserve temp password for admin
+      // Log the error for debugging but don't expose the password
+      console.error(
+        `[Activation] CRITICAL: User ${user.email} (${userId}) activated but email sending failed:`,
+        emailErr instanceof Error ? emailErr.message : 'Unknown error'
+      );
+      returnPassword = tempPassword;
+    }
   }
 
   // Clear the temp password from memory now that we're done with it
   tempPassword = null;
 
-  // 5. Schedule welcome email series (non-blocking - failures are logged but don't affect activation)
-  try {
-    await scheduleWelcomeEmailSeries(user.id, adminUserId);
-  } catch (scheduleErr) {
-    console.error(
-      `[Activation] Failed to schedule welcome emails for ${user.email}:`,
-      scheduleErr instanceof Error ? scheduleErr.message : 'Unknown error'
-    );
-    // Don't block activation - welcome emails are nice-to-have
+  // 5. Schedule welcome email series (non-blocking - failures are logged but don't affect activation).
+  // Skipped for founding riders — see note above.
+  if (!user.isFoundingRider) {
+    try {
+      await scheduleWelcomeEmailSeries(user.id, adminUserId);
+    } catch (scheduleErr) {
+      console.error(
+        `[Activation] Failed to schedule welcome emails for ${user.email}:`,
+        scheduleErr instanceof Error ? scheduleErr.message : 'Unknown error'
+      );
+      // Don't block activation - welcome emails are nice-to-have
+    }
   }
 
   return {

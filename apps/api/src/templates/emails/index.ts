@@ -14,6 +14,7 @@ import { templateConfig as betaFeatureRoundupConfig } from './beta-feature-round
 import { templateConfig as mobileAppLaunchConfig } from './mobile-app-launch';
 import { templateConfig as foundingRidersAprilUpdateConfig } from './founding-riders-april-2026';
 import { templateConfig as foundingRidersMayUpdateConfig } from './founding-riders-may-2026';
+import { templateConfig as foundingRiderUpgradeConfig } from './founding-rider-upgrade';
 // Note: activation template excluded - it's system-triggered, not admin-sendable
 
 import type { TemplateConfig, TemplateConfigDTO } from './types';
@@ -32,6 +33,7 @@ const allTemplates: TemplateConfig[] = [
   mobileAppLaunchConfig,
   foundingRidersAprilUpdateConfig,
   foundingRidersMayUpdateConfig,
+  foundingRiderUpgradeConfig,
 ];
 
 /** Templates visible in admin UI (excludes system-only templates) */
