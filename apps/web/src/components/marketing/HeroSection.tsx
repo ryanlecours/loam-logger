@@ -43,7 +43,7 @@ export default function HeroSection() {
           className="flex flex-col sm:flex-row items-center justify-center gap-4"
         >
           <MarketingButton href="/signup" size="xl" pulse>
-            Join the Beta Waitlist
+            Get started
           </MarketingButton>
         </motion.div>
 

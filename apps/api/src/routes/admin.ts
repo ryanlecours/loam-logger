@@ -1,13 +1,12 @@
 import { Router } from 'express';
 import { prisma } from '../lib/prisma';
 import { requireAdmin } from '../auth/adminMiddleware';
-import { activateWaitlistUser, generateTempPassword } from '../services/activation.service';
-import { hashPassword } from '../auth/password.utils';
+import { hashPassword, validatePassword } from '../auth/password.utils';
 import {
   createPasswordResetToken,
   sendPasswordResetEmail,
 } from '../services/password-reset.service';
-import { sendEmail, sendReactEmailWithAudit } from '../services/email.service';
+import { sendReactEmailWithAudit } from '../services/email.service';
 import {
   getTemplateListForAPI,
   getTemplateById,
@@ -27,7 +26,6 @@ import { checkAdminRateLimit } from '../lib/rate-limit';
 import { logError, logger } from '../lib/logger';
 import { escapeHtml } from '../lib/html';
 import type { UserRole } from '@prisma/client';
-import { getActivationEmailHtml, getActivationEmailSubject } from '../templates/emails/activation';
 import { FRONTEND_URL } from '../config/env';
 
 const API_URL = process.env.API_URL || 'http://localhost:4000';
@@ -83,12 +81,10 @@ router.get('/stats', async (_req, res) => {
       (countByRole.get('FREE') ?? 0) +
       (countByRole.get('PRO') ?? 0) +
       (countByRole.get('ADMIN') ?? 0);
-    const waitlistCount = countByRole.get('WAITLIST') ?? 0;
     const proCount = countByRole.get('PRO') ?? 0;
 
     res.json({
       users: activeUserCount,
-      waitlist: waitlistCount,
       foundingRiders: foundingRidersCount,
       pro: proCount,
     });
@@ -141,91 +137,8 @@ router.get('/lookup-user', async (req, res) => {
 });
 
 /**
- * GET /api/admin/waitlist
- * Returns paginated WAITLIST users
- */
-router.get('/waitlist', async (req, res) => {
-  try {
-    const page = Math.max(1, parseInt(req.query.page as string) || 1);
-    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 50));
-    const skip = (page - 1) * limit;
-
-    const [entries, total] = await Promise.all([
-      prisma.user.findMany({
-        where: { role: 'WAITLIST' },
-        orderBy: { createdAt: 'desc' },
-        skip,
-        take: limit,
-        select: {
-          id: true,
-          email: true,
-          name: true,
-          createdAt: true,
-          emailUnsubscribed: true,
-          isFoundingRider: true,
-        },
-      }),
-      prisma.user.count({ where: { role: 'WAITLIST' } }),
-    ]);
-
-    res.json({
-      entries,
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
-      },
-    });
-  } catch (error) {
-    logError('Admin waitlist', error);
-    return sendInternalError(res, 'Failed to fetch waitlist');
-  }
-});
-
-/**
- * POST /api/admin/activate/:userId
- * Activate a WAITLIST user -> FREE with temp password
- */
-router.post('/activate/:userId', async (req, res) => {
-  try {
-    const adminUserId = req.sessionUser?.uid;
-    const { userId } = req.params;
-
-    if (!adminUserId) {
-      return sendUnauthorized(res);
-    }
-
-    // Validate userId parameter
-    if (!userId || typeof userId !== 'string' || userId.trim() === '') {
-      return sendBadRequest(res, 'Invalid userId');
-    }
-
-    const trimmedUserId = userId.trim();
-
-    // Rate limit to prevent email flooding
-    const rateLimit = await checkAdminRateLimit('activation', trimmedUserId);
-    if (!rateLimit.allowed) {
-      res.setHeader('Retry-After', rateLimit.retryAfter.toString());
-      return res.status(429).json({
-        success: false,
-        error: 'Too many activation attempts for this user',
-        retryAfter: rateLimit.retryAfter,
-      });
-    }
-
-    const result = await activateWaitlistUser({ userId: trimmedUserId, adminUserId });
-    res.json(result);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Failed to activate user';
-    console.error('Admin activate error:', message);
-    return sendBadRequest(res, message);
-  }
-});
-
-/**
  * POST /api/admin/users
- * Create a new user with optional activation email
+ * Create a new active user (FREE/PRO/ADMIN) with an optional password.
  */
 router.post('/users', async (req, res) => {
   try {
@@ -245,7 +158,12 @@ router.post('/users', async (req, res) => {
       });
     }
 
-    const { email, name, role = 'FREE', sendActivationEmail = false } = req.body;
+    const { email, name, role = 'FREE', password } = req.body as {
+      email?: string;
+      name?: string;
+      role?: string;
+      password?: string;
+    };
 
     // Validate email with proper regex and length check
     if (
@@ -257,10 +175,21 @@ router.post('/users', async (req, res) => {
       return sendBadRequest(res, 'Valid email is required');
     }
 
-    // Validate role (WAITLIST users are created via signup, not admin)
     const validRoles = ['FREE', 'PRO', 'ADMIN'];
     if (!validRoles.includes(role)) {
       return sendBadRequest(res, `Role must be one of: ${validRoles.join(', ')}`);
+    }
+
+    // Optional password — if provided it must meet strength requirements.
+    // When omitted, the account has no password and the admin can send a
+    // password-reset link (Reset Pwd) for the user to set one.
+    let passwordHash: string | null = null;
+    if (password) {
+      const validation = validatePassword(password);
+      if (!validation.isValid) {
+        return sendBadRequest(res, validation.error || 'Password does not meet requirements');
+      }
+      passwordHash = await hashPassword(password);
     }
 
     // Check for existing user
@@ -271,22 +200,12 @@ router.post('/users', async (req, res) => {
       return sendBadRequest(res, 'User with this email already exists');
     }
 
-    // Generate temp password if sending activation email
-    let tempPassword: string | null = null;
-    let passwordHash: string | null = null;
-    if (sendActivationEmail) {
-      tempPassword = generateTempPassword();
-      passwordHash = await hashPassword(tempPassword);
-    }
-
-    // Create user
     const user = await prisma.user.create({
       data: {
         email: email.toLowerCase().trim(),
         name: name?.trim() || null,
-        role,
+        role: role as 'FREE' | 'PRO' | 'ADMIN',
         passwordHash,
-        mustChangePassword: sendActivationEmail,
         activatedAt: new Date(),
         activatedBy: adminUserId,
       },
@@ -299,132 +218,12 @@ router.post('/users', async (req, res) => {
       },
     });
 
-    // Send activation email if requested
-    let emailSent = false;
-    if (sendActivationEmail && tempPassword) {
-      try {
-        const unsubscribeToken = generateUnsubscribeToken(user.id);
-        const unsubscribeUrl = `${API_URL}/api/email/unsubscribe?token=${unsubscribeToken}`;
+    logger.info({ userId: user.id, adminUserId }, '[Admin] User created');
 
-        await sendEmail({
-          to: user.email,
-          subject: getActivationEmailSubject(),
-          html: await getActivationEmailHtml({
-            name: user.name || undefined,
-            email: user.email,
-            tempPassword,
-            loginUrl: `${FRONTEND_URL}/login`,
-            unsubscribeUrl,
-          }),
-        });
-        emailSent = true;
-        console.log(`[Admin] User ${user.email} created and activated by ${adminUserId}`);
-      } catch (emailErr) {
-        console.error(`[Admin] Failed to send activation email for ${user.email}:`, emailErr);
-      }
-    } else {
-      console.log(`[Admin] User ${user.email} created (no email) by ${adminUserId}`);
-    }
-
-    // Build response with clear warning if email failed
-    const emailFailed = sendActivationEmail && !emailSent;
-    res.json({
-      success: true,
-      user,
-      emailQueued: emailSent,
-      // Return temp password and warning if email failed
-      ...(emailFailed && tempPassword
-        ? {
-            tempPassword,
-            warning:
-              'Activation email failed to send. Please share this temporary password with the user manually.',
-          }
-        : {}),
-    });
+    res.json({ success: true, user });
   } catch (error) {
     logError('Admin create user', error);
     return sendInternalError(res, 'Failed to create user');
-  }
-});
-
-/**
- * POST /api/admin/users/:userId/demote
- * Demote a user back to WAITLIST role (for testing)
- */
-router.post('/users/:userId/demote', async (req, res) => {
-  try {
-    const adminUserId = req.sessionUser?.uid;
-    const { userId } = req.params;
-
-    if (!adminUserId) {
-      return sendUnauthorized(res);
-    }
-
-    // Rate limit to prevent accidental spam
-    const rateLimit = await checkAdminRateLimit('demoteUser', userId);
-    if (!rateLimit.allowed) {
-      res.setHeader('Retry-After', rateLimit.retryAfter.toString());
-      return res.status(429).json({
-        success: false,
-        error: 'Too many demotion attempts for this user',
-        retryAfter: rateLimit.retryAfter,
-      });
-    }
-
-    // Prevent self-demotion
-    if (userId === adminUserId) {
-      return sendBadRequest(res, 'Cannot demote your own account');
-    }
-
-    // Verify user exists
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { id: true, email: true, role: true },
-    });
-
-    if (!user) {
-      return sendBadRequest(res, 'User not found');
-    }
-
-    if (user.role === 'WAITLIST') {
-      return sendBadRequest(res, 'User is already on waitlist');
-    }
-
-    // Prevent demoting the last admin
-    if (user.role === 'ADMIN') {
-      const adminCount = await prisma.user.count({
-        where: { role: 'ADMIN' },
-      });
-      if (adminCount <= 1) {
-        return sendBadRequest(res, 'Cannot demote the last admin user');
-      }
-    }
-
-    // Demote user to WAITLIST, clear activation fields, and invalidate any
-    // active sessions so the demoted user is logged out everywhere.
-    const updated = await prisma.user.update({
-      where: { id: userId },
-      data: {
-        role: 'WAITLIST',
-        activatedAt: null,
-        activatedBy: null,
-        mustChangePassword: false,
-        passwordHash: null,
-        sessionTokenVersion: { increment: 1 },
-      },
-      select: {
-        id: true,
-        email: true,
-        role: true,
-      },
-    });
-
-    console.log(`[Admin] User ${user.email} demoted to WAITLIST by ${adminUserId}`);
-
-    res.json({ success: true, user: updated });
-  } catch (error) {
-    logError('Admin demote user', error);
-    return sendInternalError(res, 'Failed to demote user');
   }
 });
 
@@ -481,13 +280,10 @@ router.post('/users/:userId/send-password-reset', async (req, res) => {
  * Set the isFoundingRider flag for a user.
  * Body: { isFoundingRider: boolean }
  *
- * For an already-activated account (FREE/PRO/ADMIN), granting founding-rider
- * status also upgrades the account to PRO role + PRO tier — matching the
- * lifetime access founding riders receive at waitlist activation.
- *
- * For a WAITLIST user this only sets the flag (no PRO grant): they have no
- * password yet, so PRO access is conferred when they're activated. Revoking
- * the flag (false) only clears it and never downgrades a user's tier.
+ * Granting founding-rider status to a FREE/PRO account also upgrades it to PRO
+ * role + PRO tier (lifetime access). ADMIN is excluded because PRO is *lower*
+ * than ADMIN — writing role: 'PRO' would demote them. Revoking the flag (false)
+ * only clears it and never downgrades a user's tier.
  */
 router.patch('/users/:userId/founding-rider', async (req, res) => {
   try {
@@ -513,16 +309,14 @@ router.patch('/users/:userId/founding-rider', async (req, res) => {
       return sendBadRequest(res, 'User not found');
     }
 
-    // Grant PRO access only when promoting an already-activated, non-admin account
-    // that isn't already a founding rider. Waitlist users get the flag now and PRO
-    // at activation time. ADMIN is excluded because PRO is *lower* than ADMIN —
+    // Grant PRO access only when promoting a non-admin account that isn't already
+    // a founding rider. ADMIN is excluded because PRO is *lower* than ADMIN —
     // writing role: 'PRO' would demote them. The !user.isFoundingRider check makes
     // the grant (and its welcome email) idempotent: re-promoting an existing founding
     // rider is a no-op rather than a duplicate email.
     const grantProAccess =
       isFoundingRider &&
       !user.isFoundingRider &&
-      user.role !== 'WAITLIST' &&
       user.role !== 'ADMIN';
 
     const updated = await prisma.user.update({
@@ -540,9 +334,9 @@ router.patch('/users/:userId/founding-rider', async (req, res) => {
       },
     });
 
-    console.log(
-      `[Admin] User ${user.email} founding rider status set to ${isFoundingRider}` +
-        `${grantProAccess ? ' (upgraded to PRO)' : ''} by ${adminUserId}`
+    logger.info(
+      { userId: user.id, adminUserId, isFoundingRider, upgradedToPro: grantProAccess },
+      '[Admin] Founding rider status updated'
     );
 
     // Welcome the newly-upgraded founding rider: confirm the upgrade and ask for
@@ -570,84 +364,6 @@ router.patch('/users/:userId/founding-rider', async (req, res) => {
     res.json({ success: true, user: updated });
   } catch (error) {
     logError('Admin toggle founding rider', error);
-    return sendInternalError(res, 'Failed to update founding rider status');
-  }
-});
-
-/**
- * PATCH /api/admin/users/founding-rider/bulk
- * Set isFoundingRider flag for multiple WAITLIST users
- * Body: { userIds: string[], isFoundingRider: boolean }
- */
-router.patch('/users/founding-rider/bulk', async (req, res) => {
-  try {
-    const adminUserId = req.sessionUser?.uid;
-    if (!adminUserId) {
-      return sendUnauthorized(res);
-    }
-
-    const { userIds, isFoundingRider } = req.body;
-
-    // Validate input
-    if (!Array.isArray(userIds) || userIds.length === 0) {
-      return sendBadRequest(res, 'At least one user ID is required');
-    }
-
-    if (userIds.length > 100) {
-      return sendBadRequest(res, 'Cannot update more than 100 users at once');
-    }
-
-    if (typeof isFoundingRider !== 'boolean') {
-      return sendBadRequest(res, 'isFoundingRider must be a boolean');
-    }
-
-    // Validate all IDs are proper format (prevents injection)
-    const invalidIds = userIds.filter((id) => !isValidId(id));
-    if (invalidIds.length > 0) {
-      return sendBadRequest(res, 'Invalid user ID format');
-    }
-
-    // Use transaction to ensure atomicity of the check + update
-    const result = await prisma.$transaction(async (tx) => {
-      // Verify all users exist and are WAITLIST
-      const users = await tx.user.findMany({
-        where: { id: { in: userIds } },
-        select: { id: true, email: true, role: true },
-      });
-
-      const nonWaitlistUsers = users.filter((u) => u.role !== 'WAITLIST');
-      if (nonWaitlistUsers.length > 0) {
-        throw new Error(`Cannot update ${nonWaitlistUsers.length} user(s) not on waitlist`);
-      }
-
-      const validUserIds = users.map((u) => u.id);
-
-      // Update founding rider flag for all valid users
-      await tx.user.updateMany({
-        where: { id: { in: validUserIds } },
-        data: { isFoundingRider },
-      });
-
-      return {
-        updatedCount: validUserIds.length,
-        updatedEmails: users.map((u) => u.email),
-      };
-    });
-
-    console.log(
-      `[Admin] ${result.updatedCount} users founding rider status set to ${isFoundingRider} by ${adminUserId}`
-    );
-
-    res.json({
-      success: true,
-      ...result,
-    });
-  } catch (error) {
-    // Handle transaction validation errors separately
-    if (error instanceof Error && error.message.includes('Cannot update')) {
-      return sendBadRequest(res, error.message);
-    }
-    logError('Admin bulk founding rider', error);
     return sendInternalError(res, 'Failed to update founding rider status');
   }
 });
@@ -695,53 +411,12 @@ router.delete('/users/:userId', async (req, res) => {
       where: { id: userId },
     });
 
-    console.log(`[Admin] User ${user.email} deleted by ${adminUserId}`);
+    logger.info({ userId: user.id, adminUserId }, '[Admin] User deleted');
 
     res.json({ success: true, deletedUserId: userId });
   } catch (error) {
     logError('Admin delete user', error);
     return sendInternalError(res, 'Failed to delete user');
-  }
-});
-
-/**
- * DELETE /api/admin/waitlist/:userId
- * Delete a waitlist entry
- */
-router.delete('/waitlist/:userId', async (req, res) => {
-  try {
-    const adminUserId = req.sessionUser?.uid;
-    const { userId } = req.params;
-
-    if (!adminUserId) {
-      return sendUnauthorized(res);
-    }
-
-    // Verify user exists and is WAITLIST
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { id: true, email: true, role: true },
-    });
-
-    if (!user) {
-      return sendBadRequest(res, 'User not found');
-    }
-
-    if (user.role !== 'WAITLIST') {
-      return sendBadRequest(res, 'User is not in waitlist');
-    }
-
-    // Delete user
-    await prisma.user.delete({
-      where: { id: userId },
-    });
-
-    console.log(`[Admin] Waitlist entry ${user.email} deleted by ${adminUserId}`);
-
-    res.json({ success: true, deletedUserId: userId });
-  } catch (error) {
-    logError('Admin delete waitlist', error);
-    return sendInternalError(res, 'Failed to delete waitlist entry');
   }
 });
 
@@ -803,189 +478,11 @@ router.get('/users', async (req, res) => {
   }
 });
 
-/**
- * GET /api/admin/waitlist/export
- * Downloads waitlist as CSV
- */
-router.get('/waitlist/export', async (_req, res) => {
-  try {
-    // Query User table with WAITLIST role (new data model)
-    const entries = await prisma.user.findMany({
-      where: { role: 'WAITLIST' },
-      orderBy: { createdAt: 'desc' },
-      select: {
-        email: true,
-        name: true,
-        createdAt: true,
-      },
-    });
-
-    // Build CSV
-    const headers = ['Email', 'Name', 'Signed Up'];
-    const rows = entries.map((entry) => [
-      entry.email,
-      entry.name || '',
-      entry.createdAt.toISOString(),
-    ]);
-
-    const csv = [
-      headers.join(','),
-      ...rows.map((row) =>
-        row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(',')
-      ),
-    ].join('\n');
-
-    const filename = `waitlist-${new Date().toISOString().split('T')[0]}.csv`;
-
-    res.setHeader('Content-Type', 'text/csv');
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.send(csv);
-  } catch (error) {
-    logError('Admin export', error);
-    return sendInternalError(res, 'Failed to export waitlist');
-  }
-});
-
-/**
- * POST /api/admin/waitlist/import
- * Import waitlist users from CSV data
- * Body: { users: Array<{ email: string; name?: string; signedUp?: string }> }
- */
-router.post('/waitlist/import', async (req, res) => {
-  try {
-    const adminUserId = req.sessionUser?.uid;
-    if (!adminUserId) {
-      return sendUnauthorized(res);
-    }
-
-    // Rate limit to prevent abuse
-    const rateLimit = await checkAdminRateLimit('importWaitlist', adminUserId);
-    if (!rateLimit.allowed) {
-      res.setHeader('Retry-After', rateLimit.retryAfter.toString());
-      return res.status(429).json({
-        success: false,
-        error: 'Please wait before importing again',
-        retryAfter: rateLimit.retryAfter,
-      });
-    }
-
-    const { users } = req.body;
-
-    // Validate input
-    if (!Array.isArray(users) || users.length === 0) {
-      return sendBadRequest(res, 'At least one user is required');
-    }
-
-    if (users.length > 500) {
-      return sendBadRequest(res, 'Cannot import more than 500 users at once');
-    }
-
-    // Process and validate each row
-    const results = {
-      imported: 0,
-      skipped: 0,
-      errors: [] as Array<{ row: number; email: string; reason: string }>,
-    };
-
-    // Get all existing emails in one query for efficiency
-    const inputEmails = users
-      .map((u) => (typeof u.email === 'string' ? u.email.toLowerCase().trim() : ''))
-      .filter((e) => e);
-
-    const existingUsers = await prisma.user.findMany({
-      where: { email: { in: inputEmails } },
-      select: { email: true },
-    });
-    const existingEmailSet = new Set(existingUsers.map((u) => u.email));
-
-    // Track emails we're about to create to handle duplicates within the CSV
-    const seenEmails = new Set<string>();
-
-    // Prepare valid users for batch creation
-    const usersToCreate: Array<{
-      email: string;
-      name: string | null;
-      role: 'WAITLIST';
-      createdAt: Date;
-    }> = [];
-
-    for (let i = 0; i < users.length; i++) {
-      const row = i + 1; // 1-indexed for user-friendly messages
-      const user = users[i];
-
-      // Validate email
-      if (!user.email || typeof user.email !== 'string') {
-        results.errors.push({ row, email: '', reason: 'Missing email' });
-        continue;
-      }
-
-      const email = user.email.toLowerCase().trim();
-
-      if (email.length > MAX_EMAIL_LENGTH || !EMAIL_REGEX.test(email)) {
-        results.errors.push({ row, email, reason: 'Invalid email format' });
-        continue;
-      }
-
-      // Check for duplicates in existing database
-      if (existingEmailSet.has(email)) {
-        results.skipped++;
-        continue;
-      }
-
-      // Check for duplicates within this import
-      if (seenEmails.has(email)) {
-        results.skipped++;
-        continue;
-      }
-
-      seenEmails.add(email);
-
-      // Parse signedUp date if provided
-      let createdAt = new Date();
-      if (user.signedUp && typeof user.signedUp === 'string') {
-        const parsed = new Date(user.signedUp);
-        if (!isNaN(parsed.getTime())) {
-          createdAt = parsed;
-        }
-      }
-
-      usersToCreate.push({
-        email,
-        name: user.name?.trim() || null,
-        role: 'WAITLIST',
-        createdAt,
-      });
-    }
-
-    // Batch create all valid users
-    if (usersToCreate.length > 0) {
-      await prisma.user.createMany({
-        data: usersToCreate,
-        skipDuplicates: true, // Safety net for race conditions
-      });
-      results.imported = usersToCreate.length;
-    }
-
-    console.log(
-      `[Admin] Waitlist import by ${adminUserId}: ` +
-        `imported=${results.imported}, skipped=${results.skipped}, errors=${results.errors.length}`
-    );
-
-    res.json({
-      success: true,
-      ...results,
-    });
-  } catch (error) {
-    logError('Admin waitlist import', error);
-    return sendInternalError(res, 'Failed to import waitlist');
-  }
-});
-
 // ============================================================================
 // Email Management Endpoints
 // ============================================================================
 
-const VALID_EMAIL_ROLES: UserRole[] = ['WAITLIST', 'FREE', 'PRO', 'ADMIN'];
+const VALID_EMAIL_ROLES: UserRole[] = ['FREE', 'PRO', 'ADMIN'];
 
 /**
  * GET /api/admin/email/recipients
@@ -998,16 +495,14 @@ router.get('/email/recipients', async (req, res) => {
   try {
     const { role, foundingRider } = req.query;
 
-    // Support both single role and array of roles
+    // Support both single role and array of roles. When none is given, default
+    // to all active roles — lets the "Founding Riders" segment select by
+    // `foundingRider=true` alone without naming a role.
     const roles: string[] = Array.isArray(role)
       ? role.filter((r): r is string => typeof r === 'string')
       : typeof role === 'string'
         ? [role]
-        : [];
-
-    if (roles.length === 0) {
-      return sendBadRequest(res, `Role must be one of: ${VALID_EMAIL_ROLES.join(', ')}`);
-    }
+        : [...VALID_EMAIL_ROLES];
 
     // Validate all roles
     const invalidRoles = roles.filter(r => !VALID_EMAIL_ROLES.includes(r as UserRole));
@@ -1183,8 +678,9 @@ router.post('/email/founding-riders', async (req, res) => {
       }
     }
 
-    console.log(
-      `[Admin] Founding riders email sent by ${adminUserId}: ${results.sent} sent, ${results.failed} failed, ${results.suppressed} suppressed`
+    logger.info(
+      { adminUserId, ...results },
+      '[Admin] Founding riders email sent'
     );
 
     res.json({
@@ -1312,8 +808,9 @@ router.post('/email/pre-access', async (req, res) => {
       }
     }
 
-    console.log(
-      `[Admin] Pre-access email sent by ${adminUserId}: ${results.sent} sent, ${results.failed} failed, ${results.suppressed} suppressed`
+    logger.info(
+      { adminUserId, ...results },
+      '[Admin] Pre-access email sent'
     );
 
     res.json({
@@ -1473,9 +970,14 @@ router.post('/email/schedule', async (req, res) => {
       },
     });
 
-    console.log(
-      `[Admin] Scheduled email ${scheduledEmail.id} for ${scheduledDate.toISOString()} ` +
-        `(${recipientIds.length} recipients) by ${adminUserId}`
+    logger.info(
+      {
+        scheduledEmailId: scheduledEmail.id,
+        scheduledFor: scheduledDate.toISOString(),
+        recipientCount: recipientIds.length,
+        adminUserId,
+      },
+      '[Admin] Email scheduled'
     );
 
     res.json({
@@ -1670,7 +1172,7 @@ router.put('/email/scheduled/:id', async (req, res) => {
       },
     });
 
-    console.log(`[Admin] Updated scheduled email ${id}`);
+    logger.info({ scheduledEmailId: id }, '[Admin] Scheduled email updated');
 
     res.json({ success: true, scheduledEmail: updated });
   } catch (error) {
@@ -1706,7 +1208,7 @@ router.delete('/email/scheduled/:id', async (req, res) => {
       data: { status: 'cancelled' },
     });
 
-    console.log(`[Admin] Cancelled scheduled email ${id}`);
+    logger.info({ scheduledEmailId: id }, '[Admin] Scheduled email cancelled');
 
     res.json({ success: true });
   } catch (error) {
@@ -1843,7 +1345,7 @@ router.post('/email/unified/send', async (req, res) => {
     // In production, FRONTEND_URL and API_URL should be set to actual domains
     const isLocalConfig = FRONTEND_URL.includes('localhost') || API_URL.includes('localhost');
     if (isLocalConfig && process.env.NODE_ENV === 'production') {
-      console.error('[Admin] Production environment detected but using localhost URLs. Set FRONTEND_URL and API_URL environment variables.');
+      logger.error('[Admin] Production environment detected but using localhost URLs. Set FRONTEND_URL and API_URL environment variables.');
       return sendInternalError(res, 'Server configuration error');
     }
 
@@ -1960,9 +1462,9 @@ router.post('/email/unified/send', async (req, res) => {
       }
     }
 
-    console.log(
-      `[Admin] Unified email (${templateId}) sent by ${adminUserId}: ` +
-        `${results.sent} sent, ${results.failed} failed, ${results.suppressed} suppressed`
+    logger.info(
+      { templateId, adminUserId, ...results },
+      '[Admin] Unified email sent'
     );
 
     res.json({ success: true, results, total: recipients.length });

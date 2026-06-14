@@ -341,33 +341,6 @@ describe('POST /mobile/apple', () => {
     expect(mockUpdateLastAuthAt).toHaveBeenCalledWith('u1');
   });
 
-  it('should return 403 for CLOSED_BETA error and log it with sub', async () => {
-    mockVerifyAppleIdentityToken.mockResolvedValue({
-      sub: 'apple-001',
-      email: 'new@user.com',
-      email_verified: 'true',
-    });
-    mockEnsureUserFromApple.mockRejectedValue(new Error('CLOSED_BETA'));
-
-    const req = {
-      body: { identityToken: 'valid-token' },
-      ip: '127.0.0.1',
-      headers: {},
-    } as unknown as Request;
-    const res = createMockResponse();
-
-    await invokeHandler(handler, req, res as unknown as Response);
-
-    expect(res.status).toHaveBeenCalledWith(403);
-    expect(res.json).toHaveBeenCalledWith({ error: 'CLOSED_BETA', code: 'CLOSED_BETA' });
-    // Anchor assertion: gate hits are logged at info level with the apple sub
-    // and the closed-beta discriminator so Railway can filter to them.
-    expect(mockLoggerInfo).toHaveBeenCalledWith(
-      expect.objectContaining({ code: 'CLOSED_BETA', sub: 'apple-001' }),
-      expect.any(String)
-    );
-  });
-
   it('should return 401 when Apple token verification fails and log the reason', async () => {
     const verifyErr = new Error('audience mismatch') as Error & { _apple?: { reason: string; claim?: unknown } };
     verifyErr._apple = { reason: 'ERR_JWT_CLAIM_VALIDATION_FAILED', claim: 'aud' };
@@ -390,26 +363,5 @@ describe('POST /mobile/apple', () => {
       expect.stringMatching(/token verification failed/i)
     );
     expect(mockSentryCaptureException).toHaveBeenCalled();
-  });
-
-  it('should return 403 for ALREADY_ON_WAITLIST error', async () => {
-    mockVerifyAppleIdentityToken.mockResolvedValue({
-      sub: 'apple-001',
-      email: 'wait@user.com',
-      email_verified: 'true',
-    });
-    mockEnsureUserFromApple.mockRejectedValue(new Error('ALREADY_ON_WAITLIST'));
-
-    const req = {
-      body: { identityToken: 'valid-token' },
-      ip: '127.0.0.1',
-      headers: {},
-    } as unknown as Request;
-    const res = createMockResponse();
-
-    await invokeHandler(handler, req, res as unknown as Response);
-
-    expect(res.status).toHaveBeenCalledWith(403);
-    expect(res.json).toHaveBeenCalledWith({ error: 'ALREADY_ON_WAITLIST', code: 'ALREADY_ON_WAITLIST' });
   });
 });

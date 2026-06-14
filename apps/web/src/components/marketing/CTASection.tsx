@@ -27,20 +27,20 @@ export default function CTASection() {
             Your Bike Deserves Better
           </h2>
           <p className="body-large text-sand max-w-2xl mx-auto mb-10">
-            Join the waitlist now. Beta access is limited.
+            Start tracking your rides and maintenance today. It's free to get started.
           </p>
 
           <div className="flex flex-col items-center gap-6 mb-8">
             <MarketingButton href="/signup" size="xl" pulse>
-              Join Beta Waitlist
+              Get started
             </MarketingButton>
 
             <div className="flex flex-col items-center gap-2">
               <p className="text-sm font-semibold text-mint">
-                Early access rolling out soon. Limited spots.
+                Free to start. No credit card required.
               </p>
               <p className="text-xs text-concrete">
-                No spam. Just launch updates. Unsubscribe anytime.
+                No spam. Just product updates. Unsubscribe anytime.
               </p>
             </div>
           </div>
@@ -49,7 +49,7 @@ export default function CTASection() {
           <div className="flex flex-wrap items-center justify-center gap-4 text-sm text-concrete">
             <div className="flex items-center gap-2">
               <span className="text-mint">✓</span>
-              <span>Free Forever for Beta Users</span>
+              <span>Free Forever Plan</span>
             </div>
             <div className="flex items-center gap-2">
               <span className="text-mint">✓</span>

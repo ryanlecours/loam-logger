@@ -13,7 +13,7 @@ type Props = {
   onCreated: () => void;
 };
 
-const initialForm = { email: '', name: '', role: 'FREE' as Role, sendActivationEmail: true };
+const initialForm = { email: '', name: '', role: 'FREE' as Role, password: '' };
 
 export function AddUserModal({ isOpen, onClose, onCreated }: Props) {
   const [form, setForm] = useState(initialForm);
@@ -31,31 +31,27 @@ export function AddUserModal({ isOpen, onClose, onCreated }: Props) {
     }
     try {
       setAdding(true);
+      // Only send `password` when the admin actually set one; otherwise the
+      // account is created without a password and they can use "Reset Pwd".
+      const body: Record<string, string> = {
+        email: form.email,
+        name: form.name,
+        role: form.role,
+      };
+      if (form.password.trim()) body.password = form.password;
+
       const res = await fetch(`${import.meta.env.VITE_API_URL}/api/admin/users`, {
         method: 'POST',
         credentials: 'include',
         headers: getAuthHeaders(),
-        body: JSON.stringify(form),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       if (!res.ok) {
         throw new Error(data.error || 'Failed to create user');
       }
 
-      if (data.emailQueued) {
-        alert(`User ${data.user.email} created! Activation email sent.`);
-      } else if (data.tempPassword) {
-        // Email failed — surface the temp password so the admin can share it
-        // out-of-band. Without this they'd be silently unable to log in.
-        alert(
-          `⚠️ User ${data.user.email} created, but activation email FAILED to send.\n\n` +
-            `Please share this temporary password with the user manually:\n\n` +
-            `${data.tempPassword}\n\n` +
-            `The user must change this password on first login.`,
-        );
-      } else {
-        alert(`User ${data.user.email} created successfully!`);
-      }
+      alert(`User ${data.user.email} created successfully!`);
 
       onCreated();
       onClose();
@@ -117,17 +113,14 @@ export function AddUserModal({ isOpen, onClose, onCreated }: Props) {
           <option value="PRO">Pro</option>
           <option value="ADMIN">Admin</option>
         </Select>
-        <label className="flex items-center gap-2 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={form.sendActivationEmail}
-            onChange={(e) => setForm({ ...form, sendActivationEmail: e.target.checked })}
-            className="rounded border-app"
-          />
-          <span className="text-sm text-muted">
-            Send activation email with temporary password
-          </span>
-        </label>
+        <Input
+          label="Password (optional)"
+          type="password"
+          value={form.password}
+          onChange={(e) => setForm({ ...form, password: e.target.value })}
+          placeholder="Leave blank to send a reset link later"
+          autoComplete="new-password"
+        />
       </form>
     </Modal>
   );

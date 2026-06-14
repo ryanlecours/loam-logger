@@ -18,7 +18,7 @@ describe('useAdminSection', () => {
     expect(result.current.section).toBe('overview');
   });
 
-  it.each(['overview', 'users', 'waitlist', 'email'] as const)(
+  it.each(['overview', 'users', 'email'] as const)(
     'reads "%s" from the URL',
     (id) => {
       const { result } = renderHook(() => useAdminSection(), {

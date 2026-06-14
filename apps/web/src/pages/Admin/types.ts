@@ -14,7 +14,7 @@
  */
 
 // ---------------------------------------------------------------------------
-// User & waitlist
+// User
 // ---------------------------------------------------------------------------
 
 export type Role = 'FREE' | 'PRO' | 'ADMIN';
@@ -32,17 +32,6 @@ export interface UserEntry {
   lastPasswordResetEmailAt: string | null;
 }
 
-/** Row shape returned by `GET /api/admin/waitlist`. */
-export interface WaitlistEntry {
-  id: string;
-  email: string;
-  name: string | null;
-  referrer: string | null;
-  createdAt: string;
-  emailUnsubscribed: boolean;
-  isFoundingRider: boolean;
-}
-
 /** Response shape from `GET /api/admin/lookup-user?email=…`. */
 export interface LookupResult {
   id: string;
@@ -57,7 +46,6 @@ export interface LookupResult {
 /** Response shape from `GET /api/admin/stats`. */
 export interface AdminStats {
   userCount: number;
-  waitlistCount: number;
   foundingRidersCount: number;
 }
 
@@ -67,12 +55,10 @@ export interface AdminStats {
 
 /** Audience filter for the unified email composer. */
 export type EmailSegment =
-  | 'WAITLIST'
-  | 'WAITLIST_FOUNDING'
-  | 'WAITLIST_REGULAR'
   | 'ACTIVE_ALL'
   | 'ACTIVE_FREE'
-  | 'ACTIVE_PRO';
+  | 'ACTIVE_PRO'
+  | 'ACTIVE_FOUNDING';
 
 /** Row shape returned by `GET /api/admin/email/recipients`. */
 export interface EmailRecipient {

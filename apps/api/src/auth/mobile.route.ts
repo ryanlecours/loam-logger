@@ -16,7 +16,6 @@ import { sendPasswordAddedNotification, sendPasswordChangedNotification } from '
 import { logger, createLogger } from '../lib/logger';
 import { sendUnauthorized, sendBadRequest, sendForbidden, sendConflict, sendInternalError, sendTooManyRequests } from '../lib/api-response';
 import { config } from '../config/env';
-import { AUTH_ERROR } from './types';
 import { createNewUser, verifyEmailAvailable } from '../services/signup.service';
 
 // Filter Railway logs with `module:"auth-audit"` to see only successful sign-ins and
@@ -45,8 +44,7 @@ const googleClient = new OAuth2Client({
 
 /**
  * POST /auth/mobile/signup
- * Register new user from mobile app (closed beta - adds to waitlist)
- * Returns JSON response indicating waitlist status
+ * Register a new active FREE user from the mobile app and return tokens.
  */
 router.post('/mobile/signup', express.json(), async (req, res) => {
   try {
@@ -85,30 +83,22 @@ router.post('/mobile/signup', express.json(), async (req, res) => {
     // Check if user already exists
     const check = await verifyEmailAvailable(email);
     if (!check.available) {
-      if (check.role === 'WAITLIST') {
-        logger.info({ code: 'ALREADY_ON_WAITLIST', route: 'mobile/signup' }, 'Signup blocked: already on waitlist');
-        return sendForbidden(
-          res,
-          'You are already on the waitlist. We will email you when your account is activated.',
-          'ALREADY_ON_WAITLIST'
-        );
-      }
       logger.info({ code: 'EMAIL_EXISTS', route: 'mobile/signup' }, 'Signup 409: account exists');
       return sendConflict(res, 'An account with this email already exists. Please log in.');
     }
     const verifiedEmail = check.email;
 
-    // During closed beta, create user with WAITLIST role
-    // Password is optional during signup - will be set during activation
-    let passwordHash = null;
-    if (password) {
-      const validation = validatePassword(password);
-      if (!validation.isValid) {
-        logger.warn({ field: 'password', route: 'mobile/signup' }, 'Signup 400: password validation failed');
-        return sendBadRequest(res, validation.error || 'Password does not meet requirements');
-      }
-      passwordHash = await hashPassword(password);
+    // Password is required — new users are active immediately and log in with it.
+    if (!password) {
+      logger.warn({ field: 'password', route: 'mobile/signup' }, 'Signup 400: password required');
+      return sendBadRequest(res, 'Password is required');
     }
+    const validation = validatePassword(password);
+    if (!validation.isValid) {
+      logger.warn({ field: 'password', route: 'mobile/signup' }, 'Signup 400: password validation failed');
+      return sendBadRequest(res, validation.error || 'Password does not meet requirements');
+    }
+    const passwordHash = await hashPassword(password);
 
     const trimmedName = name?.trim() || null;
     if (trimmedName && trimmedName.length > 100) {
@@ -116,34 +106,16 @@ router.post('/mobile/signup', express.json(), async (req, res) => {
       return sendBadRequest(res, 'Name must be 100 characters or fewer');
     }
 
-    if (config.bypassWaitlistFlow) {
-      if (!passwordHash) {
-        logger.warn({ field: 'password', route: 'mobile/signup' }, 'Signup 400: password required when bypass is on');
-        return sendBadRequest(res, 'Password is required');
-      }
-
-      const { user } = await createNewUser({ email: verifiedEmail, name: trimmedName, passwordHash, ref });
-
-      const { accessToken, refreshToken } = await issueMobileTokens({ id: user.id, email: user.email });
-
-      auditLogger.info({ userId: user.id, provider: 'email', wasCreated: true, hasRef: !!ref }, 'Mobile account created');
-
-      return res.status(201).json({
-        ok: true,
-        waitlist: false,
-        accessToken,
-        refreshToken,
-      });
-    }
-
-    // Waitlist flow
     const { user } = await createNewUser({ email: verifiedEmail, name: trimmedName, passwordHash, ref });
-    auditLogger.info({ userId: user.id, provider: 'email', role: 'WAITLIST', hasRef: !!ref }, 'Mobile waitlist signup');
 
-    return res.status(200).json({
+    const { accessToken, refreshToken } = await issueMobileTokens({ id: user.id, email: user.email });
+
+    auditLogger.info({ userId: user.id, provider: 'email', wasCreated: true, hasRef: !!ref }, 'Mobile account created');
+
+    return res.status(201).json({
       ok: true,
-      waitlist: true,
-      message: 'You have been added to the waitlist. We will email you when your account is activated.',
+      accessToken,
+      refreshToken,
     });
   } catch (e) {
     logger.error({ err: e, route: 'mobile/signup' }, '[MobileAuth] Signup failed');
@@ -225,17 +197,6 @@ router.post('/mobile/google', express.json(), async (req, res) => {
       },
     });
   } catch (e) {
-    const errorMessage = e instanceof Error ? e.message : String(e);
-
-    if (errorMessage === AUTH_ERROR.CLOSED_BETA) {
-      logger.info({ sub: googleSub, code: 'CLOSED_BETA', route: 'mobile/google' }, 'Google sign-in blocked: closed beta');
-      return sendForbidden(res, AUTH_ERROR.CLOSED_BETA, 'CLOSED_BETA');
-    }
-    if (errorMessage === AUTH_ERROR.ALREADY_ON_WAITLIST) {
-      logger.info({ sub: googleSub, code: 'ALREADY_ON_WAITLIST', route: 'mobile/google' }, 'Google sign-in blocked: waitlist');
-      return sendForbidden(res, AUTH_ERROR.ALREADY_ON_WAITLIST, 'ALREADY_ON_WAITLIST');
-    }
-
     logger.error({ err: e, sub: googleSub, route: 'mobile/google' }, '[MobileAuth] Google login failed');
     Sentry.captureException(e, { tags: { route: 'mobile/google', stage: 'ensure-user' }, contexts: { google_signin: { sub: googleSub ?? 'unknown' } } });
     return sendInternalError(res, 'Authentication failed');
@@ -351,17 +312,6 @@ router.post('/mobile/apple', express.json(), async (req, res) => {
       },
     });
   } catch (e) {
-    const errorMessage = e instanceof Error ? e.message : String(e);
-
-    if (errorMessage === AUTH_ERROR.CLOSED_BETA) {
-      logger.info({ sub: appleSub, code: 'CLOSED_BETA', route: 'mobile/apple' }, 'Apple sign-in blocked: closed beta');
-      return sendForbidden(res, AUTH_ERROR.CLOSED_BETA, 'CLOSED_BETA');
-    }
-    if (errorMessage === AUTH_ERROR.ALREADY_ON_WAITLIST) {
-      logger.info({ sub: appleSub, code: 'ALREADY_ON_WAITLIST', route: 'mobile/apple' }, 'Apple sign-in blocked: waitlist');
-      return sendForbidden(res, AUTH_ERROR.ALREADY_ON_WAITLIST, 'ALREADY_ON_WAITLIST');
-    }
-
     logger.error({ err: e, sub: appleSub, route: 'mobile/apple' }, '[MobileAuth] Apple login failed');
     Sentry.captureException(e, {
       tags: { route: 'mobile/apple', stage: 'ensure-user' },
@@ -400,6 +350,13 @@ router.post('/mobile/login', express.json(), async (req, res) => {
     // Find user by email
     const user = await prisma.user.findUnique({
       where: { email },
+      select: {
+        id: true,
+        email: true,
+        passwordHash: true,
+        name: true,
+        avatarUrl: true,
+      },
     });
 
     if (!user) {
@@ -418,12 +375,6 @@ router.post('/mobile/login', express.json(), async (req, res) => {
     if (!isValid) {
       logger.info({ userId: user.id, reason: 'bad-password', route: 'mobile/login' }, 'Email login 401: bad password');
       return sendUnauthorized(res, 'Invalid email or password');
-    }
-
-    // Block WAITLIST users - they cannot login until activated
-    if (user.role === 'WAITLIST') {
-      logger.info({ userId: user.id, code: 'ALREADY_ON_WAITLIST', route: 'mobile/login' }, 'Email login blocked: waitlist');
-      return sendForbidden(res, AUTH_ERROR.ALREADY_ON_WAITLIST, 'ALREADY_ON_WAITLIST');
     }
 
     // Update last auth timestamp for recent-auth gating (non-blocking)

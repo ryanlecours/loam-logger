@@ -3,16 +3,18 @@ import { motion } from 'motion/react';
 import SectionWrapper from './SectionWrapper';
 
 export default function TestimonialsSection() {
-  const [signupCount, setSignupCount] = useState<number | null>(null);
+  const [userCount, setUserCount] = useState<number | null>(null);
   const [ridesTracked, setRidesTracked] = useState<number | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
-    fetch(`${import.meta.env.VITE_API_URL}/api/waitlist/stats`, { signal: controller.signal })
+    fetch(`${import.meta.env.VITE_API_URL}/api/public/stats`, { signal: controller.signal })
       .then((res) => res.ok ? res.json() : Promise.reject())
       .then((json) => {
-        setSignupCount(json.data.signupCount);
-        setRidesTracked(json.data.ridesTracked);
+        // The API wraps payloads in a { ok, data } envelope (sendSuccess).
+        const data = json?.data ?? {};
+        if (typeof data.userCount === 'number') setUserCount(data.userCount);
+        if (typeof data.ridesTracked === 'number') setRidesTracked(data.ridesTracked);
       })
       .catch((err) => {
         if (err?.name !== 'AbortError') console.error('[Stats] fetch failed', err);
@@ -39,10 +41,10 @@ export default function TestimonialsSection() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-12">
             <div className="text-center">
               <div className="text-5xl font-bold text-mint mb-2">
-                {signupCount !== null ? signupCount.toLocaleString() : <span className="opacity-40">—</span>}
+                {userCount !== null ? userCount.toLocaleString() : <span className="opacity-40">—</span>}
               </div>
               <p className="text-sm text-concrete uppercase tracking-wider">
-                Beta Testers
+                Riders
               </p>
             </div>
             <div className="text-center">
@@ -61,11 +63,11 @@ export default function TestimonialsSection() {
             </div>
           </div>
 
-          {/* Beta Note */}
+          {/* Community Note */}
           <div className="p-6 bg-moss/20 border border-moss/40 rounded-2xl">
             <p className="body text-sand">
-              Early beta testers are putting Loam Logger through its paces on trails across the world.
-              Join the waitlist to be part of the next wave of riders testing the future of bike maintenance tracking.
+              Riders are putting Loam Logger through its paces on trails across the world.
+              Sign up to join them and take the guesswork out of bike maintenance tracking.
             </p>
           </div>
         </motion.div>

@@ -61,17 +61,7 @@ describe('ensureUserFromApple', () => {
     mockConfig.bypassWaitlistFlow = false;
   });
 
-  it('should throw CLOSED_BETA for new users when bypass is off', async () => {
-    const tx = createTx();
-    mockTransaction.mockImplementation(async (fn: (t: unknown) => unknown) => fn(tx));
-    mockUserAccountFindUnique.mockResolvedValue(null);
-    mockUserFindUnique.mockResolvedValue(null);
-
-    await expect(ensureUserFromApple(baseClaims)).rejects.toThrow('CLOSED_BETA');
-  });
-
-  it('should create FREE user when bypass is on and user is new', async () => {
-    mockConfig.bypassWaitlistFlow = true;
+  it('should create FREE user when user is new', async () => {
     const createdUser = { id: 'new-user', email: 'test@test.com', role: 'FREE' };
     mockTransaction.mockImplementation(async (fn: (t: unknown) => unknown) => fn(createTx()));
     mockUserAccountFindUnique.mockResolvedValue(null);
@@ -124,23 +114,6 @@ describe('ensureUserFromApple', () => {
     await ensureUserFromApple(baseClaims);
 
     expect(mockReferralCreate).not.toHaveBeenCalled();
-  });
-
-  it('should throw ALREADY_ON_WAITLIST for waitlist users found by sub', async () => {
-    const tx = createTx();
-    mockTransaction.mockImplementation(async (fn: (t: unknown) => unknown) => fn(tx));
-    mockUserAccountFindUnique.mockResolvedValue({ user: { id: 'wl-user', role: 'WAITLIST' } });
-
-    await expect(ensureUserFromApple(baseClaims)).rejects.toThrow('ALREADY_ON_WAITLIST');
-  });
-
-  it('should throw ALREADY_ON_WAITLIST for waitlist users found by email', async () => {
-    const tx = createTx();
-    mockTransaction.mockImplementation(async (fn: (t: unknown) => unknown) => fn(tx));
-    mockUserAccountFindUnique.mockResolvedValue(null);
-    mockUserFindUnique.mockResolvedValue({ role: 'WAITLIST' });
-
-    await expect(ensureUserFromApple(baseClaims)).rejects.toThrow('ALREADY_ON_WAITLIST');
   });
 
   it('should return existing user for linked Apple account', async () => {

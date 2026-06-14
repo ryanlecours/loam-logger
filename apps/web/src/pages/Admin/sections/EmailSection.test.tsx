@@ -174,7 +174,7 @@ describe('EmailSection', () => {
         String(call[0]).includes('/api/admin/email/recipients'),
       );
       // Two recipient fetches by now: initial ACTIVE_ALL + the new
-      // WAITLIST_FOUNDING refetch with foundingRider=true.
+      // ACTIVE_FOUNDING refetch with foundingRider=true.
       expect(recipientCalls).toHaveLength(2);
       expect(String(recipientCalls[1][0])).toContain('foundingRider=true');
     });

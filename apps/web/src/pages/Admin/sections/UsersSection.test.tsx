@@ -121,7 +121,6 @@ function setupFetchHandlers(
     waitlist: () => Response;
     stats: () => Response;
     delete: () => Response;
-    demote: () => Response;
     addUser: () => Response;
     sendReset: () => Response;
   }>,
@@ -131,7 +130,6 @@ function setupFetchHandlers(
     const method = init?.method ?? 'GET';
     if (url.includes('/api/admin/stats')) return handlers.stats?.() ?? statsResponse();
     if (url.includes('/api/admin/users') && method === 'GET') return handlers.users?.() ?? userListResponse([]);
-    if (url.includes('/users/') && url.includes('/demote')) return handlers.demote?.() ?? new Response(null, { status: 200 });
     if (url.match(/\/users\/[^/]+$/) && method === 'DELETE')
       return handlers.delete?.() ?? new Response(null, { status: 204 });
     if (url.includes('/api/admin/users') && method === 'POST')
@@ -169,7 +167,7 @@ describe('UsersSection', () => {
     expect(await screen.findByText('No active users yet.')).toBeInTheDocument();
   });
 
-  it('disables Demote and Delete on the current admin own row', async () => {
+  it('disables Delete on the current admin own row', async () => {
     setupFetchHandlers({ users: () => userListResponse([{ id: 'self-id' }]) });
     renderInProvider(<UsersSection />);
 
@@ -178,7 +176,6 @@ describe('UsersSection', () => {
     if (!row) return;
 
     const within_ = within(row);
-    expect(within_.getByRole('button', { name: 'Demote' })).toBeDisabled();
     expect(within_.getByRole('button', { name: 'Delete' })).toBeDisabled();
   });
 
@@ -223,31 +220,6 @@ describe('UsersSection', () => {
     // After success, the row is removed locally.
     await waitFor(() => {
       expect(screen.queryByText('rider@example.com')).not.toBeInTheDocument();
-    });
-  });
-
-  it('confirms before demoting and POSTs to the demote endpoint', async () => {
-    setupFetchHandlers({ users: () => userListResponse([{}]) });
-
-    renderInProvider(<UsersSection />);
-
-    fireEvent.click(await screen.findByRole('button', { name: 'Demote' }));
-
-    // ConfirmDeleteModal opens (warning tone, no typed-confirm). Scope the
-    // confirm click to the modal footer — there are two "Demote" buttons
-    // visible at this point (the still-rendered row button + the modal
-    // confirm), so an unscoped getByRole would throw.
-    expect(await screen.findByText('Demote to waitlist')).toBeInTheDocument();
-    const footer = screen.getByTestId('modal-footer');
-    fireEvent.click(within(footer).getByRole('button', { name: 'Demote' }));
-
-    await waitFor(() => {
-      const demoteCall = fetchMock.mock.calls.find(
-        (call) =>
-          String(call[0]).includes('/api/admin/users/user-1/demote') &&
-          (call[1] as RequestInit | undefined)?.method === 'POST',
-      );
-      expect(demoteCall).toBeDefined();
     });
   });
 

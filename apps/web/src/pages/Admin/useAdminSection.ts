@@ -1,9 +1,9 @@
 import { useSearchParams } from 'react-router-dom';
 import { useCallback } from 'react';
 
-export type AdminSectionId = 'overview' | 'users' | 'waitlist' | 'email';
+export type AdminSectionId = 'overview' | 'users' | 'email';
 
-const KNOWN_SECTIONS: readonly AdminSectionId[] = ['overview', 'users', 'waitlist', 'email'];
+const KNOWN_SECTIONS: readonly AdminSectionId[] = ['overview', 'users', 'email'];
 
 const DEFAULT_SECTION: AdminSectionId = 'overview';
 

@@ -12,9 +12,6 @@ vi.mock('./sections/OverviewSection', () => ({
 vi.mock('./sections/UsersSection', () => ({
   UsersSection: () => <div data-testid="users-section" />,
 }));
-vi.mock('./sections/WaitlistSection', () => ({
-  WaitlistSection: () => <div data-testid="waitlist-section" />,
-}));
 vi.mock('./sections/EmailSection', () => ({
   EmailSection: () => <div data-testid="email-section" />,
 }));
@@ -109,7 +106,6 @@ describe('Admin', () => {
 
   it.each([
     ['users', 'users-section'],
-    ['waitlist', 'waitlist-section'],
     ['email', 'email-section'],
   ] as const)('renders the %s section when ?section=%s', (section, testId) => {
     mockUseCurrentUser.mockReturnValue({

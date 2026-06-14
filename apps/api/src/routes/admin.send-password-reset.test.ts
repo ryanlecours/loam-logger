@@ -18,12 +18,9 @@ jest.mock('../services/password-reset.service', () => ({
 
 // The service layer we care about for this test. Everything else the admin
 // router imports just needs to not explode during module load.
-jest.mock('../services/activation.service', () => ({
-  activateWaitlistUser: jest.fn(),
-  generateTempPassword: jest.fn(),
-}));
 jest.mock('../auth/password.utils', () => ({
   hashPassword: jest.fn(),
+  validatePassword: jest.fn().mockReturnValue({ isValid: true }),
 }));
 jest.mock('../services/email.service', () => ({
   sendEmail: jest.fn(),

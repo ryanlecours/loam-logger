@@ -1,8 +1,7 @@
 import { Prisma, type User } from '@prisma/client';
 import { normalizeEmail } from './utils';
-import { AUTH_ERROR, type AppleClaims } from './types';
+import { type AppleClaims } from './types';
 import { prisma } from '../lib/prisma';
-import { config } from '../config/env';
 import { logger } from '../lib/logger';
 import { resolveReferrer, createUserWithReferralCode } from '../services/referral.service';
 
@@ -31,9 +30,6 @@ async function ensureUserFromAppleInner(
       include: { user: true },
     });
     if (existingAccount) {
-      if (existingAccount.user.role === 'WAITLIST') {
-        throw new Error(AUTH_ERROR.ALREADY_ON_WAITLIST);
-      }
       // Optionally fill in name if user doesn't have one yet (Apple only sends name on first auth)
       if (!existingAccount.user.name && claims.name) {
         return tx.user.update({
@@ -48,10 +44,6 @@ async function ensureUserFromAppleInner(
     if (!trustedEmail) return null;
 
     const user = await tx.user.findUnique({ where: { email: trustedEmail } });
-
-    if (user?.role === 'WAITLIST') {
-      throw new Error(AUTH_ERROR.ALREADY_ON_WAITLIST);
-    }
 
     if (user) {
       // User exists and is activated — update profile and link Apple account
@@ -90,10 +82,6 @@ async function ensureUserFromAppleInner(
   const emailForCreation = trustedEmail ?? clientEmail;
   if (!emailForCreation) {
     throw new Error('Apple login did not provide an email');
-  }
-
-  if (!config.bypassWaitlistFlow) {
-    throw new Error(AUTH_ERROR.CLOSED_BETA);
   }
 
   const referrerId = ref ? await resolveReferrer(ref) : null;

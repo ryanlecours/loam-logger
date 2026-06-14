@@ -33,7 +33,7 @@ export default function MarketingFooter() {
                   to="/signup"
                   className="text-sm text-concrete hover:text-mint transition"
                 >
-                  Join Beta Waitlist
+                  Get started
                 </Link>
               </li>
               <li>
