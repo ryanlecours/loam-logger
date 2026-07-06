@@ -116,6 +116,12 @@ router.post('/mobile/signup', express.json(), async (req, res) => {
       ok: true,
       accessToken,
       refreshToken,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: trimmedName,
+        avatarUrl: null,
+      },
     });
   } catch (e) {
     logger.error({ err: e, route: 'mobile/signup' }, '[MobileAuth] Signup failed');
