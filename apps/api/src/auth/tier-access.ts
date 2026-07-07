@@ -1,6 +1,6 @@
 import type { SubscriptionTier, UserRole } from '@prisma/client';
 import { GraphQLError } from 'graphql';
-import { TIER_LIMITS, TIER_DISPLAY_NAMES } from '@loam/shared';
+import { TIER_LIMITS, TIER_DISPLAY_NAMES, BIKE_LIMIT_UPSELL_LINE } from '@loam/shared';
 
 type TierUser = {
   subscriptionTier: SubscriptionTier;
@@ -94,7 +94,7 @@ export function requireBikeCreation(user: TierUser, currentActiveBikeCount: numb
     const tier = getEffectiveTier(user);
     const displayName = TIER_DISPLAY_NAMES[tier as keyof typeof TIER_DISPLAY_NAMES] ?? 'Free';
     throw new GraphQLError(
-      `Your ${displayName} plan covers ${limitsFor(tier).maxBikes} bike. The correct number of bikes is always one more — track the whole quiver with Pro.`,
+      `Your ${displayName} plan covers ${limitsFor(tier).maxBikes} bike. ${BIKE_LIMIT_UPSELL_LINE}`,
       { extensions: { code: 'TIER_LIMIT_EXCEEDED', tier, limit: limitsFor(tier).maxBikes } }
     );
   }

@@ -11,6 +11,8 @@
  *   quiet Pro chip. Dismissed cards stay dismissed (persisted per surface).
  * - Never upsell inside error paths, except the bike-limit message.
  */
+import { BIKE_LIMIT_UPSELL_LINE } from '@loam/shared';
+
 export const UPSELL_COPY = {
   predictions: {
     title: 'Know before it blows.',
@@ -29,7 +31,8 @@ export const UPSELL_COPY = {
   },
   bikeLimit: {
     title: 'N+1, meet Pro.',
-    body: 'The correct number of bikes is always one more — track the whole quiver with Pro.',
+    // Shared with the API's TIER_LIMIT_EXCEEDED error message
+    body: BIKE_LIMIT_UPSELL_LINE,
     dismissKey: 'upsell-dismissed-bike-limit',
   },
   importDepth: {
