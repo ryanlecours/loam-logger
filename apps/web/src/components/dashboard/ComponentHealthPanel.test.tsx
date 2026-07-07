@@ -28,6 +28,13 @@ vi.mock('@apollo/client', () => ({
   useQuery: (...args: unknown[]) => mockUseQuery(...args),
 }));
 
+// Stub the upsell components — they use useNavigate, which requires a Router
+vi.mock('../UpgradePrompt', () => ({
+  default: () => null,
+  ProChip: () => <span data-testid="pro-chip" />,
+  UpsellCard: () => <div data-testid="upsell-card" />,
+}));
+
 // Factory for creating test components
 const createComponent = (overrides: Partial<ComponentPrediction> = {}): ComponentPrediction => ({
   componentId: `comp-${Math.random().toString(36).slice(2)}`,
@@ -42,6 +49,7 @@ const createComponent = (overrides: Partial<ComponentPrediction> = {}): Componen
   currentHours: 50,
   serviceIntervalHours: 150,
   hoursSinceService: 50,
+  ridesSinceService: 12,
   why: null,
   drivers: null,
   ...overrides,

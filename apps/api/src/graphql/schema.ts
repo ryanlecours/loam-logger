@@ -343,6 +343,8 @@ export const typeDefs = gql`
     wheels: Component
     pivotBearings: Component
     components: [Component!]!
+    # Public share slug when history sharing is enabled (null = not shared)
+    shareSlug: String
     predictions: BikePredictionSummary
     servicePreferences: [BikeServicePreference!]!
     notificationPreference: BikeNotificationPreference
@@ -961,6 +963,10 @@ export const typeDefs = gql`
     createBillingPortalSession(platform: CheckoutPlatform): BillingPortalResult!
     selectBikeForDowngrade(bikeId: ID!): Bike!
     backfillWeatherForMyRides: BackfillWeatherResult!
+    # Enable public sharing of a bike's history; returns the share URL.
+    # Idempotent — re-enabling returns the existing link.
+    enableBikeShare(bikeId: ID!): String!
+    disableBikeShare(bikeId: ID!): Boolean!
   }
 
   type ConnectedAccount {
@@ -1077,6 +1083,44 @@ export const typeDefs = gql`
     truncated: Boolean!
   }
 
+  # Public, sanitized bike-history shapes for the shareable /share/<slug>
+  # page (e.g. handed to a prospective buyer). Deliberately excludes owner
+  # identity, per-ride details, and GPS — only the bike, its components,
+  # wrench history, and aggregate usage totals.
+  type SharedBike {
+    name: String!
+    manufacturer: String!
+    model: String!
+    year: Int
+    thumbnailUrl: String
+  }
+
+  type SharedComponent {
+    type: ComponentType!
+    location: ComponentLocation!
+    brand: String!
+    model: String!
+  }
+
+  type SharedServiceEvent {
+    performedAt: String!
+    notes: String
+    component: SharedComponent!
+  }
+
+  type SharedInstallEvent {
+    eventType: ComponentInstallEventType!
+    occurredAt: String!
+    component: SharedComponent!
+  }
+
+  type SharedBikeHistory {
+    bike: SharedBike!
+    serviceEvents: [SharedServiceEvent!]!
+    installs: [SharedInstallEvent!]!
+    totals: BikeHistoryTotals!
+  }
+
   type Query {
     me: User
     user(id: ID!): User
@@ -1095,5 +1139,8 @@ export const typeDefs = gql`
     bikeNotes(bikeId: ID!, take: Int = 20, after: ID): BikeNotesPage!
     referralStats: ReferralStats! @deprecated(reason: "Referral program removed; returns zeros")
     bikeHistory(bikeId: ID!, startDate: String, endDate: String): BikeHistoryPayload!
+    # Public (unauthenticated) sanitized history for a shared bike.
+    # Returns null for unknown or revoked slugs.
+    sharedBikeHistory(slug: String!): SharedBikeHistory
   }
 `;

@@ -38,13 +38,14 @@ type ComponentPrediction = {
   location?: string | null;
   brand?: string | null;
   model?: string | null;
-  status: PredictionStatus;
-  hoursRemaining: number;
+  status: PredictionStatus | null;
+  hoursRemaining: number | null;
   ridesRemainingEstimate?: number | null;
   confidence?: string | null;
   currentHours?: number | null;
   serviceIntervalHours?: number | null;
   hoursSinceService?: number | null;
+  ridesSinceService?: number | null;
 };
 
 interface ComponentDetailRowProps {
@@ -104,7 +105,9 @@ export function ComponentDetailRow({
 
   const latestServiceLog = component.latestServiceLog ?? null;
 
-  const status = prediction?.status ?? 'ALL_GOOD';
+  // Pro-only: status is null for free users — StatusDot renders nothing for
+  // null. Missing prediction keeps the ALL_GOOD default as before.
+  const status = prediction ? prediction.status : 'ALL_GOOD';
   const hoursRemaining = prediction?.hoursRemaining;
 
   // Get brand/model from prediction or component
@@ -155,14 +158,19 @@ export function ComponentDetailRow({
                   </span>
                 </>
               )
+            ) : hoursRemaining != null ? (
+              <>
+                <span className="component-detail-hours">
+                  {formatHours(hoursRemaining)}
+                </span>
+                <span className="component-detail-hours-label">left</span>
+              </>
             ) : (
-              hoursRemaining != null && (
-                <>
-                  <span className="component-detail-hours">
-                    {formatHours(hoursRemaining)}
-                  </span>
-                  <span className="component-detail-hours-label">left</span>
-                </>
+              // Free tier: countdown is gated — show raw usage instead
+              prediction?.hoursSinceService != null && prediction?.serviceIntervalHours != null && (
+                <span className="component-detail-hours">
+                  {formatHours(prediction.hoursSinceService)} / {prediction.serviceIntervalHours}h
+                </span>
               )
             )}
           </div>

@@ -154,6 +154,7 @@ export type Bike = {
   retiredAt?: Maybe<Scalars['String']['output']>;
   seatpost?: Maybe<Component>;
   servicePreferences: Array<BikeServicePreference>;
+  shareSlug?: Maybe<Scalars['String']['output']>;
   shock?: Maybe<Component>;
   sortOrder: Scalars['Int']['output'];
   spokesId?: Maybe<Scalars['String']['output']>;
@@ -569,7 +570,9 @@ export type Mutation = {
   deleteRide: DeleteRideResult;
   deleteServiceLog: Scalars['Boolean']['output'];
   deleteStravaGearMapping: DeleteResult;
+  disableBikeShare: Scalars['Boolean']['output'];
   dismissCalibration: User;
+  enableBikeShare: Scalars['String']['output'];
   installComponent: InstallComponentResult;
   logBulkComponentService: BulkServiceResult;
   logComponentService: Component;
@@ -695,6 +698,16 @@ export type MutationDeleteServiceLogArgs = {
 
 export type MutationDeleteStravaGearMappingArgs = {
   id: Scalars['ID']['input'];
+};
+
+
+export type MutationDisableBikeShareArgs = {
+  bikeId: Scalars['ID']['input'];
+};
+
+
+export type MutationEnableBikeShareArgs = {
+  bikeId: Scalars['ID']['input'];
 };
 
 
@@ -862,6 +875,7 @@ export type Query = {
   rideTypes: Array<RideType>;
   rides: Array<Ride>;
   servicePreferenceDefaults: Array<ServicePreferenceDefault>;
+  sharedBikeHistory?: Maybe<SharedBikeHistory>;
   stravaGearMappings: Array<StravaGearMapping>;
   unassignedRides: UnassignedRidesPage;
   unmappedStravaGears: Array<StravaGearInfo>;
@@ -907,6 +921,11 @@ export type QueryRidesArgs = {
   after?: InputMaybe<Scalars['ID']['input']>;
   filter?: InputMaybe<RidesFilterInput>;
   take?: InputMaybe<Scalars['Int']['input']>;
+};
+
+
+export type QuerySharedBikeHistoryArgs = {
+  slug: Scalars['String']['input'];
 };
 
 
@@ -1053,6 +1072,45 @@ export type SetupSnapshot = {
   bikeSpecs: BikeSpecsSnapshot;
   capturedAt: Scalars['String']['output'];
   slots: Array<SlotSnapshot>;
+};
+
+export type SharedBike = {
+  __typename?: 'SharedBike';
+  manufacturer: Scalars['String']['output'];
+  model: Scalars['String']['output'];
+  name: Scalars['String']['output'];
+  thumbnailUrl?: Maybe<Scalars['String']['output']>;
+  year?: Maybe<Scalars['Int']['output']>;
+};
+
+export type SharedBikeHistory = {
+  __typename?: 'SharedBikeHistory';
+  bike: SharedBike;
+  installs: Array<SharedInstallEvent>;
+  serviceEvents: Array<SharedServiceEvent>;
+  totals: BikeHistoryTotals;
+};
+
+export type SharedComponent = {
+  __typename?: 'SharedComponent';
+  brand: Scalars['String']['output'];
+  location: ComponentLocation;
+  model: Scalars['String']['output'];
+  type: ComponentType;
+};
+
+export type SharedInstallEvent = {
+  __typename?: 'SharedInstallEvent';
+  component: SharedComponent;
+  eventType: ComponentInstallEventType;
+  occurredAt: Scalars['String']['output'];
+};
+
+export type SharedServiceEvent = {
+  __typename?: 'SharedServiceEvent';
+  component: SharedComponent;
+  notes?: Maybe<Scalars['String']['output']>;
+  performedAt: Scalars['String']['output'];
 };
 
 export type SlotSnapshot = {

@@ -74,6 +74,7 @@ const createComponent = (
   currentHours: 35,
   serviceIntervalHours: 50,
   hoursSinceService: 35,
+  ridesSinceService: 10,
   why: null,
   drivers: null,
   ...overrides,

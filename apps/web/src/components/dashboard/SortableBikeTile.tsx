@@ -38,8 +38,11 @@ export function SortableBikeTile({ bike, isSelected, onClick, disabled }: Sortab
     cursor: disabled ? 'wait' : isDragging ? 'grabbing' : 'grab',
   };
 
-  const status = bike.predictions?.overallStatus ?? 'ALL_GOOD';
-  const statusClass = STATUS_CLASSES[status];
+  // Pro-only: overallStatus is null for free users — hide the dot rather
+  // than implying an "all good" status. Missing predictions (still loading)
+  // keeps the ALL_GOOD placeholder as before.
+  const status = bike.predictions ? bike.predictions.overallStatus : 'ALL_GOOD';
+  const statusClass = status ? STATUS_CLASSES[status] : null;
   const bikeName = getBikeName(bike);
   const priorityComp = bike.predictions?.priorityComponent;
 
@@ -59,14 +62,14 @@ export function SortableBikeTile({ bike, isSelected, onClick, disabled }: Sortab
         ) : (
           <Bike />
         )}
-        <span className={`bike-tile-status ${statusClass}`} />
+        {statusClass && <span className={`bike-tile-status ${statusClass}`} />}
       </div>
       <span className="bike-tile-name">{bikeName}</span>
-      {priorityComp && status !== 'ALL_GOOD' && (
+      {priorityComp && status && status !== 'ALL_GOOD' && (
         <span className="bike-tile-hours">
-          {hoursDisplay === 'total'
+          {hoursDisplay === 'total' || priorityComp.hoursRemaining == null
             ? `${(priorityComp.hoursSinceService ?? 0).toFixed(1)}/${priorityComp.serviceIntervalHours}h`
-            : `${(priorityComp.hoursRemaining ?? 0).toFixed(1)} hrs`}
+            : `${priorityComp.hoursRemaining.toFixed(1)} hrs`}
         </span>
       )}
     </button>

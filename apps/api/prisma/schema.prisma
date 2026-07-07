@@ -192,6 +192,9 @@ model Bike {
   travelForkMm       Int?
   travelShockMm      Int?
   notes              String?
+  // Public share slug for the read-only bike-history page (loamlogger.app/share/<slug>).
+  // Set on enableBikeShare, nulled on disable; unguessable random token.
+  shareSlug          String?             @unique
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
   year               Int?

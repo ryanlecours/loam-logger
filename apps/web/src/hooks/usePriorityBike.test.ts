@@ -218,6 +218,7 @@ describe('getTopDueComponents', () => {
     currentHours: 50,
     serviceIntervalHours: 150,
     hoursSinceService: 50,
+    ridesSinceService: 10,
     why: null,
     drivers: null,
     ...overrides,

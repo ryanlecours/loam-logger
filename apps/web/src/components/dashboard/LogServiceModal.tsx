@@ -165,7 +165,9 @@ export function LogServiceModal({
                     {formatComponentLabel(component)}
                   </span>
                   <span className="log-service-item-hours">
-                    {component.hoursRemaining.toFixed(1)} hrs
+                    {component.hoursRemaining != null
+                      ? `${component.hoursRemaining.toFixed(1)} hrs`
+                      : `${component.hoursSinceService.toFixed(1)}h since service`}
                   </span>
                 </div>
               );

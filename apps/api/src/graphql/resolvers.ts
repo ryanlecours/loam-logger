@@ -40,6 +40,8 @@ import { parseISO } from 'date-fns';
 import { incrementBikeComponentHours, decrementBikeComponentHours } from '../lib/component-hours';
 import { captureSetupSnapshot } from '../lib/capture-snapshot';
 import type { SetupSnapshot } from '@loam/shared';
+import { randomBytes } from 'crypto';
+import { FRONTEND_URL } from '../config/env';
 
 type ComponentType = ComponentTypeLiteral;
 
@@ -1588,6 +1590,92 @@ export const resolvers = {
           rides.length >= RIDE_CAP ||
           serviceLogs.length >= SERVICE_CAP ||
           installs.length >= INSTALL_CAP,
+      };
+    },
+
+    // Public (no auth): sanitized history for the shareable bike page.
+    // Exposes only the bike, its components, wrench history, and aggregate
+    // usage totals — no owner identity, no per-ride rows, no GPS.
+    sharedBikeHistory: async (_: unknown, { slug }: { slug: string }) => {
+      // Slug shape guard before touching the DB — share slugs are 12+ char
+      // base64url tokens; anything else can 404 cheaply.
+      if (!/^[A-Za-z0-9_-]{8,64}$/.test(slug)) return null;
+
+      const bike = await prisma.bike.findUnique({ where: { shareSlug: slug } });
+      if (!bike) return null;
+
+      const SERVICE_CAP = 1000;
+      const INSTALL_CAP = 1000;
+
+      const [serviceLogs, installs, rideAgg] = await Promise.all([
+        prisma.serviceLog.findMany({
+          where: { component: { bikeId: bike.id } },
+          include: { component: { select: { type: true, location: true, brand: true, model: true } } },
+          orderBy: { performedAt: 'desc' },
+          take: SERVICE_CAP,
+        }),
+        prisma.bikeComponentInstall.findMany({
+          where: { bikeId: bike.id },
+          include: { component: { select: { type: true, location: true, brand: true, model: true } } },
+          orderBy: { installedAt: 'desc' },
+          take: INSTALL_CAP,
+        }),
+        prisma.ride.aggregate({
+          where: { bikeId: bike.id },
+          _count: { _all: true },
+          _sum: { distanceMeters: true, durationSeconds: true, elevationGainMeters: true },
+        }),
+      ]);
+
+      const toSharedComponent = (c: { type: string; location: string; brand: string; model: string }) => ({
+        type: c.type,
+        location: c.location,
+        brand: c.brand,
+        model: c.model,
+      });
+
+      const serviceEvents = serviceLogs.map((log) => ({
+        performedAt: log.performedAt.toISOString(),
+        notes: log.notes,
+        component: toSharedComponent(log.component),
+      }));
+
+      const installEvents = installs.flatMap((install) => {
+        const events = [
+          {
+            eventType: 'INSTALLED' as const,
+            occurredAt: install.installedAt.toISOString(),
+            component: toSharedComponent(install.component),
+          },
+        ];
+        if (install.removedAt) {
+          events.push({
+            eventType: 'REMOVED' as never,
+            occurredAt: install.removedAt.toISOString(),
+            component: toSharedComponent(install.component),
+          });
+        }
+        return events;
+      });
+
+      return {
+        bike: {
+          name: bike.nickname ?? `${bike.manufacturer} ${bike.model}`,
+          manufacturer: bike.manufacturer,
+          model: bike.model,
+          year: bike.year,
+          thumbnailUrl: bike.thumbnailUrl,
+        },
+        serviceEvents,
+        installs: installEvents,
+        totals: {
+          rideCount: rideAgg._count._all,
+          totalDistanceMeters: rideAgg._sum.distanceMeters ?? 0,
+          totalDurationSeconds: rideAgg._sum.durationSeconds ?? 0,
+          totalElevationGainMeters: rideAgg._sum.elevationGainMeters ?? 0,
+          serviceEventCount: serviceEvents.length,
+          installEventCount: installEvents.length,
+        },
       };
     },
   },
@@ -5292,6 +5380,46 @@ export const resolvers = {
       const remainingAfterBatch = Math.max(0, ridesRemaining - ridesWithCoords.length);
 
       return { enqueuedCount, ridesWithoutCoords, remainingAfterBatch };
+    },
+
+    // Enable public sharing of a bike's history. Available to all tiers —
+    // the branded share page is a growth surface, not a paid feature.
+    // Idempotent: re-enabling returns the existing link.
+    enableBikeShare: async (_: unknown, { bikeId }: { bikeId: string }, ctx: GraphQLContext) => {
+      const userId = requireUserId(ctx);
+
+      const bike = await prisma.bike.findFirst({
+        where: { id: bikeId, userId },
+        select: { id: true, shareSlug: true },
+      });
+      if (!bike) {
+        throw new GraphQLError('Bike not found', { extensions: { code: 'NOT_FOUND' } });
+      }
+
+      let slug = bike.shareSlug;
+      if (!slug) {
+        // 12 base64url chars ≈ 71 bits of entropy — unguessable, short enough
+        // to read aloud off a for-sale listing.
+        slug = randomBytes(9).toString('base64url');
+        await prisma.bike.update({ where: { id: bike.id }, data: { shareSlug: slug } });
+      }
+
+      return `${FRONTEND_URL}/share/${slug}`;
+    },
+
+    disableBikeShare: async (_: unknown, { bikeId }: { bikeId: string }, ctx: GraphQLContext) => {
+      const userId = requireUserId(ctx);
+
+      const bike = await prisma.bike.findFirst({
+        where: { id: bikeId, userId },
+        select: { id: true },
+      });
+      if (!bike) {
+        throw new GraphQLError('Bike not found', { extensions: { code: 'NOT_FOUND' } });
+      }
+
+      await prisma.bike.update({ where: { id: bike.id }, data: { shareSlug: null } });
+      return true;
     },
   },
 

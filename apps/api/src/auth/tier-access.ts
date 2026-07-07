@@ -35,6 +35,18 @@ export function canSeePredictions(user: TierUser): boolean {
 }
 
 /**
+ * Historical import depth is tier-gated: free users may backfill only the
+ * current year ('ytd', an omitted year, or the current year number); Pro
+ * unlocks any past season. Rolling `days` windows are not gated — they are
+ * already capped at 365 days by the routes.
+ */
+export function canBackfillYear(user: TierUser, yearParam: string | undefined): boolean {
+  if (isProTier(user)) return true;
+  if (yearParam === undefined || yearParam === 'ytd') return true;
+  return parseInt(yearParam, 10) === new Date().getFullYear();
+}
+
+/**
  * Throws NOT_PRO if the user is not on the Pro tier.
  * `feature` names the capability in the error message, e.g. "Weather backfill".
  */
@@ -82,7 +94,7 @@ export function requireBikeCreation(user: TierUser, currentActiveBikeCount: numb
     const tier = getEffectiveTier(user);
     const displayName = TIER_DISPLAY_NAMES[tier as keyof typeof TIER_DISPLAY_NAMES] ?? 'Free';
     throw new GraphQLError(
-      `Your ${displayName} plan allows a maximum of ${limitsFor(tier).maxBikes} bike(s). Upgrade to Pro for unlimited bikes.`,
+      `Your ${displayName} plan covers ${limitsFor(tier).maxBikes} bike. The correct number of bikes is always one more — track the whole quiver with Pro.`,
       { extensions: { code: 'TIER_LIMIT_EXCEEDED', tier, limit: limitsFor(tier).maxBikes } }
     );
   }

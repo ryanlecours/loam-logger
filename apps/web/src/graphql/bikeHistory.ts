@@ -9,6 +9,7 @@ export const BIKE_HISTORY = gql`
         manufacturer
         model
         year
+        shareSlug
       }
       rides {
         id

@@ -3,6 +3,7 @@ import {
   getEffectiveTier,
   isProTier,
   canCreateBike,
+  canBackfillYear,
   requireBikeCreation,
   requireNoDowngradePending,
 } from './tier-access';
@@ -79,7 +80,7 @@ describe('requireBikeCreation', () => {
   });
 
   it('throws GraphQLError with TIER_LIMIT_EXCEEDED when at limit', () => {
-    expect(() => requireBikeCreation(free, 1)).toThrow('maximum of 1 bike');
+    expect(() => requireBikeCreation(free, 1)).toThrow('covers 1 bike');
   });
 
   it('does not throw for founding riders at any count', () => {
@@ -95,6 +96,31 @@ describe('requireBikeCreation', () => {
       expect(gqlErr.extensions?.code).toBe('TIER_LIMIT_EXCEEDED');
       expect(gqlErr.extensions?.limit).toBe(1);
     }
+  });
+});
+
+describe('canBackfillYear', () => {
+  const currentYear = String(new Date().getFullYear());
+
+  it('allows Pro users to backfill any year', () => {
+    expect(canBackfillYear(pro, '2019')).toBe(true);
+    expect(canBackfillYear(pro, 'ytd')).toBe(true);
+  });
+
+  it('allows founding riders to backfill any year', () => {
+    expect(canBackfillYear(foundingFree, '2020')).toBe(true);
+  });
+
+  it('allows free users to backfill the current year only', () => {
+    expect(canBackfillYear(free, 'ytd')).toBe(true);
+    expect(canBackfillYear(free, undefined)).toBe(true);
+    expect(canBackfillYear(free, currentYear)).toBe(true);
+  });
+
+  it('blocks free users from past seasons', () => {
+    expect(canBackfillYear(free, String(new Date().getFullYear() - 1))).toBe(false);
+    expect(canBackfillYear(free, '2020')).toBe(false);
+    expect(canBackfillYear(free, 'garbage')).toBe(false);
   });
 });
 

@@ -3,7 +3,7 @@ import type { PredictionStatus } from '../../types/prediction';
 import { STATUS_CONFIG } from '../../types/prediction';
 
 interface StatusPillProps {
-  status: PredictionStatus;
+  status: PredictionStatus | null;
   className?: string;
 }
 
@@ -22,6 +22,9 @@ const STATUS_CLASSES: Record<PredictionStatus, string> = {
 };
 
 export function StatusPill({ status, className = '' }: StatusPillProps) {
+  // Predictive status is Pro-only; render nothing when the API serves null.
+  if (!status) return null;
+
   const Icon = STATUS_ICONS[status];
   const config = STATUS_CONFIG[status];
   const statusClass = STATUS_CLASSES[status];

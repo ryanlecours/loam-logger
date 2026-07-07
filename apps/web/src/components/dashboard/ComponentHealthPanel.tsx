@@ -5,7 +5,9 @@ import type { ComponentPrediction } from '../../types/prediction';
 import { STATUS_SEVERITY } from '../../types/prediction';
 import { formatComponentLabel } from '../../utils/formatters';
 import { useHoursDisplay } from '../../hooks/useHoursDisplay';
+import { useUserTier } from '../../hooks/useUserTier';
 import { StatusDot } from './StatusDot';
+import { ProChip, UpsellCard } from '../UpgradePrompt';
 import { SNOOZE_COMPONENT } from '../../graphql/calibration';
 import { BIKES } from '../../graphql/bikes';
 
@@ -35,12 +37,14 @@ function getSortedComponentsForHealth(
   components: ComponentPrediction[]
 ): ComponentPrediction[] {
   return [...components].sort((a, b) => {
-    // 1. Status severity (higher = more urgent, so b - a for descending)
-    const severityDiff = STATUS_SEVERITY[b.status] - STATUS_SEVERITY[a.status];
+    // 1. Status severity (higher = more urgent, so b - a for descending).
+    // Null status (free tier) sorts as lowest severity.
+    const severityDiff =
+      (b.status ? STATUS_SEVERITY[b.status] : 0) - (a.status ? STATUS_SEVERITY[a.status] : 0);
     if (severityDiff !== 0) return severityDiff;
 
-    // 2. Hours remaining (ascending - most urgent first)
-    const hoursDiff = a.hoursRemaining - b.hoursRemaining;
+    // 2. Hours remaining (ascending - most urgent first); null last
+    const hoursDiff = (a.hoursRemaining ?? Infinity) - (b.hoursRemaining ?? Infinity);
     if (hoursDiff !== 0) return hoursDiff;
 
     // 3. Alphabetical tie-breaker
@@ -256,24 +260,33 @@ function ComponentDetailOverlay({ component, onClose, onServiceLogged, onLogServ
           </div>
         )}
 
-        {/* Component Stats */}
+        {/* Component Stats — remaining-life stats are Pro-only; free users
+            see raw usage (since-service counters + interval) */}
         <div className="component-detail-stats">
-          <div className="component-detail-stat">
-            <span className="component-detail-stat-value">{formatHours(component.hoursRemaining)}</span>
-            <span className="component-detail-stat-label">Until next service</span>
-          </div>
+          {component.hoursRemaining != null && (
+            <div className="component-detail-stat">
+              <span className="component-detail-stat-value">{formatHours(component.hoursRemaining)}</span>
+              <span className="component-detail-stat-label">Until next service</span>
+            </div>
+          )}
           <div className="component-detail-stat">
             <span className="component-detail-stat-value">{formatHours(component.hoursSinceService)}</span>
             <span className="component-detail-stat-label">Since last service</span>
           </div>
           <div className="component-detail-stat">
+            <span className="component-detail-stat-value">{component.ridesSinceService}</span>
+            <span className="component-detail-stat-label">Rides since service</span>
+          </div>
+          <div className="component-detail-stat">
             <span className="component-detail-stat-value">{formatHours(component.serviceIntervalHours)}</span>
             <span className="component-detail-stat-label">Service interval</span>
           </div>
-          <div className="component-detail-stat">
-            <span className="component-detail-stat-value">~{component.ridesRemainingEstimate}</span>
-            <span className="component-detail-stat-label">Rides remaining</span>
-          </div>
+          {component.ridesRemainingEstimate != null && (
+            <div className="component-detail-stat">
+              <span className="component-detail-stat-value">~{component.ridesRemainingEstimate}</span>
+              <span className="component-detail-stat-label">Rides remaining</span>
+            </div>
+          )}
         </div>
 
         {component.why && (
@@ -307,7 +320,14 @@ function ComponentDetailOverlay({ component, onClose, onServiceLogged, onLogServ
 
         {!component.why && (!component.drivers || component.drivers.length === 0) && (
           <div className="wear-causes-empty">
-            <p>No wear analysis available for this component.</p>
+            {component.status == null ? (
+              // Free tier: predictions (and their wear analysis) are Pro
+              <p>
+                Pro estimates the rides left before this part needs service. <ProChip />
+              </p>
+            ) : (
+              <p>No wear analysis available for this component.</p>
+            )}
           </div>
         )}
       </div>
@@ -318,6 +338,7 @@ function ComponentDetailOverlay({ component, onClose, onServiceLogged, onLogServ
 export function ComponentHealthPanel({ components, className = '', onLogService }: ComponentHealthPanelProps) {
   const [selectedComponent, setSelectedComponent] = useState<ComponentPrediction | null>(null);
   const { hoursDisplay } = useHoursDisplay();
+  const { isFree } = useUserTier();
 
   const sortedComponents = useMemo(
     () => getSortedComponentsForHealth(components),
@@ -356,7 +377,7 @@ export function ComponentHealthPanel({ components, className = '', onLogService 
               onClick={() => setSelectedComponent(component)}
               type="button"
             >
-              <StatusDot status={component.status} />
+              {component.status && <StatusDot status={component.status} />}
               <div className="component-health-name">
                 <span className="component-health-label">
                   {formatComponentLabel(component)}
@@ -364,7 +385,17 @@ export function ComponentHealthPanel({ components, className = '', onLogService 
                 <span className="component-health-make-model">{makeModel}</span>
               </div>
               <div className="component-health-metrics">
-                {hoursDisplay === 'total' ? (
+                {component.hoursRemaining == null ? (
+                  // Free tier: raw usage counters where the countdown would be
+                  <>
+                    <span className="component-health-hours-primary">
+                      {formatHours(component.hoursSinceService)} / {component.serviceIntervalHours}h
+                    </span>
+                    <span className="component-health-hours-secondary">
+                      {component.ridesSinceService} rides since service <ProChip />
+                    </span>
+                  </>
+                ) : hoursDisplay === 'total' ? (
                   <>
                     <span className="component-health-hours-primary">
                       {formatHours(component.hoursSinceService)} / {component.serviceIntervalHours}h
@@ -389,6 +420,10 @@ export function ComponentHealthPanel({ components, className = '', onLogService 
           );
         })}
       </div>
+
+      {isFree && (
+        <UpsellCard feature="predictions" className="mt-4" />
+      )}
 
       {selectedComponent && (
         <ComponentDetailOverlay

@@ -5,9 +5,11 @@ import { getValidSuuntoToken } from '../lib/suunto-token';
 import {
   sendBadRequest,
   sendUnauthorized,
+  sendForbidden,
   sendInternalError,
   sendTooManyRequests,
 } from '../lib/api-response';
+import { canBackfillYear } from '../auth/tier-access';
 import {
   incrementBikeComponentHours,
   decrementBikeComponentHours,
@@ -64,6 +66,19 @@ r.get<Empty, void, Empty, { year?: string }>(
     const userId = req.user?.id || req.sessionUser?.uid;
     if (!userId) {
       return sendUnauthorized(res, 'Not authenticated');
+    }
+
+    // Import depth is tier-gated: free accounts backfill the current year only
+    const tierUser = await prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { subscriptionTier: true, isFoundingRider: true, role: true },
+    });
+    if (!canBackfillYear(tierUser, req.query.year)) {
+      return sendForbidden(
+        res,
+        'Importing past seasons is a Pro feature. Free accounts can import the current year.',
+        'TIER_BACKFILL_RESTRICTED'
+      );
     }
 
     // Pre-flight against the weekly app-wide quota. Refuse to start a fresh

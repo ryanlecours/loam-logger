@@ -2,7 +2,8 @@ import { Router as createRouter, type Router, type Request, type Response } from
 import { getValidWhoopToken } from '../lib/whoop-token';
 import { subDays } from 'date-fns';
 import { prisma } from '../lib/prisma';
-import { sendBadRequest, sendUnauthorized, sendInternalError } from '../lib/api-response';
+import { sendBadRequest, sendUnauthorized, sendForbidden, sendInternalError } from '../lib/api-response';
+import { canBackfillYear } from '../auth/tier-access';
 import { incrementBikeComponentHours, decrementBikeComponentHours } from '../lib/component-hours';
 import { logError, logger } from '../lib/logger';
 import { acquireLock, releaseLock } from '../lib/rate-limit';
@@ -39,6 +40,19 @@ r.get<Empty, void, Empty, { year?: string }>(
     const userId = req.user?.id || req.sessionUser?.uid;
     if (!userId) {
       return sendUnauthorized(res, 'Not authenticated');
+    }
+
+    // Import depth is tier-gated: free accounts backfill the current year only
+    const tierUser = await prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { subscriptionTier: true, isFoundingRider: true, role: true },
+    });
+    if (!canBackfillYear(tierUser, req.query.year)) {
+      return sendForbidden(
+        res,
+        'Importing past seasons is a Pro feature. Free accounts can import the current year.',
+        'TIER_BACKFILL_RESTRICTED'
+      );
     }
 
     // Acquire lock to prevent concurrent backfills

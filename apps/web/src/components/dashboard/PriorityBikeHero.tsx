@@ -88,7 +88,9 @@ export function PriorityBikeHero({
   }
 
   const predictions = bike.predictions;
-  const overallStatus = predictions?.overallStatus ?? 'ALL_GOOD';
+  // Pro-only: overallStatus is null for free users — StatusPill renders
+  // nothing for null. Missing predictions keeps the ALL_GOOD default.
+  const overallStatus = predictions ? predictions.overallStatus : 'ALL_GOOD';
   const components = predictions?.components ?? [];
   const bikeName = getBikeName(bike);
 

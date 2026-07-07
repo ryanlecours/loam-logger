@@ -16,6 +16,9 @@ import BikeDetail from './pages/BikeDetail';
 // Export button is clicked). Keeps the main bundle lean for the 99% of
 // sessions that never open it.
 const BikeHistory = lazy(() => import('./pages/BikeHistory'));
+// Public shared bike-history page — lazy for the same reason: only visitors
+// following a share link pay for it.
+const SharedBikeHistory = lazy(() => import('./pages/SharedBikeHistory'));
 import Admin from './pages/Admin';
 import AuthComplete from './pages/AuthComplete';
 import BetaTesterWaitlist from './pages/BetaTesterWaitlist';
@@ -89,6 +92,16 @@ function AppRoutes() {
           <Route path="/reset-password" element={<Page><ResetPassword /></Page>} />
           <Route path="/forgot-password" element={<Page><ForgotPassword /></Page>} />
           <Route path="/auth/complete" element={<AuthComplete />} />
+          <Route
+            path="/share/:slug"
+            element={
+              <Page>
+                <Suspense fallback={<div className="min-h-screen" />}>
+                  <SharedBikeHistory />
+                </Suspense>
+              </Page>
+            }
+          />
 
           {/* Onboarding */}
           <Route path="/onboarding" element={<AuthGate><Page><Onboarding /></Page></AuthGate>} />

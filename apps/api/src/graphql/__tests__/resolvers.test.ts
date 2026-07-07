@@ -4309,6 +4309,119 @@ describe('GraphQL Resolvers', () => {
     });
   });
 
+  describe('bike sharing', () => {
+    const mockBikeFindFirst = prisma.bike.findFirst as jest.Mock;
+    const mockBikeFindUnique = prisma.bike.findUnique as jest.Mock;
+    const mockBikeUpdate = prisma.bike.update as jest.Mock;
+
+    beforeEach(() => {
+      mockBikeFindFirst.mockReset();
+      mockBikeFindUnique.mockReset();
+      mockBikeUpdate.mockReset();
+    });
+
+    it('enableBikeShare generates a slug and returns the share URL', async () => {
+      mockBikeFindFirst.mockResolvedValueOnce({ id: 'bike-1', shareSlug: null });
+      mockBikeUpdate.mockResolvedValueOnce({});
+      const ctx = createMockContext('user-123');
+
+      const url = await resolvers.Mutation.enableBikeShare({}, { bikeId: 'bike-1' }, ctx as never);
+
+      expect(url).toMatch(/\/share\/[A-Za-z0-9_-]{12}$/);
+      const savedSlug = mockBikeUpdate.mock.calls[0][0].data.shareSlug;
+      expect(url.endsWith(savedSlug)).toBe(true);
+    });
+
+    it('enableBikeShare is idempotent — existing slug is reused', async () => {
+      mockBikeFindFirst.mockResolvedValueOnce({ id: 'bike-1', shareSlug: 'existing-slug' });
+      const ctx = createMockContext('user-123');
+
+      const url = await resolvers.Mutation.enableBikeShare({}, { bikeId: 'bike-1' }, ctx as never);
+
+      expect(url.endsWith('/share/existing-slug')).toBe(true);
+      expect(mockBikeUpdate).not.toHaveBeenCalled();
+    });
+
+    it("enableBikeShare rejects bikes the user doesn't own", async () => {
+      mockBikeFindFirst.mockResolvedValueOnce(null);
+      const ctx = createMockContext('user-123');
+
+      await expect(
+        resolvers.Mutation.enableBikeShare({}, { bikeId: 'not-mine' }, ctx as never)
+      ).rejects.toThrow('Bike not found');
+    });
+
+    it('disableBikeShare nulls the slug for owned bikes', async () => {
+      mockBikeFindFirst.mockResolvedValueOnce({ id: 'bike-1' });
+      mockBikeUpdate.mockResolvedValueOnce({});
+      const ctx = createMockContext('user-123');
+
+      const result = await resolvers.Mutation.disableBikeShare({}, { bikeId: 'bike-1' }, ctx as never);
+
+      expect(result).toBe(true);
+      expect(mockBikeUpdate).toHaveBeenCalledWith({
+        where: { id: 'bike-1' },
+        data: { shareSlug: null },
+      });
+    });
+
+    it('sharedBikeHistory returns null for unknown or malformed slugs without auth', async () => {
+      const query = resolvers.Query.sharedBikeHistory;
+
+      expect(await query({}, { slug: 'not valid !!' })).toBeNull();
+
+      mockBikeFindUnique.mockResolvedValueOnce(null);
+      expect(await query({}, { slug: 'unknown-slug-123' })).toBeNull();
+    });
+
+    it('sharedBikeHistory returns sanitized history for a shared bike', async () => {
+      mockBikeFindUnique.mockResolvedValueOnce({
+        id: 'bike-1',
+        userId: 'owner-1',
+        nickname: 'Enduro Sled',
+        manufacturer: 'Santa Cruz',
+        model: 'Megatower',
+        year: 2024,
+        thumbnailUrl: null,
+        shareSlug: 'slug12345678',
+      });
+      (prisma.serviceLog.findMany as jest.Mock).mockResolvedValueOnce([
+        {
+          performedAt: new Date('2026-05-01T00:00:00Z'),
+          notes: 'Lowers service',
+          component: { type: 'FORK', location: 'FRONT', brand: 'Fox', model: '38' },
+        },
+      ]);
+      (prisma.bikeComponentInstall.findMany as jest.Mock).mockResolvedValueOnce([
+        {
+          installedAt: new Date('2026-01-01T00:00:00Z'),
+          removedAt: null,
+          component: { type: 'CHAIN', location: 'NONE', brand: 'SRAM', model: 'XX1' },
+        },
+      ]);
+      (prisma.ride.aggregate as jest.Mock).mockResolvedValueOnce({
+        _count: { _all: 42 },
+        _sum: { distanceMeters: 100000, durationSeconds: 36000, elevationGainMeters: 5000 },
+      });
+
+      const result = await resolvers.Query.sharedBikeHistory({}, { slug: 'slug12345678' });
+
+      expect(result.bike).toEqual({
+        name: 'Enduro Sled',
+        manufacturer: 'Santa Cruz',
+        model: 'Megatower',
+        year: 2024,
+        thumbnailUrl: null,
+      });
+      // No owner identity or ride rows in the payload
+      expect(JSON.stringify(result)).not.toContain('owner-1');
+      expect(result).not.toHaveProperty('rides');
+      expect(result.totals.rideCount).toBe(42);
+      expect(result.serviceEvents[0].notes).toBe('Lowers service');
+      expect(result.installs[0].eventType).toBe('INSTALLED');
+    });
+  });
+
   describe('prediction tier gating', () => {
     const resolver = resolvers.Bike.predictions;
     const mockUserFindUnique = prisma.user.findUnique as jest.Mock;
