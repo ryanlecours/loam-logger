@@ -12,7 +12,6 @@ import { deriveLocation, deriveLocationAsync, shouldApplyAutoLocation } from '..
 import { syncBikeComponentHours } from '../lib/component-hours';
 import { logger } from '../lib/logger';
 import { fireRideNotifications } from '../services/notification.service';
-import { completeReferral } from '../services/referral.service';
 import { config } from '../config/env';
 import type { SyncJobData, SyncJobName, SyncProvider } from '../lib/queue/sync.queue';
 import { enqueueWeatherJob } from '../lib/queue';
@@ -409,9 +408,6 @@ async function upsertStravaActivity(userId: string, activity: StravaActivity): P
       isNewRide,
     }).catch(() => {}); // swallow - already logged internally
 
-    if (isNewRide) {
-      completeReferral(userId).catch(() => {}); // swallow - already logged internally
-    }
   }
 }
 
@@ -693,9 +689,6 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
     activeBikeCount,
   }).catch(() => {}); // swallow - already logged internally
 
-  if (isNewRide) {
-    completeReferral(userId).catch(() => {}); // swallow - already logged internally
-  }
 }
 
 // ============================================================================
@@ -865,9 +858,6 @@ async function upsertWhoopActivity(userId: string, workout: WhoopWorkout): Promi
       isNewRide,
     }).catch(() => {}); // swallow - already logged internally
 
-    if (isNewRide) {
-      completeReferral(userId).catch(() => {}); // swallow - already logged internally
-    }
   }
 
   logger.debug({ whoopWorkoutId: workout.id }, '[SyncWorker] Upserted WHOOP workout');
@@ -1115,9 +1105,6 @@ async function upsertSuuntoActivity(
     isNewRide,
   }).catch(() => {}); // swallow - already logged internally
 
-  if (isNewRide) {
-    completeReferral(userId).catch(() => {}); // swallow - already logged internally
-  }
 }
 
 // ============================================================================

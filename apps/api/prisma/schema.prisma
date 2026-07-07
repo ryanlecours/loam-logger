@@ -37,7 +37,6 @@ model User {
   subscriptionTier    SubscriptionTier    @default(FREE_LIGHT)
   stripeCustomerId    String?             @unique
   stripeSubscriptionId String?            @unique
-  referralCode        String?             @unique
   needsDowngradeSelection Boolean         @default(false)
   subscriptionProvider    SubscriptionProvider?
   emailUnsubscribed   Boolean             @default(false)
@@ -70,8 +69,6 @@ model User {
   oauthAttempts       OAuthAttempt[]
   integrations        UserIntegration[]
   notificationLogs    NotificationLog[]
-  referralsMade       Referral[]          @relation("ReferralsMade")
-  referralReceived    Referral?           @relation("ReferralReceived")
   passwordResetTokens PasswordResetToken[]
 
   // Push notification preferences
@@ -412,11 +409,6 @@ enum SubscriptionProvider {
   GOOGLE
 }
 
-enum ReferralStatus {
-  PENDING
-  COMPLETED
-}
-
 enum ComponentLocation {
   FRONT
   REAR
@@ -501,7 +493,6 @@ enum EmailType {
   upgrade_confirmation
   downgrade_notice
   payment_failed
-  referral_success
   mobile_app_launch
 }
 
@@ -754,16 +745,3 @@ model PasswordResetToken {
   @@index([expiresAt])
 }
 
-model Referral {
-  id             String         @id @default(cuid())
-  referrerUserId String
-  referredUserId String         @unique
-  status         ReferralStatus @default(PENDING)
-  completedAt    DateTime?
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
-  referrer       User           @relation("ReferralsMade", fields: [referrerUserId], references: [id], onDelete: Cascade)
-  referred       User           @relation("ReferralReceived", fields: [referredUserId], references: [id], onDelete: Cascade)
-
-  @@index([referrerUserId])
-}

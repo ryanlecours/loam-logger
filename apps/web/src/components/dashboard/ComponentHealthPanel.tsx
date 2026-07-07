@@ -410,7 +410,7 @@ export function ComponentHealthPanel({ components, className = '', onLogService 
       {isFreeLight && (
         <div className="mt-4 flex justify-center">
           <UpgradePrompt
-            message="Unlock all 23+ components for free by referring a friend, or go Pro for unlimited bikes."
+            message="Upgrade to Pro to unlock all 23+ component types and unlimited bikes."
           />
         </div>
       )}

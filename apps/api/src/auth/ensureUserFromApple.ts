@@ -3,17 +3,15 @@ import { normalizeEmail } from './utils';
 import { type AppleClaims } from './types';
 import { prisma } from '../lib/prisma';
 import { logger } from '../lib/logger';
-import { resolveReferrer, createUserWithReferralCode } from '../services/referral.service';
 
 export type AppleUserResult = { user: User; wasCreated: boolean };
 
-export function ensureUserFromApple(claims: AppleClaims, ref?: string): Promise<AppleUserResult> {
-  return ensureUserFromAppleInner(claims, ref, 0);
+export function ensureUserFromApple(claims: AppleClaims): Promise<AppleUserResult> {
+  return ensureUserFromAppleInner(claims, 0);
 }
 
 async function ensureUserFromAppleInner(
   claims: AppleClaims,
-  ref: string | undefined,
   retries: number,
 ): Promise<AppleUserResult> {
   const { sub } = claims;
@@ -84,35 +82,24 @@ async function ensureUserFromAppleInner(
     throw new Error('Apple login did not provide an email');
   }
 
-  const referrerId = ref ? await resolveReferrer(ref) : null;
-
   try {
-    const newUser = await createUserWithReferralCode(async (referralCode) => {
-      return prisma.$transaction(async (tx) => {
-        const created = await tx.user.create({
-          data: {
-            email: emailForCreation,
-            name: claims.name ?? null,
-            avatarUrl: null,
-            emailVerified: claims.email_verified ? new Date() : null,
-            role: 'FREE',
-            subscriptionTier: 'FREE_LIGHT',
-            referralCode,
-          },
-        });
-
-        await tx.userAccount.create({
-          data: { userId: created.id, provider: 'apple', providerUserId: sub },
-        });
-
-        if (referrerId) {
-          await tx.referral.create({
-            data: { referrerUserId: referrerId, referredUserId: created.id },
-          });
-        }
-
-        return created;
+    const newUser = await prisma.$transaction(async (tx) => {
+      const created = await tx.user.create({
+        data: {
+          email: emailForCreation,
+          name: claims.name ?? null,
+          avatarUrl: null,
+          emailVerified: claims.email_verified ? new Date() : null,
+          role: 'FREE',
+          subscriptionTier: 'FREE_LIGHT',
+        },
       });
+
+      await tx.userAccount.create({
+        data: { userId: created.id, provider: 'apple', providerUserId: sub },
+      });
+
+      return created;
     });
     return { user: newUser, wasCreated: true };
   } catch (err) {
@@ -126,7 +113,7 @@ async function ensureUserFromAppleInner(
     if (isEmailCollision) {
       logger.warn({ sub, retries }, 'Apple sign-in email-collision retry');
       if (retries >= 2) throw err;
-      return ensureUserFromAppleInner(claims, ref, retries + 1);
+      return ensureUserFromAppleInner(claims, retries + 1);
     }
     throw err;
   }

@@ -177,7 +177,6 @@ describe('POST /mobile/apple', () => {
 
     expect(mockEnsureUserFromApple).toHaveBeenCalledWith(
       expect.objectContaining({ name: 'Jane Doe' }),
-      undefined,
     );
   });
 
@@ -204,7 +203,6 @@ describe('POST /mobile/apple', () => {
 
     expect(mockEnsureUserFromApple).toHaveBeenCalledWith(
       expect.objectContaining({ name: 'Jane' }),
-      undefined,
     );
   });
 
@@ -228,7 +226,6 @@ describe('POST /mobile/apple', () => {
 
     expect(mockEnsureUserFromApple).toHaveBeenCalledWith(
       expect.objectContaining({ email_verified: true }),
-      undefined,
     );
   });
 
@@ -255,7 +252,6 @@ describe('POST /mobile/apple', () => {
         email: 'token@apple.com',
         clientEmail: 'client@user.com',
       }),
-      undefined,
     );
   });
 
@@ -281,31 +277,6 @@ describe('POST /mobile/apple', () => {
         email: undefined,
         clientEmail: 'client@user.com',
       }),
-      undefined,
-    );
-  });
-
-  it('should pass ref to ensureUserFromApple', async () => {
-    const mockUser = { id: 'u1', email: 'a@b.com', name: null, avatarUrl: null };
-    mockVerifyAppleIdentityToken.mockResolvedValue({
-      sub: 'apple-001',
-      email: 'a@b.com',
-      email_verified: 'true',
-    });
-    mockEnsureUserFromApple.mockResolvedValue({ user: mockUser, wasCreated: false });
-
-    const req = {
-      body: { identityToken: 'valid-token', ref: 'abc123' },
-      ip: '127.0.0.1',
-      headers: {},
-    } as unknown as Request;
-    const res = createMockResponse();
-
-    await invokeHandler(handler, req, res as unknown as Response);
-
-    expect(mockEnsureUserFromApple).toHaveBeenCalledWith(
-      expect.any(Object),
-      'abc123',
     );
   });
 

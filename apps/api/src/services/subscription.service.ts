@@ -92,9 +92,8 @@ export async function upgradeUser(
  * Downgrade a user from PRO. Idempotent — safe to call from both Stripe and
  * RevenueCat webhook paths.
  *
- * Determines downgrade tier based on referral status (FREE_FULL if referral,
- * FREE_LIGHT otherwise). Sets needsDowngradeSelection if user has >1 active bikes.
- * Clears provider-specific subscription fields and sends a downgrade email.
+ * Sets needsDowngradeSelection if user has >1 active bikes. Clears
+ * provider-specific subscription fields and sends a downgrade email.
  */
 export async function downgradeUser(userId: string, triggerSource: TriggerSource): Promise<void> {
   const result = await prisma.$transaction(async (tx) => {
@@ -105,12 +104,9 @@ export async function downgradeUser(userId: string, triggerSource: TriggerSource
 
     if (!user || user.isFoundingRider || user.subscriptionTier !== 'PRO') return null;
 
-    const [completedReferral, activeBikeCount] = await Promise.all([
-      tx.referral.findFirst({ where: { referrerUserId: userId, status: 'COMPLETED' }, select: { id: true } }),
-      tx.bike.count({ where: { userId, status: 'ACTIVE' } }),
-    ]);
+    const activeBikeCount = await tx.bike.count({ where: { userId, status: 'ACTIVE' } });
 
-    const downgradeTier = completedReferral ? 'FREE_FULL' : 'FREE_LIGHT';
+    const downgradeTier = 'FREE_FULL';
     const needsSelection = activeBikeCount > 1;
 
     await tx.user.update({

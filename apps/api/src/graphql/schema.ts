@@ -980,6 +980,10 @@ export const typeDefs = gql`
     url: String!
   }
 
+  # Deprecated stub — the referral program was removed. Old mobile builds still
+  # query these fields; removing them would fail those clients' whole queries.
+  # TODO(remove after 2026-12): delete ReferralStats, Query.referralStats, and
+  # User.referralCode once pre-removal app versions age out.
   type ReferralStats {
     referralCode: String!
     referralLink: String!
@@ -1006,7 +1010,7 @@ export const typeDefs = gql`
     isFoundingRider: Boolean!
     subscriptionTier: SubscriptionTier!
     subscriptionProvider: SubscriptionProvider
-    referralCode: String
+    referralCode: String @deprecated(reason: "Referral program removed; always null")
     needsDowngradeSelection: Boolean!
     tierLimits: TierLimits!
     hoursDisplayPreference: String
@@ -1085,7 +1089,7 @@ export const typeDefs = gql`
     calibrationState: CalibrationState
     servicePreferenceDefaults: [ServicePreferenceDefault!]!
     bikeNotes(bikeId: ID!, take: Int = 20, after: ID): BikeNotesPage!
-    referralStats: ReferralStats!
+    referralStats: ReferralStats! @deprecated(reason: "Referral program removed; returns zeros")
     bikeHistory(bikeId: ID!, startDate: String, endDate: String): BikeHistoryPayload!
   }
 `;

@@ -31,7 +31,6 @@ import { captureServerEvent, invalidateOptOutCache } from '../lib/posthog';
 import { config } from '../config/env';
 import { requireBikeCreation, requireComponentType, getEffectiveTier, getAllowedComponentTypes, canCreateBike, isProTier } from '../auth/tier-access';
 import { createCheckoutSession, createBillingPortalSession, type StripePlan, type CheckoutPlatform } from '../services/stripe.service';
-import { getReferralStats, completeReferral } from '../services/referral.service';
 import { TIER_LIMITS } from '@loam/shared';
 import { checkRecentAuth } from '../auth/recent-auth';
 import type { AcquisitionCondition, BaselineMethod, BaselineConfidence, ServiceNotificationMode } from '@prisma/client';
@@ -1390,9 +1389,12 @@ export const resolvers = {
       };
     },
 
+    // Deprecated stub — the referral program was removed, but old mobile builds
+    // still query this field. Returns zeros so their queries keep validating.
+    // TODO(remove after 2026-12): delete once pre-referral-removal app versions age out.
     referralStats: async (_: unknown, _args: unknown, ctx: GraphQLContext) => {
-      const userId = requireUserId(ctx);
-      return getReferralStats(userId);
+      requireUserId(ctx);
+      return { referralCode: '', referralLink: '', pendingCount: 0, completedCount: 0 };
     },
 
     bikeHistory: async (
@@ -1668,13 +1670,6 @@ export const resolvers = {
       // Invalidate prediction cache after transaction
       if (bikeId) {
         await invalidateBikePrediction(userId, bikeId);
-      }
-
-      // Check if this ride completes a pending referral (non-blocking)
-      try {
-        await completeReferral(userId);
-      } catch (refErr) {
-        logError('Referral completion after ride', refErr);
       }
 
       // Funnel signal only — intentionally omits the ride's metric values
@@ -5431,6 +5426,9 @@ export const resolvers = {
   },
 
   User: {
+    // Deprecated stub — referral program removed; old mobile builds still select
+    // this in their Me query. TODO(remove after 2026-12) with the schema field.
+    referralCode: () => null,
     activeDataSource: (parent: { activeDataSource: string | null }) => parent.activeDataSource,
     role: (parent: { role: string }) => parent.role,
     mustChangePassword: (parent: { mustChangePassword?: boolean }) => parent.mustChangePassword ?? false,

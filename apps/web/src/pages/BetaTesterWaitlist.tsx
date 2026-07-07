@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useApolloClient } from '@apollo/client';
 import { GoogleLogin, type CredentialResponse } from '@react-oauth/google';
 import { ME_QUERY } from '../graphql/me';
@@ -9,8 +9,6 @@ import { setCsrfToken } from '@/lib/csrf';
 export default function BetaTesterWaitlist() {
   const navigate = useNavigate();
   const apollo = useApolloClient();
-  const [searchParams] = useSearchParams();
-  const ref = searchParams.get('ref');
 
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
@@ -64,7 +62,6 @@ export default function BetaTesterWaitlist() {
           email: email.trim(),
           name: name.trim(),
           password,
-          ...(ref ? { ref } : {}),
         }),
       });
 
@@ -109,7 +106,7 @@ export default function BetaTesterWaitlist() {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ credential, ...(ref ? { ref } : {}) }),
+        body: JSON.stringify({ credential }),
       });
 
       if (!res.ok) {

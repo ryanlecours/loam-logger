@@ -4,7 +4,6 @@ import { useQuery, gql } from '@apollo/client';
 import { useCurrentUser } from '../../../hooks/useCurrentUser';
 import SetPasswordModal from '../../../components/SetPasswordModal';
 import BillingSection from '../../../components/BillingSection';
-import ReferralCard from '../../../components/ReferralCard';
 import SettingsSectionHeader from '../SettingsSectionHeader';
 
 const CONNECTED_ACCOUNTS_FOR_PASSWORD = gql`
@@ -49,7 +48,7 @@ export default function AccountSection() {
       <SettingsSectionHeader
         eyebrow="Account"
         title="Your profile"
-        description="Your identity, plan, and referrals — everything tied to who you are on Loam Logger."
+        description="Your identity and plan — everything tied to who you are on Loam Logger."
       />
 
       <div className="panel-spaced">
@@ -105,14 +104,6 @@ export default function AccountSection() {
           <h2 className="title-section">Subscription & Billing</h2>
         </div>
         <BillingSection />
-      </div>
-
-      <div className="panel-spaced">
-        <div>
-          <p className="label-section">Rewards</p>
-          <h2 className="title-section">Referrals</h2>
-        </div>
-        <ReferralCard />
       </div>
 
       <SetPasswordModal

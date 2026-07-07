@@ -87,7 +87,7 @@ export function requireComponentType(user: TierUser, componentType: ComponentTyp
   requireNoDowngradePending(user);
   if (!canUseComponentType(user, componentType)) {
     throw new GraphQLError(
-      `Your Free plan does not include ${componentType.replace(/_/g, ' ').toLowerCase()} tracking. Upgrade or refer a friend to unlock all components.`,
+      `Your Free plan does not include ${componentType.replace(/_/g, ' ').toLowerCase()} tracking. Upgrade to Pro to unlock all components.`,
       {
         extensions: {
           code: 'TIER_COMPONENT_RESTRICTED',

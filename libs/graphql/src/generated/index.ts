@@ -574,6 +574,7 @@ export type Mutation = {
   logComponentService: Component;
   logService: ServiceLog;
   markPairedComponentMigrationSeen: User;
+  markTrailStewardshipNoticeSeen: User;
   migratePairedComponents: MigratePairedComponentsResult;
   reactivateBike: Bike;
   replaceComponent: ReplaceComponentResult;
@@ -846,6 +847,7 @@ export enum PredictionStatus {
 
 export type Query = {
   __typename?: 'Query';
+  bike?: Maybe<Bike>;
   bikeHistory: BikeHistoryPayload;
   bikeNotes: BikeNotesPage;
   bikes: Array<Bike>;
@@ -853,7 +855,9 @@ export type Query = {
   components: Array<Component>;
   importNotificationState?: Maybe<ImportNotificationState>;
   me?: Maybe<User>;
+  /** @deprecated Referral program removed; returns zeros */
   referralStats: ReferralStats;
+  ride?: Maybe<Ride>;
   rideTypes: Array<RideType>;
   rides: Array<Ride>;
   servicePreferenceDefaults: Array<ServicePreferenceDefault>;
@@ -861,6 +865,11 @@ export type Query = {
   unassignedRides: UnassignedRidesPage;
   unmappedStravaGears: Array<StravaGearInfo>;
   user?: Maybe<User>;
+};
+
+
+export type QueryBikeArgs = {
+  id: Scalars['ID']['input'];
 };
 
 
@@ -885,6 +894,11 @@ export type QueryBikesArgs = {
 
 export type QueryComponentsArgs = {
   filter?: InputMaybe<ComponentFilterInput>;
+};
+
+
+export type QueryRideArgs = {
+  id: Scalars['ID']['input'];
 };
 
 
@@ -1328,6 +1342,7 @@ export type User = {
   onboardingCompleted: Scalars['Boolean']['output'];
   pairedComponentMigrationSeenAt?: Maybe<Scalars['String']['output']>;
   predictionMode?: Maybe<Scalars['String']['output']>;
+  /** @deprecated Referral program removed; always null */
   referralCode?: Maybe<Scalars['String']['output']>;
   rides: Array<Ride>;
   ridesMissingWeather: Scalars['Int']['output'];
@@ -1336,6 +1351,7 @@ export type User = {
   subscriptionProvider?: Maybe<SubscriptionProvider>;
   subscriptionTier: SubscriptionTier;
   tierLimits: TierLimits;
+  trailStewardshipNoticeSeenAt?: Maybe<Scalars['String']['output']>;
   weatherBreakdown: WeatherBreakdown;
 };
 
@@ -1347,8 +1363,7 @@ export type UserWeatherBreakdownArgs = {
 export enum UserRole {
   Admin = 'ADMIN',
   Free = 'FREE',
-  Pro = 'PRO',
-  Waitlist = 'WAITLIST'
+  Pro = 'PRO'
 }
 
 export type UserServicePreference = {

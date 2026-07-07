@@ -55,7 +55,6 @@ import webhooksStripe from './routes/webhooks.stripe';
 import webhooksRevenueCat from './routes/webhooks.revenuecat';
 import { validateStripeConfig } from './lib/stripe';
 import { FRONTEND_URL } from './config/env';
-import referralRouter from './routes/referral';
 import mobileAuthRouter from './auth/mobile.route';
 
 export type GraphQLContext = {
@@ -284,7 +283,6 @@ const startServer = async () => {
   app.use('/webhooks', webhooksWhoop);
 
   app.use('/onboarding', onboardingRouter);
-  app.use(referralRouter);
   app.use(garminTest);
   app.use(mockGarmin);
 
