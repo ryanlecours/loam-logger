@@ -1119,8 +1119,7 @@ export enum SubscriptionProvider {
 }
 
 export enum SubscriptionTier {
-  FreeFull = 'FREE_FULL',
-  FreeLight = 'FREE_LIGHT',
+  Free = 'FREE',
   Pro = 'PRO'
 }
 

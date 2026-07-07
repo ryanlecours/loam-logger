@@ -360,10 +360,10 @@ describe('LogServiceModal', () => {
     });
   });
 
-  describe('free-light tier gating', () => {
+  describe('free tier can log service on every component type', () => {
     beforeEach(() => {
       mockUseQuery.mockReturnValue({
-        data: { me: { subscriptionTier: 'FREE_LIGHT', isFoundingRider: false, role: 'USER' } },
+        data: { me: { subscriptionTier: 'FREE', isFoundingRider: false, role: 'USER' } },
         loading: false,
         error: undefined,
         refetch: vi.fn(),
@@ -379,7 +379,7 @@ describe('LogServiceModal', () => {
       });
     });
 
-    it('renders restricted components as non-interactive', () => {
+    it('renders every component type as interactive for free users', () => {
       const bike = createBike([
         createComponent('comp-fork', { componentType: 'FORK' }),
         createComponent('comp-chain', { componentType: 'CHAIN' }),
@@ -388,15 +388,14 @@ describe('LogServiceModal', () => {
       render(<LogServiceModal {...defaultProps} bike={bike} />);
 
       const checkboxes = screen.getAllByRole('checkbox');
-      // FORK is allowed, CHAIN is restricted
       const forkCheckbox = checkboxes.find(cb => cb.textContent?.includes('Fork'));
       const chainCheckbox = checkboxes.find(cb => cb.textContent?.includes('Chain'));
 
       expect(forkCheckbox).toHaveAttribute('tabindex', '0');
-      expect(chainCheckbox).toHaveAttribute('tabindex', '-1');
+      expect(chainCheckbox).toHaveAttribute('tabindex', '0');
     });
 
-    it('does not toggle restricted component on click', () => {
+    it('toggles any component type on click', () => {
       const bike = createBike([
         createComponent('comp-chain', { componentType: 'CHAIN' }),
       ]);
@@ -406,19 +405,7 @@ describe('LogServiceModal', () => {
       const checkbox = screen.getByRole('checkbox');
       fireEvent.click(checkbox);
 
-      // Should remain unchecked since CHAIN is restricted in FREE_LIGHT
-      expect(checkbox).toHaveAttribute('aria-checked', 'false');
-    });
-
-    it('restricted components have opacity-40 class', () => {
-      const bike = createBike([
-        createComponent('comp-chain', { componentType: 'CHAIN' }),
-      ]);
-
-      render(<LogServiceModal {...defaultProps} bike={bike} />);
-
-      const checkbox = screen.getByRole('checkbox');
-      expect(checkbox).toHaveClass('opacity-40');
+      expect(checkbox).toHaveAttribute('aria-checked', 'true');
     });
   });
 });

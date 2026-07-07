@@ -83,8 +83,7 @@ export const typeDefs = gql`
   }
 
   enum SubscriptionTier {
-    FREE_LIGHT
-    FREE_FULL
+    FREE
     PRO
   }
 

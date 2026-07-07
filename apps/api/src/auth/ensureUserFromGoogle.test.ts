@@ -72,7 +72,7 @@ describe('ensureUserFromGoogle', () => {
       data: expect.objectContaining({
         email: 'test@test.com',
         role: 'FREE',
-        subscriptionTier: 'FREE_LIGHT',
+        subscriptionTier: 'FREE',
       }),
     });
     expect(mockUserAccountCreate).toHaveBeenCalledWith({

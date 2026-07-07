@@ -106,7 +106,7 @@ export async function downgradeUser(userId: string, triggerSource: TriggerSource
 
     const activeBikeCount = await tx.bike.count({ where: { userId, status: 'ACTIVE' } });
 
-    const downgradeTier = 'FREE_FULL';
+    const downgradeTier = 'FREE';
     const needsSelection = activeBikeCount > 1;
 
     await tx.user.update({

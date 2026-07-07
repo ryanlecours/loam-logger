@@ -48,7 +48,7 @@ export async function createNewUser(opts: CreateNewUserOpts): Promise<CreateNewU
       email,
       name,
       role: 'FREE',
-      subscriptionTier: 'FREE_LIGHT',
+      subscriptionTier: 'FREE',
       passwordHash,
     },
   });

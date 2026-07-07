@@ -91,7 +91,7 @@ async function ensureUserFromAppleInner(
           avatarUrl: null,
           emailVerified: claims.email_verified ? new Date() : null,
           role: 'FREE',
-          subscriptionTier: 'FREE_LIGHT',
+          subscriptionTier: 'FREE',
         },
       });
 

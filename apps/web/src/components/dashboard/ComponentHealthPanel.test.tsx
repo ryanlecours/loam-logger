@@ -714,10 +714,10 @@ describe('ComponentHealthPanel', () => {
     });
   });
 
-  describe('free-light tier gating', () => {
+  describe('free tier renders all component types', () => {
     beforeEach(() => {
       mockUseQuery.mockReturnValue({
-        data: { me: { subscriptionTier: 'FREE_LIGHT', isFoundingRider: false, role: 'USER' } },
+        data: { me: { subscriptionTier: 'FREE', isFoundingRider: false, role: 'USER' } },
         loading: false,
         error: undefined,
         refetch: vi.fn(),
@@ -733,7 +733,7 @@ describe('ComponentHealthPanel', () => {
       });
     });
 
-    it('renders restricted components as disabled buttons', () => {
+    it('renders every component type as an enabled row for free users', () => {
       const components = [
         createComponent({ componentId: 'fork', componentType: 'FORK' }),
         createComponent({ componentId: 'chain', componentType: 'CHAIN' }),
@@ -741,15 +741,14 @@ describe('ComponentHealthPanel', () => {
 
       render(<MemoryRouter><ComponentHealthPanel components={components} /></MemoryRouter>);
 
-      // FORK is allowed in FREE_LIGHT, CHAIN is restricted
       const forkButton = screen.getByText('Fork').closest('button')!;
       const chainButton = screen.getByText('Chain').closest('button')!;
 
       expect(forkButton).not.toBeDisabled();
-      expect(chainButton).toBeDisabled();
+      expect(chainButton).not.toBeDisabled();
     });
 
-    it('sorts unlocked components before restricted ones', () => {
+    it('sorts purely by urgency for free users', () => {
       const components = [
         createComponent({ componentId: 'chain', componentType: 'CHAIN', status: 'OVERDUE', hoursRemaining: 0 }),
         createComponent({ componentId: 'fork', componentType: 'FORK', status: 'ALL_GOOD', hoursRemaining: 100 }),
@@ -757,38 +756,11 @@ describe('ComponentHealthPanel', () => {
 
       render(<MemoryRouter><ComponentHealthPanel components={components} /></MemoryRouter>);
 
-      // Get component row buttons (exclude UpgradePrompt buttons by targeting the list container)
       const list = document.querySelector('.component-health-list')!;
       const rowButtons = Array.from(list.querySelectorAll('button'));
-      // FORK (unlocked) should come before CHAIN (restricted) even though CHAIN is more urgent
-      expect(rowButtons[0]).toHaveTextContent('Fork');
-      expect(rowButtons[1]).toHaveTextContent('Chain');
-    });
-
-    it('does not open modal when clicking restricted component', async () => {
-      const user = userEvent.setup();
-      const components = [
-        createComponent({ componentId: 'chain', componentType: 'CHAIN' }),
-      ];
-
-      render(<MemoryRouter><ComponentHealthPanel components={components} /></MemoryRouter>);
-
-      // The component row button is disabled, clicking should not open a modal
-      const rowButton = screen.getByText('Chain').closest('button')!;
-      await user.click(rowButton);
-
-      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-    });
-
-    it('restricted rows have opacity-40 class', () => {
-      const components = [
-        createComponent({ componentId: 'chain', componentType: 'CHAIN' }),
-      ];
-
-      render(<MemoryRouter><ComponentHealthPanel components={components} /></MemoryRouter>);
-
-      const rowButton = screen.getByText('Chain').closest('button')!;
-      expect(rowButton).toHaveClass('opacity-40');
+      // CHAIN is more urgent (OVERDUE) so it sorts first
+      expect(rowButtons[0]).toHaveTextContent('Chain');
+      expect(rowButtons[1]).toHaveTextContent('Fork');
     });
   });
 });

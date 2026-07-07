@@ -207,7 +207,7 @@ describe('Stripe Webhooks', () => {
         .send(JSON.stringify(subscription));
 
       expect(res.status).toBe(200);
-      expect(savedTier).toBe('FREE_FULL');
+      expect(savedTier).toBe('FREE');
     });
 
     it('should set needsDowngradeSelection when user has multiple bikes', async () => {

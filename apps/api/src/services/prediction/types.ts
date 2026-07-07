@@ -94,7 +94,7 @@ export interface PredictionEngineOptions {
   forceRefresh?: boolean;
   /** When provided, overrides userRole-based Pro check */
   isFoundingRider?: boolean;
-  subscriptionTier?: 'FREE_LIGHT' | 'FREE_FULL' | 'PRO';
+  subscriptionTier?: 'FREE' | 'PRO';
 }
 
 /** Internal component data with service info */

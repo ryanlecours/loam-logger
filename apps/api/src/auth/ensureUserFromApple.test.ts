@@ -66,7 +66,7 @@ describe('ensureUserFromApple', () => {
       data: expect.objectContaining({
         email: 'test@test.com',
         role: 'FREE',
-        subscriptionTier: 'FREE_LIGHT',
+        subscriptionTier: 'FREE',
         avatarUrl: null,
       }),
     });

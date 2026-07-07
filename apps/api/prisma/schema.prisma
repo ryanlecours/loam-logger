@@ -34,7 +34,7 @@ model User {
   activatedAt         DateTime?
   activatedBy         String?
   isFoundingRider     Boolean             @default(false)
-  subscriptionTier    SubscriptionTier    @default(FREE_LIGHT)
+  subscriptionTier    SubscriptionTier    @default(FREE)
   stripeCustomerId    String?             @unique
   stripeSubscriptionId String?            @unique
   needsDowngradeSelection Boolean         @default(false)
@@ -398,8 +398,7 @@ enum UserRole {
 }
 
 enum SubscriptionTier {
-  FREE_LIGHT
-  FREE_FULL
+  FREE
   PRO
 }
 

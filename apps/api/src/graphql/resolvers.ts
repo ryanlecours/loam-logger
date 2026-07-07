@@ -8,6 +8,7 @@ import type {
   ComponentLocation,
   Bike,
   Component as ComponentModel,
+  UserRole,
 } from '@prisma/client';
 import { checkRateLimit, checkMutationRateLimit, checkQueryRateLimit } from '../lib/rate-limit';
 import { enqueueSyncJob, enqueueWeatherJob, type SyncProvider } from '../lib/queue';
@@ -29,7 +30,7 @@ import { createId } from '@paralleldrive/cuid2';
 import { logError, logger } from '../lib/logger';
 import { captureServerEvent, invalidateOptOutCache } from '../lib/posthog';
 import { config } from '../config/env';
-import { requireBikeCreation, requireComponentType, getEffectiveTier, getAllowedComponentTypes, canCreateBike, isProTier } from '../auth/tier-access';
+import { requireBikeCreation, requireNoDowngradePending, getEffectiveTier, canCreateBike, isProTier } from '../auth/tier-access';
 import { createCheckoutSession, createBillingPortalSession, type StripePlan, type CheckoutPlatform } from '../services/stripe.service';
 import { TIER_LIMITS } from '@loam/shared';
 import { checkRecentAuth } from '../auth/recent-auth';
@@ -1417,23 +1418,10 @@ export const resolvers = {
         );
       }
 
-      const [bike, tierUser] = await Promise.all([
-        prisma.bike.findFirst({ where: { id: bikeId, userId } }),
-        prisma.user.findUniqueOrThrow({
-          where: { id: userId },
-          select: { subscriptionTier: true, isFoundingRider: true, role: true },
-        }),
-      ]);
+      const bike = await prisma.bike.findFirst({ where: { id: bikeId, userId } });
       if (!bike) {
         throw new GraphQLError('Bike not found', { extensions: { code: 'NOT_FOUND' } });
       }
-
-      // Tier gate: a Free Light user only sees component events whose type is
-      // unlocked for their tier — mirrors the BikeDetail gating so the PDF they
-      // hand a buyer can't accidentally surface data the app hides elsewhere.
-      const allowedTypes = getAllowedComponentTypes(tierUser);
-      const componentTypeFilter: Prisma.ComponentWhereInput | undefined =
-        allowedTypes === 'ALL' ? undefined : { type: { in: allowedTypes } };
 
       const gte = startDate ? new Date(startDate) : undefined;
       const lte = endDate ? new Date(endDate) : undefined;
@@ -1476,7 +1464,7 @@ export const resolvers = {
         }),
         prisma.serviceLog.findMany({
           where: {
-            component: { bikeId, userId, ...(componentTypeFilter ?? {}) },
+            component: { bikeId, userId },
             ...(dateRange ? { performedAt: dateRange } : {}),
           },
           include: { component: true },
@@ -1497,7 +1485,6 @@ export const resolvers = {
           where: {
             userId,
             bikeId,
-            ...(componentTypeFilter ? { component: componentTypeFilter } : {}),
             ...(dateRange
               ? {
                   OR: [
@@ -2229,12 +2216,12 @@ export const resolvers = {
       const userId = requireUserId(ctx);
       const type = input.type;
 
-      // Tier check: enforce component type restriction
+      // Block mutations while a post-downgrade bike selection is pending
       const tierUser = await prisma.user.findUniqueOrThrow({
         where: { id: userId },
         select: { subscriptionTier: true, isFoundingRider: true, needsDowngradeSelection: true },
       });
-      requireComponentType(tierUser, type);
+      requireNoDowngradePending(tierUser);
 
       if (bikeId) {
         const bike = await prisma.bike.findUnique({
@@ -4434,12 +4421,12 @@ export const resolvers = {
 
       const { type: slotType, location: slotLocation } = parseSlotKey(slotKey);
 
-      // Tier check: enforce component type restriction
+      // Block mutations while a post-downgrade bike selection is pending
       const installTierUser = await prisma.user.findUniqueOrThrow({
         where: { id: userId },
         select: { subscriptionTier: true, isFoundingRider: true, needsDowngradeSelection: true },
       });
-      requireComponentType(installTierUser, slotType as ComponentTypeLiteral);
+      requireNoDowngradePending(installTierUser);
 
       // Validate bike ownership
       const bike = await prisma.bike.findFirst({ where: { id: bikeId, userId } });
@@ -5580,22 +5567,20 @@ export const resolvers = {
     },
     tierLimits: async (parent: { id: string; subscriptionTier: string; isFoundingRider?: boolean; role?: string }) => {
       const tierUser = {
-        subscriptionTier: parent.subscriptionTier as 'FREE_LIGHT' | 'FREE_FULL' | 'PRO',
+        subscriptionTier: parent.subscriptionTier as 'FREE' | 'PRO',
         isFoundingRider: parent.isFoundingRider ?? false,
-        role: parent.role,
+        role: parent.role as UserRole | undefined,
       };
       const tier = getEffectiveTier(tierUser);
-      const tierConfig = TIER_LIMITS[tier];
+      const tierConfig = TIER_LIMITS[tier as keyof typeof TIER_LIMITS] ?? TIER_LIMITS.FREE;
       const currentBikeCount = await prisma.bike.count({
         where: { userId: parent.id, status: 'ACTIVE' },
       });
-      const allowed = getAllowedComponentTypes(tierUser);
 
       return {
         maxBikes: tierConfig.maxBikes === Infinity ? null : tierConfig.maxBikes,
-        allowedComponentTypes: allowed === 'ALL'
-          ? Object.values(ComponentTypeEnum)
-          : allowed,
+        // All tiers can track every component type
+        allowedComponentTypes: Object.values(ComponentTypeEnum),
         currentBikeCount,
         canAddBike: canCreateBike(tierUser, currentBikeCount),
       };

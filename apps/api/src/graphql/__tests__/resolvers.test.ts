@@ -4047,7 +4047,7 @@ describe('GraphQL Resolvers', () => {
 
     it('rejects free users with NOT_PRO', async () => {
       mockFindUniqueOrThrow.mockResolvedValueOnce({
-        subscriptionTier: 'FREE_LIGHT',
+        subscriptionTier: 'FREE',
         isFoundingRider: false,
         role: 'FREE',
       });
@@ -4076,7 +4076,7 @@ describe('GraphQL Resolvers', () => {
 
     it('does not consume a rate-limit token for free-user calls', async () => {
       mockFindUniqueOrThrow.mockResolvedValueOnce({
-        subscriptionTier: 'FREE_LIGHT',
+        subscriptionTier: 'FREE',
         isFoundingRider: false,
         role: 'FREE',
       });
@@ -4119,7 +4119,7 @@ describe('GraphQL Resolvers', () => {
 
     it('treats founding riders as Pro', async () => {
       mockFindUniqueOrThrow.mockResolvedValueOnce({
-        subscriptionTier: 'FREE_LIGHT',
+        subscriptionTier: 'FREE',
         isFoundingRider: true,
         role: 'FREE',
       });
@@ -4467,10 +4467,10 @@ describe('GraphQL Resolvers', () => {
       expect(result.installs[0].eventType).toBe('REMOVED');
     });
 
-    it('restricts service & install events to unlocked component types on Free Light', async () => {
+    it('does not apply a component type filter for free users', async () => {
       mockBikeFindFirst.mockResolvedValueOnce({ id: 'bike-1', userId: 'user-123' });
       mockUserFindUniqueOrThrow.mockReset().mockResolvedValue({
-        subscriptionTier: 'FREE_LIGHT',
+        subscriptionTier: 'FREE',
         isFoundingRider: false,
         role: 'FREE',
       });
@@ -4478,18 +4478,13 @@ describe('GraphQL Resolvers', () => {
       const ctx = createMockContext('user-123');
       await resolver({}, { bikeId: 'bike-1' }, ctx as never);
 
-      // Service query's component filter must restrict to unlocked types.
+      // Free = all component types: history queries carry no type restriction.
       const serviceWhere = mockServiceLogFindMany.mock.calls[0][0].where;
       expect(serviceWhere.component.bikeId).toBe('bike-1');
-      expect(serviceWhere.component.type.in).toEqual(
-        expect.arrayContaining(['FORK', 'SHOCK', 'BRAKE_PAD', 'PIVOT_BEARINGS'])
-      );
+      expect(serviceWhere.component.type).toBeUndefined();
 
-      // Install query must scope the same filter onto its joined component.
       const installWhere = mockInstallFindMany.mock.calls[0][0].where;
-      expect(installWhere.component.type.in).toEqual(
-        expect.arrayContaining(['FORK', 'SHOCK', 'BRAKE_PAD', 'PIVOT_BEARINGS'])
-      );
+      expect(installWhere.component).toBeUndefined();
     });
 
     it('does not apply a component type filter for Pro users', async () => {

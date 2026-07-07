@@ -1,14 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation } from '@apollo/client';
-import { ChevronRight, Check, Wrench, Lock } from 'lucide-react';
+import { ChevronRight, Check, Wrench } from 'lucide-react';
 import type { ComponentPrediction } from '../../types/prediction';
 import { STATUS_SEVERITY } from '../../types/prediction';
 import { formatComponentLabel } from '../../utils/formatters';
 import { useHoursDisplay } from '../../hooks/useHoursDisplay';
 import { StatusDot } from './StatusDot';
-import UpgradePrompt from '../UpgradePrompt';
-import { useUserTier } from '../../hooks/useUserTier';
-import { isFreeLightComponent } from '@loam/shared';
 import { SNOOZE_COMPONENT } from '../../graphql/calibration';
 import { BIKES } from '../../graphql/bikes';
 
@@ -321,16 +318,11 @@ function ComponentDetailOverlay({ component, onClose, onServiceLogged, onLogServ
 export function ComponentHealthPanel({ components, className = '', onLogService }: ComponentHealthPanelProps) {
   const [selectedComponent, setSelectedComponent] = useState<ComponentPrediction | null>(null);
   const { hoursDisplay } = useHoursDisplay();
-  const { isFreeLight } = useUserTier();
 
-  const sortedComponents = useMemo(() => {
-    const sorted = getSortedComponentsForHealth(components);
-    if (!isFreeLight) return sorted;
-    // Show unlocked components first, restricted after
-    const unlocked = sorted.filter(c => isFreeLightComponent(c.componentType));
-    const restricted = sorted.filter(c => !isFreeLightComponent(c.componentType));
-    return [...unlocked, ...restricted];
-  }, [components, isFreeLight]);
+  const sortedComponents = useMemo(
+    () => getSortedComponentsForHealth(components),
+    [components]
+  );
 
   // Empty state
   if (components.length === 0) {
@@ -356,64 +348,47 @@ export function ComponentHealthPanel({ components, className = '', onLogService 
       <div className="component-health-list list-stagger">
         {sortedComponents.map((component) => {
           const makeModel = getMakeModel(component);
-          const isRestricted = isFreeLight && !isFreeLightComponent(component.componentType);
 
           return (
             <button
               key={component.componentId}
-              className={`component-health-row ${isRestricted ? 'component-health-row-restricted opacity-40 cursor-default' : ''}`}
-              onClick={() => !isRestricted && setSelectedComponent(component)}
+              className="component-health-row"
+              onClick={() => setSelectedComponent(component)}
               type="button"
-              disabled={isRestricted}
-              aria-disabled={isRestricted}
             >
-              {isRestricted ? (
-                <Lock className="h-3.5 w-3.5 text-amber-400" />
-              ) : (
-                <StatusDot status={component.status} />
-              )}
+              <StatusDot status={component.status} />
               <div className="component-health-name">
                 <span className="component-health-label">
                   {formatComponentLabel(component)}
                 </span>
                 <span className="component-health-make-model">{makeModel}</span>
               </div>
-              {!isRestricted && (
-                <div className="component-health-metrics">
-                  {hoursDisplay === 'total' ? (
-                    <>
-                      <span className="component-health-hours-primary">
-                        {formatHours(component.hoursSinceService)} / {component.serviceIntervalHours}h
-                      </span>
-                      <span className="component-health-hours-secondary">
-                        {formatHours(component.hoursRemaining)} remaining · ~{component.ridesRemainingEstimate} rides
-                      </span>
-                    </>
-                  ) : (
-                    <>
-                      <span className="component-health-hours-primary">
-                        {formatHours(component.hoursRemaining)} remaining
-                      </span>
-                      <span className="component-health-hours-secondary">
-                        {formatHours(component.hoursSinceService)} since service · ~{component.ridesRemainingEstimate} rides
-                      </span>
-                    </>
-                  )}
-                </div>
-              )}
-              {!isRestricted && <ChevronRight className="component-health-chevron" size={12} />}
+              <div className="component-health-metrics">
+                {hoursDisplay === 'total' ? (
+                  <>
+                    <span className="component-health-hours-primary">
+                      {formatHours(component.hoursSinceService)} / {component.serviceIntervalHours}h
+                    </span>
+                    <span className="component-health-hours-secondary">
+                      {formatHours(component.hoursRemaining)} remaining · ~{component.ridesRemainingEstimate} rides
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <span className="component-health-hours-primary">
+                      {formatHours(component.hoursRemaining)} remaining
+                    </span>
+                    <span className="component-health-hours-secondary">
+                      {formatHours(component.hoursSinceService)} since service · ~{component.ridesRemainingEstimate} rides
+                    </span>
+                  </>
+                )}
+              </div>
+              <ChevronRight className="component-health-chevron" size={12} />
             </button>
           );
         })}
       </div>
-
-      {isFreeLight && (
-        <div className="mt-4 flex justify-center">
-          <UpgradePrompt
-            message="Upgrade to Pro to unlock all 23+ component types and unlimited bikes."
-          />
-        </div>
-      )}
 
       {selectedComponent && (
         <ComponentDetailOverlay
