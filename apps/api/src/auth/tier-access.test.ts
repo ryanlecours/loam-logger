@@ -4,6 +4,9 @@ import {
   isProTier,
   canCreateBike,
   canBackfillYear,
+  canSeeWeather,
+  canSeePredictions,
+  requirePro,
   requireBikeCreation,
   requireNoDowngradePending,
 } from './tier-access';
@@ -96,6 +99,55 @@ describe('requireBikeCreation', () => {
       expect(gqlErr.extensions?.code).toBe('TIER_LIMIT_EXCEEDED');
       expect(gqlErr.extensions?.limit).toBe(1);
     }
+  });
+});
+
+describe('canSeeWeather / canSeePredictions', () => {
+  // Both gates are defined as Pro-level access — they must agree with
+  // isProTier for every kind of user.
+  const stale: TierUser = {
+    subscriptionTier: 'FREE_LIGHT' as unknown as SubscriptionTier,
+    isFoundingRider: false,
+  };
+
+  it.each([
+    ['free', free, false],
+    ['pro', pro, true],
+    ['founding rider on stored FREE', foundingFree, true],
+    ['stale enum value (mid-deploy)', stale, false],
+  ] as const)('%s → %s', (_label, user, expected) => {
+    expect(canSeeWeather(user)).toBe(expected);
+    expect(canSeePredictions(user)).toBe(expected);
+  });
+
+  it('grants access to admins regardless of stored tier', () => {
+    const admin = { ...free, role: 'ADMIN' as const };
+    expect(canSeeWeather(admin)).toBe(true);
+    expect(canSeePredictions(admin)).toBe(true);
+  });
+});
+
+describe('requirePro', () => {
+  it('does not throw for Pro users, founding riders, or admins', () => {
+    expect(() => requirePro(pro, 'Weather backfill')).not.toThrow();
+    expect(() => requirePro(foundingFree, 'Weather backfill')).not.toThrow();
+    expect(() => requirePro({ ...free, role: 'ADMIN' }, 'Weather backfill')).not.toThrow();
+  });
+
+  it('throws NOT_PRO with the feature name for free users', () => {
+    try {
+      requirePro(free, 'Predictive mode');
+      fail('should have thrown');
+    } catch (err: unknown) {
+      const gqlErr = err as { message: string; extensions?: { code?: string } };
+      expect(gqlErr.message).toBe('Predictive mode is a Pro feature.');
+      expect(gqlErr.extensions?.code).toBe('NOT_PRO');
+    }
+  });
+
+  it('throws for stale enum values rather than granting access', () => {
+    const stale = { subscriptionTier: 'FREE_FULL' as unknown as SubscriptionTier, isFoundingRider: false };
+    expect(() => requirePro(stale, 'Weather backfill')).toThrow('Weather backfill is a Pro feature.');
   });
 });
 
