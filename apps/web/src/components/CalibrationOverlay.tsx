@@ -12,7 +12,7 @@ import {
   type BikeCalibrationInfo,
 } from '../graphql/calibration';
 import { formatComponentLabel } from '../utils/formatters';
-import type { ComponentPrediction, PredictionStatus } from '../types/prediction';
+import type { ComponentPrediction } from '../types/prediction';
 
 interface CalibrationOverlayProps {
   isOpen: boolean;
@@ -46,7 +46,7 @@ function getMonthInputBounds(): { min: string; max: string } {
 // components on those bikes (not just needs-attention ones), so this helper
 // is what the frontend uses to badge, sort, pre-select, and gate the
 // completion counter. Keep in sync with apps/api/src/graphql/resolvers.ts.
-function isNeedsAttention(status: string): boolean {
+function isNeedsAttention(status: string | null): boolean {
   return status === 'OVERDUE' || status === 'DUE_NOW';
 }
 
@@ -599,8 +599,9 @@ function BikeSection({
 
   const sortedComponents = useMemo(() => {
     return [...bike.components].sort((a, b) => {
-      const aPri = STATUS_PRIORITY[a.status] ?? 99;
-      const bPri = STATUS_PRIORITY[b.status] ?? 99;
+      // Null status (free tier) sorts last, like an unknown status.
+      const aPri = (a.status != null ? STATUS_PRIORITY[a.status] : undefined) ?? 99;
+      const bPri = (b.status != null ? STATUS_PRIORITY[b.status] : undefined) ?? 99;
       if (aPri !== bPri) return aPri - bPri;
       // Stable tie-break so same-status rows don't reshuffle between renders.
       return a.componentId.localeCompare(b.componentId);
@@ -819,7 +820,7 @@ function ComponentRow({
     const monthValue = formatMonthValue(inlineDate.month, inlineDate.year);
     return (
       <div className="calibration-component">
-        <StatusDot status={component.status as PredictionStatus} />
+        <StatusDot status={component.status} />
         <div className="calibration-component-info">
           <span className="calibration-component-label">{label}</span>
           <span className="calibration-component-make">{makeModel}</span>
@@ -867,7 +868,7 @@ function ComponentRow({
         className="calibration-component-checkbox"
         aria-label={`Select ${label}`}
       />
-      <StatusDot status={component.status as PredictionStatus} />
+      <StatusDot status={component.status} />
       <div className="calibration-component-info">
         <span className="calibration-component-label">{label}</span>
         <span className="calibration-component-make">{makeModel}</span>

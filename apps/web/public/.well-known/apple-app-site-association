@@ -14,7 +14,7 @@
           },
           {
             "/": "/signup",
-            "comment": "Opens the signup screen in the mobile app, capturing any ?ref= query param for referral attribution"
+            "comment": "Opens the signup screen in the mobile app"
           },
           {
             "/": "/signup/*",

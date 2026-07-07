@@ -25,6 +25,7 @@ export const CALIBRATION_STATE = gql`
           currentHours
           serviceIntervalHours
           hoursSinceService
+          ridesSinceService
         }
       }
     }

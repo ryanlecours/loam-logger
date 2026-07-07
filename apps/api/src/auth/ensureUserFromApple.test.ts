@@ -3,7 +3,6 @@ const mockUserAccountCreate = jest.fn();
 const mockUserFindUnique = jest.fn();
 const mockUserCreate = jest.fn();
 const mockUserUpdate = jest.fn();
-const mockReferralCreate = jest.fn();
 const mockTransaction = jest.fn();
 
 jest.mock('../lib/prisma', () => ({
@@ -16,18 +15,12 @@ jest.mock('../lib/logger', () => ({
   logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
 }));
 
-jest.mock('../services/referral.service', () => ({
-  resolveReferrer: jest.fn().mockResolvedValue(null),
-  createUserWithReferralCode: jest.fn(async (fn: (code: string) => Promise<unknown>) => fn('abc12345')),
-}));
-
 const mockConfig = { bypassWaitlistFlow: false };
 jest.mock('../config/env', () => ({
   config: mockConfig,
 }));
 
 import { ensureUserFromApple } from './ensureUserFromApple';
-import { resolveReferrer } from '../services/referral.service';
 
 function createTx() {
   return {
@@ -39,9 +32,6 @@ function createTx() {
       findUnique: mockUserFindUnique,
       create: mockUserCreate,
       update: mockUserUpdate,
-    },
-    referral: {
-      create: mockReferralCreate,
     },
   };
 }
@@ -76,44 +66,13 @@ describe('ensureUserFromApple', () => {
       data: expect.objectContaining({
         email: 'test@test.com',
         role: 'FREE',
-        subscriptionTier: 'FREE_LIGHT',
-        referralCode: 'abc12345',
+        subscriptionTier: 'FREE',
         avatarUrl: null,
       }),
     });
     expect(mockUserAccountCreate).toHaveBeenCalledWith({
       data: { userId: 'new-user', provider: 'apple', providerUserId: 'apple-001.abc123' },
     });
-  });
-
-  it('should create referral record when ref is provided', async () => {
-    mockConfig.bypassWaitlistFlow = true;
-    (resolveReferrer as jest.Mock).mockResolvedValue('referrer-id');
-    mockTransaction.mockImplementation(async (fn: (t: unknown) => unknown) => fn(createTx()));
-    mockUserAccountFindUnique.mockResolvedValue(null);
-    mockUserFindUnique.mockResolvedValue(null);
-    mockUserCreate.mockResolvedValue({ id: 'new-user', email: 'test@test.com' });
-    mockUserAccountCreate.mockResolvedValue({});
-
-    await ensureUserFromApple(baseClaims, 'refcode');
-
-    expect(resolveReferrer).toHaveBeenCalledWith('refcode');
-    expect(mockReferralCreate).toHaveBeenCalledWith({
-      data: { referrerUserId: 'referrer-id', referredUserId: 'new-user' },
-    });
-  });
-
-  it('should not create referral when ref is not provided', async () => {
-    mockConfig.bypassWaitlistFlow = true;
-    mockTransaction.mockImplementation(async (fn: (t: unknown) => unknown) => fn(createTx()));
-    mockUserAccountFindUnique.mockResolvedValue(null);
-    mockUserFindUnique.mockResolvedValue(null);
-    mockUserCreate.mockResolvedValue({ id: 'new-user', email: 'test@test.com' });
-    mockUserAccountCreate.mockResolvedValue({});
-
-    await ensureUserFromApple(baseClaims);
-
-    expect(mockReferralCreate).not.toHaveBeenCalled();
   });
 
   it('should return existing user for linked Apple account', async () => {

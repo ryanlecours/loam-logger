@@ -19,9 +19,6 @@ jest.mock('../lib/prisma', () => ({
       updateMany: jest.fn(),
       count: jest.fn(),
     },
-    referral: {
-      findFirst: jest.fn(),
-    },
     $transaction: jest.fn(),
   },
 }));
@@ -188,14 +185,17 @@ describe('Stripe Webhooks', () => {
       mockConstructEvent.mockReturnValue(makeEvent('customer.subscription.deleted', subscription));
     });
 
-    it('should downgrade user to FREE_LIGHT when no referrals', async () => {
+    it('should downgrade user to the free tier', async () => {
+      let savedTier: string | undefined;
       (mockPrisma.$transaction as jest.Mock).mockImplementation(async (fn: (tx: unknown) => unknown) => {
         const tx = {
           user: {
             findUnique: jest.fn().mockResolvedValue({ isFoundingRider: false, subscriptionTier: 'PRO', email: 'test@test.com', name: 'Test' }),
-            update: jest.fn().mockResolvedValue({}),
+            update: jest.fn().mockImplementation(({ data }: { data: { subscriptionTier: string } }) => {
+              savedTier = data.subscriptionTier;
+              return Promise.resolve({});
+            }),
           },
-          referral: { findFirst: jest.fn().mockResolvedValue(null) },
           bike: { count: jest.fn().mockResolvedValue(1) },
         };
         return fn(tx);
@@ -207,31 +207,7 @@ describe('Stripe Webhooks', () => {
         .send(JSON.stringify(subscription));
 
       expect(res.status).toBe(200);
-    });
-
-    it('should downgrade to FREE_FULL when user has completed referral', async () => {
-      let savedTier: string | undefined;
-      (mockPrisma.$transaction as jest.Mock).mockImplementation(async (fn: (tx: unknown) => unknown) => {
-        const tx = {
-          user: {
-            findUnique: jest.fn().mockResolvedValue({ isFoundingRider: false, subscriptionTier: 'PRO', email: 'test@test.com', name: 'Test' }),
-            update: jest.fn().mockImplementation(({ data }: { data: { subscriptionTier: string } }) => {
-              savedTier = data.subscriptionTier;
-              return Promise.resolve({});
-            }),
-          },
-          referral: { findFirst: jest.fn().mockResolvedValue({ id: 'ref-1' }) },
-          bike: { count: jest.fn().mockResolvedValue(1) },
-        };
-        return fn(tx);
-      });
-
-      await request(app)
-        .post('/')
-        .set('stripe-signature', 'valid')
-        .send(JSON.stringify(subscription));
-
-      expect(savedTier).toBe('FREE_FULL');
+      expect(savedTier).toBe('FREE');
     });
 
     it('should set needsDowngradeSelection when user has multiple bikes', async () => {
@@ -245,7 +221,6 @@ describe('Stripe Webhooks', () => {
               return Promise.resolve({});
             }),
           },
-          referral: { findFirst: jest.fn().mockResolvedValue(null) },
           bike: { count: jest.fn().mockResolvedValue(3) },
         };
         return fn(tx);
@@ -266,7 +241,6 @@ describe('Stripe Webhooks', () => {
             findUnique: jest.fn().mockResolvedValue({ isFoundingRider: true, subscriptionTier: 'PRO', email: 'test@test.com', name: 'Test' }),
             update: jest.fn(),
           },
-          referral: { findFirst: jest.fn() },
           bike: { count: jest.fn() },
         };
         return fn(tx);
@@ -399,7 +373,6 @@ describe('Stripe Webhooks', () => {
             findUnique: jest.fn().mockResolvedValue({ isFoundingRider: false, subscriptionTier: 'PRO', email: 'test@test.com', name: 'Test' }),
             update: jest.fn().mockResolvedValue({}),
           },
-          referral: { findFirst: jest.fn().mockResolvedValue(null) },
           bike: { count: jest.fn().mockResolvedValue(1) },
         };
         return fn(tx);

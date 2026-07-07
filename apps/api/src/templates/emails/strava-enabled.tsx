@@ -258,7 +258,7 @@ export default function StravaIntegrationLiveEmail({
           <Section style={styles.footer}>
             <Text className="ll-footer" style={{ ...styles.footerText, marginBottom: 0 }}>
               Loam Logger is a product of Loam Labs LLC. You are receiving this
-              because you signed up for beta access.
+              because you have a Loam Logger account.
             </Text>
 
             {unsubscribeUrl ? (

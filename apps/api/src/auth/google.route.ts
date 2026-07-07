@@ -23,7 +23,7 @@ const client = new OAuth2Client({
 
 router.post('/google/code', express.json(), async (req, res) => {
   try {
-    const { credential, ref } = req.body as { credential?: string; ref?: string };
+    const { credential } = req.body as { credential?: string };
     if (!credential) return res.status(400).send('Missing credential');
 
     // Verify the ID token directly
@@ -34,17 +34,13 @@ router.post('/google/code', express.json(), async (req, res) => {
     const p = ticket.getPayload();
     if (!p?.sub) return res.status(401).send('Invalid Google token');
 
-    const { user } = await ensureUserFromGoogle(
-      {
-        sub: p.sub,
-        email: p.email ?? undefined,
-        email_verified: p.email_verified,
-        name: p.name,
-        picture: p.picture,
-      },
-      undefined,
-      ref,
-    );
+    const { user } = await ensureUserFromGoogle({
+      sub: p.sub,
+      email: p.email ?? undefined,
+      email_verified: p.email_verified,
+      name: p.name,
+      picture: p.picture,
+    });
 
     // Update last auth timestamp for recent-auth gating (non-blocking)
     updateLastAuthAt(user.id).catch((err) =>

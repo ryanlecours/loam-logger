@@ -6,6 +6,19 @@ import { ImportRidesForm } from './ImportRidesForm';
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
 
+// Tier hook needs an Apollo provider - default to Pro so existing tests
+// exercise the full year list.
+vi.mock('@/hooks/useUserTier', () => ({
+  useUserTier: () => ({ isPro: true, isFree: false }),
+}));
+
+// Upsell components use useNavigate, which requires a Router
+vi.mock('@/components/UpgradePrompt', () => ({
+  default: () => null,
+  ProChip: () => null,
+  UpsellCard: () => null,
+}));
+
 // Mock CSRF headers
 vi.mock('@/lib/csrf', () => ({
   getAuthHeaders: () => ({ 'x-csrf-token': 'test-token' }),

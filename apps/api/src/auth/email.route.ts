@@ -33,11 +33,10 @@ router.post('/signup', express.json(), async (req, res) => {
       return sendTooManyRequests(res, 'Too many signup attempts. Please try again later.', rateLimit.retryAfter);
     }
 
-    const { email: rawEmail, name, password, ref } = req.body as {
+    const { email: rawEmail, name, password } = req.body as {
       email?: string;
       name?: string;
       password?: string;
-      ref?: string;
     };
 
     if (!rawEmail) {
@@ -77,7 +76,7 @@ router.post('/signup', express.json(), async (req, res) => {
     const verifiedEmail = check.email;
 
     const passwordHash = await hashPassword(password);
-    const { user } = await createNewUser({ email: verifiedEmail, name: name.trim(), passwordHash, ref });
+    const { user } = await createNewUser({ email: verifiedEmail, name: name.trim(), passwordHash });
 
     await issueWebSession(res, { id: user.id, email: user.email });
     const csrfToken = setCsrfCookie(res);

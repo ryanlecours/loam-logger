@@ -35,6 +35,15 @@ jest.mock('../lib/prisma', () => ({
       upsert: mockUpsert,
       deleteMany: mockDeleteMany,
     },
+    user: {
+      // Import-depth tier gate lookup — default to Pro so existing tests
+      // exercise the underlying route behavior.
+      findUniqueOrThrow: jest.fn().mockResolvedValue({
+        subscriptionTier: 'PRO',
+        isFoundingRider: false,
+        role: 'FREE',
+      }),
+    },
     $transaction: mockTransaction,
   },
 }));

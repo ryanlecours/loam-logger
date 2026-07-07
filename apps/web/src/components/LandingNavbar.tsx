@@ -67,7 +67,7 @@ export default function LandingNavbar() {
                 fontSize: '0.875rem',
               }}
             >
-              Join Beta
+              Start Free
             </Link>
           </div>
 
@@ -165,7 +165,7 @@ export default function LandingNavbar() {
                   fontSize: '0.875rem',
                 }}
               >
-                Join Beta
+                Start Free
               </Link>
             </div>
           </motion.div>

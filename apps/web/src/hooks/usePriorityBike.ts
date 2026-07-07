@@ -90,8 +90,9 @@ export function getTopDueComponents(
   const urgentStatuses: PredictionStatus[] = ['OVERDUE', 'DUE_NOW', 'DUE_SOON'];
 
   // Filter to urgent components, or include ALL_GOOD if none urgent
-  let components = predictions.components.filter((c) =>
-    urgentStatuses.includes(c.status)
+  // (status is null for free-tier users — never urgent)
+  let components = predictions.components.filter(
+    (c) => c.status != null && urgentStatuses.includes(c.status)
   );
 
   // If no urgent components, take from all
@@ -99,12 +100,15 @@ export function getTopDueComponents(
     components = predictions.components;
   }
 
-  // Sort by severity then hours remaining
+  // Sort by severity then hours remaining (null status = lowest severity,
+  // null hoursRemaining sorts last)
   return [...components]
     .sort((a, b) => {
-      const severityDiff = STATUS_SEVERITY[b.status] - STATUS_SEVERITY[a.status];
+      const severityA = a.status ? STATUS_SEVERITY[a.status] : 0;
+      const severityB = b.status ? STATUS_SEVERITY[b.status] : 0;
+      const severityDiff = severityB - severityA;
       if (severityDiff !== 0) return severityDiff;
-      return a.hoursRemaining - b.hoursRemaining;
+      return (a.hoursRemaining ?? Infinity) - (b.hoursRemaining ?? Infinity);
     })
     .slice(0, count);
 }

@@ -1,7 +1,7 @@
 import { Suspense, lazy, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { useMutation, useQuery } from '@apollo/client';
-import { ArrowLeft, Bike as BikeIcon, CalendarClock, Check, FileDown, MinusCircle, PlusCircle, TriangleAlert, Wrench } from 'lucide-react';
+import { gql, useMutation, useQuery } from '@apollo/client';
+import { ArrowLeft, Bike as BikeIcon, CalendarClock, Check, FileDown, Link2, MinusCircle, PlusCircle, TriangleAlert, Wrench } from 'lucide-react';
 
 import { BIKE_HISTORY } from '@/graphql/bikeHistory';
 import { BULK_UPDATE_BIKE_COMPONENT_INSTALLS } from '@/graphql/bike';
@@ -23,8 +23,22 @@ import {
   type HistoryServiceEvent,
   type Timeframe,
 } from '@/lib/bikeHistory';
+import { useUserTier } from '@/hooks/useUserTier';
+import { UpsellCard } from '@/components/UpgradePrompt';
 
 const BikeHistoryPdfButton = lazy(() => import('@/components/history/BikeHistoryPdfButton'));
+
+const ENABLE_BIKE_SHARE = gql`
+  mutation EnableBikeShare($bikeId: ID!) {
+    enableBikeShare(bikeId: $bikeId)
+  }
+`;
+
+const DISABLE_BIKE_SHARE = gql`
+  mutation DisableBikeShare($bikeId: ID!) {
+    disableBikeShare(bikeId: $bikeId)
+  }
+`;
 
 function componentDisplay(component: ComponentLite): string {
   const label = getComponentLabel(component.type);
@@ -36,7 +50,9 @@ function componentDisplay(component: ComponentLite): string {
 export default function BikeHistory() {
   const { bikeId } = useParams<{ bikeId: string }>();
   const { distanceUnit } = usePreferences();
+  const { isPro } = useUserTier();
   const [timeframe, setTimeframe] = useState<Timeframe>('all');
+  const [showPdfUpsell, setShowPdfUpsell] = useState(false);
   const [showRides, setShowRides] = useState(true);
   const [showService, setShowService] = useState(true);
   const [editingService, setEditingService] = useState<{
@@ -72,6 +88,39 @@ export default function BikeHistory() {
   const [bulkUpdateInstalls] = useMutation(BULK_UPDATE_BIKE_COMPONENT_INSTALLS, {
     refetchQueries: bikeId ? [{ query: BIKE_HISTORY, variables: { bikeId } }] : [],
   });
+
+  // Public share link — free for all tiers (it's a growth surface).
+  const [shareState, setShareState] = useState<'idle' | 'copied'>('idle');
+  const [enableShare, { loading: shareLoading }] = useMutation(ENABLE_BIKE_SHARE, {
+    refetchQueries: bikeId ? [{ query: BIKE_HISTORY, variables: { bikeId, ...range } }] : [],
+  });
+  const [disableShare] = useMutation(DISABLE_BIKE_SHARE, {
+    refetchQueries: bikeId ? [{ query: BIKE_HISTORY, variables: { bikeId, ...range } }] : [],
+  });
+
+  const handleShare = async () => {
+    if (!bikeId) return;
+    try {
+      const { data: shareData } = await enableShare({ variables: { bikeId } });
+      const url = shareData?.enableBikeShare;
+      if (url) {
+        await navigator.clipboard.writeText(url);
+        setShareState('copied');
+        setTimeout(() => setShareState('idle'), 2000);
+      }
+    } catch (err) {
+      console.error('Failed to enable bike share:', err);
+    }
+  };
+
+  const handleUnshare = async () => {
+    if (!bikeId) return;
+    try {
+      await disableShare({ variables: { bikeId } });
+    } catch (err) {
+      console.error('Failed to disable bike share:', err);
+    }
+  };
 
   const exitSelectionMode = () => {
     setSelectionMode(false);
@@ -197,6 +246,15 @@ export default function BikeHistory() {
               </div>
             </div>
             <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={handleShare} disabled={shareLoading}>
+                <Link2 size={14} className="icon-left" />
+                {shareState === 'copied' ? 'Link copied!' : payload.bike.shareSlug ? 'Copy share link' : 'Share'}
+              </Button>
+              {payload.bike.shareSlug && (
+                <Button variant="outline" size="sm" onClick={handleUnshare}>
+                  Stop sharing
+                </Button>
+              )}
               {!selectionMode ? (
                 <Button variant="outline" size="sm" onClick={() => setSelectionMode(true)}>
                   <CalendarClock size={14} className="icon-left" />
@@ -207,18 +265,32 @@ export default function BikeHistory() {
                   Cancel
                 </Button>
               )}
-              <Suspense fallback={<Button variant="outline" size="sm" disabled><FileDown size={14} className="icon-left" /> Preparing…</Button>}>
-                <BikeHistoryPdfButton
-                  bike={payload.bike}
-                  totals={payload.totals}
-                  yearGroups={yearGroups}
-                  distanceUnit={distanceUnit}
-                  timeframeLabel={TIMEFRAME_LABEL[timeframe]}
-                  truncated={payload.truncated}
-                />
-              </Suspense>
+              {isPro ? (
+                <Suspense fallback={<Button variant="outline" size="sm" disabled><FileDown size={14} className="icon-left" /> Preparing…</Button>}>
+                  <BikeHistoryPdfButton
+                    bike={payload.bike}
+                    totals={payload.totals}
+                    yearGroups={yearGroups}
+                    distanceUnit={distanceUnit}
+                    timeframeLabel={TIMEFRAME_LABEL[timeframe]}
+                    truncated={payload.truncated}
+                  />
+                </Suspense>
+              ) : (
+                <Button variant="outline" size="sm" onClick={() => setShowPdfUpsell(true)}>
+                  <FileDown size={14} className="icon-left" />
+                  Export PDF
+                  <span className="ml-1.5 rounded-full border border-amber-500/40 bg-amber-500/10 px-1.5 text-[10px] font-semibold uppercase text-amber-400">Pro</span>
+                </Button>
+              )}
             </div>
           </div>
+
+          {showPdfUpsell && !isPro && (
+            <div className="mb-4">
+              <UpsellCard feature="pdfExport" />
+            </div>
+          )}
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
             <TotalChip label="Rides" value={payload.totals.rideCount.toLocaleString()} />

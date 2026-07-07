@@ -1,7 +1,7 @@
 import type { PredictionStatus } from '../../types/prediction';
 
 interface StatusDotProps {
-  status: PredictionStatus;
+  status: PredictionStatus | null;
   className?: string;
 }
 
@@ -13,6 +13,9 @@ const STATUS_CLASSES: Record<PredictionStatus, string> = {
 };
 
 export function StatusDot({ status, className = '' }: StatusDotProps) {
+  // Predictive status is Pro-only; render nothing when the API serves null.
+  if (!status) return null;
+
   const statusClass = STATUS_CLASSES[status];
 
   return <span className={`status-dot ${statusClass} ${className}`.trim()} />;

@@ -1,6 +1,5 @@
 import { prisma } from '../lib/prisma';
 import { logger } from '../lib/logger';
-import { resolveReferrer, createUserWithReferralCode } from './referral.service';
 
 /** Branded type: an email that has been verified as not already registered */
 export type VerifiedUniqueEmail = string & { __brand: 'verified_unique_email' };
@@ -24,7 +23,6 @@ export type CreateNewUserOpts = {
   email: VerifiedUniqueEmail;
   name: string | null;
   passwordHash: string | null;
-  ref?: string | null;
 };
 
 export type CreateNewUserResult = {
@@ -32,8 +30,7 @@ export type CreateNewUserResult = {
 };
 
 /**
- * Create a new active FREE user with referral handling. User + referral are
- * created atomically.
+ * Create a new active FREE user.
  *
  * This is the single source of truth for user creation across all signup
  * routes (web, mobile). Each route is responsible for:
@@ -44,34 +41,19 @@ export type CreateNewUserResult = {
  * - Setting up the auth response (session cookie vs tokens)
  */
 export async function createNewUser(opts: CreateNewUserOpts): Promise<CreateNewUserResult> {
-  const { email, name, passwordHash, ref } = opts;
+  const { email, name, passwordHash } = opts;
 
-  const referrerId = ref ? await resolveReferrer(ref) : null;
+  const user = await prisma.user.create({
+    data: {
+      email,
+      name,
+      role: 'FREE',
+      subscriptionTier: 'FREE',
+      passwordHash,
+    },
+  });
 
-  const user = await createUserWithReferralCode((referralCode) =>
-    prisma.$transaction(async (tx) => {
-      const created = await tx.user.create({
-        data: {
-          email,
-          name,
-          role: 'FREE',
-          subscriptionTier: 'FREE_LIGHT',
-          referralCode,
-          passwordHash,
-        },
-      });
-
-      if (referrerId) {
-        await tx.referral.create({
-          data: { referrerUserId: referrerId, referredUserId: created.id },
-        });
-      }
-
-      return created;
-    })
-  );
-
-  logger.info({ email, hasReferral: !!referrerId }, 'New user registered');
+  logger.info({ email }, 'New user registered');
 
   return {
     user: { id: user.id, email: user.email },

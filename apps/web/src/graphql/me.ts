@@ -14,7 +14,6 @@ export const ME_QUERY = gql`
       role
       isFoundingRider
       subscriptionTier
-      referralCode
       needsDowngradeSelection
       tierLimits {
         maxBikes

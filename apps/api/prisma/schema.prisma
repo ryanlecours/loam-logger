@@ -34,10 +34,9 @@ model User {
   activatedAt         DateTime?
   activatedBy         String?
   isFoundingRider     Boolean             @default(false)
-  subscriptionTier    SubscriptionTier    @default(FREE_LIGHT)
+  subscriptionTier    SubscriptionTier    @default(FREE)
   stripeCustomerId    String?             @unique
   stripeSubscriptionId String?            @unique
-  referralCode        String?             @unique
   needsDowngradeSelection Boolean         @default(false)
   subscriptionProvider    SubscriptionProvider?
   emailUnsubscribed   Boolean             @default(false)
@@ -70,8 +69,6 @@ model User {
   oauthAttempts       OAuthAttempt[]
   integrations        UserIntegration[]
   notificationLogs    NotificationLog[]
-  referralsMade       Referral[]          @relation("ReferralsMade")
-  referralReceived    Referral?           @relation("ReferralReceived")
   passwordResetTokens PasswordResetToken[]
 
   // Push notification preferences
@@ -195,6 +192,9 @@ model Bike {
   travelForkMm       Int?
   travelShockMm      Int?
   notes              String?
+  // Public share slug for the read-only bike-history page (loamlogger.app/share/<slug>).
+  // Set on enableBikeShare, nulled on disable; unguessable random token.
+  shareSlug          String?             @unique
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
   year               Int?
@@ -401,8 +401,7 @@ enum UserRole {
 }
 
 enum SubscriptionTier {
-  FREE_LIGHT
-  FREE_FULL
+  FREE
   PRO
 }
 
@@ -410,11 +409,6 @@ enum SubscriptionProvider {
   STRIPE
   APPLE
   GOOGLE
-}
-
-enum ReferralStatus {
-  PENDING
-  COMPLETED
 }
 
 enum ComponentLocation {
@@ -501,7 +495,6 @@ enum EmailType {
   upgrade_confirmation
   downgrade_notice
   payment_failed
-  referral_success
   mobile_app_launch
 }
 
@@ -754,16 +747,3 @@ model PasswordResetToken {
   @@index([expiresAt])
 }
 
-model Referral {
-  id             String         @id @default(cuid())
-  referrerUserId String
-  referredUserId String         @unique
-  status         ReferralStatus @default(PENDING)
-  completedAt    DateTime?
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
-  referrer       User           @relation("ReferralsMade", fields: [referrerUserId], references: [id], onDelete: Cascade)
-  referred       User           @relation("ReferralReceived", fields: [referredUserId], references: [id], onDelete: Cascade)
-
-  @@index([referrerUserId])
-}

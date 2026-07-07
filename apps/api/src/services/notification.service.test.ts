@@ -440,6 +440,8 @@ describe('notification.service', () => {
         distanceUnit: 'mi',
         role: 'USER',
         predictionMode: 'simple',
+        subscriptionTier: 'PRO',
+        isFoundingRider: false,
       });
       (mockPrisma.bike.findUnique as jest.Mock).mockResolvedValue({
         nickname: 'Trail Bike',
@@ -447,6 +449,29 @@ describe('notification.service', () => {
         model: 'Hightower',
       });
       mockGenerateBikePredictions.mockResolvedValue(null);
+    });
+
+    it('skips the service-due check entirely for free users', async () => {
+      // Service-due pushes carry rides/hours-remaining predictions — Pro-only.
+      (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({
+        expoPushToken: 'ExponentPushToken[abc123]',
+        notifyOnRideUpload: true,
+        distanceUnit: 'mi',
+        role: 'USER',
+        predictionMode: 'simple',
+        subscriptionTier: 'FREE',
+        isFoundingRider: false,
+      });
+      mockSendPushNotificationsAsync.mockResolvedValue([{ status: 'ok', id: 'ticket-free' }]);
+
+      await fireRideNotifications(baseParams);
+
+      // Ride-upload push still goes out; prediction engine is never invoked.
+      expect(mockGenerateBikePredictions).not.toHaveBeenCalled();
+      const uploadCall = mockSendPushNotificationsAsync.mock.calls.find(
+        (call) => call[0]?.[0]?.title === 'Ride Synced'
+      );
+      expect(uploadCall).toBeDefined();
     });
 
     it('should return early when isNewRide is false', async () => {

@@ -1,6 +1,13 @@
 import DataLoader from 'dataloader';
 import { prisma } from '../lib/prisma';
-import type { ServiceLog, RideWeather } from '@prisma/client';
+import type { ServiceLog, RideWeather, SubscriptionTier, UserRole } from '@prisma/client';
+
+/** Minimal user shape needed for tier-access checks (isProTier etc.). */
+export type TierUserRow = {
+  subscriptionTier: SubscriptionTier;
+  isFoundingRider: boolean;
+  role: UserRole;
+};
 
 /**
  * Batch loads service logs for multiple components in a single query.
@@ -71,6 +78,22 @@ async function batchWeatherByRideId(
 }
 
 /**
+ * Batch loads the tier fields for many users in one query.
+ * Field resolvers that gate on tier (e.g. Ride.weather, fired once per ride
+ * in a list) share one cached lookup per request instead of N user queries.
+ */
+async function batchTierUserById(
+  userIds: readonly string[]
+): Promise<(TierUserRow | null)[]> {
+  const rows = await prisma.user.findMany({
+    where: { id: { in: [...userIds] } },
+    select: { id: true, subscriptionTier: true, isFoundingRider: true, role: true },
+  });
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  return userIds.map((id) => byId.get(id) ?? null);
+}
+
+/**
  * Creates fresh DataLoader instances for a single request.
  * DataLoaders cache within a request, so create new instances per request
  * to avoid data leakage between users/requests.
@@ -85,6 +108,9 @@ export function createDataLoaders() {
     ),
     weatherByRideId: new DataLoader<string, RideWeather | null>(
       batchWeatherByRideId
+    ),
+    tierUserById: new DataLoader<string, TierUserRow | null>(
+      batchTierUserById
     ),
   };
 }

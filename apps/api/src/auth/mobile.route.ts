@@ -56,11 +56,10 @@ router.post('/mobile/signup', express.json(), async (req, res) => {
       return sendTooManyRequests(res, 'Too many signup attempts. Please try again later.', rateLimit.retryAfter);
     }
 
-    const { email: rawEmail, password, name, ref } = req.body as {
+    const { email: rawEmail, password, name } = req.body as {
       email?: string;
       password?: string;
       name?: string;
-      ref?: string;
     };
 
     // Validate email
@@ -106,11 +105,11 @@ router.post('/mobile/signup', express.json(), async (req, res) => {
       return sendBadRequest(res, 'Name must be 100 characters or fewer');
     }
 
-    const { user } = await createNewUser({ email: verifiedEmail, name: trimmedName, passwordHash, ref });
+    const { user } = await createNewUser({ email: verifiedEmail, name: trimmedName, passwordHash });
 
     const { accessToken, refreshToken } = await issueMobileTokens({ id: user.id, email: user.email });
 
-    auditLogger.info({ userId: user.id, provider: 'email', wasCreated: true, hasRef: !!ref }, 'Mobile account created');
+    auditLogger.info({ userId: user.id, provider: 'email', wasCreated: true }, 'Mobile account created');
 
     return res.status(201).json({
       ok: true,
@@ -230,13 +229,12 @@ router.post('/mobile/apple', express.json(), async (req, res) => {
 
     // Mobile client sends `{ user: { email, name: { firstName, lastName } } }` — Apple only
     // populates these on the FIRST sign-in per Apple ID, so they may be undefined.
-    const { identityToken, user: clientUser, ref } = req.body as {
+    const { identityToken, user: clientUser } = req.body as {
       identityToken?: string;
       user?: {
         email?: string;
         name?: { firstName?: string; lastName?: string } | null;
       } | null;
-      ref?: string;
     };
     const clientEmail = clientUser?.email;
 
@@ -247,10 +245,6 @@ router.post('/mobile/apple', express.json(), async (req, res) => {
     if (clientEmail && !validateEmailFormat(clientEmail)) {
       logger.warn({ field: 'email', route: 'mobile/apple' }, 'Apple sign-in 400: invalid client email');
       return sendBadRequest(res, 'Invalid email', 'INVALID_EMAIL');
-    }
-    if (ref && ref.length > 20) {
-      logger.warn({ field: 'ref', refLength: ref.length, route: 'mobile/apple' }, 'Apple sign-in 400: invalid ref');
-      return sendBadRequest(res, 'Invalid ref', 'INVALID_REF');
     }
     if (!config.appleBundleId) {
       logger.error({ route: 'mobile/apple' }, '[MobileAuth] APPLE_BUNDLE_ID not configured');
@@ -292,7 +286,7 @@ router.post('/mobile/apple', express.json(), async (req, res) => {
       clientEmail: clientEmail || undefined,
       email_verified: emailVerified,
       name,
-    }, ref);
+    });
 
     // Update last auth timestamp for recent-auth gating (non-blocking)
     updateLastAuthAt(user.id).catch((err) =>

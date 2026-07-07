@@ -52,6 +52,7 @@ jest.mock('../../lib/prisma', () => ({
     },
     user: {
       update: jest.fn(),
+      findUnique: jest.fn(),
       findUniqueOrThrow: jest.fn().mockResolvedValue({ subscriptionTier: 'PRO', isFoundingRider: false, needsDowngradeSelection: false }),
     },
     bikeServicePreference: {
@@ -78,10 +79,20 @@ jest.mock('../../lib/prisma', () => ({
 
 jest.mock('../../lib/rate-limit', () => ({
   checkMutationRateLimit: jest.fn().mockResolvedValue({ allowed: true }),
+  checkAuthRateLimit: jest.fn().mockResolvedValue({ allowed: true }),
 }));
 
 jest.mock('../../services/prediction/cache', () => ({
   invalidateBikePrediction: jest.fn().mockResolvedValue(undefined),
+}));
+
+// Mock the prediction engine entry point (dynamically imported by the
+// Bike.predictions resolver) but keep the real, side-effect-free degrade
+// helper so the free-tier nulling behavior is exercised for real.
+jest.mock('../../services/prediction', () => ({
+  generateBikePredictions: jest.fn(),
+  degradeSummaryForFreeTier:
+    jest.requireActual('../../services/prediction/degrade').degradeSummaryForFreeTier,
 }));
 
 jest.mock('../../services/notification.service', () => ({
@@ -118,13 +129,19 @@ const createMockContext = (
   reqOverrides: {
     ip?: string | undefined;
     headers?: Record<string, string | string[]>;
-  } = {}
+  } = {},
+  tierUser: { subscriptionTier: string; isFoundingRider: boolean; role: string } | null = {
+    subscriptionTier: 'PRO',
+    isFoundingRider: false,
+    role: 'FREE',
+  }
 ) => ({
   user: userId ? { id: userId } : null,
   loaders: {
     serviceLogsByComponentId: { load: jest.fn() },
     latestServiceLogByComponentId: { load: jest.fn() },
     weatherByRideId: { load: jest.fn() },
+    tierUserById: { load: jest.fn().mockResolvedValue(tierUser) },
   },
   req: {
     // Only use default IP if ip is not explicitly passed in reqOverrides
@@ -2927,6 +2944,50 @@ describe('GraphQL Resolvers', () => {
         data: { expoPushToken: null },
       });
     });
+
+    it('rejects predictive mode for free users with NOT_PRO', async () => {
+      const ctx = createMockContext();
+      (mockPrisma.user.findUniqueOrThrow as jest.Mock).mockResolvedValueOnce({
+        subscriptionTier: 'FREE',
+        isFoundingRider: false,
+        role: 'FREE',
+      });
+
+      await expect(
+        mutation(null, { input: { predictionMode: 'predictive' } }, ctx)
+      ).rejects.toThrow('Predictive mode is a Pro feature.');
+    });
+
+    it('allows predictive mode for subscription-Pro users (effective tier, not legacy role)', async () => {
+      const ctx = createMockContext();
+      (mockPrisma.user.findUniqueOrThrow as jest.Mock).mockResolvedValueOnce({
+        subscriptionTier: 'PRO',
+        isFoundingRider: false,
+        role: 'FREE', // legacy role never updated — must not block
+      });
+      (mockPrisma.user.update as jest.Mock).mockResolvedValue({ id: 'user-123' });
+
+      await mutation(null, { input: { predictionMode: 'predictive' } }, ctx);
+
+      expect(mockPrisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'user-123' },
+        data: { predictionMode: 'predictive' },
+      });
+    });
+
+    it('allows founding riders to enable predictive mode', async () => {
+      const ctx = createMockContext();
+      (mockPrisma.user.findUniqueOrThrow as jest.Mock).mockResolvedValueOnce({
+        subscriptionTier: 'FREE',
+        isFoundingRider: true,
+        role: 'FREE',
+      });
+      (mockPrisma.user.update as jest.Mock).mockResolvedValue({ id: 'user-123' });
+
+      await mutation(null, { input: { predictionMode: 'predictive' } }, ctx);
+
+      expect(mockPrisma.user.update).toHaveBeenCalled();
+    });
   });
 
   describe('updateBikeNotificationPreference', () => {
@@ -4047,7 +4108,7 @@ describe('GraphQL Resolvers', () => {
 
     it('rejects free users with NOT_PRO', async () => {
       mockFindUniqueOrThrow.mockResolvedValueOnce({
-        subscriptionTier: 'FREE_LIGHT',
+        subscriptionTier: 'FREE',
         isFoundingRider: false,
         role: 'FREE',
       });
@@ -4076,7 +4137,7 @@ describe('GraphQL Resolvers', () => {
 
     it('does not consume a rate-limit token for free-user calls', async () => {
       mockFindUniqueOrThrow.mockResolvedValueOnce({
-        subscriptionTier: 'FREE_LIGHT',
+        subscriptionTier: 'FREE',
         isFoundingRider: false,
         role: 'FREE',
       });
@@ -4119,7 +4180,7 @@ describe('GraphQL Resolvers', () => {
 
     it('treats founding riders as Pro', async () => {
       mockFindUniqueOrThrow.mockResolvedValueOnce({
-        subscriptionTier: 'FREE_LIGHT',
+        subscriptionTier: 'FREE',
         isFoundingRider: true,
         role: 'FREE',
       });
@@ -4183,6 +4244,313 @@ describe('GraphQL Resolvers', () => {
     });
   });
 
+  describe('weather tier gating', () => {
+    const freeTier = { subscriptionTier: 'FREE', isFoundingRider: false, role: 'FREE' };
+
+    it('Ride.weather returns null for free users without touching the loader', async () => {
+      const resolver = resolvers.Ride.weather;
+      const ctx = createMockContext('user-123', {}, freeTier);
+
+      const result = await resolver({ id: 'ride-1' }, {}, ctx as never);
+
+      expect(result).toBeNull();
+      expect(ctx.loaders.weatherByRideId.load).not.toHaveBeenCalled();
+    });
+
+    it('Ride.weather loads weather for Pro users', async () => {
+      const resolver = resolvers.Ride.weather;
+      const ctx = createMockContext('user-123');
+      const weatherRow = { rideId: 'ride-1', tempC: 12 };
+      (ctx.loaders.weatherByRideId.load as jest.Mock).mockResolvedValue(weatherRow);
+
+      const result = await resolver({ id: 'ride-1' }, {}, ctx as never);
+
+      expect(result).toBe(weatherRow);
+    });
+
+    it('Ride.weather loads weather for founding riders', async () => {
+      const resolver = resolvers.Ride.weather;
+      const ctx = createMockContext('user-123', {}, {
+        subscriptionTier: 'FREE', isFoundingRider: true, role: 'FREE',
+      });
+      const weatherRow = { rideId: 'ride-1', tempC: 5 };
+      (ctx.loaders.weatherByRideId.load as jest.Mock).mockResolvedValue(weatherRow);
+
+      const result = await resolver({ id: 'ride-1' }, {}, ctx as never);
+
+      expect(result).toBe(weatherRow);
+    });
+
+    it('User.weatherBreakdown returns a zeroed shape for free users without querying', async () => {
+      const resolver = resolvers.User.weatherBreakdown;
+      const mockGroupBy = prisma.rideWeather.groupBy as jest.Mock;
+      mockGroupBy.mockReset();
+      const ctx = createMockContext('user-123', {}, freeTier);
+
+      const result = await resolver({ id: 'user-123' }, {}, ctx as never);
+
+      expect(result).toEqual({
+        sunny: 0, cloudy: 0, rainy: 0, snowy: 0, windy: 0, foggy: 0, unknown: 0,
+        pending: 0,
+        totalRides: 0,
+      });
+      expect(mockGroupBy).not.toHaveBeenCalled();
+    });
+
+    it('User.ridesMissingWeather returns 0 for free users without counting', async () => {
+      const resolver = resolvers.User.ridesMissingWeather;
+      const mockRideCount = prisma.ride.count as jest.Mock;
+      mockRideCount.mockReset();
+      const ctx = createMockContext('user-123', {}, freeTier);
+
+      const result = await resolver({ id: 'user-123' }, {}, ctx as never);
+
+      expect(result).toBe(0);
+      expect(mockRideCount).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('bike sharing', () => {
+    const mockBikeFindFirst = prisma.bike.findFirst as jest.Mock;
+    const mockBikeFindUnique = prisma.bike.findUnique as jest.Mock;
+    const mockBikeUpdate = prisma.bike.update as jest.Mock;
+
+    beforeEach(() => {
+      mockBikeFindFirst.mockReset();
+      mockBikeFindUnique.mockReset();
+      mockBikeUpdate.mockReset();
+    });
+
+    it('enableBikeShare generates a slug and returns the share URL', async () => {
+      mockBikeFindFirst.mockResolvedValueOnce({ id: 'bike-1', shareSlug: null });
+      mockBikeUpdate.mockResolvedValueOnce({});
+      const ctx = createMockContext('user-123');
+
+      const url = await resolvers.Mutation.enableBikeShare({}, { bikeId: 'bike-1' }, ctx as never);
+
+      expect(url).toMatch(/\/share\/[A-Za-z0-9_-]{12}$/);
+      const savedSlug = mockBikeUpdate.mock.calls[0][0].data.shareSlug;
+      expect(url.endsWith(savedSlug)).toBe(true);
+    });
+
+    it('enableBikeShare is idempotent — existing slug is reused', async () => {
+      mockBikeFindFirst.mockResolvedValueOnce({ id: 'bike-1', shareSlug: 'existing-slug' });
+      const ctx = createMockContext('user-123');
+
+      const url = await resolvers.Mutation.enableBikeShare({}, { bikeId: 'bike-1' }, ctx as never);
+
+      expect(url.endsWith('/share/existing-slug')).toBe(true);
+      expect(mockBikeUpdate).not.toHaveBeenCalled();
+    });
+
+    it("enableBikeShare rejects bikes the user doesn't own", async () => {
+      mockBikeFindFirst.mockResolvedValueOnce(null);
+      const ctx = createMockContext('user-123');
+
+      await expect(
+        resolvers.Mutation.enableBikeShare({}, { bikeId: 'not-mine' }, ctx as never)
+      ).rejects.toThrow('Bike not found');
+    });
+
+    it('disableBikeShare nulls the slug for owned bikes', async () => {
+      mockBikeFindFirst.mockResolvedValueOnce({ id: 'bike-1' });
+      mockBikeUpdate.mockResolvedValueOnce({});
+      const ctx = createMockContext('user-123');
+
+      const result = await resolvers.Mutation.disableBikeShare({}, { bikeId: 'bike-1' }, ctx as never);
+
+      expect(result).toBe(true);
+      expect(mockBikeUpdate).toHaveBeenCalledWith({
+        where: { id: 'bike-1' },
+        data: { shareSlug: null },
+      });
+    });
+
+    it('sharedBikeHistory throttles by IP before touching the database', async () => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { checkAuthRateLimit } = require('../../lib/rate-limit') as {
+        checkAuthRateLimit: jest.Mock;
+      };
+      checkAuthRateLimit.mockResolvedValueOnce({ allowed: false, retryAfter: 30 });
+
+      await expect(
+        resolvers.Query.sharedBikeHistory({}, { slug: 'slug12345678' }, createMockContext(null) as never)
+      ).rejects.toThrow('Rate limit exceeded. Try again in 30 seconds.');
+
+      expect(checkAuthRateLimit).toHaveBeenCalledWith('shared-history', expect.any(String));
+      expect(mockBikeFindUnique).not.toHaveBeenCalled();
+    });
+
+    it('sharedBikeHistory returns null for unknown or malformed slugs without auth', async () => {
+      const query = resolvers.Query.sharedBikeHistory;
+
+      expect(await query({}, { slug: 'not valid !!' }, createMockContext(null) as never)).toBeNull();
+
+      mockBikeFindUnique.mockResolvedValueOnce(null);
+      expect(await query({}, { slug: 'unknown-slug-123' }, createMockContext(null) as never)).toBeNull();
+    });
+
+    it('sharedBikeHistory returns sanitized history for a shared bike', async () => {
+      mockBikeFindUnique.mockResolvedValueOnce({
+        id: 'bike-1',
+        userId: 'owner-1',
+        nickname: 'Enduro Sled',
+        manufacturer: 'Santa Cruz',
+        model: 'Megatower',
+        year: 2024,
+        thumbnailUrl: null,
+        shareSlug: 'slug12345678',
+      });
+      (prisma.serviceLog.findMany as jest.Mock).mockResolvedValueOnce([
+        {
+          performedAt: new Date('2026-05-01T00:00:00Z'),
+          component: { type: 'FORK', location: 'FRONT', brand: 'Fox', model: '38' },
+        },
+      ]);
+      (prisma.bikeComponentInstall.findMany as jest.Mock).mockResolvedValueOnce([
+        {
+          installedAt: new Date('2026-01-01T00:00:00Z'),
+          removedAt: null,
+          component: { type: 'CHAIN', location: 'NONE', brand: 'SRAM', model: 'XX1' },
+        },
+      ]);
+      (prisma.ride.aggregate as jest.Mock).mockResolvedValueOnce({
+        _count: { _all: 42 },
+        _sum: { distanceMeters: 100000, durationSeconds: 36000, elevationGainMeters: 5000 },
+      });
+
+      const result = await resolvers.Query.sharedBikeHistory({}, { slug: 'slug12345678' }, createMockContext(null) as never);
+
+      expect(result.bike).toEqual({
+        name: 'Enduro Sled',
+        manufacturer: 'Santa Cruz',
+        model: 'Megatower',
+        year: 2024,
+        thumbnailUrl: null,
+      });
+      // No owner identity or ride rows in the payload
+      expect(JSON.stringify(result)).not.toContain('owner-1');
+      expect(result).not.toHaveProperty('rides');
+      expect(result.totals.rideCount).toBe(42);
+      expect(result.installs[0].eventType).toBe('INSTALLED');
+      // Freeform service notes carry PII — never serve them publicly, and
+      // never even fetch them from the DB on this path.
+      expect(result.serviceEvents[0]).not.toHaveProperty('notes');
+      const serviceSelect = (prisma.serviceLog.findMany as jest.Mock).mock.calls[0][0].select;
+      expect(serviceSelect.notes).toBeUndefined();
+    });
+  });
+
+  describe('prediction tier gating', () => {
+    const resolver = resolvers.Bike.predictions;
+    const mockUserFindUnique = prisma.user.findUnique as jest.Mock;
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { generateBikePredictions } = require('../../services/prediction') as {
+      generateBikePredictions: jest.Mock;
+    };
+
+    const fullSummary = {
+      bikeId: 'bike-1',
+      bikeName: 'Enduro',
+      components: [
+        {
+          componentId: 'c1',
+          componentType: 'FORK',
+          location: 'FRONT',
+          brand: 'Fox',
+          model: '36',
+          status: 'DUE_SOON',
+          hoursRemaining: 6.5,
+          ridesRemainingEstimate: 4,
+          confidence: 'HIGH',
+          currentHours: 93.5,
+          serviceIntervalHours: 100,
+          hoursSinceService: 93.5,
+          ridesSinceService: 61,
+          why: 'Lots of steep descents',
+          drivers: [{ factor: 'steepness', contribution: 60, label: 'Steepness' }],
+        },
+      ],
+      priorityComponent: { componentId: 'c1' },
+      overallStatus: 'DUE_SOON',
+      dueNowCount: 0,
+      dueSoonCount: 1,
+      generatedAt: new Date(),
+      algoVersion: 'test',
+    };
+
+    beforeEach(() => {
+      generateBikePredictions.mockReset().mockResolvedValue(fullSummary);
+    });
+
+    it('serves full predictions to Pro users', async () => {
+      mockUserFindUnique.mockResolvedValueOnce({
+        role: 'FREE', predictionMode: 'simple', subscriptionTier: 'PRO', isFoundingRider: false,
+      });
+      const ctx = createMockContext('user-123');
+
+      const result = await resolver({ id: 'bike-1', userId: 'user-123' } as never, {}, ctx as never);
+
+      expect(result).toBe(fullSummary);
+    });
+
+    it('nulls predictive fields but keeps raw usage for free users', async () => {
+      mockUserFindUnique.mockResolvedValueOnce({
+        role: 'FREE', predictionMode: 'simple', subscriptionTier: 'FREE', isFoundingRider: false,
+      });
+      const ctx = createMockContext('user-123');
+
+      const result = await resolver({ id: 'bike-1', userId: 'user-123' } as never, {}, ctx as never);
+
+      expect(result.overallStatus).toBeNull();
+      expect(result.dueNowCount).toBeNull();
+      expect(result.dueSoonCount).toBeNull();
+      expect(result.priorityComponent).toBeNull();
+      const comp = result.components[0];
+      expect(comp.status).toBeNull();
+      expect(comp.hoursRemaining).toBeNull();
+      expect(comp.ridesRemainingEstimate).toBeNull();
+      expect(comp.confidence).toBeNull();
+      expect(comp.why).toBeNull();
+      expect(comp.drivers).toBeNull();
+      // Raw usage stays for all tiers
+      expect(comp.currentHours).toBe(93.5);
+      expect(comp.serviceIntervalHours).toBe(100);
+      expect(comp.hoursSinceService).toBe(93.5);
+      expect(comp.ridesSinceService).toBe(61);
+    });
+  });
+
+  describe('Query.calibrationState tier gating', () => {
+    const resolver = resolvers.Query.calibrationState;
+    const mockUserFindUnique = prisma.user.findUnique as jest.Mock;
+    const mockBikeFindMany = prisma.bike.findMany as jest.Mock;
+
+    it('returns a disabled overlay for free users without generating predictions', async () => {
+      mockUserFindUnique.mockReset().mockResolvedValueOnce({
+        onboardingCompleted: true,
+        calibrationCompletedAt: null,
+        calibrationDismissedAt: null,
+        role: 'FREE',
+        predictionMode: 'simple',
+        subscriptionTier: 'FREE',
+        isFoundingRider: false,
+      });
+      mockBikeFindMany.mockReset();
+      const ctx = createMockContext('user-123');
+
+      const result = await resolver({}, {}, ctx as never);
+
+      expect(result).toEqual({
+        showOverlay: false,
+        overdueCount: 0,
+        totalComponentCount: 0,
+        bikes: [],
+      });
+      expect(mockBikeFindMany).not.toHaveBeenCalled();
+    });
+  });
+
   describe('User.weatherBreakdown', () => {
     const resolver = resolvers.User.weatherBreakdown;
     const mockGroupBy = prisma.rideWeather.groupBy as jest.Mock;
@@ -4199,7 +4567,7 @@ describe('GraphQL Resolvers', () => {
       mockGroupBy.mockResolvedValueOnce([]);
       mockRideCount.mockResolvedValueOnce(0).mockResolvedValueOnce(0);
 
-      const result = await resolver({ id: 'user-123' }, {});
+      const result = await resolver({ id: 'user-123' }, {}, createMockContext() as never);
 
       expect(result).toEqual({
         sunny: 0,
@@ -4222,7 +4590,7 @@ describe('GraphQL Resolvers', () => {
       ]);
       mockRideCount.mockResolvedValueOnce(5).mockResolvedValueOnce(27);
 
-      const result = await resolver({ id: 'user-123' }, {});
+      const result = await resolver({ id: 'user-123' }, {}, createMockContext() as never);
 
       expect(result).toEqual({
         sunny: 12,
@@ -4243,7 +4611,7 @@ describe('GraphQL Resolvers', () => {
 
       await resolver({ id: 'user-123' }, {
         filter: { startDate: '2026-01-01T00:00:00Z', endDate: '2026-04-01T00:00:00Z' },
-      });
+      }, createMockContext() as never);
 
       const groupByCall = mockGroupBy.mock.calls[0][0];
       expect(groupByCall.where.ride.userId).toBe('user-123');
@@ -4255,7 +4623,7 @@ describe('GraphQL Resolvers', () => {
       mockBikeFindUnique.mockResolvedValueOnce({ userId: 'other-user' });
 
       await expect(
-        resolver({ id: 'user-123' }, { filter: { bikeId: 'bike-stolen' } })
+        resolver({ id: 'user-123' }, { filter: { bikeId: 'bike-stolen' } }, createMockContext() as never)
       ).rejects.toThrow('Bike not found');
 
       expect(mockGroupBy).not.toHaveBeenCalled();
@@ -4266,7 +4634,7 @@ describe('GraphQL Resolvers', () => {
       mockGroupBy.mockResolvedValueOnce([]);
       mockRideCount.mockResolvedValueOnce(0).mockResolvedValueOnce(0);
 
-      await resolver({ id: 'user-123' }, { filter: { bikeId: 'bike-mine' } });
+      await resolver({ id: 'user-123' }, { filter: { bikeId: 'bike-mine' } }, createMockContext() as never);
 
       const groupByCall = mockGroupBy.mock.calls[0][0];
       expect(groupByCall.where.ride.bikeId).toBe('bike-mine');
@@ -4285,7 +4653,7 @@ describe('GraphQL Resolvers', () => {
       mockRideCount.mockResolvedValueOnce(0).mockResolvedValueOnce(0);
       const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
 
-      const result = await resolver({ id: 'user-123' }, {});
+      const result = await resolver({ id: 'user-123' }, {}, createMockContext() as never);
 
       expect(result.sunny).toBe(4);
       // No new property leaks onto the returned object from the unknown key.
@@ -4316,7 +4684,7 @@ describe('GraphQL Resolvers', () => {
       mockGroupBy.mockResolvedValueOnce([]);
       mockRideCount.mockResolvedValueOnce(0).mockResolvedValueOnce(0);
 
-      await resolver({ id: 'user-123' }, {});
+      await resolver({ id: 'user-123' }, {}, createMockContext() as never);
 
       // First ride.count call is pending — must require non-null coords.
       const pendingWhere = mockRideCount.mock.calls[0][0].where;
@@ -4467,10 +4835,10 @@ describe('GraphQL Resolvers', () => {
       expect(result.installs[0].eventType).toBe('REMOVED');
     });
 
-    it('restricts service & install events to unlocked component types on Free Light', async () => {
+    it('does not apply a component type filter for free users', async () => {
       mockBikeFindFirst.mockResolvedValueOnce({ id: 'bike-1', userId: 'user-123' });
       mockUserFindUniqueOrThrow.mockReset().mockResolvedValue({
-        subscriptionTier: 'FREE_LIGHT',
+        subscriptionTier: 'FREE',
         isFoundingRider: false,
         role: 'FREE',
       });
@@ -4478,18 +4846,13 @@ describe('GraphQL Resolvers', () => {
       const ctx = createMockContext('user-123');
       await resolver({}, { bikeId: 'bike-1' }, ctx as never);
 
-      // Service query's component filter must restrict to unlocked types.
+      // Free = all component types: history queries carry no type restriction.
       const serviceWhere = mockServiceLogFindMany.mock.calls[0][0].where;
       expect(serviceWhere.component.bikeId).toBe('bike-1');
-      expect(serviceWhere.component.type.in).toEqual(
-        expect.arrayContaining(['FORK', 'SHOCK', 'BRAKE_PAD', 'PIVOT_BEARINGS'])
-      );
+      expect(serviceWhere.component.type).toBeUndefined();
 
-      // Install query must scope the same filter onto its joined component.
       const installWhere = mockInstallFindMany.mock.calls[0][0].where;
-      expect(installWhere.component.type.in).toEqual(
-        expect.arrayContaining(['FORK', 'SHOCK', 'BRAKE_PAD', 'PIVOT_BEARINGS'])
-      );
+      expect(installWhere.component).toBeUndefined();
     });
 
     it('does not apply a component type filter for Pro users', async () => {

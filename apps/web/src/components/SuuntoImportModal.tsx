@@ -2,6 +2,8 @@ import { useState, useEffect, useMemo } from 'react';
 import { Check } from 'lucide-react';
 import { Modal, Button } from './ui';
 import { getAuthHeaders } from '@/lib/csrf';
+import { useUserTier } from '@/hooks/useUserTier';
+import { UpsellCard } from './UpgradePrompt';
 
 type Props = {
   open: boolean;
@@ -33,6 +35,7 @@ const YEAR_OPTIONS = [
 ];
 
 export default function SuuntoImportModal({ open, onClose, onSuccess, onDuplicatesFound }: Props) {
+  const { isPro } = useUserTier();
   // Uses POST /api/suunto/backfill/batch — returns immediately after enqueuing
   // jobs into the backfill worker. Multi-year selection mirrors Garmin's modal.
   // The previous version called the synchronous GET /api/suunto/backfill/fetch
@@ -72,6 +75,8 @@ export default function SuuntoImportModal({ open, onClose, onSuccess, onDuplicat
   }, [backfillHistory]);
 
   const canSelectYear = (yearValue: string): boolean => {
+    // Past seasons are a Pro feature - free accounts import the current year only
+    if (!isPro && yearValue !== 'ytd') return false;
     if (yearValue === 'ytd') {
       return !inProgressYears.has('ytd');
     }
@@ -270,6 +275,7 @@ export default function SuuntoImportModal({ open, onClose, onSuccess, onDuplicat
             <p className="text-xs text-muted mt-2">
               Year to Date can be run multiple times to fetch new workouts since your last import.
             </p>
+            {!isPro && <UpsellCard feature="importDepth" className="mt-2" />}
             <p className="text-xs text-muted mt-1">
               Note: Suunto's workout list doesn't include gear mapping, so rides will be auto-assigned to your bike if you only have one.
             </p>

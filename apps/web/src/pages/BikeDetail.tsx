@@ -332,7 +332,9 @@ export default function BikeDetail() {
   }
 
   const bikeName = bike.year ? `${bike.year} ${bike.model}` : bike.model;
-  const overallStatus = predictions?.overallStatus ?? 'ALL_GOOD';
+  // Pro-only: overallStatus is null for free users — StatusPill renders
+  // nothing for null. Missing predictions keeps the ALL_GOOD default.
+  const overallStatus = predictions ? predictions.overallStatus : 'ALL_GOOD';
 
   return (
     <motion.div

@@ -268,6 +268,7 @@ function predictComponent(
     currentHours: Math.round(component.hoursUsed * 10) / 10,
     serviceIntervalHours: baseInterval,
     hoursSinceService: Math.round(hoursSinceService * 10) / 10,
+    ridesSinceService: rideCountSinceService,
     why,
     drivers,
   };

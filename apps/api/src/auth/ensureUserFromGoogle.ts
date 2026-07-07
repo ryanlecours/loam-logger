@@ -2,22 +2,19 @@ import { Prisma, type User } from '@prisma/client';
 import { normalizeEmail, computeExpiry } from './utils';
 import { type GoogleClaims, type GoogleTokens } from './types';
 import { prisma } from '../lib/prisma';
-import { resolveReferrer, createUserWithReferralCode } from '../services/referral.service';
 
 export type GoogleUserResult = { user: User; wasCreated: boolean };
 
 export function ensureUserFromGoogle(
   claims: GoogleClaims,
   tokens?: GoogleTokens,
-  ref?: string,
 ): Promise<GoogleUserResult> {
-  return ensureUserFromGoogleInner(claims, tokens, ref, 0);
+  return ensureUserFromGoogleInner(claims, tokens, 0);
 }
 
 async function ensureUserFromGoogleInner(
   claims: GoogleClaims,
   tokens: GoogleTokens | undefined,
-  ref: string | undefined,
   retries: number,
 ): Promise<GoogleUserResult> {
   const sub = claims.sub;
@@ -86,33 +83,23 @@ async function ensureUserFromGoogleInner(
 
   if (existing) return { user: existing, wasCreated: false };
 
-  // Phase 2: New user — create with referral code retry handling
-  const referrerId = ref ? await resolveReferrer(ref) : null;
-
+  // Phase 2: New user
   try {
-    const newUser = await createUserWithReferralCode(async (referralCode) => {
-      return prisma.$transaction(async (tx) => {
-        const created = await tx.user.create({
+    const newUser = await prisma.$transaction(async (tx) => {
+      const created = await tx.user.create({
         data: {
           email,
           name: claims.name ?? null,
           avatarUrl: claims.picture ?? null,
           emailVerified: claims.email_verified ? new Date() : null,
           role: 'FREE',
-          subscriptionTier: 'FREE_LIGHT',
-          referralCode,
+          subscriptionTier: 'FREE',
         },
       });
 
       await tx.userAccount.create({
         data: { userId: created.id, provider: 'google', providerUserId: sub },
       });
-
-      if (referrerId) {
-        await tx.referral.create({
-          data: { referrerUserId: referrerId, referredUserId: created.id },
-        });
-      }
 
       if (tokens?.access_token || tokens?.refresh_token) {
         await tx.oauthToken.create({
@@ -128,7 +115,6 @@ async function ensureUserFromGoogleInner(
 
       return created;
     });
-  });
     return { user: newUser, wasCreated: true };
   } catch (err) {
     // A concurrent request created this user between Phase 1 and Phase 2.
@@ -140,7 +126,7 @@ async function ensureUserFromGoogleInner(
 
     if (isEmailCollision) {
       if (retries >= 2) throw err;
-      return ensureUserFromGoogleInner(claims, tokens, ref, retries + 1);
+      return ensureUserFromGoogleInner(claims, tokens, retries + 1);
     }
     throw err;
   }
