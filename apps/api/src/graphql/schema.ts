@@ -1102,9 +1102,11 @@ export const typeDefs = gql`
     model: String!
   }
 
+  # Deliberately excludes ServiceLog.notes: it's freeform rider text that can
+  # carry identity-linked info (names, phone numbers, addresses) — unsafe for
+  # an unauthenticated page.
   type SharedServiceEvent {
     performedAt: String!
-    notes: String
     component: SharedComponent!
   }
 

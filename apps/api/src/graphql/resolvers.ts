@@ -1596,7 +1596,8 @@ export const resolvers = {
 
     // Public (no auth): sanitized history for the shareable bike page.
     // Exposes only the bike, its components, wrench history, and aggregate
-    // usage totals — no owner identity, no per-ride rows, no GPS.
+    // usage totals — no owner identity, no per-ride rows, no GPS, and no
+    // freeform service notes (riders type identity-linked info into those).
     sharedBikeHistory: async (_: unknown, { slug }: { slug: string }, ctx: GraphQLContext) => {
       // The only unauthenticated resolver — the per-userId rate limiters
       // don't apply, so throttle by IP instead. Slug entropy (~72 bits)
@@ -1623,7 +1624,12 @@ export const resolvers = {
       const [serviceLogs, installs, rideAgg] = await Promise.all([
         prisma.serviceLog.findMany({
           where: { component: { bikeId: bike.id } },
-          include: { component: { select: { type: true, location: true, brand: true, model: true } } },
+          // Explicit select (not include) so freeform notes never leave the DB
+          // on this unauthenticated path.
+          select: {
+            performedAt: true,
+            component: { select: { type: true, location: true, brand: true, model: true } },
+          },
           orderBy: { performedAt: 'desc' },
           take: SERVICE_CAP,
         }),
@@ -1649,7 +1655,6 @@ export const resolvers = {
 
       const serviceEvents = serviceLogs.map((log) => ({
         performedAt: log.performedAt.toISOString(),
-        notes: log.notes,
         component: toSharedComponent(log.component),
       }));
 

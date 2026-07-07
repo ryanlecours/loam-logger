@@ -4404,7 +4404,6 @@ describe('GraphQL Resolvers', () => {
       (prisma.serviceLog.findMany as jest.Mock).mockResolvedValueOnce([
         {
           performedAt: new Date('2026-05-01T00:00:00Z'),
-          notes: 'Lowers service',
           component: { type: 'FORK', location: 'FRONT', brand: 'Fox', model: '38' },
         },
       ]);
@@ -4433,8 +4432,12 @@ describe('GraphQL Resolvers', () => {
       expect(JSON.stringify(result)).not.toContain('owner-1');
       expect(result).not.toHaveProperty('rides');
       expect(result.totals.rideCount).toBe(42);
-      expect(result.serviceEvents[0].notes).toBe('Lowers service');
       expect(result.installs[0].eventType).toBe('INSTALLED');
+      // Freeform service notes carry PII — never serve them publicly, and
+      // never even fetch them from the DB on this path.
+      expect(result.serviceEvents[0]).not.toHaveProperty('notes');
+      const serviceSelect = (prisma.serviceLog.findMany as jest.Mock).mock.calls[0][0].select;
+      expect(serviceSelect.notes).toBeUndefined();
     });
   });
 

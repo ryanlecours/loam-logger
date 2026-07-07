@@ -17,7 +17,6 @@ const SHARED_BIKE_HISTORY = gql`
       }
       serviceEvents {
         performedAt
-        notes
         component {
           type
           location
@@ -58,7 +57,6 @@ type TimelineEvent = {
   kind: 'service' | 'install' | 'remove';
   occurredAt: string;
   component: SharedComponent;
-  notes?: string | null;
 };
 
 function componentDisplay(component: SharedComponent): string {
@@ -82,11 +80,10 @@ export default function SharedBikeHistory() {
   const timeline: TimelineEvent[] = useMemo(() => {
     if (!payload) return [];
     const events: TimelineEvent[] = [
-      ...payload.serviceEvents.map((e: { performedAt: string; notes: string | null; component: SharedComponent }) => ({
+      ...payload.serviceEvents.map((e: { performedAt: string; component: SharedComponent }) => ({
         kind: 'service' as const,
         occurredAt: e.performedAt,
         component: e.component,
-        notes: e.notes,
       })),
       ...payload.installs.map((e: { eventType: string; occurredAt: string; component: SharedComponent }) => ({
         kind: e.eventType === 'REMOVED' ? ('remove' as const) : ('install' as const),
@@ -175,7 +172,6 @@ export default function SharedBikeHistory() {
                       {componentDisplay(event.component)}
                     </p>
                     <p className="text-xs text-muted">{fmtDateTime(event.occurredAt)}</p>
-                    {event.notes && <p className="mt-1 text-xs text-muted/80">{event.notes}</p>}
                   </div>
                 </li>
               ))}

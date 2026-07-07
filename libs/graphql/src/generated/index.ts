@@ -1109,7 +1109,6 @@ export type SharedInstallEvent = {
 export type SharedServiceEvent = {
   __typename?: 'SharedServiceEvent';
   component: SharedComponent;
-  notes?: Maybe<Scalars['String']['output']>;
   performedAt: Scalars['String']['output'];
 };
 
