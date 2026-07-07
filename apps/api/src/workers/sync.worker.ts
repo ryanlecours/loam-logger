@@ -407,7 +407,6 @@ async function upsertStravaActivity(userId: string, activity: StravaActivity): P
       distanceMeters,
       isNewRide,
     }).catch(() => {}); // swallow - already logged internally
-
   }
 }
 
@@ -688,7 +687,6 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
     isBackfill: !!runningSession,
     activeBikeCount,
   }).catch(() => {}); // swallow - already logged internally
-
 }
 
 // ============================================================================
@@ -857,7 +855,6 @@ async function upsertWhoopActivity(userId: string, workout: WhoopWorkout): Promi
       distanceMeters,
       isNewRide,
     }).catch(() => {}); // swallow - already logged internally
-
   }
 
   logger.debug({ whoopWorkoutId: workout.id }, '[SyncWorker] Upserted WHOOP workout');
@@ -1104,7 +1101,6 @@ async function upsertSuuntoActivity(
     distanceMeters,
     isNewRide,
   }).catch(() => {}); // swallow - already logged internally
-
 }
 
 // ============================================================================
