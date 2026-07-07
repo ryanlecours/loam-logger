@@ -10,7 +10,8 @@ import type {
   Component as ComponentModel,
   UserRole,
 } from '@prisma/client';
-import { checkRateLimit, checkMutationRateLimit, checkQueryRateLimit } from '../lib/rate-limit';
+import { checkRateLimit, checkMutationRateLimit, checkQueryRateLimit, checkAuthRateLimit } from '../lib/rate-limit';
+import { getClientIp } from '../auth/utils';
 import { enqueueSyncJob, enqueueWeatherJob, type SyncProvider } from '../lib/queue';
 import { invalidateBikePrediction } from '../services/prediction/cache';
 import { clearServiceNotificationLogs, isValidExpoPushToken } from '../services/notification.service';
@@ -1596,7 +1597,19 @@ export const resolvers = {
     // Public (no auth): sanitized history for the shareable bike page.
     // Exposes only the bike, its components, wrench history, and aggregate
     // usage totals — no owner identity, no per-ride rows, no GPS.
-    sharedBikeHistory: async (_: unknown, { slug }: { slug: string }) => {
+    sharedBikeHistory: async (_: unknown, { slug }: { slug: string }, ctx: GraphQLContext) => {
+      // The only unauthenticated resolver — the per-userId rate limiters
+      // don't apply, so throttle by IP instead. Slug entropy (~72 bits)
+      // already defeats enumeration; this caps scripted scraping of
+      // known/leaked slugs.
+      const rateLimit = await checkAuthRateLimit('shared-history', getClientIp(ctx.req));
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(
+          `Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`,
+          { extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter } }
+        );
+      }
+
       // Slug shape guard before touching the DB — share slugs are 12+ char
       // base64url tokens; anything else can 404 cheaply.
       if (!/^[A-Za-z0-9_-]{8,64}$/.test(slug)) return null;

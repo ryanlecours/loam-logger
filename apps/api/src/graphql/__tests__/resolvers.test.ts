@@ -79,6 +79,7 @@ jest.mock('../../lib/prisma', () => ({
 
 jest.mock('../../lib/rate-limit', () => ({
   checkMutationRateLimit: jest.fn().mockResolvedValue({ allowed: true }),
+  checkAuthRateLimit: jest.fn().mockResolvedValue({ allowed: true }),
 }));
 
 jest.mock('../../services/prediction/cache', () => ({
@@ -4365,13 +4366,28 @@ describe('GraphQL Resolvers', () => {
       });
     });
 
+    it('sharedBikeHistory throttles by IP before touching the database', async () => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { checkAuthRateLimit } = require('../../lib/rate-limit') as {
+        checkAuthRateLimit: jest.Mock;
+      };
+      checkAuthRateLimit.mockResolvedValueOnce({ allowed: false, retryAfter: 30 });
+
+      await expect(
+        resolvers.Query.sharedBikeHistory({}, { slug: 'slug12345678' }, createMockContext(null) as never)
+      ).rejects.toThrow('Rate limit exceeded. Try again in 30 seconds.');
+
+      expect(checkAuthRateLimit).toHaveBeenCalledWith('shared-history', expect.any(String));
+      expect(mockBikeFindUnique).not.toHaveBeenCalled();
+    });
+
     it('sharedBikeHistory returns null for unknown or malformed slugs without auth', async () => {
       const query = resolvers.Query.sharedBikeHistory;
 
-      expect(await query({}, { slug: 'not valid !!' })).toBeNull();
+      expect(await query({}, { slug: 'not valid !!' }, createMockContext(null) as never)).toBeNull();
 
       mockBikeFindUnique.mockResolvedValueOnce(null);
-      expect(await query({}, { slug: 'unknown-slug-123' })).toBeNull();
+      expect(await query({}, { slug: 'unknown-slug-123' }, createMockContext(null) as never)).toBeNull();
     });
 
     it('sharedBikeHistory returns sanitized history for a shared bike', async () => {
@@ -4404,7 +4420,7 @@ describe('GraphQL Resolvers', () => {
         _sum: { distanceMeters: 100000, durationSeconds: 36000, elevationGainMeters: 5000 },
       });
 
-      const result = await resolvers.Query.sharedBikeHistory({}, { slug: 'slug12345678' });
+      const result = await resolvers.Query.sharedBikeHistory({}, { slug: 'slug12345678' }, createMockContext(null) as never);
 
       expect(result.bike).toEqual({
         name: 'Enduro Sled',
