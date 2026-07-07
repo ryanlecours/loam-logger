@@ -4,6 +4,7 @@ import { prisma } from '../lib/prisma';
 import { logError, logger } from '../lib/logger';
 import { enqueueReceiptCheck } from '../lib/queue/notification.queue';
 import { generateBikePredictions } from './prediction';
+import { canSeePredictions } from '../auth/tier-access';
 import type { ServiceNotificationMode } from '@prisma/client';
 
 /**
@@ -337,8 +338,10 @@ export async function fireRideNotifications(params: {
     });
     if (rideTicketId) ticketIds.push(rideTicketId);
 
-    // Service due check (only if ride is assigned to a bike)
-    if (bikeId && bikeName) {
+    // Service due check (only if ride is assigned to a bike). Service-due
+    // pushes carry the rides/hours-remaining prediction — a Pro feature —
+    // so free users receive only the ride-upload notification.
+    if (bikeId && bikeName && canSeePredictions(user)) {
       const predictionMode = (user.predictionMode === 'predictive' ? 'predictive' : 'simple') as 'simple' | 'predictive';
       const summary = await generateBikePredictions({
         userId,

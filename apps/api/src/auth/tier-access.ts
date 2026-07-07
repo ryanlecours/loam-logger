@@ -24,6 +24,28 @@ export function isProTier(user: TierUser): boolean {
   return getEffectiveTier(user) === 'PRO';
 }
 
+/** Weather info (per-ride display, breakdowns, backfill) is Pro-only. */
+export function canSeeWeather(user: TierUser): boolean {
+  return isProTier(user);
+}
+
+/** Rides/hours-remaining service predictions are Pro-only. */
+export function canSeePredictions(user: TierUser): boolean {
+  return isProTier(user);
+}
+
+/**
+ * Throws NOT_PRO if the user is not on the Pro tier.
+ * `feature` names the capability in the error message, e.g. "Weather backfill".
+ */
+export function requirePro(user: TierUser, feature: string): void {
+  if (!isProTier(user)) {
+    throw new GraphQLError(`${feature} is a Pro feature.`, {
+      extensions: { code: 'NOT_PRO' },
+    });
+  }
+}
+
 /** Limits for a tier, falling back to FREE for any stale enum value mid-deploy. */
 function limitsFor(tier: SubscriptionTier) {
   return TIER_LIMITS[tier as keyof typeof TIER_LIMITS] ?? TIER_LIMITS.FREE;

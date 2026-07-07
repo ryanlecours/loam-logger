@@ -53,10 +53,11 @@ export interface ComponentPrediction {
   ridesRemainingEstimate: number;
   confidence: ConfidenceLevel;
 
-  // Current state
+  // Current state (raw usage — served to all tiers)
   currentHours: number;
   serviceIntervalHours: number;
   hoursSinceService: number;
+  ridesSinceService: number;
 
   // Pro-only explanation fields (null for FREE tier)
   why: string | null;

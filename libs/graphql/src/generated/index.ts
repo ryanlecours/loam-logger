@@ -253,10 +253,10 @@ export type BikePredictionSummary = {
   bikeId: Scalars['ID']['output'];
   bikeName: Scalars['String']['output'];
   components: Array<ComponentPrediction>;
-  dueNowCount: Scalars['Int']['output'];
-  dueSoonCount: Scalars['Int']['output'];
+  dueNowCount?: Maybe<Scalars['Int']['output']>;
+  dueSoonCount?: Maybe<Scalars['Int']['output']>;
   generatedAt: Scalars['String']['output'];
-  overallStatus: PredictionStatus;
+  overallStatus?: Maybe<PredictionStatus>;
   priorityComponent?: Maybe<ComponentPrediction>;
 };
 
@@ -421,16 +421,17 @@ export type ComponentPrediction = {
   brand: Scalars['String']['output'];
   componentId: Scalars['ID']['output'];
   componentType: ComponentType;
-  confidence: ConfidenceLevel;
+  confidence?: Maybe<ConfidenceLevel>;
   currentHours: Scalars['Float']['output'];
   drivers?: Maybe<Array<WearDriver>>;
-  hoursRemaining: Scalars['Float']['output'];
+  hoursRemaining?: Maybe<Scalars['Float']['output']>;
   hoursSinceService: Scalars['Float']['output'];
   location: ComponentLocation;
   model: Scalars['String']['output'];
-  ridesRemainingEstimate: Scalars['Int']['output'];
+  ridesRemainingEstimate?: Maybe<Scalars['Int']['output']>;
+  ridesSinceService: Scalars['Int']['output'];
   serviceIntervalHours: Scalars['Float']['output'];
-  status: PredictionStatus;
+  status?: Maybe<PredictionStatus>;
   why?: Maybe<Scalars['String']['output']>;
 };
 

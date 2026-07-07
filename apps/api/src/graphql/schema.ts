@@ -271,19 +271,24 @@ export const typeDefs = gql`
     label: String!
   }
 
+  # Predictive fields (status, hoursRemaining, ridesRemainingEstimate,
+  # confidence, overallStatus, due counts) are Pro-only and null for free
+  # users. Raw usage fields (currentHours, serviceIntervalHours,
+  # hoursSinceService, ridesSinceService) are served to all tiers.
   type ComponentPrediction {
     componentId: ID!
     componentType: ComponentType!
     location: ComponentLocation!
     brand: String!
     model: String!
-    status: PredictionStatus!
-    hoursRemaining: Float!
-    ridesRemainingEstimate: Int!
-    confidence: ConfidenceLevel!
+    status: PredictionStatus
+    hoursRemaining: Float
+    ridesRemainingEstimate: Int
+    confidence: ConfidenceLevel
     currentHours: Float!
     serviceIntervalHours: Float!
     hoursSinceService: Float!
+    ridesSinceService: Int!
     why: String
     drivers: [WearDriver!]
   }
@@ -293,9 +298,9 @@ export const typeDefs = gql`
     bikeName: String!
     components: [ComponentPrediction!]!
     priorityComponent: ComponentPrediction
-    overallStatus: PredictionStatus!
-    dueNowCount: Int!
-    dueSoonCount: Int!
+    overallStatus: PredictionStatus
+    dueNowCount: Int
+    dueSoonCount: Int
     generatedAt: String!
     algoVersion: String!
   }

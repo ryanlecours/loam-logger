@@ -30,7 +30,7 @@ import { createId } from '@paralleldrive/cuid2';
 import { logError, logger } from '../lib/logger';
 import { captureServerEvent, invalidateOptOutCache } from '../lib/posthog';
 import { config } from '../config/env';
-import { requireBikeCreation, requireNoDowngradePending, getEffectiveTier, canCreateBike, isProTier } from '../auth/tier-access';
+import { requireBikeCreation, requireNoDowngradePending, getEffectiveTier, canCreateBike, isProTier, canSeeWeather, canSeePredictions, requirePro } from '../auth/tier-access';
 import { createCheckoutSession, createBillingPortalSession, type StripePlan, type CheckoutPlatform } from '../services/stripe.service';
 import { TIER_LIMITS } from '@loam/shared';
 import { checkRecentAuth } from '../auth/recent-auth';
@@ -1189,6 +1189,17 @@ export const resolvers = {
       });
 
       if (!user) {
+        return {
+          showOverlay: false,
+          overdueCount: 0,
+          totalComponentCount: 0,
+          bikes: [],
+        };
+      }
+
+      // The calibration overlay exists to make service-due predictions
+      // accurate — a Pro feature. Free users never see it.
+      if (!canSeePredictions(user)) {
         return {
           showOverlay: false,
           overdueCount: 0,
@@ -3535,17 +3546,15 @@ export const resolvers = {
             extensions: { code: 'BAD_USER_INPUT' },
           });
         }
-        // Only allow "predictive" for PRO/ADMIN users
+        // Predictive mode is Pro-only. Uses the effective tier (subscription,
+        // founding rider, or admin) — the old check against the legacy `role`
+        // column wrongly blocked subscription-Pro users and founding riders.
         if (input.predictionMode === 'predictive') {
-          const user = await prisma.user.findUnique({
+          const user = await prisma.user.findUniqueOrThrow({
             where: { id: userId },
-            select: { role: true },
+            select: { subscriptionTier: true, isFoundingRider: true, role: true },
           });
-          if (user?.role !== 'PRO' && user?.role !== 'ADMIN') {
-            throw new GraphQLError('Predictive mode is only available for Pro users', {
-              extensions: { code: 'FORBIDDEN' },
-            });
-          }
+          requirePro(user, 'Predictive mode');
         }
         updateData.predictionMode = input.predictionMode;
       }
@@ -5206,11 +5215,7 @@ export const resolvers = {
         where: { id: userId },
         select: { subscriptionTier: true, isFoundingRider: true, role: true },
       });
-      if (!isProTier(user)) {
-        throw new GraphQLError('Weather backfill is a Pro feature.', {
-          extensions: { code: 'NOT_PRO' },
-        });
-      }
+      requirePro(user, 'Weather backfill');
 
       const rateLimit = await checkMutationRateLimit('backfillWeatherForMyRides', userId);
       if (!rateLimit.allowed) {
@@ -5325,9 +5330,9 @@ export const resolvers = {
       if (!user) return null;
 
       try {
-        const { generateBikePredictions } = await import('../services/prediction');
+        const { generateBikePredictions, degradeSummaryForFreeTier } = await import('../services/prediction');
         const predictionMode = (user.predictionMode === 'predictive' ? 'predictive' : 'simple') as 'simple' | 'predictive';
-        return generateBikePredictions({
+        const summary = await generateBikePredictions({
           userId,
           bikeId: bike.id,
           userRole: user.role,
@@ -5335,6 +5340,9 @@ export const resolvers = {
           subscriptionTier: user.subscriptionTier,
           isFoundingRider: user.isFoundingRider,
         });
+        // Rides-remaining predictions are Pro-only: free users get the raw
+        // usage counters with the predictive fields nulled out.
+        return canSeePredictions(user) ? summary : degradeSummaryForFreeTier(summary);
       } catch (error) {
         logError('Resolver Prediction generation', error);
         return null;
@@ -5365,6 +5373,14 @@ export const resolvers = {
       _args: unknown,
       ctx: GraphQLContext
     ) => {
+      // Weather display is Pro-only. Data is still ingested for everyone,
+      // so it's available the moment a user upgrades — the gate is at the
+      // serving layer. tierUserById caches per request, so ride lists don't
+      // pay N user lookups.
+      const userId = ctx.user?.id;
+      if (!userId) return null;
+      const tierUser = await ctx.loaders.tierUserById.load(userId);
+      if (!tierUser || !canSeeWeather(tierUser)) return null;
       // If resolver was called with an included weather relation, use it.
       if (ride.weather !== undefined) return ride.weather;
       // Otherwise batch-load via DataLoader to avoid N+1 on list queries.
@@ -5464,7 +5480,10 @@ export const resolvers = {
     // Settings backfill section) — not on every Me query. A partial index
     // on Ride(userId) WHERE startLat IS NOT NULL AND startLng IS NOT NULL
     // keeps the COUNT cheap (see migration 20260415121000).
-    ridesMissingWeather: async (parent: { id: string }) => {
+    ridesMissingWeather: async (parent: { id: string }, _args: unknown, ctx: GraphQLContext) => {
+      // Weather is Pro-only; free users have nothing to backfill.
+      const tierUser = await ctx.loaders.tierUserById.load(parent.id);
+      if (!tierUser || !canSeeWeather(tierUser)) return 0;
       return prisma.ride.count({
         where: {
           userId: parent.id,
@@ -5480,8 +5499,20 @@ export const resolvers = {
     // to bucket by condition.
     weatherBreakdown: async (
       parent: { id: string },
-      { filter }: { filter?: { startDate?: string | null; endDate?: string | null; bikeId?: string | null } | null }
+      { filter }: { filter?: { startDate?: string | null; endDate?: string | null; bikeId?: string | null } | null },
+      ctx: GraphQLContext
     ) => {
+      // Weather is Pro-only: free users get a zeroed breakdown (non-null
+      // shape preserved for old clients).
+      const tierUser = await ctx.loaders.tierUserById.load(parent.id);
+      if (!tierUser || !canSeeWeather(tierUser)) {
+        return {
+          sunny: 0, cloudy: 0, rainy: 0, snowy: 0, windy: 0, foggy: 0, unknown: 0,
+          pending: 0,
+          totalRides: 0,
+        };
+      }
+
       const rideWhere: Prisma.RideWhereInput = { userId: parent.id };
 
       if (filter?.startDate || filter?.endDate) {
