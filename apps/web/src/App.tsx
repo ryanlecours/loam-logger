@@ -21,7 +21,7 @@ const BikeHistory = lazy(() => import('./pages/BikeHistory'));
 const SharedBikeHistory = lazy(() => import('./pages/SharedBikeHistory'));
 import Admin from './pages/Admin';
 import AuthComplete from './pages/AuthComplete';
-import BetaTesterWaitlist from './pages/BetaTesterWaitlist';
+import Signup from './pages/Signup';
 import ChangePassword from './pages/ChangePassword';
 import ResetPassword from './pages/ResetPassword';
 import ForgotPassword from './pages/ForgotPassword';
@@ -87,7 +87,7 @@ function AppRoutes() {
           <Route path="/about" element={<Page><About /></Page>} />
           <Route path="/support" element={<Page><Support /></Page>} />
           <Route path="/login" element={<Page><Login /></Page>} />
-          <Route path="/signup" element={<Page><BetaTesterWaitlist /></Page>} />
+          <Route path="/signup" element={<Page><Signup /></Page>} />
           <Route path="/change-password" element={<Page><ChangePassword /></Page>} />
           <Route path="/reset-password" element={<Page><ResetPassword /></Page>} />
           <Route path="/forgot-password" element={<Page><ForgotPassword /></Page>} />

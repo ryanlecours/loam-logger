@@ -6,7 +6,7 @@ import { GoogleLogin, type CredentialResponse } from '@react-oauth/google';
 import { ME_QUERY } from '../graphql/me';
 import { setCsrfToken } from '@/lib/csrf';
 
-export default function BetaTesterWaitlist() {
+export default function Signup() {
   const navigate = useNavigate();
   const apollo = useApolloClient();
 

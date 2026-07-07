@@ -126,7 +126,7 @@ export default function PreferencesSection() {
         </div>
         <p className="text-xs text-muted">
           {isPro
-            ? 'Predictive mode adjusts service intervals based on your riding intensity and terrain. Still in beta.'
+            ? 'Predictive mode adjusts service intervals based on your riding intensity and terrain. Estimates sharpen as you log more rides.'
             : 'Upgrade to Pro to unlock predictive wear analysis based on your riding intensity and terrain.'}
         </p>
       </div>
