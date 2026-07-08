@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router';
 import { motion } from 'motion/react';
 import { gql, useMutation } from '@apollo/client';
-import { Check, X, Share2 } from 'lucide-react';
+import { Check, X } from 'lucide-react';
 import { useState } from 'react';
 import { useUserTier } from '../hooks/useUserTier';
 import { posthog } from '../lib/posthog';
@@ -44,37 +44,21 @@ export default function Pricing() {
 
   const tiers = [
     {
-      name: 'Free - Light',
+      name: 'Free',
       price: '$0',
       period: '',
-      description: 'Light Bike Analysis',
-      current: tier === 'FREE_LIGHT',
+      description: 'Track every part of one bike',
+      current: tier === 'FREE' && !isPro,
       currentLabel: 'Current plan',
       accent: 'neutral',
       features: [
         { text: '1 bike', included: true },
-        { text: 'Fork & shock tracking', included: true },
-        { text: 'Brake pad tracking', included: true },
-        { text: 'Pivot bearing tracking', included: true },
-        { text: 'Full Bike Analysis (refer a friend)', included: false },
-        { text: 'Unlimited bikes (Pro only)', included: false },
-      ],
-    },
-    {
-      name: 'Free - Full',
-      price: '$0',
-      period: '',
-      description: 'Full Bike Analysis — refer a friend to unlock',
-      current: tier === 'FREE_FULL',
-      showReferral: tier === 'FREE_LIGHT',
-      accent: 'green',
-      features: [
-        { text: '1 bike', included: true },
-        { text: 'All 23+ component types unlocked', included: true },
-        { text: 'Service interval tracking', included: true },
-        { text: 'Wear predictions', included: true },
-        { text: 'Track multiple bikes (Pro only)', included: false },
-        { text: 'Advanced analytics (Pro only)', included: false },
+        { text: 'All 23+ component types', included: true },
+        { text: 'Automatic ride sync', included: true },
+        { text: 'Service logging & usage counts', included: true },
+        { text: 'Rides left until service due', included: false },
+        { text: 'Ride weather tracking', included: false },
+        { text: 'PDF service history export', included: false },
       ],
     },
     {
@@ -86,9 +70,11 @@ export default function Pricing() {
       highlight: !isPro,
       features: [
         { text: 'Unlimited bikes', included: true },
-        { text: 'All 23+ component types unlocked', included: true },
-        { text: 'Service interval tracking', included: true },
-        { text: 'Advanced predictions', included: true },
+        { text: 'Rides left until service due', included: true },
+        { text: 'Ride-adjusted wear predictions', included: true },
+        { text: 'Weather on every ride', included: true },
+        { text: 'PDF service history export', included: true },
+        { text: 'Import your full ride history', included: true },
         { text: 'Priority support', included: true },
       ],
     },
@@ -149,7 +135,7 @@ export default function Pricing() {
                 </button>
               </div>
 
-              <div className="grid gap-4 md:grid-cols-3">
+              <div className="mx-auto grid max-w-2xl gap-4 md:grid-cols-2">
                 {tiers.map((t) => (
                   <div
                     key={t.name}
@@ -195,14 +181,6 @@ export default function Pricing() {
                         className="w-full rounded-lg bg-amber-500 py-2 text-sm font-medium text-white transition hover:bg-amber-500/80 disabled:opacity-50"
                       >
                         {loading ? 'Loading...' : 'Upgrade to Pro'}
-                      </button>
-                    ) : t.showReferral ? (
-                      <button
-                        onClick={() => navigate('/settings#referral')}
-                        className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-green-400 py-2 text-sm font-medium text-white transition bg-green-500/10 hover:bg-green-500/20"
-                      >
-                        <Share2 className="h-4 w-4" />
-                        Refer a friend
                       </button>
                     ) : null}
                   </div>

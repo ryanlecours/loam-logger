@@ -32,12 +32,14 @@ export function MiniComponentList({ components, className = '' }: MiniComponentL
             {formatComponentLabel(component)}
           </span>
           <span className="mini-component-hours">
-            {hoursDisplay === 'total'
+            {hoursDisplay === 'total' || component.hoursRemaining == null
               ? `${component.hoursSinceService.toFixed(1)}/${component.serviceIntervalHours}h`
               : `${component.hoursRemaining.toFixed(1)} hrs`}
           </span>
           <span className="mini-component-rides">
-            ~{component.ridesRemainingEstimate} rides
+            {component.ridesRemainingEstimate != null
+              ? `~${component.ridesRemainingEstimate} rides`
+              : `${component.ridesSinceService} rides since service`}
           </span>
         </div>
       ))}

@@ -323,7 +323,7 @@ export default function ActivationEmail({
             </Text>
 
             <Text className="ll-p" style={styles.p}>
-              Thanks again for being part of the beta. Your real world usage is
+              Thanks for riding with us. Your real world usage is
               directly shaping where this product goes next.
             </Text>
 
@@ -352,7 +352,7 @@ export default function ActivationEmail({
           <Section style={styles.footer}>
             <Text className="ll-footer" style={{ ...styles.footerText, marginBottom: 0 }}>
               Loam Logger is a product of Loam Labs LLC. You are receiving this
-              email because you signed up for beta access.
+              email because you have a Loam Logger account.
             </Text>
 
             {unsubscribeUrl ? (

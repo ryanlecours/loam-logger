@@ -57,7 +57,6 @@ export const typeDefs = gql`
   }
 
   enum UserRole {
-    WAITLIST
     FREE
     PRO
     ADMIN
@@ -84,8 +83,7 @@ export const typeDefs = gql`
   }
 
   enum SubscriptionTier {
-    FREE_LIGHT
-    FREE_FULL
+    FREE
     PRO
   }
 
@@ -273,19 +271,24 @@ export const typeDefs = gql`
     label: String!
   }
 
+  # Predictive fields (status, hoursRemaining, ridesRemainingEstimate,
+  # confidence, overallStatus, due counts) are Pro-only and null for free
+  # users. Raw usage fields (currentHours, serviceIntervalHours,
+  # hoursSinceService, ridesSinceService) are served to all tiers.
   type ComponentPrediction {
     componentId: ID!
     componentType: ComponentType!
     location: ComponentLocation!
     brand: String!
     model: String!
-    status: PredictionStatus!
-    hoursRemaining: Float!
-    ridesRemainingEstimate: Int!
-    confidence: ConfidenceLevel!
+    status: PredictionStatus
+    hoursRemaining: Float
+    ridesRemainingEstimate: Int
+    confidence: ConfidenceLevel
     currentHours: Float!
     serviceIntervalHours: Float!
     hoursSinceService: Float!
+    ridesSinceService: Int!
     why: String
     drivers: [WearDriver!]
   }
@@ -295,9 +298,9 @@ export const typeDefs = gql`
     bikeName: String!
     components: [ComponentPrediction!]!
     priorityComponent: ComponentPrediction
-    overallStatus: PredictionStatus!
-    dueNowCount: Int!
-    dueSoonCount: Int!
+    overallStatus: PredictionStatus
+    dueNowCount: Int
+    dueSoonCount: Int
     generatedAt: String!
     algoVersion: String!
   }
@@ -340,6 +343,8 @@ export const typeDefs = gql`
     wheels: Component
     pivotBearings: Component
     components: [Component!]!
+    # Public share slug when history sharing is enabled (null = not shared)
+    shareSlug: String
     predictions: BikePredictionSummary
     servicePreferences: [BikeServicePreference!]!
     notificationPreference: BikeNotificationPreference
@@ -958,6 +963,10 @@ export const typeDefs = gql`
     createBillingPortalSession(platform: CheckoutPlatform): BillingPortalResult!
     selectBikeForDowngrade(bikeId: ID!): Bike!
     backfillWeatherForMyRides: BackfillWeatherResult!
+    # Enable public sharing of a bike's history; returns the share URL.
+    # Idempotent — re-enabling returns the existing link.
+    enableBikeShare(bikeId: ID!): String!
+    disableBikeShare(bikeId: ID!): Boolean!
   }
 
   type ConnectedAccount {
@@ -981,6 +990,10 @@ export const typeDefs = gql`
     url: String!
   }
 
+  # Deprecated stub — the referral program was removed. Old mobile builds still
+  # query these fields; removing them would fail those clients' whole queries.
+  # TODO(remove after 2026-12): delete ReferralStats, Query.referralStats, and
+  # User.referralCode once pre-removal app versions age out.
   type ReferralStats {
     referralCode: String!
     referralLink: String!
@@ -1007,7 +1020,7 @@ export const typeDefs = gql`
     isFoundingRider: Boolean!
     subscriptionTier: SubscriptionTier!
     subscriptionProvider: SubscriptionProvider
-    referralCode: String
+    referralCode: String @deprecated(reason: "Referral program removed; always null")
     needsDowngradeSelection: Boolean!
     tierLimits: TierLimits!
     hoursDisplayPreference: String
@@ -1070,11 +1083,53 @@ export const typeDefs = gql`
     truncated: Boolean!
   }
 
+  # Public, sanitized bike-history shapes for the shareable /share/<slug>
+  # page (e.g. handed to a prospective buyer). Deliberately excludes owner
+  # identity, per-ride details, and GPS — only the bike, its components,
+  # wrench history, and aggregate usage totals.
+  type SharedBike {
+    name: String!
+    manufacturer: String!
+    model: String!
+    year: Int
+    thumbnailUrl: String
+  }
+
+  type SharedComponent {
+    type: ComponentType!
+    location: ComponentLocation!
+    brand: String!
+    model: String!
+  }
+
+  # Deliberately excludes ServiceLog.notes: it's freeform rider text that can
+  # carry identity-linked info (names, phone numbers, addresses) — unsafe for
+  # an unauthenticated page.
+  type SharedServiceEvent {
+    performedAt: String!
+    component: SharedComponent!
+  }
+
+  type SharedInstallEvent {
+    eventType: ComponentInstallEventType!
+    occurredAt: String!
+    component: SharedComponent!
+  }
+
+  type SharedBikeHistory {
+    bike: SharedBike!
+    serviceEvents: [SharedServiceEvent!]!
+    installs: [SharedInstallEvent!]!
+    totals: BikeHistoryTotals!
+  }
+
   type Query {
     me: User
     user(id: ID!): User
+    ride(id: ID!): Ride
     rides(take: Int = 1000, after: ID, filter: RidesFilterInput): [Ride!]!
     rideTypes: [RideType!]!
+    bike(id: ID!): Bike
     bikes(includeInactive: Boolean): [Bike!]!
     components(filter: ComponentFilterInput): [Component!]!
     stravaGearMappings: [StravaGearMapping!]!
@@ -1084,7 +1139,10 @@ export const typeDefs = gql`
     calibrationState: CalibrationState
     servicePreferenceDefaults: [ServicePreferenceDefault!]!
     bikeNotes(bikeId: ID!, take: Int = 20, after: ID): BikeNotesPage!
-    referralStats: ReferralStats!
+    referralStats: ReferralStats! @deprecated(reason: "Referral program removed; returns zeros")
     bikeHistory(bikeId: ID!, startDate: String, endDate: String): BikeHistoryPayload!
+    # Public (unauthenticated) sanitized history for a shared bike.
+    # Returns null for unknown or revoked slugs.
+    sharedBikeHistory(slug: String!): SharedBikeHistory
   }
 `;

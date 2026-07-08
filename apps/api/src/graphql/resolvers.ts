@@ -8,8 +8,10 @@ import type {
   ComponentLocation,
   Bike,
   Component as ComponentModel,
+  UserRole,
 } from '@prisma/client';
-import { checkRateLimit, checkMutationRateLimit, checkQueryRateLimit } from '../lib/rate-limit';
+import { checkRateLimit, checkMutationRateLimit, checkQueryRateLimit, checkAuthRateLimit } from '../lib/rate-limit';
+import { getClientIp } from '../auth/utils';
 import { enqueueSyncJob, enqueueWeatherJob, type SyncProvider } from '../lib/queue';
 import { invalidateBikePrediction } from '../services/prediction/cache';
 import { clearServiceNotificationLogs, isValidExpoPushToken } from '../services/notification.service';
@@ -29,9 +31,8 @@ import { createId } from '@paralleldrive/cuid2';
 import { logError, logger } from '../lib/logger';
 import { captureServerEvent, invalidateOptOutCache } from '../lib/posthog';
 import { config } from '../config/env';
-import { requireBikeCreation, requireComponentType, getEffectiveTier, getAllowedComponentTypes, canCreateBike, isProTier } from '../auth/tier-access';
+import { requireBikeCreation, requireNoDowngradePending, getEffectiveTier, canCreateBike, isProTier, canSeeWeather, canSeePredictions, requirePro } from '../auth/tier-access';
 import { createCheckoutSession, createBillingPortalSession, type StripePlan, type CheckoutPlatform } from '../services/stripe.service';
-import { getReferralStats, completeReferral } from '../services/referral.service';
 import { TIER_LIMITS } from '@loam/shared';
 import { checkRecentAuth } from '../auth/recent-auth';
 import type { AcquisitionCondition, BaselineMethod, BaselineConfidence, ServiceNotificationMode } from '@prisma/client';
@@ -40,6 +41,8 @@ import { parseISO } from 'date-fns';
 import { incrementBikeComponentHours, decrementBikeComponentHours } from '../lib/component-hours';
 import { captureSetupSnapshot } from '../lib/capture-snapshot';
 import type { SetupSnapshot } from '@loam/shared';
+import { randomBytes } from 'crypto';
+import { FRONTEND_URL } from '../config/env';
 
 type ComponentType = ComponentTypeLiteral;
 
@@ -882,6 +885,23 @@ export const resolvers = {
         include: { rides: true },
       }),
 
+    // Single-ride lookup keyed on (id, userId) so a foreign-user id resolves
+    // to null instead of leaking another user's ride. Returning null on miss
+    // (rather than throwing) lets the mobile ride-detail screen render its
+    // existing "Ride not found" branch deterministically.
+    //
+    // Mobile uses this for notification deep-links. `useRidesPageQuery({
+    // take: 100 })` was the prior pattern, but a freshly-synced or
+    // backfilled ride could fall outside the first 100 and the .find()
+    // returned undefined, producing a spurious not-found flash. A direct
+    // keyed read sidesteps the entire pagination class of races.
+    ride: async (_: unknown, { id }: { id: string }, ctx: GraphQLContext) => {
+      const userId = requireUserId(ctx);
+      return prisma.ride.findFirst({
+        where: { id, userId },
+      });
+    },
+
     rides: async (_: unknown, { take = 1000, after, filter }: RidesArgs, ctx: GraphQLContext) => {
       if (!ctx.user?.id) throw new Error('Unauthorized');
       const limit = Math.min(10000, Math.max(1, take));
@@ -931,6 +951,18 @@ export const resolvers = {
     me: async (_: unknown, _args: unknown, ctx: GraphQLContext) => {
       const id = ctx.user?.id;
       return id ? prisma.user.findUnique({ where: { id } }) : null;
+    },
+
+    // Single-bike lookup keyed on (id, userId). Used by the mobile bike
+    // detail screen for service-due notification deep-links so the user
+    // doesn't see a spurious "Bike not found" flash when their cached
+    // bike list is stale (newly-added bike, fresh login, etc.). Returning
+    // null on miss/cross-user matches the established Query.ride pattern.
+    bike: async (_: unknown, { id }: { id: string }, ctx: GraphQLContext) => {
+      const userId = requireUserId(ctx);
+      return prisma.bike.findFirst({
+        where: { id, userId },
+      });
     },
 
     bikes: async (_: unknown, args: { includeInactive?: boolean }, ctx: GraphQLContext) => {
@@ -1168,6 +1200,17 @@ export const resolvers = {
         };
       }
 
+      // The calibration overlay exists to make service-due predictions
+      // accurate — a Pro feature. Free users never see it.
+      if (!canSeePredictions(user)) {
+        return {
+          showOverlay: false,
+          overdueCount: 0,
+          totalComponentCount: 0,
+          bikes: [],
+        };
+      }
+
       // Get bikes with predictions to determine overdue components
       const bikes = await prisma.bike.findMany({
         where: { userId },
@@ -1236,18 +1279,28 @@ export const resolvers = {
 
         totalComponents += predictions.components.length;
 
-        // Filter to OVERDUE and DUE_NOW components
+        // Bike-inclusion gate: only include bikes that have at least one
+        // OVERDUE / DUE_NOW component so the overlay still scopes itself to
+        // bikes that genuinely need attention. `totalOverdue` keeps using
+        // this strict filter — it drives `showOverlay` and the subtitle
+        // count, neither of which should fire on healthy components.
         const needsAttention = predictions.components.filter(
           (c) => c.status === 'OVERDUE' || c.status === 'DUE_NOW'
         );
 
         if (needsAttention.length > 0) {
           totalOverdue += needsAttention.length;
+          // Return ALL components on the included bike (not just needs-
+          // attention) so users can record historical service for a
+          // component currently in DUE_SOON / ALL_GOOD — e.g. brake pads
+          // they swapped last month that aren't due now but should still
+          // be on record. Each component carries its own `status`, so the
+          // frontend can sort and badge appropriately.
           bikesNeedingCalibration.push({
             bikeId: bike.id,
             bikeName: bike.nickname || `${bike.year || ''} ${bike.manufacturer} ${bike.model}`.trim(),
             thumbnailUrl: bike.thumbnailUrl,
-            components: needsAttention,
+            components: predictions.components,
           });
         }
       }
@@ -1351,9 +1404,12 @@ export const resolvers = {
       };
     },
 
+    // Deprecated stub — the referral program was removed, but old mobile builds
+    // still query this field. Returns zeros so their queries keep validating.
+    // TODO(remove after 2026-12): delete once pre-referral-removal app versions age out.
     referralStats: async (_: unknown, _args: unknown, ctx: GraphQLContext) => {
-      const userId = requireUserId(ctx);
-      return getReferralStats(userId);
+      requireUserId(ctx);
+      return { referralCode: '', referralLink: '', pendingCount: 0, completedCount: 0 };
     },
 
     bikeHistory: async (
@@ -1376,23 +1432,10 @@ export const resolvers = {
         );
       }
 
-      const [bike, tierUser] = await Promise.all([
-        prisma.bike.findFirst({ where: { id: bikeId, userId } }),
-        prisma.user.findUniqueOrThrow({
-          where: { id: userId },
-          select: { subscriptionTier: true, isFoundingRider: true, role: true },
-        }),
-      ]);
+      const bike = await prisma.bike.findFirst({ where: { id: bikeId, userId } });
       if (!bike) {
         throw new GraphQLError('Bike not found', { extensions: { code: 'NOT_FOUND' } });
       }
-
-      // Tier gate: a Free Light user only sees component events whose type is
-      // unlocked for their tier — mirrors the BikeDetail gating so the PDF they
-      // hand a buyer can't accidentally surface data the app hides elsewhere.
-      const allowedTypes = getAllowedComponentTypes(tierUser);
-      const componentTypeFilter: Prisma.ComponentWhereInput | undefined =
-        allowedTypes === 'ALL' ? undefined : { type: { in: allowedTypes } };
 
       const gte = startDate ? new Date(startDate) : undefined;
       const lte = endDate ? new Date(endDate) : undefined;
@@ -1435,7 +1478,7 @@ export const resolvers = {
         }),
         prisma.serviceLog.findMany({
           where: {
-            component: { bikeId, userId, ...(componentTypeFilter ?? {}) },
+            component: { bikeId, userId },
             ...(dateRange ? { performedAt: dateRange } : {}),
           },
           include: { component: true },
@@ -1456,7 +1499,6 @@ export const resolvers = {
           where: {
             userId,
             bikeId,
-            ...(componentTypeFilter ? { component: componentTypeFilter } : {}),
             ...(dateRange
               ? {
                   OR: [
@@ -1551,6 +1593,109 @@ export const resolvers = {
           installs.length >= INSTALL_CAP,
       };
     },
+
+    // Public (no auth): sanitized history for the shareable bike page.
+    // Exposes only the bike, its components, wrench history, and aggregate
+    // usage totals — no owner identity, no per-ride rows, no GPS, and no
+    // freeform service notes (riders type identity-linked info into those).
+    sharedBikeHistory: async (_: unknown, { slug }: { slug: string }, ctx: GraphQLContext) => {
+      // The only unauthenticated resolver — the per-userId rate limiters
+      // don't apply, so throttle by IP instead. Slug entropy (~72 bits)
+      // already defeats enumeration; this caps scripted scraping of
+      // known/leaked slugs.
+      const rateLimit = await checkAuthRateLimit('shared-history', getClientIp(ctx.req));
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(
+          `Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`,
+          { extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter } }
+        );
+      }
+
+      // Slug shape guard before touching the DB — share slugs are 12+ char
+      // base64url tokens; anything else can 404 cheaply.
+      if (!/^[A-Za-z0-9_-]{8,64}$/.test(slug)) return null;
+
+      const bike = await prisma.bike.findUnique({ where: { shareSlug: slug } });
+      if (!bike) return null;
+
+      const SERVICE_CAP = 1000;
+      const INSTALL_CAP = 1000;
+
+      const [serviceLogs, installs, rideAgg] = await Promise.all([
+        prisma.serviceLog.findMany({
+          where: { component: { bikeId: bike.id } },
+          // Explicit select (not include) so freeform notes never leave the DB
+          // on this unauthenticated path.
+          select: {
+            performedAt: true,
+            component: { select: { type: true, location: true, brand: true, model: true } },
+          },
+          orderBy: { performedAt: 'desc' },
+          take: SERVICE_CAP,
+        }),
+        prisma.bikeComponentInstall.findMany({
+          where: { bikeId: bike.id },
+          include: { component: { select: { type: true, location: true, brand: true, model: true } } },
+          orderBy: { installedAt: 'desc' },
+          take: INSTALL_CAP,
+        }),
+        prisma.ride.aggregate({
+          where: { bikeId: bike.id },
+          _count: { _all: true },
+          _sum: { distanceMeters: true, durationSeconds: true, elevationGainMeters: true },
+        }),
+      ]);
+
+      const toSharedComponent = (c: { type: string; location: string; brand: string; model: string }) => ({
+        type: c.type,
+        location: c.location,
+        brand: c.brand,
+        model: c.model,
+      });
+
+      const serviceEvents = serviceLogs.map((log) => ({
+        performedAt: log.performedAt.toISOString(),
+        component: toSharedComponent(log.component),
+      }));
+
+      const installEvents = installs.flatMap((install) => {
+        const events = [
+          {
+            eventType: 'INSTALLED' as const,
+            occurredAt: install.installedAt.toISOString(),
+            component: toSharedComponent(install.component),
+          },
+        ];
+        if (install.removedAt) {
+          events.push({
+            eventType: 'REMOVED' as never,
+            occurredAt: install.removedAt.toISOString(),
+            component: toSharedComponent(install.component),
+          });
+        }
+        return events;
+      });
+
+      return {
+        bike: {
+          name: bike.nickname ?? `${bike.manufacturer} ${bike.model}`,
+          manufacturer: bike.manufacturer,
+          model: bike.model,
+          year: bike.year,
+          thumbnailUrl: bike.thumbnailUrl,
+        },
+        serviceEvents,
+        installs: installEvents,
+        totals: {
+          rideCount: rideAgg._count._all,
+          totalDistanceMeters: rideAgg._sum.distanceMeters ?? 0,
+          totalDurationSeconds: rideAgg._sum.durationSeconds ?? 0,
+          totalElevationGainMeters: rideAgg._sum.elevationGainMeters ?? 0,
+          serviceEventCount: serviceEvents.length,
+          installEventCount: installEvents.length,
+        },
+      };
+    },
   },
   Mutation: {
     addRide: async (_p: unknown, { input }: { input: AddRideInput }, ctx: GraphQLContext) => {
@@ -1629,13 +1774,6 @@ export const resolvers = {
       // Invalidate prediction cache after transaction
       if (bikeId) {
         await invalidateBikePrediction(userId, bikeId);
-      }
-
-      // Check if this ride completes a pending referral (non-blocking)
-      try {
-        await completeReferral(userId);
-      } catch (refErr) {
-        logError('Referral completion after ride', refErr);
       }
 
       // Funnel signal only — intentionally omits the ride's metric values
@@ -2195,12 +2333,12 @@ export const resolvers = {
       const userId = requireUserId(ctx);
       const type = input.type;
 
-      // Tier check: enforce component type restriction
+      // Block mutations while a post-downgrade bike selection is pending
       const tierUser = await prisma.user.findUniqueOrThrow({
         where: { id: userId },
         select: { subscriptionTier: true, isFoundingRider: true, needsDowngradeSelection: true },
       });
-      requireComponentType(tierUser, type);
+      requireNoDowngradePending(tierUser);
 
       if (bikeId) {
         const bike = await prisma.bike.findUnique({
@@ -3514,17 +3652,15 @@ export const resolvers = {
             extensions: { code: 'BAD_USER_INPUT' },
           });
         }
-        // Only allow "predictive" for PRO/ADMIN users
+        // Predictive mode is Pro-only. Uses the effective tier (subscription,
+        // founding rider, or admin) — the old check against the legacy `role`
+        // column wrongly blocked subscription-Pro users and founding riders.
         if (input.predictionMode === 'predictive') {
-          const user = await prisma.user.findUnique({
+          const user = await prisma.user.findUniqueOrThrow({
             where: { id: userId },
-            select: { role: true },
+            select: { subscriptionTier: true, isFoundingRider: true, role: true },
           });
-          if (user?.role !== 'PRO' && user?.role !== 'ADMIN') {
-            throw new GraphQLError('Predictive mode is only available for Pro users', {
-              extensions: { code: 'FORBIDDEN' },
-            });
-          }
+          requirePro(user, 'Predictive mode');
         }
         updateData.predictionMode = input.predictionMode;
       }
@@ -4400,12 +4536,12 @@ export const resolvers = {
 
       const { type: slotType, location: slotLocation } = parseSlotKey(slotKey);
 
-      // Tier check: enforce component type restriction
+      // Block mutations while a post-downgrade bike selection is pending
       const installTierUser = await prisma.user.findUniqueOrThrow({
         where: { id: userId },
         select: { subscriptionTier: true, isFoundingRider: true, needsDowngradeSelection: true },
       });
-      requireComponentType(installTierUser, slotType as ComponentTypeLiteral);
+      requireNoDowngradePending(installTierUser);
 
       // Validate bike ownership
       const bike = await prisma.bike.findFirst({ where: { id: bikeId, userId } });
@@ -5185,11 +5321,7 @@ export const resolvers = {
         where: { id: userId },
         select: { subscriptionTier: true, isFoundingRider: true, role: true },
       });
-      if (!isProTier(user)) {
-        throw new GraphQLError('Weather backfill is a Pro feature.', {
-          extensions: { code: 'NOT_PRO' },
-        });
-      }
+      requirePro(user, 'Weather backfill');
 
       const rateLimit = await checkMutationRateLimit('backfillWeatherForMyRides', userId);
       if (!rateLimit.allowed) {
@@ -5267,6 +5399,46 @@ export const resolvers = {
 
       return { enqueuedCount, ridesWithoutCoords, remainingAfterBatch };
     },
+
+    // Enable public sharing of a bike's history. Available to all tiers —
+    // the branded share page is a growth surface, not a paid feature.
+    // Idempotent: re-enabling returns the existing link.
+    enableBikeShare: async (_: unknown, { bikeId }: { bikeId: string }, ctx: GraphQLContext) => {
+      const userId = requireUserId(ctx);
+
+      const bike = await prisma.bike.findFirst({
+        where: { id: bikeId, userId },
+        select: { id: true, shareSlug: true },
+      });
+      if (!bike) {
+        throw new GraphQLError('Bike not found', { extensions: { code: 'NOT_FOUND' } });
+      }
+
+      let slug = bike.shareSlug;
+      if (!slug) {
+        // 12 base64url chars ≈ 71 bits of entropy — unguessable, short enough
+        // to read aloud off a for-sale listing.
+        slug = randomBytes(9).toString('base64url');
+        await prisma.bike.update({ where: { id: bike.id }, data: { shareSlug: slug } });
+      }
+
+      return `${FRONTEND_URL}/share/${slug}`;
+    },
+
+    disableBikeShare: async (_: unknown, { bikeId }: { bikeId: string }, ctx: GraphQLContext) => {
+      const userId = requireUserId(ctx);
+
+      const bike = await prisma.bike.findFirst({
+        where: { id: bikeId, userId },
+        select: { id: true },
+      });
+      if (!bike) {
+        throw new GraphQLError('Bike not found', { extensions: { code: 'NOT_FOUND' } });
+      }
+
+      await prisma.bike.update({ where: { id: bike.id }, data: { shareSlug: null } });
+      return true;
+    },
   },
 
   Bike: {
@@ -5304,9 +5476,9 @@ export const resolvers = {
       if (!user) return null;
 
       try {
-        const { generateBikePredictions } = await import('../services/prediction');
+        const { generateBikePredictions, degradeSummaryForFreeTier } = await import('../services/prediction');
         const predictionMode = (user.predictionMode === 'predictive' ? 'predictive' : 'simple') as 'simple' | 'predictive';
-        return generateBikePredictions({
+        const summary = await generateBikePredictions({
           userId,
           bikeId: bike.id,
           userRole: user.role,
@@ -5314,6 +5486,9 @@ export const resolvers = {
           subscriptionTier: user.subscriptionTier,
           isFoundingRider: user.isFoundingRider,
         });
+        // Rides-remaining predictions are Pro-only: free users get the raw
+        // usage counters with the predictive fields nulled out.
+        return canSeePredictions(user) ? summary : degradeSummaryForFreeTier(summary);
       } catch (error) {
         logError('Resolver Prediction generation', error);
         return null;
@@ -5344,6 +5519,14 @@ export const resolvers = {
       _args: unknown,
       ctx: GraphQLContext
     ) => {
+      // Weather display is Pro-only. Data is still ingested for everyone,
+      // so it's available the moment a user upgrades — the gate is at the
+      // serving layer. tierUserById caches per request, so ride lists don't
+      // pay N user lookups.
+      const userId = ctx.user?.id;
+      if (!userId) return null;
+      const tierUser = await ctx.loaders.tierUserById.load(userId);
+      if (!tierUser || !canSeeWeather(tierUser)) return null;
       // If resolver was called with an included weather relation, use it.
       if (ride.weather !== undefined) return ride.weather;
       // Otherwise batch-load via DataLoader to avoid N+1 on list queries.
@@ -5392,6 +5575,9 @@ export const resolvers = {
   },
 
   User: {
+    // Deprecated stub — referral program removed; old mobile builds still select
+    // this in their Me query. TODO(remove after 2026-12) with the schema field.
+    referralCode: () => null,
     activeDataSource: (parent: { activeDataSource: string | null }) => parent.activeDataSource,
     role: (parent: { role: string }) => parent.role,
     mustChangePassword: (parent: { mustChangePassword?: boolean }) => parent.mustChangePassword ?? false,
@@ -5440,7 +5626,10 @@ export const resolvers = {
     // Settings backfill section) — not on every Me query. A partial index
     // on Ride(userId) WHERE startLat IS NOT NULL AND startLng IS NOT NULL
     // keeps the COUNT cheap (see migration 20260415121000).
-    ridesMissingWeather: async (parent: { id: string }) => {
+    ridesMissingWeather: async (parent: { id: string }, _args: unknown, ctx: GraphQLContext) => {
+      // Weather is Pro-only; free users have nothing to backfill.
+      const tierUser = await ctx.loaders.tierUserById.load(parent.id);
+      if (!tierUser || !canSeeWeather(tierUser)) return 0;
       return prisma.ride.count({
         where: {
           userId: parent.id,
@@ -5456,8 +5645,20 @@ export const resolvers = {
     // to bucket by condition.
     weatherBreakdown: async (
       parent: { id: string },
-      { filter }: { filter?: { startDate?: string | null; endDate?: string | null; bikeId?: string | null } | null }
+      { filter }: { filter?: { startDate?: string | null; endDate?: string | null; bikeId?: string | null } | null },
+      ctx: GraphQLContext
     ) => {
+      // Weather is Pro-only: free users get a zeroed breakdown (non-null
+      // shape preserved for old clients).
+      const tierUser = await ctx.loaders.tierUserById.load(parent.id);
+      if (!tierUser || !canSeeWeather(tierUser)) {
+        return {
+          sunny: 0, cloudy: 0, rainy: 0, snowy: 0, windy: 0, foggy: 0, unknown: 0,
+          pending: 0,
+          totalRides: 0,
+        };
+      }
+
       const rideWhere: Prisma.RideWhereInput = { userId: parent.id };
 
       if (filter?.startDate || filter?.endDate) {
@@ -5543,22 +5744,20 @@ export const resolvers = {
     },
     tierLimits: async (parent: { id: string; subscriptionTier: string; isFoundingRider?: boolean; role?: string }) => {
       const tierUser = {
-        subscriptionTier: parent.subscriptionTier as 'FREE_LIGHT' | 'FREE_FULL' | 'PRO',
+        subscriptionTier: parent.subscriptionTier as 'FREE' | 'PRO',
         isFoundingRider: parent.isFoundingRider ?? false,
-        role: parent.role,
+        role: parent.role as UserRole | undefined,
       };
       const tier = getEffectiveTier(tierUser);
-      const tierConfig = TIER_LIMITS[tier];
+      const tierConfig = TIER_LIMITS[tier as keyof typeof TIER_LIMITS] ?? TIER_LIMITS.FREE;
       const currentBikeCount = await prisma.bike.count({
         where: { userId: parent.id, status: 'ACTIVE' },
       });
-      const allowed = getAllowedComponentTypes(tierUser);
 
       return {
         maxBikes: tierConfig.maxBikes === Infinity ? null : tierConfig.maxBikes,
-        allowedComponentTypes: allowed === 'ALL'
-          ? Object.values(ComponentTypeEnum)
-          : allowed,
+        // All tiers can track every component type
+        allowedComponentTypes: Object.values(ComponentTypeEnum),
         currentBikeCount,
         canAddBike: canCreateBike(tierUser, currentBikeCount),
       };

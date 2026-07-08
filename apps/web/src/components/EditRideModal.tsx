@@ -6,7 +6,9 @@ import { BIKES_LIGHT } from '../graphql/bikes';
 import { toLocalInputValue, fromLocalInputValue } from '../lib/format';
 import { Modal, Input, Textarea, Select, Button } from './ui';
 import { usePreferences } from '../hooks/usePreferences';
+import { useUserTier } from '../hooks/useUserTier';
 import RideWeatherPanel from './RideWeatherPanel';
+import { UpsellCard } from './UpgradePrompt';
 import type { RideWeather } from '../models/Ride';
 
 type BikeSummary = { id: string; nickname?: string | null; manufacturer: string; model: string };
@@ -36,6 +38,7 @@ export default function EditRideModal({
   onClose: () => void;
 }) {
   const { distanceUnit } = usePreferences();
+  const { isFree } = useUserTier();
   // Pre-fill fields - convert stored meters to user's preferred unit for display
   const [startLocal, setStartLocal] = useState<string>(() => toLocalInputValue(ride.startTime));
   const [hours, setHours] = useState<number>(() => Math.floor(ride.durationSeconds / 3600));
@@ -234,8 +237,10 @@ export default function EditRideModal({
           maxLength={2000}
         />
 
-        {ride.weather && (
+        {ride.weather ? (
           <RideWeatherPanel weather={ride.weather} distanceUnit={distanceUnit} />
+        ) : (
+          isFree && <UpsellCard feature="weather" />
         )}
 
         {error && <div className="text-sm text-danger">{error.message}</div>}

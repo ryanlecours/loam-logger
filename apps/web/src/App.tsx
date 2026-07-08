@@ -16,11 +16,12 @@ import BikeDetail from './pages/BikeDetail';
 // Export button is clicked). Keeps the main bundle lean for the 99% of
 // sessions that never open it.
 const BikeHistory = lazy(() => import('./pages/BikeHistory'));
+// Public shared bike-history page — lazy for the same reason: only visitors
+// following a share link pay for it.
+const SharedBikeHistory = lazy(() => import('./pages/SharedBikeHistory'));
 import Admin from './pages/Admin';
 import AuthComplete from './pages/AuthComplete';
-import BetaTesterWaitlist from './pages/BetaTesterWaitlist';
-import ClosedBeta from './pages/ClosedBeta';
-import AlreadyOnWaitlist from './pages/AlreadyOnWaitlist';
+import Signup from './pages/Signup';
 import ChangePassword from './pages/ChangePassword';
 import ResetPassword from './pages/ResetPassword';
 import ForgotPassword from './pages/ForgotPassword';
@@ -86,14 +87,21 @@ function AppRoutes() {
           <Route path="/about" element={<Page><About /></Page>} />
           <Route path="/support" element={<Page><Support /></Page>} />
           <Route path="/login" element={<Page><Login /></Page>} />
-          <Route path="/signup" element={<Page><BetaTesterWaitlist /></Page>} />
-          <Route path="/beta-waitlist" element={<Page><BetaTesterWaitlist /></Page>} />
-          <Route path="/closed-beta" element={<Page><ClosedBeta /></Page>} />
-          <Route path="/already-on-waitlist" element={<Page><AlreadyOnWaitlist /></Page>} />
+          <Route path="/signup" element={<Page><Signup /></Page>} />
           <Route path="/change-password" element={<Page><ChangePassword /></Page>} />
           <Route path="/reset-password" element={<Page><ResetPassword /></Page>} />
           <Route path="/forgot-password" element={<Page><ForgotPassword /></Page>} />
           <Route path="/auth/complete" element={<AuthComplete />} />
+          <Route
+            path="/share/:slug"
+            element={
+              <Page>
+                <Suspense fallback={<div className="min-h-screen" />}>
+                  <SharedBikeHistory />
+                </Suspense>
+              </Page>
+            }
+          />
 
           {/* Onboarding */}
           <Route path="/onboarding" element={<AuthGate><Page><Onboarding /></Page></AuthGate>} />

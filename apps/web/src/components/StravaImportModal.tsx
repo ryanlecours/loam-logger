@@ -3,6 +3,8 @@ import { Check } from 'lucide-react';
 import StravaGearMappingModal from './StravaGearMappingModal';
 import { Modal, Button } from './ui';
 import { getAuthHeaders } from '@/lib/csrf';
+import { useUserTier } from '@/hooks/useUserTier';
+import { UpsellCard } from './UpgradePrompt';
 
 type Props = {
   open: boolean;
@@ -40,6 +42,7 @@ const YEAR_OPTIONS = [
 ];
 
 export default function StravaImportModal({ open, onClose, onSuccess, onDuplicatesFound }: Props) {
+  const { isPro } = useUserTier();
   const [step, setStep] = useState<'period' | 'processing' | 'complete'>('period');
   const [year, setYear] = useState<string>('ytd');
   const [error, setError] = useState<string | null>(null);
@@ -84,6 +87,8 @@ export default function StravaImportModal({ open, onClose, onSuccess, onDuplicat
 
   // Helper to check if a year can be selected
   const canSelectYear = (yearValue: string): boolean => {
+    // Past seasons are a Pro feature - free accounts import the current year only
+    if (!isPro && yearValue !== 'ytd') return false;
     if (yearValue === 'ytd') {
       return !inProgressYears.has('ytd');
     }
@@ -284,6 +289,8 @@ export default function StravaImportModal({ open, onClose, onSuccess, onDuplicat
               <p className="text-xs text-muted mt-2">
                 Year to Date can be run multiple times to fetch new rides since your last import.
               </p>
+
+              {!isPro && <UpsellCard feature="importDepth" className="mt-2" />}
             </div>
 
             {error && (

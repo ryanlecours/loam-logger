@@ -3,7 +3,6 @@ const mockUserAccountCreate = jest.fn();
 const mockUserFindUnique = jest.fn();
 const mockUserCreate = jest.fn();
 const mockUserUpdate = jest.fn();
-const mockReferralCreate = jest.fn();
 const mockTransaction = jest.fn();
 
 jest.mock('../lib/prisma', () => ({
@@ -16,18 +15,12 @@ jest.mock('../lib/logger', () => ({
   logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
 }));
 
-jest.mock('../services/referral.service', () => ({
-  resolveReferrer: jest.fn().mockResolvedValue(null),
-  createUserWithReferralCode: jest.fn(async (fn: (code: string) => Promise<unknown>) => fn('abc12345')),
-}));
-
 const mockConfig = { bypassWaitlistFlow: false };
 jest.mock('../config/env', () => ({
   config: mockConfig,
 }));
 
 import { ensureUserFromApple } from './ensureUserFromApple';
-import { resolveReferrer } from '../services/referral.service';
 
 function createTx() {
   return {
@@ -39,9 +32,6 @@ function createTx() {
       findUnique: mockUserFindUnique,
       create: mockUserCreate,
       update: mockUserUpdate,
-    },
-    referral: {
-      create: mockReferralCreate,
     },
   };
 }
@@ -61,17 +51,7 @@ describe('ensureUserFromApple', () => {
     mockConfig.bypassWaitlistFlow = false;
   });
 
-  it('should throw CLOSED_BETA for new users when bypass is off', async () => {
-    const tx = createTx();
-    mockTransaction.mockImplementation(async (fn: (t: unknown) => unknown) => fn(tx));
-    mockUserAccountFindUnique.mockResolvedValue(null);
-    mockUserFindUnique.mockResolvedValue(null);
-
-    await expect(ensureUserFromApple(baseClaims)).rejects.toThrow('CLOSED_BETA');
-  });
-
-  it('should create FREE user when bypass is on and user is new', async () => {
-    mockConfig.bypassWaitlistFlow = true;
+  it('should create FREE user when user is new', async () => {
     const createdUser = { id: 'new-user', email: 'test@test.com', role: 'FREE' };
     mockTransaction.mockImplementation(async (fn: (t: unknown) => unknown) => fn(createTx()));
     mockUserAccountFindUnique.mockResolvedValue(null);
@@ -81,66 +61,18 @@ describe('ensureUserFromApple', () => {
 
     const result = await ensureUserFromApple(baseClaims);
 
-    expect(result).toEqual(createdUser);
+    expect(result).toEqual({ user: createdUser, wasCreated: true });
     expect(mockUserCreate).toHaveBeenCalledWith({
       data: expect.objectContaining({
         email: 'test@test.com',
         role: 'FREE',
-        subscriptionTier: 'FREE_LIGHT',
-        referralCode: 'abc12345',
+        subscriptionTier: 'FREE',
         avatarUrl: null,
       }),
     });
     expect(mockUserAccountCreate).toHaveBeenCalledWith({
       data: { userId: 'new-user', provider: 'apple', providerUserId: 'apple-001.abc123' },
     });
-  });
-
-  it('should create referral record when ref is provided', async () => {
-    mockConfig.bypassWaitlistFlow = true;
-    (resolveReferrer as jest.Mock).mockResolvedValue('referrer-id');
-    mockTransaction.mockImplementation(async (fn: (t: unknown) => unknown) => fn(createTx()));
-    mockUserAccountFindUnique.mockResolvedValue(null);
-    mockUserFindUnique.mockResolvedValue(null);
-    mockUserCreate.mockResolvedValue({ id: 'new-user', email: 'test@test.com' });
-    mockUserAccountCreate.mockResolvedValue({});
-
-    await ensureUserFromApple(baseClaims, 'refcode');
-
-    expect(resolveReferrer).toHaveBeenCalledWith('refcode');
-    expect(mockReferralCreate).toHaveBeenCalledWith({
-      data: { referrerUserId: 'referrer-id', referredUserId: 'new-user' },
-    });
-  });
-
-  it('should not create referral when ref is not provided', async () => {
-    mockConfig.bypassWaitlistFlow = true;
-    mockTransaction.mockImplementation(async (fn: (t: unknown) => unknown) => fn(createTx()));
-    mockUserAccountFindUnique.mockResolvedValue(null);
-    mockUserFindUnique.mockResolvedValue(null);
-    mockUserCreate.mockResolvedValue({ id: 'new-user', email: 'test@test.com' });
-    mockUserAccountCreate.mockResolvedValue({});
-
-    await ensureUserFromApple(baseClaims);
-
-    expect(mockReferralCreate).not.toHaveBeenCalled();
-  });
-
-  it('should throw ALREADY_ON_WAITLIST for waitlist users found by sub', async () => {
-    const tx = createTx();
-    mockTransaction.mockImplementation(async (fn: (t: unknown) => unknown) => fn(tx));
-    mockUserAccountFindUnique.mockResolvedValue({ user: { id: 'wl-user', role: 'WAITLIST' } });
-
-    await expect(ensureUserFromApple(baseClaims)).rejects.toThrow('ALREADY_ON_WAITLIST');
-  });
-
-  it('should throw ALREADY_ON_WAITLIST for waitlist users found by email', async () => {
-    const tx = createTx();
-    mockTransaction.mockImplementation(async (fn: (t: unknown) => unknown) => fn(tx));
-    mockUserAccountFindUnique.mockResolvedValue(null);
-    mockUserFindUnique.mockResolvedValue({ role: 'WAITLIST' });
-
-    await expect(ensureUserFromApple(baseClaims)).rejects.toThrow('ALREADY_ON_WAITLIST');
   });
 
   it('should return existing user for linked Apple account', async () => {
@@ -151,7 +83,7 @@ describe('ensureUserFromApple', () => {
 
     const result = await ensureUserFromApple(baseClaims);
 
-    expect(result).toEqual(existingUser);
+    expect(result).toEqual({ user: existingUser, wasCreated: false });
     expect(mockUserCreate).not.toHaveBeenCalled();
   });
 
@@ -166,7 +98,7 @@ describe('ensureUserFromApple', () => {
 
     const result = await ensureUserFromApple(baseClaims);
 
-    expect(result).toEqual(existingUser);
+    expect(result).toEqual({ user: existingUser, wasCreated: false });
     expect(mockUserAccountCreate).toHaveBeenCalledWith({
       data: { userId: 'email-user', provider: 'apple', providerUserId: 'apple-001.abc123' },
     });
@@ -186,7 +118,8 @@ describe('ensureUserFromApple', () => {
       where: { id: 'nameless' },
       data: { name: 'Test User' },
     });
-    expect(result.name).toBe('Test User');
+    expect(result.user.name).toBe('Test User');
+    expect(result.wasCreated).toBe(false);
   });
 
   it('should throw when no email and no existing account', async () => {

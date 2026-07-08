@@ -52,6 +52,7 @@ export const PREDICTION_FIELDS = gql`
       currentHours
       serviceIntervalHours
       hoursSinceService
+      ridesSinceService
     }
     components {
       componentId
@@ -66,6 +67,7 @@ export const PREDICTION_FIELDS = gql`
       currentHours
       serviceIntervalHours
       hoursSinceService
+      ridesSinceService
     }
   }
 `;

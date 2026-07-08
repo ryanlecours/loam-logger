@@ -227,6 +227,8 @@ export const AUTH_RATE_LIMITS = {
   'reset-password': { windowSeconds: 60, maxRequests: 10 },
   /** forgot-password: max 5 requests per minute per IP (public; prevents email-blast abuse) */
   'forgot-password': { windowSeconds: 60, maxRequests: 5 },
+  /** shared-history: max 30 requests per minute per IP (public bike-share pages; prevents scripted scraping of known slugs — slug entropy already defeats brute-force enumeration) */
+  'shared-history': { windowSeconds: 60, maxRequests: 30 },
 } as const;
 
 export type AuthRateLimitType = keyof typeof AUTH_RATE_LIMITS;

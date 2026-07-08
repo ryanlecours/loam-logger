@@ -1,14 +1,12 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useMutation } from '@apollo/client';
-import { Check, Wrench, TriangleAlert, Lock } from 'lucide-react';
+import { Check, Wrench, TriangleAlert } from 'lucide-react';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
 import { LOG_COMPONENT_SERVICE } from '../../graphql/logComponentService';
 import { BIKES } from '../../graphql/bikes';
 import { formatComponentLabel, getBikeName } from '../../utils/formatters';
 import { todayDateInput } from '../../lib/format';
-import { useUserTier } from '../../hooks/useUserTier';
-import { isFreeLightComponent } from '@loam/shared';
 import type { BikeWithPredictions } from '../../hooks/usePriorityBike';
 import { StatusDot } from './StatusDot';
 
@@ -85,17 +83,10 @@ export function LogServiceModal({
     onClose();
   }, [onClose]);
 
-  const { isFreeLight } = useUserTier();
-
-  const isRestricted = useCallback((componentType: string) =>
-    isFreeLight && !isFreeLightComponent(componentType),
-  [isFreeLight]);
-
-  const components = useMemo(() =>
-    [...(bike?.predictions?.components ?? [])].sort((a, b) =>
-      Number(isRestricted(a.componentType)) - Number(isRestricted(b.componentType))
-    ),
-  [bike?.predictions?.components, isRestricted]);
+  const components = useMemo(
+    () => bike?.predictions?.components ?? [],
+    [bike?.predictions?.components]
+  );
 
   if (!bike) return null;
 
@@ -150,41 +141,34 @@ export function LogServiceModal({
 
           <div className="log-service-checklist list-stagger">
             {components.map((component) => {
-              const restricted = isRestricted(component.componentType);
-              const isSelected = !restricted && selectedIds.has(component.componentId);
+              const isSelected = selectedIds.has(component.componentId);
               return (
                 <div
                   key={component.componentId}
-                  className={`log-service-item ${isSelected ? 'log-service-item-selected' : ''} ${restricted ? 'opacity-40 cursor-default' : ''}`}
-                  onClick={() => !restricted && toggleComponent(component.componentId)}
+                  className={`log-service-item ${isSelected ? 'log-service-item-selected' : ''}`}
+                  onClick={() => toggleComponent(component.componentId)}
                   role="checkbox"
                   aria-checked={isSelected}
-                  tabIndex={restricted ? -1 : 0}
+                  tabIndex={0}
                   onKeyDown={(e) => {
-                    if (!restricted && (e.key === 'Enter' || e.key === ' ')) {
+                    if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault();
                       toggleComponent(component.componentId);
                     }
                   }}
                 >
-                  {restricted ? (
-                    <Lock size={10} className="shrink-0 text-muted" />
-                  ) : (
-                    <>
-                      <div className="log-service-item-checkbox">
-                        {isSelected && <Check size={10} className="icon-forest" />}
-                      </div>
-                      <StatusDot status={component.status} />
-                    </>
-                  )}
+                  <div className="log-service-item-checkbox">
+                    {isSelected && <Check size={10} className="icon-forest" />}
+                  </div>
+                  <StatusDot status={component.status} />
                   <span className="log-service-item-label">
                     {formatComponentLabel(component)}
                   </span>
-                  {!restricted && (
-                    <span className="log-service-item-hours">
-                      {component.hoursRemaining.toFixed(1)} hrs
-                    </span>
-                  )}
+                  <span className="log-service-item-hours">
+                    {component.hoursRemaining != null
+                      ? `${component.hoursRemaining.toFixed(1)} hrs`
+                      : `${component.hoursSinceService.toFixed(1)}h since service`}
+                  </span>
                 </div>
               );
             })}

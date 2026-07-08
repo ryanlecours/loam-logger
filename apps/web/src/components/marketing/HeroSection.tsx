@@ -43,7 +43,7 @@ export default function HeroSection() {
           className="flex flex-col sm:flex-row items-center justify-center gap-4"
         >
           <MarketingButton href="/signup" size="xl" pulse>
-            Join the Beta Waitlist
+            Get started
           </MarketingButton>
         </motion.div>
 
@@ -54,7 +54,7 @@ export default function HeroSection() {
           className="mt-6"
         >
           <div className="inline-flex items-center gap-2 px-4 py-2 bg-mint/20 border border-mint/40 rounded-full">
-            <span className="text-sm font-semibold text-mint">Free Forever for Beta Users</span>
+            <span className="text-sm font-semibold text-mint">Free for every rider — no credit card required</span>
           </div>
         </motion.div>
       </div>

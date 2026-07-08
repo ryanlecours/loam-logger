@@ -7,7 +7,7 @@ import { setCsrfCookie } from './csrf'; // Used by /auth/csrf-token endpoint
 import { updateLastAuthAt } from './recent-auth';
 import { requireRecentAuth } from './requireRecentAuth';
 import { prisma } from '../lib/prisma';
-import { sendBadRequest, sendUnauthorized, sendForbidden, sendConflict, sendInternalError, sendTooManyRequests } from '../lib/api-response';
+import { sendBadRequest, sendUnauthorized, sendConflict, sendInternalError, sendTooManyRequests } from '../lib/api-response';
 import { checkAuthRateLimit, checkMutationRateLimit } from '../lib/rate-limit';
 import { sendPasswordChangedNotification } from '../services/password-notification.service';
 import {
@@ -16,14 +16,13 @@ import {
   sendPasswordResetEmail,
 } from '../services/password-reset.service';
 import { logger } from '../lib/logger';
-import { config } from '../config/env';
 import { createNewUser, verifyEmailAvailable } from '../services/signup.service';
 
 const router = express.Router();
 
 /**
  * POST /auth/signup
- * Add user to waitlist (closed beta)
+ * Register a new active FREE user and start a web session.
  */
 router.post('/signup', express.json(), async (req, res) => {
   try {
@@ -34,14 +33,12 @@ router.post('/signup', express.json(), async (req, res) => {
       return sendTooManyRequests(res, 'Too many signup attempts. Please try again later.', rateLimit.retryAfter);
     }
 
-    const { email: rawEmail, name, ref } = req.body as {
+    const { email: rawEmail, name, password } = req.body as {
       email?: string;
       name?: string;
-      ref?: string;
+      password?: string;
     };
 
-    // Validate input - password not required during closed beta
-    // Users will receive a temporary password via email when activated
     if (!rawEmail) {
       return sendBadRequest(res, 'Email is required');
     }
@@ -63,39 +60,28 @@ router.post('/signup', express.json(), async (req, res) => {
       return sendBadRequest(res, 'Invalid email format');
     }
 
+    if (!password) {
+      return sendBadRequest(res, 'Password is required');
+    }
+    const validation = validatePassword(password);
+    if (!validation.isValid) {
+      return sendBadRequest(res, validation.error || 'Password does not meet requirements');
+    }
+
     // Check if user already exists
     const check = await verifyEmailAvailable(email);
     if (!check.available) {
-      if (check.role === 'WAITLIST') {
-        return sendForbidden(res, 'You are already on the waitlist. We will email you when your account is activated.', 'ALREADY_ON_WAITLIST');
-      }
       return sendConflict(res, 'An account with this email already exists. Please log in.');
     }
     const verifiedEmail = check.email;
 
-    if (config.bypassWaitlistFlow) {
-      const { password } = req.body as { password?: string };
-      if (!password) {
-        return sendBadRequest(res, 'Password is required');
-      }
-      const validation = validatePassword(password);
-      if (!validation.isValid) {
-        return sendBadRequest(res, validation.error || 'Password does not meet requirements');
-      }
+    const passwordHash = await hashPassword(password);
+    const { user } = await createNewUser({ email: verifiedEmail, name: name.trim(), passwordHash });
 
-      const passwordHash = await hashPassword(password);
-      const { user } = await createNewUser({ email: verifiedEmail, name: name.trim(), passwordHash, ref });
+    await issueWebSession(res, { id: user.id, email: user.email });
+    const csrfToken = setCsrfCookie(res);
 
-      await issueWebSession(res, { id: user.id, email: user.email });
-      const csrfToken = setCsrfCookie(res);
-
-      return res.status(201).json({ ok: true, waitlist: false, csrfToken });
-    }
-
-    // Waitlist flow
-    await createNewUser({ email: verifiedEmail, name: name.trim(), passwordHash: null, ref });
-
-    return sendForbidden(res, 'You have been added to the waitlist. We will email you when your account is activated.', 'ALREADY_ON_WAITLIST');
+    return res.status(201).json({ ok: true, csrfToken });
   } catch (e) {
     logger.error({ err: e }, '[EmailAuth] Signup failed');
     return sendInternalError(res, 'Signup failed');
@@ -130,18 +116,12 @@ router.post('/login', express.json(), async (req, res) => {
         id: true,
         email: true,
         passwordHash: true,
-        role: true,
         mustChangePassword: true,
       },
     });
 
     if (!user) {
       return sendUnauthorized(res, 'Invalid email or password');
-    }
-
-    // Block WAITLIST users - they cannot login until activated
-    if (user.role === 'WAITLIST') {
-      return sendForbidden(res, 'You are already on the waitlist. We will email you when your account is activated.', 'ALREADY_ON_WAITLIST');
     }
 
     // Check if user has a password (created via email/password signup)

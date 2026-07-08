@@ -2,9 +2,10 @@ import { Router as createRouter, type Router, type Request, type Response } from
 import { getValidGarminToken } from '../lib/garmin-token';
 import { subDays } from 'date-fns';
 import { prisma } from '../lib/prisma';
-import { sendBadRequest, sendUnauthorized, sendNotFound, sendInternalError } from '../lib/api-response';
+import { sendBadRequest, sendUnauthorized, sendForbidden, sendNotFound, sendInternalError } from '../lib/api-response';
 import { logError, logger } from '../lib/logger';
 import { enqueueBackfillJob } from '../lib/queue/backfill.queue';
+import { canBackfillYear } from '../auth/tier-access';
 
 type Empty = Record<string, never>;
 const r: Router = createRouter();
@@ -23,6 +24,19 @@ r.get<Empty, void, Empty, { days?: string; year?: string }>(
     }
 
     try {
+      // Import depth is tier-gated: free accounts backfill the current year only
+      const tierUser = await prisma.user.findUniqueOrThrow({
+        where: { id: userId },
+        select: { subscriptionTier: true, isFoundingRider: true, role: true },
+      });
+      if (!canBackfillYear(tierUser, req.query.year)) {
+        return sendForbidden(
+          res,
+          'Importing past seasons is a Pro feature. Free accounts can import the current year.',
+          'TIER_BACKFILL_RESTRICTED'
+        );
+      }
+
       // Get valid OAuth token (auto-refreshes if expired)
       const accessToken = await getValidGarminToken(userId);
 

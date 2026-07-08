@@ -1,6 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import { History, ChevronDown, ChevronUp, Check } from 'lucide-react';
 import { getAuthHeaders } from '@/lib/csrf';
+import { useUserTier } from '@/hooks/useUserTier';
+import { UpsellCard } from '@/components/UpgradePrompt';
 
 interface ImportRidesFormProps {
   connectedProviders: Array<'strava' | 'garmin' | 'suunto'>;
@@ -57,6 +59,7 @@ const PROVIDER_LABELS: Record<string, string> = {
 };
 
 export function ImportRidesForm({ connectedProviders }: ImportRidesFormProps) {
+  const { isPro } = useUserTier();
   const [expanded, setExpanded] = useState(false);
   const [selectedProvider, setSelectedProvider] = useState<'strava' | 'garmin' | 'suunto' | ''>('');
   const [selectedYear, setSelectedYear] = useState<string>('ytd'); // For Strava/Suunto (single select)
@@ -382,19 +385,28 @@ export function ImportRidesForm({ connectedProviders }: ImportRidesFormProps) {
                 </p>
               </div>
             ) : (
-              // Strava and Suunto: full year selection
-              <select
-                value={selectedYear}
-                onChange={(e) => setSelectedYear(e.target.value)}
-                className="w-full input-soft"
-                disabled={importState === 'loading'}
-              >
-                {(selectedProvider === 'suunto' ? SUUNTO_YEAR_OPTIONS : STRAVA_YEAR_OPTIONS).map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
+              // Strava and Suunto: full year selection. Past seasons are a
+              // Pro feature — free accounts import the current year only.
+              <>
+                <select
+                  value={selectedYear}
+                  onChange={(e) => setSelectedYear(e.target.value)}
+                  className="w-full input-soft"
+                  disabled={importState === 'loading'}
+                >
+                  {(selectedProvider === 'suunto' ? SUUNTO_YEAR_OPTIONS : STRAVA_YEAR_OPTIONS).map((option) => (
+                    <option
+                      key={option.value}
+                      value={option.value}
+                      disabled={!isPro && option.value !== 'ytd'}
+                    >
+                      {option.label}
+                      {!isPro && option.value !== 'ytd' ? ' — Pro' : ''}
+                    </option>
+                  ))}
+                </select>
+                {!isPro && <UpsellCard feature="importDepth" className="mt-2" />}
+              </>
             )}
           </div>
 

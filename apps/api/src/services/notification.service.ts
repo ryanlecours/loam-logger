@@ -4,6 +4,7 @@ import { prisma } from '../lib/prisma';
 import { logError, logger } from '../lib/logger';
 import { enqueueReceiptCheck } from '../lib/queue/notification.queue';
 import { generateBikePredictions } from './prediction';
+import { canSeePredictions } from '../auth/tier-access';
 import type { ServiceNotificationMode } from '@prisma/client';
 
 /**
@@ -222,11 +223,22 @@ export async function checkAndNotifyServiceDue(params: {
       : `${newComponents.length} components need service: ${listed}`;
   }
 
+  // For single-component notifications, surface the componentId so the
+  // mobile bike detail screen can scroll the offending component into view
+  // and auto-open its action sheet instead of dumping the user on the
+  // bike page to scan for the alert. Multi-component notifications omit
+  // it — there's no single component to focus, and the bike screen
+  // already highlights "needs attention" components at the top.
+  const data: Record<string, string> =
+    newComponents.length === 1
+      ? { screen: 'bike', bikeId, componentId: newComponents[0].componentId }
+      : { screen: 'bike', bikeId };
+
   const ticketId = await sendPushNotification({
     pushToken,
     title: `${bikeName} - Service Due`,
     body,
-    data: { screen: 'bike', bikeId },
+    data,
   });
 
   if (!ticketId) {
@@ -326,8 +338,10 @@ export async function fireRideNotifications(params: {
     });
     if (rideTicketId) ticketIds.push(rideTicketId);
 
-    // Service due check (only if ride is assigned to a bike)
-    if (bikeId && bikeName) {
+    // Service due check (only if ride is assigned to a bike). Service-due
+    // pushes carry the rides/hours-remaining prediction — a Pro feature —
+    // so free users receive only the ride-upload notification.
+    if (bikeId && bikeName && canSeePredictions(user)) {
       const predictionMode = (user.predictionMode === 'predictive' ? 'predictive' : 'simple') as 'simple' | 'predictive';
       const summary = await generateBikePredictions({
         userId,

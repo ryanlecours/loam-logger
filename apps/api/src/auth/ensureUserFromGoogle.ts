@@ -1,24 +1,22 @@
-import { Prisma } from '@prisma/client';
+import { Prisma, type User } from '@prisma/client';
 import { normalizeEmail, computeExpiry } from './utils';
-import { AUTH_ERROR, type GoogleClaims, type GoogleTokens } from './types';
+import { type GoogleClaims, type GoogleTokens } from './types';
 import { prisma } from '../lib/prisma';
-import { config } from '../config/env';
-import { resolveReferrer, createUserWithReferralCode } from '../services/referral.service';
+
+export type GoogleUserResult = { user: User; wasCreated: boolean };
 
 export function ensureUserFromGoogle(
   claims: GoogleClaims,
   tokens?: GoogleTokens,
-  ref?: string,
-) {
-  return ensureUserFromGoogleInner(claims, tokens, ref, 0);
+): Promise<GoogleUserResult> {
+  return ensureUserFromGoogleInner(claims, tokens, 0);
 }
 
 async function ensureUserFromGoogleInner(
   claims: GoogleClaims,
   tokens: GoogleTokens | undefined,
-  ref: string | undefined,
   retries: number,
-) {
+): Promise<GoogleUserResult> {
   const sub = claims.sub;
   if (!sub) throw new Error('Google sub is required');
 
@@ -34,17 +32,10 @@ async function ensureUserFromGoogleInner(
     });
     if (existingAccount) {
       await refresh(tx, existingAccount.user.id, claims, tokens);
-      if (existingAccount.user.role === 'WAITLIST') {
-        throw new Error(AUTH_ERROR.ALREADY_ON_WAITLIST);
-      }
       return existingAccount.user;
     }
 
     const user = await tx.user.findUnique({ where: { email } });
-
-    if (user?.role === 'WAITLIST') {
-      throw new Error(AUTH_ERROR.ALREADY_ON_WAITLIST);
-    }
 
     if (user) {
       // User exists and is activated — update profile and link Google account
@@ -90,44 +81,30 @@ async function ensureUserFromGoogleInner(
     return null;
   });
 
-  if (existing) return existing;
+  if (existing) return { user: existing, wasCreated: false };
 
-  // Phase 2: New user — create with referral code retry handling
-  if (!config.bypassWaitlistFlow) {
-    throw new Error(AUTH_ERROR.CLOSED_BETA);
-  }
-
-  const referrerId = ref ? await resolveReferrer(ref) : null;
-
+  // Phase 2: New user
   try {
-    return await createUserWithReferralCode(async (referralCode) => {
-      return prisma.$transaction(async (tx) => {
-        const newUser = await tx.user.create({
+    const newUser = await prisma.$transaction(async (tx) => {
+      const created = await tx.user.create({
         data: {
           email,
           name: claims.name ?? null,
           avatarUrl: claims.picture ?? null,
           emailVerified: claims.email_verified ? new Date() : null,
           role: 'FREE',
-          subscriptionTier: 'FREE_LIGHT',
-          referralCode,
+          subscriptionTier: 'FREE',
         },
       });
 
       await tx.userAccount.create({
-        data: { userId: newUser.id, provider: 'google', providerUserId: sub },
+        data: { userId: created.id, provider: 'google', providerUserId: sub },
       });
-
-      if (referrerId) {
-        await tx.referral.create({
-          data: { referrerUserId: referrerId, referredUserId: newUser.id },
-        });
-      }
 
       if (tokens?.access_token || tokens?.refresh_token) {
         await tx.oauthToken.create({
           data: {
-            userId: newUser.id,
+            userId: created.id,
             provider: 'google',
             accessToken: tokens.access_token ?? '',
             refreshToken: tokens.refresh_token ?? null,
@@ -136,9 +113,9 @@ async function ensureUserFromGoogleInner(
         });
       }
 
-      return newUser;
+      return created;
     });
-  });
+    return { user: newUser, wasCreated: true };
   } catch (err) {
     // A concurrent request created this user between Phase 1 and Phase 2.
     // Re-run the full function — Phase 1 will now find the existing user.
@@ -149,7 +126,7 @@ async function ensureUserFromGoogleInner(
 
     if (isEmailCollision) {
       if (retries >= 2) throw err;
-      return ensureUserFromGoogleInner(claims, tokens, ref, retries + 1);
+      return ensureUserFromGoogleInner(claims, tokens, retries + 1);
     }
     throw err;
   }

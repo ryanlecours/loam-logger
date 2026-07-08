@@ -3,7 +3,8 @@ import { getValidStravaToken } from '../lib/strava-token';
 import { subDays } from 'date-fns';
 import { prisma } from '../lib/prisma';
 import { formatLatLon, reverseGeocode } from '../lib/location';
-import { sendBadRequest, sendUnauthorized, sendNotFound, sendInternalError } from '../lib/api-response';
+import { sendBadRequest, sendUnauthorized, sendForbidden, sendNotFound, sendInternalError } from '../lib/api-response';
+import { canBackfillYear } from '../auth/tier-access';
 import { incrementBikeComponentHours, decrementBikeComponentHours } from '../lib/component-hours';
 import { logError } from '../lib/logger';
 import { enqueueWeatherJob } from '../lib/queue';
@@ -27,6 +28,19 @@ r.get<Empty, void, Empty, { year?: string }>(
     try {
       const currentYear = new Date().getFullYear();
       const yearParam = req.query.year;
+
+      // Import depth is tier-gated: free accounts backfill the current year only
+      const tierUser = await prisma.user.findUniqueOrThrow({
+        where: { id: userId },
+        select: { subscriptionTier: true, isFoundingRider: true, role: true },
+      });
+      if (!canBackfillYear(tierUser, yearParam)) {
+        return sendForbidden(
+          res,
+          'Importing past seasons is a Pro feature. Free accounts can import the current year.',
+          'TIER_BACKFILL_RESTRICTED'
+        );
+      }
 
       let startDate: Date;
       let endDate: Date;

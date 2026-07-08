@@ -7,7 +7,6 @@ import { ME_QUERY } from '../graphql/me';
 import { useRedirectFrom } from '../utils/loginUtils';
 import { Button } from '@/components/ui';
 import { setCsrfToken } from '@/lib/csrf';
-import { useAppConfig } from '../hooks/useAppConfig';
 
 export default function Login() {
   const apollo = useApolloClient();
@@ -15,11 +14,8 @@ export default function Login() {
   const [searchParams] = useSearchParams();
   const isReauth = searchParams.get('reason') === 'reauth';
   const from = useRedirectFrom();
-  const { waitlistEnabled } = useAppConfig();
-  const [mode, setMode] = useState<'login' | 'signup'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [name, setName] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -55,18 +51,6 @@ export default function Login() {
       if (!res.ok) {
         const text = await res.text();
         console.error('[GoogleLogin] Backend responded with error', res.status, text);
-
-        // New user trying to sign up - redirect to closed beta page
-        if (text.trim() === 'CLOSED_BETA') {
-          navigate('/closed-beta', { replace: true });
-          return;
-        }
-        // Existing waitlist user - redirect to already on waitlist page
-        if (text.trim() === 'ALREADY_ON_WAITLIST') {
-          navigate('/already-on-waitlist', { replace: true });
-          return;
-        }
-
         alert(`Login failed: ${res.statusText}`);
         return;
       }
@@ -99,67 +83,26 @@ export default function Login() {
     setIsLoading(true);
 
     try {
-      const endpoint = mode === 'login' ? 'login' : 'signup';
-      // During closed beta, signup only requires email and name
-      // Users will receive login credentials via email when activated
-      const body = mode === 'signup'
-        ? { email, name }
-        : { email, password };
-
-      const res = await fetch(`${import.meta.env.VITE_API_URL}/auth/${endpoint}`, {
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/auth/login`, {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ email, password }),
       });
 
       if (!res.ok) {
         const text = await res.text();
-        console.error(`[${mode}] Backend responded with error`, res.status, text);
-
-        // Handle JSON responses first
-        try {
-          const jsonError = JSON.parse(text);
-          // New user trying to sign up - redirect to closed beta page
-          if (jsonError.code === 'CLOSED_BETA') {
-            navigate('/closed-beta', { replace: true });
-            return;
-          }
-          // Existing waitlist user - redirect to already on waitlist page
-          if (jsonError.code === 'ALREADY_ON_WAITLIST') {
-            navigate('/already-on-waitlist', { replace: true });
-            return;
-          }
-        } catch {
-          // Not JSON, continue with text handling
-        }
-
-        // Handle plain text responses
-        if (text.trim() === 'CLOSED_BETA') {
-          navigate('/closed-beta', { replace: true });
-          return;
-        }
-        if (text.trim() === 'ALREADY_ON_WAITLIST') {
-          navigate('/already-on-waitlist', { replace: true });
-          return;
-        }
+        console.error('[login] Backend responded with error', res.status, text);
 
         // Map backend error messages to user-friendly messages
         const errorMap: Record<string, string> = {
           'Email already in use': 'This email is already registered. Try logging in instead.',
-          'Invalid email or password': mode === 'signup' ? 'Invalid email format.' : 'Invalid email or password.',
+          'Invalid email or password': 'Invalid email or password.',
           'Invalid email format': 'Please enter a valid email address.',
-          'Name is required': 'Please enter your name.',
-          'Password must be at least 8 characters': 'Password must be at least 8 characters.',
-          'Password must contain at least one uppercase letter': 'Password must contain an uppercase letter.',
-          'Password must contain at least one lowercase letter': 'Password must contain a lowercase letter.',
-          'Password must contain at least one number': 'Password must contain a number.',
-          'Password must contain at least one special character (!@#$%^&*)':
-            'Password must contain a special character (!@#$%^&*).',
           'This account uses OAuth login only': 'This email is registered with OAuth. Log in with Google instead.',
         };
 
-        const userMessage = errorMap[text.trim()] || text || `${mode === 'signup' ? 'Signup' : 'Login'} failed`;
+        const userMessage = errorMap[text.trim()] || text || 'Login failed';
         setError(userMessage);
         return;
       }
@@ -181,7 +124,7 @@ export default function Login() {
       apollo.writeQuery({ query: ME_QUERY, data: userData });
       navigate(from, { replace: true });
     } catch (err) {
-      console.error(`[${mode}] Network or unexpected error`, err);
+      console.error('[login] Network or unexpected error', err);
       setError('A network error occurred. Please try again.');
     } finally {
       setIsLoading(false);
@@ -253,32 +196,19 @@ export default function Login() {
           <button
             type="button"
             disabled={isLoading}
-            className={`flex-1 rounded-full px-4 py-2 text-sm font-semibold transition ${
-              mode === 'login' ? 'btn-primary' : 'btn-outline text-accent-contrast hover:text-white hover:ring-1 hover:ring-primary/40 hover:ring-offset-1 hover:ring-offset-surface-1'
-            } ${isLoading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
-            onClick={() => {
-              setMode('login');
-              setName('');
-              setError(null);
-            }}
+            className={`flex-1 rounded-full px-4 py-2 text-sm font-semibold transition btn-primary ${
+              isLoading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+            }`}
           >
             Login
           </button>
           <button
             type="button"
             disabled={isLoading}
-            className={`flex-1 rounded-full px-4 py-2 text-sm font-semibold transition ${
-              mode === 'signup' ? 'btn-primary' : 'btn-outline hover:text-white hover:ring-1 hover:ring-primary/40 hover:ring-offset-1 hover:ring-offset-surface-1'
-            } ${isLoading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
-            onClick={() => {
-              if (!waitlistEnabled) {
-                navigate('/signup');
-                return;
-              }
-              setMode('signup');
-              setName('');
-              setError(null);
-            }}
+            className={`flex-1 rounded-full px-4 py-2 text-sm font-semibold transition btn-outline hover:text-white hover:ring-1 hover:ring-primary/40 hover:ring-offset-1 hover:ring-offset-surface-1 ${
+              isLoading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+            }`}
+            onClick={() => navigate('/signup')}
           >
             Sign Up
           </button>
@@ -295,20 +225,6 @@ export default function Login() {
               <p>{error}</p>
             </div>
           )}
-          {mode === 'signup' && (
-            <label className="block text-xs uppercase tracking-[0.3em]" style={{ color: 'var(--concrete)' }}>
-              Name
-              <input
-                type="text"
-                className="mt-1 w-full input-soft"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Your Name"
-                disabled={isLoading}
-                required
-              />
-            </label>
-          )}
           <label className="block text-xs uppercase tracking-[0.3em]" style={{ color: 'var(--concrete)' }}>
             Email
             <input
@@ -321,38 +237,29 @@ export default function Login() {
               required
             />
           </label>
-          {mode === 'login' && (
-            <>
-              <label className="block text-xs uppercase tracking-[0.3em]" style={{ color: 'var(--concrete)' }}>
-                Password
-                <input
-                  type="password"
-                  className="mt-1 w-full input-soft"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="********"
-                  disabled={isLoading}
-                  required
-                />
-              </label>
-              <div className="text-right text-sm">
-                <button
-                  type="button"
-                  onClick={() => navigate('/forgot-password')}
-                  disabled={isLoading}
-                  className="hover:underline"
-                  style={{ color: 'var(--sage)' }}
-                >
-                  Forgot password?
-                </button>
-              </div>
-            </>
-          )}
-          {mode === 'signup' && waitlistEnabled && (
-            <div className="text-sm p-3 rounded-lg" style={{ backgroundColor: 'rgba(134, 169, 139, 0.15)', color: 'var(--sage)' }}>
-              Loam Logger is in closed beta. Join the waitlist and we'll email you login credentials when your account is activated.
-            </div>
-          )}
+          <label className="block text-xs uppercase tracking-[0.3em]" style={{ color: 'var(--concrete)' }}>
+            Password
+            <input
+              type="password"
+              className="mt-1 w-full input-soft"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="********"
+              disabled={isLoading}
+              required
+            />
+          </label>
+          <div className="text-right text-sm">
+            <button
+              type="button"
+              onClick={() => navigate('/forgot-password')}
+              disabled={isLoading}
+              className="hover:underline"
+              style={{ color: 'var(--sage)' }}
+            >
+              Forgot password?
+            </button>
+          </div>
           {isLoading && (
             <div className="flex justify-center">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
@@ -364,7 +271,7 @@ export default function Login() {
             className="w-full justify-center text-base"
             disabled={isLoading}
           >
-            {isLoading ? 'Loading...' : mode === 'login' ? 'Login' : 'Join Waitlist'}
+            {isLoading ? 'Loading...' : 'Login'}
           </Button>
         </form>
 

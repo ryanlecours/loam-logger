@@ -118,6 +118,7 @@ const createComponent = (
   currentHours: 60,
   serviceIntervalHours: 50,
   hoursSinceService: 60,
+  ridesSinceService: 12,
   why: null,
   drivers: null,
   ...overrides,
@@ -273,7 +274,7 @@ describe('CalibrationOverlay', () => {
       render(<CalibrationOverlay isOpen={true} onClose={defaultOnClose} />);
 
       // The component details should be visible (bulk action section)
-      expect(screen.getByText('Serviced in:')).toBeInTheDocument();
+      expect(screen.getByText('All overdue, serviced in:')).toBeInTheDocument();
     });
 
     it('toggles bike section on click', () => {
@@ -283,19 +284,19 @@ describe('CalibrationOverlay', () => {
       render(<CalibrationOverlay isOpen={true} onClose={defaultOnClose} />);
 
       // Initially expanded
-      expect(screen.getByText('Serviced in:')).toBeInTheDocument();
+      expect(screen.getByText('All overdue, serviced in:')).toBeInTheDocument();
 
       // Click to collapse
       fireEvent.click(screen.getByText('Trail Bike'));
 
       // Content should be hidden
-      expect(screen.queryByText('Serviced in:')).not.toBeInTheDocument();
+      expect(screen.queryByText('All overdue, serviced in:')).not.toBeInTheDocument();
 
       // Click to expand again
       fireEvent.click(screen.getByText('Trail Bike'));
 
       // Content should be visible again
-      expect(screen.getByText('Serviced in:')).toBeInTheDocument();
+      expect(screen.getByText('All overdue, serviced in:')).toBeInTheDocument();
     });
   });
 
@@ -310,11 +311,12 @@ describe('CalibrationOverlay', () => {
       const monthInput = document.querySelector('input[type="month"]');
       expect(monthInput).toBeInTheDocument();
 
-      // Should have Apply button
-      expect(screen.getByText(/Apply to All \(1\)/)).toBeInTheDocument();
+      // Should have the bulk Log Service button (needs-attention rows are
+      // pre-selected on open, so the count reflects the one component)
+      expect(screen.getByText(/Log Service \(1\)/)).toBeInTheDocument();
     });
 
-    it('marks components as calibrated on Apply and submits on Complete', async () => {
+    it('marks components as calibrated on bulk Log Service and submits on Complete', async () => {
       const bike = createBike('bike-1', 'Trail Bike', [
         createComponent('comp-1'),
         createComponent('comp-2'),
@@ -323,8 +325,8 @@ describe('CalibrationOverlay', () => {
 
       render(<CalibrationOverlay isOpen={true} onClose={defaultOnClose} />);
 
-      // Click Apply button
-      fireEvent.click(screen.getByText(/Apply to All \(2\)/));
+      // Click the bulk Log Service button (both rows pre-selected on open)
+      fireEvent.click(screen.getByText(/Log Service \(2\)/));
 
       // Progress should update (components marked locally)
       await waitFor(() => {
@@ -353,7 +355,7 @@ describe('CalibrationOverlay', () => {
 
       render(<CalibrationOverlay isOpen={true} onClose={defaultOnClose} />);
 
-      fireEvent.click(screen.getByText(/Apply to All \(1\)/));
+      fireEvent.click(screen.getByText(/Log Service \(1\)/));
 
       await waitFor(() => {
         expect(screen.getByText(/Marked 1 component as serviced/)).toBeInTheDocument();
@@ -371,10 +373,190 @@ describe('CalibrationOverlay', () => {
 
       expect(screen.getByText('0 of 2 calibrated')).toBeInTheDocument();
 
-      fireEvent.click(screen.getByText(/Apply to All \(2\)/));
+      fireEvent.click(screen.getByText(/Log Service \(2\)/));
 
       await waitFor(() => {
         expect(screen.getByText('2 of 2 calibrated')).toBeInTheDocument();
+      });
+    });
+
+    it('auto-checks needs-attention rows when the bulk date changes and nothing is selected', async () => {
+      const bike = createBike('bike-1', 'Trail Bike', [
+        createComponent('comp-1'),
+        createComponent('comp-2'),
+      ]);
+      setupCalibrationState([bike]);
+
+      render(<CalibrationOverlay isOpen={true} onClose={defaultOnClose} />);
+
+      // Both needs-attention rows are pre-selected on open; clear them.
+      fireEvent.click(screen.getAllByRole('checkbox')[0]);
+      await waitFor(() => {
+        expect(screen.getByText(/Log Service \(0\)/)).toBeInTheDocument();
+      });
+
+      // Changing the bulk month with an empty selection auto-checks the
+      // needs-attention rows. fireEvent.change flushes synchronously.
+      const monthInput = document.querySelector('input[type="month"]') as HTMLInputElement;
+      fireEvent.change(monthInput, { target: { value: '2025-06' } });
+
+      await waitFor(() => {
+        expect(screen.getByText(/Log Service \(2\)/)).toBeInTheDocument();
+      });
+      const checkboxes = screen.getAllByRole('checkbox');
+      expect(checkboxes[1]).toBeChecked();
+      expect(checkboxes[2]).toBeChecked();
+    });
+
+    it('leaves an existing selection untouched when the bulk date changes', () => {
+      const bike = createBike('bike-1', 'Trail Bike', [
+        createComponent('comp-1'),
+        createComponent('comp-2'),
+      ]);
+      setupCalibrationState([bike]);
+
+      render(<CalibrationOverlay isOpen={true} onClose={defaultOnClose} />);
+
+      // Deselect just comp-1, leaving comp-2 selected (a non-empty selection).
+      fireEvent.click(screen.getAllByRole('checkbox')[1]);
+      expect(screen.getByText(/Log Service \(1\)/)).toBeInTheDocument();
+      expect(screen.getAllByRole('checkbox')[1]).not.toBeChecked();
+      expect(screen.getAllByRole('checkbox')[2]).toBeChecked();
+
+      // Changing the bulk month must NOT re-check comp-1 — auto-check only
+      // fires when the selection is empty.
+      const monthInput = document.querySelector('input[type="month"]') as HTMLInputElement;
+      fireEvent.change(monthInput, { target: { value: '2025-06' } });
+
+      // The date change took effect (proves handleBulkDateChange ran)...
+      expect(monthInput.value).toBe('2025-06');
+      // ...but the existing selection is unchanged.
+      expect(screen.getByText(/Log Service \(1\)/)).toBeInTheDocument();
+      expect(screen.getAllByRole('checkbox')[1]).not.toBeChecked();
+      expect(screen.getAllByRole('checkbox')[2]).toBeChecked();
+    });
+  });
+
+  describe('state freeze across refetch', () => {
+    it('preserves in-progress calibration when calibrationState refetches mid-session', async () => {
+      const bike = createBike('bike-1', 'Trail Bike', [
+        createComponent('comp-1'),
+        createComponent('comp-2'),
+      ]);
+      setupCalibrationState([bike]);
+
+      const { rerender } = render(
+        <CalibrationOverlay isOpen={true} onClose={defaultOnClose} />
+      );
+
+      // Stage work: acknowledge one component.
+      const acknowledgeButtons = screen.getAllByRole('button', { name: 'Acknowledge' });
+      fireEvent.click(acknowledgeButtons[0]);
+      await waitFor(() => {
+        expect(screen.getByText('1 of 2 calibrated')).toBeInTheDocument();
+      });
+
+      // Simulate a `cache-and-network` background refetch: Apollo hands back
+      // a brand-new calibrationState object reference (same underlying data).
+      setupCalibrationState([
+        createBike('bike-1', 'Trail Bike', [
+          createComponent('comp-1'),
+          createComponent('comp-2'),
+        ]),
+      ]);
+      rerender(<CalibrationOverlay isOpen={true} onClose={defaultOnClose} />);
+
+      // The staged calibration must survive — the init effect is guarded so
+      // it does not re-run and wipe calibratedIds / pendingServiceLogs.
+      await waitFor(() => {
+        expect(screen.getByText('1 of 2 calibrated')).toBeInTheDocument();
+      });
+      expect(screen.getByText('Calibrated')).toBeInTheDocument();
+    });
+  });
+
+  describe('inline Log Service picker', () => {
+    it('disables Log Service on other rows while one inline picker is open', async () => {
+      const bike = createBike('bike-1', 'Trail Bike', [
+        createComponent('comp-1'),
+        createComponent('comp-2'),
+      ]);
+      setupCalibrationState([bike]);
+
+      render(<CalibrationOverlay isOpen={true} onClose={defaultOnClose} />);
+
+      // Per-row "Log Service" buttons (exact name — the bulk button reads
+      // "Log Service (2)" so it doesn't match).
+      const logServiceButtons = screen.getAllByRole('button', { name: 'Log Service' });
+      expect(logServiceButtons).toHaveLength(2);
+      expect(logServiceButtons[0]).not.toBeDisabled();
+      expect(logServiceButtons[1]).not.toBeDisabled();
+
+      // Open the inline picker on the first row.
+      fireEvent.click(logServiceButtons[0]);
+
+      // Row 1 is now in edit mode (Save/Cancel), so only row 2's per-row
+      // Log Service button remains — and it's disabled, so the open picker
+      // can't be silently replaced.
+      await waitFor(() => {
+        const remaining = screen.getAllByRole('button', { name: 'Log Service' });
+        expect(remaining).toHaveLength(1);
+        expect(remaining[0]).toBeDisabled();
+      });
+
+      // Cancelling the picker re-enables the other row.
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+      await waitFor(() => {
+        const restored = screen.getAllByRole('button', { name: 'Log Service' });
+        expect(restored).toHaveLength(2);
+        expect(restored[0]).not.toBeDisabled();
+        expect(restored[1]).not.toBeDisabled();
+      });
+    });
+
+    it('logs a per-row service: open picker, pick date, Save, then Complete submits it', async () => {
+      const bike = createBike('bike-1', 'Trail Bike', [
+        createComponent('comp-1'),
+        createComponent('comp-2'),
+      ]);
+      setupCalibrationState([bike]);
+
+      render(<CalibrationOverlay isOpen={true} onClose={defaultOnClose} />);
+
+      // Open the inline picker on the first row.
+      const logServiceButtons = screen.getAllByRole('button', { name: 'Log Service' });
+      fireEvent.click(logServiceButtons[0]);
+
+      // Pick a specific month in that row's inline date input. The inline
+      // input is the only one with an accessible name (the bulk one has none).
+      const monthInput = await screen.findByLabelText('Service date for FORK');
+      fireEvent.change(monthInput, { target: { value: '2025-03' } });
+
+      // Save stages the log and marks the component calibrated locally —
+      // only comp-1, not the still-untouched comp-2.
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+      await waitFor(() => {
+        expect(screen.getByText('Calibrated')).toBeInTheDocument();
+        expect(screen.getByText('1 of 2 calibrated')).toBeInTheDocument();
+      });
+
+      // Complete Calibration flushes pendingServiceLogs via LOG_BULK_SERVICE
+      // — proof the staged entry carried the right componentId + performedAt.
+      fireEvent.click(screen.getByText('Complete Calibration'));
+
+      // performedAt is the 1st of the picked month; compute it the same way
+      // the component does so the assertion is timezone-independent.
+      const expectedPerformedAt = new Date(2025, 2, 1).toISOString();
+      await waitFor(() => {
+        expect(mockLogBulkService).toHaveBeenCalledTimes(1);
+        expect(mockLogBulkService).toHaveBeenCalledWith({
+          variables: {
+            input: {
+              componentIds: ['comp-1'],
+              performedAt: expectedPerformedAt,
+            },
+          },
+        });
       });
     });
   });
@@ -541,17 +723,55 @@ describe('CalibrationOverlay', () => {
 
       render(<CalibrationOverlay isOpen={true} onClose={defaultOnClose} />);
 
-      // All components are selected by default, so button shows Apply to All (2)
-      expect(screen.getByText(/Apply to All \(2\)/)).toBeInTheDocument();
+      // Needs-attention rows are pre-selected on open, so the bulk button
+      // starts at Log Service (2)
+      expect(screen.getByText(/Log Service \(2\)/)).toBeInTheDocument();
 
       // Deselect one component (component checkboxes are after the select-all)
       const checkboxes = screen.getAllByRole('checkbox');
       fireEvent.click(checkboxes[1]); // First component checkbox
 
-      // Button should now show Apply to Selected (1)
+      // Button should now show Log Service (1)
       await waitFor(() => {
-        expect(screen.getByText(/Apply to Selected \(1\)/)).toBeInTheDocument();
+        expect(screen.getByText(/Log Service \(1\)/)).toBeInTheDocument();
       });
+    });
+
+    it('select-all is scoped to needs-attention rows, not healthy ones', async () => {
+      // OVERDUE sorts before ALL_GOOD, so checkbox order is:
+      // [0] header select-all, [1] comp-1 (OVERDUE), [2] comp-2 (ALL_GOOD).
+      const bike = createBike('bike-1', 'Trail Bike', [
+        createComponent('comp-1', { status: 'OVERDUE' }),
+        createComponent('comp-2', { status: 'ALL_GOOD', hoursRemaining: 40 }),
+      ]);
+      setupCalibrationState([bike]);
+
+      render(<CalibrationOverlay isOpen={true} onClose={defaultOnClose} />);
+
+      // Only the OVERDUE row is pre-selected on open — the ALL_GOOD one is
+      // not swept in. Subtitle counts needs-attention only.
+      expect(screen.getByText(/Log Service \(1\)/)).toBeInTheDocument();
+      expect(screen.getByTestId('subtitle')).toHaveTextContent(
+        '1 component needs attention'
+      );
+
+      // Header checkbox is checked (every needs-attention row is selected);
+      // toggling it off clears only the needs-attention selection.
+      expect(screen.getAllByRole('checkbox')[0]).toBeChecked();
+      fireEvent.click(screen.getAllByRole('checkbox')[0]);
+      await waitFor(() => {
+        expect(screen.getByText(/Log Service \(0\)/)).toBeInTheDocument();
+      });
+
+      // The healthy component is still selectable individually — servicing
+      // an "all good" component (a creak, a sloppy bleed) is a real case.
+      fireEvent.click(screen.getAllByRole('checkbox')[2]);
+      await waitFor(() => {
+        expect(screen.getByText(/Log Service \(1\)/)).toBeInTheDocument();
+      });
+      // Selecting the healthy row does not check the header checkbox — the
+      // header tracks needs-attention rows only.
+      expect(screen.getAllByRole('checkbox')[0]).not.toBeChecked();
     });
   });
 

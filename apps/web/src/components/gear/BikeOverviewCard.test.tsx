@@ -81,6 +81,7 @@ describe('BikeOverviewCard', () => {
     currentHours: 35,
     serviceIntervalHours: 50,
     hoursSinceService: 35,
+    ridesSinceService: 10,
     why: null,
     drivers: null,
     ...overrides,
@@ -544,7 +545,7 @@ describe('BikeOverviewCard', () => {
       expect(screen.getByText('15.7h')).toBeInTheDocument();
     });
 
-    it('shows dash for null hours', () => {
+    it('shows raw usage for null hours remaining (free tier)', () => {
       const components = [
         createComponent({ hoursRemaining: null as unknown as number }),
       ];
@@ -567,7 +568,8 @@ describe('BikeOverviewCard', () => {
         />
       );
 
-      expect(screen.getByText('—')).toBeInTheDocument();
+      // Falls back to hours-since-service / interval instead of the gated countdown
+      expect(screen.getByText('35.0h / 50h')).toBeInTheDocument();
     });
 
     it('shows 0.0h for negative hours', () => {

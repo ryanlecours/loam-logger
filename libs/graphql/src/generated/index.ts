@@ -154,6 +154,7 @@ export type Bike = {
   retiredAt?: Maybe<Scalars['String']['output']>;
   seatpost?: Maybe<Component>;
   servicePreferences: Array<BikeServicePreference>;
+  shareSlug?: Maybe<Scalars['String']['output']>;
   shock?: Maybe<Component>;
   sortOrder: Scalars['Int']['output'];
   spokesId?: Maybe<Scalars['String']['output']>;
@@ -253,10 +254,10 @@ export type BikePredictionSummary = {
   bikeId: Scalars['ID']['output'];
   bikeName: Scalars['String']['output'];
   components: Array<ComponentPrediction>;
-  dueNowCount: Scalars['Int']['output'];
-  dueSoonCount: Scalars['Int']['output'];
+  dueNowCount?: Maybe<Scalars['Int']['output']>;
+  dueSoonCount?: Maybe<Scalars['Int']['output']>;
   generatedAt: Scalars['String']['output'];
-  overallStatus: PredictionStatus;
+  overallStatus?: Maybe<PredictionStatus>;
   priorityComponent?: Maybe<ComponentPrediction>;
 };
 
@@ -421,16 +422,17 @@ export type ComponentPrediction = {
   brand: Scalars['String']['output'];
   componentId: Scalars['ID']['output'];
   componentType: ComponentType;
-  confidence: ConfidenceLevel;
+  confidence?: Maybe<ConfidenceLevel>;
   currentHours: Scalars['Float']['output'];
   drivers?: Maybe<Array<WearDriver>>;
-  hoursRemaining: Scalars['Float']['output'];
+  hoursRemaining?: Maybe<Scalars['Float']['output']>;
   hoursSinceService: Scalars['Float']['output'];
   location: ComponentLocation;
   model: Scalars['String']['output'];
-  ridesRemainingEstimate: Scalars['Int']['output'];
+  ridesRemainingEstimate?: Maybe<Scalars['Int']['output']>;
+  ridesSinceService: Scalars['Int']['output'];
   serviceIntervalHours: Scalars['Float']['output'];
-  status: PredictionStatus;
+  status?: Maybe<PredictionStatus>;
   why?: Maybe<Scalars['String']['output']>;
 };
 
@@ -568,12 +570,15 @@ export type Mutation = {
   deleteRide: DeleteRideResult;
   deleteServiceLog: Scalars['Boolean']['output'];
   deleteStravaGearMapping: DeleteResult;
+  disableBikeShare: Scalars['Boolean']['output'];
   dismissCalibration: User;
+  enableBikeShare: Scalars['String']['output'];
   installComponent: InstallComponentResult;
   logBulkComponentService: BulkServiceResult;
   logComponentService: Component;
   logService: ServiceLog;
   markPairedComponentMigrationSeen: User;
+  markTrailStewardshipNoticeSeen: User;
   migratePairedComponents: MigratePairedComponentsResult;
   reactivateBike: Bike;
   replaceComponent: ReplaceComponentResult;
@@ -693,6 +698,16 @@ export type MutationDeleteServiceLogArgs = {
 
 export type MutationDeleteStravaGearMappingArgs = {
   id: Scalars['ID']['input'];
+};
+
+
+export type MutationDisableBikeShareArgs = {
+  bikeId: Scalars['ID']['input'];
+};
+
+
+export type MutationEnableBikeShareArgs = {
+  bikeId: Scalars['ID']['input'];
 };
 
 
@@ -846,6 +861,7 @@ export enum PredictionStatus {
 
 export type Query = {
   __typename?: 'Query';
+  bike?: Maybe<Bike>;
   bikeHistory: BikeHistoryPayload;
   bikeNotes: BikeNotesPage;
   bikes: Array<Bike>;
@@ -853,14 +869,22 @@ export type Query = {
   components: Array<Component>;
   importNotificationState?: Maybe<ImportNotificationState>;
   me?: Maybe<User>;
+  /** @deprecated Referral program removed; returns zeros */
   referralStats: ReferralStats;
+  ride?: Maybe<Ride>;
   rideTypes: Array<RideType>;
   rides: Array<Ride>;
   servicePreferenceDefaults: Array<ServicePreferenceDefault>;
+  sharedBikeHistory?: Maybe<SharedBikeHistory>;
   stravaGearMappings: Array<StravaGearMapping>;
   unassignedRides: UnassignedRidesPage;
   unmappedStravaGears: Array<StravaGearInfo>;
   user?: Maybe<User>;
+};
+
+
+export type QueryBikeArgs = {
+  id: Scalars['ID']['input'];
 };
 
 
@@ -888,10 +912,20 @@ export type QueryComponentsArgs = {
 };
 
 
+export type QueryRideArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
 export type QueryRidesArgs = {
   after?: InputMaybe<Scalars['ID']['input']>;
   filter?: InputMaybe<RidesFilterInput>;
   take?: InputMaybe<Scalars['Int']['input']>;
+};
+
+
+export type QuerySharedBikeHistoryArgs = {
+  slug: Scalars['String']['input'];
 };
 
 
@@ -1040,6 +1074,44 @@ export type SetupSnapshot = {
   slots: Array<SlotSnapshot>;
 };
 
+export type SharedBike = {
+  __typename?: 'SharedBike';
+  manufacturer: Scalars['String']['output'];
+  model: Scalars['String']['output'];
+  name: Scalars['String']['output'];
+  thumbnailUrl?: Maybe<Scalars['String']['output']>;
+  year?: Maybe<Scalars['Int']['output']>;
+};
+
+export type SharedBikeHistory = {
+  __typename?: 'SharedBikeHistory';
+  bike: SharedBike;
+  installs: Array<SharedInstallEvent>;
+  serviceEvents: Array<SharedServiceEvent>;
+  totals: BikeHistoryTotals;
+};
+
+export type SharedComponent = {
+  __typename?: 'SharedComponent';
+  brand: Scalars['String']['output'];
+  location: ComponentLocation;
+  model: Scalars['String']['output'];
+  type: ComponentType;
+};
+
+export type SharedInstallEvent = {
+  __typename?: 'SharedInstallEvent';
+  component: SharedComponent;
+  eventType: ComponentInstallEventType;
+  occurredAt: Scalars['String']['output'];
+};
+
+export type SharedServiceEvent = {
+  __typename?: 'SharedServiceEvent';
+  component: SharedComponent;
+  performedAt: Scalars['String']['output'];
+};
+
 export type SlotSnapshot = {
   __typename?: 'SlotSnapshot';
   component?: Maybe<ComponentSnapshot>;
@@ -1105,8 +1177,7 @@ export enum SubscriptionProvider {
 }
 
 export enum SubscriptionTier {
-  FreeFull = 'FREE_FULL',
-  FreeLight = 'FREE_LIGHT',
+  Free = 'FREE',
   Pro = 'PRO'
 }
 
@@ -1328,6 +1399,7 @@ export type User = {
   onboardingCompleted: Scalars['Boolean']['output'];
   pairedComponentMigrationSeenAt?: Maybe<Scalars['String']['output']>;
   predictionMode?: Maybe<Scalars['String']['output']>;
+  /** @deprecated Referral program removed; always null */
   referralCode?: Maybe<Scalars['String']['output']>;
   rides: Array<Ride>;
   ridesMissingWeather: Scalars['Int']['output'];
@@ -1336,6 +1408,7 @@ export type User = {
   subscriptionProvider?: Maybe<SubscriptionProvider>;
   subscriptionTier: SubscriptionTier;
   tierLimits: TierLimits;
+  trailStewardshipNoticeSeenAt?: Maybe<Scalars['String']['output']>;
   weatherBreakdown: WeatherBreakdown;
 };
 
@@ -1347,8 +1420,7 @@ export type UserWeatherBreakdownArgs = {
 export enum UserRole {
   Admin = 'ADMIN',
   Free = 'FREE',
-  Pro = 'PRO',
-  Waitlist = 'WAITLIST'
+  Pro = 'PRO'
 }
 
 export type UserServicePreference = {

@@ -30,19 +30,23 @@ export interface WearDriver {
   label: string;
 }
 
+// Predictive fields (status, hoursRemaining, ridesRemainingEstimate,
+// confidence, overallStatus, due counts) are Pro-only — the API serves null
+// for free users. Raw usage fields are present for all tiers.
 export interface ComponentPrediction {
   componentId: string;
   componentType: ComponentType;
   location: ComponentLocation;
   brand: string;
   model: string;
-  status: PredictionStatus;
-  hoursRemaining: number;
-  ridesRemainingEstimate: number;
-  confidence: ConfidenceLevel;
+  status: PredictionStatus | null;
+  hoursRemaining: number | null;
+  ridesRemainingEstimate: number | null;
+  confidence: ConfidenceLevel | null;
   currentHours: number;
   serviceIntervalHours: number;
   hoursSinceService: number;
+  ridesSinceService: number;
   why: string | null;
   drivers: WearDriver[] | null;
 }
@@ -52,9 +56,9 @@ export interface BikePredictionSummary {
   bikeName: string;
   components: ComponentPrediction[];
   priorityComponent: ComponentPrediction | null;
-  overallStatus: PredictionStatus;
-  dueNowCount: number;
-  dueSoonCount: number;
+  overallStatus: PredictionStatus | null;
+  dueNowCount: number | null;
+  dueSoonCount: number | null;
   generatedAt: string;
 }
 

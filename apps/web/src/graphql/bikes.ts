@@ -128,6 +128,7 @@ export const BIKES = gql`
           currentHours
           serviceIntervalHours
           hoursSinceService
+          ridesSinceService
           why
           drivers {
             factor
@@ -148,6 +149,7 @@ export const BIKES = gql`
           currentHours
           serviceIntervalHours
           hoursSinceService
+          ridesSinceService
           why
           drivers {
             factor

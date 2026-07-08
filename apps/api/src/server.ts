@@ -46,7 +46,7 @@ import duplicatesRouter from './routes/duplicates';
 import garminTest from './routes/garmin.test';
 import mockGarmin from './routes/mock.garmin';
 import onboardingRouter from './routes/onboarding';
-import waitlistRouter from './routes/waitlist';
+import publicRouter from './routes/public';
 import adminRouter from './routes/admin';
 import spokesRouter from './routes/spokes';
 import emailUnsubscribeRouter from './routes/email.unsubscribe';
@@ -55,7 +55,6 @@ import webhooksStripe from './routes/webhooks.stripe';
 import webhooksRevenueCat from './routes/webhooks.revenuecat';
 import { validateStripeConfig } from './lib/stripe';
 import { FRONTEND_URL } from './config/env';
-import referralRouter from './routes/referral';
 import mobileAuthRouter from './auth/mobile.route';
 
 export type GraphQLContext = {
@@ -274,7 +273,7 @@ const startServer = async () => {
   app.use('/api', backfillHistory);
   app.use('/api', dataSourceRouter);
   app.use('/api', duplicatesRouter);
-  app.use('/api', waitlistRouter);
+  app.use('/api', publicRouter);
   app.use('/api', emailUnsubscribeRouter);
   app.use('/api/admin', adminRouter);
   app.use('/api/spokes', spokesRouter);
@@ -284,7 +283,6 @@ const startServer = async () => {
   app.use('/webhooks', webhooksWhoop);
 
   app.use('/onboarding', onboardingRouter);
-  app.use(referralRouter);
   app.use(garminTest);
   app.use(mockGarmin);
 

@@ -5,7 +5,6 @@ import { type AcquisitionCondition } from '@prisma/client';
 import { sendBadRequest, sendUnauthorized, sendInternalError } from '../lib/api-response';
 import { deriveBikeSpec, type SpokesComponents } from '@loam/shared';
 import { logError, logger } from '../lib/logger';
-import { completeReferral } from '../services/referral.service';
 import { captureServerEvent } from '../lib/posthog';
 import {
   buildBikeComponents,
@@ -204,7 +203,7 @@ router.post('/complete', express.json(), async (req: Request, res) => {
     });
 
     // updateMany above returned 0 rows — user was already onboarded. Exit
-    // without firing analytics events or running the referral completion.
+    // without firing analytics events.
     if (!result) {
       logger.warn({ userId }, '[Onboarding] /complete called for already-onboarded user; ignoring duplicate');
       return res.status(200).json({
@@ -212,16 +211,6 @@ router.post('/complete', express.json(), async (req: Request, res) => {
         alreadyCompleted: true,
         message: 'Onboarding already completed',
       });
-    }
-
-    // Complete referral if this user was referred (non-blocking)
-    try {
-      await completeReferral(userId);
-    } catch (referralErr) {
-      logger.error(
-        { error: referralErr instanceof Error ? referralErr.message : String(referralErr), userId },
-        'Failed to complete referral during onboarding'
-      );
     }
 
     // Mirror the `bike_added` event that `addBike` resolver fires for

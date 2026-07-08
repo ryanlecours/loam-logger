@@ -30,11 +30,6 @@ jest.mock('../lib/logger', () => ({
   logger: { error: jest.fn(), info: jest.fn(), warn: jest.fn() },
 }));
 
-// Mock referral service
-jest.mock('../services/referral.service', () => ({
-  completeReferral: jest.fn().mockResolvedValue(undefined),
-}));
-
 // Mock PostHog so the test suite never ships real events to PostHog Cloud.
 // Previously, any dev machine or CI job with POSTHOG_API_KEY set would fire
 // dozens of real events per run, attributed to the hardcoded `user-123`
@@ -160,7 +155,7 @@ describe('POST /onboarding/complete', () => {
         alreadyCompleted: true,
       });
       // updateMany is called (that's the atomic check-and-set), but no bike
-      // row is created and the referral / analytics side-effects are skipped.
+      // row is created and the analytics side-effects are skipped.
       expect(mockUserUpdateMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({ onboardingCompleted: false }),

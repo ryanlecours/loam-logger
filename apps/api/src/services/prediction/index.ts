@@ -49,3 +49,10 @@ export {
   calculateTotalHours,
   calculateWearPerHourRatio,
 } from './wear';
+
+// Tier degrade - null Pro-only predictive fields at the serving boundary
+export {
+  degradeSummaryForFreeTier,
+  type DegradedBikePredictionSummary,
+  type DegradedComponentPrediction,
+} from './degrade';

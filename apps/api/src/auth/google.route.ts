@@ -6,7 +6,6 @@ import { issueWebSession } from './session-issuer';
 import { setCsrfCookie, clearCsrfCookie } from './csrf';
 import { updateLastAuthAt } from './recent-auth';
 import { logger } from '../lib/logger';
-import { AUTH_ERROR } from './types';
 
 const router = express.Router();
 
@@ -24,7 +23,7 @@ const client = new OAuth2Client({
 
 router.post('/google/code', express.json(), async (req, res) => {
   try {
-    const { credential, ref } = req.body as { credential?: string; ref?: string };
+    const { credential } = req.body as { credential?: string };
     if (!credential) return res.status(400).send('Missing credential');
 
     // Verify the ID token directly
@@ -35,17 +34,13 @@ router.post('/google/code', express.json(), async (req, res) => {
     const p = ticket.getPayload();
     if (!p?.sub) return res.status(401).send('Invalid Google token');
 
-    const user = await ensureUserFromGoogle(
-      {
-        sub: p.sub,
-        email: p.email ?? undefined,
-        email_verified: p.email_verified,
-        name: p.name,
-        picture: p.picture,
-      },
-      undefined,
-      ref,
-    );
+    const { user } = await ensureUserFromGoogle({
+      sub: p.sub,
+      email: p.email ?? undefined,
+      email_verified: p.email_verified,
+      name: p.name,
+      picture: p.picture,
+    });
 
     // Update last auth timestamp for recent-auth gating (non-blocking)
     updateLastAuthAt(user.id).catch((err) =>
@@ -58,15 +53,6 @@ router.post('/google/code', express.json(), async (req, res) => {
     const csrfToken = setCsrfCookie(res);
     res.status(200).json({ ok: true, csrfToken });
   } catch (e) {
-    const errorMessage = e instanceof Error ? e.message : String(e);
-
-    if (errorMessage === AUTH_ERROR.CLOSED_BETA) {
-      return res.status(403).send(AUTH_ERROR.CLOSED_BETA);
-    }
-    if (errorMessage === AUTH_ERROR.ALREADY_ON_WAITLIST) {
-      return res.status(403).send(AUTH_ERROR.ALREADY_ON_WAITLIST);
-    }
-
     logger.error({ err: e }, '[GoogleAuth] ID-token login failed');
     res.status(500).send('Auth failed');
   }

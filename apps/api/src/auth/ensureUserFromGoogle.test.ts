@@ -5,7 +5,6 @@ const mockUserCreate = jest.fn();
 const mockUserUpdate = jest.fn();
 const mockOauthTokenCreate = jest.fn();
 const mockOauthTokenUpsert = jest.fn();
-const mockReferralCreate = jest.fn();
 const mockTransaction = jest.fn();
 
 jest.mock('../lib/prisma', () => ({
@@ -18,18 +17,12 @@ jest.mock('../lib/logger', () => ({
   logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
 }));
 
-jest.mock('../services/referral.service', () => ({
-  resolveReferrer: jest.fn().mockResolvedValue(null),
-  createUserWithReferralCode: jest.fn(async (fn: (code: string) => Promise<unknown>) => fn('abc12345')),
-}));
-
 const mockConfig = { bypassWaitlistFlow: false };
 jest.mock('../config/env', () => ({
   config: mockConfig,
 }));
 
 import { ensureUserFromGoogle } from './ensureUserFromGoogle';
-import { resolveReferrer } from '../services/referral.service';
 
 function createTx() {
   return {
@@ -45,9 +38,6 @@ function createTx() {
     oauthToken: {
       create: mockOauthTokenCreate,
       upsert: mockOauthTokenUpsert,
-    },
-    referral: {
-      create: mockReferralCreate,
     },
   };
 }
@@ -66,17 +56,7 @@ describe('ensureUserFromGoogle', () => {
     mockConfig.bypassWaitlistFlow = false;
   });
 
-  it('should throw CLOSED_BETA for new users when bypass is off', async () => {
-    const tx = createTx();
-    mockTransaction.mockImplementation(async (fn: (t: unknown) => unknown) => fn(tx));
-    mockUserAccountFindUnique.mockResolvedValue(null);
-    mockUserFindUnique.mockResolvedValue(null);
-
-    await expect(ensureUserFromGoogle(baseClaims)).rejects.toThrow('CLOSED_BETA');
-  });
-
-  it('should create FREE user when bypass is on and user is new', async () => {
-    mockConfig.bypassWaitlistFlow = true;
+  it('should create FREE user when user is new', async () => {
     const createdUser = { id: 'new-user', email: 'test@test.com', role: 'FREE' };
     // Phase 1 returns null (no existing user), Phase 2 creates the user
     mockTransaction.mockImplementation(async (fn: (t: unknown) => unknown) => fn(createTx()));
@@ -87,57 +67,17 @@ describe('ensureUserFromGoogle', () => {
 
     const result = await ensureUserFromGoogle(baseClaims);
 
-    expect(result).toEqual(createdUser);
+    expect(result).toEqual({ user: createdUser, wasCreated: true });
     expect(mockUserCreate).toHaveBeenCalledWith({
       data: expect.objectContaining({
         email: 'test@test.com',
         role: 'FREE',
-        subscriptionTier: 'FREE_LIGHT',
-        referralCode: 'abc12345',
+        subscriptionTier: 'FREE',
       }),
     });
     expect(mockUserAccountCreate).toHaveBeenCalledWith({
       data: { userId: 'new-user', provider: 'google', providerUserId: 'google-123' },
     });
-  });
-
-  it('should create referral record when ref is provided', async () => {
-    mockConfig.bypassWaitlistFlow = true;
-    (resolveReferrer as jest.Mock).mockResolvedValue('referrer-id');
-    mockTransaction.mockImplementation(async (fn: (t: unknown) => unknown) => fn(createTx()));
-    mockUserAccountFindUnique.mockResolvedValue(null);
-    mockUserFindUnique.mockResolvedValue(null);
-    mockUserCreate.mockResolvedValue({ id: 'new-user', email: 'test@test.com' });
-    mockUserAccountCreate.mockResolvedValue({});
-
-    await ensureUserFromGoogle(baseClaims, undefined, 'refcode');
-
-    expect(resolveReferrer).toHaveBeenCalledWith('refcode');
-    expect(mockReferralCreate).toHaveBeenCalledWith({
-      data: { referrerUserId: 'referrer-id', referredUserId: 'new-user' },
-    });
-  });
-
-  it('should not create referral when ref is not provided', async () => {
-    mockConfig.bypassWaitlistFlow = true;
-    mockTransaction.mockImplementation(async (fn: (t: unknown) => unknown) => fn(createTx()));
-    mockUserAccountFindUnique.mockResolvedValue(null);
-    mockUserFindUnique.mockResolvedValue(null);
-    mockUserCreate.mockResolvedValue({ id: 'new-user', email: 'test@test.com' });
-    mockUserAccountCreate.mockResolvedValue({});
-
-    await ensureUserFromGoogle(baseClaims);
-
-    expect(mockReferralCreate).not.toHaveBeenCalled();
-  });
-
-  it('should throw ALREADY_ON_WAITLIST for waitlist users', async () => {
-    const tx = createTx();
-    mockTransaction.mockImplementation(async (fn: (t: unknown) => unknown) => fn(tx));
-    mockUserAccountFindUnique.mockResolvedValue(null);
-    mockUserFindUnique.mockResolvedValue({ role: 'WAITLIST' });
-
-    await expect(ensureUserFromGoogle(baseClaims)).rejects.toThrow('ALREADY_ON_WAITLIST');
   });
 
   it('should return existing user for linked Google account', async () => {
@@ -149,7 +89,7 @@ describe('ensureUserFromGoogle', () => {
 
     const result = await ensureUserFromGoogle(baseClaims);
 
-    expect(result).toEqual(existingUser);
+    expect(result).toEqual({ user: existingUser, wasCreated: false });
     expect(mockUserCreate).not.toHaveBeenCalled();
   });
 });

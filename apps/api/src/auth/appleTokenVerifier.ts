@@ -35,19 +35,44 @@ export type AppleTokenPayload = {
  * the audience/issuer checks enforced by jose. This matches our Google handler
  * which also operates without nonces.
  */
+/**
+ * Discriminator metadata attached to thrown errors so the route handler can
+ * log a specific reason (jose error code or class name) and the failing claim
+ * (e.g. 'aud') without re-parsing message text.
+ */
+export type AppleVerifyErrorDetail = { reason: string; claim?: unknown };
+
+function tagAppleError(err: unknown): unknown {
+  if (!(err instanceof Error)) return err;
+  const reason =
+    'code' in err && err.code != null
+      ? String((err as { code: unknown }).code)
+      : err.name || 'UNKNOWN';
+  const claim = 'claim' in err ? (err as { claim: unknown }).claim : undefined;
+  (err as Error & { _apple?: AppleVerifyErrorDetail })._apple = { reason, claim };
+  return err;
+}
+
 export async function verifyAppleIdentityToken(
   identityToken: string,
   bundleId: string,
 ): Promise<AppleTokenPayload> {
-  const { payload } = await jwtVerify(identityToken, appleJWKS, {
-    issuer: APPLE_ISSUER,
-    audience: bundleId,
-    algorithms: ['RS256'],
-  });
+  let payload;
+  try {
+    ({ payload } = await jwtVerify(identityToken, appleJWKS, {
+      issuer: APPLE_ISSUER,
+      audience: bundleId,
+      algorithms: ['RS256'],
+    }));
+  } catch (err) {
+    throw tagAppleError(err);
+  }
 
   const sub = payload.sub;
   if (!sub) {
-    throw new Error('Apple identity token missing sub claim');
+    const err = new Error('Apple identity token missing sub claim');
+    (err as Error & { _apple?: AppleVerifyErrorDetail })._apple = { reason: 'MISSING_SUB' };
+    throw err;
   }
 
   return {

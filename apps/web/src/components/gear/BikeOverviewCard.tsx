@@ -94,7 +94,9 @@ export function BikeOverviewCard({
       DUE_SOON: 2,
       ALL_GOOD: 3,
     };
-    const statusDiff = statusOrder[a.status] - statusOrder[b.status];
+    // Null status (free tier) sorts with ALL_GOOD (least urgent)
+    const statusDiff =
+      statusOrder[a.status ?? 'ALL_GOOD'] - statusOrder[b.status ?? 'ALL_GOOD'];
     if (statusDiff !== 0) return statusDiff;
     const hoursA = a.hoursRemaining ?? Infinity;
     const hoursB = b.hoursRemaining ?? Infinity;
@@ -222,7 +224,7 @@ export function BikeOverviewCard({
                       )}
                     </div>
                     <span className="bike-card-health-hours">
-                      {hoursDisplay === 'total'
+                      {hoursDisplay === 'total' || comp.hoursRemaining == null
                         ? `${formatHours(comp.hoursSinceService)} / ${comp.serviceIntervalHours}h`
                         : formatHours(comp.hoursRemaining)}
                     </span>

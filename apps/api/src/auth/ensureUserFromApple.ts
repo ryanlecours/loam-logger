@@ -1,19 +1,19 @@
-import { Prisma } from '@prisma/client';
+import { Prisma, type User } from '@prisma/client';
 import { normalizeEmail } from './utils';
-import { AUTH_ERROR, type AppleClaims } from './types';
+import { type AppleClaims } from './types';
 import { prisma } from '../lib/prisma';
-import { config } from '../config/env';
-import { resolveReferrer, createUserWithReferralCode } from '../services/referral.service';
+import { logger } from '../lib/logger';
 
-export function ensureUserFromApple(claims: AppleClaims, ref?: string) {
-  return ensureUserFromAppleInner(claims, ref, 0);
+export type AppleUserResult = { user: User; wasCreated: boolean };
+
+export function ensureUserFromApple(claims: AppleClaims): Promise<AppleUserResult> {
+  return ensureUserFromAppleInner(claims, 0);
 }
 
 async function ensureUserFromAppleInner(
   claims: AppleClaims,
-  ref: string | undefined,
   retries: number,
-) {
+): Promise<AppleUserResult> {
   const { sub } = claims;
   // Trusted email from the identity token — safe for account lookup/linking
   const trustedEmail = normalizeEmail(claims.email);
@@ -28,9 +28,6 @@ async function ensureUserFromAppleInner(
       include: { user: true },
     });
     if (existingAccount) {
-      if (existingAccount.user.role === 'WAITLIST') {
-        throw new Error(AUTH_ERROR.ALREADY_ON_WAITLIST);
-      }
       // Optionally fill in name if user doesn't have one yet (Apple only sends name on first auth)
       if (!existingAccount.user.name && claims.name) {
         return tx.user.update({
@@ -45,10 +42,6 @@ async function ensureUserFromAppleInner(
     if (!trustedEmail) return null;
 
     const user = await tx.user.findUnique({ where: { email: trustedEmail } });
-
-    if (user?.role === 'WAITLIST') {
-      throw new Error(AUTH_ERROR.ALREADY_ON_WAITLIST);
-    }
 
     if (user) {
       // User exists and is activated — update profile and link Apple account
@@ -79,7 +72,7 @@ async function ensureUserFromAppleInner(
     return null;
   });
 
-  if (existing) return existing;
+  if (existing) return { user: existing, wasCreated: false };
 
   // Phase 2: New user — fall back to untrusted client email if token had none.
   // When clientEmail is used, claims.email_verified will be false (the token had
@@ -89,40 +82,26 @@ async function ensureUserFromAppleInner(
     throw new Error('Apple login did not provide an email');
   }
 
-  if (!config.bypassWaitlistFlow) {
-    throw new Error(AUTH_ERROR.CLOSED_BETA);
-  }
-
-  const referrerId = ref ? await resolveReferrer(ref) : null;
-
   try {
-    return await createUserWithReferralCode(async (referralCode) => {
-      return prisma.$transaction(async (tx) => {
-        const newUser = await tx.user.create({
-          data: {
-            email: emailForCreation,
-            name: claims.name ?? null,
-            avatarUrl: null,
-            emailVerified: claims.email_verified ? new Date() : null,
-            role: 'FREE',
-            subscriptionTier: 'FREE_LIGHT',
-            referralCode,
-          },
-        });
-
-        await tx.userAccount.create({
-          data: { userId: newUser.id, provider: 'apple', providerUserId: sub },
-        });
-
-        if (referrerId) {
-          await tx.referral.create({
-            data: { referrerUserId: referrerId, referredUserId: newUser.id },
-          });
-        }
-
-        return newUser;
+    const newUser = await prisma.$transaction(async (tx) => {
+      const created = await tx.user.create({
+        data: {
+          email: emailForCreation,
+          name: claims.name ?? null,
+          avatarUrl: null,
+          emailVerified: claims.email_verified ? new Date() : null,
+          role: 'FREE',
+          subscriptionTier: 'FREE',
+        },
       });
+
+      await tx.userAccount.create({
+        data: { userId: created.id, provider: 'apple', providerUserId: sub },
+      });
+
+      return created;
     });
+    return { user: newUser, wasCreated: true };
   } catch (err) {
     // A concurrent request created this user between Phase 1 and Phase 2.
     // Re-run the full function — Phase 1 will now find the existing user.
@@ -132,8 +111,9 @@ async function ensureUserFromAppleInner(
       (err.meta?.target as string[] | undefined)?.includes('email');
 
     if (isEmailCollision) {
+      logger.warn({ sub, retries }, 'Apple sign-in email-collision retry');
       if (retries >= 2) throw err;
-      return ensureUserFromAppleInner(claims, ref, retries + 1);
+      return ensureUserFromAppleInner(claims, retries + 1);
     }
     throw err;
   }

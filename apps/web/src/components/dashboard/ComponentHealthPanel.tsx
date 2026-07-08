@@ -1,14 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation } from '@apollo/client';
-import { ChevronRight, Check, Wrench, Lock } from 'lucide-react';
+import { ChevronRight, Check, Wrench } from 'lucide-react';
 import type { ComponentPrediction } from '../../types/prediction';
 import { STATUS_SEVERITY } from '../../types/prediction';
 import { formatComponentLabel } from '../../utils/formatters';
 import { useHoursDisplay } from '../../hooks/useHoursDisplay';
-import { StatusDot } from './StatusDot';
-import UpgradePrompt from '../UpgradePrompt';
 import { useUserTier } from '../../hooks/useUserTier';
-import { isFreeLightComponent } from '@loam/shared';
+import { StatusDot } from './StatusDot';
+import { ProChip, UpsellCard } from '../UpgradePrompt';
 import { SNOOZE_COMPONENT } from '../../graphql/calibration';
 import { BIKES } from '../../graphql/bikes';
 
@@ -38,12 +37,14 @@ function getSortedComponentsForHealth(
   components: ComponentPrediction[]
 ): ComponentPrediction[] {
   return [...components].sort((a, b) => {
-    // 1. Status severity (higher = more urgent, so b - a for descending)
-    const severityDiff = STATUS_SEVERITY[b.status] - STATUS_SEVERITY[a.status];
+    // 1. Status severity (higher = more urgent, so b - a for descending).
+    // Null status (free tier) sorts as lowest severity.
+    const severityDiff =
+      (b.status ? STATUS_SEVERITY[b.status] : 0) - (a.status ? STATUS_SEVERITY[a.status] : 0);
     if (severityDiff !== 0) return severityDiff;
 
-    // 2. Hours remaining (ascending - most urgent first)
-    const hoursDiff = a.hoursRemaining - b.hoursRemaining;
+    // 2. Hours remaining (ascending - most urgent first); null last
+    const hoursDiff = (a.hoursRemaining ?? Infinity) - (b.hoursRemaining ?? Infinity);
     if (hoursDiff !== 0) return hoursDiff;
 
     // 3. Alphabetical tie-breaker
@@ -259,24 +260,33 @@ function ComponentDetailOverlay({ component, onClose, onServiceLogged, onLogServ
           </div>
         )}
 
-        {/* Component Stats */}
+        {/* Component Stats — remaining-life stats are Pro-only; free users
+            see raw usage (since-service counters + interval) */}
         <div className="component-detail-stats">
-          <div className="component-detail-stat">
-            <span className="component-detail-stat-value">{formatHours(component.hoursRemaining)}</span>
-            <span className="component-detail-stat-label">Until next service</span>
-          </div>
+          {component.hoursRemaining != null && (
+            <div className="component-detail-stat">
+              <span className="component-detail-stat-value">{formatHours(component.hoursRemaining)}</span>
+              <span className="component-detail-stat-label">Until next service</span>
+            </div>
+          )}
           <div className="component-detail-stat">
             <span className="component-detail-stat-value">{formatHours(component.hoursSinceService)}</span>
             <span className="component-detail-stat-label">Since last service</span>
           </div>
           <div className="component-detail-stat">
+            <span className="component-detail-stat-value">{component.ridesSinceService}</span>
+            <span className="component-detail-stat-label">Rides since service</span>
+          </div>
+          <div className="component-detail-stat">
             <span className="component-detail-stat-value">{formatHours(component.serviceIntervalHours)}</span>
             <span className="component-detail-stat-label">Service interval</span>
           </div>
-          <div className="component-detail-stat">
-            <span className="component-detail-stat-value">~{component.ridesRemainingEstimate}</span>
-            <span className="component-detail-stat-label">Rides remaining</span>
-          </div>
+          {component.ridesRemainingEstimate != null && (
+            <div className="component-detail-stat">
+              <span className="component-detail-stat-value">~{component.ridesRemainingEstimate}</span>
+              <span className="component-detail-stat-label">Rides remaining</span>
+            </div>
+          )}
         </div>
 
         {component.why && (
@@ -310,7 +320,14 @@ function ComponentDetailOverlay({ component, onClose, onServiceLogged, onLogServ
 
         {!component.why && (!component.drivers || component.drivers.length === 0) && (
           <div className="wear-causes-empty">
-            <p>No wear analysis available for this component.</p>
+            {component.status == null ? (
+              // Free tier: predictions (and their wear analysis) are Pro
+              <p>
+                Pro estimates the rides left before this part needs service. <ProChip />
+              </p>
+            ) : (
+              <p>No wear analysis available for this component.</p>
+            )}
           </div>
         )}
       </div>
@@ -321,16 +338,12 @@ function ComponentDetailOverlay({ component, onClose, onServiceLogged, onLogServ
 export function ComponentHealthPanel({ components, className = '', onLogService }: ComponentHealthPanelProps) {
   const [selectedComponent, setSelectedComponent] = useState<ComponentPrediction | null>(null);
   const { hoursDisplay } = useHoursDisplay();
-  const { isFreeLight } = useUserTier();
+  const { isFree } = useUserTier();
 
-  const sortedComponents = useMemo(() => {
-    const sorted = getSortedComponentsForHealth(components);
-    if (!isFreeLight) return sorted;
-    // Show unlocked components first, restricted after
-    const unlocked = sorted.filter(c => isFreeLightComponent(c.componentType));
-    const restricted = sorted.filter(c => !isFreeLightComponent(c.componentType));
-    return [...unlocked, ...restricted];
-  }, [components, isFreeLight]);
+  const sortedComponents = useMemo(
+    () => getSortedComponentsForHealth(components),
+    [components]
+  );
 
   // Empty state
   if (components.length === 0) {
@@ -356,63 +369,60 @@ export function ComponentHealthPanel({ components, className = '', onLogService 
       <div className="component-health-list list-stagger">
         {sortedComponents.map((component) => {
           const makeModel = getMakeModel(component);
-          const isRestricted = isFreeLight && !isFreeLightComponent(component.componentType);
 
           return (
             <button
               key={component.componentId}
-              className={`component-health-row ${isRestricted ? 'component-health-row-restricted opacity-40 cursor-default' : ''}`}
-              onClick={() => !isRestricted && setSelectedComponent(component)}
+              className="component-health-row"
+              onClick={() => setSelectedComponent(component)}
               type="button"
-              disabled={isRestricted}
-              aria-disabled={isRestricted}
             >
-              {isRestricted ? (
-                <Lock className="h-3.5 w-3.5 text-amber-400" />
-              ) : (
-                <StatusDot status={component.status} />
-              )}
+              {component.status && <StatusDot status={component.status} />}
               <div className="component-health-name">
                 <span className="component-health-label">
                   {formatComponentLabel(component)}
                 </span>
                 <span className="component-health-make-model">{makeModel}</span>
               </div>
-              {!isRestricted && (
-                <div className="component-health-metrics">
-                  {hoursDisplay === 'total' ? (
-                    <>
-                      <span className="component-health-hours-primary">
-                        {formatHours(component.hoursSinceService)} / {component.serviceIntervalHours}h
-                      </span>
-                      <span className="component-health-hours-secondary">
-                        {formatHours(component.hoursRemaining)} remaining · ~{component.ridesRemainingEstimate} rides
-                      </span>
-                    </>
-                  ) : (
-                    <>
-                      <span className="component-health-hours-primary">
-                        {formatHours(component.hoursRemaining)} remaining
-                      </span>
-                      <span className="component-health-hours-secondary">
-                        {formatHours(component.hoursSinceService)} since service · ~{component.ridesRemainingEstimate} rides
-                      </span>
-                    </>
-                  )}
-                </div>
-              )}
-              {!isRestricted && <ChevronRight className="component-health-chevron" size={12} />}
+              <div className="component-health-metrics">
+                {component.hoursRemaining == null ? (
+                  // Free tier: raw usage counters where the countdown would be
+                  <>
+                    <span className="component-health-hours-primary">
+                      {formatHours(component.hoursSinceService)} / {component.serviceIntervalHours}h
+                    </span>
+                    <span className="component-health-hours-secondary">
+                      {component.ridesSinceService} rides since service <ProChip />
+                    </span>
+                  </>
+                ) : hoursDisplay === 'total' ? (
+                  <>
+                    <span className="component-health-hours-primary">
+                      {formatHours(component.hoursSinceService)} / {component.serviceIntervalHours}h
+                    </span>
+                    <span className="component-health-hours-secondary">
+                      {formatHours(component.hoursRemaining)} remaining · ~{component.ridesRemainingEstimate} rides
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <span className="component-health-hours-primary">
+                      {formatHours(component.hoursRemaining)} remaining
+                    </span>
+                    <span className="component-health-hours-secondary">
+                      {formatHours(component.hoursSinceService)} since service · ~{component.ridesRemainingEstimate} rides
+                    </span>
+                  </>
+                )}
+              </div>
+              <ChevronRight className="component-health-chevron" size={12} />
             </button>
           );
         })}
       </div>
 
-      {isFreeLight && (
-        <div className="mt-4 flex justify-center">
-          <UpgradePrompt
-            message="Unlock all 23+ components for free by referring a friend, or go Pro for unlimited bikes."
-          />
-        </div>
+      {isFree && (
+        <UpsellCard feature="predictions" className="mt-4" />
       )}
 
       {selectedComponent && (

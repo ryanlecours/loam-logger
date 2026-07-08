@@ -1,6 +1,8 @@
 import type { WeatherStats } from '../types';
 import type { WeatherCondition } from '../../../models/Ride';
 import { renderConditionIcon, conditionLabel, conditionTint } from '../../../lib/weather';
+import { useUserTier } from '../../../hooks/useUserTier';
+import { UpsellCard } from '../../UpgradePrompt';
 
 const ORDER: WeatherCondition[] = [
   'SUNNY',
@@ -13,7 +15,12 @@ const ORDER: WeatherCondition[] = [
 ];
 
 export default function WeatherSection({ stats }: { stats: WeatherStats }) {
+  const { isFree } = useUserTier();
   const pending = stats.totalRides - stats.totalWithWeather;
+
+  if (isFree) {
+    return <UpsellCard feature="weather" />;
+  }
 
   if (stats.totalWithWeather === 0) {
     return <p className="section-empty">No weather data yet for this timeframe.</p>;
