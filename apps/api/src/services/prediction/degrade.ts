@@ -19,22 +19,23 @@ export type DegradedComponentPrediction = Omit<
 
 export type DegradedBikePredictionSummary = Omit<
   BikePredictionSummary,
-  'components' | 'priorityComponent' | 'overallStatus' | 'dueNowCount' | 'dueSoonCount'
+  'components' | 'priorityComponent' | 'overallStatus' | 'dueSoonCount'
 > & {
   components: DegradedComponentPrediction[];
   priorityComponent: null;
   overallStatus: null;
-  dueNowCount: null;
   dueSoonCount: null;
 };
 
 /**
  * Strip the Pro-only predictive fields from a bike prediction summary.
  *
- * "Rides left until service due" is a Pro feature: free users keep the raw
- * usage counters but get no remaining-life estimates, due statuses, or wear
- * explanations. Applied at the serving boundary (GraphQL resolver) so the
- * engine, cache, and notification paths keep working with full summaries.
+ * Free users keep the raw usage counters and a binary READY / NOT READY
+ * signal (`dueNowCount`) so the dashboard tile can render without leaking
+ * the Pro-only due-soon lookahead. Remaining-life estimates, per-component
+ * due statuses, and wear explanations stay Pro-only. Applied at the serving
+ * boundary (GraphQL resolver) so the engine, cache, and notification paths
+ * keep working with full summaries.
  */
 export function degradeSummaryForFreeTier(
   summary: BikePredictionSummary
@@ -52,7 +53,6 @@ export function degradeSummaryForFreeTier(
     })),
     priorityComponent: null,
     overallStatus: null,
-    dueNowCount: null,
     dueSoonCount: null,
   };
 }

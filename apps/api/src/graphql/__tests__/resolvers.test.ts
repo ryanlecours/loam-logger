@@ -4503,7 +4503,9 @@ describe('GraphQL Resolvers', () => {
       const result = await resolver({ id: 'bike-1', userId: 'user-123' } as never, {}, ctx as never);
 
       expect(result.overallStatus).toBeNull();
-      expect(result.dueNowCount).toBeNull();
+      // dueNowCount is preserved for free users so the dashboard tile can
+      // render the binary READY / NOT READY signal.
+      expect(result.dueNowCount).toBe(0);
       expect(result.dueSoonCount).toBeNull();
       expect(result.priorityComponent).toBeNull();
       const comp = result.components[0];

@@ -5487,7 +5487,9 @@ export const resolvers = {
           isFoundingRider: user.isFoundingRider,
         });
         // Rides-remaining predictions are Pro-only: free users get the raw
-        // usage counters with the predictive fields nulled out.
+        // usage counters with the predictive fields nulled out. The one
+        // exception is dueNowCount, which is preserved for all tiers so the
+        // free dashboard tile can render a binary READY / NOT READY signal.
         return canSeePredictions(user) ? summary : degradeSummaryForFreeTier(summary);
       } catch (error) {
         logError('Resolver Prediction generation', error);

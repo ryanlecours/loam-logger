@@ -272,8 +272,10 @@ export const typeDefs = gql`
   }
 
   # Predictive fields (status, hoursRemaining, ridesRemainingEstimate,
-  # confidence, overallStatus, due counts) are Pro-only and null for free
-  # users. Raw usage fields (currentHours, serviceIntervalHours,
+  # confidence, overallStatus, dueSoonCount) are Pro-only and null for free
+  # users. dueNowCount is served to all tiers so free users get a binary
+  # READY / NOT READY signal on the dashboard tile without the Pro-only
+  # due-soon lookahead. Raw usage fields (currentHours, serviceIntervalHours,
   # hoursSinceService, ridesSinceService) are served to all tiers.
   type ComponentPrediction {
     componentId: ID!
