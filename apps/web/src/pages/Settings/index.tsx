@@ -107,6 +107,10 @@ export default function Settings() {
 
   useEffect(() => {
     if (!justConnected) return;
+    // Wait for the Me query to resolve. Without this, a cold load or evicted
+    // cache leaves viewer undefined, viewer?.trailStewardshipNoticeSeenAt
+    // reads as falsy, and the modal would open for users who've already
+    // dismissed it.
     if (!viewer) return;
     if (!isHeatmapProvider(justConnected)) return;
     if (viewer.trailStewardshipNoticeSeenAt) return;
