@@ -79,9 +79,8 @@ export default function Pricing() {
     },
     {
       name: 'Pro',
-      price: billingPeriod === 'MONTHLY' ? '$9.99' : '$7.50',
-      period: '/mo',
-      billedNote: billingPeriod === 'ANNUAL' ? 'Billed at $90 for 12 months' : undefined,
+      price: billingPeriod === 'MONTHLY' ? '$4.99' : '$39.99',
+      period: billingPeriod === 'MONTHLY' ? '/mo' : '/yr',
       description: 'Full access, unlimited bikes',
       current: isPro && !isFoundingRider,
       highlight: !isPro,
@@ -146,7 +145,7 @@ export default function Pricing() {
                   }`}
                 >
                   Annual
-                  <span className="ml-1.5 text-xs text-green-400">Save 25%</span>
+                  <span className="ml-1.5 text-xs text-green-400">Save 33%</span>
                 </button>
               </div>
 
@@ -168,9 +167,6 @@ export default function Pricing() {
                     <div className="mt-4 mb-6">
                       <span className="text-3xl font-bold text-white">{t.price}</span>
                       <span className="text-sm text-muted">{t.period}</span>
-                      {t.billedNote && (
-                        <p className="text-xs text-muted mt-1">{t.billedNote}</p>
-                      )}
                     </div>
 
                     <ul className="flex-1 space-y-2 mb-6">
