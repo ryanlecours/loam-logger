@@ -13,8 +13,14 @@ import {
   invalidateUserPredictions,
   clearMemoryCache,
   getMemoryCacheSize,
+  buildAdvisorCacheKey,
+  getCachedAdvisorSummary,
+  setCachedAdvisorSummary,
+  invalidateBikeAdvisorSummary,
+  invalidateUserAdvisorSummaries,
 } from '../cache';
 import type { BikePredictionSummary } from '../types';
+import type { AdvisorSummaryResult } from '../../advisor/summarize';
 
 describe('prediction cache', () => {
   const mockPrediction: BikePredictionSummary = {
@@ -247,6 +253,122 @@ describe('prediction cache', () => {
 
       // Only other-user's entry should remain
       expect(getMemoryCacheSize()).toBe(1);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Advisor summary cache
+  // -------------------------------------------------------------------------
+  describe('advisor summary cache', () => {
+    const advisorParams = {
+      userId: 'user-123',
+      bikeId: 'bike-123',
+      planTier: 'pro',
+      model: 'claude-haiku-4-5-20251001',
+    };
+
+    const mockSummary: AdvisorSummaryResult = {
+      text: 'Front brake pads are overdue.',
+      modelVersion: 'claude-haiku-4-5-20251001',
+      generatedAt: '2026-07-15T10:00:00.000Z',
+      promptTokens: 100,
+      completionTokens: 20,
+      latencyMs: 850,
+    };
+
+    it('builds a distinct key per (user, bike, tier, model)', () => {
+      const key = buildAdvisorCacheKey(advisorParams);
+      expect(key).toBe(
+        'advisor:v1:user:user-123:bike:bike-123:tier:pro:model:claude-haiku-4-5-20251001'
+      );
+      const otherModel = buildAdvisorCacheKey({ ...advisorParams, model: 'claude-sonnet-5' });
+      expect(otherModel).not.toBe(key);
+    });
+
+    it('round-trips through memory cache when Redis is down', async () => {
+      (isRedisReady as jest.Mock).mockReturnValue(false);
+      await setCachedAdvisorSummary(advisorParams, mockSummary);
+      const retrieved = await getCachedAdvisorSummary(advisorParams);
+      expect(retrieved).toEqual(mockSummary);
+    });
+
+    it('returns null on a miss', async () => {
+      (isRedisReady as jest.Mock).mockReturnValue(false);
+      const retrieved = await getCachedAdvisorSummary(advisorParams);
+      expect(retrieved).toBeNull();
+    });
+
+    it('invalidateBikePrediction fans out to advisor summaries', async () => {
+      // This is the critical wiring — every existing mutation site that
+      // invalidates predictions must also drop the summary, else riders
+      // see stale prose after logging a ride or service.
+      (isRedisReady as jest.Mock).mockReturnValue(false);
+      await setCachedPrediction(cacheParams, mockPrediction);
+      await setCachedAdvisorSummary(advisorParams, mockSummary);
+
+      await invalidateBikePrediction('user-123', 'bike-123');
+
+      expect(await getCachedPrediction(cacheParams)).toBeNull();
+      expect(await getCachedAdvisorSummary(advisorParams)).toBeNull();
+    });
+
+    it('invalidateBikeAdvisorSummary only touches advisor keys', async () => {
+      (isRedisReady as jest.Mock).mockReturnValue(false);
+      await setCachedPrediction(cacheParams, mockPrediction);
+      await setCachedAdvisorSummary(advisorParams, mockSummary);
+
+      await invalidateBikeAdvisorSummary('user-123', 'bike-123');
+
+      // Advisor gone, prediction untouched.
+      expect(await getCachedAdvisorSummary(advisorParams)).toBeNull();
+      expect(await getCachedPrediction(cacheParams)).not.toBeNull();
+    });
+
+    it('invalidateUserAdvisorSummaries clears every bike for the user', async () => {
+      (isRedisReady as jest.Mock).mockReturnValue(false);
+      await setCachedAdvisorSummary(
+        { ...advisorParams, bikeId: 'bike-A' },
+        { ...mockSummary }
+      );
+      await setCachedAdvisorSummary(
+        { ...advisorParams, bikeId: 'bike-B' },
+        { ...mockSummary }
+      );
+      // A different user's summary must survive.
+      await setCachedAdvisorSummary(
+        { ...advisorParams, userId: 'other-user', bikeId: 'bike-C' },
+        { ...mockSummary }
+      );
+
+      await invalidateUserAdvisorSummaries('user-123');
+
+      expect(
+        await getCachedAdvisorSummary({ ...advisorParams, bikeId: 'bike-A' })
+      ).toBeNull();
+      expect(
+        await getCachedAdvisorSummary({ ...advisorParams, bikeId: 'bike-B' })
+      ).toBeNull();
+      expect(
+        await getCachedAdvisorSummary({
+          ...advisorParams,
+          userId: 'other-user',
+          bikeId: 'bike-C',
+        })
+      ).not.toBeNull();
+    });
+
+    it('invalidateUserPredictions fans out to advisor cache (Pro→Free→Pro tier flip)', async () => {
+      // The exact scenario from the PR review: cached Pro summary, user
+      // downgrades (invalidateUserPredictions fires), later re-upgrades —
+      // must NOT serve the pre-downgrade summary.
+      (isRedisReady as jest.Mock).mockReturnValue(false);
+      await setCachedPrediction(cacheParams, mockPrediction);
+      await setCachedAdvisorSummary(advisorParams, mockSummary);
+
+      await invalidateUserPredictions('user-123');
+
+      expect(await getCachedPrediction(cacheParams)).toBeNull();
+      expect(await getCachedAdvisorSummary(advisorParams)).toBeNull();
     });
   });
 });

@@ -25,6 +25,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.111.0",
     "@apollo/server": "^5.5.0",
     "@as-integrations/express4": "^1.1.2",
     "@loam/shared": "*",

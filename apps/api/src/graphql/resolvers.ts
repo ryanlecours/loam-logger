@@ -13,7 +13,9 @@ import type {
 import { checkRateLimit, checkMutationRateLimit, checkQueryRateLimit, checkAuthRateLimit } from '../lib/rate-limit';
 import { getClientIp } from '../auth/utils';
 import { enqueueSyncJob, enqueueWeatherJob, type SyncProvider } from '../lib/queue';
-import { invalidateBikePrediction } from '../services/prediction/cache';
+import { invalidateBikePrediction, getCachedAdvisorSummary, setCachedAdvisorSummary } from '../services/prediction/cache';
+import { generateSummary, DEFAULT_ADVISOR_MODEL } from '../services/advisor/summarize';
+import type { BikePredictionSummary } from '../services/prediction/types';
 import { clearServiceNotificationLogs, isValidExpoPushToken } from '../services/notification.service';
 import { getBaseInterval, BASE_INTERVALS_HOURS, DEFAULT_INTERVAL_HOURS } from '../services/prediction/config';
 import {
@@ -5509,6 +5511,114 @@ export const resolvers = {
       return prisma.bikeNotificationPreference.findUnique({
         where: { bikeId: bike.id },
       });
+    },
+  },
+
+  BikePredictionSummary: {
+    // The advisor summary is Pro-only. Free users get the parent
+    // BikePredictionSummary object (in its degraded shape — nulled
+    // predictive fields), so the field resolver must check tier explicitly;
+    // relying on parent-is-null wouldn't fire for free users.
+    advisorSummary: async (
+      parent: BikePredictionSummary,
+      _args: unknown,
+      ctx: GraphQLContext
+    ) => {
+      const userId = ctx.user?.id;
+      if (!userId) return null;
+
+      // Empty-components bikes get nothing — the LLM would just say
+      // "log a service", which isn't worth the tokens.
+      if (parent.components.length === 0) {
+        return null;
+      }
+
+      // Trivial state: when the prediction engine says nothing is urgent
+      // (no OVERDUE, no DUE_NOW, no DUE_SOON — i.e. overallStatus === 'ALL_GOOD'),
+      // the summary would just restate the ComponentHealthBadge already on the
+      // hero of the bike-detail screen. Skip the LLM call; the mobile widget
+      // renders nothing and the space collapses.
+      //
+      // Deliberately BEFORE the tier check below: for Pro users with an
+      // ALL_GOOD bike (the common case), this bails without paying the
+      // DataLoader round-trip. For free users this check is inert —
+      // degradeSummaryForFreeTier nulls overallStatus, so `null === 'ALL_GOOD'`
+      // is false and they fall through to the tier check, which correctly
+      // returns null. Don't reorder unless you've re-verified both branches.
+      if (parent.overallStatus === 'ALL_GOOD') {
+        return null;
+      }
+
+      // Pro-tier gate. Uses canSeePredictions() explicitly — the same
+      // authoritative check the parent predictions resolver runs — rather
+      // than reverse-engineering it from the degraded shape's nulled fields.
+      // Batched via the tierUserById DataLoader (same pattern as Ride.weather
+      // below) so any future list-of-bikes surface renders advisorSummary
+      // per bike without paying N user lookups.
+      const tierUser = await ctx.loaders.tierUserById.load(userId);
+      if (!tierUser || !canSeePredictions(tierUser)) return null;
+
+      const model = process.env.LOAM_ADVISOR_MODEL || DEFAULT_ADVISOR_MODEL;
+      const cacheParams = { userId, bikeId: parent.bikeId, planTier: 'pro', model };
+
+      const cached = await getCachedAdvisorSummary(cacheParams);
+      if (cached) {
+        // Metrics only — see the parallel note at the cache-miss event
+        // below for why summary text must never be sent to analytics.
+        captureServerEvent(userId, 'advisor_summary_generated', {
+          model: cached.modelVersion,
+          promptTokens: cached.promptTokens,
+          completionTokens: cached.completionTokens,
+          latencyMs: cached.latencyMs,
+          cacheHit: true,
+        });
+        return cached;
+      }
+
+      // Rate-limit ONLY on cache miss. Cache hits are free (Redis read +
+      // JSON parse), so counting them punishes users who just refresh the
+      // screen. Misses are the ones that spend Anthropic dollars, and
+      // that's what the limit is here to bound (20 per 5 min per user
+      // ≈ ~$0.96/hour worst case at Haiku 4.5). A rider only produces
+      // misses by triggering the ~30 mutation sites that invalidate the
+      // cache — logging 20+ mutations in 5 minutes is abusive or scripted.
+      const rateLimit = await checkQueryRateLimit('advisorSummary', userId);
+      if (!rateLimit.allowed) {
+        // Don't throw — the field is nullable and the widget renders
+        // nothing on null. Silently degrading keeps the rest of the
+        // bike-detail query intact for a user hitting the wall.
+        logger.warn(
+          { userId, retryAfter: rateLimit.retryAfter },
+          '[advisor] rate limit exceeded, returning null'
+        );
+        return null;
+      }
+
+      // Thundering-herd note: no in-flight request coalescing here. Two
+      // concurrent requests for the same bike that both land on a cache
+      // miss will both call the LLM (multi-tab, multi-device, or a push
+      // notification arriving while the screen is already open). Frequency
+      // is low in practice — the request pair has to fall inside the LLM
+      // latency window (~1–2s) — and the per-user rate limit above caps
+      // any runaway. Acceptable at Phase 1 volume; revisit with a
+      // single-flight promise map if PostHog shows meaningful collisions.
+      const result = await generateSummary(parent, model);
+      if (!result) return null;
+
+      await setCachedAdvisorSummary(cacheParams, result);
+      // Metrics only — never send result.text to analytics. The prompt
+      // payload includes rider-typed free-text (bike names, brand/model)
+      // that the summary can echo back verbatim; those strings were only
+      // ever consented to the rider-facing surface. See the DO NOT LOG
+      // TEXT note at the JSON.stringify() in services/advisor/summarize.ts.
+      captureServerEvent(userId, 'advisor_summary_generated', {
+        model: result.modelVersion,
+        promptTokens: result.promptTokens,
+        completionTokens: result.completionTokens,
+        latencyMs: result.latencyMs,
+        cacheHit: false,
+      });
+      return result;
     },
   },
 
