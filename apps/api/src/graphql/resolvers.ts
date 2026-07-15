@@ -5594,6 +5594,14 @@ export const resolvers = {
         return null;
       }
 
+      // Thundering-herd note: no in-flight request coalescing here. Two
+      // concurrent requests for the same bike that both land on a cache
+      // miss will both call the LLM (multi-tab, multi-device, or a push
+      // notification arriving while the screen is already open). Frequency
+      // is low in practice — the request pair has to fall inside the LLM
+      // latency window (~1–2s) — and the per-user rate limit above caps
+      // any runaway. Acceptable at Phase 1 volume; revisit with a
+      // single-flight promise map if PostHog shows meaningful collisions.
       const result = await generateSummary(parent, model);
       if (!result) return null;
 
