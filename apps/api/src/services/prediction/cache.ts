@@ -8,6 +8,15 @@ import type { AdvisorSummaryResult } from '../advisor/summarize';
 // cached summaries stop serving stale prompt behavior after a deploy.
 const ADVISOR_CACHE_VERSION = 'v1';
 
+// Long TTL as a self-healing backstop. Invalidation fan-out
+// (invalidateBikePrediction, invalidateUserPredictions) is the primary
+// freshness mechanism; this TTL only kicks in when something is missed.
+// 30 days is far beyond the routine cache-hit window (a rider who logs a
+// ride at any point invalidates well before this), so it never triggers
+// wasteful re-runs, but ensures that a downgrade → upgrade cycle or any
+// future invalidator gap can't serve arbitrarily-stale prose forever.
+const ADVISOR_CACHE_TTL_SECONDS = 30 * 24 * 60 * 60;
+
 /**
  * Delete Redis keys matching a pattern using SCAN (non-blocking).
  * Unlike KEYS, SCAN doesn't block the Redis server.
@@ -223,6 +232,11 @@ export async function invalidateBikePrediction(
  * Invalidate all predictions for a user.
  * Called when user role changes.
  *
+ * Also fans out to the advisor summary cache. A Pro→Free→Pro cycle
+ * would otherwise serve the old cached Pro summary indefinitely since
+ * the advisor cache doesn't invalidate on tier changes on its own and
+ * the TTL is a 30-day backstop.
+ *
  * @param userId - User ID
  */
 export async function invalidateUserPredictions(userId: string): Promise<void> {
@@ -244,6 +258,11 @@ export async function invalidateUserPredictions(userId: string): Promise<void> {
       console.warn('[PredictionCache] Redis user invalidation failed:', error);
     }
   }
+
+  // Fan out to the advisor cache — kept as a separate call so a future
+  // caller that wants to bust only advisor summaries (e.g. a prompt
+  // roll-forward) can invoke it directly.
+  await invalidateUserAdvisorSummaries(userId);
 }
 
 // ---------------------------------------------------------------------------
@@ -335,15 +354,14 @@ export async function setCachedAdvisorSummary(
   params: AdvisorCacheKey,
   summary: AdvisorSummaryResult
 ): Promise<void> {
-  // No TTL. The advisor summary describes maintenance state, not a moment
-  // in time — the prose doesn't go stale just because the clock moved. We
-  // rely entirely on invalidateBikePrediction's fan-out (fired by ride add,
-  // service log, component swap, and the other ~30 mutation sites) to
-  // decide when a new LLM call is needed. In-memory cache still LRU-evicts
-  // on size limit; Redis stores indefinitely until natural eviction or an
-  // explicit invalidation.
+  // Primary freshness is invalidation-driven (see invalidateBikePrediction
+  // fan-out). The 30-day TTL is a self-healing backstop: it never fires in
+  // the normal case (any ride/service invalidates well before then), but
+  // ensures downgrade→upgrade cycles and any missed invalidator can't
+  // serve arbitrarily-stale prose.
   const key = buildAdvisorCacheKey(params);
   const now = Date.now();
+  const expiresAt = now + ADVISOR_CACHE_TTL_SECONDS * 1000;
 
   if (
     advisorMemoryCache.size >= ADVISOR_MEMORY_CACHE_MAX_SIZE &&
@@ -353,14 +371,14 @@ export async function setCachedAdvisorSummary(
   }
   advisorMemoryCache.set(key, {
     value: summary,
-    expiresAt: Number.POSITIVE_INFINITY,
+    expiresAt,
     lastAccessed: now,
   });
 
   if (isRedisReady()) {
     try {
       const redis = getRedisConnection();
-      await redis.set(key, JSON.stringify(summary));
+      await redis.setex(key, ADVISOR_CACHE_TTL_SECONDS, JSON.stringify(summary));
     } catch (error) {
       console.warn('[AdvisorCache] Redis write failed:', error);
     }
@@ -390,6 +408,32 @@ export async function invalidateBikeAdvisorSummary(
       await deleteKeysByPattern(redis, `${keyPrefix}*`);
     } catch (error) {
       console.warn('[AdvisorCache] Redis invalidation failed:', error);
+    }
+  }
+}
+
+/**
+ * Invalidate ALL advisor summaries for a user (all bikes). Called by
+ * invalidateUserPredictions on role/tier changes so a Pro→Free→Pro cycle
+ * (or any other user-wide invalidation) doesn't leave stale summaries
+ * cached under the old tier's key. Mirrors invalidateUserPredictions
+ * exactly, one prefix level up from invalidateBikeAdvisorSummary.
+ */
+export async function invalidateUserAdvisorSummaries(userId: string): Promise<void> {
+  const keyPrefix = `advisor:${ADVISOR_CACHE_VERSION}:user:${userId}:`;
+
+  for (const key of advisorMemoryCache.keys()) {
+    if (key.startsWith(keyPrefix)) {
+      advisorMemoryCache.delete(key);
+    }
+  }
+
+  if (isRedisReady()) {
+    try {
+      const redis = getRedisConnection();
+      await deleteKeysByPattern(redis, `${keyPrefix}*`);
+    } catch (error) {
+      console.warn('[AdvisorCache] Redis user invalidation failed:', error);
     }
   }
 }

@@ -17,6 +17,7 @@ import {
   getCachedAdvisorSummary,
   setCachedAdvisorSummary,
   invalidateBikeAdvisorSummary,
+  invalidateUserAdvisorSummaries,
 } from '../cache';
 import type { BikePredictionSummary } from '../types';
 import type { AdvisorSummaryResult } from '../../advisor/summarize';
@@ -321,6 +322,53 @@ describe('prediction cache', () => {
       // Advisor gone, prediction untouched.
       expect(await getCachedAdvisorSummary(advisorParams)).toBeNull();
       expect(await getCachedPrediction(cacheParams)).not.toBeNull();
+    });
+
+    it('invalidateUserAdvisorSummaries clears every bike for the user', async () => {
+      (isRedisReady as jest.Mock).mockReturnValue(false);
+      await setCachedAdvisorSummary(
+        { ...advisorParams, bikeId: 'bike-A' },
+        { ...mockSummary }
+      );
+      await setCachedAdvisorSummary(
+        { ...advisorParams, bikeId: 'bike-B' },
+        { ...mockSummary }
+      );
+      // A different user's summary must survive.
+      await setCachedAdvisorSummary(
+        { ...advisorParams, userId: 'other-user', bikeId: 'bike-C' },
+        { ...mockSummary }
+      );
+
+      await invalidateUserAdvisorSummaries('user-123');
+
+      expect(
+        await getCachedAdvisorSummary({ ...advisorParams, bikeId: 'bike-A' })
+      ).toBeNull();
+      expect(
+        await getCachedAdvisorSummary({ ...advisorParams, bikeId: 'bike-B' })
+      ).toBeNull();
+      expect(
+        await getCachedAdvisorSummary({
+          ...advisorParams,
+          userId: 'other-user',
+          bikeId: 'bike-C',
+        })
+      ).not.toBeNull();
+    });
+
+    it('invalidateUserPredictions fans out to advisor cache (Pro→Free→Pro tier flip)', async () => {
+      // The exact scenario from the PR review: cached Pro summary, user
+      // downgrades (invalidateUserPredictions fires), later re-upgrades —
+      // must NOT serve the pre-downgrade summary.
+      (isRedisReady as jest.Mock).mockReturnValue(false);
+      await setCachedPrediction(cacheParams, mockPrediction);
+      await setCachedAdvisorSummary(advisorParams, mockSummary);
+
+      await invalidateUserPredictions('user-123');
+
+      expect(await getCachedPrediction(cacheParams)).toBeNull();
+      expect(await getCachedAdvisorSummary(advisorParams)).toBeNull();
     });
   });
 });
