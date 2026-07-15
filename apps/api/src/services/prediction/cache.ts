@@ -333,12 +333,17 @@ export async function getCachedAdvisorSummary(
 
 export async function setCachedAdvisorSummary(
   params: AdvisorCacheKey,
-  summary: AdvisorSummaryResult,
-  ttlSeconds: number = DEFAULT_CACHE_TTL_SECONDS
+  summary: AdvisorSummaryResult
 ): Promise<void> {
+  // No TTL. The advisor summary describes maintenance state, not a moment
+  // in time — the prose doesn't go stale just because the clock moved. We
+  // rely entirely on invalidateBikePrediction's fan-out (fired by ride add,
+  // service log, component swap, and the other ~30 mutation sites) to
+  // decide when a new LLM call is needed. In-memory cache still LRU-evicts
+  // on size limit; Redis stores indefinitely until natural eviction or an
+  // explicit invalidation.
   const key = buildAdvisorCacheKey(params);
   const now = Date.now();
-  const expiresAt = now + ttlSeconds * 1000;
 
   if (
     advisorMemoryCache.size >= ADVISOR_MEMORY_CACHE_MAX_SIZE &&
@@ -346,12 +351,16 @@ export async function setCachedAdvisorSummary(
   ) {
     evictFromAdvisorMemoryCache();
   }
-  advisorMemoryCache.set(key, { value: summary, expiresAt, lastAccessed: now });
+  advisorMemoryCache.set(key, {
+    value: summary,
+    expiresAt: Number.POSITIVE_INFINITY,
+    lastAccessed: now,
+  });
 
   if (isRedisReady()) {
     try {
       const redis = getRedisConnection();
-      await redis.setex(key, ttlSeconds, JSON.stringify(summary));
+      await redis.set(key, JSON.stringify(summary));
     } catch (error) {
       console.warn('[AdvisorCache] Redis write failed:', error);
     }
