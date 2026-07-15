@@ -172,9 +172,9 @@ Loam Logger is not responsible for:
 
 Use of third-party services is at your own risk and subject to their respective terms.
 
-### 9.1 Machine-Generated Content
+### 9.1 Machine-Generated Content Using AI
 
-Certain features of the Service produce **machine-generated content**, including natural-language maintenance summaries. To generate this content, the Service transmits non-identifying data about your bicycle and its components — such as component types, service intervals, hours since last service, and computed status — to a third-party AI processing provider (currently Anthropic, PBC, operator of the Claude API).
+Certain features of the Service produce **machine-generated content using artificial intelligence (AI)**, including natural-language maintenance summaries. To generate this content, the Service transmits non-identifying data about your bicycle and its components — such as component types, service intervals, hours since last service, and computed status — to a third-party AI processing provider (currently Anthropic, PBC, operator of the Claude API).
 
 The following applies to all machine-generated content:
 
