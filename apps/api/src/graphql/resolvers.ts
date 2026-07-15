@@ -5540,6 +5540,15 @@ export const resolvers = {
         return null;
       }
 
+      // Trivial state: when the prediction engine says nothing is urgent
+      // (no OVERDUE, no DUE_NOW, no DUE_SOON — i.e. overallStatus === 'ALL_GOOD'),
+      // the summary would just restate the ComponentHealthBadge already on the
+      // hero of the bike-detail screen. Skip the LLM call; the mobile widget
+      // renders nothing and the space collapses.
+      if (parent.overallStatus === 'ALL_GOOD') {
+        return null;
+      }
+
       const model = process.env.LOAM_ADVISOR_MODEL || DEFAULT_ADVISOR_MODEL;
       const cacheParams = { userId, bikeId: parent.bikeId, planTier: 'pro', model };
 
