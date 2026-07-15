@@ -305,6 +305,13 @@ export const typeDefs = gql`
     dueSoonCount: Int
     generatedAt: String!
     algoVersion: String!
+    advisorSummary: AdvisorSummary
+  }
+
+  type AdvisorSummary {
+    text: String!
+    generatedAt: String!
+    modelVersion: String!
   }
 
   type Bike {

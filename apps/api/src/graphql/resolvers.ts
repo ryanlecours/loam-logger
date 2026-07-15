@@ -13,7 +13,9 @@ import type {
 import { checkRateLimit, checkMutationRateLimit, checkQueryRateLimit, checkAuthRateLimit } from '../lib/rate-limit';
 import { getClientIp } from '../auth/utils';
 import { enqueueSyncJob, enqueueWeatherJob, type SyncProvider } from '../lib/queue';
-import { invalidateBikePrediction } from '../services/prediction/cache';
+import { invalidateBikePrediction, getCachedAdvisorSummary, setCachedAdvisorSummary } from '../services/prediction/cache';
+import { generateSummary, DEFAULT_ADVISOR_MODEL } from '../services/advisor/summarize';
+import type { BikePredictionSummary } from '../services/prediction/types';
 import { clearServiceNotificationLogs, isValidExpoPushToken } from '../services/notification.service';
 import { getBaseInterval, BASE_INTERVALS_HOURS, DEFAULT_INTERVAL_HOURS } from '../services/prediction/config';
 import {
@@ -5509,6 +5511,62 @@ export const resolvers = {
       return prisma.bikeNotificationPreference.findUnique({
         where: { bikeId: bike.id },
       });
+    },
+  },
+
+  BikePredictionSummary: {
+    // The advisor summary is Pro-only. Free users get the parent
+    // BikePredictionSummary object (in its degraded shape — nulled
+    // predictive fields), so the field resolver must check tier explicitly;
+    // relying on parent-is-null wouldn't fire for free users.
+    advisorSummary: async (
+      parent: BikePredictionSummary,
+      _args: unknown,
+      ctx: GraphQLContext
+    ) => {
+      const userId = ctx.user?.id;
+      if (!userId) return null;
+
+      // Cheap tier check: the degraded (free-tier) shape nulls overallStatus.
+      // If it's null on a bike that has components, this parent came out of
+      // degradeSummaryForFreeTier — no summary for free users.
+      if (parent.components.length > 0 && parent.overallStatus === null) {
+        return null;
+      }
+
+      // Empty-components bikes get nothing — the LLM would just say
+      // "log a service", which isn't worth the tokens.
+      if (parent.components.length === 0) {
+        return null;
+      }
+
+      const model = process.env.LOAM_ADVISOR_MODEL || DEFAULT_ADVISOR_MODEL;
+      const cacheParams = { userId, bikeId: parent.bikeId, planTier: 'pro', model };
+
+      const cached = await getCachedAdvisorSummary(cacheParams);
+      if (cached) {
+        captureServerEvent(userId, 'advisor_summary_generated', {
+          model: cached.modelVersion,
+          promptTokens: cached.promptTokens,
+          completionTokens: cached.completionTokens,
+          latencyMs: cached.latencyMs,
+          cacheHit: true,
+        });
+        return cached;
+      }
+
+      const result = await generateSummary(parent, model);
+      if (!result) return null;
+
+      await setCachedAdvisorSummary(cacheParams, result);
+      captureServerEvent(userId, 'advisor_summary_generated', {
+        model: result.modelVersion,
+        promptTokens: result.promptTokens,
+        completionTokens: result.completionTokens,
+        latencyMs: result.latencyMs,
+        cacheHit: false,
+      });
+      return result;
     },
   },
 
