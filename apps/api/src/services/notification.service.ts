@@ -5,6 +5,7 @@ import { logError, logger } from '../lib/logger';
 import { enqueueReceiptCheck } from '../lib/queue/notification.queue';
 import { generateBikePredictions } from './prediction';
 import { canSeePredictions } from '../auth/tier-access';
+import { formatComponentType } from '@loam/shared';
 import type { ServiceNotificationMode } from '@prisma/client';
 
 /**
@@ -209,11 +210,11 @@ export async function checkAndNotifyServiceDue(params: {
   };
 
   const formatComponent = (c: ComponentPrediction) =>
-    `${c.componentType.replace(/_/g, ' ').toLowerCase()} (${formatRemaining(c)})`;
+    `${formatComponentType(c.componentType, null, { case: 'lower' })} (${formatRemaining(c)})`;
 
   let body: string;
   if (newComponents.length === 1) {
-    body = `${newComponents[0].componentType.replace(/_/g, ' ').toLowerCase()} needs service (${formatRemaining(newComponents[0])})`;
+    body = `${formatComponentType(newComponents[0].componentType, null, { case: 'lower' })} needs service (${formatRemaining(newComponents[0])})`;
   } else {
     const MAX_LISTED = 2;
     const listed = newComponents.slice(0, MAX_LISTED).map(formatComponent).join(', ');

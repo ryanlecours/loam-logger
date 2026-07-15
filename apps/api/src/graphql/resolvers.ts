@@ -26,6 +26,7 @@ import {
   type SpokesComponents,
   CURRENT_TERMS_VERSION,
   COMPONENT_CATALOG,
+  formatComponentType,
 } from '@loam/shared';
 import { createId } from '@paralleldrive/cuid2';
 import { logError, logger } from '../lib/logger';
@@ -367,7 +368,7 @@ const parseTravel = (value: number | null | undefined) =>
   value == null || Number.isNaN(value) ? undefined : Math.max(0, Math.floor(value));
 
 const componentLabel = (type: ComponentType) =>
-  componentLabelMap[type] ?? type.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+  componentLabelMap[type] ?? formatComponentType(type);
 
 const requireUserId = (ctx: GraphQLContext) => {
   const id = ctx.user?.id;
@@ -1328,7 +1329,7 @@ export const resolvers = {
       return trackableTypes.map((componentType) => {
         const interval = BASE_INTERVALS_HOURS[componentType];
         const catalogEntry = COMPONENT_CATALOG.find(c => c.type === componentType);
-        const displayName = catalogEntry?.displayName ?? componentType.replace(/_/g, ' ');
+        const displayName = catalogEntry?.displayName ?? formatComponentType(componentType);
 
         if (typeof interval === 'object') {
           // Location-based interval (has front/rear)

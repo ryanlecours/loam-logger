@@ -6,6 +6,7 @@ export * from './types/snapshot';
 
 // Utils
 export * from './utils/format';
+export * from './utils/formatComponentType';
 export * from './utils/healthStatus';
 export * from './utils/bikeSpec';
 
