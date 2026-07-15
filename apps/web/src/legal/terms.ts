@@ -12,11 +12,11 @@
 
 // Re-export from shared to ensure frontend and backend use the same version
 export { CURRENT_TERMS_VERSION as TERMS_VERSION } from '@loam/shared';
-export const TERMS_LAST_UPDATED = "January 2026";
+export const TERMS_LAST_UPDATED = "July 2026";
 
 export const TERMS_TEXT = `# Terms and Conditions of Use
 
-**Last Updated:** January 2026
+**Last Updated:** July 2026
 
 These Terms and Conditions ("Terms") govern your access to and use of Loam Logger, including the Loam Logger website, web application, mobile applications, and any related services, tools, features, content, or software (collectively, the "Service"). The Service is owned and operated by Loam Logger ("Loam Logger," "we," "us," or "our").
 
@@ -171,6 +171,20 @@ Loam Logger is not responsible for:
 - Decisions made based on third-party data
 
 Use of third-party services is at your own risk and subject to their respective terms.
+
+### 9.1 Machine-Generated Content
+
+Certain features of the Service produce **machine-generated content**, including natural-language maintenance summaries. To generate this content, the Service transmits non-identifying data about your bicycle and its components — such as component types, service intervals, hours since last service, and computed status — to a third-party AI processing provider (currently Anthropic, PBC, operator of the Claude API).
+
+The following applies to all machine-generated content:
+
+- Output is produced by statistical language models and may be **inaccurate, incomplete, out of date, or nonsensical**, even when the underlying data is correct.
+- Machine-generated summaries are **not** professional advice, diagnostic output, or a safety indicator, and are subject to every disclaimer already stated in these Terms (see Sections 2–7).
+- The Service does not send your name, email address, ride GPS coordinates, payment information, or account credentials to the AI provider. Data sent is limited to what is needed to describe your bicycle's maintenance state.
+- The AI provider processes the data solely to return output to the Service. Under the AI provider's current terms, submitted data is not used to train their models. Data may be retained by the AI provider for a limited period for abuse and safety review.
+- The AI provider is a **sub-processor** of the Service. Their terms and privacy practices are available on their website.
+
+You acknowledge that machine-generated content is an assistive feature and agree not to rely on it as the sole basis for any maintenance, repair, safety, or purchasing decision.
 
 ---
 
