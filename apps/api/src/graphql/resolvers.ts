@@ -5538,6 +5538,13 @@ export const resolvers = {
       // the summary would just restate the ComponentHealthBadge already on the
       // hero of the bike-detail screen. Skip the LLM call; the mobile widget
       // renders nothing and the space collapses.
+      //
+      // Deliberately BEFORE the tier check below: for Pro users with an
+      // ALL_GOOD bike (the common case), this bails without paying the
+      // DataLoader round-trip. For free users this check is inert —
+      // degradeSummaryForFreeTier nulls overallStatus, so `null === 'ALL_GOOD'`
+      // is false and they fall through to the tier check, which correctly
+      // returns null. Don't reorder unless you've re-verified both branches.
       if (parent.overallStatus === 'ALL_GOOD') {
         return null;
       }
