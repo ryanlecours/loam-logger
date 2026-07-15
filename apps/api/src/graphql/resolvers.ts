@@ -5527,13 +5527,6 @@ export const resolvers = {
       const userId = ctx.user?.id;
       if (!userId) return null;
 
-      // Cheap tier check: the degraded (free-tier) shape nulls overallStatus.
-      // If it's null on a bike that has components, this parent came out of
-      // degradeSummaryForFreeTier — no summary for free users.
-      if (parent.components.length > 0 && parent.overallStatus === null) {
-        return null;
-      }
-
       // Empty-components bikes get nothing — the LLM would just say
       // "log a service", which isn't worth the tokens.
       if (parent.components.length === 0) {
@@ -5548,6 +5541,18 @@ export const resolvers = {
       if (parent.overallStatus === 'ALL_GOOD') {
         return null;
       }
+
+      // Pro-tier gate. Uses canSeePredictions() explicitly — the same
+      // authoritative check the parent predictions resolver runs — rather
+      // than reverse-engineering it from the degraded shape's nulled fields.
+      // If the engine ever changes how degradation is signaled, this stays
+      // correct without silently letting free-tier requests through (or
+      // silently blocking Pro requests).
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { role: true, subscriptionTier: true, isFoundingRider: true },
+      });
+      if (!user || !canSeePredictions(user)) return null;
 
       const model = process.env.LOAM_ADVISOR_MODEL || DEFAULT_ADVISOR_MODEL;
       const cacheParams = { userId, bikeId: parent.bikeId, planTier: 'pro', model };
