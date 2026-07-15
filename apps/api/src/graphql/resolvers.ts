@@ -5545,14 +5545,11 @@ export const resolvers = {
       // Pro-tier gate. Uses canSeePredictions() explicitly — the same
       // authoritative check the parent predictions resolver runs — rather
       // than reverse-engineering it from the degraded shape's nulled fields.
-      // If the engine ever changes how degradation is signaled, this stays
-      // correct without silently letting free-tier requests through (or
-      // silently blocking Pro requests).
-      const user = await prisma.user.findUnique({
-        where: { id: userId },
-        select: { role: true, subscriptionTier: true, isFoundingRider: true },
-      });
-      if (!user || !canSeePredictions(user)) return null;
+      // Batched via the tierUserById DataLoader (same pattern as Ride.weather
+      // below) so any future list-of-bikes surface renders advisorSummary
+      // per bike without paying N user lookups.
+      const tierUser = await ctx.loaders.tierUserById.load(userId);
+      if (!tierUser || !canSeePredictions(tierUser)) return null;
 
       const model = process.env.LOAM_ADVISOR_MODEL || DEFAULT_ADVISOR_MODEL;
       const cacheParams = { userId, bikeId: parent.bikeId, planTier: 'pro', model };
