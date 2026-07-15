@@ -5556,6 +5556,8 @@ export const resolvers = {
 
       const cached = await getCachedAdvisorSummary(cacheParams);
       if (cached) {
+        // Metrics only — see the parallel note at the cache-miss event
+        // below for why summary text must never be sent to analytics.
         captureServerEvent(userId, 'advisor_summary_generated', {
           model: cached.modelVersion,
           promptTokens: cached.promptTokens,
@@ -5589,6 +5591,11 @@ export const resolvers = {
       if (!result) return null;
 
       await setCachedAdvisorSummary(cacheParams, result);
+      // Metrics only — never send result.text to analytics. The prompt
+      // payload includes rider-typed free-text (bike names, brand/model)
+      // that the summary can echo back verbatim; those strings were only
+      // ever consented to the rider-facing surface. See the DO NOT LOG
+      // TEXT note at the JSON.stringify() in services/advisor/summarize.ts.
       captureServerEvent(userId, 'advisor_summary_generated', {
         model: result.modelVersion,
         promptTokens: result.promptTokens,

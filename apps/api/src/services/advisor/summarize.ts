@@ -92,6 +92,17 @@ export async function generateSummary(
     return null;
   }
 
+  // The payload includes user-typed free-text (bikeName, component brand/
+  // model). Safe today because the resulting summary is returned only to the
+  // owning rider — same in, same out, no privilege boundary crossed. A
+  // rider using their bike name to inject prompt instructions gets weird
+  // prose in their own widget; that's self-inflicted, not a security issue.
+  //
+  // DO NOT log or aggregate the summary TEXT anywhere (analytics, admin
+  // tools, offline eval on prod data) without first stripping or redacting
+  // these user-typed fields — that would leak rider-chosen strings into a
+  // surface the original data-flow disclosure didn't cover. The PostHog
+  // event in the resolver deliberately logs only metrics, never text.
   const userContent =
     'Bike predictions payload:\n\n' + JSON.stringify(predictions, null, 2);
 
