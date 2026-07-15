@@ -6,7 +6,10 @@ jest.mock('@anthropic-ai/sdk', () => {
   }));
 });
 
-// Ensure the module has an API key visible at import time.
+// The module reads ANTHROPIC_API_KEY inside getClient() (lazy). Setting it
+// here means getClient() returns the mocked SDK instance rather than null,
+// which most tests below depend on. The "returns null when API key is
+// missing" case explicitly clears it.
 process.env.ANTHROPIC_API_KEY = 'test-key';
 
 import { generateSummary, DEFAULT_ADVISOR_MODEL } from './summarize';
@@ -98,6 +101,23 @@ describe('generateSummary', () => {
     mockCreate.mockRejectedValueOnce(new Error('anthropic 503'));
     const result = await generateSummary(mockPredictions);
     expect(result).toBeNull();
+  });
+
+  it('returns null when ANTHROPIC_API_KEY is not set (no SDK call)', async () => {
+    // Regression test for the module-load crash the eager `new Anthropic()`
+    // at the top of the file used to cause. getClient() must now short-circuit
+    // to null when the env var is missing, so local dev / preview / staging
+    // / CI envs without the key stay bootable and the widget just silently
+    // renders nothing.
+    const previous = process.env.ANTHROPIC_API_KEY;
+    delete process.env.ANTHROPIC_API_KEY;
+    try {
+      const result = await generateSummary(mockPredictions);
+      expect(result).toBeNull();
+      expect(mockCreate).not.toHaveBeenCalled();
+    } finally {
+      process.env.ANTHROPIC_API_KEY = previous;
+    }
   });
 
   it('embeds the predictions payload in the user turn', async () => {

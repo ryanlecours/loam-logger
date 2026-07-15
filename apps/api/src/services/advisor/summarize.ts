@@ -15,10 +15,25 @@ import Anthropic from '@anthropic-ai/sdk';
 import { logError, logger } from '../../lib/logger';
 import type { BikePredictionSummary } from '../prediction/types';
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-
 export const DEFAULT_ADVISOR_MODEL = 'claude-haiku-4-5-20251001';
 const MAX_TOKENS = 300;
+
+// Lazy, memoized client. Constructing new Anthropic() at module load
+// would throw synchronously when ANTHROPIC_API_KEY is unset — and since
+// this module is statically imported from resolvers.ts, that would
+// prevent the whole API from booting on any env (local dev, preview,
+// staging, CI) that hasn't provisioned the key. We defer construction
+// to first-use and return null on missing key so the field resolver's
+// existing null-fallback path just renders no widget instead.
+let _client: Anthropic | null = null;
+
+function getClient(): Anthropic | null {
+  if (!process.env.ANTHROPIC_API_KEY) return null;
+  if (!_client) {
+    _client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  }
+  return _client;
+}
 
 // Verbatim copy of loam-agent-evals/summarize_prompt.py:SUMMARY_SYSTEM_PROMPT.
 // Do not diverge without landing the same change in Python — the offline eval
@@ -59,6 +74,15 @@ export async function generateSummary(
   predictions: BikePredictionSummary,
   model: string = DEFAULT_ADVISOR_MODEL,
 ): Promise<AdvisorSummaryResult | null> {
+  const client = getClient();
+  if (!client) {
+    // Key not set in this env — surface once at info level (not warn:
+    // deliberate config choice, not a bug) and return null so the widget
+    // renders nothing.
+    logger.info('[advisor] ANTHROPIC_API_KEY not set; skipping summary generation');
+    return null;
+  }
+
   const userContent =
     'Bike predictions payload:\n\n' + JSON.stringify(predictions, null, 2);
 
