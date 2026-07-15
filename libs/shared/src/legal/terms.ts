@@ -3,4 +3,4 @@
 // Both the API and web app must use this value to ensure consistency.
 // When updating terms, increment the version here and it will apply everywhere.
 
-export const CURRENT_TERMS_VERSION = '1.3.0';
+export const CURRENT_TERMS_VERSION = '1.4.0';
