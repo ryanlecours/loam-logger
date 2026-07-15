@@ -30,7 +30,16 @@ let _client: Anthropic | null = null;
 function getClient(): Anthropic | null {
   if (!process.env.ANTHROPIC_API_KEY) return null;
   if (!_client) {
-    _client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+    _client = new Anthropic({
+      apiKey: process.env.ANTHROPIC_API_KEY,
+      // Cap the wait at 8s. Haiku 4.5 typically returns in 500ms–2s;
+      // anything past that is Anthropic degradation, not a valid slow
+      // response worth waiting for. The SDK default is 10 MINUTES,
+      // which would stall the entire bike-detail GraphQL response.
+      // Timeout throws AnthropicError which the try/catch below turns
+      // into null → widget renders nothing → user moves on.
+      timeout: 8000,
+    });
   }
   return _client;
 }
