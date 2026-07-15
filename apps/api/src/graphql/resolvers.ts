@@ -5569,6 +5569,25 @@ export const resolvers = {
         return cached;
       }
 
+      // Rate-limit ONLY on cache miss. Cache hits are free (Redis read +
+      // JSON parse), so counting them punishes users who just refresh the
+      // screen. Misses are the ones that spend Anthropic dollars, and
+      // that's what the limit is here to bound (20 per 5 min per user
+      // ≈ ~$0.96/hour worst case at Haiku 4.5). A rider only produces
+      // misses by triggering the ~30 mutation sites that invalidate the
+      // cache — logging 20+ mutations in 5 minutes is abusive or scripted.
+      const rateLimit = await checkQueryRateLimit('advisorSummary', userId);
+      if (!rateLimit.allowed) {
+        // Don't throw — the field is nullable and the widget renders
+        // nothing on null. Silently degrading keeps the rest of the
+        // bike-detail query intact for a user hitting the wall.
+        logger.warn(
+          { userId, retryAfter: rateLimit.retryAfter },
+          '[advisor] rate limit exceeded, returning null'
+        );
+        return null;
+      }
+
       const result = await generateSummary(parent, model);
       if (!result) return null;
 
