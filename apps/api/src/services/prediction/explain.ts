@@ -1,4 +1,5 @@
 import type { ComponentType } from '@prisma/client';
+import { formatComponentType } from '@loam/shared';
 import type { PredictionStatus, WearDriver, RideMetrics } from './types';
 import { getComponentWeights } from './config';
 import { calculateWearDetailed, generateWearDrivers } from './wear';
@@ -23,7 +24,7 @@ export function generateExplanation(
   const wearResult = calculateWearDetailed(recentRides, weights);
   const drivers = generateWearDrivers(wearResult.breakdown);
 
-  const componentName = formatComponentName(componentType);
+  const componentName = formatComponentType(componentType);
   const topDriver = drivers[0];
   const secondDriver = drivers[1];
 
@@ -118,12 +119,3 @@ export function generateWearContext(
   return '';
 }
 
-/**
- * Format component type for display.
- */
-function formatComponentName(type: ComponentType): string {
-  return type
-    .toLowerCase()
-    .replace(/_/g, ' ')
-    .replace(/\b\w/g, (c) => c.toUpperCase());
-}
