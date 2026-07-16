@@ -150,9 +150,11 @@ export default function Dashboard() {
       bike.predictions
         ? {
             ...bike,
+            // Base BIKES query never selects advisorSummary, so it only ever
+            // comes from the advisor stage's map (absent until that resolves).
             predictions: {
               ...bike.predictions,
-              advisorSummary: advisorByBikeId.get(bike.id) ?? bike.predictions.advisorSummary ?? null,
+              advisorSummary: advisorByBikeId.get(bike.id) ?? null,
             },
           }
         : bike
