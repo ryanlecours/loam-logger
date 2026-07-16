@@ -2,11 +2,16 @@ import DataLoader from 'dataloader';
 import { prisma } from '../lib/prisma';
 import type { ServiceLog, RideWeather, SubscriptionTier, UserRole } from '@prisma/client';
 
-/** Minimal user shape needed for tier-access checks (isProTier etc.). */
+/**
+ * Minimal user shape for the per-request user loader. Covers tier-access
+ * checks (isProTier etc.) plus predictionMode, so Bike.predictions can share
+ * the same batched lookup instead of its own per-bike findUnique.
+ */
 export type TierUserRow = {
   subscriptionTier: SubscriptionTier;
   isFoundingRider: boolean;
   role: UserRole;
+  predictionMode: string | null;
 };
 
 /**
@@ -78,16 +83,23 @@ async function batchWeatherByRideId(
 }
 
 /**
- * Batch loads the tier fields for many users in one query.
+ * Batch loads per-user tier + prediction fields in one query.
  * Field resolvers that gate on tier (e.g. Ride.weather, fired once per ride
- * in a list) share one cached lookup per request instead of N user queries.
+ * in a list) and Bike.predictions (fired once per bike) share one cached
+ * lookup per request instead of N user queries.
  */
 async function batchTierUserById(
   userIds: readonly string[]
 ): Promise<(TierUserRow | null)[]> {
   const rows = await prisma.user.findMany({
     where: { id: { in: [...userIds] } },
-    select: { id: true, subscriptionTier: true, isFoundingRider: true, role: true },
+    select: {
+      id: true,
+      subscriptionTier: true,
+      isFoundingRider: true,
+      role: true,
+      predictionMode: true,
+    },
   });
   const byId = new Map(rows.map((r) => [r.id, r]));
   return userIds.map((id) => byId.get(id) ?? null);

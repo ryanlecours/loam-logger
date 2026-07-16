@@ -78,12 +78,24 @@ jest.mock('../../lib/prisma', () => ({
 }));
 
 jest.mock('../../lib/rate-limit', () => ({
+  checkRateLimit: jest.fn().mockResolvedValue({ allowed: true }),
   checkMutationRateLimit: jest.fn().mockResolvedValue({ allowed: true }),
+  checkQueryRateLimit: jest.fn().mockResolvedValue({ allowed: true }),
   checkAuthRateLimit: jest.fn().mockResolvedValue({ allowed: true }),
 }));
 
 jest.mock('../../services/prediction/cache', () => ({
   invalidateBikePrediction: jest.fn().mockResolvedValue(undefined),
+  getCachedAdvisorSummary: jest.fn().mockResolvedValue(null),
+  setCachedAdvisorSummary: jest.fn().mockResolvedValue(undefined),
+}));
+
+// Mock the advisor LLM caller. DEFAULT_ADVISOR_MODEL is re-exported with a
+// realistic value so the resolver's `process.env.LOAM_ADVISOR_MODEL ||
+// DEFAULT_ADVISOR_MODEL` fallback resolves to a string in tests.
+jest.mock('../../services/advisor/summarize', () => ({
+  generateSummary: jest.fn(),
+  DEFAULT_ADVISOR_MODEL: 'claude-haiku-4-5-20251001',
 }));
 
 // Mock the prediction engine entry point (dynamically imported by the
@@ -117,11 +129,19 @@ jest.mock('../../lib/posthog', () => ({
 import { resolvers } from '../resolvers';
 import { prisma } from '../../lib/prisma';
 import { checkMutationRateLimit } from '../../lib/rate-limit';
-import { invalidateBikePrediction } from '../../services/prediction/cache';
+import { invalidateBikePrediction, getCachedAdvisorSummary, setCachedAdvisorSummary } from '../../services/prediction/cache';
+import { checkQueryRateLimit } from '../../lib/rate-limit';
+import { generateSummary } from '../../services/advisor/summarize';
+import { captureServerEvent } from '../../lib/posthog';
 import { CURRENT_TERMS_VERSION } from '@loam/shared';
 
 const mockPrisma = prisma as jest.Mocked<typeof prisma>;
 const mockCheckMutationRateLimit = checkMutationRateLimit as jest.MockedFunction<typeof checkMutationRateLimit>;
+const mockGetCachedAdvisorSummary = getCachedAdvisorSummary as jest.MockedFunction<typeof getCachedAdvisorSummary>;
+const mockSetCachedAdvisorSummary = setCachedAdvisorSummary as jest.MockedFunction<typeof setCachedAdvisorSummary>;
+const mockCheckQueryRateLimit = checkQueryRateLimit as jest.MockedFunction<typeof checkQueryRateLimit>;
+const mockGenerateSummary = generateSummary as jest.MockedFunction<typeof generateSummary>;
+const mockCaptureServerEvent = captureServerEvent as jest.MockedFunction<typeof captureServerEvent>;
 
 // Helper to create mock GraphQL context
 const createMockContext = (
@@ -130,10 +150,16 @@ const createMockContext = (
     ip?: string | undefined;
     headers?: Record<string, string | string[]>;
   } = {},
-  tierUser: { subscriptionTier: string; isFoundingRider: boolean; role: string } | null = {
+  tierUser: {
+    subscriptionTier: string;
+    isFoundingRider: boolean;
+    role: string;
+    predictionMode?: string | null;
+  } | null = {
     subscriptionTier: 'PRO',
     isFoundingRider: false,
     role: 'FREE',
+    predictionMode: 'simple',
   }
 ) => ({
   user: userId ? { id: userId } : null,
@@ -4443,7 +4469,6 @@ describe('GraphQL Resolvers', () => {
 
   describe('prediction tier gating', () => {
     const resolver = resolvers.Bike.predictions;
-    const mockUserFindUnique = prisma.user.findUnique as jest.Mock;
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { generateBikePredictions } = require('../../services/prediction') as {
       generateBikePredictions: jest.Mock;
@@ -4484,10 +4509,10 @@ describe('GraphQL Resolvers', () => {
     });
 
     it('serves full predictions to Pro users', async () => {
-      mockUserFindUnique.mockResolvedValueOnce({
+      // Bike.predictions reads the user via the tierUserById loader.
+      const ctx = createMockContext('user-123', {}, {
         role: 'FREE', predictionMode: 'simple', subscriptionTier: 'PRO', isFoundingRider: false,
       });
-      const ctx = createMockContext('user-123');
 
       const result = await resolver({ id: 'bike-1', userId: 'user-123' } as never, {}, ctx as never);
 
@@ -4495,10 +4520,9 @@ describe('GraphQL Resolvers', () => {
     });
 
     it('nulls predictive fields but keeps raw usage for free users', async () => {
-      mockUserFindUnique.mockResolvedValueOnce({
+      const ctx = createMockContext('user-123', {}, {
         role: 'FREE', predictionMode: 'simple', subscriptionTier: 'FREE', isFoundingRider: false,
       });
-      const ctx = createMockContext('user-123');
 
       const result = await resolver({ id: 'bike-1', userId: 'user-123' } as never, {}, ctx as never);
 
@@ -4906,6 +4930,204 @@ describe('GraphQL Resolvers', () => {
       const result = await resolver({}, { bikeId: 'bike-1' }, ctx as never);
 
       expect(result.truncated).toBe(true);
+    });
+  });
+
+  describe('BikePredictionSummary.advisorSummary', () => {
+    const resolver = resolvers.BikePredictionSummary.advisorSummary;
+
+    // Minimal parent that clears the trivial-state / empty-components gates.
+    const makeParent = (
+      overrides: Partial<{ bikeId: string; overallStatus: string; components: unknown[] }> = {}
+    ) =>
+      ({
+        bikeId: 'bike-1',
+        overallStatus: 'DUE_SOON',
+        components: [{ componentId: 'comp-1' }],
+        ...overrides,
+      }) as never;
+
+    const cachedResult = {
+      text: 'Rear brake pads are due; plan a swap soon.',
+      modelVersion: 'claude-haiku-4-5-20251001',
+      generatedAt: '2026-07-15T00:00:00.000Z',
+      promptTokens: 120,
+      completionTokens: 40,
+      latencyMs: 900,
+    };
+
+    const freshResult = {
+      text: 'Front fork service is overdue by 45 hours.',
+      modelVersion: 'claude-haiku-4-5-20251001',
+      generatedAt: '2026-07-15T01:00:00.000Z',
+      promptTokens: 130,
+      completionTokens: 45,
+      latencyMs: 1100,
+    };
+
+    beforeEach(() => {
+      // Happy-path defaults; individual tests override as needed. (clearAllMocks
+      // wipes call history but not these implementations — re-set for clarity.)
+      mockGetCachedAdvisorSummary.mockResolvedValue(null);
+      mockSetCachedAdvisorSummary.mockResolvedValue(undefined);
+      mockCheckQueryRateLimit.mockResolvedValue({ allowed: true, retryAfter: 0 });
+      mockGenerateSummary.mockResolvedValue(freshResult);
+    });
+
+    it('returns null when the user is not authenticated', async () => {
+      const ctx = createMockContext(null);
+
+      const result = await resolver(makeParent(), {}, ctx as never);
+
+      expect(result).toBeNull();
+      expect(ctx.loaders.tierUserById.load).not.toHaveBeenCalled();
+      expect(mockGenerateSummary).not.toHaveBeenCalled();
+    });
+
+    it('returns null for a bike with no components without paying for a tier lookup', async () => {
+      const ctx = createMockContext('user-123');
+
+      const result = await resolver(makeParent({ components: [] }), {}, ctx as never);
+
+      expect(result).toBeNull();
+      expect(ctx.loaders.tierUserById.load).not.toHaveBeenCalled();
+      expect(mockGenerateSummary).not.toHaveBeenCalled();
+    });
+
+    it('skips the LLM for the trivial ALL_GOOD state before the tier check', async () => {
+      const ctx = createMockContext('user-123');
+
+      const result = await resolver(
+        makeParent({ overallStatus: 'ALL_GOOD' }),
+        {},
+        ctx as never
+      );
+
+      expect(result).toBeNull();
+      // Deliberately ordered before the tier gate — must not touch the loader.
+      expect(ctx.loaders.tierUserById.load).not.toHaveBeenCalled();
+      expect(mockGetCachedAdvisorSummary).not.toHaveBeenCalled();
+      expect(mockGenerateSummary).not.toHaveBeenCalled();
+    });
+
+    it('returns null for free-tier users and never calls the LLM', async () => {
+      const ctx = createMockContext('user-123', {}, {
+        subscriptionTier: 'FREE',
+        isFoundingRider: false,
+        role: 'FREE',
+      });
+
+      const result = await resolver(makeParent(), {}, ctx as never);
+
+      expect(result).toBeNull();
+      expect(ctx.loaders.tierUserById.load).toHaveBeenCalledWith('user-123');
+      expect(mockGetCachedAdvisorSummary).not.toHaveBeenCalled();
+      expect(mockGenerateSummary).not.toHaveBeenCalled();
+    });
+
+    it('returns the cached summary without rate-limiting or calling the LLM on a cache hit', async () => {
+      mockGetCachedAdvisorSummary.mockResolvedValue(cachedResult);
+      const ctx = createMockContext('user-123');
+
+      const result = await resolver(makeParent(), {}, ctx as never);
+
+      expect(result).toBe(cachedResult);
+      // Cache hits are free — must not consume the rate limit or the LLM.
+      expect(mockCheckQueryRateLimit).not.toHaveBeenCalled();
+      expect(mockGenerateSummary).not.toHaveBeenCalled();
+      expect(mockSetCachedAdvisorSummary).not.toHaveBeenCalled();
+      expect(mockCaptureServerEvent).toHaveBeenCalledWith(
+        'user-123',
+        'advisor_summary_generated',
+        expect.objectContaining({ cacheHit: true, model: cachedResult.modelVersion })
+      );
+    });
+
+    it('keys the cache lookup by user, bike, pro tier, and model', async () => {
+      const ctx = createMockContext('user-123');
+
+      await resolver(makeParent({ bikeId: 'bike-9' }), {}, ctx as never);
+
+      expect(mockGetCachedAdvisorSummary).toHaveBeenCalledWith({
+        userId: 'user-123',
+        bikeId: 'bike-9',
+        planTier: 'pro',
+        model: 'claude-haiku-4-5-20251001',
+      });
+    });
+
+    it('returns null on a cache miss when the rate limit is exceeded, without calling the LLM', async () => {
+      mockCheckQueryRateLimit.mockResolvedValue({ allowed: false, retryAfter: 42 });
+      const ctx = createMockContext('user-123');
+
+      const result = await resolver(makeParent(), {}, ctx as never);
+
+      expect(result).toBeNull();
+      expect(mockCheckQueryRateLimit).toHaveBeenCalledWith('advisorSummary', 'user-123');
+      expect(mockGenerateSummary).not.toHaveBeenCalled();
+      expect(mockSetCachedAdvisorSummary).not.toHaveBeenCalled();
+    });
+
+    it('emits a rate-limit analytics event on the silently-degrading path', async () => {
+      mockCheckQueryRateLimit.mockResolvedValue({ allowed: false, retryAfter: 42 });
+      const ctx = createMockContext('user-123');
+
+      await resolver(makeParent(), {}, ctx as never);
+
+      expect(mockCaptureServerEvent).toHaveBeenCalledWith(
+        'user-123',
+        'advisor_summary_rate_limited',
+        expect.objectContaining({ retryAfter: 42, model: 'claude-haiku-4-5-20251001' })
+      );
+      // Must not double-count as a generation.
+      expect(mockCaptureServerEvent).not.toHaveBeenCalledWith(
+        'user-123',
+        'advisor_summary_generated',
+        expect.anything()
+      );
+    });
+
+    it('returns null and does not cache when generation fails', async () => {
+      mockGenerateSummary.mockResolvedValue(null);
+      const ctx = createMockContext('user-123');
+
+      const result = await resolver(makeParent(), {}, ctx as never);
+
+      expect(result).toBeNull();
+      expect(mockGenerateSummary).toHaveBeenCalled();
+      expect(mockSetCachedAdvisorSummary).not.toHaveBeenCalled();
+    });
+
+    it('generates, caches, and meters a fresh summary on a cache miss', async () => {
+      const ctx = createMockContext('user-123');
+
+      const result = await resolver(makeParent(), {}, ctx as never);
+
+      expect(result).toBe(freshResult);
+      expect(mockGenerateSummary).toHaveBeenCalledWith(
+        expect.objectContaining({ bikeId: 'bike-1' }),
+        'claude-haiku-4-5-20251001'
+      );
+      expect(mockSetCachedAdvisorSummary).toHaveBeenCalledWith(
+        { userId: 'user-123', bikeId: 'bike-1', planTier: 'pro', model: 'claude-haiku-4-5-20251001' },
+        freshResult
+      );
+      expect(mockCaptureServerEvent).toHaveBeenCalledWith(
+        'user-123',
+        'advisor_summary_generated',
+        expect.objectContaining({ cacheHit: false, model: freshResult.modelVersion })
+      );
+    });
+
+    it('never sends summary text to analytics', async () => {
+      mockGetCachedAdvisorSummary.mockResolvedValue(cachedResult);
+      const ctx = createMockContext('user-123');
+
+      await resolver(makeParent(), {}, ctx as never);
+
+      const eventProps = mockCaptureServerEvent.mock.calls[0][2] as Record<string, unknown>;
+      expect(eventProps).not.toHaveProperty('text');
+      expect(JSON.stringify(eventProps)).not.toContain(cachedResult.text);
     });
   });
 });

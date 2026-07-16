@@ -3907,7 +3907,15 @@ export const resolvers = {
         }
       }
 
-      const updateData: Prisma.BikeNotificationPreferenceUpdateInput = {};
+      // Derived from Prisma's create input (plain scalars) rather than
+      // *UpdateInput, whose FieldUpdateOperationsInput wrappers aren't
+      // assignable to the create() spread below. Picking from the generated
+      // type keeps this in sync if the schema's field types change — a drift
+      // would surface as a type error here instead of silently passing.
+      const updateData: Pick<
+        Prisma.BikeNotificationPreferenceUncheckedCreateInput,
+        'serviceNotificationsEnabled' | 'serviceNotificationMode' | 'serviceNotificationThreshold'
+      > = {};
       if (input.serviceNotificationsEnabled !== undefined && input.serviceNotificationsEnabled !== null) {
         updateData.serviceNotificationsEnabled = input.serviceNotificationsEnabled;
       }
@@ -5471,10 +5479,10 @@ export const resolvers = {
       // Note: No rate limit here - this is a field resolver called per-bike
       // in normal query flow. Rate limiting would block users with multiple bikes.
 
-      const user = await prisma.user.findUnique({
-        where: { id: userId },
-        select: { role: true, predictionMode: true, subscriptionTier: true, isFoundingRider: true },
-      });
+      // Batched via the tierUserById DataLoader: a multi-bike query (and the
+      // separate advisorSummary stage) all load the same userId key, so this
+      // collapses to a single user lookup per request instead of one per bike.
+      const user = await ctx.loaders.tierUserById.load(userId);
 
       if (!user) return null;
 
@@ -5591,6 +5599,15 @@ export const resolvers = {
           { userId, retryAfter: rateLimit.retryAfter },
           '[advisor] rate limit exceeded, returning null'
         );
+        // Instrument the silently-degrading path so the rate limit is
+        // observable in analytics. A single multi-bike dashboard load can
+        // burn several of the 20-per-5-min budget at once, so riders can
+        // hit this in normal use — this is the signal to revisit the limit
+        // (and the deferred thundering-herd coalescing) with real data.
+        captureServerEvent(userId, 'advisor_summary_rate_limited', {
+          model,
+          retryAfter: rateLimit.retryAfter,
+        });
         return null;
       }
 

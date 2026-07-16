@@ -161,3 +161,32 @@ export const BIKES = gql`
     }
   }
 `;
+
+// Pro-only LLM maintenance summary, fetched as a SEPARATE third stage after
+// BIKES so a slow/timed-out Anthropic call (up to the 8s client timeout) can
+// never stall the core bike + prediction data on the dashboard's critical
+// render path. The dashboard fires this once BIKES has resolved; the priority
+// hero and switcher render immediately from BIKES and the advisor cards fill
+// in when this arrives.
+//
+// This selects the same Bike.predictions field as BIKES but only advisorSummary.
+// That's safe because BikePredictionSummary is normalized by bikeId (see the
+// typePolicy in lib/apolloClient.ts): this partial write MERGES into the entity
+// BIKES cached rather than clobbering its overallStatus/components. Dashboard
+// merges the summary back into each bike client-side (see Dashboard.tsx), since
+// the BIKES query result itself doesn't select advisorSummary.
+export const BIKES_ADVISOR = gql`
+  query BikesAdvisor {
+    bikes {
+      id
+      predictions {
+        bikeId
+        advisorSummary {
+          text
+          generatedAt
+          modelVersion
+        }
+      }
+    }
+  }
+`;

@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState, useMemo, useRef } from 'react';
 import { useQuery } from '@apollo/client';
 import { useNavigate } from 'react-router-dom';
 import { RIDES } from '../graphql/rides';
-import { BIKES, BIKES_LIGHT } from '../graphql/bikes';
+import { BIKES, BIKES_LIGHT, BIKES_ADVISOR } from '../graphql/bikes';
 import { UNMAPPED_STRAVA_GEARS } from '../graphql/stravaGear';
 import { useImportNotificationState } from '../graphql/importSession';
 import { useCalibrationState } from '../graphql/calibration';
@@ -18,6 +18,8 @@ import { useCurrentUser } from '../hooks/useCurrentUser';
 
 import { useConnectedAccounts } from '../hooks/useConnectedAccounts';
 import { usePriorityBike, type BikeWithPredictions } from '../hooks/usePriorityBike';
+import type { AdvisorSummary } from '../types/prediction';
+import { buildAdvisorSummaryMap, mergeAdvisorSummaries } from '../utils/advisorSummary';
 import { ChevronDown } from 'lucide-react';
 import {
   PriorityBikeHero,
@@ -90,13 +92,43 @@ export default function Dashboard() {
     skip: !bikesLightData, // Only fetch once we have the light data
   });
 
+  // Finally load the Pro-only LLM advisor summaries as a separate stage, once
+  // core predictions are in. Kept off the BIKES query so a slow/timed-out
+  // Anthropic call can't stall the priority hero + switcher render. Merged
+  // into the bikes below (aliased field — see graphql/bikes.ts).
+  const { data: bikesAdvisorData, refetch: refetchBikesAdvisor } = useQuery<{
+    bikes: Array<{
+      id: string;
+      predictions: { bikeId: string; advisorSummary: AdvisorSummary | null } | null;
+    }>;
+  }>(BIKES_ADVISOR, {
+    fetchPolicy: 'cache-and-network',
+    skip: !bikesFullData, // Only after core predictions have resolved
+  });
+
   // Use full data if available, otherwise fall back to light data
   const bikesData = bikesFullData || bikesLightData;
   const bikesLoading = bikesLightLoading;
   const refetchBikes = useCallback(async () => {
-    await refetchBikesLight();
-    await refetchBikesFull();
-  }, [refetchBikesLight, refetchBikesFull]);
+    // Run in parallel: the light -> full -> advisor staging (via `skip`) only
+    // applies to the initial mount. At refetch time the live queries are
+    // independent, so awaiting them serially would stack up to two extra
+    // round-trips (incl. the up-to-8s advisor stage) onto every action that
+    // triggers a refetch.
+    //
+    // Only refetch a query that has actually started: full and advisor are
+    // gated by `skip` (!bikesLightData / !bikesFullData), and refetch() on a
+    // never-started skipped query is unreliable across Apollo versions. This
+    // matters because refetchBikes can fire on mount (paired-component
+    // migration) before the later stages have run — the skip chain will start
+    // them naturally once their upstream data lands, so skipping them here
+    // loses nothing.
+    await Promise.all([
+      refetchBikesLight(),
+      bikesLightData ? refetchBikesFull() : Promise.resolve(),
+      bikesFullData ? refetchBikesAdvisor() : Promise.resolve(),
+    ]);
+  }, [refetchBikesLight, refetchBikesFull, refetchBikesAdvisor, bikesLightData, bikesFullData]);
 
   const { data: unmappedData } = useQuery(UNMAPPED_STRAVA_GEARS, {
     pollInterval: 60000,
@@ -114,7 +146,21 @@ export default function Dashboard() {
 
   // Derived data
   const rides = ridesData?.rides ?? [];
-  const bikes = bikesData?.bikes ?? [];
+
+  // Merge the separately-fetched advisor summaries back into each bike's
+  // predictions so the hero/switcher can read predictions.advisorSummary as
+  // usual. Until the advisor stage resolves, advisorSummary is simply absent
+  // and the widget renders nothing. (Logic extracted + unit-tested in
+  // utils/advisorSummary.ts.)
+  const advisorByBikeId = useMemo(
+    () => buildAdvisorSummaryMap(bikesAdvisorData?.bikes),
+    [bikesAdvisorData]
+  );
+
+  const bikes = useMemo<BikeWithPredictions[]>(
+    () => mergeAdvisorSummaries(bikesData?.bikes ?? [], advisorByBikeId),
+    [bikesData, advisorByBikeId]
+  );
 
   // Priority bike selection
   const {

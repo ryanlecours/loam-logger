@@ -51,10 +51,24 @@ const httpLink = new HttpLink({
   credentials: 'include',
 });
 
+// Exported so the cache-merge invariant can be exercised in a test with the
+// real config (see apolloClient.cache.test.ts).
+export const typePolicies = {
+  // Normalize predictions by bikeId. The dashboard fetches advisorSummary in a
+  // SEPARATE stage (BIKES_ADVISOR) from the core predictions (BIKES); without a
+  // stable cache key those two partial writes to the same Bike.predictions
+  // field would clobber each other (the advisor write, arriving second, would
+  // wipe overallStatus/components). Keying by bikeId makes them merge into one
+  // entity instead. Explicit keyFields also mean an unrelated future `id` field
+  // on the type won't silently change normalization. See graphql/bikes.ts and
+  // the note in apps/api/src/graphql/schema.ts on BikePredictionSummary.
+  BikePredictionSummary: { keyFields: ['bikeId'] as const },
+};
+
 const client = new ApolloClient({
   link: from([errorLink, sentryBreadcrumbLink, authLink, httpLink]),
   // Disable canonizeResults to avoid frozen-object and object-identity issues in React strict mode
-  cache: new InMemoryCache({ canonizeResults: false }),
+  cache: new InMemoryCache({ canonizeResults: false, typePolicies }),
 });
 
 export default client;

@@ -106,6 +106,9 @@ export const MUTATION_RATE_LIMITS = {
   updateAnalyticsOptOut: { windowSeconds: 3600, maxRequests: 10 },
   /** updateBikeNotificationPreference: max 20 requests per minute per user */
   updateBikeNotificationPreference: { windowSeconds: 60, maxRequests: 20 },
+  /** markTrailStewardshipNoticeSeen: max 20 requests per minute per user
+   *  (one-shot "dismiss notice" write; cap just bounds abuse) */
+  markTrailStewardshipNoticeSeen: { windowSeconds: 60, maxRequests: 20 },
   /** backfillWeatherForMyRides: max 3 requests per 5 minutes. Each call
    *  enqueues up to BATCH_LIMIT (500) jobs against Open-Meteo, so the limit
    *  exists to stop a runaway client loop while still allowing legitimate

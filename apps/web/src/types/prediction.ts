@@ -51,6 +51,15 @@ export interface ComponentPrediction {
   drivers: WearDriver[] | null;
 }
 
+// Pro-only LLM maintenance summary. Served by the API only for Pro users on
+// non-trivial (non-ALL_GOOD) bikes with components; null in every other case
+// (free tier, empty bike, trivial state, rate-limited, generation error).
+export interface AdvisorSummary {
+  text: string;
+  generatedAt: string;
+  modelVersion: string;
+}
+
 export interface BikePredictionSummary {
   bikeId: string;
   bikeName: string;
@@ -60,6 +69,11 @@ export interface BikePredictionSummary {
   dueNowCount: number | null;
   dueSoonCount: number | null;
   generatedAt: string;
+  // Optional: only the dashboard BIKES query selects it (see graphql/bikes.ts).
+  // Other prediction queries (Gear list, bike detail) deliberately omit it to
+  // avoid triggering LLM calls for a value they don't render, so it's absent
+  // (undefined) there rather than null.
+  advisorSummary?: AdvisorSummary | null;
 }
 
 // Status severity ordering for sorting (higher = more urgent)
