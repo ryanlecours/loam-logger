@@ -26,6 +26,10 @@ export function BikeSwitcherTile({ bike, isSelected, onClick }: BikeSwitcherTile
   const statusClass = status ? STATUS_CLASSES[status] : null;
   const bikeName = getBikeName(bike);
   const priorityComp = bike.predictions?.priorityComponent;
+  // Pro-only AI summary. Present only for non-trivial states, so it lines up
+  // with when the hours row shows. Clamped to one line on the tile; full text
+  // lives on the hero card. Falls back to the bike name tooltip when absent.
+  const advisorText = bike.predictions?.advisorSummary?.text ?? null;
 
   return (
     <button
@@ -47,6 +51,11 @@ export function BikeSwitcherTile({ bike, isSelected, onClick }: BikeSwitcherTile
           {hoursDisplay === 'total' || priorityComp.hoursRemaining == null
             ? `${(priorityComp.hoursSinceService ?? 0).toFixed(1)}/${priorityComp.serviceIntervalHours}h`
             : `${priorityComp.hoursRemaining.toFixed(1)} hrs`}
+        </span>
+      )}
+      {advisorText && (
+        <span className="bike-tile-advisor" title={advisorText}>
+          {advisorText}
         </span>
       )}
     </button>

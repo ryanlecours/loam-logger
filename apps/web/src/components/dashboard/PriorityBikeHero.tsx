@@ -7,6 +7,7 @@ import { useBikeRides, type BikeRide } from '../../hooks/useBikeRides';
 import { getBikeName } from '../../utils/formatters';
 import { StatusPill } from './StatusPill';
 import { ComponentHealthPanel } from './ComponentHealthPanel';
+import { AdvisorSummaryCard } from './AdvisorSummaryCard';
 import { CompactRideRow } from './CompactRideRow';
 import { Button } from '../ui/Button';
 
@@ -137,6 +138,9 @@ export function PriorityBikeHero({
           >
             {/* Component Health Panel */}
             <ComponentHealthPanel components={components} onLogService={onLogService} />
+
+            {/* AI maintenance summary (Pro-only; renders nothing when null) */}
+            <AdvisorSummaryCard summary={predictions?.advisorSummary ?? null} />
 
             {/* Actions */}
             <div className="priority-hero-actions">
