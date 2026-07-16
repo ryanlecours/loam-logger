@@ -5597,6 +5597,15 @@ export const resolvers = {
           { userId, retryAfter: rateLimit.retryAfter },
           '[advisor] rate limit exceeded, returning null'
         );
+        // Instrument the silently-degrading path so the rate limit is
+        // observable in analytics. A single multi-bike dashboard load can
+        // burn several of the 20-per-5-min budget at once, so riders can
+        // hit this in normal use — this is the signal to revisit the limit
+        // (and the deferred thundering-herd coalescing) with real data.
+        captureServerEvent(userId, 'advisor_summary_rate_limited', {
+          model,
+          retryAfter: rateLimit.retryAfter,
+        });
         return null;
       }
 

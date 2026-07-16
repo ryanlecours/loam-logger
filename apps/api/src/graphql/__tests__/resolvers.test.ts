@@ -5064,6 +5064,25 @@ describe('GraphQL Resolvers', () => {
       expect(mockSetCachedAdvisorSummary).not.toHaveBeenCalled();
     });
 
+    it('emits a rate-limit analytics event on the silently-degrading path', async () => {
+      mockCheckQueryRateLimit.mockResolvedValue({ allowed: false, retryAfter: 42 });
+      const ctx = createMockContext('user-123');
+
+      await resolver(makeParent(), {}, ctx as never);
+
+      expect(mockCaptureServerEvent).toHaveBeenCalledWith(
+        'user-123',
+        'advisor_summary_rate_limited',
+        expect.objectContaining({ retryAfter: 42, model: 'claude-haiku-4-5-20251001' })
+      );
+      // Must not double-count as a generation.
+      expect(mockCaptureServerEvent).not.toHaveBeenCalledWith(
+        'user-123',
+        'advisor_summary_generated',
+        expect.anything()
+      );
+    });
+
     it('returns null and does not cache when generation fails', async () => {
       mockGenerateSummary.mockResolvedValue(null);
       const ctx = createMockContext('user-123');
