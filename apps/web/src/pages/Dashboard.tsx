@@ -19,6 +19,7 @@ import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useConnectedAccounts } from '../hooks/useConnectedAccounts';
 import { usePriorityBike, type BikeWithPredictions } from '../hooks/usePriorityBike';
 import type { AdvisorSummary } from '../types/prediction';
+import { buildAdvisorSummaryMap, mergeAdvisorSummaries } from '../utils/advisorSummary';
 import { ChevronDown } from 'lucide-react';
 import {
   PriorityBikeHero,
@@ -149,32 +150,17 @@ export default function Dashboard() {
   // Merge the separately-fetched advisor summaries back into each bike's
   // predictions so the hero/switcher can read predictions.advisorSummary as
   // usual. Until the advisor stage resolves, advisorSummary is simply absent
-  // and the widget renders nothing.
-  const advisorByBikeId = useMemo(() => {
-    const map = new Map<string, AdvisorSummary | null>();
-    for (const b of bikesAdvisorData?.bikes ?? []) {
-      if (b.advisorPredictions) map.set(b.id, b.advisorPredictions.advisorSummary ?? null);
-    }
-    return map;
-  }, [bikesAdvisorData]);
+  // and the widget renders nothing. (Logic extracted + unit-tested in
+  // utils/advisorSummary.ts.)
+  const advisorByBikeId = useMemo(
+    () => buildAdvisorSummaryMap(bikesAdvisorData?.bikes),
+    [bikesAdvisorData]
+  );
 
-  const bikes = useMemo<BikeWithPredictions[]>(() => {
-    const base = bikesData?.bikes ?? [];
-    if (advisorByBikeId.size === 0) return base;
-    return base.map((bike) =>
-      bike.predictions
-        ? {
-            ...bike,
-            // Base BIKES query never selects advisorSummary, so it only ever
-            // comes from the advisor stage's map (absent until that resolves).
-            predictions: {
-              ...bike.predictions,
-              advisorSummary: advisorByBikeId.get(bike.id) ?? null,
-            },
-          }
-        : bike
-    );
-  }, [bikesData, advisorByBikeId]);
+  const bikes = useMemo<BikeWithPredictions[]>(
+    () => mergeAdvisorSummaries(bikesData?.bikes ?? [], advisorByBikeId),
+    [bikesData, advisorByBikeId]
+  );
 
   // Priority bike selection
   const {
