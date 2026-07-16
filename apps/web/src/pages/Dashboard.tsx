@@ -110,16 +110,24 @@ export default function Dashboard() {
   const bikesLoading = bikesLightLoading;
   const refetchBikes = useCallback(async () => {
     // Run in parallel: the light -> full -> advisor staging (via `skip`) only
-    // applies to the initial mount. At refetch time all three queries are
-    // already live and independent, so awaiting them serially would stack up
-    // to two extra round-trips (incl. the up-to-8s advisor stage) onto every
-    // action that triggers a refetch.
+    // applies to the initial mount. At refetch time the live queries are
+    // independent, so awaiting them serially would stack up to two extra
+    // round-trips (incl. the up-to-8s advisor stage) onto every action that
+    // triggers a refetch.
+    //
+    // Only refetch a query that has actually started: full and advisor are
+    // gated by `skip` (!bikesLightData / !bikesFullData), and refetch() on a
+    // never-started skipped query is unreliable across Apollo versions. This
+    // matters because refetchBikes can fire on mount (paired-component
+    // migration) before the later stages have run — the skip chain will start
+    // them naturally once their upstream data lands, so skipping them here
+    // loses nothing.
     await Promise.all([
       refetchBikesLight(),
-      refetchBikesFull(),
-      refetchBikesAdvisor(),
+      bikesLightData ? refetchBikesFull() : Promise.resolve(),
+      bikesFullData ? refetchBikesAdvisor() : Promise.resolve(),
     ]);
-  }, [refetchBikesLight, refetchBikesFull, refetchBikesAdvisor]);
+  }, [refetchBikesLight, refetchBikesFull, refetchBikesAdvisor, bikesLightData, bikesFullData]);
 
   const { data: unmappedData } = useQuery(UNMAPPED_STRAVA_GEARS, {
     pollInterval: 60000,
