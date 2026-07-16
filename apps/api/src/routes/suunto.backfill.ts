@@ -182,7 +182,9 @@ r.get<Empty, void, Empty, { year?: string }>(
         url.searchParams.set('limit', String(PAGE_LIMIT));
         url.searchParams.set('offset', String(offset));
 
-        let apiRes: Response;
+        // Global fetch Response, not Express's Response (which is imported in
+        // this route file) — suuntoFetch returns the WHATWG fetch result.
+        let apiRes: globalThis.Response;
         try {
           apiRes = await suuntoFetch(url.toString(), accessToken);
         } catch (err) {

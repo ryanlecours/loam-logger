@@ -3907,7 +3907,13 @@ export const resolvers = {
         }
       }
 
-      const updateData: Prisma.BikeNotificationPreferenceUpdateInput = {};
+      // Plain optional scalars (not Prisma.*UpdateInput, whose FieldUpdate-
+      // OperationsInput wrappers aren't assignable to the create input below).
+      const updateData: {
+        serviceNotificationsEnabled?: boolean;
+        serviceNotificationMode?: ServiceNotificationMode;
+        serviceNotificationThreshold?: number;
+      } = {};
       if (input.serviceNotificationsEnabled !== undefined && input.serviceNotificationsEnabled !== null) {
         updateData.serviceNotificationsEnabled = input.serviceNotificationsEnabled;
       }
