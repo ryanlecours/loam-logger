@@ -5479,10 +5479,10 @@ export const resolvers = {
       // Note: No rate limit here - this is a field resolver called per-bike
       // in normal query flow. Rate limiting would block users with multiple bikes.
 
-      const user = await prisma.user.findUnique({
-        where: { id: userId },
-        select: { role: true, predictionMode: true, subscriptionTier: true, isFoundingRider: true },
-      });
+      // Batched via the tierUserById DataLoader: a multi-bike query (and the
+      // separate advisorSummary stage) all load the same userId key, so this
+      // collapses to a single user lookup per request instead of one per bike.
+      const user = await ctx.loaders.tierUserById.load(userId);
 
       if (!user) return null;
 

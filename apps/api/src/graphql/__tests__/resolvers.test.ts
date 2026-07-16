@@ -150,10 +150,16 @@ const createMockContext = (
     ip?: string | undefined;
     headers?: Record<string, string | string[]>;
   } = {},
-  tierUser: { subscriptionTier: string; isFoundingRider: boolean; role: string } | null = {
+  tierUser: {
+    subscriptionTier: string;
+    isFoundingRider: boolean;
+    role: string;
+    predictionMode?: string | null;
+  } | null = {
     subscriptionTier: 'PRO',
     isFoundingRider: false,
     role: 'FREE',
+    predictionMode: 'simple',
   }
 ) => ({
   user: userId ? { id: userId } : null,
@@ -4463,7 +4469,6 @@ describe('GraphQL Resolvers', () => {
 
   describe('prediction tier gating', () => {
     const resolver = resolvers.Bike.predictions;
-    const mockUserFindUnique = prisma.user.findUnique as jest.Mock;
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { generateBikePredictions } = require('../../services/prediction') as {
       generateBikePredictions: jest.Mock;
@@ -4504,10 +4509,10 @@ describe('GraphQL Resolvers', () => {
     });
 
     it('serves full predictions to Pro users', async () => {
-      mockUserFindUnique.mockResolvedValueOnce({
+      // Bike.predictions reads the user via the tierUserById loader.
+      const ctx = createMockContext('user-123', {}, {
         role: 'FREE', predictionMode: 'simple', subscriptionTier: 'PRO', isFoundingRider: false,
       });
-      const ctx = createMockContext('user-123');
 
       const result = await resolver({ id: 'bike-1', userId: 'user-123' } as never, {}, ctx as never);
 
@@ -4515,10 +4520,9 @@ describe('GraphQL Resolvers', () => {
     });
 
     it('nulls predictive fields but keeps raw usage for free users', async () => {
-      mockUserFindUnique.mockResolvedValueOnce({
+      const ctx = createMockContext('user-123', {}, {
         role: 'FREE', predictionMode: 'simple', subscriptionTier: 'FREE', isFoundingRider: false,
       });
-      const ctx = createMockContext('user-123');
 
       const result = await resolver({ id: 'bike-1', userId: 'user-123' } as never, {}, ctx as never);
 
