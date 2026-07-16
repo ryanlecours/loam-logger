@@ -1141,7 +1141,6 @@ export const typeDefs = gql`
 
   type Query {
     me: User
-    user(id: ID!): User
     ride(id: ID!): Ride
     rides(take: Int = 1000, after: ID, filter: RidesFilterInput): [Ride!]!
     rideTypes: [RideType!]!

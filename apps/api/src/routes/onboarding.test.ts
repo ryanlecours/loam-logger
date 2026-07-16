@@ -93,6 +93,9 @@ describe('POST /onboarding/complete', () => {
         bikeYear: 2024,
         bikeTravelFork: 160,
         bikeTravelShock: 150,
+        // Age is required by the onboarding handler (16+ gate); include a
+        // valid default so bike/component-focused tests reach the happy path.
+        age: 30,
       },
     };
 
@@ -268,7 +271,7 @@ describe('POST /onboarding/complete', () => {
       });
     });
 
-    it('should set age and location to null when not provided', async () => {
+    it('should return 400 when age is not provided (age is required)', async () => {
       mockReq.body = {
         bikeMake: 'Santa Cruz',
         bikeModel: 'Bronson',
@@ -276,10 +279,27 @@ describe('POST /onboarding/complete', () => {
 
       await invokeHandler(handler, mockReq as Request, mockRes as Response);
 
+      expect(mockRes.status).toHaveBeenCalledWith(400);
+      expect(jsonResponse).toMatchObject({
+        error: 'Please enter a valid age',
+        code: 'BAD_REQUEST',
+      });
+      expect(mockUserUpdateMany).not.toHaveBeenCalled();
+    });
+
+    it('should set location to null when not provided (age given)', async () => {
+      mockReq.body = {
+        bikeMake: 'Santa Cruz',
+        bikeModel: 'Bronson',
+        age: 30,
+      };
+
+      await invokeHandler(handler, mockReq as Request, mockRes as Response);
+
       expect(mockUserUpdateMany).toHaveBeenCalledWith({
         where: { id: 'user-123', onboardingCompleted: false },
         data: {
-          age: null,
+          age: 30,
           location: null,
           onboardingCompleted: true,
         },
@@ -292,6 +312,7 @@ describe('POST /onboarding/complete', () => {
       mockReq.body = {
         bikeMake: 'Santa Cruz',
         bikeModel: 'Bronson',
+        age: 30,
         bikeYear: 2024,
         bikeTravelFork: 160,
         bikeTravelShock: 150,
@@ -315,6 +336,7 @@ describe('POST /onboarding/complete', () => {
       mockReq.body = {
         bikeMake: 'Santa Cruz',
         bikeModel: 'Bronson',
+        age: 30,
         spokesId: 'spokes-123',
         spokesUrl: 'https://99spokes.com/bike',
         thumbnailUrl: 'https://example.com/thumb.jpg',
@@ -351,6 +373,7 @@ describe('POST /onboarding/complete', () => {
       mockReq.body = {
         bikeMake: 'Specialized',
         bikeModel: 'Levo',
+        age: 30,
         isEbike: true,
         motorMaker: 'Specialized',
         motorModel: '2.2',
@@ -377,6 +400,7 @@ describe('POST /onboarding/complete', () => {
       mockReq.body = {
         bikeMake: 'Santa Cruz',
         bikeModel: 'Bronson',
+        age: 30,
         isEbike: false,
         motorMaker: 'Bosch', // Should be ignored
         motorPowerW: 250, // Should be ignored
@@ -402,6 +426,7 @@ describe('POST /onboarding/complete', () => {
       mockReq.body = {
         bikeMake: 'Santa Cruz',
         bikeModel: 'Bronson',
+        age: 30,
         bikeTravelFork: 160,
         bikeTravelShock: 150,
       };
@@ -427,6 +452,7 @@ describe('POST /onboarding/complete', () => {
       mockReq.body = {
         bikeMake: 'Santa Cruz',
         bikeModel: 'Chameleon',
+        age: 30,
         bikeTravelFork: 130,
         bikeTravelShock: 0, // Hardtail
       };
@@ -450,6 +476,7 @@ describe('POST /onboarding/complete', () => {
       mockReq.body = {
         bikeMake: 'Surly',
         bikeModel: 'Karate Monkey',
+        age: 30,
         bikeTravelFork: 0,
         bikeTravelShock: 0,
       };
@@ -473,6 +500,7 @@ describe('POST /onboarding/complete', () => {
       mockReq.body = {
         bikeMake: 'Santa Cruz',
         bikeModel: 'Bronson',
+        age: 30,
         acquisitionCondition: 'USED',
       };
 
@@ -490,6 +518,7 @@ describe('POST /onboarding/complete', () => {
       mockReq.body = {
         bikeMake: 'Santa Cruz',
         bikeModel: 'Bronson',
+        age: 30,
       };
 
       await invokeHandler(handler, mockReq as Request, mockRes as Response);
@@ -511,6 +540,7 @@ describe('POST /onboarding/complete', () => {
       mockReq.body = {
         bikeMake: 'Santa Cruz',
         bikeModel: 'Bronson',
+        age: 30,
         spokesComponents,
       };
 
@@ -534,6 +564,7 @@ describe('POST /onboarding/complete', () => {
       mockReq.body = {
         bikeMake: 'Santa Cruz',
         bikeModel: 'Bronson',
+        age: 30,
         components,
       };
 
