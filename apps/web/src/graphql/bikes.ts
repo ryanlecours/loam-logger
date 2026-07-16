@@ -157,12 +157,30 @@ export const BIKES = gql`
             label
           }
         }
-        # Pro-only LLM maintenance summary. Requested ONLY here (the dashboard
-        # query that feeds the priority hero + bike switcher, the only surfaces
-        # that render it) — deliberately NOT in the shared PREDICTION_FIELDS
-        # fragment, so the Gear-page list query doesn't trigger per-bike LLM
-        # calls it never displays. API serves null for free/empty/ALL_GOOD/
-        # rate-limited/error, and the widget renders nothing on null.
+      }
+    }
+  }
+`;
+
+// Pro-only LLM maintenance summary, fetched as a SEPARATE third stage after
+// BIKES so a slow/timed-out Anthropic call (up to the 8s client timeout) can
+// never stall the core bike + prediction data on the dashboard's critical
+// render path. The dashboard fires this once BIKES has resolved; the priority
+// hero and switcher render immediately from BIKES and the advisor cards fill
+// in when this arrives.
+//
+// `predictions` is aliased to `advisorPredictions` on purpose: BikePrediction-
+// Summary isn't normalized in the cache (no id / keyFields), so writing a
+// partial predictions object under the real `Bike.predictions` field would
+// clobber the full predictions the BIKES query already cached. The alias
+// routes this write to a separate cache field instead. Dashboard merges the
+// summary back into each bike client-side (see Dashboard.tsx).
+export const BIKES_ADVISOR = gql`
+  query BikesAdvisor {
+    bikes {
+      id
+      advisorPredictions: predictions {
+        bikeId
         advisorSummary {
           text
           generatedAt
