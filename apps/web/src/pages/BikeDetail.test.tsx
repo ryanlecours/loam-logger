@@ -208,7 +208,6 @@ describe('BikeDetail', () => {
       dueNowCount: 0,
       dueSoonCount: 1,
       generatedAt: new Date().toISOString(),
-      advisorSummary: null,
     },
     ...overrides,
   });
@@ -489,7 +488,6 @@ describe('BikeDetail', () => {
               dueNowCount: 1,
               dueSoonCount: 1,
               generatedAt: new Date().toISOString(),
-              advisorSummary: null,
             },
           })],
         },

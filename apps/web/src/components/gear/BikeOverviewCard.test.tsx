@@ -112,7 +112,6 @@ describe('BikeOverviewCard', () => {
       dueNowCount: 0,
       dueSoonCount: 1,
       generatedAt: new Date().toISOString(),
-      advisorSummary: null,
     },
     ...overrides,
   });
@@ -295,7 +294,6 @@ describe('BikeOverviewCard', () => {
               dueNowCount: 1,
               dueSoonCount: 1,
               generatedAt: new Date().toISOString(),
-              advisorSummary: null,
             },
           })}
         />
@@ -327,7 +325,6 @@ describe('BikeOverviewCard', () => {
               dueNowCount: 0,
               dueSoonCount: 1,
               generatedAt: new Date().toISOString(),
-              advisorSummary: null,
             },
           })}
         />
@@ -540,7 +537,6 @@ describe('BikeOverviewCard', () => {
               dueNowCount: 0,
               dueSoonCount: 1,
               generatedAt: new Date().toISOString(),
-              advisorSummary: null,
             },
           })}
         />
@@ -567,7 +563,6 @@ describe('BikeOverviewCard', () => {
               dueNowCount: 0,
               dueSoonCount: 0,
               generatedAt: new Date().toISOString(),
-              advisorSummary: null,
             },
           })}
         />
@@ -595,7 +590,6 @@ describe('BikeOverviewCard', () => {
               dueNowCount: 1,
               dueSoonCount: 0,
               generatedAt: new Date().toISOString(),
-              advisorSummary: null,
             },
           })}
         />

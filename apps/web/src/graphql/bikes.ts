@@ -157,6 +157,17 @@ export const BIKES = gql`
             label
           }
         }
+        # Pro-only LLM maintenance summary. Requested ONLY here (the dashboard
+        # query that feeds the priority hero + bike switcher, the only surfaces
+        # that render it) — deliberately NOT in the shared PREDICTION_FIELDS
+        # fragment, so the Gear-page list query doesn't trigger per-bike LLM
+        # calls it never displays. API serves null for free/empty/ALL_GOOD/
+        # rate-limited/error, and the widget renders nothing on null.
+        advisorSummary {
+          text
+          generatedAt
+          modelVersion
+        }
       }
     }
   }

@@ -69,14 +69,6 @@ export const PREDICTION_FIELDS = gql`
       hoursSinceService
       ridesSinceService
     }
-    # Pro-only LLM maintenance summary. The API serves null for free users,
-    # empty bikes, ALL_GOOD (trivial) states, and on rate-limit/error — so
-    # the widget simply renders nothing whenever this is null.
-    advisorSummary {
-      text
-      generatedAt
-      modelVersion
-    }
   }
 `;
 

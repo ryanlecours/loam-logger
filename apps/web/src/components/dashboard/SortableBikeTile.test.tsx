@@ -60,7 +60,6 @@ const createPrediction = (
   dueNowCount: 0,
   dueSoonCount: 0,
   generatedAt: new Date().toISOString(),
-  advisorSummary: null,
 });
 
 describe('SortableBikeTile', () => {

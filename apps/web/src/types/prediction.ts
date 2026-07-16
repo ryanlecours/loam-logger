@@ -69,7 +69,11 @@ export interface BikePredictionSummary {
   dueNowCount: number | null;
   dueSoonCount: number | null;
   generatedAt: string;
-  advisorSummary: AdvisorSummary | null;
+  // Optional: only the dashboard BIKES query selects it (see graphql/bikes.ts).
+  // Other prediction queries (Gear list, bike detail) deliberately omit it to
+  // avoid triggering LLM calls for a value they don't render, so it's absent
+  // (undefined) there rather than null.
+  advisorSummary?: AdvisorSummary | null;
 }
 
 // Status severity ordering for sorting (higher = more urgent)
