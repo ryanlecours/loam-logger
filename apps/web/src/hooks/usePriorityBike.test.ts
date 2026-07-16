@@ -236,6 +236,7 @@ describe('getTopDueComponents', () => {
     dueNowCount: 0,
     dueSoonCount: 0,
     generatedAt: new Date().toISOString(),
+    advisorSummary: null,
     ...overrides,
   });
 
