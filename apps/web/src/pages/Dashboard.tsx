@@ -109,9 +109,16 @@ export default function Dashboard() {
   const bikesData = bikesFullData || bikesLightData;
   const bikesLoading = bikesLightLoading;
   const refetchBikes = useCallback(async () => {
-    await refetchBikesLight();
-    await refetchBikesFull();
-    await refetchBikesAdvisor();
+    // Run in parallel: the light -> full -> advisor staging (via `skip`) only
+    // applies to the initial mount. At refetch time all three queries are
+    // already live and independent, so awaiting them serially would stack up
+    // to two extra round-trips (incl. the up-to-8s advisor stage) onto every
+    // action that triggers a refetch.
+    await Promise.all([
+      refetchBikesLight(),
+      refetchBikesFull(),
+      refetchBikesAdvisor(),
+    ]);
   }, [refetchBikesLight, refetchBikesFull, refetchBikesAdvisor]);
 
   const { data: unmappedData } = useQuery(UNMAPPED_STRAVA_GEARS, {
