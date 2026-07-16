@@ -3907,13 +3907,15 @@ export const resolvers = {
         }
       }
 
-      // Plain optional scalars (not Prisma.*UpdateInput, whose FieldUpdate-
-      // OperationsInput wrappers aren't assignable to the create input below).
-      const updateData: {
-        serviceNotificationsEnabled?: boolean;
-        serviceNotificationMode?: ServiceNotificationMode;
-        serviceNotificationThreshold?: number;
-      } = {};
+      // Derived from Prisma's create input (plain scalars) rather than
+      // *UpdateInput, whose FieldUpdateOperationsInput wrappers aren't
+      // assignable to the create() spread below. Picking from the generated
+      // type keeps this in sync if the schema's field types change — a drift
+      // would surface as a type error here instead of silently passing.
+      const updateData: Pick<
+        Prisma.BikeNotificationPreferenceUncheckedCreateInput,
+        'serviceNotificationsEnabled' | 'serviceNotificationMode' | 'serviceNotificationThreshold'
+      > = {};
       if (input.serviceNotificationsEnabled !== undefined && input.serviceNotificationsEnabled !== null) {
         updateData.serviceNotificationsEnabled = input.serviceNotificationsEnabled;
       }
