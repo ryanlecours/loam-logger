@@ -99,7 +99,7 @@ export default function Dashboard() {
   const { data: bikesAdvisorData, refetch: refetchBikesAdvisor } = useQuery<{
     bikes: Array<{
       id: string;
-      advisorPredictions: { bikeId: string; advisorSummary: AdvisorSummary | null } | null;
+      predictions: { bikeId: string; advisorSummary: AdvisorSummary | null } | null;
     }>;
   }>(BIKES_ADVISOR, {
     fetchPolicy: 'cache-and-network',

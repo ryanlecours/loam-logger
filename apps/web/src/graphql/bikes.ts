@@ -169,17 +169,17 @@ export const BIKES = gql`
 // hero and switcher render immediately from BIKES and the advisor cards fill
 // in when this arrives.
 //
-// `predictions` is aliased to `advisorPredictions` on purpose: BikePrediction-
-// Summary isn't normalized in the cache (no id / keyFields), so writing a
-// partial predictions object under the real `Bike.predictions` field would
-// clobber the full predictions the BIKES query already cached. The alias
-// routes this write to a separate cache field instead. Dashboard merges the
-// summary back into each bike client-side (see Dashboard.tsx).
+// This selects the same Bike.predictions field as BIKES but only advisorSummary.
+// That's safe because BikePredictionSummary is normalized by bikeId (see the
+// typePolicy in lib/apolloClient.ts): this partial write MERGES into the entity
+// BIKES cached rather than clobbering its overallStatus/components. Dashboard
+// merges the summary back into each bike client-side (see Dashboard.tsx), since
+// the BIKES query result itself doesn't select advisorSummary.
 export const BIKES_ADVISOR = gql`
   query BikesAdvisor {
     bikes {
       id
-      advisorPredictions: predictions {
+      predictions {
         bikeId
         advisorSummary {
           text

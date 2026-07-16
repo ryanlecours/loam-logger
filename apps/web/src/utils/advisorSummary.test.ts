@@ -34,7 +34,7 @@ const advisorRow = (
   hasPredictions = true
 ): AdvisorBikeRow => ({
   id,
-  advisorPredictions: hasPredictions ? { bikeId: id, advisorSummary } : null,
+  predictions: hasPredictions ? { bikeId: id, advisorSummary } : null,
 });
 
 describe('buildAdvisorSummaryMap', () => {
@@ -53,7 +53,7 @@ describe('buildAdvisorSummaryMap', () => {
     expect(map.get('a')).toBeNull();
   });
 
-  it('omits rows whose advisorPredictions is null', () => {
+  it('omits rows whose predictions is null', () => {
     const map = buildAdvisorSummaryMap([advisorRow('a', null, false)]);
     expect(map.has('a')).toBe(false);
   });

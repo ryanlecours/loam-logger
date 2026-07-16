@@ -295,6 +295,13 @@ export const typeDefs = gql`
     drivers: [WearDriver!]
   }
 
+  # Web-cache invariant: the dashboard fetches advisorSummary in a separate
+  # query stage (BIKES_ADVISOR) from the rest of this type, to keep the ~8s LLM
+  # call off the critical render path. That split only works because the web
+  # client normalizes BikePredictionSummary by bikeId (the typePolicy in
+  # apps/web/src/lib/apolloClient.ts) so the two partial writes merge instead of
+  # clobbering. Keep bikeId as the stable per-bike identity here; the split query
+  # in apps/web/src/graphql/bikes.ts must always select bikeId.
   type BikePredictionSummary {
     bikeId: ID!
     bikeName: String!

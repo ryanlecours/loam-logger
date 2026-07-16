@@ -2,26 +2,26 @@ import type { AdvisorSummary } from '../types/prediction';
 import type { BikeWithPredictions } from '../hooks/usePriorityBike';
 
 /**
- * A row from the BIKES_ADVISOR query. `advisorPredictions` is `predictions`
- * aliased so its partial write doesn't clobber the full predictions the BIKES
- * query cached (see graphql/bikes.ts).
+ * A row from the BIKES_ADVISOR query. Its `predictions` merges into the
+ * bikeId-normalized cache entity BIKES wrote (see graphql/bikes.ts and the
+ * typePolicy in lib/apolloClient.ts).
  */
 export interface AdvisorBikeRow {
   id: string;
-  advisorPredictions: { bikeId: string; advisorSummary: AdvisorSummary | null } | null;
+  predictions: { bikeId: string; advisorSummary: AdvisorSummary | null } | null;
 }
 
 /**
  * Build a bikeId -> advisorSummary lookup from the advisor query result.
- * Bikes whose advisorPredictions is null (e.g. free tier, or the row hasn't
- * resolved) are omitted, so callers can treat "absent from map" as "no summary".
+ * Bikes whose predictions is null (e.g. free tier, or the row hasn't resolved)
+ * are omitted, so callers can treat "absent from map" as "no summary".
  */
 export function buildAdvisorSummaryMap(
   advisorBikes: readonly AdvisorBikeRow[] | undefined
 ): Map<string, AdvisorSummary | null> {
   const map = new Map<string, AdvisorSummary | null>();
   for (const b of advisorBikes ?? []) {
-    if (b.advisorPredictions) map.set(b.id, b.advisorPredictions.advisorSummary ?? null);
+    if (b.predictions) map.set(b.id, b.predictions.advisorSummary ?? null);
   }
   return map;
 }
