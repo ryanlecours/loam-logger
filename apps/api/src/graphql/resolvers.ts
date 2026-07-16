@@ -49,8 +49,6 @@ import { FRONTEND_URL } from '../config/env';
 
 type ComponentType = ComponentTypeLiteral;
 
-type UserArgs = { id: string };
-
 type AddRideInput = {
   startTime: string;
   durationSeconds: number;
@@ -882,12 +880,6 @@ const pickComponent = (
 
 export const resolvers = {
   Query: {
-    user: (args: UserArgs) =>
-      prisma.user.findUnique({
-        where: { id: args.id },
-        include: { rides: true },
-      }),
-
     // Single-ride lookup keyed on (id, userId) so a foreign-user id resolves
     // to null instead of leaking another user's ride. Returning null on miss
     // (rather than throwing) lets the mobile ride-detail screen render its

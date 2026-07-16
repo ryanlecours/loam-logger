@@ -112,7 +112,12 @@ router.post('/complete', express.json(), async (req: Request, res) => {
       return sendBadRequest(res, 'Bike make and model are required');
     }
 
-    if (age && (age < 16 || age > 150)) {
+    // Age is required at onboarding: the 16+ minimum is a hard gate (Terms
+    // §; App Store age declaration), so a missing/invalid age is rejected
+    // rather than silently stored as null. Both the mobile and web onboarding
+    // flows collect age as a mandatory step, so this only rejects crafted or
+    // out-of-date clients.
+    if (typeof age !== 'number' || !Number.isInteger(age) || age < 16 || age > 150) {
       return sendBadRequest(res, 'Please enter a valid age');
     }
 
@@ -135,7 +140,7 @@ router.post('/complete', express.json(), async (req: Request, res) => {
       const { count } = await tx.user.updateMany({
         where: { id: userId, onboardingCompleted: false },
         data: {
-          age: age || null,
+          age, // validated 16–150 above
           location: location || null,
           onboardingCompleted: true,
         },
