@@ -48,6 +48,7 @@ import mockGarmin from './routes/mock.garmin';
 import onboardingRouter from './routes/onboarding';
 import publicRouter from './routes/public';
 import adminRouter from './routes/admin';
+import adminLiftRouter from './routes/admin.lift';
 import spokesRouter from './routes/spokes';
 import emailUnsubscribeRouter from './routes/email.unsubscribe';
 import { googleRouter, emailRouter, deleteAccountRouter, passwordRouter, attachUser, verifyCsrf } from './auth/index';
@@ -276,6 +277,7 @@ const startServer = async () => {
   app.use('/api', publicRouter);
   app.use('/api', emailUnsubscribeRouter);
   app.use('/api/admin', adminRouter);
+  app.use('/api/admin/lift', adminLiftRouter);
   app.use('/api/spokes', spokesRouter);
 
   app.use(webhooksGarmin);
