@@ -44,6 +44,7 @@
   },
   "dependencies": {
     "leaflet": "^1.9.4",
+    "lru-cache": "^11.5.2",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-leaflet": "^5.0.0"
