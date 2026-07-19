@@ -6,7 +6,7 @@ import { deriveLocationAsync, shouldApplyAutoLocation } from '../lib/location';
 import { syncBikeComponentHours } from '../lib/component-hours';
 import { logError } from '../lib/logger';
 import { fireRideNotifications } from '../services/notification.service';
-import { enqueueWeatherJob } from '../lib/queue';
+import { enqueueWeatherJob, enqueueLiftDetectionJob } from '../lib/queue';
 import { isActiveSource } from '../lib/active-source';
 
 type Empty = Record<string, never>;
@@ -150,8 +150,15 @@ r.post<Empty, void, { athlete_id: number }>(
         select: { activeDataSource: true },
       });
 
-      // Delete tokens and account record
+      // Delete tokens and account record. Raw stream blobs go too (Strava data
+      // must not be retained past deauthorization) while the rides themselves
+      // and their derived metrics survive.
       await prisma.$transaction([
+        prisma.rideStream.deleteMany({
+          where: {
+            ride: { userId: userAccount.userId, stravaActivityId: { not: null } },
+          },
+        }),
         prisma.oauthToken.deleteMany({
           where: {
             userId: userAccount.userId,
@@ -406,6 +413,10 @@ async function processActivityEvent(event: StravaWebhookEvent): Promise<void> {
         if (activity.start_latlng) {
           enqueueWeatherJob({ rideId: syncedRideId }).catch((err) =>
             logError(`Strava Webhook weather enqueue ${syncedRideId}`, err)
+          );
+          // Fire-and-forget stream fetch for lift detection
+          enqueueLiftDetectionJob({ rideId: syncedRideId }).catch((err) =>
+            logError(`Strava Webhook lift enqueue ${syncedRideId}`, err)
           );
         }
       }

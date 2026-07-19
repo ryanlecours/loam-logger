@@ -11,5 +11,8 @@ export type { NotificationJobName, NotificationJobData } from './notification.qu
 export { getWeatherQueue, closeWeatherQueue, enqueueWeatherJob, buildWeatherJobId } from './weather.queue';
 export type { WeatherJobName, WeatherJobData, EnqueueWeatherResult } from './weather.queue';
 
+export { getLiftQueue, closeLiftQueue, enqueueLiftDetectionJob, buildLiftJobId } from './lift.queue';
+export type { LiftJobName, LiftJobData, EnqueueLiftResult } from './lift.queue';
+
 // Connection
 export { getQueueConnection } from './connection';

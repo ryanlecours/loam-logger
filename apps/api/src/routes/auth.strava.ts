@@ -435,6 +435,11 @@ async function handleStravaDisconnect(userId: string): Promise<boolean> {
   }
 
   await prisma.$transaction(async (tx) => {
+    // Raw stream blobs are Strava data and go on disconnect; the rides and
+    // their derived metrics survive.
+    await tx.rideStream.deleteMany({
+      where: { ride: { userId, stravaActivityId: { not: null } } },
+    });
     await tx.userIntegration.updateMany({
       where: { userId, provider: 'STRAVA' },
       data: { revokedAt: new Date() },

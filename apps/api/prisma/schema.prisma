@@ -134,6 +134,7 @@ model Ride {
   user              User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   importSession     ImportSession?  @relation(fields: [importSessionId], references: [id], onDelete: SetNull)
   weather           RideWeather?
+  stream            RideStream?
 
   @@index([importSessionId, bikeId])
   // NOTE: a partial index on (userId) WHERE startLat IS NOT NULL AND startLng IS NOT NULL
@@ -170,6 +171,23 @@ model RideWeather {
   ride             Ride             @relation(fields: [rideId], references: [id], onDelete: Cascade)
 
   @@index([condition])
+}
+
+// Raw per-point activity streams (Strava first; `source` scopes the format).
+// One row per ride, parallel index-aligned arrays in `data`:
+// { time: number[], latlng: [number,number][], altitude?: number[],
+//   velocity?: number[], cadence?: number[], heartrate?: number[], moving?: boolean[] }
+// Never mutated after fetch — lift detection reads it; derived data lives elsewhere.
+// Deleted on Strava disconnect/deauth while rides survive, so those paths must
+// delete rows explicitly; ride deletion cascades.
+model RideStream {
+  id         String   @id @default(uuid())
+  rideId     String   @unique
+  source     String
+  pointCount Int
+  data       Json
+  fetchedAt  DateTime @default(now())
+  ride       Ride     @relation(fields: [rideId], references: [id], onDelete: Cascade)
 }
 
 model WeatherCache {
