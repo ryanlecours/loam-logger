@@ -553,8 +553,15 @@ before any number changes.
    import, plus user-triggered marks) draw from the same budget as live sync and
    webhook processing. Dropping bulk backfill removed the worst pressure;
    remaining mitigation is the per-user mark throttle (§3.4) and monitoring 429s.
-   Current limits should still be confirmed in the Strava dashboard before
-   increment 1.
+   Confirmed 2026-07-18 (developers.strava.com/docs/rate-limits): the binding
+   constraint is the read (non-upload) limit — 200 requests/15 min and
+   2,000/day at the first capacity-approved tier, scaling with approved athlete
+   capacity. Stream fetches double per-ride reads (detail + streams = 2); ~50
+   imported rides/day is ~100 reads, ≈5% of the daily read budget. Known soft
+   spot: on a 429, the lift queue's retry backoff (10s/20s/40s) stays inside
+   the same 15-min window, so a quota-exhausted job can fail permanently —
+   recoverable via POST /api/admin/lift/analyze/:rideId; not worth hardening at
+   current volume.
 2. **Strava API agreement on stored data.** Storing streams of a user's own
    activities is permitted, but data must be deleted on disconnect/deauthorization.
    `RideStream` cascades from `Ride`; the existing deauth webhook
