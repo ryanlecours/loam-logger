@@ -64,6 +64,8 @@ export const MUTATION_RATE_LIMITS = {
   logBulkComponentService: { windowSeconds: 60, maxRequests: 20 },
   /** updateComponent: max 30 requests per minute per user */
   updateComponent: { windowSeconds: 60, maxRequests: 30 },
+  /** requestRideTrack: max 10 stream fetches per hour per user (each costs a Strava API read) */
+  requestRideTrack: { windowSeconds: 3600, maxRequests: 10 },
   /** createStravaGearMapping: max 10 requests per minute per user */
   createStravaGearMapping: { windowSeconds: 60, maxRequests: 10 },
   /** deleteStravaGearMapping: max 10 requests per minute per user */
@@ -125,6 +127,8 @@ export const QUERY_RATE_LIMITS = {
   unassignedRides: { windowSeconds: 60, maxRequests: 60 },
   /** importNotificationState: max 30 requests per minute per user (supports 30s polling) */
   importNotificationState: { windowSeconds: 60, maxRequests: 30 },
+  /** rideTrack: max 60 requests per minute per user (map open + post-request polling) */
+  rideTrack: { windowSeconds: 60, maxRequests: 60 },
   /** advisorSummary: max 20 LLM calls per 5 minutes per user. Checked only
    *  on cache MISS in the resolver, not on cache-hit refreshes, so the
    *  limit bounds Anthropic dollar cost directly (~$0.96/hour worst case

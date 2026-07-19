@@ -8,6 +8,7 @@ import { Modal, Input, Textarea, Select, Button } from './ui';
 import { usePreferences } from '../hooks/usePreferences';
 import { useUserTier } from '../hooks/useUserTier';
 import RideWeatherPanel from './RideWeatherPanel';
+import RideTrackMap from './RideTrackMap';
 import { UpsellCard } from './UpgradePrompt';
 import type { RideWeather } from '../models/Ride';
 
@@ -136,7 +137,9 @@ export default function EditRideModal({
         </>
       }
     >
-      <form onSubmit={onSave} className="space-y-4">
+      <RideTrackMap rideId={ride.id} />
+
+      <form onSubmit={onSave} className="mt-4 space-y-4">
         <Input
           label="Start (local)"
           type="datetime-local"

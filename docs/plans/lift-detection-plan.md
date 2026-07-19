@@ -636,3 +636,88 @@ before any number changes.
   fields (§4.1); segments + confidence persisted for auditability.
 - *Raw streams never mutated*: enforced structurally — detection writes only
   `RideSegment` rows and `Ride.lift*` delta columns.
+
+---
+
+## Appendix A: Ride track map, v1 (addendum, approved 2026-07-18)
+
+A user-facing map of any completed ride's GPS track. Not part of the original
+brief; approved after increments 1–3 merged because the stream infrastructure
+makes it cheap. This is the first user-visible consumer of stream data — it
+ships read-only display before metric exclusion, which is low-risk but makes
+the stream pipeline production-visible.
+
+### Scope
+
+**v1 in:** an interactive track map on a ride's expanded/detail view, for the
+ride's owner only, backed by the persisted `RideStream`. On-demand stream
+fetch for Strava rides that predate stream ingestion. Web app only.
+
+**v1 out (explicitly):**
+- **Segment overlays** (lift portions colored on the map): held until
+  detection passes the §6 validation bar, so users never see a wrong
+  classification. The index-based `RideSegment` design makes this a pure
+  frontend slice later.
+- The external mobile app (consumes the same GraphQL when its team wants it).
+- Maps on the ride *list* (per-row maps need a tile-snapshot service; not v1).
+- Any GPS on shared/public surfaces — `sharedBikeHistory` deliberately
+  excludes GPS today and the new API must not change that.
+
+### API design
+
+GraphQL, following the schema.ts / resolvers.ts convention:
+
+```graphql
+enum RideTrackStatus {
+  AVAILABLE    # stream persisted; points returned
+  FETCHABLE    # Strava ride with coords but no stream yet — offer "Load map"
+  UNAVAILABLE  # no GPS source (manual, Whoop, Garmin/Suunto for now)
+}
+
+type RideTrack {
+  status: RideTrackStatus!
+  points: [[Float!]!]      # [lat, lng] pairs, downsampled server-side; null unless AVAILABLE
+  sampledFrom: Int         # original point count
+}
+
+extend type Query {
+  rideTrack(rideId: ID!): RideTrack!       # owner-only
+}
+extend type Mutation {
+  requestRideTrack(rideId: ID!): RideTrack! # enqueues the existing lift job; rate-limited
+}
+```
+
+A dedicated query (rather than a field on `Ride`) keeps the blob read out of
+the 400-ride list query, makes ownership one explicit check, and cannot leak
+into shared-page types.
+
+- **Downsampling:** stride sampling to ~800 points, always keeping first and
+  last. Downsampled indices deliberately do NOT align with `RideSegment`
+  indices; the segment-overlay v2 slices the raw stream per segment instead.
+- **On-demand fetch = organic backfill.** `requestRideTrack` enqueues the
+  existing lift-detection job (which fetches the stream, then analyzes),
+  reusing its token handling, 404 semantics, idempotent job ID, and retries.
+  This softly amends the no-backfill decision (§7 decision 5): history gets
+  streams in proportion to what owners actually look at, ~1 Strava read per
+  viewed ride. Per-user rate limit via a new `MUTATION_RATE_LIMITS` entry.
+  Client polls `rideTrack` after requesting until AVAILABLE (or gives up).
+
+### Web design
+
+- New dependency: **Leaflet + react-leaflet**, OSM raster tiles (fine at
+  current scale; revisit provider terms if usage grows). Component lazy-loaded
+  (`React.lazy`) so the map bundle isn't paid on dashboard load.
+- `RideTrackMap` component: polyline + fitBounds; rendered only when a ride is
+  expanded/opened, never per list row. FETCHABLE state renders a "Load map"
+  button wired to `requestRideTrack` + polling; UNAVAILABLE renders nothing.
+
+### Risks / notes
+
+- Strava privacy zones don't redact the athlete's own token, so tracks may
+  include starts users hide publicly on Strava. Owner-only display is the
+  mitigation; the disconnect-deletes-streams behavior already shipped.
+- Tile requests go from the user's browser to the tile provider (their IP,
+  our referer). Acceptable for v1; self-hosted or keyed tiles if it matters.
+- A failed on-demand fetch surfaces as a user-visible non-loading map (vs
+  invisible shadow failure). The FETCHABLE→retry path is the recovery.

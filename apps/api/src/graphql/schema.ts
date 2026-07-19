@@ -162,6 +162,26 @@ export const typeDefs = gql`
     weather: RideWeather
   }
 
+  enum RideTrackStatus {
+    # Stream persisted; points returned.
+    AVAILABLE
+    # Strava ride with coords but no stream yet - requestRideTrack can load it.
+    FETCHABLE
+    # No GPS source (manual entry, Whoop, Garmin/Suunto for now).
+    UNAVAILABLE
+  }
+
+  # Owner-only GPS track for one ride, downsampled server-side. Deliberately a
+  # dedicated query rather than a field on Ride so the stream blob is never
+  # read for list queries and can never leak into shared-page types.
+  type RideTrack {
+    status: RideTrackStatus!
+    # [lat, lng] pairs; null unless status is AVAILABLE.
+    points: [[Float!]!]
+    # Point count of the raw stream the track was sampled from.
+    sampledFrom: Int
+  }
+
   enum WeatherCondition {
     SUNNY
     CLOUDY
@@ -950,6 +970,10 @@ export const typeDefs = gql`
     createStravaGearMapping(input: CreateStravaGearMappingInput!): StravaGearMapping!
     deleteStravaGearMapping(id: ID!): DeleteResult!
     triggerProviderSync(provider: SyncProvider!): TriggerSyncResult!
+    # Enqueue a stream fetch for a Strava ride imported before stream
+    # ingestion existed. Returns the track's current state; poll rideTrack
+    # until AVAILABLE.
+    requestRideTrack(rideId: ID!): RideTrack!
     bulkUpdateComponentBaselines(input: BulkUpdateBaselinesInput!): [Component!]!
     acceptTerms(input: AcceptTermsInput!): AcceptTermsResult!
     updateUserPreferences(input: UpdateUserPreferencesInput!): User!
@@ -1156,6 +1180,7 @@ export const typeDefs = gql`
     bikeNotes(bikeId: ID!, take: Int = 20, after: ID): BikeNotesPage!
     referralStats: ReferralStats! @deprecated(reason: "Referral program removed; returns zeros")
     bikeHistory(bikeId: ID!, startDate: String, endDate: String): BikeHistoryPayload!
+    rideTrack(rideId: ID!): RideTrack!
     # Public (unauthenticated) sanitized history for a shared bike.
     # Returns null for unknown or revoked slugs.
     sharedBikeHistory(slug: String!): SharedBikeHistory
