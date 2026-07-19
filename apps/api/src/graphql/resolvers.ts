@@ -12,7 +12,8 @@ import type {
 } from '@prisma/client';
 import { checkRateLimit, checkMutationRateLimit, checkQueryRateLimit, checkAuthRateLimit } from '../lib/rate-limit';
 import { getClientIp } from '../auth/utils';
-import { enqueueSyncJob, enqueueWeatherJob, type SyncProvider } from '../lib/queue';
+import { enqueueSyncJob, enqueueWeatherJob, enqueueLiftDetectionJob, type SyncProvider } from '../lib/queue';
+import { getRideTrack } from '../lib/ride-track';
 import { invalidateBikePrediction, getCachedAdvisorSummary, setCachedAdvisorSummary } from '../services/prediction/cache';
 import { generateSummary, DEFAULT_ADVISOR_MODEL } from '../services/advisor/summarize';
 import type { BikePredictionSummary } from '../services/prediction/types';
@@ -895,6 +896,20 @@ export const resolvers = {
       return prisma.ride.findFirst({
         where: { id, userId },
       });
+    },
+
+    rideTrack: async (_: unknown, { rideId }: { rideId: string }, ctx: GraphQLContext) => {
+      const userId = requireUserId(ctx);
+
+      // Polled after requestRideTrack, so rate-limited like other pollers.
+      const rateLimit = await checkQueryRateLimit('rideTrack', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
+
+      return getRideTrack(userId, rideId);
     },
 
     rides: async (_: unknown, { take = 1000, after, filter }: RidesArgs, ctx: GraphQLContext) => {
@@ -3441,6 +3456,31 @@ export const resolvers = {
         message: `${provider} sync has been queued`,
         jobId: enqueueResult.jobId,
       };
+    },
+
+    requestRideTrack: async (_: unknown, { rideId }: { rideId: string }, ctx: GraphQLContext) => {
+      const userId = requireUserId(ctx);
+
+      // Each fetch costs a Strava API read from the shared app-wide budget.
+      const rateLimit = await checkMutationRateLimit('requestRideTrack', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
+
+      // Ownership check + current state; also makes the mutation idempotent —
+      // an AVAILABLE track just returns without enqueueing.
+      const track = await getRideTrack(userId, rideId);
+      if (track.status !== 'FETCHABLE') {
+        return track;
+      }
+
+      // The lift job fetches + persists the stream (and runs detection) with
+      // an idempotent per-ride job ID; the client polls rideTrack until
+      // AVAILABLE.
+      await enqueueLiftDetectionJob({ rideId });
+      return track;
     },
 
     bulkUpdateComponentBaselines: async (

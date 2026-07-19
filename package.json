@@ -27,6 +27,7 @@
     "@nx/vite": "^22.6.1",
     "@nx/workspace": "^22.6.1",
     "@react-email/preview-server": "^5.2.5",
+    "@types/leaflet": "^1.9.21",
     "@types/supertest": "^6.0.2",
     "eslint": "^9.32.0",
     "eslint-plugin-react-hooks": "^7.0.1",
@@ -42,8 +43,10 @@
     "typescript-eslint": "^8.39.0"
   },
   "dependencies": {
+    "leaflet": "^1.9.4",
     "react": "19.2.3",
-    "react-dom": "19.2.3"
+    "react-dom": "19.2.3",
+    "react-leaflet": "^5.0.0"
   },
   "version": "1.0.0"
 }
