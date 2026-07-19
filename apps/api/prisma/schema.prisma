@@ -128,6 +128,14 @@ model Ride {
   importSessionId   String?
   startLat          Float?
   startLng          Float?
+  // Lift-detection deltas (docs/plans/lift-detection-plan.md §2.4). Sums over
+  // this ride's LIFT segments; effective metrics = raw − delta. NULL means
+  // "never analyzed", 0 means "analyzed, no lift found". Raw provider columns
+  // above are never adjusted in place.
+  liftDurationSeconds     Int?
+  liftElevationGainMeters Float?
+  liftDistanceMeters      Float?
+  liftDetectorVersion     Int?
   bike              Bike?           @relation(fields: [bikeId], references: [id])
   duplicateOf       Ride?           @relation("DuplicateRides", fields: [duplicateOfId], references: [id], onDelete: SetNull)
   duplicates        Ride[]          @relation("DuplicateRides")
@@ -135,6 +143,7 @@ model Ride {
   importSession     ImportSession?  @relation(fields: [importSessionId], references: [id], onDelete: SetNull)
   weather           RideWeather?
   stream            RideStream?
+  segments          RideSegment[]
 
   @@index([importSessionId, bikeId])
   // NOTE: a partial index on (userId) WHERE startLat IS NOT NULL AND startLng IS NOT NULL
@@ -188,6 +197,50 @@ model RideStream {
   data       Json
   fetchedAt  DateTime @default(now())
   ride       Ride     @relation(fields: [rideId], references: [id], onDelete: Cascade)
+}
+
+enum RideSegmentKind {
+  LIFT
+}
+
+// A detected sub-interval of a ride (chairlift/gondola for now). Start/end
+// index into the RideStream parallel arrays rather than duplicating geometry:
+// the stream is immutable, so indices never dangle, and re-detection just
+// replaces these rows. Times and metric deltas are denormalized so metric
+// adjustment and display never need to load the stream blob.
+model RideSegment {
+  id                  String          @id @default(uuid())
+  rideId              String
+  kind                RideSegmentKind
+  startIndex          Int
+  endIndex            Int // inclusive
+  startTime           DateTime
+  endTime             DateTime
+  confidence          Float // combined score, 0..1
+  geometryScore       Float? // null = Overpass was unavailable at detection time
+  kinematicScore      Float
+  liftName            String? // OSM name of matched aerialway, if any
+  liftOsmId           String?
+  durationSeconds     Int
+  elevationGainMeters Float
+  distanceMeters      Float
+  detectorVersion     Int
+  createdAt           DateTime        @default(now())
+  ride                Ride            @relation(fields: [rideId], references: [id], onDelete: Cascade)
+
+  @@index([rideId])
+}
+
+// Cached Overpass aerialway lookups, keyed by 0.05° grid cell so repeat visits
+// to the same park are cache hits (WeatherCache/GeoCache precedent). Lifts
+// essentially never move; entries are treated as fresh for ~180 days and
+// refreshed lazily. isEmpty rows negative-cache the common no-lifts case.
+model OverpassCache {
+  id        String   @id @default(uuid())
+  cellKey   String   @unique
+  payload   Json // normalized LiftLine[]: [{ id, name?, kind, coordinates: [{lat,lng},...] }]
+  isEmpty   Boolean  @default(false)
+  fetchedAt DateTime @default(now())
 }
 
 model WeatherCache {
