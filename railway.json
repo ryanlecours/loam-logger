@@ -1,0 +1,10 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "build": {
+    "builder": "RAILPACK",
+    "buildCommand": "npx nx run api:prisma-generate && npx nx build api"
+  },
+  "deploy": {
+    "startCommand": "bash scripts/start-api.sh"
+  }
+}

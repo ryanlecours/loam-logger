@@ -1,24 +1,6 @@
-# Nixpacks configuration for Railway deployment
-# Nx monorepo - API deployment
-
-providers = ["node"]
-
-[phases.setup]
-nixPkgs = ["nodejs_20", "npm-9_x"]
-
-[phases.install]
-cmds = [
-  "npm ci --include=optional"
-]
-cacheDirectories = ["/root/.npm", "node_modules/.cache"]
-
-[phases.build]
-cmds = [
-  "npx nx run api:prisma-generate",
-  "npx nx build api"
-]
-
-[start]
+#!/usr/bin/env bash
+# API start command for Railway (referenced by railway.json).
+#
 # Run pending Prisma migrations before starting the server. `migrate deploy`
 # is idempotent (skips migrations already recorded in _prisma_migrations),
 # so the repeated boot-time cost is a single round-trip. If a migration
@@ -29,14 +11,13 @@ cmds = [
 # overhead and a potential network check on cold starts, and guarantees we
 # run the exact Prisma version that's locked in package-lock.json.
 #
-# Bounded retry loop (5 attempts × 5s = up to 25s) absorbs the cold-start
+# Bounded retry loop (5 attempts x 5s = up to 25s) absorbs the cold-start
 # race where the Postgres service hasn't finished accepting connections
 # before the API container boots. `exec` replaces the shell with the node
 # process on success so signals propagate cleanly. After 5 failures the
 # container exits non-zero and Railway's restart policy takes over —
 # intentionally bounded so a genuinely broken DB doesn't leave us hung in
 # an infinite retry loop.
-cmd = '''
 for i in 1 2 3 4 5; do
   ./node_modules/.bin/prisma migrate deploy --schema=apps/api/prisma/schema.prisma && exec node dist/apps/api/server.cjs
   echo "Migration attempt $i failed, retrying in 5s..." >&2
@@ -44,4 +25,3 @@ for i in 1 2 3 4 5; do
 done
 echo "Migration failed after 5 attempts; aborting boot" >&2
 exit 1
-'''
