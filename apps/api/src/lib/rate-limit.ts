@@ -222,6 +222,8 @@ export const ADMIN_RATE_LIMITS = {
   bulkEmail: 60 * SECONDS,
   /** Waitlist import cooldown: 60 seconds per admin (prevents spam) */
   importWaitlist: 60 * SECONDS,
+  /** Lift analysis cooldown: 5 seconds per target ride (prevents duplicate enqueue spam) */
+  liftAnalyze: 5 * SECONDS,
 } as const;
 
 /**

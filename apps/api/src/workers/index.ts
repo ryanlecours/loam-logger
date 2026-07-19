@@ -2,8 +2,9 @@ import { createSyncWorker, closeSyncWorker } from './sync.worker';
 import { createBackfillWorker, closeBackfillWorker } from './backfill.worker';
 import { createNotificationWorker, closeNotificationWorker } from './notification.worker';
 import { createWeatherWorker, closeWeatherWorker } from './weather.worker';
+import { createLiftWorker, closeLiftWorker } from './lift.worker';
 import { closeRedisConnection } from '../lib/redis';
-import { closeSyncQueue, closeBackfillQueue, closeNotificationQueue, closeWeatherQueue } from '../lib/queue';
+import { closeSyncQueue, closeBackfillQueue, closeNotificationQueue, closeWeatherQueue, closeLiftQueue } from '../lib/queue';
 
 /**
  * Start all BullMQ workers.
@@ -16,6 +17,7 @@ export function startWorkers(): void {
   createBackfillWorker();
   createNotificationWorker();
   createWeatherWorker();
+  createLiftWorker();
 
   console.log('[Workers] All workers started');
 }
@@ -37,12 +39,13 @@ export async function stopWorkers(): Promise<void> {
       closeBackfillWorker(),
       closeNotificationWorker(),
       closeWeatherWorker(),
+      closeLiftWorker(),
     ]);
 
     // Log any worker shutdown failures
     workerResults.forEach((result, index) => {
       if (result.status === 'rejected') {
-        const workerNames = ['SyncWorker', 'BackfillWorker', 'NotificationWorker', 'WeatherWorker'];
+        const workerNames = ['SyncWorker', 'BackfillWorker', 'NotificationWorker', 'WeatherWorker', 'LiftWorker'];
         console.error(`[Workers] Failed to close ${workerNames[index]}:`, result.reason);
       }
     });
@@ -53,12 +56,13 @@ export async function stopWorkers(): Promise<void> {
       closeBackfillQueue(),
       closeNotificationQueue(),
       closeWeatherQueue(),
+      closeLiftQueue(),
     ]);
 
     // Log any queue shutdown failures
     queueResults.forEach((result, index) => {
       if (result.status === 'rejected') {
-        const queueNames = ['SyncQueue', 'BackfillQueue', 'NotificationQueue', 'WeatherQueue'];
+        const queueNames = ['SyncQueue', 'BackfillQueue', 'NotificationQueue', 'WeatherQueue', 'LiftQueue'];
         console.error(`[Workers] Failed to close ${queueNames[index]}:`, result.reason);
       }
     });

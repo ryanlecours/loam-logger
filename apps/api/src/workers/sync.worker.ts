@@ -14,7 +14,7 @@ import { logger } from '../lib/logger';
 import { fireRideNotifications } from '../services/notification.service';
 import { config } from '../config/env';
 import type { SyncJobData, SyncJobName, SyncProvider } from '../lib/queue/sync.queue';
-import { enqueueWeatherJob } from '../lib/queue';
+import { enqueueWeatherJob, enqueueLiftDetectionJob } from '../lib/queue';
 import { captureServerEvent } from '../lib/posthog';
 import type { Prisma } from '@prisma/client';
 import {
@@ -394,6 +394,10 @@ async function upsertStravaActivity(userId: string, activity: StravaActivity): P
   if (syncedRideId && activity.start_latlng) {
     enqueueWeatherJob({ rideId: syncedRideId }).catch((err) =>
       logger.warn({ rideId: syncedRideId, err }, '[SyncWorker] Failed to enqueue weather job (Strava)')
+    );
+    // Fire-and-forget stream fetch for lift detection (Strava-only, needs GPS)
+    enqueueLiftDetectionJob({ rideId: syncedRideId }).catch((err) =>
+      logger.warn({ rideId: syncedRideId, err }, '[SyncWorker] Failed to enqueue lift job (Strava)')
     );
   }
 
