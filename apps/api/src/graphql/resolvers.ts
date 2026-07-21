@@ -5809,22 +5809,20 @@ export const resolvers = {
         );
       }
 
-      // Garmin's backfill API requires the HISTORICAL_DATA_EXPORT scope. Users
-      // who connected before we requested it get a 412 from Garmin, so surface
-      // a reconnect prompt instead of silently enqueueing doomed work.
+      // Require a live Garmin connection. We intentionally do NOT gate on a
+      // HISTORICAL_DATA_EXPORT scope string: that permission is granted at the
+      // Garmin app level, not returned in the per-user OAuth token's `scope`,
+      // so the stored `scopes` never contains it. Checking for it produced a
+      // permanent false-positive reconnect loop. Historical export is enabled
+      // for the app, so we just attempt the backfill; a genuine per-user 412
+      // is handled best-effort in the worker.
       const integration = await prisma.userIntegration.findUnique({
         where: { userId_provider: { userId, provider: 'GARMIN' } },
-        select: { revokedAt: true, scopes: true },
+        select: { revokedAt: true },
       });
 
       if (!integration || integration.revokedAt) {
         return { status: 'NOT_CONNECTED', ridesToRepair: 0 };
-      }
-      // Only block when scopes are recorded AND clearly lack the permission.
-      // A null scopes string is unknown, not proof of absence — let the worker
-      // attempt it rather than false-positive a reconnect.
-      if (integration.scopes && !integration.scopes.includes('HISTORICAL_DATA_EXPORT')) {
-        return { status: 'NEEDS_RECONNECT', ridesToRepair: 0 };
       }
 
       const ridesToRepair = await prisma.ride.count({
