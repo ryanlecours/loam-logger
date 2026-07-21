@@ -222,6 +222,37 @@ describe('ComponentRidesModal', () => {
     );
   });
 
+  it('Add tab lists unassigned rides for a SPARE component (null !== null trap)', () => {
+    // Regression: nullish equality made spare component (bikeId null) +
+    // unassigned ride (bikeId null) compare "same bike", hiding exactly the
+    // rides most relevant to apply to a spare. The backend allows this
+    // INCLUDE; the tab must offer it.
+    mockRidesQuery.mockReturnValue({
+      data: {
+        rides: [
+          { id: 'r-unassigned', startTime: '2026-06-20T00:00:00.000Z', durationSeconds: 1800, bikeId: null, location: 'Somewhere' },
+          { id: 'r-on-a-bike', startTime: '2026-06-21T00:00:00.000Z', durationSeconds: 1800, bikeId: 'bike-9', location: 'Elsewhere' },
+        ],
+      },
+      loading: false,
+      fetchMore: vi.fn(),
+    });
+    render(
+      <ComponentRidesModal
+        componentId="comp-spare"
+        componentLabel="Spare wheel"
+        bikeId={null}
+        onClose={() => {}}
+      />
+    );
+    fireEvent.click(screen.getByText('Add rides'));
+
+    // Both the unassigned ride AND rides on any bike are valid candidates
+    // for a spare component.
+    expect(screen.getByTestId('component-ride-add-r-unassigned')).toBeInTheDocument();
+    expect(screen.getByTestId('component-ride-add-r-on-a-bike')).toBeInTheDocument();
+  });
+
   it('Add tab date range is passed to the server as a rides filter', () => {
     renderModal();
     fireEvent.click(screen.getByText('Add rides'));

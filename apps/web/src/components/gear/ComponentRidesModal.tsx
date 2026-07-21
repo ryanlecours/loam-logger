@@ -160,7 +160,13 @@ export function ComponentRidesModal({
   const addCandidates = useMemo(() => {
     const needle = searchText.trim().toLowerCase();
     return (ridesData?.rides ?? []).filter((ride) => {
-      if ((ride.bikeId ?? null) === (bikeId ?? null) || adjustedRideIds.has(ride.id)) return false;
+      // Mirror the backend's rideOnComponentBike check (`!= null &&` first):
+      // a ride is "on the component's bike" only when both sides are real
+      // bikes. Nullish equality would make spare component (bikeId null) +
+      // unassigned ride (bikeId null) compare equal and hide exactly the
+      // rides most relevant to apply to a spare.
+      const onComponentBike = bikeId != null && ride.bikeId === bikeId;
+      if (onComponentBike || adjustedRideIds.has(ride.id)) return false;
       if (!needle) return true;
       return [ride.location, ride.trailSystem, ride.rideType]
         .some((field) => field?.toLowerCase().includes(needle));
