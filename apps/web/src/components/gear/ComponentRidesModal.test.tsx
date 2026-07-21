@@ -193,4 +193,49 @@ describe('ComponentRidesModal', () => {
       variables: { componentId: 'comp-1', rideId: 'r-other', kind: 'INCLUDE' },
     });
   });
+
+  it('Add tab advertises the window and loads older rides via cursor when a full page came back', () => {
+    // Exactly one full page (300) -> older rides may exist beyond the window.
+    const fullPage = Array.from({ length: 300 }, (_, i) => ({
+      id: `r-${i}`,
+      startTime: '2026-06-20T00:00:00.000Z',
+      durationSeconds: 1800,
+      bikeId: 'bike-2',
+      location: `Trail ${i}`,
+    }));
+    const mockFetchMoreRides = vi.fn();
+    mockRidesQuery.mockReturnValue({
+      data: { rides: fullPage },
+      loading: false,
+      fetchMore: mockFetchMoreRides,
+    });
+    renderModal();
+    fireEvent.click(screen.getByText('Add rides'));
+
+    expect(screen.getByText(/Showing your 300 most recent rides/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Load older rides'));
+    expect(mockFetchMoreRides).toHaveBeenCalledWith(
+      expect.objectContaining({
+        variables: expect.objectContaining({ after: 'r-299', take: 300 }),
+      })
+    );
+  });
+
+  it('Add tab shows no truncation UI when the first page came back short', () => {
+    mockRidesQuery.mockReturnValue({
+      data: {
+        rides: [
+          { id: 'r-only', startTime: '2026-06-20T00:00:00.000Z', durationSeconds: 1800, bikeId: 'bike-2', location: 'Trail' },
+        ],
+      },
+      loading: false,
+      fetchMore: vi.fn(),
+    });
+    renderModal();
+    fireEvent.click(screen.getByText('Add rides'));
+
+    expect(screen.queryByText(/most recent rides/)).not.toBeInTheDocument();
+    expect(screen.queryByText('Load older rides')).not.toBeInTheDocument();
+  });
 });

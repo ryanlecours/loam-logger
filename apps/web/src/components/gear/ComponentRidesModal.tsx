@@ -86,6 +86,8 @@ export function ComponentRidesModal({
   const [tab, setTab] = useState<'counted' | 'add'>('counted');
   const [pendingRideId, setPendingRideId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // True once a load-older page comes back short — no more rides to fetch.
+  const [addExhausted, setAddExhausted] = useState(false);
 
   const { data, loading, fetchMore, refetch } = useQuery<ComponentRidesPayload>(COMPONENT_RIDES, {
     variables: { componentId, take: PAGE_SIZE },
@@ -93,8 +95,13 @@ export function ComponentRidesModal({
   });
 
   // Rides from other bikes / unassigned, for the Apply tab. Only fetched
-  // once the rider opens that tab.
-  const { data: ridesData, loading: ridesLoading } = useQuery<{ rides: RideDto[] }>(RIDES, {
+  // once the rider opens that tab; cursor-paged via "Load older rides" so
+  // an old ride on another bike is reachable, not silently cut off.
+  const {
+    data: ridesData,
+    loading: ridesLoading,
+    fetchMore: fetchMoreRides,
+  } = useQuery<{ rides: RideDto[] }>(RIDES, {
     variables: { take: ADD_RIDES_TAKE },
     skip: tab !== 'add',
     fetchPolicy: 'cache-first',
@@ -139,6 +146,21 @@ export function ComponentRidesModal({
       ),
     [ridesData, bikeId, adjustedRideIds]
   );
+
+  // A full page means there may be older rides beyond the window.
+  const allFetchedRides = ridesData?.rides ?? [];
+  const addMayHaveMore =
+    !addExhausted && allFetchedRides.length > 0 && allFetchedRides.length % ADD_RIDES_TAKE === 0;
+
+  const loadOlderRides = () =>
+    fetchMoreRides({
+      variables: { take: ADD_RIDES_TAKE, after: allFetchedRides[allFetchedRides.length - 1]?.id },
+      updateQuery: (prev: { rides: RideDto[] }, { fetchMoreResult }) => {
+        if (!fetchMoreResult) return prev;
+        if (fetchMoreResult.rides.length < ADD_RIDES_TAKE) setAddExhausted(true);
+        return { rides: [...prev.rides, ...fetchMoreResult.rides] };
+      },
+    });
 
   const totalsDiffer =
     payload != null && Math.abs(payload.countedHours - payload.hoursUsed) >= 0.05;
@@ -292,7 +314,10 @@ export function ComponentRidesModal({
             </p>
             {ridesLoading && <p className="text-sm text-muted">Loading rides…</p>}
             {!ridesLoading && addCandidates.length === 0 && (
-              <p className="text-sm text-muted">No rides from other bikes to apply.</p>
+              <p className="text-sm text-muted">
+                No rides from other bikes to apply
+                {addMayHaveMore ? ' in your recent rides — load older rides below.' : '.'}
+              </p>
             )}
             {addCandidates.map((ride) => {
               const busy = pendingRideId === ride.id;
@@ -327,6 +352,16 @@ export function ComponentRidesModal({
                 </div>
               );
             })}
+            {addMayHaveMore && (
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" onClick={loadOlderRides}>
+                  Load older rides
+                </Button>
+                <span className="text-xs text-muted">
+                  Showing your {allFetchedRides.length} most recent rides
+                </span>
+              </div>
+            )}
           </div>
         )}
       </div>
