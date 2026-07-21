@@ -4,6 +4,7 @@ import {
   recomputeComponentHours,
   recomputeAdjustedComponentsForRides,
   findAdjustedComponentIdsForRides,
+  syncBikeComponentHours,
   type ComponentAttribution,
 } from './component-hours';
 import type { Prisma } from '@prisma/client';
@@ -13,6 +14,7 @@ const makeTx = () => ({
   component: {
     findUnique: jest.fn(),
     update: jest.fn(),
+    updateMany: jest.fn(),
   },
   serviceLog: {
     findFirst: jest.fn(),
@@ -304,5 +306,56 @@ describe('findAdjustedComponentIdsForRides', () => {
     const tx = makeTx();
     expect(await findAdjustedComponentIdsForRides(asTx(tx), [])).toEqual([]);
     expect(tx.componentRideAdjustment.findMany).not.toHaveBeenCalled();
+  });
+});
+
+describe('syncBikeComponentHours', () => {
+  // The return value is the invalidation contract: every bike whose hours
+  // this call actually moved, so callers can bust exactly those caches
+  // without reconstructing the primary bike themselves.
+  it('returns both the debited and credited bike when a ride moves bikes', async () => {
+    const tx = makeTx();
+    const affected = await syncBikeComponentHours(
+      asTx(tx),
+      'user-1',
+      { bikeId: 'bike-1', durationSeconds: 3600 },
+      { bikeId: 'bike-2', durationSeconds: 3600 }
+    );
+    expect(new Set(affected)).toEqual(new Set(['bike-1', 'bike-2']));
+  });
+
+  it('returns the single bike when only its duration changed', async () => {
+    const tx = makeTx();
+    const affected = await syncBikeComponentHours(
+      asTx(tx),
+      'user-1',
+      { bikeId: 'bike-1', durationSeconds: 3600 },
+      { bikeId: 'bike-1', durationSeconds: 7200 }
+    );
+    expect(affected).toEqual(['bike-1']);
+  });
+
+  it('returns the debited bike on delete (next bike null)', async () => {
+    const tx = makeTx();
+    const affected = await syncBikeComponentHours(
+      asTx(tx),
+      'user-1',
+      { bikeId: 'bike-1', durationSeconds: 3600 },
+      { bikeId: null, durationSeconds: 0 }
+    );
+    expect(affected).toEqual(['bike-1']);
+  });
+
+  it('returns nothing when neither bike nor duration changed', async () => {
+    const tx = makeTx();
+    const affected = await syncBikeComponentHours(
+      asTx(tx),
+      'user-1',
+      { bikeId: 'bike-1', durationSeconds: 3600 },
+      { bikeId: 'bike-1', durationSeconds: 3600 }
+    );
+    expect(affected).toEqual([]);
+    // A no-op must not touch component rows.
+    expect(tx.component.updateMany).not.toHaveBeenCalled();
   });
 });

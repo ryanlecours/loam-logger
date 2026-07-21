@@ -8,6 +8,7 @@ import {
   findAdjustedComponentIdsForRides,
   recomputeAdjustedComponentsForRides,
 } from '../lib/component-hours';
+import { invalidateBikePredictionsForBikes } from '../services/prediction/cache';
 import { logError } from '../lib/logger';
 import { fireRideNotifications } from '../services/notification.service';
 import { enqueueWeatherJob, enqueueLiftDetectionJob } from '../lib/queue';
@@ -234,7 +235,7 @@ async function processActivityEvent(event: StravaWebhookEvent): Promise<void> {
 
   // Handle different event types
   if (aspect_type === 'delete') {
-    await prisma.$transaction(async (tx) => {
+    const affectedBikeIds = await prisma.$transaction(async (tx) => {
       const existing = await tx.ride.findUnique({
         where: { stravaActivityId: activityId.toString() },
         select: { id: true, userId: true, durationSeconds: true, bikeId: true },
@@ -242,7 +243,7 @@ async function processActivityEvent(event: StravaWebhookEvent): Promise<void> {
 
       if (!existing || existing.userId !== userAccount.userId) {
         console.log(`[Strava Activity Event] No ride to delete for activity ${activityId}`);
-        return;
+        return [] as string[];
       }
 
       // Capture BEFORE the delete — adjustment rows cascade away with the
@@ -250,7 +251,7 @@ async function processActivityEvent(event: StravaWebhookEvent): Promise<void> {
       // below never touches.
       const adjustedComponentIds = await findAdjustedComponentIdsForRides(tx, [existing.id]);
 
-      await syncBikeComponentHours(
+      const affected = await syncBikeComponentHours(
         tx,
         userAccount.userId,
         { bikeId: existing.bikeId ?? null, durationSeconds: existing.durationSeconds },
@@ -259,8 +260,12 @@ async function processActivityEvent(event: StravaWebhookEvent): Promise<void> {
 
       await tx.ride.delete({ where: { id: existing.id } });
 
-      await recomputeAdjustedComponentsForRides(tx, { componentIds: adjustedComponentIds });
+      const adjustedBikeIds = await recomputeAdjustedComponentsForRides(tx, { componentIds: adjustedComponentIds });
+      return [...affected, ...adjustedBikeIds];
     });
+    // Bust cached predictions for every bike whose hours changed (previously
+    // a gap — this webhook decremented hours without invalidating the cache).
+    await invalidateBikePredictionsForBikes(userAccount.userId, affectedBikeIds);
     console.log(`[Strava Activity Event] Deleted ride for activity ${activityId}`);
     return;
   }
@@ -342,7 +347,7 @@ async function processActivityEvent(event: StravaWebhookEvent): Promise<void> {
 
       const autoLocation = await extractStravaLocation(activity);
 
-      const { syncedRideId, isNewRide } = await prisma.$transaction(async (tx) => {
+      const { syncedRideId, isNewRide, affectedBikeIds } = await prisma.$transaction(async (tx) => {
         const existing = await tx.ride.findUnique({
           where: { stravaActivityId: activityId.toString() },
           select: { id: true, durationSeconds: true, bikeId: true, location: true },
@@ -392,7 +397,7 @@ async function processActivityEvent(event: StravaWebhookEvent): Promise<void> {
           },
         });
 
-        await syncBikeComponentHours(
+        const affectedBikeIds = await syncBikeComponentHours(
           tx,
           userAccount.userId,
           {
@@ -407,8 +412,12 @@ async function processActivityEvent(event: StravaWebhookEvent): Promise<void> {
           existing ? ride.id : undefined
         );
 
-        return { syncedRideId: ride.id, isNewRide: !existing };
+        return { syncedRideId: ride.id, isNewRide: !existing, affectedBikeIds };
       });
+
+      // Bust cached predictions for every bike whose hours changed (create or
+      // re-sync with a changed bike/duration both land here).
+      await invalidateBikePredictionsForBikes(userAccount.userId, affectedBikeIds);
 
       console.log(`[Strava Activity Event] Successfully stored ride for activity ${activityId}`);
 

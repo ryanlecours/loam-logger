@@ -10,6 +10,7 @@ import { getValidWhoopToken } from '../lib/whoop-token';
 import { getValidSuuntoToken } from '../lib/suunto-token';
 import { deriveLocation, deriveLocationAsync, shouldApplyAutoLocation } from '../lib/location';
 import { syncBikeComponentHours } from '../lib/component-hours';
+import { invalidateBikePredictionsForBikes } from '../services/prediction/cache';
 import { logger } from '../lib/logger';
 import { fireRideNotifications } from '../services/notification.service';
 import { config } from '../config/env';
@@ -325,6 +326,7 @@ async function upsertStravaActivity(userId: string, activity: StravaActivity): P
 
   let syncedRideId: string | null = null;
   let isNewRide = false;
+  let affectedBikeIds: string[] = [];
 
   await prisma.$transaction(async (tx) => {
     const existing = await tx.ride.findUnique({
@@ -380,7 +382,7 @@ async function upsertStravaActivity(userId: string, activity: StravaActivity): P
     syncedRideId = ride.id;
 
     // Sync component hours
-    await syncBikeComponentHours(
+    affectedBikeIds = await syncBikeComponentHours(
       tx,
       userId,
       { bikeId: existing?.bikeId ?? null, durationSeconds: existing?.durationSeconds ?? null },
@@ -389,6 +391,9 @@ async function upsertStravaActivity(userId: string, activity: StravaActivity): P
       existing ? ride.id : undefined
     );
   });
+
+  // Bust cached predictions for every bike whose hours changed.
+  await invalidateBikePredictionsForBikes(userId, affectedBikeIds);
 
   logger.debug({ stravaActivityId: activity.id }, '[SyncWorker] Upserted Strava activity');
 
@@ -634,9 +639,10 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
 
   // Sync component hours separately — secondary to recording the ride.
   // A failure here should not roll back the ride (Garmin won't resend it).
+  let affectedBikeIds: string[] = [];
   try {
-    await prisma.$transaction(async (tx) => {
-      await syncBikeComponentHours(
+    affectedBikeIds = await prisma.$transaction(async (tx) => {
+      return syncBikeComponentHours(
         tx,
         userId,
         { bikeId: existing?.bikeId ?? null, durationSeconds: existing?.durationSeconds ?? null },
@@ -666,6 +672,10 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
       extra: { userId, rideId: ride.id, bikeId: ride.bikeId, durationSeconds: ride.durationSeconds },
     });
   }
+
+  // Bust cached predictions for every bike whose hours changed. Empty (so a
+  // no-op) when the sync above threw — nothing was credited to invalidate.
+  await invalidateBikePredictionsForBikes(userId, affectedBikeIds);
 
   // Update session's lastActivityReceivedAt if there's a running session
   if (runningSession) {
@@ -805,6 +815,7 @@ async function upsertWhoopActivity(userId: string, workout: WhoopWorkout): Promi
 
   let syncedRideId: string | null = null;
   let isNewRide = false;
+  let affectedBikeIds: string[] = [];
 
   await prisma.$transaction(async (tx) => {
     const existing = await tx.ride.findUnique({
@@ -845,7 +856,7 @@ async function upsertWhoopActivity(userId: string, workout: WhoopWorkout): Promi
     syncedRideId = ride.id;
 
     // Sync component hours
-    await syncBikeComponentHours(
+    affectedBikeIds = await syncBikeComponentHours(
       tx,
       userId,
       { bikeId: existing?.bikeId ?? null, durationSeconds: existing?.durationSeconds ?? null },
@@ -854,6 +865,9 @@ async function upsertWhoopActivity(userId: string, workout: WhoopWorkout): Promi
       existing ? ride.id : undefined
     );
   });
+
+  // Bust cached predictions for every bike whose hours changed.
+  await invalidateBikePredictionsForBikes(userId, affectedBikeIds);
 
   // Fire-and-forget notifications
   if (syncedRideId) {
@@ -1062,9 +1076,10 @@ async function upsertSuuntoActivity(
 
   // Component hours are secondary — a failure here should not roll back the
   // ride because Suunto won't re-deliver it.
+  let affectedBikeIds: string[] = [];
   try {
-    await prisma.$transaction(async (tx) => {
-      await syncBikeComponentHours(
+    affectedBikeIds = await prisma.$transaction(async (tx) => {
+      return syncBikeComponentHours(
         tx,
         userId,
         { bikeId: existing?.bikeId ?? null, durationSeconds: existing?.durationSeconds ?? null },
@@ -1094,6 +1109,10 @@ async function upsertSuuntoActivity(
       extra: { userId, rideId: ride.id, bikeId: ride.bikeId, durationSeconds: ride.durationSeconds },
     });
   }
+
+  // Bust cached predictions for every bike whose hours changed. Empty (so a
+  // no-op) when the sync above threw — nothing was credited to invalidate.
+  await invalidateBikePredictionsForBikes(userId, affectedBikeIds);
 
   logger.debug({ suuntoWorkoutId: workout.workoutKey }, '[SyncWorker] Upserted Suunto workout');
 
