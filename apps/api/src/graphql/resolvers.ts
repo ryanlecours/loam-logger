@@ -3460,9 +3460,17 @@ export const resolvers = {
         });
       }
 
-      // Invalidate BOTH bikes when they differ (cross-bike INCLUDE): the
-      // component's bike gains/loses hours, and the ride's own bike surface
-      // may render this component's data after a future reinstall.
+      // Invalidate the affected bikes' prediction caches before the
+      // transaction AND again after (below) — cache-aside double-delete, the
+      // same before/after convention as addRide/updateRide. The pre-invalidate
+      // stops a concurrent read during the tx window from recomputing off the
+      // pre-mutation state and re-caching a soon-stale value; the post-
+      // invalidate clears whatever lost that race so the cache ends up
+      // reflecting the committed result. (Redis cost is bounded — these
+      // mutations are rate-limited to 60/min.) BOTH bikes when they differ
+      // (cross-bike INCLUDE): the component's bike gains/loses hours, and the
+      // ride's own bike surface may render this component's data after a
+      // future reinstall.
       const bikesToInvalidate = [
         ...new Set([component.bikeId, ride.bikeId].filter((b): b is string => !!b)),
       ];
@@ -3513,6 +3521,7 @@ export const resolvers = {
         return { updatedComponent: fresh, counted: nowCounted };
       });
 
+      // Post-transaction half of the double-invalidation (see the pre-tx block).
       for (const bikeId of bikesToInvalidate) {
         await invalidateBikePrediction(userId, bikeId);
       }
@@ -3549,6 +3558,10 @@ export const resolvers = {
         throw new Error('Ride not found');
       }
 
+      // Before + after cache invalidation, same double-delete rationale as
+      // setComponentRideAdjustment above: the pre-invalidate closes the
+      // stale-recache race during the tx, the post-invalidate reflects the
+      // committed result. Both bikes when clearing a cross-bike INCLUDE.
       const bikesToInvalidate = [
         ...new Set([component.bikeId, ride.bikeId].filter((b): b is string => !!b)),
       ];
@@ -3575,6 +3588,7 @@ export const resolvers = {
         return { updatedComponent: fresh, counted: nowCounted };
       });
 
+      // Post-transaction half of the double-invalidation (see the pre-tx block).
       for (const bikeId of bikesToInvalidate) {
         await invalidateBikePrediction(userId, bikeId);
       }
