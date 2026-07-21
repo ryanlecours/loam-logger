@@ -42,7 +42,13 @@ import { checkRecentAuth } from '../auth/recent-auth';
 import type { AcquisitionCondition, BaselineMethod, BaselineConfidence, ServiceNotificationMode } from '@prisma/client';
 import { getBikeById, isSpokesConfigured } from '../services/spokes';
 import { parseISO } from 'date-fns';
-import { incrementBikeComponentHours, decrementBikeComponentHours } from '../lib/component-hours';
+import {
+  incrementBikeComponentHours,
+  decrementBikeComponentHours,
+  loadComponentAttribution,
+  computeCountedHours,
+  recomputeComponentHours,
+} from '../lib/component-hours';
 import { captureSetupSnapshot } from '../lib/capture-snapshot';
 import type { SetupSnapshot } from '@loam/shared';
 import { randomBytes } from 'crypto';
@@ -290,8 +296,10 @@ const cleanText = (v: unknown, max = MAX_LABEL_LEN) =>
  * the last anchor, so anchor changes require recomputing it from scratch —
  * otherwise the counter keeps the old window of rides baked in.
  *
- * Uses ride duration on the component's current bike as the wear proxy,
- * matching how `incrementBikeComponentHours` ticks the counter on ride upload.
+ * Delegates the hours math to the canonical adjustment-aware recompute in
+ * lib/component-hours.ts (ride duration on the component's current bike as
+ * the wear proxy, ± ComponentRideAdjustment rows), so service-log edits
+ * respect per-ride include/exclude corrections automatically.
  *
  * **Missing-component tolerance:** the initial `component.findUnique` can
  * return null if the component was deleted between the caller's ownership
@@ -310,33 +318,28 @@ async function recomputeComponentAfterServiceChange(
 ): Promise<void> {
   const component = await tx.component.findUnique({
     where: { id: componentId },
-    select: { id: true, bikeId: true },
+    select: { id: true },
   });
   if (!component) return;
 
+  // Re-anchor lastServicedAt to the newest remaining log (null when the
+  // last one was deleted), then delegate the hours math to the canonical
+  // adjustment-aware recompute in lib/component-hours.ts. The canonical
+  // rule also filters isDuplicate rides and falls back to installedAt when
+  // no service log exists — both deliberate corrections over the old
+  // inline aggregate (engine parity; a never-serviced part must not absorb
+  // the bike's pre-install history).
   const latestLog = await tx.serviceLog.findFirst({
     where: { componentId },
     orderBy: [{ performedAt: 'desc' }, { createdAt: 'desc' }],
     select: { performedAt: true },
   });
-  const newAnchor = latestLog?.performedAt ?? null;
-
-  let hoursUsed = 0;
-  if (component.bikeId) {
-    const { _sum } = await tx.ride.aggregate({
-      where: {
-        bikeId: component.bikeId,
-        ...(newAnchor ? { startTime: { gte: newAnchor } } : {}),
-      },
-      _sum: { durationSeconds: true },
-    });
-    hoursUsed = (_sum.durationSeconds ?? 0) / 3600;
-  }
-
   await tx.component.update({
     where: { id: componentId },
-    data: { lastServicedAt: newAnchor, hoursUsed },
+    data: { lastServicedAt: latestLog?.performedAt ?? null },
   });
+
+  await recomputeComponentHours(tx, componentId);
 }
 
 const componentLabelMap: Partial<Record<ComponentType, string>> = {
@@ -910,6 +913,90 @@ export const resolvers = {
       }
 
       return getRideTrack(userId, rideId);
+    },
+
+    // The rides behind a component's current hoursUsed number, per the
+    // canonical attribution rule in lib/component-hours.ts. Lists on-bike
+    // in-window rides (EXCLUDEd ones included but flagged) merged with
+    // INCLUDEd cross-bike rides (dormant pre-anchor ones flagged), newest
+    // first, id-cursor paged. Totals come from the same computeCountedHours
+    // the recompute uses, so the displayed number cannot diverge from what
+    // an adjustment would snap the counter to.
+    componentRides: async (
+      _: unknown,
+      { componentId, take = 50, after }: { componentId: string; take?: number; after?: string | null },
+      ctx: GraphQLContext
+    ) => {
+      const userId = requireUserId(ctx);
+
+      const rateLimit = await checkQueryRateLimit('componentRides', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
+
+      const attribution = await loadComponentAttribution(prisma, componentId);
+      // Strict not-found on foreign ownership — never reveal existence.
+      if (!attribution || attribution.component.userId !== userId) {
+        throw new Error('Component not found');
+      }
+
+      const { component, anchor, excludedRideIds, includedRideIds } = attribution;
+      const excluded = new Set(excludedRideIds);
+      const included = new Set(includedRideIds);
+      const limit = Math.min(100, Math.max(1, take));
+
+      // On-bike in-window rides OR explicitly INCLUDEd rides (any bike, any
+      // date — pre-anchor INCLUDEs are listed so the UI can show them as
+      // dormant rather than silently dropping them).
+      const orBranches: Prisma.RideWhereInput[] = [];
+      if (component.bikeId) {
+        orBranches.push({
+          bikeId: component.bikeId,
+          ...(anchor ? { startTime: { gte: anchor } } : {}),
+        });
+      }
+      if (includedRideIds.length) {
+        orBranches.push({ id: { in: includedRideIds } });
+      }
+
+      const rides = orBranches.length
+        ? await prisma.ride.findMany({
+            where: { userId, isDuplicate: false, OR: orBranches },
+            orderBy: [{ startTime: 'desc' }, { id: 'desc' }],
+            take: limit + 1, // one extra to detect hasMore
+            ...(after ? { skip: 1, cursor: { id: after } } : {}),
+          })
+        : [];
+
+      const hasMore = rides.length > limit;
+      const pageRides = hasMore ? rides.slice(0, -1) : rides;
+
+      const entries = pageRides.map((ride) => {
+        const isOnBike = ride.bikeId != null && ride.bikeId === component.bikeId;
+        const inWindow = !anchor || ride.startTime >= anchor;
+        const isExcluded = excluded.has(ride.id);
+        const isIncluded = included.has(ride.id);
+        return {
+          ride,
+          counted: inWindow && !isExcluded && (isOnBike || isIncluded),
+          adjustment: isExcluded ? 'EXCLUDE' : isIncluded ? 'INCLUDE' : null,
+          beforeAnchor: isIncluded && !inWindow,
+        };
+      });
+
+      const counted = await computeCountedHours(prisma, attribution);
+
+      return {
+        componentId,
+        anchor: anchor ? anchor.toISOString() : null,
+        entries,
+        countedHours: counted.hours,
+        hoursUsed: component.hoursUsed,
+        countedRideCount: counted.rideCount,
+        hasMore,
+      };
     },
 
     rides: async (_: unknown, { take = 1000, after, filter }: RidesArgs, ctx: GraphQLContext) => {

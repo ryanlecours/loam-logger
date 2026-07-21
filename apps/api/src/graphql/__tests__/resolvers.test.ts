@@ -34,6 +34,12 @@ jest.mock('../../lib/prisma', () => ({
     rideWeather: {
       groupBy: jest.fn().mockResolvedValue([]),
     },
+    componentRideAdjustment: {
+      findMany: jest.fn().mockResolvedValue([]),
+      upsert: jest.fn(),
+      findUnique: jest.fn(),
+      deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+    },
     stravaGearMapping: {
       deleteMany: jest.fn(),
     },
@@ -3198,6 +3204,7 @@ describe('GraphQL Resolvers', () => {
             update: mockComponentUpdate,
           },
           ride: { aggregate: mockRideAggregate },
+          componentRideAdjustment: mockPrisma.componentRideAdjustment,
         };
         return fn(tx);
       });
@@ -3322,6 +3329,9 @@ describe('GraphQL Resolvers', () => {
     it('recomputes when a non-latest log is moved past the previous latest', async () => {
       // A previously-non-latest log was moved forward to a date that now
       // beats the old latest — the anchor moves and the helper must run.
+      // The delegated recompute (lib/component-hours.ts) makes THREE
+      // serviceLog.findFirst calls total: the mutation's latest-check, the
+      // re-anchor, and loadComponentAttribution's anchor read.
       mockLogFindUnique.mockResolvedValueOnce({
         id: 'log-old',
         component: { id: 'comp-1', userId: 'user-123', bikeId: 'bike-1' },
@@ -3329,9 +3339,12 @@ describe('GraphQL Resolvers', () => {
       mockLogFindFirst
         .mockResolvedValueOnce({ id: 'log-latest', performedAt: new Date('2026-01-01') })
         // After the update, log-old is now the newest.
+        .mockResolvedValueOnce({ performedAt: new Date('2026-03-10') })
         .mockResolvedValueOnce({ performedAt: new Date('2026-03-10') });
-      mockComponentFindUnique.mockResolvedValueOnce({ id: 'comp-1', bikeId: 'bike-1' });
-      mockRideAggregate.mockResolvedValueOnce({ _sum: { durationSeconds: 3600 } });
+      mockComponentFindUnique.mockResolvedValue({
+        id: 'comp-1', userId: 'user-123', bikeId: 'bike-1', installedAt: null, hoursUsed: 0,
+      });
+      mockRideAggregate.mockResolvedValueOnce({ _sum: { durationSeconds: 3600 }, _count: 1 });
 
       const ctx = createMockContext('user-123');
       await mutation(
@@ -3340,9 +3353,14 @@ describe('GraphQL Resolvers', () => {
         ctx as never
       );
 
+      // Re-anchor and hours recompute are now two separate writes.
       expect(mockComponentUpdate).toHaveBeenCalledWith({
         where: { id: 'comp-1' },
-        data: { lastServicedAt: new Date('2026-03-10'), hoursUsed: 1 },
+        data: { lastServicedAt: new Date('2026-03-10') },
+      });
+      expect(mockComponentUpdate).toHaveBeenCalledWith({
+        where: { id: 'comp-1' },
+        data: { hoursUsed: 1 },
       });
     });
 
@@ -3354,10 +3372,13 @@ describe('GraphQL Resolvers', () => {
       // This log IS the latest
       mockLogFindFirst
         .mockResolvedValueOnce({ id: 'log-latest', performedAt: new Date('2026-03-01') })
-        // Second call: recompute helper asks for the newest remaining log
+        // Recompute re-anchor + attribution anchor both see the new date.
+        .mockResolvedValueOnce({ performedAt: new Date('2026-04-15') })
         .mockResolvedValueOnce({ performedAt: new Date('2026-04-15') });
-      mockComponentFindUnique.mockResolvedValueOnce({ id: 'comp-1', bikeId: 'bike-1' });
-      mockRideAggregate.mockResolvedValueOnce({ _sum: { durationSeconds: 7200 } }); // 2 hours
+      mockComponentFindUnique.mockResolvedValue({
+        id: 'comp-1', userId: 'user-123', bikeId: 'bike-1', installedAt: null, hoursUsed: 0,
+      });
+      mockRideAggregate.mockResolvedValueOnce({ _sum: { durationSeconds: 7200 }, _count: 2 }); // 2 hours
 
       const ctx = createMockContext('user-123');
       await mutation(
@@ -3366,17 +3387,24 @@ describe('GraphQL Resolvers', () => {
         ctx as never
       );
 
+      // Canonical aggregate: scoped to the user, duplicates filtered.
       expect(mockRideAggregate).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
+            userId: 'user-123',
             bikeId: 'bike-1',
+            isDuplicate: false,
             startTime: { gte: new Date('2026-04-15') },
           }),
         })
       );
       expect(mockComponentUpdate).toHaveBeenCalledWith({
         where: { id: 'comp-1' },
-        data: { lastServicedAt: new Date('2026-04-15'), hoursUsed: 2 },
+        data: { lastServicedAt: new Date('2026-04-15') },
+      });
+      expect(mockComponentUpdate).toHaveBeenCalledWith({
+        where: { id: 'comp-1' },
+        data: { hoursUsed: 2 },
       });
     });
 
@@ -3420,6 +3448,7 @@ describe('GraphQL Resolvers', () => {
             update: mockComponentUpdate,
           },
           ride: { aggregate: mockRideAggregate },
+          componentRideAdjustment: mockPrisma.componentRideAdjustment,
         };
         return fn(tx);
       });
@@ -3471,16 +3500,24 @@ describe('GraphQL Resolvers', () => {
       });
       mockLogFindFirst
         .mockResolvedValueOnce({ id: 'log-latest' }) // was latest
-        .mockResolvedValueOnce({ performedAt: new Date('2026-01-01') }); // prior log after delete
-      mockComponentFindUnique.mockResolvedValueOnce({ id: 'comp-1', bikeId: 'bike-1' });
-      mockRideAggregate.mockResolvedValueOnce({ _sum: { durationSeconds: 18000 } }); // 5 hours
+        // Prior log after delete: recompute re-anchor + attribution anchor.
+        .mockResolvedValueOnce({ performedAt: new Date('2026-01-01') })
+        .mockResolvedValueOnce({ performedAt: new Date('2026-01-01') });
+      mockComponentFindUnique.mockResolvedValue({
+        id: 'comp-1', userId: 'user-123', bikeId: 'bike-1', installedAt: null, hoursUsed: 0,
+      });
+      mockRideAggregate.mockResolvedValueOnce({ _sum: { durationSeconds: 18000 }, _count: 3 }); // 5 hours
 
       const ctx = createMockContext('user-123');
       await mutation({}, { id: 'log-latest' }, ctx as never);
 
       expect(mockComponentUpdate).toHaveBeenCalledWith({
         where: { id: 'comp-1' },
-        data: { lastServicedAt: new Date('2026-01-01'), hoursUsed: 5 },
+        data: { lastServicedAt: new Date('2026-01-01') },
+      });
+      expect(mockComponentUpdate).toHaveBeenCalledWith({
+        where: { id: 'comp-1' },
+        data: { hoursUsed: 5 },
       });
     });
 
@@ -3491,20 +3528,30 @@ describe('GraphQL Resolvers', () => {
       });
       mockLogFindFirst
         .mockResolvedValueOnce({ id: 'log-last' })
-        .mockResolvedValueOnce(null); // no remaining logs
-      mockComponentFindUnique.mockResolvedValueOnce({ id: 'comp-1', bikeId: 'bike-1' });
-      mockRideAggregate.mockResolvedValueOnce({ _sum: { durationSeconds: 360000 } }); // 100 hours
+        .mockResolvedValueOnce(null) // no remaining logs (re-anchor)
+        .mockResolvedValueOnce(null); // no remaining logs (attribution)
+      mockComponentFindUnique.mockResolvedValue({
+        id: 'comp-1', userId: 'user-123', bikeId: 'bike-1', installedAt: null, hoursUsed: 0,
+      });
+      mockRideAggregate.mockResolvedValueOnce({ _sum: { durationSeconds: 360000 }, _count: 10 }); // 100 hours
 
       const ctx = createMockContext('user-123');
       await mutation({}, { id: 'log-last' }, ctx as never);
 
+      // installedAt is null too, so the window is all-time (no startTime
+      // clause); canonical aggregate scopes by user and filters duplicates.
       expect(mockRideAggregate).toHaveBeenCalledWith({
-        where: { bikeId: 'bike-1' },
+        where: { userId: 'user-123', bikeId: 'bike-1', isDuplicate: false },
         _sum: { durationSeconds: true },
+        _count: true,
       });
       expect(mockComponentUpdate).toHaveBeenCalledWith({
         where: { id: 'comp-1' },
-        data: { lastServicedAt: null, hoursUsed: 100 },
+        data: { lastServicedAt: null },
+      });
+      expect(mockComponentUpdate).toHaveBeenCalledWith({
+        where: { id: 'comp-1' },
+        data: { hoursUsed: 100 },
       });
     });
 
@@ -5128,6 +5175,141 @@ describe('GraphQL Resolvers', () => {
       const eventProps = mockCaptureServerEvent.mock.calls[0][2] as Record<string, unknown>;
       expect(eventProps).not.toHaveProperty('text');
       expect(JSON.stringify(eventProps)).not.toContain(cachedResult.text);
+    });
+  });
+
+  describe('Query.componentRides', () => {
+    const resolver = resolvers.Query.componentRides;
+    const mockComponentFindUnique = prisma.component.findUnique as jest.Mock;
+    const mockServiceLogFindFirst = prisma.serviceLog.findFirst as jest.Mock;
+    const mockAdjustmentFindMany = prisma.componentRideAdjustment.findMany as jest.Mock;
+    const mockRideFindMany = prisma.ride.findMany as jest.Mock;
+    const mockRideAggregate = prisma.ride.aggregate as jest.Mock;
+
+    const ANCHOR = new Date('2026-06-01T00:00:00Z');
+
+    const ride = (id: string, over: Record<string, unknown> = {}) => ({
+      id,
+      bikeId: 'bike-1',
+      startTime: new Date('2026-06-15T00:00:00Z'),
+      durationSeconds: 3600,
+      ...over,
+    });
+
+    beforeEach(() => {
+      mockCheckQueryRateLimit.mockResolvedValue({ allowed: true, retryAfter: 0 });
+      mockComponentFindUnique.mockResolvedValue({
+        id: 'comp-1',
+        userId: 'user-123',
+        bikeId: 'bike-1',
+        installedAt: null,
+        hoursUsed: 12.5,
+      });
+      mockServiceLogFindFirst.mockResolvedValue({ performedAt: ANCHOR });
+      mockAdjustmentFindMany.mockResolvedValue([]);
+      mockRideFindMany.mockResolvedValue([]);
+      mockRideAggregate.mockResolvedValue({ _sum: { durationSeconds: 0 }, _count: 0 });
+    });
+
+    it('throws Unauthorized when unauthenticated', async () => {
+      const ctx = createMockContext(null);
+      await expect(
+        resolver({}, { componentId: 'comp-1' }, ctx as never)
+      ).rejects.toThrow('Unauthorized');
+    });
+
+    it('throws Component not found for a foreign component (strict IDOR check)', async () => {
+      mockComponentFindUnique.mockResolvedValue({
+        id: 'comp-1', userId: 'someone-else', bikeId: 'bike-1', installedAt: null, hoursUsed: 5,
+      });
+      const ctx = createMockContext('user-123');
+
+      await expect(
+        resolver({}, { componentId: 'comp-1' }, ctx as never)
+      ).rejects.toThrow('Component not found');
+      expect(mockRideFindMany).not.toHaveBeenCalled();
+    });
+
+    it('rejects when rate limited', async () => {
+      mockCheckQueryRateLimit.mockResolvedValue({ allowed: false, retryAfter: 30 });
+      const ctx = createMockContext('user-123');
+
+      await expect(
+        resolver({}, { componentId: 'comp-1' }, ctx as never)
+      ).rejects.toThrow('Rate limit exceeded');
+    });
+
+    it('flags entries: default counted, EXCLUDEd not counted, cross-bike INCLUDE counted, pre-anchor INCLUDE dormant', async () => {
+      mockAdjustmentFindMany.mockResolvedValue([
+        { rideId: 'r-excluded', kind: 'EXCLUDE' },
+        { rideId: 'r-included', kind: 'INCLUDE' },
+        { rideId: 'r-dormant', kind: 'INCLUDE' },
+      ]);
+      mockRideFindMany.mockResolvedValue([
+        ride('r-normal'),
+        ride('r-excluded'),
+        ride('r-included', { bikeId: 'bike-2' }),
+        ride('r-dormant', { bikeId: 'bike-2', startTime: new Date('2026-01-01T00:00:00Z') }),
+      ]);
+      const ctx = createMockContext('user-123');
+
+      const result = await resolver({}, { componentId: 'comp-1' }, ctx as never);
+
+      const byId = Object.fromEntries(
+        result.entries.map((e: { ride: { id: string } }) => [e.ride.id, e])
+      );
+      expect(byId['r-normal']).toMatchObject({ counted: true, adjustment: null, beforeAnchor: false });
+      expect(byId['r-excluded']).toMatchObject({ counted: false, adjustment: 'EXCLUDE' });
+      expect(byId['r-included']).toMatchObject({ counted: true, adjustment: 'INCLUDE', beforeAnchor: false });
+      expect(byId['r-dormant']).toMatchObject({ counted: false, adjustment: 'INCLUDE', beforeAnchor: true });
+    });
+
+    it('pages with an id cursor and reports hasMore via the take+1 sentinel', async () => {
+      const rides = Array.from({ length: 3 }, (_, i) => ride(`r-${i}`));
+      mockRideFindMany.mockResolvedValue(rides);
+      const ctx = createMockContext('user-123');
+
+      const result = await resolver(
+        {},
+        { componentId: 'comp-1', take: 2, after: 'r-cursor' },
+        ctx as never
+      );
+
+      expect(mockRideFindMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          take: 3, // limit + 1 sentinel
+          skip: 1,
+          cursor: { id: 'r-cursor' },
+        })
+      );
+      expect(result.hasMore).toBe(true);
+      expect(result.entries).toHaveLength(2);
+    });
+
+    it('returns canonical totals alongside the stored counter', async () => {
+      mockRideAggregate.mockResolvedValue({ _sum: { durationSeconds: 7200 }, _count: 2 });
+      const ctx = createMockContext('user-123');
+
+      const result = await resolver({}, { componentId: 'comp-1' }, ctx as never);
+
+      expect(result.countedHours).toBe(2);
+      expect(result.countedRideCount).toBe(2);
+      expect(result.hoursUsed).toBe(12.5); // stored counter passed through untouched
+      expect(result.anchor).toBe(ANCHOR.toISOString());
+    });
+
+    it('handles a spare component with no included rides (empty list, zero totals)', async () => {
+      mockComponentFindUnique.mockResolvedValue({
+        id: 'comp-1', userId: 'user-123', bikeId: null, installedAt: null, hoursUsed: 4,
+      });
+      mockServiceLogFindFirst.mockResolvedValue(null);
+      const ctx = createMockContext('user-123');
+
+      const result = await resolver({}, { componentId: 'comp-1' }, ctx as never);
+
+      expect(result.entries).toEqual([]);
+      expect(result.countedHours).toBe(0);
+      expect(mockRideFindMany).not.toHaveBeenCalled();
     });
   });
 });
