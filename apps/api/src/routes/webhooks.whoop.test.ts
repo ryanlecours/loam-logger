@@ -295,6 +295,40 @@ describe('WHOOP Webhook Handler', () => {
       expect(mockInvalidateBikePrediction).toHaveBeenCalledWith('user-123', 'bike-2');
     });
 
+    it('logs a targeted error (not "Processing failed") when invalidation fails after delete', async () => {
+      const handler = getRouteHandler('post', '/whoop');
+      const req = mockRequest({
+        body: {
+          user_id: 123456,
+          id: 'workout-uuid-to-delete',
+          event_type: 'workout.deleted',
+          timestamp: '2024-01-15T10:00:00Z',
+        },
+      });
+      const res = mockResponse();
+
+      (prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 'user-123' });
+      mockRideFindMany.mockResolvedValue([
+        { id: 'ride-1', bikeId: 'bike-1', durationSeconds: 3600 },
+      ]);
+      // The delete commits, then the post-commit cache bust fails.
+      mockInvalidateBikePrediction.mockRejectedValue(new Error('redis down'));
+
+      await handler!(req as Request, res as Response);
+
+      // Ride still deleted; failure logged specifically, NOT via the generic
+      // outer catch-all (which would fire misleading "Processing failed" alerts).
+      expect(mockRideDeleteMany).toHaveBeenCalledWith({ where: { id: { in: ['ride-1'] } } });
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.objectContaining({ workoutId: 'workout-uuid-to-delete', userId: 'user-123' }),
+        '[WHOOP Webhook] Cache invalidation failed after workout.deleted'
+      );
+      expect(logger.error).not.toHaveBeenCalledWith(
+        expect.anything(),
+        '[WHOOP Webhook] Processing failed'
+      );
+    });
+
     it('should log debug when deleting non-existent workout', async () => {
       const handler = getRouteHandler('post', '/whoop');
       const req = mockRequest({

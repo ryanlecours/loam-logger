@@ -159,10 +159,20 @@ r.post('/whoop', async (req: Request, res: Response) => {
 
         // Invalidate prediction caches for every bike whose component hours
         // changed (the bulk decrement and any adjusted-component recompute) —
-        // independent cache busts, so fire them together.
-        await Promise.all(
-          affectedBikeIds.map((bikeId) => invalidateBikePrediction(user.id, bikeId))
-        );
+        // independent cache busts, so fire them together. Best-effort: the
+        // delete already committed, so catch a bust failure here rather than
+        // letting it bubble to the outer catch and log a misleading
+        // "Processing failed" (a stale prediction self-heals at the cache TTL).
+        try {
+          await Promise.all(
+            affectedBikeIds.map((bikeId) => invalidateBikePrediction(user.id, bikeId))
+          );
+        } catch (err) {
+          logger.error(
+            { err, workoutId, userId: user.id },
+            '[WHOOP Webhook] Cache invalidation failed after workout.deleted'
+          );
+        }
         break;
       }
 
