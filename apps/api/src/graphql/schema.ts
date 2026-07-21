@@ -222,6 +222,18 @@ export const typeDefs = gql`
     remainingAfterBatch: Int!
   }
 
+  # Result of triggering a Garmin coordinate/weather repair backfill.
+  # status is one of:
+  #   STARTED         — a repair job was enqueued
+  #   ALREADY_RUNNING — a repair for this user is already in flight
+  #   NEEDS_RECONNECT — Garmin connected but lacks HISTORICAL_DATA_EXPORT scope
+  #   NOT_CONNECTED   — no active Garmin connection
+  #   NOTHING_TO_DO   — no Garmin rides are missing coordinates
+  type GarminWeatherBackfillResult {
+    status: String!
+    ridesToRepair: Int!
+  }
+
   # Server-side aggregation so dashboards don't have to pull a full list of
   # weather blobs just to count buckets. Returned for the authenticated user
   # only — the resolver enforces userId from context.
@@ -1051,6 +1063,9 @@ export const typeDefs = gql`
     createBillingPortalSession(platform: CheckoutPlatform): BillingPortalResult!
     selectBikeForDowngrade(bikeId: ID!): Bike!
     backfillWeatherForMyRides: BackfillWeatherResult!
+    # Re-import Garmin rides that are missing coordinates (and therefore weather)
+    # by re-triggering Garmin's backfill; throttled server-side via a queued job.
+    backfillGarminWeather: GarminWeatherBackfillResult!
     # Enable public sharing of a bike's history; returns the share URL.
     # Idempotent — re-enabling returns the existing link.
     enableBikeShare(bikeId: ID!): String!
@@ -1121,6 +1136,10 @@ export const typeDefs = gql`
     notifyOnRideUpload: Boolean!
     createdAt: String!
     ridesMissingWeather: Int!
+    # Count of the viewer's Garmin rides stored without coordinates (a past
+    # ingestion bug), which is why they have no weather. Drives the "re-import
+    # from Garmin" repair prompt. Pro-only (0 otherwise), mirroring weather.
+    garminRidesMissingCoords: Int!
     # Aggregated condition counts across the authenticated user's rides,
     # filtered by date/bike. Replaces client-side aggregation over the
     # rides list so dashboards don't have to pull full weather blobs.
