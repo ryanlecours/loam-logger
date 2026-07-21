@@ -6,6 +6,7 @@ import { isDuplicateActivity } from '../lib/duplicate-detector';
 import {
   findAdjustedComponentIdsForRides,
   recomputeAdjustedComponentsForRides,
+  syncBikeComponentHours,
 } from '../lib/component-hours';
 import { invalidateBikePrediction } from '../services/prediction/cache';
 
@@ -82,7 +83,10 @@ r.post<Empty, void, { keepRideId: string; deleteRideId: string }>(
       // Verify both rides belong to this user and check duplicate relationship
       const [keepRide, deleteRide] = await Promise.all([
         prisma.ride.findUnique({ where: { id: keepRideId }, select: { userId: true, duplicateOfId: true } }),
-        prisma.ride.findUnique({ where: { id: deleteRideId }, select: { userId: true, duplicateOfId: true } }),
+        prisma.ride.findUnique({
+          where: { id: deleteRideId },
+          select: { userId: true, duplicateOfId: true, bikeId: true, durationSeconds: true },
+        }),
       ]);
 
       if (!keepRide || !deleteRide) {
@@ -102,19 +106,48 @@ r.post<Empty, void, { keepRideId: string; deleteRideId: string }>(
         return sendBadRequest(res, 'Rides are not marked as duplicates of each other');
       }
 
-      // Delete the duplicate
-      await prisma.ride.delete({
-        where: { id: deleteRideId },
+      // Delete the duplicate and keep component hours + ride adjustments in
+      // sync. The auto-merge route already does this; the manual merge was a
+      // gap — it deleted the ride without decrementing the bike's component
+      // hours, recomputing adjusted components, or busting the cached
+      // predictions.
+      const adjustedBikeIds = await prisma.$transaction(async (tx) => {
+        // Capture BEFORE the delete — adjustment rows cascade away with the
+        // ride, and cross-bike INCLUDEs live on components the decrement
+        // below never touches.
+        const adjustedComponentIds = await findAdjustedComponentIdsForRides(tx, [deleteRideId]);
+
+        await syncBikeComponentHours(
+          tx,
+          userId,
+          { bikeId: deleteRide.bikeId ?? null, durationSeconds: deleteRide.durationSeconds },
+          { bikeId: null, durationSeconds: 0 }
+        );
+
+        // Delete the duplicate
+        await tx.ride.delete({
+          where: { id: deleteRideId },
+        });
+
+        // Clear duplicate flags on the kept ride
+        await tx.ride.update({
+          where: { id: keepRideId },
+          data: {
+            isDuplicate: false,
+            duplicateOfId: null,
+          },
+        });
+
+        return recomputeAdjustedComponentsForRides(tx, { componentIds: adjustedComponentIds });
       });
 
-      // Clear duplicate flags on the kept ride
-      await prisma.ride.update({
-        where: { id: keepRideId },
-        data: {
-          isDuplicate: false,
-          duplicateOfId: null,
-        },
-      });
+      // Invalidate prediction caches for every bike whose component hours changed.
+      for (const bikeId of new Set([
+        ...(deleteRide.bikeId ? [deleteRide.bikeId] : []),
+        ...adjustedBikeIds,
+      ])) {
+        await invalidateBikePrediction(userId, bikeId);
+      }
 
       console.log(`[Duplicates] Merged: kept ${keepRideId}, deleted ${deleteRideId}`);
 
