@@ -16,6 +16,7 @@ import {
   findAdjustedComponentIdsForRides,
   recomputeAdjustedComponentsForRides,
 } from '../lib/component-hours';
+import { invalidateBikePrediction } from '../services/prediction/cache';
 import { logError, logger } from '../lib/logger';
 import { acquireLock, releaseLock, extendLock, LOCK_TTL } from '../lib/rate-limit';
 import {
@@ -705,7 +706,7 @@ r.delete<Empty, void, Empty>(
         return map;
       }, new Map());
 
-      await prisma.$transaction(async (tx) => {
+      const adjustedBikeIds = await prisma.$transaction(async (tx) => {
         // Capture BEFORE the deleteMany — adjustment rows cascade away with
         // their rides; adjusted components need a canonical recompute after.
         const adjustedComponentIds = await findAdjustedComponentIdsForRides(
@@ -729,8 +730,15 @@ r.delete<Empty, void, Empty>(
           where: { userId, provider: 'suunto' },
         });
 
-        await recomputeAdjustedComponentsForRides(tx, { componentIds: adjustedComponentIds });
+        return recomputeAdjustedComponentsForRides(tx, { componentIds: adjustedComponentIds });
       });
+
+      // Invalidate prediction caches for every bike whose component hours
+      // changed — the decremented bikes plus any bike holding a component
+      // with cross-bike INCLUDE adjustments (mirrors duplicates auto-merge).
+      for (const bikeId of new Set([...hoursByBike.keys(), ...adjustedBikeIds])) {
+        await invalidateBikePrediction(userId, bikeId);
+      }
 
       return res.json({
         success: true,
