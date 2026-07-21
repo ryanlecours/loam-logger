@@ -245,9 +245,10 @@ export async function invalidateBikePredictionsForBikes(
   for (const bikeId of bikeIds) {
     if (bikeId) unique.add(bikeId);
   }
-  for (const bikeId of unique) {
-    await invalidateBikePrediction(userId, bikeId);
-  }
+  // Independent cache busts — fire them together rather than serially.
+  await Promise.all(
+    [...unique].map((bikeId) => invalidateBikePrediction(userId, bikeId))
+  );
 }
 
 /**
