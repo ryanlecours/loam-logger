@@ -12,7 +12,7 @@ import type {
 } from '@prisma/client';
 import { checkRateLimit, checkMutationRateLimit, checkQueryRateLimit, checkAuthRateLimit } from '../lib/rate-limit';
 import { getClientIp } from '../auth/utils';
-import { enqueueSyncJob, enqueueWeatherJob, enqueueLiftDetectionJob, type SyncProvider } from '../lib/queue';
+import { enqueueSyncJob, enqueueWeatherJob, enqueueLiftDetectionJob, enqueueGarminCoordRepairJob, type SyncProvider } from '../lib/queue';
 import { getRideTrack } from '../lib/ride-track';
 import { invalidateBikePrediction, getCachedAdvisorSummary, setCachedAdvisorSummary } from '../services/prediction/cache';
 import { generateSummary, DEFAULT_ADVISOR_MODEL } from '../services/advisor/summarize';
@@ -5787,6 +5787,60 @@ export const resolvers = {
       return { enqueuedCount, ridesWithoutCoords, remainingAfterBatch };
     },
 
+    // Re-import Garmin rides that are missing coordinates (a past ingestion bug
+    // stored null lat/lng, so they never got weather). Re-triggers Garmin's
+    // backfill over the affected span via a throttled, per-user queued job;
+    // Garmin re-delivers the activities and the fixed callback repopulates
+    // coords + weather. Returns a status the client can act on.
+    backfillGarminWeather: async (_: unknown, _args: unknown, ctx: GraphQLContext) => {
+      const userId = requireUserId(ctx);
+
+      const user = await prisma.user.findUniqueOrThrow({
+        where: { id: userId },
+        select: { subscriptionTier: true, isFoundingRider: true, role: true },
+      });
+      requirePro(user, 'Weather backfill');
+
+      const rateLimit = await checkMutationRateLimit('backfillGarminWeather', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(
+          `Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`,
+          { extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter } }
+        );
+      }
+
+      // Garmin's backfill API requires the HISTORICAL_DATA_EXPORT scope. Users
+      // who connected before we requested it get a 412 from Garmin, so surface
+      // a reconnect prompt instead of silently enqueueing doomed work.
+      const integration = await prisma.userIntegration.findUnique({
+        where: { userId_provider: { userId, provider: 'GARMIN' } },
+        select: { revokedAt: true, scopes: true },
+      });
+
+      if (!integration || integration.revokedAt) {
+        return { status: 'NOT_CONNECTED', ridesToRepair: 0 };
+      }
+      // Only block when scopes are recorded AND clearly lack the permission.
+      // A null scopes string is unknown, not proof of absence — let the worker
+      // attempt it rather than false-positive a reconnect.
+      if (integration.scopes && !integration.scopes.includes('HISTORICAL_DATA_EXPORT')) {
+        return { status: 'NEEDS_RECONNECT', ridesToRepair: 0 };
+      }
+
+      const ridesToRepair = await prisma.ride.count({
+        where: { userId, garminActivityId: { not: null }, startLat: null },
+      });
+      if (ridesToRepair === 0) {
+        return { status: 'NOTHING_TO_DO', ridesToRepair: 0 };
+      }
+
+      const enqueue = await enqueueGarminCoordRepairJob({ userId });
+      return {
+        status: enqueue.status === 'already_queued' ? 'ALREADY_RUNNING' : 'STARTED',
+        ridesToRepair,
+      };
+    },
+
     // Enable public sharing of a bike's history. Available to all tiers —
     // the branded share page is a growth surface, not a paid feature.
     // Idempotent: re-enabling returns the existing link.
@@ -6142,6 +6196,19 @@ export const resolvers = {
           weather: null,
           startLat: { not: null },
           startLng: { not: null },
+        },
+      });
+    },
+    // Garmin rides stored without coordinates → the "re-import from Garmin"
+    // repair prompt. Pro-only to match the weather feature it feeds.
+    garminRidesMissingCoords: async (parent: { id: string }, _args: unknown, ctx: GraphQLContext) => {
+      const tierUser = await ctx.loaders.tierUserById.load(parent.id);
+      if (!tierUser || !canSeeWeather(tierUser)) return 0;
+      return prisma.ride.count({
+        where: {
+          userId: parent.id,
+          garminActivityId: { not: null },
+          startLat: null,
         },
       });
     },

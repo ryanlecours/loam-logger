@@ -38,6 +38,11 @@ jest.mock('../services/notification.service', () => ({
   fireRideNotifications: (...args: unknown[]) => mockFireRideNotifications(...args),
 }));
 
+const mockEnqueueWeatherJob = jest.fn();
+jest.mock('../lib/queue', () => ({
+  enqueueWeatherJob: (...args: unknown[]) => mockEnqueueWeatherJob(...args),
+}));
+
 jest.mock('../lib/logger', () => ({
   createLogger: () => ({
     info: jest.fn(),
@@ -103,6 +108,7 @@ describe('POST /webhooks/suunto/workouts', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockIsActiveSource.mockResolvedValue(true);
+    mockEnqueueWeatherJob.mockResolvedValue(undefined);
     mockSyncBikeComponentHours.mockResolvedValue([]);
     mockUserAccountFindUnique.mockResolvedValue({ userId: 'user-1' });
     mockRideFindUnique.mockResolvedValue(null); // new ride by default
@@ -179,6 +185,35 @@ describe('POST /webhooks/suunto/workouts', () => {
     expect(mockFireRideNotifications).toHaveBeenCalledWith(
       expect.objectContaining({ isNewRide: false, isBackfill: false })
     );
+  });
+
+  it('enqueues a weather job for a cycling ride that has start coordinates', async () => {
+    // Regression guard: this webhook is the real-time Suunto path, and it
+    // previously never enqueued weather — so Suunto rides got none despite
+    // having valid coords. startPosition is {x: lng, y: lat}.
+    const handler = getPostHandler('/workouts');
+    const req = makeRequest(
+      makeWorkoutPayload({ startPosition: { x: -122.3512, y: 48.7174 } })
+    );
+    const res = makeResponse();
+
+    await handler!(req as Request, res as Response);
+    await flushAsync();
+
+    expect(mockEnqueueWeatherJob).toHaveBeenCalledTimes(1);
+    expect(mockEnqueueWeatherJob).toHaveBeenCalledWith({ rideId: 'ride-new-1' });
+  });
+
+  it('does not enqueue a weather job when the ride has no start coordinates', async () => {
+    // No startPosition → null coords → the weather worker would skip it anyway.
+    const handler = getPostHandler('/workouts');
+    const req = makeRequest(makeWorkoutPayload());
+    const res = makeResponse();
+
+    await handler!(req as Request, res as Response);
+    await flushAsync();
+
+    expect(mockEnqueueWeatherJob).not.toHaveBeenCalled();
   });
 
   it('does not fire notifications for non-cycling activities', async () => {

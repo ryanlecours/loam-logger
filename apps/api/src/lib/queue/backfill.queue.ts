@@ -16,7 +16,7 @@ const LOW_PRIORITY = 10; // Lower priority than sync jobs (which are 1)
 
 export type BackfillProvider = 'garmin' | 'suunto';
 
-export type BackfillJobName = 'backfillYear' | 'processCallback';
+export type BackfillJobName = 'backfillYear' | 'processCallback' | 'repairGarminCoords';
 
 export type BackfillJobData = {
   userId: string;
@@ -138,6 +138,45 @@ export async function enqueueCallbackJob(
 
     throw err;
   }
+}
+
+/**
+ * Build a deterministic job ID for a Garmin coord-repair backfill.
+ * One job per user → concurrent/repeated button clicks dedupe to a single
+ * in-flight repair.
+ */
+export function buildCoordRepairJobId(userId: string): string {
+  return `repairGarminCoords_${userId}`;
+}
+
+/**
+ * Enqueue a Garmin coordinate-repair backfill for a user. Idempotent by userId:
+ * while one repair is queued/running, further calls report `already_queued`
+ * instead of stacking duplicate work (and duplicate Garmin API load).
+ */
+export async function enqueueGarminCoordRepairJob(
+  data: { userId: string }
+): Promise<EnqueueBackfillResult> {
+  const queue = getBackfillQueue();
+  const jobId = buildCoordRepairJobId(data.userId);
+
+  // A prior repair that's still queued/active blocks a duplicate. But BullMQ
+  // retains completed/failed jobs (removeOnComplete), so re-check state and
+  // allow a fresh run once the previous one has finished — the user may have
+  // ridden more since, or the last run only partially recovered.
+  const existing = await queue.getJob(jobId);
+  if (existing) {
+    const state = await existing.getState();
+    if (state !== 'completed' && state !== 'failed' && state !== 'unknown') {
+      return { status: 'already_queued', jobId };
+    }
+    // Stale terminal job under this id — remove it so the id can be reused.
+    await existing.remove();
+  }
+
+  await queue.add('repairGarminCoords', { userId: data.userId, provider: 'garmin' }, { jobId });
+  logger.info({ jobId, userId: data.userId }, '[BackfillQueue] Enqueued Garmin coord-repair job');
+  return { status: 'queued', jobId };
 }
 
 /**
