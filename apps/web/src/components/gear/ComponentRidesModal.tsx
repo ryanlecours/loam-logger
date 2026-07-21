@@ -84,7 +84,10 @@ export function ComponentRidesModal({
   onClose,
 }: ComponentRidesModalProps) {
   const [tab, setTab] = useState<'counted' | 'add'>('counted');
-  const [pendingRideId, setPendingRideId] = useState<string | null>(null);
+  // Per-row in-flight tracking (a Set, not a single id): clicking a second
+  // row while the first mutation is still pending must not re-enable the
+  // first row's button — that would allow a double-submit on it.
+  const [pendingRideIds, setPendingRideIds] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   // True once a load-older page comes back short — no more rides to fetch.
   const [addExhausted, setAddExhausted] = useState(false);
@@ -133,11 +136,9 @@ export function ComponentRidesModal({
     refetchQueries: [{ query: BIKES }],
     onCompleted: () => {
       refetch();
-      setPendingRideId(null);
     },
     onError: (err: Error) => {
       setError(err.message || 'Something went wrong.');
-      setPendingRideId(null);
     },
   };
   const [setAdjustment] = useMutation(SET_COMPONENT_RIDE_ADJUSTMENT, refetchAfterMutation);
@@ -145,10 +146,20 @@ export function ComponentRidesModal({
 
   const runForRide = (rideId: string, run: () => Promise<unknown>) => {
     setError(null);
-    setPendingRideId(rideId);
-    run().catch(() => {
-      /* handled in onError */
-    });
+    setPendingRideIds((prev) => new Set(prev).add(rideId));
+    run()
+      .catch(() => {
+        /* surfaced via onError */
+      })
+      // Clear only THIS ride's pending flag, so a still-in-flight sibling
+      // row stays disabled.
+      .finally(() => {
+        setPendingRideIds((prev) => {
+          const next = new Set(prev);
+          next.delete(rideId);
+          return next;
+        });
+      });
   };
 
   // Candidate rides for Apply: not on this component's bike, not already
@@ -261,7 +272,7 @@ export function ComponentRidesModal({
             )}
             {entries.map((entry) => {
               const { ride } = entry;
-              const busy = pendingRideId === ride.id;
+              const busy = pendingRideIds.has(ride.id);
               return (
                 <div
                   key={ride.id}
@@ -387,7 +398,7 @@ export function ComponentRidesModal({
               </p>
             )}
             {addCandidates.map((ride) => {
-              const busy = pendingRideId === ride.id;
+              const busy = pendingRideIds.has(ride.id);
               return (
                 <div
                   key={ride.id}

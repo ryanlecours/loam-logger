@@ -169,6 +169,42 @@ describe('ComponentRidesModal', () => {
     });
   });
 
+  it('keeps an in-flight row disabled when another row is clicked (no double-submit)', () => {
+    mockComponentRidesQuery.mockReturnValue({
+      data: {
+        componentRides: {
+          ...basePayload.componentRides,
+          entries: [entry('r-a'), entry('r-b')],
+        },
+      },
+      loading: false,
+      fetchMore: vi.fn(),
+      refetch: vi.fn(),
+    });
+    // Never resolves — both mutations stay in flight for the whole test.
+    mockSetAdjustment.mockReturnValue(new Promise(() => {}));
+
+    renderModal();
+    const btnA = () => screen.getByTestId('component-ride-r-a').querySelector('button')!;
+    const btnB = () => screen.getByTestId('component-ride-r-b').querySelector('button')!;
+
+    fireEvent.click(btnA());
+    expect(btnA()).toBeDisabled();
+
+    // Clicking B must NOT re-enable A (a single pendingRideId would flip to B
+    // and re-open A to a second, concurrent submit).
+    fireEvent.click(btnB());
+    expect(btnA()).toBeDisabled();
+    expect(btnB()).toBeDisabled();
+
+    // Attempted double-submit on the still-pending A — disabled, so a no-op.
+    fireEvent.click(btnA());
+    const aSubmits = mockSetAdjustment.mock.calls.filter(
+      (call) => call[0]?.variables?.rideId === 'r-a'
+    );
+    expect(aSubmits).toHaveLength(1);
+  });
+
   it('Add tab lists only unadjusted rides from other bikes and applies INCLUDE', () => {
     mockRidesQuery.mockReturnValue({
       data: {
