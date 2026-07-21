@@ -33,6 +33,8 @@ export interface ComponentWearWeights {
 
 /** Ride metrics needed for wear calculation */
 export interface RideMetrics {
+  /** Ride id — used to apply per-component ride adjustments (exclude/include). */
+  id: string;
   durationSeconds: number;
   distanceMeters: number;
   elevationGainMeters: number;

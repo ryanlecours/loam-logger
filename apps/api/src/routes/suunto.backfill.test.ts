@@ -86,6 +86,8 @@ const mockDecrementBikeComponentHours = jest.fn();
 jest.mock('../lib/component-hours', () => ({
   incrementBikeComponentHours: mockIncrementBikeComponentHours,
   decrementBikeComponentHours: mockDecrementBikeComponentHours,
+  findAdjustedComponentIdsForRides: jest.fn().mockResolvedValue([]),
+  recomputeAdjustedComponentsForRides: jest.fn().mockResolvedValue([]),
 }));
 
 const mockFetch = jest.fn();

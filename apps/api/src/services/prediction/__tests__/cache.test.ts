@@ -10,6 +10,7 @@ import {
   getCachedPrediction,
   setCachedPrediction,
   invalidateBikePrediction,
+  invalidateBikePredictionsForBikes,
   invalidateUserPredictions,
   clearMemoryCache,
   getMemoryCacheSize,
@@ -19,6 +20,7 @@ import {
   invalidateBikeAdvisorSummary,
   invalidateUserAdvisorSummaries,
 } from '../cache';
+import { ALGO_VERSION } from '../config';
 import type { BikePredictionSummary } from '../types';
 import type { AdvisorSummaryResult } from '../../advisor/summarize';
 
@@ -32,13 +34,15 @@ describe('prediction cache', () => {
     dueNowCount: 0,
     dueSoonCount: 1,
     generatedAt: new Date('2024-01-15T10:00:00Z'),
-    algoVersion: 'v1',
+    algoVersion: ALGO_VERSION,
   };
 
+  // Seed with the live ALGO_VERSION — invalidation scans version-prefixed
+  // keys, so hardcoding a stale version here would silently test nothing.
   const cacheParams = {
     userId: 'user-123',
     bikeId: 'bike-123',
-    algoVersion: 'v1',
+    algoVersion: ALGO_VERSION,
     planTier: 'PRO' as const,
     predictionMode: 'simple' as const,
   };
@@ -51,7 +55,7 @@ describe('prediction cache', () => {
   describe('buildCacheKey', () => {
     it('should build correct cache key format', () => {
       const key = buildCacheKey(cacheParams);
-      expect(key).toBe('pred:v1:user:user-123:bike:bike-123:tier:PRO:mode:simple');
+      expect(key).toBe(`pred:${ALGO_VERSION}:user:user-123:bike:bike-123:tier:PRO:mode:simple`);
     });
 
     it('should differentiate FREE and PRO keys', () => {
@@ -226,6 +230,34 @@ describe('prediction cache', () => {
         100
       );
       expect(mockRedis.del).toHaveBeenCalledWith('key1', 'key2');
+    });
+  });
+
+  describe('invalidateBikePredictionsForBikes', () => {
+    it('invalidates every listed bike, skips nulls, and de-dupes', async () => {
+      (isRedisReady as jest.Mock).mockReturnValue(false);
+
+      await setCachedPrediction({ ...cacheParams, bikeId: 'bike-a' }, { ...mockPrediction, bikeId: 'bike-a' });
+      await setCachedPrediction({ ...cacheParams, bikeId: 'bike-b' }, { ...mockPrediction, bikeId: 'bike-b' });
+      await setCachedPrediction({ ...cacheParams, bikeId: 'bike-c' }, { ...mockPrediction, bikeId: 'bike-c' });
+      expect(getMemoryCacheSize()).toBe(3);
+
+      // Duplicate 'bike-a' and a null/undefined entry must not throw and must
+      // not touch bike-c.
+      await invalidateBikePredictionsForBikes('user-123', ['bike-a', 'bike-a', null, undefined, 'bike-b']);
+
+      // bike-a + bike-b cleared, bike-c untouched.
+      expect(getMemoryCacheSize()).toBe(1);
+    });
+
+    it('is a no-op on an empty list', async () => {
+      (isRedisReady as jest.Mock).mockReturnValue(false);
+      await setCachedPrediction({ ...cacheParams, bikeId: 'bike-a' }, { ...mockPrediction, bikeId: 'bike-a' });
+      expect(getMemoryCacheSize()).toBe(1);
+
+      await invalidateBikePredictionsForBikes('user-123', []);
+
+      expect(getMemoryCacheSize()).toBe(1);
     });
   });
 

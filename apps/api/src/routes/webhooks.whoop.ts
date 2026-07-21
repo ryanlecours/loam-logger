@@ -3,6 +3,12 @@ import { prisma } from '../lib/prisma';
 import { enqueueSyncJob } from '../lib/queue/sync.queue';
 import { logger } from '../lib/logger';
 import { isActiveSource } from '../lib/active-source';
+import {
+  findAdjustedComponentIdsForRides,
+  recomputeAdjustedComponentsForRides,
+  syncBikeComponentHours,
+} from '../lib/component-hours';
+import { invalidateBikePrediction } from '../services/prediction/cache';
 
 const r = createRouter();
 
@@ -97,20 +103,74 @@ r.post('/whoop', async (req: Request, res: Response) => {
     // Handle different event types
     switch (event_type) {
       case 'workout.deleted': {
-        // Delete the ride
-        const updateResult = await prisma.ride.deleteMany({
-          where: { userId: user.id, whoopWorkoutId: workoutId },
-        });
+        // Delete the ride(s) and keep component hours + ride adjustments in
+        // sync — mirrors the Strava delete webhook. Without this, a deleted
+        // WHOOP workout leaves its hours credited to the bike's components
+        // and orphans any cross-bike INCLUDE adjustment that referenced it.
+        const affectedBikeIds = await prisma.$transaction(async (tx) => {
+          const rides = await tx.ride.findMany({
+            where: { userId: user.id, whoopWorkoutId: workoutId },
+            select: { id: true, bikeId: true, durationSeconds: true },
+          });
 
-        if (updateResult.count > 0) {
+          if (rides.length === 0) {
+            logger.debug(
+              { workoutId, userId: user.id },
+              '[WHOOP Webhook] Workout not found (may not have been imported)'
+            );
+            return [] as string[];
+          }
+
+          // Capture BEFORE the delete — adjustment rows cascade away with the
+          // ride, and cross-bike INCLUDEs live on components the per-ride
+          // decrement below never touches.
+          const adjustedComponentIds = await findAdjustedComponentIdsForRides(
+            tx,
+            rides.map((ride) => ride.id)
+          );
+
+          const bikeIds = new Set<string>();
+          for (const ride of rides) {
+            if (ride.bikeId) bikeIds.add(ride.bikeId);
+            await syncBikeComponentHours(
+              tx,
+              user.id,
+              { bikeId: ride.bikeId ?? null, durationSeconds: ride.durationSeconds },
+              { bikeId: null, durationSeconds: 0 }
+            );
+          }
+
+          await tx.ride.deleteMany({
+            where: { id: { in: rides.map((ride) => ride.id) } },
+          });
+
+          const adjustedBikeIds = await recomputeAdjustedComponentsForRides(tx, {
+            componentIds: adjustedComponentIds,
+          });
+          for (const bikeId of adjustedBikeIds) bikeIds.add(bikeId);
+
           logger.info(
-            { workoutId, userId: user.id },
+            { workoutId, userId: user.id, count: rides.length },
             '[WHOOP Webhook] Marked workout as deleted'
           );
-        } else {
-          logger.debug(
-            { workoutId, userId: user.id },
-            '[WHOOP Webhook] Workout not found (may not have been imported)'
+
+          return [...bikeIds];
+        });
+
+        // Invalidate prediction caches for every bike whose component hours
+        // changed (the bulk decrement and any adjusted-component recompute) —
+        // independent cache busts, so fire them together. Best-effort: the
+        // delete already committed, so catch a bust failure here rather than
+        // letting it bubble to the outer catch and log a misleading
+        // "Processing failed" (a stale prediction self-heals at the cache TTL).
+        try {
+          await Promise.all(
+            affectedBikeIds.map((bikeId) => invalidateBikePrediction(user.id, bikeId))
+          );
+        } catch (err) {
+          logger.error(
+            { err, workoutId, userId: user.id },
+            '[WHOOP Webhook] Cache invalidation failed after workout.deleted'
           );
         }
         break;

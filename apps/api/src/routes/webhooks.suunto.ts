@@ -5,6 +5,7 @@ import { createLogger, logError } from '../lib/logger';
 import { isActiveSource } from '../lib/active-source';
 import { isSuuntoCyclingActivity, getSuuntoRideType, isKnownSuuntoActivity } from '../types/suunto';
 import { syncBikeComponentHours } from '../lib/component-hours';
+import { invalidateBikePredictionsForBikes } from '../services/prediction/cache';
 import { fireRideNotifications } from '../services/notification.service';
 
 const log = createLogger('suunto-webhook');
@@ -197,6 +198,7 @@ async function processWorkoutCreated(event: WorkoutCreatedEvent): Promise<void> 
 
   let syncedRideId = '';
   let syncedBikeId: string | null = null;
+  let affectedBikeIds: string[] = [];
 
   await prisma.$transaction(async (tx) => {
     const ride = await tx.ride.upsert({
@@ -226,16 +228,21 @@ async function processWorkoutCreated(event: WorkoutCreatedEvent): Promise<void> 
       },
     });
 
-    await syncBikeComponentHours(
+    affectedBikeIds = await syncBikeComponentHours(
       tx,
       userAccount.userId,
       { bikeId: existing?.bikeId ?? null, durationSeconds: existing?.durationSeconds ?? null },
-      { bikeId: ride.bikeId ?? null, durationSeconds: ride.durationSeconds }
+      { bikeId: ride.bikeId ?? null, durationSeconds: ride.durationSeconds },
+      // Existing ride: adjusted components need the canonical recompute.
+      existing ? ride.id : undefined
     );
 
     syncedRideId = ride.id;
     syncedBikeId = ride.bikeId ?? null;
   });
+
+  // Bust cached predictions for every bike whose hours changed.
+  await invalidateBikePredictionsForBikes(userAccount.userId, affectedBikeIds);
 
   // Fire-and-forget: send "Ride Synced" + bike-select prompt for new rides.
   // Mirrors the Strava webhook + Garmin/WHOOP sync-worker call sites so all

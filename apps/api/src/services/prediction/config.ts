@@ -1,8 +1,11 @@
 import type { ComponentType, ComponentLocation } from '@prisma/client';
 import type { ComponentWearWeights } from './types';
 
-/** Algorithm version for cache keys */
-export const ALGO_VERSION = 'v1';
+/** Algorithm version for cache keys. v2: the since-service window anchors
+ * on component.installedAt when no service log exists (parity with the
+ * canonical hoursUsed anchor in lib/component-hours.ts) — bumped so cached
+ * v1 predictions computed with the old bike-level anchor can't linger. */
+export const ALGO_VERSION = 'v2';
 
 /** Default cache TTL in seconds (30 minutes) */
 export const DEFAULT_CACHE_TTL_SECONDS = 30 * 60;

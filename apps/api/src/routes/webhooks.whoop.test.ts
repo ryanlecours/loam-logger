@@ -1,6 +1,14 @@
 import { Request, Response } from 'express';
 
 // Mock dependencies before importing the module
+const mockTransaction = jest.fn();
+const mockRideFindMany = jest.fn();
+const mockRideDeleteMany = jest.fn();
+const mockSyncBikeComponentHours = jest.fn();
+const mockFindAdjustedComponentIdsForRides = jest.fn();
+const mockRecomputeAdjustedComponentsForRides = jest.fn();
+const mockInvalidateBikePrediction = jest.fn();
+
 jest.mock('../lib/prisma', () => ({
   prisma: {
     user: {
@@ -8,9 +16,22 @@ jest.mock('../lib/prisma', () => ({
     },
     ride: {
       updateMany: jest.fn(),
-      deleteMany: jest.fn(),
+      deleteMany: mockRideDeleteMany,
+      findMany: mockRideFindMany,
     },
+    $transaction: mockTransaction,
   },
+}));
+
+jest.mock('../lib/component-hours', () => ({
+  syncBikeComponentHours: (...args: unknown[]) => mockSyncBikeComponentHours(...args),
+  findAdjustedComponentIdsForRides: (...args: unknown[]) => mockFindAdjustedComponentIdsForRides(...args),
+  recomputeAdjustedComponentsForRides: (...args: unknown[]) =>
+    mockRecomputeAdjustedComponentsForRides(...args),
+}));
+
+jest.mock('../services/prediction/cache', () => ({
+  invalidateBikePrediction: (...args: unknown[]) => mockInvalidateBikePrediction(...args),
 }));
 
 jest.mock('../lib/queue/sync.queue', () => ({
@@ -66,6 +87,15 @@ describe('WHOOP Webhook Handler', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockIsActiveSource.mockResolvedValue(true);
+    // Run the delete transaction against a tx exposing just what the handler
+    // touches; the component-hours helpers are mocked so the tx stays thin.
+    mockTransaction.mockImplementation(async (fn: (tx: unknown) => unknown) =>
+      fn({ ride: { findMany: mockRideFindMany, deleteMany: mockRideDeleteMany } })
+    );
+    mockFindAdjustedComponentIdsForRides.mockResolvedValue([]);
+    mockRecomputeAdjustedComponentsForRides.mockResolvedValue([]);
+    mockSyncBikeComponentHours.mockResolvedValue([]);
+    mockRideDeleteMany.mockResolvedValue({ count: 1 });
   });
 
   describe('GET /whoop (verification)', () => {
@@ -213,16 +243,89 @@ describe('WHOOP Webhook Handler', () => {
       const res = mockResponse();
 
       (prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 'user-123' });
-      (prisma.ride.deleteMany as jest.Mock).mockResolvedValue({ count: 1 });
+      mockRideFindMany.mockResolvedValue([
+        { id: 'ride-1', bikeId: 'bike-1', durationSeconds: 3600 },
+      ]);
 
       await handler!(req as Request, res as Response);
 
-      expect(prisma.ride.deleteMany).toHaveBeenCalledWith({
+      expect(mockRideFindMany).toHaveBeenCalledWith({
         where: { userId: 'user-123', whoopWorkoutId: 'workout-uuid-to-delete' },
+        select: { id: true, bikeId: true, durationSeconds: true },
       });
+      expect(mockRideDeleteMany).toHaveBeenCalledWith({ where: { id: { in: ['ride-1'] } } });
       expect(logger.info).toHaveBeenCalledWith(
-        expect.objectContaining({ workoutId: 'workout-uuid-to-delete', userId: 'user-123' }),
+        expect.objectContaining({ workoutId: 'workout-uuid-to-delete', userId: 'user-123', count: 1 }),
         '[WHOOP Webhook] Marked workout as deleted'
+      );
+    });
+
+    it('should decrement component hours and invalidate prediction caches on workout.deleted', async () => {
+      const handler = getRouteHandler('post', '/whoop');
+      const req = mockRequest({
+        body: {
+          user_id: 123456,
+          id: 'workout-uuid-to-delete',
+          event_type: 'workout.deleted',
+          timestamp: '2024-01-15T10:00:00Z',
+        },
+      });
+      const res = mockResponse();
+
+      (prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 'user-123' });
+      mockRideFindMany.mockResolvedValue([
+        { id: 'ride-1', bikeId: 'bike-1', durationSeconds: 3600 },
+      ]);
+      // A cross-bike INCLUDE adjustment lives on a component of bike-2.
+      mockRecomputeAdjustedComponentsForRides.mockResolvedValue(['bike-2']);
+
+      await handler!(req as Request, res as Response);
+
+      // Captured the adjusted components BEFORE the delete cascades the rows away
+      expect(mockFindAdjustedComponentIdsForRides).toHaveBeenCalledWith(expect.anything(), ['ride-1']);
+      // Debited the ride's hours off bike-1's components
+      expect(mockSyncBikeComponentHours).toHaveBeenCalledWith(
+        expect.anything(),
+        'user-123',
+        { bikeId: 'bike-1', durationSeconds: 3600 },
+        { bikeId: null, durationSeconds: 0 }
+      );
+      // Both the ride's own bike and the recomputed cross-bike component's bike get busted
+      expect(mockInvalidateBikePrediction).toHaveBeenCalledWith('user-123', 'bike-1');
+      expect(mockInvalidateBikePrediction).toHaveBeenCalledWith('user-123', 'bike-2');
+    });
+
+    it('logs a targeted error (not "Processing failed") when invalidation fails after delete', async () => {
+      const handler = getRouteHandler('post', '/whoop');
+      const req = mockRequest({
+        body: {
+          user_id: 123456,
+          id: 'workout-uuid-to-delete',
+          event_type: 'workout.deleted',
+          timestamp: '2024-01-15T10:00:00Z',
+        },
+      });
+      const res = mockResponse();
+
+      (prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 'user-123' });
+      mockRideFindMany.mockResolvedValue([
+        { id: 'ride-1', bikeId: 'bike-1', durationSeconds: 3600 },
+      ]);
+      // The delete commits, then the post-commit cache bust fails.
+      mockInvalidateBikePrediction.mockRejectedValue(new Error('redis down'));
+
+      await handler!(req as Request, res as Response);
+
+      // Ride still deleted; failure logged specifically, NOT via the generic
+      // outer catch-all (which would fire misleading "Processing failed" alerts).
+      expect(mockRideDeleteMany).toHaveBeenCalledWith({ where: { id: { in: ['ride-1'] } } });
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.objectContaining({ workoutId: 'workout-uuid-to-delete', userId: 'user-123' }),
+        '[WHOOP Webhook] Cache invalidation failed after workout.deleted'
+      );
+      expect(logger.error).not.toHaveBeenCalledWith(
+        expect.anything(),
+        '[WHOOP Webhook] Processing failed'
       );
     });
 
@@ -239,7 +342,7 @@ describe('WHOOP Webhook Handler', () => {
       const res = mockResponse();
 
       (prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 'user-123' });
-      (prisma.ride.deleteMany as jest.Mock).mockResolvedValue({ count: 0 });
+      mockRideFindMany.mockResolvedValue([]);
 
       await handler!(req as Request, res as Response);
 
@@ -247,6 +350,8 @@ describe('WHOOP Webhook Handler', () => {
         expect.objectContaining({ workoutId: 'non-existent-workout' }),
         '[WHOOP Webhook] Workout not found (may not have been imported)'
       );
+      expect(mockRideDeleteMany).not.toHaveBeenCalled();
+      expect(mockInvalidateBikePrediction).not.toHaveBeenCalled();
     });
 
     it('should enqueue sync job on workout.created event', async () => {

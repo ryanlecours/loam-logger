@@ -8,72 +8,73 @@ datasource db {
 }
 
 model User {
-  id                  String              @id @default(uuid())
-  email               String              @unique
-  garminUserId        String?             @unique
-  accessToken         String?
-  refreshToken        String?
-  tokenExpiresAt      DateTime?
-  createdAt           DateTime            @default(now())
-  updatedAt           DateTime            @updatedAt
-  name                String?
-  avatarUrl           String?
-  emailVerified       DateTime?
-  passwordHash        String?
-  lastAuthAt          DateTime?           // Track last successful authentication time
-  age                 Int?
-  location            String?
-  onboardingCompleted Boolean             @default(false)
-  activeDataSource    AuthProvider?
-  stravaUserId        String?             @unique
-  suuntoUserId        String?             @unique
-  whoopUserId         String?             @unique
-  role                UserRole            @default(FREE)
-  mustChangePassword  Boolean             @default(false)
-  sessionTokenVersion Int                 @default(0)
-  activatedAt         DateTime?
-  activatedBy         String?
-  isFoundingRider     Boolean             @default(false)
-  subscriptionTier    SubscriptionTier    @default(FREE)
-  stripeCustomerId    String?             @unique
-  stripeSubscriptionId String?            @unique
-  needsDowngradeSelection Boolean         @default(false)
-  subscriptionProvider    SubscriptionProvider?
-  emailUnsubscribed   Boolean             @default(false)
-  hoursDisplayPreference String?          @default("remaining")
-  predictionMode         String?          @default("simple")
-  distanceUnit           String?          @default("mi")
-  calibrationCompletedAt DateTime?
-  calibrationDismissedAt DateTime?
+  id                             String                @id @default(uuid())
+  email                          String                @unique
+  garminUserId                   String?               @unique
+  accessToken                    String?
+  refreshToken                   String?
+  tokenExpiresAt                 DateTime?
+  createdAt                      DateTime              @default(now())
+  updatedAt                      DateTime              @updatedAt
+  name                           String?
+  avatarUrl                      String?
+  emailVerified                  DateTime?
+  passwordHash                   String?
+  lastAuthAt                     DateTime? // Track last successful authentication time
+  age                            Int?
+  location                       String?
+  onboardingCompleted            Boolean               @default(false)
+  activeDataSource               AuthProvider?
+  stravaUserId                   String?               @unique
+  suuntoUserId                   String?               @unique
+  whoopUserId                    String?               @unique
+  role                           UserRole              @default(FREE)
+  mustChangePassword             Boolean               @default(false)
+  sessionTokenVersion            Int                   @default(0)
+  activatedAt                    DateTime?
+  activatedBy                    String?
+  isFoundingRider                Boolean               @default(false)
+  subscriptionTier               SubscriptionTier      @default(FREE)
+  stripeCustomerId               String?               @unique
+  stripeSubscriptionId           String?               @unique
+  needsDowngradeSelection        Boolean               @default(false)
+  subscriptionProvider           SubscriptionProvider?
+  emailUnsubscribed              Boolean               @default(false)
+  hoursDisplayPreference         String?               @default("remaining")
+  predictionMode                 String?               @default("simple")
+  distanceUnit                   String?               @default("mi")
+  calibrationCompletedAt         DateTime?
+  calibrationDismissedAt         DateTime?
   pairedComponentMigrationSeenAt DateTime?
   trailStewardshipNoticeSeenAt   DateTime?
 
   // When true, suppress all server-side PostHog events for this user
   // (captureServerEvent short-circuits). Client-side opt-out is handled
   // separately via posthog.opt_out_capturing() from the browser SDK.
-  analyticsOptOut     Boolean             @default(false)
+  analyticsOptOut Boolean @default(false)
 
-  bikes               Bike[]
-  components          Component[]
-  tokens              OauthToken[]
-  rides               Ride[]
-  stravaGearMappings  StravaGearMapping[]
-  accounts            UserAccount[]
-  emailSends          EmailSend[]
-  termsAcceptances    TermsAcceptance[]
-  backfillRequests    BackfillRequest[]
-  importSessions      ImportSession[]
-  servicePreferences  UserServicePreference[]
-  componentInstalls   BikeComponentInstall[]
-  bikeNotes           BikeNote[]
-  oauthAttempts       OAuthAttempt[]
-  integrations        UserIntegration[]
-  notificationLogs    NotificationLog[]
-  passwordResetTokens PasswordResetToken[]
+  bikes                    Bike[]
+  components               Component[]
+  tokens                   OauthToken[]
+  rides                    Ride[]
+  stravaGearMappings       StravaGearMapping[]
+  accounts                 UserAccount[]
+  emailSends               EmailSend[]
+  termsAcceptances         TermsAcceptance[]
+  backfillRequests         BackfillRequest[]
+  importSessions           ImportSession[]
+  servicePreferences       UserServicePreference[]
+  componentInstalls        BikeComponentInstall[]
+  bikeNotes                BikeNote[]
+  oauthAttempts            OAuthAttempt[]
+  integrations             UserIntegration[]
+  notificationLogs         NotificationLog[]
+  passwordResetTokens      PasswordResetToken[]
+  componentRideAdjustments ComponentRideAdjustment[]
 
   // Push notification preferences
-  expoPushToken       String?
-  notifyOnRideUpload  Boolean             @default(true)
+  expoPushToken      String?
+  notifyOnRideUpload Boolean @default(true)
 }
 
 model OauthToken {
@@ -104,30 +105,30 @@ model UserAccount {
 }
 
 model Ride {
-  id                String          @id @default(uuid())
-  userId            String
-  garminActivityId  String?         @unique
-  startTime         DateTime
-  durationSeconds   Int
-  averageHr         Int?
-  rideType          String
-  bikeId            String?
-  createdAt         DateTime        @default(now())
-  updatedAt         DateTime        @updatedAt
-  distanceMeters    Float
-  elevationGainMeters Float
-  notes             String?
-  location          String?
-  trailSystem       String?
-  duplicateOfId     String?
-  isDuplicate       Boolean         @default(false)
-  stravaActivityId  String?         @unique
-  stravaGearId      String?
-  whoopWorkoutId    String?         @unique
-  suuntoWorkoutId   String?         @unique
-  importSessionId   String?
-  startLat          Float?
-  startLng          Float?
+  id                      String                    @id @default(uuid())
+  userId                  String
+  garminActivityId        String?                   @unique
+  startTime               DateTime
+  durationSeconds         Int
+  averageHr               Int?
+  rideType                String
+  bikeId                  String?
+  createdAt               DateTime                  @default(now())
+  updatedAt               DateTime                  @updatedAt
+  distanceMeters          Float
+  elevationGainMeters     Float
+  notes                   String?
+  location                String?
+  trailSystem             String?
+  duplicateOfId           String?
+  isDuplicate             Boolean                   @default(false)
+  stravaActivityId        String?                   @unique
+  stravaGearId            String?
+  whoopWorkoutId          String?                   @unique
+  suuntoWorkoutId         String?                   @unique
+  importSessionId         String?
+  startLat                Float?
+  startLng                Float?
   // Lift-detection deltas (docs/plans/lift-detection-plan.md §2.4). Sums over
   // this ride's LIFT segments; effective metrics = raw − delta. NULL means
   // "never analyzed", 0 means "analyzed, no lift found". Raw provider columns
@@ -136,20 +137,26 @@ model Ride {
   liftElevationGainMeters Float?
   liftDistanceMeters      Float?
   liftDetectorVersion     Int?
-  bike              Bike?           @relation(fields: [bikeId], references: [id])
-  duplicateOf       Ride?           @relation("DuplicateRides", fields: [duplicateOfId], references: [id], onDelete: SetNull)
-  duplicates        Ride[]          @relation("DuplicateRides")
-  user              User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  importSession     ImportSession?  @relation(fields: [importSessionId], references: [id], onDelete: SetNull)
-  weather           RideWeather?
-  stream            RideStream?
-  segments          RideSegment[]
-
-  @@index([importSessionId, bikeId])
+  bike                    Bike?                     @relation(fields: [bikeId], references: [id])
+  duplicateOf             Ride?                     @relation("DuplicateRides", fields: [duplicateOfId], references: [id], onDelete: SetNull)
+  duplicates              Ride[]                    @relation("DuplicateRides")
+  user                    User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  importSession           ImportSession?            @relation(fields: [importSessionId], references: [id], onDelete: SetNull)
+  weather                 RideWeather?
+  stream                  RideStream?
+  segments                RideSegment[]
+  componentAdjustments    ComponentRideAdjustment[]
   // NOTE: a partial index on (userId) WHERE startLat IS NOT NULL AND startLng IS NOT NULL
   // is defined via raw SQL in migration 20260415121000_ride_missing_weather_index
   // to keep the ridesMissingWeather COUNT(*) fast once the RideWeather table fills up.
   // Prisma doesn't support partial-index predicates, so the index is managed there.
+
+  @@index([importSessionId, bikeId])
+  // Backs the userId + bikeId + startTime(range/order) access pattern shared
+  // by componentRides (interactive, up to 60/min), the prediction engine's
+  // getAllRidesForBike / getRidesSinceDate, and the component-hours recompute
+  // aggregates — all previously seq-scanning the whole Ride table.
+  @@index([userId, bikeId, startTime])
 }
 
 enum WeatherCondition {
@@ -163,21 +170,21 @@ enum WeatherCondition {
 }
 
 model RideWeather {
-  id               String           @id @default(uuid())
-  rideId           String           @unique
-  tempC            Float
-  feelsLikeC       Float?
-  precipitationMm  Float
-  windSpeedKph     Float
-  humidity         Float?
-  wmoCode          Int
-  condition        WeatherCondition
-  lat              Float
-  lng              Float
-  source           String
-  fetchedAt        DateTime         @default(now())
-  rawJson          Json?
-  ride             Ride             @relation(fields: [rideId], references: [id], onDelete: Cascade)
+  id              String           @id @default(uuid())
+  rideId          String           @unique
+  tempC           Float
+  feelsLikeC      Float?
+  precipitationMm Float
+  windSpeedKph    Float
+  humidity        Float?
+  wmoCode         Int
+  condition       WeatherCondition
+  lat             Float
+  lng             Float
+  source          String
+  fetchedAt       DateTime         @default(now())
+  rawJson         Json?
+  ride            Ride             @relation(fields: [rideId], references: [id], onDelete: Cascade)
 
   @@index([condition])
 }
@@ -255,51 +262,51 @@ model WeatherCache {
 }
 
 model Bike {
-  id                 String              @id @default(uuid())
-  userId             String
-  nickname           String?
-  manufacturer       String
-  model              String
-  travelForkMm       Int?
-  travelShockMm      Int?
-  notes              String?
+  id                     String                      @id @default(uuid())
+  userId                 String
+  nickname               String?
+  manufacturer           String
+  model                  String
+  travelForkMm           Int?
+  travelShockMm          Int?
+  notes                  String?
   // Public share slug for the read-only bike-history page (loamlogger.app/share/<slug>).
   // Set on enableBikeShare, nulled on disable; unguessable random token.
-  shareSlug          String?             @unique
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt
-  year               Int?
-  sortOrder          Int                 @default(0)
-  spokesId           String?
-  buildKind          String?
-  category           String?
-  family             String?
-  frameMaterial      String?
-  gender             String?
-  hangerStandard     String?
-  isEbike            Boolean             @default(false)
-  isFrameset         Boolean             @default(false)
-  spokesUrl          String?
-  subcategory        String?
-  batteryWh          Int?
-  motorMaker         String?
-  motorModel         String?
-  motorPowerW        Int?
-  motorTorqueNm      Int?
-  thumbnailUrl         String?
-  acquisitionCondition AcquisitionCondition?
-  acquisitionDate      DateTime?
-  status               BikeStatus          @default(ACTIVE)
-  retiredAt            DateTime?
-  user                 User                @relation(fields: [userId], references: [id], onDelete: Cascade)
-  components           Component[]
-  Ride                 Ride[]
-  stravaGearMappings   StravaGearMapping[]
-  servicePreferences       BikeServicePreference[]
-  notificationPreference   BikeNotificationPreference?
-  notificationLogs         NotificationLog[]
-  installs                 BikeComponentInstall[]
-  bikeNotes                BikeNote[]
+  shareSlug              String?                     @unique
+  createdAt              DateTime                    @default(now())
+  updatedAt              DateTime                    @updatedAt
+  year                   Int?
+  sortOrder              Int                         @default(0)
+  spokesId               String?
+  buildKind              String?
+  category               String?
+  family                 String?
+  frameMaterial          String?
+  gender                 String?
+  hangerStandard         String?
+  isEbike                Boolean                     @default(false)
+  isFrameset             Boolean                     @default(false)
+  spokesUrl              String?
+  subcategory            String?
+  batteryWh              Int?
+  motorMaker             String?
+  motorModel             String?
+  motorPowerW            Int?
+  motorTorqueNm          Int?
+  thumbnailUrl           String?
+  acquisitionCondition   AcquisitionCondition?
+  acquisitionDate        DateTime?
+  status                 BikeStatus                  @default(ACTIVE)
+  retiredAt              DateTime?
+  user                   User                        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  components             Component[]
+  Ride                   Ride[]
+  stravaGearMappings     StravaGearMapping[]
+  servicePreferences     BikeServicePreference[]
+  notificationPreference BikeNotificationPreference?
+  notificationLogs       NotificationLog[]
+  installs               BikeComponentInstall[]
+  bikeNotes              BikeNote[]
 
   @@index([spokesId])
   @@index([userId, status])
@@ -322,41 +329,42 @@ model StravaGearMapping {
 }
 
 model Component {
-  id                    String             @id @default(uuid())
-  bikeId                String?
-  type                  ComponentType
-  location              ComponentLocation  @default(NONE)
-  brand                 String
-  model                 String
-  installedAt           DateTime?
-  hoursUsed             Float              @default(0)
-  serviceDueAtHours     Float?
-  notes                 String?
-  createdAt             DateTime           @default(now())
-  updatedAt             DateTime           @updatedAt
-  isStock               Boolean            @default(false)
-  baselineWearPercent   Int?               @default(0)
-  baselineMethod        BaselineMethod     @default(DEFAULT)
-  baselineConfidence    BaselineConfidence @default(HIGH)
-  baselineSetAt         DateTime?
-  lastServicedAt        DateTime?
-  userId                String
-  status                ComponentStatus    @default(INSTALLED)
+  id                  String             @id @default(uuid())
+  bikeId              String?
+  type                ComponentType
+  location            ComponentLocation  @default(NONE)
+  brand               String
+  model               String
+  installedAt         DateTime?
+  hoursUsed           Float              @default(0)
+  serviceDueAtHours   Float?
+  notes               String?
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+  isStock             Boolean            @default(false)
+  baselineWearPercent Int?               @default(0)
+  baselineMethod      BaselineMethod     @default(DEFAULT)
+  baselineConfidence  BaselineConfidence @default(HIGH)
+  baselineSetAt       DateTime?
+  lastServicedAt      DateTime?
+  userId              String
+  status              ComponentStatus    @default(INSTALLED)
 
   // Front/rear pairing support
-  pairGroupId           String?
-  retiredAt             DateTime?
-  replacedById          String?            @unique
+  pairGroupId  String?
+  retiredAt    DateTime?
+  replacedById String?   @unique
 
-  bike                  Bike?              @relation(fields: [bikeId], references: [id])
-  user                  User               @relation(fields: [userId], references: [id], onDelete: Cascade)
-  serviceLogs           ServiceLog[]
-  notificationLogs      NotificationLog[]
-  installs              BikeComponentInstall[]
+  bike             Bike?                     @relation(fields: [bikeId], references: [id])
+  user             User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  serviceLogs      ServiceLog[]
+  notificationLogs NotificationLog[]
+  installs         BikeComponentInstall[]
+  rideAdjustments  ComponentRideAdjustment[]
 
   // Self-referential relation for replacement chain
-  replacedBy            Component?         @relation("ComponentReplacement", fields: [replacedById], references: [id])
-  replaces              Component?         @relation("ComponentReplacement")
+  replacedBy Component? @relation("ComponentReplacement", fields: [replacedById], references: [id])
+  replaces   Component? @relation("ComponentReplacement")
 
   // Unique constraint: one active component per bike/type/location combination
   // Note: Retired components (retiredAt != null) should have bikeId set to null
@@ -403,6 +411,39 @@ model ServiceLog {
 
   @@index([componentId])
   @@index([performedAt])
+}
+
+enum ComponentRideAdjustmentKind {
+  // Ride is on the component's bike but should NOT count toward this
+  // component's hours (e.g. a different wheel was mounted for that ride).
+  EXCLUDE
+  // Ride is NOT on the component's bike (or is unassigned) but SHOULD count
+  // (e.g. this wheel was temporarily mounted on another bike).
+  INCLUDE
+}
+
+// Per-(component, ride) attribution override. State, not an event log: one
+// row per pair, upserted to set and deleted to clear. Absence of rows means
+// the default attribution rule (rides on the component's bike since the
+// last-service anchor). Rows survive service resets — an out-of-window
+// INCLUDE goes dormant, not deleted, and springs back if the anchor moves
+// (e.g. the service log is deleted or backdated).
+model ComponentRideAdjustment {
+  id          String                      @id @default(uuid())
+  userId      String
+  componentId String
+  rideId      String
+  kind        ComponentRideAdjustmentKind
+  createdAt   DateTime                    @default(now())
+  updatedAt   DateTime                    @updatedAt
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  component Component @relation(fields: [componentId], references: [id], onDelete: Cascade)
+  ride      Ride      @relation(fields: [rideId], references: [id], onDelete: Cascade)
+
+  @@unique([componentId, rideId])
+  @@index([rideId])
+  @@index([userId])
 }
 
 enum AuthProvider {
@@ -494,7 +535,7 @@ enum ComponentType {
   BRAKES
   DRIVETRAIN
   TIRES
-  WHEEL_HUBS @map("WHEELS")
+  WHEEL_HUBS      @map("WHEELS")
   DROPPER
   PEDALS
   CHAIN
@@ -547,7 +588,7 @@ enum ComponentStatus {
 
 enum BikeNoteType {
   MANUAL // User-created note with single snapshot
-  SWAP   // Auto-created during component swap/replace
+  SWAP // Auto-created during component swap/replace
 }
 
 enum EmailType {
@@ -649,16 +690,16 @@ model GeoCache {
 }
 
 model BackfillRequest {
-  id             String              @id @default(cuid())
+  id             String         @id @default(cuid())
   userId         String
-  user           User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   provider       AuthProvider
-  year           String              // "ytd", "2025", "2024", etc.
-  status         BackfillStatus      @default(pending)
+  year           String // "ytd", "2025", "2024", etc.
+  status         BackfillStatus @default(pending)
   ridesFound     Int?
-  backfilledUpTo DateTime?           // For YTD: the end timestamp of last backfill
-  createdAt      DateTime            @default(now())
-  updatedAt      DateTime            @updatedAt
+  backfilledUpTo DateTime? // For YTD: the end timestamp of last backfill
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
   completedAt    DateTime?
 
   @@unique([userId, provider, year])
@@ -742,12 +783,12 @@ model BikeServicePreference {
 }
 
 model BikeNote {
-  id             String       @id @default(uuid())
-  bikeId         String
-  userId         String
-  text           String       @db.Text
-  noteType       BikeNoteType @default(MANUAL)
-  createdAt      DateTime     @default(now())
+  id        String       @id @default(uuid())
+  bikeId    String
+  userId    String
+  text      String       @db.Text
+  noteType  BikeNoteType @default(MANUAL)
+  createdAt DateTime     @default(now())
 
   // JSON snapshots (immutable once created)
   snapshot       Json? // For MANUAL notes
@@ -773,14 +814,14 @@ enum ServiceNotificationMode {
 }
 
 model BikeNotificationPreference {
-  id                          String                  @id @default(uuid())
-  bikeId                      String                  @unique
-  serviceNotificationsEnabled Boolean                 @default(true)
-  serviceNotificationMode     ServiceNotificationMode @default(RIDES_BEFORE)
-  serviceNotificationThreshold Int                    @default(3)
-  createdAt                   DateTime                @default(now())
-  updatedAt                   DateTime                @updatedAt
-  bike                        Bike                    @relation(fields: [bikeId], references: [id], onDelete: Cascade)
+  id                           String                  @id @default(uuid())
+  bikeId                       String                  @unique
+  serviceNotificationsEnabled  Boolean                 @default(true)
+  serviceNotificationMode      ServiceNotificationMode @default(RIDES_BEFORE)
+  serviceNotificationThreshold Int                     @default(3)
+  createdAt                    DateTime                @default(now())
+  updatedAt                    DateTime                @updatedAt
+  bike                         Bike                    @relation(fields: [bikeId], references: [id], onDelete: Cascade)
 }
 
 enum NotificationType {
@@ -817,4 +858,3 @@ model PasswordResetToken {
   @@index([userId])
   @@index([expiresAt])
 }
-

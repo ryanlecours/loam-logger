@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ChevronDown, Pencil, ArrowLeftRight, RefreshCw, Wrench } from 'lucide-react';
+import { ChevronDown, Pencil, ArrowLeftRight, RefreshCw, Wrench, History } from 'lucide-react';
 import { StatusDot } from '../dashboard/StatusDot';
 import type { PredictionStatus } from '../../types/prediction';
 import { formatComponentLabel } from '../../utils/formatters';
 import { useHoursDisplay } from '../../hooks/useHoursDisplay';
 import { EditServiceModal, type EditableServiceLog } from '../dashboard/EditServiceModal';
+import { ComponentRidesModal } from './ComponentRidesModal';
 
 type ServiceLogDto = {
   id: string;
@@ -101,6 +102,7 @@ export function ComponentDetailRow({
 }: ComponentDetailRowProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [editingService, setEditingService] = useState<EditableServiceLog | null>(null);
+  const [showRides, setShowRides] = useState(false);
   const { hoursDisplay } = useHoursDisplay();
 
   const latestServiceLog = component.latestServiceLog ?? null;
@@ -318,31 +320,38 @@ export function ComponentDetailRow({
                 </div>
               )}
 
-              {/* Replace / Swap actions */}
-              {(onReplace || (showSwap && onSwap)) && (
-                <div className="component-detail-swap-actions">
-                  {onReplace && (
-                    <button
-                      type="button"
-                      className="component-detail-action-btn"
-                      onClick={(e) => { e.stopPropagation(); onReplace(); }}
-                    >
-                      <ArrowLeftRight size={11} />
-                      Replace
-                    </button>
-                  )}
-                  {showSwap && onSwap && (
-                    <button
-                      type="button"
-                      className="component-detail-action-btn"
-                      onClick={(e) => { e.stopPropagation(); onSwap(); }}
-                    >
-                      <RefreshCw size={11} />
-                      Swap with another bike
-                    </button>
-                  )}
-                </div>
-              )}
+              {/* View-rides / Replace / Swap actions. View rides is always
+                  available — every component has an hours history to inspect. */}
+              <div className="component-detail-swap-actions">
+                <button
+                  type="button"
+                  className="component-detail-action-btn"
+                  onClick={(e) => { e.stopPropagation(); setShowRides(true); }}
+                >
+                  <History size={11} />
+                  View rides
+                </button>
+                {onReplace && (
+                  <button
+                    type="button"
+                    className="component-detail-action-btn"
+                    onClick={(e) => { e.stopPropagation(); onReplace(); }}
+                  >
+                    <ArrowLeftRight size={11} />
+                    Replace
+                  </button>
+                )}
+                {showSwap && onSwap && (
+                  <button
+                    type="button"
+                    className="component-detail-action-btn"
+                    onClick={(e) => { e.stopPropagation(); onSwap(); }}
+                  >
+                    <RefreshCw size={11} />
+                    Swap with another bike
+                  </button>
+                )}
+              </div>
             </div>
           </motion.div>
         )}
@@ -357,6 +366,17 @@ export function ComponentDetailRow({
           componentLabel={fullLabel}
           bikeId={component.bikeId ?? undefined}
           onClose={() => setEditingService(null)}
+        />
+      )}
+
+      {/* Same lazy-mount rationale as EditServiceModal above: the modal owns
+          Apollo queries, so only mount it while open. */}
+      {showRides && (
+        <ComponentRidesModal
+          componentId={component.id}
+          componentLabel={fullLabel}
+          bikeId={component.bikeId}
+          onClose={() => setShowRides(false)}
         />
       )}
     </div>

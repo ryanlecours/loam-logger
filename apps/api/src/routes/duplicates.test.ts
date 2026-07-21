@@ -4,14 +4,18 @@ const mockFindMany = jest.fn();
 const mockTransaction = jest.fn();
 const mockUpdate = jest.fn();
 const mockUserFindUnique = jest.fn();
+const mockRideFindUnique = jest.fn();
 const mockDeleteMany = jest.fn();
 const mockUpdateMany = jest.fn();
 const mockExecuteRaw = jest.fn();
+const mockRideDelete = jest.fn();
+const mockComponentUpdateMany = jest.fn();
 
 jest.mock('../lib/prisma', () => ({
   prisma: {
     ride: {
       findMany: mockFindMany,
+      findUnique: mockRideFindUnique,
       update: mockUpdate,
       deleteMany: mockDeleteMany,
       updateMany: mockUpdateMany,
@@ -27,7 +31,16 @@ jest.mock('../lib/logger', () => ({
   logError: jest.fn(),
 }));
 
+// The auto-merge route now invalidates prediction caches and recomputes
+// adjusted components; mock both so tests stay Redis/DB-free.
+jest.mock('../services/prediction/cache', () => ({
+  invalidateBikePrediction: jest.fn().mockResolvedValue(undefined),
+}));
+
 import router from './duplicates';
+import { invalidateBikePrediction } from '../services/prediction/cache';
+
+const mockInvalidateBikePrediction = invalidateBikePrediction as jest.Mock;
 
 interface RouteLayer {
   route?: {
@@ -274,6 +287,7 @@ describe('POST /duplicates/auto-merge', () => {
       fn({
         $executeRaw: mockExecuteRaw,
         ride: { deleteMany: mockDeleteMany, updateMany: mockUpdateMany },
+        componentRideAdjustment: { findMany: jest.fn().mockResolvedValue([]) },
       })
     );
     mockExecuteRaw.mockResolvedValue(undefined);
@@ -380,6 +394,7 @@ describe('POST /duplicates/auto-merge', () => {
       fn({
         $executeRaw: mockExecuteRaw,
         ride: { deleteMany: mockDeleteMany, updateMany: mockUpdateMany },
+        componentRideAdjustment: { findMany: jest.fn().mockResolvedValue([]) },
       })
     );
     const dup: DupRow = {
@@ -392,5 +407,118 @@ describe('POST /duplicates/auto-merge', () => {
     await invokeHandler(handler, mockReq as Request, mockRes as Response);
 
     expect(jsonResponse).toMatchObject({ message: expect.stringContaining('Suunto data') });
+  });
+});
+
+describe('POST /duplicates/merge', () => {
+  let handler: RequestHandler | undefined;
+  let mockReq: Partial<Request>;
+  let mockRes: Partial<Response>;
+  let jsonResponse: unknown;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    handler = getHandler('/duplicates/merge', 'post');
+    jsonResponse = undefined;
+
+    mockReq = {
+      user: { id: 'user-123' },
+      sessionUser: undefined,
+      body: { keepRideId: 'keep-1', deleteRideId: 'del-1' },
+    } as Partial<Request>;
+    mockRes = {
+      status: jest.fn().mockReturnThis(),
+      json: jest.fn().mockImplementation((data) => {
+        jsonResponse = data;
+        return mockRes;
+      }),
+    };
+
+    // tx exposes exactly what the merge path + the real component-hours
+    // helpers touch: the adjustment lookup, the bulk component decrement,
+    // and the ride delete/update.
+    mockTransaction.mockImplementation(async (fn) =>
+      fn({
+        componentRideAdjustment: { findMany: jest.fn().mockResolvedValue([]) },
+        component: { updateMany: mockComponentUpdateMany },
+        ride: { delete: mockRideDelete, update: mockUpdate },
+      })
+    );
+    mockComponentUpdateMany.mockResolvedValue({ count: 1 });
+    mockRideDelete.mockResolvedValue({ id: 'del-1' });
+    mockUpdate.mockResolvedValue({ id: 'keep-1' });
+  });
+
+  function seedPair(deleteRide: {
+    bikeId: string | null;
+    durationSeconds: number | null;
+  }) {
+    mockRideFindUnique
+      .mockResolvedValueOnce({ userId: 'user-123', duplicateOfId: 'del-1' }) // keepRide
+      .mockResolvedValueOnce({ userId: 'user-123', duplicateOfId: 'keep-1', ...deleteRide }); // deleteRide
+  }
+
+  it('rejects unauthenticated requests', async () => {
+    mockReq.user = undefined;
+
+    await invokeHandler(handler, mockReq as Request, mockRes as Response);
+
+    expect(mockRes.status).toHaveBeenCalledWith(401);
+    expect(mockTransaction).not.toHaveBeenCalled();
+  });
+
+  it('decrements component hours and invalidates the prediction cache when deleting the duplicate', async () => {
+    seedPair({ bikeId: 'bike-1', durationSeconds: 3600 });
+
+    await invokeHandler(handler, mockReq as Request, mockRes as Response);
+
+    // Duplicate deleted inside the integrity transaction
+    expect(mockRideDelete).toHaveBeenCalledWith({ where: { id: 'del-1' } });
+    // Bike-1's components decremented by the deleted ride's hours (bulk helper)
+    expect(mockComponentUpdateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ userId: 'user-123', bikeId: 'bike-1' }),
+        data: { hoursUsed: { decrement: 1 } },
+      })
+    );
+    // Prediction cache busted for the affected bike
+    expect(mockInvalidateBikePrediction).toHaveBeenCalledWith('user-123', 'bike-1');
+    expect(jsonResponse).toMatchObject({ success: true, keptRideId: 'keep-1' });
+  });
+
+  it('skips hours decrement and cache invalidation for an unassigned deleted ride', async () => {
+    seedPair({ bikeId: null, durationSeconds: 3600 });
+
+    await invokeHandler(handler, mockReq as Request, mockRes as Response);
+
+    expect(mockRideDelete).toHaveBeenCalledWith({ where: { id: 'del-1' } });
+    expect(mockComponentUpdateMany).not.toHaveBeenCalled();
+    expect(mockInvalidateBikePrediction).not.toHaveBeenCalled();
+    expect(jsonResponse).toMatchObject({ success: true });
+  });
+
+  it('rejects when the two rides are not marked as duplicates of each other', async () => {
+    mockRideFindUnique
+      .mockResolvedValueOnce({ userId: 'user-123', duplicateOfId: null })
+      .mockResolvedValueOnce({ userId: 'user-123', duplicateOfId: null, bikeId: 'bike-1', durationSeconds: 3600 });
+
+    await invokeHandler(handler, mockReq as Request, mockRes as Response);
+
+    expect(mockRes.status).toHaveBeenCalledWith(400);
+    expect(mockTransaction).not.toHaveBeenCalled();
+    expect(mockRideDelete).not.toHaveBeenCalled();
+  });
+
+  it('still returns success when post-commit cache invalidation throws', async () => {
+    seedPair({ bikeId: 'bike-1', durationSeconds: 3600 });
+    // The merge transaction already committed; a cache-bust failure must not
+    // turn into a 500 (a retry would 404 on the deleted ride).
+    mockInvalidateBikePrediction.mockRejectedValue(new Error('redis down'));
+
+    await invokeHandler(handler, mockReq as Request, mockRes as Response);
+
+    expect(mockRideDelete).toHaveBeenCalledWith({ where: { id: 'del-1' } });
+    expect(mockRes.status).not.toHaveBeenCalledWith(500);
+    expect(jsonResponse).toMatchObject({ success: true, keptRideId: 'keep-1' });
   });
 });
