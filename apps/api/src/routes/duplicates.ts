@@ -142,13 +142,20 @@ r.post<Empty, void, { keepRideId: string; deleteRideId: string }>(
       });
 
       // Invalidate prediction caches for every bike whose component hours
-      // changed — independent cache busts, so fire them together.
-      await Promise.all(
-        [...new Set([
-          ...(deleteRide.bikeId ? [deleteRide.bikeId] : []),
-          ...adjustedBikeIds,
-        ])].map((bikeId) => invalidateBikePrediction(userId, bikeId))
-      );
+      // changed — independent cache busts, so fire them together. This runs
+      // AFTER the transaction committed, so a bust failure must NOT surface as
+      // a 500: the merge already happened and a client retry would then 404 on
+      // the deleted ride. Best-effort — the cache TTL backstops any staleness.
+      try {
+        await Promise.all(
+          [...new Set([
+            ...(deleteRide.bikeId ? [deleteRide.bikeId] : []),
+            ...adjustedBikeIds,
+          ])].map((bikeId) => invalidateBikePrediction(userId, bikeId))
+        );
+      } catch (err) {
+        logError('Duplicates merge cache invalidation', err);
+      }
 
       console.log(`[Duplicates] Merged: kept ${keepRideId}, deleted ${deleteRideId}`);
 
@@ -556,9 +563,17 @@ r.post('/duplicates/auto-merge', async (req: Request, res: Response) => {
 
     // Invalidate prediction caches for every bike whose component hours
     // changed (previously a gap on this route — merges decremented hours
-    // without busting the cached predictions).
-    for (const bikeId of new Set([...hoursToDecrementByBike.keys(), ...adjustedBikeIds])) {
-      await invalidateBikePrediction(userId, bikeId);
+    // without busting the cached predictions). Post-commit best-effort: a
+    // bust failure must not turn the committed merge into a client-visible
+    // 500 (a retry would re-scan against already-deleted rides).
+    try {
+      await Promise.all(
+        [...new Set([...hoursToDecrementByBike.keys(), ...adjustedBikeIds])].map(
+          (bikeId) => invalidateBikePrediction(userId, bikeId)
+        )
+      );
+    } catch (err) {
+      logError('Duplicates auto-merge cache invalidation', err);
     }
 
     console.log(`[Duplicates] Auto-merge completed for user ${userId}: merged ${ridesToDelete.length} pairs, preferred: ${preferredSource}`);

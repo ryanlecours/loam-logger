@@ -508,4 +508,17 @@ describe('POST /duplicates/merge', () => {
     expect(mockTransaction).not.toHaveBeenCalled();
     expect(mockRideDelete).not.toHaveBeenCalled();
   });
+
+  it('still returns success when post-commit cache invalidation throws', async () => {
+    seedPair({ bikeId: 'bike-1', durationSeconds: 3600 });
+    // The merge transaction already committed; a cache-bust failure must not
+    // turn into a 500 (a retry would 404 on the deleted ride).
+    mockInvalidateBikePrediction.mockRejectedValue(new Error('redis down'));
+
+    await invokeHandler(handler, mockReq as Request, mockRes as Response);
+
+    expect(mockRideDelete).toHaveBeenCalledWith({ where: { id: 'del-1' } });
+    expect(mockRes.status).not.toHaveBeenCalledWith(500);
+    expect(jsonResponse).toMatchObject({ success: true, keptRideId: 'keep-1' });
+  });
 });
