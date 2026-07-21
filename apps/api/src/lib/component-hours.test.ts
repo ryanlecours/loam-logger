@@ -190,7 +190,7 @@ describe('computeCountedHours', () => {
 });
 
 describe('recomputeComponentHours', () => {
-  it('persists the canonical value and returns it', async () => {
+  it('persists the canonical value and returns it with the attribution used', async () => {
     const tx = makeTx();
     tx.component.findUnique.mockResolvedValue({ ...BASE_COMPONENT });
     tx.serviceLog.findFirst.mockResolvedValue(null);
@@ -198,7 +198,11 @@ describe('recomputeComponentHours', () => {
 
     const result = await recomputeComponentHours(asTx(tx), 'comp-1');
 
-    expect(result).toBe(2.5);
+    expect(result?.hours).toBe(2.5);
+    // Attribution is returned so callers (e.g. the adjustment mutations'
+    // counted flag) don't re-run the same reads.
+    expect(result?.attribution.component.id).toBe('comp-1');
+    expect(result?.attribution.anchor).toBeNull();
     expect(tx.component.update).toHaveBeenCalledWith({
       where: { id: 'comp-1' },
       data: { hoursUsed: 2.5 },

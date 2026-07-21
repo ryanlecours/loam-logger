@@ -3501,13 +3501,13 @@ export const resolvers = {
           }
         }
 
-        await recomputeComponentHours(tx, componentId);
-
-        // Derive whether the ride now counts, from the same canonical rule.
-        const attribution = await loadComponentAttribution(tx, componentId);
-        const inWindow = !attribution?.anchor || ride.startTime >= attribution.anchor;
-        const nowCounted =
-          kind === 'EXCLUDE' ? false : inWindow;
+        // The recompute runs after the upsert, so its attribution reflects
+        // the new row — reuse it for the `counted` flag instead of
+        // re-reading component/service-log/adjustments.
+        const recomputed = await recomputeComponentHours(tx, componentId);
+        const anchor = recomputed?.attribution.anchor ?? null;
+        const inWindow = !anchor || ride.startTime >= anchor;
+        const nowCounted = kind === 'EXCLUDE' ? false : inWindow;
 
         const fresh = await tx.component.findUnique({ where: { id: componentId } });
         return { updatedComponent: fresh, counted: nowCounted };
@@ -3562,12 +3562,12 @@ export const resolvers = {
           where: { componentId, rideId },
         });
 
-        await recomputeComponentHours(tx, componentId);
-
         // With no adjustment, the ride counts iff it's on the component's
-        // bike and inside the window.
-        const attribution = await loadComponentAttribution(tx, componentId);
-        const inWindow = !attribution?.anchor || ride.startTime >= attribution.anchor;
+        // bike and inside the window — anchor reused from the recompute's
+        // own attribution load.
+        const recomputed = await recomputeComponentHours(tx, componentId);
+        const anchor = recomputed?.attribution.anchor ?? null;
+        const inWindow = !anchor || ride.startTime >= anchor;
         const onBike = ride.bikeId != null && ride.bikeId === component.bikeId;
         const nowCounted = inWindow && onBike;
 

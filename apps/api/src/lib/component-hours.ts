@@ -232,13 +232,16 @@ export async function computeCountedHours(
 
 /**
  * Recompute one component's hoursUsed from the canonical rule and persist
- * it. Returns the new value, or null when the component no longer exists
- * (no-op). Callers are responsible for prediction-cache invalidation.
+ * it. Returns the new value together with the attribution used to derive
+ * it (so callers needing the anchor/adjustments — e.g. the adjustment
+ * mutations' `counted` flag — don't re-run the same three reads), or null
+ * when the component no longer exists (no-op). Callers are responsible
+ * for prediction-cache invalidation.
  */
 export async function recomputeComponentHours(
   tx: Prisma.TransactionClient,
   componentId: string
-): Promise<number | null> {
+): Promise<{ hours: number; attribution: ComponentAttribution } | null> {
   const attribution = await loadComponentAttribution(tx, componentId);
   if (!attribution) return null;
 
@@ -247,7 +250,7 @@ export async function recomputeComponentHours(
     where: { id: componentId },
     data: { hoursUsed: hours },
   });
-  return hours;
+  return { hours, attribution };
 }
 
 /**
