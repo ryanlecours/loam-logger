@@ -229,6 +229,28 @@ export async function invalidateBikePrediction(
 }
 
 /**
+ * Invalidate prediction caches for several bikes at once, skipping nulls and
+ * de-duplicating first. The canonical post-commit call for any write path
+ * that changes component hours: feed it the bikeIds `syncBikeComponentHours`
+ * (or a `recompute*` helper) returns, and every affected bike's cached
+ * predictions get busted in one call. Centralized so a new sync path can't
+ * reintroduce the "hours changed, cache went stale" gap by hand-rolling
+ * (and forgetting part of) the loop.
+ */
+export async function invalidateBikePredictionsForBikes(
+  userId: string,
+  bikeIds: Iterable<string | null | undefined>
+): Promise<void> {
+  const unique = new Set<string>();
+  for (const bikeId of bikeIds) {
+    if (bikeId) unique.add(bikeId);
+  }
+  for (const bikeId of unique) {
+    await invalidateBikePrediction(userId, bikeId);
+  }
+}
+
+/**
  * Invalidate all predictions for a user.
  * Called when user role changes.
  *
