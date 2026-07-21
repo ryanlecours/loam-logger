@@ -141,13 +141,14 @@ r.post<Empty, void, { keepRideId: string; deleteRideId: string }>(
         return recomputeAdjustedComponentsForRides(tx, { componentIds: adjustedComponentIds });
       });
 
-      // Invalidate prediction caches for every bike whose component hours changed.
-      for (const bikeId of new Set([
-        ...(deleteRide.bikeId ? [deleteRide.bikeId] : []),
-        ...adjustedBikeIds,
-      ])) {
-        await invalidateBikePrediction(userId, bikeId);
-      }
+      // Invalidate prediction caches for every bike whose component hours
+      // changed — independent cache busts, so fire them together.
+      await Promise.all(
+        [...new Set([
+          ...(deleteRide.bikeId ? [deleteRide.bikeId] : []),
+          ...adjustedBikeIds,
+        ])].map((bikeId) => invalidateBikePrediction(userId, bikeId))
+      );
 
       console.log(`[Duplicates] Merged: kept ${keepRideId}, deleted ${deleteRideId}`);
 

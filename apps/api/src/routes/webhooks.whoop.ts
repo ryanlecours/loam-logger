@@ -158,10 +158,11 @@ r.post('/whoop', async (req: Request, res: Response) => {
         });
 
         // Invalidate prediction caches for every bike whose component hours
-        // changed (the bulk decrement and any adjusted-component recompute).
-        for (const bikeId of affectedBikeIds) {
-          await invalidateBikePrediction(user.id, bikeId);
-        }
+        // changed (the bulk decrement and any adjusted-component recompute) —
+        // independent cache busts, so fire them together.
+        await Promise.all(
+          affectedBikeIds.map((bikeId) => invalidateBikePrediction(user.id, bikeId))
+        );
         break;
       }
 
