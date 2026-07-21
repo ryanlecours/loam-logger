@@ -133,17 +133,43 @@ describe('computeCountedHours', () => {
 
     expect(result).toEqual({ hours: 1.5, rideCount: 2 });
     // Include branch must exclude the component's own bike (a stale INCLUDE
-    // on a ride that later moved onto this bike already counts on-bike).
+    // on a ride that later moved onto this bike already counts on-bike) —
+    // via the NULL-SAFE OR shape, never the scalar NOT. Prisma compiles
+    // NOT:{bikeId} to SQL `bikeId <> X`, which silently drops NULL-bikeId
+    // (unassigned) rides under three-valued logic.
     expect(tx.ride.aggregate).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({
         where: expect.objectContaining({
           id: { in: ['r-in'] },
           isDuplicate: false,
-          NOT: { bikeId: 'bike-1' },
+          OR: [{ bikeId: null }, { bikeId: { not: 'bike-1' } }],
         }),
       })
     );
+  });
+
+  it('counts an UNASSIGNED included ride for an on-bike component (null-safe guard)', async () => {
+    // Regression guard for the SQL three-valued-logic bug: with the old
+    // NOT:{bikeId} shape, real Postgres excluded bikeId=null rides, so an
+    // unassigned ride applied to an on-bike component showed counted:true
+    // in the UI while the aggregate silently omitted its hours.
+    const tx = makeTx();
+    tx.ride.aggregate
+      .mockResolvedValueOnce({ _sum: { durationSeconds: 7200 }, _count: 1 }) // on-bike
+      .mockResolvedValueOnce({ _sum: { durationSeconds: 3600 }, _count: 1 }); // unassigned INCLUDE
+
+    const result = await computeCountedHours(
+      asTx(tx),
+      attribution({ includedRideIds: ['r-unassigned'] })
+    );
+
+    expect(result).toEqual({ hours: 3, rideCount: 2 });
+    const includeWhere = tx.ride.aggregate.mock.calls[1][0].where;
+    // The OR must carry an explicit bikeId:null branch so unassigned rides
+    // survive the own-bike guard.
+    expect(includeWhere.OR).toEqual([{ bikeId: null }, { bikeId: { not: 'bike-1' } }]);
+    expect(includeWhere.NOT).toBeUndefined();
   });
 
   it('handles spare components (no bike): include branch only, no NOT clause', async () => {

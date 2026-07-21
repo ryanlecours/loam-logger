@@ -529,7 +529,11 @@ export async function generateBikePredictions(
         id: { in: allIncludedRideIds },
         userId,
         isDuplicate: false,
-        NOT: { bikeId },
+        // OR-null, not `NOT:{bikeId}`: the scalar NOT compiles to SQL
+        // `bikeId <> X`, which excludes NULL rows — silently dropping
+        // UNASSIGNED included rides (see the parallel note in
+        // lib/component-hours.ts; verified against real Postgres).
+        OR: [{ bikeId: null }, { bikeId: { not: bikeId } }],
       },
       select: {
         id: true,

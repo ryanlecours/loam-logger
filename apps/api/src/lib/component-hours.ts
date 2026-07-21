@@ -211,6 +211,12 @@ export async function computeCountedHours(
   // When the component is on a bike, exclude that bike's rides here — a
   // stale INCLUDE row on a ride that later moved onto this bike must count
   // exactly once (it already counts via the on-bike branch).
+  //
+  // NULL-safety: the guard must be the OR-null shape, NOT `NOT:{bikeId}`.
+  // Prisma compiles the scalar NOT to SQL `bikeId <> X`, which evaluates
+  // UNKNOWN (row excluded) for NULL bikeId under three-valued logic — that
+  // would silently drop UNASSIGNED included rides from the total (verified
+  // against real Postgres; mocked tests cannot catch this).
   if (includedRideIds.length) {
     const { _sum, _count } = await tx.ride.aggregate({
       where: {
@@ -218,7 +224,9 @@ export async function computeCountedHours(
         id: { in: includedRideIds },
         isDuplicate: false,
         ...windowFilter,
-        ...(component.bikeId ? { NOT: { bikeId: component.bikeId } } : {}),
+        ...(component.bikeId
+          ? { OR: [{ bikeId: null }, { bikeId: { not: component.bikeId } }] }
+          : {}),
       },
       _sum: { durationSeconds: true },
       _count: true,

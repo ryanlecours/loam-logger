@@ -1021,8 +1021,10 @@ describe('prediction engine', () => {
       ]);
       // ride.findMany serves getAllRidesForBike / getRecentRides (bike rides)
       // AND the included-rides fetch (where.id.in) — branch on the args.
+      let includeFetchWhere: Record<string, unknown> | undefined;
       (prisma.ride.findMany as jest.Mock).mockImplementation((args: { where?: { id?: { in?: string[] } } }) => {
         if (args?.where?.id?.in) {
+          includeFetchWhere = args.where as Record<string, unknown>;
           return Promise.resolve([
             {
               id: 'ride-x',
@@ -1048,6 +1050,14 @@ describe('prediction engine', () => {
       expect(chain?.hoursSinceService).toBe(3);
       expect(fork?.hoursSinceService).toBe(4.5);
       expect(fork?.ridesSinceService).toBe(3);
+      // The own-bike guard must be the NULL-SAFE OR shape, never NOT:{bikeId}
+      // — the scalar NOT compiles to SQL `<>` which silently drops
+      // unassigned (bikeId=null) included rides on a real database.
+      expect(includeFetchWhere?.OR).toEqual([
+        { bikeId: null },
+        { bikeId: { not: 'bike-123' } },
+      ]);
+      expect(includeFetchWhere?.NOT).toBeUndefined();
     });
   });
 });
