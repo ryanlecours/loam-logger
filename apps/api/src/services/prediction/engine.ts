@@ -190,7 +190,11 @@ function getRidesSinceDateForComponent(
     .filter((ride): ride is RideMetrics => !!ride && ride.startTime >= sinceDate);
   if (included.length === 0) return base;
 
-  // Keep ascending startTime order, matching allRides' contract.
+  // Keep ascending startTime order, matching allRides' contract — note
+  // getAllRidesForBike fetches desc only to apply its most-recent-2000 cap,
+  // then reverses to ascending (window.ts). The included rides come from a
+  // separate unordered fetch, so without this sort the merged array would
+  // break ascending order precisely for INCLUDE-carrying components.
   return [...base, ...included].sort(
     (a, b) => a.startTime.getTime() - b.startTime.getTime()
   );
