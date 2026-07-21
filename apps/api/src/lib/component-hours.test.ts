@@ -358,4 +358,68 @@ describe('syncBikeComponentHours', () => {
     // A no-op must not touch component rows.
     expect(tx.component.updateMany).not.toHaveBeenCalled();
   });
+
+  // The rideId branch: when an existing ride changes, adjusted components
+  // (whose ComponentRideAdjustment rows reference it) get a canonical
+  // recompute, and THEIR bikes must union into the invalidation set — the
+  // cross-bike INCLUDE case the bulk update never touches.
+  it('unions in cross-bike adjusted components recomputed from the rideId', async () => {
+    const tx = makeTx();
+    // ride-9 carries an adjustment on comp-x, which lives on bike-3.
+    tx.componentRideAdjustment.findMany.mockResolvedValueOnce([{ componentId: 'comp-x' }]);
+    tx.component.findUnique.mockResolvedValue({
+      id: 'comp-x',
+      userId: 'user-1',
+      bikeId: 'bike-3',
+      installedAt: null,
+      hoursUsed: 5,
+    });
+
+    const affected = await syncBikeComponentHours(
+      asTx(tx),
+      'user-1',
+      { bikeId: 'bike-1', durationSeconds: 3600 },
+      { bikeId: 'bike-1', durationSeconds: 7200 },
+      'ride-9'
+    );
+
+    // bike-1 (its own hours grew) + bike-3 (the cross-bike adjusted component).
+    expect(new Set(affected)).toEqual(new Set(['bike-1', 'bike-3']));
+  });
+
+  it('de-dupes when the adjusted component sits on the same bike as the ride', async () => {
+    const tx = makeTx();
+    tx.componentRideAdjustment.findMany.mockResolvedValueOnce([{ componentId: 'comp-x' }]);
+    tx.component.findUnique.mockResolvedValue({
+      id: 'comp-x',
+      userId: 'user-1',
+      bikeId: 'bike-1',
+      installedAt: null,
+      hoursUsed: 5,
+    });
+
+    const affected = await syncBikeComponentHours(
+      asTx(tx),
+      'user-1',
+      { bikeId: 'bike-1', durationSeconds: 3600 },
+      { bikeId: 'bike-1', durationSeconds: 7200 },
+      'ride-9'
+    );
+
+    expect(affected).toEqual(['bike-1']);
+  });
+
+  it('skips the recompute entirely when rideId is passed but nothing changed', async () => {
+    const tx = makeTx();
+    const affected = await syncBikeComponentHours(
+      asTx(tx),
+      'user-1',
+      { bikeId: 'bike-1', durationSeconds: 3600 },
+      { bikeId: 'bike-1', durationSeconds: 3600 },
+      'ride-9'
+    );
+    expect(affected).toEqual([]);
+    // The (bikeChanged || hoursDiff !== 0) guard must gate the lookup.
+    expect(tx.componentRideAdjustment.findMany).not.toHaveBeenCalled();
+  });
 });
