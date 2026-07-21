@@ -5484,13 +5484,36 @@ describe('GraphQL Resolvers', () => {
       expect(result.counted).toBe(true); // in-window (no anchor)
     });
 
-    it('caps adjustments per component when creating a new row', async () => {
-      mockAdjustment.count.mockResolvedValue(500);
+    it('caps adjustments per component: over-cap insert throws inside the tx (rolls back)', async () => {
+      // Post-insert count exceeds the cap -> the tx throws, rolling the
+      // upsert back. Checked inside the transaction (not a pre-check) so
+      // concurrent requests can't race past it (TOCTOU).
+      mockAdjustment.count.mockResolvedValue(501);
       const ctx = createMockContext('user-123');
 
       await expect(
         setMutation({}, { componentId: 'comp-1', rideId: 'ride-1', kind: 'EXCLUDE' }, ctx as never)
       ).rejects.toThrow('Too many ride adjustments');
+      // The insert happened inside the tx (then rolled back by the throw)…
+      expect(mockAdjustment.upsert).toHaveBeenCalled();
+      // …and the recompute never ran.
+      expect(mockComponentUpdate).not.toHaveBeenCalledWith({
+        where: { id: 'comp-1' },
+        data: expect.objectContaining({ hoursUsed: expect.anything() }),
+      });
+    });
+
+    it('does not apply the cap when flipping an existing row', async () => {
+      mockAdjustment.findUnique.mockResolvedValue({ id: 'adj-existing' });
+      mockAdjustment.count.mockResolvedValue(501); // would trip for a new row
+      const ctx = createMockContext('user-123');
+
+      const result = await setMutation(
+        {}, { componentId: 'comp-1', rideId: 'ride-1', kind: 'EXCLUDE' }, ctx as never
+      );
+
+      expect(result.counted).toBe(false);
+      expect(mockAdjustment.count).not.toHaveBeenCalled();
     });
 
     it('clear is an idempotent success even when no row exists', async () => {

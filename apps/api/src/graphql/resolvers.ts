@@ -3460,22 +3460,6 @@ export const resolvers = {
         });
       }
 
-      // Bound the id IN (...) lists the recompute and componentRides build.
-      const existingRow = await prisma.componentRideAdjustment.findUnique({
-        where: { componentId_rideId: { componentId, rideId } },
-        select: { id: true },
-      });
-      if (!existingRow) {
-        const adjustmentCount = await prisma.componentRideAdjustment.count({
-          where: { componentId },
-        });
-        if (adjustmentCount >= MAX_COMPONENT_RIDE_ADJUSTMENTS) {
-          throw new GraphQLError('Too many ride adjustments on this component.', {
-            extensions: { code: 'BAD_USER_INPUT' },
-          });
-        }
-      }
-
       // Invalidate BOTH bikes when they differ (cross-bike INCLUDE): the
       // component's bike gains/loses hours, and the ride's own bike surface
       // may render this component's data after a future reinstall.
@@ -3487,11 +3471,35 @@ export const resolvers = {
       }
 
       const { updatedComponent, counted } = await prisma.$transaction(async (tx) => {
+        const existingRow = await tx.componentRideAdjustment.findUnique({
+          where: { componentId_rideId: { componentId, rideId } },
+          select: { id: true },
+        });
+
         await tx.componentRideAdjustment.upsert({
           where: { componentId_rideId: { componentId, rideId } },
           create: { userId, componentId, rideId, kind },
           update: { kind },
         });
+
+        // Cap check AFTER the insert, inside the transaction: exceeding the
+        // bound rolls the insert back rather than racing a pre-check
+        // (TOCTOU). Under read-committed isolation truly simultaneous
+        // inserts can still overshoot by the concurrency degree, but the
+        // next insert then sees the committed count and is rejected — the
+        // cap is a soft guardrail bounding id IN (...) list sizes, not a
+        // security boundary, so bounded-and-self-correcting is sufficient
+        // without escalating to serializable isolation.
+        if (!existingRow) {
+          const adjustmentCount = await tx.componentRideAdjustment.count({
+            where: { componentId },
+          });
+          if (adjustmentCount > MAX_COMPONENT_RIDE_ADJUSTMENTS) {
+            throw new GraphQLError('Too many ride adjustments on this component.', {
+              extensions: { code: 'BAD_USER_INPUT' },
+            });
+          }
+        }
 
         await recomputeComponentHours(tx, componentId);
 
