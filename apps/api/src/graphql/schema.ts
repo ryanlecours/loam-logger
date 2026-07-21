@@ -226,9 +226,10 @@ export const typeDefs = gql`
   # status is one of:
   #   STARTED         — a repair job was enqueued
   #   ALREADY_RUNNING — a repair for this user is already in flight
-  #   NEEDS_RECONNECT — Garmin connected but lacks HISTORICAL_DATA_EXPORT scope
   #   NOT_CONNECTED   — no active Garmin connection
   #   NOTHING_TO_DO   — no Garmin rides are missing coordinates
+  # (NEEDS_RECONNECT is retained as a value for client compatibility but is no
+  #  longer returned — see the resolver for why the scope pre-flight was dropped.)
   type GarminWeatherBackfillResult {
     status: String!
     ridesToRepair: Int!
