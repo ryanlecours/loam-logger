@@ -212,6 +212,11 @@ export async function computeCountedHours(
   // stale INCLUDE row on a ride that later moved onto this bike must count
   // exactly once (it already counts via the on-bike branch).
   //
+  // Cheap regardless of ride-history size: the `id: { in }` predicate is
+  // served by the PK (Ride_pkey) and includedRideIds is bounded by the
+  // 500-per-component adjustment cap — this is a bounded PK lookup, not a
+  // window scan like the on-bike branch above.
+  //
   // NULL-safety: the guard must be the OR-null shape, NOT `NOT:{bikeId}`.
   // Prisma compiles the scalar NOT to SQL `bikeId <> X`, which evaluates
   // UNKNOWN (row excluded) for NULL bikeId under three-valued logic — that
