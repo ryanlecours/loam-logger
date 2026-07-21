@@ -23,6 +23,9 @@ jest.mock('../../../lib/prisma', () => ({
     bikeServicePreference: {
       findMany: jest.fn(),
     },
+    componentRideAdjustment: {
+      findMany: jest.fn().mockResolvedValue([]),
+    },
   },
 }));
 
@@ -49,6 +52,8 @@ describe('prediction engine', () => {
     // Default: no service preferences set (all components enabled with default intervals)
     (prisma.userServicePreference as unknown as { findMany: jest.Mock }).findMany.mockResolvedValue([]);
     (prisma.bikeServicePreference as unknown as { findMany: jest.Mock }).findMany.mockResolvedValue([]);
+    // Default: no per-component ride adjustments
+    (prisma.componentRideAdjustment as unknown as { findMany: jest.Mock }).findMany.mockResolvedValue([]);
   });
 
   const mockBike = {
@@ -114,7 +119,7 @@ describe('prediction engine', () => {
       expect(result.bikeId).toBe('bike-123');
       expect(result.bikeName).toBe('Trail Slayer');
       expect(result.components).toHaveLength(2);
-      expect(result.algoVersion).toBe('v1');
+      expect(result.algoVersion).toBe('v2');
     });
 
     it('should throw for unauthorized bike access', async () => {
@@ -916,6 +921,143 @@ describe('prediction engine', () => {
         expect(result.components[0].status).toBe('ALL_GOOD');
         expect(result.components[0].hoursRemaining).toBe(11);
       });
+    });
+  });
+
+  describe('installedAt anchor (canonical-counter parity)', () => {
+    it('an installed-but-never-serviced component does not absorb pre-install rides', async () => {
+      (prisma.bike.findUnique as jest.Mock).mockResolvedValue({
+        ...mockBike,
+        components: [
+          {
+            id: 'comp-new-fork',
+            type: 'FORK',
+            location: 'NONE',
+            brand: 'Fox',
+            model: '38',
+            hoursUsed: 1,
+            serviceDueAtHours: 50,
+            // Installed between the two rides — only the later ride counts,
+            // matching the canonical hoursUsed anchor in component-hours.ts.
+            installedAt: new Date('2024-01-14T12:00:00Z'),
+          },
+        ],
+      });
+      (prisma.ride.findMany as jest.Mock).mockResolvedValue([
+        { id: 'ride-old', durationSeconds: 7200, distanceMeters: 32187, elevationGainMeters: 914, startTime: new Date('2024-01-14') },
+        { id: 'ride-new', durationSeconds: 3600, distanceMeters: 16093, elevationGainMeters: 457, startTime: new Date('2024-01-15') },
+      ]);
+      (prisma.ride.findFirst as jest.Mock).mockResolvedValue({
+        startTime: new Date('2024-01-01'),
+      });
+      (prisma.serviceLog.findFirst as jest.Mock).mockResolvedValue(null);
+      (prisma.serviceLog.findMany as jest.Mock).mockResolvedValue([]);
+
+      const result = await generateBikePredictions({
+        userId: 'user-123',
+        bikeId: 'bike-123',
+        userRole: 'FREE',
+      });
+
+      // Anchored at installedAt (2024-01-14 noon), not the bike's first
+      // ride: only the 1h post-install ride counts.
+      expect(result.components[0].hoursSinceService).toBe(1);
+      expect(result.components[0].ridesSinceService).toBe(1);
+    });
+  });
+
+  describe('per-component ride adjustments', () => {
+    const ridesWithIds: RideMetrics[] = [
+      {
+        id: 'ride-a',
+        durationSeconds: 3600, // 1h
+        distanceMeters: 16093,
+        elevationGainMeters: 457,
+        startTime: new Date('2024-01-15'),
+      },
+      {
+        id: 'ride-b',
+        durationSeconds: 7200, // 2h
+        distanceMeters: 32187,
+        elevationGainMeters: 914,
+        startTime: new Date('2024-01-14'),
+      },
+    ];
+
+    const setup = () => {
+      (prisma.bike.findUnique as jest.Mock).mockResolvedValue(mockBike);
+      (prisma.ride.findMany as jest.Mock).mockResolvedValue(ridesWithIds);
+      (prisma.ride.findFirst as jest.Mock).mockResolvedValue({
+        startTime: new Date('2024-01-01'),
+      });
+      (prisma.serviceLog.findFirst as jest.Mock).mockResolvedValue(null);
+      (prisma.serviceLog.findMany as jest.Mock).mockResolvedValue([]);
+    };
+
+    it('EXCLUDE removes the ride from that component only', async () => {
+      setup();
+      (prisma.componentRideAdjustment as unknown as { findMany: jest.Mock }).findMany.mockResolvedValue([
+        { componentId: 'comp-fork', rideId: 'ride-a', kind: 'EXCLUDE' },
+      ]);
+
+      const result = await generateBikePredictions({
+        userId: 'user-123',
+        bikeId: 'bike-123',
+        userRole: 'FREE',
+      });
+
+      const fork = result.components.find((c) => c.componentId === 'comp-fork');
+      const chain = result.components.find((c) => c.componentId === 'comp-chain');
+      // Chain keeps both rides (3h); fork drops the excluded 1h ride (2h)
+      expect(chain?.hoursSinceService).toBe(3);
+      expect(fork?.hoursSinceService).toBe(2);
+      expect(fork?.ridesSinceService).toBe(1);
+    });
+
+    it('INCLUDE merges a cross-bike ride into that component only', async () => {
+      setup();
+      (prisma.componentRideAdjustment as unknown as { findMany: jest.Mock }).findMany.mockResolvedValue([
+        { componentId: 'comp-fork', rideId: 'ride-x', kind: 'INCLUDE' },
+      ]);
+      // ride.findMany serves getAllRidesForBike / getRecentRides (bike rides)
+      // AND the included-rides fetch (where.id.in) — branch on the args.
+      let includeFetchWhere: Record<string, unknown> | undefined;
+      (prisma.ride.findMany as jest.Mock).mockImplementation((args: { where?: { id?: { in?: string[] } } }) => {
+        if (args?.where?.id?.in) {
+          includeFetchWhere = args.where as Record<string, unknown>;
+          return Promise.resolve([
+            {
+              id: 'ride-x',
+              durationSeconds: 5400, // 1.5h, on another bike
+              distanceMeters: 10000,
+              elevationGainMeters: 300,
+              startTime: new Date('2024-01-16'),
+            },
+          ]);
+        }
+        return Promise.resolve(ridesWithIds);
+      });
+
+      const result = await generateBikePredictions({
+        userId: 'user-123',
+        bikeId: 'bike-123',
+        userRole: 'FREE',
+      });
+
+      const fork = result.components.find((c) => c.componentId === 'comp-fork');
+      const chain = result.components.find((c) => c.componentId === 'comp-chain');
+      // Chain unchanged (3h); fork gains the included 1.5h ride (4.5h)
+      expect(chain?.hoursSinceService).toBe(3);
+      expect(fork?.hoursSinceService).toBe(4.5);
+      expect(fork?.ridesSinceService).toBe(3);
+      // The own-bike guard must be the NULL-SAFE OR shape, never NOT:{bikeId}
+      // — the scalar NOT compiles to SQL `<>` which silently drops
+      // unassigned (bikeId=null) included rides on a real database.
+      expect(includeFetchWhere?.OR).toEqual([
+        { bikeId: null },
+        { bikeId: { not: 'bike-123' } },
+      ]);
+      expect(includeFetchWhere?.NOT).toBeUndefined();
     });
   });
 });

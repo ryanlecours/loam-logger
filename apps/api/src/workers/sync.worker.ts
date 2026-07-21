@@ -384,7 +384,9 @@ async function upsertStravaActivity(userId: string, activity: StravaActivity): P
       tx,
       userId,
       { bikeId: existing?.bikeId ?? null, durationSeconds: existing?.durationSeconds ?? null },
-      { bikeId: ride.bikeId ?? null, durationSeconds: ride.durationSeconds }
+      { bikeId: ride.bikeId ?? null, durationSeconds: ride.durationSeconds },
+      // Existing ride: adjusted components need the canonical recompute.
+      existing ? ride.id : undefined
     );
   });
 
@@ -638,7 +640,9 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
         tx,
         userId,
         { bikeId: existing?.bikeId ?? null, durationSeconds: existing?.durationSeconds ?? null },
-        { bikeId: ride.bikeId ?? null, durationSeconds: ride.durationSeconds }
+        { bikeId: ride.bikeId ?? null, durationSeconds: ride.durationSeconds },
+        // Existing ride: adjusted components need the canonical recompute.
+        existing ? ride.id : undefined
       );
     });
   } catch (err) {
@@ -845,7 +849,9 @@ async function upsertWhoopActivity(userId: string, workout: WhoopWorkout): Promi
       tx,
       userId,
       { bikeId: existing?.bikeId ?? null, durationSeconds: existing?.durationSeconds ?? null },
-      { bikeId: ride.bikeId ?? null, durationSeconds: ride.durationSeconds }
+      { bikeId: ride.bikeId ?? null, durationSeconds: ride.durationSeconds },
+      // Existing ride: adjusted components need the canonical recompute.
+      existing ? ride.id : undefined
     );
   });
 
@@ -1062,7 +1068,9 @@ async function upsertSuuntoActivity(
         tx,
         userId,
         { bikeId: existing?.bikeId ?? null, durationSeconds: existing?.durationSeconds ?? null },
-        { bikeId: ride.bikeId ?? null, durationSeconds: ride.durationSeconds }
+        { bikeId: ride.bikeId ?? null, durationSeconds: ride.durationSeconds },
+        // Existing ride: adjusted components need the canonical recompute.
+        existing ? ride.id : undefined
       );
     });
   } catch (err) {

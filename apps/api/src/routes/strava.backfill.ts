@@ -5,7 +5,13 @@ import { prisma } from '../lib/prisma';
 import { formatLatLon, reverseGeocode } from '../lib/location';
 import { sendBadRequest, sendUnauthorized, sendForbidden, sendNotFound, sendInternalError } from '../lib/api-response';
 import { canBackfillYear } from '../auth/tier-access';
-import { incrementBikeComponentHours, decrementBikeComponentHours } from '../lib/component-hours';
+import {
+  incrementBikeComponentHours,
+  decrementBikeComponentHours,
+  findAdjustedComponentIdsForRides,
+  recomputeAdjustedComponentsForRides,
+} from '../lib/component-hours';
+import { invalidateBikePrediction } from '../services/prediction/cache';
 import { logError } from '../lib/logger';
 import { enqueueWeatherJob } from '../lib/queue';
 import { requireAdmin } from '../auth/adminMiddleware';
@@ -554,7 +560,15 @@ r.delete<Empty, void, Empty>(
         return map;
       }, new Map());
 
-      await prisma.$transaction(async (tx) => {
+      const adjustedBikeIds = await prisma.$transaction(async (tx) => {
+        // Capture BEFORE the deleteMany — adjustment rows cascade away with
+        // their rides; adjusted components (incl. cross-bike INCLUDEs) need
+        // a canonical recompute after the purge.
+        const adjustedComponentIds = await findAdjustedComponentIdsForRides(
+          tx,
+          rides.map((r) => r.id)
+        );
+
         for (const [bikeId, hours] of hoursByBike.entries()) {
           await decrementBikeComponentHours(tx, { userId, bikeId, hoursDelta: hours });
         }
@@ -565,7 +579,16 @@ r.delete<Empty, void, Empty>(
             stravaActivityId: { not: null },
           },
         });
+
+        return recomputeAdjustedComponentsForRides(tx, { componentIds: adjustedComponentIds });
       });
+
+      // Invalidate prediction caches for every bike whose component hours
+      // changed — the decremented bikes plus any bike holding a component
+      // with cross-bike INCLUDE adjustments (mirrors duplicates auto-merge).
+      for (const bikeId of new Set([...hoursByBike.keys(), ...adjustedBikeIds])) {
+        await invalidateBikePrediction(userId, bikeId);
+      }
 
       return res.json({
         success: true,

@@ -27,6 +27,12 @@ jest.mock('../lib/logger', () => ({
   logError: jest.fn(),
 }));
 
+// The auto-merge route now invalidates prediction caches and recomputes
+// adjusted components; mock both so tests stay Redis/DB-free.
+jest.mock('../services/prediction/cache', () => ({
+  invalidateBikePrediction: jest.fn().mockResolvedValue(undefined),
+}));
+
 import router from './duplicates';
 
 interface RouteLayer {
@@ -274,6 +280,7 @@ describe('POST /duplicates/auto-merge', () => {
       fn({
         $executeRaw: mockExecuteRaw,
         ride: { deleteMany: mockDeleteMany, updateMany: mockUpdateMany },
+        componentRideAdjustment: { findMany: jest.fn().mockResolvedValue([]) },
       })
     );
     mockExecuteRaw.mockResolvedValue(undefined);
@@ -380,6 +387,7 @@ describe('POST /duplicates/auto-merge', () => {
       fn({
         $executeRaw: mockExecuteRaw,
         ride: { deleteMany: mockDeleteMany, updateMany: mockUpdateMany },
+        componentRideAdjustment: { findMany: jest.fn().mockResolvedValue([]) },
       })
     );
     const dup: DupRow = {

@@ -3,6 +3,11 @@ import { prisma } from '../lib/prisma';
 import { sendBadRequest, sendUnauthorized, sendNotFound, sendForbidden, sendInternalError } from '../lib/api-response';
 import { logError } from '../lib/logger';
 import { isDuplicateActivity } from '../lib/duplicate-detector';
+import {
+  findAdjustedComponentIdsForRides,
+  recomputeAdjustedComponentsForRides,
+} from '../lib/component-hours';
+import { invalidateBikePrediction } from '../services/prediction/cache';
 
 type Empty = Record<string, never>;
 const r: Router = createRouter();
@@ -473,7 +478,12 @@ r.post('/duplicates/auto-merge', async (req: Request, res: Response) => {
     }
 
     // Perform deletions in transaction
-    await prisma.$transaction(async (tx) => {
+    const adjustedBikeIds = await prisma.$transaction(async (tx) => {
+      // Capture BEFORE the deleteMany — adjustment rows cascade away with
+      // their rides, and cross-bike INCLUDEs live on components the raw
+      // decrement below never touches.
+      const adjustedComponentIds = await findAdjustedComponentIdsForRides(tx, ridesToDelete);
+
       // Adjust component hours atomically (floor at 0 in single query)
       for (const [bikeId, hours] of hoursToDecrementByBike.entries()) {
         await tx.$executeRaw`
@@ -506,7 +516,16 @@ r.post('/duplicates/auto-merge', async (req: Request, res: Response) => {
         where: { userId, isDuplicate: true },
         data: { isDuplicate: false, duplicateOfId: null },
       });
+
+      return recomputeAdjustedComponentsForRides(tx, { componentIds: adjustedComponentIds });
     });
+
+    // Invalidate prediction caches for every bike whose component hours
+    // changed (previously a gap on this route — merges decremented hours
+    // without busting the cached predictions).
+    for (const bikeId of new Set([...hoursToDecrementByBike.keys(), ...adjustedBikeIds])) {
+      await invalidateBikePrediction(userId, bikeId);
+    }
 
     console.log(`[Duplicates] Auto-merge completed for user ${userId}: merged ${ridesToDelete.length} pairs, preferred: ${preferredSource}`);
 

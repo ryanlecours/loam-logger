@@ -76,6 +76,12 @@ export const MUTATION_RATE_LIMITS = {
   assignBikeToRides: { windowSeconds: 60, maxRequests: 20 },
   /** snoozeComponent: max 20 requests per minute per user */
   snoozeComponent: { windowSeconds: 60, maxRequests: 20 },
+  /** setComponentRideAdjustment: max 60/min — users toggle several rows in
+   *  quick succession in the component-rides modal; each call is a bounded
+   *  upsert + recompute */
+  setComponentRideAdjustment: { windowSeconds: 60, maxRequests: 60 },
+  /** clearComponentRideAdjustment: max 60/min (same modal interaction) */
+  clearComponentRideAdjustment: { windowSeconds: 60, maxRequests: 60 },
   /** migratePairedComponents: max 5 requests per minute per user (one-time migration) */
   migratePairedComponents: { windowSeconds: 60, maxRequests: 5 },
   /** replaceComponent: max 20 requests per minute per user */
@@ -129,6 +135,10 @@ export const QUERY_RATE_LIMITS = {
   importNotificationState: { windowSeconds: 60, maxRequests: 30 },
   /** rideTrack: max 60 requests per minute per user (map open + post-request polling) */
   rideTrack: { windowSeconds: 60, maxRequests: 60 },
+  /** componentRides: max 60 requests per minute per user (modal open +
+   *  pagination + post-adjustment refetches all hit it; each call is a few
+   *  bounded findMany/aggregate queries) */
+  componentRides: { windowSeconds: 60, maxRequests: 60 },
   /** advisorSummary: max 20 LLM calls per 5 minutes per user. Checked only
    *  on cache MISS in the resolver, not on cache-hit refreshes, so the
    *  limit bounds Anthropic dollar cost directly (~$0.96/hour worst case

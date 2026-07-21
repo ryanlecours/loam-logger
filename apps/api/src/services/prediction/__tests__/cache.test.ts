@@ -19,6 +19,7 @@ import {
   invalidateBikeAdvisorSummary,
   invalidateUserAdvisorSummaries,
 } from '../cache';
+import { ALGO_VERSION } from '../config';
 import type { BikePredictionSummary } from '../types';
 import type { AdvisorSummaryResult } from '../../advisor/summarize';
 
@@ -32,13 +33,15 @@ describe('prediction cache', () => {
     dueNowCount: 0,
     dueSoonCount: 1,
     generatedAt: new Date('2024-01-15T10:00:00Z'),
-    algoVersion: 'v1',
+    algoVersion: ALGO_VERSION,
   };
 
+  // Seed with the live ALGO_VERSION — invalidation scans version-prefixed
+  // keys, so hardcoding a stale version here would silently test nothing.
   const cacheParams = {
     userId: 'user-123',
     bikeId: 'bike-123',
-    algoVersion: 'v1',
+    algoVersion: ALGO_VERSION,
     planTier: 'PRO' as const,
     predictionMode: 'simple' as const,
   };
@@ -51,7 +54,7 @@ describe('prediction cache', () => {
   describe('buildCacheKey', () => {
     it('should build correct cache key format', () => {
       const key = buildCacheKey(cacheParams);
-      expect(key).toBe('pred:v1:user:user-123:bike:bike-123:tier:PRO:mode:simple');
+      expect(key).toBe(`pred:${ALGO_VERSION}:user:user-123:bike:bike-123:tier:PRO:mode:simple`);
     });
 
     it('should differentiate FREE and PRO keys', () => {

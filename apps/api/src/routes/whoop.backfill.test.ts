@@ -2,6 +2,12 @@ import type { Request, Response, NextFunction, RequestHandler } from 'express';
 
 // Mock dependencies before imports
 const mockGetValidWhoopToken = jest.fn();
+// The purge route invalidates prediction caches for affected bikes; mock so
+// tests can assert the fan-out without touching Redis.
+jest.mock('../services/prediction/cache', () => ({
+  invalidateBikePrediction: jest.fn().mockResolvedValue(undefined),
+}));
+
 jest.mock('../lib/whoop-token', () => ({
   getValidWhoopToken: mockGetValidWhoopToken,
 }));
@@ -632,6 +638,7 @@ describe('whoop.backfill routes', () => {
         component: { updateMany: mockUpdateMany },
         ride: { deleteMany: mockDeleteMany },
         backfillRequest: { deleteMany: mockDeleteMany },
+        componentRideAdjustment: { findMany: jest.fn().mockResolvedValue([]) },
       }));
     });
 
@@ -679,6 +686,20 @@ describe('whoop.backfill routes', () => {
       await invokeHandler(handler, mockReq as Request, mockRes as Response);
 
       expect(mockUpdateMany).toHaveBeenCalled();
+    });
+
+    it('should invalidate prediction caches for the decremented bikes', async () => {
+      const { invalidateBikePrediction } = jest.requireMock<
+        typeof import('../services/prediction/cache')
+      >('../services/prediction/cache');
+      (invalidateBikePrediction as jest.Mock).mockClear();
+      mockFindMany.mockResolvedValue([
+        { id: 'ride-1', durationSeconds: 3600, bikeId: 'bike-1' },
+      ]);
+
+      await invokeHandler(handler, mockReq as Request, mockRes as Response);
+
+      expect(invalidateBikePrediction).toHaveBeenCalledWith('user-123', 'bike-1');
     });
 
     it('should handle rides without bike assignment', async () => {

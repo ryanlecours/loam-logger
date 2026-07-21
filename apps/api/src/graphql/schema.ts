@@ -285,6 +285,47 @@ export const typeDefs = gql`
     createdAt: String!
   }
 
+  enum ComponentRideAdjustmentKind {
+    # Ride is on the component's bike but must not count toward its hours.
+    EXCLUDE
+    # Ride is on another bike (or unassigned) but should count.
+    INCLUDE
+  }
+
+  type ComponentRideEntry {
+    ride: Ride!
+    # Whether this ride currently contributes to countedHours.
+    counted: Boolean!
+    # The stored adjustment, if any. Null = default on-bike attribution.
+    adjustment: ComponentRideAdjustmentKind
+    # True for an INCLUDE stored on a ride that predates the anchor: it is
+    # recorded but dormant until the anchor moves (e.g. service log deleted
+    # or backdated). Surfaced so the UI never silently ignores an apply.
+    beforeAnchor: Boolean!
+  }
+
+  type ComponentRideAdjustmentResult {
+    # Fresh component (post-recompute hoursUsed) so Apollo renormalizes it.
+    component: Component!
+    rideId: ID!
+    # Whether the ride now counts toward the component's hours.
+    counted: Boolean!
+  }
+
+  type ComponentRidesPayload {
+    componentId: ID!
+    # ISO timestamp the attribution window starts at; null = all-time.
+    anchor: String
+    entries: [ComponentRideEntry!]!
+    # Canonical derived total. May differ from hoursUsed until the first
+    # adjustment snaps the stored counter to the canonical value.
+    countedHours: Float!
+    # The stored counter as of this request.
+    hoursUsed: Float!
+    countedRideCount: Int!
+    hasMore: Boolean!
+  }
+
   type WearDriver {
     factor: String!
     contribution: Int!
@@ -967,6 +1008,13 @@ export const typeDefs = gql`
     updateServiceLog(id: ID!, input: UpdateServiceLogInput!): ServiceLog!
     deleteServiceLog(id: ID!): Boolean!
     snoozeComponent(id: ID!, hours: Float): Component!
+    # Per-ride attribution corrections. EXCLUDE removes an on-bike ride's
+    # hours from the component; INCLUDE applies a ride from another bike
+    # (or unassigned) to it. Setting flips an existing row; clearing a
+    # nonexistent row is a success no-op. Both snap the component's
+    # hoursUsed to the canonical recomputed value.
+    setComponentRideAdjustment(componentId: ID!, rideId: ID!, kind: ComponentRideAdjustmentKind!): ComponentRideAdjustmentResult!
+    clearComponentRideAdjustment(componentId: ID!, rideId: ID!): ComponentRideAdjustmentResult!
     createStravaGearMapping(input: CreateStravaGearMappingInput!): StravaGearMapping!
     deleteStravaGearMapping(id: ID!): DeleteResult!
     triggerProviderSync(provider: SyncProvider!): TriggerSyncResult!
@@ -1181,6 +1229,10 @@ export const typeDefs = gql`
     referralStats: ReferralStats! @deprecated(reason: "Referral program removed; returns zeros")
     bikeHistory(bikeId: ID!, startDate: String, endDate: String): BikeHistoryPayload!
     rideTrack(rideId: ID!): RideTrack!
+    # The rides behind a component's current hoursUsed number, per the
+    # canonical attribution rule (rides on the component's bike since the
+    # last-service anchor, ± per-ride adjustments). Owner-only.
+    componentRides(componentId: ID!, take: Int = 50, after: ID): ComponentRidesPayload!
     # Public (unauthenticated) sanitized history for a shared bike.
     # Returns null for unknown or revoked slugs.
     sharedBikeHistory(slug: String!): SharedBikeHistory
