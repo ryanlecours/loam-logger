@@ -7,6 +7,7 @@ import { isSuuntoCyclingActivity, getSuuntoRideType, isKnownSuuntoActivity } fro
 import { syncBikeComponentHours } from '../lib/component-hours';
 import { invalidateBikePredictionsForBikes } from '../services/prediction/cache';
 import { fireRideNotifications } from '../services/notification.service';
+import { enqueueWeatherJob } from '../lib/queue';
 
 const log = createLogger('suunto-webhook');
 const r: Router = createRouter();
@@ -243,6 +244,17 @@ async function processWorkoutCreated(event: WorkoutCreatedEvent): Promise<void> 
 
   // Bust cached predictions for every bike whose hours changed.
   await invalidateBikePredictionsForBikes(userAccount.userId, affectedBikeIds);
+
+  // Fire-and-forget weather fetch. This webhook is the real-time Suunto
+  // ingestion path, so without this call Suunto rides never get weather even
+  // though the sync-worker and backfill paths enqueue it (see
+  // sync.worker.ts:upsertSuuntoActivity). Guarded on coords: the weather
+  // worker skips rides with null lat/lng anyway.
+  if (startLat != null && startLng != null) {
+    enqueueWeatherJob({ rideId: syncedRideId }).catch((err) =>
+      log.warn({ rideId: syncedRideId, err }, 'Failed to enqueue weather job (Suunto webhook)')
+    );
+  }
 
   // Fire-and-forget: send "Ride Synced" + bike-select prompt for new rides.
   // Mirrors the Strava webhook + Garmin/WHOOP sync-worker call sites so all
