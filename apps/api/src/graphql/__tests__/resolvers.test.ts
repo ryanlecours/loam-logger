@@ -26,6 +26,7 @@ jest.mock('../../lib/prisma', () => ({
     },
     ride: {
       findFirst: jest.fn(),
+      findUnique: jest.fn(),
       findMany: jest.fn(),
       updateMany: jest.fn(),
       count: jest.fn().mockResolvedValue(0),
@@ -38,6 +39,7 @@ jest.mock('../../lib/prisma', () => ({
       findMany: jest.fn().mockResolvedValue([]),
       upsert: jest.fn(),
       findUnique: jest.fn(),
+      count: jest.fn().mockResolvedValue(0),
       deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
     stravaGearMapping: {
@@ -257,6 +259,11 @@ describe('GraphQL Resolvers', () => {
           return [];
         });
         mockPrisma.serviceLog.create.mockResolvedValue({ id: 'log-1' } as never);
+        // The canonical recompute inside the tx aggregates rides.
+        (mockPrisma.ride.aggregate as jest.Mock).mockResolvedValue({
+          _sum: { durationSeconds: 0 },
+          _count: 0,
+        } as never);
         mockPrisma.component.update.mockResolvedValue({ id: 'comp-1', hoursUsed: 0 } as never);
 
         const result = await mutation({}, { id: 'comp-1', performedAt: validDate }, ctx as never);
@@ -292,6 +299,11 @@ describe('GraphQL Resolvers', () => {
           return [];
         });
         mockPrisma.serviceLog.create.mockResolvedValue({ id: 'log-1' } as never);
+        // The canonical recompute inside the tx aggregates rides.
+        (mockPrisma.ride.aggregate as jest.Mock).mockResolvedValue({
+          _sum: { durationSeconds: 0 },
+          _count: 0,
+        } as never);
         mockPrisma.component.update.mockResolvedValue({ id: 'comp-1', hoursUsed: 0 } as never);
 
         await mutation({}, { id: 'comp-1', performedAt: null }, ctx as never);
@@ -319,6 +331,11 @@ describe('GraphQL Resolvers', () => {
           return [];
         });
         mockPrisma.serviceLog.create.mockResolvedValue({ id: 'log-1' } as never);
+        // The canonical recompute inside the tx aggregates rides.
+        (mockPrisma.ride.aggregate as jest.Mock).mockResolvedValue({
+          _sum: { durationSeconds: 0 },
+          _count: 0,
+        } as never);
         mockPrisma.component.update.mockResolvedValue({ id: 'comp-1', hoursUsed: 0 } as never);
 
         const result = await mutation({}, { id: 'comp-1' }, ctx as never);
@@ -329,9 +346,15 @@ describe('GraphQL Resolvers', () => {
             hoursAtService: 50,
           }),
         });
+        // Recompute (canonical hours, 0 with no rides) and the anchor write
+        // are now two separate updates.
         expect(mockPrisma.component.update).toHaveBeenCalledWith({
           where: { id: 'comp-1' },
-          data: { hoursUsed: 0, lastServicedAt: expect.any(Date) },
+          data: { hoursUsed: 0 },
+        });
+        expect(mockPrisma.component.update).toHaveBeenCalledWith({
+          where: { id: 'comp-1' },
+          data: { lastServicedAt: expect.any(Date) },
         });
         expect(result).toEqual({ id: 'comp-1', hoursUsed: 0 });
       });
@@ -352,6 +375,11 @@ describe('GraphQL Resolvers', () => {
           return [];
         });
         mockPrisma.serviceLog.create.mockResolvedValue({ id: 'log-1' } as never);
+        // The canonical recompute inside the tx aggregates rides.
+        (mockPrisma.ride.aggregate as jest.Mock).mockResolvedValue({
+          _sum: { durationSeconds: 0 },
+          _count: 0,
+        } as never);
         mockPrisma.component.update.mockResolvedValue({ id: 'comp-1', hoursUsed: 0 } as never);
 
         await mutation({}, { id: 'comp-1' }, ctx as never);
@@ -3167,8 +3195,21 @@ describe('GraphQL Resolvers', () => {
       });
 
       const mockTx = {
-        serviceLog: { create: jest.fn() },
-        component: { update: jest.fn().mockResolvedValue({ id: 'comp-1' }) },
+        serviceLog: {
+          create: jest.fn(),
+          findFirst: jest.fn().mockResolvedValue(null),
+        },
+        component: {
+          update: jest.fn().mockResolvedValue({ id: 'comp-1' }),
+          // The canonical recompute reloads the component inside the tx.
+          findUnique: jest.fn().mockResolvedValue({
+            id: 'comp-1', userId: 'user-123', bikeId: 'bike-1', installedAt: null, hoursUsed: 50,
+          }),
+        },
+        ride: {
+          aggregate: jest.fn().mockResolvedValue({ _sum: { durationSeconds: 0 }, _count: 0 }),
+        },
+        componentRideAdjustment: { findMany: jest.fn().mockResolvedValue([]) },
       };
       (mockPrisma.$transaction as jest.Mock).mockImplementation((fn: (...args: unknown[]) => unknown) => fn(mockTx));
 
@@ -5310,6 +5351,216 @@ describe('GraphQL Resolvers', () => {
       expect(result.entries).toEqual([]);
       expect(result.countedHours).toBe(0);
       expect(mockRideFindMany).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('componentRideAdjustment mutations', () => {
+    const setMutation = resolvers.Mutation.setComponentRideAdjustment;
+    const clearMutation = resolvers.Mutation.clearComponentRideAdjustment;
+    const mockComponentFindUnique = prisma.component.findUnique as jest.Mock;
+    const mockComponentUpdate = prisma.component.update as jest.Mock;
+    const mockRideFindUnique = prisma.ride.findUnique as jest.Mock;
+    const mockRideAggregate = prisma.ride.aggregate as jest.Mock;
+    const mockServiceLogFindFirst = prisma.serviceLog.findFirst as jest.Mock;
+    const mockAdjustment = prisma.componentRideAdjustment as unknown as Record<string, jest.Mock>;
+    const mockTransaction = prisma.$transaction as jest.Mock;
+    const mockInvalidate = invalidateBikePrediction as jest.Mock;
+
+    beforeEach(() => {
+      mockCheckMutationRateLimit.mockResolvedValue({ allowed: true, retryAfter: 0 });
+      mockComponentFindUnique.mockResolvedValue({
+        id: 'comp-1', userId: 'user-123', bikeId: 'bike-1', installedAt: null, hoursUsed: 10,
+      });
+      mockRideFindUnique.mockResolvedValue({
+        id: 'ride-1',
+        userId: 'user-123',
+        bikeId: 'bike-1',
+        startTime: new Date('2026-06-15T00:00:00Z'),
+        isDuplicate: false,
+      });
+      mockServiceLogFindFirst.mockResolvedValue(null);
+      mockAdjustment.findUnique.mockResolvedValue(null);
+      mockAdjustment.count.mockResolvedValue(0);
+      mockAdjustment.findMany.mockResolvedValue([]);
+      mockAdjustment.upsert.mockResolvedValue({ id: 'adj-1' });
+      mockAdjustment.deleteMany.mockResolvedValue({ count: 1 });
+      mockRideAggregate.mockResolvedValue({ _sum: { durationSeconds: 3600 }, _count: 1 });
+      mockComponentUpdate.mockResolvedValue({ id: 'comp-1', hoursUsed: 1 });
+      // Passthrough tx sharing the module-level mocks
+      mockTransaction.mockImplementation(async (fn: (tx: unknown) => unknown) => fn(prisma));
+    });
+
+    it('rejects a foreign component (strict not-found)', async () => {
+      mockComponentFindUnique.mockResolvedValue({
+        id: 'comp-1', userId: 'other-user', bikeId: 'bike-1',
+      });
+      const ctx = createMockContext('user-123');
+
+      await expect(
+        setMutation({}, { componentId: 'comp-1', rideId: 'ride-1', kind: 'EXCLUDE' }, ctx as never)
+      ).rejects.toThrow('Component not found');
+      expect(mockAdjustment.upsert).not.toHaveBeenCalled();
+    });
+
+    it('rejects a foreign ride independently of the component check', async () => {
+      mockRideFindUnique.mockResolvedValue({
+        id: 'ride-1', userId: 'other-user', bikeId: 'bike-1',
+        startTime: new Date(), isDuplicate: false,
+      });
+      const ctx = createMockContext('user-123');
+
+      await expect(
+        setMutation({}, { componentId: 'comp-1', rideId: 'ride-1', kind: 'EXCLUDE' }, ctx as never)
+      ).rejects.toThrow('Ride not found');
+      expect(mockAdjustment.upsert).not.toHaveBeenCalled();
+    });
+
+    it('rejects adjusting a duplicate ride', async () => {
+      mockRideFindUnique.mockResolvedValue({
+        id: 'ride-1', userId: 'user-123', bikeId: 'bike-1',
+        startTime: new Date(), isDuplicate: true,
+      });
+      const ctx = createMockContext('user-123');
+
+      await expect(
+        setMutation({}, { componentId: 'comp-1', rideId: 'ride-1', kind: 'EXCLUDE' }, ctx as never)
+      ).rejects.toThrow('Cannot adjust a duplicate ride');
+    });
+
+    it('validates kind against the ride/bike relationship', async () => {
+      const ctx = createMockContext('user-123');
+
+      // INCLUDE on an on-bike ride is invalid
+      await expect(
+        setMutation({}, { componentId: 'comp-1', rideId: 'ride-1', kind: 'INCLUDE' }, ctx as never)
+      ).rejects.toThrow('INCLUDE requires a ride that is not on the component’s bike.');
+
+      // EXCLUDE on an off-bike ride is invalid
+      mockRideFindUnique.mockResolvedValue({
+        id: 'ride-1', userId: 'user-123', bikeId: 'bike-2',
+        startTime: new Date(), isDuplicate: false,
+      });
+      await expect(
+        setMutation({}, { componentId: 'comp-1', rideId: 'ride-1', kind: 'EXCLUDE' }, ctx as never)
+      ).rejects.toThrow('EXCLUDE requires a ride on the component’s bike.');
+    });
+
+    it('EXCLUDE upserts the row, recomputes, and reports counted:false', async () => {
+      const ctx = createMockContext('user-123');
+
+      const result = await setMutation(
+        {}, { componentId: 'comp-1', rideId: 'ride-1', kind: 'EXCLUDE' }, ctx as never
+      );
+
+      expect(mockAdjustment.upsert).toHaveBeenCalledWith({
+        where: { componentId_rideId: { componentId: 'comp-1', rideId: 'ride-1' } },
+        create: { userId: 'user-123', componentId: 'comp-1', rideId: 'ride-1', kind: 'EXCLUDE' },
+        update: { kind: 'EXCLUDE' },
+      });
+      // The recompute persisted canonical hours inside the tx.
+      expect(mockComponentUpdate).toHaveBeenCalledWith({
+        where: { id: 'comp-1' },
+        data: { hoursUsed: 1 },
+      });
+      expect(result.counted).toBe(false);
+      expect(result.rideId).toBe('ride-1');
+    });
+
+    it('cross-bike INCLUDE invalidates BOTH bikes, before and after', async () => {
+      mockRideFindUnique.mockResolvedValue({
+        id: 'ride-1', userId: 'user-123', bikeId: 'bike-2',
+        startTime: new Date('2026-06-15T00:00:00Z'), isDuplicate: false,
+      });
+      mockInvalidate.mockClear();
+      const ctx = createMockContext('user-123');
+
+      const result = await setMutation(
+        {}, { componentId: 'comp-1', rideId: 'ride-1', kind: 'INCLUDE' }, ctx as never
+      );
+
+      const invalidatedBikes = mockInvalidate.mock.calls.map((c: unknown[]) => c[1]);
+      expect(invalidatedBikes.filter((b: unknown) => b === 'bike-1')).toHaveLength(2);
+      expect(invalidatedBikes.filter((b: unknown) => b === 'bike-2')).toHaveLength(2);
+      expect(result.counted).toBe(true); // in-window (no anchor)
+    });
+
+    it('caps adjustments per component when creating a new row', async () => {
+      mockAdjustment.count.mockResolvedValue(500);
+      const ctx = createMockContext('user-123');
+
+      await expect(
+        setMutation({}, { componentId: 'comp-1', rideId: 'ride-1', kind: 'EXCLUDE' }, ctx as never)
+      ).rejects.toThrow('Too many ride adjustments');
+    });
+
+    it('clear is an idempotent success even when no row exists', async () => {
+      mockAdjustment.deleteMany.mockResolvedValue({ count: 0 });
+      const ctx = createMockContext('user-123');
+
+      const result = await clearMutation(
+        {}, { componentId: 'comp-1', rideId: 'ride-1' }, ctx as never
+      );
+
+      expect(mockAdjustment.deleteMany).toHaveBeenCalledWith({
+        where: { componentId: 'comp-1', rideId: 'ride-1' },
+      });
+      // On-bike, in-window (no anchor), no adjustment -> counts by default.
+      expect(result.counted).toBe(true);
+    });
+  });
+
+  describe('Mutation.deleteRide with adjusted ride', () => {
+    const mutation = resolvers.Mutation.deleteRide;
+    const mockInvalidate = invalidateBikePrediction as jest.Mock;
+
+    it('captures adjusted components before the delete and invalidates their bikes', async () => {
+      mockCheckMutationRateLimit.mockResolvedValue({ allowed: true, retryAfter: 0 });
+      (prisma.ride.findUnique as jest.Mock).mockResolvedValue({
+        userId: 'user-123', durationSeconds: 3600, bikeId: 'bike-1',
+      });
+      mockInvalidate.mockClear();
+
+      // Ride is INCLUDEd in a component living on ANOTHER bike (spare-swap
+      // correction): its counter must be recomputed after the delete and
+      // bike-2 invalidated even though the ride belonged to bike-1.
+      const txAdjustmentFindMany = jest.fn()
+        // findAdjustedComponentIdsForRides (pre-delete capture)
+        .mockResolvedValueOnce([{ componentId: 'comp-other' }])
+        // loadComponentAttribution inside the recompute
+        .mockResolvedValue([]);
+      const tx = {
+        ride: {
+          delete: jest.fn().mockResolvedValue({}),
+          aggregate: jest.fn().mockResolvedValue({ _sum: { durationSeconds: 0 }, _count: 0 }),
+        },
+        component: {
+          updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+          update: jest.fn().mockResolvedValue({}),
+          findUnique: jest.fn().mockResolvedValue({
+            id: 'comp-other', userId: 'user-123', bikeId: 'bike-2', installedAt: null, hoursUsed: 5,
+          }),
+        },
+        serviceLog: { findFirst: jest.fn().mockResolvedValue(null) },
+        componentRideAdjustment: { findMany: txAdjustmentFindMany },
+      };
+      (prisma.$transaction as jest.Mock).mockImplementation(async (fn: (t: unknown) => unknown) => fn(tx));
+
+      const result = await mutation({}, { id: 'ride-1' }, createMockContext('user-123') as never);
+
+      expect(result).toEqual({ ok: true, id: 'ride-1' });
+      // Capture ran BEFORE the delete
+      expect(txAdjustmentFindMany.mock.invocationCallOrder[0]).toBeLessThan(
+        tx.ride.delete.mock.invocationCallOrder[0]
+      );
+      // The adjusted component was recomputed post-delete
+      expect(tx.component.update).toHaveBeenCalledWith({
+        where: { id: 'comp-other' },
+        data: { hoursUsed: 0 },
+      });
+      // Both the ride's bike and the adjusted component's bike invalidated
+      const invalidatedBikes = mockInvalidate.mock.calls.map((c: unknown[]) => c[1]);
+      expect(invalidatedBikes).toContain('bike-1');
+      expect(invalidatedBikes).toContain('bike-2');
     });
   });
 });

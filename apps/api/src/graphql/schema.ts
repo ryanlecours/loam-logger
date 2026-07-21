@@ -304,6 +304,14 @@ export const typeDefs = gql`
     beforeAnchor: Boolean!
   }
 
+  type ComponentRideAdjustmentResult {
+    # Fresh component (post-recompute hoursUsed) so Apollo renormalizes it.
+    component: Component!
+    rideId: ID!
+    # Whether the ride now counts toward the component's hours.
+    counted: Boolean!
+  }
+
   type ComponentRidesPayload {
     componentId: ID!
     # ISO timestamp the attribution window starts at; null = all-time.
@@ -1000,6 +1008,13 @@ export const typeDefs = gql`
     updateServiceLog(id: ID!, input: UpdateServiceLogInput!): ServiceLog!
     deleteServiceLog(id: ID!): Boolean!
     snoozeComponent(id: ID!, hours: Float): Component!
+    # Per-ride attribution corrections. EXCLUDE removes an on-bike ride's
+    # hours from the component; INCLUDE applies a ride from another bike
+    # (or unassigned) to it. Setting flips an existing row; clearing a
+    # nonexistent row is a success no-op. Both snap the component's
+    # hoursUsed to the canonical recomputed value.
+    setComponentRideAdjustment(componentId: ID!, rideId: ID!, kind: ComponentRideAdjustmentKind!): ComponentRideAdjustmentResult!
+    clearComponentRideAdjustment(componentId: ID!, rideId: ID!): ComponentRideAdjustmentResult!
     createStravaGearMapping(input: CreateStravaGearMappingInput!): StravaGearMapping!
     deleteStravaGearMapping(id: ID!): DeleteResult!
     triggerProviderSync(provider: SyncProvider!): TriggerSyncResult!

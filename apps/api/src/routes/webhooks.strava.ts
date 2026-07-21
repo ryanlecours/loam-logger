@@ -3,7 +3,11 @@ import type { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { getValidStravaToken } from '../lib/strava-token';
 import { deriveLocationAsync, shouldApplyAutoLocation } from '../lib/location';
-import { syncBikeComponentHours } from '../lib/component-hours';
+import {
+  syncBikeComponentHours,
+  findAdjustedComponentIdsForRides,
+  recomputeAdjustedComponentsForRides,
+} from '../lib/component-hours';
 import { logError } from '../lib/logger';
 import { fireRideNotifications } from '../services/notification.service';
 import { enqueueWeatherJob, enqueueLiftDetectionJob } from '../lib/queue';
@@ -241,6 +245,11 @@ async function processActivityEvent(event: StravaWebhookEvent): Promise<void> {
         return;
       }
 
+      // Capture BEFORE the delete — adjustment rows cascade away with the
+      // ride. Cross-bike INCLUDEs live on components the bulk decrement
+      // below never touches.
+      const adjustedComponentIds = await findAdjustedComponentIdsForRides(tx, [existing.id]);
+
       await syncBikeComponentHours(
         tx,
         userAccount.userId,
@@ -249,6 +258,8 @@ async function processActivityEvent(event: StravaWebhookEvent): Promise<void> {
       );
 
       await tx.ride.delete({ where: { id: existing.id } });
+
+      await recomputeAdjustedComponentsForRides(tx, { componentIds: adjustedComponentIds });
     });
     console.log(`[Strava Activity Event] Deleted ride for activity ${activityId}`);
     return;
@@ -391,7 +402,9 @@ async function processActivityEvent(event: StravaWebhookEvent): Promise<void> {
           {
             bikeId: ride.bikeId ?? null,
             durationSeconds: ride.durationSeconds,
-          }
+          },
+          // Existing ride: adjusted components need the canonical recompute.
+          existing ? ride.id : undefined
         );
 
         return { syncedRideId: ride.id, isNewRide: !existing };

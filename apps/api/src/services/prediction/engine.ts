@@ -66,6 +66,20 @@ type PredictionContext = {
   allRides: RideMetrics[];
   /** Map of componentType -> effective service preference (bike override > global > system default) */
   effectivePreferences: Map<string, EffectiveServicePreference>;
+  /**
+   * Per-component ride attribution overrides (ComponentRideAdjustment).
+   * Excluded rides are dropped from that component's since-service window;
+   * included rides (from other bikes / unassigned) are added to it. Keeps
+   * hoursSinceService, ridesSinceService, and the PRO adaptive wear math in
+   * agreement with the corrected hoursUsed counter.
+   */
+  adjustmentMap: Map<string, { excluded: Set<string>; includedRideIds: string[] }>;
+  /**
+   * Metrics for INCLUDEd rides that are NOT on this bike (this bike's own
+   * rides already live in allRides — a stale INCLUDE on one must not count
+   * twice, so the fetch excludes them).
+   */
+  includedRideMap: Map<string, RideMetrics>;
 };
 
 /**
@@ -140,13 +154,32 @@ function getLastServiceDateFromContext(
 }
 
 /**
- * Get rides since a specific date from pre-fetched rides array.
+ * Get the rides attributed to a component since a date, from pre-fetched
+ * context. Applies the component's ride adjustments: EXCLUDEd rides are
+ * dropped, INCLUDEd cross-bike rides are merged in (window-filtered like
+ * everything else). Without adjustments this reduces to the plain
+ * bike-rides-since-date filter.
  */
-function getRidesSinceDateFromContext(
+function getRidesSinceDateForComponent(
+  componentId: string,
   sinceDate: Date,
   ctx: PredictionContext
 ): RideMetrics[] {
-  return ctx.allRides.filter((ride) => ride.startTime >= sinceDate);
+  const adj = ctx.adjustmentMap.get(componentId);
+  const base = ctx.allRides.filter(
+    (ride) => ride.startTime >= sinceDate && !adj?.excluded.has(ride.id)
+  );
+  if (!adj || adj.includedRideIds.length === 0) return base;
+
+  const included = adj.includedRideIds
+    .map((id) => ctx.includedRideMap.get(id))
+    .filter((ride): ride is RideMetrics => !!ride && ride.startTime >= sinceDate);
+  if (included.length === 0) return base;
+
+  // Keep ascending startTime order, matching allRides' contract.
+  return [...base, ...included].sort(
+    (a, b) => a.startTime.getTime() - b.startTime.getTime()
+  );
 }
 
 /**
@@ -173,8 +206,9 @@ function predictComponent(
   // Get last service date from pre-fetched context
   const lastServiceDate = getLastServiceDateFromContext(component.id, ctx);
 
-  // Get rides and hours since last service from pre-fetched context
-  const ridesSinceService = getRidesSinceDateFromContext(lastServiceDate, ctx);
+  // Get rides and hours since last service from pre-fetched context,
+  // honoring this component's ride adjustments
+  const ridesSinceService = getRidesSinceDateForComponent(component.id, lastServiceDate, ctx);
   const hoursSinceService = calculateTotalHours(ridesSinceService);
   const rideCountSinceService = ridesSinceService.length;
 
@@ -424,7 +458,7 @@ export async function generateBikePredictions(
   // Batch fetch all data needed for predictions to avoid N+1 queries
   const componentIds = trackableComponents.map((c) => c.id);
 
-  const [serviceLogs, firstRideDate, allRides, recentRides] = await Promise.all([
+  const [serviceLogs, firstRideDate, allRides, recentRides, rideAdjustments] = await Promise.all([
     // Fetch all service logs for all components at once
     prisma.serviceLog.findMany({
       where: { componentId: { in: componentIds } },
@@ -437,6 +471,11 @@ export async function generateBikePredictions(
     getAllRidesForBike(userId, bikeId),
     // Get recent rides for wear analysis
     getRecentRides(userId, bikeId),
+    // Per-component ride attribution overrides
+    prisma.componentRideAdjustment.findMany({
+      where: { componentId: { in: componentIds } },
+      select: { componentId: true, rideId: true, kind: true },
+    }),
   ]);
 
   // Build service log map (componentId -> most recent service date)
@@ -448,6 +487,45 @@ export async function generateBikePredictions(
     }
   }
 
+  // Build adjustment map and fetch metrics for INCLUDEd rides. The fetch
+  // excludes this bike's own rides: those already live in allRides, and a
+  // stale INCLUDE row (ride later reassigned onto this bike) must count once.
+  const adjustmentMap = new Map<string, { excluded: Set<string>; includedRideIds: string[] }>();
+  for (const adj of rideAdjustments) {
+    let entry = adjustmentMap.get(adj.componentId);
+    if (!entry) {
+      entry = { excluded: new Set<string>(), includedRideIds: [] };
+      adjustmentMap.set(adj.componentId, entry);
+    }
+    if (adj.kind === 'EXCLUDE') entry.excluded.add(adj.rideId);
+    else entry.includedRideIds.push(adj.rideId);
+  }
+
+  const allIncludedRideIds = [
+    ...new Set(rideAdjustments.filter((a) => a.kind === 'INCLUDE').map((a) => a.rideId)),
+  ];
+  const includedRideMap = new Map<string, RideMetrics>();
+  if (allIncludedRideIds.length > 0) {
+    const includedRides = await prisma.ride.findMany({
+      where: {
+        id: { in: allIncludedRideIds },
+        userId,
+        isDuplicate: false,
+        NOT: { bikeId },
+      },
+      select: {
+        id: true,
+        durationSeconds: true,
+        distanceMeters: true,
+        elevationGainMeters: true,
+        startTime: true,
+      },
+    });
+    for (const ride of includedRides) {
+      includedRideMap.set(ride.id, ride as RideMetrics);
+    }
+  }
+
   // Create prediction context
   const ctx: PredictionContext = {
     serviceLogMap,
@@ -455,6 +533,8 @@ export async function generateBikePredictions(
     bikeCreatedAt: bike.createdAt,
     allRides,
     effectivePreferences: effectivePreferencesMap,
+    adjustmentMap,
+    includedRideMap,
   };
 
   // Generate predictions for each component (synchronously - no more DB calls)

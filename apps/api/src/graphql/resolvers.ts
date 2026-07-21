@@ -48,6 +48,8 @@ import {
   loadComponentAttribution,
   computeCountedHours,
   recomputeComponentHours,
+  recomputeAdjustedComponentsForRides,
+  findAdjustedComponentIdsForRides,
 } from '../lib/component-hours';
 import { captureSetupSnapshot } from '../lib/capture-snapshot';
 import type { SetupSnapshot } from '@loam/shared';
@@ -274,6 +276,11 @@ const MAX_LABEL_LEN = 120;
  * 1000h.
  */
 const MAX_SERVICE_HOURS = 100_000;
+
+// Bound on ComponentRideAdjustment rows per component — keeps the
+// id IN (...) lists in the canonical recompute and componentRides
+// queries small. Far above any plausible manual-correction volume.
+const MAX_COMPONENT_RIDE_ADJUSTMENTS = 500;
 
 /**
  * Clean user input text.
@@ -1913,17 +1920,26 @@ export const resolvers = {
         await invalidateBikePrediction(userId, deletedBikeId);
       }
 
-      await prisma.$transaction(async (tx) => {
+      const adjustedBikeIds = await prisma.$transaction(async (tx) => {
+        // Capture BEFORE the delete — the adjustment rows cascade away with
+        // the ride. Components on OTHER bikes may have INCLUDEd this ride;
+        // the bulk decrement below never touches them, so they need a
+        // targeted canonical recompute after the row is gone.
+        const adjustedComponentIds = await findAdjustedComponentIdsForRides(tx, [id]);
+
         if (ride.bikeId) {
           await decrementBikeComponentHours(tx, { userId, bikeId: ride.bikeId, hoursDelta });
         }
 
         await tx.ride.delete({ where: { id } });
+
+        return recomputeAdjustedComponentsForRides(tx, { componentIds: adjustedComponentIds });
       });
 
-      // Invalidate prediction cache after transaction
-      if (deletedBikeId) {
-        await invalidateBikePrediction(userId, deletedBikeId);
+      // Invalidate prediction cache after transaction — the ride's own bike
+      // plus any bike holding a component whose adjustment referenced it.
+      for (const bikeId of new Set([deletedBikeId, ...adjustedBikeIds].filter((b): b is string => !!b))) {
+        await invalidateBikePrediction(userId, bikeId);
       }
 
       return { ok: true, id };
@@ -2039,7 +2055,9 @@ export const resolvers = {
         await invalidateBikePrediction(userId, nextBikeId);
       }
 
-      const updatedRide = await prisma.$transaction(async (tx) => {
+      const startChanged = start !== undefined;
+
+      const { updatedRide, adjustedBikeIds } = await prisma.$transaction(async (tx) => {
         const updated = await tx.ride.update({
           where: { id },
           data,
@@ -2065,15 +2083,30 @@ export const resolvers = {
           }
         }
 
-        return updated;
+        // Components with adjustments referencing this ride need a canonical
+        // recompute when the ride's bike, duration, or startTime changed —
+        // the bulk paths above either mis-credit them (EXCLUDE) or never
+        // touch them (cross-bike INCLUDE). startTime matters because it can
+        // move the ride across the component's attribution window; note the
+        // bulk paths deliberately ignore startTime-only edits for unadjusted
+        // components (existing semantics, kept).
+        const recomputedBikes =
+          bikeChanged || durationChanged || startChanged
+            ? await recomputeAdjustedComponentsForRides(tx, { rideIds: [id] })
+            : [];
+
+        return { updatedRide: updated, adjustedBikeIds: recomputedBikes };
       });
 
-      // Invalidate prediction cache after transaction
-      if (existing.bikeId) {
-        await invalidateBikePrediction(userId, existing.bikeId);
-      }
-      if (nextBikeId && nextBikeId !== existing.bikeId) {
-        await invalidateBikePrediction(userId, nextBikeId);
+      // Invalidate prediction cache after transaction, including bikes that
+      // hold adjusted components (may be neither the old nor the new bike).
+      const postInvalidate = new Set(
+        [existing.bikeId, nextBikeId !== existing.bikeId ? nextBikeId : null, ...adjustedBikeIds].filter(
+          (b): b is string => !!b
+        )
+      );
+      for (const bikeId of postInvalidate) {
+        await invalidateBikePrediction(userId, bikeId);
       }
 
       return updatedRide;
@@ -2614,7 +2647,7 @@ export const resolvers = {
         await invalidateBikePrediction(userId, existing.bikeId);
       }
 
-      // Use transaction to create service log AND reset hours atomically
+      // Use transaction to create service log AND recompute hours atomically
       const updated = await prisma.$transaction(async (tx) => {
         // Create service log to record this service event
         await tx.serviceLog.create({
@@ -2625,10 +2658,16 @@ export const resolvers = {
           },
         });
 
-        // Reset component hours and record service date
+        // Recompute instead of hardcoding 0: a service dated "now" still
+        // yields 0, but a BACKDATED service now correctly counts the rides
+        // that happened after it — matching what updateServiceLog already
+        // produces when the same log is later edited. Also keeps per-ride
+        // adjustments (ComponentRideAdjustment) applied.
+        await recomputeComponentHours(tx, id);
+
         return tx.component.update({
           where: { id },
-          data: { hoursUsed: 0, lastServicedAt: serviceDate },
+          data: { lastServicedAt: serviceDate },
         });
       });
 
@@ -2704,10 +2743,14 @@ export const resolvers = {
           },
         });
 
-        // Reset component hours and record service date
+        // Recompute instead of hardcoding 0 — backdated services count the
+        // rides after them, and per-ride adjustments stay applied. See the
+        // parallel note in logComponentService.
+        await recomputeComponentHours(tx, input.componentId);
+
         await tx.component.update({
           where: { id: input.componentId },
-          data: { hoursUsed: 0, lastServicedAt: performedAt },
+          data: { lastServicedAt: performedAt },
         });
 
         return log;
@@ -3364,6 +3407,173 @@ export const resolvers = {
       return updated;
     },
 
+    setComponentRideAdjustment: async (
+      _: unknown,
+      { componentId, rideId, kind }: { componentId: string; rideId: string; kind: 'EXCLUDE' | 'INCLUDE' },
+      ctx: GraphQLContext
+    ) => {
+      const userId = requireUserId(ctx);
+
+      const rateLimit = await checkMutationRateLimit('setComponentRideAdjustment', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
+
+      // Two independent strict ownership checks: cross-bike APPLY means the
+      // ride's ownership cannot be inferred from the component's.
+      const component = await prisma.component.findUnique({
+        where: { id: componentId },
+        select: { id: true, userId: true, bikeId: true },
+      });
+      if (!component || component.userId !== userId) {
+        throw new Error('Component not found');
+      }
+      const ride = await prisma.ride.findUnique({
+        where: { id: rideId },
+        select: { id: true, userId: true, bikeId: true, startTime: true, isDuplicate: true },
+      });
+      if (!ride || ride.userId !== userId) {
+        throw new Error('Ride not found');
+      }
+
+      // Duplicates never count toward hours on any path; an adjustment row
+      // on one would be inert and confusing.
+      if (ride.isDuplicate) {
+        throw new GraphQLError('Cannot adjust a duplicate ride.', {
+          extensions: { code: 'BAD_USER_INPUT' },
+        });
+      }
+
+      // Keep rows canonical: EXCLUDE only makes sense for a ride currently
+      // on the component's bike; INCLUDE only for a ride that is not.
+      const rideOnComponentBike = ride.bikeId != null && ride.bikeId === component.bikeId;
+      if (kind === 'EXCLUDE' && !rideOnComponentBike) {
+        throw new GraphQLError('EXCLUDE requires a ride on the component’s bike.', {
+          extensions: { code: 'BAD_USER_INPUT' },
+        });
+      }
+      if (kind === 'INCLUDE' && rideOnComponentBike) {
+        throw new GraphQLError('INCLUDE requires a ride that is not on the component’s bike.', {
+          extensions: { code: 'BAD_USER_INPUT' },
+        });
+      }
+
+      // Bound the id IN (...) lists the recompute and componentRides build.
+      const existingRow = await prisma.componentRideAdjustment.findUnique({
+        where: { componentId_rideId: { componentId, rideId } },
+        select: { id: true },
+      });
+      if (!existingRow) {
+        const adjustmentCount = await prisma.componentRideAdjustment.count({
+          where: { componentId },
+        });
+        if (adjustmentCount >= MAX_COMPONENT_RIDE_ADJUSTMENTS) {
+          throw new GraphQLError('Too many ride adjustments on this component.', {
+            extensions: { code: 'BAD_USER_INPUT' },
+          });
+        }
+      }
+
+      // Invalidate BOTH bikes when they differ (cross-bike INCLUDE): the
+      // component's bike gains/loses hours, and the ride's own bike surface
+      // may render this component's data after a future reinstall.
+      const bikesToInvalidate = [
+        ...new Set([component.bikeId, ride.bikeId].filter((b): b is string => !!b)),
+      ];
+      for (const bikeId of bikesToInvalidate) {
+        await invalidateBikePrediction(userId, bikeId);
+      }
+
+      const { updatedComponent, counted } = await prisma.$transaction(async (tx) => {
+        await tx.componentRideAdjustment.upsert({
+          where: { componentId_rideId: { componentId, rideId } },
+          create: { userId, componentId, rideId, kind },
+          update: { kind },
+        });
+
+        await recomputeComponentHours(tx, componentId);
+
+        // Derive whether the ride now counts, from the same canonical rule.
+        const attribution = await loadComponentAttribution(tx, componentId);
+        const inWindow = !attribution?.anchor || ride.startTime >= attribution.anchor;
+        const nowCounted =
+          kind === 'EXCLUDE' ? false : inWindow;
+
+        const fresh = await tx.component.findUnique({ where: { id: componentId } });
+        return { updatedComponent: fresh, counted: nowCounted };
+      });
+
+      for (const bikeId of bikesToInvalidate) {
+        await invalidateBikePrediction(userId, bikeId);
+      }
+
+      return { component: updatedComponent, rideId, counted };
+    },
+
+    clearComponentRideAdjustment: async (
+      _: unknown,
+      { componentId, rideId }: { componentId: string; rideId: string },
+      ctx: GraphQLContext
+    ) => {
+      const userId = requireUserId(ctx);
+
+      const rateLimit = await checkMutationRateLimit('clearComponentRideAdjustment', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
+
+      const component = await prisma.component.findUnique({
+        where: { id: componentId },
+        select: { id: true, userId: true, bikeId: true },
+      });
+      if (!component || component.userId !== userId) {
+        throw new Error('Component not found');
+      }
+      const ride = await prisma.ride.findUnique({
+        where: { id: rideId },
+        select: { id: true, userId: true, bikeId: true, startTime: true },
+      });
+      if (!ride || ride.userId !== userId) {
+        throw new Error('Ride not found');
+      }
+
+      const bikesToInvalidate = [
+        ...new Set([component.bikeId, ride.bikeId].filter((b): b is string => !!b)),
+      ];
+      for (const bikeId of bikesToInvalidate) {
+        await invalidateBikePrediction(userId, bikeId);
+      }
+
+      const { updatedComponent, counted } = await prisma.$transaction(async (tx) => {
+        // deleteMany so clearing a nonexistent row is an idempotent no-op.
+        await tx.componentRideAdjustment.deleteMany({
+          where: { componentId, rideId },
+        });
+
+        await recomputeComponentHours(tx, componentId);
+
+        // With no adjustment, the ride counts iff it's on the component's
+        // bike and inside the window.
+        const attribution = await loadComponentAttribution(tx, componentId);
+        const inWindow = !attribution?.anchor || ride.startTime >= attribution.anchor;
+        const onBike = ride.bikeId != null && ride.bikeId === component.bikeId;
+        const nowCounted = inWindow && onBike;
+
+        const fresh = await tx.component.findUnique({ where: { id: componentId } });
+        return { updatedComponent: fresh, counted: nowCounted };
+      });
+
+      for (const bikeId of bikesToInvalidate) {
+        await invalidateBikePrediction(userId, bikeId);
+      }
+
+      return { component: updatedComponent, rideId, counted };
+    },
+
     createStravaGearMapping: async (
       _: unknown,
       { input }: { input: { stravaGearId: string; stravaGearName?: string | null; bikeId: string } },
@@ -3396,7 +3606,7 @@ export const resolvers = {
         throw new Error('This Strava bike is already mapped');
       }
 
-      const mapping = await prisma.$transaction(async (tx) => {
+      const { mapping, adjustedBikeIds } = await prisma.$transaction(async (tx) => {
         const newMapping = await tx.stravaGearMapping.create({
           data: {
             userId,
@@ -3412,6 +3622,7 @@ export const resolvers = {
           select: { id: true, durationSeconds: true },
         });
 
+        let recomputedBikes: string[] = [];
         if (ridesToUpdate.length > 0) {
           await tx.ride.updateMany({
             where: { userId, stravaGearId: input.stravaGearId },
@@ -3422,13 +3633,22 @@ export const resolvers = {
           const totalHours = totalSeconds / 3600;
 
           await incrementBikeComponentHours(tx, { userId, bikeId: input.bikeId, hoursDelta: totalHours });
+
+          // Components with adjustments referencing the newly-assigned rides
+          // (e.g. an INCLUDE created while the ride was unassigned) need the
+          // canonical recompute to avoid double counting.
+          recomputedBikes = await recomputeAdjustedComponentsForRides(tx, {
+            rideIds: ridesToUpdate.map((r) => r.id),
+          });
         }
 
-        return newMapping;
+        return { mapping: newMapping, adjustedBikeIds: recomputedBikes };
       });
 
-      // Invalidate prediction cache for the bike
-      await invalidateBikePrediction(userId, input.bikeId);
+      // Invalidate prediction cache for the bike (plus adjusted components' bikes)
+      for (const affected of new Set([input.bikeId, ...adjustedBikeIds])) {
+        await invalidateBikePrediction(userId, affected);
+      }
 
       return mapping;
     },
@@ -3454,10 +3674,10 @@ export const resolvers = {
 
       const deletedBikeId = mapping.bikeId;
 
-      await prisma.$transaction(async (tx) => {
+      const adjustedBikeIds = await prisma.$transaction(async (tx) => {
         const rides = await tx.ride.findMany({
           where: { userId, stravaGearId: mapping.stravaGearId, bikeId: mapping.bikeId },
-          select: { durationSeconds: true },
+          select: { id: true, durationSeconds: true },
         });
 
         const totalSeconds = rides.reduce((sum, r) => sum + r.durationSeconds, 0);
@@ -3471,10 +3691,17 @@ export const resolvers = {
         await decrementBikeComponentHours(tx, { userId, bikeId: mapping.bikeId, hoursDelta: totalHours });
 
         await tx.stravaGearMapping.delete({ where: { id } });
+
+        // Rides just went bike-less: EXCLUDE rows on them go inert and any
+        // INCLUDEs elsewhere are unaffected, but components that carried
+        // those adjustments need their counters snapped to canonical.
+        return recomputeAdjustedComponentsForRides(tx, { rideIds: rides.map((r) => r.id) });
       });
 
-      // Invalidate prediction cache for the bike
-      await invalidateBikePrediction(userId, deletedBikeId);
+      // Invalidate prediction cache for the bike (plus adjusted components' bikes)
+      for (const affected of new Set([deletedBikeId, ...adjustedBikeIds])) {
+        await invalidateBikePrediction(userId, affected);
+      }
 
       return { ok: true, id };
     },
@@ -4214,7 +4441,7 @@ export const resolvers = {
       await invalidateBikePrediction(userId, bikeId);
 
       // Update rides and components in a transaction
-      await prisma.$transaction(async (tx) => {
+      const adjustedBikeIds = await prisma.$transaction(async (tx) => {
         // Assign bike to all rides
         await tx.ride.updateMany({
           where: { id: { in: rideIds } },
@@ -4223,10 +4450,19 @@ export const resolvers = {
 
         // Add hours to bike's components
         await incrementBikeComponentHours(tx, { userId, bikeId, hoursDelta: totalHours });
+
+        // A previously-unassigned ride can already be INCLUDEd in a
+        // component on the target bike — the bulk increment above would
+        // double-count it there (and adjusted components elsewhere keep
+        // stale sums). Targeted canonical recompute wins as the last write.
+        return recomputeAdjustedComponentsForRides(tx, { rideIds });
       });
 
-      // Invalidate prediction cache after transaction
-      await invalidateBikePrediction(userId, bikeId);
+      // Invalidate prediction cache after transaction (target bike plus any
+      // bike holding a component adjusted against these rides)
+      for (const affected of new Set([bikeId, ...adjustedBikeIds])) {
+        await invalidateBikePrediction(userId, affected);
+      }
 
       return {
         success: true,
@@ -4320,7 +4556,7 @@ export const resolvers = {
         await invalidateBikePrediction(userId, bikeId);
       }
 
-      // Create service logs and reset hours in transaction
+      // Create service logs and recompute hours in transaction
       await prisma.$transaction(async (tx) => {
         for (const component of components) {
           // Create service log
@@ -4332,11 +4568,10 @@ export const resolvers = {
             },
           });
 
-          // Reset component hours
-          await tx.component.update({
-            where: { id: component.id },
-            data: { hoursUsed: 0 },
-          });
+          // Recompute instead of hardcoding 0 — a backdated calibration
+          // service counts post-date rides, and per-ride adjustments stay
+          // applied. See the parallel note in logComponentService.
+          await recomputeComponentHours(tx, component.id);
         }
       });
 

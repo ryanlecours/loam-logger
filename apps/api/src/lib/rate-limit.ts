@@ -76,6 +76,12 @@ export const MUTATION_RATE_LIMITS = {
   assignBikeToRides: { windowSeconds: 60, maxRequests: 20 },
   /** snoozeComponent: max 20 requests per minute per user */
   snoozeComponent: { windowSeconds: 60, maxRequests: 20 },
+  /** setComponentRideAdjustment: max 60/min — users toggle several rows in
+   *  quick succession in the component-rides modal; each call is a bounded
+   *  upsert + recompute */
+  setComponentRideAdjustment: { windowSeconds: 60, maxRequests: 60 },
+  /** clearComponentRideAdjustment: max 60/min (same modal interaction) */
+  clearComponentRideAdjustment: { windowSeconds: 60, maxRequests: 60 },
   /** migratePairedComponents: max 5 requests per minute per user (one-time migration) */
   migratePairedComponents: { windowSeconds: 60, maxRequests: 5 },
   /** replaceComponent: max 20 requests per minute per user */

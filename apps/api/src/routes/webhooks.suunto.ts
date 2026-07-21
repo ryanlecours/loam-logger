@@ -230,7 +230,9 @@ async function processWorkoutCreated(event: WorkoutCreatedEvent): Promise<void> 
       tx,
       userAccount.userId,
       { bikeId: existing?.bikeId ?? null, durationSeconds: existing?.durationSeconds ?? null },
-      { bikeId: ride.bikeId ?? null, durationSeconds: ride.durationSeconds }
+      { bikeId: ride.bikeId ?? null, durationSeconds: ride.durationSeconds },
+      // Existing ride: adjusted components need the canonical recompute.
+      existing ? ride.id : undefined
     );
 
     syncedRideId = ride.id;

@@ -700,7 +700,9 @@ async function processGarminCallback(userId: string, callbackURL: string): Promi
         tx,
         userId,
         { bikeId: existingRide?.bikeId ?? null, durationSeconds: existingRide?.durationSeconds ?? null },
-        { bikeId: ride.bikeId ?? null, durationSeconds: ride.durationSeconds }
+        { bikeId: ride.bikeId ?? null, durationSeconds: ride.durationSeconds },
+        // Existing ride: adjusted components need the canonical recompute.
+        existingRide ? ride.id : undefined
       );
 
       return ride;

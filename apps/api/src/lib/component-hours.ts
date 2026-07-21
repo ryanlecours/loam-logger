@@ -51,14 +51,25 @@ export async function decrementBikeComponentHours(
  *  - Same bike, shorter ride: decrement by the absolute delta.
  *  - No bike on either side: no-op.
  *
+ * When `rideId` is provided (upsert of an EXISTING ride) and the prev/next
+ * state actually differs, components whose ComponentRideAdjustment rows
+ * reference that ride get a targeted canonical recompute afterwards — the
+ * bulk updates above either mis-credit them (EXCLUDE) or never touch them
+ * (cross-bike INCLUDE). Create paths omit rideId: a brand-new ride can't
+ * be pre-adjusted (the adjustment row FK-references an existing ride).
+ *
+ * Returns the bikeIds of recomputed adjusted components (empty when none)
+ * so callers can extend prediction-cache invalidation.
+ *
  * Previously duplicated inline in [webhooks.strava.ts] and [workers/sync.worker.ts].
  */
 export async function syncBikeComponentHours(
   tx: Prisma.TransactionClient,
   userId: string,
   previous: { bikeId: string | null; durationSeconds: number | null | undefined },
-  next: { bikeId: string | null; durationSeconds: number | null | undefined }
-): Promise<void> {
+  next: { bikeId: string | null; durationSeconds: number | null | undefined },
+  rideId?: string
+): Promise<string[]> {
   const prevBikeId = previous.bikeId;
   const nextBikeId = next.bikeId;
   const prevHours = secondsToHours(previous.durationSeconds);
@@ -81,6 +92,11 @@ export async function syncBikeComponentHours(
       await incrementBikeComponentHours(tx, { userId, bikeId: nextBikeId, hoursDelta: hoursDiff });
     }
   }
+
+  if (rideId && (bikeChanged || hoursDiff !== 0)) {
+    return recomputeAdjustedComponentsForRides(tx, { rideIds: [rideId] });
+  }
+  return [];
 }
 
 // ---------------------------------------------------------------------------

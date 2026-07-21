@@ -5,7 +5,12 @@ import { prisma } from '../lib/prisma';
 import { formatLatLon, reverseGeocode } from '../lib/location';
 import { sendBadRequest, sendUnauthorized, sendForbidden, sendNotFound, sendInternalError } from '../lib/api-response';
 import { canBackfillYear } from '../auth/tier-access';
-import { incrementBikeComponentHours, decrementBikeComponentHours } from '../lib/component-hours';
+import {
+  incrementBikeComponentHours,
+  decrementBikeComponentHours,
+  findAdjustedComponentIdsForRides,
+  recomputeAdjustedComponentsForRides,
+} from '../lib/component-hours';
 import { logError } from '../lib/logger';
 import { enqueueWeatherJob } from '../lib/queue';
 import { requireAdmin } from '../auth/adminMiddleware';
@@ -555,6 +560,14 @@ r.delete<Empty, void, Empty>(
       }, new Map());
 
       await prisma.$transaction(async (tx) => {
+        // Capture BEFORE the deleteMany — adjustment rows cascade away with
+        // their rides; adjusted components (incl. cross-bike INCLUDEs) need
+        // a canonical recompute after the purge.
+        const adjustedComponentIds = await findAdjustedComponentIdsForRides(
+          tx,
+          rides.map((r) => r.id)
+        );
+
         for (const [bikeId, hours] of hoursByBike.entries()) {
           await decrementBikeComponentHours(tx, { userId, bikeId, hoursDelta: hours });
         }
@@ -565,6 +578,8 @@ r.delete<Empty, void, Empty>(
             stravaActivityId: { not: null },
           },
         });
+
+        await recomputeAdjustedComponentsForRides(tx, { componentIds: adjustedComponentIds });
       });
 
       return res.json({

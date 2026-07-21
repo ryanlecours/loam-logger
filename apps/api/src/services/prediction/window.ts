@@ -32,6 +32,7 @@ export async function getRecentRides(
     orderBy: { startTime: 'desc' },
     take: RECENT_RIDES_TARGET,
     select: {
+      id: true,
       durationSeconds: true,
       distanceMeters: true,
       elevationGainMeters: true,
@@ -65,6 +66,7 @@ export async function getRidesSinceDate(
     },
     orderBy: { startTime: 'asc' },
     select: {
+      id: true,
       durationSeconds: true,
       distanceMeters: true,
       elevationGainMeters: true,
@@ -162,6 +164,7 @@ export async function getAllRidesForBike(
     orderBy: { startTime: 'desc' },
     take: 2000,
     select: {
+      id: true,
       durationSeconds: true,
       distanceMeters: true,
       elevationGainMeters: true,

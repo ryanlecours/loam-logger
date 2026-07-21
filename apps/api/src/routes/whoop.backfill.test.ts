@@ -632,6 +632,7 @@ describe('whoop.backfill routes', () => {
         component: { updateMany: mockUpdateMany },
         ride: { deleteMany: mockDeleteMany },
         backfillRequest: { deleteMany: mockDeleteMany },
+        componentRideAdjustment: { findMany: jest.fn().mockResolvedValue([]) },
       }));
     });
 

@@ -13,6 +13,8 @@ import { canBackfillYear } from '../auth/tier-access';
 import {
   incrementBikeComponentHours,
   decrementBikeComponentHours,
+  findAdjustedComponentIdsForRides,
+  recomputeAdjustedComponentsForRides,
 } from '../lib/component-hours';
 import { logError, logger } from '../lib/logger';
 import { acquireLock, releaseLock, extendLock, LOCK_TTL } from '../lib/rate-limit';
@@ -704,6 +706,13 @@ r.delete<Empty, void, Empty>(
       }, new Map());
 
       await prisma.$transaction(async (tx) => {
+        // Capture BEFORE the deleteMany — adjustment rows cascade away with
+        // their rides; adjusted components need a canonical recompute after.
+        const adjustedComponentIds = await findAdjustedComponentIdsForRides(
+          tx,
+          rides.map((r) => r.id)
+        );
+
         for (const [bikeId, hours] of hoursByBike.entries()) {
           await decrementBikeComponentHours(tx, {
             userId,
@@ -719,6 +728,8 @@ r.delete<Empty, void, Empty>(
         await tx.backfillRequest.deleteMany({
           where: { userId, provider: 'suunto' },
         });
+
+        await recomputeAdjustedComponentsForRides(tx, { componentIds: adjustedComponentIds });
       });
 
       return res.json({
