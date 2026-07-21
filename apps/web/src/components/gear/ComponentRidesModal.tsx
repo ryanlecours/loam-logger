@@ -88,21 +88,39 @@ export function ComponentRidesModal({
   const [error, setError] = useState<string | null>(null);
   // True once a load-older page comes back short — no more rides to fetch.
   const [addExhausted, setAddExhausted] = useState(false);
+  // Add-tab narrowing: date range is applied SERVER-side (RidesFilterInput,
+  // so it reaches rides beyond any loaded window); text search is applied
+  // client-side over the loaded rides.
+  const [searchText, setSearchText] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
 
   const { data, loading, fetchMore, refetch } = useQuery<ComponentRidesPayload>(COMPONENT_RIDES, {
     variables: { componentId, take: PAGE_SIZE },
     fetchPolicy: 'cache-and-network',
   });
 
+  // Local-day boundaries, matching the Rides page convention (start of the
+  // from-day to end of the to-day, inclusive).
+  const addFilter = useMemo(() => {
+    if (!dateFrom && !dateTo) return undefined;
+    return {
+      ...(dateFrom ? { startDate: new Date(`${dateFrom}T00:00:00`).toISOString() } : {}),
+      ...(dateTo ? { endDate: new Date(`${dateTo}T23:59:59.999`).toISOString() } : {}),
+    };
+  }, [dateFrom, dateTo]);
+
   // Rides from other bikes / unassigned, for the Apply tab. Only fetched
   // once the rider opens that tab; cursor-paged via "Load older rides" so
-  // an old ride on another bike is reachable, not silently cut off.
+  // an old ride on another bike is reachable, not silently cut off. A date
+  // change produces new query variables — Apollo refetches a fresh window
+  // for that range, and paging continues within it.
   const {
     data: ridesData,
     loading: ridesLoading,
     fetchMore: fetchMoreRides,
   } = useQuery<{ rides: RideDto[] }>(RIDES, {
-    variables: { take: ADD_RIDES_TAKE },
+    variables: { take: ADD_RIDES_TAKE, ...(addFilter ? { filter: addFilter } : {}) },
     skip: tab !== 'add',
     fetchPolicy: 'cache-first',
   });
@@ -139,28 +157,40 @@ export function ComponentRidesModal({
     () => new Set(entries.filter((e) => e.adjustment != null).map((e) => e.ride.id)),
     [entries]
   );
-  const addCandidates = useMemo(
-    () =>
-      (ridesData?.rides ?? []).filter(
-        (ride) => (ride.bikeId ?? null) !== (bikeId ?? null) && !adjustedRideIds.has(ride.id)
-      ),
-    [ridesData, bikeId, adjustedRideIds]
-  );
+  const addCandidates = useMemo(() => {
+    const needle = searchText.trim().toLowerCase();
+    return (ridesData?.rides ?? []).filter((ride) => {
+      if ((ride.bikeId ?? null) === (bikeId ?? null) || adjustedRideIds.has(ride.id)) return false;
+      if (!needle) return true;
+      return [ride.location, ride.trailSystem, ride.rideType]
+        .some((field) => field?.toLowerCase().includes(needle));
+    });
+  }, [ridesData, bikeId, adjustedRideIds, searchText]);
 
-  // A full page means there may be older rides beyond the window.
+  // A full page means there may be older rides beyond the window (within
+  // the active date range, if one is set).
   const allFetchedRides = ridesData?.rides ?? [];
   const addMayHaveMore =
     !addExhausted && allFetchedRides.length > 0 && allFetchedRides.length % ADD_RIDES_TAKE === 0;
 
   const loadOlderRides = () =>
     fetchMoreRides({
-      variables: { take: ADD_RIDES_TAKE, after: allFetchedRides[allFetchedRides.length - 1]?.id },
+      variables: {
+        take: ADD_RIDES_TAKE,
+        after: allFetchedRides[allFetchedRides.length - 1]?.id,
+        ...(addFilter ? { filter: addFilter } : {}),
+      },
       updateQuery: (prev: { rides: RideDto[] }, { fetchMoreResult }) => {
         if (!fetchMoreResult) return prev;
         if (fetchMoreResult.rides.length < ADD_RIDES_TAKE) setAddExhausted(true);
         return { rides: [...prev.rides, ...fetchMoreResult.rides] };
       },
     });
+
+  // The exhausted flag tracks the CURRENT window; a new date range starts a
+  // fresh window with its own paging state.
+  const setDateFromAndReset = (v: string) => { setDateFrom(v); setAddExhausted(false); };
+  const setDateToAndReset = (v: string) => { setDateTo(v); setAddExhausted(false); };
 
   const totalsDiffer =
     payload != null && Math.abs(payload.countedHours - payload.hoursUsed) >= 0.05;
@@ -312,11 +342,42 @@ export function ComponentRidesModal({
               Apply a ride from another bike (or an unassigned ride) to this component —
               e.g. when this part was temporarily mounted elsewhere.
             </p>
+
+            {/* Search (client-side over loaded rides) + date range (server-
+                side — reaches rides beyond the loaded window) */}
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                type="search"
+                value={searchText}
+                onChange={(e) => setSearchText(e.target.value)}
+                placeholder="Search location, trail, type…"
+                aria-label="Search rides"
+                className="flex-1 min-w-40 rounded-md border border-app bg-surface px-3 py-1.5 text-sm text-app placeholder:text-muted focus:border-forest focus:outline-none focus:ring-1 focus:ring-forest"
+              />
+              <input
+                type="date"
+                value={dateFrom}
+                onChange={(e) => setDateFromAndReset(e.target.value)}
+                aria-label="Rides from date"
+                className="log-service-date-input"
+              />
+              <span className="text-xs text-muted">to</span>
+              <input
+                type="date"
+                value={dateTo}
+                onChange={(e) => setDateToAndReset(e.target.value)}
+                aria-label="Rides to date"
+                className="log-service-date-input"
+              />
+            </div>
+
             {ridesLoading && <p className="text-sm text-muted">Loading rides…</p>}
             {!ridesLoading && addCandidates.length === 0 && (
               <p className="text-sm text-muted">
-                No rides from other bikes to apply
-                {addMayHaveMore ? ' in your recent rides — load older rides below.' : '.'}
+                {searchText.trim()
+                  ? 'No loaded rides match your search'
+                  : 'No rides from other bikes to apply'}
+                {addMayHaveMore ? ' in this window — load older rides below.' : '.'}
               </p>
             )}
             {addCandidates.map((ride) => {

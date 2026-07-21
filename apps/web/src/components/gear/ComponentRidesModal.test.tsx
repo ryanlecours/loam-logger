@@ -222,6 +222,46 @@ describe('ComponentRidesModal', () => {
     );
   });
 
+  it('Add tab date range is passed to the server as a rides filter', () => {
+    renderModal();
+    fireEvent.click(screen.getByText('Add rides'));
+
+    fireEvent.change(screen.getByLabelText('Rides from date'), {
+      target: { value: '2026-06-01' },
+    });
+    fireEvent.change(screen.getByLabelText('Rides to date'), {
+      target: { value: '2026-06-30' },
+    });
+
+    const lastCall = mockRidesQuery.mock.calls[mockRidesQuery.mock.calls.length - 1];
+    expect(lastCall[1].variables.filter).toEqual({
+      startDate: new Date('2026-06-01T00:00:00').toISOString(),
+      endDate: new Date('2026-06-30T23:59:59.999').toISOString(),
+    });
+  });
+
+  it('Add tab search filters loaded rides client-side', () => {
+    mockRidesQuery.mockReturnValue({
+      data: {
+        rides: [
+          { id: 'r-galby', startTime: '2026-06-20T00:00:00.000Z', durationSeconds: 1800, bikeId: 'bike-2', location: 'Galbraith' },
+          { id: 'r-chuck', startTime: '2026-06-21T00:00:00.000Z', durationSeconds: 1800, bikeId: 'bike-2', location: 'Chuckanut' },
+        ],
+      },
+      loading: false,
+      fetchMore: vi.fn(),
+    });
+    renderModal();
+    fireEvent.click(screen.getByText('Add rides'));
+
+    fireEvent.change(screen.getByLabelText('Search rides'), {
+      target: { value: 'galb' },
+    });
+
+    expect(screen.getByTestId('component-ride-add-r-galby')).toBeInTheDocument();
+    expect(screen.queryByTestId('component-ride-add-r-chuck')).not.toBeInTheDocument();
+  });
+
   it('Add tab shows no truncation UI when the first page came back short', () => {
     mockRidesQuery.mockReturnValue({
       data: {
