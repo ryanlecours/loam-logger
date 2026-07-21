@@ -290,6 +290,18 @@ export async function recomputeAdjustedComponentsForRides(
   }
   if (!componentIds.length) return [];
 
+  // Sequential on purpose — DO NOT wrap this loop in Promise.all. `tx` is a
+  // Prisma interactive transaction: all its queries share one connection and
+  // must run one at a time; firing the per-component work concurrently on the
+  // same `tx` throws ("Transaction already closed") / corrupts the tx. The
+  // per-component cost (3 metadata reads + 1-2 aggregates + 1 update) is
+  // acceptable because `componentIds` is DISTINCT components carrying an
+  // adjustment that references the touched rides — normally 0, and bounded by
+  // the rarity of adjustments (manual corrections) plus the 500-per-component
+  // cap. A bulk op touching many distinct adjusted components would pay this
+  // serially; if that ever shows up in practice, batch the three metadata
+  // reads across all componentIds (the ride.aggregate step stays per-component
+  // — each has its own bike/anchor/excluded-id set) rather than parallelizing.
   const affectedBikeIds = new Set<string>();
   for (const componentId of componentIds) {
     const attribution = await loadComponentAttribution(tx, componentId);
