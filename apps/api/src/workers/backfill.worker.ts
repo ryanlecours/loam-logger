@@ -13,6 +13,7 @@ import type { BackfillJobData, BackfillJobName } from '../lib/queue/backfill.que
 import { enqueueWeatherJob } from '../lib/queue';
 import { captureServerEvent } from '../lib/posthog';
 import { incrementBikeComponentHours, syncBikeComponentHours } from '../lib/component-hours';
+import { invalidateBikePredictionsForBikes } from '../services/prediction/cache';
 import {
   isSuuntoCyclingActivity,
   getSuuntoRideType,
@@ -523,6 +524,13 @@ async function processSuuntoBackfill(userId: string, year: string): Promise<void
     }
   }
 
+  // Bust the auto-assigned bike's cached predictions once — the loop credited
+  // its component hours for every imported ride (a per-ride invalidate would
+  // hit the same bike repeatedly for no gain).
+  if (autoAssignBikeId && importedCount > 0) {
+    await invalidateBikePredictionsForBikes(userId, [autoAssignBikeId]);
+  }
+
   // Update session's lastActivityReceivedAt if any rides were created, so the
   // idle-session checker doesn't prematurely close the import.
   if (runningSession && importedCount > 0) {
@@ -661,6 +669,7 @@ async function processGarminCallback(userId: string, callbackURL: string): Promi
     // rides match the behavior of webhook-delivered ones (see sync.worker.ts
     // `upsertGarminActivity`). Missing this was why Garmin backfill-imported
     // rides didn't accrue component wear.
+    let affectedBikeIds: string[] = [];
     const upsertedRide = await prisma.$transaction(async (tx) => {
       const ride = await tx.ride.upsert({
         where: { garminActivityId: activity.summaryId },
@@ -696,7 +705,7 @@ async function processGarminCallback(userId: string, callbackURL: string): Promi
         select: { id: true, bikeId: true, durationSeconds: true },
       });
 
-      await syncBikeComponentHours(
+      affectedBikeIds = await syncBikeComponentHours(
         tx,
         userId,
         { bikeId: existingRide?.bikeId ?? null, durationSeconds: existingRide?.durationSeconds ?? null },
@@ -707,6 +716,9 @@ async function processGarminCallback(userId: string, callbackURL: string): Promi
 
       return ride;
     });
+
+    // Bust cached predictions for every bike whose hours changed.
+    await invalidateBikePredictionsForBikes(userId, affectedBikeIds);
 
     if (startLat != null && startLng != null) {
       enqueueWeatherJob({ rideId: upsertedRide.id }).catch((err) =>

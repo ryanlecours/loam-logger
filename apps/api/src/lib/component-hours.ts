@@ -58,8 +58,12 @@ export async function decrementBikeComponentHours(
  * (cross-bike INCLUDE). Create paths omit rideId: a brand-new ride can't
  * be pre-adjusted (the adjustment row FK-references an existing ride).
  *
- * Returns the bikeIds of recomputed adjusted components (empty when none)
- * so callers can extend prediction-cache invalidation.
+ * Returns every bikeId whose component hours changed here — the debited
+ * previous bike, the credited next bike, AND any bikes owning adjusted
+ * components recomputed from `rideId` — deduped, nulls dropped. Callers pass
+ * this straight to `invalidateBikePredictionsForBikes`: the return is
+ * self-sufficient, so no caller has to reconstruct the primary bike (the
+ * cache key encodes no ride data, so a ride write can't self-invalidate).
  *
  * Previously duplicated inline in [webhooks.strava.ts] and [workers/sync.worker.ts].
  */
@@ -77,26 +81,36 @@ export async function syncBikeComponentHours(
   const bikeChanged = prevBikeId !== nextBikeId;
   const hoursDiff = nextHours - prevHours;
 
+  // Bikes whose hoursUsed this call actually mutates — only these need their
+  // cached predictions busted (a pure no-op leaves the set empty).
+  const affectedBikeIds = new Set<string>();
+
   if (prevBikeId) {
     if (bikeChanged) {
       await decrementBikeComponentHours(tx, { userId, bikeId: prevBikeId, hoursDelta: prevHours });
+      affectedBikeIds.add(prevBikeId);
     } else if (hoursDiff < 0) {
       await decrementBikeComponentHours(tx, { userId, bikeId: prevBikeId, hoursDelta: Math.abs(hoursDiff) });
+      affectedBikeIds.add(prevBikeId);
     }
   }
 
   if (nextBikeId) {
     if (bikeChanged) {
       await incrementBikeComponentHours(tx, { userId, bikeId: nextBikeId, hoursDelta: nextHours });
+      affectedBikeIds.add(nextBikeId);
     } else if (hoursDiff > 0) {
       await incrementBikeComponentHours(tx, { userId, bikeId: nextBikeId, hoursDelta: hoursDiff });
+      affectedBikeIds.add(nextBikeId);
     }
   }
 
   if (rideId && (bikeChanged || hoursDiff !== 0)) {
-    return recomputeAdjustedComponentsForRides(tx, { rideIds: [rideId] });
+    const adjustedBikeIds = await recomputeAdjustedComponentsForRides(tx, { rideIds: [rideId] });
+    for (const bikeId of adjustedBikeIds) affectedBikeIds.add(bikeId);
   }
-  return [];
+
+  return [...affectedBikeIds];
 }
 
 // ---------------------------------------------------------------------------

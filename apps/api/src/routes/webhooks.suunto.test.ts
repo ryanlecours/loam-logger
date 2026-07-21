@@ -27,6 +27,12 @@ jest.mock('../lib/component-hours', () => ({
   syncBikeComponentHours: (...args: unknown[]) => mockSyncBikeComponentHours(...args),
 }));
 
+const mockInvalidateBikePredictionsForBikes = jest.fn();
+jest.mock('../services/prediction/cache', () => ({
+  invalidateBikePredictionsForBikes: (...args: unknown[]) =>
+    mockInvalidateBikePredictionsForBikes(...args),
+}));
+
 const mockFireRideNotifications = jest.fn();
 jest.mock('../services/notification.service', () => ({
   fireRideNotifications: (...args: unknown[]) => mockFireRideNotifications(...args),
@@ -97,6 +103,7 @@ describe('POST /webhooks/suunto/workouts', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockIsActiveSource.mockResolvedValue(true);
+    mockSyncBikeComponentHours.mockResolvedValue([]);
     mockUserAccountFindUnique.mockResolvedValue({ userId: 'user-1' });
     mockRideFindUnique.mockResolvedValue(null); // new ride by default
     mockBikeFindMany.mockResolvedValue([]); // 0 active bikes by default

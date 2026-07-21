@@ -28,6 +28,7 @@ export {
 // Cache - Invalidation Functions
 export {
   invalidateBikePrediction,
+  invalidateBikePredictionsForBikes,
   invalidateUserPredictions,
 } from './cache';
 
