@@ -152,6 +152,11 @@ model Ride {
   // Prisma doesn't support partial-index predicates, so the index is managed there.
 
   @@index([importSessionId, bikeId])
+  // Backs the userId + bikeId + startTime(range/order) access pattern shared
+  // by componentRides (interactive, up to 60/min), the prediction engine's
+  // getAllRidesForBike / getRidesSinceDate, and the component-hours recompute
+  // aggregates — all previously seq-scanning the whole Ride table.
+  @@index([userId, bikeId, startTime])
 }
 
 enum WeatherCondition {
