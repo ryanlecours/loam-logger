@@ -132,16 +132,30 @@ function estimateRidesRemaining(
 
 /**
  * Get the last service date for a component using pre-fetched context.
- * Falls back to first ride date or bike creation date.
+ * Falls back to the component's install date, then first ride date, then
+ * bike creation date.
+ *
+ * The installedAt fallback keeps the engine's window in lockstep with the
+ * canonical hoursUsed anchor (lib/component-hours.ts: latest service log
+ * ?? installedAt ?? all-time): a component installed mid-history but never
+ * serviced must not absorb the bike's pre-install rides into
+ * hoursSinceService while its counter correctly starts at install. The
+ * remaining fallbacks are equivalent to the counter's all-time window —
+ * "since the bike's first ride" covers every ride that exists.
  */
 function getLastServiceDateFromContext(
-  componentId: string,
+  component: Component,
   ctx: PredictionContext
 ): Date {
   // Try to get from pre-fetched service log map
-  const lastServiceDate = ctx.serviceLogMap.get(componentId);
+  const lastServiceDate = ctx.serviceLogMap.get(component.id);
   if (lastServiceDate) {
     return lastServiceDate;
+  }
+
+  // Fallback: the component's install date (canonical-anchor parity)
+  if (component.installedAt) {
+    return component.installedAt;
   }
 
   // Fallback: first ride date for this bike
@@ -204,7 +218,7 @@ function predictComponent(
     getBaseInterval(component.type, component.location);
 
   // Get last service date from pre-fetched context
-  const lastServiceDate = getLastServiceDateFromContext(component.id, ctx);
+  const lastServiceDate = getLastServiceDateFromContext(component, ctx);
 
   // Get rides and hours since last service from pre-fetched context,
   // honoring this component's ride adjustments

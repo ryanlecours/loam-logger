@@ -119,7 +119,7 @@ describe('prediction engine', () => {
       expect(result.bikeId).toBe('bike-123');
       expect(result.bikeName).toBe('Trail Slayer');
       expect(result.components).toHaveLength(2);
-      expect(result.algoVersion).toBe('v1');
+      expect(result.algoVersion).toBe('v2');
     });
 
     it('should throw for unauthorized bike access', async () => {
@@ -921,6 +921,48 @@ describe('prediction engine', () => {
         expect(result.components[0].status).toBe('ALL_GOOD');
         expect(result.components[0].hoursRemaining).toBe(11);
       });
+    });
+  });
+
+  describe('installedAt anchor (canonical-counter parity)', () => {
+    it('an installed-but-never-serviced component does not absorb pre-install rides', async () => {
+      (prisma.bike.findUnique as jest.Mock).mockResolvedValue({
+        ...mockBike,
+        components: [
+          {
+            id: 'comp-new-fork',
+            type: 'FORK',
+            location: 'NONE',
+            brand: 'Fox',
+            model: '38',
+            hoursUsed: 1,
+            serviceDueAtHours: 50,
+            // Installed between the two rides — only the later ride counts,
+            // matching the canonical hoursUsed anchor in component-hours.ts.
+            installedAt: new Date('2024-01-14T12:00:00Z'),
+          },
+        ],
+      });
+      (prisma.ride.findMany as jest.Mock).mockResolvedValue([
+        { id: 'ride-old', durationSeconds: 7200, distanceMeters: 32187, elevationGainMeters: 914, startTime: new Date('2024-01-14') },
+        { id: 'ride-new', durationSeconds: 3600, distanceMeters: 16093, elevationGainMeters: 457, startTime: new Date('2024-01-15') },
+      ]);
+      (prisma.ride.findFirst as jest.Mock).mockResolvedValue({
+        startTime: new Date('2024-01-01'),
+      });
+      (prisma.serviceLog.findFirst as jest.Mock).mockResolvedValue(null);
+      (prisma.serviceLog.findMany as jest.Mock).mockResolvedValue([]);
+
+      const result = await generateBikePredictions({
+        userId: 'user-123',
+        bikeId: 'bike-123',
+        userRole: 'FREE',
+      });
+
+      // Anchored at installedAt (2024-01-14 noon), not the bike's first
+      // ride: only the 1h post-install ride counts.
+      expect(result.components[0].hoursSinceService).toBe(1);
+      expect(result.components[0].ridesSinceService).toBe(1);
     });
   });
 
