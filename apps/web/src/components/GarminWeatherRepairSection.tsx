@@ -9,16 +9,7 @@ import {
 } from '../graphql/backfillGarminWeather';
 import { RIDES } from '../graphql/rides';
 
-const apiBase =
-  (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '') ||
-  (import.meta.env.DEV ? 'http://localhost:4000' : '');
-
-type BackfillStatus =
-  | 'STARTED'
-  | 'ALREADY_RUNNING'
-  | 'NEEDS_RECONNECT'
-  | 'NOT_CONNECTED'
-  | 'NOTHING_TO_DO';
+type BackfillStatus = 'STARTED' | 'ALREADY_RUNNING' | 'NOT_CONNECTED' | 'NOTHING_TO_DO';
 
 // Garmin rides imported before the coordinate fix have no location data, so
 // they never got weather. This prompt lets the user re-import them from Garmin
@@ -67,15 +58,12 @@ export default function GarminWeatherRepairSection() {
   };
 
   const inProgress = status === 'STARTED' || status === 'ALREADY_RUNNING';
-  const needsReconnect = status === 'NEEDS_RECONNECT';
 
   const message = (() => {
     switch (status) {
       case 'STARTED':
       case 'ALREADY_RUNNING':
         return "Re-importing from Garmin. Weather will appear as your rides come back — this can take a few minutes.";
-      case 'NEEDS_RECONNECT':
-        return 'Reconnect Garmin to grant permission for importing historical data, then try again.';
       case 'NOT_CONNECTED':
         return 'Connect your Garmin account to import weather for past rides.';
       case 'NOTHING_TO_DO':
@@ -97,15 +85,7 @@ export default function GarminWeatherRepairSection() {
               <p className="text-xs text-muted">{message}</p>
             </div>
           </div>
-          {needsReconnect ? (
-            <a
-              href={`${apiBase}/auth/garmin/start`}
-              className="flex items-center gap-1.5 rounded-lg border border-[#11A9ED]/50 bg-[#11A9ED]/20 px-3 py-1.5 text-xs font-medium text-[#11A9ED] no-underline transition hover:bg-[#11A9ED]/30"
-            >
-              <Mountain className="h-3 w-3" />
-              Reconnect Garmin
-            </a>
-          ) : isPro ? (
+          {isPro ? (
             <button
               onClick={onClick}
               disabled={loading || inProgress || status === 'NOTHING_TO_DO'}
