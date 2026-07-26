@@ -24,7 +24,7 @@
   position: relative;
   overflow: hidden;
   box-shadow:
-    0 10px 30px rgba(68, 96, 76, 0.3),
+    0 10px 30px rgba(52, 74, 62, 0.3),
     0 0 0 1px var(--mint-20) inset;
 }
 
@@ -43,10 +43,10 @@
 .btn-primary:hover {
   transform: scale(1.05);
   box-shadow:
-    0 15px 40px rgba(68, 96, 76, 0.5),
+    0 15px 40px rgba(52, 74, 62, 0.5),
     0 0 0 1px var(--mint-40) inset,
     0 0 40px var(--mint-20);
-  border-color: rgba(168, 208, 184, 0.6);
+  border-color: rgba(156, 176, 164, 0.6);
 }
 
 .btn-primary:hover::before {
@@ -65,15 +65,15 @@
 @keyframes pulse {
   0%, 100% {
     box-shadow:
-      0 10px 30px rgba(68, 96, 76, 0.3),
+      0 10px 30px rgba(52, 74, 62, 0.3),
       0 0 0 1px var(--mint-20) inset,
-      0 0 0 0 rgba(134, 158, 140, 0.7);
+      0 0 0 0 rgba(120, 140, 128, 0.7);
   }
   50% {
     box-shadow:
-      0 10px 30px rgba(68, 96, 76, 0.3),
+      0 10px 30px rgba(52, 74, 62, 0.3),
       0 0 0 1px var(--mint-20) inset,
-      0 0 0 15px rgba(134, 158, 140, 0);
+      0 0 0 15px rgba(120, 140, 128, 0);
   }
 }
 
@@ -92,7 +92,7 @@
   letter-spacing: 0.02em;
   cursor: pointer;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 2px 8px rgba(68, 96, 76, 0.25);
+  box-shadow: 0 2px 8px rgba(52, 74, 62, 0.25);
 }
 
 .btn-secondary:hover:not(:disabled) {
@@ -100,7 +100,7 @@
   color: var(--cream);
   transform: scale(1.05);
   box-shadow:
-    0 4px 16px rgba(68, 96, 76, 0.4),
+    0 4px 16px rgba(52, 74, 62, 0.4),
     0 0 0 1px var(--mint-20) inset;
 }
 
@@ -114,8 +114,8 @@
 .btn-accent {
   background: linear-gradient(120deg, var(--gold), var(--copper));
   color: var(--charcoal);
-  border: 1px solid rgba(212, 175, 124, 0.4);
-  border-radius: 0.65rem;
+  border: 1px solid rgba(176, 106, 88, 0.4);
+  border-radius: 0.75rem;
   padding: 0.5rem 1.2rem;
   font-weight: 600;
   cursor: pointer;
@@ -124,7 +124,7 @@
 
 .btn-accent:hover {
   transform: translateY(-1px);
-  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 10px 20px rgba(18, 28, 24, 0.35);
 }
 
 /* Outline button */
@@ -145,15 +145,15 @@
 }
 
 .btn-outline:hover {
-  background: rgba(68, 96, 76, 0.15);
+  background: rgba(52, 74, 62, 0.15);
   color: var(--cream);
 }
 
 /* Disabled button */
 .btn-disabled {
-  background-color: rgba(42, 46, 44, 0.85);
-  color: rgba(142, 148, 145, 0.75);
-  border: 1px solid rgba(54, 60, 57, 0.4);
+  background-color: rgba(32, 32, 38, 0.85);
+  color: rgba(158, 158, 164, 0.75);
+  border: 1px solid rgba(58, 58, 62, 0.4);
   border-radius: 999px;
   padding: 0.45rem 1.1rem;
   font-weight: 500;
@@ -229,7 +229,7 @@
 /* Danger icon button variant */
 .icon-btn-danger:hover {
   color: rgb(var(--danger));
-  background-color: rgba(196, 89, 67, 0.1);
+  background-color: rgba(176, 88, 72, 0.1);
 }
 
 /* ============================================
