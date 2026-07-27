@@ -104,6 +104,13 @@ export type AddRideInput = {
   trailSystem?: InputMaybe<Scalars['String']['input']>;
 };
 
+export type AdvisorSummary = {
+  __typename?: 'AdvisorSummary';
+  generatedAt: Scalars['String']['output'];
+  modelVersion: Scalars['String']['output'];
+  text: Scalars['String']['output'];
+};
+
 export type BackfillWeatherResult = {
   __typename?: 'BackfillWeatherResult';
   enqueuedCount: Scalars['Int']['output'];
@@ -250,6 +257,7 @@ export type BikeNotificationPreference = {
 
 export type BikePredictionSummary = {
   __typename?: 'BikePredictionSummary';
+  advisorSummary?: Maybe<AdvisorSummary>;
   algoVersion: Scalars['String']['output'];
   bikeId: Scalars['ID']['output'];
   bikeName: Scalars['String']['output'];
@@ -436,6 +444,37 @@ export type ComponentPrediction = {
   why?: Maybe<Scalars['String']['output']>;
 };
 
+export enum ComponentRideAdjustmentKind {
+  Exclude = 'EXCLUDE',
+  Include = 'INCLUDE'
+}
+
+export type ComponentRideAdjustmentResult = {
+  __typename?: 'ComponentRideAdjustmentResult';
+  component: Component;
+  counted: Scalars['Boolean']['output'];
+  rideId: Scalars['ID']['output'];
+};
+
+export type ComponentRideEntry = {
+  __typename?: 'ComponentRideEntry';
+  adjustment?: Maybe<ComponentRideAdjustmentKind>;
+  beforeAnchor: Scalars['Boolean']['output'];
+  counted: Scalars['Boolean']['output'];
+  ride: Ride;
+};
+
+export type ComponentRidesPayload = {
+  __typename?: 'ComponentRidesPayload';
+  anchor?: Maybe<Scalars['String']['output']>;
+  componentId: Scalars['ID']['output'];
+  countedHours: Scalars['Float']['output'];
+  countedRideCount: Scalars['Int']['output'];
+  entries: Array<ComponentRideEntry>;
+  hasMore: Scalars['Boolean']['output'];
+  hoursUsed: Scalars['Float']['output'];
+};
+
 export type ComponentSnapshot = {
   __typename?: 'ComponentSnapshot';
   brand: Scalars['String']['output'];
@@ -509,6 +548,12 @@ export type DeleteRideResult = {
   ok: Scalars['Boolean']['output'];
 };
 
+export type GarminWeatherBackfillResult = {
+  __typename?: 'GarminWeatherBackfillResult';
+  ridesToRepair: Scalars['Int']['output'];
+  status: Scalars['String']['output'];
+};
+
 export type ImportNotificationState = {
   __typename?: 'ImportNotificationState';
   sessionId?: Maybe<Scalars['ID']['output']>;
@@ -556,9 +601,11 @@ export type Mutation = {
   addComponent: Component;
   addRide: Ride;
   assignBikeToRides: BulkAssignResult;
+  backfillGarminWeather: GarminWeatherBackfillResult;
   backfillWeatherForMyRides: BackfillWeatherResult;
   bulkUpdateBikeComponentInstalls: BulkUpdateBikeComponentInstallsResult;
   bulkUpdateComponentBaselines: Array<Component>;
+  clearComponentRideAdjustment: ComponentRideAdjustmentResult;
   completeCalibration: User;
   createBillingPortalSession: BillingPortalResult;
   createCheckoutSession: CheckoutSessionResult;
@@ -582,9 +629,11 @@ export type Mutation = {
   migratePairedComponents: MigratePairedComponentsResult;
   reactivateBike: Bike;
   replaceComponent: ReplaceComponentResult;
+  requestRideTrack: RideTrack;
   resetCalibration: User;
   retireBike: Bike;
   selectBikeForDowngrade: Bike;
+  setComponentRideAdjustment: ComponentRideAdjustmentResult;
   snoozeComponent: Component;
   swapComponents: SwapComponentsResult;
   triggerProviderSync: TriggerSyncResult;
@@ -647,6 +696,12 @@ export type MutationBulkUpdateBikeComponentInstallsArgs = {
 
 export type MutationBulkUpdateComponentBaselinesArgs = {
   input: BulkUpdateBaselinesInput;
+};
+
+
+export type MutationClearComponentRideAdjustmentArgs = {
+  componentId: Scalars['ID']['input'];
+  rideId: Scalars['ID']['input'];
 };
 
 
@@ -742,6 +797,11 @@ export type MutationReplaceComponentArgs = {
 };
 
 
+export type MutationRequestRideTrackArgs = {
+  rideId: Scalars['ID']['input'];
+};
+
+
 export type MutationRetireBikeArgs = {
   id: Scalars['ID']['input'];
   status: BikeStatus;
@@ -750,6 +810,13 @@ export type MutationRetireBikeArgs = {
 
 export type MutationSelectBikeForDowngradeArgs = {
   bikeId: Scalars['ID']['input'];
+};
+
+
+export type MutationSetComponentRideAdjustmentArgs = {
+  componentId: Scalars['ID']['input'];
+  kind: ComponentRideAdjustmentKind;
+  rideId: Scalars['ID']['input'];
 };
 
 
@@ -866,12 +933,14 @@ export type Query = {
   bikeNotes: BikeNotesPage;
   bikes: Array<Bike>;
   calibrationState?: Maybe<CalibrationState>;
+  componentRides: ComponentRidesPayload;
   components: Array<Component>;
   importNotificationState?: Maybe<ImportNotificationState>;
   me?: Maybe<User>;
   /** @deprecated Referral program removed; returns zeros */
   referralStats: ReferralStats;
   ride?: Maybe<Ride>;
+  rideTrack: RideTrack;
   rideTypes: Array<RideType>;
   rides: Array<Ride>;
   servicePreferenceDefaults: Array<ServicePreferenceDefault>;
@@ -879,7 +948,6 @@ export type Query = {
   stravaGearMappings: Array<StravaGearMapping>;
   unassignedRides: UnassignedRidesPage;
   unmappedStravaGears: Array<StravaGearInfo>;
-  user?: Maybe<User>;
 };
 
 
@@ -907,6 +975,13 @@ export type QueryBikesArgs = {
 };
 
 
+export type QueryComponentRidesArgs = {
+  after?: InputMaybe<Scalars['ID']['input']>;
+  componentId: Scalars['ID']['input'];
+  take?: InputMaybe<Scalars['Int']['input']>;
+};
+
+
 export type QueryComponentsArgs = {
   filter?: InputMaybe<ComponentFilterInput>;
 };
@@ -914,6 +989,11 @@ export type QueryComponentsArgs = {
 
 export type QueryRideArgs = {
   id: Scalars['ID']['input'];
+};
+
+
+export type QueryRideTrackArgs = {
+  rideId: Scalars['ID']['input'];
 };
 
 
@@ -933,11 +1013,6 @@ export type QueryUnassignedRidesArgs = {
   after?: InputMaybe<Scalars['ID']['input']>;
   importSessionId: Scalars['ID']['input'];
   take?: InputMaybe<Scalars['Int']['input']>;
-};
-
-
-export type QueryUserArgs = {
-  id: Scalars['ID']['input'];
 };
 
 export type ReferralStats = {
@@ -973,6 +1048,14 @@ export type Ride = {
   durationSeconds: Scalars['Int']['output'];
   elevationGainMeters: Scalars['Float']['output'];
   garminActivityId?: Maybe<Scalars['String']['output']>;
+  /**
+   * Garmin device model that recorded this ride, raw from the Activity API
+   * (e.g. "edge_840"). Clients must render "Garmin [device model]" attribution
+   * wherever this ride's data appears, per the Garmin API Brand Guidelines.
+   * Null when Garmin did not report a device or the ride predates capture —
+   * attribute plain "Garmin" in that case (formatGarminSource handles both).
+   */
+  garminDeviceName?: Maybe<Scalars['String']['output']>;
   id: Scalars['ID']['output'];
   location?: Maybe<Scalars['String']['output']>;
   notes?: Maybe<Scalars['String']['output']>;
@@ -987,6 +1070,19 @@ export type Ride = {
   weather?: Maybe<RideWeather>;
   whoopWorkoutId?: Maybe<Scalars['String']['output']>;
 };
+
+export type RideTrack = {
+  __typename?: 'RideTrack';
+  points?: Maybe<Array<Array<Scalars['Float']['output']>>>;
+  sampledFrom?: Maybe<Scalars['Int']['output']>;
+  status: RideTrackStatus;
+};
+
+export enum RideTrackStatus {
+  Available = 'AVAILABLE',
+  Fetchable = 'FETCHABLE',
+  Unavailable = 'UNAVAILABLE'
+}
 
 export enum RideType {
   Commute = 'COMMUTE',
@@ -1385,6 +1481,7 @@ export type User = {
   createdAt: Scalars['String']['output'];
   distanceUnit?: Maybe<Scalars['String']['output']>;
   email: Scalars['String']['output'];
+  garminRidesMissingCoords: Scalars['Int']['output'];
   hasAcceptedCurrentTerms: Scalars['Boolean']['output'];
   hasPassword: Scalars['Boolean']['output'];
   hoursDisplayPreference?: Maybe<Scalars['String']['output']>;
@@ -1572,7 +1669,7 @@ export type RidesQueryVariables = Exact<{
 }>;
 
 
-export type RidesQuery = { __typename?: 'Query', rides: Array<{ __typename?: 'Ride', id: string, garminActivityId?: string | null, stravaActivityId?: string | null, whoopWorkoutId?: string | null, suuntoWorkoutId?: string | null, startTime: string, durationSeconds: number, distanceMeters: number, elevationGainMeters: number, averageHr?: number | null, rideType: string, bikeId?: string | null, notes?: string | null, trailSystem?: string | null, location?: string | null }> };
+export type RidesQuery = { __typename?: 'Query', rides: Array<{ __typename?: 'Ride', id: string, garminActivityId?: string | null, garminDeviceName?: string | null, stravaActivityId?: string | null, whoopWorkoutId?: string | null, suuntoWorkoutId?: string | null, startTime: string, durationSeconds: number, distanceMeters: number, elevationGainMeters: number, averageHr?: number | null, rideType: string, bikeId?: string | null, notes?: string | null, trailSystem?: string | null, location?: string | null }> };
 
 export type UnmappedStravaGearsQueryVariables = Exact<{ [key: string]: never; }>;
 
@@ -2325,6 +2422,7 @@ export const RidesDocument = gql`
   rides(take: $take, after: $after, filter: $filter) {
     id
     garminActivityId
+    garminDeviceName
     stravaActivityId
     whoopWorkoutId
     suuntoWorkoutId

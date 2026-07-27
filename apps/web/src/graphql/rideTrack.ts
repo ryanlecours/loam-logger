@@ -8,6 +8,9 @@ export const RIDE_TRACK = gql`
       status
       points
       sampledFrom
+      # Attribution for the rendered map — see the RideTrack type docs.
+      source
+      garminDeviceName
     }
   }
 `;
@@ -20,6 +23,9 @@ export const REQUEST_RIDE_TRACK = gql`
       status
       points
       sampledFrom
+      # Attribution for the rendered map — see the RideTrack type docs.
+      source
+      garminDeviceName
     }
   }
 `;

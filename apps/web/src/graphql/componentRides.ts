@@ -25,6 +25,11 @@ export const COMPONENT_RIDES = gql`
           trailSystem
           rideType
           bikeId
+          # Needed to attribute Garmin-sourced rides in this list — the Garmin
+          # API Brand Guidelines require attribution on secondary/detail views,
+          # not just primary feeds.
+          garminActivityId
+          garminDeviceName
         }
       }
     }

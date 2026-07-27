@@ -151,6 +151,9 @@ export const BIKE_FIELDS = gql`
     components {
       ...ComponentFields
     }
+    # Component hours and the predictions below are derived from ride duration,
+    # so the contributing providers have to be named alongside them.
+    contributingSources
     predictions {
       ...PredictionFields
     }

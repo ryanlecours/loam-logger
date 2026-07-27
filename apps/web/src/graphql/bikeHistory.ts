@@ -10,6 +10,9 @@ export const BIKE_HISTORY = gql`
         model
         year
         shareSlug
+        # Drives the data-source attribution in the exported PDF footer —
+        # an export is downstream data and must carry it on every page.
+        contributingSources
       }
       rides {
         id
