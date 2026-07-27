@@ -8,10 +8,11 @@ import { getValidGarminToken } from '../lib/garmin-token';
 import { getValidSuuntoToken } from '../lib/suunto-token';
 import { deriveLocationAsync, shouldApplyAutoLocation } from '../lib/location';
 import { extractGarminStartCoords } from '../lib/garmin-coords';
+import { persistGarminStream } from '../lib/ride-stream-store';
 import { logError, logger } from '../lib/logger';
 import { config } from '../config/env';
 import type { BackfillJobData, BackfillJobName } from '../lib/queue/backfill.queue';
-import { enqueueWeatherJob } from '../lib/queue';
+import { enqueueWeatherJob, enqueueLiftDetectionJob } from '../lib/queue';
 import { triggerGarminBackfillChunks } from '../services/garmin-backfill';
 import { captureServerEvent } from '../lib/posthog';
 import { incrementBikeComponentHours, syncBikeComponentHours } from '../lib/component-hours';
@@ -73,6 +74,10 @@ type GarminActivityDetail = {
   averageHeartRateInBeatsPerMinute?: number;
   maxHeartRateInBeatsPerMinute?: number;
   locationName?: string;
+  // Device model that recorded the activity — see sync.worker.ts:GarminActivity.
+  // Persisted to drive the "Garmin [device model]" attribution the Garmin API
+  // Brand Guidelines require.
+  deviceName?: string;
   // Garmin's Activity Summary spells these with "ing"; coords are read via
   // extractGarminStartCoords, which also tolerates legacy/misspelled variants.
   startingLatitudeInDegrees?: number;
@@ -771,6 +776,7 @@ async function processGarminCallback(userId: string, callbackURL: string): Promi
           importSessionId: runningSession?.id ?? null,
           startLat,
           startLng,
+          garminDeviceName: activity.deviceName ?? null,
         },
         update: {
           startTime,
@@ -780,6 +786,8 @@ async function processGarminCallback(userId: string, callbackURL: string): Promi
           averageHr: activity.averageHeartRateInBeatsPerMinute ?? null,
           rideType: activity.activityType,
           notes: activity.activityName ?? null,
+          // Only written when present, never cleared — see sync.worker.ts.
+          ...(activity.deviceName ? { garminDeviceName: activity.deviceName } : {}),
           ...(locationUpdate !== undefined ? { location: locationUpdate } : {}),
           // Known limitation: coords are only written, never cleared on
           // re-sync. See sync.worker.ts for full rationale.
@@ -804,10 +812,21 @@ async function processGarminCallback(userId: string, callbackURL: string): Promi
     // Bust cached predictions for every bike whose hours changed.
     await invalidateBikePredictionsForBikes(userId, affectedBikeIds);
 
+    // Store the per-point track when the callback payload carried Activity
+    // Details samples. Same best-effort contract as the sync worker.
+    const storedGarminStream = await persistGarminStream(upsertedRide.id, activity);
+
     if (startLat != null && startLng != null) {
       enqueueWeatherJob({ rideId: upsertedRide.id }).catch((err) =>
         logger.warn({ rideId: upsertedRide.id, err }, '[BackfillWorker] Failed to enqueue weather job')
       );
+      // Only worth analyzing when a track was actually stored — Garmin has no
+      // stream-fetch path for the lift worker to fall back on.
+      if (storedGarminStream) {
+        enqueueLiftDetectionJob({ rideId: upsertedRide.id }).catch((err) =>
+          logger.warn({ rideId: upsertedRide.id, err }, '[BackfillWorker] Failed to enqueue lift job')
+        );
+      }
     }
 
     // Fire-and-forget notification. Mirrors sync.worker.ts:680 — the only

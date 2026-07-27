@@ -63,6 +63,65 @@ describe('getRideTrack', () => {
     expect(track.sampledFrom).toBe(3);
   });
 
+  describe('attribution', () => {
+    // The map is a visual built from device-recorded GPS, so a Garmin-sourced
+    // track has to carry "Garmin [device model]". Attribution follows the
+    // STORED STREAM's source, not the ride's activity ids — a ride matched
+    // across providers has ids for both but only one persisted stream, and
+    // crediting the wrong provider is a misrepresentation either way.
+    it('attributes a Garmin-sourced track to the recording device', async () => {
+      mockFindUnique.mockResolvedValueOnce({
+        ...base,
+        garminDeviceName: 'edge_840',
+        stream: {
+          pointCount: 3,
+          source: 'garmin',
+          data: { latlng: makeLatLng(3), time: [0, 1, 2] },
+        },
+      });
+
+      const track = await getRideTrack('user-1', 'ride-1');
+
+      expect(track.source).toBe('garmin');
+      expect(track.garminDeviceName).toBe('edge_840');
+    });
+
+    it('withholds the device on a Strava-sourced track, even for a ride that also has Garmin data', async () => {
+      mockFindUnique.mockResolvedValueOnce({
+        ...base,
+        garminDeviceName: 'edge_840',
+        stream: {
+          pointCount: 3,
+          source: 'strava',
+          data: { latlng: makeLatLng(3), time: [0, 1, 2] },
+        },
+      });
+
+      const track = await getRideTrack('user-1', 'ride-1');
+
+      expect(track.source).toBe('strava');
+      expect(track.garminDeviceName).toBeNull();
+    });
+
+    it('reports no device when Garmin did not name one', async () => {
+      mockFindUnique.mockResolvedValueOnce({
+        ...base,
+        garminDeviceName: null,
+        stream: {
+          pointCount: 3,
+          source: 'garmin',
+          data: { latlng: makeLatLng(3), time: [0, 1, 2] },
+        },
+      });
+
+      const track = await getRideTrack('user-1', 'ride-1');
+
+      expect(track.source).toBe('garmin');
+      // Client falls back to plain "Garmin", which the guidelines permit.
+      expect(track.garminDeviceName).toBeNull();
+    });
+  });
+
   it('returns FETCHABLE for a Strava ride with coords and no stream', async () => {
     mockFindUnique.mockResolvedValueOnce(base);
 
@@ -70,6 +129,9 @@ describe('getRideTrack', () => {
       status: 'FETCHABLE',
       points: null,
       sampledFrom: null,
+      // No stream stored yet, so there is no source to attribute.
+      source: null,
+      garminDeviceName: null,
     });
   });
 

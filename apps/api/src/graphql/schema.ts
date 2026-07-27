@@ -143,6 +143,14 @@ export const typeDefs = gql`
     id: ID!
     userId: ID!
     garminActivityId: String
+    """
+    Garmin device model that recorded this ride, raw from the Activity API
+    (e.g. "edge_840"). Clients must render "Garmin [device model]" attribution
+    wherever this ride's data appears, per the Garmin API Brand Guidelines.
+    Null when Garmin did not report a device or the ride predates capture —
+    attribute plain "Garmin" in that case (formatGarminSource handles both).
+    """
+    garminDeviceName: String
     stravaActivityId: String
     whoopWorkoutId: String
     suuntoWorkoutId: String
@@ -163,11 +171,14 @@ export const typeDefs = gql`
   }
 
   enum RideTrackStatus {
-    # Stream persisted; points returned.
+    # Stream persisted; points returned. Strava or Garmin.
     AVAILABLE
     # Strava ride with coords but no stream yet - requestRideTrack can load it.
+    # Strava-only: Garmin streams arrive pushed at ingest and are never fetched
+    # on demand, so a Garmin ride is either AVAILABLE or UNAVAILABLE.
     FETCHABLE
-    # No GPS source (manual entry, Whoop, Garmin/Suunto for now).
+    # No GPS source: manual entry, WHOOP, Suunto, or a Garmin ride whose
+    # Activity Details carried no usable samples (indoor/trainer).
     UNAVAILABLE
   }
 
@@ -180,6 +191,20 @@ export const typeDefs = gql`
     points: [[Float!]!]
     # Point count of the raw stream the track was sampled from.
     sampledFrom: Int
+    """
+    Provider that recorded the stored stream ("strava" | "garmin"); null unless
+    status is AVAILABLE. Lets the client attribute the rendered map to the right
+    source — a cross-provider ride cannot be attributed from its activity ids
+    alone, since only one provider's stream is actually persisted.
+    """
+    source: String
+    """
+    Garmin device model behind this track, when source is "garmin". Drives the
+    "Garmin [device model]" attribution the Garmin API Brand Guidelines require
+    on visuals built from device data. Null for non-Garmin tracks, and for
+    Garmin tracks where the device was not reported (attribute plain "Garmin").
+    """
+    garminDeviceName: String
   }
 
   enum WeatherCondition {
@@ -435,6 +460,18 @@ export const typeDefs = gql`
     components: [Component!]!
     # Public share slug when history sharing is enabled (null = not shared)
     shareSlug: String
+    """
+    Providers that contributed the rides behind this bike's component hours,
+    e.g. ["garmin", "strava"]. Values match Ride source keys.
+
+    Exists so clients can attribute derived data correctly: component wear,
+    service predictions and the generated maintenance summary are all
+    materially influenced by ride duration, and the Garmin API Brand
+    Guidelines require Garmin to be named as a contributing source wherever
+    that is true — and equally require Garmin branding NOT to appear where
+    Garmin data is absent. Do not infer this from a single ride's source.
+    """
+    contributingSources: [String!]!
     predictions: BikePredictionSummary
     servicePreferences: [BikeServicePreference!]!
     notificationPreference: BikeNotificationPreference
@@ -1229,6 +1266,14 @@ export const typeDefs = gql`
     serviceEvents: [SharedServiceEvent!]!
     installs: [SharedInstallEvent!]!
     totals: BikeHistoryTotals!
+    """
+    Providers whose rides contribute to the totals above, e.g. ["garmin"].
+
+    This page is public and unauthenticated, which makes it "downstream data"
+    under the Garmin API Brand Guidelines — attribution must travel with the
+    data wherever it is shared. Contains no identifiers, only source names.
+    """
+    contributingSources: [String!]!
   }
 
   type Query {

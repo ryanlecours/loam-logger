@@ -1,13 +1,30 @@
-import { Router as createRouter, type Router, type Request, type Response } from 'express';
+import { Router as createRouter, json, type Router, type Request, type Response } from 'express';
 import crypto from 'crypto';
 import { prisma } from '../lib/prisma';
 import { logger, logError } from '../lib/logger';
 import { enqueueSyncJob } from '../lib/queue/sync.queue';
 import { enqueueCallbackJob } from '../lib/queue/backfill.queue';
 import { isActiveSource } from '../lib/active-source';
+import { deleteRideStreamsForProvider } from '../lib/ride-stream-store';
+import { revokeIntegration } from '../lib/integration-tokens';
 
 type Empty = Record<string, never>;
 const r: Router = createRouter();
+
+// Garmin Connect Developer Program requires every notification endpoint to
+// accept payloads up to 10MB, and up to 100MB for Activity. body-parser's
+// default is 100kb, so an oversized delivery would 413 — and Garmin counts a
+// non-200 as a failed delivery, which fails the production technical review.
+//
+// These parsers live on the router (rather than raising the global limit in
+// server.ts) so the 100MB allowance is confined to the one endpoint that needs
+// it instead of becoming a request-body DoS surface on every route. server.ts
+// must therefore register this router BEFORE its global express.json().
+export const GARMIN_ACTIVITY_BODY_LIMIT = '100mb';
+export const GARMIN_BODY_LIMIT = '10mb';
+
+r.use('/webhooks/garmin/activities-ping', json({ limit: GARMIN_ACTIVITY_BODY_LIMIT }));
+r.use('/webhooks/garmin', json({ limit: GARMIN_BODY_LIMIT }));
 
 /**
  * Deregistration webhook
@@ -17,59 +34,96 @@ const r: Router = createRouter();
 r.post<Empty, void, { deregistrations?: Array<{ userId: string }> }>(
   '/webhooks/garmin/deregistration',
   async (req: Request, res: Response) => {
-    try {
-      const { deregistrations } = req.body;
+    const requestId = (req.headers['x-request-id'] as string) || crypto.randomUUID();
+    const { deregistrations } = req.body;
 
-      if (!deregistrations || !Array.isArray(deregistrations)) {
-        logger.warn({ body: req.body }, '[Garmin Deregistration] Invalid payload');
-        return res.status(400).json({ error: 'Invalid deregistration payload' });
+    if (!deregistrations || !Array.isArray(deregistrations)) {
+      logger.warn({ requestId, body: req.body }, '[Garmin Deregistration] Invalid payload');
+      return res.status(400).json({ error: 'Invalid deregistration payload' });
+    }
+
+    logger.info(
+      { requestId, count: deregistrations.length },
+      '[Garmin Deregistration] Received deregistration(s)'
+    );
+
+    // ACK before doing any work — same fire-and-forget contract as the activity
+    // ping handler. A batch deregistration is N user lookups plus N
+    // transactions plus a stream delete each; doing that inline risks blowing
+    // Garmin's 30-second response window, and a timeout reads to Garmin as a
+    // failed delivery. Garmin retries anything we do not 200, so acknowledging
+    // first and processing after is both safe and what they ask for.
+    res.status(200).json({ acknowledged: true });
+
+    const work = deregistrations.map(async ({ userId: garminUserId }) => {
+      const userAccount = await prisma.userAccount.findUnique({
+        where: {
+          provider_providerUserId: { provider: 'garmin', providerUserId: garminUserId },
+        },
+      });
+
+      if (!userAccount) {
+        logger.warn({ requestId, garminUserId }, '[Garmin Deregistration] Unknown Garmin userId');
+        return;
       }
 
-      logger.info({ count: deregistrations.length }, '[Garmin Deregistration] Received deregistration(s)');
-
-      for (const { userId: garminUserId } of deregistrations) {
-        // Find the user by their Garmin User ID
-        const userAccount = await prisma.userAccount.findUnique({
+      await prisma.$transaction(async (tx) => {
+        // Revoking overwrites the stored ciphertext as well as flagging the
+        // row, so deregistration leaves no usable Garmin credential behind.
+        await revokeIntegration(userAccount.userId, 'GARMIN', tx);
+        await tx.oauthToken.deleteMany({
+          where: { userId: userAccount.userId, provider: 'garmin' },
+        });
+        await tx.userAccount.delete({
           where: {
-            provider_providerUserId: {
-              provider: 'garmin',
-              providerUserId: garminUserId,
-            },
+            provider_providerUserId: { provider: 'garmin', providerUserId: garminUserId },
           },
         });
+      });
 
-        if (!userAccount) {
-          logger.warn({ garminUserId }, '[Garmin Deregistration] Unknown Garmin userId');
-          continue;
+      // Deregistration must delete the Garmin-supplied data, not just the
+      // connection. Raw per-point GPS goes; the rides stay, because they are
+      // the rider's own maintenance record and erasing them would destroy the
+      // service history. The privacy policy states exactly this split
+      // (/privacy#garmin-connect-data).
+      await deleteRideStreamsForProvider(userAccount.userId, 'garmin');
+
+      logger.info(
+        { requestId, userId: userAccount.userId },
+        '[Garmin Deregistration] Removed Garmin connection and raw stream data'
+      );
+    });
+
+    Promise.allSettled(work)
+      .then((results) => {
+        const rejected = results.filter((x) => x.status === 'rejected') as PromiseRejectedResult[];
+        logger.info(
+          {
+            event: 'garmin_deregistration_batch_complete',
+            requestId,
+            processed: results.length - rejected.length,
+            failed: rejected.length,
+            total: results.length,
+          },
+          '[Garmin Deregistration] Batch complete'
+        );
+        for (const failure of rejected) {
+          // A failed deregistration leaves data we were asked to delete, so
+          // this needs to page someone rather than sit in log volume.
+          logger.error(
+            {
+              event: 'garmin_deregistration_failed',
+              requestId,
+              error:
+                failure.reason instanceof Error
+                  ? failure.reason.message
+                  : String(failure.reason),
+            },
+            '[Garmin Deregistration] Failed to process a deregistration — manual cleanup required'
+          );
         }
-
-        // Delete OAuth tokens and UserAccount record
-        await prisma.$transaction([
-          prisma.oauthToken.deleteMany({
-            where: {
-              userId: userAccount.userId,
-              provider: 'garmin',
-            },
-          }),
-          prisma.userAccount.delete({
-            where: {
-              provider_providerUserId: {
-                provider: 'garmin',
-                providerUserId: garminUserId,
-              },
-            },
-          }),
-        ]);
-
-        logger.info({ userId: userAccount.userId }, '[Garmin Deregistration] Removed Garmin connection');
-      }
-
-      // Return 200 OK immediately (Garmin requires this)
-      return res.status(200).json({ acknowledged: true });
-    } catch (error) {
-      logError('Garmin Deregistration', error);
-      return res.status(500).json({ error: 'Internal server error' });
-    }
+      })
+      .catch((err) => logError('Garmin Deregistration batch handler', err));
   }
 );
 
@@ -86,49 +140,94 @@ r.post<Empty, void, { userPermissionsChange?: Array<{
 }> }>(
   '/webhooks/garmin/permissions',
   async (req: Request, res: Response) => {
-    try {
-      const { userPermissionsChange } = req.body;
+    const requestId = (req.headers['x-request-id'] as string) || crypto.randomUUID();
+    const { userPermissionsChange } = req.body;
 
-      if (!userPermissionsChange || !Array.isArray(userPermissionsChange)) {
-        logger.warn({ body: req.body }, '[Garmin Permissions] Invalid payload');
-        return res.status(400).json({ error: 'Invalid permissions payload' });
-      }
-
-      logger.info({ count: userPermissionsChange.length }, '[Garmin Permissions] Received permission change(s)');
-
-      for (const change of userPermissionsChange) {
-        const { userId: garminUserId, permissions } = change;
-
-        // Find the user by their Garmin User ID
-        const userAccount = await prisma.userAccount.findUnique({
-          where: {
-            provider_providerUserId: {
-              provider: 'garmin',
-              providerUserId: garminUserId,
-            },
-          },
-        });
-
-        if (!userAccount) {
-          logger.warn({ garminUserId }, '[Garmin Permissions] Unknown Garmin userId');
-          continue;
-        }
-
-        logger.info({ userId: userAccount.userId, permissions }, '[Garmin Permissions] User permissions');
-
-        // Check if ACTIVITY_EXPORT permission is still granted
-        if (!permissions.includes('ACTIVITY_EXPORT')) {
-          logger.warn({ userId: userAccount.userId }, '[Garmin Permissions] User revoked ACTIVITY_EXPORT permission');
-          // You could notify the user or disable sync here
-        }
-      }
-
-      // Return 200 OK immediately (Garmin requires this)
-      return res.status(200).json({ acknowledged: true });
-    } catch (error) {
-      logError('Garmin Permissions', error);
-      return res.status(500).json({ error: 'Internal server error' });
+    if (!userPermissionsChange || !Array.isArray(userPermissionsChange)) {
+      logger.warn({ requestId, body: req.body }, '[Garmin Permissions] Invalid payload');
+      return res.status(400).json({ error: 'Invalid permissions payload' });
     }
+
+    logger.info(
+      { requestId, count: userPermissionsChange.length },
+      '[Garmin Permissions] Received permission change(s)'
+    );
+
+    // ACK first, process after — see the deregistration handler for the full
+    // rationale. Garmin requires the 200 within 30 seconds regardless of how
+    // much work the payload implies.
+    res.status(200).json({ acknowledged: true });
+
+    const work = userPermissionsChange.map(async (change) => {
+      const { userId: garminUserId, permissions } = change;
+
+      const userAccount = await prisma.userAccount.findUnique({
+        where: {
+          provider_providerUserId: { provider: 'garmin', providerUserId: garminUserId },
+        },
+      });
+
+      if (!userAccount) {
+        logger.warn({ requestId, garminUserId }, '[Garmin Permissions] Unknown Garmin userId');
+        return;
+      }
+
+      logger.info(
+        { requestId, userId: userAccount.userId, permissions },
+        '[Garmin Permissions] User permissions'
+      );
+
+      // ACTIVITY_EXPORT is the grant every read we make depends on. When the
+      // rider revokes it we must actually stop syncing, not just note it:
+      // continuing to pull after a revocation is a program violation, and this
+      // handler previously only logged. Revoking the integration destroys the
+      // stored credentials, so every sync path fails closed —
+      // getValidGarminToken returns null and the workers skip — without tearing
+      // down the UserAccount link, so the rider still sees Garmin listed and
+      // can re-authorize.
+      if (!permissions.includes('ACTIVITY_EXPORT')) {
+        logger.warn(
+          { event: 'garmin_activity_export_revoked', requestId, userId: userAccount.userId },
+          '[Garmin Permissions] ACTIVITY_EXPORT revoked — disabling Garmin sync'
+        );
+
+        await prisma.$transaction(async (tx) => {
+          await revokeIntegration(userAccount.userId, 'GARMIN', tx);
+          await tx.oauthToken.deleteMany({
+            where: { userId: userAccount.userId, provider: 'garmin' },
+          });
+        });
+      }
+    });
+
+    Promise.allSettled(work)
+      .then((results) => {
+        const rejected = results.filter((x) => x.status === 'rejected') as PromiseRejectedResult[];
+        logger.info(
+          {
+            event: 'garmin_permissions_batch_complete',
+            requestId,
+            processed: results.length - rejected.length,
+            failed: rejected.length,
+            total: results.length,
+          },
+          '[Garmin Permissions] Batch complete'
+        );
+        for (const failure of rejected) {
+          logger.error(
+            {
+              event: 'garmin_permissions_failed',
+              requestId,
+              error:
+                failure.reason instanceof Error
+                  ? failure.reason.message
+                  : String(failure.reason),
+            },
+            '[Garmin Permissions] Failed to apply a permission change — sync may still be enabled'
+          );
+        }
+      })
+      .catch((err) => logError('Garmin Permissions batch handler', err));
   }
 );
 
