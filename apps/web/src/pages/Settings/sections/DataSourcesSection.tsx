@@ -15,6 +15,7 @@ import StravaBikeMappingOverlay from '../../../components/StravaBikeMappingOverl
 import DataSourceSelector from '../../../components/DataSourceSelector';
 import DuplicateRidesModal from '../../../components/DuplicateRidesModal';
 import WeatherBackfillSection from '../../../components/WeatherBackfillSection';
+import GarminWeatherRepairSection from '../../../components/GarminWeatherRepairSection';
 import { UNMAPPED_STRAVA_GEARS } from '../../../graphql/stravaGear';
 import { useUserTier } from '../../../hooks/useUserTier';
 import { getAuthHeaders } from '@/lib/csrf';
@@ -265,6 +266,8 @@ export default function DataSourcesSection() {
       )}
 
       <WeatherBackfillSection />
+
+      <GarminWeatherRepairSection />
 
       {(garminAccount || stravaAccount) && (
         <div className="panel-spaced">

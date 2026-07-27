@@ -7,10 +7,12 @@ import { prisma } from '../lib/prisma';
 import { getValidGarminToken } from '../lib/garmin-token';
 import { getValidSuuntoToken } from '../lib/suunto-token';
 import { deriveLocationAsync, shouldApplyAutoLocation } from '../lib/location';
+import { extractGarminStartCoords } from '../lib/garmin-coords';
 import { logError, logger } from '../lib/logger';
 import { config } from '../config/env';
 import type { BackfillJobData, BackfillJobName } from '../lib/queue/backfill.queue';
 import { enqueueWeatherJob } from '../lib/queue';
+import { triggerGarminBackfillChunks } from '../services/garmin-backfill';
 import { captureServerEvent } from '../lib/posthog';
 import { incrementBikeComponentHours, syncBikeComponentHours } from '../lib/component-hours';
 import { invalidateBikePredictionsForBikes } from '../services/prediction/cache';
@@ -71,10 +73,10 @@ type GarminActivityDetail = {
   averageHeartRateInBeatsPerMinute?: number;
   maxHeartRateInBeatsPerMinute?: number;
   locationName?: string;
-  startLatitudeInDegrees?: number;
-  startLongitudeInDegrees?: number;
-  beginLatitude?: number;
-  beginLongitude?: number;
+  // Garmin's Activity Summary spells these with "ing"; coords are read via
+  // extractGarminStartCoords, which also tolerates legacy/misspelled variants.
+  startingLatitudeInDegrees?: number;
+  startingLongitudeInDegrees?: number;
   [key: string]: unknown;
 };
 
@@ -82,8 +84,79 @@ type GarminActivityDetail = {
  * Process a backfill job.
  * Handles both backfillYear (triggers Garmin API) and processCallback (processes callback URL).
  */
+// Throttle between Garmin backfill chunk requests to respect the per-user
+// ~100/min rate limit. A repair spans a few months → a handful of 30-day
+// chunks, so ~1s spacing stays well under the ceiling.
+const COORD_REPAIR_CHUNK_DELAY_MS = 1_000;
+
+/**
+ * Re-backfill a user's Garmin rides that are missing start coordinates.
+ *
+ * The ingestion field-name bug stored null lat/lng for Garmin rides (see
+ * lib/garmin-coords.ts), so they never got weather. Re-triggering Garmin's
+ * backfill over the span of the affected rides makes Garmin re-deliver them via
+ * webhooks; the now-fixed processGarminCallback re-upserts each with coords and
+ * enqueues weather. Best-effort: on a missing token or rate-limit exhaustion it
+ * logs and returns rather than throwing — the user can re-run from Settings.
+ */
+async function processGarminCoordRepair(userId: string): Promise<void> {
+  const agg = await prisma.ride.aggregate({
+    where: { userId, garminActivityId: { not: null }, startLat: null },
+    _count: { _all: true },
+    _min: { startTime: true },
+    _max: { startTime: true },
+  });
+
+  const count = agg._count._all;
+  const minStart = agg._min.startTime;
+  const maxStart = agg._max.startTime;
+
+  if (count === 0 || !minStart || !maxStart) {
+    logger.info({ userId }, '[BackfillWorker] No Garmin rides missing coords — nothing to repair');
+    return;
+  }
+
+  const accessToken = await getValidGarminToken(userId);
+  if (!accessToken) {
+    logger.warn({ userId }, '[BackfillWorker] Garmin coord-repair skipped: no valid token');
+    return;
+  }
+
+  // End one day past the last affected ride so its 30-day chunk is fully covered.
+  const startDate = minStart;
+  const endDate = new Date(maxStart.getTime() + 24 * 60 * 60 * 1000);
+
+  logger.info(
+    { userId, count, startDate: startDate.toISOString(), endDate: endDate.toISOString() },
+    '[BackfillWorker] Triggering Garmin coord-repair backfill'
+  );
+
+  const result = await triggerGarminBackfillChunks({
+    accessToken,
+    startDate,
+    endDate,
+    delayBetweenChunksMs: COORD_REPAIR_CHUNK_DELAY_MS,
+  });
+
+  logger.info(
+    {
+      userId,
+      totalChunks: result.totalChunks,
+      allDuplicates: result.allDuplicates,
+      errorCount: result.errors.length,
+    },
+    '[BackfillWorker] Garmin coord-repair backfill triggered'
+  );
+}
+
 async function processBackfillJob(job: Job<BackfillJobData, void, BackfillJobName>): Promise<void> {
   const { userId, provider, year, callbackURL } = job.data;
+
+  // Handle Garmin coord-repair job type
+  if (job.name === 'repairGarminCoords') {
+    await processGarminCoordRepair(userId);
+    return;
+  }
 
   // Handle processCallback job type
   if (job.name === 'processCallback' && callbackURL) {
@@ -644,12 +717,26 @@ async function processGarminCallback(userId: string, callbackURL: string): Promi
 
     const startTime = new Date(activity.startTimeInSeconds * 1000);
 
+    // Start coords drive both reverse-geocoded location and weather
+    // enrichment. Read them once (correct Garmin field names) and reuse below.
+    const { lat: startLat, lng: startLng } = extractGarminStartCoords(activity);
+    if (startLat == null || startLng == null) {
+      logger.warn(
+        {
+          event: 'garmin_missing_coords',
+          summaryId: activity.summaryId,
+          activityType: activity.activityType,
+        },
+        '[BackfillWorker] Garmin cycling activity has no start coordinates — weather will be skipped'
+      );
+    }
+
     const autoLocation = await deriveLocationAsync({
       city: activity.locationName ?? null,
       state: null,
       country: null,
-      lat: activity.startLatitudeInDegrees ?? activity.beginLatitude ?? null,
-      lon: activity.startLongitudeInDegrees ?? activity.beginLongitude ?? null,
+      lat: startLat,
+      lon: startLng,
     });
 
     const existingRide = await prisma.ride.findUnique({
@@ -661,9 +748,6 @@ async function processGarminCallback(userId: string, callbackURL: string): Promi
       existingRide?.location ?? null,
       autoLocation?.title ?? null
     );
-
-    const startLat = activity.startLatitudeInDegrees ?? activity.beginLatitude ?? null;
-    const startLng = activity.startLongitudeInDegrees ?? activity.beginLongitude ?? null;
 
     // Upsert the ride + sync component hours together so callback-delivered
     // rides match the behavior of webhook-delivered ones (see sync.worker.ts

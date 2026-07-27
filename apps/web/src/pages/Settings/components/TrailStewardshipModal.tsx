@@ -52,19 +52,21 @@ export default function TrailStewardshipModal({ isOpen, provider, onClose }: Pro
       title={STEWARDSHIP_HEADER.title}
       size="md"
       footer={
-        <button
-          type="button"
-          onClick={handleDismiss}
-          disabled={dismissing}
-          className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {dismissing ? 'Saving…' : "I've reviewed my settings"}
-        </button>
+        <div className="flex w-full justify-center">
+          <button
+            type="button"
+            onClick={handleDismiss}
+            disabled={dismissing}
+            className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {dismissing ? 'Saving…' : "I've reviewed my settings"}
+          </button>
+        </div>
       }
     >
       <div className="space-y-4">
-        <div className="flex items-start gap-3">
-          <Shield className="h-5 w-5 shrink-0 text-amber-400 mt-0.5" />
+        <div className="flex flex-col items-center gap-3 text-center">
+          <Shield className="h-5 w-5 shrink-0 text-amber-400" />
           <p className="text-sm text-muted leading-relaxed">{STEWARDSHIP_HEADER.body}</p>
         </div>
 
@@ -108,7 +110,7 @@ export default function TrailStewardshipModal({ isOpen, provider, onClose }: Pro
           </div>
         )}
 
-        <p className="text-xs text-muted italic">
+        <p className="text-xs text-muted italic text-center">
           You can revisit these instructions any time from Settings, Trail Stewardship.
         </p>
       </div>

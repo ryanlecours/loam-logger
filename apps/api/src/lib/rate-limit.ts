@@ -122,6 +122,10 @@ export const MUTATION_RATE_LIMITS = {
    *  exists to stop a runaway client loop while still allowing legitimate
    *  "Fetch more" clicks to drain a large history over a few batches. */
   backfillWeatherForMyRides: { windowSeconds: 300, maxRequests: 3 },
+  /** backfillGarminWeather: max 3 requests per 5 minutes. Each call enqueues a
+   *  single throttled per-user job that fires Garmin backfill requests, so the
+   *  limit just stops a client loop from re-queuing needlessly. */
+  backfillGarminWeather: { windowSeconds: 300, maxRequests: 3 },
 } as const;
 
 /**

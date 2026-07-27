@@ -9,6 +9,7 @@ import { getValidGarminToken } from '../lib/garmin-token';
 import { getValidWhoopToken } from '../lib/whoop-token';
 import { getValidSuuntoToken } from '../lib/suunto-token';
 import { deriveLocation, deriveLocationAsync, shouldApplyAutoLocation } from '../lib/location';
+import { extractGarminStartCoords } from '../lib/garmin-coords';
 import { syncBikeComponentHours } from '../lib/component-hours';
 import { invalidateBikePredictionsForBikes } from '../services/prediction/cache';
 import { logger } from '../lib/logger';
@@ -108,10 +109,10 @@ type GarminActivity = {
   averageHeartRateInBeatsPerMinute?: number;
   maxHeartRateInBeatsPerMinute?: number;
   locationName?: string;
-  startLatitudeInDegrees?: number;
-  startLongitudeInDegrees?: number;
-  beginLatitude?: number;
-  beginLongitude?: number;
+  // Garmin's Activity Summary spells these with "ing"; coords are read via
+  // extractGarminStartCoords, which also tolerates legacy/misspelled variants.
+  startingLatitudeInDegrees?: number;
+  startingLongitudeInDegrees?: number;
   [key: string]: unknown;
 };
 
@@ -555,13 +556,27 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
 
   const startTime = new Date(activity.startTimeInSeconds * 1000);
 
+  // Start coords drive both reverse-geocoded location and weather enrichment.
+  // Read them once here (correct Garmin field names) and reuse below.
+  const { lat: startLat, lng: startLng } = extractGarminStartCoords(activity);
+  if (startLat == null || startLng == null) {
+    logger.warn(
+      {
+        event: 'garmin_missing_coords',
+        summaryId: activity.summaryId,
+        activityType: activity.activityType,
+      },
+      '[SyncWorker] Garmin cycling activity has no start coordinates — weather will be skipped'
+    );
+  }
+
   // Use async version for reverse geocoding (matching webhook behavior)
   const autoLocation = await deriveLocationAsync({
     city: activity.locationName ?? null,
     state: null,
     country: null,
-    lat: activity.startLatitudeInDegrees ?? activity.beginLatitude ?? null,
-    lon: activity.startLongitudeInDegrees ?? activity.beginLongitude ?? null,
+    lat: startLat,
+    lon: startLng,
   });
 
   const existing = await prisma.ride.findUnique({
@@ -592,9 +607,6 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
     where: { userId, provider: 'garmin', status: 'running' },
     select: { id: true },
   });
-
-  const startLat = activity.startLatitudeInDegrees ?? activity.beginLatitude ?? null;
-  const startLng = activity.startLongitudeInDegrees ?? activity.beginLongitude ?? null;
 
   // Upsert ride first — this is the primary data, must not be lost
   const ride = await prisma.ride.upsert({

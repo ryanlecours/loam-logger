@@ -11,12 +11,14 @@ jest.mock('./connection', () => ({
 // Create mock functions we can control per test
 const mockQueueAdd = jest.fn();
 const mockQueueClose = jest.fn().mockResolvedValue(undefined);
+const mockQueueGetJob = jest.fn();
 
 // Mock bullmq
 jest.mock('bullmq', () => ({
   Queue: jest.fn().mockImplementation(() => ({
     add: mockQueueAdd,
     close: mockQueueClose,
+    getJob: mockQueueGetJob,
   })),
 }));
 
@@ -32,8 +34,10 @@ jest.mock('../logger', () => ({
 import {
   buildBackfillJobId,
   buildCallbackJobId,
+  buildCoordRepairJobId,
   enqueueBackfillJob,
   enqueueCallbackJob,
+  enqueueGarminCoordRepairJob,
   getBackfillQueue,
   closeBackfillQueue,
 } from './backfill.queue';
@@ -215,6 +219,60 @@ describe('enqueueCallbackJob', () => {
     };
 
     await expect(enqueueCallbackJob(data)).rejects.toThrow('Queue unavailable');
+  });
+});
+
+describe('buildCoordRepairJobId', () => {
+  it('builds a per-user id (one repair in flight per user)', () => {
+    expect(buildCoordRepairJobId('user123')).toBe('repairGarminCoords_user123');
+    expect(buildCoordRepairJobId('user-abc')).not.toBe(buildCoordRepairJobId('user-xyz'));
+  });
+});
+
+describe('enqueueGarminCoordRepairJob', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    closeBackfillQueue();
+    mockQueueAdd.mockResolvedValue({});
+    mockQueueGetJob.mockResolvedValue(undefined); // no existing job by default
+  });
+
+  afterEach(async () => {
+    await closeBackfillQueue();
+  });
+
+  it('queues a garmin-provider job under the per-user id when none exists', async () => {
+    const result = await enqueueGarminCoordRepairJob({ userId: 'user123' });
+
+    expect(result).toEqual({ status: 'queued', jobId: 'repairGarminCoords_user123' });
+    expect(mockQueueAdd).toHaveBeenCalledWith(
+      'repairGarminCoords',
+      { userId: 'user123', provider: 'garmin' },
+      { jobId: 'repairGarminCoords_user123' }
+    );
+  });
+
+  it('reports already_queued when a prior repair is still active', async () => {
+    mockQueueGetJob.mockResolvedValue({ getState: jest.fn().mockResolvedValue('active') });
+
+    const result = await enqueueGarminCoordRepairJob({ userId: 'user123' });
+
+    expect(result.status).toBe('already_queued');
+    expect(mockQueueAdd).not.toHaveBeenCalled();
+  });
+
+  it('removes a completed prior job and re-queues so repair can run again', async () => {
+    const remove = jest.fn().mockResolvedValue(undefined);
+    mockQueueGetJob.mockResolvedValue({
+      getState: jest.fn().mockResolvedValue('completed'),
+      remove,
+    });
+
+    const result = await enqueueGarminCoordRepairJob({ userId: 'user123' });
+
+    expect(remove).toHaveBeenCalled();
+    expect(result.status).toBe('queued');
+    expect(mockQueueAdd).toHaveBeenCalled();
   });
 });
 

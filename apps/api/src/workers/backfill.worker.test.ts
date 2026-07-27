@@ -28,6 +28,7 @@ jest.mock('../lib/prisma', () => {
       findUnique: jest.fn(),
       upsert: jest.fn(),
       create: jest.fn(),
+      aggregate: jest.fn(),
     },
     importSession: {
       findFirst: jest.fn(),
@@ -225,8 +226,9 @@ describe('processBackfillJob (via worker processor)', () => {
             distanceInMeters: 50000,
             totalElevationGainInMeters: 500,
             averageHeartRateInBeatsPerMinute: 145,
-            startLatitudeInDegrees: 37.7749,
-            startLongitudeInDegrees: -122.4194,
+            // Garmin's real Activity Summary field names (with "ing").
+            startingLatitudeInDegrees: 37.7749,
+            startingLongitudeInDegrees: -122.4194,
           },
         ]),
       } as Response);
@@ -258,6 +260,10 @@ describe('processBackfillJob (via worker processor)', () => {
             userId: 'user-123',
             garminActivityId: 'activity-123',
             rideType: 'cycling',
+            // Coords must be parsed from Garmin's "starting…" fields and
+            // persisted — without them the weather worker skips the ride.
+            startLat: 37.7749,
+            startLng: -122.4194,
           }),
         })
       );
@@ -531,6 +537,67 @@ describe('processBackfillJob (via worker processor)', () => {
       });
 
       expect(mockPrisma.importSession.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('repairGarminCoords job', () => {
+    const aggregate = () => mockPrisma.ride.aggregate as jest.Mock;
+
+    it('triggers a throttled Garmin backfill over the null-coord ride span', async () => {
+      aggregate().mockResolvedValue({
+        _count: { _all: 5 },
+        _min: { startTime: new Date('2026-05-01T00:00:00Z') },
+        _max: { startTime: new Date('2026-05-20T00:00:00Z') },
+      });
+      mockGetValidGarminToken.mockResolvedValue('valid-token');
+      (global.fetch as jest.Mock).mockResolvedValue({ status: 202, ok: true });
+
+      await processBackfillJob({
+        name: 'repairGarminCoords',
+        id: 'job-repair',
+        data: { userId: 'user-123', provider: 'garmin' },
+      });
+
+      // Hit Garmin's backfill endpoint for the affected span.
+      expect(global.fetch).toHaveBeenCalled();
+      const url = (global.fetch as jest.Mock).mock.calls[0][0] as string;
+      expect(url).toContain('/rest/backfill/activities');
+    });
+
+    it('does nothing when the user has no null-coord Garmin rides', async () => {
+      aggregate().mockResolvedValue({
+        _count: { _all: 0 },
+        _min: { startTime: null },
+        _max: { startTime: null },
+      });
+
+      await processBackfillJob({
+        name: 'repairGarminCoords',
+        id: 'job-repair',
+        data: { userId: 'user-123', provider: 'garmin' },
+      });
+
+      expect(mockGetValidGarminToken).not.toHaveBeenCalled();
+      expect(global.fetch).not.toHaveBeenCalled();
+    });
+
+    it('skips (no throw) when the user has no valid Garmin token', async () => {
+      aggregate().mockResolvedValue({
+        _count: { _all: 3 },
+        _min: { startTime: new Date('2026-05-01T00:00:00Z') },
+        _max: { startTime: new Date('2026-05-10T00:00:00Z') },
+      });
+      mockGetValidGarminToken.mockResolvedValue(null);
+
+      await expect(
+        processBackfillJob({
+          name: 'repairGarminCoords',
+          id: 'job-repair',
+          data: { userId: 'user-123', provider: 'garmin' },
+        })
+      ).resolves.toBeUndefined();
+
+      expect(global.fetch).not.toHaveBeenCalled();
     });
   });
 

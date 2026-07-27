@@ -6,6 +6,7 @@ import { sendBadRequest, sendUnauthorized, sendForbidden, sendNotFound, sendInte
 import { logError, logger } from '../lib/logger';
 import { enqueueBackfillJob } from '../lib/queue/backfill.queue';
 import { canBackfillYear } from '../auth/tier-access';
+import { triggerGarminBackfillChunks } from '../services/garmin-backfill';
 
 type Empty = Record<string, never>;
 const r: Router = createRouter();
@@ -140,108 +141,18 @@ r.get<Empty, void, Empty, { days?: string; year?: string }>(
 
       logger.info({ importSessionId: importSession.id }, 'Created import session for Garmin backfill');
 
-      // Garmin Wellness API: Use the async backfill endpoint
-      // This triggers Garmin to send activities via webhooks
-      const API_BASE = process.env.GARMIN_API_BASE || 'https://apis.garmin.com/wellness-api';
-
-      // Wellness API: Trigger backfill in 30-day chunks (API limit)
-      const CHUNK_DAYS = 30;
-      let currentStartDate = new Date(startDate);
-      let totalChunks = 0;
-      const errors: string[] = [];
-
+      // Garmin Wellness API: trigger the async backfill in 30-day chunks.
+      // Garmin re-delivers the activities via webhooks (activities-ping →
+      // processGarminCallback). This shared helper owns the chunk loop and the
+      // 202/409/400 handling; see services/garmin-backfill.ts.
       logger.debug('Triggering async Garmin backfill requests');
-
-      while (currentStartDate < endDate) {
-        // Calculate chunk end date (30 days from chunk start, or endDate if sooner)
-        const chunkEndDate = new Date(currentStartDate);
-        chunkEndDate.setDate(chunkEndDate.getDate() + CHUNK_DAYS);
-        const actualChunkEndDate = chunkEndDate > endDate ? endDate : chunkEndDate;
-
-        const chunkStartSeconds = Math.floor(currentStartDate.getTime() / 1000);
-        const chunkEndSeconds = Math.floor(actualChunkEndDate.getTime() / 1000);
-
-        logger.debug(
-          { chunkStart: currentStartDate.toISOString(), chunkEnd: actualChunkEndDate.toISOString() },
-          'Triggering Garmin backfill chunk'
-        );
-
-        const url = `${API_BASE}/rest/backfill/activities?summaryStartTimeInSeconds=${chunkStartSeconds}&summaryEndTimeInSeconds=${chunkEndSeconds}`;
-
-        // Track whether we should advance to the next chunk or retry with adjusted date
-        let advanceToNextChunk = true;
-
-        try {
-          const backfillRes = await fetch(url, {
-            headers: {
-              'Authorization': `Bearer ${accessToken}`,
-              'Accept': 'application/json',
-            },
-          });
-
-          if (backfillRes.status === 202) {
-            // 202 Accepted - backfill request accepted
-            logger.info({ chunk: totalChunks + 1 }, 'Garmin backfill request accepted');
-            totalChunks++;
-          } else if (backfillRes.status === 409) {
-            // 409 Conflict - duplicate request (already requested this time period)
-            // This means backfill was already done for this date range
-            logger.warn(
-              { startDate: currentStartDate.toISOString().split('T')[0] },
-              'Garmin backfill already completed for this time period'
-            );
-            errors.push(`Duplicate request for period ${currentStartDate.toISOString().split('T')[0]}`);
-          } else if (backfillRes.status === 400) {
-            const text = await backfillRes.text();
-            const minStartDate = extractMinStartDate(text);
-            if (minStartDate && minStartDate > currentStartDate) {
-              // Garmin rejected this chunk because it's before the minimum allowed date
-              // Adjust start date and retry (don't advance to next chunk)
-              logger.warn(
-                { originalStart: currentStartDate.toISOString(), adjustedStart: minStartDate.toISOString() },
-                'Garmin backfill chunk rejected, adjusting to minimum start date and retrying'
-              );
-              errors.push(
-                `Adjusted start date to ${minStartDate.toISOString()} due to Garmin min start restriction`
-              );
-              const alignedMinStart = new Date(Math.ceil(minStartDate.getTime() / 1000) * 1000);
-              currentStartDate = alignedMinStart;
-              advanceToNextChunk = false; // Retry with adjusted date
-            } else {
-              logger.error(
-                { status: backfillRes.status, response: text },
-                'Garmin backfill chunk failed'
-              );
-              errors.push(
-                `Failed for period ${currentStartDate.toISOString().split('T')[0]}: ${backfillRes.status}`
-              );
-            }
-          } else {
-            const text = await backfillRes.text();
-            logger.error(
-              { status: backfillRes.status, response: text },
-              'Garmin backfill chunk failed'
-            );
-            errors.push(`Failed for period ${currentStartDate.toISOString().split('T')[0]}: ${backfillRes.status}`);
-          }
-        } catch (error) {
-          logError('Garmin Backfill chunk', error);
-          errors.push(`Error for period ${currentStartDate.toISOString().split('T')[0]}`);
-        }
-
-        // Move to next chunk unless we're retrying with an adjusted date
-        // Start at the same timestamp the previous chunk ended (creates 1-second overlap,
-        // but Garmin deduplicates by activity ID)
-        if (advanceToNextChunk) {
-          currentStartDate = new Date(actualChunkEndDate);
-        }
-      }
+      const { totalChunks, errors, allDuplicates } = await triggerGarminBackfillChunks({
+        accessToken,
+        startDate,
+        endDate,
+      });
 
       logger.info({ totalChunks }, 'Garmin backfill requests triggered');
-
-      // Check if all requests were duplicates (backfill already in progress)
-      const duplicateErrors = errors.filter(e => e.includes('Duplicate request'));
-      const allDuplicates = duplicateErrors.length === errors.length && errors.length > 0;
 
       // Track backfill request in database (only for year-based requests)
       // Uses atomic conditional update to prevent race condition with webhook completion
@@ -588,29 +499,3 @@ r.get<Empty, void, Empty, Empty>(
 );
 
 export default r;
-
-/**
- * Extracts minimum start date from Garmin API 400 error response.
- * When a backfill request is too far in the past, Garmin returns an error like:
- * { errorMessage: "summaryStartTimeInSeconds must be greater than or equal to min start time of 2023-01-15T00:00:00Z" }
- *
- * @param errorText - Raw error text (JSON) from Garmin API
- * @returns Parsed minimum start Date, or null if not found/parseable
- */
-function extractMinStartDate(errorText: string): Date | null {
-  try {
-    const parsed = JSON.parse(errorText);
-    const message =
-      typeof parsed?.errorMessage === 'string' ? parsed.errorMessage : String(parsed ?? '');
-    const match = message.match(/min start time of ([0-9T:.-]+Z)/i);
-    if (match && match[1]) {
-      const dt = new Date(match[1]);
-      if (!Number.isNaN(dt.getTime())) {
-        return dt;
-      }
-    }
-  } catch {
-    // ignore JSON parse errors and fall through
-  }
-  return null;
-}
