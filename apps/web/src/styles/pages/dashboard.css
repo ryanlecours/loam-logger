@@ -3127,6 +3127,17 @@
   color: var(--cream);
 }
 
+/* Third-party data-source attribution beneath the generated summary. Quiet
+   enough not to compete with the summary itself, but visible without
+   interaction — the Garmin API Brand Guidelines forbid burying attribution in
+   tooltips, footnotes or expandable containers. */
+.advisor-summary-attribution {
+  margin: 0;
+  font-size: 0.6875rem;
+  line-height: 1.4;
+  color: var(--silver);
+}
+
 .priority-hero-actions {
   display: flex;
   gap: 0.75rem;
@@ -4570,8 +4581,17 @@
 }
 
 .source-badge-garmin {
-  background: rgba(0, 151, 221, 0.15);
-  color: #0097DD;
+  background: color-mix(in srgb, var(--brand-garmin) 15%, transparent);
+  color: var(--brand-garmin-on-dark);
+}
+
+/* Garmin attribution badges carry a device model ("Garmin Edge 840"), so they
+   opt out of the shared badge's uppercase transform — the Garmin API Brand
+   Guidelines ask for the model in plain, appropriately sized text rather than
+   a restyled form of Garmin's product name. */
+.source-badge-garmin-attribution {
+  text-transform: none;
+  letter-spacing: 0.01em;
 }
 
 .source-badge-manual {

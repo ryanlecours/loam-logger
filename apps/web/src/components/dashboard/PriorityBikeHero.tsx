@@ -140,7 +140,10 @@ export function PriorityBikeHero({
             <ComponentHealthPanel components={components} onLogService={onLogService} />
 
             {/* AI maintenance summary (Pro-only; renders nothing when null) */}
-            <AdvisorSummaryCard summary={predictions?.advisorSummary ?? null} />
+            <AdvisorSummaryCard
+              summary={predictions?.advisorSummary ?? null}
+              hasGarminSource={bike?.contributingSources?.includes('garmin') ?? false}
+            />
 
             {/* Actions */}
             <div className="priority-hero-actions">

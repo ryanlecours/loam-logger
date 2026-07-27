@@ -1725,7 +1725,7 @@ export const resolvers = {
       const SERVICE_CAP = 1000;
       const INSTALL_CAP = 1000;
 
-      const [serviceLogs, installs, rideAgg] = await Promise.all([
+      const [serviceLogs, installs, rideAgg, garminRide, stravaRide, whoopRide, suuntoRide] = await Promise.all([
         prisma.serviceLog.findMany({
           where: { component: { bikeId: bike.id } },
           // Explicit select (not include) so freeform notes never leave the DB
@@ -1748,7 +1748,22 @@ export const resolvers = {
           _count: { _all: true },
           _sum: { distanceMeters: true, durationSeconds: true, elevationGainMeters: true },
         }),
+        // Which providers fed the totals above. This page is public, so the
+        // Garmin API Brand Guidelines' downstream rule applies: attribution
+        // must travel with the data. Existence probes only — no ride content
+        // crosses this unauthenticated boundary.
+        prisma.ride.findFirst({ where: { bikeId: bike.id, garminActivityId: { not: null } }, select: { id: true } }),
+        prisma.ride.findFirst({ where: { bikeId: bike.id, stravaActivityId: { not: null } }, select: { id: true } }),
+        prisma.ride.findFirst({ where: { bikeId: bike.id, whoopWorkoutId: { not: null } }, select: { id: true } }),
+        prisma.ride.findFirst({ where: { bikeId: bike.id, suuntoWorkoutId: { not: null } }, select: { id: true } }),
       ]);
+
+      const contributingSources = [
+        stravaRide ? 'strava' : null,
+        garminRide ? 'garmin' : null,
+        whoopRide ? 'whoop' : null,
+        suuntoRide ? 'suunto' : null,
+      ].filter((s): s is string => s !== null);
 
       const toSharedComponent = (c: { type: string; location: string; brand: string; model: string }) => ({
         type: c.type,
@@ -1798,6 +1813,7 @@ export const resolvers = {
           serviceEventCount: serviceEvents.length,
           installEventCount: installEvents.length,
         },
+        contributingSources,
       };
     },
   },
@@ -5895,6 +5911,39 @@ export const resolvers = {
       pickComponent(bike, ComponentTypeEnum.WHEEL_HUBS),
     pivotBearings: (bike: Bike & { components?: ComponentModel[] }) =>
       pickComponent(bike, ComponentTypeEnum.PIVOT_BEARINGS),
+    /**
+     * Which providers' rides contribute to this bike's accumulated hours.
+     *
+     * Drives third-party data attribution on every derived surface (component
+     * wear, predictions, the maintenance summary). Garmin's brand guidelines
+     * require naming it as a contributing source wherever its data materially
+     * influences an output — and require the attribution to be absent where it
+     * does not, so this must reflect the bike's actual ride history.
+     *
+     * Counts duplicates out: a duplicate row is not credited to component
+     * hours, so it did not contribute. Kept to four cheap existence probes
+     * rather than scanning the ride table, since this is a per-bike field
+     * resolver on list queries.
+     */
+    contributingSources: async (bike: Bike, _args: unknown, ctx: GraphQLContext) => {
+      const userId = ctx.user?.id;
+      if (!userId || bike.userId !== userId) return [];
+
+      const base = { bikeId: bike.id, userId, isDuplicate: false } as const;
+      const [garmin, strava, whoop, suunto] = await Promise.all([
+        prisma.ride.findFirst({ where: { ...base, garminActivityId: { not: null } }, select: { id: true } }),
+        prisma.ride.findFirst({ where: { ...base, stravaActivityId: { not: null } }, select: { id: true } }),
+        prisma.ride.findFirst({ where: { ...base, whoopWorkoutId: { not: null } }, select: { id: true } }),
+        prisma.ride.findFirst({ where: { ...base, suuntoWorkoutId: { not: null } }, select: { id: true } }),
+      ]);
+
+      const sources: string[] = [];
+      if (strava) sources.push('strava');
+      if (garmin) sources.push('garmin');
+      if (whoop) sources.push('whoop');
+      if (suunto) sources.push('suunto');
+      return sources;
+    },
     predictions: async (bike: Bike, _args: unknown, ctx: GraphQLContext) => {
       const userId = ctx.user?.id;
       if (!userId) return null;

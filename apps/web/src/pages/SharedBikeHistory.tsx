@@ -4,6 +4,10 @@ import { gql, useQuery } from '@apollo/client';
 import { Bike as BikeIcon, Wrench, ArrowUpDown } from 'lucide-react';
 import { fmtDistance, fmtDuration, fmtDateTime } from '@/lib/format';
 import { getComponentLabel } from '@/constants/componentLabels';
+import {
+  GarminDerivedNote,
+  GarminTrademarkNotice,
+} from '@/components/attribution/GarminAttribution';
 
 const SHARED_BIKE_HISTORY = gql`
   query SharedBikeHistory($slug: String!) {
@@ -42,6 +46,9 @@ const SHARED_BIKE_HISTORY = gql`
         serviceEventCount
         installEventCount
       }
+      # Drives the data-source attribution in the footer. This page is public,
+      # so third-party attribution has to travel with the data.
+      contributingSources
     }
   }
 `;
@@ -179,7 +186,7 @@ export default function SharedBikeHistory() {
           )}
         </section>
 
-        <footer className="border-t border-white/10 pt-4 text-center">
+        <footer className="border-t border-white/10 pt-4 text-center space-y-2">
           <p className="text-xs text-muted">
             Service history tracked with{' '}
             <Link to="/" className="text-primary hover:opacity-80 transition">
@@ -187,6 +194,16 @@ export default function SharedBikeHistory() {
             </Link>
             {' '}— track your own bike, free.
           </p>
+          {/* Downstream attribution. The Garmin API Brand Guidelines allow a
+              multi-entry display to attribute globally in a header or footer,
+              which is what this is — the ride totals and the service timeline
+              above are both derived from the contributing providers' data. */}
+          {payload?.contributingSources?.includes('garmin') && (
+            <>
+              <GarminDerivedNote />
+              <GarminTrademarkNotice />
+            </>
+          )}
         </footer>
       </div>
     </div>

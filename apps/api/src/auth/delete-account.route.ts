@@ -75,10 +75,15 @@ router.delete('/delete-account', async (req: Request, res) => {
     }
     console.log(`[DeleteAccount] Token revocation complete - Strava: ${stravaRevoked}, Garmin: ${garminRevoked}`);
 
-    // 5. Delete OAuth tokens from database
-    await prisma.oauthToken.deleteMany({
-      where: { userId },
-    });
+    // 5. Delete OAuth tokens from database.
+    // UserIntegration holds the encrypted provider credentials and would be
+    // removed by the cascade on step 7 anyway, but credential-bearing rows are
+    // deleted explicitly here so the teardown does not depend on a schema
+    // detail — same reasoning as step 6.
+    await prisma.$transaction([
+      prisma.oauthToken.deleteMany({ where: { userId } }),
+      prisma.userIntegration.deleteMany({ where: { userId } }),
+    ]);
     console.log(`[DeleteAccount] Deleted OAuth tokens for user: ${userId}`);
 
     // 6. Delete user accounts (these reference userId with onDelete: Cascade, but do it explicitly)

@@ -39,6 +39,8 @@ export type HistoryBike = {
   manufacturer: string;
   model: string;
   year?: number | null;
+  /** Providers whose rides contributed to this history; drives export attribution. */
+  contributingSources?: string[];
 };
 
 export type HistoryTotals = {

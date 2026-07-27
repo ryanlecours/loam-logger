@@ -348,3 +348,65 @@
 .icon-forest {
   color: var(--forest-deep);
 }
+
+/* Provider connect button. The only place Garmin's brand color is allowed to
+   tint a control — DESIGN.md's "Guest Jersey Rule" confines partner colors to
+   partner surfaces, and this button IS the Garmin connection. Text uses the
+   lightened on-dark tint so the label clears contrast on obsidian; the border
+   and fill use the true brand blue. */
+.btn-connect-garmin {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border-radius: 1rem;
+  border: 1px solid color-mix(in srgb, var(--brand-garmin) 50%, transparent);
+  background: color-mix(in srgb, var(--brand-garmin) 20%, transparent);
+  color: var(--brand-garmin-on-dark);
+  font-weight: 500;
+  text-decoration: none;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.btn-connect-garmin:hover {
+  background: color-mix(in srgb, var(--brand-garmin) 30%, transparent);
+  border-color: color-mix(in srgb, var(--brand-garmin) 70%, transparent);
+  cursor: pointer;
+}
+
+/* Garmin card in the active-data-source picker. Same Guest Jersey reasoning as
+   the connect button: this control selects the Garmin connection, so it is a
+   Garmin surface. */
+.provider-card-garmin:hover {
+  border-color: color-mix(in srgb, var(--brand-garmin) 50%, transparent);
+  background: color-mix(in srgb, var(--brand-garmin) 10%, transparent);
+}
+
+.provider-card-garmin.is-active {
+  border-color: var(--brand-garmin);
+  background: color-mix(in srgb, var(--brand-garmin) 20%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand-garmin) 50%, transparent);
+}
+
+.provider-card-garmin-active {
+  color: var(--brand-garmin-on-dark);
+}
+
+/* Onboarding provider row for Garmin. Same Guest Jersey scope. */
+.onboarding-provider-garmin {
+  border: 1px solid color-mix(in srgb, var(--brand-garmin) 50%, transparent);
+}
+
+.onboarding-provider-garmin.is-interactive {
+  background: color-mix(in srgb, var(--brand-garmin) 10%, transparent);
+}
+
+.onboarding-provider-garmin.is-interactive:hover {
+  background: color-mix(in srgb, var(--brand-garmin) 20%, transparent);
+}
+
+.onboarding-provider-garmin-cta {
+  color: var(--brand-garmin-on-dark);
+}

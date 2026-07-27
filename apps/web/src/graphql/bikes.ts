@@ -108,6 +108,9 @@ export const BIKES = gql`
         updatedAt
         pairGroupId
       }
+      # Drives third-party attribution on every derived surface below
+      # (component wear, predictions, the AI summary). See the Bike type docs.
+      contributingSources
       predictions {
         bikeId
         bikeName

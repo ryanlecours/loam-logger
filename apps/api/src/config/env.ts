@@ -7,6 +7,14 @@ export const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 export const config = {
   /**
+   * True in deployed production. Gates development-only routes out of the
+   * production surface — see server.ts, where the Garmin debug and mock
+   * routers are registered.
+   */
+  isProduction:
+    process.env.NODE_ENV === 'production' || process.env.APP_ENV === 'production',
+
+  /**
    * When true, blocks manual sync operations to prevent "unprompted pull"
    * violations during Garmin Partner Verification testing.
    */

@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { getRideSource, SOURCE_LABELS, type RideWithSource } from './rideSource';
+import {
+  getRideSource,
+  getRideSources,
+  getRideSourceLabel,
+  hasGarminData,
+  SOURCE_LABELS,
+  type RideWithSource,
+} from './rideSource';
 
 describe('getRideSource', () => {
   it('returns "strava" when stravaActivityId is present', () => {
@@ -113,5 +120,69 @@ describe('SOURCE_LABELS', () => {
 
   it('has correct label for manual', () => {
     expect(SOURCE_LABELS.manual).toBe('Manual');
+  });
+});
+
+describe('getRideSources', () => {
+  // The reason this exists: getRideSource ranks Strava above Garmin, so a
+  // cross-provider ride used to render as Strava-only and suppress Garmin
+  // attribution entirely — which the Garmin API Brand Guidelines require
+  // wherever Garmin device-sourced data is present.
+  it('returns every contributing provider, not just the top-ranked one', () => {
+    const ride: RideWithSource = {
+      stravaActivityId: '123456',
+      garminActivityId: 'abc123',
+    };
+
+    expect(getRideSources(ride)).toEqual(['strava', 'garmin']);
+  });
+
+  it('returns a single source for single-provider rides', () => {
+    expect(getRideSources({ garminActivityId: 'abc123' })).toEqual(['garmin']);
+    expect(getRideSources({ suuntoWorkoutId: 'suunto-key' })).toEqual(['suunto']);
+  });
+
+  it('falls back to manual when no provider contributed', () => {
+    expect(getRideSources({})).toEqual(['manual']);
+    expect(getRideSources({ stravaActivityId: null, garminActivityId: null })).toEqual([
+      'manual',
+    ]);
+  });
+});
+
+describe('getRideSourceLabel', () => {
+  it('attributes Garmin rides with the device model', () => {
+    const ride: RideWithSource = {
+      garminActivityId: 'abc123',
+      garminDeviceName: 'edge_840',
+    };
+
+    expect(getRideSourceLabel(ride, 'garmin')).toBe('Garmin Edge 840');
+  });
+
+  it('falls back to plain "Garmin" when no device was reported', () => {
+    expect(getRideSourceLabel({ garminActivityId: 'abc123' }, 'garmin')).toBe('Garmin');
+    expect(
+      getRideSourceLabel({ garminActivityId: 'abc123', garminDeviceName: null }, 'garmin')
+    ).toBe('Garmin');
+  });
+
+  it('leaves other providers on their plain platform name', () => {
+    expect(getRideSourceLabel({ stravaActivityId: '1' }, 'strava')).toBe('Strava');
+    expect(getRideSourceLabel({ whoopWorkoutId: 'w' }, 'whoop')).toBe('WHOOP');
+    expect(getRideSourceLabel({}, 'manual')).toBe('Manual');
+  });
+});
+
+describe('hasGarminData', () => {
+  it('is true for a ride matched across Strava and Garmin', () => {
+    expect(hasGarminData({ stravaActivityId: '1', garminActivityId: 'abc' })).toBe(true);
+  });
+
+  // The guidelines forbid Garmin branding where Garmin data is not present,
+  // so a false negative and a false positive are both compliance failures.
+  it('is false for non-Garmin rides', () => {
+    expect(hasGarminData({ stravaActivityId: '1' })).toBe(false);
+    expect(hasGarminData({})).toBe(false);
   });
 });

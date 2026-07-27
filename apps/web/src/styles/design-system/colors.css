@@ -29,11 +29,19 @@
   --terracotta: rgb(176, 106, 88);       /* #B06A58 - Warm terracotta */
 
   /* Third-party brand colors — tokenized so components can reference them
-     instead of inlining hex codes. Do not use for Loam-Logger UI. */
-  --brand-garmin: #11A9ED;
+     instead of inlining hex codes. Do not use for Loam-Logger UI.
+     (DESIGN.md, "The Guest Jersey Rule") */
+  --brand-garmin: #007DC3;
   --brand-strava: #FC4C02;
   --brand-whoop:  #00FF87;
   --brand-suunto: #F5A623;
+
+  /* Garmin's brand blue is too dark to clear 4.5:1 as small text on obsidian.
+     Fills, borders and logo lockups use --brand-garmin; text and icon glyphs
+     on a dark surface use this lightened tint. Only the mark itself is
+     protected by Garmin's guidelines — UI text color is ours to make legible,
+     and an unreadable attribution is a compliance failure of its own. */
+  --brand-garmin-on-dark: #4FB8E8;
 
   /* Neutrals - Warm-tinted grays */
   --ash: rgb(58, 58, 62);                /* #3A3A3E - Warm dark gray */

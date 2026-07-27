@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { useQuery, gql } from '@apollo/client';
 import { toast } from 'sonner';
-import { Mountain, Activity } from 'lucide-react';
+import { Activity } from 'lucide-react';
+import GarminConnectMark from '@/components/attribution/GarminConnectMark';
+import { GARMIN_CONNECT_APP_NAME } from '@loam/shared';
 import { StravaIcon, GoogleIcon, SuuntoIcon } from '../../../components/icons/BrandIcons';
 import ConnectGarminLink from '../../../components/ConnectGarminLink';
 import ConnectStravaLink from '../../../components/ConnectStravaLink';
@@ -187,8 +189,11 @@ export default function DataSourcesSection() {
 
             {garminAccount ? (
               <ProviderCard
-                icon={<Mountain />}
-                displayName="Garmin Connect"
+                // Official Garmin Connect tile — the guidelines require the
+                // real app tile and full app name when showing the connection,
+                // not a substitute glyph (this was a lucide `Mountain`).
+                icon={<GarminConnectMark size={20} />}
+                displayName={GARMIN_CONNECT_APP_NAME}
                 brandColorVar="--brand-garmin"
                 connectedAt={garminAccount.connectedAt}
                 onSyncPrevious={() => setGarminImportOpen(true)}

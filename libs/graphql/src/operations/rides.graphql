@@ -2,6 +2,7 @@ query Rides($take: Int, $after: ID, $filter: RidesFilterInput) {
   rides(take: $take, after: $after, filter: $filter) {
     id
     garminActivityId
+    garminDeviceName
     stravaActivityId
     whoopWorkoutId
     suuntoWorkoutId

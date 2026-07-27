@@ -10,6 +10,11 @@ export interface BikeWithPredictions {
   thumbnailUrl?: string | null;
   sortOrder: number;
   predictions: BikePredictionSummary | null;
+  /**
+   * Providers whose rides contribute to this bike's hours. Used to attribute
+   * derived data (wear, predictions, the AI summary) to the right sources.
+   */
+  contributingSources?: string[];
 }
 
 interface UsePriorityBikeResult {
