@@ -6,6 +6,8 @@ import { sendBadRequest, sendUnauthorized, sendInternalError, sendSuccess, sendT
 import { checkMutationRateLimit } from '../lib/rate-limit';
 import { createLogger } from '../lib/logger';
 import { revokeGarminTokenForUser } from '../lib/garmin-token';
+import { deleteRideStreamsForProvider } from '../lib/ride-stream-store';
+import { revokeIntegration } from '../lib/integration-tokens';
 import { createOAuthAttempt, consumeOAuthAttempt } from '../lib/oauthState';
 import { encrypt } from '../lib/crypto';
 import { renderOAuthCompletionPage } from '../lib/oauthCompletionPage';
@@ -251,24 +253,13 @@ r.get<Empty, void, Empty, { code?: string; state?: string }>(
       });
       const isReconnect = Boolean(existingIntegration);
 
-      // TODO: Remove OauthToken dual-write once webhooks/sync workers and token
-      // refresh helpers (garmin-token.ts) are migrated to read from UserIntegration.
-      // OauthToken stores plaintext tokens; UserIntegration uses AES-256-GCM encryption.
+      // Garmin tokens are stored ONLY in UserIntegration, AES-256-GCM
+      // encrypted. The plaintext OauthToken dual-write that used to live here
+      // is gone; the deleteMany below purges any row a previous connection
+      // left behind, so reconnecting is also a cleanup path.
       await prisma.$transaction(async (tx) => {
-        await tx.oauthToken.upsert({
-          where: { userId_provider: { userId: authenticatedUserId, provider: 'garmin' } },
-          create: {
-            userId: authenticatedUserId,
-            provider: 'garmin',
-            accessToken: t.access_token,
-            refreshToken: refreshTokenNorm,
-            expiresAt,
-          },
-          update: {
-            accessToken: t.access_token,
-            expiresAt,
-            ...(t.refresh_token !== undefined ? { refreshToken: t.refresh_token ?? null } : {}),
-          },
+        await tx.oauthToken.deleteMany({
+          where: { userId: authenticatedUserId, provider: 'garmin' },
         });
 
         await tx.userAccount.upsert({
@@ -356,11 +347,14 @@ r.get('/garmin/mobile/complete', (req: Request, res: Response) => {
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.send(renderOAuthCompletionPage({
-    provider: 'Garmin',
+    // Full app name, not "Garmin" — the Garmin API Brand Guidelines forbid
+    // abbreviating or truncating it when displaying the connection, and this
+    // page is part of the connect flow a brand reviewer walks through.
+    provider: 'Garmin Connect™',
     status,
     reason,
     scheme,
-    brandColor: '#007dc3',
+    brandColor: '#007DC3',
   }));
 });
 
@@ -389,19 +383,27 @@ r.get('/garmin/status', async (req: Request, res: Response) => {
       });
     }
 
-    // Fallback: check OauthToken during transition period
-    const oauthToken = await prisma.oauthToken.findUnique({
-      where: { userId_provider: { userId, provider: 'garmin' } },
-    });
-
-    if (oauthToken) {
-      return sendSuccess(res, {
-        connected: true,
-        connectedAt: oauthToken.createdAt.toISOString(),
-        revokedAt: null,
-        lastSyncAt: null,
-        scopes: null,
+    // Pre-encryption connections still living in the legacy plaintext table
+    // read as connected here. They are adopted into UserIntegration the next
+    // time a token is actually used (garmin-token.ts), or eagerly by
+    // scripts/migrate-garmin-tokens.ts. This branch goes away with the table.
+    //
+    // Deliberately below the UserIntegration check: a revoked integration must
+    // report disconnected even if a stale plaintext row is still present.
+    if (!integration) {
+      const legacy = await prisma.oauthToken.findUnique({
+        where: { userId_provider: { userId, provider: 'garmin' } },
       });
+
+      if (legacy) {
+        return sendSuccess(res, {
+          connected: true,
+          connectedAt: legacy.createdAt.toISOString(),
+          revokedAt: null,
+          lastSyncAt: null,
+          scopes: null,
+        });
+      }
     }
 
     return sendSuccess(res, { connected: false });
@@ -421,10 +423,10 @@ async function handleGarminDisconnect(userId: string): Promise<boolean> {
   }
 
   await prisma.$transaction(async (tx) => {
-    await tx.userIntegration.updateMany({
-      where: { userId, provider: 'GARMIN' },
-      data: { revokedAt: new Date() },
-    });
+    // Marks the integration revoked AND overwrites the stored ciphertext — a
+    // disconnected credential we could still decrypt is a credential we are
+    // still holding.
+    await revokeIntegration(userId, 'GARMIN', tx);
     await tx.oauthToken.deleteMany({
       where: { userId, provider: 'garmin' },
     });
@@ -432,6 +434,13 @@ async function handleGarminDisconnect(userId: string): Promise<boolean> {
       where: { userId, provider: 'garmin' },
     });
   });
+
+  // Drop the raw per-point GPS tracks Garmin supplied. These belong to the
+  // Garmin grant rather than to the rider's own maintenance record, so they go
+  // with the connection — mirroring what Strava disconnect already does. The
+  // rides themselves survive: deleting those would destroy the service history
+  // the product exists to keep. The privacy policy states exactly this split.
+  await deleteRideStreamsForProvider(userId, 'garmin');
 
   return revoked;
 }

@@ -1,0 +1,12 @@
+-- Garmin Activity Summary "deviceName" (e.g. "edge_840", "fenix7"), stored raw.
+-- Required by the Garmin Developer API Brand Guidelines: any surface displaying
+-- Garmin device-sourced data must attribute "Garmin [device model]".
+--
+-- Nullable and NOT backfilled by design. Rides imported before this column
+-- existed have no device on record, and Garmin itself omits deviceName for some
+-- activities. Both cases fall back to plain "Garmin", which the guidelines
+-- explicitly permit ("If the device model is not provided or unknown via the
+-- API, list Garmin as the data source"). Re-pulling historical activities to
+-- fill this in would also trip the unprompted-pull guard Garmin requires during
+-- verification.
+ALTER TABLE "Ride" ADD COLUMN "garminDeviceName" TEXT;

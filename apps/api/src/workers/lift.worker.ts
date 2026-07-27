@@ -6,7 +6,9 @@ import { prisma } from '../lib/prisma';
 import { logger } from '../lib/logger';
 import type { LiftJobData, LiftJobName } from '../lib/queue';
 import { getValidStravaToken } from '../lib/strava-token';
-import { fetchStravaStreams, type NormalizedStreams } from '../lib/strava-streams';
+import { fetchStravaStreams } from '../lib/strava-streams';
+import type { NormalizedStreams } from '../lib/ride-streams';
+import { saveRideStream } from '../lib/ride-stream-store';
 import {
   DETECTOR_VERSION,
   DEFAULT_OPTIONS,
@@ -32,6 +34,7 @@ export async function processLiftJob(
       userId: true,
       startTime: true,
       stravaActivityId: true,
+      garminActivityId: true,
       startLat: true,
       startLng: true,
       liftDetectorVersion: true,
@@ -43,10 +46,6 @@ export async function processLiftJob(
     logger.debug({ rideId }, '[LiftWorker] Ride not found, skipping');
     return;
   }
-  if (!ride.stravaActivityId) {
-    logger.debug({ rideId }, '[LiftWorker] Not a Strava ride, skipping');
-    return;
-  }
   if (ride.startLat == null || ride.startLng == null) {
     logger.debug({ rideId }, '[LiftWorker] Ride has no coords, skipping');
     return;
@@ -56,12 +55,19 @@ export async function processLiftJob(
     return;
   }
 
-  // Step 1: ensure the raw stream is persisted. An existing stream is reused
-  // (re-detection after a DETECTOR_VERSION bump costs no Strava call).
+  // Step 1: obtain the raw stream. An existing stream is always reused, so
+  // re-detection after a DETECTOR_VERSION bump costs no provider call.
+  //
+  // The two providers differ in how a stream comes to exist:
+  //  - Strava streams are fetched here, lazily, on first analysis.
+  //  - Garmin streams are written at ingest from the Activity Details samples
+  //    Garmin pushes (see lib/ride-stream-store.ts). There is no fetch path —
+  //    the Connect Developer Program disallows pull-only access — so a Garmin
+  //    ride with no stored stream simply has no track to analyze.
   let streamData: NormalizedStreams;
   if (ride.stream) {
     streamData = ride.stream.data as NormalizedStreams;
-  } else {
+  } else if (ride.stravaActivityId) {
     const accessToken = await getValidStravaToken(ride.userId);
     if (!accessToken) {
       // User disconnected between import and job run — retrying won't help.
@@ -76,22 +82,14 @@ export async function processLiftJob(
       return;
     }
 
-    await prisma.rideStream.upsert({
-      where: { rideId },
-      create: {
-        rideId,
-        source: 'strava',
-        pointCount: result.pointCount,
-        data: result.data,
-      },
-      update: {
-        source: 'strava',
-        pointCount: result.pointCount,
-        data: result.data,
-        fetchedAt: new Date(),
-      },
-    });
+    await saveRideStream(rideId, 'strava', result.pointCount, result.data);
     streamData = result.data;
+  } else {
+    logger.debug(
+      { rideId, isGarmin: Boolean(ride.garminActivityId) },
+      '[LiftWorker] No stored stream and no fetchable source, skipping'
+    );
+    return;
   }
 
   const points = pointsFromStream(streamData);

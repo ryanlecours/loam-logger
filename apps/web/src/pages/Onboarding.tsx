@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useApolloClient, useQuery, gql } from '@apollo/client';
-import { Mountain, Settings, Check, ChevronDown, ChevronUp, Clock } from 'lucide-react';
+import { Settings, Check, ChevronDown, ChevronUp, Clock } from 'lucide-react';
+import GarminConnectMark from '@/components/attribution/GarminConnectMark';
+import { GARMIN_CONNECT_APP_NAME } from '@loam/shared';
 import { StravaIcon, SuuntoIcon } from '../components/icons/BrandIcons';
 import { ME_QUERY } from '../graphql/me';
 import { useCurrentUser } from '../hooks/useCurrentUser';
@@ -869,12 +871,15 @@ export default function Onboarding() {
 
                 {/* Garmin Connection */}
                 {accounts.find((acc: { provider: string }) => acc.provider === 'garmin') ? (
-                  <div className="w-full rounded-2xl border border-[#11A9ED]/50 bg-surface-2 px-4 py-4">
+                  <div className="onboarding-provider-garmin w-full rounded-2xl bg-surface-2 px-4 py-4">
                     <div className="flex items-center justify-between gap-4">
                       <div className="flex items-center gap-3">
-                        <Mountain className="text-lg" style={{ color: '#11A9ED' }} />
+                        {/* Official Garmin Connect tile — a substitute glyph
+                            standing in for the Garmin mark is exactly what the
+                            brand review flags. */}
+                        <GarminConnectMark size={20} />
                         <div className="text-left">
-                          <p className="font-semibold">Garmin Connect</p>
+                          <p className="font-semibold">{GARMIN_CONNECT_APP_NAME}</p>
                           <p className="text-xs text-success">Connected ✓</p>
                         </div>
                       </div>
@@ -884,17 +889,17 @@ export default function Onboarding() {
                 ) : (
                   <button
                     onClick={handleConnectGarmin}
-                    className="w-full rounded-2xl border border-[#11A9ED]/50 bg-[#11A9ED]/10 hover:bg-[#11A9ED]/20 px-4 py-4 transition text-left"
+                    className="onboarding-provider-garmin is-interactive w-full rounded-2xl px-4 py-4 transition text-left"
                   >
                     <div className="flex items-center justify-between gap-4">
                       <div className="flex items-center gap-3">
-                        <Mountain className="text-lg" style={{ color: '#11A9ED' }} />
+                        <GarminConnectMark size={20} />
                         <div>
-                          <p className="font-semibold">Garmin Connect</p>
+                          <p className="font-semibold">{GARMIN_CONNECT_APP_NAME}</p>
                           <p className="text-xs text-muted">Import activities automatically</p>
                         </div>
                       </div>
-                      <span className="text-xs" style={{ color: '#11A9ED' }}>Connect</span>
+                      <span className="onboarding-provider-garmin-cta text-xs">Connect</span>
                     </div>
                   </button>
                 )}

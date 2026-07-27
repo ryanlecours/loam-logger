@@ -10,6 +10,7 @@ import { getValidWhoopToken } from '../lib/whoop-token';
 import { getValidSuuntoToken } from '../lib/suunto-token';
 import { deriveLocation, deriveLocationAsync, shouldApplyAutoLocation } from '../lib/location';
 import { extractGarminStartCoords } from '../lib/garmin-coords';
+import { persistGarminStream } from '../lib/ride-stream-store';
 import { syncBikeComponentHours } from '../lib/component-hours';
 import { invalidateBikePredictionsForBikes } from '../services/prediction/cache';
 import { logger } from '../lib/logger';
@@ -109,6 +110,12 @@ type GarminActivity = {
   averageHeartRateInBeatsPerMinute?: number;
   maxHeartRateInBeatsPerMinute?: number;
   locationName?: string;
+  // Device model that recorded the activity (e.g. "edge_840"). Garmin's API
+  // Brand Guidelines require attributing "Garmin [device model]" wherever this
+  // activity's data is shown, so this must be persisted, not just read.
+  // Garmin omits it for manually-entered activities — see formatGarminSource,
+  // which falls back to plain "Garmin".
+  deviceName?: string;
   // Garmin's Activity Summary spells these with "ing"; coords are read via
   // extractGarminStartCoords, which also tolerates legacy/misspelled variants.
   startingLatitudeInDegrees?: number;
@@ -626,6 +633,7 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
       bikeId,
       startLat,
       startLng,
+      garminDeviceName: activity.deviceName ?? null,
     },
     update: {
       startTime,
@@ -635,6 +643,9 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
       averageHr: activity.averageHeartRateInBeatsPerMinute ?? null,
       rideType: activity.activityType,
       notes: activity.activityName ?? null,
+      // Only written when present, never cleared — a re-sync that omits
+      // deviceName must not blank an attribution we already display.
+      ...(activity.deviceName ? { garminDeviceName: activity.deviceName } : {}),
       ...(locationUpdate !== undefined ? { location: locationUpdate } : {}),
       // Known limitation: coords are only written, never cleared. If a
       // Garmin activity's coords become unavailable on a later re-sync,
@@ -699,11 +710,26 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
 
   logger.debug({ summaryId: activity.summaryId }, '[SyncWorker] Upserted Garmin activity');
 
+  // Persist the per-point track when Garmin delivered Activity Details
+  // samples alongside the summary. Unlike Strava there is nothing to fetch —
+  // the samples either arrived with the payload or this ride has no track.
+  // Best-effort: a stream failure must not fail the ride, which is the
+  // primary data and which Garmin will not resend.
+  const storedGarminStream = await persistGarminStream(syncedRideId, activity);
+
   // Fire-and-forget weather fetch
   if (startLat != null && startLng != null) {
     enqueueWeatherJob({ rideId: syncedRideId }).catch((err) =>
       logger.warn({ rideId: syncedRideId, err }, '[SyncWorker] Failed to enqueue weather job (Garmin)')
     );
+    // Lift detection needs a stream. For Strava the job fetches one itself;
+    // for Garmin the stream must already be stored, so only enqueue when we
+    // actually persisted one — otherwise the job just no-ops.
+    if (storedGarminStream) {
+      enqueueLiftDetectionJob({ rideId: syncedRideId }).catch((err) =>
+        logger.warn({ rideId: syncedRideId, err }, '[SyncWorker] Failed to enqueue lift job (Garmin)')
+      );
+    }
   }
 
   // Fire-and-forget notifications

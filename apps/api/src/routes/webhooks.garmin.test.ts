@@ -8,8 +8,16 @@ jest.mock('../lib/prisma', () => ({
     oauthToken: {
       deleteMany: jest.fn(),
     },
+    userIntegration: {
+      updateMany: jest.fn(),
+    },
     $transaction: jest.fn(),
   },
+}));
+
+const mockDeleteRideStreams = jest.fn();
+jest.mock('../lib/ride-stream-store', () => ({
+  deleteRideStreamsForProvider: (...args: unknown[]) => mockDeleteRideStreams(...args),
 }));
 
 const mockIsActiveSource = jest.fn();
@@ -25,6 +33,14 @@ jest.mock('../lib/logger', () => ({
     error: jest.fn(),
   },
   logError: jest.fn(),
+  // lib/integration-tokens (pulled in via the revocation path) builds a scoped
+  // logger at module load.
+  createLogger: () => ({
+    warn: jest.fn(),
+    info: jest.fn(),
+    debug: jest.fn(),
+    error: jest.fn(),
+  }),
 }));
 
 jest.mock('../lib/queue/sync.queue', () => ({
@@ -53,7 +69,9 @@ describe('Garmin Webhooks', () => {
 
   beforeAll(() => {
     app = express();
-    app.use(express.json());
+    // Deliberately NO app-level express.json() — production mounts this router
+    // before the global parser so the router's own raised body limits apply.
+    // Adding one here would mask a regression in those limits.
     app.use(garminWebhooksRouter);
   });
 
@@ -61,7 +79,20 @@ describe('Garmin Webhooks', () => {
     jest.clearAllMocks();
     // Default: allow all providers (no active data source preference)
     mockIsActiveSource.mockResolvedValue(true);
+    mockDeleteRideStreams.mockResolvedValue(0);
+    // Execute interactive-transaction callbacks against the mocked client.
+    // A bare jest.fn() would swallow the callback, so assertions about what
+    // happens INSIDE the transaction (token revocation, plaintext cleanup)
+    // would silently pass without the code ever running.
+    (mockPrisma.$transaction as jest.Mock).mockImplementation(async (arg: unknown) =>
+      typeof arg === 'function' ? (arg as (tx: unknown) => unknown)(mockPrisma) : []
+    );
   });
+
+  // Deregistration and permission changes ACK before doing any work (Garmin
+  // requires the 200 within 30s regardless of batch size), so side effects
+  // land after the response. Yield to the microtask queue before asserting.
+  const flushBackgroundWork = () => new Promise((resolve) => setTimeout(resolve, 20));
 
   describe('POST /webhooks/garmin/deregistration', () => {
     it('should return 400 for missing deregistrations array', async () => {
@@ -88,7 +119,6 @@ describe('Garmin Webhooks', () => {
         provider: 'garmin',
         providerUserId: 'garmin-user-456',
       });
-      (mockPrisma.$transaction as jest.Mock).mockResolvedValue([]);
 
       const response = await request(app)
         .post('/webhooks/garmin/deregistration')
@@ -98,7 +128,29 @@ describe('Garmin Webhooks', () => {
 
       expect(response.status).toBe(200);
       expect(response.body).toEqual({ acknowledged: true });
+
+      await flushBackgroundWork();
       expect(mockPrisma.$transaction).toHaveBeenCalled();
+
+      // Revocation must destroy the stored credentials, not merely flag the
+      // row — a revoked token we can still decrypt is one we are still holding.
+      expect(mockPrisma.userIntegration.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { userId: 'internal-user-123', provider: 'GARMIN' },
+          data: expect.objectContaining({
+            accessTokenEnc: '',
+            refreshTokenEnc: null,
+            revokedAt: expect.any(Date),
+          }),
+        })
+      );
+      // Any leftover plaintext row from before encryption goes too.
+      expect(mockPrisma.oauthToken.deleteMany).toHaveBeenCalledWith({
+        where: { userId: 'internal-user-123', provider: 'garmin' },
+      });
+      // Deregistration must delete the raw Garmin-supplied GPS, not just the
+      // connection — see the privacy policy's Garmin section.
+      expect(mockDeleteRideStreams).toHaveBeenCalledWith('internal-user-123', 'garmin');
     });
 
     it('should return 200 OK for deregistration with unknown user', async () => {
@@ -112,6 +164,8 @@ describe('Garmin Webhooks', () => {
 
       expect(response.status).toBe(200);
       expect(response.body).toEqual({ acknowledged: true });
+
+      await flushBackgroundWork();
       expect(mockPrisma.$transaction).not.toHaveBeenCalled();
     });
 
@@ -120,7 +174,6 @@ describe('Garmin Webhooks', () => {
         .mockResolvedValueOnce({ userId: 'user-1', provider: 'garmin', providerUserId: 'garmin-1' })
         .mockResolvedValueOnce(null)
         .mockResolvedValueOnce({ userId: 'user-3', provider: 'garmin', providerUserId: 'garmin-3' });
-      (mockPrisma.$transaction as jest.Mock).mockResolvedValue([]);
 
       const response = await request(app)
         .post('/webhooks/garmin/deregistration')
@@ -133,10 +186,16 @@ describe('Garmin Webhooks', () => {
         });
 
       expect(response.status).toBe(200);
+
+      await flushBackgroundWork();
       expect(mockPrisma.$transaction).toHaveBeenCalledTimes(2);
     });
 
-    it('should return 500 on database error', async () => {
+    // Previously this asserted a 500. It now asserts the opposite, and that is
+    // the point of the change: Garmin counts any non-200 as a failed delivery,
+    // so a database problem on our side must not turn into a delivery failure
+    // on theirs. We ACK, then log loudly enough to be alerted on.
+    it('still ACKs when the database fails, and logs for manual cleanup', async () => {
       (mockPrisma.userAccount.findUnique as jest.Mock).mockRejectedValue(new Error('DB Error'));
 
       const response = await request(app)
@@ -145,8 +204,14 @@ describe('Garmin Webhooks', () => {
           deregistrations: [{ userId: 'garmin-user' }],
         });
 
-      expect(response.status).toBe(500);
-      expect(response.body).toEqual({ error: 'Internal server error' });
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({ acknowledged: true });
+
+      await flushBackgroundWork();
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        expect.objectContaining({ event: 'garmin_deregistration_failed', error: 'DB Error' }),
+        expect.stringContaining('manual cleanup required')
+      );
     });
   });
 
@@ -231,7 +296,9 @@ describe('Garmin Webhooks', () => {
       expect(response.body).toEqual({ acknowledged: true });
     });
 
-    it('should return 500 on database error', async () => {
+    // Same inversion as the deregistration case: a non-200 reads to Garmin as
+    // a failed delivery, so our database trouble stays our problem.
+    it('still ACKs when the database fails, and logs the failure', async () => {
       (mockPrisma.userAccount.findUnique as jest.Mock).mockRejectedValue(new Error('DB Error'));
 
       const response = await request(app)
@@ -245,8 +312,74 @@ describe('Garmin Webhooks', () => {
           }],
         });
 
-      expect(response.status).toBe(500);
-      expect(response.body).toEqual({ error: 'Internal server error' });
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({ acknowledged: true });
+
+      await flushBackgroundWork();
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        expect.objectContaining({ event: 'garmin_permissions_failed', error: 'DB Error' }),
+        expect.stringContaining('sync may still be enabled')
+      );
+    });
+
+    // The handler used to only log this. Revoking ACTIVITY_EXPORT is the rider
+    // withdrawing the grant every Garmin read depends on, so it has to actually
+    // stop sync — deleting the tokens makes every sync path fail closed.
+    it('disables Garmin sync when ACTIVITY_EXPORT is revoked', async () => {
+      (mockPrisma.userAccount.findUnique as jest.Mock).mockResolvedValue({
+        userId: 'internal-user-123',
+        provider: 'garmin',
+        providerUserId: 'garmin-user-456',
+      });
+
+      const response = await request(app)
+        .post('/webhooks/garmin/permissions')
+        .send({
+          userPermissionsChange: [{
+            userId: 'garmin-user-456',
+            summaryId: 'summary-123',
+            permissions: ['FITNESS_TRACKING'],
+            changeTimeInSeconds: 1706123456,
+          }],
+        });
+
+      expect(response.status).toBe(200);
+
+      await flushBackgroundWork();
+      expect(mockPrisma.$transaction).toHaveBeenCalled();
+      // Not just a log line: the credentials are actually destroyed, so every
+      // sync path fails closed on the next token read.
+      expect(mockPrisma.userIntegration.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ accessTokenEnc: '', refreshTokenEnc: null }),
+        })
+      );
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({ event: 'garmin_activity_export_revoked' }),
+        expect.stringContaining('disabling Garmin sync')
+      );
+    });
+
+    it('leaves sync enabled while ACTIVITY_EXPORT is still granted', async () => {
+      (mockPrisma.userAccount.findUnique as jest.Mock).mockResolvedValue({
+        userId: 'internal-user-123',
+        provider: 'garmin',
+        providerUserId: 'garmin-user-456',
+      });
+
+      await request(app)
+        .post('/webhooks/garmin/permissions')
+        .send({
+          userPermissionsChange: [{
+            userId: 'garmin-user-456',
+            summaryId: 'summary-123',
+            permissions: ['ACTIVITY_EXPORT', 'FITNESS_TRACKING'],
+            changeTimeInSeconds: 1706123456,
+          }],
+        });
+
+      await flushBackgroundWork();
+      expect(mockPrisma.$transaction).not.toHaveBeenCalled();
     });
   });
 
@@ -664,6 +797,63 @@ describe('Garmin Webhooks', () => {
           expect.stringContaining('Failed to enqueue activity job')
         );
       });
+    });
+  });
+
+  // Garmin's production technical review requires accepting 10MB on every
+  // notification endpoint and 100MB for Activity. body-parser defaults to
+  // 100kb, so without the router's own parsers an oversized delivery 413s and
+  // Garmin records a failed delivery. These are the regression guards.
+  describe('payload size limits', () => {
+    // Padding a valid payload is what actually exercises the parser — a body
+    // that fails schema validation would 400 before size ever mattered.
+    const padded = (bytes: number) => ({
+      activityDetails: [{
+        userId: 'garmin-user-456',
+        userAccessToken: 'token',
+        summaryId: 'summary-123',
+        uploadTimestampInSeconds: 1706123456,
+        _padding: 'x'.repeat(bytes),
+      }],
+    });
+
+    beforeEach(() => {
+      (mockPrisma.userAccount.findUnique as jest.Mock).mockResolvedValue({
+        userId: 'internal-user-123',
+        provider: 'garmin',
+        providerUserId: 'garmin-user-456',
+      });
+      mockEnqueueSyncJob.mockResolvedValue({ jobId: 'job-1', status: 'queued' } as never);
+    });
+
+    it('accepts an activities-ping body well over body-parser\'s 100kb default', async () => {
+      const response = await request(app)
+        .post('/webhooks/garmin/activities-ping')
+        .send(padded(500_000));
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({ acknowledged: true });
+    });
+
+    it('accepts an activities-ping body over 10MB (Activity allowance is 100MB)', async () => {
+      const response = await request(app)
+        .post('/webhooks/garmin/activities-ping')
+        .send(padded(12 * 1024 * 1024));
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({ acknowledged: true });
+    }, 30_000);
+
+    it('accepts a deregistration body over 100kb', async () => {
+
+      const response = await request(app)
+        .post('/webhooks/garmin/deregistration')
+        .send({
+          deregistrations: [{ userId: 'garmin-user-456' }],
+          _padding: 'x'.repeat(500_000),
+        });
+
+      expect(response.status).toBe(200);
     });
   });
 });

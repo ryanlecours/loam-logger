@@ -4,7 +4,7 @@ import { UPDATE_RIDE } from '../../graphql/updateRide';
 import { RIDES } from '../../graphql/rides';
 import { Modal, Select, Button } from '../ui';
 import { getBikeName, formatRideDate, formatDurationCompact } from '../../utils/formatters';
-import { getRideSource, SOURCE_LABELS } from '../../utils/rideSource';
+import RideSourceBadges from '../RideSourceBadges';
 import { usePreferences } from '../../hooks/usePreferences';
 
 interface Ride {
@@ -18,6 +18,7 @@ interface Ride {
   bikeId?: string | null;
   stravaActivityId?: string | null;
   garminActivityId?: string | null;
+  garminDeviceName?: string | null;
 }
 
 interface Bike {
@@ -63,7 +64,6 @@ export function LinkBikeModal({ ride, bikes, onClose, onSuccess }: LinkBikeModal
     ? Math.round(ride.elevationGainMeters ?? 0).toLocaleString()
     : Math.round((ride.elevationGainMeters ?? 0) * 3.28084).toLocaleString();
   const elevUnit = distanceUnit === 'km' ? 'm' : 'ft';
-  const source = getRideSource(ride);
 
   const handleSave = async () => {
     if (!selectedBikeId) {
@@ -94,9 +94,7 @@ export function LinkBikeModal({ ride, bikes, onClose, onSuccess }: LinkBikeModal
         <div className="bg-highlight/30 border border-app rounded-xl p-4">
           <div className="flex items-start justify-between gap-3 mb-3">
             <h3 className="font-semibold text-white text-lg">{rideName}</h3>
-            <span className={`source-badge source-badge-${source} flex-shrink-0`}>
-              {SOURCE_LABELS[source]}
-            </span>
+            <RideSourceBadges ride={ride} className="flex-shrink-0" />
           </div>
           <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
             <div>

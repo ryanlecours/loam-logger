@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery } from '@apollo/client';
 import { RIDE_TRACK, REQUEST_RIDE_TRACK } from '../graphql/rideTrack';
 import { Button } from './ui';
+import { GarminSourceLine } from './attribution/GarminAttribution';
 
 const TrackMapInner = lazy(() => import('./TrackMapInner'));
 
@@ -9,6 +10,8 @@ type RideTrack = {
   status: 'AVAILABLE' | 'FETCHABLE' | 'UNAVAILABLE';
   points: [number, number][] | null;
   sampledFrom: number | null;
+  source: string | null;
+  garminDeviceName: string | null;
 };
 
 const POLL_INTERVAL_MS = 2_500;
@@ -24,6 +27,13 @@ const MapSkeleton = () => (
  * Route map for one ride. Self-hides for rides with no GPS source; offers a
  * one-tap "Load route map" for Strava rides imported before stream ingestion
  * existed (fetches on demand, then polls until the track lands).
+ *
+ * A rendered map of device-recorded GPS is a visual under the Garmin API Brand
+ * Guidelines, so a Garmin-sourced track carries "Garmin [device model]"
+ * attribution. Both the source and the device come from the track payload
+ * rather than from the ride's activity ids: a ride matched across providers
+ * has exactly one persisted stream, and attributing the map to the wrong
+ * provider would be a misrepresentation in either direction.
  */
 export default function RideTrackMap({ rideId }: { rideId: string }) {
   const { data, loading, startPolling, stopPolling } = useQuery<{ rideTrack: RideTrack }>(
@@ -80,9 +90,14 @@ export default function RideTrackMap({ rideId }: { rideId: string }) {
 
   if (track.status === 'AVAILABLE' && track.points?.length) {
     return (
-      <Suspense fallback={<MapSkeleton />}>
-        <TrackMapInner points={track.points} />
-      </Suspense>
+      <div className="space-y-1">
+        <Suspense fallback={<MapSkeleton />}>
+          <TrackMapInner points={track.points} />
+        </Suspense>
+        {track.source === 'garmin' && (
+          <GarminSourceLine deviceName={track.garminDeviceName} />
+        )}
+      </div>
     );
   }
 

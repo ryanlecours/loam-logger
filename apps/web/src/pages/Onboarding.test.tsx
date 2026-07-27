@@ -1,3 +1,4 @@
+import { GARMIN_CONNECT_APP_NAME } from '@loam/shared';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -214,7 +215,11 @@ describe('Onboarding', () => {
       const user = userEvent.setup();
       await navigateToStep6(user);
 
-      expect(screen.getByText('Garmin Connect')).toBeInTheDocument();
+      // Full app name including the trademark symbol. The Garmin API Brand
+      // Guidelines forbid abbreviating, truncating or stylizing it, so this
+      // asserts the exact rendered string rather than a substring match.
+      expect(screen.getByText(GARMIN_CONNECT_APP_NAME)).toBeInTheDocument();
+      expect(GARMIN_CONNECT_APP_NAME).toBe('Garmin Connect™');
     });
 
     it('shows Skip for now button', async () => {

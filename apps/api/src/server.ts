@@ -55,7 +55,7 @@ import { googleRouter, emailRouter, deleteAccountRouter, passwordRouter, attachU
 import webhooksStripe from './routes/webhooks.stripe';
 import webhooksRevenueCat from './routes/webhooks.revenuecat';
 import { validateStripeConfig } from './lib/stripe';
-import { FRONTEND_URL } from './config/env';
+import { FRONTEND_URL, config } from './config/env';
 import mobileAuthRouter from './auth/mobile.route';
 
 export type GraphQLContext = {
@@ -163,6 +163,12 @@ const startServer = async () => {
   // Suunto webhook needs raw body for HMAC-SHA256 signature verification,
   // so it must be registered before the global express.json() consumes it.
   app.use('/webhooks/suunto', express.raw({ type: 'application/json' }), webhooksSuunto);
+
+  // Garmin PUSH endpoints bring their own JSON parsers with raised limits
+  // (see webhooks.garmin.ts) and so must be registered before the global
+  // express.json() below, which would otherwise 413 oversized deliveries at
+  // body-parser's 100kb default. Same ordering constraint as Stripe/Suunto above.
+  app.use(webhooksGarmin);
 
   app.use(express.json());
   app.use(express.urlencoded({ extended: false }));
@@ -280,13 +286,24 @@ const startServer = async () => {
   app.use('/api/admin/lift', adminLiftRouter);
   app.use('/api/spokes', spokesRouter);
 
-  app.use(webhooksGarmin);
+  // webhooksGarmin is mounted earlier, before the global express.json() — it
+  // carries its own raised body limits for Garmin PUSH payloads.
   app.use(webhooksStrava);
   app.use('/webhooks', webhooksWhoop);
 
   app.use('/onboarding', onboardingRouter);
-  app.use(garminTest);
-  app.use(mockGarmin);
+
+  // Development-only Garmin routes, kept out of production entirely.
+  //
+  // garminTest exposes DELETE /garmin/testing/delete-imported-rides (bulk
+  // destructive) and GET /me/garmin/activities (an unprompted pull against
+  // Garmin's API — the exact pattern their verification prohibits).
+  // mockGarmin serves a fake Garmin consent page and token endpoint, which
+  // has no business being reachable on a domain a brand reviewer will visit.
+  if (!config.isProduction) {
+    app.use(garminTest);
+    app.use(mockGarmin);
+  }
 
   // Sentry error handler must come before custom error handler
   Sentry.setupExpressErrorHandler(app);

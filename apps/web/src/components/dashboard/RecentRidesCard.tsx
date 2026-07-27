@@ -17,6 +17,7 @@ interface Ride {
   notes?: string | null;
   stravaActivityId?: string | null;
   garminActivityId?: string | null;
+  garminDeviceName?: string | null;
   whoopWorkoutId?: string | null;
   bikeId?: string | null;
   weather?: RideWeather | null;

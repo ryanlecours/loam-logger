@@ -36,6 +36,7 @@ import {
 import {
   type SpareFormState,
 } from '@/models/BikeComponents';
+import { GarminDerivedNote } from '@/components/attribution/GarminAttribution';
 import { getComponentLabel } from '@/constants/componentLabels';
 import type { BikePredictionSummary, ComponentPrediction, PredictionStatus } from '@/types/prediction';
 import BikeServicePreferencesEditor from '@/components/BikeServicePreferencesEditor';
@@ -92,6 +93,8 @@ type BikeDto = {
   batteryWh?: number | null;
   acquisitionDate?: string | null;
   components: ComponentDto[];
+  /** Providers whose rides fed this bike's hours; drives source attribution. */
+  contributingSources?: string[];
   predictions?: BikePredictionSummary | null;
   servicePreferences?: BikeServicePreferenceDto[];
 };
@@ -446,6 +449,16 @@ export default function BikeDetail() {
       {/* Component Health */}
       <section className="bike-detail-section">
         <h3 className="bike-detail-section-title">Component Health</h3>
+
+        {/* Wear hours and every service prediction below are computed from ride
+            duration, so any provider that contributed rides has to be named as
+            a source. Sits directly under the heading, above the data it
+            describes — the Garmin API Brand Guidelines require attribution to
+            be visually associated with the data and never hidden behind a
+            disclosure. */}
+        {bike?.contributingSources?.includes('garmin') && (
+          <GarminDerivedNote className="bike-detail-section-attribution" />
+        )}
 
         {sortedComponents.length > 0 ? (
           <div className="component-detail-list">

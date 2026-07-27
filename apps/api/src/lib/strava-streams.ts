@@ -1,10 +1,12 @@
 import { logger } from './logger';
+import type { NormalizedStreams, RideStreamsResult } from './ride-streams';
 
 // Full-resolution per-point streams for one activity. Cadence/heartrate/moving
 // cost nothing extra to request and are needed by lift detection (cadence
 // absence is a kinematic signal; `moving` lets deltas count only points Strava
-// considered moving).
-const STREAM_KEYS = 'time,latlng,altitude,velocity_smooth,cadence,heartrate,moving';
+// considered moving). `watts` is requested so Strava reaches parity with the
+// Garmin normalizer, which gets power for free in the Activity Details samples.
+const STREAM_KEYS = 'time,latlng,altitude,velocity_smooth,cadence,heartrate,watts,moving';
 const FETCH_TIMEOUT_MS = 15_000;
 
 type StravaStream = {
@@ -16,22 +18,11 @@ type StravaStream = {
 
 type StravaStreamsResponse = Record<string, StravaStream | undefined>;
 
-// Parallel index-aligned arrays; the persisted shape of RideStream.data.
-export type NormalizedStreams = {
-  time: number[]; // seconds since activity start
-  latlng: [number, number][];
-  altitude?: number[];
-  velocity?: number[]; // m/s (Strava velocity_smooth)
-  cadence?: number[];
-  heartrate?: number[];
-  moving?: boolean[];
-};
+// The normalized shape now lives in ./ride-streams so Garmin can share it.
+// Re-exported here for the existing importers.
+export type { NormalizedStreams };
 
-export type StravaStreamsResult =
-  | { status: 'ok'; pointCount: number; data: NormalizedStreams }
-  // Activity has no usable streams (manual entry, no-GPS upload, 404).
-  // Terminal for this activity — do not retry.
-  | { status: 'no_streams' };
+export type StravaStreamsResult = RideStreamsResult;
 
 /**
  * Fetch raw streams for a Strava activity. Throws on transient failures
@@ -87,11 +78,13 @@ export async function fetchStravaStreams(
   const velocity = payload.velocity_smooth?.data as number[] | undefined;
   const cadence = payload.cadence?.data as number[] | undefined;
   const heartrate = payload.heartrate?.data as number[] | undefined;
+  const power = payload.watts?.data as number[] | undefined;
   const moving = payload.moving?.data as boolean[] | undefined;
   if (altitude?.length) data.altitude = altitude;
   if (velocity?.length) data.velocity = velocity;
   if (cadence?.length) data.cadence = cadence;
   if (heartrate?.length) data.heartrate = heartrate;
+  if (power?.length) data.power = power;
   if (moving?.length) data.moving = moving;
 
   return { status: 'ok', pointCount: time.length, data };

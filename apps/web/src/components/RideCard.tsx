@@ -8,7 +8,7 @@ import EditRideModal from './EditRideModal';
 import { fmtDateTime, fmtDuration, fmtDistance, fmtElevation } from '../lib/format';
 import { usePreferences } from '../hooks/usePreferences';
 import { Select } from './ui';
-import { getRideSource, SOURCE_LABELS } from '../utils/rideSource';
+import RideSourceBadges from './RideSourceBadges';
 import WeatherBadge from './WeatherBadge';
 import type { RideWeather } from '../models/Ride';
 
@@ -67,7 +67,6 @@ export default function RideCard({ ride, bikes = [] }: RideCardProps) {
 
   const title = formatTitle(ride);
   const needsBikeAssignment = !ride.bikeId && bikes.length > 1;
-  const source = getRideSource(ride);
 
   const handleAssignBike = async () => {
     if (!selectedBikeId) return;
@@ -102,9 +101,7 @@ export default function RideCard({ ride, bikes = [] }: RideCardProps) {
         <div className="ride-content">
           <div className="ride-header">
             <h3 className="ride-title" title={title}>{title}</h3>
-            <span className={`source-badge source-badge-${source}`}>
-              {SOURCE_LABELS[source]}
-            </span>
+            <RideSourceBadges ride={ride} />
           </div>
 
           <div className="ride-metadata">

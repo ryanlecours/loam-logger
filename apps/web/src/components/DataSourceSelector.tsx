@@ -1,5 +1,7 @@
-import { Mountain, Activity } from 'lucide-react';
+import { Activity } from 'lucide-react';
 import { StravaIcon, SuuntoIcon } from './icons/BrandIcons';
+import GarminConnectMark from './attribution/GarminConnectMark';
+import { GARMIN_CONNECT_APP_NAME } from '@loam/shared';
 
 type Props = {
   currentSource: 'garmin' | 'strava' | 'whoop' | 'suunto' | null;
@@ -41,24 +43,26 @@ export default function DataSourceSelector({ currentSource, hasGarmin, hasStrava
         {hasGarmin && (
           <button
             onClick={() => onSelect('garmin')}
-            className={`relative flex flex-col items-center gap-3 p-6 rounded-2xl border-2 transition ${
-              currentSource === 'garmin'
-                ? 'border-[#11A9ED] bg-[#11A9ED]/20 ring-2 ring-[#11A9ED]/50'
-                : 'border-app/50 bg-surface-2/50 hover:border-[#11A9ED]/50 hover:bg-[#11A9ED]/10'
+            className={`provider-card-garmin relative flex flex-col items-center gap-3 p-6 rounded-2xl border-2 transition ${
+              currentSource === 'garmin' ? 'is-active' : 'border-app/50 bg-surface-2/50'
             }`}
           >
             {currentSource === 'garmin' && (
-              <div className="absolute top-3 right-3 flex items-center gap-1 text-xs font-semibold text-[#11A9ED]">
+              <div className="provider-card-garmin-active absolute top-3 right-3 flex items-center gap-1 text-xs font-semibold">
                 <span>✓</span>
                 <span>Active</span>
               </div>
             )}
 
-            <Mountain size={32} className={currentSource === 'garmin' ? 'text-[#11A9ED]' : 'text-muted'} />
+            {/* The official Garmin Connect tile, not a stand-in glyph. This
+                previously rendered a lucide `Mountain`, which misrepresents the
+                brand — the guidelines require the real app tile alongside the
+                unabbreviated app name when displaying a connection. */}
+            <GarminConnectMark size={32} />
             <div className="text-center">
-              <p className="font-semibold">Garmin</p>
+              <p className="font-semibold">{GARMIN_CONNECT_APP_NAME}</p>
               <p className="text-xs text-muted mt-1">
-                Sync from Garmin Connect
+                Sync from {GARMIN_CONNECT_APP_NAME}
               </p>
             </div>
           </button>

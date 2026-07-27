@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { formatDurationCompact, formatRideDate } from '../../utils/formatters';
-import { getRideSource, SOURCE_LABELS } from '../../utils/rideSource';
+import RideSourceBadges from '../RideSourceBadges';
 import { usePreferences } from '../../hooks/usePreferences';
 import EditRideModal from '../EditRideModal';
 import WeatherBadge from '../WeatherBadge';
@@ -19,6 +19,7 @@ interface Ride {
   notes?: string | null;
   stravaActivityId?: string | null;
   garminActivityId?: string | null;
+  garminDeviceName?: string | null;
   whoopWorkoutId?: string | null;
   bikeId?: string | null;
   weather?: RideWeather | null;
@@ -40,7 +41,6 @@ export function CompactRideRow({ ride, bikeName, onLinkBike }: CompactRideRowPro
   const climbValue = distanceUnit === 'km' ? climbMeters : climbMeters * 3.28084;
   const climb = isNaN(climbValue) ? '0' : Math.round(climbValue).toLocaleString();
   const climbUnit = distanceUnit === 'km' ? 'm' : 'ft';
-  const source = getRideSource(ride);
 
   return (
     <>
@@ -83,9 +83,7 @@ export function CompactRideRow({ ride, bikeName, onLinkBike }: CompactRideRowPro
           )}
         </div>
         <div className="compact-ride-source">
-          <span className={`source-badge source-badge-${source}`}>
-            {SOURCE_LABELS[source]}
-          </span>
+          <RideSourceBadges ride={ride} />
         </div>
       </div>
 

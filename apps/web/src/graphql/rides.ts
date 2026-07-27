@@ -23,6 +23,7 @@ export const RIDES = gql`
     rides(take: $take, after: $after, filter: $filter) {
       id
       garminActivityId
+      garminDeviceName
       stravaActivityId
       whoopWorkoutId
       suuntoWorkoutId

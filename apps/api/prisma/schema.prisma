@@ -122,6 +122,12 @@ model Ride {
   trailSystem             String?
   duplicateOfId           String?
   isDuplicate             Boolean                   @default(false)
+  // Garmin Activity Summary `deviceName`. Required by the Garmin API Brand
+  // Guidelines: every surface showing Garmin data must attribute
+  // "Garmin [device model]". NULL is expected and legal — rides imported
+  // before this column existed, and activities Garmin reports without a
+  // device, fall back to plain "Garmin" per the guidelines.
+  garminDeviceName        String?
   stravaActivityId        String?                   @unique
   stravaGearId            String?
   whoopWorkoutId          String?                   @unique

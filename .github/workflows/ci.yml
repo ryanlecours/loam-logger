@@ -3,8 +3,12 @@ name: LoamLogger CI
 on:
   push:
     branches: [main, dev, staging]
+  # `staging` belongs here as well as under `push`. Without it, a PR targeting
+  # staging gets no checks at all and only runs CI once it has already been
+  # merged — which defeats the point of routing risky changes (schema
+  # migrations especially) through staging first.
   pull_request:
-    branches: [main, dev]
+    branches: [main, dev, staging]
   issue_comment:
     types: [created]
 

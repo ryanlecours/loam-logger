@@ -41,14 +41,25 @@ export function clearCsrfCookie(res: Response): void {
 }
 
 // Exact paths that skip CSRF validation (login/signup establish sessions)
-// These endpoints either create sessions or use alternative authentication (signatures)
+// These endpoints either create sessions or are provider callbacks that carry
+// no session cookie to protect. See the per-entry notes — not all of them are
+// signature-verified.
 const CSRF_EXEMPT_PATHS = new Set([
   '/auth/google/code',     // Google OAuth login - creates session
   '/auth/signup',          // Email signup - creates session
   '/auth/login',           // Email login - creates session
   '/auth/garmin/callback', // Garmin OAuth callback - creates session
   '/auth/strava/callback', // Strava OAuth callback - creates session
-  '/webhooks/garmin',      // Garmin webhooks - authenticated via signature
+  // Garmin webhooks. NOT signature-verified today, despite what this list's
+  // header says — Garmin's Activity API does not sign its notifications, so
+  // there is nothing to verify. What limits the blast radius instead: every
+  // handler resolves the caller's Garmin userId against our UserAccount table
+  // and no-ops on an unknown id, the payloads carry no authorization, and the
+  // only side effects are enqueuing a sync for an already-linked account or
+  // removing that account's own data. A forged deregistration could still
+  // disconnect a known rider, so a shared-secret path parameter or an
+  // allowlist on Garmin's egress IPs would be a real improvement.
+  '/webhooks/garmin',
   '/webhooks/strava',      // Strava webhooks - authenticated via signature
   '/api/waitlist',         // Public waitlist signup - no session required
 ]);

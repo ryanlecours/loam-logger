@@ -26,7 +26,11 @@ describe('fetchStravaStreams', () => {
 
     const [url, init] = (global.fetch as jest.Mock).mock.calls[0];
     expect(url).toContain('/activities/12345/streams');
-    expect(url).toContain('keys=time,latlng,altitude,velocity_smooth,cadence,heartrate,moving');
+    // `watts` is requested so Strava reaches parity with the Garmin
+    // normalizer, which gets power for free in the Activity Details samples.
+    expect(url).toContain(
+      'keys=time,latlng,altitude,velocity_smooth,cadence,heartrate,watts,moving'
+    );
     expect(url).toContain('key_by_type=true');
     expect(init.headers.Authorization).toBe('Bearer token-1');
     expect(init.signal).toBeInstanceOf(AbortSignal);
@@ -83,5 +87,22 @@ describe('fetchStravaStreams', () => {
     });
     expect((result as { data: object }).data).not.toHaveProperty('cadence');
     expect((result as { data: object }).data).not.toHaveProperty('heartrate');
+    expect((result as { data: object }).data).not.toHaveProperty('power');
+  });
+
+  it('maps Strava watts onto the shared `power` series', async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce(
+      okResponse({
+        time: { data: [0, 1] },
+        latlng: { data: [[45.0, -122.0], [45.001, -122.0]] },
+        watts: { data: [210, 245] },
+      })
+    );
+
+    const result = await fetchStravaStreams('t', '1');
+
+    expect(result.status).toBe('ok');
+    if (result.status !== 'ok') return;
+    expect(result.data.power).toEqual([210, 245]);
   });
 });
