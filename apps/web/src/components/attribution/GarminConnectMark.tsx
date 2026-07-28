@@ -38,9 +38,12 @@ export default function GarminConnectMark({
       aria-hidden="true"
       width={size}
       height={size}
-      // The tile ships with its own rounded-square shape; the radius here only
-      // matches it so it does not read as a raw square on our surfaces.
-      className={`rounded-[22%] ${className}`.trim()}
+      // No corner rounding. The tile ships with its own rounded corners already
+      // cut into the artwork as transparency, measured at 14.9% of its width.
+      // The rounded-[22%] that used to be here was LARGER than that, so rather
+      // than tracing the existing edge it clipped into Garmin's visible mark.
+      // The asset renders as a rounded square untouched.
+      className={className}
       style={{ width: size, height: size }}
     />
   );
