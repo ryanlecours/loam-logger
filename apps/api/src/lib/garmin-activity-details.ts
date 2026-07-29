@@ -1,4 +1,5 @@
 import { logger } from './logger';
+import { assertTrustedGarminCallbackUrl } from './garmin-callback-url';
 
 /**
  * Reader for the payload behind a Garmin ping's callbackURL.
@@ -88,12 +89,23 @@ export async function fetchGarminActivityFromCallback(opts: {
   summaryId: string;
   callbackURL: string;
 }): Promise<GarminActivityPayload | null> {
+  // The callbackURL arrives in an unauthenticated webhook body, and the request
+  // below carries the rider's live Garmin token. Anything outside Garmin's own
+  // origin is a forged notification trying to be handed that token.
+  if (!assertTrustedGarminCallbackUrl(opts.callbackURL, { summaryId: opts.summaryId })) {
+    return null;
+  }
+
   try {
     const response = await fetch(opts.callbackURL, {
       headers: {
         Authorization: `Bearer ${opts.accessToken}`,
         Accept: 'application/json',
       },
+      // An allowed origin must not be able to bounce this request, and its
+      // token, somewhere else. Garmin's callback endpoints return JSON
+      // directly, so a redirect here is never legitimate.
+      redirect: 'error',
     });
 
     if (!response.ok) {

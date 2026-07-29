@@ -524,6 +524,91 @@ describe('Garmin Webhooks', () => {
       });
 
       /**
+       * This endpoint has no signature verification, so every field in the body
+       * is attacker-controlled and `userId` is a guessable identifier rather
+       * than a secret. A callbackURL that reaches a fetch is handed the rider's
+       * live Garmin bearer token, so a forged notification pointing at an
+       * attacker host would exfiltrate that token and let the response be
+       * upserted into a real rider's history. None of these may reach a queue.
+       */
+      describe('forged callbackURL', () => {
+        const HOSTILE = 'https://attacker.example/steal';
+
+        beforeEach(() => {
+          (mockPrisma.userAccount.findUnique as jest.Mock).mockResolvedValue({
+            userId: 'internal-user-123',
+          });
+          mockEnqueueSyncJob.mockResolvedValue({ status: 'queued', jobId: 'job-1' });
+          mockEnqueueCallbackJob.mockResolvedValue({ status: 'queued', jobId: 'cb-1' });
+        });
+
+        it('does not queue a hostile URL from an activities delivery', async () => {
+          await request(app)
+            .post('/webhooks/garmin/activities-ping')
+            .send({ activities: [{ userId: 'garmin-user-123', callbackURL: HOSTILE }] });
+
+          await new Promise(resolve => setImmediate(resolve));
+
+          expect(mockEnqueueCallbackJob).not.toHaveBeenCalled();
+        });
+
+        it('does not queue a hostile URL from a details backfill callback', async () => {
+          await request(app)
+            .post('/webhooks/garmin/activities-ping')
+            .send({ activityDetails: [{ userId: 'garmin-user-123', callbackURL: HOSTILE }] });
+
+          await new Promise(resolve => setImmediate(resolve));
+
+          expect(mockEnqueueCallbackJob).not.toHaveBeenCalled();
+        });
+
+        // The activity is still worth importing; only the URL is untrusted. It
+        // is stripped so the worker cannot be instructed to fetch it.
+        it('strips a hostile URL but still syncs the named activity', async () => {
+          await request(app)
+            .post('/webhooks/garmin/activities-ping')
+            .send({
+              activityDetails: [
+                {
+                  userId: 'garmin-user-123',
+                  summaryId: 'summary-456',
+                  uploadTimestampInSeconds: 1706123456,
+                  callbackURL: HOSTILE,
+                },
+              ],
+            });
+
+          await new Promise(resolve => setImmediate(resolve));
+
+          expect(mockEnqueueSyncJob).toHaveBeenCalledWith('syncActivity', {
+            userId: 'internal-user-123',
+            provider: 'garmin',
+            activityId: 'summary-456',
+            callbackURL: undefined,
+          });
+        });
+
+        it('still forwards a genuine Garmin callbackURL', async () => {
+          const genuine = 'https://apis.garmin.com/wellness-api/rest/activityDetails?x=1';
+
+          await request(app)
+            .post('/webhooks/garmin/activities-ping')
+            .send({
+              activityDetails: [
+                { userId: 'garmin-user-123', summaryId: 'summary-456', callbackURL: genuine },
+              ],
+            });
+
+          await new Promise(resolve => setImmediate(resolve));
+
+          expect(mockEnqueueSyncJob).toHaveBeenCalledWith(
+            'syncActivity',
+            expect.objectContaining({ callbackURL: genuine })
+          );
+        });
+      });
+
+      /**
        * PUSH is the mode the integration targets: Garmin sends the activity
        * itself and expects no answer, so there is no request that Partner
        * Verification can score as an unprompted pull and no ping left

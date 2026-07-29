@@ -8,6 +8,7 @@ import { isActiveSource } from '../lib/active-source';
 import { deleteRideStreamsForProvider } from '../lib/ride-stream-store';
 import { revokeIntegration } from '../lib/integration-tokens';
 import { flattenGarminActivity } from '../lib/garmin-activity-details';
+import { assertTrustedGarminCallbackUrl } from '../lib/garmin-callback-url';
 import {
   isGarminCyclingActivity,
   isPushedGarminActivity,
@@ -469,6 +470,13 @@ r.post<Empty, void, GarminPingPayload>(
             return { status: 'skipped', reason: 'no_payload_or_callback' };
           }
 
+          // Rejected at the boundary as well as at the fetch site: a forged URL
+          // should never reach the queue, where it would sit as a stored
+          // instruction to hand out a token.
+          if (!assertTrustedGarminCallbackUrl(callbackURL, { requestId, garminUserId })) {
+            return { status: 'skipped', reason: 'untrusted_callback_url' };
+          }
+
           const result = await enqueueCallbackJob({
             userId: userAccount.userId,
             provider: 'garmin',
@@ -575,6 +583,9 @@ r.post<Empty, void, GarminPingPayload>(
           // this they would enqueue a syncActivity job with no activityId,
           // which the worker rejects outright.
           if (!summaryId && callbackURL) {
+            if (!assertTrustedGarminCallbackUrl(callbackURL, { requestId, garminUserId })) {
+              return { status: 'skipped', reason: 'untrusted_callback_url' };
+            }
             const callbackResult = await enqueueCallbackJob({
               userId: userAccount.userId,
               provider: 'garmin',
@@ -594,11 +605,23 @@ r.post<Empty, void, GarminPingPayload>(
           // The callbackURL rides along because following it is what makes the
           // worker's request a prompted pull and marks this ping answered. It
           // is not part of the job id, so dedup still keys on the activity.
+          // Drop an untrusted URL rather than the whole delivery: the worker
+          // can still fall back to a composed request for this activity, which
+          // is a compliance problem rather than a security one.
+          // Only assert when there is something to assert about: a ping with no
+          // callbackURL at all is an ordinary shape, not a security event, and
+          // must not raise an alertable error.
+          const trustedCallbackURL =
+            callbackURL &&
+            assertTrustedGarminCallbackUrl(callbackURL, { requestId, garminUserId, summaryId })
+              ? callbackURL
+              : undefined;
+
           const result = await enqueueSyncJob('syncActivity', {
             userId: userAccount.userId,
             provider: 'garmin',
             activityId: summaryId,
-            callbackURL,
+            callbackURL: trustedCallbackURL,
           });
 
           logger.info({

@@ -96,6 +96,37 @@ describe('fetchGarminActivityFromCallback', () => {
     );
   });
 
+  // Defence in depth. The webhook already screens the URL, but this function
+  // attaches a live Garmin bearer token, so it must refuse on its own rather
+  // than trusting that every future caller screened its input.
+  it('refuses to send the token to a non-Garmin origin', async () => {
+    const result = await fetchGarminActivityFromCallback({
+      accessToken: TOKEN,
+      summaryId: SUMMARY_ID,
+      callbackURL: 'https://attacker.example/steal',
+    });
+
+    expect(result).toBeNull();
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  // An allowed origin must not be able to bounce the request, and its token,
+  // somewhere else.
+  it('refuses to follow redirects', async () => {
+    mockFetch.mockResolvedValue(ok([entry(SUMMARY_ID)]));
+
+    await fetchGarminActivityFromCallback({
+      accessToken: TOKEN,
+      summaryId: SUMMARY_ID,
+      callbackURL: CALLBACK_URL,
+    });
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      CALLBACK_URL,
+      expect.objectContaining({ redirect: 'error' })
+    );
+  });
+
   it('returns the entry whose summaryId matches', async () => {
     mockFetch.mockResolvedValue(
       ok([entry('1111111111'), entry(SUMMARY_ID, [{ latitudeInDegree: 48.75 }])])
