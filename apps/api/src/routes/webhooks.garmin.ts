@@ -13,6 +13,7 @@ import {
   isAmbiguousGarminDelivery,
   isGarminCyclingActivity,
   isPushedGarminActivity,
+  pickGarminActivityFields,
   type GarminDeliveryEntry,
 } from '../types/garmin';
 
@@ -372,11 +373,15 @@ async function handlePushedActivity(
     return { handled: true, status: 'skipped', summaryId, reason: 'not_cycling' };
   }
 
+  // Projected onto the fields the ingest path reads, never queued raw. This
+  // body is unauthenticated and the job lands in Redis in plaintext, and Garmin
+  // sends `userAccessToken` in it: a credential we never use, keep out of logs,
+  // and encrypt at rest everywhere else.
   const result = await enqueueSyncJob('syncActivity', {
     userId: internalUserId,
     provider: 'garmin',
     activityId: summaryId,
-    pushedActivity: entry,
+    pushedActivity: pickGarminActivityFields(entry),
   });
 
   logger.info(

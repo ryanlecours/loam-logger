@@ -102,6 +102,72 @@ function hasCallbackUrl(entry: GarminDeliveryEntry): boolean {
   return typeof entry.callbackURL === 'string' && entry.callbackURL.length > 0;
 }
 
+/**
+ * Every key the ingest path actually reads off a Garmin activity.
+ *
+ * Grouped by who reads them so an addition has an obvious home:
+ *  - identity and stats: upsertGarminActivity in workers/sync.worker
+ *  - coordinates: extractGarminStartCoords in lib/garmin-coords, which accepts
+ *    four spellings per axis because Garmin has shipped all of them. Every one
+ *    has to survive the projection or a ride silently loses its start point,
+ *    and with it weather enrichment. garmin.test.ts asserts that per key rather
+ *    than trusting this list to stay in step.
+ *  - track: normalizeGarminSamples in lib/garmin-streams
+ */
+const GARMIN_ACTIVITY_FIELDS = [
+  'summaryId',
+  'activityId',
+  'activityType',
+  'activityName',
+  'startTimeInSeconds',
+  'startTimeOffsetInSeconds',
+  'durationInSeconds',
+  'distanceInMeters',
+  'elevationGainInMeters',
+  'totalElevationGainInMeters',
+  'averageHeartRateInBeatsPerMinute',
+  'maxHeartRateInBeatsPerMinute',
+  'locationName',
+  'deviceName',
+  'startingLatitudeInDegrees',
+  'startingLatitudeInDegree',
+  'startLatitudeInDegrees',
+  'beginLatitude',
+  'startingLongitudeInDegrees',
+  'startingLongitudeInDegree',
+  'startLongitudeInDegrees',
+  'beginLongitude',
+  'samples',
+] as const;
+
+/**
+ * Reduce a delivery entry to the activity fields, discarding everything else.
+ *
+ * A pushed entry arrives in an unauthenticated webhook body and is then
+ * persisted into BullMQ job data, which lives in Redis in plaintext. Passing
+ * the raw entry through would put whatever the caller sent in there, and Garmin
+ * itself sends `userAccessToken` in that body: a credential this integration
+ * deliberately never uses, is careful to keep out of logs (lib/logger.ts
+ * redaction), and encrypts at rest everywhere it does store one. Queueing it
+ * would undo all three.
+ *
+ * An allowlist rather than a denylist of known-bad keys, because the entry type
+ * carries an index signature: the set of fields we want is knowable and small,
+ * the set someone might send is not.
+ *
+ * `samples` passes through as-is. It is the one large field, its shape is the
+ * normalizer's business, and projecting thousands of points in the request
+ * handler would trade a real latency cost against a credential risk that does
+ * not apply inside it.
+ */
+export function pickGarminActivityFields(entry: GarminDeliveryEntry): Record<string, unknown> {
+  const picked: Record<string, unknown> = {};
+  for (const field of GARMIN_ACTIVITY_FIELDS) {
+    if (entry[field] !== undefined) picked[field] = entry[field];
+  }
+  return picked;
+}
+
 function isGarminActivityTypePresent(entry: GarminDeliveryEntry): boolean {
   return typeof entry.activityType === 'string' && entry.activityType.length > 0;
 }

@@ -2,7 +2,9 @@ import {
   isAmbiguousGarminDelivery,
   isGarminCyclingActivity,
   isPushedGarminActivity,
+  pickGarminActivityFields,
 } from './garmin';
+import { extractGarminStartCoords } from '../lib/garmin-coords';
 
 describe('isGarminCyclingActivity', () => {
   // Garmin spells these inconsistently across payloads, so the comparison has
@@ -148,5 +150,101 @@ describe('isAmbiguousGarminDelivery', () => {
         durationInSeconds: 5340,
       })
     ).toBe(false);
+  });
+});
+
+describe('pickGarminActivityFields', () => {
+  /**
+   * A pushed entry arrives in an unauthenticated body and is then persisted
+   * into BullMQ job data, which lives in Redis in plaintext. Garmin puts the
+   * rider's access token in that body: a credential this integration never
+   * uses, keeps out of logs via lib/logger.ts redaction, and encrypts at rest
+   * everywhere it does store one. Queueing the raw entry undoes all three.
+   */
+  it('strips the access token Garmin sends in the body', () => {
+    const picked = pickGarminActivityFields({
+      summaryId: 'abc',
+      activityType: 'MOUNTAIN_BIKING',
+      durationInSeconds: 5340,
+      userAccessToken: 'a-real-garmin-token',
+    });
+
+    expect(picked).not.toHaveProperty('userAccessToken');
+    expect(picked.summaryId).toBe('abc');
+  });
+
+  // An allowlist rather than a denylist, because the entry type carries an
+  // index signature: what we want is knowable and small, what someone might
+  // send is not.
+  it('drops anything not on the allowlist', () => {
+    const picked = pickGarminActivityFields({
+      summaryId: 'abc',
+      activityType: 'MOUNTAIN_BIKING',
+      durationInSeconds: 5340,
+      userId: 'garmin-1',
+      callbackURL: 'https://apis.garmin.com/x',
+      somethingNobodyAskedFor: 'x'.repeat(1000),
+      __proto__: { polluted: true },
+    } as never);
+
+    expect(Object.keys(picked).sort()).toEqual(
+      ['activityType', 'durationInSeconds', 'summaryId'].sort()
+    );
+  });
+
+  it('keeps every stat the upsert reads, and the track', () => {
+    const full = {
+      summaryId: 'abc',
+      activityId: 12345,
+      activityType: 'MOUNTAIN_BIKING',
+      activityName: 'Galbraith',
+      startTimeInSeconds: 1706123456,
+      startTimeOffsetInSeconds: -28800,
+      durationInSeconds: 5340,
+      distanceInMeters: 8368,
+      elevationGainInMeters: 369,
+      totalElevationGainInMeters: 369,
+      averageHeartRateInBeatsPerMinute: 104,
+      maxHeartRateInBeatsPerMinute: 168,
+      locationName: 'Bellingham',
+      deviceName: 'fenix8',
+      samples: [{ latitudeInDegree: 48.75 }],
+    };
+
+    expect(pickGarminActivityFields(full)).toEqual(full);
+  });
+
+  /**
+   * The projection's real risk: dropping a coordinate spelling would silently
+   * cost a ride its start point, and with it weather enrichment. Garmin has
+   * shipped four spellings per axis, so this asserts against the extractor
+   * itself rather than trusting the allowlist to stay in step with it.
+   */
+  it.each([
+    ['startingLatitudeInDegrees', 'startingLongitudeInDegrees'],
+    ['startingLatitudeInDegree', 'startingLongitudeInDegree'],
+    ['startLatitudeInDegrees', 'startLongitudeInDegrees'],
+    ['beginLatitude', 'beginLongitude'],
+  ])('survives coordinates spelled %s / %s', (latKey, lngKey) => {
+    const picked = pickGarminActivityFields({
+      summaryId: 'abc',
+      activityType: 'MOUNTAIN_BIKING',
+      durationInSeconds: 5340,
+      [latKey]: 48.75,
+      [lngKey]: -122.48,
+    });
+
+    expect(extractGarminStartCoords(picked)).toEqual({ lat: 48.75, lng: -122.48 });
+  });
+
+  it('omits absent fields rather than writing undefined into the job', () => {
+    const picked = pickGarminActivityFields({
+      summaryId: 'abc',
+      activityType: 'MOUNTAIN_BIKING',
+      durationInSeconds: 5340,
+    });
+
+    expect('deviceName' in picked).toBe(false);
+    expect('samples' in picked).toBe(false);
   });
 });

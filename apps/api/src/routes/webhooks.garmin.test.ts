@@ -653,6 +653,41 @@ describe('Garmin Webhooks', () => {
           expect(mockEnqueueCallbackJob).not.toHaveBeenCalled();
         });
 
+        /**
+         * The job lands in Redis in plaintext and this body is
+         * unauthenticated, so nothing beyond the activity fields may ride
+         * along. Garmin itself sends userAccessToken here: a credential the
+         * integration never uses, keeps out of logs, and encrypts at rest
+         * everywhere else.
+         */
+        it('never queues the access token or any other unlisted field', async () => {
+          await request(app)
+            .post('/webhooks/garmin/activities-ping')
+            .send({
+              activityDetails: [
+                {
+                  ...PUSHED_RIDE,
+                  userAccessToken: 'a-real-garmin-token',
+                  somethingNobodyAskedFor: 'x'.repeat(1000),
+                },
+              ],
+            });
+
+          await new Promise(resolve => setImmediate(resolve));
+
+          const queued = mockEnqueueSyncJob.mock.calls[0][1] as { pushedActivity: object };
+          expect(queued.pushedActivity).not.toHaveProperty('userAccessToken');
+          expect(queued.pushedActivity).not.toHaveProperty('somethingNobodyAskedFor');
+          expect(queued.pushedActivity).not.toHaveProperty('userId');
+          // The ride itself still made it through intact.
+          expect(queued.pushedActivity).toMatchObject({
+            summaryId: 'summary-456',
+            activityType: 'MOUNTAIN_BIKING',
+            durationInSeconds: 5340,
+            samples: PUSHED_RIDE.samples,
+          });
+        });
+
         // An activityDetails push nests its stats under `summary`; everything
         // downstream reads the flat shape.
         it('flattens a nested details push before queueing it', async () => {
