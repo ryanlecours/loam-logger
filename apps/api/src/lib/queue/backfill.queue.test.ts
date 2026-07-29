@@ -216,6 +216,31 @@ describe('enqueueCallbackJob', () => {
     );
   });
 
+  /**
+   * The real BullMQ 5 behaviour, mirroring the enqueueBackfillJob case. `add`
+   * returns the existing job and creates nothing rather than throwing, so
+   * without the lookup a duplicate callback reported itself as queued.
+   *
+   * This one matters beyond the status: a redelivered Garmin callbackURL is
+   * how a backfill batch arrives, and silently claiming to have queued it is
+   * how a batch goes missing without anything to point at.
+   */
+  it('reports already_queued when the callback job exists, and adds nothing', async () => {
+    mockQueueGetJob.mockResolvedValue({ id: 'processCallback_garmin_user123_abc123def456' });
+
+    const result = await enqueueCallbackJob({
+      userId: 'user123',
+      provider: 'garmin' as const,
+      callbackURL: 'https://apis.garmin.com/callback/xyz',
+    });
+
+    expect(result.status).toBe('already_queued');
+    expect(result.jobId).toMatch(/^processCallback_garmin_user123_[a-f0-9]{12}$/);
+    expect(mockQueueAdd).not.toHaveBeenCalled();
+  });
+
+  // The rejection path is retained as a fallback in case a future BullMQ
+  // version starts rejecting duplicates outright.
   it('should return already_queued status for duplicate callback job', async () => {
     mockQueueAdd.mockRejectedValue(
       new Error('Job processCallback_garmin_user123_abc123def456 already exists')
