@@ -524,6 +524,111 @@ describe('Garmin Webhooks', () => {
       });
 
       /**
+       * The rider edited an activity in Garmin Connect after it synced. Same
+       * payload shape as `activities`, and deliberately the same path: the
+       * ingest upserts on garminActivityId and syncBikeComponentHours diffs the
+       * stored ride against the new one, so a corrected duration adjusts the
+       * hours it already credited instead of double-counting.
+       */
+      describe('manually updated activities', () => {
+        beforeEach(() => {
+          (mockPrisma.userAccount.findUnique as jest.Mock).mockResolvedValue({
+            userId: 'internal-user-123',
+          });
+          mockEnqueueSyncJob.mockResolvedValue({ status: 'queued', jobId: 'job-1' });
+          mockEnqueueCallbackJob.mockResolvedValue({ status: 'queued', jobId: 'cb-1' });
+        });
+
+        // Garmin counts a non-200 as a failed delivery. Before this key was
+        // recognised the handler fell through to "neither format matched" and
+        // answered 400, so enabling the endpoint in the portal would have
+        // failed every notification it sent.
+        it('acknowledges instead of rejecting the payload', async () => {
+          const response = await request(app)
+            .post('/webhooks/garmin/activities-ping')
+            .send({
+              manuallyUpdatedActivities: [
+                {
+                  userId: 'garmin-user-123',
+                  callbackURL: 'https://apis.garmin.com/wellness-api/rest/activities?x=1',
+                },
+              ],
+            });
+
+          expect(response.status).toBe(200);
+          expect(response.body).toEqual({ acknowledged: true });
+        });
+
+        it('follows the callbackURL on an edit notification', async () => {
+          const genuine = 'https://apis.garmin.com/wellness-api/rest/activities?x=1';
+
+          await request(app)
+            .post('/webhooks/garmin/activities-ping')
+            .send({
+              manuallyUpdatedActivities: [{ userId: 'garmin-user-123', callbackURL: genuine }],
+            });
+
+          await new Promise(resolve => setImmediate(resolve));
+
+          expect(mockEnqueueCallbackJob).toHaveBeenCalledWith({
+            userId: 'internal-user-123',
+            provider: 'garmin',
+            callbackURL: genuine,
+          });
+        });
+
+        it('queues a pushed edit without fetching anything', async () => {
+          await request(app)
+            .post('/webhooks/garmin/activities-ping')
+            .send({
+              manuallyUpdatedActivities: [
+                {
+                  userId: 'garmin-user-123',
+                  summaryId: 'summary-456',
+                  activityType: 'MOUNTAIN_BIKING',
+                  startTimeInSeconds: 1706123456,
+                  durationInSeconds: 3600,
+                },
+              ],
+            });
+
+          await new Promise(resolve => setImmediate(resolve));
+
+          expect(mockEnqueueSyncJob).toHaveBeenCalledWith(
+            'syncActivity',
+            expect.objectContaining({
+              activityId: 'summary-456',
+              pushedActivity: expect.objectContaining({ durationInSeconds: 3600 }),
+            })
+          );
+        });
+
+        // The same delivery can legitimately carry both keys.
+        it('handles both keys arriving together', async () => {
+          await request(app)
+            .post('/webhooks/garmin/activities-ping')
+            .send({
+              activities: [
+                {
+                  userId: 'garmin-user-123',
+                  callbackURL: 'https://apis.garmin.com/wellness-api/rest/activities?a=1',
+                },
+              ],
+              manuallyUpdatedActivities: [
+                {
+                  userId: 'garmin-user-123',
+                  callbackURL: 'https://apis.garmin.com/wellness-api/rest/activities?b=2',
+                },
+              ],
+            });
+
+          await new Promise(resolve => setImmediate(resolve));
+
+          expect(mockEnqueueCallbackJob).toHaveBeenCalledTimes(2);
+        });
+      });
+
+      /**
        * This endpoint has no signature verification, so every field in the body
        * is attacker-controlled and `userId` is a guessable identifier rather
        * than a secret. A callbackURL that reaches a fetch is handed the rider's
