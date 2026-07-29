@@ -11,12 +11,16 @@ jest.mock('./connection', () => ({
 // Create mock functions we can control per test
 const mockQueueAdd = jest.fn();
 const mockQueueClose = jest.fn().mockResolvedValue(undefined);
+// BullMQ 5 absorbs a duplicate jobId rather than throwing, so the enqueue path
+// asks whether the job exists first. Default: nothing is queued.
+const mockQueueGetJob = jest.fn().mockResolvedValue(undefined);
 
 // Mock bullmq
 jest.mock('bullmq', () => ({
   Queue: jest.fn().mockImplementation(() => ({
     add: mockQueueAdd,
     close: mockQueueClose,
+    getJob: mockQueueGetJob,
   })),
 }));
 
@@ -64,12 +68,210 @@ describe('buildSyncJobId', () => {
   });
 });
 
+/**
+ * Regression pins for edits being silently dropped.
+ *
+ * A manually-updated Garmin activity is the SAME activity, so before the id
+ * carried the payload's contents an edit produced the same job id as the
+ * original sync. BullMQ dedupes against retained completed jobs, so the
+ * correction was discarded, and because BullMQ 5 absorbs a duplicate rather
+ * than throwing, the caller was told it had been queued.
+ */
+describe('pushed activity job ids', () => {
+  const base = {
+    summaryId: 'summary-456',
+    activityType: 'MOUNTAIN_BIKING',
+    durationInSeconds: 5340,
+  };
+
+  it('gives an edited activity a different id from the original', () => {
+    const original = buildSyncJobId('syncActivity', 'garmin', 'u1', 'summary-456', 'aaa');
+    const edited = buildSyncJobId('syncActivity', 'garmin', 'u1', 'summary-456', 'bbb');
+
+    expect(original).not.toBe(edited);
+  });
+
+  it('keeps notification-driven ids unchanged', () => {
+    expect(buildSyncJobId('syncActivity', 'garmin', 'u1', 'summary-456')).toBe(
+      'syncActivity_garmin_u1_summary-456'
+    );
+  });
+
+  it('queues an edit that changes the activity type', async () => {
+    await enqueueSyncJob('syncActivity', {
+      userId: 'u1',
+      provider: 'garmin',
+      activityId: 'summary-456',
+      pushedActivity: base,
+    });
+    const originalId = mockQueueAdd.mock.calls[0][2].jobId;
+
+    await enqueueSyncJob('syncActivity', {
+      userId: 'u1',
+      provider: 'garmin',
+      activityId: 'summary-456',
+      pushedActivity: { ...base, activityType: 'HIKING' },
+    });
+    const editedId = mockQueueAdd.mock.calls[1][2].jobId;
+
+    expect(editedId).not.toBe(originalId);
+  });
+
+  it('queues an edit that only trims the duration', async () => {
+    await enqueueSyncJob('syncActivity', {
+      userId: 'u1',
+      provider: 'garmin',
+      activityId: 'summary-456',
+      pushedActivity: base,
+    });
+    await enqueueSyncJob('syncActivity', {
+      userId: 'u1',
+      provider: 'garmin',
+      activityId: 'summary-456',
+      pushedActivity: { ...base, durationInSeconds: 3600 },
+    });
+
+    expect(mockQueueAdd.mock.calls[0][2].jobId).not.toBe(mockQueueAdd.mock.calls[1][2].jobId);
+  });
+
+  // Dedup still has to work for what it was for: the same delivery arriving
+  // twice must not import the ride twice.
+  it('gives an identical re-delivery the same id', async () => {
+    await enqueueSyncJob('syncActivity', {
+      userId: 'u1',
+      provider: 'garmin',
+      activityId: 'summary-456',
+      pushedActivity: base,
+    });
+    await enqueueSyncJob('syncActivity', {
+      userId: 'u1',
+      provider: 'garmin',
+      activityId: 'summary-456',
+      // Same values, different key order: Garmin's serialization order must not
+      // change the hash or every re-delivery would look like an edit.
+      pushedActivity: {
+        durationInSeconds: 5340,
+        activityType: 'MOUNTAIN_BIKING',
+        summaryId: 'summary-456',
+      },
+    });
+
+    expect(mockQueueAdd.mock.calls[0][2].jobId).toBe(mockQueueAdd.mock.calls[1][2].jobId);
+  });
+
+  /**
+   * Guards the canonicalizer against the replacer-array trick it replaced.
+   *
+   * `JSON.stringify(v, Object.keys(v).sort())` applies one property list to
+   * every object in the graph, so a nested object loses any key that does not
+   * also appear at the top level. Harmless while the projection is flat, and a
+   * silent reintroduction of this whole bug the day a structured field is
+   * added: the dropped property would not move the hash, so an edit to it would
+   * look like a repeat and be discarded.
+   */
+  it('notices a change nested inside a structured field', async () => {
+    const withNested = {
+      ...base,
+      // `city` shares no name with any top-level key, which is exactly the
+      // property the replacer trick used to drop.
+      locationDetail: { city: 'Bellingham' },
+    };
+
+    await enqueueSyncJob('syncActivity', {
+      userId: 'u1',
+      provider: 'garmin',
+      activityId: 'summary-456',
+      pushedActivity: withNested,
+    });
+    await enqueueSyncJob('syncActivity', {
+      userId: 'u1',
+      provider: 'garmin',
+      activityId: 'summary-456',
+      pushedActivity: { ...withNested, locationDetail: { city: 'Sedona' } },
+    });
+
+    expect(mockQueueAdd.mock.calls[0][2].jobId).not.toBe(mockQueueAdd.mock.calls[1][2].jobId);
+  });
+
+  it('still ignores nested key order', async () => {
+    await enqueueSyncJob('syncActivity', {
+      userId: 'u1',
+      provider: 'garmin',
+      activityId: 'summary-456',
+      pushedActivity: { ...base, detail: { a: 1, b: 2 } },
+    });
+    await enqueueSyncJob('syncActivity', {
+      userId: 'u1',
+      provider: 'garmin',
+      activityId: 'summary-456',
+      pushedActivity: { ...base, detail: { b: 2, a: 1 } },
+    });
+
+    expect(mockQueueAdd.mock.calls[0][2].jobId).toBe(mockQueueAdd.mock.calls[1][2].jobId);
+  });
+
+  // Arrays are ordered data: two rides differing only in sequence are different
+  // rides, so the canonicalizer must recurse into them without sorting.
+  it('treats a reordered array as a change', async () => {
+    await enqueueSyncJob('syncActivity', {
+      userId: 'u1',
+      provider: 'garmin',
+      activityId: 'summary-456',
+      pushedActivity: { ...base, laps: [1, 2] },
+    });
+    await enqueueSyncJob('syncActivity', {
+      userId: 'u1',
+      provider: 'garmin',
+      activityId: 'summary-456',
+      pushedActivity: { ...base, laps: [2, 1] },
+    });
+
+    expect(mockQueueAdd.mock.calls[0][2].jobId).not.toBe(mockQueueAdd.mock.calls[1][2].jobId);
+  });
+
+  // Samples are excluded from the hash, so a re-delivery carrying the track
+  // still dedupes against one that did not.
+  it('ignores samples when discriminating', async () => {
+    await enqueueSyncJob('syncActivity', {
+      userId: 'u1',
+      provider: 'garmin',
+      activityId: 'summary-456',
+      pushedActivity: base,
+    });
+    await enqueueSyncJob('syncActivity', {
+      userId: 'u1',
+      provider: 'garmin',
+      activityId: 'summary-456',
+      pushedActivity: { ...base, samples: [{ latitudeInDegree: 48.75 }] },
+    });
+
+    expect(mockQueueAdd.mock.calls[0][2].jobId).toBe(mockQueueAdd.mock.calls[1][2].jobId);
+  });
+
+  // BullMQ 5 absorbs a duplicate instead of throwing, so without the lookup a
+  // dropped job reported itself as queued.
+  it('reports already_queued when the job exists, and adds nothing', async () => {
+    mockQueueGetJob.mockResolvedValue({ id: 'existing' });
+
+    const result = await enqueueSyncJob('syncActivity', {
+      userId: 'u1',
+      provider: 'garmin',
+      activityId: 'summary-456',
+      pushedActivity: base,
+    });
+
+    expect(result.status).toBe('already_queued');
+    expect(mockQueueAdd).not.toHaveBeenCalled();
+  });
+});
+
 describe('enqueueSyncJob', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     // Reset the singleton
     closeSyncQueue();
     mockQueueAdd.mockResolvedValue({});
+    mockQueueGetJob.mockResolvedValue(undefined);
   });
 
   afterEach(async () => {
