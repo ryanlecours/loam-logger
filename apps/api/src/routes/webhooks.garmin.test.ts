@@ -810,6 +810,45 @@ describe('Garmin Webhooks', () => {
           expect(mockEnqueueCallbackJob).not.toHaveBeenCalled();
           expect(mockEnqueueSyncJob).not.toHaveBeenCalled();
         });
+
+        /**
+         * The same hole on the sibling branch. It enqueued a job with
+         * activityId undefined, which the worker rejected from inside a
+         * fire-and-forget promise where the throw never reached this handler.
+         * Worse, buildSyncJobId falls back to `syncActivity_garmin_<userId>`
+         * without an activityId, so the first such entry poisoned that id and
+         * every later one came back 'already_queued' and vanished.
+         */
+        it('skips an activityDetails delivery naming no activity', async () => {
+          await request(app)
+            .post('/webhooks/garmin/activities-ping')
+            .send({ activityDetails: [{ userId: 'garmin-user-123' }] });
+
+          await new Promise(resolve => setImmediate(resolve));
+
+          expect(mockEnqueueSyncJob).not.toHaveBeenCalled();
+          expect(mockEnqueueCallbackJob).not.toHaveBeenCalled();
+        });
+
+        // A summaryId with no callbackURL is still a legitimate notification:
+        // the worker can compose a request for that one activity. Only the
+        // entry naming nothing at all is dropped.
+        it('still enqueues a bare summaryId notification', async () => {
+          await request(app)
+            .post('/webhooks/garmin/activities-ping')
+            .send({
+              activityDetails: [{ userId: 'garmin-user-123', summaryId: 'summary-456' }],
+            });
+
+          await new Promise(resolve => setImmediate(resolve));
+
+          expect(mockEnqueueSyncJob).toHaveBeenCalledWith('syncActivity', {
+            userId: 'internal-user-123',
+            provider: 'garmin',
+            activityId: 'summary-456',
+            callbackURL: undefined,
+          });
+        });
       });
 
       // A backfill of activityDetails answers on this same key with a

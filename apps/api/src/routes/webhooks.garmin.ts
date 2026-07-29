@@ -621,6 +621,25 @@ r.post<Empty, void, GarminPingPayload>(
             return { status: callbackResult.status, jobId: callbackResult.jobId };
           }
 
+          // Nothing was pushed, and the block above already returned for every
+          // entry that had a callbackURL without a summaryId, so reaching here
+          // without one means the delivery names no activity and offers no way
+          // to find it. Enqueueing anyway produced a job with activityId
+          // undefined that the worker rejected from inside a fire-and-forget
+          // promise, where the throw was invisible to this handler.
+          //
+          // It also collided: buildSyncJobId falls back to
+          // `syncActivity_garmin_<userId>` when there is no activityId, so the
+          // first malformed entry poisoned that id and every later one came
+          // back 'already_queued' and vanished silently.
+          if (!summaryId) {
+            logger.warn(
+              { requestId, garminUserId },
+              '[Garmin PING] activityDetails delivery had no pushed payload, callbackURL or summaryId'
+            );
+            return { status: 'skipped', reason: 'no_payload_or_callback' };
+          }
+
           // Enqueue sync job with deterministic ID for deduplication.
           // The callbackURL rides along because following it is what makes the
           // worker's request a prompted pull and marks this ping answered. It
