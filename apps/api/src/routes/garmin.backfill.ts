@@ -154,6 +154,28 @@ r.get<Empty, void, Empty, { days?: string; year?: string }>(
 
       logger.info({ totalChunks }, 'Garmin backfill requests triggered');
 
+      // Ask for the same range's Activity Details as well. Summaries carry no
+      // per-point data, so a history imported only as `activities` yields rides
+      // that can never draw a map. Deliberately not folded into the result
+      // above: this is the map, not the ride. If Garmin has not enabled the
+      // activityDetails scope for this app, or the range was already
+      // backfilled, the rides still import exactly as before and only the
+      // tracks are missing, which is the status quo, not a regression.
+      try {
+        const details = await triggerGarminBackfillChunks({
+          accessToken,
+          startDate,
+          endDate,
+          summaryType: 'activityDetails',
+        });
+        logger.info(
+          { totalChunks: details.totalChunks, errorCount: details.errors.length },
+          'Garmin activityDetails backfill requests triggered'
+        );
+      } catch (err) {
+        logger.warn({ err }, 'Garmin activityDetails backfill failed; rides import without tracks');
+      }
+
       // Track backfill request in database (only for year-based requests)
       // Uses atomic conditional update to prevent race condition with webhook completion
       const yearKey = req.query.year || null;

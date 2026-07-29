@@ -487,7 +487,73 @@ describe('Garmin Webhooks', () => {
           userId: 'internal-user-123',
           provider: 'garmin',
           activityId: 'summary-456',
+          detailsCallbackURL: undefined,
+          uploadTimestampInSeconds: 1706123456,
         });
+      });
+
+      // The GPS samples that draw the ride map exist only on Garmin's
+      // activityDetails endpoint. Dropping the ping's pointers to it meant the
+      // worker re-pulled the summary, found no samples, and every Garmin ride
+      // came out with no track.
+      it('should forward the details callbackURL to the sync job', async () => {
+        (mockPrisma.userAccount.findUnique as jest.Mock).mockResolvedValue({
+          userId: 'internal-user-123',
+        });
+        mockEnqueueSyncJob.mockResolvedValue({ status: 'queued', jobId: 'job-1' });
+
+        await request(app)
+          .post('/webhooks/garmin/activities-ping')
+          .send({
+            activityDetails: [{
+              userId: 'garmin-user-123',
+              userAccessToken: 'token-xyz',
+              summaryId: 'summary-456',
+              uploadTimestampInSeconds: 1706123456,
+              callbackURL: 'https://apis.garmin.com/wellness-api/rest/activityDetails?x=1',
+            }],
+          });
+
+        await new Promise(resolve => setImmediate(resolve));
+
+        expect(mockEnqueueSyncJob).toHaveBeenCalledWith('syncActivity', {
+          userId: 'internal-user-123',
+          provider: 'garmin',
+          activityId: 'summary-456',
+          detailsCallbackURL: 'https://apis.garmin.com/wellness-api/rest/activityDetails?x=1',
+          uploadTimestampInSeconds: 1706123456,
+        });
+      });
+
+      // A backfill of activityDetails answers on this same key with a
+      // callbackURL covering a window and no single activity to name. Enqueuing
+      // a syncActivity job for it would produce one with no activityId, which
+      // the worker rejects.
+      it('should route a summaryId-less details callback to the callback queue', async () => {
+        (mockPrisma.userAccount.findUnique as jest.Mock).mockResolvedValue({
+          userId: 'internal-user-123',
+        });
+        mockEnqueueCallbackJob.mockResolvedValue({ status: 'queued', jobId: 'cb-1' });
+
+        const response = await request(app)
+          .post('/webhooks/garmin/activities-ping')
+          .send({
+            activityDetails: [{
+              userId: 'garmin-user-123',
+              userAccessToken: 'token-xyz',
+              callbackURL: 'https://apis.garmin.com/wellness-api/rest/activityDetails?window=1',
+            }],
+          });
+
+        expect(response.status).toBe(200);
+        await new Promise(resolve => setImmediate(resolve));
+
+        expect(mockEnqueueCallbackJob).toHaveBeenCalledWith({
+          userId: 'internal-user-123',
+          provider: 'garmin',
+          callbackURL: 'https://apis.garmin.com/wellness-api/rest/activityDetails?window=1',
+        });
+        expect(mockEnqueueSyncJob).not.toHaveBeenCalled();
       });
 
       it('should return 200 and skip unknown users', async () => {

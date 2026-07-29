@@ -9,6 +9,7 @@ import { getValidSuuntoToken } from '../lib/suunto-token';
 import { deriveLocationAsync, shouldApplyAutoLocation } from '../lib/location';
 import { extractGarminStartCoords } from '../lib/garmin-coords';
 import { persistGarminStream } from '../lib/ride-stream-store';
+import { flattenGarminActivity } from '../lib/garmin-activity-details';
 import { logError, logger } from '../lib/logger';
 import { config } from '../config/env';
 import type { BackfillJobData, BackfillJobName } from '../lib/queue/backfill.queue';
@@ -59,11 +60,21 @@ const GARMIN_CYCLING_TYPES = [
   'indoor_handcycling',
 ];
 
-// Garmin activity type from callback URL response
+// Garmin activity from a callback URL response.
+//
+// Covers both summary types: an `activities` callback carries these fields
+// flat, while an `activityDetails` callback nests them under `summary` and adds
+// `samples`. flattenGarminActivity lifts the nested form onto this shape before
+// anything reads it, so `activityType` is optional only to describe a malformed
+// payload, not a normal one.
 type GarminActivityDetail = {
   summaryId: string;
   activityId?: number;
-  activityType: string;
+  activityType?: string;
+  /** Present on activityDetails payloads; the per-point GPS that draws the map. */
+  samples?: unknown;
+  /** Pre-flatten nesting. Never read directly; see flattenGarminActivity. */
+  summary?: Record<string, unknown>;
   activityName?: string;
   startTimeInSeconds: number;
   startTimeOffsetInSeconds?: number;
@@ -679,16 +690,22 @@ async function processGarminCallback(userId: string, callbackURL: string): Promi
     throw new Error(`Garmin callback fetch failed: ${callbackRes.status}`);
   }
 
-  const activities = (await callbackRes.json()) as GarminActivityDetail[];
+  const payload = (await callbackRes.json()) as GarminActivityDetail[];
 
-  if (!Array.isArray(activities)) {
+  if (!Array.isArray(payload)) {
     logger.error({
       event: 'garmin_callback_error',
       userId,
-      response: activities,
+      response: payload,
     }, '[BackfillWorker] Unexpected response format from callback URL');
     throw new Error('Unexpected response format from callback URL');
   }
+
+  // An activityDetails backfill answers through this same callback mechanism,
+  // but nests the stats under `summary` and adds the `samples` that draw the
+  // ride map. Flattening here lets the loop below read one shape; a plain
+  // activities callback passes through untouched.
+  const activities = payload.map(flattenGarminActivity);
 
   logger.info({
     event: 'garmin_callback_activities_fetched',
@@ -705,8 +722,12 @@ async function processGarminCallback(userId: string, callbackURL: string): Promi
   let processedActivityCount = 0;
 
   for (const activity of activities) {
-    const activityTypeLower = activity.activityType.toLowerCase().replace(/\s+/g, '_');
-    if (!GARMIN_CYCLING_TYPES.includes(activityTypeLower)) {
+    // A payload with no activityType even after flattening is malformed. Skip
+    // it rather than throwing: one bad entry must not abandon the rest of the
+    // batch, which is the rider's ride history.
+    const activityType = activity.activityType;
+    const activityTypeLower = activityType?.toLowerCase().replace(/\s+/g, '_') ?? '';
+    if (!activityType || !GARMIN_CYCLING_TYPES.includes(activityTypeLower)) {
       logger.debug({
         activityType: activity.activityType,
         summaryId: activity.summaryId,
@@ -770,7 +791,7 @@ async function processGarminCallback(userId: string, callbackURL: string): Promi
           distanceMeters,
           elevationGainMeters,
           averageHr: activity.averageHeartRateInBeatsPerMinute ?? null,
-          rideType: activity.activityType,
+          rideType: activityType,
           notes: activity.activityName ?? null,
           location: autoLocation?.title ?? null,
           importSessionId: runningSession?.id ?? null,
@@ -784,7 +805,7 @@ async function processGarminCallback(userId: string, callbackURL: string): Promi
           distanceMeters,
           elevationGainMeters,
           averageHr: activity.averageHeartRateInBeatsPerMinute ?? null,
-          rideType: activity.activityType,
+          rideType: activityType,
           notes: activity.activityName ?? null,
           // Only written when present, never cleared — see sync.worker.ts.
           ...(activity.deviceName ? { garminDeviceName: activity.deviceName } : {}),
