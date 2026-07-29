@@ -90,14 +90,38 @@ export function getSyncQueue(): Queue<SyncJobData, void, SyncJobName> {
  * moves something in the summary: type, duration, distance, name. A trim moves
  * the duration too.
  *
- * The key array passed to JSON.stringify both filters and fixes the ordering,
- * so the hash does not depend on the order Garmin happened to serialize.
+ * Keys are sorted at every depth so the hash does not depend on the order
+ * Garmin happened to serialize.
+ *
+ * Deliberately NOT the `JSON.stringify(value, Object.keys(value).sort())`
+ * trick. An array replacer builds one property list and applies it to every
+ * object in the graph, not just the top level, so a nested object silently
+ * loses any key that does not also appear at the top. That is harmless while
+ * the projection is flat scalars, and would quietly reintroduce this exact bug
+ * the day a structured field is added to GARMIN_ACTIVITY_FIELDS: the dropped
+ * property would not move the hash, so an edit to it would look like a repeat.
  */
+function canonicalize(value: unknown): unknown {
+  // Arrays are ordered data. Sorting them would make two different rides hash
+  // alike; recursing preserves order while normalizing any objects inside.
+  if (Array.isArray(value)) return value.map(canonicalize);
+
+  if (value && typeof value === 'object') {
+    const sorted: Record<string, unknown> = {};
+    for (const key of Object.keys(value as Record<string, unknown>).sort()) {
+      sorted[key] = canonicalize((value as Record<string, unknown>)[key]);
+    }
+    return sorted;
+  }
+
+  return value;
+}
+
 function pushedActivityHash(pushedActivity: unknown): string | undefined {
   if (!pushedActivity || typeof pushedActivity !== 'object') return undefined;
 
   const { samples: _samples, ...rest } = pushedActivity as Record<string, unknown>;
-  const canonical = JSON.stringify(rest, Object.keys(rest).sort());
+  const canonical = JSON.stringify(canonicalize(rest));
   return crypto.createHash('md5').update(canonical ?? '').digest('hex').slice(0, 12);
 }
 

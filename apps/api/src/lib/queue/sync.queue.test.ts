@@ -159,6 +159,76 @@ describe('pushed activity job ids', () => {
     expect(mockQueueAdd.mock.calls[0][2].jobId).toBe(mockQueueAdd.mock.calls[1][2].jobId);
   });
 
+  /**
+   * Guards the canonicalizer against the replacer-array trick it replaced.
+   *
+   * `JSON.stringify(v, Object.keys(v).sort())` applies one property list to
+   * every object in the graph, so a nested object loses any key that does not
+   * also appear at the top level. Harmless while the projection is flat, and a
+   * silent reintroduction of this whole bug the day a structured field is
+   * added: the dropped property would not move the hash, so an edit to it would
+   * look like a repeat and be discarded.
+   */
+  it('notices a change nested inside a structured field', async () => {
+    const withNested = {
+      ...base,
+      // `city` shares no name with any top-level key, which is exactly the
+      // property the replacer trick used to drop.
+      locationDetail: { city: 'Bellingham' },
+    };
+
+    await enqueueSyncJob('syncActivity', {
+      userId: 'u1',
+      provider: 'garmin',
+      activityId: 'summary-456',
+      pushedActivity: withNested,
+    });
+    await enqueueSyncJob('syncActivity', {
+      userId: 'u1',
+      provider: 'garmin',
+      activityId: 'summary-456',
+      pushedActivity: { ...withNested, locationDetail: { city: 'Sedona' } },
+    });
+
+    expect(mockQueueAdd.mock.calls[0][2].jobId).not.toBe(mockQueueAdd.mock.calls[1][2].jobId);
+  });
+
+  it('still ignores nested key order', async () => {
+    await enqueueSyncJob('syncActivity', {
+      userId: 'u1',
+      provider: 'garmin',
+      activityId: 'summary-456',
+      pushedActivity: { ...base, detail: { a: 1, b: 2 } },
+    });
+    await enqueueSyncJob('syncActivity', {
+      userId: 'u1',
+      provider: 'garmin',
+      activityId: 'summary-456',
+      pushedActivity: { ...base, detail: { b: 2, a: 1 } },
+    });
+
+    expect(mockQueueAdd.mock.calls[0][2].jobId).toBe(mockQueueAdd.mock.calls[1][2].jobId);
+  });
+
+  // Arrays are ordered data: two rides differing only in sequence are different
+  // rides, so the canonicalizer must recurse into them without sorting.
+  it('treats a reordered array as a change', async () => {
+    await enqueueSyncJob('syncActivity', {
+      userId: 'u1',
+      provider: 'garmin',
+      activityId: 'summary-456',
+      pushedActivity: { ...base, laps: [1, 2] },
+    });
+    await enqueueSyncJob('syncActivity', {
+      userId: 'u1',
+      provider: 'garmin',
+      activityId: 'summary-456',
+      pushedActivity: { ...base, laps: [2, 1] },
+    });
+
+    expect(mockQueueAdd.mock.calls[0][2].jobId).not.toBe(mockQueueAdd.mock.calls[1][2].jobId);
+  });
+
   // Samples are excluded from the hash, so a re-delivery carrying the track
   // still dedupes against one that did not.
   it('ignores samples when discriminating', async () => {
