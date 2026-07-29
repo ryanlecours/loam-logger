@@ -487,16 +487,15 @@ describe('Garmin Webhooks', () => {
           userId: 'internal-user-123',
           provider: 'garmin',
           activityId: 'summary-456',
-          detailsCallbackURL: undefined,
-          uploadTimestampInSeconds: 1706123456,
+          callbackURL: undefined,
         });
       });
 
-      // The GPS samples that draw the ride map exist only on Garmin's
-      // activityDetails endpoint. Dropping the ping's pointers to it meant the
-      // worker re-pulled the summary, found no samples, and every Garmin ride
-      // came out with no track.
-      it('should forward the details callbackURL to the sync job', async () => {
+      // Following the ping's callbackURL is what makes the worker's request a
+      // PROMPTED pull in Garmin's Partner Verification and marks the ping
+      // answered. Dropping it meant the worker composed its own request, which
+      // failed both checks and left every Garmin ride without a track.
+      it('should forward the ping callbackURL to the sync job', async () => {
         (mockPrisma.userAccount.findUnique as jest.Mock).mockResolvedValue({
           userId: 'internal-user-123',
         });
@@ -520,8 +519,7 @@ describe('Garmin Webhooks', () => {
           userId: 'internal-user-123',
           provider: 'garmin',
           activityId: 'summary-456',
-          detailsCallbackURL: 'https://apis.garmin.com/wellness-api/rest/activityDetails?x=1',
-          uploadTimestampInSeconds: 1706123456,
+          callbackURL: 'https://apis.garmin.com/wellness-api/rest/activityDetails?x=1',
         });
       });
 

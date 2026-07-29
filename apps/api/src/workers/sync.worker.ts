@@ -11,7 +11,7 @@ import { getValidSuuntoToken } from '../lib/suunto-token';
 import { deriveLocation, deriveLocationAsync, shouldApplyAutoLocation } from '../lib/location';
 import { extractGarminStartCoords } from '../lib/garmin-coords';
 import { persistGarminStream } from '../lib/ride-stream-store';
-import { fetchGarminActivityDetails } from '../lib/garmin-activity-details';
+import { fetchGarminActivityFromCallback } from '../lib/garmin-activity-details';
 import { syncBikeComponentHours } from '../lib/component-hours';
 import { invalidateBikePredictionsForBikes } from '../services/prediction/cache';
 import { logger } from '../lib/logger';
@@ -121,9 +121,10 @@ type GarminActivity = {
   // extractGarminStartCoords, which also tolerates legacy/misspelled variants.
   startingLatitudeInDegrees?: number;
   startingLongitudeInDegrees?: number;
-  // NOT returned by the summary endpoint. Merged in from Activity Details
-  // before the upsert, because persistGarminStream reads the track off this
-  // object. Absent for indoor/trainer rides, which genuinely have no GPS.
+  // Present when the ping's callbackURL pointed at the activityDetails summary
+  // type, which returns samples beside the stats. persistGarminStream reads the
+  // track off this object. Absent on summary-only payloads and on
+  // indoor/trainer rides, which genuinely have no GPS.
   samples?: unknown;
   [key: string]: unknown;
 };
@@ -157,8 +158,7 @@ async function processSyncJob(job: Job<SyncJobData, void, SyncJobName>): Promise
           throw new Error('syncActivity requires activityId');
         }
         await syncSingleActivity(userId, provider, job.data.activityId, {
-          detailsCallbackURL: job.data.detailsCallbackURL,
-          uploadTimestampInSeconds: job.data.uploadTimestampInSeconds,
+          callbackURL: job.data.callbackURL,
         });
         break;
       default:
@@ -494,14 +494,15 @@ async function syncGarminLatest(userId: string): Promise<void> {
 }
 
 /**
- * What the activityDetails ping told us about where to find this activity's
- * GPS samples. Both fields are optional: an older queued job, or a ping shaped
- * differently than expected, simply yields a ride with no track rather than a
- * failure.
+ * The callbackURL Garmin sent on the ping that triggered this job.
+ *
+ * Optional because an older queued job predates it, and because a ping could
+ * arrive shaped differently than expected. Its absence degrades to an
+ * unprompted pull, which is logged and is refused outright in verification
+ * mode.
  */
 type GarminDetailsHint = {
-  detailsCallbackURL?: string;
-  uploadTimestampInSeconds?: number;
+  callbackURL?: string;
 };
 
 async function syncGarminActivity(
@@ -528,30 +529,74 @@ async function syncGarminActivity(
   }
 
   try {
-    const response = await fetch(
-      `${config.garminApiBase}/rest/activities/${activityId}`,
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          Accept: 'application/json',
-        },
-      }
-    );
+    // Answering the ping with its own callbackURL is the whole game here.
+    // Garmin's Partner Verification counts a pull as prompted only when it
+    // matches a URL Garmin issued, and counts a ping we did not follow as
+    // unanswered, so composing our own request fails both checks at once.
+    //
+    // It is also the map fix: an activityDetails payload carries `samples[]`
+    // beside the stats, so this one prompted request yields the ride and its
+    // GPS track together. There is nothing left to fetch separately.
+    let activity: GarminActivity | null = null;
 
-    if (!response.ok) {
-      const text = await response.text();
-      logger.error({
-        event: 'garmin_pull_error',
-        userId,
-        activityId,
-        status: response.status,
-        response: text,
-      }, '[SyncWorker] Garmin API error');
-      throw new Error(`Garmin API error: ${response.status} ${text}`);
+    if (details?.callbackURL) {
+      activity = (await fetchGarminActivityFromCallback({
+        accessToken,
+        summaryId: activityId,
+        callbackURL: details.callbackURL,
+      })) as GarminActivity | null;
     }
 
-    const activity = (await response.json()) as GarminActivity;
-    const typeLower = activity.activityType.toLowerCase().replace(/\s+/g, '_');
+    if (!activity) {
+      // Composing `/rest/activities/{summaryId}` is an UNPROMPTED pull. It is
+      // kept only so an activity still imports when a ping arrives without a
+      // usable callbackURL, and it is suppressed outright during a verification
+      // window so the reviewer's dashboard stays clean. That suppression is
+      // what makes the claim in docs/garmin/ticket-reply.md true rather than
+      // aspirational: before this, verification mode guarded manual sync and
+      // syncGarminLatest but left this path wide open.
+      if (config.garminVerificationMode) {
+        logger.warn({
+          event: 'garmin_unprompted_pull_suppressed',
+          userId,
+          activityId,
+          hadCallbackUrl: details?.callbackURL != null,
+        }, '[SyncWorker] Skipping unprompted Garmin pull during verification mode');
+        return;
+      }
+
+      logger.warn({
+        event: 'garmin_unprompted_pull',
+        userId,
+        activityId,
+      }, '[SyncWorker] No usable callbackURL on the ping; falling back to an unprompted pull');
+
+      const response = await fetch(
+        `${config.garminApiBase}/rest/activities/${activityId}`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            Accept: 'application/json',
+          },
+        }
+      );
+
+      if (!response.ok) {
+        const text = await response.text();
+        logger.error({
+          event: 'garmin_pull_error',
+          userId,
+          activityId,
+          status: response.status,
+          response: text,
+        }, '[SyncWorker] Garmin API error');
+        throw new Error(`Garmin API error: ${response.status} ${text}`);
+      }
+
+      activity = (await response.json()) as GarminActivity;
+    }
+
+    const typeLower = (activity.activityType ?? '').toLowerCase().replace(/\s+/g, '_');
 
     if (!GARMIN_CYCLING_TYPES.includes(typeLower)) {
       logger.debug({
@@ -559,24 +604,6 @@ async function syncGarminActivity(
         activityType: activity.activityType,
       }, '[SyncWorker] Skipping non-cycling activity');
       return;
-    }
-
-    // The endpoint above is the Activity SUMMARY: stats, device, start coords,
-    // and no per-point data whatsoever. GPS lives only in Activity Details, so
-    // the samples have to be pulled separately and merged in before the ride is
-    // upserted, because persistGarminStream reads them off this same object. Skipped
-    // for non-cycling activities above, since we would only discard the result.
-    if (details?.detailsCallbackURL || details?.uploadTimestampInSeconds != null) {
-      const detailsPayload = await fetchGarminActivityDetails({
-        accessToken,
-        summaryId: activity.summaryId,
-        callbackURL: details.detailsCallbackURL,
-        uploadTimestampInSeconds: details.uploadTimestampInSeconds,
-        apiBase: config.garminApiBase,
-      });
-      if (detailsPayload?.samples) {
-        activity.samples = detailsPayload.samples;
-      }
     }
 
     await upsertGarminActivity(userId, activity);

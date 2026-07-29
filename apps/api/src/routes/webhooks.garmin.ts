@@ -437,12 +437,7 @@ r.post<Empty, void, GarminPingPayload>(
 
         // Fire-and-forget: Enqueue jobs for background processing
         const enqueuePromises = activityDetails.map(async (notification) => {
-          const {
-            userId: garminUserId,
-            summaryId,
-            callbackURL,
-            uploadTimestampInSeconds,
-          } = notification;
+          const { userId: garminUserId, summaryId, callbackURL } = notification;
 
           // Fast indexed lookup for internal userId
           const userAccount = await prisma.userAccount.findUnique({
@@ -493,15 +488,14 @@ r.post<Empty, void, GarminPingPayload>(
           }
 
           // Enqueue sync job with deterministic ID for deduplication.
-          // The details pointers ride along so the worker can pull the GPS
-          // samples that only /rest/activityDetails carries. They are not part
-          // of the job id, so dedup still keys on the activity alone.
+          // The callbackURL rides along because following it is what makes the
+          // worker's request a prompted pull and marks this ping answered. It
+          // is not part of the job id, so dedup still keys on the activity.
           const result = await enqueueSyncJob('syncActivity', {
             userId: userAccount.userId,
             provider: 'garmin',
             activityId: summaryId,
-            detailsCallbackURL: callbackURL,
-            uploadTimestampInSeconds,
+            callbackURL,
           });
 
           logger.info({
