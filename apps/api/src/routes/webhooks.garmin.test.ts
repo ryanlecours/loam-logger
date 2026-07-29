@@ -523,6 +523,155 @@ describe('Garmin Webhooks', () => {
         });
       });
 
+      /**
+       * PUSH is the mode the integration targets: Garmin sends the activity
+       * itself and expects no answer, so there is no request that Partner
+       * Verification can score as an unprompted pull and no ping left
+       * unanswered.
+       */
+      describe('PUSH deliveries', () => {
+        const PUSHED_RIDE = {
+          userId: 'garmin-user-123',
+          summaryId: 'summary-456',
+          activityType: 'MOUNTAIN_BIKING',
+          startTimeInSeconds: 1706123456,
+          durationInSeconds: 5340,
+          distanceInMeters: 8368,
+          samples: [{ latitudeInDegree: 48.75, longitudeInDegree: -122.48 }],
+        };
+
+        beforeEach(() => {
+          (mockPrisma.userAccount.findUnique as jest.Mock).mockResolvedValue({
+            userId: 'internal-user-123',
+          });
+          mockEnqueueSyncJob.mockResolvedValue({ status: 'queued', jobId: 'job-1' });
+        });
+
+        it('carries a pushed activity to the worker instead of fetching it', async () => {
+          await request(app)
+            .post('/webhooks/garmin/activities-ping')
+            .send({ activityDetails: [PUSHED_RIDE] });
+
+          await new Promise(resolve => setImmediate(resolve));
+
+          expect(mockEnqueueSyncJob).toHaveBeenCalledWith('syncActivity', {
+            userId: 'internal-user-123',
+            provider: 'garmin',
+            activityId: 'summary-456',
+            pushedActivity: expect.objectContaining({
+              summaryId: 'summary-456',
+              samples: PUSHED_RIDE.samples,
+            }),
+          });
+          // No callbackURL means nothing to follow, and nothing was queued for
+          // the callback processor either.
+          expect(mockEnqueueCallbackJob).not.toHaveBeenCalled();
+        });
+
+        // An activityDetails push nests its stats under `summary`; everything
+        // downstream reads the flat shape.
+        it('flattens a nested details push before queueing it', async () => {
+          await request(app)
+            .post('/webhooks/garmin/activities-ping')
+            .send({
+              activityDetails: [
+                {
+                  userId: 'garmin-user-123',
+                  summaryId: 'summary-456',
+                  samples: PUSHED_RIDE.samples,
+                  summary: {
+                    activityType: 'MOUNTAIN_BIKING',
+                    startTimeInSeconds: 1706123456,
+                    durationInSeconds: 5340,
+                  },
+                },
+              ],
+            });
+
+          await new Promise(resolve => setImmediate(resolve));
+
+          expect(mockEnqueueSyncJob).toHaveBeenCalledWith(
+            'syncActivity',
+            expect.objectContaining({
+              pushedActivity: expect.objectContaining({
+                activityType: 'MOUNTAIN_BIKING',
+                durationInSeconds: 5340,
+                samples: PUSHED_RIDE.samples,
+              }),
+            })
+          );
+        });
+
+        // The activities summary type can be pushed too, not just pinged.
+        it('handles a push on the activities key', async () => {
+          await request(app)
+            .post('/webhooks/garmin/activities-ping')
+            .send({ activities: [PUSHED_RIDE] });
+
+          await new Promise(resolve => setImmediate(resolve));
+
+          expect(mockEnqueueSyncJob).toHaveBeenCalledWith(
+            'syncActivity',
+            expect.objectContaining({ activityId: 'summary-456' })
+          );
+          expect(mockEnqueueCallbackJob).not.toHaveBeenCalled();
+        });
+
+        // A pushed payload carries its samples. Queueing a run's worth of them
+        // just to discard them on the worker would put megabytes through Redis
+        // for nothing.
+        it('drops a non-cycling push without queueing its samples', async () => {
+          await request(app)
+            .post('/webhooks/garmin/activities-ping')
+            .send({
+              activityDetails: [{ ...PUSHED_RIDE, activityType: 'RUNNING' }],
+            });
+
+          await new Promise(resolve => setImmediate(resolve));
+
+          expect(mockEnqueueSyncJob).not.toHaveBeenCalled();
+        });
+
+        // Notifications must still route to the callbackURL paths untouched.
+        it('leaves a ping notification to the notification path', async () => {
+          await request(app)
+            .post('/webhooks/garmin/activities-ping')
+            .send({
+              activityDetails: [
+                {
+                  userId: 'garmin-user-123',
+                  userAccessToken: 'token-xyz',
+                  summaryId: 'summary-456',
+                  uploadTimestampInSeconds: 1706123456,
+                  callbackURL: 'https://apis.garmin.com/wellness-api/rest/activities?x=1',
+                },
+              ],
+            });
+
+          await new Promise(resolve => setImmediate(resolve));
+
+          expect(mockEnqueueSyncJob).toHaveBeenCalledWith('syncActivity', {
+            userId: 'internal-user-123',
+            provider: 'garmin',
+            activityId: 'summary-456',
+            callbackURL: 'https://apis.garmin.com/wellness-api/rest/activities?x=1',
+          });
+        });
+
+        // Before this, such a delivery enqueued a callback job with no URL,
+        // which the worker rejected as a malformed backfill job.
+        it('skips an activities delivery with neither payload nor callbackURL', async () => {
+          await request(app)
+            .post('/webhooks/garmin/activities-ping')
+            .send({ activities: [{ userId: 'garmin-user-123' }] });
+
+          await new Promise(resolve => setImmediate(resolve));
+
+          expect(mockEnqueueCallbackJob).not.toHaveBeenCalled();
+          expect(mockEnqueueSyncJob).not.toHaveBeenCalled();
+        });
+      });
+
       // A backfill of activityDetails answers on this same key with a
       // callbackURL covering a window and no single activity to name. Enqueuing
       // a syncActivity job for it would produce one with no activityId, which

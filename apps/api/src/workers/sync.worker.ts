@@ -12,6 +12,7 @@ import { deriveLocation, deriveLocationAsync, shouldApplyAutoLocation } from '..
 import { extractGarminStartCoords } from '../lib/garmin-coords';
 import { persistGarminStream } from '../lib/ride-stream-store';
 import { fetchGarminActivityFromCallback } from '../lib/garmin-activity-details';
+import { isGarminCyclingActivity } from '../types/garmin';
 import { syncBikeComponentHours } from '../lib/component-hours';
 import { invalidateBikePredictionsForBikes } from '../services/prediction/cache';
 import { logger } from '../lib/logger';
@@ -53,27 +54,6 @@ const STRAVA_CYCLING_TYPES = [
   'EBikeRide',
   'EMountainBikeRide',
   'Handcycle',
-];
-
-// Cycling activity types for Garmin
-const GARMIN_CYCLING_TYPES = [
-  'cycling',
-  'bmx',
-  'cyclocross',
-  'downhill_biking',
-  'e_bike_fitness',
-  'e_bike_mountain',
-  'e_enduro_mtb',
-  'enduro_mtb',
-  'gravel_cycling',
-  'indoor_cycling',
-  'mountain_biking',
-  'recumbent_cycling',
-  'road_biking',
-  'track_cycling',
-  'virtual_ride',
-  'handcycling',
-  'indoor_handcycling',
 ];
 
 // Strava activity type
@@ -159,6 +139,7 @@ async function processSyncJob(job: Job<SyncJobData, void, SyncJobName>): Promise
         }
         await syncSingleActivity(userId, provider, job.data.activityId, {
           callbackURL: job.data.callbackURL,
+          pushedActivity: job.data.pushedActivity,
         });
         break;
       default:
@@ -479,10 +460,7 @@ async function syncGarminLatest(userId: string): Promise<void> {
   logger.debug({ count: activities.length }, '[SyncWorker] Fetched Garmin activities');
 
   // Filter to cycling activities
-  const cyclingActivities = activities.filter((a) => {
-    const typeLower = a.activityType.toLowerCase().replace(/\s+/g, '_');
-    return GARMIN_CYCLING_TYPES.includes(typeLower);
-  });
+  const cyclingActivities = activities.filter((a) => isGarminCyclingActivity(a.activityType));
 
   logger.debug({ count: cyclingActivities.length }, '[SyncWorker] Processing cycling activities');
 
@@ -503,6 +481,8 @@ async function syncGarminLatest(userId: string): Promise<void> {
  */
 type GarminDetailsHint = {
   callbackURL?: string;
+  /** The activity itself, when Garmin PUSHed it. Short-circuits every fetch. */
+  pushedActivity?: unknown;
 };
 
 async function syncGarminActivity(
@@ -539,7 +519,16 @@ async function syncGarminActivity(
     // GPS track together. There is nothing left to fetch separately.
     let activity: GarminActivity | null = null;
 
-    if (details?.callbackURL) {
+    // Garmin PUSHed the activity: it is already in hand and there is nothing to
+    // request. This is the mode the integration targets, because a delivery we
+    // never answer cannot be scored as an unprompted pull or an unanswered
+    // ping. The webhook flattened it, so an activityDetails push arrives with
+    // its stats hoisted and `samples` alongside, ready for persistGarminStream.
+    if (details?.pushedActivity) {
+      activity = details.pushedActivity as GarminActivity;
+    }
+
+    if (!activity && details?.callbackURL) {
       activity = (await fetchGarminActivityFromCallback({
         accessToken,
         summaryId: activityId,
@@ -596,9 +585,7 @@ async function syncGarminActivity(
       activity = (await response.json()) as GarminActivity;
     }
 
-    const typeLower = (activity.activityType ?? '').toLowerCase().replace(/\s+/g, '_');
-
-    if (!GARMIN_CYCLING_TYPES.includes(typeLower)) {
+    if (!isGarminCyclingActivity(activity.activityType)) {
       logger.debug({
         activityId,
         activityType: activity.activityType,

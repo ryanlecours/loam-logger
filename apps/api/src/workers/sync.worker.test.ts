@@ -804,6 +804,63 @@ describe('processSyncJob (via worker processor)', () => {
 
       const CALLBACK_URL = 'https://apis.garmin.com/wellness-api/rest/activityDetails?x=1';
 
+      // PUSH is the mode the integration targets. Garmin sent the activity, so
+      // there is nothing to request, and a delivery we never answer cannot be
+      // scored as an unprompted pull or an unanswered ping.
+      it('makes no request at all when the activity was pushed', async () => {
+        await processSyncJob({
+          name: 'syncActivity',
+          data: {
+            userId: 'user123',
+            provider: 'garmin',
+            activityId: 'summary-456',
+            pushedActivity: { ...GARMIN_SUMMARY },
+          },
+        });
+
+        expect(mockFetch).not.toHaveBeenCalled();
+        expect(mockFetchFromCallback).not.toHaveBeenCalled();
+        expect(mockPrisma.ride.upsert).toHaveBeenCalled();
+      });
+
+      it('stores the track that came with the pushed activity', async () => {
+        const samples = [{ latitudeInDegree: 48.75, longitudeInDegree: -122.48 }];
+
+        await processSyncJob({
+          name: 'syncActivity',
+          data: {
+            userId: 'user123',
+            provider: 'garmin',
+            activityId: 'summary-456',
+            pushedActivity: { ...GARMIN_SUMMARY, samples },
+          },
+        });
+
+        expect(mockPersistGarminStream).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.objectContaining({ samples })
+        );
+      });
+
+      // Verification mode blocks unprompted pulls. A push is not a pull, so it
+      // must keep flowing or a reviewer sees no data at all.
+      it('ingests a pushed activity during verification mode', async () => {
+        mockConfig.garminVerificationMode = true;
+
+        await processSyncJob({
+          name: 'syncActivity',
+          data: {
+            userId: 'user123',
+            provider: 'garmin',
+            activityId: 'summary-456',
+            pushedActivity: { ...GARMIN_SUMMARY },
+          },
+        });
+
+        expect(mockFetch).not.toHaveBeenCalled();
+        expect(mockPrisma.ride.upsert).toHaveBeenCalled();
+      });
+
       // Garmin's Partner Verification counts a pull as prompted only when it
       // matches a callbackURL Garmin issued, and counts a ping we did not
       // follow as unanswered. Composing our own request fails both checks at

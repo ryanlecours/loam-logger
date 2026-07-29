@@ -32,6 +32,20 @@ export type SyncJobData = {
    * the same activity must still dedupe to one job.
    */
   callbackURL?: string;
+  /**
+   * Garmin only. The activity itself, when Garmin PUSHed it rather than pinging.
+   *
+   * Carrying the payload through the queue keeps the heavy work on the worker
+   * where every other ingest path already runs, and means the webhook can ACK
+   * inside Garmin's 30-second window without doing database work. When this is
+   * set the worker makes no outbound request at all, which is the entire point:
+   * a delivery we never answer cannot be scored as an unprompted pull.
+   *
+   * The tradeoff is that the payload lives in Redis until the job runs. A single
+   * ride's samples are a few MB at 1Hz, which is fine; the webhook filters to
+   * cycling first so a batch of runs never lands here.
+   */
+  pushedActivity?: unknown;
 };
 
 let syncQueue: Queue<SyncJobData, void, SyncJobName> | null = null;
