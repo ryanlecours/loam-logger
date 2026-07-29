@@ -5,6 +5,7 @@ const mockPrismaImportSessionFindMany = jest.fn();
 const mockPrismaImportSessionFindUnique = jest.fn();
 const mockPrismaImportSessionUpdateMany = jest.fn();
 const mockPrismaExecuteRaw = jest.fn();
+const mockPrismaBackfillRequestUpdateMany = jest.fn();
 
 jest.mock('../lib/prisma', () => ({
   prisma: {
@@ -12,6 +13,9 @@ jest.mock('../lib/prisma', () => ({
       findMany: mockPrismaImportSessionFindMany,
       findUnique: mockPrismaImportSessionFindUnique,
       updateMany: mockPrismaImportSessionUpdateMany,
+    },
+    backfillRequest: {
+      updateMany: mockPrismaBackfillRequestUpdateMany,
     },
     $executeRaw: mockPrismaExecuteRaw,
   },
@@ -64,6 +68,7 @@ describe('import-session-checker.service', () => {
     mockPrismaImportSessionUpdateMany.mockResolvedValue({ count: 0 });
     mockPrismaExecuteRaw.mockResolvedValue(1);
     mockPrismaImportSessionFindUnique.mockResolvedValue({ unassignedRideCount: 5 });
+    mockPrismaBackfillRequestUpdateMany.mockResolvedValue({ count: 0 });
   });
 
   afterEach(async () => {
@@ -186,6 +191,113 @@ describe('import-session-checker.service', () => {
 
       // Verify stale session update was called
       expect(mockPrismaImportSessionUpdateMany).toHaveBeenCalled();
+    });
+  });
+
+  /**
+   * Regression pins for the permanent "Sync in progress" spinner.
+   *
+   * The Garmin backfill worker set BackfillRequest to `in_progress` and left it
+   * for a webhook handler that never existed. Both clients gate their sync UI on
+   * that status and only offer `ytd`, so a single stuck row disabled the whole
+   * screen forever. Nothing anywhere swept the table.
+   */
+  describe('backfill request settlement', () => {
+    beforeEach(() => {
+      mockRedis.set.mockResolvedValue('OK');
+    });
+
+    it('completes a user\'s backfill requests when their idle session closes', async () => {
+      mockPrismaImportSessionFindMany.mockResolvedValue([
+        { id: 'session-123', userId: 'user-1', provider: 'garmin' },
+      ]);
+      mockPrismaExecuteRaw.mockResolvedValue(1);
+
+      startImportSessionChecker();
+      await jest.advanceTimersByTimeAsync(100);
+
+      expect(mockPrismaBackfillRequestUpdateMany).toHaveBeenCalledWith({
+        where: {
+          userId: 'user-1',
+          provider: 'garmin',
+          status: 'in_progress',
+        },
+        data: expect.objectContaining({ status: 'completed' }),
+      });
+    });
+
+    // A `pending` row is one whose worker job never started, so it has fetched
+    // nothing. Completing it would strand the year: the single-year guard only
+    // permits a retry while the row is `failed`. It must be left for the stale
+    // sweep instead. This matters the moment a client sends more than one year
+    // in a batch, where a job delayed behind a rate-limit backoff is still
+    // pending when the shared session goes idle.
+    it('never settles a pending row, whose job has not started', async () => {
+      mockPrismaImportSessionFindMany.mockResolvedValue([
+        { id: 'session-123', userId: 'user-1', provider: 'garmin' },
+      ]);
+      mockPrismaExecuteRaw.mockResolvedValue(1);
+
+      startImportSessionChecker();
+      await jest.advanceTimersByTimeAsync(100);
+
+      const settleCall = mockPrismaBackfillRequestUpdateMany.mock.calls.find(
+        ([arg]) => (arg as { data: { status: string } }).data.status === 'completed'
+      );
+      expect(settleCall).toBeDefined();
+      expect((settleCall![0] as { where: { status: unknown } }).where.status).toBe('in_progress');
+    });
+
+    // Only the instance that actually won the session update should settle the
+    // rows, otherwise a losing instance closes a backfill it did not finish.
+    it('does not settle when the session update affected no rows', async () => {
+      mockPrismaImportSessionFindMany.mockResolvedValue([
+        { id: 'session-123', userId: 'user-1', provider: 'garmin' },
+      ]);
+      mockPrismaExecuteRaw.mockResolvedValue(0);
+
+      startImportSessionChecker();
+      await jest.advanceTimersByTimeAsync(100);
+
+      expect(mockPrismaBackfillRequestUpdateMany).not.toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ status: 'completed' }) })
+      );
+    });
+
+    // Marked failed rather than completed on purpose: the YTD guard resumes
+    // from backfilledUpTo only when the previous row says completed, so calling
+    // an unfinished backfill complete would silently skip activities that never
+    // arrived. failed restarts the range and Garmin 409s what it already sent.
+    it('sweeps stale in-flight backfills to failed', async () => {
+      mockPrismaImportSessionFindMany.mockResolvedValue([]);
+      mockPrismaBackfillRequestUpdateMany.mockResolvedValue({ count: 2 });
+
+      startImportSessionChecker();
+      await jest.advanceTimersByTimeAsync(100);
+
+      expect(mockPrismaBackfillRequestUpdateMany).toHaveBeenCalledWith({
+        where: {
+          status: { in: ['pending', 'in_progress'] },
+          updatedAt: { lte: expect.any(Date) },
+        },
+        data: expect.objectContaining({ status: 'failed' }),
+      });
+    });
+
+    // The session is the record that matters most; a settlement failure must
+    // not abort the rest of the sweep.
+    it('continues the sweep when settlement throws', async () => {
+      mockPrismaImportSessionFindMany.mockResolvedValue([
+        { id: 'session-123', userId: 'user-1', provider: 'garmin' },
+      ]);
+      mockPrismaExecuteRaw.mockResolvedValue(1);
+      mockPrismaBackfillRequestUpdateMany.mockRejectedValueOnce(new Error('db down'));
+
+      startImportSessionChecker();
+      await jest.advanceTimersByTimeAsync(100);
+
+      // Reached the stale-backfill sweep despite the settlement rejection.
+      expect(mockPrismaBackfillRequestUpdateMany).toHaveBeenCalledTimes(2);
     });
   });
 

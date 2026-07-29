@@ -711,6 +711,14 @@ model BackfillRequest {
   @@unique([userId, provider, year])
   @@index([userId])
   @@index([userId, provider])
+  // Backs the import-session checker's stale sweep, which runs every minute
+  // against the whole table (status IN (pending, in_progress) AND updatedAt <=
+  // cutoff) and is deliberately not scoped by user. Mirrors
+  // ImportSession's @@index([status, lastActivityReceivedAt]) for its
+  // equivalent check. Without this the sweep degrades to a full scan as the
+  // table grows; the leading equality on status keeps it selective, since
+  // almost every row settles to completed or failed.
+  @@index([status, updatedAt])
 }
 
 enum BackfillStatus {
