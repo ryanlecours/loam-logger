@@ -82,11 +82,27 @@ export async function enqueueBackfillJob(
   const queue = getBackfillQueue();
   const jobId = buildBackfillJobId(data.provider, data.userId, data.year ?? 'ytd');
 
+  // BullMQ 5 absorbs a duplicate jobId rather than throwing: `add` returns the
+  // existing job and creates nothing. The catch below was written against an
+  // error the library does not raise, so a duplicate reported itself as queued.
+  // That status is not internal here: both backfill routes put it straight into
+  // the response body, so a double-clicked or retried import told the rider a
+  // year had been queued when it had not.
+  //
+  // The check-then-add race is benign, because the id is what enforces
+  // uniqueness and nothing branches on the status beyond display.
+  const existing = await queue.getJob(jobId);
+  if (existing) {
+    logger.debug({ jobId }, '[BackfillQueue] Backfill job already exists (duplicate ignored)');
+    return { status: 'already_queued', jobId };
+  }
+
   try {
     await queue.add('backfillYear', data, { jobId });
     logger.info({ jobId, userId: data.userId, year: data.year }, '[BackfillQueue] Enqueued backfill job');
     return { status: 'queued', jobId };
   } catch (err) {
+    // Retained in case a future BullMQ version rejects duplicates outright.
     const message = err instanceof Error ? err.message : String(err);
 
     if (message.includes('Job') && message.includes('already exists')) {

@@ -105,6 +105,7 @@ describe('enqueueBackfillJob', () => {
     // Reset the singleton
     closeBackfillQueue();
     mockQueueAdd.mockResolvedValue({});
+    mockQueueGetJob.mockResolvedValue(undefined);
   });
 
   afterEach(async () => {
@@ -131,6 +132,28 @@ describe('enqueueBackfillJob', () => {
     );
   });
 
+  /**
+   * The real BullMQ 5 behaviour. It does not throw on a duplicate jobId: `add`
+   * returns the existing job and creates nothing. Relying on the rejection
+   * below meant a duplicate reported itself as queued, and both backfill
+   * routes put that status straight into the response, so a double-clicked
+   * import told the rider a year had been queued when it had not.
+   */
+  it('reports already_queued when the job exists, and adds nothing', async () => {
+    mockQueueGetJob.mockResolvedValue({ id: 'backfillYear_garmin_user123_2024' });
+
+    const result = await enqueueBackfillJob({
+      userId: 'user123',
+      provider: 'garmin',
+      year: '2024',
+    });
+
+    expect(result.status).toBe('already_queued');
+    expect(mockQueueAdd).not.toHaveBeenCalled();
+  });
+
+  // The rejection path is retained as a fallback in case a future BullMQ
+  // version starts rejecting duplicates outright.
   it('should return already_queued status for duplicate job', async () => {
     mockQueueAdd.mockRejectedValue(
       new Error('Job backfillYear_garmin_user123_2024 already exists')
@@ -168,6 +191,7 @@ describe('enqueueCallbackJob', () => {
     jest.clearAllMocks();
     closeBackfillQueue();
     mockQueueAdd.mockResolvedValue({});
+    mockQueueGetJob.mockResolvedValue(undefined);
   });
 
   afterEach(async () => {
@@ -234,6 +258,7 @@ describe('enqueueGarminCoordRepairJob', () => {
     jest.clearAllMocks();
     closeBackfillQueue();
     mockQueueAdd.mockResolvedValue({});
+    mockQueueGetJob.mockResolvedValue(undefined);
     mockQueueGetJob.mockResolvedValue(undefined); // no existing job by default
   });
 
