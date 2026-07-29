@@ -7,6 +7,15 @@ import { enqueueCallbackJob } from '../lib/queue/backfill.queue';
 import { isActiveSource } from '../lib/active-source';
 import { deleteRideStreamsForProvider } from '../lib/ride-stream-store';
 import { revokeIntegration } from '../lib/integration-tokens';
+import { flattenGarminActivity } from '../lib/garmin-activity-details';
+import { assertTrustedGarminCallbackUrl } from '../lib/garmin-callback-url';
+import {
+  isAmbiguousGarminDelivery,
+  isGarminCyclingActivity,
+  isPushedGarminActivity,
+  pickGarminActivityFields,
+  type GarminDeliveryEntry,
+} from '../types/garmin';
 
 type Empty = Record<string, never>;
 const r: Router = createRouter();
@@ -259,9 +268,16 @@ r.post<Empty, void, { userPermissionsChange?: Array<{
  */
 type GarminActivityPing = {
   userId: string;
+  /**
+   * Garmin sends the rider's access token in the notification body. We never
+   * read it: every outbound call uses our own stored, encrypted credential, so
+   * trusting a token supplied by an unauthenticated request would be handing
+   * the caller a say in what we authenticate as. Declared so that stays a
+   * visible decision, and named in the logger's redaction list (lib/logger.ts)
+   * so it cannot reach logs on the debug body dump.
+   */
   userAccessToken: string;
   summaryId: string;
-  uploadTimestampInSeconds: number;
   /**
    * Present when Garmin pings for the activityDetails summary type. Points at
    * `/rest/activityDetails` already scoped to the notified activities, so it is
@@ -286,6 +302,103 @@ type GarminPingPayload = {
   activityDetails?: GarminActivityPing[];
   activities?: GarminActivityCallback[];
 };
+
+/** What handlePushedActivity decided to do with one delivery entry. */
+type PushOutcome =
+  | { handled: false }
+  | { handled: true; status: string; summaryId?: string; jobId?: string; reason?: string };
+
+/**
+ * Take an activity Garmin PUSHed in the request body, if that is what this is.
+ *
+ * PUSH is the mode this integration targets. Garmin sends the whole activity
+ * and expects no answer, so there is no request to make and therefore nothing
+ * that can be scored as an unprompted pull or an unanswered ping. Both summary
+ * types can arrive this way, so both branches below run entries through here
+ * before falling back to the notification handling.
+ *
+ * The payload is flattened first because an activityDetails push nests its
+ * stats under `summary`, and everything downstream reads the flat shape.
+ *
+ * Non-cycling activities are dropped here rather than on the worker. A pushed
+ * payload carries its samples, and queueing a marathon's worth of them just to
+ * discard them on the other side would put megabytes through Redis for nothing.
+ *
+ * Returns `{ handled: false }` when the entry is a notification, so the caller
+ * can fall through to the callbackURL paths unchanged.
+ */
+async function handlePushedActivity(
+  requestId: string,
+  internalUserId: string,
+  rawEntry: GarminDeliveryEntry
+): Promise<PushOutcome> {
+  const entry = flattenGarminActivity(rawEntry);
+
+  // A delivery carrying both a URL to follow and the measurements themselves is
+  // shaped like neither mode. It is handled as a notification, which is the
+  // safe reading, but it means the live ping differs from what this was written
+  // against, so it is logged loudly enough to notice rather than inferred from
+  // a drop in ride counts.
+  if (isAmbiguousGarminDelivery(entry)) {
+    logger.warn(
+      {
+        event: 'garmin_delivery_shape_ambiguous',
+        requestId,
+        summaryId: entry.summaryId,
+        activityType: entry.activityType,
+        hasSamples: Array.isArray(entry.samples) && entry.samples.length > 0,
+      },
+      '[Garmin] Delivery carried both a callbackURL and activity data; following the URL'
+    );
+  }
+
+  if (!isPushedGarminActivity(entry)) return { handled: false };
+
+  const summaryId = typeof entry.summaryId === 'string' ? entry.summaryId : undefined;
+  if (!summaryId) {
+    // The job id is built from the activity id, so without one two deliveries
+    // of the same ride would queue twice and race each other's upsert.
+    logger.warn(
+      { requestId, activityType: entry.activityType },
+      '[Garmin PUSH] Pushed activity has no summaryId, skipping'
+    );
+    return { handled: true, status: 'skipped', reason: 'no_summary_id' };
+  }
+
+  if (!isGarminCyclingActivity(entry.activityType)) {
+    logger.debug(
+      { requestId, summaryId, activityType: entry.activityType },
+      '[Garmin PUSH] Skipping non-cycling pushed activity'
+    );
+    return { handled: true, status: 'skipped', summaryId, reason: 'not_cycling' };
+  }
+
+  // Projected onto the fields the ingest path reads, never queued raw. This
+  // body is unauthenticated and the job lands in Redis in plaintext, and Garmin
+  // sends `userAccessToken` in it: a credential we never use, keep out of logs,
+  // and encrypt at rest everywhere else.
+  const result = await enqueueSyncJob('syncActivity', {
+    userId: internalUserId,
+    provider: 'garmin',
+    activityId: summaryId,
+    pushedActivity: pickGarminActivityFields(entry),
+  });
+
+  logger.info(
+    {
+      event: 'garmin_push_job_enqueued',
+      requestId,
+      jobId: result.jobId,
+      summaryId,
+      userId: internalUserId,
+      hasSamples: Array.isArray(entry.samples) && entry.samples.length > 0,
+      status: result.status,
+    },
+    '[Garmin PUSH] Enqueued sync job from pushed activity'
+  );
+
+  return { handled: true, status: result.status, summaryId, jobId: result.jobId };
+}
 
 r.post<Empty, void, GarminPingPayload>(
   '/webhooks/garmin/activities-ping',
@@ -371,6 +484,31 @@ r.post<Empty, void, GarminPingPayload>(
             return { status: 'skipped', reason: 'inactive_source' };
           }
 
+          // PUSH first: the activities summary type can also be delivered as
+          // data rather than as a callbackURL pointer.
+          const pushed = await handlePushedActivity(requestId, userAccount.userId, notification);
+          if (pushed.handled) return pushed;
+
+          // Everything past here is a notification, which means a callbackURL
+          // to follow. Without one there is nothing to fetch and nothing was
+          // pushed, so the delivery is unusable; enqueueing anyway produced a
+          // callback job with no URL that the worker rejected as a malformed
+          // backfill.
+          if (!callbackURL) {
+            logger.warn(
+              { requestId, garminUserId },
+              '[Garmin PING] Activities delivery had neither a pushed payload nor a callbackURL'
+            );
+            return { status: 'skipped', reason: 'no_payload_or_callback' };
+          }
+
+          // Rejected at the boundary as well as at the fetch site: a forged URL
+          // should never reach the queue, where it would sit as a stored
+          // instruction to hand out a token.
+          if (!assertTrustedGarminCallbackUrl(callbackURL, { requestId, garminUserId })) {
+            return { status: 'skipped', reason: 'untrusted_callback_url' };
+          }
+
           const result = await enqueueCallbackJob({
             userId: userAccount.userId,
             provider: 'garmin',
@@ -437,12 +575,7 @@ r.post<Empty, void, GarminPingPayload>(
 
         // Fire-and-forget: Enqueue jobs for background processing
         const enqueuePromises = activityDetails.map(async (notification) => {
-          const {
-            userId: garminUserId,
-            summaryId,
-            callbackURL,
-            uploadTimestampInSeconds,
-          } = notification;
+          const { userId: garminUserId, summaryId, callbackURL } = notification;
 
           // Fast indexed lookup for internal userId
           const userAccount = await prisma.userAccount.findUnique({
@@ -470,6 +603,11 @@ r.post<Empty, void, GarminPingPayload>(
             return { status: 'skipped', summaryId, reason: 'inactive_source' };
           }
 
+          // PUSH first: if Garmin sent the activity itself there is nothing to
+          // fetch, and no request means nothing verification can score.
+          const pushed = await handlePushedActivity(requestId, userAccount.userId, notification);
+          if (pushed.handled) return pushed;
+
           // A backfill of activityDetails answers on this same key, but with a
           // callbackURL and no summaryId. There is no single activity to name
           // because the URL covers a whole window. Route those to the callback
@@ -477,6 +615,9 @@ r.post<Empty, void, GarminPingPayload>(
           // this they would enqueue a syncActivity job with no activityId,
           // which the worker rejects outright.
           if (!summaryId && callbackURL) {
+            if (!assertTrustedGarminCallbackUrl(callbackURL, { requestId, garminUserId })) {
+              return { status: 'skipped', reason: 'untrusted_callback_url' };
+            }
             const callbackResult = await enqueueCallbackJob({
               userId: userAccount.userId,
               provider: 'garmin',
@@ -492,16 +633,46 @@ r.post<Empty, void, GarminPingPayload>(
             return { status: callbackResult.status, jobId: callbackResult.jobId };
           }
 
+          // Nothing was pushed, and the block above already returned for every
+          // entry that had a callbackURL without a summaryId, so reaching here
+          // without one means the delivery names no activity and offers no way
+          // to find it. Enqueueing anyway produced a job with activityId
+          // undefined that the worker rejected from inside a fire-and-forget
+          // promise, where the throw was invisible to this handler.
+          //
+          // It also collided: buildSyncJobId falls back to
+          // `syncActivity_garmin_<userId>` when there is no activityId, so the
+          // first malformed entry poisoned that id and every later one came
+          // back 'already_queued' and vanished silently.
+          if (!summaryId) {
+            logger.warn(
+              { requestId, garminUserId },
+              '[Garmin PING] activityDetails delivery had no pushed payload, callbackURL or summaryId'
+            );
+            return { status: 'skipped', reason: 'no_payload_or_callback' };
+          }
+
           // Enqueue sync job with deterministic ID for deduplication.
-          // The details pointers ride along so the worker can pull the GPS
-          // samples that only /rest/activityDetails carries. They are not part
-          // of the job id, so dedup still keys on the activity alone.
+          // The callbackURL rides along because following it is what makes the
+          // worker's request a prompted pull and marks this ping answered. It
+          // is not part of the job id, so dedup still keys on the activity.
+          // Drop an untrusted URL rather than the whole delivery: the worker
+          // can still fall back to a composed request for this activity, which
+          // is a compliance problem rather than a security one.
+          // Only assert when there is something to assert about: a ping with no
+          // callbackURL at all is an ordinary shape, not a security event, and
+          // must not raise an alertable error.
+          const trustedCallbackURL =
+            callbackURL &&
+            assertTrustedGarminCallbackUrl(callbackURL, { requestId, garminUserId, summaryId })
+              ? callbackURL
+              : undefined;
+
           const result = await enqueueSyncJob('syncActivity', {
             userId: userAccount.userId,
             provider: 'garmin',
             activityId: summaryId,
-            detailsCallbackURL: callbackURL,
-            uploadTimestampInSeconds,
+            callbackURL: trustedCallbackURL,
           });
 
           logger.info({

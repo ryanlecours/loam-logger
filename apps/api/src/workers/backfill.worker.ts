@@ -10,6 +10,7 @@ import { deriveLocationAsync, shouldApplyAutoLocation } from '../lib/location';
 import { extractGarminStartCoords } from '../lib/garmin-coords';
 import { persistGarminStream } from '../lib/ride-stream-store';
 import { flattenGarminActivity } from '../lib/garmin-activity-details';
+import { assertTrustedGarminCallbackUrl } from '../lib/garmin-callback-url';
 import { logError, logger } from '../lib/logger';
 import { config } from '../config/env';
 import type { BackfillJobData, BackfillJobName } from '../lib/queue/backfill.queue';
@@ -679,12 +680,24 @@ async function processGarminCallback(userId: string, callbackURL: string): Promi
     userId,
   }, '[BackfillWorker] Fetching from Garmin callback URL');
 
-  // Fetch activities from the callback URL
+  // Fetch activities from the callback URL.
+  //
+  // This URL came from the unauthenticated activities-ping webhook body and
+  // this request carries the rider's live Garmin token, so the origin has to be
+  // checked before it is trusted with either. Predates the ping-side callback
+  // path but is the same exposure, so it is closed here too.
+  if (!assertTrustedGarminCallbackUrl(callbackURL, { userId })) {
+    throw new Error('Refusing to fetch an untrusted Garmin callback URL');
+  }
+
   const callbackRes = await fetch(callbackURL, {
     headers: {
       'Authorization': `Bearer ${accessToken}`,
       'Accept': 'application/json',
     },
+    // An allowed origin must not be able to bounce this request, and its token,
+    // somewhere else.
+    redirect: 'error',
   });
 
   if (!callbackRes.ok) {

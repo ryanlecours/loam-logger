@@ -1,41 +1,35 @@
 import { logger } from './logger';
+import { assertTrustedGarminCallbackUrl } from './garmin-callback-url';
 
 /**
- * Fetcher for Garmin's Activity Details, the only endpoint that carries GPS.
+ * Reader for the payload behind a Garmin ping's callbackURL.
  *
- * Garmin splits one activity across two summary types. `/rest/activities`
- * returns the Activity Summary: duration, distance, elevation, HR, device,
- * start coords, and nothing per-point. The `samples[]` array with
- * latitude/longitude/elevation per second lives only in Activity Details,
- * `/rest/activityDetails`. Pulling the summary and looking for `samples` on it
- * therefore always finds nothing, which is why Garmin rides had no map: the
- * normalizer and the store were both correct and simply never fed.
+ * WHY THIS EXISTS, and why it is not a URL builder.
  *
- * COMPLIANCE: the Connect Developer Program forbids *unprompted* pulls. Every
- * call here is prompted. It happens in direct response to an activity ping,
- * using the callbackURL Garmin sent us or the upload window that ping named.
- * There is no polling path and no way to reach this from a user action.
- * `callbackURL` is preferred whenever Garmin supplied one: it is already scoped
- * to exactly the notified activities, so it needs no window arithmetic and
- * cannot drift.
+ * Garmin's PING service does not send activity data. It sends a notification
+ * carrying a `callbackURL`, and the integration is expected to GET exactly that
+ * URL. Partner Verification scores this: a pull is "prompted" only when it
+ * matches a callbackURL Garmin issued. Anything the integration composes for
+ * itself is an unprompted pull, and the ping it ignored is separately counted
+ * as unanswered. One self-built request therefore fails two checks at once,
+ * which is what the verification dashboard was showing.
+ *
+ * So this module never constructs a query. It takes the URL Garmin gave us and
+ * reads what comes back. An earlier version of this file built
+ * `/rest/activityDetails?uploadStartTimeInSeconds=...` as a fallback; that was
+ * itself an unprompted pull and has been removed rather than made conditional.
+ *
+ * The response doubles as the map fix: when the ping is for the activityDetails
+ * summary type, the payload carries `samples[]` alongside the stats, so one
+ * prompted request yields the ride and its GPS track together. No second call,
+ * prompted or otherwise, is needed.
  */
 
-const DEFAULT_API_BASE = 'https://apis.garmin.com/wellness-api';
-
-/**
- * Widening applied on each side of a ping's `uploadTimestampInSeconds` when no
- * callbackURL was supplied. Garmin filters this endpoint on UPLOAD time, not
- * start time, and the ping's timestamp is the upload instant, so the window
- * only has to absorb clock skew and the truncation to whole seconds rather
- * than the length of the ride.
- */
-const UPLOAD_WINDOW_PADDING_SECONDS = 60;
-
-/** One Activity Details entry. Only the fields we route on are named. */
-export type GarminActivityDetails = {
+/** One entry from a callbackURL payload. Only the fields we route on are named. */
+export type GarminActivityPayload = {
   summaryId?: string;
   activityId?: number | string;
-  /** Per-point array; normalized by lib/garmin-streams. Absent for indoor rides. */
+  /** Per-point array; normalized by lib/garmin-streams. Absent on summary-only payloads. */
   samples?: unknown;
   [key: string]: unknown;
 };
@@ -46,31 +40,25 @@ export type GarminActivityDetails = {
  * leading id segment matches both spellings without matching a different
  * activity, since the ids themselves are opaque and unique.
  */
-function idsMatch(detailsId: string | undefined, summaryId: string): boolean {
-  if (!detailsId) return false;
-  if (detailsId === summaryId) return true;
-  return detailsId.split('-')[0] === summaryId.split('-')[0];
-}
-
-function buildWindowUrl(apiBase: string, uploadTimestampInSeconds: number): string {
-  const start = uploadTimestampInSeconds - UPLOAD_WINDOW_PADDING_SECONDS;
-  const end = uploadTimestampInSeconds + UPLOAD_WINDOW_PADDING_SECONDS;
-  return `${apiBase}/rest/activityDetails?uploadStartTimeInSeconds=${start}&uploadEndTimeInSeconds=${end}`;
+function idsMatch(candidate: string | undefined, summaryId: string): boolean {
+  if (!candidate) return false;
+  if (candidate === summaryId) return true;
+  return candidate.split('-')[0] === summaryId.split('-')[0];
 }
 
 /**
- * Lift an Activity Details entry's nested `summary` onto the top level.
+ * Lift an entry's nested `summary` onto the top level.
  *
- * The two summary types are NOT the same shape. `/rest/activities` returns the
- * stats flat: `activityType`, `startTimeInSeconds`, `distanceInMeters` are all
- * top-level keys. `/rest/activityDetails` nests exactly those fields under a
- * `summary` object and puts `samples` beside it. Every consumer here was
+ * The two summary types are NOT the same shape. An `activities` payload returns
+ * the stats flat: `activityType`, `startTimeInSeconds`, `distanceInMeters` are
+ * all top-level keys. An `activityDetails` payload nests exactly those fields
+ * under a `summary` object and puts `samples` beside it. Every consumer here was
  * written against the flat shape, so a details payload reaching them reads
  * `activity.activityType` as undefined and throws on the first `.toLowerCase()`.
  *
  * Flattening at the boundary means the ingest code stays shape-blind and one
- * upsert path serves both summary and details callbacks. A flat payload passes
- * through untouched, so this is safe to apply to any Garmin callback batch.
+ * upsert path serves both. A flat payload passes through untouched, so this is
+ * safe to apply to any Garmin payload.
  */
 export function flattenGarminActivity<T extends Record<string, unknown>>(activity: T): T {
   const summary = activity.summary;
@@ -81,70 +69,61 @@ export function flattenGarminActivity<T extends Record<string, unknown>>(activit
 }
 
 /**
- * Resolve the Activity Details entry for one activity, or null.
+ * GET a ping's callbackURL and return the entry for one activity, flattened.
  *
- * Best-effort by contract, exactly like persistGarminStream downstream: by the
- * time this runs the ride and its component hours are the primary data and are
- * already safe. A details fetch that fails costs the rider a map; throwing here
- * would cost them the ride. Every failure path logs and returns null.
+ * Answering the ping is the point: this request is what Garmin's verification
+ * counts as prompted, and what stops the ping being logged as unanswered. The
+ * activity data is the by-product.
+ *
+ * Best-effort by contract. The caller decides what a null means, because at the
+ * ping stage there is no ride yet and failing loudly would just burn the job's
+ * retries against an endpoint that already answered.
  *
  * Returns null rather than guessing when nothing in the response matches the
- * summaryId. A window pull can legitimately return several activities, and
- * attaching another ride's GPS track to this one is far worse than no map.
+ * summaryId. A callbackURL covers an upload window and can legitimately carry
+ * several activities, and attaching another ride's data to this one is worse
+ * than importing nothing.
  */
-export async function fetchGarminActivityDetails(opts: {
+export async function fetchGarminActivityFromCallback(opts: {
   accessToken: string;
   summaryId: string;
-  /** From the ping, when Garmin supplied one. Preferred over the window. */
-  callbackURL?: string;
-  /** From the ping. Used to build a window when there is no callbackURL. */
-  uploadTimestampInSeconds?: number;
-  apiBase?: string;
-}): Promise<GarminActivityDetails | null> {
-  const apiBase = opts.apiBase ?? process.env.GARMIN_API_BASE ?? DEFAULT_API_BASE;
-
-  const url =
-    opts.callbackURL ??
-    (opts.uploadTimestampInSeconds != null
-      ? buildWindowUrl(apiBase, opts.uploadTimestampInSeconds)
-      : null);
-
-  // No callbackURL and no upload timestamp means nothing prompted this fetch.
-  // Inventing a window here would be exactly the unprompted pull the program
-  // rules forbid, so decline instead.
-  if (!url) {
-    logger.debug(
-      { summaryId: opts.summaryId },
-      '[GarminDetails] No callbackURL or upload timestamp; skipping details fetch'
-    );
+  callbackURL: string;
+}): Promise<GarminActivityPayload | null> {
+  // The callbackURL arrives in an unauthenticated webhook body, and the request
+  // below carries the rider's live Garmin token. Anything outside Garmin's own
+  // origin is a forged notification trying to be handed that token.
+  if (!assertTrustedGarminCallbackUrl(opts.callbackURL, { summaryId: opts.summaryId })) {
     return null;
   }
 
   try {
-    const response = await fetch(url, {
+    const response = await fetch(opts.callbackURL, {
       headers: {
         Authorization: `Bearer ${opts.accessToken}`,
         Accept: 'application/json',
       },
+      // An allowed origin must not be able to bounce this request, and its
+      // token, somewhere else. Garmin's callback endpoints return JSON
+      // directly, so a redirect here is never legitimate.
+      redirect: 'error',
     });
 
     if (!response.ok) {
       const text = await response.text().catch(() => '');
       logger.warn(
         {
-          event: 'garmin_details_fetch_failed',
+          event: 'garmin_callback_fetch_failed',
           summaryId: opts.summaryId,
           status: response.status,
-          usedCallbackUrl: opts.callbackURL != null,
           response: text.slice(0, 500),
         },
-        '[GarminDetails] Activity Details fetch failed; ride keeps its stats, loses its map'
+        '[GarminCallback] Ping callbackURL fetch failed'
       );
       return null;
     }
 
-    const body = (await response.json()) as GarminActivityDetails[] | GarminActivityDetails;
-    const entries = Array.isArray(body) ? body : [body];
+    const body = (await response.json()) as GarminActivityPayload[] | GarminActivityPayload;
+    const entries = (Array.isArray(body) ? body : [body]).map(flattenGarminActivity);
 
     const match = entries.find(
       (entry) =>
@@ -155,11 +134,11 @@ export async function fetchGarminActivityDetails(opts: {
     if (!match) {
       logger.info(
         {
-          event: 'garmin_details_no_match',
+          event: 'garmin_callback_no_match',
           summaryId: opts.summaryId,
           returned: entries.length,
         },
-        '[GarminDetails] No Activity Details entry matched this activity'
+        '[GarminCallback] No entry in the callback payload matched this activity'
       );
       return null;
     }
@@ -167,8 +146,8 @@ export async function fetchGarminActivityDetails(opts: {
     return match;
   } catch (err) {
     logger.warn(
-      { event: 'garmin_details_fetch_error', summaryId: opts.summaryId, err },
-      '[GarminDetails] Activity Details fetch threw; ride is unaffected'
+      { event: 'garmin_callback_fetch_error', summaryId: opts.summaryId, err },
+      '[GarminCallback] Ping callbackURL fetch threw'
     );
     return null;
   }

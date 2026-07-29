@@ -3,11 +3,12 @@ jest.mock('./logger', () => ({
   logError: jest.fn(),
 }));
 
-import { fetchGarminActivityDetails, flattenGarminActivity } from './garmin-activity-details';
+import { fetchGarminActivityFromCallback, flattenGarminActivity } from './garmin-activity-details';
 
-const API_BASE = 'https://garmin.test/wellness-api';
 const TOKEN = 'token-abc';
 const SUMMARY_ID = '9876543210';
+const CALLBACK_URL =
+  'https://apis.garmin.com/wellness-api/rest/activityDetails?uploadStartTimeInSeconds=1&uploadEndTimeInSeconds=2';
 
 const mockFetch = jest.fn();
 global.fetch = mockFetch as unknown as typeof fetch;
@@ -19,7 +20,7 @@ const ok = (body: unknown) => ({
   text: async () => JSON.stringify(body),
 });
 
-const detailsFor = (summaryId: string, samples: unknown = [{ latitudeInDegree: 48.7 }]) => ({
+const entry = (summaryId: string, samples: unknown = [{ latitudeInDegree: 48.7 }]) => ({
   summaryId,
   activityType: 'MOUNTAIN_BIKING',
   samples,
@@ -73,120 +74,138 @@ describe('flattenGarminActivity', () => {
   });
 });
 
-describe('fetchGarminActivityDetails', () => {
-  describe('URL selection', () => {
-    // Garmin's ping already scoped the callbackURL to exactly the activities it
-    // is notifying about, so it needs no window arithmetic and cannot drift.
-    it('prefers the ping callbackURL when one was supplied', async () => {
-      mockFetch.mockResolvedValue(ok([detailsFor(SUMMARY_ID)]));
+describe('fetchGarminActivityFromCallback', () => {
+  // The entire point: Garmin's Partner Verification counts a pull as prompted
+  // only when it matches a URL Garmin issued. Composing our own request is an
+  // unprompted pull AND leaves the ping unanswered, failing two checks at once.
+  it('requests exactly the URL Garmin supplied, unmodified', async () => {
+    mockFetch.mockResolvedValue(ok([entry(SUMMARY_ID)]));
 
-      await fetchGarminActivityDetails({
-        accessToken: TOKEN,
-        summaryId: SUMMARY_ID,
-        callbackURL: 'https://garmin.test/callback/xyz',
-        uploadTimestampInSeconds: 1_700_000_000,
-        apiBase: API_BASE,
-      });
-
-      expect(mockFetch).toHaveBeenCalledWith(
-        'https://garmin.test/callback/xyz',
-        expect.objectContaining({
-          headers: expect.objectContaining({ Authorization: `Bearer ${TOKEN}` }),
-        })
-      );
+    await fetchGarminActivityFromCallback({
+      accessToken: TOKEN,
+      summaryId: SUMMARY_ID,
+      callbackURL: CALLBACK_URL,
     });
 
-    it('falls back to an upload window on the activityDetails endpoint', async () => {
-      mockFetch.mockResolvedValue(ok([detailsFor(SUMMARY_ID)]));
-
-      await fetchGarminActivityDetails({
-        accessToken: TOKEN,
-        summaryId: SUMMARY_ID,
-        uploadTimestampInSeconds: 1_700_000_000,
-        apiBase: API_BASE,
-      });
-
-      const [url] = mockFetch.mock.calls[0];
-      // Details, never /rest/activities. The summary endpoint is what carried
-      // no samples and left every Garmin ride without a map.
-      expect(url).toContain('/rest/activityDetails');
-      expect(url).toContain('uploadStartTimeInSeconds=1699999940');
-      expect(url).toContain('uploadEndTimeInSeconds=1700000060');
-    });
-
-    // Fabricating a window with nothing to anchor it to is the unprompted pull
-    // the Connect Developer Program forbids.
-    it('declines to fetch when neither a callbackURL nor a timestamp is known', async () => {
-      const result = await fetchGarminActivityDetails({
-        accessToken: TOKEN,
-        summaryId: SUMMARY_ID,
-        apiBase: API_BASE,
-      });
-
-      expect(result).toBeNull();
-      expect(mockFetch).not.toHaveBeenCalled();
-    });
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockFetch).toHaveBeenCalledWith(
+      CALLBACK_URL,
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: `Bearer ${TOKEN}` }),
+      })
+    );
   });
 
-  describe('matching', () => {
-    it('returns the entry whose summaryId matches', async () => {
-      mockFetch.mockResolvedValue(
-        ok([detailsFor('1111111111'), detailsFor(SUMMARY_ID, [{ latitudeInDegree: 48.75 }])])
-      );
-
-      const result = await fetchGarminActivityDetails({
-        accessToken: TOKEN,
-        summaryId: SUMMARY_ID,
-        callbackURL: 'https://garmin.test/callback/xyz',
-      });
-
-      expect(result?.summaryId).toBe(SUMMARY_ID);
-      expect(result?.samples).toEqual([{ latitudeInDegree: 48.75 }]);
+  // Defence in depth. The webhook already screens the URL, but this function
+  // attaches a live Garmin bearer token, so it must refuse on its own rather
+  // than trusting that every future caller screened its input.
+  it('refuses to send the token to a non-Garmin origin', async () => {
+    const result = await fetchGarminActivityFromCallback({
+      accessToken: TOKEN,
+      summaryId: SUMMARY_ID,
+      callbackURL: 'https://attacker.example/steal',
     });
 
-    // Garmin suffixes the details id for some activity kinds.
-    it('matches a details id that carries a suffix', async () => {
-      mockFetch.mockResolvedValue(ok([detailsFor(`${SUMMARY_ID}-detail`)]));
+    expect(result).toBeNull();
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
 
-      const result = await fetchGarminActivityDetails({
-        accessToken: TOKEN,
-        summaryId: SUMMARY_ID,
-        callbackURL: 'https://garmin.test/callback/xyz',
-      });
+  // An allowed origin must not be able to bounce the request, and its token,
+  // somewhere else.
+  it('refuses to follow redirects', async () => {
+    mockFetch.mockResolvedValue(ok([entry(SUMMARY_ID)]));
 
-      expect(result?.summaryId).toBe(`${SUMMARY_ID}-detail`);
+    await fetchGarminActivityFromCallback({
+      accessToken: TOKEN,
+      summaryId: SUMMARY_ID,
+      callbackURL: CALLBACK_URL,
     });
 
-    it('tolerates a bare object instead of an array', async () => {
-      mockFetch.mockResolvedValue(ok(detailsFor(SUMMARY_ID)));
+    expect(mockFetch).toHaveBeenCalledWith(
+      CALLBACK_URL,
+      expect.objectContaining({ redirect: 'error' })
+    );
+  });
 
-      const result = await fetchGarminActivityDetails({
-        accessToken: TOKEN,
-        summaryId: SUMMARY_ID,
-        callbackURL: 'https://garmin.test/callback/xyz',
-      });
+  it('returns the entry whose summaryId matches', async () => {
+    mockFetch.mockResolvedValue(
+      ok([entry('1111111111'), entry(SUMMARY_ID, [{ latitudeInDegree: 48.75 }])])
+    );
 
-      expect(result?.summaryId).toBe(SUMMARY_ID);
+    const result = await fetchGarminActivityFromCallback({
+      accessToken: TOKEN,
+      summaryId: SUMMARY_ID,
+      callbackURL: CALLBACK_URL,
     });
 
-    // A window pull can legitimately return several activities. Attaching
-    // another ride's GPS to this one is far worse than showing no map.
-    it('returns null rather than guessing when nothing matches', async () => {
-      mockFetch.mockResolvedValue(ok([detailsFor('2222222222'), detailsFor('3333333333')]));
+    expect(result?.summaryId).toBe(SUMMARY_ID);
+    expect(result?.samples).toEqual([{ latitudeInDegree: 48.75 }]);
+  });
 
-      const result = await fetchGarminActivityDetails({
-        accessToken: TOKEN,
-        summaryId: SUMMARY_ID,
-        uploadTimestampInSeconds: 1_700_000_000,
-      });
+  // One prompted request has to yield both the stats and the track, otherwise
+  // we are back to needing a second call that verification would flag.
+  it('flattens a nested details payload so stats and samples arrive together', async () => {
+    mockFetch.mockResolvedValue(
+      ok([
+        {
+          summaryId: SUMMARY_ID,
+          samples: [{ latitudeInDegree: 48.75 }],
+          summary: { activityType: 'MOUNTAIN_BIKING', durationInSeconds: 5340 },
+        },
+      ])
+    );
 
-      expect(result).toBeNull();
+    const result = await fetchGarminActivityFromCallback({
+      accessToken: TOKEN,
+      summaryId: SUMMARY_ID,
+      callbackURL: CALLBACK_URL,
     });
+
+    expect(result?.activityType).toBe('MOUNTAIN_BIKING');
+    expect(result?.durationInSeconds).toBe(5340);
+    expect(result?.samples).toEqual([{ latitudeInDegree: 48.75 }]);
+  });
+
+  // Garmin suffixes the details id for some activity kinds.
+  it('matches a details id that carries a suffix', async () => {
+    mockFetch.mockResolvedValue(ok([entry(`${SUMMARY_ID}-detail`)]));
+
+    const result = await fetchGarminActivityFromCallback({
+      accessToken: TOKEN,
+      summaryId: SUMMARY_ID,
+      callbackURL: CALLBACK_URL,
+    });
+
+    expect(result?.summaryId).toBe(`${SUMMARY_ID}-detail`);
+  });
+
+  it('tolerates a bare object instead of an array', async () => {
+    mockFetch.mockResolvedValue(ok(entry(SUMMARY_ID)));
+
+    const result = await fetchGarminActivityFromCallback({
+      accessToken: TOKEN,
+      summaryId: SUMMARY_ID,
+      callbackURL: CALLBACK_URL,
+    });
+
+    expect(result?.summaryId).toBe(SUMMARY_ID);
+  });
+
+  // A callbackURL covers an upload window and can carry several activities.
+  // Attaching another ride's data to this one is worse than importing nothing.
+  it('returns null rather than guessing when nothing matches', async () => {
+    mockFetch.mockResolvedValue(ok([entry('2222222222'), entry('3333333333')]));
+
+    const result = await fetchGarminActivityFromCallback({
+      accessToken: TOKEN,
+      summaryId: SUMMARY_ID,
+      callbackURL: CALLBACK_URL,
+    });
+
+    expect(result).toBeNull();
   });
 
   describe('failure handling', () => {
-    // By the time this runs the ride and its component hours are committed.
-    // Losing a track costs a map; throwing would cost the ride.
     it('returns null on a non-ok response instead of throwing', async () => {
       mockFetch.mockResolvedValue({
         ok: false,
@@ -196,10 +215,10 @@ describe('fetchGarminActivityDetails', () => {
       });
 
       await expect(
-        fetchGarminActivityDetails({
+        fetchGarminActivityFromCallback({
           accessToken: TOKEN,
           summaryId: SUMMARY_ID,
-          callbackURL: 'https://garmin.test/callback/xyz',
+          callbackURL: CALLBACK_URL,
         })
       ).resolves.toBeNull();
     });
@@ -208,10 +227,10 @@ describe('fetchGarminActivityDetails', () => {
       mockFetch.mockRejectedValue(new Error('socket hang up'));
 
       await expect(
-        fetchGarminActivityDetails({
+        fetchGarminActivityFromCallback({
           accessToken: TOKEN,
           summaryId: SUMMARY_ID,
-          callbackURL: 'https://garmin.test/callback/xyz',
+          callbackURL: CALLBACK_URL,
         })
       ).resolves.toBeNull();
     });
@@ -227,10 +246,10 @@ describe('fetchGarminActivityDetails', () => {
       });
 
       await expect(
-        fetchGarminActivityDetails({
+        fetchGarminActivityFromCallback({
           accessToken: TOKEN,
           summaryId: SUMMARY_ID,
-          callbackURL: 'https://garmin.test/callback/xyz',
+          callbackURL: CALLBACK_URL,
         })
       ).resolves.toBeNull();
     });

@@ -487,16 +487,15 @@ describe('Garmin Webhooks', () => {
           userId: 'internal-user-123',
           provider: 'garmin',
           activityId: 'summary-456',
-          detailsCallbackURL: undefined,
-          uploadTimestampInSeconds: 1706123456,
+          callbackURL: undefined,
         });
       });
 
-      // The GPS samples that draw the ride map exist only on Garmin's
-      // activityDetails endpoint. Dropping the ping's pointers to it meant the
-      // worker re-pulled the summary, found no samples, and every Garmin ride
-      // came out with no track.
-      it('should forward the details callbackURL to the sync job', async () => {
+      // Following the ping's callbackURL is what makes the worker's request a
+      // PROMPTED pull in Garmin's Partner Verification and marks the ping
+      // answered. Dropping it meant the worker composed its own request, which
+      // failed both checks and left every Garmin ride without a track.
+      it('should forward the ping callbackURL to the sync job', async () => {
         (mockPrisma.userAccount.findUnique as jest.Mock).mockResolvedValue({
           userId: 'internal-user-123',
         });
@@ -520,8 +519,370 @@ describe('Garmin Webhooks', () => {
           userId: 'internal-user-123',
           provider: 'garmin',
           activityId: 'summary-456',
-          detailsCallbackURL: 'https://apis.garmin.com/wellness-api/rest/activityDetails?x=1',
-          uploadTimestampInSeconds: 1706123456,
+          callbackURL: 'https://apis.garmin.com/wellness-api/rest/activityDetails?x=1',
+        });
+      });
+
+      /**
+       * This endpoint has no signature verification, so every field in the body
+       * is attacker-controlled and `userId` is a guessable identifier rather
+       * than a secret. A callbackURL that reaches a fetch is handed the rider's
+       * live Garmin bearer token, so a forged notification pointing at an
+       * attacker host would exfiltrate that token and let the response be
+       * upserted into a real rider's history. None of these may reach a queue.
+       */
+      describe('forged callbackURL', () => {
+        const HOSTILE = 'https://attacker.example/steal';
+
+        beforeEach(() => {
+          (mockPrisma.userAccount.findUnique as jest.Mock).mockResolvedValue({
+            userId: 'internal-user-123',
+          });
+          mockEnqueueSyncJob.mockResolvedValue({ status: 'queued', jobId: 'job-1' });
+          mockEnqueueCallbackJob.mockResolvedValue({ status: 'queued', jobId: 'cb-1' });
+        });
+
+        it('does not queue a hostile URL from an activities delivery', async () => {
+          await request(app)
+            .post('/webhooks/garmin/activities-ping')
+            .send({ activities: [{ userId: 'garmin-user-123', callbackURL: HOSTILE }] });
+
+          await new Promise(resolve => setImmediate(resolve));
+
+          expect(mockEnqueueCallbackJob).not.toHaveBeenCalled();
+        });
+
+        it('does not queue a hostile URL from a details backfill callback', async () => {
+          await request(app)
+            .post('/webhooks/garmin/activities-ping')
+            .send({ activityDetails: [{ userId: 'garmin-user-123', callbackURL: HOSTILE }] });
+
+          await new Promise(resolve => setImmediate(resolve));
+
+          expect(mockEnqueueCallbackJob).not.toHaveBeenCalled();
+        });
+
+        // The activity is still worth importing; only the URL is untrusted. It
+        // is stripped so the worker cannot be instructed to fetch it.
+        it('strips a hostile URL but still syncs the named activity', async () => {
+          await request(app)
+            .post('/webhooks/garmin/activities-ping')
+            .send({
+              activityDetails: [
+                {
+                  userId: 'garmin-user-123',
+                  summaryId: 'summary-456',
+                  uploadTimestampInSeconds: 1706123456,
+                  callbackURL: HOSTILE,
+                },
+              ],
+            });
+
+          await new Promise(resolve => setImmediate(resolve));
+
+          expect(mockEnqueueSyncJob).toHaveBeenCalledWith('syncActivity', {
+            userId: 'internal-user-123',
+            provider: 'garmin',
+            activityId: 'summary-456',
+            callbackURL: undefined,
+          });
+        });
+
+        it('still forwards a genuine Garmin callbackURL', async () => {
+          const genuine = 'https://apis.garmin.com/wellness-api/rest/activityDetails?x=1';
+
+          await request(app)
+            .post('/webhooks/garmin/activities-ping')
+            .send({
+              activityDetails: [
+                { userId: 'garmin-user-123', summaryId: 'summary-456', callbackURL: genuine },
+              ],
+            });
+
+          await new Promise(resolve => setImmediate(resolve));
+
+          expect(mockEnqueueSyncJob).toHaveBeenCalledWith(
+            'syncActivity',
+            expect.objectContaining({ callbackURL: genuine })
+          );
+        });
+      });
+
+      /**
+       * PUSH is the mode the integration targets: Garmin sends the activity
+       * itself and expects no answer, so there is no request that Partner
+       * Verification can score as an unprompted pull and no ping left
+       * unanswered.
+       */
+      describe('PUSH deliveries', () => {
+        const PUSHED_RIDE = {
+          userId: 'garmin-user-123',
+          summaryId: 'summary-456',
+          activityType: 'MOUNTAIN_BIKING',
+          startTimeInSeconds: 1706123456,
+          durationInSeconds: 5340,
+          distanceInMeters: 8368,
+          samples: [{ latitudeInDegree: 48.75, longitudeInDegree: -122.48 }],
+        };
+
+        beforeEach(() => {
+          (mockPrisma.userAccount.findUnique as jest.Mock).mockResolvedValue({
+            userId: 'internal-user-123',
+          });
+          mockEnqueueSyncJob.mockResolvedValue({ status: 'queued', jobId: 'job-1' });
+        });
+
+        it('carries a pushed activity to the worker instead of fetching it', async () => {
+          await request(app)
+            .post('/webhooks/garmin/activities-ping')
+            .send({ activityDetails: [PUSHED_RIDE] });
+
+          await new Promise(resolve => setImmediate(resolve));
+
+          expect(mockEnqueueSyncJob).toHaveBeenCalledWith('syncActivity', {
+            userId: 'internal-user-123',
+            provider: 'garmin',
+            activityId: 'summary-456',
+            pushedActivity: expect.objectContaining({
+              summaryId: 'summary-456',
+              samples: PUSHED_RIDE.samples,
+            }),
+          });
+          // No callbackURL means nothing to follow, and nothing was queued for
+          // the callback processor either.
+          expect(mockEnqueueCallbackJob).not.toHaveBeenCalled();
+        });
+
+        /**
+         * The job lands in Redis in plaintext and this body is
+         * unauthenticated, so nothing beyond the activity fields may ride
+         * along. Garmin itself sends userAccessToken here: a credential the
+         * integration never uses, keeps out of logs, and encrypts at rest
+         * everywhere else.
+         */
+        it('never queues the access token or any other unlisted field', async () => {
+          await request(app)
+            .post('/webhooks/garmin/activities-ping')
+            .send({
+              activityDetails: [
+                {
+                  ...PUSHED_RIDE,
+                  userAccessToken: 'a-real-garmin-token',
+                  somethingNobodyAskedFor: 'x'.repeat(1000),
+                },
+              ],
+            });
+
+          await new Promise(resolve => setImmediate(resolve));
+
+          const queued = mockEnqueueSyncJob.mock.calls[0][1] as { pushedActivity: object };
+          expect(queued.pushedActivity).not.toHaveProperty('userAccessToken');
+          expect(queued.pushedActivity).not.toHaveProperty('somethingNobodyAskedFor');
+          expect(queued.pushedActivity).not.toHaveProperty('userId');
+          // The ride itself still made it through intact.
+          expect(queued.pushedActivity).toMatchObject({
+            summaryId: 'summary-456',
+            activityType: 'MOUNTAIN_BIKING',
+            durationInSeconds: 5340,
+            samples: PUSHED_RIDE.samples,
+          });
+        });
+
+        // An activityDetails push nests its stats under `summary`; everything
+        // downstream reads the flat shape.
+        it('flattens a nested details push before queueing it', async () => {
+          await request(app)
+            .post('/webhooks/garmin/activities-ping')
+            .send({
+              activityDetails: [
+                {
+                  userId: 'garmin-user-123',
+                  summaryId: 'summary-456',
+                  samples: PUSHED_RIDE.samples,
+                  summary: {
+                    activityType: 'MOUNTAIN_BIKING',
+                    startTimeInSeconds: 1706123456,
+                    durationInSeconds: 5340,
+                  },
+                },
+              ],
+            });
+
+          await new Promise(resolve => setImmediate(resolve));
+
+          expect(mockEnqueueSyncJob).toHaveBeenCalledWith(
+            'syncActivity',
+            expect.objectContaining({
+              pushedActivity: expect.objectContaining({
+                activityType: 'MOUNTAIN_BIKING',
+                durationInSeconds: 5340,
+                samples: PUSHED_RIDE.samples,
+              }),
+            })
+          );
+        });
+
+        // The activities summary type can be pushed too, not just pinged.
+        it('handles a push on the activities key', async () => {
+          await request(app)
+            .post('/webhooks/garmin/activities-ping')
+            .send({ activities: [PUSHED_RIDE] });
+
+          await new Promise(resolve => setImmediate(resolve));
+
+          expect(mockEnqueueSyncJob).toHaveBeenCalledWith(
+            'syncActivity',
+            expect.objectContaining({ activityId: 'summary-456' })
+          );
+          expect(mockEnqueueCallbackJob).not.toHaveBeenCalled();
+        });
+
+        // A pushed payload carries its samples. Queueing a run's worth of them
+        // just to discard them on the worker would put megabytes through Redis
+        // for nothing.
+        it('drops a non-cycling push without queueing its samples', async () => {
+          await request(app)
+            .post('/webhooks/garmin/activities-ping')
+            .send({
+              activityDetails: [{ ...PUSHED_RIDE, activityType: 'RUNNING' }],
+            });
+
+          await new Promise(resolve => setImmediate(resolve));
+
+          expect(mockEnqueueSyncJob).not.toHaveBeenCalled();
+        });
+
+        /**
+         * The one misclassification that would reproduce the original bug: a
+         * notification read as a push is never followed, so its ping is scored
+         * unanswered again. Some Garmin notifications carry summary metadata,
+         * and the live ping shape has not been observed, so a URL to follow
+         * always wins over data that happens to be present.
+         */
+        it('follows the URL when a delivery carries both a callbackURL and data', async () => {
+          const genuine = 'https://apis.garmin.com/wellness-api/rest/activityDetails?x=1';
+
+          await request(app)
+            .post('/webhooks/garmin/activities-ping')
+            .send({
+              activityDetails: [{ ...PUSHED_RIDE, callbackURL: genuine }],
+            });
+
+          await new Promise(resolve => setImmediate(resolve));
+
+          // Routed as a notification: the URL rides along and nothing was
+          // treated as already-in-hand.
+          expect(mockEnqueueSyncJob).toHaveBeenCalledWith('syncActivity', {
+            userId: 'internal-user-123',
+            provider: 'garmin',
+            activityId: 'summary-456',
+            callbackURL: genuine,
+          });
+          expect(mockEnqueueSyncJob).not.toHaveBeenCalledWith(
+            'syncActivity',
+            expect.objectContaining({ pushedActivity: expect.anything() })
+          );
+        });
+
+        // That shape means the live ping differs from what this was written
+        // against, which is worth noticing rather than inferring from a drop in
+        // ride counts.
+        it('warns when a delivery is shaped like neither mode', async () => {
+          await request(app)
+            .post('/webhooks/garmin/activities-ping')
+            .send({
+              activityDetails: [
+                {
+                  ...PUSHED_RIDE,
+                  callbackURL: 'https://apis.garmin.com/wellness-api/rest/activityDetails?x=1',
+                },
+              ],
+            });
+
+          await new Promise(resolve => setImmediate(resolve));
+
+          expect(mockLogger.warn).toHaveBeenCalledWith(
+            expect.objectContaining({ event: 'garmin_delivery_shape_ambiguous' }),
+            expect.stringContaining('following the URL')
+          );
+        });
+
+        // Notifications must still route to the callbackURL paths untouched.
+        it('leaves a ping notification to the notification path', async () => {
+          await request(app)
+            .post('/webhooks/garmin/activities-ping')
+            .send({
+              activityDetails: [
+                {
+                  userId: 'garmin-user-123',
+                  userAccessToken: 'token-xyz',
+                  summaryId: 'summary-456',
+                  uploadTimestampInSeconds: 1706123456,
+                  callbackURL: 'https://apis.garmin.com/wellness-api/rest/activities?x=1',
+                },
+              ],
+            });
+
+          await new Promise(resolve => setImmediate(resolve));
+
+          expect(mockEnqueueSyncJob).toHaveBeenCalledWith('syncActivity', {
+            userId: 'internal-user-123',
+            provider: 'garmin',
+            activityId: 'summary-456',
+            callbackURL: 'https://apis.garmin.com/wellness-api/rest/activities?x=1',
+          });
+        });
+
+        // Before this, such a delivery enqueued a callback job with no URL,
+        // which the worker rejected as a malformed backfill job.
+        it('skips an activities delivery with neither payload nor callbackURL', async () => {
+          await request(app)
+            .post('/webhooks/garmin/activities-ping')
+            .send({ activities: [{ userId: 'garmin-user-123' }] });
+
+          await new Promise(resolve => setImmediate(resolve));
+
+          expect(mockEnqueueCallbackJob).not.toHaveBeenCalled();
+          expect(mockEnqueueSyncJob).not.toHaveBeenCalled();
+        });
+
+        /**
+         * The same hole on the sibling branch. It enqueued a job with
+         * activityId undefined, which the worker rejected from inside a
+         * fire-and-forget promise where the throw never reached this handler.
+         * Worse, buildSyncJobId falls back to `syncActivity_garmin_<userId>`
+         * without an activityId, so the first such entry poisoned that id and
+         * every later one came back 'already_queued' and vanished.
+         */
+        it('skips an activityDetails delivery naming no activity', async () => {
+          await request(app)
+            .post('/webhooks/garmin/activities-ping')
+            .send({ activityDetails: [{ userId: 'garmin-user-123' }] });
+
+          await new Promise(resolve => setImmediate(resolve));
+
+          expect(mockEnqueueSyncJob).not.toHaveBeenCalled();
+          expect(mockEnqueueCallbackJob).not.toHaveBeenCalled();
+        });
+
+        // A summaryId with no callbackURL is still a legitimate notification:
+        // the worker can compose a request for that one activity. Only the
+        // entry naming nothing at all is dropped.
+        it('still enqueues a bare summaryId notification', async () => {
+          await request(app)
+            .post('/webhooks/garmin/activities-ping')
+            .send({
+              activityDetails: [{ userId: 'garmin-user-123', summaryId: 'summary-456' }],
+            });
+
+          await new Promise(resolve => setImmediate(resolve));
+
+          expect(mockEnqueueSyncJob).toHaveBeenCalledWith('syncActivity', {
+            userId: 'internal-user-123',
+            provider: 'garmin',
+            activityId: 'summary-456',
+            callbackURL: undefined,
+          });
         });
       });
 
