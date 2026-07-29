@@ -251,6 +251,8 @@ r.post<Empty, void, { userPermissionsChange?: Array<{
  * Garmin sends TWO different payload formats:
  * 1. activityDetails: [{ userId, summaryId, userAccessToken, ... }]
  * 2. activities: [{ userId, callbackURL }] - used for backfill responses
+ * 3. manuallyUpdatedActivities: [...] - same shape as (2); the rider edited an
+ *    activity in Garmin Connect after it synced
  *
  * DESIGN NOTE: Fire-and-Forget Pattern
  * We respond with 200 OK immediately (Garmin requires response within 30 seconds)
@@ -301,6 +303,20 @@ type GarminPingPayload = {
   summaryType?: string;
   activityDetails?: GarminActivityPing[];
   activities?: GarminActivityCallback[];
+  /**
+   * Garmin's "Manually Updated Activities" summary type: the rider edited an
+   * activity in Garmin Connect after it synced. Same payload shape as
+   * `activities`, and handled identically, because the ingest path upserts on
+   * garminActivityId and syncBikeComponentHours diffs the previous ride
+   * against the new one. A corrected duration therefore adjusts the component
+   * hours it already credited rather than double-counting.
+   *
+   * Before this key was recognised the handler fell through to its "neither
+   * format matched" branch and answered 400, which Garmin counts as a failed
+   * delivery. Enabling the endpoint in the portal without this would have
+   * failed every notification it sent.
+   */
+  manuallyUpdatedActivities?: GarminActivityCallback[];
 };
 
 /** What handlePushedActivity decided to do with one delivery entry. */
@@ -320,9 +336,12 @@ type PushOutcome =
  * The payload is flattened first because an activityDetails push nests its
  * stats under `summary`, and everything downstream reads the flat shape.
  *
- * Non-cycling activities are dropped here rather than on the worker. A pushed
- * payload carries its samples, and queueing a marathon's worth of them just to
- * discard them on the other side would put megabytes through Redis for nothing.
+ * Non-cycling activities still go through, because a rider can retype a ride to
+ * something else in Garmin Connect and the worker is what removes the ride we
+ * already stored. Their samples do not: a track is only ever read for a ride we
+ * keep, and queueing a marathon's worth of points in order to delete a row
+ * would put megabytes through Redis for nothing. Stripping them preserves the
+ * reason these used to be dropped outright.
  *
  * Returns `{ handled: false }` when the entry is a notification, so the caller
  * can fall through to the callbackURL paths unchanged.
@@ -365,23 +384,19 @@ async function handlePushedActivity(
     return { handled: true, status: 'skipped', reason: 'no_summary_id' };
   }
 
-  if (!isGarminCyclingActivity(entry.activityType)) {
-    logger.debug(
-      { requestId, summaryId, activityType: entry.activityType },
-      '[Garmin PUSH] Skipping non-cycling pushed activity'
-    );
-    return { handled: true, status: 'skipped', summaryId, reason: 'not_cycling' };
-  }
+  const isCycling = isGarminCyclingActivity(entry.activityType);
 
   // Projected onto the fields the ingest path reads, never queued raw. This
   // body is unauthenticated and the job lands in Redis in plaintext, and Garmin
   // sends `userAccessToken` in it: a credential we never use, keep out of logs,
   // and encrypt at rest everywhere else.
+  const activityForJob = pickGarminActivityFields(entry);
+  if (!isCycling) delete activityForJob.samples;
   const result = await enqueueSyncJob('syncActivity', {
     userId: internalUserId,
     provider: 'garmin',
     activityId: summaryId,
-    pushedActivity: pickGarminActivityFields(entry),
+    pushedActivity: activityForJob,
   });
 
   logger.info(
@@ -391,7 +406,8 @@ async function handlePushedActivity(
       jobId: result.jobId,
       summaryId,
       userId: internalUserId,
-      hasSamples: Array.isArray(entry.samples) && entry.samples.length > 0,
+      hasSamples: Array.isArray(activityForJob.samples) && activityForJob.samples.length > 0,
+      isCycling,
       status: result.status,
     },
     '[Garmin PUSH] Enqueued sync job from pushed activity'
@@ -410,7 +426,16 @@ r.post<Empty, void, GarminPingPayload>(
     logger.debug({ requestId, headers: req.headers, body: req.body }, '[Garmin PING Webhook] Incoming request');
 
     try {
-      const { requestType, summaryType, activityDetails, activities } = req.body;
+      const { requestType, summaryType, activityDetails, activities, manuallyUpdatedActivities } =
+        req.body;
+
+      // Edits arrive under their own key but are the same shape as a first
+      // delivery, and the upsert behind them is already idempotent, so they
+      // ride the same path rather than a parallel one that could drift.
+      const activityDeliveries = [
+        ...(Array.isArray(activities) ? activities : []),
+        ...(Array.isArray(manuallyUpdatedActivities) ? manuallyUpdatedActivities : []),
+      ];
 
       // Handle explicit ping requests - acknowledge immediately with no side effects
       if (requestType === 'ping') {
@@ -438,12 +463,16 @@ r.post<Empty, void, GarminPingPayload>(
         });
       }
 
-      // Handle the "activities" format with callbackURL (used for backfill)
-      if (activities && Array.isArray(activities) && activities.length > 0) {
+      // Handle the "activities" format with callbackURL (used for backfill),
+      // and manually updated activities, which are the same shape.
+      if (activityDeliveries.length > 0) {
         logger.info({
           event: 'garmin_callback_received',
           requestId,
-          count: activities.length,
+          count: activityDeliveries.length,
+          manuallyUpdatedCount: Array.isArray(manuallyUpdatedActivities)
+            ? manuallyUpdatedActivities.length
+            : 0,
         }, '[Garmin PING] Received callback notification(s)');
 
         // IMPORTANT: Respond with 200 OK immediately (Garmin requires this within 30 seconds)
@@ -451,7 +480,7 @@ r.post<Empty, void, GarminPingPayload>(
 
         // Fire-and-forget: Enqueue jobs for background processing
         // Using Promise.allSettled to not block on any failures
-        const enqueuePromises = activities.map(async (notification) => {
+        const enqueuePromises = activityDeliveries.map(async (notification) => {
           const { userId: garminUserId, callbackURL } = notification;
 
           // Fast indexed lookup for internal userId
