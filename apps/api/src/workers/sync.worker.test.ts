@@ -53,7 +53,7 @@ jest.mock('../lib/garmin-token', () => ({
 }));
 
 jest.mock('../lib/garmin-activity-details', () => ({
-  fetchGarminActivityDetails: jest.fn().mockResolvedValue(null),
+  fetchGarminActivityFromCallback: jest.fn().mockResolvedValue(null),
 }));
 
 jest.mock('../lib/ride-stream-store', () => ({
@@ -99,7 +99,8 @@ import { acquireLock, releaseLock } from '../lib/rate-limit';
 import { prisma } from '../lib/prisma';
 import { getValidStravaToken } from '../lib/strava-token';
 import { getValidGarminToken } from '../lib/garmin-token';
-import { fetchGarminActivityDetails } from '../lib/garmin-activity-details';
+import { fetchGarminActivityFromCallback } from '../lib/garmin-activity-details';
+import { config } from '../config/env';
 import { persistGarminStream } from '../lib/ride-stream-store';
 import { getValidWhoopToken } from '../lib/whoop-token';
 import { getValidSuuntoToken } from '../lib/suunto-token';
@@ -111,9 +112,11 @@ const mockPrisma = prisma as jest.Mocked<typeof prisma>;
 const mockGetValidStravaToken = getValidStravaToken as jest.MockedFunction<typeof getValidStravaToken>;
 const mockGetValidWhoopToken = getValidWhoopToken as jest.MockedFunction<typeof getValidWhoopToken>;
 const mockGetValidGarminToken = getValidGarminToken as jest.MockedFunction<typeof getValidGarminToken>;
-const mockFetchGarminActivityDetails = fetchGarminActivityDetails as jest.MockedFunction<
-  typeof fetchGarminActivityDetails
+const mockFetchFromCallback = fetchGarminActivityFromCallback as jest.MockedFunction<
+  typeof fetchGarminActivityFromCallback
 >;
+// Mutable so the verification-mode cases can flip it; reset in beforeEach.
+const mockConfig = config as unknown as { garminVerificationMode: boolean };
 const mockPersistGarminStream = persistGarminStream as jest.MockedFunction<
   typeof persistGarminStream
 >;
@@ -208,6 +211,9 @@ describe('processSyncJob (via worker processor)', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    // config is a module singleton, so a case that flips this would otherwise
+    // leak into every later describe.
+    mockConfig.garminVerificationMode = false;
 
     MockedWorker.mockImplementation((queueName, processor) => {
       processSyncJob = processor as typeof processSyncJob;
@@ -779,9 +785,10 @@ describe('processSyncJob (via worker processor)', () => {
           redisAvailable: true,
         });
         mockGetValidGarminToken.mockResolvedValue('valid-garmin-token');
-        // Fresh copy per call: the worker merges samples onto the object it
-        // parsed, and handing back one shared literal would let one test's
-        // merge leak into the next.
+        mockConfig.garminVerificationMode = false;
+        mockFetchFromCallback.mockResolvedValue(null);
+        // Fresh copy per call: the worker mutates the object it parsed, and
+        // handing back one shared literal would let one test leak into the next.
         mockFetch.mockResolvedValue({
           ok: true,
           json: () => Promise.resolve({ ...GARMIN_SUMMARY }),
@@ -795,33 +802,34 @@ describe('processSyncJob (via worker processor)', () => {
         });
       });
 
-      it('fetches Activity Details using the callbackURL from the ping', async () => {
+      const CALLBACK_URL = 'https://apis.garmin.com/wellness-api/rest/activityDetails?x=1';
+
+      // Garmin's Partner Verification counts a pull as prompted only when it
+      // matches a callbackURL Garmin issued, and counts a ping we did not
+      // follow as unanswered. Composing our own request fails both checks at
+      // once, which is what the verification dashboard was reporting.
+      it('answers the ping by following its callbackURL', async () => {
+        mockFetchFromCallback.mockResolvedValueOnce({ ...GARMIN_SUMMARY });
+
         await processSyncJob({
           name: 'syncActivity',
           data: {
             userId: 'user123',
             provider: 'garmin',
             activityId: 'summary-456',
-            detailsCallbackURL: 'https://apis.garmin.com/wellness-api/rest/activityDetails?x=1',
-            uploadTimestampInSeconds: 1706123456,
+            callbackURL: CALLBACK_URL,
           },
         });
 
-        expect(mockFetchGarminActivityDetails).toHaveBeenCalledWith(
-          expect.objectContaining({
-            accessToken: 'valid-garmin-token',
-            summaryId: 'summary-456',
-            callbackURL: 'https://apis.garmin.com/wellness-api/rest/activityDetails?x=1',
-          })
-        );
+        expect(mockFetchFromCallback).toHaveBeenCalledWith({
+          accessToken: 'valid-garmin-token',
+          summaryId: 'summary-456',
+          callbackURL: CALLBACK_URL,
+        });
       });
 
-      it('merges the fetched samples onto the activity so the stream can be stored', async () => {
-        const samples = [{ latitudeInDegree: 48.75, longitudeInDegree: -122.48 }];
-        mockFetchGarminActivityDetails.mockResolvedValueOnce({
-          summaryId: 'summary-456',
-          samples,
-        });
+      it('makes no self-composed request when the callback answered', async () => {
+        mockFetchFromCallback.mockResolvedValueOnce({ ...GARMIN_SUMMARY });
 
         await processSyncJob({
           name: 'syncActivity',
@@ -829,7 +837,26 @@ describe('processSyncJob (via worker processor)', () => {
             userId: 'user123',
             provider: 'garmin',
             activityId: 'summary-456',
-            detailsCallbackURL: 'https://apis.garmin.com/wellness-api/rest/activityDetails?x=1',
+            callbackURL: CALLBACK_URL,
+          },
+        });
+
+        expect(mockFetch).not.toHaveBeenCalled();
+      });
+
+      // One prompted request has to carry the stats and the GPS together,
+      // otherwise the map needs a second call that verification would flag.
+      it('stores the track from the same payload it got the ride from', async () => {
+        const samples = [{ latitudeInDegree: 48.75, longitudeInDegree: -122.48 }];
+        mockFetchFromCallback.mockResolvedValueOnce({ ...GARMIN_SUMMARY, samples });
+
+        await processSyncJob({
+          name: 'syncActivity',
+          data: {
+            userId: 'user123',
+            provider: 'garmin',
+            activityId: 'summary-456',
+            callbackURL: CALLBACK_URL,
           },
         });
 
@@ -839,10 +866,24 @@ describe('processSyncJob (via worker processor)', () => {
         );
       });
 
-      // Indoor and trainer rides genuinely have no GPS. The ride still imports;
-      // it just has no track.
-      it('still upserts the ride when no details are available', async () => {
-        mockFetchGarminActivityDetails.mockResolvedValueOnce(null);
+      // A ping without a usable callbackURL leaves no prompted route to the
+      // data. The ride still imports, but the request is unprompted, so it is
+      // logged as such rather than passing silently.
+      it('falls back to a self-composed request when there is no callbackURL', async () => {
+        await processSyncJob({
+          name: 'syncActivity',
+          data: { userId: 'user123', provider: 'garmin', activityId: 'summary-456' },
+        });
+
+        expect(mockFetchFromCallback).not.toHaveBeenCalled();
+        expect(mockFetch).toHaveBeenCalledWith(
+          expect.stringContaining('/rest/activities/summary-456'),
+          expect.anything()
+        );
+      });
+
+      it('falls back the same way when the callback returns no match', async () => {
+        mockFetchFromCallback.mockResolvedValueOnce(null);
 
         await processSyncJob({
           name: 'syncActivity',
@@ -850,25 +891,50 @@ describe('processSyncJob (via worker processor)', () => {
             userId: 'user123',
             provider: 'garmin',
             activityId: 'summary-456',
-            detailsCallbackURL: 'https://apis.garmin.com/wellness-api/rest/activityDetails?x=1',
+            callbackURL: CALLBACK_URL,
           },
         });
 
-        expect(mockPersistGarminStream).toHaveBeenCalledWith(
-          expect.anything(),
-          expect.not.objectContaining({ samples: expect.anything() })
+        expect(mockFetch).toHaveBeenCalledWith(
+          expect.stringContaining('/rest/activities/summary-456'),
+          expect.anything()
         );
       });
 
-      // Nothing prompted a details pull, so making one would be exactly the
-      // unprompted request the Connect Developer Program forbids.
-      it('does not fetch details when the job carries no pointers', async () => {
+      // docs/garmin/ticket-reply.md tells Garmin that unprompted pulls are
+      // blocked behind this flag. Before this it guarded manual sync and
+      // syncGarminLatest but left the ping path wide open, so a reviewer
+      // running verification still saw unprompted pulls next to that claim.
+      it('refuses the unprompted fallback during verification mode', async () => {
+        mockConfig.garminVerificationMode = true;
+
         await processSyncJob({
           name: 'syncActivity',
           data: { userId: 'user123', provider: 'garmin', activityId: 'summary-456' },
         });
 
-        expect(mockFetchGarminActivityDetails).not.toHaveBeenCalled();
+        expect(mockFetch).not.toHaveBeenCalled();
+        expect(mockPrisma.ride.upsert).not.toHaveBeenCalled();
+      });
+
+      // Verification mode must not block the compliant path, or a reviewer sees
+      // no data flowing at all.
+      it('still follows the callbackURL during verification mode', async () => {
+        mockConfig.garminVerificationMode = true;
+        mockFetchFromCallback.mockResolvedValueOnce({ ...GARMIN_SUMMARY });
+
+        await processSyncJob({
+          name: 'syncActivity',
+          data: {
+            userId: 'user123',
+            provider: 'garmin',
+            activityId: 'summary-456',
+            callbackURL: CALLBACK_URL,
+          },
+        });
+
+        expect(mockFetchFromCallback).toHaveBeenCalled();
+        expect(mockPrisma.ride.upsert).toHaveBeenCalled();
       });
     });
 
