@@ -11,6 +11,7 @@ import { getValidSuuntoToken } from '../lib/suunto-token';
 import { deriveLocation, deriveLocationAsync, shouldApplyAutoLocation } from '../lib/location';
 import { extractGarminStartCoords } from '../lib/garmin-coords';
 import { persistGarminStream } from '../lib/ride-stream-store';
+import { fetchGarminActivityDetails } from '../lib/garmin-activity-details';
 import { syncBikeComponentHours } from '../lib/component-hours';
 import { invalidateBikePredictionsForBikes } from '../services/prediction/cache';
 import { logger } from '../lib/logger';
@@ -120,6 +121,10 @@ type GarminActivity = {
   // extractGarminStartCoords, which also tolerates legacy/misspelled variants.
   startingLatitudeInDegrees?: number;
   startingLongitudeInDegrees?: number;
+  // NOT returned by the summary endpoint. Merged in from Activity Details
+  // before the upsert, because persistGarminStream reads the track off this
+  // object. Absent for indoor/trainer rides, which genuinely have no GPS.
+  samples?: unknown;
   [key: string]: unknown;
 };
 
@@ -151,7 +156,10 @@ async function processSyncJob(job: Job<SyncJobData, void, SyncJobName>): Promise
         if (!job.data.activityId) {
           throw new Error('syncActivity requires activityId');
         }
-        await syncSingleActivity(userId, provider, job.data.activityId);
+        await syncSingleActivity(userId, provider, job.data.activityId, {
+          detailsCallbackURL: job.data.detailsCallbackURL,
+          uploadTimestampInSeconds: job.data.uploadTimestampInSeconds,
+        });
         break;
       default:
         throw new Error(`Unknown sync job type: ${jobName}`);
@@ -194,7 +202,9 @@ async function syncLatestActivities(userId: string, provider: SyncProvider): Pro
 async function syncSingleActivity(
   userId: string,
   provider: SyncProvider,
-  activityId: string
+  activityId: string,
+  /** Garmin-only pointers to the Activity Details payload; see GarminDetailsHint. */
+  garminDetails?: GarminDetailsHint
 ): Promise<void> {
   logger.info({ activityId, provider }, '[SyncWorker] Syncing single activity');
 
@@ -203,7 +213,7 @@ async function syncSingleActivity(
       await syncStravaActivity(userId, activityId);
       break;
     case 'garmin':
-      await syncGarminActivity(userId, activityId);
+      await syncGarminActivity(userId, activityId, garminDetails);
       break;
     case 'whoop':
       await syncWhoopActivity(userId, activityId);
@@ -483,7 +493,22 @@ async function syncGarminLatest(userId: string): Promise<void> {
   logger.info({ userId, count: cyclingActivities.length }, '[SyncWorker] Garmin sync complete');
 }
 
-async function syncGarminActivity(userId: string, activityId: string): Promise<void> {
+/**
+ * What the activityDetails ping told us about where to find this activity's
+ * GPS samples. Both fields are optional: an older queued job, or a ping shaped
+ * differently than expected, simply yields a ride with no track rather than a
+ * failure.
+ */
+type GarminDetailsHint = {
+  detailsCallbackURL?: string;
+  uploadTimestampInSeconds?: number;
+};
+
+async function syncGarminActivity(
+  userId: string,
+  activityId: string,
+  details?: GarminDetailsHint
+): Promise<void> {
   logger.info({
     event: 'garmin_pull_start',
     userId,
@@ -534,6 +559,24 @@ async function syncGarminActivity(userId: string, activityId: string): Promise<v
         activityType: activity.activityType,
       }, '[SyncWorker] Skipping non-cycling activity');
       return;
+    }
+
+    // The endpoint above is the Activity SUMMARY: stats, device, start coords,
+    // and no per-point data whatsoever. GPS lives only in Activity Details, so
+    // the samples have to be pulled separately and merged in before the ride is
+    // upserted, because persistGarminStream reads them off this same object. Skipped
+    // for non-cycling activities above, since we would only discard the result.
+    if (details?.detailsCallbackURL || details?.uploadTimestampInSeconds != null) {
+      const detailsPayload = await fetchGarminActivityDetails({
+        accessToken,
+        summaryId: activity.summaryId,
+        callbackURL: details.detailsCallbackURL,
+        uploadTimestampInSeconds: details.uploadTimestampInSeconds,
+        apiBase: config.garminApiBase,
+      });
+      if (detailsPayload?.samples) {
+        activity.samples = detailsPayload.samples;
+      }
     }
 
     await upsertGarminActivity(userId, activity);

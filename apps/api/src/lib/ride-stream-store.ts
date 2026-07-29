@@ -58,10 +58,12 @@ export async function deleteRideStreamsForProvider(
  * Store the per-point track for a Garmin activity, if its payload carried
  * Activity Details samples.
  *
- * Unlike Strava there is nothing to fetch — Garmin pushes samples with the
- * activity, or the ride simply has no track. Adding a pull path here would
- * also work against the Connect Developer Program's "PULL-ONLY requests not
- * allowed" requirement.
+ * The caller is responsible for putting them there. Garmin's Activity Summary
+ * endpoint carries no per-point data, so `samples` only exists on this object
+ * once the sync worker has merged in a fetch from `/rest/activityDetails` (see
+ * lib/garmin-activity-details). A ride reaching here with no samples is an
+ * indoor/trainer ride, or one whose details fetch failed. Either way it has no
+ * track and that is not an error.
  *
  * Deliberately swallows its own errors. By the time this runs the ride and its
  * component hours are committed and Garmin will not resend the activity, so

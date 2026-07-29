@@ -21,6 +21,16 @@ export type SyncJobData = {
   userId: string;
   provider: SyncProvider;
   activityId?: string; // For syncActivity jobs
+  /**
+   * Garmin only. The activityDetails callbackURL from the ping that triggered
+   * this job, forwarded so the worker can pull the GPS samples that the
+   * Activity Summary endpoint does not carry. Deliberately excluded from the
+   * job id (see buildSyncJobId): two pings for the same activity must still
+   * dedupe to one job.
+   */
+  detailsCallbackURL?: string;
+  /** Garmin only. Fallback for building a details window when no callbackURL came through. */
+  uploadTimestampInSeconds?: number;
 };
 
 let syncQueue: Queue<SyncJobData, void, SyncJobName> | null = null;

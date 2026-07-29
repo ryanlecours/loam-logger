@@ -262,6 +262,15 @@ type GarminActivityPing = {
   userAccessToken: string;
   summaryId: string;
   uploadTimestampInSeconds: number;
+  /**
+   * Present when Garmin pings for the activityDetails summary type. Points at
+   * `/rest/activityDetails` already scoped to the notified activities, so it is
+   * the shortest route to the `samples[]` array that draws the ride map. This
+   * was being dropped on the floor, which is why Garmin rides had no track: the
+   * worker re-pulled the *summary* endpoint instead, and summaries carry no
+   * per-point data.
+   */
+  callbackURL?: string;
   [key: string]: unknown;
 };
 
@@ -428,7 +437,12 @@ r.post<Empty, void, GarminPingPayload>(
 
         // Fire-and-forget: Enqueue jobs for background processing
         const enqueuePromises = activityDetails.map(async (notification) => {
-          const { userId: garminUserId, summaryId } = notification;
+          const {
+            userId: garminUserId,
+            summaryId,
+            callbackURL,
+            uploadTimestampInSeconds,
+          } = notification;
 
           // Fast indexed lookup for internal userId
           const userAccount = await prisma.userAccount.findUnique({
@@ -456,11 +470,38 @@ r.post<Empty, void, GarminPingPayload>(
             return { status: 'skipped', summaryId, reason: 'inactive_source' };
           }
 
-          // Enqueue sync job with deterministic ID for deduplication
+          // A backfill of activityDetails answers on this same key, but with a
+          // callbackURL and no summaryId. There is no single activity to name
+          // because the URL covers a whole window. Route those to the callback
+          // processor, which fetches the batch and upserts each entry. Without
+          // this they would enqueue a syncActivity job with no activityId,
+          // which the worker rejects outright.
+          if (!summaryId && callbackURL) {
+            const callbackResult = await enqueueCallbackJob({
+              userId: userAccount.userId,
+              provider: 'garmin',
+              callbackURL,
+            });
+            logger.info({
+              event: 'garmin_details_callback_enqueued',
+              requestId,
+              jobId: callbackResult.jobId,
+              userId: userAccount.userId,
+              status: callbackResult.status,
+            }, '[Garmin PING] Enqueued activityDetails callback job');
+            return { status: callbackResult.status, jobId: callbackResult.jobId };
+          }
+
+          // Enqueue sync job with deterministic ID for deduplication.
+          // The details pointers ride along so the worker can pull the GPS
+          // samples that only /rest/activityDetails carries. They are not part
+          // of the job id, so dedup still keys on the activity alone.
           const result = await enqueueSyncJob('syncActivity', {
             userId: userAccount.userId,
             provider: 'garmin',
             activityId: summaryId,
+            detailsCallbackURL: callbackURL,
+            uploadTimestampInSeconds,
           });
 
           logger.info({

@@ -13,7 +13,7 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import { logError, logger } from '../../lib/logger';
-import type { BikePredictionSummary } from '../prediction/types';
+import type { BikePredictionSummary, ComponentPrediction } from '../prediction/types';
 
 export const DEFAULT_ADVISOR_MODEL = 'claude-haiku-4-5-20251001';
 const MAX_TOKENS = 300;
@@ -103,8 +103,32 @@ export async function generateSummary(
   // these user-typed fields — that would leak rider-chosen strings into a
   // surface the original data-flow disclosure didn't cover. The PostHog
   // event in the resolver deliberately logs only metrics, never text.
+  //
+  // The engine reports overdue components as NEGATIVE hoursRemaining so the
+  // apps can render real overdue magnitude. The sign is dropped here, at the
+  // payload boundary, rather than in the prompt: SUMMARY_SYSTEM_PROMPT is a
+  // verbatim copy of the Python eval harness's string and cannot drift without
+  // landing the same change there, and a raw -42.3 in the payload invites the
+  // model to write "-42 hours remaining". The prompt already asks for overdue
+  // phrasing, which it derives from hoursSinceService and serviceIntervalHours
+  // without needing the negative. If the magnitude is ever wanted in the prose,
+  // add a derived hoursOverdue field and land the prompt line in
+  // loam-agent-evals first.
+  const dropSign = (c: ComponentPrediction): ComponentPrediction => ({
+    ...c,
+    hoursRemaining: Math.max(0, c.hoursRemaining),
+  });
+  // priorityComponent is a second copy of one of the components above and is
+  // serialized alongside them, so it needs the same treatment.
+  const advisorPredictions: BikePredictionSummary = {
+    ...predictions,
+    components: predictions.components.map(dropSign),
+    priorityComponent: predictions.priorityComponent
+      ? dropSign(predictions.priorityComponent)
+      : null,
+  };
   const userContent =
-    'Bike predictions payload:\n\n' + JSON.stringify(predictions, null, 2);
+    'Bike predictions payload:\n\n' + JSON.stringify(advisorPredictions, null, 2);
 
   const start = Date.now();
   try {

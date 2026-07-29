@@ -38,6 +38,8 @@ jest.mock('../lib/prisma', () => ({
     bike: { findMany: jest.fn() },
     ride: { findUnique: jest.fn(), upsert: jest.fn() },
     component: { updateMany: jest.fn() },
+    // The Garmin upsert path looks for a running import session to stamp.
+    importSession: { findFirst: jest.fn().mockResolvedValue(null), update: jest.fn() },
     $transaction: jest.fn(),
   },
 }));
@@ -48,6 +50,14 @@ jest.mock('../lib/strava-token', () => ({
 
 jest.mock('../lib/garmin-token', () => ({
   getValidGarminToken: jest.fn(),
+}));
+
+jest.mock('../lib/garmin-activity-details', () => ({
+  fetchGarminActivityDetails: jest.fn().mockResolvedValue(null),
+}));
+
+jest.mock('../lib/ride-stream-store', () => ({
+  persistGarminStream: jest.fn().mockResolvedValue(false),
 }));
 
 jest.mock('../lib/whoop-token', () => ({
@@ -68,6 +78,8 @@ jest.mock('../services/notification.service', () => ({
 
 jest.mock('../lib/location', () => ({
   deriveLocation: jest.fn().mockReturnValue('Derived Location'),
+  // The Garmin upsert path reverse-geocodes through the async variant.
+  deriveLocationAsync: jest.fn().mockResolvedValue('Derived Location'),
   shouldApplyAutoLocation: jest.fn().mockReturnValue(undefined),
 }));
 
@@ -87,6 +99,8 @@ import { acquireLock, releaseLock } from '../lib/rate-limit';
 import { prisma } from '../lib/prisma';
 import { getValidStravaToken } from '../lib/strava-token';
 import { getValidGarminToken } from '../lib/garmin-token';
+import { fetchGarminActivityDetails } from '../lib/garmin-activity-details';
+import { persistGarminStream } from '../lib/ride-stream-store';
 import { getValidWhoopToken } from '../lib/whoop-token';
 import { getValidSuuntoToken } from '../lib/suunto-token';
 
@@ -97,6 +111,12 @@ const mockPrisma = prisma as jest.Mocked<typeof prisma>;
 const mockGetValidStravaToken = getValidStravaToken as jest.MockedFunction<typeof getValidStravaToken>;
 const mockGetValidWhoopToken = getValidWhoopToken as jest.MockedFunction<typeof getValidWhoopToken>;
 const mockGetValidGarminToken = getValidGarminToken as jest.MockedFunction<typeof getValidGarminToken>;
+const mockFetchGarminActivityDetails = fetchGarminActivityDetails as jest.MockedFunction<
+  typeof fetchGarminActivityDetails
+>;
+const mockPersistGarminStream = persistGarminStream as jest.MockedFunction<
+  typeof persistGarminStream
+>;
 const mockGetValidSuuntoToken = getValidSuuntoToken as jest.MockedFunction<typeof getValidSuuntoToken>;
 const mockFetch = global.fetch as jest.MockedFunction<typeof fetch>;
 
@@ -731,7 +751,129 @@ describe('processSyncJob (via worker processor)', () => {
     });
   });
 
+    /**
+     * Regression pins for the bug that left every Garmin ride without a map.
+     *
+     * `/rest/activities` is the Activity SUMMARY: stats, device, start coords,
+     * and no per-point data at all. GPS lives only in Activity Details. The
+     * worker pulled the summary and handed it straight to persistGarminStream,
+     * which looks for `samples`, so the check always failed, no RideStream was
+     * ever written, and rideTrack resolved UNAVAILABLE for every Garmin ride.
+     */
+    describe('Garmin activity details', () => {
+      const GARMIN_SUMMARY = {
+        summaryId: 'summary-456',
+        activityType: 'MOUNTAIN_BIKING',
+        startTimeInSeconds: 1706123456,
+        durationInSeconds: 5340,
+        distanceInMeters: 8368,
+        startingLatitudeInDegrees: 48.75,
+        startingLongitudeInDegrees: -122.48,
+      };
+
+      beforeEach(() => {
+        mockAcquireLock.mockResolvedValue({
+          acquired: true,
+          lockKey: 'lock:garmin:user123',
+          lockValue: 'value123',
+          redisAvailable: true,
+        });
+        mockGetValidGarminToken.mockResolvedValue('valid-garmin-token');
+        // Fresh copy per call: the worker merges samples onto the object it
+        // parsed, and handing back one shared literal would let one test's
+        // merge leak into the next.
+        mockFetch.mockResolvedValue({
+          ok: true,
+          json: () => Promise.resolve({ ...GARMIN_SUMMARY }),
+        } as Response);
+        (mockPrisma.bike.findMany as jest.Mock).mockResolvedValue([]);
+        (mockPrisma.ride.findUnique as jest.Mock).mockResolvedValue(null);
+        (mockPrisma.ride.upsert as jest.Mock).mockResolvedValue({
+          id: 'ride-1',
+          bikeId: null,
+          durationSeconds: 5340,
+        });
+      });
+
+      it('fetches Activity Details using the callbackURL from the ping', async () => {
+        await processSyncJob({
+          name: 'syncActivity',
+          data: {
+            userId: 'user123',
+            provider: 'garmin',
+            activityId: 'summary-456',
+            detailsCallbackURL: 'https://apis.garmin.com/wellness-api/rest/activityDetails?x=1',
+            uploadTimestampInSeconds: 1706123456,
+          },
+        });
+
+        expect(mockFetchGarminActivityDetails).toHaveBeenCalledWith(
+          expect.objectContaining({
+            accessToken: 'valid-garmin-token',
+            summaryId: 'summary-456',
+            callbackURL: 'https://apis.garmin.com/wellness-api/rest/activityDetails?x=1',
+          })
+        );
+      });
+
+      it('merges the fetched samples onto the activity so the stream can be stored', async () => {
+        const samples = [{ latitudeInDegree: 48.75, longitudeInDegree: -122.48 }];
+        mockFetchGarminActivityDetails.mockResolvedValueOnce({
+          summaryId: 'summary-456',
+          samples,
+        });
+
+        await processSyncJob({
+          name: 'syncActivity',
+          data: {
+            userId: 'user123',
+            provider: 'garmin',
+            activityId: 'summary-456',
+            detailsCallbackURL: 'https://apis.garmin.com/wellness-api/rest/activityDetails?x=1',
+          },
+        });
+
+        expect(mockPersistGarminStream).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.objectContaining({ samples })
+        );
+      });
+
+      // Indoor and trainer rides genuinely have no GPS. The ride still imports;
+      // it just has no track.
+      it('still upserts the ride when no details are available', async () => {
+        mockFetchGarminActivityDetails.mockResolvedValueOnce(null);
+
+        await processSyncJob({
+          name: 'syncActivity',
+          data: {
+            userId: 'user123',
+            provider: 'garmin',
+            activityId: 'summary-456',
+            detailsCallbackURL: 'https://apis.garmin.com/wellness-api/rest/activityDetails?x=1',
+          },
+        });
+
+        expect(mockPersistGarminStream).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.not.objectContaining({ samples: expect.anything() })
+        );
+      });
+
+      // Nothing prompted a details pull, so making one would be exactly the
+      // unprompted request the Connect Developer Program forbids.
+      it('does not fetch details when the job carries no pointers', async () => {
+        await processSyncJob({
+          name: 'syncActivity',
+          data: { userId: 'user123', provider: 'garmin', activityId: 'summary-456' },
+        });
+
+        expect(mockFetchGarminActivityDetails).not.toHaveBeenCalled();
+      });
+    });
+
   describe('unknown job type', () => {
+
     it('should throw for unknown job type', async () => {
       mockAcquireLock.mockResolvedValue({
         acquired: true,

@@ -59,6 +59,36 @@ describe('triggerGarminBackfillChunks', () => {
     });
   });
 
+  // Activity Summaries carry no per-point data, so a history imported only as
+  // `activities` produces rides that can never draw a map. The GPS samples come
+  // back only from the activityDetails summary type.
+  it('requests the activityDetails summary type when asked', async () => {
+    await triggerGarminBackfillChunks({
+      accessToken: 'tok',
+      startDate: new Date('2026-05-01T00:00:00Z'),
+      endDate: new Date('2026-05-20T00:00:00Z'),
+      apiBase: 'https://garmin.test/wellness-api',
+      summaryType: 'activityDetails',
+    });
+
+    expect(mockFetch.mock.calls[0][0]).toContain(
+      'https://garmin.test/wellness-api/rest/backfill/activityDetails'
+    );
+  });
+
+  // Every existing caller (the interactive route, the coord-repair script)
+  // omits summaryType and must keep hitting the summaries endpoint.
+  it('defaults to the activities summary type', async () => {
+    await triggerGarminBackfillChunks({
+      accessToken: 'tok',
+      startDate: new Date('2026-05-01T00:00:00Z'),
+      endDate: new Date('2026-05-20T00:00:00Z'),
+      apiBase: 'https://garmin.test/wellness-api',
+    });
+
+    expect(mockFetch.mock.calls[0][0]).toContain('/rest/backfill/activities?');
+  });
+
   it('flags allDuplicates when every chunk returns 409', async () => {
     mockFetch.mockResolvedValue({ status: 409, ok: false });
 
