@@ -389,8 +389,16 @@ async function processGarminBackfill(userId: string, year: string): Promise<void
     throw new Error(`Failed to trigger any backfill chunks: ${errors.join(', ')}`);
   }
 
-  // Note: Status will be updated to 'completed' by the webhook handler
-  // when all activities have been delivered
+  // The row stays `in_progress` here on purpose: Garmin delivers asynchronously
+  // over the following minutes, so this job cannot know when it is done.
+  //
+  // This used to read "Status will be updated to 'completed' by the webhook
+  // handler when all activities have been delivered". No webhook handler ever
+  // did that, so the row never left `in_progress` and both clients, which gate
+  // their sync UI on exactly that status, showed a permanent "Sync in progress"
+  // spinner. Completion now happens in services/import-session-checker, which
+  // closes the row when the import session it belongs to goes idle, and sweeps
+  // it to `failed` if nothing touches it for an hour.
 }
 
 // ============================================================================
