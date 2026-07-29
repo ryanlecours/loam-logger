@@ -336,9 +336,12 @@ type PushOutcome =
  * The payload is flattened first because an activityDetails push nests its
  * stats under `summary`, and everything downstream reads the flat shape.
  *
- * Non-cycling activities are dropped here rather than on the worker. A pushed
- * payload carries its samples, and queueing a marathon's worth of them just to
- * discard them on the other side would put megabytes through Redis for nothing.
+ * Non-cycling activities still go through, because a rider can retype a ride to
+ * something else in Garmin Connect and the worker is what removes the ride we
+ * already stored. Their samples do not: a track is only ever read for a ride we
+ * keep, and queueing a marathon's worth of points in order to delete a row
+ * would put megabytes through Redis for nothing. Stripping them preserves the
+ * reason these used to be dropped outright.
  *
  * Returns `{ handled: false }` when the entry is a notification, so the caller
  * can fall through to the callbackURL paths unchanged.
@@ -381,23 +384,19 @@ async function handlePushedActivity(
     return { handled: true, status: 'skipped', reason: 'no_summary_id' };
   }
 
-  if (!isGarminCyclingActivity(entry.activityType)) {
-    logger.debug(
-      { requestId, summaryId, activityType: entry.activityType },
-      '[Garmin PUSH] Skipping non-cycling pushed activity'
-    );
-    return { handled: true, status: 'skipped', summaryId, reason: 'not_cycling' };
-  }
+  const isCycling = isGarminCyclingActivity(entry.activityType);
 
   // Projected onto the fields the ingest path reads, never queued raw. This
   // body is unauthenticated and the job lands in Redis in plaintext, and Garmin
   // sends `userAccessToken` in it: a credential we never use, keep out of logs,
   // and encrypt at rest everywhere else.
+  const activityForJob = pickGarminActivityFields(entry);
+  if (!isCycling) delete activityForJob.samples;
   const result = await enqueueSyncJob('syncActivity', {
     userId: internalUserId,
     provider: 'garmin',
     activityId: summaryId,
-    pushedActivity: pickGarminActivityFields(entry),
+    pushedActivity: activityForJob,
   });
 
   logger.info(
@@ -407,7 +406,8 @@ async function handlePushedActivity(
       jobId: result.jobId,
       summaryId,
       userId: internalUserId,
-      hasSamples: Array.isArray(entry.samples) && entry.samples.length > 0,
+      hasSamples: Array.isArray(activityForJob.samples) && activityForJob.samples.length > 0,
+      isCycling,
       status: result.status,
     },
     '[Garmin PUSH] Enqueued sync job from pushed activity'

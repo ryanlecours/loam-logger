@@ -60,6 +60,10 @@ jest.mock('../lib/ride-stream-store', () => ({
   persistGarminStream: jest.fn().mockResolvedValue(false),
 }));
 
+jest.mock('../lib/garmin-ride-removal', () => ({
+  removeGarminRideIfPresent: jest.fn().mockResolvedValue(false),
+}));
+
 jest.mock('../lib/whoop-token', () => ({
   getValidWhoopToken: jest.fn(),
 }));
@@ -102,6 +106,7 @@ import { getValidGarminToken } from '../lib/garmin-token';
 import { fetchGarminActivityFromCallback } from '../lib/garmin-activity-details';
 import { config } from '../config/env';
 import { persistGarminStream } from '../lib/ride-stream-store';
+import { removeGarminRideIfPresent } from '../lib/garmin-ride-removal';
 import { getValidWhoopToken } from '../lib/whoop-token';
 import { getValidSuuntoToken } from '../lib/suunto-token';
 
@@ -119,6 +124,9 @@ const mockFetchFromCallback = fetchGarminActivityFromCallback as jest.MockedFunc
 const mockConfig = config as unknown as { garminVerificationMode: boolean };
 const mockPersistGarminStream = persistGarminStream as jest.MockedFunction<
   typeof persistGarminStream
+>;
+const mockRemoveGarminRide = removeGarminRideIfPresent as jest.MockedFunction<
+  typeof removeGarminRideIfPresent
 >;
 const mockGetValidSuuntoToken = getValidSuuntoToken as jest.MockedFunction<typeof getValidSuuntoToken>;
 const mockFetch = global.fetch as jest.MockedFunction<typeof fetch>;
@@ -859,6 +867,44 @@ describe('processSyncJob (via worker processor)', () => {
 
         expect(mockFetch).not.toHaveBeenCalled();
         expect(mockPrisma.ride.upsert).toHaveBeenCalled();
+      });
+
+      /**
+       * The rider retyped the activity in Garmin Connect. It was never a ride,
+       * so leaving it behind would keep crediting its hours against installed
+       * components and inflate every service prediction built on them.
+       */
+      it('removes an existing ride when the activity is no longer cycling', async () => {
+        await processSyncJob({
+          name: 'syncActivity',
+          data: {
+            userId: 'user123',
+            provider: 'garmin',
+            activityId: 'summary-456',
+            pushedActivity: { ...GARMIN_SUMMARY, activityType: 'RUNNING' },
+          },
+        });
+
+        expect(mockRemoveGarminRide).toHaveBeenCalledWith('user123', 'summary-456');
+        // And it must not also be upserted as a ride.
+        expect(mockPrisma.ride.upsert).not.toHaveBeenCalled();
+      });
+
+      // The other direction the owner asked for: retyped INTO cycling, so it
+      // becomes a ride. This already worked, and pins that it keeps working.
+      it('imports an activity retyped into cycling', async () => {
+        await processSyncJob({
+          name: 'syncActivity',
+          data: {
+            userId: 'user123',
+            provider: 'garmin',
+            activityId: 'summary-456',
+            pushedActivity: { ...GARMIN_SUMMARY, activityType: 'GRAVEL_CYCLING' },
+          },
+        });
+
+        expect(mockPrisma.ride.upsert).toHaveBeenCalled();
+        expect(mockRemoveGarminRide).not.toHaveBeenCalled();
       });
 
       // Garmin's Partner Verification counts a pull as prompted only when it

@@ -842,10 +842,13 @@ describe('Garmin Webhooks', () => {
           expect(mockEnqueueCallbackJob).not.toHaveBeenCalled();
         });
 
-        // A pushed payload carries its samples. Queueing a run's worth of them
-        // just to discard them on the worker would put megabytes through Redis
-        // for nothing.
-        it('drops a non-cycling push without queueing its samples', async () => {
+        /**
+         * A non-cycling push still reaches the worker, because a rider can
+         * retype a ride to something else in Garmin Connect and the worker is
+         * what removes the ride we already stored. Dropping it here would leave
+         * that ride behind with its hours still credited.
+         */
+        it('queues a non-cycling push so a retyped ride can be removed', async () => {
           await request(app)
             .post('/webhooks/garmin/activities-ping')
             .send({
@@ -854,7 +857,42 @@ describe('Garmin Webhooks', () => {
 
           await new Promise(resolve => setImmediate(resolve));
 
-          expect(mockEnqueueSyncJob).not.toHaveBeenCalled();
+          expect(mockEnqueueSyncJob).toHaveBeenCalledWith(
+            'syncActivity',
+            expect.objectContaining({
+              activityId: 'summary-456',
+              pushedActivity: expect.objectContaining({ activityType: 'RUNNING' }),
+            })
+          );
+        });
+
+        // The track is only ever read for a ride we keep, so queueing a
+        // marathon's worth of points in order to delete a row would put
+        // megabytes through Redis for nothing.
+        it('strips the samples from a non-cycling push', async () => {
+          await request(app)
+            .post('/webhooks/garmin/activities-ping')
+            .send({
+              activityDetails: [{ ...PUSHED_RIDE, activityType: 'RUNNING' }],
+            });
+
+          await new Promise(resolve => setImmediate(resolve));
+
+          const queued = mockEnqueueSyncJob.mock.calls[0][1] as { pushedActivity: object };
+          expect(queued.pushedActivity).not.toHaveProperty('samples');
+        });
+
+        it('keeps the samples on a cycling push', async () => {
+          await request(app)
+            .post('/webhooks/garmin/activities-ping')
+            .send({ activityDetails: [PUSHED_RIDE] });
+
+          await new Promise(resolve => setImmediate(resolve));
+
+          const queued = mockEnqueueSyncJob.mock.calls[0][1] as {
+            pushedActivity: { samples?: unknown };
+          };
+          expect(queued.pushedActivity.samples).toEqual(PUSHED_RIDE.samples);
         });
 
         /**

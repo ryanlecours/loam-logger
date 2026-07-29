@@ -10,6 +10,7 @@ import { deriveLocationAsync, shouldApplyAutoLocation } from '../lib/location';
 import { extractGarminStartCoords } from '../lib/garmin-coords';
 import { persistGarminStream } from '../lib/ride-stream-store';
 import { flattenGarminActivity } from '../lib/garmin-activity-details';
+import { removeGarminRideIfPresent } from '../lib/garmin-ride-removal';
 import { assertTrustedGarminCallbackUrl } from '../lib/garmin-callback-url';
 import { logError, logger } from '../lib/logger';
 import { config } from '../config/env';
@@ -749,10 +750,17 @@ async function processGarminCallback(userId: string, callbackURL: string): Promi
     const activityType = activity.activityType;
     const activityTypeLower = activityType?.toLowerCase().replace(/\s+/g, '_') ?? '';
     if (!activityType || !GARMIN_CYCLING_TYPES.includes(activityTypeLower)) {
+      // A manually-updated notification arrives through this same callback
+      // path, so a ride retyped away from cycling has to be removed here too,
+      // not only on the push path. See lib/garmin-ride-removal.
+      const removed = activity.summaryId
+        ? await removeGarminRideIfPresent(userId, activity.summaryId)
+        : false;
       logger.debug({
         activityType: activity.activityType,
         summaryId: activity.summaryId,
-      }, '[BackfillWorker] Skipping non-cycling activity');
+        removedExistingRide: removed,
+      }, '[BackfillWorker] Non-cycling activity');
       continue;
     }
 

@@ -13,6 +13,7 @@ import { extractGarminStartCoords } from '../lib/garmin-coords';
 import { persistGarminStream } from '../lib/ride-stream-store';
 import { fetchGarminActivityFromCallback } from '../lib/garmin-activity-details';
 import { isGarminCyclingActivity } from '../types/garmin';
+import { removeGarminRideIfPresent } from '../lib/garmin-ride-removal';
 import { syncBikeComponentHours } from '../lib/component-hours';
 import { invalidateBikePredictionsForBikes } from '../services/prediction/cache';
 import { logger } from '../lib/logger';
@@ -586,10 +587,16 @@ async function syncGarminActivity(
     }
 
     if (!isGarminCyclingActivity(activity.activityType)) {
+      // The rider may have edited this activity's type in Garmin Connect. If it
+      // used to be a ride, it is not one now, and leaving it behind would keep
+      // crediting its hours against installed components. Almost always a
+      // single indexed lookup that finds nothing.
+      const removed = await removeGarminRideIfPresent(userId, activity.summaryId);
       logger.debug({
         activityId,
         activityType: activity.activityType,
-      }, '[SyncWorker] Skipping non-cycling activity');
+        removedExistingRide: removed,
+      }, '[SyncWorker] Non-cycling activity');
       return;
     }
 
