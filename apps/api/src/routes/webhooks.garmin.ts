@@ -267,9 +267,16 @@ r.post<Empty, void, { userPermissionsChange?: Array<{
  */
 type GarminActivityPing = {
   userId: string;
+  /**
+   * Garmin sends the rider's access token in the notification body. We never
+   * read it: every outbound call uses our own stored, encrypted credential, so
+   * trusting a token supplied by an unauthenticated request would be handing
+   * the caller a say in what we authenticate as. Declared so that stays a
+   * visible decision, and named in the logger's redaction list (lib/logger.ts)
+   * so it cannot reach logs on the debug body dump.
+   */
   userAccessToken: string;
   summaryId: string;
-  uploadTimestampInSeconds: number;
   /**
    * Present when Garmin pings for the activityDetails summary type. Points at
    * `/rest/activityDetails` already scoped to the notified activities, so it is

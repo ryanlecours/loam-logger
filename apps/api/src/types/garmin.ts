@@ -49,7 +49,6 @@ export type GarminDeliveryEntry = {
   userId?: string;
   summaryId?: string;
   callbackURL?: string;
-  uploadTimestampInSeconds?: number;
   activityType?: string;
   summary?: Record<string, unknown>;
   samples?: unknown;
