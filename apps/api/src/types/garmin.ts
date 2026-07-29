@@ -59,20 +59,48 @@ export type GarminDeliveryEntry = {
 /**
  * Does this entry carry the activity itself, rather than a pointer to it?
  *
- * A notification is small and structural: userId, summaryId, maybe a
- * callbackURL and an upload timestamp. A pushed activity carries the actual
- * measurements. `activityType` plus a duration is the cheapest thing that is
- * always present on real activity data and never on a notification, and it is
- * checked after flattening so an activityDetails payload (which nests those
- * fields under `summary`) reads the same as a flat activities payload.
+ * A pushed activity carries measurements. `activityType` plus a duration or a
+ * start time is the cheapest thing that is always present on real activity data,
+ * and it is checked after flattening so an activityDetails payload (which nests
+ * those fields under `summary`) reads the same as a flat activities payload.
  *
  * Deliberately not keyed on `samples`: an indoor ride pushes a full activity
  * with no GPS at all, and treating that as a notification would send us
  * fetching data Garmin had already handed us.
+ *
+ * A callbackURL DISQUALIFIES an entry, whatever else it carries. That rule is
+ * here rather than in the caller's branch ordering on purpose, because getting
+ * it wrong reproduces the exact bug this whole change exists to fix: an entry
+ * misread as pushed is never followed, so its ping is scored unanswered again.
+ * The real ping shape has not been observed yet, and some Garmin notifications
+ * carry summary metadata alongside the URL, so the safe reading is that
+ * anything offering a URL to follow is a notification.
+ *
+ * The asymmetry is deliberate. Misreading a push as a notification costs one
+ * prompted request, which no verification check objects to. Misreading a
+ * notification as a push costs an unanswered ping and a lost activity.
  */
 export function isPushedGarminActivity(entry: GarminDeliveryEntry): boolean {
+  if (hasCallbackUrl(entry)) return false;
   if (!isGarminActivityTypePresent(entry)) return false;
   return entry.durationInSeconds != null || entry.startTimeInSeconds != null;
+}
+
+/**
+ * An entry that carries BOTH a callbackURL and measurements.
+ *
+ * Treated as a notification (see above), but worth surfacing: it would mean the
+ * live ping shape differs from what this code was written against, and that is
+ * the assumption most worth checking once real payloads are in hand.
+ */
+export function isAmbiguousGarminDelivery(entry: GarminDeliveryEntry): boolean {
+  if (!hasCallbackUrl(entry)) return false;
+  if (!isGarminActivityTypePresent(entry)) return false;
+  return entry.durationInSeconds != null || entry.startTimeInSeconds != null;
+}
+
+function hasCallbackUrl(entry: GarminDeliveryEntry): boolean {
+  return typeof entry.callbackURL === 'string' && entry.callbackURL.length > 0;
 }
 
 function isGarminActivityTypePresent(entry: GarminDeliveryEntry): boolean {

@@ -1,4 +1,8 @@
-import { isGarminCyclingActivity, isPushedGarminActivity } from './garmin';
+import {
+  isAmbiguousGarminDelivery,
+  isGarminCyclingActivity,
+  isPushedGarminActivity,
+} from './garmin';
 
 describe('isGarminCyclingActivity', () => {
   // Garmin spells these inconsistently across payloads, so the comparison has
@@ -74,5 +78,75 @@ describe('isPushedGarminActivity', () => {
     expect(isPushedGarminActivity({ summaryId: 'abc', activityType: 'MOUNTAIN_BIKING' })).toBe(
       false
     );
+  });
+
+  /**
+   * The one misclassification that reproduces the bug this whole change exists
+   * to fix. A notification read as a push is never followed, so its ping is
+   * scored unanswered again. Some Garmin notifications carry summary metadata,
+   * and the live ping shape has not been observed, so a URL to follow always
+   * wins over data that happens to be present.
+   *
+   * The invariant lives here rather than in the webhook's branch ordering
+   * precisely so that reordering those branches cannot resurrect the bug.
+   */
+  it('is false when a callbackURL is present, whatever else the entry carries', () => {
+    expect(
+      isPushedGarminActivity({
+        summaryId: 'abc',
+        activityType: 'MOUNTAIN_BIKING',
+        durationInSeconds: 5340,
+        startTimeInSeconds: 1706123456,
+        samples: [{ latitudeInDegree: 48.75 }],
+        callbackURL: 'https://apis.garmin.com/wellness-api/rest/activityDetails?x=1',
+      })
+    ).toBe(false);
+  });
+
+  it('ignores an empty callbackURL rather than treating it as followable', () => {
+    expect(
+      isPushedGarminActivity({
+        summaryId: 'abc',
+        activityType: 'MOUNTAIN_BIKING',
+        durationInSeconds: 5340,
+        callbackURL: '',
+      })
+    ).toBe(true);
+  });
+});
+
+describe('isAmbiguousGarminDelivery', () => {
+  // Shaped like neither mode. Handled as a notification, but surfaced, because
+  // it would mean the live ping differs from what this was written against.
+  it('flags an entry carrying both a URL to follow and measurements', () => {
+    expect(
+      isAmbiguousGarminDelivery({
+        summaryId: 'abc',
+        activityType: 'MOUNTAIN_BIKING',
+        durationInSeconds: 5340,
+        callbackURL: 'https://apis.garmin.com/wellness-api/rest/activityDetails?x=1',
+      })
+    ).toBe(true);
+  });
+
+  it('does not flag an ordinary notification', () => {
+    expect(
+      isAmbiguousGarminDelivery({
+        userId: 'garmin-1',
+        summaryId: 'abc',
+        uploadTimestampInSeconds: 1706123456,
+        callbackURL: 'https://apis.garmin.com/wellness-api/rest/activities?x=1',
+      })
+    ).toBe(false);
+  });
+
+  it('does not flag an ordinary push', () => {
+    expect(
+      isAmbiguousGarminDelivery({
+        summaryId: 'abc',
+        activityType: 'MOUNTAIN_BIKING',
+        durationInSeconds: 5340,
+      })
+    ).toBe(false);
   });
 });

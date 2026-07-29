@@ -10,6 +10,7 @@ import { revokeIntegration } from '../lib/integration-tokens';
 import { flattenGarminActivity } from '../lib/garmin-activity-details';
 import { assertTrustedGarminCallbackUrl } from '../lib/garmin-callback-url';
 import {
+  isAmbiguousGarminDelivery,
   isGarminCyclingActivity,
   isPushedGarminActivity,
   type GarminDeliveryEntry,
@@ -324,6 +325,25 @@ async function handlePushedActivity(
   rawEntry: GarminDeliveryEntry
 ): Promise<PushOutcome> {
   const entry = flattenGarminActivity(rawEntry);
+
+  // A delivery carrying both a URL to follow and the measurements themselves is
+  // shaped like neither mode. It is handled as a notification, which is the
+  // safe reading, but it means the live ping differs from what this was written
+  // against, so it is logged loudly enough to notice rather than inferred from
+  // a drop in ride counts.
+  if (isAmbiguousGarminDelivery(entry)) {
+    logger.warn(
+      {
+        event: 'garmin_delivery_shape_ambiguous',
+        requestId,
+        summaryId: entry.summaryId,
+        activityType: entry.activityType,
+        hasSamples: Array.isArray(entry.samples) && entry.samples.length > 0,
+      },
+      '[Garmin] Delivery carried both a callbackURL and activity data; following the URL'
+    );
+  }
+
   if (!isPushedGarminActivity(entry)) return { handled: false };
 
   const summaryId = typeof entry.summaryId === 'string' ? entry.summaryId : undefined;

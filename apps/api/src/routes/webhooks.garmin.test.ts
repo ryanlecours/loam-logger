@@ -717,6 +717,61 @@ describe('Garmin Webhooks', () => {
           expect(mockEnqueueSyncJob).not.toHaveBeenCalled();
         });
 
+        /**
+         * The one misclassification that would reproduce the original bug: a
+         * notification read as a push is never followed, so its ping is scored
+         * unanswered again. Some Garmin notifications carry summary metadata,
+         * and the live ping shape has not been observed, so a URL to follow
+         * always wins over data that happens to be present.
+         */
+        it('follows the URL when a delivery carries both a callbackURL and data', async () => {
+          const genuine = 'https://apis.garmin.com/wellness-api/rest/activityDetails?x=1';
+
+          await request(app)
+            .post('/webhooks/garmin/activities-ping')
+            .send({
+              activityDetails: [{ ...PUSHED_RIDE, callbackURL: genuine }],
+            });
+
+          await new Promise(resolve => setImmediate(resolve));
+
+          // Routed as a notification: the URL rides along and nothing was
+          // treated as already-in-hand.
+          expect(mockEnqueueSyncJob).toHaveBeenCalledWith('syncActivity', {
+            userId: 'internal-user-123',
+            provider: 'garmin',
+            activityId: 'summary-456',
+            callbackURL: genuine,
+          });
+          expect(mockEnqueueSyncJob).not.toHaveBeenCalledWith(
+            'syncActivity',
+            expect.objectContaining({ pushedActivity: expect.anything() })
+          );
+        });
+
+        // That shape means the live ping differs from what this was written
+        // against, which is worth noticing rather than inferring from a drop in
+        // ride counts.
+        it('warns when a delivery is shaped like neither mode', async () => {
+          await request(app)
+            .post('/webhooks/garmin/activities-ping')
+            .send({
+              activityDetails: [
+                {
+                  ...PUSHED_RIDE,
+                  callbackURL: 'https://apis.garmin.com/wellness-api/rest/activityDetails?x=1',
+                },
+              ],
+            });
+
+          await new Promise(resolve => setImmediate(resolve));
+
+          expect(mockLogger.warn).toHaveBeenCalledWith(
+            expect.objectContaining({ event: 'garmin_delivery_shape_ambiguous' }),
+            expect.stringContaining('following the URL')
+          );
+        });
+
         // Notifications must still route to the callbackURL paths untouched.
         it('leaves a ping notification to the notification path', async () => {
           await request(app)
