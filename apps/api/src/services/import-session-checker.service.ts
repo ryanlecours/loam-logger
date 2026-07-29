@@ -107,6 +107,28 @@ async function releaseCheckerLock(lockValue: string | null): Promise<void> {
  * Called only from session completion, where the session is the evidence: it
  * received activities and then went quiet, which is the definition the worker's
  * comment was reaching for.
+ *
+ * SCOPE: `in_progress` only, deliberately never `pending`. The batch endpoint
+ * writes `pending` and the worker flips it to `in_progress` as the first thing
+ * it does, so a `pending` row is one whose job has not started: it may be
+ * queued behind a rate-limit backoff and has certainly not fetched anything.
+ * Completing it would be the same "completed but never happened" bug the stale
+ * sweep below goes out of its way to avoid, and it would be worse there,
+ * because the single-year guard only lets a year be retried while it is
+ * `failed`. Leaving those rows alone lets a job that eventually runs finish
+ * normally, and lets one that never runs fall to the stale sweep and become
+ * retryable.
+ *
+ * ASSUMPTION, worth knowing if Garmin batch backfill is ever surfaced: this is
+ * still scoped by (userId, provider) rather than to the specific years tied to
+ * the session, because BackfillRequest has no link back to ImportSession and
+ * one session covers a whole batch. Today `POST /garmin/backfill/batch` accepts
+ * up to 10 years but both clients only ever send `ytd`, so there is one
+ * non-terminal row per user and the coarse scope is exact. If a client starts
+ * sending several years, two of them can be `in_progress` under one session
+ * while only one is actually delivering, and the quiet one would be completed
+ * early. Fixing that properly means putting an importSessionId on
+ * BackfillRequest and matching on it here.
  */
 async function settleBackfillRequests(
   userId: string,
@@ -115,7 +137,7 @@ async function settleBackfillRequests(
 ): Promise<void> {
   try {
     const result = await prisma.backfillRequest.updateMany({
-      where: { userId, provider, status: { in: ['pending', 'in_progress'] } },
+      where: { userId, provider, status: 'in_progress' },
       data: { status: 'completed', completedAt: now, updatedAt: now },
     });
 

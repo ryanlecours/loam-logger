@@ -220,10 +220,32 @@ describe('import-session-checker.service', () => {
         where: {
           userId: 'user-1',
           provider: 'garmin',
-          status: { in: ['pending', 'in_progress'] },
+          status: 'in_progress',
         },
         data: expect.objectContaining({ status: 'completed' }),
       });
+    });
+
+    // A `pending` row is one whose worker job never started, so it has fetched
+    // nothing. Completing it would strand the year: the single-year guard only
+    // permits a retry while the row is `failed`. It must be left for the stale
+    // sweep instead. This matters the moment a client sends more than one year
+    // in a batch, where a job delayed behind a rate-limit backoff is still
+    // pending when the shared session goes idle.
+    it('never settles a pending row, whose job has not started', async () => {
+      mockPrismaImportSessionFindMany.mockResolvedValue([
+        { id: 'session-123', userId: 'user-1', provider: 'garmin' },
+      ]);
+      mockPrismaExecuteRaw.mockResolvedValue(1);
+
+      startImportSessionChecker();
+      await jest.advanceTimersByTimeAsync(100);
+
+      const settleCall = mockPrismaBackfillRequestUpdateMany.mock.calls.find(
+        ([arg]) => (arg as { data: { status: string } }).data.status === 'completed'
+      );
+      expect(settleCall).toBeDefined();
+      expect((settleCall![0] as { where: { status: unknown } }).where.status).toBe('in_progress');
     });
 
     // Only the instance that actually won the session update should settle the
