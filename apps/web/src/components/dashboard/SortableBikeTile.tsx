@@ -69,7 +69,10 @@ export function SortableBikeTile({ bike, isSelected, onClick, disabled }: Sortab
         <span className="bike-tile-hours">
           {hoursDisplay === 'total' || priorityComp.hoursRemaining == null
             ? `${(priorityComp.hoursSinceService ?? 0).toFixed(1)}/${priorityComp.serviceIntervalHours}h`
-            : `${priorityComp.hoursRemaining.toFixed(1)} hrs`}
+            : /* Clamped: hoursRemaining is negative for a component past due,
+                 and the tile has no room to explain a minus sign. Overdue is
+                 already carried by bike-tile-status. */
+              `${Math.max(0, priorityComp.hoursRemaining).toFixed(1)} hrs`}
         </span>
       )}
     </button>

@@ -282,10 +282,13 @@ function predictComponent(
     } else {
       hoursRemaining = wearRemaining / recentWearPerHour;
     }
-    hoursRemaining = Math.max(0, hoursRemaining);
+    // Deliberately unclamped. A negative value is the magnitude a component is
+    // PAST due, and every client renders it as `Math.abs(x)h overdue`. Clamping
+    // here is why ten consecutive overdue rows on the mobile dashboard all read
+    // "0h overdue": the sign was thrown away before it reached the string.
   } else {
     // FREE tier OR LOW confidence: Deterministic prediction using base intervals
-    hoursRemaining = Math.max(0, baseInterval - hoursSinceService);
+    hoursRemaining = baseInterval - hoursSinceService;
   }
 
   // Determine status
@@ -368,7 +371,12 @@ function findPriorityComponent(
     // More urgent status wins
     if (currentIndex < priorityIndex) return current;
 
-    // Same status: lower hours remaining wins
+    // Same status: lower hours remaining wins. For two OVERDUE components this
+    // now compares negatives, so the one furthest past due leads. While
+    // hoursRemaining was clamped, every OVERDUE peer tied at 0 and whichever
+    // was encountered first won, which is why the advisor and push
+    // notifications sometimes led with the least urgent of several overdue
+    // parts.
     if (currentIndex === priorityIndex && current.hoursRemaining < priority.hoursRemaining) {
       return current;
     }
