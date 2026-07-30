@@ -133,8 +133,13 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string; error
     // failures keep the exact redirects this route has always emitted. Only
     // the failure sites *after* the state check can ever run with
     // isMobileFlow === true, so the web contract is untouched by construction.
+    //
+    // `access_denied` is deliberately NOT in this union. That path runs before
+    // isMobileFlow is set, so routing it through here would take the web branch
+    // and strand a mobile user on the web error page. It redirects directly
+    // instead; leaving it out makes the mistake a compile error.
     function failCallback(
-      reason: 'access_denied' | 'token_exchange_failed' | 'account_already_linked' | 'internal_error'
+      reason: 'token_exchange_failed' | 'account_already_linked' | 'internal_error'
     ) {
       if (isMobileFlow) {
         return res.redirect(`/auth/whoop/mobile/complete?status=error&reason=${encodeURIComponent(reason)}`);
