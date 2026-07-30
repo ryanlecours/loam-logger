@@ -3,6 +3,7 @@ import { History, ChevronDown, ChevronUp, Check } from 'lucide-react';
 import { getAuthHeaders } from '@/lib/csrf';
 import { useUserTier } from '@/hooks/useUserTier';
 import { UpsellCard } from '@/components/UpgradePrompt';
+import { GARMIN_CONNECT_APP_NAME } from '@loam/shared';
 
 interface ImportRidesFormProps {
   connectedProviders: Array<'strava' | 'garmin' | 'suunto'>;
@@ -70,7 +71,9 @@ const SUUNTO_YEAR_OPTIONS = [
 
 const PROVIDER_LABELS: Record<string, string> = {
   strava: 'Strava',
-  garmin: 'Garmin Connect',
+  // The guidelines forbid abbreviating or stylizing the name, and that includes
+  // dropping the trademark mark, so this reads from the shared constant.
+  garmin: GARMIN_CONNECT_APP_NAME,
   suunto: 'Suunto',
 };
 
