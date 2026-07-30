@@ -831,6 +831,74 @@ describe('processBackfillJob (via worker processor)', () => {
         data: { backfilledUpTo: expect.any(Date), updatedAt: expect.any(Date) },
       });
     });
+
+    describe('activity details (ride maps)', () => {
+      const requestedUrls = () => mockFetch.mock.calls.map(([url]) => String(url));
+      const queryOf = (url: string) => url.slice(url.indexOf('?'));
+
+      it('requests activityDetails over the same range as the summaries', async () => {
+        mockFetch.mockResolvedValue({ status: 202, ok: true } as Response);
+
+        await processBackfillJob({
+          name: 'backfillYear',
+          id: 'job-123',
+          data: { userId: 'user-123', provider: 'garmin', year: '2024' },
+        });
+
+        const urls = requestedUrls();
+        const summaries = urls.find((u) => u.includes('/rest/backfill/activities'));
+        const details = urls.find((u) => u.includes('/rest/backfill/activityDetails'));
+
+        // Summaries carry no per-point GPS, so without this second request the
+        // imported rides can never draw a map.
+        expect(details).toBeDefined();
+        expect(queryOf(details!)).toBe(queryOf(summaries!));
+      });
+
+      it('requests activityDetails even when Garmin already fulfilled the summaries', async () => {
+        // The state a rider is in after a sync that came back mapless: Garmin
+        // 409s the summary range it already sent, but the details are new.
+        mockFetch.mockImplementation((url) =>
+          Promise.resolve(
+            String(url).includes('/rest/backfill/activityDetails')
+              ? ({ status: 202, ok: true } as Response)
+              : ({ status: 409, ok: false } as Response)
+          )
+        );
+
+        await processBackfillJob({
+          name: 'backfillYear',
+          id: 'job-123',
+          data: { userId: 'user-123', provider: 'garmin', year: '2024' },
+        });
+
+        expect(requestedUrls().some((u) => u.includes('/rest/backfill/activityDetails'))).toBe(true);
+      });
+
+      it('imports the rides even when the details request is rejected', async () => {
+        // No activityDetails scope on the app: tracks are missing, which is the
+        // status quo, but the ride history must still import.
+        mockFetch.mockImplementation((url) =>
+          Promise.resolve(
+            String(url).includes('/rest/backfill/activityDetails')
+              ? ({ status: 403, ok: false, text: () => Promise.resolve('Forbidden') } as Response)
+              : ({ status: 202, ok: true } as Response)
+          )
+        );
+
+        await expect(
+          processBackfillJob({
+            name: 'backfillYear',
+            id: 'job-123',
+            data: { userId: 'user-123', provider: 'garmin', year: '2024' },
+          })
+        ).resolves.toBeUndefined();
+
+        expect(mockPrisma.backfillRequest.updateMany).not.toHaveBeenCalledWith(
+          expect.objectContaining({ data: expect.objectContaining({ status: 'failed' }) })
+        );
+      });
+    });
   });
 });
 
