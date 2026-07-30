@@ -1,13 +1,15 @@
 /**
  * Garmin token lifecycle. All reads and writes go through the encrypted
- * `UserIntegration` store (see ./integration-tokens); nothing here touches the
- * legacy plaintext `OauthToken` table except `adoptLegacyPlaintextTokens`,
- * which exists only to migrate stragglers off it.
+ * `UserIntegration` store (see ./integration-tokens).
+ *
+ * Nothing here touches the legacy plaintext `OauthToken` table. It used to,
+ * via an adopt-on-read fallback that encrypted a pre-encryption connection the
+ * first time it was used; that path is gone now the migration has drained the
+ * Garmin rows. The table itself remains, because Google, Strava, WHOOP and
+ * Suunto still store their tokens there.
  */
-import { prisma } from './prisma';
 import { addSeconds } from 'date-fns';
 import { createLogger } from './logger';
-import { encrypt } from './crypto';
 import {
   getIntegrationTokens,
   saveIntegrationTokens,
@@ -114,86 +116,15 @@ export async function revokeGarminTokenForUser(userId: string): Promise<boolean>
   }
 }
 
-/**
- * One-time adoption of a pre-encryption Garmin connection.
- *
- * Users who linked Garmin before `UserIntegration` existed have a plaintext
- * `OauthToken` row and no encrypted counterpart. Reading only the encrypted
- * store would silently disconnect them, so on first access we encrypt what we
- * find, write it to `UserIntegration`, and delete the plaintext row.
- *
- * This is the only remaining read of plaintext Garmin tokens. It is
- * self-limiting: every path that touches a token calls through here, so the
- * legacy rows drain as users sync. `scripts/migrate-garmin-tokens.ts` does the
- * same thing eagerly for accounts that never sync, after which this function
- * and the OauthToken Garmin rows can both be deleted.
- */
-async function adoptLegacyPlaintextTokens(
-  userId: string
-): Promise<IntegrationTokens | null> {
-  const legacy = await prisma.oauthToken.findUnique({
-    where: { userId_provider: { userId, provider: 'garmin' } },
-  });
-
-  if (!legacy) return null;
-
-  const account = await prisma.userAccount.findFirst({
-    where: { userId, provider: 'garmin' },
-    select: { providerUserId: true },
-  });
-
-  log.warn(
-    { userId },
-    'Adopting pre-encryption Garmin tokens into the encrypted store'
-  );
-
-  await prisma.$transaction(async (tx) => {
-    await tx.userIntegration.upsert({
-      where: { userId_provider: { userId, provider: 'GARMIN' } },
-      create: {
-        userId,
-        provider: 'GARMIN',
-        externalUserId: account?.providerUserId ?? null,
-        accessTokenEnc: encrypt(legacy.accessToken),
-        refreshTokenEnc: legacy.refreshToken ? encrypt(legacy.refreshToken) : null,
-        expiresAt: legacy.expiresAt,
-        connectedAt: legacy.createdAt,
-      },
-      // An integration row that exists but was unreadable (decrypt failure)
-      // should not be clobbered by an older plaintext value; only fill gaps.
-      update: {},
-    });
-
-    await tx.oauthToken.deleteMany({ where: { userId, provider: 'garmin' } });
-  });
-
-  return {
-    accessToken: legacy.accessToken,
-    refreshToken: legacy.refreshToken,
-    expiresAt: legacy.expiresAt,
-  };
-}
 
 /**
- * Read this user's Garmin tokens, migrating a legacy plaintext row if that is
- * all we have. Returns null when the user has no live Garmin connection.
+ * Read this user's Garmin tokens. Returns null when the user has no live
+ * Garmin connection, which now includes a connection that was revoked or whose
+ * ciphertext will not decrypt: both are states the encrypted store answers on
+ * its own, with no second place to look.
  */
 async function readGarminTokens(userId: string): Promise<IntegrationTokens | null> {
-  const tokens = await getIntegrationTokens(userId, 'GARMIN');
-  if (tokens) return tokens;
-
-  // Adopt ONLY when no integration row exists at all. A row that exists but
-  // yielded no tokens is revoked or undecryptable, and reviving it from a stale
-  // plaintext row would undo a revocation — handing out credentials for a user
-  // who withdrew consent. Getting this backwards is the whole risk of keeping a
-  // fallback path, so it is checked explicitly rather than inferred.
-  const existing = await prisma.userIntegration.findUnique({
-    where: { userId_provider: { userId, provider: 'GARMIN' } },
-    select: { id: true },
-  });
-  if (existing) return null;
-
-  return adoptLegacyPlaintextTokens(userId);
+  return getIntegrationTokens(userId, 'GARMIN');
 }
 
 /**
