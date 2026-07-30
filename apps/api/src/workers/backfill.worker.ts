@@ -359,6 +359,37 @@ async function processGarminBackfill(userId: string, year: string): Promise<void
     'Garmin backfill chunks processed'
   );
 
+  // Ask for the same range's Activity Details as well. Activity Summaries carry
+  // no per-point data, so a history imported only as `activities` yields rides
+  // that can never draw a map: processGarminCallback's persistGarminStream has
+  // nothing to store. The interactive route has always done this; this queued
+  // path, which is the one both clients actually use, never did.
+  //
+  // Deliberately above the allDuplicates check: Garmin tracks backfill requests
+  // per summary type, so a range whose activities it already fulfilled still
+  // needs its details requested. That is the only way an already-imported ride
+  // gets a track, and it is exactly the state a rider is in after a sync that
+  // came back mapless.
+  //
+  // Best effort, matching the route: if the activityDetails scope is not
+  // enabled for this app, the rides still import as before and only the tracks
+  // are missing, which is the status quo, not a regression.
+  try {
+    const details = await triggerGarminBackfillChunks({
+      accessToken,
+      startDate,
+      endDate,
+      apiBase: config.garminApiBase,
+      summaryType: 'activityDetails',
+    });
+    logger.info(
+      { totalChunks: details.totalChunks, errorCount: details.errors.length, year },
+      'Garmin activityDetails backfill requests triggered'
+    );
+  } catch (err) {
+    logger.warn({ err, year }, 'Garmin activityDetails backfill failed; rides import without tracks');
+  }
+
   // Check if ALL chunks returned 409 - means backfill was already completed
   const allDuplicates = duplicateChunks > 0 && totalChunks === 0 && errors.length === 0;
 
