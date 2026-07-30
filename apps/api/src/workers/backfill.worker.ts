@@ -17,6 +17,7 @@ import { config } from '../config/env';
 import type { BackfillJobData, BackfillJobName } from '../lib/queue/backfill.queue';
 import { enqueueWeatherJob, enqueueLiftDetectionJob } from '../lib/queue';
 import { triggerGarminBackfillChunks } from '../services/garmin-backfill';
+import { resolveGarminPeriodRange } from '../lib/garmin-backfill-periods';
 import { captureServerEvent } from '../lib/posthog';
 import { incrementBikeComponentHours, syncBikeComponentHours } from '../lib/component-hours';
 import { invalidateBikePredictionsForBikes } from '../services/prediction/cache';
@@ -241,9 +242,9 @@ async function processBackfillJob(job: Job<BackfillJobData, void, BackfillJobNam
 }
 
 /**
- * Process Garmin backfill for a specific year.
- * Triggers the Garmin Wellness API backfill endpoint in 30-day chunks.
- * Activities are delivered asynchronously via webhooks.
+ * Process a Garmin backfill for one time period: a rolling window ('7d'), 'ytd',
+ * or a calendar year. Triggers the Garmin Wellness API backfill endpoint in
+ * 30-day chunks. Activities are delivered asynchronously via webhooks.
  */
 async function processGarminBackfill(userId: string, year: string): Promise<void> {
   const accessToken = await getValidGarminToken(userId);
@@ -257,7 +258,13 @@ async function processGarminBackfill(userId: string, year: string): Promise<void
   let startDate: Date;
   let endDate: Date;
 
-  if (year === 'ytd') {
+  const rollingRange = resolveGarminPeriodRange(year);
+
+  if (rollingRange) {
+    // Short rolling window: measured from now, never incremental. The rider
+    // asked for the last N days, so that is exactly the range we request.
+    ({ startDate, endDate } = rollingRange);
+  } else if (year === 'ytd') {
     // Check for existing YTD backfill to enable incremental fetching
     const existingYtd = await prisma.backfillRequest.findUnique({
       where: { userId_provider_year: { userId, provider: 'garmin', year: 'ytd' } },

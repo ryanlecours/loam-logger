@@ -184,7 +184,7 @@ describe('ImportRidesForm', () => {
       });
     });
 
-    it('shows Garmin restriction note', async () => {
+    it('shows the Garmin sync-window note', async () => {
       mockFetch.mockResolvedValue({
         ok: true,
         json: () => Promise.resolve({ success: true, requests: [] }),
@@ -195,16 +195,55 @@ describe('ImportRidesForm', () => {
       fireEvent.click(screen.getByRole('button', { name: /Import past rides/i }));
 
       await waitFor(() => {
-        expect(screen.getByText(/Garmin limits historical data access/i)).toBeInTheDocument();
+        expect(screen.getByText(/Garmin sends the rides in the window you pick/i)).toBeInTheDocument();
       });
     });
   });
 
-  describe('Garmin Last 30 Days', () => {
-    it('shows Last 30 Days as the only Garmin option', async () => {
+  describe('Garmin rolling windows', () => {
+    const emptyHistory = () => ({
+      ok: true,
+      json: () => Promise.resolve({ success: true, requests: [] }),
+    });
+
+    it('offers 7, 14 and 30 day windows, defaulting to 30', async () => {
+      mockFetch.mockResolvedValue(emptyHistory());
+
+      render(<ImportRidesForm connectedProviders={['garmin']} />);
+
+      fireEvent.click(screen.getByRole('button', { name: /Import past rides/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole('radio', { name: /Last 7 Days/i })).toBeInTheDocument();
+      });
+      expect(screen.getByRole('radio', { name: /Last 14 Days/i })).toBeInTheDocument();
+      expect(screen.getByRole('radio', { name: /Last 30 Days/i })).toBeChecked();
+
+      // Windows nest, so no calendar years are offered
+      expect(screen.queryByRole('radio', { name: /2024/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('radio', { name: /2025/i })).not.toBeInTheDocument();
+    });
+
+    it('names the selected window on the confirm button', async () => {
+      mockFetch.mockResolvedValue(emptyHistory());
+
+      render(<ImportRidesForm connectedProviders={['garmin']} />);
+
+      fireEvent.click(screen.getByRole('button', { name: /Import past rides/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /Import Last 30 Days/i })).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole('radio', { name: /Last 7 Days/i }));
+
+      expect(screen.getByRole('button', { name: /Import Last 7 Days/i })).toBeInTheDocument();
+    });
+
+    it('posts the selected window to the batch endpoint', async () => {
       mockFetch.mockResolvedValue({
         ok: true,
-        json: () => Promise.resolve({ success: true, requests: [] }),
+        json: () => Promise.resolve({ success: true, requests: [], queued: [] }),
       });
 
       render(<ImportRidesForm connectedProviders={['garmin']} />);
@@ -212,22 +251,28 @@ describe('ImportRidesForm', () => {
       fireEvent.click(screen.getByRole('button', { name: /Import past rides/i }));
 
       await waitFor(() => {
-        const checkbox = screen.getByRole('checkbox', { name: /Last 30 Days/i });
-        expect(checkbox).toBeInTheDocument();
+        expect(screen.getByRole('radio', { name: /Last 14 Days/i })).toBeInTheDocument();
       });
 
-      // Should not have year checkboxes
-      expect(screen.queryByRole('checkbox', { name: /2024/i })).not.toBeInTheDocument();
-      expect(screen.queryByRole('checkbox', { name: /2025/i })).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole('radio', { name: /Last 14 Days/i }));
+      fireEvent.click(screen.getByRole('button', { name: /Import Last 14 Days/i }));
+
+      await waitFor(() => {
+        const batchCall = mockFetch.mock.calls.find(([url]) =>
+          String(url).includes('/api/garmin/backfill/batch')
+        );
+        expect(batchCall).toBeDefined();
+        expect(JSON.parse(batchCall![1].body)).toEqual({ years: ['14d'] });
+      });
     });
 
-    it('disables Last 30 Days checkbox when in progress', async () => {
+    it('disables a window that is already syncing', async () => {
       mockFetch.mockResolvedValue({
         ok: true,
         json: () => Promise.resolve({
           success: true,
           requests: [
-            { id: '1', provider: 'garmin', year: 'ytd', status: 'in_progress', ridesFound: null },
+            { id: '1', provider: 'garmin', year: '30d', status: 'in_progress', ridesFound: null },
           ],
         }),
       });
@@ -237,18 +282,20 @@ describe('ImportRidesForm', () => {
       fireEvent.click(screen.getByRole('button', { name: /Import past rides/i }));
 
       await waitFor(() => {
-        const checkbox = screen.getByRole('checkbox', { name: /Last 30 Days/i });
-        expect(checkbox).toBeDisabled();
+        expect(screen.getByRole('radio', { name: /Last 30 Days/i })).toBeDisabled();
       });
+      // A rolling window is nested, not exclusive: the shorter ones stay open
+      expect(screen.getByRole('radio', { name: /Last 7 Days/i })).not.toBeDisabled();
+      expect(screen.getByRole('button', { name: /Import In Progress/i })).toBeDisabled();
     });
 
-    it('enables Last 30 Days checkbox when not in progress', async () => {
+    it('leaves a completed window selectable so new rides can be picked up', async () => {
       mockFetch.mockResolvedValue({
         ok: true,
         json: () => Promise.resolve({
           success: true,
           requests: [
-            { id: '1', provider: 'garmin', year: 'ytd', status: 'completed', ridesFound: 50 },
+            { id: '1', provider: 'garmin', year: '30d', status: 'completed', ridesFound: 50 },
           ],
         }),
       });
@@ -258,8 +305,7 @@ describe('ImportRidesForm', () => {
       fireEvent.click(screen.getByRole('button', { name: /Import past rides/i }));
 
       await waitFor(() => {
-        const checkbox = screen.getByRole('checkbox', { name: /Last 30 Days/i });
-        expect(checkbox).not.toBeDisabled();
+        expect(screen.getByRole('radio', { name: /Last 30 Days/i })).not.toBeDisabled();
       });
     });
   });
@@ -368,7 +414,7 @@ describe('ImportRidesForm', () => {
         expect(screen.queryByText('Loading history...')).not.toBeInTheDocument();
       });
 
-      const importButton = screen.getByRole('button', { name: /Start Import/i });
+      const importButton = screen.getByRole('button', { name: /Import Last 30 Days/i });
       fireEvent.click(importButton);
 
       await waitFor(() => {
@@ -399,7 +445,7 @@ describe('ImportRidesForm', () => {
         expect(screen.queryByText('Loading history...')).not.toBeInTheDocument();
       });
 
-      const importButton = screen.getByRole('button', { name: /Start Import/i });
+      const importButton = screen.getByRole('button', { name: /Import Last 30 Days/i });
       fireEvent.click(importButton);
 
       await waitFor(() => {
@@ -427,7 +473,7 @@ describe('ImportRidesForm', () => {
         expect(screen.queryByText('Loading history...')).not.toBeInTheDocument();
       });
 
-      const importButton = screen.getByRole('button', { name: /Start Import/i });
+      const importButton = screen.getByRole('button', { name: /Import Last 30 Days/i });
       fireEvent.click(importButton);
 
       await waitFor(() => {

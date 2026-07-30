@@ -6,6 +6,7 @@ global.fetch = mockFetch;
 
 // Mock Prisma
 const mockBackfillFindUnique = jest.fn();
+const mockBackfillFindMany = jest.fn();
 const mockBackfillUpsert = jest.fn();
 const mockBackfillUpdateMany = jest.fn();
 const mockRideFindMany = jest.fn();
@@ -19,6 +20,7 @@ jest.mock('../lib/prisma', () => ({
   prisma: {
     backfillRequest: {
       findUnique: mockBackfillFindUnique,
+      findMany: mockBackfillFindMany,
       upsert: mockBackfillUpsert,
       updateMany: mockBackfillUpdateMany,
     },
@@ -50,6 +52,12 @@ jest.mock('../lib/prisma', () => ({
 const mockGetValidGarminToken = jest.fn();
 jest.mock('../lib/garmin-token', () => ({
   getValidGarminToken: mockGetValidGarminToken,
+}));
+
+// Mock the background queue used by the batch route
+const mockEnqueueBackfillJob = jest.fn();
+jest.mock('../lib/queue/backfill.queue', () => ({
+  enqueueBackfillJob: mockEnqueueBackfillJob,
 }));
 
 // Mock logger
@@ -361,6 +369,81 @@ describe('GET /garmin/backfill/fetch', () => {
     });
   });
 
+  describe('Rolling Day Windows', () => {
+    it('should request exactly the last 7 days for a 7d window', async () => {
+      mockReq.query = { year: '7d' };
+
+      await invokeHandler(handler, mockReq as Request, mockRes as Response);
+
+      expect(mockFetch).toHaveBeenCalled();
+      const fetchUrl = mockFetch.mock.calls[0][0] as string;
+      const start = Number(/summaryStartTimeInSeconds=(\d+)/.exec(fetchUrl)?.[1]);
+      const end = Number(/summaryEndTimeInSeconds=(\d+)/.exec(fetchUrl)?.[1]);
+      // Seven days apart, ending now (allow a second of clock drift)
+      expect(end - start).toBeCloseTo(7 * 24 * 60 * 60, -1);
+      expect(Math.abs(end - Math.floor(Date.now() / 1000))).toBeLessThanOrEqual(2);
+    });
+
+    it('should request the last 30 days for a 30d window rather than the year', async () => {
+      mockReq.query = { year: '30d' };
+
+      await invokeHandler(handler, mockReq as Request, mockRes as Response);
+
+      const fetchUrl = mockFetch.mock.calls[0][0] as string;
+      const start = Number(/summaryStartTimeInSeconds=(\d+)/.exec(fetchUrl)?.[1]);
+      const jan1Seconds = Math.floor(new Date(new Date().getFullYear(), 0, 1).getTime() / 1000);
+      const thirtyDaysAgo = Math.floor(Date.now() / 1000) - 30 * 24 * 60 * 60;
+      expect(Math.abs(start - thirtyDaysAgo)).toBeLessThanOrEqual(2);
+      // Guards the bug this replaced: '30 days' used to expand to Jan 1
+      expect(start).not.toBe(jan1Seconds);
+    });
+
+    it('should re-run a window whose previous request completed', async () => {
+      mockReq.query = { year: '14d' };
+      mockBackfillFindUnique.mockResolvedValue({
+        id: 'bf-1',
+        status: 'completed',
+        year: '14d',
+        backfilledUpTo: new Date('2026-07-01T00:00:00Z'),
+      });
+
+      await invokeHandler(handler, mockReq as Request, mockRes as Response);
+
+      expect(statusCode).not.toBe(409);
+      expect(mockFetch).toHaveBeenCalled();
+      // The window is measured from now, never from the last checkpoint
+      const fetchUrl = mockFetch.mock.calls[0][0] as string;
+      const start = Number(/summaryStartTimeInSeconds=(\d+)/.exec(fetchUrl)?.[1]);
+      const fourteenDaysAgo = Math.floor(Date.now() / 1000) - 14 * 24 * 60 * 60;
+      expect(Math.abs(start - fourteenDaysAgo)).toBeLessThanOrEqual(2);
+    });
+
+    it('should return 409 when the same window is already in progress', async () => {
+      mockReq.query = { year: '7d' };
+      mockBackfillFindUnique.mockResolvedValue({
+        id: 'bf-1',
+        status: 'in_progress',
+        year: '7d',
+        backfilledUpTo: null,
+      });
+
+      await invokeHandler(handler, mockReq as Request, mockRes as Response);
+
+      expect(statusCode).toBe(409);
+      expect(jsonResponse).toMatchObject({ error: 'Backfill already in progress' });
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('should not store backfilledUpTo for a window (only YTD is incremental)', async () => {
+      mockReq.query = { year: '30d' };
+
+      await invokeHandler(handler, mockReq as Request, mockRes as Response);
+
+      const updateCall = mockBackfillUpdateMany.mock.calls[0];
+      expect(updateCall[0].data.backfilledUpTo).toBeNull();
+    });
+  });
+
   describe('Days Parameter (Backward Compatibility)', () => {
     it('should default to 30 days when no parameters provided', async () => {
       mockReq.query = {};
@@ -501,6 +584,103 @@ describe('GET /garmin/backfill/fetch', () => {
 });
 
 // Test the extractMinStartDate helper function by testing its behavior through the API
+describe('POST /garmin/backfill/batch', () => {
+  let mockReq: Partial<Request>;
+  let mockRes: Partial<Response>;
+  let handler: RequestHandler | undefined;
+  let jsonResponse: unknown;
+  let statusCode: number | undefined;
+
+  const queuedPeriods = () =>
+    mockEnqueueBackfillJob.mock.calls.map(([job]) => (job as { year: string }).year);
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    handler = getHandler('/garmin/backfill/batch', 'post');
+    jsonResponse = undefined;
+    statusCode = undefined;
+
+    mockReq = { sessionUser: { uid: 'user-123' }, body: {} };
+    mockRes = {
+      status: jest.fn().mockImplementation((code) => {
+        statusCode = code;
+        return mockRes;
+      }),
+      json: jest.fn().mockImplementation((data) => {
+        jsonResponse = data;
+        return mockRes;
+      }),
+    };
+
+    mockImportSessionFindFirst.mockResolvedValue(null);
+    mockImportSessionCreate.mockResolvedValue({ id: 'import-session-1' });
+    mockBackfillFindMany.mockResolvedValue([]);
+    mockBackfillFindUnique.mockResolvedValue(null);
+    mockBackfillUpsert.mockResolvedValue({});
+    mockEnqueueBackfillJob.mockResolvedValue({ status: 'queued', jobId: 'job-1' });
+  });
+
+  it('queues a rolling window', async () => {
+    mockReq.body = { years: ['7d'] };
+
+    await invokeHandler(handler, mockReq as Request, mockRes as Response);
+
+    expect(queuedPeriods()).toEqual(['7d']);
+    expect(jsonResponse).toMatchObject({ success: true });
+  });
+
+  it('rejects a period that is neither a window, ytd, nor a valid year', async () => {
+    mockReq.body = { years: ['90d'] };
+
+    await invokeHandler(handler, mockReq as Request, mockRes as Response);
+
+    expect(statusCode).toBe(400);
+    expect(mockEnqueueBackfillJob).not.toHaveBeenCalled();
+  });
+
+  it('re-queues a window whose previous run completed', async () => {
+    // Only in-flight rows come back from the rolling lookup, so a completed
+    // window looks exactly like a fresh one here.
+    mockBackfillFindMany.mockResolvedValue([]);
+    mockReq.body = { years: ['30d'] };
+
+    await invokeHandler(handler, mockReq as Request, mockRes as Response);
+
+    expect(queuedPeriods()).toEqual(['30d']);
+  });
+
+  it('skips a window that is already in flight', async () => {
+    mockBackfillFindMany.mockResolvedValue([{ year: '30d', status: 'in_progress' }]);
+    mockReq.body = { years: ['30d'] };
+
+    await invokeHandler(handler, mockReq as Request, mockRes as Response);
+
+    expect(statusCode).toBe(409);
+    expect(mockEnqueueBackfillJob).not.toHaveBeenCalled();
+  });
+
+  it('queues the free windows while skipping the one in flight', async () => {
+    mockBackfillFindMany.mockResolvedValue([{ year: '7d', status: 'in_progress' }]);
+    mockReq.body = { years: ['7d', '30d'] };
+
+    await invokeHandler(handler, mockReq as Request, mockRes as Response);
+
+    expect(queuedPeriods()).toEqual(['30d']);
+    expect(jsonResponse).toMatchObject({ skipped: ['7d'] });
+  });
+
+  it('still treats an imported calendar year as finished', async () => {
+    const lastYear = String(new Date().getFullYear() - 1);
+    mockBackfillFindMany.mockResolvedValue([{ year: lastYear, status: 'completed' }]);
+    mockReq.body = { years: [lastYear] };
+
+    await invokeHandler(handler, mockReq as Request, mockRes as Response);
+
+    expect(statusCode).toBe(409);
+    expect(mockEnqueueBackfillJob).not.toHaveBeenCalled();
+  });
+});
+
 describe('extractMinStartDate behavior', () => {
   let mockReq: Partial<Request>;
   let mockRes: Partial<Response>;
