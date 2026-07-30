@@ -355,72 +355,51 @@ describe('garmin-token', () => {
   // Users who linked Garmin before UserIntegration existed have a plaintext
   // OauthToken row and no encrypted counterpart. Reading only the encrypted
   // store would silently disconnect them.
-  describe('legacy plaintext adoption', () => {
-    const legacyRow = {
-      accessToken: 'legacy-access-token',
-      refreshToken: 'legacy-refresh-token',
-      expiresAt: new Date(Date.now() + 60 * 60 * 1000),
-      createdAt: new Date('2026-01-01'),
-    };
-
-    it('adopts a pre-encryption connection and returns its token', async () => {
+  /**
+   * The plaintext OauthToken fallback is gone.
+   *
+   * Garmin tokens were dual-written to OauthToken (plaintext) and
+   * UserIntegration (AES-256-GCM) during the migration. An adopt-on-read path
+   * encrypted a straggler the first time it was used; once the migration drained
+   * the Garmin rows it was dead code holding open a route to a credential store
+   * nothing else reads.
+   *
+   * These pin the shape it left behind: the encrypted store is the only place
+   * looked at, so revoked and undecryptable both resolve to "no connection" with
+   * no second opinion available. Re-adding a fallback would have to defeat the
+   * last assertion in each of these deliberately.
+   */
+  describe('encrypted store is authoritative', () => {
+    it('never reads the legacy plaintext table', async () => {
       mockIntegrationFindUnique.mockResolvedValue(null);
-      mockLegacyFindUnique.mockResolvedValue(legacyRow);
-      mockAccountFindFirst.mockResolvedValue({ providerUserId: 'garmin-user-1' });
 
-      const result = await getValidGarminToken('user-123');
+      expect(await getValidGarminToken('user-123')).toBeNull();
+      expect(mockLegacyFindUnique).not.toHaveBeenCalled();
+    });
 
-      expect(result).toBe('legacy-access-token');
+    // The case the old fallback had to guard explicitly: adopting whenever the
+    // encrypted read came back empty would resurrect a revoked connection from
+    // its stale plaintext row, handing out credentials for a user who withdrew
+    // consent. With no fallback there is nothing to get backwards.
+    it('reports no connection when the integration is revoked', async () => {
+      mockIntegrationFindUnique.mockResolvedValue(integrationRow({ revokedAt: new Date() }));
 
-      // Encrypted on the way in…
-      const upsert = mockIntegrationUpsert.mock.calls[0][0];
-      expect(decrypt(upsert.create.accessTokenEnc)).toBe('legacy-access-token');
-      expect(decrypt(upsert.create.refreshTokenEnc)).toBe('legacy-refresh-token');
-      expect(upsert.create.externalUserId).toBe('garmin-user-1');
+      expect(await getValidGarminToken('user-123')).toBeNull();
+      expect(mockIntegrationUpsert).not.toHaveBeenCalled();
+      expect(mockLegacyFindUnique).not.toHaveBeenCalled();
+    });
 
-      // …and the plaintext row is destroyed in the same transaction.
-      expect(mockLegacyDeleteMany).toHaveBeenCalledWith({
-        where: { userId: 'user-123', provider: 'garmin' },
+    it('reports no connection when the ciphertext will not decrypt', async () => {
+      mockIntegrationFindUnique.mockResolvedValue({
+        accessTokenEnc: 'corrupt',
+        refreshTokenEnc: null,
+        expiresAt: new Date(Date.now() + 3600_000),
+        revokedAt: null,
       });
-    });
-
-    // The dangerous case. If adoption ran whenever the encrypted read came back
-    // empty, a revoked connection would be resurrected from its stale plaintext
-    // row — handing out credentials for a user who withdrew consent.
-    it('does NOT adopt when the integration exists but is revoked', async () => {
-      mockIntegrationFindUnique
-        // getIntegrationTokens: revoked → null
-        .mockResolvedValueOnce(integrationRow({ revokedAt: new Date() }))
-        // existence probe: row is present
-        .mockResolvedValueOnce({ id: 'integration-1' });
-      mockLegacyFindUnique.mockResolvedValue(legacyRow);
 
       expect(await getValidGarminToken('user-123')).toBeNull();
       expect(mockIntegrationUpsert).not.toHaveBeenCalled();
-      expect(mockLegacyDeleteMany).not.toHaveBeenCalled();
-    });
-
-    it('does NOT adopt when the integration exists but failed to decrypt', async () => {
-      mockIntegrationFindUnique
-        .mockResolvedValueOnce({
-          accessTokenEnc: 'corrupt',
-          refreshTokenEnc: null,
-          expiresAt: new Date(Date.now() + 3600_000),
-          revokedAt: null,
-        })
-        .mockResolvedValueOnce({ id: 'integration-1' });
-      mockLegacyFindUnique.mockResolvedValue(legacyRow);
-
-      expect(await getValidGarminToken('user-123')).toBeNull();
-      expect(mockIntegrationUpsert).not.toHaveBeenCalled();
-    });
-
-    it('returns null when neither store has a connection', async () => {
-      mockIntegrationFindUnique.mockResolvedValue(null);
-      mockLegacyFindUnique.mockResolvedValue(null);
-
-      expect(await getValidGarminToken('user-123')).toBeNull();
-      expect(mockIntegrationUpsert).not.toHaveBeenCalled();
+      expect(mockLegacyFindUnique).not.toHaveBeenCalled();
     });
   });
 });
