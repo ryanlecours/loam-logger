@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { GARMIN_CONNECT_APP_NAME } from '@loam/shared';
 import { ImportRidesForm } from './ImportRidesForm';
 
 // Mock fetch
@@ -74,7 +75,7 @@ describe('ImportRidesForm', () => {
 
       expect(screen.getByText('Import from')).toBeInTheDocument();
       expect(screen.getByText('Strava')).toBeInTheDocument();
-      expect(screen.getByText('Garmin Connect')).toBeInTheDocument();
+      expect(screen.getByText(GARMIN_CONNECT_APP_NAME)).toBeInTheDocument();
     });
 
     it('allows selecting a provider', () => {

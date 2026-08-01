@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Modal, Button } from './ui';
 import { getAuthHeaders } from '@/lib/csrf';
+import { GARMIN_CONNECT_APP_NAME } from '@loam/shared';
 
 type Props = {
   open: boolean;
@@ -168,7 +169,7 @@ export default function GarminImportModal({ open, onClose, onSuccess, onDuplicat
     <Modal
       isOpen={open}
       onClose={onClose}
-      title="Import Garmin Rides"
+      title={`Import ${GARMIN_CONNECT_APP_NAME} Rides`}
       size="lg"
       preventClose={step === 'processing'}
     >
