@@ -18,6 +18,7 @@ import type { BackfillJobData, BackfillJobName } from '../lib/queue/backfill.que
 import { enqueueWeatherJob, enqueueLiftDetectionJob } from '../lib/queue';
 import { triggerGarminBackfillChunks } from '../services/garmin-backfill';
 import { resolveGarminPeriodRange } from '../lib/garmin-backfill-periods';
+import { garminRideKey } from '../lib/garmin-ride-key';
 import { captureServerEvent } from '../lib/posthog';
 import { incrementBikeComponentHours, syncBikeComponentHours } from '../lib/component-hours';
 import { invalidateBikePredictionsForBikes } from '../services/prediction/cache';
@@ -832,8 +833,13 @@ async function processGarminCallback(userId: string, callbackURL: string): Promi
       lon: startLng,
     });
 
+    // One ride, two deliveries: the Activity Summary arrives as "123" and its
+    // Activity Details as "123-detail". Keying on the raw id made the details
+    // delivery miss the summary's row and insert a duplicate carrying the map.
+    const rideKey = garminRideKey(activity.summaryId);
+
     const existingRide = await prisma.ride.findUnique({
-      where: { garminActivityId: activity.summaryId },
+      where: { garminActivityId: rideKey },
       select: { location: true, bikeId: true, durationSeconds: true },
     });
 
@@ -849,10 +855,10 @@ async function processGarminCallback(userId: string, callbackURL: string): Promi
     let affectedBikeIds: string[] = [];
     const upsertedRide = await prisma.$transaction(async (tx) => {
       const ride = await tx.ride.upsert({
-        where: { garminActivityId: activity.summaryId },
+        where: { garminActivityId: rideKey },
         create: {
           userId,
-          garminActivityId: activity.summaryId,
+          garminActivityId: rideKey,
           startTime,
           durationSeconds: activity.durationInSeconds,
           distanceMeters,

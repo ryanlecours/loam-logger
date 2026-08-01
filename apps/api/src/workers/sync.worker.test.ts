@@ -850,6 +850,49 @@ describe('processSyncJob (via worker processor)', () => {
         );
       });
 
+      /**
+       * One ride, two deliveries. Garmin sends the Activity Summary as
+       * "summary-456" and the Activity Details for the same ride as
+       * "summary-456-detail". Keying the row on the raw id sent the second
+       * delivery looking for a row that did not exist, so it inserted a
+       * duplicate: the rider saw the ride twice, the map was attached to the
+       * copy, and the copy's hours were counted against their components again.
+       */
+      it('updates the ride the summary created when its details arrive', async () => {
+        (mockPrisma.ride.findUnique as jest.Mock).mockResolvedValue({
+          id: 'ride-1',
+          location: null,
+          bikeId: null,
+          durationSeconds: 5340,
+        });
+        const samples = [{ latitudeInDegree: 48.75, longitudeInDegree: -122.48 }];
+
+        await processSyncJob({
+          name: 'syncActivity',
+          data: {
+            userId: 'user123',
+            provider: 'garmin',
+            activityId: 'summary-456-detail',
+            pushedActivity: { ...GARMIN_SUMMARY, summaryId: 'summary-456-detail', samples },
+          },
+        });
+
+        expect(mockPrisma.ride.upsert).toHaveBeenCalledWith(
+          expect.objectContaining({ where: { garminActivityId: 'summary-456' } })
+        );
+
+        const keys = (mockPrisma.ride.upsert as jest.Mock).mock.calls.map(
+          ([args]) => args.where.garminActivityId
+        );
+        expect(keys).not.toContain('summary-456-detail');
+
+        // The track belongs on the ride the rider already has.
+        expect(mockPersistGarminStream).toHaveBeenCalledWith(
+          'ride-1',
+          expect.objectContaining({ samples })
+        );
+      });
+
       // Verification mode blocks unprompted pulls. A push is not a pull, so it
       // must keep flowing or a reviewer sees no data at all.
       it('ingests a pushed activity during verification mode', async () => {

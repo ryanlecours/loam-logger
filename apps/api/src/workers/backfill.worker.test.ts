@@ -269,6 +269,59 @@ describe('processBackfillJob (via worker processor)', () => {
       );
     });
 
+    /**
+     * The same one-ride-two-deliveries case on the callback path, which is what
+     * a backfill answers on: the Activity Details entry carries the "-detail"
+     * id, the stats nested under `summary`, and the GPS samples. It has to land
+     * on the row the Activity Summary already created.
+     */
+    it('updates the existing ride when the details arrive, rather than inserting a duplicate', async () => {
+      (mockPrisma.ride.findUnique as jest.Mock).mockResolvedValue({
+        location: null,
+        bikeId: null,
+        durationSeconds: 3600,
+      });
+
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve([
+          {
+            summaryId: 'activity-123-detail',
+            samples: [{ latitudeInDegree: 37.7749, longitudeInDegree: -122.4194 }],
+            summary: {
+              activityType: 'cycling',
+              activityName: 'Morning Ride',
+              startTimeInSeconds: 1706123456,
+              durationInSeconds: 3600,
+              distanceInMeters: 50000,
+              totalElevationGainInMeters: 500,
+              startingLatitudeInDegrees: 37.7749,
+              startingLongitudeInDegrees: -122.4194,
+            },
+          },
+        ]),
+      } as Response);
+
+      await processBackfillJob({
+        name: 'processCallback',
+        id: 'job-123',
+        data: {
+          userId: 'user-123',
+          provider: 'garmin',
+          callbackURL: 'https://apis.garmin.com/callback/xyz',
+        },
+      });
+
+      expect(mockPrisma.ride.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { garminActivityId: 'activity-123' } })
+      );
+
+      const keys = (mockPrisma.ride.upsert as jest.Mock).mock.calls.map(
+        ([args]) => args.where.garminActivityId
+      );
+      expect(keys).not.toContain('activity-123-detail');
+    });
+
     it('should fire fireRideNotifications after upserting a real-time callback ride (no active backfill session)', async () => {
       // No runningSession → isBackfill must be false so the user gets the
       // "Ride Synced" + bike-pick prompt push notifications. Regression
