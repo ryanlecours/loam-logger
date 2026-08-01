@@ -179,6 +179,48 @@ describe('fetchGarminActivityFromCallback', () => {
     expect(result?.summaryId).toBe(`${SUMMARY_ID}-detail`);
   });
 
+  // The dangerous inverse of the suffix case. A callbackURL covers an upload
+  // window and can carry several activities; the old leading-segment rule made
+  // any two ids sharing a prefix segment "the same activity", which is how one
+  // ride's samples end up on another ride.
+  it('does not match a different activity that shares a leading segment', async () => {
+    mockFetch.mockResolvedValue(ok([entry('activity-999')]));
+
+    const result = await fetchGarminActivityFromCallback({
+      accessToken: TOKEN,
+      summaryId: 'activity-123',
+      callbackURL: CALLBACK_URL,
+    });
+
+    expect(result).toBeNull();
+  });
+
+  it('picks the right entry when a payload carries prefix-sharing ids', async () => {
+    mockFetch.mockResolvedValue(ok([entry('activity-999'), entry('activity-123')]));
+
+    const result = await fetchGarminActivityFromCallback({
+      accessToken: TOKEN,
+      summaryId: 'activity-123',
+      callbackURL: CALLBACK_URL,
+    });
+
+    expect(result?.summaryId).toBe('activity-123');
+  });
+
+  // Only `-detail` is documented, but the rule holds for any suffix appended to
+  // the id we asked for, because the whole requested id must precede it.
+  it('matches an unfamiliar suffix on the requested id', async () => {
+    mockFetch.mockResolvedValue(ok([entry(`${SUMMARY_ID}-summary`)]));
+
+    const result = await fetchGarminActivityFromCallback({
+      accessToken: TOKEN,
+      summaryId: SUMMARY_ID,
+      callbackURL: CALLBACK_URL,
+    });
+
+    expect(result?.summaryId).toBe(`${SUMMARY_ID}-summary`);
+  });
+
   it('tolerates a bare object instead of an array', async () => {
     mockFetch.mockResolvedValue(ok(entry(SUMMARY_ID)));
 
