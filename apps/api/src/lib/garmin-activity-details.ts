@@ -1,5 +1,6 @@
 import { logger } from './logger';
 import { assertTrustedGarminCallbackUrl } from './garmin-callback-url';
+import { garminRideKey } from './garmin-ride-key';
 
 /**
  * Reader for the payload behind a Garmin ping's callbackURL.
@@ -35,15 +36,31 @@ export type GarminActivityPayload = {
 };
 
 /**
+ * Does this payload entry describe the activity we asked for?
+ *
  * Garmin appends a suffix to the details summaryId for some activity kinds
- * (e.g. `12345678-detail`), so an exact match alone misses them. Comparing the
- * leading id segment matches both spellings without matching a different
- * activity, since the ids themselves are opaque and unique.
+ * (e.g. `12345678-detail`), so an exact match alone misses them.
+ *
+ * This used to compare the text before the first hyphen on both sides, which
+ * matched the suffixed spelling but also matched any two ids sharing a leading
+ * segment: `activity-999` and `activity-123` were "the same activity". A
+ * callbackURL covers an upload window and can carry several activities, so that
+ * is the shape that attaches one ride's samples to a different ride. Garmin's
+ * ids are opaque, and nothing guarantees the leading segment identifies
+ * anything on its own.
+ *
+ * The requested id now has to be the entire leading id, up to a hyphen
+ * boundary, rather than a fragment it happens to share. A miss is logged as
+ * garmin_callback_no_match and imports nothing, which this module already
+ * prefers to guessing.
  */
 function idsMatch(candidate: string | undefined, summaryId: string): boolean {
   if (!candidate) return false;
   if (candidate === summaryId) return true;
-  return candidate.split('-')[0] === summaryId.split('-')[0];
+  // The same ride under the other summary type: "123" and "123-detail".
+  if (garminRideKey(candidate) === garminRideKey(summaryId)) return true;
+  // Any other suffix Garmin appends to the id we asked for.
+  return candidate.startsWith(`${summaryId}-`);
 }
 
 /**
