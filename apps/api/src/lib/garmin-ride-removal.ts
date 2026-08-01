@@ -6,6 +6,7 @@ import {
   recomputeAdjustedComponentsForRides,
 } from './component-hours';
 import { invalidateBikePredictionsForBikes } from '../services/prediction/cache';
+import { garminRideKey } from './garmin-ride-key';
 
 /**
  * Remove the ride behind a Garmin activity that is no longer a bike ride.
@@ -29,8 +30,13 @@ import { invalidateBikePredictionsForBikes } from '../services/prediction/cache'
  */
 export async function removeGarminRideIfPresent(
   userId: string,
-  garminActivityId: string
+  summaryId: string
 ): Promise<boolean> {
+  // Normalized here rather than at the call sites: a retype can be announced by
+  // either summary type, and an "-detail" id would otherwise find no row and
+  // report that nothing was removed while the ride kept accruing hours.
+  const garminActivityId = garminRideKey(summaryId);
+
   // Removal and affected bikes are tracked separately: an unassigned ride is
   // still deleted but moves nobody's hours, so an empty bike list must not read
   // as "nothing happened".

@@ -14,6 +14,7 @@ import { persistGarminStream } from '../lib/ride-stream-store';
 import { fetchGarminActivityFromCallback } from '../lib/garmin-activity-details';
 import { isGarminCyclingActivity } from '../types/garmin';
 import { removeGarminRideIfPresent } from '../lib/garmin-ride-removal';
+import { garminRideKey } from '../lib/garmin-ride-key';
 import { syncBikeComponentHours } from '../lib/component-hours';
 import { invalidateBikePredictionsForBikes } from '../services/prediction/cache';
 import { logger } from '../lib/logger';
@@ -620,6 +621,11 @@ async function syncGarminActivity(
 }
 
 async function upsertGarminActivity(userId: string, activity: GarminActivity): Promise<void> {
+  // One ride, two deliveries: the Activity Summary arrives as "123" and its
+  // Activity Details as "123-detail". Keying on the raw id made the details
+  // delivery miss the summary's row and insert a duplicate carrying the map.
+  const rideKey = garminRideKey(activity.summaryId);
+
   const distanceMeters = activity.distanceInMeters ?? 0;
 
   const elevationGainMeters =
@@ -651,7 +657,7 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
   });
 
   const existing = await prisma.ride.findUnique({
-    where: { garminActivityId: activity.summaryId },
+    where: { garminActivityId: rideKey },
     select: { id: true, location: true, bikeId: true, durationSeconds: true },
   });
 
@@ -681,10 +687,10 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
 
   // Upsert ride first — this is the primary data, must not be lost
   const ride = await prisma.ride.upsert({
-    where: { garminActivityId: activity.summaryId },
+    where: { garminActivityId: rideKey },
     create: {
       userId,
-      garminActivityId: activity.summaryId,
+      garminActivityId: rideKey,
       startTime,
       durationSeconds: activity.durationInSeconds,
       distanceMeters,
