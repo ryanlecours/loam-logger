@@ -11,9 +11,7 @@
     "type-check": "tsc -b --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage",
-    "test:e2e": "cypress run",
-    "test:e2e:open": "cypress open"
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@apollo/client": "^3.14.1",
