@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router';
 import { motion } from 'motion/react';
 import { Button } from '@/components/ui';
 import { validatePassword, PASSWORD_RULES } from '@loam/shared';

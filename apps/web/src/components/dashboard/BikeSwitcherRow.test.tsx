@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter } from 'react-router';
 import { BikeSwitcherRow } from './BikeSwitcherRow';
 import type { BikeWithPredictions } from '../../hooks/usePriorityBike';
 

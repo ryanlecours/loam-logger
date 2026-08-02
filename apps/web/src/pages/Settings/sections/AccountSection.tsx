@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { useQuery, gql } from '@apollo/client';
 import { useCurrentUser } from '../../../hooks/useCurrentUser';
 import SetPasswordModal from '../../../components/SetPasswordModal';

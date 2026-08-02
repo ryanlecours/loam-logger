@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter } from 'react-router';
 import Admin from './index';
 
 // Mock the section components — we're testing the role gate + section
@@ -43,10 +43,10 @@ vi.mock('../../hooks/useCurrentUser', () => ({
   useCurrentUser: () => mockUseCurrentUser(),
 }));
 
-// react-router-dom <Navigate> renders a sentinel marker so we can assert
+// react-router <Navigate> renders a sentinel marker so we can assert
 // the redirect was issued without actually navigating.
-vi.mock('react-router-dom', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('react-router-dom')>();
+vi.mock('react-router', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('react-router')>();
   return {
     ...actual,
     Navigate: ({ to }: { to: string }) => <div data-testid="navigate" data-to={to} />,

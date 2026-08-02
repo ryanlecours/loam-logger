@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { toast } from 'sonner';
 import { Modal, Button } from './ui';
 import { validatePassword, PASSWORD_RULES } from '@loam/shared';

@@ -2,7 +2,7 @@ import { GARMIN_CONNECT_APP_NAME } from '@loam/shared';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter } from 'react-router';
 import Onboarding from './Onboarding';
 
 // Mock Apollo Client
@@ -19,8 +19,8 @@ vi.mock('@apollo/client', () => ({
 
 // Mock useNavigate
 const mockNavigate = vi.fn();
-vi.mock('react-router-dom', async () => {
-  const actual = await vi.importActual('react-router-dom');
+vi.mock('react-router', async () => {
+  const actual = await vi.importActual('react-router');
   return {
     ...actual,
     useNavigate: () => mockNavigate,
@@ -115,8 +115,8 @@ describe('Onboarding', () => {
 
   const renderOnboarding = (initialStep = 1) => {
     // Override useSearchParams for specific step
-    vi.doMock('react-router-dom', async () => {
-      const actual = await vi.importActual('react-router-dom');
+    vi.doMock('react-router', async () => {
+      const actual = await vi.importActual('react-router');
       return {
         ...actual,
         useNavigate: () => mockNavigate,

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter } from 'react-router';
 import BikeHistory from './BikeHistory';
 
 // Apollo — useQuery returns the fixed fixture below; useMutation returns
@@ -14,9 +14,9 @@ vi.mock('@apollo/client', () => ({
 }));
 
 // Pin the bikeId so the query fixture is reachable.
-vi.mock('react-router-dom', async () => {
-  const actual = await vi.importActual<typeof import('react-router-dom')>(
-    'react-router-dom'
+vi.mock('react-router', async () => {
+  const actual = await vi.importActual<typeof import('react-router')>(
+    'react-router'
   );
   return {
     ...actual,

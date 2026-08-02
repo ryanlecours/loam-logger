@@ -1,4 +1,4 @@
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router';
 import { useCallback } from 'react';
 
 export type AdminSectionId = 'overview' | 'users' | 'email';

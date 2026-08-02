@@ -5,7 +5,7 @@ import {
   useNavigationType,
   createRoutesFromChildren,
   matchRoutes,
-} from "react-router-dom";
+} from "react-router";
 import { scrubKnownSecrets } from "./lib/sentry-scrub";
 
 Sentry.init({

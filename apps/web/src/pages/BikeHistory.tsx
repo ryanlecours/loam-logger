@@ -1,5 +1,5 @@
 import { Suspense, lazy, useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router';
 import { gql, useMutation, useQuery } from '@apollo/client';
 import { ArrowLeft, Bike as BikeIcon, CalendarClock, Check, FileDown, Link2, MinusCircle, PlusCircle, TriangleAlert, Wrench } from 'lucide-react';
 

@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router';
 import { gql, useQuery } from '@apollo/client';
 import { Bike as BikeIcon, Wrench, ArrowUpDown } from 'lucide-react';
 import { fmtDistance, fmtDuration, fmtDateTime } from '@/lib/format';

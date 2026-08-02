@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import AboutAppModal from '../components/AboutAppModal';
 import { Button } from '../components/ui';
 
