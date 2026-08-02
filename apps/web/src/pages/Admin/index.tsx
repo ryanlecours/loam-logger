@@ -1,4 +1,4 @@
-import { Navigate } from 'react-router-dom';
+import { Navigate } from 'react-router';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
 import AdminShell from './AdminShell';
 import { OverviewSection } from './sections/OverviewSection';

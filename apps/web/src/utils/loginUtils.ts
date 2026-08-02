@@ -1,4 +1,4 @@
-import { useLocation, useSearchParams } from 'react-router-dom'
+import { useLocation, useSearchParams } from 'react-router'
 
 export function useRedirectFrom(defaultPath = '/dashboard') {
   const location = useLocation()

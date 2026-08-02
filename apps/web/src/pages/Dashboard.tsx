@@ -1,7 +1,7 @@
 // src/pages/Dashboard.tsx
 import { useCallback, useEffect, useState, useMemo, useRef } from 'react';
 import { useQuery } from '@apollo/client';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { RIDES } from '../graphql/rides';
 import { BIKES, BIKES_LIGHT, BIKES_ADVISOR } from '../graphql/bikes';
 import { UNMAPPED_STRAVA_GEARS } from '../graphql/stravaGear';

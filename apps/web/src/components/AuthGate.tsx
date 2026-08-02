@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { Navigate, useLocation } from 'react-router-dom'
+import { Navigate, useLocation } from 'react-router'
 import { useQuery } from '@apollo/client'
 import { ME_QUERY } from '../graphql/me'
 import { useSentryUser } from '../hooks/useSentryUser'

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useApolloClient, useMutation, useQuery } from '@apollo/client';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { Mountain, Lock } from 'lucide-react';
 import { useUserTier } from '../hooks/useUserTier';
 import {

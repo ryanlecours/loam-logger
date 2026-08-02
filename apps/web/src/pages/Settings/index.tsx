@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactElement } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router';
 import { useApolloClient } from '@apollo/client';
 import { toast } from 'sonner';
 import SettingsShell from './SettingsShell';
