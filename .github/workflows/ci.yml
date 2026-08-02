@@ -74,7 +74,9 @@ jobs:
         run: npx nx affected -t test --parallel=3
 
       - name: Type check affected projects
-        run: npx nx affected -t type-check --parallel=3 || echo "No type-check target defined"
+        # No `|| echo` fallback: this step swallowed its own exit code, so it
+        # could not fail the build even once both apps started reporting.
+        run: npx nx affected -t type-check --parallel=3
 
       - name: Build affected projects
         # SENTRY_AUTH_TOKEN enables @sentry/vite-plugin to upload source maps
