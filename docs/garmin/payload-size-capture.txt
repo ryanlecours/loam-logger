@@ -1,0 +1,87 @@
+Garmin payload-size acceptance: live capture
+============================================
+
+Checklist item (docs/garmin/submission-checklist.md): a >100 KB and a >10 MB
+Activity payload must be accepted with HTTP 200.
+
+Endpoint : https://api.loamlogger.app/webhooks/garmin/activities-ping
+Captured : 2026-08-03 (UTC), against production (Railway).
+Method   : a well-formed activityDetails payload padded with a filler field and
+           posted via curl. A dummy userId is used, so the endpoint returns its
+           200 acknowledgement before any processing and no sync work is
+           enqueued (see webhooks.garmin.ts: the handler ACKs first).
+
+Why this passes in production and not only in CI: the raised body limits live on
+the Garmin router (100mb for activities-ping, 10mb for the other endpoints, in
+apps/api/src/routes/webhooks.garmin.ts) and that router is registered before the
+global express.json() in apps/api/src/server.ts. body-parser's 100kb default
+would otherwise 413 an oversized delivery, which Garmin counts as a failure.
+
+The CI regression guards for the same behavior are in
+apps/api/src/routes/webhooks.garmin.test.ts under "payload size limits".
+
+Result summary
+--------------
+  150 KB payload (153,755 bytes)     -> HTTP 200
+   12 MB payload (12,583,067 bytes)  -> HTTP 200
+
+Reproduce
+---------
+  URL="https://api.loamlogger.app/webhooks/garmin/activities-ping"
+  GUID="garmin-user-456"   # dummy; endpoint ACKs before processing
+
+  GUID="$GUID" OUTDIR="." node -e '
+  const fs=require("fs"),p=require("path");
+  const dir=process.env.OUTDIR, guid=process.env.GUID;
+  const mk=(b)=>JSON.stringify({activityDetails:[{userId:guid,userAccessToken:"token",summaryId:"live-capture",uploadTimestampInSeconds:1706123456,_padding:"x".repeat(b)}]});
+  fs.writeFileSync(p.join(dir,"garmin_150kb.json"), mk(150*1024));
+  fs.writeFileSync(p.join(dir,"garmin_12mb.json"),  mk(12*1024*1024));
+  '
+
+  for f in garmin_150kb.json garmin_12mb.json; do
+    echo "=== $f ==="
+    curl -sS -i -X POST "$URL" \
+      -H 'Content-Type: application/json' \
+      --data-binary @"$f" \
+      -w '\n\n-> HTTP %{http_code}, uploaded %{size_upload} bytes, %{time_total}s\n\n'
+  done
+
+Raw transcript
+--------------
+=== garmin_150kb.json ===
+HTTP/1.1 200 OK
+access-control-allow-credentials: true
+Content-Type: application/json; charset=utf-8
+Date: Mon, 03 Aug 2026 03:26:21 GMT
+etag: W/"15-JVaEhNIBCsbZip0SvdQrAM0ZlRE"
+Server: railway-hikari
+vary: Origin
+x-powered-by: Express
+x-railway-request-id: obyCdCBjRhudPWvenpoFkQ
+Content-Length: 21
+x-hikari-trace: sjc1.hqr0
+x-railway-edge: sjc1
+Connection: keep-alive
+
+{"acknowledged":true}
+
+-> HTTP 200, uploaded 153755 bytes, 0.667809s
+
+=== garmin_12mb.json ===
+HTTP/1.1 200 OK
+access-control-allow-credentials: true
+Content-Type: application/json; charset=utf-8
+Date: Mon, 03 Aug 2026 03:26:25 GMT
+etag: W/"15-JVaEhNIBCsbZip0SvdQrAM0ZlRE"
+Server: railway-hikari
+vary: Origin
+x-powered-by: Express
+x-railway-request-id: sPDGdgYeSz2u_6-f9o6EoQ
+Content-Length: 21
+x-hikari-trace: sjc1.hqr0
+x-railway-edge: sjc1
+Connection: keep-alive
+
+{"acknowledged":true}
+
+-> HTTP 200, uploaded 12583067 bytes, 4.879929s
