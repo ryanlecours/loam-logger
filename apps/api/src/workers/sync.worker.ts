@@ -256,11 +256,26 @@ async function syncStravaLatest(userId: string): Promise<void> {
 
   logger.debug({ count: cyclingActivities.length }, '[SyncWorker] Processing cycling activities');
 
+  // device_name is only on Strava's detailed activity, not this list, so
+  // capturing it costs one extra call per activity. Pay that only for rides we
+  // have not imported yet (mirrors the backfill route): an already-imported ride
+  // was fetched when it was first seen, so re-fetching on every user-triggered
+  // "sync now" would be pure Strava-quota burn. One batch lookup, not one query
+  // per activity.
+  const existingStravaIds = new Set(
+    (
+      await prisma.ride.findMany({
+        where: {
+          userId,
+          stravaActivityId: { in: cyclingActivities.map((a) => a.id.toString()) },
+        },
+        select: { stravaActivityId: true },
+      })
+    ).map((r) => r.stravaActivityId)
+  );
+
   for (const activity of cyclingActivities) {
-    // The list endpoint omits device_name; fetch it best-effort so a ride
-    // recorded on a Garmin device and imported via Strava can still be
-    // attributed to Garmin. A rate-limited lookup just leaves it null.
-    if (activity.device_name == null) {
+    if (!existingStravaIds.has(activity.id.toString())) {
       activity.device_name = await fetchStravaDeviceName(accessToken, activity.id);
     }
     await upsertStravaActivity(userId, activity);
