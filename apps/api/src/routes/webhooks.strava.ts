@@ -75,6 +75,7 @@ type StravaActivityDetail = {
   distance: number; // meters
   total_elevation_gain: number; // meters
   gear_id?: string | null; // Strava bike/gear ID
+  device_name?: string | null; // recording device, e.g. "Garmin Edge 840"
   average_heartrate?: number;
   max_heartrate?: number;
   average_speed?: number; // m/s
@@ -366,6 +367,7 @@ async function processActivityEvent(event: StravaWebhookEvent): Promise<void> {
             userId: userAccount.userId,
             stravaActivityId: activityId.toString(),
             stravaGearId: activity.gear_id ?? null,
+            stravaDeviceName: activity.device_name ?? null,
             startTime,
             durationSeconds: activity.moving_time,
             distanceMeters,
@@ -381,6 +383,8 @@ async function processActivityEvent(event: StravaWebhookEvent): Promise<void> {
           update: {
             startTime,
             stravaGearId: activity.gear_id ?? null,
+            // Only written when present, never blanked (see sync.worker.ts).
+            ...(activity.device_name ? { stravaDeviceName: activity.device_name } : {}),
             durationSeconds: activity.moving_time,
             distanceMeters,
             elevationGainMeters,

@@ -138,6 +138,18 @@ export type Bike = {
   buildKind?: Maybe<Scalars['String']['output']>;
   category?: Maybe<Scalars['String']['output']>;
   components: Array<Component>;
+  /**
+   * Providers that contributed the rides behind this bike's component hours,
+   * e.g. ["garmin", "strava"]. Values match Ride source keys.
+   *
+   * Exists so clients can attribute derived data correctly: component wear,
+   * service predictions and the generated maintenance summary are all
+   * materially influenced by ride duration, and the Garmin API Brand
+   * Guidelines require Garmin to be named as a contributing source wherever
+   * that is true — and equally require Garmin branding NOT to appear where
+   * Garmin data is absent. Do not infer this from a single ride's source.
+   */
+  contributingSources: Array<Scalars['String']['output']>;
   createdAt: Scalars['String']['output'];
   family?: Maybe<Scalars['String']['output']>;
   fork?: Maybe<Component>;
@@ -1062,6 +1074,13 @@ export type Ride = {
   rideType: Scalars['String']['output'];
   startTime: Scalars['String']['output'];
   stravaActivityId?: Maybe<Scalars['String']['output']>;
+  /**
+   * Strava's reported recording device (e.g. "Garmin Edge 840"). When it names a
+   * Garmin device, this ride carries Garmin device-sourced data and clients must
+   * render Garmin attribution even though it arrived via Strava (isGarminDevice /
+   * garminSourceDevice in @loam/shared). Null when Strava reported no device.
+   */
+  stravaDeviceName?: Maybe<Scalars['String']['output']>;
   stravaGearId?: Maybe<Scalars['String']['output']>;
   suuntoWorkoutId?: Maybe<Scalars['String']['output']>;
   trailSystem?: Maybe<Scalars['String']['output']>;
@@ -1073,8 +1092,22 @@ export type Ride = {
 
 export type RideTrack = {
   __typename?: 'RideTrack';
+  /**
+   * Garmin device model behind this track, when source is "garmin". Drives the
+   * "Garmin [device model]" attribution the Garmin API Brand Guidelines require
+   * on visuals built from device data. Null for non-Garmin tracks, and for
+   * Garmin tracks where the device was not reported (attribute plain "Garmin").
+   */
+  garminDeviceName?: Maybe<Scalars['String']['output']>;
   points?: Maybe<Array<Array<Scalars['Float']['output']>>>;
   sampledFrom?: Maybe<Scalars['Int']['output']>;
+  /**
+   * Provider that recorded the stored stream ("strava" | "garmin"); null unless
+   * status is AVAILABLE. Lets the client attribute the rendered map to the right
+   * source — a cross-provider ride cannot be attributed from its activity ids
+   * alone, since only one provider's stream is actually persisted.
+   */
+  source?: Maybe<Scalars['String']['output']>;
   status: RideTrackStatus;
 };
 
@@ -1182,6 +1215,14 @@ export type SharedBike = {
 export type SharedBikeHistory = {
   __typename?: 'SharedBikeHistory';
   bike: SharedBike;
+  /**
+   * Providers whose rides contribute to the totals above, e.g. ["garmin"].
+   *
+   * This page is public and unauthenticated, which makes it "downstream data"
+   * under the Garmin API Brand Guidelines — attribution must travel with the
+   * data wherever it is shared. Contains no identifiers, only source names.
+   */
+  contributingSources: Array<Scalars['String']['output']>;
   installs: Array<SharedInstallEvent>;
   serviceEvents: Array<SharedServiceEvent>;
   totals: BikeHistoryTotals;
@@ -1669,7 +1710,7 @@ export type RidesQueryVariables = Exact<{
 }>;
 
 
-export type RidesQuery = { __typename?: 'Query', rides: Array<{ __typename?: 'Ride', id: string, garminActivityId?: string | null, garminDeviceName?: string | null, stravaActivityId?: string | null, whoopWorkoutId?: string | null, suuntoWorkoutId?: string | null, startTime: string, durationSeconds: number, distanceMeters: number, elevationGainMeters: number, averageHr?: number | null, rideType: string, bikeId?: string | null, notes?: string | null, trailSystem?: string | null, location?: string | null }> };
+export type RidesQuery = { __typename?: 'Query', rides: Array<{ __typename?: 'Ride', id: string, garminActivityId?: string | null, garminDeviceName?: string | null, stravaActivityId?: string | null, stravaDeviceName?: string | null, whoopWorkoutId?: string | null, suuntoWorkoutId?: string | null, startTime: string, durationSeconds: number, distanceMeters: number, elevationGainMeters: number, averageHr?: number | null, rideType: string, bikeId?: string | null, notes?: string | null, trailSystem?: string | null, location?: string | null }> };
 
 export type UnmappedStravaGearsQueryVariables = Exact<{ [key: string]: never; }>;
 
@@ -2424,6 +2465,7 @@ export const RidesDocument = gql`
     garminActivityId
     garminDeviceName
     stravaActivityId
+    stravaDeviceName
     whoopWorkoutId
     suuntoWorkoutId
     startTime

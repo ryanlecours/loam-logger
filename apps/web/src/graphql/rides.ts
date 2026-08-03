@@ -25,6 +25,7 @@ export const RIDES = gql`
       garminActivityId
       garminDeviceName
       stravaActivityId
+      stravaDeviceName
       whoopWorkoutId
       suuntoWorkoutId
       startTime

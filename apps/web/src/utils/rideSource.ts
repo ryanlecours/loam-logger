@@ -1,4 +1,4 @@
-import { formatGarminSource, hasGarminData } from '@loam/shared';
+import { formatGarminSource, garminSourceDevice, hasGarminData } from '@loam/shared';
 
 export type RideSource = 'strava' | 'garmin' | 'whoop' | 'suunto' | 'manual';
 
@@ -8,6 +8,7 @@ export interface RideWithSource {
   whoopWorkoutId?: string | null;
   suuntoWorkoutId?: string | null;
   garminDeviceName?: string | null;
+  stravaDeviceName?: string | null;
 }
 
 /**
@@ -35,7 +36,11 @@ export function getRideSource(ride: RideWithSource): RideSource {
 export function getRideSources(ride: RideWithSource): RideSource[] {
   const sources: RideSource[] = [];
   if (ride.stravaActivityId) sources.push('strava');
-  if (ride.garminActivityId) sources.push('garmin');
+  // Garmin is attributed wherever its device-sourced data is present, including
+  // a ride recorded on a Garmin device but imported via Strava (hasGarminData
+  // keys on garminActivityId OR a Garmin stravaDeviceName). A cross-provider
+  // ride therefore carries both a Strava and a Garmin badge.
+  if (hasGarminData(ride)) sources.push('garmin');
   if (ride.whoopWorkoutId) sources.push('whoop');
   if (ride.suuntoWorkoutId) sources.push('suunto');
   return sources.length ? sources : ['manual'];
@@ -47,7 +52,11 @@ export function getRideSources(ride: RideWithSource): RideSource[] {
  * uses its plain name.
  */
 export function getRideSourceLabel(ride: RideWithSource, source: RideSource): string {
-  if (source === 'garmin') return formatGarminSource(ride.garminDeviceName);
+  // Resolve the Garmin device from whichever source carries it: Garmin's own
+  // reported model for a native Garmin ride, or Strava's device_name for a ride
+  // recorded on a Garmin device and imported via Strava. Falls back to plain
+  // "Garmin" when no model is known.
+  if (source === 'garmin') return formatGarminSource(garminSourceDevice(ride));
   return SOURCE_LABELS[source];
 }
 

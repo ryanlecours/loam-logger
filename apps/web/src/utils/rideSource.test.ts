@@ -142,6 +142,20 @@ describe('getRideSources', () => {
     expect(getRideSources({ suuntoWorkoutId: 'suunto-key' })).toEqual(['suunto']);
   });
 
+  // Garmin's cross-provider requirement: a Strava ride recorded on a Garmin
+  // device must carry a Garmin badge too, even with no garminActivityId.
+  it('adds a Garmin source to a Strava ride recorded on a Garmin device', () => {
+    expect(
+      getRideSources({ stravaActivityId: '123', stravaDeviceName: 'Garmin Edge 840' })
+    ).toEqual(['strava', 'garmin']);
+  });
+
+  it('does not add Garmin to a Strava ride recorded on non-Garmin hardware', () => {
+    expect(
+      getRideSources({ stravaActivityId: '123', stravaDeviceName: 'Wahoo ELEMNT' })
+    ).toEqual(['strava']);
+  });
+
   it('falls back to manual when no provider contributed', () => {
     expect(getRideSources({})).toEqual(['manual']);
     expect(getRideSources({ stravaActivityId: null, garminActivityId: null })).toEqual([
@@ -165,6 +179,14 @@ describe('getRideSourceLabel', () => {
     expect(
       getRideSourceLabel({ garminActivityId: 'abc123', garminDeviceName: null }, 'garmin')
     ).toBe('Garmin');
+  });
+
+  // A Strava-imported ride recorded on a Garmin device is attributed with the
+  // model Strava reported, even though it has no garminActivityId.
+  it('attributes a Garmin-recorded Strava ride with the Strava-reported model', () => {
+    expect(
+      getRideSourceLabel({ stravaActivityId: '1', stravaDeviceName: 'Garmin Edge 840' }, 'garmin')
+    ).toBe('Garmin Edge 840');
   });
 
   it('leaves other providers on their plain platform name', () => {

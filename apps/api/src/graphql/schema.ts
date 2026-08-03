@@ -155,6 +155,13 @@ export const typeDefs = gql`
     whoopWorkoutId: String
     suuntoWorkoutId: String
     stravaGearId: String
+    """
+    Strava's reported recording device (e.g. "Garmin Edge 840"). When it names a
+    Garmin device, this ride carries Garmin device-sourced data and clients must
+    render Garmin attribution even though it arrived via Strava (isGarminDevice /
+    garminSourceDevice in @loam/shared). Null when Strava reported no device.
+    """
+    stravaDeviceName: String
     startTime: String!
     durationSeconds: Int!
     distanceMeters: Float!

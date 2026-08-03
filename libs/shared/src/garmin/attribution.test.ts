@@ -2,6 +2,8 @@ import {
   formatGarminSource,
   humanizeGarminDevice,
   hasGarminData,
+  isGarminDevice,
+  garminSourceDevice,
   normalizeGarminDeviceName,
   GARMIN_SOURCE_FALLBACK,
   GARMIN_CHART_ATTRIBUTION,
@@ -94,9 +96,65 @@ describe('normalizeGarminDeviceName', () => {
   });
 });
 
+describe('isGarminDevice', () => {
+  // Strava reports the recorder as its full name, so a leading "Garmin" marks a
+  // ride that was recorded on Garmin hardware and reached us via Strava.
+  it('recognizes a Strava-reported Garmin device', () => {
+    expect(isGarminDevice('Garmin Edge 840')).toBe(true);
+    expect(isGarminDevice('garmin edge 1030')).toBe(true);
+  });
+
+  it('is false for non-Garmin devices and for blanks/sentinels', () => {
+    for (const input of ['Wahoo ELEMNT BOLT', 'iPhone', 'unknown', '', null, undefined]) {
+      expect(isGarminDevice(input)).toBe(false);
+    }
+  });
+
+  // Must not fire on a substring: a device merely containing "garmin" is not the
+  // same as one Strava names as a Garmin unit.
+  it('requires "Garmin" at the start, not merely present', () => {
+    expect(isGarminDevice('NotGarmin 3')).toBe(false);
+  });
+});
+
+describe('garminSourceDevice', () => {
+  it('uses the native Garmin model for a Garmin ride', () => {
+    expect(
+      garminSourceDevice({ garminActivityId: 's1', garminDeviceName: 'edge_840' })
+    ).toBe('edge_840');
+  });
+
+  it('falls back to undefined (plain "Garmin") for a Garmin ride with no model', () => {
+    expect(
+      garminSourceDevice({ garminActivityId: 's1', garminDeviceName: null })
+    ).toBeUndefined();
+  });
+
+  it('uses the Strava-reported model for a Garmin-recorded Strava ride', () => {
+    expect(
+      garminSourceDevice({ stravaDeviceName: 'Garmin Edge 840' })
+    ).toBe('Garmin Edge 840');
+    expect(formatGarminSource(garminSourceDevice({ stravaDeviceName: 'Garmin Edge 840' }))).toBe(
+      'Garmin Edge 840'
+    );
+  });
+
+  it('is undefined for a non-Garmin Strava ride', () => {
+    expect(garminSourceDevice({ stravaDeviceName: 'Wahoo ELEMNT' })).toBeUndefined();
+  });
+});
+
 describe('hasGarminData', () => {
   it('is true whenever a Garmin activity id is present', () => {
     expect(hasGarminData({ garminActivityId: 'summary-1' })).toBe(true);
+  });
+
+  // Garmin's cross-provider requirement: a Strava-imported ride recorded on a
+  // Garmin device carries Garmin data and must be attributed.
+  it('is true for a Strava ride recorded on a Garmin device', () => {
+    expect(
+      hasGarminData({ stravaActivityId: '123', stravaDeviceName: 'Garmin Edge 840' })
+    ).toBe(true);
   });
 
   // Regression guard for the real bug this replaced: getRideSource ranked
@@ -115,6 +173,11 @@ describe('hasGarminData', () => {
   it('is false for non-Garmin rides', () => {
     expect(hasGarminData({ garminActivityId: null })).toBe(false);
     expect(hasGarminData({})).toBe(false);
+    // Strava-only rides on non-Garmin hardware must stay unattributed.
+    expect(hasGarminData({ stravaActivityId: '123', stravaDeviceName: 'Wahoo ELEMNT' })).toBe(
+      false
+    );
+    expect(hasGarminData({ stravaActivityId: '123', stravaDeviceName: null })).toBe(false);
   });
 });
 

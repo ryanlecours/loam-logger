@@ -1,0 +1,13 @@
+-- Strava's reported recording device (detailed-activity "device_name", e.g.
+-- "Garmin Edge 840"), stored raw. Captured so a ride recorded on a Garmin unit
+-- and imported via Strava can still be attributed to Garmin, which the Garmin
+-- Developer API Brand Guidelines require wherever Garmin device-sourced data is
+-- present ("If strava data originated from Garmin device, it must be identified
+-- as well").
+--
+-- Nullable and NOT backfilled by this migration. Strava does not always report
+-- a device, and only Strava's detailed-activity endpoint carries device_name;
+-- rides imported before this column existed are filled in opportunistically on
+-- their next detailed sync. Garmin origin is derived from this value via
+-- isGarminDevice() in @loam/shared, so this is not a Garmin-only column.
+ALTER TABLE "Ride" ADD COLUMN "stravaDeviceName" TEXT;

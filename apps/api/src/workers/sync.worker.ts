@@ -10,6 +10,7 @@ import { getValidWhoopToken } from '../lib/whoop-token';
 import { getValidSuuntoToken } from '../lib/suunto-token';
 import { deriveLocation, deriveLocationAsync, shouldApplyAutoLocation } from '../lib/location';
 import { extractGarminStartCoords } from '../lib/garmin-coords';
+import { fetchStravaDeviceName } from '../lib/strava-device';
 import { persistGarminStream } from '../lib/ride-stream-store';
 import { fetchGarminActivityFromCallback } from '../lib/garmin-activity-details';
 import { isGarminCyclingActivity } from '../types/garmin';
@@ -70,6 +71,9 @@ type StravaActivity = {
   distance: number;
   total_elevation_gain: number;
   gear_id?: string | null;
+  // Only present on Strava's detailed-activity endpoint, e.g. "Garmin Edge 840".
+  // Used to attribute Strava rides that were recorded on a Garmin device.
+  device_name?: string | null;
   average_heartrate?: number;
   max_heartrate?: number;
   location_city?: string | null;
@@ -253,6 +257,12 @@ async function syncStravaLatest(userId: string): Promise<void> {
   logger.debug({ count: cyclingActivities.length }, '[SyncWorker] Processing cycling activities');
 
   for (const activity of cyclingActivities) {
+    // The list endpoint omits device_name; fetch it best-effort so a ride
+    // recorded on a Garmin device and imported via Strava can still be
+    // attributed to Garmin. A rate-limited lookup just leaves it null.
+    if (activity.device_name == null) {
+      activity.device_name = await fetchStravaDeviceName(accessToken, activity.id);
+    }
     await upsertStravaActivity(userId, activity);
   }
 
@@ -348,6 +358,7 @@ async function upsertStravaActivity(userId: string, activity: StravaActivity): P
         userId,
         stravaActivityId: activity.id.toString(),
         stravaGearId: activity.gear_id ?? null,
+        stravaDeviceName: activity.device_name ?? null,
         startTime,
         durationSeconds: activity.moving_time,
         distanceMeters,
@@ -363,6 +374,10 @@ async function upsertStravaActivity(userId: string, activity: StravaActivity): P
       update: {
         startTime,
         stravaGearId: activity.gear_id ?? null,
+        // Only written when present, never blanked — a re-sync via the list
+        // endpoint (which omits device_name) must not clear a device captured
+        // from a detailed fetch.
+        ...(activity.device_name ? { stravaDeviceName: activity.device_name } : {}),
         durationSeconds: activity.moving_time,
         distanceMeters,
         elevationGainMeters,
