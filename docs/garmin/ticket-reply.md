@@ -192,10 +192,13 @@ first, because they are the most likely reason for another round trip:
 
 1. The developer-program contact of record is a `gmail.com` address. Move all
    developer-program access to named `@loamlogger.app` addresses before replying.
-2. `support@loamlogger.app` appears in the app's Terms and site footer. It is
-   fine as a user-facing support address, but it must not be an account on the
-   Garmin developer portal or a recipient of Garmin data.
+   (This is an account setting in the Garmin developer portal, not a code change;
+   the repo itself contains no freemail address.)
+2. Resolved: the generic `support@loamlogger.app` in the app's Terms, About page,
+   and site footer (web and mobile) has been replaced with the named
+   `ryan.lecours@loamlogger.app`, matching the address already used everywhere
+   else. No generic address remains in user-facing copy.
 
-Unrelated to Garmin but worth fixing while you are in there:
-`.github/SECURITY.md` lists `security@loamlogger.com` — the only `.com` in the
-repo, and almost certainly a typo for `.app`.
+Unrelated to Garmin but fixed while in here: `.github/SECURITY.md` previously
+listed `security@loamlogger.com` (the only `.com` in the repo, a typo). It now
+reads `security@loamlogger.app` in both places.
