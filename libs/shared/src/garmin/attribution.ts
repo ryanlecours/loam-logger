@@ -165,21 +165,80 @@ export function formatGarminSource(deviceName?: string | null): string {
 }
 
 /**
+ * Whether a device-model string names a Garmin device.
+ *
+ * The point is cross-provider attribution: a ride recorded on a Garmin unit,
+ * uploaded to Strava, then imported here still contains Garmin device-sourced
+ * data, and the guidelines require attribution wherever that data is present,
+ * whatever path it took to reach us. Strava reports the recorder as its full
+ * name, e.g. "Garmin Edge 840", so a leading "Garmin" is the signal.
+ *
+ * Only meaningful for a *foreign* device string such as Strava's `device_name`.
+ * Native Garmin rides are recognized by `garminActivityId`, and Garmin's own
+ * API reports models as unprefixed tokens ("edge_840"), so do not run this on
+ * `garminDeviceName`.
+ */
+export function isGarminDevice(deviceName?: string | null): boolean {
+  const device = normalizeGarminDeviceName(deviceName);
+  return device !== undefined && /^garmin\b/i.test(device);
+}
+
+/**
+ * The device model to attribute to Garmin for this ride, or `undefined` when
+ * the ride carries no Garmin device-sourced data.
+ *
+ * Native Garmin rides use Garmin's reported model. When Garmin reports none but
+ * the same ride was also matched on Strava as a Garmin unit, we use that
+ * specific Strava-reported model rather than the plain "Garmin" fallback. A
+ * Strava-imported ride recorded on a Garmin device likewise uses the Strava
+ * model. Returns undefined only when no model is known anywhere (the formatter
+ * then renders plain "Garmin"). Feed the result straight into formatGarminSource().
+ */
+export function garminSourceDevice(ride: {
+  garminActivityId?: string | null;
+  garminDeviceName?: string | null;
+  stravaDeviceName?: string | null;
+}): string | undefined {
+  if (ride.garminActivityId && ride.garminDeviceName) return ride.garminDeviceName;
+  if (isGarminDevice(ride.stravaDeviceName)) return ride.stravaDeviceName ?? undefined;
+  return undefined;
+}
+
+/**
+ * A recording device worth surfacing that is NOT a Garmin unit, i.e. Strava's
+ * reported device_name for a ride recorded on something else (a Wahoo, a phone).
+ * Strava already provides these as display-ready strings, so they are returned
+ * as-is (only trimmed), unlike Garmin's snake_case tokens.
+ *
+ * Returns undefined for a Garmin device (shown as its own attribution badge via
+ * garminSourceDevice) and when Strava reported no device. Purely informational,
+ * not a compliance attribution, so render it muted, not as a provider badge.
+ */
+export function stravaRecordingDevice(ride: { stravaDeviceName?: string | null }): string | undefined {
+  const device = ride.stravaDeviceName?.trim();
+  if (!device || isGarminDevice(device)) return undefined;
+  return device;
+}
+
+/**
  * Whether a ride carries Garmin device-sourced data and therefore requires
  * attribution.
  *
- * Deliberately keyed on the presence of garminActivityId rather than on a
- * single "primary source" ranking: a ride matched across providers still
- * contains Garmin-sourced data, and the guidelines require attribution
- * wherever that data is present. The inverse matters just as much — the
- * guidelines forbid Garmin branding "in instances where Garmin device-sourced
- * data is not present", so this must stay false for Strava-only and manual rides.
+ * True when the ride came from Garmin directly (garminActivityId), OR when it
+ * came from another platform but was recorded on a Garmin device (Strava's
+ * device_name begins with "Garmin"). A ride matched across providers still
+ * contains Garmin-sourced data, and the guidelines require attribution wherever
+ * that data is present. The inverse matters just as much — the guidelines forbid
+ * Garmin branding "in instances where Garmin device-sourced data is not
+ * present", so this stays false for Strava-only (non-Garmin device) and manual
+ * rides.
  */
 export function hasGarminData(ride: {
   garminActivityId?: string | null;
+  stravaDeviceName?: string | null;
   // Callers pass full ride objects; the index signature keeps TypeScript's
   // excess-property check from rejecting the other provider ids.
   [key: string]: unknown;
 }): boolean {
-  return Boolean(ride.garminActivityId);
+  return Boolean(ride.garminActivityId) || isGarminDevice(ride.stravaDeviceName);
 }

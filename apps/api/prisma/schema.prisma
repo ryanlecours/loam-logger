@@ -130,6 +130,14 @@ model Ride {
   garminDeviceName        String?
   stravaActivityId        String?                   @unique
   stravaGearId            String?
+  // Strava's reported recording device (detailed-activity `device_name`, e.g.
+  // "Garmin Edge 840"). Captured so a ride recorded on a Garmin unit and
+  // imported via Strava can still be attributed to Garmin, which the Garmin API
+  // Brand Guidelines require wherever Garmin device-sourced data is present.
+  // NULL is expected: Strava does not always report a device, and only the
+  // detailed endpoint carries it. Garmin origin is derived from this via
+  // isGarminDevice() in @loam/shared; it is not a Garmin-only column.
+  stravaDeviceName        String?
   whoopWorkoutId          String?                   @unique
   suuntoWorkoutId         String?                   @unique
   importSessionId         String?

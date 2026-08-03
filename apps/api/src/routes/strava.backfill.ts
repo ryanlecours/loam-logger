@@ -1,5 +1,6 @@
 import { Router as createRouter, type Router, type Request, type Response } from 'express';
 import { getValidStravaToken } from '../lib/strava-token';
+import { fetchStravaDeviceName } from '../lib/strava-device';
 import { subDays } from 'date-fns';
 import { prisma } from '../lib/prisma';
 import { formatLatLon, reverseGeocode } from '../lib/location';
@@ -235,12 +236,18 @@ r.get<Empty, void, Empty, { year?: string }>(
           }
         }
 
+        // The list endpoint omits device_name; fetch it best-effort so a ride
+        // recorded on a Garmin device and imported via Strava can still be
+        // attributed to Garmin. A rate-limited lookup just leaves it null.
+        const stravaDeviceName = await fetchStravaDeviceName(accessToken, activity.id);
+
         const ride = await prisma.$transaction(async (tx) => {
           const createdRide = await tx.ride.create({
             data: {
               userId,
               stravaActivityId: activity.id.toString(),
               stravaGearId: activity.gear_id ?? null,
+              stravaDeviceName,
               startTime,
               durationSeconds: activity.moving_time,
               distanceMeters,

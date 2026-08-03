@@ -36,7 +36,7 @@ jest.mock('../lib/prisma', () => ({
   prisma: {
     stravaGearMapping: { findUnique: jest.fn() },
     bike: { findMany: jest.fn() },
-    ride: { findUnique: jest.fn(), upsert: jest.fn() },
+    ride: { findUnique: jest.fn(), findMany: jest.fn().mockResolvedValue([]), upsert: jest.fn() },
     component: { updateMany: jest.fn() },
     // The Garmin upsert path looks for a running import session to stamp.
     importSession: { findFirst: jest.fn().mockResolvedValue(null), update: jest.fn() },
@@ -346,6 +346,104 @@ describe('processSyncJob (via worker processor)', () => {
           }),
         })
       );
+    });
+
+    // device_name is not on the list response, so a new ride needs one detailed
+    // lookup to capture the recording device (attributes Garmin-recorded rides).
+    it('fetches device_name once for a newly-imported Strava ride', async () => {
+      mockGetValidStravaToken.mockResolvedValue('valid-token');
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve([
+            { id: 123, name: 'Ride', sport_type: 'Ride', start_date: '2024-01-01T10:00:00Z', moving_time: 3600, distance: 10000, total_elevation_gain: 100 },
+          ]),
+      } as Response);
+      (mockPrisma.ride.findMany as jest.Mock).mockResolvedValue([]); // none imported yet
+      mockPrisma.$transaction.mockImplementation(async (cb) =>
+        cb({
+          ride: { findUnique: jest.fn().mockResolvedValue(null), upsert: jest.fn().mockResolvedValue({ bikeId: null, durationSeconds: 3600 }) },
+          component: { updateMany: jest.fn() },
+        })
+      );
+      (mockPrisma.stravaGearMapping.findUnique as jest.Mock).mockResolvedValue(null);
+      (mockPrisma.bike.findMany as jest.Mock).mockResolvedValue([]);
+
+      await processSyncJob({ name: 'syncLatest', data: { userId: 'user123', provider: 'strava' } });
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringContaining('/api/v3/activities/123'),
+        expect.anything()
+      );
+    });
+
+    // Regression: an already-imported ride must NOT trigger a per-activity
+    // detail call on every "sync now". device_name is never on the list, so an
+    // unconditional fetch would burn one Strava request per ride, every sync.
+    it('does not re-fetch device_name for an already-imported Strava ride', async () => {
+      mockGetValidStravaToken.mockResolvedValue('valid-token');
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve([
+            { id: 123, name: 'Ride', sport_type: 'Ride', start_date: '2024-01-01T10:00:00Z', moving_time: 3600, distance: 10000, total_elevation_gain: 100 },
+          ]),
+      } as Response);
+      (mockPrisma.ride.findMany as jest.Mock).mockResolvedValue([{ stravaActivityId: '123' }]); // already imported
+      mockPrisma.$transaction.mockImplementation(async (cb) =>
+        cb({
+          ride: {
+            findUnique: jest.fn().mockResolvedValue({ id: 'ride-1', durationSeconds: 3600, bikeId: null, location: null }),
+            upsert: jest.fn().mockResolvedValue({ bikeId: null, durationSeconds: 3600 }),
+          },
+          component: { updateMany: jest.fn() },
+        })
+      );
+      (mockPrisma.stravaGearMapping.findUnique as jest.Mock).mockResolvedValue(null);
+      (mockPrisma.bike.findMany as jest.Mock).mockResolvedValue([]);
+
+      await processSyncJob({ name: 'syncLatest', data: { userId: 'user123', provider: 'strava' } });
+
+      expect(mockFetch).not.toHaveBeenCalledWith(
+        expect.stringContaining('/api/v3/activities/123'),
+        expect.anything()
+      );
+    });
+
+    // The upsert's update block spreads stravaDeviceName only when present. A
+    // routine re-sync (existing ride, list has no device_name) must NOT put
+    // stravaDeviceName in the update — that omission is what stops a device
+    // captured earlier (e.g. a Garmin attribution) from being silently blanked.
+    it('omits stravaDeviceName from the update when Strava reports no device', async () => {
+      mockGetValidStravaToken.mockResolvedValue('valid-token');
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve([
+            { id: 123, name: 'Ride', sport_type: 'Ride', start_date: '2024-01-01T10:00:00Z', moving_time: 3600, distance: 10000, total_elevation_gain: 100 },
+          ]),
+      } as Response);
+      (mockPrisma.ride.findMany as jest.Mock).mockResolvedValue([{ stravaActivityId: '123' }]); // existing → no device fetch
+
+      const upsertSpy = jest.fn().mockResolvedValue({ bikeId: null, durationSeconds: 3600 });
+      mockPrisma.$transaction.mockImplementation(async (cb) =>
+        cb({
+          ride: {
+            findUnique: jest.fn().mockResolvedValue({ id: 'ride-1', durationSeconds: 3600, bikeId: null, location: null }),
+            upsert: upsertSpy,
+          },
+          component: { updateMany: jest.fn() },
+        })
+      );
+      (mockPrisma.stravaGearMapping.findUnique as jest.Mock).mockResolvedValue(null);
+      (mockPrisma.bike.findMany as jest.Mock).mockResolvedValue([]);
+
+      await processSyncJob({ name: 'syncLatest', data: { userId: 'user123', provider: 'strava' } });
+
+      const [upsertArg] = upsertSpy.mock.calls[0];
+      expect('stravaDeviceName' in upsertArg.update).toBe(false);
+      // create still sets an explicit null (the column is never left unset).
+      expect(upsertArg.create.stravaDeviceName).toBeNull();
     });
 
     it('should throw when Strava token is not available', async () => {
