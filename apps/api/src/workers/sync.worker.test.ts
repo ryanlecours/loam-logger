@@ -410,6 +410,42 @@ describe('processSyncJob (via worker processor)', () => {
       );
     });
 
+    // The upsert's update block spreads stravaDeviceName only when present. A
+    // routine re-sync (existing ride, list has no device_name) must NOT put
+    // stravaDeviceName in the update — that omission is what stops a device
+    // captured earlier (e.g. a Garmin attribution) from being silently blanked.
+    it('omits stravaDeviceName from the update when Strava reports no device', async () => {
+      mockGetValidStravaToken.mockResolvedValue('valid-token');
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve([
+            { id: 123, name: 'Ride', sport_type: 'Ride', start_date: '2024-01-01T10:00:00Z', moving_time: 3600, distance: 10000, total_elevation_gain: 100 },
+          ]),
+      } as Response);
+      (mockPrisma.ride.findMany as jest.Mock).mockResolvedValue([{ stravaActivityId: '123' }]); // existing → no device fetch
+
+      const upsertSpy = jest.fn().mockResolvedValue({ bikeId: null, durationSeconds: 3600 });
+      mockPrisma.$transaction.mockImplementation(async (cb) =>
+        cb({
+          ride: {
+            findUnique: jest.fn().mockResolvedValue({ id: 'ride-1', durationSeconds: 3600, bikeId: null, location: null }),
+            upsert: upsertSpy,
+          },
+          component: { updateMany: jest.fn() },
+        })
+      );
+      (mockPrisma.stravaGearMapping.findUnique as jest.Mock).mockResolvedValue(null);
+      (mockPrisma.bike.findMany as jest.Mock).mockResolvedValue([]);
+
+      await processSyncJob({ name: 'syncLatest', data: { userId: 'user123', provider: 'strava' } });
+
+      const [upsertArg] = upsertSpy.mock.calls[0];
+      expect('stravaDeviceName' in upsertArg.update).toBe(false);
+      // create still sets an explicit null (the column is never left unset).
+      expect(upsertArg.create.stravaDeviceName).toBeNull();
+    });
+
     it('should throw when Strava token is not available', async () => {
       mockGetValidStravaToken.mockResolvedValue(null);
 

@@ -187,17 +187,19 @@ export function isGarminDevice(deviceName?: string | null): boolean {
  * The device model to attribute to Garmin for this ride, or `undefined` when
  * the ride carries no Garmin device-sourced data.
  *
- * Native Garmin rides use Garmin's reported model (which may be absent, so the
- * formatter falls back to plain "Garmin"). A Strava-imported ride recorded on a
- * Garmin device uses the model Strava reported. Feed the result straight into
- * formatGarminSource().
+ * Native Garmin rides use Garmin's reported model. When Garmin reports none but
+ * the same ride was also matched on Strava as a Garmin unit, we use that
+ * specific Strava-reported model rather than the plain "Garmin" fallback. A
+ * Strava-imported ride recorded on a Garmin device likewise uses the Strava
+ * model. Returns undefined only when no model is known anywhere (the formatter
+ * then renders plain "Garmin"). Feed the result straight into formatGarminSource().
  */
 export function garminSourceDevice(ride: {
   garminActivityId?: string | null;
   garminDeviceName?: string | null;
   stravaDeviceName?: string | null;
 }): string | undefined {
-  if (ride.garminActivityId) return ride.garminDeviceName ?? undefined;
+  if (ride.garminActivityId && ride.garminDeviceName) return ride.garminDeviceName;
   if (isGarminDevice(ride.stravaDeviceName)) return ride.stravaDeviceName ?? undefined;
   return undefined;
 }

@@ -131,6 +131,20 @@ describe('garminSourceDevice', () => {
     ).toBeUndefined();
   });
 
+  // Cross-provider edge case: native Garmin reported no model, but the same ride
+  // matched on Strava names a Garmin unit — use that specific model.
+  it('uses a matched Strava Garmin model when the native ride reported none', () => {
+    expect(
+      garminSourceDevice({ garminActivityId: 's1', garminDeviceName: null, stravaDeviceName: 'Garmin Edge 840' })
+    ).toBe('Garmin Edge 840');
+  });
+
+  it('stays undefined when the native ride has no model and Strava is non-Garmin', () => {
+    expect(
+      garminSourceDevice({ garminActivityId: 's1', garminDeviceName: null, stravaDeviceName: 'Wahoo ELEMNT' })
+    ).toBeUndefined();
+  });
+
   it('uses the Strava-reported model for a Garmin-recorded Strava ride', () => {
     expect(
       garminSourceDevice({ stravaDeviceName: 'Garmin Edge 840' })
