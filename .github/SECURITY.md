@@ -10,7 +10,7 @@
 
 **Please do not report security vulnerabilities through public GitHub issues.**
 
-Instead, please report them via email to: security@loamlogger.com (or your preferred contact method)
+Instead, please report them via email to: security@loamlogger.app (or your preferred contact method)
 
 You should receive a response within 48 hours. If for some reason you do not, please follow up to ensure we received your original message.
 
@@ -88,7 +88,7 @@ If you're contributing to this project, please:
 ## Security Contacts
 
 For security-related questions or concerns, please contact:
-- **Email:** security@loamlogger.com
+- **Email:** security@loamlogger.app
 - **GitHub:** Create a private security advisory
 
 ## Acknowledgments

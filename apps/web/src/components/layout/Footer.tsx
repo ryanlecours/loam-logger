@@ -104,10 +104,10 @@ export default function Footer() {
                             ))}
                             <li>
                                 <a
-                                    href="mailto:support@loamlogger.app"
+                                    href="mailto:ryan.lecours@loamlogger.app"
                                     className="text-sm text-concrete hover:text-mint transition-colors focus-visible:outline-none focus-visible:text-mint"
                                 >
-                                    support@loamlogger.app
+                                    ryan.lecours@loamlogger.app
                                 </a>
                             </li>
                         </ul>
