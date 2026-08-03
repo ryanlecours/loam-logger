@@ -4,6 +4,7 @@ import {
   hasGarminData,
   isGarminDevice,
   garminSourceDevice,
+  stravaRecordingDevice,
   normalizeGarminDeviceName,
   GARMIN_SOURCE_FALLBACK,
   GARMIN_CHART_ATTRIBUTION,
@@ -141,6 +142,25 @@ describe('garminSourceDevice', () => {
 
   it('is undefined for a non-Garmin Strava ride', () => {
     expect(garminSourceDevice({ stravaDeviceName: 'Wahoo ELEMNT' })).toBeUndefined();
+  });
+});
+
+describe('stravaRecordingDevice', () => {
+  it('returns a non-Garmin device Strava reported, as-is', () => {
+    expect(stravaRecordingDevice({ stravaDeviceName: 'Wahoo ELEMNT BOLT' })).toBe('Wahoo ELEMNT BOLT');
+    expect(stravaRecordingDevice({ stravaDeviceName: '  iPhone 14  ' })).toBe('iPhone 14');
+  });
+
+  // Garmin devices are surfaced as their own attribution badge, not here, so
+  // this must not double them up.
+  it('is undefined for a Garmin device', () => {
+    expect(stravaRecordingDevice({ stravaDeviceName: 'Garmin Edge 840' })).toBeUndefined();
+  });
+
+  it('is undefined when Strava reported no device', () => {
+    for (const input of [null, undefined, '', '   ']) {
+      expect(stravaRecordingDevice({ stravaDeviceName: input })).toBeUndefined();
+    }
   });
 });
 

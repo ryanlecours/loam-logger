@@ -203,6 +203,22 @@ export function garminSourceDevice(ride: {
 }
 
 /**
+ * A recording device worth surfacing that is NOT a Garmin unit, i.e. Strava's
+ * reported device_name for a ride recorded on something else (a Wahoo, a phone).
+ * Strava already provides these as display-ready strings, so they are returned
+ * as-is (only trimmed), unlike Garmin's snake_case tokens.
+ *
+ * Returns undefined for a Garmin device (shown as its own attribution badge via
+ * garminSourceDevice) and when Strava reported no device. Purely informational,
+ * not a compliance attribution, so render it muted, not as a provider badge.
+ */
+export function stravaRecordingDevice(ride: { stravaDeviceName?: string | null }): string | undefined {
+  const device = ride.stravaDeviceName?.trim();
+  if (!device || isGarminDevice(device)) return undefined;
+  return device;
+}
+
+/**
  * Whether a ride carries Garmin device-sourced data and therefore requires
  * attribution.
  *
