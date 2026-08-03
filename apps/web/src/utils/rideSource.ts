@@ -2,14 +2,18 @@ import { formatGarminSource, garminSourceDevice, hasGarminData } from '@loam/sha
 
 export type RideSource = 'strava' | 'garmin' | 'whoop' | 'suunto' | 'manual';
 
-export interface RideWithSource {
+// A type alias, not an interface: hasGarminData/stravaRecordingDevice in
+// @loam/shared accept an index-signatured object, and an interface is not
+// assignable to that (it stays open to declaration merging) while a sealed type
+// alias is. See TS "index signature is missing in type" for the rationale.
+export type RideWithSource = {
   stravaActivityId?: string | null;
   garminActivityId?: string | null;
   whoopWorkoutId?: string | null;
   suuntoWorkoutId?: string | null;
   garminDeviceName?: string | null;
   stravaDeviceName?: string | null;
-}
+};
 
 /**
  * The single source to show when a UI can only show one.
