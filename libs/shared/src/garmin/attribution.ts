@@ -82,6 +82,37 @@ export const GARMIN_TRADEMARK_NOTICE =
 export const GARMIN_SOURCE_FALLBACK = 'Garmin';
 
 /**
+ * Placeholder device values Garmin sends when there is no real model. Seen in
+ * practice on manually-entered and manually-edited activities: the "Manually
+ * Updated Activities" webhook delivers `deviceName: "unknown"`. Treat these as
+ * "no device" so we land on the sanctioned "Garmin" fallback, and so ingestion
+ * never overwrites the real model captured on the first sync (that overwrite is
+ * what flipped a ride's badge from "Garmin Fenix 8" to "Garmin Unknown" on the
+ * next edit).
+ */
+const GARMIN_DEVICE_SENTINELS = new Set([
+  'unknown',
+  'unknown_device',
+  'undefined',
+  'null',
+  'none',
+]);
+
+/**
+ * Reduce a raw Garmin `deviceName` to a real model, or `undefined` for
+ * non-strings, blank values, and the placeholder sentinels above. Ingestion
+ * uses this to drop a sentinel (never storing it, never overwriting a known
+ * model on a re-sync); formatGarminSource uses it so a sentinel already stored
+ * on an older row still renders as plain "Garmin".
+ */
+export function normalizeGarminDeviceName(raw: unknown): string | undefined {
+  if (typeof raw !== 'string') return undefined;
+  const trimmed = raw.trim();
+  if (!trimmed || GARMIN_DEVICE_SENTINELS.has(trimmed.toLowerCase())) return undefined;
+  return trimmed;
+}
+
+/**
  * Turn a raw Garmin `deviceName` into something readable.
  *
  * Garmin reports device models as lowercase snake_case tokens ("edge_840",
@@ -120,7 +151,7 @@ export function humanizeGarminDevice(raw: string): string {
  * sanctioned fallback.
  */
 export function formatGarminSource(deviceName?: string | null): string {
-  const device = deviceName?.trim();
+  const device = normalizeGarminDeviceName(deviceName);
   if (!device) return GARMIN_SOURCE_FALLBACK;
 
   const humanized = humanizeGarminDevice(device);
