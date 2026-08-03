@@ -25,11 +25,16 @@ export const COMPONENT_RIDES = gql`
           trailSystem
           rideType
           bikeId
-          # Needed to attribute Garmin-sourced rides in this list — the Garmin
-          # API Brand Guidelines require attribution on secondary/detail views,
-          # not just primary feeds.
+          # Provider ids drive the per-ride source badges. Garmin in particular
+          # must be attributed wherever its device-sourced data appears (the
+          # Garmin API Brand Guidelines require attribution on secondary/detail
+          # views, not just primary feeds), and garminDeviceName carries the
+          # sanctioned "Garmin [device model]" label.
           garminActivityId
           garminDeviceName
+          stravaActivityId
+          whoopWorkoutId
+          suuntoWorkoutId
         }
       }
     }
