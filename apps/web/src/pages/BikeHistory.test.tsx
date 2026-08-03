@@ -358,6 +358,40 @@ describe('BikeHistory multi-select', () => {
     });
   });
 
+  describe('Garmin attribution', () => {
+    const withSources = (sources: string[] | undefined) => ({
+      bikeHistory: {
+        ...fixture.bikeHistory,
+        bike: { ...fixture.bikeHistory.bike, contributingSources: sources },
+      },
+    });
+
+    it('shows the Garmin derived-data note when Garmin contributed rides', () => {
+      mockUseQuery.mockReturnValue({
+        data: withSources(['strava', 'garmin']),
+        loading: false,
+        error: undefined,
+      });
+      renderPage();
+      expect(screen.getByText(/derived in part from Garmin/i)).toBeInTheDocument();
+    });
+
+    it('omits the note when Garmin did not contribute', () => {
+      mockUseQuery.mockReturnValue({
+        data: withSources(['strava']),
+        loading: false,
+        error: undefined,
+      });
+      renderPage();
+      expect(screen.queryByText(/derived in part from Garmin/i)).not.toBeInTheDocument();
+    });
+
+    it('omits the note when contributingSources is absent', () => {
+      renderPage();
+      expect(screen.queryByText(/derived in part from Garmin/i)).not.toBeInTheDocument();
+    });
+  });
+
   describe('handleBulkSetDate error path', () => {
     it('shows the mutation error inline and keeps selection mode active', async () => {
       mockBulkUpdate.mockRejectedValue(new Error('Removal date conflict'));
