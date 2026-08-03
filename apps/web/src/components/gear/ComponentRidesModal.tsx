@@ -4,6 +4,7 @@ import { CircleMinus, CirclePlus, History, RotateCcw, TriangleAlert } from 'luci
 
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
+import RideSourceBadges from '../RideSourceBadges';
 import {
   COMPONENT_RIDES,
   SET_COMPONENT_RIDE_ADJUSTMENT,
@@ -26,6 +27,14 @@ type RideDto = {
   trailSystem?: string | null;
   rideType?: string | null;
   bikeId?: string | null;
+  // Provider ids + Garmin device model, so each row can attribute its data
+  // source. RideSourceBadges renders every contributing provider (a matched
+  // ride can carry more than one) with the Garmin device label where present.
+  garminActivityId?: string | null;
+  garminDeviceName?: string | null;
+  stravaActivityId?: string | null;
+  whoopWorkoutId?: string | null;
+  suuntoWorkoutId?: string | null;
 };
 
 type ComponentRideEntry = {
@@ -283,6 +292,12 @@ export function ComponentRidesModal({
                     <div className={`text-sm truncate ${entry.counted ? '' : 'text-muted line-through'}`}>
                       {rideTitle(ride)}
                     </div>
+                    {/* Data-source attribution, in the visible row (never a
+                        tooltip/collapsed container) as the Garmin guidelines
+                        require for the entries whose data came from a device. */}
+                    <div className="mt-1 flex flex-wrap items-center gap-1">
+                      <RideSourceBadges ride={ride} />
+                    </div>
                     <div className="text-xs text-muted">
                       {formatRideDate(ride.startTime)} · {formatDurationCompact(ride.durationSeconds)}
                       {entry.adjustment === 'INCLUDE' && ' · applied from another bike'}
@@ -407,6 +422,9 @@ export function ComponentRidesModal({
                 >
                   <div className="min-w-0">
                     <div className="text-sm truncate">{rideTitle(ride)}</div>
+                    <div className="mt-1 flex flex-wrap items-center gap-1">
+                      <RideSourceBadges ride={ride} />
+                    </div>
                     <div className="text-xs text-muted">
                       {formatRideDate(ride.startTime)} · {formatDurationCompact(ride.durationSeconds)}
                       {ride.bikeId == null && ' · unassigned'}

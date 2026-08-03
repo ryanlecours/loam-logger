@@ -133,6 +133,68 @@ describe('ComponentRidesModal', () => {
     );
   });
 
+  it('attributes each ride to its data source, with the Garmin device model', () => {
+    mockComponentRidesQuery.mockReturnValue({
+      data: {
+        componentRides: {
+          ...basePayload.componentRides,
+          entries: [
+            {
+              counted: true,
+              adjustment: null,
+              beforeAnchor: false,
+              ride: {
+                id: 'r-garmin',
+                startTime: '2026-06-15T00:00:00.000Z',
+                durationSeconds: 3600,
+                location: 'Galbraith',
+                bikeId: 'bike-1',
+                garminActivityId: 'g-1',
+                garminDeviceName: 'edge_840',
+              },
+            },
+            {
+              counted: true,
+              adjustment: null,
+              beforeAnchor: false,
+              ride: {
+                id: 'r-strava',
+                startTime: '2026-06-14T00:00:00.000Z',
+                durationSeconds: 3600,
+                location: 'Chuckanut',
+                bikeId: 'bike-1',
+                stravaActivityId: 's-1',
+              },
+            },
+            {
+              counted: true,
+              adjustment: null,
+              beforeAnchor: false,
+              ride: {
+                id: 'r-manual',
+                startTime: '2026-06-13T00:00:00.000Z',
+                durationSeconds: 3600,
+                location: 'Sudden Valley',
+                bikeId: 'bike-1',
+              },
+            },
+          ],
+        },
+      },
+      loading: false,
+      fetchMore: vi.fn(),
+      refetch: vi.fn(),
+    });
+    renderModal();
+
+    // Garmin rides carry the sanctioned "Garmin [device model]" label, not a
+    // bare "Garmin".
+    expect(screen.getByTestId('component-ride-r-garmin')).toHaveTextContent('Garmin Edge 840');
+    expect(screen.getByTestId('component-ride-r-strava')).toHaveTextContent('Strava');
+    // A ride with no provider id falls back to a Manual badge.
+    expect(screen.getByTestId('component-ride-r-manual')).toHaveTextContent('Manual');
+  });
+
   it('flags dormant pre-anchor INCLUDEs instead of silently ignoring them', () => {
     mockComponentRidesQuery.mockReturnValue({
       data: {
