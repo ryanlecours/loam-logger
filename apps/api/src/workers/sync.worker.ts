@@ -10,6 +10,7 @@ import { getValidWhoopToken } from '../lib/whoop-token';
 import { getValidSuuntoToken } from '../lib/suunto-token';
 import { deriveLocation, deriveLocationAsync, shouldApplyAutoLocation } from '../lib/location';
 import { extractGarminStartCoords } from '../lib/garmin-coords';
+import { fetchStravaDeviceName } from '../lib/strava-device';
 import { persistGarminStream } from '../lib/ride-stream-store';
 import { fetchGarminActivityFromCallback } from '../lib/garmin-activity-details';
 import { isGarminCyclingActivity } from '../types/garmin';
@@ -70,6 +71,9 @@ type StravaActivity = {
   distance: number;
   total_elevation_gain: number;
   gear_id?: string | null;
+  // Only present on Strava's detailed-activity endpoint, e.g. "Garmin Edge 840".
+  // Used to attribute Strava rides that were recorded on a Garmin device.
+  device_name?: string | null;
   average_heartrate?: number;
   max_heartrate?: number;
   location_city?: string | null;
@@ -252,7 +256,28 @@ async function syncStravaLatest(userId: string): Promise<void> {
 
   logger.debug({ count: cyclingActivities.length }, '[SyncWorker] Processing cycling activities');
 
+  // device_name is only on Strava's detailed activity, not this list, so
+  // capturing it costs one extra call per activity. Pay that only for rides we
+  // have not imported yet (mirrors the backfill route): an already-imported ride
+  // was fetched when it was first seen, so re-fetching on every user-triggered
+  // "sync now" would be pure Strava-quota burn. One batch lookup, not one query
+  // per activity.
+  const existingStravaIds = new Set(
+    (
+      await prisma.ride.findMany({
+        where: {
+          userId,
+          stravaActivityId: { in: cyclingActivities.map((a) => a.id.toString()) },
+        },
+        select: { stravaActivityId: true },
+      })
+    ).map((r) => r.stravaActivityId)
+  );
+
   for (const activity of cyclingActivities) {
+    if (!existingStravaIds.has(activity.id.toString())) {
+      activity.device_name = await fetchStravaDeviceName(accessToken, activity.id);
+    }
     await upsertStravaActivity(userId, activity);
   }
 
@@ -348,6 +373,7 @@ async function upsertStravaActivity(userId: string, activity: StravaActivity): P
         userId,
         stravaActivityId: activity.id.toString(),
         stravaGearId: activity.gear_id ?? null,
+        stravaDeviceName: activity.device_name ?? null,
         startTime,
         durationSeconds: activity.moving_time,
         distanceMeters,
@@ -363,6 +389,10 @@ async function upsertStravaActivity(userId: string, activity: StravaActivity): P
       update: {
         startTime,
         stravaGearId: activity.gear_id ?? null,
+        // Only written when present, never blanked — a re-sync via the list
+        // endpoint (which omits device_name) must not clear a device captured
+        // from a detailed fetch.
+        ...(activity.device_name ? { stravaDeviceName: activity.device_name } : {}),
         durationSeconds: activity.moving_time,
         distanceMeters,
         elevationGainMeters,

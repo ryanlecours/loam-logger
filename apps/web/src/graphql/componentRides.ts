@@ -29,10 +29,12 @@ export const COMPONENT_RIDES = gql`
           # must be attributed wherever its device-sourced data appears (the
           # Garmin API Brand Guidelines require attribution on secondary/detail
           # views, not just primary feeds), and garminDeviceName carries the
-          # sanctioned "Garmin [device model]" label.
+          # sanctioned "Garmin [device model]" label. stravaDeviceName lets a
+          # Strava ride recorded on a Garmin device be attributed to Garmin too.
           garminActivityId
           garminDeviceName
           stravaActivityId
+          stravaDeviceName
           whoopWorkoutId
           suuntoWorkoutId
         }

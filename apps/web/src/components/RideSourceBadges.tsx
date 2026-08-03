@@ -1,3 +1,4 @@
+import { stravaRecordingDevice } from '@loam/shared';
 import {
   getRideSources,
   getRideSourceLabel,
@@ -29,6 +30,10 @@ export default function RideSourceBadges({
   className?: string;
 }) {
   const sources = getRideSources(ride);
+  // A non-Garmin recording device (Wahoo, phone, ...) Strava reported. Garmin
+  // devices already appear as their own attribution badge, so this only fills
+  // the gap for everything else — shown muted, since it is info, not a badge.
+  const device = stravaRecordingDevice(ride);
 
   return (
     <>
@@ -47,6 +52,9 @@ export default function RideSourceBadges({
           {getRideSourceLabel(ride, source)}
         </span>
       ))}
+      {device && (
+        <span className={['source-device', className].filter(Boolean).join(' ')}>{device}</span>
+      )}
     </>
   );
 }
