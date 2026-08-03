@@ -247,30 +247,4 @@ describe('pickGarminActivityFields', () => {
     expect('deviceName' in picked).toBe(false);
     expect('samples' in picked).toBe(false);
   });
-
-  // Garmin sends deviceName "unknown" on manually-edited activities. Dropping it
-  // here is what stops the update path in upsertGarminActivity from overwriting
-  // the real model captured on the first sync, i.e. a ride's badge flipping from
-  // "Garmin Fenix 8" to "Garmin Unknown".
-  it('drops the Garmin "unknown" device sentinel', () => {
-    const picked = pickGarminActivityFields({
-      summaryId: 'abc',
-      activityType: 'MOUNTAIN_BIKING',
-      durationInSeconds: 5340,
-      deviceName: 'unknown',
-    });
-
-    expect('deviceName' in picked).toBe(false);
-  });
-
-  it('keeps a real device model', () => {
-    const picked = pickGarminActivityFields({
-      summaryId: 'abc',
-      activityType: 'MOUNTAIN_BIKING',
-      durationInSeconds: 5340,
-      deviceName: 'fenix8',
-    });
-
-    expect(picked.deviceName).toBe('fenix8');
-  });
 });

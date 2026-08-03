@@ -14,8 +14,6 @@
  * ping, degrades rather than breaks.
  */
 
-import { normalizeGarminDeviceName } from '@loam/shared';
-
 /** Garmin activityType values that count as cycling for our purposes. */
 export const GARMIN_CYCLING_TYPES = [
   'cycling',
@@ -165,18 +163,7 @@ const GARMIN_ACTIVITY_FIELDS = [
 export function pickGarminActivityFields(entry: GarminDeliveryEntry): Record<string, unknown> {
   const picked: Record<string, unknown> = {};
   for (const field of GARMIN_ACTIVITY_FIELDS) {
-    if (entry[field] === undefined) continue;
-    if (field === 'deviceName') {
-      // Garmin sends deviceName "unknown" on manually-edited activities (the
-      // "Manually Updated Activities" webhook). Drop the sentinel so it is never
-      // stored and, on the update path in upsertGarminActivity, never overwrites
-      // the real model captured on the first push. That overwrite is what
-      // flipped a ride's badge from "Garmin Fenix 8" to "Garmin Unknown".
-      const device = normalizeGarminDeviceName(entry[field]);
-      if (device !== undefined) picked[field] = device;
-      continue;
-    }
-    picked[field] = entry[field];
+    if (entry[field] !== undefined) picked[field] = entry[field];
   }
   return picked;
 }

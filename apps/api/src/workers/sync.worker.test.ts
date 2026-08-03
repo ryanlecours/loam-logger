@@ -893,6 +893,65 @@ describe('processSyncJob (via worker processor)', () => {
         );
       });
 
+      // Garmin sends deviceName "unknown" on manually-edited activities. The
+      // guarantee lives at the write (not only in pickGarminActivityFields), so
+      // it must hold for a pushed activity, a backfilled one, or any other path
+      // into the upsert. A new ride stores null (fallback renders "Garmin").
+      it('stores garminDeviceName as null when Garmin reports the "unknown" sentinel', async () => {
+        await processSyncJob({
+          name: 'syncActivity',
+          data: {
+            userId: 'user123',
+            provider: 'garmin',
+            activityId: 'summary-456',
+            pushedActivity: { ...GARMIN_SUMMARY, deviceName: 'unknown' },
+          },
+        });
+
+        const [args] = (mockPrisma.ride.upsert as jest.Mock).mock.calls[0];
+        expect(args.create.garminDeviceName).toBeNull();
+      });
+
+      it('stores a real Garmin device model as-is', async () => {
+        await processSyncJob({
+          name: 'syncActivity',
+          data: {
+            userId: 'user123',
+            provider: 'garmin',
+            activityId: 'summary-456',
+            pushedActivity: { ...GARMIN_SUMMARY, deviceName: 'fenix8' },
+          },
+        });
+
+        const [args] = (mockPrisma.ride.upsert as jest.Mock).mock.calls[0];
+        expect(args.create.garminDeviceName).toBe('fenix8');
+      });
+
+      // The original bug: an edit's update payload overwriting a known model. On
+      // the "unknown" sentinel, garminDeviceName must be omitted from the update
+      // so the model captured on the first sync is preserved, not downgraded.
+      it('omits garminDeviceName from the update when Garmin sends "unknown"', async () => {
+        (mockPrisma.ride.findUnique as jest.Mock).mockResolvedValue({
+          id: 'ride-1',
+          location: null,
+          bikeId: null,
+          durationSeconds: 5340,
+        });
+
+        await processSyncJob({
+          name: 'syncActivity',
+          data: {
+            userId: 'user123',
+            provider: 'garmin',
+            activityId: 'summary-456',
+            pushedActivity: { ...GARMIN_SUMMARY, deviceName: 'unknown' },
+          },
+        });
+
+        const [args] = (mockPrisma.ride.upsert as jest.Mock).mock.calls[0];
+        expect('garminDeviceName' in args.update).toBe(false);
+      });
+
       // Verification mode blocks unprompted pulls. A push is not a pull, so it
       // must keep flowing or a reviewer sees no data at all.
       it('ingests a pushed activity during verification mode', async () => {

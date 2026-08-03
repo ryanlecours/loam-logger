@@ -8,6 +8,7 @@ import { getValidGarminToken } from '../lib/garmin-token';
 import { getValidSuuntoToken } from '../lib/suunto-token';
 import { deriveLocationAsync, shouldApplyAutoLocation } from '../lib/location';
 import { extractGarminStartCoords } from '../lib/garmin-coords';
+import { normalizeGarminDeviceName } from '@loam/shared';
 import { persistGarminStream } from '../lib/ride-stream-store';
 import { flattenGarminActivity } from '../lib/garmin-activity-details';
 import { removeGarminRideIfPresent } from '../lib/garmin-ride-removal';
@@ -811,6 +812,12 @@ async function processGarminCallback(userId: string, callbackURL: string): Promi
 
     const startTime = new Date(activity.startTimeInSeconds * 1000);
 
+    // Normalize the device once at the write, so the guarantee holds for
+    // backfilled rides too (this path does not go through
+    // pickGarminActivityFields). See sync.worker.ts `upsertGarminActivity`: the
+    // "unknown" sentinel must not overwrite the real model on a re-sync.
+    const garminDeviceName = normalizeGarminDeviceName(activity.deviceName);
+
     // Start coords drive both reverse-geocoded location and weather
     // enrichment. Read them once (correct Garmin field names) and reuse below.
     const { lat: startLat, lng: startLng } = extractGarminStartCoords(activity);
@@ -870,7 +877,7 @@ async function processGarminCallback(userId: string, callbackURL: string): Promi
           importSessionId: runningSession?.id ?? null,
           startLat,
           startLng,
-          garminDeviceName: activity.deviceName ?? null,
+          garminDeviceName: garminDeviceName ?? null,
         },
         update: {
           startTime,
@@ -880,8 +887,9 @@ async function processGarminCallback(userId: string, callbackURL: string): Promi
           averageHr: activity.averageHeartRateInBeatsPerMinute ?? null,
           rideType: activityType,
           notes: activity.activityName ?? null,
-          // Only written when present, never cleared — see sync.worker.ts.
-          ...(activity.deviceName ? { garminDeviceName: activity.deviceName } : {}),
+          // Only written when a real model is present, never cleared or
+          // downgraded — see sync.worker.ts.
+          ...(garminDeviceName ? { garminDeviceName } : {}),
           ...(locationUpdate !== undefined ? { location: locationUpdate } : {}),
           // Known limitation: coords are only written, never cleared on
           // re-sync. See sync.worker.ts for full rationale.

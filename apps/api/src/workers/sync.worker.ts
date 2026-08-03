@@ -13,6 +13,7 @@ import { extractGarminStartCoords } from '../lib/garmin-coords';
 import { persistGarminStream } from '../lib/ride-stream-store';
 import { fetchGarminActivityFromCallback } from '../lib/garmin-activity-details';
 import { isGarminCyclingActivity } from '../types/garmin';
+import { normalizeGarminDeviceName } from '@loam/shared';
 import { removeGarminRideIfPresent } from '../lib/garmin-ride-removal';
 import { garminRideKey } from '../lib/garmin-ride-key';
 import { syncBikeComponentHours } from '../lib/component-hours';
@@ -633,6 +634,14 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
 
   const startTime = new Date(activity.startTimeInSeconds * 1000);
 
+  // Normalize the device once at the write, so the guarantee holds for every
+  // delivery mode (push, ping, backfill), not just those routed through
+  // pickGarminActivityFields. Garmin sends deviceName "unknown" on
+  // manually-edited activities; treating that non-empty sentinel as a real
+  // model overwrote the model captured on the first sync, flipping a ride's
+  // badge from "Garmin Fenix 8" to "Garmin Unknown".
+  const garminDeviceName = normalizeGarminDeviceName(activity.deviceName);
+
   // Start coords drive both reverse-geocoded location and weather enrichment.
   // Read them once here (correct Garmin field names) and reuse below.
   const { lat: startLat, lng: startLng } = extractGarminStartCoords(activity);
@@ -703,7 +712,7 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
       bikeId,
       startLat,
       startLng,
-      garminDeviceName: activity.deviceName ?? null,
+      garminDeviceName: garminDeviceName ?? null,
     },
     update: {
       startTime,
@@ -713,9 +722,10 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
       averageHr: activity.averageHeartRateInBeatsPerMinute ?? null,
       rideType: activity.activityType,
       notes: activity.activityName ?? null,
-      // Only written when present, never cleared — a re-sync that omits
-      // deviceName must not blank an attribution we already display.
-      ...(activity.deviceName ? { garminDeviceName: activity.deviceName } : {}),
+      // Only written when a real model is present, never cleared — a re-sync
+      // that omits deviceName or sends the "unknown" sentinel must not blank or
+      // downgrade an attribution we already display.
+      ...(garminDeviceName ? { garminDeviceName } : {}),
       ...(locationUpdate !== undefined ? { location: locationUpdate } : {}),
       // Known limitation: coords are only written, never cleared. If a
       // Garmin activity's coords become unavailable on a later re-sync,
