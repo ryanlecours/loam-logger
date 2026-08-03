@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { NavLink, useNavigate } from "react-router-dom";
+import { NavLink, useNavigate } from "react-router";
 import { useApolloClient } from "@apollo/client";
 import { motion, AnimatePresence } from "motion/react";
 import { clearCsrfToken } from "@/lib/csrf";

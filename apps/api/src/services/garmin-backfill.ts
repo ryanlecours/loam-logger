@@ -16,6 +16,18 @@ import { logError, logger } from '../lib/logger';
 // Garmin's backfill endpoint accepts at most a 30-day window per request.
 const CHUNK_DAYS = 30;
 
+/**
+ * Which Garmin summary type a backfill asks for.
+ *
+ * `activities` re-delivers Activity Summaries: stats, device, start coords. It
+ * is what repairs a ride's numbers.
+ *
+ * `activityDetails` re-delivers the same activities WITH their `samples[]`, the
+ * per-point GPS that draws the ride map. Summaries carry none, so a history
+ * backfilled only as `activities` produces rides that can never have a track.
+ */
+export type GarminBackfillSummaryType = 'activities' | 'activityDetails';
+
 const resolveApiBase = (override?: string): string =>
   override ?? process.env.GARMIN_API_BASE ?? 'https://apis.garmin.com/wellness-api';
 
@@ -70,8 +82,15 @@ export async function triggerGarminBackfillChunks(opts: {
    * worker) pace themselves; the interactive route leaves this at 0.
    */
   delayBetweenChunksMs?: number;
+  /**
+   * Defaults to `activities` so existing callers (the coord-repair script, the
+   * interactive route) keep their exact behavior. Pass `activityDetails` to
+   * request the same range's GPS samples.
+   */
+  summaryType?: GarminBackfillSummaryType;
 }): Promise<GarminBackfillTriggerResult> {
   const apiBase = resolveApiBase(opts.apiBase);
+  const summaryType = opts.summaryType ?? 'activities';
   const { accessToken, endDate } = opts;
   const delayMs = opts.delayBetweenChunksMs ?? 0;
 
@@ -95,7 +114,7 @@ export async function triggerGarminBackfillChunks(opts: {
     const chunkStartSeconds = Math.floor(currentStartDate.getTime() / 1000);
     const chunkEndSeconds = Math.floor(actualChunkEndDate.getTime() / 1000);
 
-    const url = `${apiBase}/rest/backfill/activities?summaryStartTimeInSeconds=${chunkStartSeconds}&summaryEndTimeInSeconds=${chunkEndSeconds}`;
+    const url = `${apiBase}/rest/backfill/${summaryType}?summaryStartTimeInSeconds=${chunkStartSeconds}&summaryEndTimeInSeconds=${chunkEndSeconds}`;
 
     // Advance to the next chunk unless a min-start rejection tells us to retry
     // this chunk from an adjusted (later) start date.
@@ -110,7 +129,7 @@ export async function triggerGarminBackfillChunks(opts: {
       });
 
       if (backfillRes.status === 202) {
-        logger.info({ chunk: totalChunks + 1 }, 'Garmin backfill request accepted');
+        logger.info({ chunk: totalChunks + 1, summaryType }, 'Garmin backfill request accepted');
         totalChunks++;
       } else if (backfillRes.status === 409) {
         // Garmin already fulfilled this range; it won't re-send the activities.

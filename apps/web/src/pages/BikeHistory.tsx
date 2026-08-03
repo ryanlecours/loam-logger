@@ -1,5 +1,5 @@
 import { Suspense, lazy, useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router';
 import { gql, useMutation, useQuery } from '@apollo/client';
 import { ArrowLeft, Bike as BikeIcon, CalendarClock, Check, FileDown, Link2, MinusCircle, PlusCircle, TriangleAlert, Wrench } from 'lucide-react';
 
@@ -25,6 +25,7 @@ import {
 } from '@/lib/bikeHistory';
 import { useUserTier } from '@/hooks/useUserTier';
 import { UpsellCard } from '@/components/UpgradePrompt';
+import { GarminDerivedNote } from '@/components/attribution/GarminAttribution';
 
 const BikeHistoryPdfButton = lazy(() => import('@/components/history/BikeHistoryPdfButton'));
 
@@ -298,6 +299,17 @@ export default function BikeHistory() {
             <TotalChip label="Elevation" value={fmtElevation(payload.totals.totalElevationGainMeters, distanceUnit)} />
             <TotalChip label="Service events" value={(payload.totals.serviceEventCount + payload.totals.installEventCount).toLocaleString()} />
           </div>
+
+          {/* The totals above and the ride timeline below are derived from the
+              contributing providers' ride data, so any Garmin-sourced rides
+              have to be named as a source. Sits adjacent to the data and above
+              the fold, never behind a disclosure, as the Garmin API Brand
+              Guidelines require. Matches BikeDetail's Component Health note and
+              the PDF/shared-history attribution so it is retained across every
+              view of this history. */}
+          {payload.bike.contributingSources?.includes('garmin') && (
+            <GarminDerivedNote className="mb-4" />
+          )}
 
           <div className="flex flex-wrap items-center gap-2 mb-4">
             <label className="text-xs text-muted mr-1">Timeframe</label>

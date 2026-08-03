@@ -4,10 +4,9 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "strict": true,
-    "baseUrl": ".",
     "paths": {
-      "@loam/graphql": ["libs/graphql/src/index.ts"],
-      "@loam/shared": ["libs/shared/src/index.ts"]
+      "@loam/graphql": ["./libs/graphql/src/index.ts"],
+      "@loam/shared": ["./libs/shared/src/index.ts"]
     }
   }
 }

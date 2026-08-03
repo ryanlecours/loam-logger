@@ -201,7 +201,7 @@ export default function DataSourcesSection() {
                 showAdminClear={isAdmin}
                 onClearRides={() => setConfirmState({ kind: 'delete-rides', provider: 'garmin' })}
                 clearRidesLoading={garminDeleteLoading}
-                clearRidesLabel="Clear Garmin Rides"
+                clearRidesLabel={`Clear ${GARMIN_CONNECT_APP_NAME} Rides`}
               />
             ) : (
               <ConnectGarminLink />

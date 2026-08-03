@@ -3,6 +3,7 @@ import { History, ChevronDown, ChevronUp, Check } from 'lucide-react';
 import { getAuthHeaders } from '@/lib/csrf';
 import { useUserTier } from '@/hooks/useUserTier';
 import { UpsellCard } from '@/components/UpgradePrompt';
+import { GARMIN_CONNECT_APP_NAME } from '@loam/shared';
 
 interface ImportRidesFormProps {
   connectedProviders: Array<'strava' | 'garmin' | 'suunto'>;
@@ -38,10 +39,26 @@ const STRAVA_YEAR_OPTIONS = [
   })),
 ];
 
-// Garmin limits historical data access to the past 30 days
-const GARMIN_YEAR_OPTIONS = [
-  { value: 'ytd', label: 'Last 30 Days' },
+// Garmin imports are rolling windows, shortest first. They nest (7 days is
+// inside 30), so this is a single choice rather than a multi-select.
+const GARMIN_PERIOD_OPTIONS = [
+  { value: '7d', label: 'Last 7 Days' },
+  { value: '14d', label: 'Last 14 Days' },
+  { value: '30d', label: 'Last 30 Days' },
 ];
+
+const DEFAULT_GARMIN_PERIOD = '30d';
+
+const garminPeriodLabel = (value: string) =>
+  GARMIN_PERIOD_OPTIONS.find((option) => option.value === value)?.label ?? value;
+
+// Past requests are keyed the same way, so a chip may be a window ('7d'), a
+// year, or 'ytd' left over from an earlier import.
+const historyPeriodLabel = (value: string) => {
+  if (value === 'ytd') return 'YTD';
+  const window = GARMIN_PERIOD_OPTIONS.find((option) => option.value === value);
+  return window ? window.label.replace('Last ', '') : value;
+};
 
 // Suunto allows historical backfills back to 2015 (same as Strava)
 const SUUNTO_YEAR_OPTIONS = [
@@ -54,7 +71,9 @@ const SUUNTO_YEAR_OPTIONS = [
 
 const PROVIDER_LABELS: Record<string, string> = {
   strava: 'Strava',
-  garmin: 'Garmin Connect',
+  // The guidelines forbid abbreviating or stylizing the name, and that includes
+  // dropping the trademark mark, so this reads from the shared constant.
+  garmin: GARMIN_CONNECT_APP_NAME,
   suunto: 'Suunto',
 };
 
@@ -62,16 +81,16 @@ export function ImportRidesForm({ connectedProviders }: ImportRidesFormProps) {
   const { isPro } = useUserTier();
   const [expanded, setExpanded] = useState(false);
   const [selectedProvider, setSelectedProvider] = useState<'strava' | 'garmin' | 'suunto' | ''>('');
-  const [selectedYear, setSelectedYear] = useState<string>('ytd'); // For Strava/Suunto (single select)
-  const [selectedYears, setSelectedYears] = useState<Set<string>>(new Set(['ytd'])); // For Garmin (multi-select)
+  const [selectedYear, setSelectedYear] = useState<string>('ytd'); // For Strava/Suunto
+  const [selectedGarminPeriod, setSelectedGarminPeriod] = useState<string>(DEFAULT_GARMIN_PERIOD);
   const [importState, setImportState] = useState<'idle' | 'loading' | 'done'>('idle');
   const [importStats, setImportStats] = useState<ImportStats | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [backfillHistory, setBackfillHistory] = useState<BackfillRequest[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
 
-  // Get years that are in progress for Garmin
-  const garminInProgressYears = useMemo(() => {
+  // Garmin periods with a sync already queued or running
+  const garminInProgressPeriods = useMemo(() => {
     return new Set(
       backfillHistory
         .filter(
@@ -83,29 +102,9 @@ export function ImportRidesForm({ connectedProviders }: ImportRidesFormProps) {
     );
   }, [backfillHistory]);
 
-  // Check if YTD is currently in progress (Garmin only - blocks re-triggering)
-  const isYtdInProgress = useMemo(() => {
-    if (selectedProvider !== 'garmin' || selectedYear !== 'ytd') return false;
-    return backfillHistory.some(
-      (req) => req.provider === 'garmin' && req.year === 'ytd' && req.status === 'in_progress'
-    );
-  }, [backfillHistory, selectedProvider, selectedYear]);
-
-  // Toggle year selection for Garmin multi-select
-  const toggleYearSelection = (year: string) => {
-    setSelectedYears((prev) => {
-      const next = new Set(prev);
-      if (next.has(year)) {
-        next.delete(year);
-      } else {
-        next.add(year);
-      }
-      return next;
-    });
-  };
-
-  // Get count of selectable years for button text
-  const selectableYearsCount = selectedYears.size;
+  // A window already syncing can't be re-triggered until it finishes
+  const isGarminPeriodInProgress =
+    selectedProvider === 'garmin' && garminInProgressPeriods.has(selectedGarminPeriod);
 
   // Auto-select provider if only one is connected
   useEffect(() => {
@@ -166,10 +165,10 @@ export function ImportRidesForm({ connectedProviders }: ImportRidesFormProps) {
       const baseUrl = import.meta.env.VITE_API_URL;
 
       if (selectedProvider === 'garmin') {
-        // Garmin uses batch endpoint for multi-year selection
-        const yearsArray = Array.from(selectedYears);
-        if (yearsArray.length === 0) {
-          setError('Please select at least one year');
+        // Garmin queues in the background; the API reads each `years` entry as
+        // a period key, which for us is always one rolling window.
+        if (!selectedGarminPeriod) {
+          setError('Please select a time period');
           setImportState('idle');
           return;
         }
@@ -181,14 +180,14 @@ export function ImportRidesForm({ connectedProviders }: ImportRidesFormProps) {
             ...getAuthHeaders(),
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ years: yearsArray }),
+          body: JSON.stringify({ years: [selectedGarminPeriod] }),
         });
 
         const data = await response.json();
 
         if (!response.ok) {
           if (response.status === 409) {
-            setError(data.message || 'Selected years are already imported or in progress.');
+            setError(data.message || 'That time period is already syncing.');
             setImportState('idle');
             return;
           }
@@ -346,12 +345,12 @@ export function ImportRidesForm({ connectedProviders }: ImportRidesFormProps) {
             </label>
 
             {selectedProvider === 'garmin' ? (
-              // Garmin: restricted to last 30 days
+              // Garmin: one rolling window, since the windows nest
               <div className="space-y-3">
-                {GARMIN_YEAR_OPTIONS.map((option) => {
-                  const isInProgress = garminInProgressYears.has(option.value);
+                {GARMIN_PERIOD_OPTIONS.map((option) => {
+                  const isInProgress = garminInProgressPeriods.has(option.value);
                   const isDisabled = isInProgress || importState === 'loading';
-                  const isSelected = selectedYears.has(option.value);
+                  const isSelected = selectedGarminPeriod === option.value;
 
                   return (
                     <label
@@ -365,11 +364,13 @@ export function ImportRidesForm({ connectedProviders }: ImportRidesFormProps) {
                       `}
                     >
                       <input
-                        type="checkbox"
+                        type="radio"
+                        name="garmin-import-period"
+                        value={option.value}
                         checked={isSelected}
                         disabled={isDisabled}
-                        onChange={() => !isDisabled && toggleYearSelection(option.value)}
-                        className="w-4 h-4 text-accent border-gray-500 focus:ring-accent rounded"
+                        onChange={() => !isDisabled && setSelectedGarminPeriod(option.value)}
+                        className="w-4 h-4 text-accent border-gray-500 focus:ring-accent"
                       />
                       <span className={`flex-1 text-sm ${isDisabled ? 'text-muted' : 'text-primary'}`}>
                         {option.label}
@@ -381,7 +382,8 @@ export function ImportRidesForm({ connectedProviders }: ImportRidesFormProps) {
                   );
                 })}
                 <p className="text-xs text-muted">
-                  Garmin limits historical data access to the past 30 days. New rides sync automatically going forward.
+                  Garmin sends the rides in the window you pick. New rides keep syncing automatically, and you
+                  can run this again anytime.
                 </p>
               </div>
             ) : (
@@ -438,7 +440,7 @@ export function ImportRidesForm({ connectedProviders }: ImportRidesFormProps) {
                       `}
                       title={`${req.status}${req.ridesFound ? ` - ${req.ridesFound} rides` : ''}`}
                     >
-                      {req.year === 'ytd' ? 'YTD' : req.year}
+                      {historyPeriodLabel(req.year)}
                       {req.status === 'completed' && req.ridesFound !== null && (
                         <span className="ml-1 opacity-75">({req.ridesFound})</span>
                       )}
@@ -478,15 +480,13 @@ export function ImportRidesForm({ connectedProviders }: ImportRidesFormProps) {
             disabled={
               !selectedProvider ||
               importState === 'loading' ||
-              (selectedProvider === 'garmin' && selectableYearsCount === 0) ||
-              (selectedProvider === 'strava' && isYtdInProgress)
+              (selectedProvider === 'garmin' && (!selectedGarminPeriod || isGarminPeriodInProgress))
             }
             className={`
               w-full py-3 px-4 rounded-lg text-sm font-medium transition-all
               ${!selectedProvider ||
                 importState === 'loading' ||
-                (selectedProvider === 'garmin' && selectableYearsCount === 0) ||
-                (selectedProvider === 'strava' && isYtdInProgress)
+                (selectedProvider === 'garmin' && (!selectedGarminPeriod || isGarminPeriodInProgress))
                 ? 'bg-gray-300 dark:bg-gray-700 text-gray-500 cursor-not-allowed'
                 : 'bg-accent text-white hover:bg-accent-hover'}
             `}
@@ -494,12 +494,10 @@ export function ImportRidesForm({ connectedProviders }: ImportRidesFormProps) {
             {importState === 'loading'
               ? 'Importing...'
               : selectedProvider === 'garmin'
-                ? selectableYearsCount === 0
-                  ? 'Select a period to import'
-                  : 'Start Import'
-                : isYtdInProgress
+                ? isGarminPeriodInProgress
                   ? 'Import In Progress'
-                  : 'Start Import'}
+                  : `Import ${garminPeriodLabel(selectedGarminPeriod)}`
+                : 'Start Import'}
           </button>
         </div>
       )}

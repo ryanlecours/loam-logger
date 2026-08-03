@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter } from 'react-router';
 import BikeHistory from './BikeHistory';
 
 // Apollo — useQuery returns the fixed fixture below; useMutation returns
@@ -14,9 +14,9 @@ vi.mock('@apollo/client', () => ({
 }));
 
 // Pin the bikeId so the query fixture is reachable.
-vi.mock('react-router-dom', async () => {
-  const actual = await vi.importActual<typeof import('react-router-dom')>(
-    'react-router-dom'
+vi.mock('react-router', async () => {
+  const actual = await vi.importActual<typeof import('react-router')>(
+    'react-router'
   );
   return {
     ...actual,
@@ -355,6 +355,40 @@ describe('BikeHistory multi-select', () => {
       });
       const call = mockBulkUpdate.mock.calls[0][0];
       expect(call.variables.input.ids).toEqual(['inst-A']);
+    });
+  });
+
+  describe('Garmin attribution', () => {
+    const withSources = (sources: string[] | undefined) => ({
+      bikeHistory: {
+        ...fixture.bikeHistory,
+        bike: { ...fixture.bikeHistory.bike, contributingSources: sources },
+      },
+    });
+
+    it('shows the Garmin derived-data note when Garmin contributed rides', () => {
+      mockUseQuery.mockReturnValue({
+        data: withSources(['strava', 'garmin']),
+        loading: false,
+        error: undefined,
+      });
+      renderPage();
+      expect(screen.getByText(/derived in part from Garmin/i)).toBeInTheDocument();
+    });
+
+    it('omits the note when Garmin did not contribute', () => {
+      mockUseQuery.mockReturnValue({
+        data: withSources(['strava']),
+        loading: false,
+        error: undefined,
+      });
+      renderPage();
+      expect(screen.queryByText(/derived in part from Garmin/i)).not.toBeInTheDocument();
+    });
+
+    it('omits the note when contributingSources is absent', () => {
+      renderPage();
+      expect(screen.queryByText(/derived in part from Garmin/i)).not.toBeInTheDocument();
     });
   });
 

@@ -203,7 +203,12 @@ export async function checkAndNotifyServiceDue(params: {
       case 'RIDES_BEFORE':
         return `${c.ridesRemainingEstimate} rides left`;
       case 'HOURS_BEFORE':
-        return `${Math.round(c.hoursRemaining)}h left`;
+        // hoursRemaining goes negative once a component is past due, and
+        // "-42h left" is not a sentence. The magnitude belongs in the app,
+        // where the row can say "42h overdue"; a push notification only has to
+        // say the part needs attention. The trigger above is unaffected: it
+        // already fired at zero, so this only renames what was reaching it.
+        return c.hoursRemaining <= 0 ? 'overdue' : `${Math.round(c.hoursRemaining)}h left`;
       case 'AT_SERVICE':
         return c.status === 'OVERDUE' ? 'overdue' : 'due now';
     }

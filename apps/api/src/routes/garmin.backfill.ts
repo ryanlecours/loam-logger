@@ -7,6 +7,11 @@ import { logError, logger } from '../lib/logger';
 import { enqueueBackfillJob } from '../lib/queue/backfill.queue';
 import { canBackfillYear } from '../auth/tier-access';
 import { triggerGarminBackfillChunks } from '../services/garmin-backfill';
+import {
+  describeGarminPeriod,
+  isRollingGarminPeriod,
+  resolveGarminPeriodRange,
+} from '../lib/garmin-backfill-periods';
 
 type Empty = Record<string, never>;
 const r: Router = createRouter();
@@ -65,8 +70,27 @@ r.get<Empty, void, Empty, { days?: string; year?: string }>(
       if (req.query.year) {
         const currentYear = new Date().getFullYear();
         const yearParam = req.query.year;
+        const rollingRange = resolveGarminPeriodRange(yearParam);
 
-        if (yearParam === 'ytd') {
+        if (rollingRange) {
+          // Short rolling window ('7d'/'14d'/'30d'). The window moves with the
+          // clock, so re-running it is how a rider picks up new rides; the only
+          // thing that blocks it is the same window still in flight.
+          const existingWindow = await prisma.backfillRequest.findUnique({
+            where: { userId_provider_year: { userId, provider: 'garmin', year: yearParam } },
+          });
+
+          if (existingWindow?.status === 'in_progress') {
+            return res.status(409).json({
+              error: 'Backfill already in progress',
+              message: `A backfill for ${describeGarminPeriod(yearParam)} is already in progress. Please wait for it to complete before requesting another.`,
+            });
+          }
+
+          startDate = rollingRange.startDate;
+          endDate = rollingRange.endDate;
+          periodDescription = describeGarminPeriod(yearParam);
+        } else if (yearParam === 'ytd') {
           // Check for existing YTD backfill to enable incremental fetching
           const existingYtd = await prisma.backfillRequest.findUnique({
             where: { userId_provider_year: { userId, provider: 'garmin', year: 'ytd' } },
@@ -153,6 +177,28 @@ r.get<Empty, void, Empty, { days?: string; year?: string }>(
       });
 
       logger.info({ totalChunks }, 'Garmin backfill requests triggered');
+
+      // Ask for the same range's Activity Details as well. Summaries carry no
+      // per-point data, so a history imported only as `activities` yields rides
+      // that can never draw a map. Deliberately not folded into the result
+      // above: this is the map, not the ride. If Garmin has not enabled the
+      // activityDetails scope for this app, or the range was already
+      // backfilled, the rides still import exactly as before and only the
+      // tracks are missing, which is the status quo, not a regression.
+      try {
+        const details = await triggerGarminBackfillChunks({
+          accessToken,
+          startDate,
+          endDate,
+          summaryType: 'activityDetails',
+        });
+        logger.info(
+          { totalChunks: details.totalChunks, errorCount: details.errors.length },
+          'Garmin activityDetails backfill requests triggered'
+        );
+      } catch (err) {
+        logger.warn({ err }, 'Garmin activityDetails backfill failed; rides import without tracks');
+      }
 
       // Track backfill request in database (only for year-based requests)
       // Uses atomic conditional update to prevent race condition with webhook completion
@@ -259,8 +305,11 @@ r.get<Empty, void, Empty, { days?: string; year?: string }>(
 );
 
 /**
- * Queue multiple years for background backfill processing
- * Accepts an array of years and queues them as background jobs
+ * Queue Garmin backfills for background processing.
+ *
+ * The body field is still named `years` because shipped mobile builds send that
+ * name, but an entry is really a period: a rolling window ('7d'/'14d'/'30d'),
+ * 'ytd', or a calendar year. The clients now offer the rolling windows only.
  */
 r.post<Empty, void, { years: string[] }, Empty>(
   '/garmin/backfill/batch',
@@ -272,22 +321,25 @@ r.post<Empty, void, { years: string[] }, Empty>(
 
     const { years } = req.body;
     if (!Array.isArray(years) || years.length === 0) {
-      return sendBadRequest(res, 'At least one year is required');
+      return sendBadRequest(res, 'At least one time period is required');
     }
 
-    // Limit to 10 years max to prevent abuse
+    // Limit to 10 periods max to prevent abuse
     if (years.length > 10) {
-      return sendBadRequest(res, 'Maximum 10 years can be queued at once');
+      return sendBadRequest(res, 'Maximum 10 time periods can be queued at once');
     }
 
-    // Validate all years upfront (fail fast before any DB queries)
+    // Validate all periods upfront (fail fast before any DB queries)
     const currentYear = new Date().getFullYear();
     const minYear = currentYear - 4;
     for (const year of years) {
-      if (year !== 'ytd') {
+      if (!isRollingGarminPeriod(year)) {
         const yearNum = parseInt(year, 10);
         if (isNaN(yearNum) || yearNum < minYear || yearNum > currentYear) {
-          return sendBadRequest(res, `Invalid year: ${year}. Must be between ${minYear} and ${currentYear}, or 'ytd'`);
+          return sendBadRequest(
+            res,
+            `Invalid time period: ${year}. Must be '7d', '14d', '30d', 'ytd', or a year between ${minYear} and ${currentYear}`
+          );
         }
       }
     }
@@ -305,12 +357,17 @@ r.post<Empty, void, { years: string[] }, Empty>(
         });
       }
 
-      // Check for already backfilled years (non-YTD only, skip failed ones)
+      // A closed span (a calendar year) is imported once and is then done, so
+      // any non-failed record blocks it. A rolling window keeps moving, so
+      // re-running it is the whole point and only a run in flight blocks it.
+      const rollingPeriods = years.filter(isRollingGarminPeriod);
+      const fixedYears = years.filter(y => !isRollingGarminPeriod(y));
+
       const existingBackfills = await prisma.backfillRequest.findMany({
         where: {
           userId,
           provider: 'garmin',
-          year: { in: years.filter(y => y !== 'ytd') },
+          year: { in: fixedYears },
           status: { notIn: ['failed'] },
         },
         select: { year: true, status: true },
@@ -318,29 +375,28 @@ r.post<Empty, void, { years: string[] }, Empty>(
 
       const alreadyBackfilled = new Map(existingBackfills.map(b => [b.year, b.status]));
 
-      // Check if YTD is in progress
-      if (years.includes('ytd')) {
-        const ytdBackfill = await prisma.backfillRequest.findUnique({
-          where: { userId_provider_year: { userId, provider: 'garmin', year: 'ytd' } },
-          select: { status: true },
+      if (rollingPeriods.length > 0) {
+        const inFlight = await prisma.backfillRequest.findMany({
+          where: {
+            userId,
+            provider: 'garmin',
+            year: { in: rollingPeriods },
+            status: 'in_progress',
+          },
+          select: { year: true, status: true },
         });
-        if (ytdBackfill?.status === 'in_progress') {
-          alreadyBackfilled.set('ytd', 'in_progress');
+        for (const request of inFlight) {
+          alreadyBackfilled.set(request.year, request.status);
         }
       }
 
-      // Filter to years that can be processed
-      const yearsToProcess = years.filter(y => {
-        if (y === 'ytd') {
-          return alreadyBackfilled.get('ytd') !== 'in_progress';
-        }
-        return !alreadyBackfilled.has(y);
-      });
+      // Filter to periods that can be processed
+      const yearsToProcess = years.filter(y => !alreadyBackfilled.has(y));
 
       if (yearsToProcess.length === 0) {
         return res.status(409).json({
-          error: 'All years already backfilled or in progress',
-          message: 'All selected years have already been imported or are currently being processed.',
+          error: 'All time periods already backfilled or in progress',
+          message: 'All selected time periods have already been imported or are currently being processed.',
           skipped: years,
         });
       }

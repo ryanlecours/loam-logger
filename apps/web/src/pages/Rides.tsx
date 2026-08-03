@@ -1,6 +1,6 @@
 // src/pages/Rides.tsx
 import { useQuery } from "@apollo/client";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { useState } from "react";
 import AddRideForm from "../components/AddRideForm";
 import RideCard from "../components/RideCard";

@@ -119,7 +119,7 @@ describe('prediction engine', () => {
       expect(result.bikeId).toBe('bike-123');
       expect(result.bikeName).toBe('Trail Slayer');
       expect(result.components).toHaveLength(2);
-      expect(result.algoVersion).toBe('v2');
+      expect(result.algoVersion).toBe('v3');
     });
 
     it('should throw for unauthorized bike access', async () => {
@@ -338,6 +338,64 @@ describe('prediction engine', () => {
 
       // Fork should be priority (DUE_NOW with 2h remaining)
       expect(result.priorityComponent?.componentId).toBe('comp-2');
+    });
+
+    // While hoursRemaining was clamped at 0, every OVERDUE component tied and
+    // the reduce kept whichever it saw first, so the array order decided which
+    // part the advisor and the push notification led with. comp-1 is listed
+    // first here precisely so a regression to the clamp fails this test.
+    it('should pick the furthest past due among several overdue components', async () => {
+      // Both components share the same 90h of riding since service; only their
+      // intervals differ, so comp-1 lands at -10 and comp-2 at -40.
+      const components = [
+        {
+          id: 'comp-1',
+          type: 'CHAIN',
+          location: 'NONE',
+          brand: 'SRAM',
+          model: 'XX1',
+          hoursUsed: 90,
+          serviceDueAtHours: 80,
+        },
+        {
+          id: 'comp-2',
+          type: 'FORK',
+          location: 'NONE',
+          brand: 'Fox',
+          model: '36',
+          hoursUsed: 90,
+          serviceDueAtHours: 50,
+        },
+      ];
+
+      // hoursSinceService comes from ride duration, not from hoursUsed, so the
+      // overdue state has to be built out of real rides.
+      const rides: RideMetrics[] = Array.from({ length: 9 }, (_, i) => ({
+        durationSeconds: 10 * 3600,
+        distanceMeters: 16093,
+        elevationGainMeters: 457,
+        startTime: new Date(`2024-01-${String(15 - i).padStart(2, '0')}`),
+      }));
+
+      (prisma.bike.findUnique as jest.Mock).mockResolvedValue({
+        ...mockBike,
+        components,
+      });
+      (prisma.ride.findMany as jest.Mock).mockResolvedValue(rides);
+      (prisma.serviceLog.findFirst as jest.Mock).mockResolvedValue(null);
+      (prisma.serviceLog.findMany as jest.Mock).mockResolvedValue([]);
+      (prisma.ride.findFirst as jest.Mock).mockResolvedValue({
+        startTime: new Date('2023-12-01'),
+      });
+
+      const result = await generateBikePredictions({
+        userId: 'user-123',
+        bikeId: 'bike-123',
+        userRole: 'FREE',
+      });
+
+      expect(result.priorityComponent?.componentId).toBe('comp-2');
+      expect(result.priorityComponent?.hoursRemaining).toBe(-40);
     });
   });
 
@@ -798,7 +856,7 @@ describe('prediction engine', () => {
       });
 
       it('should return OVERDUE when hoursRemaining <= 0', async () => {
-        // 6h interval, 7h ridden => clamped to 0 => OVERDUE
+        // 6h interval, 7h ridden => -1 => OVERDUE
         setupSingleComponentTest(6, 7);
 
         const result = await generateBikePredictions({
@@ -808,7 +866,39 @@ describe('prediction engine', () => {
         });
 
         expect(result.components[0].status).toBe('OVERDUE');
-        expect(result.components[0].hoursRemaining).toBe(0);
+        expect(result.components[0].hoursRemaining).toBe(-1);
+      });
+
+      // The value used to be clamped to 0, which made every overdue component
+      // report the same "0h" no matter how far past due it was. Clients render
+      // this as `Math.abs(x)h overdue`, so the clamp collapsed a whole list of
+      // parts into one indistinguishable string. The magnitude is the signal.
+      it('should report how far past due a strongly overdue component is', async () => {
+        // 6h interval, 30h ridden => -24
+        setupSingleComponentTest(6, 30);
+
+        const result = await generateBikePredictions({
+          userId: 'user-123',
+          bikeId: 'bike-123',
+          userRole: 'FREE',
+        });
+
+        expect(result.components[0].status).toBe('OVERDUE');
+        expect(result.components[0].hoursRemaining).toBe(-24);
+      });
+
+      // Negative hours must not turn into a negative ride countdown. The guard
+      // in estimateRidesRemaining short-circuits before the division.
+      it('should not estimate negative rides remaining when overdue', async () => {
+        setupSingleComponentTest(6, 30);
+
+        const result = await generateBikePredictions({
+          userId: 'user-123',
+          bikeId: 'bike-123',
+          userRole: 'FREE',
+        });
+
+        expect(result.components[0].ridesRemainingEstimate).toBe(0);
       });
     });
 

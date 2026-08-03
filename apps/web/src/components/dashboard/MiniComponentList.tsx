@@ -34,7 +34,11 @@ export function MiniComponentList({ components, className = '' }: MiniComponentL
           <span className="mini-component-hours">
             {hoursDisplay === 'total' || component.hoursRemaining == null
               ? `${component.hoursSinceService.toFixed(1)}/${component.serviceIntervalHours}h`
-              : `${component.hoursRemaining.toFixed(1)} hrs`}
+              : /* Clamped: hoursRemaining goes negative once a component is past
+                   due, and "-42.0 hrs" reads as a rendering fault in a one-line
+                   tile. The overdue magnitude is carried by the status dot and
+                   by the total-mode string beside it. */
+                `${Math.max(0, component.hoursRemaining).toFixed(1)} hrs`}
           </span>
           <span className="mini-component-rides">
             {component.ridesRemainingEstimate != null

@@ -262,7 +262,7 @@ These Terms constitute the entire agreement between you and Loam Logger regardin
 For questions regarding these Terms, contact:
 
 **Loam Logger**  
-Email: support@loamlogger.app
+Email: ryan.lecours@loamlogger.app
 
 ---
 

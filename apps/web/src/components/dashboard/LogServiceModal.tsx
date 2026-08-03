@@ -166,7 +166,11 @@ export function LogServiceModal({
                   </span>
                   <span className="log-service-item-hours">
                     {component.hoursRemaining != null
-                      ? `${component.hoursRemaining.toFixed(1)} hrs`
+                      ? /* Clamped: hoursRemaining is negative for a component
+                           past due. This is a pick-list for logging service, so
+                           the row only has to identify the part; its status is
+                           carried by the StatusDot above. */
+                        `${Math.max(0, component.hoursRemaining).toFixed(1)} hrs`
                       : `${component.hoursSinceService.toFixed(1)}h since service`}
                   </span>
                 </div>

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { gql, useMutation } from '@apollo/client';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { CreditCard, ExternalLink } from 'lucide-react';
 import { useUserTier } from '../hooks/useUserTier';
 import { Modal } from './ui/Modal';

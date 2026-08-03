@@ -1,11 +1,16 @@
 import type { ComponentType, ComponentLocation } from '@prisma/client';
 import type { ComponentWearWeights } from './types';
 
-/** Algorithm version for cache keys. v2: the since-service window anchors
- * on component.installedAt when no service log exists (parity with the
- * canonical hoursUsed anchor in lib/component-hours.ts) — bumped so cached
- * v1 predictions computed with the old bike-level anchor can't linger. */
-export const ALGO_VERSION = 'v2';
+/** Algorithm version for cache keys. v3: hoursRemaining is no longer clamped
+ * at zero, so an overdue component reports how far past due it is instead of
+ * a flat 0. Bumped so cached v2 predictions computed with the clamp cannot
+ * linger and keep serving "0h overdue" after deploy.
+ *
+ * v2: the since-service window anchors on component.installedAt when no
+ * service log exists (parity with the canonical hoursUsed anchor in
+ * lib/component-hours.ts) — bumped so cached v1 predictions computed with the
+ * old bike-level anchor can't linger. */
+export const ALGO_VERSION = 'v3';
 
 /** Default cache TTL in seconds (30 minutes) */
 export const DEFAULT_CACHE_TTL_SECONDS = 30 * 60;

@@ -38,6 +38,8 @@ jest.mock('../lib/prisma', () => ({
     bike: { findMany: jest.fn() },
     ride: { findUnique: jest.fn(), upsert: jest.fn() },
     component: { updateMany: jest.fn() },
+    // The Garmin upsert path looks for a running import session to stamp.
+    importSession: { findFirst: jest.fn().mockResolvedValue(null), update: jest.fn() },
     $transaction: jest.fn(),
   },
 }));
@@ -48,6 +50,18 @@ jest.mock('../lib/strava-token', () => ({
 
 jest.mock('../lib/garmin-token', () => ({
   getValidGarminToken: jest.fn(),
+}));
+
+jest.mock('../lib/garmin-activity-details', () => ({
+  fetchGarminActivityFromCallback: jest.fn().mockResolvedValue(null),
+}));
+
+jest.mock('../lib/ride-stream-store', () => ({
+  persistGarminStream: jest.fn().mockResolvedValue(false),
+}));
+
+jest.mock('../lib/garmin-ride-removal', () => ({
+  removeGarminRideIfPresent: jest.fn().mockResolvedValue(false),
 }));
 
 jest.mock('../lib/whoop-token', () => ({
@@ -68,6 +82,8 @@ jest.mock('../services/notification.service', () => ({
 
 jest.mock('../lib/location', () => ({
   deriveLocation: jest.fn().mockReturnValue('Derived Location'),
+  // The Garmin upsert path reverse-geocodes through the async variant.
+  deriveLocationAsync: jest.fn().mockResolvedValue('Derived Location'),
   shouldApplyAutoLocation: jest.fn().mockReturnValue(undefined),
 }));
 
@@ -87,6 +103,10 @@ import { acquireLock, releaseLock } from '../lib/rate-limit';
 import { prisma } from '../lib/prisma';
 import { getValidStravaToken } from '../lib/strava-token';
 import { getValidGarminToken } from '../lib/garmin-token';
+import { fetchGarminActivityFromCallback } from '../lib/garmin-activity-details';
+import { config } from '../config/env';
+import { persistGarminStream } from '../lib/ride-stream-store';
+import { removeGarminRideIfPresent } from '../lib/garmin-ride-removal';
 import { getValidWhoopToken } from '../lib/whoop-token';
 import { getValidSuuntoToken } from '../lib/suunto-token';
 
@@ -97,6 +117,17 @@ const mockPrisma = prisma as jest.Mocked<typeof prisma>;
 const mockGetValidStravaToken = getValidStravaToken as jest.MockedFunction<typeof getValidStravaToken>;
 const mockGetValidWhoopToken = getValidWhoopToken as jest.MockedFunction<typeof getValidWhoopToken>;
 const mockGetValidGarminToken = getValidGarminToken as jest.MockedFunction<typeof getValidGarminToken>;
+const mockFetchFromCallback = fetchGarminActivityFromCallback as jest.MockedFunction<
+  typeof fetchGarminActivityFromCallback
+>;
+// Mutable so the verification-mode cases can flip it; reset in beforeEach.
+const mockConfig = config as unknown as { garminVerificationMode: boolean };
+const mockPersistGarminStream = persistGarminStream as jest.MockedFunction<
+  typeof persistGarminStream
+>;
+const mockRemoveGarminRide = removeGarminRideIfPresent as jest.MockedFunction<
+  typeof removeGarminRideIfPresent
+>;
 const mockGetValidSuuntoToken = getValidSuuntoToken as jest.MockedFunction<typeof getValidSuuntoToken>;
 const mockFetch = global.fetch as jest.MockedFunction<typeof fetch>;
 
@@ -188,6 +219,9 @@ describe('processSyncJob (via worker processor)', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    // config is a module singleton, so a case that flips this would otherwise
+    // leak into every later describe.
+    mockConfig.garminVerificationMode = false;
 
     MockedWorker.mockImplementation((queueName, processor) => {
       processSyncJob = processor as typeof processSyncJob;
@@ -731,7 +765,386 @@ describe('processSyncJob (via worker processor)', () => {
     });
   });
 
+    /**
+     * Regression pins for the bug that left every Garmin ride without a map.
+     *
+     * `/rest/activities` is the Activity SUMMARY: stats, device, start coords,
+     * and no per-point data at all. GPS lives only in Activity Details. The
+     * worker pulled the summary and handed it straight to persistGarminStream,
+     * which looks for `samples`, so the check always failed, no RideStream was
+     * ever written, and rideTrack resolved UNAVAILABLE for every Garmin ride.
+     */
+    describe('Garmin activity details', () => {
+      const GARMIN_SUMMARY = {
+        summaryId: 'summary-456',
+        activityType: 'MOUNTAIN_BIKING',
+        startTimeInSeconds: 1706123456,
+        durationInSeconds: 5340,
+        distanceInMeters: 8368,
+        startingLatitudeInDegrees: 48.75,
+        startingLongitudeInDegrees: -122.48,
+      };
+
+      beforeEach(() => {
+        mockAcquireLock.mockResolvedValue({
+          acquired: true,
+          lockKey: 'lock:garmin:user123',
+          lockValue: 'value123',
+          redisAvailable: true,
+        });
+        mockGetValidGarminToken.mockResolvedValue('valid-garmin-token');
+        mockConfig.garminVerificationMode = false;
+        mockFetchFromCallback.mockResolvedValue(null);
+        // Fresh copy per call: the worker mutates the object it parsed, and
+        // handing back one shared literal would let one test leak into the next.
+        mockFetch.mockResolvedValue({
+          ok: true,
+          json: () => Promise.resolve({ ...GARMIN_SUMMARY }),
+        } as Response);
+        (mockPrisma.bike.findMany as jest.Mock).mockResolvedValue([]);
+        (mockPrisma.ride.findUnique as jest.Mock).mockResolvedValue(null);
+        (mockPrisma.ride.upsert as jest.Mock).mockResolvedValue({
+          id: 'ride-1',
+          bikeId: null,
+          durationSeconds: 5340,
+        });
+      });
+
+      const CALLBACK_URL = 'https://apis.garmin.com/wellness-api/rest/activityDetails?x=1';
+
+      // PUSH is the mode the integration targets. Garmin sent the activity, so
+      // there is nothing to request, and a delivery we never answer cannot be
+      // scored as an unprompted pull or an unanswered ping.
+      it('makes no request at all when the activity was pushed', async () => {
+        await processSyncJob({
+          name: 'syncActivity',
+          data: {
+            userId: 'user123',
+            provider: 'garmin',
+            activityId: 'summary-456',
+            pushedActivity: { ...GARMIN_SUMMARY },
+          },
+        });
+
+        expect(mockFetch).not.toHaveBeenCalled();
+        expect(mockFetchFromCallback).not.toHaveBeenCalled();
+        expect(mockPrisma.ride.upsert).toHaveBeenCalled();
+      });
+
+      it('stores the track that came with the pushed activity', async () => {
+        const samples = [{ latitudeInDegree: 48.75, longitudeInDegree: -122.48 }];
+
+        await processSyncJob({
+          name: 'syncActivity',
+          data: {
+            userId: 'user123',
+            provider: 'garmin',
+            activityId: 'summary-456',
+            pushedActivity: { ...GARMIN_SUMMARY, samples },
+          },
+        });
+
+        expect(mockPersistGarminStream).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.objectContaining({ samples })
+        );
+      });
+
+      /**
+       * One ride, two deliveries. Garmin sends the Activity Summary as
+       * "summary-456" and the Activity Details for the same ride as
+       * "summary-456-detail". Keying the row on the raw id sent the second
+       * delivery looking for a row that did not exist, so it inserted a
+       * duplicate: the rider saw the ride twice, the map was attached to the
+       * copy, and the copy's hours were counted against their components again.
+       */
+      it('updates the ride the summary created when its details arrive', async () => {
+        (mockPrisma.ride.findUnique as jest.Mock).mockResolvedValue({
+          id: 'ride-1',
+          location: null,
+          bikeId: null,
+          durationSeconds: 5340,
+        });
+        const samples = [{ latitudeInDegree: 48.75, longitudeInDegree: -122.48 }];
+
+        await processSyncJob({
+          name: 'syncActivity',
+          data: {
+            userId: 'user123',
+            provider: 'garmin',
+            activityId: 'summary-456-detail',
+            pushedActivity: { ...GARMIN_SUMMARY, summaryId: 'summary-456-detail', samples },
+          },
+        });
+
+        expect(mockPrisma.ride.upsert).toHaveBeenCalledWith(
+          expect.objectContaining({ where: { garminActivityId: 'summary-456' } })
+        );
+
+        const keys = (mockPrisma.ride.upsert as jest.Mock).mock.calls.map(
+          ([args]) => args.where.garminActivityId
+        );
+        expect(keys).not.toContain('summary-456-detail');
+
+        // The track belongs on the ride the rider already has.
+        expect(mockPersistGarminStream).toHaveBeenCalledWith(
+          'ride-1',
+          expect.objectContaining({ samples })
+        );
+      });
+
+      // Garmin sends deviceName "unknown" on manually-edited activities. The
+      // guarantee lives at the write (not only in pickGarminActivityFields), so
+      // it must hold for a pushed activity, a backfilled one, or any other path
+      // into the upsert. A new ride stores null (fallback renders "Garmin").
+      it('stores garminDeviceName as null when Garmin reports the "unknown" sentinel', async () => {
+        await processSyncJob({
+          name: 'syncActivity',
+          data: {
+            userId: 'user123',
+            provider: 'garmin',
+            activityId: 'summary-456',
+            pushedActivity: { ...GARMIN_SUMMARY, deviceName: 'unknown' },
+          },
+        });
+
+        const [args] = (mockPrisma.ride.upsert as jest.Mock).mock.calls[0];
+        expect(args.create.garminDeviceName).toBeNull();
+      });
+
+      it('stores a real Garmin device model as-is', async () => {
+        await processSyncJob({
+          name: 'syncActivity',
+          data: {
+            userId: 'user123',
+            provider: 'garmin',
+            activityId: 'summary-456',
+            pushedActivity: { ...GARMIN_SUMMARY, deviceName: 'fenix8' },
+          },
+        });
+
+        const [args] = (mockPrisma.ride.upsert as jest.Mock).mock.calls[0];
+        expect(args.create.garminDeviceName).toBe('fenix8');
+      });
+
+      // The original bug: an edit's update payload overwriting a known model. On
+      // the "unknown" sentinel, garminDeviceName must be omitted from the update
+      // so the model captured on the first sync is preserved, not downgraded.
+      it('omits garminDeviceName from the update when Garmin sends "unknown"', async () => {
+        (mockPrisma.ride.findUnique as jest.Mock).mockResolvedValue({
+          id: 'ride-1',
+          location: null,
+          bikeId: null,
+          durationSeconds: 5340,
+        });
+
+        await processSyncJob({
+          name: 'syncActivity',
+          data: {
+            userId: 'user123',
+            provider: 'garmin',
+            activityId: 'summary-456',
+            pushedActivity: { ...GARMIN_SUMMARY, deviceName: 'unknown' },
+          },
+        });
+
+        const [args] = (mockPrisma.ride.upsert as jest.Mock).mock.calls[0];
+        expect('garminDeviceName' in args.update).toBe(false);
+      });
+
+      // Verification mode blocks unprompted pulls. A push is not a pull, so it
+      // must keep flowing or a reviewer sees no data at all.
+      it('ingests a pushed activity during verification mode', async () => {
+        mockConfig.garminVerificationMode = true;
+
+        await processSyncJob({
+          name: 'syncActivity',
+          data: {
+            userId: 'user123',
+            provider: 'garmin',
+            activityId: 'summary-456',
+            pushedActivity: { ...GARMIN_SUMMARY },
+          },
+        });
+
+        expect(mockFetch).not.toHaveBeenCalled();
+        expect(mockPrisma.ride.upsert).toHaveBeenCalled();
+      });
+
+      /**
+       * The rider retyped the activity in Garmin Connect. It was never a ride,
+       * so leaving it behind would keep crediting its hours against installed
+       * components and inflate every service prediction built on them.
+       */
+      it('removes an existing ride when the activity is no longer cycling', async () => {
+        await processSyncJob({
+          name: 'syncActivity',
+          data: {
+            userId: 'user123',
+            provider: 'garmin',
+            activityId: 'summary-456',
+            pushedActivity: { ...GARMIN_SUMMARY, activityType: 'RUNNING' },
+          },
+        });
+
+        expect(mockRemoveGarminRide).toHaveBeenCalledWith('user123', 'summary-456');
+        // And it must not also be upserted as a ride.
+        expect(mockPrisma.ride.upsert).not.toHaveBeenCalled();
+      });
+
+      // The other direction the owner asked for: retyped INTO cycling, so it
+      // becomes a ride. This already worked, and pins that it keeps working.
+      it('imports an activity retyped into cycling', async () => {
+        await processSyncJob({
+          name: 'syncActivity',
+          data: {
+            userId: 'user123',
+            provider: 'garmin',
+            activityId: 'summary-456',
+            pushedActivity: { ...GARMIN_SUMMARY, activityType: 'GRAVEL_CYCLING' },
+          },
+        });
+
+        expect(mockPrisma.ride.upsert).toHaveBeenCalled();
+        expect(mockRemoveGarminRide).not.toHaveBeenCalled();
+      });
+
+      // Garmin's Partner Verification counts a pull as prompted only when it
+      // matches a callbackURL Garmin issued, and counts a ping we did not
+      // follow as unanswered. Composing our own request fails both checks at
+      // once, which is what the verification dashboard was reporting.
+      it('answers the ping by following its callbackURL', async () => {
+        mockFetchFromCallback.mockResolvedValueOnce({ ...GARMIN_SUMMARY });
+
+        await processSyncJob({
+          name: 'syncActivity',
+          data: {
+            userId: 'user123',
+            provider: 'garmin',
+            activityId: 'summary-456',
+            callbackURL: CALLBACK_URL,
+          },
+        });
+
+        expect(mockFetchFromCallback).toHaveBeenCalledWith({
+          accessToken: 'valid-garmin-token',
+          summaryId: 'summary-456',
+          callbackURL: CALLBACK_URL,
+        });
+      });
+
+      it('makes no self-composed request when the callback answered', async () => {
+        mockFetchFromCallback.mockResolvedValueOnce({ ...GARMIN_SUMMARY });
+
+        await processSyncJob({
+          name: 'syncActivity',
+          data: {
+            userId: 'user123',
+            provider: 'garmin',
+            activityId: 'summary-456',
+            callbackURL: CALLBACK_URL,
+          },
+        });
+
+        expect(mockFetch).not.toHaveBeenCalled();
+      });
+
+      // One prompted request has to carry the stats and the GPS together,
+      // otherwise the map needs a second call that verification would flag.
+      it('stores the track from the same payload it got the ride from', async () => {
+        const samples = [{ latitudeInDegree: 48.75, longitudeInDegree: -122.48 }];
+        mockFetchFromCallback.mockResolvedValueOnce({ ...GARMIN_SUMMARY, samples });
+
+        await processSyncJob({
+          name: 'syncActivity',
+          data: {
+            userId: 'user123',
+            provider: 'garmin',
+            activityId: 'summary-456',
+            callbackURL: CALLBACK_URL,
+          },
+        });
+
+        expect(mockPersistGarminStream).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.objectContaining({ samples })
+        );
+      });
+
+      // A ping without a usable callbackURL leaves no prompted route to the
+      // data. The ride still imports, but the request is unprompted, so it is
+      // logged as such rather than passing silently.
+      it('falls back to a self-composed request when there is no callbackURL', async () => {
+        await processSyncJob({
+          name: 'syncActivity',
+          data: { userId: 'user123', provider: 'garmin', activityId: 'summary-456' },
+        });
+
+        expect(mockFetchFromCallback).not.toHaveBeenCalled();
+        expect(mockFetch).toHaveBeenCalledWith(
+          expect.stringContaining('/rest/activities/summary-456'),
+          expect.anything()
+        );
+      });
+
+      it('falls back the same way when the callback returns no match', async () => {
+        mockFetchFromCallback.mockResolvedValueOnce(null);
+
+        await processSyncJob({
+          name: 'syncActivity',
+          data: {
+            userId: 'user123',
+            provider: 'garmin',
+            activityId: 'summary-456',
+            callbackURL: CALLBACK_URL,
+          },
+        });
+
+        expect(mockFetch).toHaveBeenCalledWith(
+          expect.stringContaining('/rest/activities/summary-456'),
+          expect.anything()
+        );
+      });
+
+      // docs/garmin/ticket-reply.md tells Garmin that unprompted pulls are
+      // blocked behind this flag. Before this it guarded manual sync and
+      // syncGarminLatest but left the ping path wide open, so a reviewer
+      // running verification still saw unprompted pulls next to that claim.
+      it('refuses the unprompted fallback during verification mode', async () => {
+        mockConfig.garminVerificationMode = true;
+
+        await processSyncJob({
+          name: 'syncActivity',
+          data: { userId: 'user123', provider: 'garmin', activityId: 'summary-456' },
+        });
+
+        expect(mockFetch).not.toHaveBeenCalled();
+        expect(mockPrisma.ride.upsert).not.toHaveBeenCalled();
+      });
+
+      // Verification mode must not block the compliant path, or a reviewer sees
+      // no data flowing at all.
+      it('still follows the callbackURL during verification mode', async () => {
+        mockConfig.garminVerificationMode = true;
+        mockFetchFromCallback.mockResolvedValueOnce({ ...GARMIN_SUMMARY });
+
+        await processSyncJob({
+          name: 'syncActivity',
+          data: {
+            userId: 'user123',
+            provider: 'garmin',
+            activityId: 'summary-456',
+            callbackURL: CALLBACK_URL,
+          },
+        });
+
+        expect(mockFetchFromCallback).toHaveBeenCalled();
+        expect(mockPrisma.ride.upsert).toHaveBeenCalled();
+      });
+    });
+
   describe('unknown job type', () => {
+
     it('should throw for unknown job type', async () => {
       mockAcquireLock.mockResolvedValue({
         acquired: true,

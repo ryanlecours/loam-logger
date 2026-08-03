@@ -5,8 +5,7 @@
     "allowSyntheticDefaultImports": true,
     "skipLibCheck": true,
     "types": ["node"],
-    "baseUrl": ".",
-    "paths": { "@/*": ["src/*"] },
+    "paths": { "@/*": ["./src/*"] },
     "outDir": "../../dist/apps/api",
     "jsx": "react-jsx"
   },

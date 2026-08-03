@@ -8,12 +8,18 @@ import { getValidGarminToken } from '../lib/garmin-token';
 import { getValidSuuntoToken } from '../lib/suunto-token';
 import { deriveLocationAsync, shouldApplyAutoLocation } from '../lib/location';
 import { extractGarminStartCoords } from '../lib/garmin-coords';
+import { normalizeGarminDeviceName } from '@loam/shared';
 import { persistGarminStream } from '../lib/ride-stream-store';
+import { flattenGarminActivity } from '../lib/garmin-activity-details';
+import { removeGarminRideIfPresent } from '../lib/garmin-ride-removal';
+import { assertTrustedGarminCallbackUrl } from '../lib/garmin-callback-url';
 import { logError, logger } from '../lib/logger';
 import { config } from '../config/env';
 import type { BackfillJobData, BackfillJobName } from '../lib/queue/backfill.queue';
 import { enqueueWeatherJob, enqueueLiftDetectionJob } from '../lib/queue';
 import { triggerGarminBackfillChunks } from '../services/garmin-backfill';
+import { resolveGarminPeriodRange } from '../lib/garmin-backfill-periods';
+import { garminRideKey } from '../lib/garmin-ride-key';
 import { captureServerEvent } from '../lib/posthog';
 import { incrementBikeComponentHours, syncBikeComponentHours } from '../lib/component-hours';
 import { invalidateBikePredictionsForBikes } from '../services/prediction/cache';
@@ -59,11 +65,21 @@ const GARMIN_CYCLING_TYPES = [
   'indoor_handcycling',
 ];
 
-// Garmin activity type from callback URL response
+// Garmin activity from a callback URL response.
+//
+// Covers both summary types: an `activities` callback carries these fields
+// flat, while an `activityDetails` callback nests them under `summary` and adds
+// `samples`. flattenGarminActivity lifts the nested form onto this shape before
+// anything reads it, so `activityType` is optional only to describe a malformed
+// payload, not a normal one.
 type GarminActivityDetail = {
   summaryId: string;
   activityId?: number;
-  activityType: string;
+  activityType?: string;
+  /** Present on activityDetails payloads; the per-point GPS that draws the map. */
+  samples?: unknown;
+  /** Pre-flatten nesting. Never read directly; see flattenGarminActivity. */
+  summary?: Record<string, unknown>;
   activityName?: string;
   startTimeInSeconds: number;
   startTimeOffsetInSeconds?: number;
@@ -228,9 +244,9 @@ async function processBackfillJob(job: Job<BackfillJobData, void, BackfillJobNam
 }
 
 /**
- * Process Garmin backfill for a specific year.
- * Triggers the Garmin Wellness API backfill endpoint in 30-day chunks.
- * Activities are delivered asynchronously via webhooks.
+ * Process a Garmin backfill for one time period: a rolling window ('7d'), 'ytd',
+ * or a calendar year. Triggers the Garmin Wellness API backfill endpoint in
+ * 30-day chunks. Activities are delivered asynchronously via webhooks.
  */
 async function processGarminBackfill(userId: string, year: string): Promise<void> {
   const accessToken = await getValidGarminToken(userId);
@@ -244,7 +260,13 @@ async function processGarminBackfill(userId: string, year: string): Promise<void
   let startDate: Date;
   let endDate: Date;
 
-  if (year === 'ytd') {
+  const rollingRange = resolveGarminPeriodRange(year);
+
+  if (rollingRange) {
+    // Short rolling window: measured from now, never incremental. The rider
+    // asked for the last N days, so that is exactly the range we request.
+    ({ startDate, endDate } = rollingRange);
+  } else if (year === 'ytd') {
     // Check for existing YTD backfill to enable incremental fetching
     const existingYtd = await prisma.backfillRequest.findUnique({
       where: { userId_provider_year: { userId, provider: 'garmin', year: 'ytd' } },
@@ -346,6 +368,37 @@ async function processGarminBackfill(userId: string, year: string): Promise<void
     'Garmin backfill chunks processed'
   );
 
+  // Ask for the same range's Activity Details as well. Activity Summaries carry
+  // no per-point data, so a history imported only as `activities` yields rides
+  // that can never draw a map: processGarminCallback's persistGarminStream has
+  // nothing to store. The interactive route has always done this; this queued
+  // path, which is the one both clients actually use, never did.
+  //
+  // Deliberately above the allDuplicates check: Garmin tracks backfill requests
+  // per summary type, so a range whose activities it already fulfilled still
+  // needs its details requested. That is the only way an already-imported ride
+  // gets a track, and it is exactly the state a rider is in after a sync that
+  // came back mapless.
+  //
+  // Best effort, matching the route: if the activityDetails scope is not
+  // enabled for this app, the rides still import as before and only the tracks
+  // are missing, which is the status quo, not a regression.
+  try {
+    const details = await triggerGarminBackfillChunks({
+      accessToken,
+      startDate,
+      endDate,
+      apiBase: config.garminApiBase,
+      summaryType: 'activityDetails',
+    });
+    logger.info(
+      { totalChunks: details.totalChunks, errorCount: details.errors.length, year },
+      'Garmin activityDetails backfill requests triggered'
+    );
+  } catch (err) {
+    logger.warn({ err, year }, 'Garmin activityDetails backfill failed; rides import without tracks');
+  }
+
   // Check if ALL chunks returned 409 - means backfill was already completed
   const allDuplicates = duplicateChunks > 0 && totalChunks === 0 && errors.length === 0;
 
@@ -378,8 +431,16 @@ async function processGarminBackfill(userId: string, year: string): Promise<void
     throw new Error(`Failed to trigger any backfill chunks: ${errors.join(', ')}`);
   }
 
-  // Note: Status will be updated to 'completed' by the webhook handler
-  // when all activities have been delivered
+  // The row stays `in_progress` here on purpose: Garmin delivers asynchronously
+  // over the following minutes, so this job cannot know when it is done.
+  //
+  // This used to read "Status will be updated to 'completed' by the webhook
+  // handler when all activities have been delivered". No webhook handler ever
+  // did that, so the row never left `in_progress` and both clients, which gate
+  // their sync UI on exactly that status, showed a permanent "Sync in progress"
+  // spinner. Completion now happens in services/import-session-checker, which
+  // closes the row when the import session it belongs to goes idle, and sweeps
+  // it to `failed` if nothing touches it for an hour.
 }
 
 // ============================================================================
@@ -660,12 +721,24 @@ async function processGarminCallback(userId: string, callbackURL: string): Promi
     userId,
   }, '[BackfillWorker] Fetching from Garmin callback URL');
 
-  // Fetch activities from the callback URL
+  // Fetch activities from the callback URL.
+  //
+  // This URL came from the unauthenticated activities-ping webhook body and
+  // this request carries the rider's live Garmin token, so the origin has to be
+  // checked before it is trusted with either. Predates the ping-side callback
+  // path but is the same exposure, so it is closed here too.
+  if (!assertTrustedGarminCallbackUrl(callbackURL, { userId })) {
+    throw new Error('Refusing to fetch an untrusted Garmin callback URL');
+  }
+
   const callbackRes = await fetch(callbackURL, {
     headers: {
       'Authorization': `Bearer ${accessToken}`,
       'Accept': 'application/json',
     },
+    // An allowed origin must not be able to bounce this request, and its token,
+    // somewhere else.
+    redirect: 'error',
   });
 
   if (!callbackRes.ok) {
@@ -679,16 +752,22 @@ async function processGarminCallback(userId: string, callbackURL: string): Promi
     throw new Error(`Garmin callback fetch failed: ${callbackRes.status}`);
   }
 
-  const activities = (await callbackRes.json()) as GarminActivityDetail[];
+  const payload = (await callbackRes.json()) as GarminActivityDetail[];
 
-  if (!Array.isArray(activities)) {
+  if (!Array.isArray(payload)) {
     logger.error({
       event: 'garmin_callback_error',
       userId,
-      response: activities,
+      response: payload,
     }, '[BackfillWorker] Unexpected response format from callback URL');
     throw new Error('Unexpected response format from callback URL');
   }
+
+  // An activityDetails backfill answers through this same callback mechanism,
+  // but nests the stats under `summary` and adds the `samples` that draw the
+  // ride map. Flattening here lets the loop below read one shape; a plain
+  // activities callback passes through untouched.
+  const activities = payload.map(flattenGarminActivity);
 
   logger.info({
     event: 'garmin_callback_activities_fetched',
@@ -705,12 +784,23 @@ async function processGarminCallback(userId: string, callbackURL: string): Promi
   let processedActivityCount = 0;
 
   for (const activity of activities) {
-    const activityTypeLower = activity.activityType.toLowerCase().replace(/\s+/g, '_');
-    if (!GARMIN_CYCLING_TYPES.includes(activityTypeLower)) {
+    // A payload with no activityType even after flattening is malformed. Skip
+    // it rather than throwing: one bad entry must not abandon the rest of the
+    // batch, which is the rider's ride history.
+    const activityType = activity.activityType;
+    const activityTypeLower = activityType?.toLowerCase().replace(/\s+/g, '_') ?? '';
+    if (!activityType || !GARMIN_CYCLING_TYPES.includes(activityTypeLower)) {
+      // A manually-updated notification arrives through this same callback
+      // path, so a ride retyped away from cycling has to be removed here too,
+      // not only on the push path. See lib/garmin-ride-removal.
+      const removed = activity.summaryId
+        ? await removeGarminRideIfPresent(userId, activity.summaryId)
+        : false;
       logger.debug({
         activityType: activity.activityType,
         summaryId: activity.summaryId,
-      }, '[BackfillWorker] Skipping non-cycling activity');
+        removedExistingRide: removed,
+      }, '[BackfillWorker] Non-cycling activity');
       continue;
     }
 
@@ -721,6 +811,12 @@ async function processGarminCallback(userId: string, callbackURL: string): Promi
       (activity.totalElevationGainInMeters ?? activity.elevationGainInMeters) ?? 0;
 
     const startTime = new Date(activity.startTimeInSeconds * 1000);
+
+    // Normalize the device once at the write, so the guarantee holds for
+    // backfilled rides too (this path does not go through
+    // pickGarminActivityFields). See sync.worker.ts `upsertGarminActivity`: the
+    // "unknown" sentinel must not overwrite the real model on a re-sync.
+    const garminDeviceName = normalizeGarminDeviceName(activity.deviceName);
 
     // Start coords drive both reverse-geocoded location and weather
     // enrichment. Read them once (correct Garmin field names) and reuse below.
@@ -744,8 +840,13 @@ async function processGarminCallback(userId: string, callbackURL: string): Promi
       lon: startLng,
     });
 
+    // One ride, two deliveries: the Activity Summary arrives as "123" and its
+    // Activity Details as "123-detail". Keying on the raw id made the details
+    // delivery miss the summary's row and insert a duplicate carrying the map.
+    const rideKey = garminRideKey(activity.summaryId);
+
     const existingRide = await prisma.ride.findUnique({
-      where: { garminActivityId: activity.summaryId },
+      where: { garminActivityId: rideKey },
       select: { location: true, bikeId: true, durationSeconds: true },
     });
 
@@ -761,22 +862,22 @@ async function processGarminCallback(userId: string, callbackURL: string): Promi
     let affectedBikeIds: string[] = [];
     const upsertedRide = await prisma.$transaction(async (tx) => {
       const ride = await tx.ride.upsert({
-        where: { garminActivityId: activity.summaryId },
+        where: { garminActivityId: rideKey },
         create: {
           userId,
-          garminActivityId: activity.summaryId,
+          garminActivityId: rideKey,
           startTime,
           durationSeconds: activity.durationInSeconds,
           distanceMeters,
           elevationGainMeters,
           averageHr: activity.averageHeartRateInBeatsPerMinute ?? null,
-          rideType: activity.activityType,
+          rideType: activityType,
           notes: activity.activityName ?? null,
           location: autoLocation?.title ?? null,
           importSessionId: runningSession?.id ?? null,
           startLat,
           startLng,
-          garminDeviceName: activity.deviceName ?? null,
+          garminDeviceName: garminDeviceName ?? null,
         },
         update: {
           startTime,
@@ -784,10 +885,11 @@ async function processGarminCallback(userId: string, callbackURL: string): Promi
           distanceMeters,
           elevationGainMeters,
           averageHr: activity.averageHeartRateInBeatsPerMinute ?? null,
-          rideType: activity.activityType,
+          rideType: activityType,
           notes: activity.activityName ?? null,
-          // Only written when present, never cleared — see sync.worker.ts.
-          ...(activity.deviceName ? { garminDeviceName: activity.deviceName } : {}),
+          // Only written when a real model is present, never cleared or
+          // downgraded — see sync.worker.ts.
+          ...(garminDeviceName ? { garminDeviceName } : {}),
           ...(locationUpdate !== undefined ? { location: locationUpdate } : {}),
           // Known limitation: coords are only written, never cleared on
           // re-sync. See sync.worker.ts for full rationale.

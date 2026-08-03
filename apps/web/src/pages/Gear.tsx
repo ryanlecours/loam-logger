@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery } from '@apollo/client';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { Bike } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { BikeForm } from '@/components/BikeForm';

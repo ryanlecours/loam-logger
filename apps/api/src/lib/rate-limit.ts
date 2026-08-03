@@ -104,8 +104,11 @@ export const MUTATION_RATE_LIMITS = {
   addPassword: { windowSeconds: 3600, maxRequests: 5 },
   /** changePassword: max 5 requests per hour per user (sensitive credential operation) */
   changePassword: { windowSeconds: 3600, maxRequests: 5 },
-  /** oauthStart: max 5 requests per 10 minutes per user (creates DB row each call) */
-  oauthStart: { windowSeconds: 600, maxRequests: 5 },
+  /** oauthStart: max 10 requests per 10 minutes per user (creates DB row each
+   *  call). The budget is per user, not per provider, and mobile onboarding
+   *  offers four connect buttons — at 5, a user connecting all four had a
+   *  single retry left before a 10-minute lockout. */
+  oauthStart: { windowSeconds: 600, maxRequests: 10 },
   /** updateUserPreferences: max 20 requests per minute per user */
   updateUserPreferences: { windowSeconds: 60, maxRequests: 20 },
   /** updateAnalyticsOptOut: max 10 toggles per hour per user. Users rarely flip

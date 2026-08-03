@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router';
 import { useApolloClient, useQuery, gql } from '@apollo/client';
 import { Settings, Check, ChevronDown, ChevronUp, Clock } from 'lucide-react';
 import GarminConnectMark from '@/components/attribution/GarminConnectMark';

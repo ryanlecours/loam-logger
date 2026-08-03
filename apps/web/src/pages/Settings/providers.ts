@@ -1,9 +1,11 @@
+import { GARMIN_CONNECT_APP_NAME } from '@loam/shared';
+
 export type DataSource = 'garmin' | 'strava' | 'whoop' | 'suunto';
 
 export const DATA_SOURCES: readonly DataSource[] = ['garmin', 'strava', 'whoop', 'suunto'];
 
 export const PROVIDER_LABELS: Record<DataSource, string> = {
-  garmin: 'Garmin',
+  garmin: GARMIN_CONNECT_APP_NAME,
   strava: 'Strava',
   whoop: 'WHOOP',
   suunto: 'Suunto',

@@ -184,6 +184,19 @@ describe('SortableBikeTile', () => {
       expect(screen.getByText('5.8 hrs')).toBeInTheDocument();
     });
 
+    // The engine reports overdue components as negative hours. The tile has no
+    // room to explain a minus sign, so it floors at zero and lets the status
+    // dot carry the overdue state.
+    it('clamps negative hours remaining to zero', () => {
+      const bike = createBike({
+        predictions: createPrediction('OVERDUE', -42.3),
+      });
+      render(<SortableBikeTile {...defaultProps} bike={bike} />);
+
+      expect(screen.getByText('0.0 hrs')).toBeInTheDocument();
+      expect(screen.queryByText(/-42/)).not.toBeInTheDocument();
+    });
+
     it('hides hours when priorityComponent is null', () => {
       const bike = createBike({
         predictions: {

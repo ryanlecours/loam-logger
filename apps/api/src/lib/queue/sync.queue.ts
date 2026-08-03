@@ -1,4 +1,5 @@
 import { Queue } from 'bullmq';
+import crypto from 'crypto';
 import { getQueueConnection } from './connection';
 
 // Time constants in milliseconds
@@ -21,6 +22,33 @@ export type SyncJobData = {
   userId: string;
   provider: SyncProvider;
   activityId?: string; // For syncActivity jobs
+  /**
+   * Garmin only. The callbackURL from the ping that triggered this job.
+   *
+   * Following it is what makes the resulting request a PROMPTED pull in
+   * Garmin's Partner Verification, and what marks the ping answered. Without
+   * it the worker has to compose its own request, which fails both checks.
+   *
+   * Deliberately excluded from the job id (see buildSyncJobId): two pings for
+   * the same activity must still dedupe to one job. A pushed activity is
+   * discriminated by its contents instead, so an edit is not mistaken for a
+   * repeat of the delivery it replaces.
+   */
+  callbackURL?: string;
+  /**
+   * Garmin only. The activity itself, when Garmin PUSHed it rather than pinging.
+   *
+   * Carrying the payload through the queue keeps the heavy work on the worker
+   * where every other ingest path already runs, and means the webhook can ACK
+   * inside Garmin's 30-second window without doing database work. When this is
+   * set the worker makes no outbound request at all, which is the entire point:
+   * a delivery we never answer cannot be scored as an unprompted pull.
+   *
+   * The tradeoff is that the payload lives in Redis until the job runs. A single
+   * ride's samples are a few MB at 1Hz, which is fine; the webhook filters to
+   * cycling first so a batch of runs never lands here.
+   */
+  pushedActivity?: unknown;
 };
 
 let syncQueue: Queue<SyncJobData, void, SyncJobName> | null = null;
@@ -49,18 +77,73 @@ export function getSyncQueue(): Queue<SyncJobData, void, SyncJobName> {
 }
 
 /**
+ * Discriminator for a PUSHed activity's contents.
+ *
+ * Without this, an edit is indistinguishable from the original: same activity,
+ * same job id, and BullMQ treats the second one as a duplicate of a job it has
+ * already run. A rider who corrects an activity's type in Garmin Connect
+ * minutes after it synced would have that correction dropped, which is exactly
+ * the case manually-updated notifications exist to deliver.
+ *
+ * Samples are excluded. They are the bulk of the payload and hashing thousands
+ * of points on every delivery costs real time, while every edit worth acting on
+ * moves something in the summary: type, duration, distance, name. A trim moves
+ * the duration too.
+ *
+ * Keys are sorted at every depth so the hash does not depend on the order
+ * Garmin happened to serialize.
+ *
+ * Deliberately NOT the `JSON.stringify(value, Object.keys(value).sort())`
+ * trick. An array replacer builds one property list and applies it to every
+ * object in the graph, not just the top level, so a nested object silently
+ * loses any key that does not also appear at the top. That is harmless while
+ * the projection is flat scalars, and would quietly reintroduce this exact bug
+ * the day a structured field is added to GARMIN_ACTIVITY_FIELDS: the dropped
+ * property would not move the hash, so an edit to it would look like a repeat.
+ */
+function canonicalize(value: unknown): unknown {
+  // Arrays are ordered data. Sorting them would make two different rides hash
+  // alike; recursing preserves order while normalizing any objects inside.
+  if (Array.isArray(value)) return value.map(canonicalize);
+
+  if (value && typeof value === 'object') {
+    const sorted: Record<string, unknown> = {};
+    for (const key of Object.keys(value as Record<string, unknown>).sort()) {
+      sorted[key] = canonicalize((value as Record<string, unknown>)[key]);
+    }
+    return sorted;
+  }
+
+  return value;
+}
+
+function pushedActivityHash(pushedActivity: unknown): string | undefined {
+  if (!pushedActivity || typeof pushedActivity !== 'object') return undefined;
+
+  const { samples: _samples, ...rest } = pushedActivity as Record<string, unknown>;
+  const canonical = JSON.stringify(canonicalize(rest));
+  return crypto.createHash('md5').update(canonical ?? '').digest('hex').slice(0, 12);
+}
+
+/**
  * Build a deterministic job ID for sync jobs.
  * Format: syncLatest_<provider>_<userId> or syncActivity_<provider>_<userId>_<activityId>
  * Note: BullMQ does not allow colons in job IDs, so we use underscores.
+ *
+ * A pushed activity appends a content hash, so a re-delivery of identical data
+ * still dedupes while an edit gets its own job. Notification-driven jobs pass
+ * no hash and keep their previous ids.
  */
 export function buildSyncJobId(
   jobName: SyncJobName,
   provider: SyncProvider,
   userId: string,
-  activityId?: string
+  activityId?: string,
+  contentHash?: string
 ): string {
   if (jobName === 'syncActivity' && activityId) {
-    return `${jobName}_${provider}_${userId}_${activityId}`;
+    const base = `${jobName}_${provider}_${userId}_${activityId}`;
+    return contentHash ? `${base}_${contentHash}` : base;
   }
   return `${jobName}_${provider}_${userId}`;
 }
@@ -74,14 +157,12 @@ export type EnqueueSyncResult =
 
 /**
  * Enqueue a sync job with deduplication.
- * Uses deterministic job IDs so duplicate jobs are never queued.
  *
- * Uses atomic add-if-not-exists pattern:
- * 1. Attempt to add the job with a unique jobId
- * 2. BullMQ throws if job with same ID already exists (waiting/delayed/active)
- * 3. Catch the duplicate error and return 'already_queued'
- *
- * This avoids the TOCTOU race condition of checking then adding.
+ * The deterministic job id is what prevents duplicates: BullMQ creates nothing
+ * when one already exists, in any state including completed. Retained completed
+ * jobs therefore keep deduping, which is the property that made an edit look
+ * like a repeat of the activity it edits until the id learned to include the
+ * payload's contents.
  *
  * @param jobName - The job name (syncLatest, syncActivity)
  * @param data - The job data
@@ -92,20 +173,37 @@ export async function enqueueSyncJob(
   data: SyncJobData
 ): Promise<EnqueueSyncResult> {
   const queue = getSyncQueue();
-  const jobId = buildSyncJobId(jobName, data.provider, data.userId, data.activityId);
+  const jobId = buildSyncJobId(
+    jobName,
+    data.provider,
+    data.userId,
+    data.activityId,
+    pushedActivityHash(data.pushedActivity)
+  );
+
+  // BullMQ 5 does NOT throw on a duplicate jobId: `add` silently returns the
+  // existing job and creates nothing. The catch below was written against an
+  // error the library does not raise, so a dropped job was reported as queued.
+  // Checking first is what makes the reported status honest.
+  //
+  // The check-then-add race is deliberate and benign: if two deliveries slip
+  // through together BullMQ still creates only one job, because the id is what
+  // enforces that. Only the status either caller reports could be wrong, and
+  // nothing branches on it.
+  const existing = await queue.getJob(jobId);
+  if (existing) {
+    console.log(`[SyncQueue] Job ${jobId} already exists (duplicate ignored)`);
+    return { status: 'already_queued', jobId };
+  }
 
   try {
-    // Attempt to add the job atomically
-    // BullMQ will reject if a job with this ID already exists and is not completed/failed
-    await queue.add(jobName, data, {
-      jobId,
-      // Setting a specific jobId makes this idempotent - BullMQ rejects duplicates
-    });
+    await queue.add(jobName, data, { jobId });
 
     console.log(`[SyncQueue] Enqueued job ${jobId}`);
     return { status: 'queued', jobId };
   } catch (err) {
-    // Check if this is a duplicate job error
+    // Retained in case a future BullMQ version starts rejecting duplicates
+    // outright rather than absorbing them.
     const message = err instanceof Error ? err.message : String(err);
 
     if (message.includes('Job') && message.includes('already exists')) {

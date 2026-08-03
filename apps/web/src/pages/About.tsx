@@ -1,4 +1,4 @@
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import { motion } from 'motion/react';
 import { Card } from '../components/ui';
 
@@ -59,10 +59,10 @@ export default function About() {
                                     </p>
                                     <p className="body mt-2">
                                         <a
-                                            href="mailto:support@loamlogger.app"
+                                            href="mailto:ryan.lecours@loamlogger.app"
                                             className="text-mint hover:text-sage transition-colors underline"
                                         >
-                                            support@loamlogger.app
+                                            ryan.lecours@loamlogger.app
                                         </a>
                                     </p>
                                 </section>

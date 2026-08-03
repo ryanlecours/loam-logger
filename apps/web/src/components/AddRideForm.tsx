@@ -1,6 +1,6 @@
 // src/components/AddRideForm.tsx
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { useMutation, useQuery } from '@apollo/client';
 import { ADD_RIDE } from '../graphql/addRide';
 import { BIKES } from '../graphql/bikes';

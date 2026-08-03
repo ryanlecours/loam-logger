@@ -254,6 +254,34 @@ describe('notification.service', () => {
       ]);
     });
 
+    // The engine reports overdue components as negative hours so the apps can
+    // show how far past due a part is. A push notification has no room to
+    // explain a minus sign, and "-12h left" reads as a bug.
+    it('should say overdue rather than negative hours left (HOURS_BEFORE mode)', async () => {
+      (mockPrisma.bikeNotificationPreference.findUnique as jest.Mock).mockResolvedValue({
+        serviceNotificationsEnabled: true,
+        serviceNotificationMode: 'HOURS_BEFORE',
+        serviceNotificationThreshold: 10,
+      });
+
+      const overduePredictions = [
+        { ...basePredictions[0], status: 'OVERDUE', hoursRemaining: -12 },
+      ];
+
+      await checkAndNotifyServiceDue({ ...baseParams, predictions: overduePredictions });
+
+      expect(mockSendPushNotificationsAsync).toHaveBeenCalledWith([
+        expect.objectContaining({
+          body: expect.stringContaining('overdue'),
+        }),
+      ]);
+      expect(mockSendPushNotificationsAsync).not.toHaveBeenCalledWith([
+        expect.objectContaining({
+          body: expect.stringContaining('-12'),
+        }),
+      ]);
+    });
+
     it('should only notify for DUE_NOW/OVERDUE in AT_SERVICE mode', async () => {
       (mockPrisma.bikeNotificationPreference.findUnique as jest.Mock).mockResolvedValue({
         serviceNotificationsEnabled: true,

@@ -11,6 +11,11 @@ import { getValidSuuntoToken } from '../lib/suunto-token';
 import { deriveLocation, deriveLocationAsync, shouldApplyAutoLocation } from '../lib/location';
 import { extractGarminStartCoords } from '../lib/garmin-coords';
 import { persistGarminStream } from '../lib/ride-stream-store';
+import { fetchGarminActivityFromCallback } from '../lib/garmin-activity-details';
+import { isGarminCyclingActivity } from '../types/garmin';
+import { normalizeGarminDeviceName } from '@loam/shared';
+import { removeGarminRideIfPresent } from '../lib/garmin-ride-removal';
+import { garminRideKey } from '../lib/garmin-ride-key';
 import { syncBikeComponentHours } from '../lib/component-hours';
 import { invalidateBikePredictionsForBikes } from '../services/prediction/cache';
 import { logger } from '../lib/logger';
@@ -52,27 +57,6 @@ const STRAVA_CYCLING_TYPES = [
   'EBikeRide',
   'EMountainBikeRide',
   'Handcycle',
-];
-
-// Cycling activity types for Garmin
-const GARMIN_CYCLING_TYPES = [
-  'cycling',
-  'bmx',
-  'cyclocross',
-  'downhill_biking',
-  'e_bike_fitness',
-  'e_bike_mountain',
-  'e_enduro_mtb',
-  'enduro_mtb',
-  'gravel_cycling',
-  'indoor_cycling',
-  'mountain_biking',
-  'recumbent_cycling',
-  'road_biking',
-  'track_cycling',
-  'virtual_ride',
-  'handcycling',
-  'indoor_handcycling',
 ];
 
 // Strava activity type
@@ -120,6 +104,11 @@ type GarminActivity = {
   // extractGarminStartCoords, which also tolerates legacy/misspelled variants.
   startingLatitudeInDegrees?: number;
   startingLongitudeInDegrees?: number;
+  // Present when the ping's callbackURL pointed at the activityDetails summary
+  // type, which returns samples beside the stats. persistGarminStream reads the
+  // track off this object. Absent on summary-only payloads and on
+  // indoor/trainer rides, which genuinely have no GPS.
+  samples?: unknown;
   [key: string]: unknown;
 };
 
@@ -151,7 +140,10 @@ async function processSyncJob(job: Job<SyncJobData, void, SyncJobName>): Promise
         if (!job.data.activityId) {
           throw new Error('syncActivity requires activityId');
         }
-        await syncSingleActivity(userId, provider, job.data.activityId);
+        await syncSingleActivity(userId, provider, job.data.activityId, {
+          callbackURL: job.data.callbackURL,
+          pushedActivity: job.data.pushedActivity,
+        });
         break;
       default:
         throw new Error(`Unknown sync job type: ${jobName}`);
@@ -194,7 +186,9 @@ async function syncLatestActivities(userId: string, provider: SyncProvider): Pro
 async function syncSingleActivity(
   userId: string,
   provider: SyncProvider,
-  activityId: string
+  activityId: string,
+  /** Garmin-only pointers to the Activity Details payload; see GarminDetailsHint. */
+  garminDetails?: GarminDetailsHint
 ): Promise<void> {
   logger.info({ activityId, provider }, '[SyncWorker] Syncing single activity');
 
@@ -203,7 +197,7 @@ async function syncSingleActivity(
       await syncStravaActivity(userId, activityId);
       break;
     case 'garmin':
-      await syncGarminActivity(userId, activityId);
+      await syncGarminActivity(userId, activityId, garminDetails);
       break;
     case 'whoop':
       await syncWhoopActivity(userId, activityId);
@@ -469,10 +463,7 @@ async function syncGarminLatest(userId: string): Promise<void> {
   logger.debug({ count: activities.length }, '[SyncWorker] Fetched Garmin activities');
 
   // Filter to cycling activities
-  const cyclingActivities = activities.filter((a) => {
-    const typeLower = a.activityType.toLowerCase().replace(/\s+/g, '_');
-    return GARMIN_CYCLING_TYPES.includes(typeLower);
-  });
+  const cyclingActivities = activities.filter((a) => isGarminCyclingActivity(a.activityType));
 
   logger.debug({ count: cyclingActivities.length }, '[SyncWorker] Processing cycling activities');
 
@@ -483,7 +474,25 @@ async function syncGarminLatest(userId: string): Promise<void> {
   logger.info({ userId, count: cyclingActivities.length }, '[SyncWorker] Garmin sync complete');
 }
 
-async function syncGarminActivity(userId: string, activityId: string): Promise<void> {
+/**
+ * The callbackURL Garmin sent on the ping that triggered this job.
+ *
+ * Optional because an older queued job predates it, and because a ping could
+ * arrive shaped differently than expected. Its absence degrades to an
+ * unprompted pull, which is logged and is refused outright in verification
+ * mode.
+ */
+type GarminDetailsHint = {
+  callbackURL?: string;
+  /** The activity itself, when Garmin PUSHed it. Short-circuits every fetch. */
+  pushedActivity?: unknown;
+};
+
+async function syncGarminActivity(
+  userId: string,
+  activityId: string,
+  details?: GarminDetailsHint
+): Promise<void> {
   logger.info({
     event: 'garmin_pull_start',
     userId,
@@ -503,36 +512,93 @@ async function syncGarminActivity(userId: string, activityId: string): Promise<v
   }
 
   try {
-    const response = await fetch(
-      `${config.garminApiBase}/rest/activities/${activityId}`,
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          Accept: 'application/json',
-        },
-      }
-    );
+    // Answering the ping with its own callbackURL is the whole game here.
+    // Garmin's Partner Verification counts a pull as prompted only when it
+    // matches a URL Garmin issued, and counts a ping we did not follow as
+    // unanswered, so composing our own request fails both checks at once.
+    //
+    // It is also the map fix: an activityDetails payload carries `samples[]`
+    // beside the stats, so this one prompted request yields the ride and its
+    // GPS track together. There is nothing left to fetch separately.
+    let activity: GarminActivity | null = null;
 
-    if (!response.ok) {
-      const text = await response.text();
-      logger.error({
-        event: 'garmin_pull_error',
-        userId,
-        activityId,
-        status: response.status,
-        response: text,
-      }, '[SyncWorker] Garmin API error');
-      throw new Error(`Garmin API error: ${response.status} ${text}`);
+    // Garmin PUSHed the activity: it is already in hand and there is nothing to
+    // request. This is the mode the integration targets, because a delivery we
+    // never answer cannot be scored as an unprompted pull or an unanswered
+    // ping. The webhook flattened it, so an activityDetails push arrives with
+    // its stats hoisted and `samples` alongside, ready for persistGarminStream.
+    if (details?.pushedActivity) {
+      activity = details.pushedActivity as GarminActivity;
     }
 
-    const activity = (await response.json()) as GarminActivity;
-    const typeLower = activity.activityType.toLowerCase().replace(/\s+/g, '_');
+    if (!activity && details?.callbackURL) {
+      activity = (await fetchGarminActivityFromCallback({
+        accessToken,
+        summaryId: activityId,
+        callbackURL: details.callbackURL,
+      })) as GarminActivity | null;
+    }
 
-    if (!GARMIN_CYCLING_TYPES.includes(typeLower)) {
+    if (!activity) {
+      // Composing `/rest/activities/{summaryId}` is an UNPROMPTED pull. It is
+      // kept only so an activity still imports when a ping arrives without a
+      // usable callbackURL, and it is suppressed outright during a verification
+      // window so the reviewer's dashboard stays clean. That suppression is
+      // what makes the claim in docs/garmin/ticket-reply.md true rather than
+      // aspirational: before this, verification mode guarded manual sync and
+      // syncGarminLatest but left this path wide open.
+      if (config.garminVerificationMode) {
+        logger.warn({
+          event: 'garmin_unprompted_pull_suppressed',
+          userId,
+          activityId,
+          hadCallbackUrl: details?.callbackURL != null,
+        }, '[SyncWorker] Skipping unprompted Garmin pull during verification mode');
+        return;
+      }
+
+      logger.warn({
+        event: 'garmin_unprompted_pull',
+        userId,
+        activityId,
+      }, '[SyncWorker] No usable callbackURL on the ping; falling back to an unprompted pull');
+
+      const response = await fetch(
+        `${config.garminApiBase}/rest/activities/${activityId}`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            Accept: 'application/json',
+          },
+        }
+      );
+
+      if (!response.ok) {
+        const text = await response.text();
+        logger.error({
+          event: 'garmin_pull_error',
+          userId,
+          activityId,
+          status: response.status,
+          response: text,
+        }, '[SyncWorker] Garmin API error');
+        throw new Error(`Garmin API error: ${response.status} ${text}`);
+      }
+
+      activity = (await response.json()) as GarminActivity;
+    }
+
+    if (!isGarminCyclingActivity(activity.activityType)) {
+      // The rider may have edited this activity's type in Garmin Connect. If it
+      // used to be a ride, it is not one now, and leaving it behind would keep
+      // crediting its hours against installed components. Almost always a
+      // single indexed lookup that finds nothing.
+      const removed = await removeGarminRideIfPresent(userId, activity.summaryId);
       logger.debug({
         activityId,
         activityType: activity.activityType,
-      }, '[SyncWorker] Skipping non-cycling activity');
+        removedExistingRide: removed,
+      }, '[SyncWorker] Non-cycling activity');
       return;
     }
 
@@ -556,12 +622,25 @@ async function syncGarminActivity(userId: string, activityId: string): Promise<v
 }
 
 async function upsertGarminActivity(userId: string, activity: GarminActivity): Promise<void> {
+  // One ride, two deliveries: the Activity Summary arrives as "123" and its
+  // Activity Details as "123-detail". Keying on the raw id made the details
+  // delivery miss the summary's row and insert a duplicate carrying the map.
+  const rideKey = garminRideKey(activity.summaryId);
+
   const distanceMeters = activity.distanceInMeters ?? 0;
 
   const elevationGainMeters =
     (activity.totalElevationGainInMeters ?? activity.elevationGainInMeters) ?? 0;
 
   const startTime = new Date(activity.startTimeInSeconds * 1000);
+
+  // Normalize the device once at the write, so the guarantee holds for every
+  // delivery mode (push, ping, backfill), not just those routed through
+  // pickGarminActivityFields. Garmin sends deviceName "unknown" on
+  // manually-edited activities; treating that non-empty sentinel as a real
+  // model overwrote the model captured on the first sync, flipping a ride's
+  // badge from "Garmin Fenix 8" to "Garmin Unknown".
+  const garminDeviceName = normalizeGarminDeviceName(activity.deviceName);
 
   // Start coords drive both reverse-geocoded location and weather enrichment.
   // Read them once here (correct Garmin field names) and reuse below.
@@ -587,7 +666,7 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
   });
 
   const existing = await prisma.ride.findUnique({
-    where: { garminActivityId: activity.summaryId },
+    where: { garminActivityId: rideKey },
     select: { id: true, location: true, bikeId: true, durationSeconds: true },
   });
 
@@ -617,10 +696,10 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
 
   // Upsert ride first — this is the primary data, must not be lost
   const ride = await prisma.ride.upsert({
-    where: { garminActivityId: activity.summaryId },
+    where: { garminActivityId: rideKey },
     create: {
       userId,
-      garminActivityId: activity.summaryId,
+      garminActivityId: rideKey,
       startTime,
       durationSeconds: activity.durationInSeconds,
       distanceMeters,
@@ -633,7 +712,7 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
       bikeId,
       startLat,
       startLng,
-      garminDeviceName: activity.deviceName ?? null,
+      garminDeviceName: garminDeviceName ?? null,
     },
     update: {
       startTime,
@@ -643,9 +722,10 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
       averageHr: activity.averageHeartRateInBeatsPerMinute ?? null,
       rideType: activity.activityType,
       notes: activity.activityName ?? null,
-      // Only written when present, never cleared — a re-sync that omits
-      // deviceName must not blank an attribution we already display.
-      ...(activity.deviceName ? { garminDeviceName: activity.deviceName } : {}),
+      // Only written when a real model is present, never cleared — a re-sync
+      // that omits deviceName or sends the "unknown" sentinel must not blank or
+      // downgrade an attribution we already display.
+      ...(garminDeviceName ? { garminDeviceName } : {}),
       ...(locationUpdate !== undefined ? { location: locationUpdate } : {}),
       // Known limitation: coords are only written, never cleared. If a
       // Garmin activity's coords become unavailable on a later re-sync,

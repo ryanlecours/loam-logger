@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
 import { useMutation } from '@apollo/client';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { useCurrentUser } from '../../../hooks/useCurrentUser';
 import { usePreferences } from '../../../hooks/usePreferences';
 import { useUserTier } from '../../../hooks/useUserTier';

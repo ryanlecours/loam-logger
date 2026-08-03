@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { useApolloClient } from '@apollo/client';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { motion } from 'motion/react';
 import { Card } from '../components/ui';
 import { CircleCheck } from 'lucide-react';

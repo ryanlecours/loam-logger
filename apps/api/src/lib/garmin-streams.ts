@@ -4,14 +4,24 @@ import type { NormalizedStreams, RideStreamsResult } from './ride-streams';
 /**
  * Normalizer for Garmin Activity Details `samples[]`.
  *
- * Unlike Strava, this module makes NO network call. Garmin delivers samples in
- * the Activity Details payload we already receive through the PUSH/PING
- * pipeline, so there is nothing to fetch — and adding a pull path would work
- * against the Connect Developer Program's "PULL-ONLY requests not allowed"
- * requirement. If a Garmin ride has no samples, it simply has no track.
+ * This module makes NO network call: it is handed samples and returns arrays.
+ *
+ * Where those samples come from used to be misdescribed here, and the mistake
+ * cost every Garmin ride its map. The claim was that samples arrive with the
+ * activity through the PING pipeline, so there was nothing to fetch. They do
+ * not. An activityDetails PING carries only a notification: a summaryId and a
+ * callbackURL, and the worker was pulling `/rest/activities`, the Activity
+ * SUMMARY, which has no per-point data at all. So `samples` was always
+ * undefined, persistGarminStream always returned false, and every Garmin ride
+ * resolved to UNAVAILABLE.
+ *
+ * The pull now happens in ./garmin-activity-details, against
+ * `/rest/activityDetails`. That is not the "PULL-ONLY requests not allowed"
+ * case the Connect Developer Program forbids: it is prompted by Garmin's own
+ * ping and scoped by the callbackURL Garmin sent.
  *
  * See ./ride-streams for the shared output contract, and ./strava-streams for
- * the provider that does fetch.
+ * the other provider fetcher.
  */
 
 /**

@@ -383,29 +383,6 @@ r.get('/garmin/status', async (req: Request, res: Response) => {
       });
     }
 
-    // Pre-encryption connections still living in the legacy plaintext table
-    // read as connected here. They are adopted into UserIntegration the next
-    // time a token is actually used (garmin-token.ts), or eagerly by
-    // scripts/migrate-garmin-tokens.ts. This branch goes away with the table.
-    //
-    // Deliberately below the UserIntegration check: a revoked integration must
-    // report disconnected even if a stale plaintext row is still present.
-    if (!integration) {
-      const legacy = await prisma.oauthToken.findUnique({
-        where: { userId_provider: { userId, provider: 'garmin' } },
-      });
-
-      if (legacy) {
-        return sendSuccess(res, {
-          connected: true,
-          connectedAt: legacy.createdAt.toISOString(),
-          revokedAt: null,
-          lastSyncAt: null,
-          scopes: null,
-        });
-      }
-    }
-
     return sendSuccess(res, { connected: false });
   } catch (err) {
     log.error({ err, userId }, 'Failed to get Garmin status');

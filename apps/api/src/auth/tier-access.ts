@@ -1,6 +1,7 @@
 import type { SubscriptionTier, UserRole } from '@prisma/client';
 import { GraphQLError } from 'graphql';
 import { TIER_LIMITS, TIER_DISPLAY_NAMES, BIKE_LIMIT_UPSELL_LINE } from '@loam/shared';
+import { parseGarminPeriodDays } from '../lib/garmin-backfill-periods';
 
 type TierUser = {
   subscriptionTier: SubscriptionTier;
@@ -36,13 +37,16 @@ export function canSeePredictions(user: TierUser): boolean {
 
 /**
  * Historical import depth is tier-gated: free users may backfill only the
- * current year ('ytd', an omitted year, or the current year number); Pro
- * unlocks any past season. Rolling `days` windows are not gated — they are
- * already capped at 365 days by the routes.
+ * current year ('ytd', an omitted year, the current year number, or one of the
+ * short rolling windows); Pro unlocks any past season. Rolling `days` windows
+ * are not gated — they are already capped at 365 days by the routes.
  */
 export function canBackfillYear(user: TierUser, yearParam: string | undefined): boolean {
   if (isProTier(user)) return true;
   if (yearParam === undefined || yearParam === 'ytd') return true;
+  // A '7d'/'14d'/'30d' window never reaches past the current season, so it is
+  // not the "past seasons" capability Pro is selling.
+  if (parseGarminPeriodDays(yearParam) !== null) return true;
   return parseInt(yearParam, 10) === new Date().getFullYear();
 }
 

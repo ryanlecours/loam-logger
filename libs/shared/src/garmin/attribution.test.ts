@@ -2,6 +2,7 @@ import {
   formatGarminSource,
   humanizeGarminDevice,
   hasGarminData,
+  normalizeGarminDeviceName,
   GARMIN_SOURCE_FALLBACK,
   GARMIN_CHART_ATTRIBUTION,
   GARMIN_INSIGHT_ATTRIBUTION,
@@ -25,6 +26,16 @@ describe('formatGarminSource', () => {
   ])('falls back to plain "Garmin" for %s', (_label, input) => {
     expect(formatGarminSource(input)).toBe(GARMIN_SOURCE_FALLBACK);
   });
+
+  // Garmin sends deviceName "unknown" on manually-edited activities. It must
+  // read as "no device" (plain "Garmin"), never as a model named "Unknown" —
+  // rendering "Garmin Unknown" is the bug this guards against.
+  it.each([['unknown'], ['Unknown'], ['UNKNOWN'], ['unknown_device'], ['none']])(
+    'treats the placeholder %s as no device',
+    (input) => {
+      expect(formatGarminSource(input)).toBe(GARMIN_SOURCE_FALLBACK);
+    }
+  );
 
   it('does not double-prefix when Garmin already reports the brand', () => {
     expect(formatGarminSource('garmin_edge_840')).toBe('Garmin Edge 840');
@@ -59,6 +70,27 @@ describe('humanizeGarminDevice', () => {
 
   it('collapses repeated and mixed separators', () => {
     expect(humanizeGarminDevice('edge__1030--plus')).toBe('Edge 1030 Plus');
+  });
+});
+
+describe('normalizeGarminDeviceName', () => {
+  it('returns a real model unchanged (trimmed)', () => {
+    expect(normalizeGarminDeviceName('edge_840')).toBe('edge_840');
+    expect(normalizeGarminDeviceName('  fenix7  ')).toBe('fenix7');
+  });
+
+  it('returns undefined for blanks and non-strings', () => {
+    for (const input of [undefined, null, '', '   ', 42, {}]) {
+      expect(normalizeGarminDeviceName(input)).toBeUndefined();
+    }
+  });
+
+  // The reason this exists: dropping the sentinel at ingestion is what stops a
+  // manual edit from overwriting a real model already stored on the ride.
+  it('returns undefined for Garmin placeholder sentinels, case-insensitively', () => {
+    for (const input of ['unknown', 'Unknown', 'UNKNOWN', 'unknown_device', 'null', 'none']) {
+      expect(normalizeGarminDeviceName(input)).toBeUndefined();
+    }
   });
 });
 

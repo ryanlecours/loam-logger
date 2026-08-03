@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Modal, Button } from './ui';
 import { getAuthHeaders } from '@/lib/csrf';
+import { GARMIN_CONNECT_APP_NAME } from '@loam/shared';
 
 type Props = {
   open: boolean;
@@ -21,22 +22,31 @@ interface BackfillRequest {
   completedAt: string | null;
 }
 
-// Garmin's API only allows backfills for the past 30 days
-const GARMIN_YEAR_OPTIONS = [
-  { value: 'ytd', label: 'Last 30 Days' },
+// Rolling windows, shortest first. They nest (7 days is inside 30), so this is
+// a single choice rather than a multi-select. The API calls these periods and
+// still receives them under the legacy `years` body field.
+const GARMIN_PERIOD_OPTIONS = [
+  { value: '7d', label: 'Last 7 Days' },
+  { value: '14d', label: 'Last 14 Days' },
+  { value: '30d', label: 'Last 30 Days' },
 ];
+
+const DEFAULT_PERIOD = '30d';
+
+const periodLabel = (value: string) =>
+  GARMIN_PERIOD_OPTIONS.find((option) => option.value === value)?.label ?? value;
 
 export default function GarminImportModal({ open, onClose, onSuccess, onDuplicatesFound }: Props) {
   const [step, setStep] = useState<'period' | 'processing' | 'complete'>('period');
-  const [selectedYears, setSelectedYears] = useState<Set<string>>(new Set(['ytd']));
+  const [selectedPeriod, setSelectedPeriod] = useState<string>(DEFAULT_PERIOD);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [backfillHistory, setBackfillHistory] = useState<BackfillRequest[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
   const [duplicatesFound, setDuplicatesFound] = useState(0);
 
-  // Get years that are in progress
-  const inProgressYears = useMemo(() => {
+  // Periods with a sync already queued or running
+  const inProgressPeriods = useMemo(() => {
     return new Set(
       backfillHistory
         .filter(
@@ -48,21 +58,7 @@ export default function GarminImportModal({ open, onClose, onSuccess, onDuplicat
     );
   }, [backfillHistory]);
 
-  // Toggle year selection
-  const toggleYearSelection = (year: string) => {
-    setSelectedYears((prev) => {
-      const next = new Set(prev);
-      if (next.has(year)) {
-        next.delete(year);
-      } else {
-        next.add(year);
-      }
-      return next;
-    });
-  };
-
-  // Get count of selectable years for button text
-  const selectableYearsCount = selectedYears.size;
+  const selectedIsInProgress = inProgressPeriods.has(selectedPeriod);
 
   // Fetch backfill history
   const fetchHistory = async () => {
@@ -89,7 +85,7 @@ export default function GarminImportModal({ open, onClose, onSuccess, onDuplicat
     } else {
       // Reset state when modal closes
       setStep('period');
-      setSelectedYears(new Set(['ytd']));
+      setSelectedPeriod(DEFAULT_PERIOD);
       setError(null);
       setSuccessMessage(null);
       setDuplicatesFound(0);
@@ -98,9 +94,8 @@ export default function GarminImportModal({ open, onClose, onSuccess, onDuplicat
   }, [open]);
 
   const handleTriggerBackfill = async () => {
-    const yearsArray = Array.from(selectedYears);
-    if (yearsArray.length === 0) {
-      setError('Please select at least one year');
+    if (!selectedPeriod) {
+      setError('Please select a time period');
       return;
     }
 
@@ -117,7 +112,9 @@ export default function GarminImportModal({ open, onClose, onSuccess, onDuplicat
             ...getAuthHeaders(),
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ years: yearsArray }),
+          // Legacy field name: shipped clients all post `years`, and the API
+          // reads each entry as a period key.
+          body: JSON.stringify({ years: [selectedPeriod] }),
         }
       );
 
@@ -126,7 +123,7 @@ export default function GarminImportModal({ open, onClose, onSuccess, onDuplicat
       if (!res.ok) {
         // Handle 409 Conflict (all years already backfilled)
         if (res.status === 409) {
-          setSuccessMessage(data.message || 'Selected years are already imported or in progress.');
+          setSuccessMessage(data.message || 'That time period is already syncing.');
           setStep('complete');
           await fetchHistory();
           return;
@@ -135,11 +132,8 @@ export default function GarminImportModal({ open, onClose, onSuccess, onDuplicat
         throw new Error(data.message || data.error || 'Failed to trigger backfill');
       }
 
-      const queuedCount = data.queued?.length || 0;
-      const skippedCount = data.skipped?.length || 0;
       setSuccessMessage(
-        data.message ||
-        `Queued ${queuedCount} year${queuedCount !== 1 ? 's' : ''} for import.${skippedCount > 0 ? ` ${skippedCount} already imported.` : ''}`
+        data.message || `Queued the ${periodLabel(selectedPeriod).toLowerCase()} for import.`
       );
       setStep('complete');
 
@@ -175,7 +169,7 @@ export default function GarminImportModal({ open, onClose, onSuccess, onDuplicat
     <Modal
       isOpen={open}
       onClose={onClose}
-      title="Import Garmin Rides"
+      title={`Import ${GARMIN_CONNECT_APP_NAME} Rides`}
       size="lg"
       preventClose={step === 'processing'}
     >
@@ -195,9 +189,9 @@ export default function GarminImportModal({ open, onClose, onSuccess, onDuplicat
               </div>
             ) : (
               <div className="space-y-3">
-                {GARMIN_YEAR_OPTIONS.map((option) => {
-                  const isInProgress = inProgressYears.has(option.value);
-                  const isSelected = selectedYears.has(option.value);
+                {GARMIN_PERIOD_OPTIONS.map((option) => {
+                  const isInProgress = inProgressPeriods.has(option.value);
+                  const isSelected = selectedPeriod === option.value;
 
                   return (
                     <label
@@ -211,11 +205,13 @@ export default function GarminImportModal({ open, onClose, onSuccess, onDuplicat
                       `}
                     >
                       <input
-                        type="checkbox"
+                        type="radio"
+                        name="garmin-import-period"
+                        value={option.value}
                         checked={isSelected}
                         disabled={isInProgress}
-                        onChange={() => !isInProgress && toggleYearSelection(option.value)}
-                        className="w-4 h-4 text-accent border-gray-500 focus:ring-accent rounded"
+                        onChange={() => !isInProgress && setSelectedPeriod(option.value)}
+                        className="w-4 h-4 text-accent border-gray-500 focus:ring-accent"
                       />
                       <span className={`flex-1 text-sm ${isInProgress ? 'text-muted' : 'text-primary'}`}>
                         {option.label}
@@ -226,14 +222,12 @@ export default function GarminImportModal({ open, onClose, onSuccess, onDuplicat
                     </label>
                   );
                 })}
-                <p className="text-xs text-muted mt-2">
-                  Garmin limits historical data access to the past 30 days. New rides sync automatically going forward.
-                </p>
               </div>
             )}
 
             <p className="text-xs text-muted mt-2">
-              Year to Date can be run multiple times to fetch new rides since your last import.
+              Garmin sends the rides in the window you pick. New rides keep syncing automatically, and you
+              can run this again anytime to catch anything missed.
             </p>
           </div>
 
@@ -250,11 +244,11 @@ export default function GarminImportModal({ open, onClose, onSuccess, onDuplicat
             <Button
               variant="primary"
               onClick={handleTriggerBackfill}
-              disabled={selectableYearsCount === 0 || historyLoading}
+              disabled={!selectedPeriod || selectedIsInProgress || historyLoading}
             >
-              {selectableYearsCount === 0
-                ? 'Select years to import'
-                : `Import ${selectableYearsCount} ${selectableYearsCount === 1 ? 'Year' : 'Years'}`}
+              {selectedIsInProgress
+                ? 'Sync In Progress'
+                : `Import ${periodLabel(selectedPeriod)}`}
             </Button>
           </div>
         </div>

@@ -1,4 +1,4 @@
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import { motion } from 'motion/react';
 import { Card } from '../components/ui';
 import { TERMS_TEXT, TERMS_LAST_UPDATED } from '../legal/terms';
