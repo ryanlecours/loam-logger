@@ -4820,6 +4820,40 @@ describe('GraphQL Resolvers', () => {
       expect(groupByCall.where.ride.bikeId).toBe('bike-mine');
     });
 
+    /**
+     * Regression: this resolver spelled the unassigned predicate out by hand as
+     * `bikeId: null` alone, so a demo or loaner ride the rider had already
+     * marked `unownedBike` was swept into these totals while the identical
+     * filter excluded it from `rides` and `unassignedRideCount`. One filter
+     * value meant two different things depending on where it was sent.
+     */
+    it('excludes unowned-bike rides from the unassigned filter, like Query.rides does', async () => {
+      mockGroupBy.mockResolvedValueOnce([]);
+      mockRideCount.mockResolvedValueOnce(0).mockResolvedValueOnce(0);
+
+      await resolver({ id: 'user-123' }, { filter: { unassigned: true } }, createMockContext() as never);
+
+      const rideWhere = mockGroupBy.mock.calls[0][0].where.ride;
+      expect(rideWhere.bikeId).toBeNull();
+      expect(rideWhere.unownedBike).toBe(false);
+      // The two count queries read the same clause object.
+      expect(mockRideCount.mock.calls[1][0].where).toEqual(
+        expect.objectContaining({ bikeId: null, unownedBike: false })
+      );
+    });
+
+    it('rejects a filter setting both bikeId and unassigned', async () => {
+      await expect(
+        resolver(
+          { id: 'user-123' },
+          { filter: { bikeId: 'bike-mine', unassigned: true } },
+          createMockContext() as never
+        )
+      ).rejects.toThrow('Filter cannot set both `bikeId` and `unassigned: true`');
+
+      expect(mockGroupBy).not.toHaveBeenCalled();
+    });
+
     it('logs and skips an unknown condition value (schema drift safety)', async () => {
       // If a future migration adds a WeatherCondition enum value before the
       // resolver's local `breakdown` object is updated, the groupBy result

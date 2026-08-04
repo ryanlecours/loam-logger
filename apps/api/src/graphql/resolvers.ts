@@ -892,6 +892,25 @@ function assertCoherentBikeFilter(filter?: RidesFilterInput | null): void {
   }
 }
 
+/**
+ * The canonical "still waiting on a bike" predicate.
+ *
+ * `bikeId: null` on its own is NOT it. A demo, loaner or rental ride marked
+ * `unownedBike` also has no bike, but by intent rather than omission, and
+ * counting it as outstanding is what the flag exists to prevent.
+ *
+ * Kept as one constant because the two halves drifted the moment they were
+ * written out by hand in more than one place: weatherBreakdown was left
+ * matching on `bikeId` alone and swept unowned rides into totals that
+ * `rides` and `unassignedRideCount` correctly excluded. Spread this rather
+ * than restating it.
+ *
+ * The one copy this cannot cover is the raw SQL in
+ * services/import-session-checker.service.ts, which spells the same predicate
+ * out in its COUNT and has to be updated alongside.
+ */
+const UNASSIGNED_RIDE_WHERE = { bikeId: null, unownedBike: false } as const;
+
 type RidesArgs = {
   take?: number;
   after?: string | null;
@@ -1061,12 +1080,9 @@ export const resolvers = {
       }
 
       // Rides still waiting on a bike. Needs no ownership check of its own:
-      // the clause is already scoped to the viewer's userId. Rides the rider
-      // marked as someone else's bike are excluded — they have no bike by
-      // intent, and listing them here would ask a question already answered.
+      // the clause is already scoped to the viewer's userId.
       if (filter?.unassigned) {
-        whereClause.bikeId = null;
-        whereClause.unownedBike = false;
+        Object.assign(whereClause, UNASSIGNED_RIDE_WHERE);
       }
 
       return prisma.ride.findMany({
@@ -1227,7 +1243,7 @@ export const resolvers = {
 
       // Get current unassigned count (may have changed since session completed)
       const currentUnassignedCount = await prisma.ride.count({
-        where: { importSessionId: session.id, bikeId: null, unownedBike: false },
+        where: { importSessionId: session.id, ...UNASSIGNED_RIDE_WHERE },
       });
 
       return {
@@ -1267,7 +1283,7 @@ export const resolvers = {
 
       const [rides, totalCount] = await Promise.all([
         prisma.ride.findMany({
-          where: { importSessionId, bikeId: null, unownedBike: false },
+          where: { importSessionId, ...UNASSIGNED_RIDE_WHERE },
           orderBy: { startTime: 'desc' },
           take: limit + 1, // Fetch one extra to check if there's more
           ...(after ? { skip: 1, cursor: { id: after } } : {}),
@@ -1281,7 +1297,7 @@ export const resolvers = {
             rideType: true,
           },
         }),
-        prisma.ride.count({ where: { importSessionId, bikeId: null, unownedBike: false } }),
+        prisma.ride.count({ where: { importSessionId, ...UNASSIGNED_RIDE_WHERE } }),
       ]);
 
       const hasMore = rides.length > limit;
@@ -1306,9 +1322,10 @@ export const resolvers = {
      */
     unassignedRideCount: async (_: unknown, __: unknown, ctx: GraphQLContext) => {
       const userId = requireUserId(ctx);
-      // `unownedBike: false` is what stops this from nagging forever. A demo or
-      // loaner ride also has no bikeId, but it is finished business.
-      return prisma.ride.count({ where: { userId, bikeId: null, unownedBike: false } });
+      // The `unownedBike: false` half of the predicate is what stops this from
+      // nagging forever: a demo or loaner ride also has no bikeId, but it is
+      // finished business.
+      return prisma.ride.count({ where: { userId, ...UNASSIGNED_RIDE_WHERE } });
     },
 
     calibrationState: async (_: unknown, __: unknown, ctx: GraphQLContext) => {
@@ -6387,8 +6404,12 @@ export const resolvers = {
         rideWhere.bikeId = filter.bikeId;
       }
 
+      // Same predicate as Query.rides, from the same constant. Spelled out by
+      // hand this drifted: it matched on bikeId alone, so a demo or loaner
+      // ride still landed in these totals while being excluded everywhere
+      // else the identical filter was sent.
       if (filter?.unassigned) {
-        rideWhere.bikeId = null;
+        Object.assign(rideWhere, UNASSIGNED_RIDE_WHERE);
       }
 
       const [grouped, pending, totalRides] = await Promise.all([
