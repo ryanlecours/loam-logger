@@ -13,16 +13,25 @@ function escapeHtml(s: string): string {
  * after an OAuth callback completes. Used by both Garmin and Strava routes.
  */
 export function renderOAuthCompletionPage(params: {
+  /** Human-readable label shown in the page copy (e.g. "Garmin Connect™"). */
   provider: string;
+  /**
+   * URL-safe routing slug for the deep link path (e.g. "garmin"). This MUST
+   * match the mobile route file at app/oauth/<slug>.tsx. Keep it separate from
+   * `provider`: brand guidelines can force the display label to contain spaces
+   * or symbols ("Garmin Connect™") that are invalid in a route segment and
+   * would land the user on the app's Unmatched Route screen.
+   */
+  providerSlug: string;
   status: string;
   reason?: string;
   scheme: string;
   brandColor: string;
   extraParams?: Record<string, string>;
 }): string {
-  const { provider, status, reason, scheme, brandColor, extraParams } = params;
+  const { provider, providerSlug, status, reason, scheme, brandColor, extraParams } = params;
 
-  const deepLinkPath = `${scheme}://oauth/${provider.toLowerCase()}`;
+  const deepLinkPath = `${scheme}://oauth/${providerSlug}`;
   const queryParams = new URLSearchParams({ status });
   if (reason) queryParams.set('reason', reason);
   if (extraParams) {

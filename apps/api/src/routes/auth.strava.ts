@@ -371,6 +371,7 @@ r.get('/strava/mobile/complete', (req: Request, res: Response) => {
 
   res.send(renderOAuthCompletionPage({
     provider: 'Strava',
+    providerSlug: 'strava',
     status,
     reason,
     scheme,

@@ -406,6 +406,7 @@ r.get('/whoop/mobile/complete', (req: Request, res: Response) => {
 
   res.send(renderOAuthCompletionPage({
     provider: 'WHOOP',
+    providerSlug: 'whoop',
     status,
     reason,
     scheme,

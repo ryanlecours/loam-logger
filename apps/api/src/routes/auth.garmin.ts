@@ -349,8 +349,11 @@ r.get('/garmin/mobile/complete', (req: Request, res: Response) => {
   res.send(renderOAuthCompletionPage({
     // Full app name, not "Garmin" — the Garmin API Brand Guidelines forbid
     // abbreviating or truncating it when displaying the connection, and this
-    // page is part of the connect flow a brand reviewer walks through.
+    // page is part of the connect flow a brand reviewer walks through. This is
+    // display copy ONLY; the deep link path comes from providerSlug below.
     provider: 'Garmin Connect™',
+    // Must stay `garmin` — app/oauth/garmin.tsx is what receives this deep link.
+    providerSlug: 'garmin',
     status,
     reason,
     scheme,
