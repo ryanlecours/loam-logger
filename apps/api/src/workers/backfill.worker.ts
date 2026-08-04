@@ -781,6 +781,29 @@ async function processGarminCallback(userId: string, callbackURL: string): Promi
     select: { id: true },
   });
 
+  // Auto-assign the bike when the rider has exactly one active one, matching
+  // `upsertGarminActivity` in sync.worker.ts. Garmin never tags gear, so this
+  // sole-bike inference is the only assignment a callback-delivered ride can
+  // get on ingest. Omitting it here meant every backfilled and every
+  // manually-updated Garmin activity landed unassigned even for a rider who
+  // owns one bike, and its duration then reached no components at all
+  // (syncBikeComponentHours is a no-op when bikeId is null on both sides).
+  //
+  // Resolved once per batch rather than per activity, because the loop below
+  // awaits geocoding and several writes for every activity in the payload.
+  //
+  // That makes it a snapshot, not a guarantee: a rider who adds or archives a
+  // bike while a batch is in flight leaves the rest of that batch reading a
+  // stale count. Accepted rather than fixed. The window is a single callback,
+  // it only matters at the exactly-one-bike boundary, and the cost of being
+  // wrong is one ride assigned to the sole bike or left unassigned, both of
+  // which the rider can correct from the ride itself.
+  const activeBikes = await prisma.bike.findMany({
+    where: { userId, status: 'ACTIVE' },
+    select: { id: true },
+  });
+  const soleActiveBikeId = activeBikes.length === 1 ? activeBikes[0].id : null;
+
   let processedActivityCount = 0;
 
   for (const activity of activities) {
@@ -875,6 +898,10 @@ async function processGarminCallback(userId: string, callbackURL: string): Promi
           notes: activity.activityName ?? null,
           location: autoLocation?.title ?? null,
           importSessionId: runningSession?.id ?? null,
+          // Create-only, exactly as in sync.worker.ts: `update` never carries
+          // bikeId, so a re-delivery of an activity the rider has since
+          // assigned by hand cannot revert it to the sole-bike guess.
+          bikeId: soleActiveBikeId,
           startLat,
           startLng,
           garminDeviceName: garminDeviceName ?? null,

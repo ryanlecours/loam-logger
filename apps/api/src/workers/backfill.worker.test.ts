@@ -209,6 +209,12 @@ describe('processBackfillJob (via worker processor)', () => {
       (mockPrisma.importSession.findFirst as jest.Mock).mockResolvedValue(null);
       (mockPrisma.ride.findUnique as jest.Mock).mockResolvedValue(null);
       (mockPrisma.ride.upsert as jest.Mock).mockResolvedValue({});
+      // Multi-bike account by default (the case where Garmin's lack of gear
+      // reporting leaves the ride unassigned). Tests that care override it.
+      (mockPrisma.bike.findMany as jest.Mock).mockResolvedValue([
+        { id: 'bike-1' },
+        { id: 'bike-2' },
+      ]);
       mockDeriveLocationAsync.mockResolvedValue({ title: 'Test Location' });
       mockShouldApplyAutoLocation.mockReturnValue(undefined);
     });
@@ -267,6 +273,118 @@ describe('processBackfillJob (via worker processor)', () => {
           }),
         })
       );
+    });
+
+    /**
+     * Garmin never reports which bike was ridden, so the sole-active-bike guess
+     * is the only assignment a callback-delivered ride can get at ingest. This
+     * path used to omit bikeId from `create` entirely, which left every
+     * backfilled and every manually-updated Garmin activity unassigned even for
+     * a rider who owns one bike, and an unassigned ride credits its hours to no
+     * component at all.
+     */
+    it('assigns the sole active bike when the rider has exactly one', async () => {
+      (mockPrisma.bike.findMany as jest.Mock).mockResolvedValue([{ id: 'only-bike' }]);
+
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve([
+          {
+            summaryId: 'activity-solo',
+            activityType: 'cycling',
+            startTimeInSeconds: 1706123456,
+            durationInSeconds: 3600,
+          },
+        ]),
+      } as never);
+
+      await processBackfillJob({
+        name: 'processCallback',
+        id: 'job-123',
+        data: {
+          userId: 'user-123',
+          provider: 'garmin',
+          callbackURL: 'https://apis.garmin.com/callback/xyz',
+        },
+      });
+
+      expect(mockPrisma.bike.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { userId: 'user-123', status: 'ACTIVE' } })
+      );
+      expect(mockPrisma.ride.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          create: expect.objectContaining({ bikeId: 'only-bike' }),
+        })
+      );
+    });
+
+    it('leaves the ride unassigned when the rider has more than one active bike', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve([
+          {
+            summaryId: 'activity-multi',
+            activityType: 'cycling',
+            startTimeInSeconds: 1706123456,
+            durationInSeconds: 3600,
+          },
+        ]),
+      } as never);
+
+      await processBackfillJob({
+        name: 'processCallback',
+        id: 'job-123',
+        data: {
+          userId: 'user-123',
+          provider: 'garmin',
+          callbackURL: 'https://apis.garmin.com/callback/xyz',
+        },
+      });
+
+      expect(mockPrisma.ride.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          create: expect.objectContaining({ bikeId: null }),
+        })
+      );
+    });
+
+    /**
+     * A re-delivery must not revert a bike the rider assigned by hand. Garmin
+     * re-sends an activity whenever it is edited in Garmin Connect, so this is
+     * a routine event, not an edge case.
+     */
+    it('never carries bikeId in the update payload', async () => {
+      (mockPrisma.bike.findMany as jest.Mock).mockResolvedValue([{ id: 'only-bike' }]);
+      (mockPrisma.ride.findUnique as jest.Mock).mockResolvedValue({
+        location: null,
+        bikeId: 'rider-picked-bike',
+        durationSeconds: 3600,
+      });
+
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve([
+          {
+            summaryId: 'activity-resend',
+            activityType: 'cycling',
+            startTimeInSeconds: 1706123456,
+            durationInSeconds: 3600,
+          },
+        ]),
+      } as never);
+
+      await processBackfillJob({
+        name: 'processCallback',
+        id: 'job-123',
+        data: {
+          userId: 'user-123',
+          provider: 'garmin',
+          callbackURL: 'https://apis.garmin.com/callback/xyz',
+        },
+      });
+
+      const upsertArg = (mockPrisma.ride.upsert as jest.Mock).mock.calls[0][0];
+      expect(upsertArg.update).not.toHaveProperty('bikeId');
     });
 
     /**
@@ -983,6 +1101,10 @@ describe('Activity metric conversions', () => {
     mockGetValidGarminToken.mockResolvedValue('valid-token');
     (mockPrisma.importSession.findFirst as jest.Mock).mockResolvedValue(null);
     (mockPrisma.ride.findUnique as jest.Mock).mockResolvedValue(null);
+    (mockPrisma.bike.findMany as jest.Mock).mockResolvedValue([
+      { id: 'bike-1' },
+      { id: 'bike-2' },
+    ]);
     mockDeriveLocationAsync.mockResolvedValue({ title: 'Test Location' });
     mockShouldApplyAutoLocation.mockReturnValue(undefined);
   });

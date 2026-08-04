@@ -1,0 +1,15 @@
+-- Marks a ride as ridden on a bike the rider does not own: a demo, a loaner, a
+-- rental, a friend's bike. Always paired with a NULL bikeId.
+--
+-- Adds no behavior to the component-hour math. A ride with no bikeId already
+-- credits no component (syncBikeComponentHours no-ops when bikeId is null on
+-- both sides), so this column records intent rather than changing accounting.
+-- Its job is to separate "not my bike" from "not assigned yet": without it the
+-- two are indistinguishable, and an unowned ride is counted by
+-- unassignedRideCount and prompted forever by "N rides need a bike".
+--
+-- NOT NULL with a false default, so every existing row keeps today's meaning
+-- (unassigned rides stay unassigned and stay prompted). No backfill: the rider
+-- is the only one who knows which of their unassigned rides were on someone
+-- else's bike.
+ALTER TABLE "Ride" ADD COLUMN "unownedBike" BOOLEAN NOT NULL DEFAULT false;

@@ -214,7 +214,9 @@ async function checkIdleSessions(): Promise<void> {
               "completedAt" = ${now},
               "unassignedRideCount" = (
                 SELECT COUNT(*) FROM "Ride"
-                WHERE "importSessionId" = ${session.id} AND "bikeId" IS NULL
+                WHERE "importSessionId" = ${session.id}
+                  AND "bikeId" IS NULL
+                  AND "unownedBike" = false
               ),
               "updatedAt" = ${now}
             WHERE id = ${session.id} AND status = 'running'

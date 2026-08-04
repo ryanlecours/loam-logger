@@ -122,6 +122,17 @@ model Ride {
   trailSystem             String?
   duplicateOfId           String?
   isDuplicate             Boolean                   @default(false)
+  // Ridden on a bike the rider does not own: a demo, a loaner, a rental, a
+  // friend's bike. Always paired with a NULL bikeId, and the resolvers keep the
+  // two in sync (assigning a bike clears this; setting this clears the bike).
+  //
+  // The wear math needs no special case for it: with no bikeId the ride already
+  // credits no component. What this column adds is intent. Without it an
+  // unowned ride is indistinguishable from one still waiting to be assigned, so
+  // it would be counted by unassignedRideCount and nagged forever by the
+  // "N rides need a bike" prompt. The ride still counts toward ride stats,
+  // streaks and insights, because the rider did ride it.
+  unownedBike             Boolean                   @default(false)
   // Garmin Activity Summary `deviceName`. Required by the Garmin API Brand
   // Guidelines: every surface showing Garmin data must attribute
   // "Garmin [device model]". NULL is expected and legal — rides imported
