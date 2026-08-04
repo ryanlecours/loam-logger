@@ -1322,6 +1322,18 @@ export const resolvers = {
      */
     unassignedRideCount: async (_: unknown, __: unknown, ctx: GraphQLContext) => {
       const userId = requireUserId(ctx);
+
+      // Limited like its sibling unassignedRides. Nothing polls this today, so
+      // the ceiling is headroom rather than a constraint; it is here because
+      // the query is a COUNT over the rider's whole Ride table and a client
+      // that starts polling should not have to remember to add it.
+      const rateLimit = await checkQueryRateLimit('unassignedRideCount', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
+
       // The `unownedBike: false` half of the predicate is what stops this from
       // nagging forever: a demo or loaner ride also has no bikeId, but it is
       // finished business.
@@ -4562,6 +4574,17 @@ export const resolvers = {
         throw new Error('One or more rides not found');
       }
 
+      // Eligibility is "has no bike", deliberately not "has no bike and was
+      // never marked unowned". A ride the rider marked as someone else's is
+      // therefore reclaimable in bulk, and naming a bike clears the flag, which
+      // matches updateRide's single-ride semantics: an explicit assignment is
+      // the rider saying the ride was theirs after all.
+      //
+      // In practice these rides are not offered here — `unassignedRides`, which
+      // seeds the client's selection, excludes them. Callers that build their
+      // own rideIds list (the web mass-assign modal) should keep doing the
+      // same, so a bulk action can't quietly overturn a per-ride answer the
+      // rider already gave.
       for (const ride of rides) {
         if (ride.userId !== userId) {
           throw new Error('Unauthorized');

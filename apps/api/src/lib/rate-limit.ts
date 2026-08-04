@@ -138,6 +138,12 @@ export const MUTATION_RATE_LIMITS = {
 export const QUERY_RATE_LIMITS = {
   /** unassignedRides: max 60 requests per minute per user (supports ~1 req/sec polling) */
   unassignedRides: { windowSeconds: 60, maxRequests: 60 },
+  /** unassignedRideCount: max 60 requests per minute per user. Not polled today
+   *  (dashboard mount, tab focus and pull-to-refresh), so this is headroom
+   *  rather than a constraint — it exists because the query is a COUNT over a
+   *  rider's whole Ride table and its sibling unassignedRides is limited the
+   *  same way. A client that starts polling it inherits the protection. */
+  unassignedRideCount: { windowSeconds: 60, maxRequests: 60 },
   /** importNotificationState: max 30 requests per minute per user (supports 30s polling) */
   importNotificationState: { windowSeconds: 60, maxRequests: 30 },
   /** rideTrack: max 60 requests per minute per user (map open + post-request polling) */

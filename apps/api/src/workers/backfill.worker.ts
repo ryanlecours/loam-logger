@@ -789,8 +789,15 @@ async function processGarminCallback(userId: string, callbackURL: string): Promi
   // owns one bike, and its duration then reached no components at all
   // (syncBikeComponentHours is a no-op when bikeId is null on both sides).
   //
-  // Resolved once per batch, not per activity: the bike set cannot change
-  // mid-callback and the loop below runs for every activity in the payload.
+  // Resolved once per batch rather than per activity, because the loop below
+  // awaits geocoding and several writes for every activity in the payload.
+  //
+  // That makes it a snapshot, not a guarantee: a rider who adds or archives a
+  // bike while a batch is in flight leaves the rest of that batch reading a
+  // stale count. Accepted rather than fixed. The window is a single callback,
+  // it only matters at the exactly-one-bike boundary, and the cost of being
+  // wrong is one ride assigned to the sole bike or left unassigned, both of
+  // which the rider can correct from the ride itself.
   const activeBikes = await prisma.bike.findMany({
     where: { userId, status: 'ACTIVE' },
     select: { id: true },
