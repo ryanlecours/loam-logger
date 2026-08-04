@@ -169,6 +169,15 @@ export const typeDefs = gql`
     averageHr: Int
     rideType: String!
     bikeId: ID
+    """
+    Ridden on a bike the rider does not own: a demo, a loaner, a rental, a
+    friend's bike. Always paired with a null bikeId, and the two are kept in
+    sync by the server (assigning a bike clears this; setting this clears the
+    bike). Distinguishes "not my bike" from "not assigned yet", so clients can
+    stop prompting for a bike that is never coming. The ride still counts
+    toward ride stats and insights; it credits no component either way.
+    """
+    unownedBike: Boolean!
     notes: String
     trailSystem: String
     location: String
@@ -516,6 +525,10 @@ export const typeDefs = gql`
     averageHr: Int
     rideType: String
     bikeId: ID
+    # Setting this true clears bikeId (and returns that bike's hours); assigning
+    # a bikeId clears this. Sending a bikeId and unownedBike: true together is a
+    # BAD_USER_INPUT error rather than one silently winning.
+    unownedBike: Boolean
     notes: String
     trailSystem: String
     location: String
@@ -529,6 +542,10 @@ export const typeDefs = gql`
     averageHr: Int
     rideType: String!
     bikeId: ID
+    # Logging a ride on a bike the rider does not own. Suppresses the
+    # sole-bike auto-assign that an omitted bikeId would otherwise trigger.
+    # Cannot be combined with a bikeId.
+    unownedBike: Boolean
     notes: String
     trailSystem: String
     location: String
@@ -1195,6 +1212,12 @@ export const typeDefs = gql`
     startDate: String
     endDate: String
     bikeId: ID
+    # Only rides with no bike assigned. Garmin never reports gear, so on a
+    # multi-bike account every Garmin ride lands unassigned and accrues no
+    # component wear until the rider picks a bike; this is how the clients
+    # list those rides. Mutually exclusive with bikeId: sending both is a
+    # BAD_USER_INPUT error rather than a silently-ignored filter.
+    unassigned: Boolean
   }
 
   enum ComponentInstallEventType {
@@ -1295,6 +1318,11 @@ export const typeDefs = gql`
     unmappedStravaGears: [StravaGearInfo!]!
     importNotificationState: ImportNotificationState
     unassignedRides(importSessionId: ID!, take: Int = 50, after: ID): UnassignedRidesPage!
+    # How many of the viewer's rides have no bike assigned, across their whole
+    # history rather than a single import session. Drives the dashboard prompt
+    # to go assign them; those rides' hours are credited to no component until
+    # they are.
+    unassignedRideCount: Int!
     calibrationState: CalibrationState
     servicePreferenceDefaults: [ServicePreferenceDefault!]!
     bikeNotes(bikeId: ID!, take: Int = 20, after: ID): BikeNotesPage!
