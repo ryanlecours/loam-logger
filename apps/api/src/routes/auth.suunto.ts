@@ -404,6 +404,7 @@ r.get('/suunto/mobile/complete', (req: Request, res: Response) => {
 
   res.send(renderOAuthCompletionPage({
     provider: 'Suunto',
+    providerSlug: 'suunto',
     status,
     reason,
     scheme,
