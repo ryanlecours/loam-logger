@@ -66,6 +66,7 @@ type AddRideInput = {
   averageHr?: number | null;
   rideType: string;
   bikeId?: string | null;
+  unownedBike?: boolean | null;
   notes?: string | null;
   trailSystem?: string | null;
   location?: string | null;
@@ -79,6 +80,7 @@ type UpdateRideInput = {
   averageHr?: number | null;
   rideType?: string | null;
   bikeId?: string | null;
+  unownedBike?: boolean | null;
   notes?: string | null;
   trailSystem?: string | null;
   location?: string | null;
@@ -873,7 +875,41 @@ type RidesFilterInput = {
   startDate?: string | null;
   endDate?: string | null;
   bikeId?: string | null;
+  unassigned?: boolean | null;
 };
+
+/**
+ * `unassigned: true` and `bikeId` select disjoint sets, so a filter carrying
+ * both is a caller mistake rather than something to quietly resolve one way.
+ * Shared by every consumer of RidesFilterInput so the input means the same
+ * thing wherever it is accepted.
+ */
+function assertCoherentBikeFilter(filter?: RidesFilterInput | null): void {
+  if (filter?.unassigned && filter.bikeId) {
+    throw new GraphQLError('Filter cannot set both `bikeId` and `unassigned: true`', {
+      extensions: { code: 'BAD_USER_INPUT' },
+    });
+  }
+}
+
+/**
+ * The canonical "still waiting on a bike" predicate.
+ *
+ * `bikeId: null` on its own is NOT it. A demo, loaner or rental ride marked
+ * `unownedBike` also has no bike, but by intent rather than omission, and
+ * counting it as outstanding is what the flag exists to prevent.
+ *
+ * Kept as one constant because the two halves drifted the moment they were
+ * written out by hand in more than one place: weatherBreakdown was left
+ * matching on `bikeId` alone and swept unowned rides into totals that
+ * `rides` and `unassignedRideCount` correctly excluded. Spread this rather
+ * than restating it.
+ *
+ * The one copy this cannot cover is the raw SQL in
+ * services/import-session-checker.service.ts, which spells the same predicate
+ * out in its COUNT and has to be updated alongside.
+ */
+const UNASSIGNED_RIDE_WHERE = { bikeId: null, unownedBike: false } as const;
 
 type RidesArgs = {
   take?: number;
@@ -1009,6 +1045,7 @@ export const resolvers = {
     rides: async (_: unknown, { take = 1000, after, filter }: RidesArgs, ctx: GraphQLContext) => {
       if (!ctx.user?.id) throw new Error('Unauthorized');
       const limit = Math.min(10000, Math.max(1, take));
+      assertCoherentBikeFilter(filter);
 
       const whereClause: Prisma.RideWhereInput = {
         userId: ctx.user.id,
@@ -1040,6 +1077,12 @@ export const resolvers = {
         }
 
         whereClause.bikeId = filter.bikeId;
+      }
+
+      // Rides still waiting on a bike. Needs no ownership check of its own:
+      // the clause is already scoped to the viewer's userId.
+      if (filter?.unassigned) {
+        Object.assign(whereClause, UNASSIGNED_RIDE_WHERE);
       }
 
       return prisma.ride.findMany({
@@ -1200,7 +1243,7 @@ export const resolvers = {
 
       // Get current unassigned count (may have changed since session completed)
       const currentUnassignedCount = await prisma.ride.count({
-        where: { importSessionId: session.id, bikeId: null },
+        where: { importSessionId: session.id, ...UNASSIGNED_RIDE_WHERE },
       });
 
       return {
@@ -1240,7 +1283,7 @@ export const resolvers = {
 
       const [rides, totalCount] = await Promise.all([
         prisma.ride.findMany({
-          where: { importSessionId, bikeId: null },
+          where: { importSessionId, ...UNASSIGNED_RIDE_WHERE },
           orderBy: { startTime: 'desc' },
           take: limit + 1, // Fetch one extra to check if there's more
           ...(after ? { skip: 1, cursor: { id: after } } : {}),
@@ -1254,7 +1297,7 @@ export const resolvers = {
             rideType: true,
           },
         }),
-        prisma.ride.count({ where: { importSessionId, bikeId: null } }),
+        prisma.ride.count({ where: { importSessionId, ...UNASSIGNED_RIDE_WHERE } }),
       ]);
 
       const hasMore = rides.length > limit;
@@ -1268,6 +1311,33 @@ export const resolvers = {
         totalCount,
         hasMore,
       };
+    },
+
+    /**
+     * Unassigned rides across the rider's whole history, not scoped to an
+     * import session the way `unassignedRides` is. A ride with no bike credits
+     * its duration to no component at all, so this is the size of the gap
+     * between what the rider actually rode and what their service predictions
+     * are computed from.
+     */
+    unassignedRideCount: async (_: unknown, __: unknown, ctx: GraphQLContext) => {
+      const userId = requireUserId(ctx);
+
+      // Limited like its sibling unassignedRides. Nothing polls this today, so
+      // the ceiling is headroom rather than a constraint; it is here because
+      // the query is a COUNT over the rider's whole Ride table and a client
+      // that starts polling should not have to remember to add it.
+      const rateLimit = await checkQueryRateLimit('unassignedRideCount', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
+
+      // The `unownedBike: false` half of the predicate is what stops this from
+      // nagging forever: a demo or loaner ride also has no bikeId, but it is
+      // finished business.
+      return prisma.ride.count({ where: { userId, ...UNASSIGNED_RIDE_WHERE } });
     },
 
     calibrationState: async (_: unknown, __: unknown, ctx: GraphQLContext) => {
@@ -1840,8 +1910,17 @@ export const resolvers = {
       const location = cleanText(input.location, MAX_LABEL_LEN);
       const rideType = cleanText(input.rideType, 32); // required; validated below
       const requestedBikeId = input.bikeId ?? null;
+      const unownedBike = input.unownedBike === true;
 
       if (!rideType) throw new Error('rideType is required');
+
+      // A ride is either on one of the rider's bikes or on a bike they don't
+      // own. Contradictory input is rejected rather than resolved silently.
+      if (unownedBike && requestedBikeId) {
+        throw new GraphQLError('A ride cannot have both a bikeId and unownedBike: true', {
+          extensions: { code: 'BAD_USER_INPUT' },
+        });
+      }
 
       let bikeId: string | null = null;
       if (requestedBikeId) {
@@ -1851,8 +1930,10 @@ export const resolvers = {
         });
         if (!ownedBike || ownedBike.userId !== userId) throw new Error('Bike not found');
         bikeId = requestedBikeId;
-      } else {
-        // If no bike specified, auto-assign if user has exactly one bike
+      } else if (!unownedBike) {
+        // If no bike specified, auto-assign if user has exactly one bike.
+        // Skipped for an unowned ride: the rider has already said it was not
+        // theirs, so guessing their only bike would credit it hours it never did.
         const userBikes = await prisma.bike.findMany({
           where: { userId },
           select: { id: true },
@@ -1871,6 +1952,7 @@ export const resolvers = {
         averageHr,
         rideType,
         ...(bikeId ? { bikeId } : {}),
+        ...(unownedBike ? { unownedBike: true } : {}),
         ...(notes ? { notes } : {}),
         ...(trailSystem ? { trailSystem } : {}),
         ...(location ? { location } : {}),
@@ -2036,6 +2118,35 @@ export const resolvers = {
         }
       }
 
+      // A ride is either on one of the rider's bikes or on a bike they don't
+      // own. Contradictory input is rejected rather than resolved silently,
+      // matching addRide and the rides filter.
+      if (input.unownedBike === true && input.bikeId) {
+        throw new GraphQLError('A ride cannot have both a bikeId and unownedBike: true', {
+          extensions: { code: 'BAD_USER_INPUT' },
+        });
+      }
+
+      let unownedUpdate: boolean | undefined =
+        input.unownedBike === undefined || input.unownedBike === null
+          ? undefined
+          : input.unownedBike === true;
+
+      // Marking a ride unowned detaches whatever bike it was on. Clearing the
+      // bike here (rather than only setting the flag) is what makes the
+      // decrement below run, handing that bike's components back the hours
+      // they were never owed.
+      if (unownedUpdate === true && nextBikeId !== null) {
+        bikeUpdate = null;
+        nextBikeId = null;
+      }
+
+      // Assigning a real bike is the rider saying the ride was theirs after
+      // all, so the flag comes off with it.
+      if (bikeUpdate) {
+        unownedUpdate = false;
+      }
+
       const data: Prisma.RideUpdateInput = {
         ...(start !== undefined && { startTime: start }), // Date (no null)
         ...(durationUpdate !== undefined && {
@@ -2052,6 +2163,7 @@ export const resolvers = {
         }),
         ...(rideType !== undefined && { rideType }), // string only; omit if empty/undefined
         ...(bikeUpdate !== undefined && { bikeId: bikeUpdate }), // nullable
+        ...(unownedUpdate !== undefined && { unownedBike: unownedUpdate }),
         ...(notes !== undefined ? { notes: notes as string | null } : {}),
         ...(trailSystem !== undefined ? { trailSystem: trailSystem as string | null } : {}),
         ...(location !== undefined ? { location: location as string | null } : {}),
@@ -4462,6 +4574,17 @@ export const resolvers = {
         throw new Error('One or more rides not found');
       }
 
+      // Eligibility is "has no bike", deliberately not "has no bike and was
+      // never marked unowned". A ride the rider marked as someone else's is
+      // therefore reclaimable in bulk, and naming a bike clears the flag, which
+      // matches updateRide's single-ride semantics: an explicit assignment is
+      // the rider saying the ride was theirs after all.
+      //
+      // In practice these rides are not offered here — `unassignedRides`, which
+      // seeds the client's selection, excludes them. Callers that build their
+      // own rideIds list (the web mass-assign modal) should keep doing the
+      // same, so a bulk action can't quietly overturn a per-ride answer the
+      // rider already gave.
       for (const ride of rides) {
         if (ride.userId !== userId) {
           throw new Error('Unauthorized');
@@ -4480,10 +4603,12 @@ export const resolvers = {
 
       // Update rides and components in a transaction
       const adjustedBikeIds = await prisma.$transaction(async (tx) => {
-        // Assign bike to all rides
+        // Assign bike to all rides. Clearing unownedBike alongside keeps the
+        // two in sync the same way updateRide does: naming a bike is the rider
+        // saying the ride was theirs.
         await tx.ride.updateMany({
           where: { id: { in: rideIds } },
-          data: { bikeId },
+          data: { bikeId, unownedBike: false },
         });
 
         // Add hours to bike's components
@@ -6265,7 +6390,7 @@ export const resolvers = {
     // to bucket by condition.
     weatherBreakdown: async (
       parent: { id: string },
-      { filter }: { filter?: { startDate?: string | null; endDate?: string | null; bikeId?: string | null } | null },
+      { filter }: { filter?: RidesFilterInput | null },
       ctx: GraphQLContext
     ) => {
       // Weather is Pro-only: free users get a zeroed breakdown (non-null
@@ -6278,6 +6403,8 @@ export const resolvers = {
           totalRides: 0,
         };
       }
+
+      assertCoherentBikeFilter(filter);
 
       const rideWhere: Prisma.RideWhereInput = { userId: parent.id };
 
@@ -6298,6 +6425,14 @@ export const resolvers = {
           });
         }
         rideWhere.bikeId = filter.bikeId;
+      }
+
+      // Same predicate as Query.rides, from the same constant. Spelled out by
+      // hand this drifted: it matched on bikeId alone, so a demo or loaner
+      // ride still landed in these totals while being excluded everywhere
+      // else the identical filter was sent.
+      if (filter?.unassigned) {
+        Object.assign(rideWhere, UNASSIGNED_RIDE_WHERE);
       }
 
       const [grouped, pending, totalRides] = await Promise.all([

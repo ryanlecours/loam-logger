@@ -2115,6 +2115,72 @@ describe('GraphQL Resolvers', () => {
       );
       expect(result).toEqual(mockRides);
     });
+
+    it('should select only rides with no bike when unassigned is set', async () => {
+      const ctx = createMockContext('user-123');
+      mockPrisma.ride.findMany.mockResolvedValue([] as never);
+
+      await query({}, { take: 10, filter: { unassigned: true } }, ctx as never);
+
+      // No ownership check to make: the clause is already scoped to the viewer.
+      // `unownedBike: false` keeps demo and loaner rides out — they have no
+      // bike by intent, not because the rider still owes an answer.
+      expect(mockPrisma.bike.findUnique).not.toHaveBeenCalled();
+      expect(mockPrisma.ride.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { userId: 'user-123', bikeId: null, unownedBike: false },
+        })
+      );
+    });
+
+    it('should ignore unassigned:false rather than filtering on it', async () => {
+      const ctx = createMockContext('user-123');
+      mockPrisma.ride.findMany.mockResolvedValue([] as never);
+
+      await query({}, { take: 10, filter: { unassigned: false } }, ctx as never);
+
+      expect(mockPrisma.ride.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { userId: 'user-123' },
+        })
+      );
+    });
+
+    it('should reject a filter setting both bikeId and unassigned', async () => {
+      const ctx = createMockContext('user-123');
+
+      await expect(
+        query({}, { take: 10, filter: { bikeId: 'bike-1', unassigned: true } }, ctx as never)
+      ).rejects.toThrow('Filter cannot set both `bikeId` and `unassigned: true`');
+
+      // Rejected before any read, so a contradictory filter can never be
+      // silently resolved one way or the other.
+      expect(mockPrisma.bike.findUnique).not.toHaveBeenCalled();
+      expect(mockPrisma.ride.findMany).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Query.unassignedRideCount', () => {
+    const query = resolvers.Query.unassignedRideCount;
+
+    it("should count the viewer's rides that have no bike", async () => {
+      const ctx = createMockContext('user-123');
+      mockPrisma.ride.count.mockResolvedValue(4 as never);
+
+      const result = await query({}, {}, ctx as never);
+
+      expect(mockPrisma.ride.count).toHaveBeenCalledWith({
+        where: { userId: 'user-123', bikeId: null, unownedBike: false },
+      });
+      expect(result).toBe(4);
+    });
+
+    it('should throw when unauthenticated', async () => {
+      const ctx = createMockContext(null);
+
+      await expect(query({}, {}, ctx as never)).rejects.toThrow();
+      expect(mockPrisma.ride.count).not.toHaveBeenCalled();
+    });
   });
 
   // =========================================================================
@@ -4754,6 +4820,40 @@ describe('GraphQL Resolvers', () => {
       expect(groupByCall.where.ride.bikeId).toBe('bike-mine');
     });
 
+    /**
+     * Regression: this resolver spelled the unassigned predicate out by hand as
+     * `bikeId: null` alone, so a demo or loaner ride the rider had already
+     * marked `unownedBike` was swept into these totals while the identical
+     * filter excluded it from `rides` and `unassignedRideCount`. One filter
+     * value meant two different things depending on where it was sent.
+     */
+    it('excludes unowned-bike rides from the unassigned filter, like Query.rides does', async () => {
+      mockGroupBy.mockResolvedValueOnce([]);
+      mockRideCount.mockResolvedValueOnce(0).mockResolvedValueOnce(0);
+
+      await resolver({ id: 'user-123' }, { filter: { unassigned: true } }, createMockContext() as never);
+
+      const rideWhere = mockGroupBy.mock.calls[0][0].where.ride;
+      expect(rideWhere.bikeId).toBeNull();
+      expect(rideWhere.unownedBike).toBe(false);
+      // The two count queries read the same clause object.
+      expect(mockRideCount.mock.calls[1][0].where).toEqual(
+        expect.objectContaining({ bikeId: null, unownedBike: false })
+      );
+    });
+
+    it('rejects a filter setting both bikeId and unassigned', async () => {
+      await expect(
+        resolver(
+          { id: 'user-123' },
+          { filter: { bikeId: 'bike-mine', unassigned: true } },
+          createMockContext() as never
+        )
+      ).rejects.toThrow('Filter cannot set both `bikeId` and `unassigned: true`');
+
+      expect(mockGroupBy).not.toHaveBeenCalled();
+    });
+
     it('logs and skips an unknown condition value (schema drift safety)', async () => {
       // If a future migration adds a WeatherCondition enum value before the
       // resolver's local `breakdown` object is updated, the groupBy result
@@ -5584,6 +5684,253 @@ describe('GraphQL Resolvers', () => {
       const invalidatedBikes = mockInvalidate.mock.calls.map((c: unknown[]) => c[1]);
       expect(invalidatedBikes).toContain('bike-1');
       expect(invalidatedBikes).toContain('bike-2');
+    });
+  });
+
+  describe('Mutation.updateRide unowned-bike handling', () => {
+    const mutation = resolvers.Mutation.updateRide;
+
+    /** tx double covering the writes updateRide performs. */
+    const makeTx = () => ({
+      ride: {
+        update: jest.fn().mockResolvedValue({ id: 'ride-1' }),
+        aggregate: jest.fn().mockResolvedValue({ _sum: { durationSeconds: 0 }, _count: 0 }),
+      },
+      component: {
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+        update: jest.fn().mockResolvedValue({}),
+        findUnique: jest.fn().mockResolvedValue(null),
+      },
+      serviceLog: { findFirst: jest.fn().mockResolvedValue(null) },
+      componentRideAdjustment: { findMany: jest.fn().mockResolvedValue([]) },
+    });
+
+    beforeEach(() => {
+      mockCheckMutationRateLimit.mockResolvedValue({ allowed: true, retryAfter: 0 });
+    });
+
+    /**
+     * The case that actually moves numbers. A rider who mis-assigned a demo
+     * ride to their own bike inflated that bike's component wear; marking it
+     * unowned has to hand those hours back, not merely set a flag.
+     */
+    it('detaches the bike and returns its hours when a ride is marked unowned', async () => {
+      (prisma.ride.findUnique as jest.Mock).mockResolvedValue({
+        userId: 'user-123', durationSeconds: 3600, bikeId: 'bike-1',
+      });
+      const tx = makeTx();
+      (prisma.$transaction as jest.Mock).mockImplementation(async (fn: (t: unknown) => unknown) => fn(tx));
+
+      await mutation(
+        {}, { id: 'ride-1', input: { unownedBike: true } }, createMockContext('user-123') as never
+      );
+
+      expect(tx.ride.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ bikeId: null, unownedBike: true }),
+        })
+      );
+      // One hour comes back off bike-1's components.
+      expect(tx.component.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ userId: 'user-123', bikeId: 'bike-1' }),
+          data: { hoursUsed: { decrement: 1 } },
+        })
+      );
+    });
+
+    it('clears the unowned flag when a bike is assigned', async () => {
+      (prisma.ride.findUnique as jest.Mock).mockResolvedValue({
+        userId: 'user-123', durationSeconds: 3600, bikeId: null,
+      });
+      (prisma.bike.findUnique as jest.Mock).mockResolvedValue({ userId: 'user-123' });
+      const tx = makeTx();
+      (prisma.$transaction as jest.Mock).mockImplementation(async (fn: (t: unknown) => unknown) => fn(tx));
+
+      await mutation(
+        {}, { id: 'ride-1', input: { bikeId: 'bike-9' } }, createMockContext('user-123') as never
+      );
+
+      expect(tx.ride.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ bikeId: 'bike-9', unownedBike: false }),
+        })
+      );
+    });
+
+    it('rejects an input setting both a bikeId and unownedBike', async () => {
+      (prisma.ride.findUnique as jest.Mock).mockResolvedValue({
+        userId: 'user-123', durationSeconds: 3600, bikeId: null,
+      });
+      (prisma.bike.findUnique as jest.Mock).mockResolvedValue({ userId: 'user-123' });
+
+      await expect(
+        mutation(
+          {},
+          { id: 'ride-1', input: { bikeId: 'bike-9', unownedBike: true } },
+          createMockContext('user-123') as never
+        )
+      ).rejects.toThrow('A ride cannot have both a bikeId and unownedBike: true');
+    });
+
+    it('leaves the flag alone when the input does not mention it', async () => {
+      (prisma.ride.findUnique as jest.Mock).mockResolvedValue({
+        userId: 'user-123', durationSeconds: 3600, bikeId: 'bike-1',
+      });
+      const tx = makeTx();
+      (prisma.$transaction as jest.Mock).mockImplementation(async (fn: (t: unknown) => unknown) => fn(tx));
+
+      await mutation(
+        {}, { id: 'ride-1', input: { notes: 'chunky' } }, createMockContext('user-123') as never
+      );
+
+      const data = tx.ride.update.mock.calls[0][0].data;
+      expect(data).not.toHaveProperty('unownedBike');
+      expect(data).not.toHaveProperty('bikeId');
+    });
+  });
+
+  describe('Mutation.assignBikeToRides', () => {
+    const mutation = resolvers.Mutation.assignBikeToRides;
+
+    const makeTx = () => ({
+      ride: {
+        updateMany: jest.fn().mockResolvedValue({ count: 2 }),
+        aggregate: jest.fn().mockResolvedValue({ _sum: { durationSeconds: 0 }, _count: 0 }),
+      },
+      component: {
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+        update: jest.fn().mockResolvedValue({}),
+        findUnique: jest.fn().mockResolvedValue(null),
+      },
+      serviceLog: { findFirst: jest.fn().mockResolvedValue(null) },
+      componentRideAdjustment: { findMany: jest.fn().mockResolvedValue([]) },
+    });
+
+    beforeEach(() => {
+      mockCheckMutationRateLimit.mockResolvedValue({ allowed: true, retryAfter: 0 });
+      (prisma.bike.findUnique as jest.Mock).mockResolvedValue({ userId: 'user-123' });
+    });
+
+    it('clears unownedBike on the rides it assigns', async () => {
+      (prisma.ride.findMany as jest.Mock).mockResolvedValue([
+        { id: 'ride-1', userId: 'user-123', bikeId: null, durationSeconds: 3600 },
+        { id: 'ride-2', userId: 'user-123', bikeId: null, durationSeconds: 1800 },
+      ]);
+      const tx = makeTx();
+      (prisma.$transaction as jest.Mock).mockImplementation(async (fn: (t: unknown) => unknown) => fn(tx));
+
+      await mutation(
+        {},
+        { rideIds: ['ride-1', 'ride-2'], bikeId: 'bike-9' },
+        createMockContext('user-123') as never
+      );
+
+      expect(tx.ride.updateMany).toHaveBeenCalledWith({
+        where: { id: { in: ['ride-1', 'ride-2'] } },
+        data: { bikeId: 'bike-9', unownedBike: false },
+      });
+      // 1.5h total credited to the target bike's components.
+      expect(tx.component.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ userId: 'user-123', bikeId: 'bike-9' }),
+          data: { hoursUsed: { increment: 1.5 } },
+        })
+      );
+    });
+
+    /**
+     * Documents a deliberate asymmetry rather than asserting a guard that
+     * isn't there: eligibility is "has no bike", so a ride previously marked
+     * unowned CAN be reclaimed in bulk, and doing so clears the flag. That
+     * matches updateRide, and in practice these rides never reach here because
+     * `unassignedRides` excludes them from the client's selection. Callers
+     * assembling their own rideIds (the pending web mass-assign modal) have to
+     * preserve that filtering themselves.
+     */
+    it('reclaims a ride previously marked unowned, clearing the flag', async () => {
+      (prisma.ride.findMany as jest.Mock).mockResolvedValue([
+        { id: 'ride-demo', userId: 'user-123', bikeId: null, durationSeconds: 3600 },
+      ]);
+      const tx = makeTx();
+      (prisma.$transaction as jest.Mock).mockImplementation(async (fn: (t: unknown) => unknown) => fn(tx));
+
+      await mutation(
+        {}, { rideIds: ['ride-demo'], bikeId: 'bike-9' }, createMockContext('user-123') as never
+      );
+
+      expect(tx.ride.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { bikeId: 'bike-9', unownedBike: false } })
+      );
+    });
+
+    it('refuses to reassign a ride that already has a bike', async () => {
+      (prisma.ride.findMany as jest.Mock).mockResolvedValue([
+        { id: 'ride-1', userId: 'user-123', bikeId: 'bike-existing', durationSeconds: 3600 },
+      ]);
+
+      await expect(
+        mutation({}, { rideIds: ['ride-1'], bikeId: 'bike-9' }, createMockContext('user-123') as never)
+      ).rejects.toThrow('One or more rides already have a bike assigned');
+
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it("refuses to assign another user's ride", async () => {
+      (prisma.ride.findMany as jest.Mock).mockResolvedValue([
+        { id: 'ride-1', userId: 'someone-else', bikeId: null, durationSeconds: 3600 },
+      ]);
+
+      await expect(
+        mutation({}, { rideIds: ['ride-1'], bikeId: 'bike-9' }, createMockContext('user-123') as never)
+      ).rejects.toThrow('Unauthorized');
+
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Mutation.updateRide unowned-bike trailing case', () => {
+    const mutation = resolvers.Mutation.updateRide;
+
+    const makeTx = () => ({
+      ride: {
+        update: jest.fn().mockResolvedValue({ id: 'ride-1' }),
+        aggregate: jest.fn().mockResolvedValue({ _sum: { durationSeconds: 0 }, _count: 0 }),
+      },
+      component: {
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+        update: jest.fn().mockResolvedValue({}),
+        findUnique: jest.fn().mockResolvedValue(null),
+      },
+      serviceLog: { findFirst: jest.fn().mockResolvedValue(null) },
+      componentRideAdjustment: { findMany: jest.fn().mockResolvedValue([]) },
+    });
+
+    beforeEach(() => {
+      mockCheckMutationRateLimit.mockResolvedValue({ allowed: true, retryAfter: 0 });
+    });
+
+    /**
+     * Un-marking a ride the rider had called someone else's. It goes back to
+     * plain unassigned rather than onto a bike, so no hours move and the
+     * "N rides need a bike" prompt correctly picks it up again.
+     */
+    it('clears the flag without moving hours when unownedBike is set false', async () => {
+      (prisma.ride.findUnique as jest.Mock).mockResolvedValue({
+        userId: 'user-123', durationSeconds: 3600, bikeId: null,
+      });
+      const tx = makeTx();
+      (prisma.$transaction as jest.Mock).mockImplementation(async (fn: (t: unknown) => unknown) => fn(tx));
+
+      await mutation(
+        {}, { id: 'ride-1', input: { unownedBike: false } }, createMockContext('user-123') as never
+      );
+
+      const data = tx.ride.update.mock.calls[0][0].data;
+      expect(data.unownedBike).toBe(false);
+      // No bike named, so nothing to credit or debit.
+      expect(data).not.toHaveProperty('bikeId');
+      expect(tx.component.updateMany).not.toHaveBeenCalled();
     });
   });
 });
