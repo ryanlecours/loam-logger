@@ -74,7 +74,36 @@ model User {
 
   // Push notification preferences
   expoPushToken      String?
+  // Legacy on/off for ride-sync pushes. Kept in sync with
+  // rideSyncNotificationMode (mode OFF <=> false) because app versions up to
+  // 1.1.4 still read and write it through updateUserPreferences; the mode
+  // column below is the source of truth and this is derived on write.
   notifyOnRideUpload Boolean @default(true)
+  // How "Ride Synced" pushes behave. ALL preserves the original behavior
+  // (every new integration ride pushes, burst-suppressed). ACTION_NEEDED
+  // pushes only when the ride needs a bike assigned or is the account's
+  // first-ever synced ride: every push carries something to act on or a
+  // milestone. Existing users were migrated from notifyOnRideUpload
+  // (true -> ALL, false -> OFF) so nobody's behavior changed; new accounts
+  // start at ACTION_NEEDED. Service-due pushes are governed separately by
+  // BikeNotificationPreference and are never affected by this mode.
+  rideSyncNotificationMode RideSyncNotificationMode @default(ACTION_NEEDED)
+  // Weekly gear-health digest ("is the bike ready for the weekend"), sent
+  // Friday morning in the user's local time. Opt-in, off by default, and
+  // Pro-gated at send time like every prediction surface.
+  weeklyDigestEnabled Boolean @default(false)
+  // IANA timezone (e.g. "America/Los_Angeles"), uploaded by mobile alongside
+  // the push token. Only read by the weekly digest scheduler; a user with a
+  // null timezone is skipped rather than guessed at, since a digest at 3am
+  // is worse than no digest.
+  timezone String?
+}
+
+// See User.rideSyncNotificationMode for semantics.
+enum RideSyncNotificationMode {
+  ALL
+  ACTION_NEEDED
+  OFF
 }
 
 model OauthToken {
@@ -858,8 +887,15 @@ model BikeNotificationPreference {
 }
 
 enum NotificationType {
+  // One row per sent "Ride Synced" push. Not a dedup key like SERVICE_DUE:
+  // these rows implement the burst-suppression window (at most one plain
+  // sync confirmation per window), so they are queried by sentAt and pruned
+  // opportunistically rather than held forever.
   RIDE_UPLOADED
   SERVICE_DUE
+  // One row per sent weekly digest; the scheduler's "already sent this week"
+  // check reads the latest row's sentAt.
+  WEEKLY_DIGEST
 }
 
 model NotificationLog {

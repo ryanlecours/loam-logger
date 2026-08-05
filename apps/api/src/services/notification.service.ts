@@ -6,7 +6,12 @@ import { enqueueReceiptCheck } from '../lib/queue/notification.queue';
 import { generateBikePredictions } from './prediction';
 import { canSeePredictions } from '../auth/tier-access';
 import { formatComponentType } from '@loam/shared';
-import type { ServiceNotificationMode } from '@prisma/client';
+import type {
+  RideSyncNotificationMode,
+  ServiceNotificationMode,
+  SubscriptionTier,
+  UserRole,
+} from '@prisma/client';
 
 /**
  * Validates that a string is a well-formed Expo push token.
@@ -26,8 +31,13 @@ type SendPushParams = {
 /**
  * Send a push notification via Expo and return the receipt ticket ID (if successful).
  * Returns null if the send fails or the token is invalid.
+ *
+ * Exported for sibling notification services only (the weekly digest); it is
+ * the raw primitive and enforces none of the gating (preferences, dedup,
+ * burst windows) that makes the system trustworthy. Feature code should call
+ * `fireRideNotifications` / `fireServiceDueForBike`, never this.
  */
-async function sendPushNotification({ pushToken, title, body, data }: SendPushParams): Promise<string | null> {
+export async function sendPushNotification({ pushToken, title, body, data }: SendPushParams): Promise<string | null> {
   if (!Expo.isExpoPushToken(pushToken)) {
     logger.warn({ pushToken }, '[notifications] Invalid Expo push token');
     return null;
@@ -57,9 +67,62 @@ async function sendPushNotification({ pushToken, title, body, data }: SendPushPa
 
 type NotificationUser = {
   expoPushToken: string;
-  notifyOnRideUpload: boolean;
   distanceUnit: string | null;
 };
+
+/**
+ * At most one ride-sync push per user per window, regardless of why each
+ * would have fired. This is the layer where multi-provider copies of the
+ * same physical ride (up to four "Ride Synced" for one ride) and a watch
+ * uploading a weekend's activities in one burst collapse to a single push.
+ * Uniform on purpose: even the pick-bike variant obeys it, because a burst
+ * of unassigned rides used to mean a burst of pick-bike pushes, and the
+ * in-app unassigned-rides banner now carries that workload. Service-due
+ * pushes have their own per-component dedup and are unaffected.
+ */
+const RIDE_PUSH_WINDOW_MS = 30 * 60 * 1000;
+
+/** RIDE_UPLOADED window rows are only ever read within the window; anything
+ *  older is dead weight, pruned opportunistically on each send. */
+const RIDE_PUSH_ROW_TTL_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * True when a ride push went out recently enough that another would be noise.
+ *
+ * The check and the later record are not atomic; two workers ingesting
+ * provider copies of the same ride concurrently can both pass and send two
+ * pushes. That race loses nothing relative to the old behavior (which always
+ * sent both) and a claim-row scheme like SERVICE_DUE's would need a
+ * time-bucketed unique key to express "per window", so it is deliberately
+ * left as a best-effort read.
+ */
+async function isRidePushBurstSuppressed(userId: string): Promise<boolean> {
+  const recent = await prisma.notificationLog.findFirst({
+    where: {
+      userId,
+      notificationType: 'RIDE_UPLOADED',
+      sentAt: { gte: new Date(Date.now() - RIDE_PUSH_WINDOW_MS) },
+    },
+    select: { id: true },
+  });
+  return recent !== null;
+}
+
+async function recordRidePush(userId: string): Promise<void> {
+  await prisma.notificationLog.create({
+    data: { userId, notificationType: 'RIDE_UPLOADED' },
+  });
+  // Prune stale window rows so the table doesn't accrete one row per ride
+  // forever. Best-effort: a failed prune only leaves rows the window query
+  // already ignores by sentAt.
+  await prisma.notificationLog.deleteMany({
+    where: {
+      userId,
+      notificationType: 'RIDE_UPLOADED',
+      sentAt: { lt: new Date(Date.now() - RIDE_PUSH_ROW_TTL_MS) },
+    },
+  });
+}
 
 /**
  * Send a notification when a ride is synced from an integration (Strava/Garmin/Whoop/Suunto).
@@ -69,12 +132,9 @@ type NotificationUser = {
  * is set so the mobile listener deep-links straight into the bike picker on
  * the ride detail screen.
  *
- * Always gated on `notifyOnRideUpload`. The user's notification preference
- * is the source of truth — if they've opted out of ride-upload notifications
- * we don't surface the bike-pick prompt either, even though it's a one-shot
- * affordance. The unassigned ride still surfaces the next time they open the
- * app via the in-app rides list, so we're not silently dropping data on the
- * floor; we're just respecting their choice to keep the lockscreen quiet.
+ * Pure compose-and-send: whether this push should go out at all
+ * (rideSyncNotificationMode, burst window) is decided by
+ * `fireRideNotifications`, which owns the user row and the window state.
  */
 export async function notifyRideUploaded(params: {
   userId: string;
@@ -86,8 +146,6 @@ export async function notifyRideUploaded(params: {
   user: NotificationUser;
 }): Promise<string | undefined> {
   const { rideId, durationSeconds, distanceMeters, bikeName, needsBikeAssignment, user } = params;
-
-  if (!user.notifyOnRideUpload) return;
 
   const durationMin = Math.round(durationSeconds / 60);
   const isKm = user.distanceUnit === 'km';
@@ -264,9 +322,127 @@ export async function checkAndNotifyServiceDue(params: {
   return ticketId;
 }
 
+/** The user fields every notification decision needs. */
+const NOTIFICATION_USER_SELECT = {
+  expoPushToken: true,
+  rideSyncNotificationMode: true,
+  distanceUnit: true,
+  role: true,
+  predictionMode: true,
+  subscriptionTier: true,
+  isFoundingRider: true,
+} as const;
+
+type LoadedNotificationUser = {
+  expoPushToken: string | null;
+  rideSyncNotificationMode: RideSyncNotificationMode;
+  distanceUnit: string | null;
+  role: UserRole;
+  predictionMode: string | null;
+  subscriptionTier: SubscriptionTier;
+  isFoundingRider: boolean;
+};
+
+/**
+ * Tier-gate, predict, and send the service-due push for one bike.
+ * Shared by the ride-sync orchestrator and the mutation-facing
+ * `fireServiceDueForBike`. Returns the push ticket id when one was sent.
+ *
+ * Service-due pushes carry the rides/hours-remaining prediction (a Pro
+ * feature), so free users are gated out here, not at the callers.
+ */
+async function runServiceDueForBike(
+  user: LoadedNotificationUser,
+  userId: string,
+  bikeId: string,
+  bikeName: string
+): Promise<string | undefined> {
+  if (!user.expoPushToken || !canSeePredictions(user)) return;
+
+  const predictionMode = (user.predictionMode === 'predictive' ? 'predictive' : 'simple') as 'simple' | 'predictive';
+  const summary = await generateBikePredictions({
+    userId,
+    bikeId,
+    userRole: user.role,
+    predictionMode,
+    subscriptionTier: user.subscriptionTier,
+    isFoundingRider: user.isFoundingRider,
+  });
+  if (!summary?.components) return;
+
+  return checkAndNotifyServiceDue({
+    userId,
+    bikeId,
+    bikeName,
+    pushToken: user.expoPushToken,
+    predictions: summary.components,
+  });
+}
+
+async function loadBikeName(userId: string, bikeId: string): Promise<string | undefined> {
+  // Scoped to the owner so a caller bug can never push one user's bike name
+  // to another user's device.
+  const bike = await prisma.bike.findFirst({
+    where: { id: bikeId, userId },
+    select: { nickname: true, manufacturer: true, model: true },
+  });
+  if (!bike) return undefined;
+  return bike.nickname || [bike.manufacturer, bike.model].filter(Boolean).join(' ') || undefined;
+}
+
+/**
+ * Fire-and-forget service-due check for a bike whose counted hours just
+ * changed OUTSIDE the ride-sync path: bulk bike assignment, a ride edit
+ * that moved hours onto a bike, a manual ride entry.
+ *
+ * Before this existed, service-due could only fire as a side effect of an
+ * integration sync: a rider who bulk-assigned fifteen backfilled rides
+ * could push a bike straight past its service threshold in silence, and
+ * heard nothing until their NEXT synced ride happened to land on that bike.
+ * The dedup in `checkAndNotifyServiceDue` makes this safe to call from any
+ * hour-crediting path: a component already notified stays silent.
+ *
+ * Never throws.
+ */
+export async function fireServiceDueForBike(params: {
+  userId: string;
+  bikeId: string;
+}): Promise<void> {
+  const { userId, bikeId } = params;
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: NOTIFICATION_USER_SELECT,
+    });
+    if (!user?.expoPushToken) return;
+
+    const bikeName = await loadBikeName(userId, bikeId);
+    if (!bikeName) return;
+
+    const ticketId = await runServiceDueForBike(user, userId, bikeId, bikeName);
+    if (ticketId) {
+      enqueueReceiptCheck(userId, [ticketId]).catch((err) =>
+        logError('enqueueReceiptCheck', err)
+      );
+    }
+  } catch (error) {
+    logError('fireServiceDueForBike', error);
+  }
+}
+
 /**
  * Fire-and-forget: send ride upload notification and check service due notifications.
  * Errors are logged but never thrown to avoid blocking the caller.
+ *
+ * Whether the "Ride Synced" push goes out is decided by
+ * `rideSyncNotificationMode`:
+ *   ALL           every new integration ride, minus burst suppression
+ *   ACTION_NEEDED only rides needing a bike pick, plus the account's
+ *                 first-ever synced ride (the "it works" moment when a
+ *                 provider is first connected)
+ *   OFF           never
+ * All ride pushes share one burst window (`RIDE_PUSH_WINDOW_MS`); the
+ * service-due push is governed by per-bike preferences, not by this mode.
  */
 export async function fireRideNotifications(params: {
   userId: string;
@@ -296,30 +472,12 @@ export async function fireRideNotifications(params: {
     // Single user query for all notification needs
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: {
-        expoPushToken: true,
-        notifyOnRideUpload: true,
-        distanceUnit: true,
-        role: true,
-        predictionMode: true,
-        subscriptionTier: true,
-        isFoundingRider: true,
-      },
+      select: NOTIFICATION_USER_SELECT,
     });
 
     if (!user?.expoPushToken) return;
 
-    // Get bike name if assigned
-    let bikeName: string | undefined;
-    if (bikeId) {
-      const bike = await prisma.bike.findUnique({
-        where: { id: bikeId },
-        select: { nickname: true, manufacturer: true, model: true },
-      });
-      if (bike) {
-        bikeName = bike.nickname || [bike.manufacturer, bike.model].filter(Boolean).join(' ') || undefined;
-      }
-    }
+    const bikeName = bikeId ? await loadBikeName(userId, bikeId) : undefined;
 
     const ticketIds: string[] = [];
 
@@ -333,40 +491,49 @@ export async function fireRideNotifications(params: {
       !bikeId &&
       (providedBikeCount ?? (await prisma.bike.count({ where: { userId, status: 'ACTIVE' } }))) > 1;
 
-    const rideTicketId = await notifyRideUploaded({
-      userId, rideId, durationSeconds, distanceMeters, bikeName,
-      needsBikeAssignment,
-      user: {
-        expoPushToken: user.expoPushToken,
-        notifyOnRideUpload: user.notifyOnRideUpload,
-        distanceUnit: user.distanceUnit,
-      },
-    });
-    if (rideTicketId) ticketIds.push(rideTicketId);
-
-    // Service due check (only if ride is assigned to a bike). Service-due
-    // pushes carry the rides/hours-remaining prediction — a Pro feature —
-    // so free users receive only the ride-upload notification.
-    if (bikeId && bikeName && canSeePredictions(user)) {
-      const predictionMode = (user.predictionMode === 'predictive' ? 'predictive' : 'simple') as 'simple' | 'predictive';
-      const summary = await generateBikePredictions({
-        userId,
-        bikeId,
-        userRole: user.role,
-        predictionMode,
-        subscriptionTier: user.subscriptionTier,
-        isFoundingRider: user.isFoundingRider,
-      });
-      if (summary?.components) {
-        const serviceTicketId = await checkAndNotifyServiceDue({
-          userId,
-          bikeId,
-          bikeName,
-          pushToken: user.expoPushToken,
-          predictions: summary.components,
-        });
-        if (serviceTicketId) ticketIds.push(serviceTicketId);
+    const mode = user.rideSyncNotificationMode;
+    let sendRidePush = false;
+    if (mode !== 'OFF') {
+      if (needsBikeAssignment || mode === 'ALL') {
+        sendRidePush = true;
+      } else {
+        // ACTION_NEEDED: the one non-actionable push that still earns its
+        // place is the account's first-ever synced ride, the moment that
+        // proves the integration works. count === 1 is the ride we are
+        // holding right now.
+        const rideCount = await prisma.ride.count({ where: { userId } });
+        sendRidePush = rideCount === 1;
       }
+      // One window for every ride push, whatever justified it. A burst of
+      // unassigned rides means one pick-bike push, not one per ride; the
+      // in-app unassigned-rides banner carries the rest.
+      if (sendRidePush && (await isRidePushBurstSuppressed(userId))) {
+        sendRidePush = false;
+      }
+    }
+
+    if (sendRidePush) {
+      const rideTicketId = await notifyRideUploaded({
+        userId, rideId, durationSeconds, distanceMeters, bikeName,
+        needsBikeAssignment,
+        user: {
+          expoPushToken: user.expoPushToken,
+          distanceUnit: user.distanceUnit,
+        },
+      });
+      if (rideTicketId) {
+        ticketIds.push(rideTicketId);
+        await recordRidePush(userId);
+      }
+    }
+
+    // Service due check (only if ride is assigned to a bike). Deliberately
+    // independent of rideSyncNotificationMode: silencing sync confirmations
+    // must not silence "your fork is due", which has its own per-bike
+    // preference and per-component dedup.
+    if (bikeId && bikeName) {
+      const serviceTicketId = await runServiceDueForBike(user, userId, bikeId, bikeName);
+      if (serviceTicketId) ticketIds.push(serviceTicketId);
     }
 
     // Enqueue delayed receipt check for all tickets from this ride

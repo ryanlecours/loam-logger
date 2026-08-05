@@ -842,7 +842,34 @@ export const typeDefs = gql`
     predictionMode: String
     distanceUnit: String
     expoPushToken: String
+    # Legacy on/off for ride-sync pushes, still sent by app versions <= 1.1.4.
+    # Maps onto rideSyncNotificationMode (false -> OFF; true -> ALL, unless
+    # the stored mode is already a non-OFF value, which is preserved). New
+    # clients should send rideSyncNotificationMode instead.
     notifyOnRideUpload: Boolean
+    # How "Ride Synced" pushes behave; see the enum. Setting this also keeps
+    # the legacy boolean in sync for older clients reading it.
+    rideSyncNotificationMode: RideSyncNotificationMode
+    # Weekly Friday-morning gear-health digest. Opt-in; Pro feature at send
+    # time (a free user's toggle stores but sends nothing, mirroring how
+    # prediction surfaces degrade elsewhere).
+    weeklyDigestEnabled: Boolean
+    # IANA timezone (e.g. "America/Denver"), used only to time the weekly
+    # digest. Uploaded by mobile alongside the push token; explicit null
+    # clears it, which also stops the digest (no timezone, no send).
+    timezone: String
+  }
+
+  # Governs the "Ride Synced" push. Service-due pushes are configured
+  # per-bike (BikeNotificationPreference) and are independent of this.
+  enum RideSyncNotificationMode {
+    # Every new integration ride pushes (burst-suppressed).
+    ALL
+    # Only rides that need a bike assigned, plus the account's first-ever
+    # synced ride. Every push asks for an action or marks a milestone.
+    ACTION_NEEDED
+    # No ride-sync pushes.
+    OFF
   }
 
   # Push notification preferences
@@ -1195,7 +1222,10 @@ export const typeDefs = gql`
     pairedComponentMigrationSeenAt: String
     trailStewardshipNoticeSeenAt: String
     servicePreferences: [UserServicePreference!]!
+    # Derived for legacy clients: true iff rideSyncNotificationMode != OFF.
     notifyOnRideUpload: Boolean!
+    rideSyncNotificationMode: RideSyncNotificationMode!
+    weeklyDigestEnabled: Boolean!
     createdAt: String!
     ridesMissingWeather: Int!
     # Count of the viewer's Garmin rides stored without coordinates (a past

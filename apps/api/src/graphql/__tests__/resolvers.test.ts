@@ -117,6 +117,7 @@ jest.mock('../../services/prediction', () => ({
 
 jest.mock('../../services/notification.service', () => ({
   clearServiceNotificationLogs: jest.fn().mockResolvedValue(undefined),
+  fireServiceDueForBike: jest.fn().mockResolvedValue(undefined),
   isValidExpoPushToken: jest.fn((token: string) => token.startsWith('ExponentPushToken[') || token.startsWith('ExpoPushToken[')),
 }));
 
@@ -3030,7 +3031,9 @@ describe('GraphQL Resolvers', () => {
       });
     });
 
-    it('should update notifyOnRideUpload', async () => {
+    it('legacy notifyOnRideUpload: false also turns the mode OFF', async () => {
+      // Old app versions only know the boolean; the mode column must follow
+      // it or the two sources of truth drift.
       const ctx = createMockContext();
       (mockPrisma.user.update as jest.Mock).mockResolvedValue({ id: 'user-123' });
 
@@ -3038,8 +3041,74 @@ describe('GraphQL Resolvers', () => {
 
       expect(mockPrisma.user.update).toHaveBeenCalledWith({
         where: { id: 'user-123' },
-        data: { notifyOnRideUpload: false },
+        data: { notifyOnRideUpload: false, rideSyncNotificationMode: 'OFF' },
       });
+    });
+
+    it('legacy notifyOnRideUpload: true lifts OFF to ALL', async () => {
+      const ctx = createMockContext();
+      (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({ rideSyncNotificationMode: 'OFF' });
+      (mockPrisma.user.update as jest.Mock).mockResolvedValue({ id: 'user-123' });
+
+      await mutation(null, { input: { notifyOnRideUpload: true } }, ctx);
+
+      expect(mockPrisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'user-123' },
+        data: { notifyOnRideUpload: true, rideSyncNotificationMode: 'ALL' },
+      });
+    });
+
+    it('legacy notifyOnRideUpload: true preserves a stored ACTION_NEEDED', async () => {
+      // An old client's toggle renders as "on" for ACTION_NEEDED, so a save
+      // from that screen is a no-op, not a request to hear about every ride.
+      const ctx = createMockContext();
+      (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({ rideSyncNotificationMode: 'ACTION_NEEDED' });
+      (mockPrisma.user.update as jest.Mock).mockResolvedValue({ id: 'user-123' });
+
+      await mutation(null, { input: { notifyOnRideUpload: true } }, ctx);
+
+      expect(mockPrisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'user-123' },
+        data: { notifyOnRideUpload: true },
+      });
+    });
+
+    it('rideSyncNotificationMode writes both the mode and the derived boolean', async () => {
+      const ctx = createMockContext();
+      (mockPrisma.user.update as jest.Mock).mockResolvedValue({ id: 'user-123' });
+
+      await mutation(null, { input: { rideSyncNotificationMode: 'ACTION_NEEDED' } }, ctx);
+
+      expect(mockPrisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'user-123' },
+        data: { rideSyncNotificationMode: 'ACTION_NEEDED', notifyOnRideUpload: true },
+      });
+    });
+
+    it('accepts weeklyDigestEnabled and a valid IANA timezone', async () => {
+      const ctx = createMockContext();
+      (mockPrisma.user.update as jest.Mock).mockResolvedValue({ id: 'user-123' });
+
+      await mutation(
+        null,
+        { input: { weeklyDigestEnabled: true, timezone: 'America/Denver' } },
+        ctx
+      );
+
+      expect(mockPrisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'user-123' },
+        data: { weeklyDigestEnabled: true, timezone: 'America/Denver' },
+      });
+    });
+
+    it('rejects a timezone Intl does not recognize', async () => {
+      const ctx = createMockContext();
+
+      await expect(
+        mutation(null, { input: { timezone: 'Not/AZone' } }, ctx)
+      ).rejects.toThrow('timezone is not a valid IANA timezone');
+
+      expect(mockPrisma.user.update).not.toHaveBeenCalled();
     });
 
     it('should reject expoPushToken exceeding max length', async () => {

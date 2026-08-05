@@ -17,7 +17,10 @@ import { getRideTrack } from '../lib/ride-track';
 import { invalidateBikePrediction, getCachedAdvisorSummary, setCachedAdvisorSummary } from '../services/prediction/cache';
 import { generateSummary, DEFAULT_ADVISOR_MODEL } from '../services/advisor/summarize';
 import type { BikePredictionSummary } from '../services/prediction/types';
-import { clearServiceNotificationLogs, isValidExpoPushToken } from '../services/notification.service';
+import { clearServiceNotificationLogs, fireServiceDueForBike, isValidExpoPushToken } from '../services/notification.service';
+// The canonical "still waiting on a bike" predicate; see lib/ride-predicates
+// for why this is one constant and what it deliberately excludes.
+import { UNASSIGNED_RIDE_WHERE } from '../lib/ride-predicates';
 import { getBaseInterval, BASE_INTERVALS_HOURS, DEFAULT_INTERVAL_HOURS } from '../services/prediction/config';
 import {
   getApplicableComponents,
@@ -892,24 +895,6 @@ function assertCoherentBikeFilter(filter?: RidesFilterInput | null): void {
   }
 }
 
-/**
- * The canonical "still waiting on a bike" predicate.
- *
- * `bikeId: null` on its own is NOT it. A demo, loaner or rental ride marked
- * `unownedBike` also has no bike, but by intent rather than omission, and
- * counting it as outstanding is what the flag exists to prevent.
- *
- * Kept as one constant because the two halves drifted the moment they were
- * written out by hand in more than one place: weatherBreakdown was left
- * matching on `bikeId` alone and swept unowned rides into totals that
- * `rides` and `unassignedRideCount` correctly excluded. Spread this rather
- * than restating it.
- *
- * The one copy this cannot cover is the raw SQL in
- * services/import-session-checker.service.ts, which spells the same predicate
- * out in its COUNT and has to be updated alongside.
- */
-const UNASSIGNED_RIDE_WHERE = { bikeId: null, unownedBike: false } as const;
 
 type RidesArgs = {
   take?: number;
@@ -1988,6 +1973,13 @@ export const resolvers = {
         hasBike: Boolean(bikeId),
       });
 
+      // A manual ride credits hours the same as a synced one, so it gets the
+      // same threshold check. No "Ride Synced" push, though: the rider typed
+      // this ride in themselves seconds ago.
+      if (bikeId) {
+        void fireServiceDueForBike({ userId, bikeId });
+      }
+
       return ride;
     },
     deleteRide: async (_: unknown, { id }: { id: string }, ctx: GraphQLContext) => {
@@ -2235,6 +2227,14 @@ export const resolvers = {
       );
       for (const bikeId of postInvalidate) {
         await invalidateBikePrediction(userId, bikeId);
+      }
+
+      // Hours just landed on a bike (newly assigned, or a longer duration on
+      // an assigned ride): the same threshold-crossing moment a synced ride
+      // triggers, so it gets the same check. Losing hours can't make a
+      // component due, so the shrink/unassign cases stay quiet.
+      if (nextBikeId && (bikeChanged || hoursDiff > 0)) {
+        void fireServiceDueForBike({ userId, bikeId: nextBikeId });
       }
 
       return updatedRide;
@@ -4110,7 +4110,7 @@ export const resolvers = {
 
     updateUserPreferences: async (
       _: unknown,
-      { input }: { input: { hoursDisplayPreference?: string | null; predictionMode?: string | null; distanceUnit?: string | null; expoPushToken?: string | null; notifyOnRideUpload?: boolean | null } },
+      { input }: { input: { hoursDisplayPreference?: string | null; predictionMode?: string | null; distanceUnit?: string | null; expoPushToken?: string | null; notifyOnRideUpload?: boolean | null; rideSyncNotificationMode?: 'ALL' | 'ACTION_NEEDED' | 'OFF' | null; weeklyDigestEnabled?: boolean | null; timezone?: string | null } },
       ctx: GraphQLContext
     ) => {
       const userId = requireUserId(ctx);
@@ -4122,7 +4122,7 @@ export const resolvers = {
         });
       }
 
-      const updateData: { hoursDisplayPreference?: string | null; predictionMode?: string | null; distanceUnit?: string | null; expoPushToken?: string | null; notifyOnRideUpload?: boolean } = {};
+      const updateData: { hoursDisplayPreference?: string | null; predictionMode?: string | null; distanceUnit?: string | null; expoPushToken?: string | null; notifyOnRideUpload?: boolean; rideSyncNotificationMode?: 'ALL' | 'ACTION_NEEDED' | 'OFF'; weeklyDigestEnabled?: boolean; timezone?: string | null } = {};
 
       if (input.hoursDisplayPreference !== undefined) {
         // Input length validation to prevent DoS/excessive storage
@@ -4191,8 +4191,54 @@ export const resolvers = {
         updateData.expoPushToken = input.expoPushToken;
       }
 
-      if (input.notifyOnRideUpload !== undefined && input.notifyOnRideUpload !== null) {
+      // rideSyncNotificationMode is the source of truth for ride-sync pushes;
+      // the legacy boolean is kept in sync in both directions so app versions
+      // <= 1.1.4 (which only know the toggle) and current clients never
+      // disagree about whether pushes are on.
+      if (input.rideSyncNotificationMode !== undefined && input.rideSyncNotificationMode !== null) {
+        updateData.rideSyncNotificationMode = input.rideSyncNotificationMode;
+        updateData.notifyOnRideUpload = input.rideSyncNotificationMode !== 'OFF';
+      } else if (input.notifyOnRideUpload !== undefined && input.notifyOnRideUpload !== null) {
         updateData.notifyOnRideUpload = input.notifyOnRideUpload;
+        if (!input.notifyOnRideUpload) {
+          updateData.rideSyncNotificationMode = 'OFF';
+        } else {
+          // Legacy toggle-on: only lift OFF -> ALL. A stored ACTION_NEEDED
+          // must survive an old client re-sending true (its toggle renders
+          // as "on" for that mode, so a save from that screen is a no-op,
+          // not a request to hear about every ride).
+          const current = await prisma.user.findUnique({
+            where: { id: userId },
+            select: { rideSyncNotificationMode: true },
+          });
+          if (current?.rideSyncNotificationMode === 'OFF') {
+            updateData.rideSyncNotificationMode = 'ALL';
+          }
+        }
+      }
+
+      if (input.weeklyDigestEnabled !== undefined && input.weeklyDigestEnabled !== null) {
+        updateData.weeklyDigestEnabled = input.weeklyDigestEnabled;
+      }
+
+      if (input.timezone !== undefined) {
+        if (input.timezone !== null) {
+          if (input.timezone.length > 64) {
+            throw new GraphQLError('timezone exceeds maximum length', {
+              extensions: { code: 'BAD_USER_INPUT' },
+            });
+          }
+          // The only validation that matters is the one the digest scheduler
+          // relies on: Intl must accept it. Anything else is a bad value.
+          try {
+            new Intl.DateTimeFormat('en-US', { timeZone: input.timezone });
+          } catch {
+            throw new GraphQLError('timezone is not a valid IANA timezone', {
+              extensions: { code: 'BAD_USER_INPUT' },
+            });
+          }
+        }
+        updateData.timezone = input.timezone;
       }
 
       if (Object.keys(updateData).length === 0) {
@@ -4626,6 +4672,12 @@ export const resolvers = {
       for (const affected of new Set([bikeId, ...adjustedBikeIds])) {
         await invalidateBikePrediction(userId, affected);
       }
+
+      // A bulk assignment can credit hours enough to push components past
+      // their service thresholds in one move, exactly the moment the rider
+      // is paying attention. Fire-and-forget (never throws); per-component
+      // dedup inside makes it safe even if nothing crossed.
+      void fireServiceDueForBike({ userId, bikeId });
 
       return {
         success: true,
@@ -6350,7 +6402,18 @@ export const resolvers = {
       parent.pairedComponentMigrationSeenAt?.toISOString() ?? null,
     trailStewardshipNoticeSeenAt: (parent: { trailStewardshipNoticeSeenAt?: Date | null }) =>
       parent.trailStewardshipNoticeSeenAt?.toISOString() ?? null,
-    notifyOnRideUpload: (parent: { notifyOnRideUpload?: boolean }) => parent.notifyOnRideUpload ?? true,
+    // Derived for legacy clients: the mode is the source of truth. Falls back
+    // to the kept-in-sync boolean when a caller's select omitted the mode.
+    notifyOnRideUpload: (parent: { notifyOnRideUpload?: boolean; rideSyncNotificationMode?: string }) =>
+      parent.rideSyncNotificationMode !== undefined
+        ? parent.rideSyncNotificationMode !== 'OFF'
+        : parent.notifyOnRideUpload ?? true,
+    rideSyncNotificationMode: (parent: { rideSyncNotificationMode?: string; notifyOnRideUpload?: boolean }) =>
+      parent.rideSyncNotificationMode ??
+      // Parent row predates the column being selected: derive from the
+      // boolean the same way the migration backfilled it.
+      ((parent.notifyOnRideUpload ?? true) ? 'ALL' : 'OFF'),
+    weeklyDigestEnabled: (parent: { weeklyDigestEnabled?: boolean }) => parent.weeklyDigestEnabled ?? false,
     createdAt: (parent: { createdAt: Date }) => parent.createdAt.toISOString(),
     // Scoped to the viewer's User type so the shape matches other user-owned
     // fields. GraphQL's lazy field resolution means this COUNT only runs
