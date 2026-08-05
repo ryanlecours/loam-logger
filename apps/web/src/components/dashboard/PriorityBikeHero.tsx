@@ -8,6 +8,7 @@ import { getBikeName } from '../../utils/formatters';
 import { StatusPill } from './StatusPill';
 import { ComponentHealthPanel } from './ComponentHealthPanel';
 import { AdvisorSummaryCard } from './AdvisorSummaryCard';
+import { useUserTier } from '../../hooks/useUserTier';
 import { CompactRideRow } from './CompactRideRow';
 import { Button } from '../ui/Button';
 
@@ -32,6 +33,7 @@ export function PriorityBikeHero({
   loading = false,
   rides = [],
 }: PriorityBikeHeroProps) {
+  const { isFree } = useUserTier();
   // Paginated rides for this bike - show 5 rides in hero
   const {
     rides: paginatedRides,
@@ -139,10 +141,11 @@ export function PriorityBikeHero({
             {/* Component Health Panel */}
             <ComponentHealthPanel components={components} onLogService={onLogService} />
 
-            {/* AI maintenance summary (Pro-only; renders nothing when null) */}
+            {/* AI maintenance summary (Pro-only; free tier gets a teaser) */}
             <AdvisorSummaryCard
               summary={predictions?.advisorSummary ?? null}
               hasGarminSource={bike?.contributingSources?.includes('garmin') ?? false}
+              showTeaser={isFree}
             />
 
             {/* Actions */}

@@ -281,7 +281,7 @@ export default function BikeHistory() {
                 <Button variant="outline" size="sm" onClick={() => setShowPdfUpsell(true)}>
                   <FileDown size={14} className="icon-left" />
                   Export PDF
-                  <span className="ml-1.5 rounded-full border border-amber-500/40 bg-amber-500/10 px-1.5 text-[10px] font-semibold uppercase text-amber-400">Pro</span>
+                  <span className="ml-1.5 rounded-full border border-mint/30 bg-mint/15 px-1.5 text-[10px] font-semibold uppercase text-mint">Pro</span>
                 </Button>
               )}
             </div>
@@ -289,7 +289,9 @@ export default function BikeHistory() {
 
           {showPdfUpsell && !isPro && (
             <div className="mb-4">
-              <UpsellCard feature="pdfExport" />
+              {/* Click-triggered: session-only dismissal, or a persisted
+                  dismissal would leave the Export PDF button doing nothing. */}
+              <UpsellCard feature="pdfExport" persist={false} onDismiss={() => setShowPdfUpsell(false)} />
             </div>
           )}
 

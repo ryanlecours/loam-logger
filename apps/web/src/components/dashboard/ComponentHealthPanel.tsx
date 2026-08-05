@@ -323,7 +323,7 @@ function ComponentDetailOverlay({ component, onClose, onServiceLogged, onLogServ
             {component.status == null ? (
               // Free tier: predictions (and their wear analysis) are Pro
               <p>
-                Pro estimates the rides left before this part needs service. <ProChip />
+                Pro estimates the rides left before this part needs service. <ProChip source="dashboard-wear-analysis" />
               </p>
             ) : (
               <p>No wear analysis available for this component.</p>
@@ -343,6 +343,23 @@ export function ComponentHealthPanel({ components, className = '', onLogService 
   const sortedComponents = useMemo(
     () => getSortedComponentsForHealth(components),
     [components]
+  );
+
+  // Free tier: predictions are nulled server-side, but the raw counters
+  // survive, so "past interval" is computable here. When a part crosses its
+  // interval, re-arm the (possibly dismissed) predictions upsell once and
+  // ground its copy in the user's own data.
+  const pastIntervalCount = useMemo(
+    () =>
+      isFree
+        ? components.filter(
+            (c) =>
+              c.serviceIntervalHours != null &&
+              c.hoursSinceService != null &&
+              c.hoursSinceService >= c.serviceIntervalHours
+          ).length
+        : 0,
+    [components, isFree]
   );
 
   // Empty state
@@ -392,7 +409,7 @@ export function ComponentHealthPanel({ components, className = '', onLogService 
                       {formatHours(component.hoursSinceService)} / {component.serviceIntervalHours}h
                     </span>
                     <span className="component-health-hours-secondary">
-                      {component.ridesSinceService} rides since service <ProChip />
+                      {component.ridesSinceService} rides since service <ProChip source="dashboard-health-row" />
                     </span>
                   </>
                 ) : hoursDisplay === 'total' ? (
@@ -422,7 +439,20 @@ export function ComponentHealthPanel({ components, className = '', onLogService 
       </div>
 
       {isFree && (
-        <UpsellCard feature="predictions" className="mt-4" />
+        <UpsellCard
+          feature="predictions"
+          className="mt-4"
+          rearmKey={pastIntervalCount > 0 ? 'past-interval' : undefined}
+          body={
+            pastIntervalCount > 0
+              ? `${
+                  pastIntervalCount === 1
+                    ? 'One part is past its service interval.'
+                    : `${pastIntervalCount} parts are past their service intervals.`
+                } Pro flags parts while they're still due soon, so the fix happens in the garage, not on the trail.`
+              : undefined
+          }
+        />
       )}
 
       {selectedComponent && (

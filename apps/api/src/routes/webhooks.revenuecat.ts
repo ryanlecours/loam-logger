@@ -7,6 +7,7 @@ import { storeToProvider } from '../lib/revenuecat';
 import { upgradeUser, downgradeUser } from '../services/subscription.service';
 import { sendEmailWithAudit } from '../services/email.service';
 import { getPaymentFailedEmailHtml, getPaymentFailedEmailSubject, PAYMENT_FAILED_TEMPLATE_VERSION } from '../templates/emails/payment-failed';
+import { captureServerEvent } from '../lib/posthog';
 
 const router = Router();
 
@@ -55,11 +56,24 @@ router.post('/', async (req: Request, res: Response) => {
         }
         const provider = storeToProvider(store || 'PLAY_STORE');
         await upgradeUser(appUserId, provider, 'revenuecat_webhook');
+        if (eventType === 'INITIAL_PURCHASE') {
+          // Mirrors the Stripe webhook's funnel terminus so IAP conversions
+          // land in the same PostHog event. Financial fields are deliberately
+          // excluded (privacy-policy scoped), matching the Stripe path.
+          captureServerEvent(appUserId, 'subscription_checkout_completed', {
+            source: 'revenuecat',
+            store: store ?? 'unknown',
+          });
+        }
         break;
       }
 
       case 'EXPIRATION':
         await downgradeUser(appUserId, 'revenuecat_webhook');
+        captureServerEvent(appUserId, 'subscription_canceled', {
+          source: 'revenuecat',
+          store: store ?? 'unknown',
+        });
         break;
 
       case 'BILLING_ISSUE':

@@ -16,6 +16,8 @@ import {
   DELETE_COMPONENT,
 } from '@/graphql/gear';
 import { SpareComponentForm } from '@/components/SpareComponentForm';
+import { UpsellCard } from '@/components/UpgradePrompt';
+import { useUserTier } from '@/hooks/useUserTier';
 import { BikeOverviewCard, SpareComponentsPanel, GearPageHeader } from '@/components/gear';
 import { LogServiceModal } from '@/components/dashboard';
 import type { BikePredictionSummary } from '@/types/prediction';
@@ -169,7 +171,9 @@ export default function Gear() {
   const bikes = data?.bikes ?? [];
   const spareComponents = data?.spareComponents ?? [];
 
+  const { canAddBike } = useUserTier();
   const [showBikeModal, setShowBikeModal] = useState(false);
+  const [showBikeLimitUpsell, setShowBikeLimitUpsell] = useState(false);
   const [spareModal, setSpareModal] = useState<SpareModalState | null>(null);
   const [bikeFormError, setBikeFormError] = useState<string | null>(null);
   const [spareFormError, setSpareFormError] = useState<string | null>(null);
@@ -363,6 +367,12 @@ export default function Gear() {
       {/* Header */}
       <GearPageHeader
         onAddBike={() => {
+          // Free tier at the bike limit: don't open a form that can't
+          // succeed; show the upsell instead of a post-submit error.
+          if (!canAddBike) {
+            setShowBikeLimitUpsell(true);
+            return;
+          }
           setBikeFormError(null);
           setShowBikeModal(true);
         }}
@@ -371,6 +381,15 @@ export default function Gear() {
           setSpareModal({ mode: 'create' });
         }}
       />
+
+      {showBikeLimitUpsell && (
+        <UpsellCard
+          feature="bikeLimit"
+          className="mb-6"
+          persist={false}
+          onDismiss={() => setShowBikeLimitUpsell(false)}
+        />
+      )}
 
       {/* Error Alert */}
       {error && (

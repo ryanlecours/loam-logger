@@ -5,7 +5,7 @@ import { useCurrentUser } from '../../../hooks/useCurrentUser';
 import { usePreferences } from '../../../hooks/usePreferences';
 import { useUserTier } from '../../../hooks/useUserTier';
 import { UPDATE_USER_PREFERENCES_MUTATION } from '../../../graphql/userPreferences';
-import { ProBadge } from '../../../components/ui/ProBadge';
+import { ProChip } from '../../../components/UpgradePrompt';
 import SettingsSectionHeader from '../SettingsSectionHeader';
 import { useAutoSavePreference } from '../useAutoSavePreference';
 
@@ -106,7 +106,7 @@ export default function PreferencesSection() {
               !isPro
                 ? (e) => {
                     e.preventDefault();
-                    navigate('/pricing');
+                    navigate('/pricing?source=settings-predictive-mode');
                   }
                 : undefined
             }
@@ -121,7 +121,7 @@ export default function PreferencesSection() {
               disabled={!isPro}
             />
             Predictive (ride-adjusted)
-            {!isPro && <ProBadge className="ml-2 inline-flex items-center gap-1" />}
+            {!isPro && <ProChip className="ml-2" source="settings-predictive-mode" />}
           </label>
         </div>
         <p className="text-xs text-muted">

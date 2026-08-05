@@ -1,9 +1,10 @@
-import { useNavigate } from 'react-router';
+import { useNavigate, useSearchParams } from 'react-router';
 import { motion } from 'motion/react';
 import { gql, useMutation } from '@apollo/client';
 import { Check, X } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useUserTier } from '../hooks/useUserTier';
+import { useViewer } from '../graphql/me';
 import { posthog } from '../lib/posthog';
 
 const CREATE_CHECKOUT = gql`
@@ -17,11 +18,32 @@ const CREATE_CHECKOUT = gql`
 
 export default function Pricing() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { tier, isPro, isFoundingRider } = useUserTier();
+  const { viewer } = useViewer();
+  const isAuthenticated = !!viewer;
   const [billingPeriod, setBillingPeriod] = useState<'MONTHLY' | 'ANNUAL'>('ANNUAL');
   const [createCheckout, { loading }] = useMutation(CREATE_CHECKOUT);
 
+  // Which touchpoint sent the user here (upsell card, chip, settings, footer).
+  // Every in-app link to /pricing appends ?source=… so the funnel can rank
+  // touchpoints by actual conversion, not just clicks.
+  const source = searchParams.get('source') ?? 'direct';
+
+  useEffect(() => {
+    posthog.capture('pricing_page_viewed', { source, currentTier: tier });
+    // Fire once per visit; source and tier are fixed for the page's lifetime.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handleUpgrade = async () => {
+    // The page is public: a logged-out visitor can't check out, so send them
+    // to signup instead of silently failing the checkout mutation.
+    if (!isAuthenticated) {
+      posthog.capture('pricing_signup_redirect', { plan: billingPeriod, source });
+      navigate('/signup');
+      return;
+    }
     // Three-stage funnel:
     //   1. `checkout_session_started` — intent (fires on click)
     //   2. `checkout_session_created` — Stripe session URL returned (fires
@@ -29,12 +51,12 @@ export default function Pricing() {
     //      pre-Stripe failures: rate limits, network errors, validation)
     //   3. `subscription_checkout_completed` — payment succeeded (fires
     //      server-side from the Stripe webhook; authoritative)
-    posthog.capture('checkout_session_started', { plan: billingPeriod, currentTier: tier });
+    posthog.capture('checkout_session_started', { plan: billingPeriod, currentTier: tier, source });
     try {
       const { data } = await createCheckout({ variables: { plan: billingPeriod } });
       const url = data?.createCheckoutSession?.url;
       if (url) {
-        posthog.capture('checkout_session_created', { plan: billingPeriod, currentTier: tier });
+        posthog.capture('checkout_session_created', { plan: billingPeriod, currentTier: tier, source });
         window.location.href = url;
       }
     } catch {
@@ -57,6 +79,7 @@ export default function Pricing() {
         { text: 'Automatic ride sync', included: true },
         { text: 'Service logging & usage counts', included: true },
         { text: 'Rides left until service due', included: false },
+        { text: 'Service-due alerts & weekly bike check', included: false },
         { text: 'Ride weather tracking', included: false },
         { text: 'PDF service history export', included: false },
       ],
@@ -72,10 +95,11 @@ export default function Pricing() {
         { text: 'Unlimited bikes', included: true },
         { text: 'Rides left until service due', included: true },
         { text: 'Ride-adjusted wear predictions', included: true },
+        { text: 'AI maintenance summary per bike', included: true },
+        { text: 'Service-due alerts & weekly bike check', included: true },
         { text: 'Weather on every ride', included: true },
         { text: 'PDF service history export', included: true },
         { text: 'Import your full ride history', included: true },
-        { text: 'Priority support', included: true },
       ],
     },
   ];
@@ -180,7 +204,7 @@ export default function Pricing() {
                         disabled={loading}
                         className="w-full rounded-lg bg-amber-500 py-2 text-sm font-medium text-white transition hover:bg-amber-500/80 disabled:opacity-50"
                       >
-                        {loading ? 'Loading...' : 'Upgrade to Pro'}
+                        {loading ? 'Loading...' : isAuthenticated ? 'Upgrade to Pro' : 'Get started'}
                       </button>
                     ) : null}
                   </div>

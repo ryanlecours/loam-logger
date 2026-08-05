@@ -60,19 +60,19 @@ describe('WeatherBackfillSection', () => {
     expect(screen.getByRole('button', { name: /fetch weather/i })).toBeEnabled();
   });
 
-  it('shows a Pro feature chip for free users and routes to /pricing on click', () => {
+  it('shows an Included with Pro button for free users and routes to /pricing on click', () => {
     mockUseUserTier.mockReturnValueOnce({ isPro: false });
     renderSection();
-    const btn = screen.getByRole('button', { name: /pro feature/i });
+    const btn = screen.getByRole('button', { name: /included with pro/i });
     fireEvent.click(btn);
-    expect(mockNavigate).toHaveBeenCalledWith('/pricing');
+    expect(mockNavigate).toHaveBeenCalledWith('/pricing?source=settings-weather-backfill');
     expect(mockBackfill).not.toHaveBeenCalled();
   });
 
   it('does not call backfill mutation when a free user clicks', () => {
     mockUseUserTier.mockReturnValueOnce({ isPro: false });
     renderSection();
-    fireEvent.click(screen.getByRole('button', { name: /pro feature/i }));
+    fireEvent.click(screen.getByRole('button', { name: /included with pro/i }));
     expect(mockBackfill).not.toHaveBeenCalled();
   });
 
