@@ -1,9 +1,17 @@
 import { Sparkles } from 'lucide-react';
 import type { AdvisorSummary } from '../../types/prediction';
 import { GarminDerivedNote } from '../attribution/GarminAttribution';
+import { ProChip } from '../UpgradePrompt';
 
 interface AdvisorSummaryCardProps {
   summary: AdvisorSummary | null;
+  /**
+   * Free tier: the API nulls the summary, so without a teaser the feature is
+   * invisible and free users never learn it exists. Pass true only for free
+   * users; a null summary for a Pro user (ALL_GOOD, rate limit, generation
+   * error) must still collapse to nothing.
+   */
+  showTeaser?: boolean;
   /**
    * Whether this bike's hours include Garmin-sourced rides. When true the card
    * names Garmin as a contributing source, which the Garmin API Brand
@@ -24,8 +32,22 @@ interface AdvisorSummaryCardProps {
  * is simply: render nothing when null and let the space collapse. No tier
  * check here — mirrors how the rest of the hero treats null predictive fields.
  */
-export function AdvisorSummaryCard({ summary, hasGarminSource = false }: AdvisorSummaryCardProps) {
-  if (!summary) return null;
+export function AdvisorSummaryCard({ summary, hasGarminSource = false, showTeaser = false }: AdvisorSummaryCardProps) {
+  if (!summary) {
+    if (!showTeaser) return null;
+    return (
+      <aside className="advisor-summary" aria-label="AI maintenance summary, included with Pro">
+        <div className="advisor-summary-label">
+          <Sparkles size={12} className="icon-left" />
+          AI summary
+          <ProChip source="dashboard-advisor-teaser" className="ml-1.5" />
+        </div>
+        <p className="advisor-summary-text text-muted">
+          Pro reads this bike's wear picture and sums up what to wrench on this week.
+        </p>
+      </aside>
+    );
+  }
 
   return (
     <aside className="advisor-summary" aria-label="AI maintenance summary">

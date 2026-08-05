@@ -4,7 +4,7 @@ const productLinks = [
     { label: 'Dashboard', path: '/dashboard' },
     { label: 'My Bikes', path: '/gear' },
     { label: 'Maintenance', path: '/gear' },
-    { label: 'Pricing', path: '/pricing' },
+    { label: 'Pricing', path: '/pricing?source=app-footer' },
 ];
 
 const legalLinks = [

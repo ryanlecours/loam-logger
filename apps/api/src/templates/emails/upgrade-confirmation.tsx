@@ -45,7 +45,7 @@ export default function UpgradeConfirmationEmail({
       </Head>
 
       <Preview>
-        Welcome to Pro: unlimited bikes, all components, advanced predictions.
+        Welcome to Pro: unlimited bikes, advanced predictions, weather on every ride.
       </Preview>
 
       <Body className="ll-body" style={styles.body}>
@@ -81,7 +81,10 @@ export default function UpgradeConfirmationEmail({
                 • <span className="ll-emph" style={styles.emph}>Unlimited bikes</span> — add every bike in your garage
               </Text>
               <Text className="ll-bullets" style={styles.bullets}>
-                • <span className="ll-emph" style={styles.emph}>All component types</span> — drivetrain, tires, wheels, dropper, headset, bottom bracket, and more
+                • <span className="ll-emph" style={styles.emph}>Rides left until service due</span>: the hours and rides each part has left, not just hours used
+              </Text>
+              <Text className="ll-bullets" style={styles.bullets}>
+                • <span className="ll-emph" style={styles.emph}>Service-due alerts</span>: a push when a part comes due, plus the weekly bike check
               </Text>
               <Text className="ll-bullets" style={styles.bullets}>
                 • <span className="ll-emph" style={styles.emph}>Predictive wear algorithm</span> — factors in elevation, distance, and trail steepness

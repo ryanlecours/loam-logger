@@ -74,7 +74,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
                   </ProBadge>
                 ) : (
                   <NavLink
-                    to="/pricing"
+                    to="/pricing?source=navbar-free-pill"
                     className="rounded-full bg-white/10 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white/50 transition hover:bg-white/20 hover:text-white/70"
                   >
                     Free

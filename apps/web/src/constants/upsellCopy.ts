@@ -8,7 +8,9 @@
  *   modals, no interstitials, no push-notification upsells, no urgency or
  *   scarcity language, no "unlock" spam.
  * - One inline upsell card per screen, max. Every other gated spot gets a
- *   quiet Pro chip. Dismissed cards stay dismissed (persisted per surface).
+ *   quiet Pro chip. Dismissed cards stay dismissed (persisted per surface),
+ *   with one exception: each part that crosses its service interval re-arms
+ *   a dismissed card once, keyed per part via UpsellCard's rearmKey.
  * - Never upsell inside error paths, except the bike-limit message.
  */
 import { BIKE_LIMIT_UPSELL_LINE } from '@loam/shared';
