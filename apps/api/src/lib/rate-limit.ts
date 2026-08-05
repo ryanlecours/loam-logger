@@ -111,6 +111,9 @@ export const MUTATION_RATE_LIMITS = {
   oauthStart: { windowSeconds: 600, maxRequests: 10 },
   /** updateUserPreferences: max 20 requests per minute per user */
   updateUserPreferences: { windowSeconds: 60, maxRequests: 20 },
+  /** unregisterPushToken: max 20 requests per minute per user (one call per
+   *  logout; matches updateUserPreferences since it's a peer of that path) */
+  unregisterPushToken: { windowSeconds: 60, maxRequests: 20 },
   /** updateAnalyticsOptOut: max 10 toggles per hour per user. Users rarely flip
    *  this — a tight cap bounds cache-invalidation abuse without impacting
    *  legitimate usage. */

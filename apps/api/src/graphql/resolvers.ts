@@ -4269,6 +4269,43 @@ export const resolvers = {
       return updatedUser;
     },
 
+    /**
+     * Compare-and-clear for expoPushToken. See the schema doc for why this
+     * can't be a blind null: the column is one value per USER, not one per
+     * device, so the same account signed into two devices only ever has
+     * room for one device's token — whichever registers last silently wins
+     * the slot. A blind clear on logout would let the device that already
+     * lost that race null out a different, currently-active device's token.
+     * Matching first means a stale device's logout can only ever remove its
+     * OWN (long since overwritten) token, never a foreign one.
+     */
+    unregisterPushToken: async (
+      _: unknown,
+      { token }: { token: string },
+      ctx: GraphQLContext
+    ) => {
+      const userId = requireUserId(ctx);
+
+      const rateLimit = await checkMutationRateLimit('unregisterPushToken', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
+
+      // updateMany + a where-clause match, not findUnique-then-update: the
+      // match check and the clear are one atomic statement, so two devices
+      // racing this call can never both observe "yes it's mine" and step on
+      // each other. A false return isn't an error — it means this token
+      // wasn't the one on file (already cleared, or a different device has
+      // since claimed the slot), and there is nothing to unregister.
+      const result = await prisma.user.updateMany({
+        where: { id: userId, expoPushToken: token },
+        data: { expoPushToken: null },
+      });
+      return result.count > 0;
+    },
+
     updateAnalyticsOptOut: async (
       _: unknown,
       { optOut }: { optOut: boolean },
