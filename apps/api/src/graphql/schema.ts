@@ -554,6 +554,12 @@ export const typeDefs = gql`
     # instead of inserting a duplicate. Optional: omitting it preserves the
     # old always-insert behavior.
     clientMutationId: String
+    # Where the ride started, from the phone's GPS (in-app recording) or any
+    # future coordinate-bearing source. Both or neither; a lone coordinate is
+    # rejected. Presence unlocks the enrichment provider rides already get:
+    # weather now, lift detection once a track is uploaded.
+    startLat: Float
+    startLng: Float
   }
 
   type DeleteRideResult { ok: Boolean!, id: ID! }

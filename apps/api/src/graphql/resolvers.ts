@@ -74,6 +74,8 @@ type AddRideInput = {
   trailSystem?: string | null;
   location?: string | null;
   clientMutationId?: string | null;
+  startLat?: number | null;
+  startLng?: number | null;
 };
 
 type UpdateRideInput = {
@@ -1924,6 +1926,33 @@ export const resolvers = {
         });
       }
 
+      // GPS start coordinate (in-app recording). Both or neither, range
+      // checked: the weather worker and lift detection key off these columns,
+      // and a lone or out-of-range coordinate would poison them silently.
+      const hasStartLat = typeof input.startLat === 'number';
+      const hasStartLng = typeof input.startLng === 'number';
+      if (hasStartLat !== hasStartLng) {
+        throw new GraphQLError('startLat and startLng must be provided together', {
+          extensions: { code: 'BAD_USER_INPUT' },
+        });
+      }
+      let startLat: number | null = null;
+      let startLng: number | null = null;
+      if (hasStartLat && hasStartLng) {
+        startLat = Number(input.startLat);
+        startLng = Number(input.startLng);
+        if (
+          !Number.isFinite(startLat) ||
+          !Number.isFinite(startLng) ||
+          Math.abs(startLat) > 90 ||
+          Math.abs(startLng) > 180
+        ) {
+          throw new GraphQLError('startLat/startLng out of range', {
+            extensions: { code: 'BAD_USER_INPUT' },
+          });
+        }
+      }
+
       let bikeId: string | null = null;
       if (requestedBikeId) {
         const ownedBike = await prisma.bike.findUnique({
@@ -1959,6 +1988,7 @@ export const resolvers = {
         ...(trailSystem ? { trailSystem } : {}),
         ...(location ? { location } : {}),
         ...(clientMutationId ? { clientMutationId } : {}),
+        ...(startLat !== null && startLng !== null ? { startLat, startLng } : {}),
       };
 
       const hoursDelta = durationSeconds / 3600;
@@ -2015,9 +2045,18 @@ export const resolvers = {
 
       // A manual ride credits hours the same as a synced one, so it gets the
       // same threshold check. No "Ride Synced" push, though: the rider typed
-      // this ride in themselves seconds ago.
+      // this ride in themselves seconds ago (or just finished recording it
+      // in-app, which is the same situation).
       if (bikeId) {
         void fireServiceDueForBike({ userId, bikeId });
+      }
+
+      // With a start coordinate the ride gets the same weather enrichment a
+      // provider-synced ride does. Fire-and-forget like the provider paths;
+      // the job is idempotent per ride (static jobId) and the worker skips
+      // rides whose weather already exists.
+      if (startLat !== null && startLng !== null) {
+        enqueueWeatherJob({ rideId: ride.id }).catch(() => {});
       }
 
       return ride;
