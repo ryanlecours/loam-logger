@@ -6,6 +6,11 @@ jest.mock('../lib/prisma', () => ({
     },
     bike: {
       findUnique: jest.fn(),
+      findFirst: jest.fn(),
+      count: jest.fn(),
+    },
+    ride: {
+      count: jest.fn(),
     },
     bikeNotificationPreference: {
       findUnique: jest.fn(),
@@ -13,6 +18,7 @@ jest.mock('../lib/prisma', () => ({
     notificationLog: {
       create: jest.fn(),
       createMany: jest.fn(),
+      findFirst: jest.fn(),
       findMany: jest.fn(),
       deleteMany: jest.fn(),
     },
@@ -57,6 +63,7 @@ import { prisma } from '../lib/prisma';
 import { enqueueReceiptCheck } from '../lib/queue/notification.queue';
 import {
   fireRideNotifications,
+  fireServiceDueForBike,
   notifyRideUploaded,
   checkAndNotifyServiceDue,
   clearServiceNotificationLogs,
@@ -69,12 +76,17 @@ describe('notification.service', () => {
     jest.clearAllMocks();
     mockSendPushNotificationsAsync.mockResolvedValue([{ status: 'ok', id: 'ticket-123' }]);
     (mockPrisma.notificationLog.create as jest.Mock).mockResolvedValue({});
+    // No recent ride push: the burst window is open unless a test closes it.
+    (mockPrisma.notificationLog.findFirst as jest.Mock).mockResolvedValue(null);
+    (mockPrisma.notificationLog.deleteMany as jest.Mock).mockResolvedValue({ count: 0 });
   });
 
   describe('notifyRideUploaded', () => {
+    // Whether the push should go out at all (rideSyncNotificationMode, burst
+    // window) is decided by fireRideNotifications; the opt-out and mode
+    // tests live in that describe block now.
     const baseUser = {
       expoPushToken: 'ExponentPushToken[abc123]',
-      notifyOnRideUpload: true,
       distanceUnit: 'mi' as string | null,
     };
 
@@ -87,12 +99,6 @@ describe('notification.service', () => {
       user: baseUser,
     };
 
-    it('should skip if user has notifications disabled', async () => {
-      await notifyRideUploaded({ ...baseParams, user: { ...baseUser, notifyOnRideUpload: false } });
-
-      expect(mockSendPushNotificationsAsync).not.toHaveBeenCalled();
-    });
-
     it('should send a combined upload + pick-bike notification when needsBikeAssignment is true', async () => {
       await notifyRideUploaded({ ...baseParams, bikeName: undefined, needsBikeAssignment: true });
 
@@ -103,20 +109,6 @@ describe('notification.service', () => {
           data: { screen: 'ride', rideId: 'ride-1', action: 'pickBike' },
         }),
       ]);
-    });
-
-    it('should suppress the pick-bike prompt when notifyOnRideUpload is false', async () => {
-      // The user's notification preference wins over the bike-pick prompt.
-      // Surfacing the unassigned ride is deferred to the in-app rides list
-      // rather than overriding their opt-out at the lockscreen.
-      await notifyRideUploaded({
-        ...baseParams,
-        bikeName: undefined,
-        needsBikeAssignment: true,
-        user: { ...baseUser, notifyOnRideUpload: false },
-      });
-
-      expect(mockSendPushNotificationsAsync).not.toHaveBeenCalled();
     });
 
     it('should send notification with miles when user prefers mi', async () => {
@@ -461,17 +453,19 @@ describe('notification.service', () => {
       isNewRide: true,
     };
 
+    const proUser = {
+      expoPushToken: 'ExponentPushToken[abc123]',
+      rideSyncNotificationMode: 'ALL',
+      distanceUnit: 'mi',
+      role: 'USER',
+      predictionMode: 'simple',
+      subscriptionTier: 'PRO',
+      isFoundingRider: false,
+    };
+
     beforeEach(() => {
-      (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({
-        expoPushToken: 'ExponentPushToken[abc123]',
-        notifyOnRideUpload: true,
-        distanceUnit: 'mi',
-        role: 'USER',
-        predictionMode: 'simple',
-        subscriptionTier: 'PRO',
-        isFoundingRider: false,
-      });
-      (mockPrisma.bike.findUnique as jest.Mock).mockResolvedValue({
+      (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({ ...proUser });
+      (mockPrisma.bike.findFirst as jest.Mock).mockResolvedValue({
         nickname: 'Trail Bike',
         manufacturer: 'Santa Cruz',
         model: 'Hightower',
@@ -482,13 +476,8 @@ describe('notification.service', () => {
     it('skips the service-due check entirely for free users', async () => {
       // Service-due pushes carry rides/hours-remaining predictions — Pro-only.
       (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({
-        expoPushToken: 'ExponentPushToken[abc123]',
-        notifyOnRideUpload: true,
-        distanceUnit: 'mi',
-        role: 'USER',
-        predictionMode: 'simple',
+        ...proUser,
         subscriptionTier: 'FREE',
-        isFoundingRider: false,
       });
       mockSendPushNotificationsAsync.mockResolvedValue([{ status: 'ok', id: 'ticket-free' }]);
 
@@ -510,11 +499,8 @@ describe('notification.service', () => {
 
     it('should return early when user has no push token', async () => {
       (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({
+        ...proUser,
         expoPushToken: null,
-        notifyOnRideUpload: true,
-        distanceUnit: 'mi',
-        role: 'USER',
-        predictionMode: 'simple',
       });
 
       await fireRideNotifications(baseParams);
@@ -540,11 +526,8 @@ describe('notification.service', () => {
 
     it('should not enqueue receipt check when no tickets are produced', async () => {
       (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({
-        expoPushToken: 'ExponentPushToken[abc123]',
-        notifyOnRideUpload: false,
-        distanceUnit: 'mi',
-        role: 'USER',
-        predictionMode: 'simple',
+        ...proUser,
+        rideSyncNotificationMode: 'OFF',
       });
       mockGenerateBikePredictions.mockResolvedValue(null);
 
@@ -603,6 +586,239 @@ describe('notification.service', () => {
         (call) => call[0]?.[0]?.data?.action === 'pickBike'
       );
       expect(bikePickCall).toBeUndefined();
+    });
+
+    describe('rideSyncNotificationMode', () => {
+      it('OFF sends no ride push, including the pick-bike variant', async () => {
+        // The user's opt-out wins over the bike-pick prompt. The unassigned
+        // ride still surfaces in-app (rides list + dashboard banner), so
+        // nothing is silently dropped; the lockscreen just stays quiet.
+        (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({
+          ...proUser,
+          rideSyncNotificationMode: 'OFF',
+        });
+
+        await fireRideNotifications({ ...baseParams, bikeId: null, activeBikeCount: 3 });
+
+        expect(mockSendPushNotificationsAsync).not.toHaveBeenCalled();
+      });
+
+      it('OFF still runs the service-due check: silencing sync noise must not silence "fork due"', async () => {
+        (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({
+          ...proUser,
+          rideSyncNotificationMode: 'OFF',
+        });
+        mockGenerateBikePredictions.mockResolvedValue({ components: [] });
+
+        await fireRideNotifications(baseParams);
+
+        expect(mockGenerateBikePredictions).toHaveBeenCalled();
+      });
+
+      it('ACTION_NEEDED skips a plain sync confirmation', async () => {
+        (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({
+          ...proUser,
+          rideSyncNotificationMode: 'ACTION_NEEDED',
+        });
+        // Not the first-ever ride.
+        (mockPrisma.ride.count as jest.Mock).mockResolvedValue(12);
+
+        await fireRideNotifications(baseParams);
+
+        const rideCall = mockSendPushNotificationsAsync.mock.calls.find(
+          (call) => call[0]?.[0]?.title === 'Ride Synced'
+        );
+        expect(rideCall).toBeUndefined();
+      });
+
+      it('ACTION_NEEDED pushes when the ride needs a bike assigned', async () => {
+        (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({
+          ...proUser,
+          rideSyncNotificationMode: 'ACTION_NEEDED',
+        });
+
+        await fireRideNotifications({ ...baseParams, bikeId: null, activeBikeCount: 3 });
+
+        expect(mockSendPushNotificationsAsync).toHaveBeenCalledWith([
+          expect.objectContaining({
+            data: { screen: 'ride', rideId: 'ride-1', action: 'pickBike' },
+          }),
+        ]);
+      });
+
+      it("ACTION_NEEDED pushes the account's first-ever synced ride", async () => {
+        // The "it works" moment when a provider is first connected.
+        (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({
+          ...proUser,
+          rideSyncNotificationMode: 'ACTION_NEEDED',
+        });
+        (mockPrisma.ride.count as jest.Mock).mockResolvedValue(1);
+
+        await fireRideNotifications(baseParams);
+
+        const rideCall = mockSendPushNotificationsAsync.mock.calls.find(
+          (call) => call[0]?.[0]?.title === 'Ride Synced'
+        );
+        expect(rideCall).toBeDefined();
+      });
+    });
+
+    describe('burst suppression', () => {
+      it('suppresses a second ride push inside the window, pick-bike included', async () => {
+        // Multi-provider copies of one physical ride and a watch uploading a
+        // weekend at once are the same case: one push, the rest are noise.
+        // Uniform even for the pick-bike variant; the in-app banner carries
+        // multi-ride assignment.
+        (mockPrisma.notificationLog.findFirst as jest.Mock).mockResolvedValue({ id: 'recent' });
+
+        await fireRideNotifications({ ...baseParams, bikeId: null, activeBikeCount: 3 });
+
+        expect(mockSendPushNotificationsAsync).not.toHaveBeenCalled();
+      });
+
+      it('records a RIDE_UPLOADED window row only after a successful send', async () => {
+        mockSendPushNotificationsAsync.mockResolvedValue([{ status: 'ok', id: 'ticket-1' }]);
+
+        await fireRideNotifications(baseParams);
+
+        expect(mockPrisma.notificationLog.create).toHaveBeenCalledWith({
+          data: { userId: 'user-1', notificationType: 'RIDE_UPLOADED' },
+        });
+      });
+
+      it('does not record a window row when the send fails', async () => {
+        // A failed send must not burn the window: the next provider copy is
+        // then the one push the rider gets.
+        mockSendPushNotificationsAsync.mockResolvedValue([{ status: 'error', message: 'nope' }]);
+
+        await fireRideNotifications(baseParams);
+
+        expect(mockPrisma.notificationLog.create).not.toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({ notificationType: 'RIDE_UPLOADED' }),
+          })
+        );
+      });
+
+      it('leaves the service-due push unaffected by the ride-push window', async () => {
+        (mockPrisma.notificationLog.findFirst as jest.Mock).mockResolvedValue({ id: 'recent' });
+        mockGenerateBikePredictions.mockResolvedValue({
+          components: [
+            {
+              componentId: 'comp-1',
+              componentType: 'FORK',
+              brand: 'Fox',
+              model: '36',
+              status: 'DUE_NOW',
+              hoursRemaining: 0,
+              ridesRemainingEstimate: 0,
+            },
+          ],
+        });
+        (mockPrisma.bikeNotificationPreference.findUnique as jest.Mock).mockResolvedValue({
+          serviceNotificationsEnabled: true,
+          serviceNotificationMode: 'AT_SERVICE',
+          serviceNotificationThreshold: 3,
+        });
+
+        await fireRideNotifications(baseParams);
+
+        const serviceCall = mockSendPushNotificationsAsync.mock.calls.find(
+          (call) => call[0]?.[0]?.title === 'Trail Bike - Service Due'
+        );
+        expect(serviceCall).toBeDefined();
+      });
+    });
+  });
+
+  describe('fireServiceDueForBike', () => {
+    const proUser = {
+      expoPushToken: 'ExponentPushToken[abc123]',
+      rideSyncNotificationMode: 'ALL',
+      distanceUnit: 'mi',
+      role: 'USER',
+      predictionMode: 'simple',
+      subscriptionTier: 'PRO',
+      isFoundingRider: false,
+    };
+
+    beforeEach(() => {
+      (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({ ...proUser });
+      (mockPrisma.bike.findFirst as jest.Mock).mockResolvedValue({
+        nickname: 'Trail Bike',
+        manufacturer: 'Santa Cruz',
+        model: 'Hightower',
+      });
+      mockGenerateBikePredictions.mockResolvedValue({
+        components: [
+          {
+            componentId: 'comp-1',
+            componentType: 'FORK',
+            brand: 'Fox',
+            model: '36',
+            status: 'DUE_NOW',
+            hoursRemaining: 0,
+            ridesRemainingEstimate: 0,
+          },
+        ],
+      });
+      (mockPrisma.bikeNotificationPreference.findUnique as jest.Mock).mockResolvedValue({
+        serviceNotificationsEnabled: true,
+        serviceNotificationMode: 'AT_SERVICE',
+        serviceNotificationThreshold: 3,
+      });
+    });
+
+    it('sends the service-due push for an hour-crediting mutation', async () => {
+      // The bulk-assign / ride-edit / manual-ride path: before this existed,
+      // a rider could push a bike past its threshold via assignBikeToRides
+      // and hear nothing until their next synced ride.
+      await fireServiceDueForBike({ userId: 'user-1', bikeId: 'bike-1' });
+
+      expect(mockSendPushNotificationsAsync).toHaveBeenCalledWith([
+        expect.objectContaining({
+          title: 'Trail Bike - Service Due',
+          data: { screen: 'bike', bikeId: 'bike-1', componentId: 'comp-1' },
+        }),
+      ]);
+      expect(enqueueReceiptCheck).toHaveBeenCalledWith('user-1', ['ticket-123']);
+    });
+
+    it('never sends a ride push: this entry point is service-due only', async () => {
+      await fireServiceDueForBike({ userId: 'user-1', bikeId: 'bike-1' });
+
+      const rideCall = mockSendPushNotificationsAsync.mock.calls.find(
+        (call) => call[0]?.[0]?.title === 'Ride Synced'
+      );
+      expect(rideCall).toBeUndefined();
+    });
+
+    it('tier-gates free users like the sync path does', async () => {
+      (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({
+        ...proUser,
+        subscriptionTier: 'FREE',
+      });
+
+      await fireServiceDueForBike({ userId: 'user-1', bikeId: 'bike-1' });
+
+      expect(mockGenerateBikePredictions).not.toHaveBeenCalled();
+      expect(mockSendPushNotificationsAsync).not.toHaveBeenCalled();
+    });
+
+    it("skips a bike that isn't the user's (ownership-scoped name lookup)", async () => {
+      (mockPrisma.bike.findFirst as jest.Mock).mockResolvedValue(null);
+
+      await fireServiceDueForBike({ userId: 'user-1', bikeId: 'bike-of-someone-else' });
+
+      expect(mockSendPushNotificationsAsync).not.toHaveBeenCalled();
+    });
+
+    it('swallows errors: a notification must never fail the mutation that triggered it', async () => {
+      (mockPrisma.user.findUnique as jest.Mock).mockRejectedValue(new Error('db down'));
+
+      await expect(
+        fireServiceDueForBike({ userId: 'user-1', bikeId: 'bike-1' })
+      ).resolves.toBeUndefined();
     });
   });
 

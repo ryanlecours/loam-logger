@@ -117,6 +117,7 @@ jest.mock('../../services/prediction', () => ({
 
 jest.mock('../../services/notification.service', () => ({
   clearServiceNotificationLogs: jest.fn().mockResolvedValue(undefined),
+  fireServiceDueForBike: jest.fn().mockResolvedValue(undefined),
   isValidExpoPushToken: jest.fn((token: string) => token.startsWith('ExponentPushToken[') || token.startsWith('ExpoPushToken[')),
 }));
 
@@ -3030,7 +3031,9 @@ describe('GraphQL Resolvers', () => {
       });
     });
 
-    it('should update notifyOnRideUpload', async () => {
+    it('legacy notifyOnRideUpload: false also turns the mode OFF', async () => {
+      // Old app versions only know the boolean; the mode column must follow
+      // it or the two sources of truth drift.
       const ctx = createMockContext();
       (mockPrisma.user.update as jest.Mock).mockResolvedValue({ id: 'user-123' });
 
@@ -3038,8 +3041,74 @@ describe('GraphQL Resolvers', () => {
 
       expect(mockPrisma.user.update).toHaveBeenCalledWith({
         where: { id: 'user-123' },
-        data: { notifyOnRideUpload: false },
+        data: { notifyOnRideUpload: false, rideSyncNotificationMode: 'OFF' },
       });
+    });
+
+    it('legacy notifyOnRideUpload: true lifts OFF to ALL', async () => {
+      const ctx = createMockContext();
+      (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({ rideSyncNotificationMode: 'OFF' });
+      (mockPrisma.user.update as jest.Mock).mockResolvedValue({ id: 'user-123' });
+
+      await mutation(null, { input: { notifyOnRideUpload: true } }, ctx);
+
+      expect(mockPrisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'user-123' },
+        data: { notifyOnRideUpload: true, rideSyncNotificationMode: 'ALL' },
+      });
+    });
+
+    it('legacy notifyOnRideUpload: true preserves a stored ACTION_NEEDED', async () => {
+      // An old client's toggle renders as "on" for ACTION_NEEDED, so a save
+      // from that screen is a no-op, not a request to hear about every ride.
+      const ctx = createMockContext();
+      (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({ rideSyncNotificationMode: 'ACTION_NEEDED' });
+      (mockPrisma.user.update as jest.Mock).mockResolvedValue({ id: 'user-123' });
+
+      await mutation(null, { input: { notifyOnRideUpload: true } }, ctx);
+
+      expect(mockPrisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'user-123' },
+        data: { notifyOnRideUpload: true },
+      });
+    });
+
+    it('rideSyncNotificationMode writes both the mode and the derived boolean', async () => {
+      const ctx = createMockContext();
+      (mockPrisma.user.update as jest.Mock).mockResolvedValue({ id: 'user-123' });
+
+      await mutation(null, { input: { rideSyncNotificationMode: 'ACTION_NEEDED' } }, ctx);
+
+      expect(mockPrisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'user-123' },
+        data: { rideSyncNotificationMode: 'ACTION_NEEDED', notifyOnRideUpload: true },
+      });
+    });
+
+    it('accepts weeklyDigestEnabled and a valid IANA timezone', async () => {
+      const ctx = createMockContext();
+      (mockPrisma.user.update as jest.Mock).mockResolvedValue({ id: 'user-123' });
+
+      await mutation(
+        null,
+        { input: { weeklyDigestEnabled: true, timezone: 'America/Denver' } },
+        ctx
+      );
+
+      expect(mockPrisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'user-123' },
+        data: { weeklyDigestEnabled: true, timezone: 'America/Denver' },
+      });
+    });
+
+    it('rejects a timezone Intl does not recognize', async () => {
+      const ctx = createMockContext();
+
+      await expect(
+        mutation(null, { input: { timezone: 'Not/AZone' } }, ctx)
+      ).rejects.toThrow('timezone is not a valid IANA timezone');
+
+      expect(mockPrisma.user.update).not.toHaveBeenCalled();
     });
 
     it('should reject expoPushToken exceeding max length', async () => {
@@ -5687,6 +5756,88 @@ describe('GraphQL Resolvers', () => {
     });
   });
 
+  describe('Mutation.updateRide service-due fan-out', () => {
+    const mutation = resolvers.Mutation.updateRide;
+    const { fireServiceDueForBike } = jest.requireMock<
+      typeof import('../../services/notification.service')
+    >('../../services/notification.service');
+
+    /**
+     * tx double where one component on ANOTHER bike (bike-2) holds an
+     * INCLUDE adjustment referencing the edited ride, so the canonical
+     * recompute touches bike-2 and returns it in adjustedBikeIds.
+     */
+    const makeAdjustedTx = () => ({
+      ride: {
+        update: jest.fn().mockResolvedValue({ id: 'ride-1' }),
+        aggregate: jest.fn().mockResolvedValue({ _sum: { durationSeconds: 7200 }, _count: 1 }),
+      },
+      component: {
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+        update: jest.fn().mockResolvedValue({}),
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'comp-other', userId: 'user-123', bikeId: 'bike-2', installedAt: null, hoursUsed: 5,
+        }),
+      },
+      serviceLog: { findFirst: jest.fn().mockResolvedValue(null) },
+      componentRideAdjustment: {
+        findMany: jest.fn()
+          // findAdjustedComponentIdsForRides: the edited ride is INCLUDEd
+          // by a component living on bike-2.
+          .mockResolvedValueOnce([{ componentId: 'comp-other' }])
+          // loadComponentAttribution's adjustment fetch.
+          .mockResolvedValue([]),
+      },
+    });
+
+    beforeEach(() => {
+      mockCheckMutationRateLimit.mockResolvedValue({ allowed: true, retryAfter: 0 });
+      (fireServiceDueForBike as jest.Mock).mockClear();
+    });
+
+    /**
+     * The hole this guards: a component on bike-2 that INCLUDEs this ride
+     * counts its duration too (computeCountedHours' INCLUDE branch). A
+     * duration increase therefore raises bike-2's hours even though the
+     * ride was never assigned to bike-2 — firing only for the ride's own
+     * bike left that threshold crossing silent.
+     */
+    it('checks cross-bike INCLUDE holders when the duration grows', async () => {
+      (prisma.ride.findUnique as jest.Mock).mockResolvedValue({
+        userId: 'user-123', durationSeconds: 3600, bikeId: 'bike-1',
+      });
+      const tx = makeAdjustedTx();
+      (prisma.$transaction as jest.Mock).mockImplementation(async (fn: (t: unknown) => unknown) => fn(tx));
+
+      await mutation(
+        {}, { id: 'ride-1', input: { durationSeconds: 7200 } }, createMockContext('user-123') as never
+      );
+
+      const firedBikes = (fireServiceDueForBike as jest.Mock).mock.calls.map(
+        (c: [{ bikeId: string }]) => c[0].bikeId
+      );
+      expect(firedBikes).toContain('bike-1');
+      expect(firedBikes).toContain('bike-2');
+    });
+
+    it('stays quiet when hours only shrink and nothing is adjusted', async () => {
+      (prisma.ride.findUnique as jest.Mock).mockResolvedValue({
+        userId: 'user-123', durationSeconds: 3600, bikeId: 'bike-1',
+      });
+      const tx = makeAdjustedTx();
+      // No adjustments reference this ride.
+      tx.componentRideAdjustment.findMany = jest.fn().mockResolvedValue([]);
+      (prisma.$transaction as jest.Mock).mockImplementation(async (fn: (t: unknown) => unknown) => fn(tx));
+
+      await mutation(
+        {}, { id: 'ride-1', input: { durationSeconds: 1800 } }, createMockContext('user-123') as never
+      );
+
+      // Losing hours can't make a component due.
+      expect(fireServiceDueForBike).not.toHaveBeenCalled();
+    });
+  });
+
   describe('Mutation.updateRide unowned-bike handling', () => {
     const mutation = resolvers.Mutation.updateRide;
 
@@ -5886,6 +6037,51 @@ describe('GraphQL Resolvers', () => {
       ).rejects.toThrow('Unauthorized');
 
       expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('fires the service-due check for the target bike and any adjusted bikes', async () => {
+      const { fireServiceDueForBike } = jest.requireMock<
+        typeof import('../../services/notification.service')
+      >('../../services/notification.service');
+      (fireServiceDueForBike as jest.Mock).mockClear();
+
+      (prisma.ride.findMany as jest.Mock).mockResolvedValue([
+        { id: 'ride-1', userId: 'user-123', bikeId: null, durationSeconds: 3600 },
+      ]);
+      // One of the assigned rides is INCLUDEd by a component on bike-2, so
+      // the recompute returns it. For THIS mutation that fire should be a
+      // deduped no-op (assignment moves no hours onto bike-2), but the
+      // fan-out keeps assign and update symmetric.
+      const tx = {
+        ride: {
+          updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+          aggregate: jest.fn().mockResolvedValue({ _sum: { durationSeconds: 3600 }, _count: 1 }),
+        },
+        component: {
+          updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+          update: jest.fn().mockResolvedValue({}),
+          findUnique: jest.fn().mockResolvedValue({
+            id: 'comp-other', userId: 'user-123', bikeId: 'bike-2', installedAt: null, hoursUsed: 5,
+          }),
+        },
+        serviceLog: { findFirst: jest.fn().mockResolvedValue(null) },
+        componentRideAdjustment: {
+          findMany: jest.fn()
+            .mockResolvedValueOnce([{ componentId: 'comp-other' }])
+            .mockResolvedValue([]),
+        },
+      };
+      (prisma.$transaction as jest.Mock).mockImplementation(async (fn: (t: unknown) => unknown) => fn(tx));
+
+      await mutation(
+        {}, { rideIds: ['ride-1'], bikeId: 'bike-9' }, createMockContext('user-123') as never
+      );
+
+      const firedBikes = (fireServiceDueForBike as jest.Mock).mock.calls.map(
+        (c: [{ bikeId: string }]) => c[0].bikeId
+      );
+      expect(firedBikes).toContain('bike-9');
+      expect(firedBikes).toContain('bike-2');
     });
   });
 
