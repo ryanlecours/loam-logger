@@ -1,7 +1,20 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { X } from 'lucide-react';
 import { useNavigate } from 'react-router';
 import { UPSELL_COPY, type UpsellFeature } from '../constants/upsellCopy';
+
+/**
+ * A dismissal stores the set of re-arm tokens it covered (legacy dismissals
+ * stored the literal '1', which participates as an ordinary token). The card
+ * is dismissed only while every current token is covered, so each NEW token
+ * (e.g. a different part crossing its service interval) re-arms the card
+ * exactly once, while shrinking or repeating token sets stay dismissed.
+ */
+function isCovered(stored: string | null, tokens: string[]): boolean {
+  if (stored === null) return false;
+  const covered = new Set(stored.split(','));
+  return tokens.every((t) => covered.has(t));
+}
 
 const btn = 'rounded-lg px-4 py-2 text-sm font-medium transition';
 
@@ -34,10 +47,9 @@ export function ProChip({ className = '', source = 'pro-chip' }: { className?: s
 /**
  * Dismissible feature upsell card driven by the shared copy map.
  * Dismissal is persisted per feature in localStorage and respected until the
- * user's situation materially changes: pass `rearmKey` when a state change
- * (e.g. a part going past due) justifies showing a dismissed card one more
- * time. The dismissal stores the key it was dismissed under, so each distinct
- * key re-arms the card at most once.
+ * user's situation materially changes: pass `rearmKey` as a comma-separated
+ * token set (e.g. the ids of parts past their service interval) and the card
+ * re-arms once per token a previous dismissal has not covered.
  */
 export function UpsellCard({
   feature,
@@ -61,27 +73,35 @@ export function UpsellCard({
 }) {
   const navigate = useNavigate();
   const copy = UPSELL_COPY[feature];
-  const currentKey = rearmKey ?? '1';
-  const [dismissed, setDismissed] = useState(() => {
+  const currentTokens = useMemo(
+    () => (rearmKey === undefined ? [] : rearmKey.split(',').filter(Boolean)),
+    [rearmKey]
+  );
+  // Computed per render (not in a mount-time initializer) so a rearmKey that
+  // arrives after data loads still re-arms the card.
+  const storedDismissed = useMemo(() => {
     if (!persist) return false;
     try {
-      const stored = localStorage.getItem(copy.dismissKey);
-      // Legacy dismissals stored '1'; treat them as dismissed for the base
-      // state but let a rearmKey supersede them.
-      return stored !== null && (stored === currentKey || rearmKey === undefined);
+      return isCovered(localStorage.getItem(copy.dismissKey), currentTokens);
     } catch {
       return false;
     }
-  });
+  }, [persist, copy.dismissKey, currentTokens]);
+  const [sessionDismissed, setSessionDismissed] = useState(false);
 
-  if (dismissed) return null;
+  if (storedDismissed || sessionDismissed) return null;
 
   const dismiss = () => {
-    setDismissed(true);
+    setSessionDismissed(true);
     onDismiss?.();
     if (!persist) return;
     try {
-      localStorage.setItem(copy.dismissKey, currentKey);
+      const covered = new Set(
+        (localStorage.getItem(copy.dismissKey) ?? '').split(',').filter(Boolean)
+      );
+      covered.add('1');
+      currentTokens.forEach((t) => covered.add(t));
+      localStorage.setItem(copy.dismissKey, Array.from(covered).join(','));
     } catch {
       // Storage unavailable — dismiss for this session only.
     }

@@ -28,11 +28,17 @@ vi.mock('@apollo/client', () => ({
   useQuery: (...args: unknown[]) => mockUseQuery(...args),
 }));
 
-// Stub the upsell components — they use useNavigate, which requires a Router
+// Stub the upsell components — they use useNavigate, which requires a Router.
+// The UpsellCard stub surfaces its wiring props so the panel's re-arm logic
+// (rearmKey, dynamic body) can be asserted without the card's own behavior.
 vi.mock('../UpgradePrompt', () => ({
   default: () => null,
   ProChip: () => <span data-testid="pro-chip" />,
-  UpsellCard: () => <div data-testid="upsell-card" />,
+  UpsellCard: ({ rearmKey, body }: { rearmKey?: string; body?: string }) => (
+    <div data-testid="upsell-card" data-rearm-key={rearmKey ?? ''}>
+      {body}
+    </div>
+  ),
 }));
 
 // Factory for creating test components
@@ -769,6 +775,67 @@ describe('ComponentHealthPanel', () => {
       // CHAIN is more urgent (OVERDUE) so it sorts first
       expect(rowButtons[0]).toHaveTextContent('Chain');
       expect(rowButtons[1]).toHaveTextContent('Fork');
+    });
+  });
+
+  describe('free tier upsell re-arm wiring', () => {
+    beforeEach(() => {
+      mockUseQuery.mockReturnValue({
+        data: { me: { subscriptionTier: 'FREE', isFoundingRider: false, role: 'USER' } },
+        loading: false,
+        error: undefined,
+        refetch: vi.fn(),
+      });
+    });
+
+    afterEach(() => {
+      mockUseQuery.mockReturnValue({
+        data: { me: { subscriptionTier: 'PRO', isFoundingRider: false, role: 'USER' } },
+        loading: false,
+        error: undefined,
+        refetch: vi.fn(),
+      });
+    });
+
+    const pastInterval = (componentId: string) =>
+      createComponent({ componentId, serviceIntervalHours: 100, hoursSinceService: 120, hoursRemaining: null as unknown as number });
+    const withinInterval = (componentId: string) =>
+      createComponent({ componentId, serviceIntervalHours: 100, hoursSinceService: 40, hoursRemaining: null as unknown as number });
+
+    it('passes no rearmKey and the default body when nothing is past interval', () => {
+      render(<MemoryRouter><ComponentHealthPanel components={[withinInterval('fork')]} /></MemoryRouter>);
+
+      const card = screen.getByTestId('upsell-card');
+      expect(card).toHaveAttribute('data-rearm-key', '');
+      expect(card).not.toHaveTextContent(/past its service interval/i);
+    });
+
+    it('keys the re-arm to the past-interval component and grounds the copy in it', () => {
+      render(<MemoryRouter><ComponentHealthPanel components={[pastInterval('fork'), withinInterval('chain')]} /></MemoryRouter>);
+
+      const card = screen.getByTestId('upsell-card');
+      expect(card).toHaveAttribute('data-rearm-key', 'fork');
+      expect(card).toHaveTextContent('One part is past its service interval.');
+    });
+
+    it('joins multiple past-interval component ids and pluralizes the copy', () => {
+      render(<MemoryRouter><ComponentHealthPanel components={[pastInterval('shock'), pastInterval('fork')]} /></MemoryRouter>);
+
+      const card = screen.getByTestId('upsell-card');
+      expect(card).toHaveAttribute('data-rearm-key', 'fork,shock');
+      expect(card).toHaveTextContent('2 parts are past their service intervals.');
+    });
+
+    it('renders no upsell card for Pro users', () => {
+      mockUseQuery.mockReturnValue({
+        data: { me: { subscriptionTier: 'PRO', isFoundingRider: false, role: 'USER' } },
+        loading: false,
+        error: undefined,
+        refetch: vi.fn(),
+      });
+      render(<MemoryRouter><ComponentHealthPanel components={[pastInterval('fork')]} /></MemoryRouter>);
+
+      expect(screen.queryByTestId('upsell-card')).not.toBeInTheDocument();
     });
   });
 });

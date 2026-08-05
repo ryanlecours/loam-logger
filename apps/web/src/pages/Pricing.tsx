@@ -2,7 +2,7 @@ import { useNavigate, useSearchParams } from 'react-router';
 import { motion } from 'motion/react';
 import { gql, useMutation } from '@apollo/client';
 import { Check, X } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useUserTier } from '../hooks/useUserTier';
 import { useViewer } from '../graphql/me';
 import { posthog } from '../lib/posthog';
@@ -19,7 +19,7 @@ const CREATE_CHECKOUT = gql`
 export default function Pricing() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { tier, isPro, isFoundingRider } = useUserTier();
+  const { tier, isPro, isFoundingRider, loading: tierLoading } = useUserTier();
   const { viewer } = useViewer();
   const isAuthenticated = !!viewer;
   const [billingPeriod, setBillingPeriod] = useState<'MONTHLY' | 'ANNUAL'>('ANNUAL');
@@ -30,11 +30,19 @@ export default function Pricing() {
   // touchpoints by actual conversion, not just clicks.
   const source = searchParams.get('source') ?? 'direct';
 
+  // Fire once per visit, but only after the viewer query settles: on a cold
+  // cache (deep link, hard refresh) `tier` defaults to FREE until the query
+  // resolves, and an effect that fires on mount would permanently record the
+  // wrong tier for Pro users.
+  const viewTracked = useRef(false);
   useEffect(() => {
-    posthog.capture('pricing_page_viewed', { source, currentTier: tier });
-    // Fire once per visit; source and tier are fixed for the page's lifetime.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (tierLoading || viewTracked.current) return;
+    viewTracked.current = true;
+    posthog.capture('pricing_page_viewed', {
+      source,
+      currentTier: isAuthenticated ? tier : 'ANONYMOUS',
+    });
+  }, [tierLoading, source, tier, isAuthenticated]);
 
   const handleUpgrade = async () => {
     // The page is public: a logged-out visitor can't check out, so send them

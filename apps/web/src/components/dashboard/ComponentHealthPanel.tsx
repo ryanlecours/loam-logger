@@ -346,21 +346,25 @@ export function ComponentHealthPanel({ components, className = '', onLogService 
   );
 
   // Free tier: predictions are nulled server-side, but the raw counters
-  // survive, so "past interval" is computable here. When a part crosses its
-  // interval, re-arm the (possibly dismissed) predictions upsell once and
-  // ground its copy in the user's own data.
-  const pastIntervalCount = useMemo(
+  // survive, so "past interval" is computable here. Each part that crosses
+  // its interval re-arms the (possibly dismissed) predictions upsell once,
+  // keyed by component id, with copy grounded in the user's own data.
+  const pastIntervalIds = useMemo(
     () =>
       isFree
-        ? components.filter(
-            (c) =>
-              c.serviceIntervalHours != null &&
-              c.hoursSinceService != null &&
-              c.hoursSinceService >= c.serviceIntervalHours
-          ).length
-        : 0,
+        ? components
+            .filter(
+              (c) =>
+                c.serviceIntervalHours != null &&
+                c.hoursSinceService != null &&
+                c.hoursSinceService >= c.serviceIntervalHours
+            )
+            .map((c) => c.componentId)
+            .sort()
+        : [],
     [components, isFree]
   );
+  const pastIntervalCount = pastIntervalIds.length;
 
   // Empty state
   if (components.length === 0) {
@@ -442,7 +446,7 @@ export function ComponentHealthPanel({ components, className = '', onLogService 
         <UpsellCard
           feature="predictions"
           className="mt-4"
-          rearmKey={pastIntervalCount > 0 ? 'past-interval' : undefined}
+          rearmKey={pastIntervalCount > 0 ? pastIntervalIds.join(',') : undefined}
           body={
             pastIntervalCount > 0
               ? `${
