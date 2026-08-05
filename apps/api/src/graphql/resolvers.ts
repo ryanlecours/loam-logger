@@ -2052,11 +2052,13 @@ export const resolvers = {
       }
 
       // With a start coordinate the ride gets the same weather enrichment a
-      // provider-synced ride does. Fire-and-forget like the provider paths;
-      // the job is idempotent per ride (static jobId) and the worker skips
-      // rides whose weather already exists.
+      // provider-synced ride does. Fire-and-forget like the provider paths,
+      // logged like them too: an enqueue failure (Redis hiccup) must not fail
+      // the ride, but it must not vanish either, since nothing retries it.
       if (startLat !== null && startLng !== null) {
-        enqueueWeatherJob({ rideId: ride.id }).catch(() => {});
+        enqueueWeatherJob({ rideId: ride.id }).catch((err) =>
+          logError(`addRide weather enqueue ${ride.id}`, err),
+        );
       }
 
       return ride;
