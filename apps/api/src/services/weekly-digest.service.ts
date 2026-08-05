@@ -213,7 +213,9 @@ export async function maybeSendDigestForUser(user: DigestUser, now: Date): Promi
   await prisma.notificationLog.create({
     data: { userId: user.id, notificationType: 'WEEKLY_DIGEST' },
   });
-  enqueueReceiptCheck(user.id, [ticketId]).catch((err) => logError('enqueueReceiptCheck', err));
+  enqueueReceiptCheck(user.id, [ticketId], user.expoPushToken).catch((err) =>
+    logError('enqueueReceiptCheck', err)
+  );
 
   logger.info({ userId: user.id }, '[weekly-digest] Digest sent');
 }

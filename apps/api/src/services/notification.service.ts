@@ -421,7 +421,7 @@ export async function fireServiceDueForBike(params: {
 
     const ticketId = await runServiceDueForBike(user, userId, bikeId, bikeName);
     if (ticketId) {
-      enqueueReceiptCheck(userId, [ticketId]).catch((err) =>
+      enqueueReceiptCheck(userId, [ticketId], user.expoPushToken).catch((err) =>
         logError('enqueueReceiptCheck', err)
       );
     }
@@ -536,9 +536,12 @@ export async function fireRideNotifications(params: {
       if (serviceTicketId) ticketIds.push(serviceTicketId);
     }
 
-    // Enqueue delayed receipt check for all tickets from this ride
+    // Enqueue delayed receipt check for all tickets from this ride. The
+    // token rides along so a DeviceNotRegistered receipt can be matched
+    // against it rather than blindly clearing whatever is stored 15 minutes
+    // from now.
     if (ticketIds.length > 0) {
-      enqueueReceiptCheck(userId, ticketIds).catch((err) =>
+      enqueueReceiptCheck(userId, ticketIds, user.expoPushToken).catch((err) =>
         logError('enqueueReceiptCheck', err)
       );
     }
