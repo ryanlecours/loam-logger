@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useApolloClient, useMutation, useQuery } from '@apollo/client';
 import { useNavigate } from 'react-router';
-import { Mountain, Lock } from 'lucide-react';
+import { Mountain } from 'lucide-react';
 import { useUserTier } from '../hooks/useUserTier';
 import {
   BACKFILL_GARMIN_WEATHER,
@@ -37,7 +37,7 @@ export default function GarminWeatherRepairSection() {
 
   const onClick = async () => {
     if (!isPro) {
-      navigate('/pricing');
+      navigate('/pricing?source=settings-garmin-weather');
       return;
     }
     setError(null);
@@ -98,8 +98,7 @@ export default function GarminWeatherRepairSection() {
               onClick={onClick}
               className="flex items-center gap-1.5 rounded-lg border border-mint/30 bg-mint/15 px-3 py-1.5 text-xs font-medium text-mint transition hover:bg-mint/25"
             >
-              <Lock className="h-3 w-3" />
-              Pro feature
+              Included with Pro
             </button>
           )}
         </div>

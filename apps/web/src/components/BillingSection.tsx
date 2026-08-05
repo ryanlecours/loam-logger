@@ -52,8 +52,8 @@ export default function BillingSection() {
                 {isFoundingRider
                   ? 'Lifetime access — thank you for your early support!'
                   : isPro
-                    ? 'Unlimited bikes and all components'
-                    : 'Upgrade for unlimited bikes and components'}
+                    ? 'Unlimited bikes and advanced predictions'
+                    : 'Upgrade for unlimited bikes and service predictions'}
               </p>
             </div>
           </div>
@@ -68,7 +68,7 @@ export default function BillingSection() {
           )}
           {!isPro && (
             <button
-              onClick={() => navigate('/pricing')}
+              onClick={() => navigate('/pricing?source=settings-billing')}
               className="flex items-center gap-1.5 rounded-lg bg-mint/15 border border-mint/30 px-3 py-1.5 text-xs font-medium text-mint transition hover:bg-mint/25"
             >
               Upgrade

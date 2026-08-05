@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import { MemoryRouter } from 'react-router';
 import { AdvisorSummaryCard } from './AdvisorSummaryCard';
 import type { AdvisorSummary } from '../../types/prediction';
 
@@ -26,5 +27,35 @@ describe('AdvisorSummaryCard', () => {
     expect(
       screen.getByRole('complementary', { name: /AI maintenance summary/i })
     ).toBeInTheDocument();
+  });
+
+  describe('free-tier teaser', () => {
+    it('renders the teaser with a Pro chip when summary is null and showTeaser is set', () => {
+      render(
+        <MemoryRouter>
+          <AdvisorSummaryCard summary={null} showTeaser />
+        </MemoryRouter>
+      );
+      expect(screen.getByText('AI summary')).toBeInTheDocument();
+      expect(screen.getByText(/sums up what to wrench on/i)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /included with pro/i })).toBeInTheDocument();
+    });
+
+    it('still collapses to nothing for a null summary without showTeaser (Pro user path)', () => {
+      // A Pro user's summary can be null (ALL_GOOD, rate limit, generation
+      // error); the teaser must never appear for them.
+      const { container } = render(<AdvisorSummaryCard summary={null} showTeaser={false} />);
+      expect(container).toBeEmptyDOMElement();
+    });
+
+    it('prefers the real summary over the teaser when both could apply', () => {
+      render(
+        <MemoryRouter>
+          <AdvisorSummaryCard summary={summary} showTeaser />
+        </MemoryRouter>
+      );
+      expect(screen.getByText(summary.text)).toBeInTheDocument();
+      expect(screen.queryByText(/sums up what to wrench on/i)).not.toBeInTheDocument();
+    });
   });
 });

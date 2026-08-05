@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useApolloClient, useMutation, useQuery } from '@apollo/client';
 import { useNavigate } from 'react-router';
-import { CloudSun, Lock } from 'lucide-react';
+import { CloudSun } from 'lucide-react';
 import { useUserTier } from '../hooks/useUserTier';
 import {
   BACKFILL_WEATHER_FOR_MY_RIDES,
@@ -34,7 +34,7 @@ export default function WeatherBackfillSection() {
 
   const onClick = async () => {
     if (!isPro) {
-      navigate('/pricing');
+      navigate('/pricing?source=settings-weather-backfill');
       return;
     }
     setError(null);
@@ -107,8 +107,7 @@ export default function WeatherBackfillSection() {
               onClick={onClick}
               className="flex items-center gap-1.5 rounded-lg bg-mint/15 border border-mint/30 px-3 py-1.5 text-xs font-medium text-mint transition hover:bg-mint/25"
             >
-              <Lock className="h-3 w-3" />
-              Pro feature
+              Included with Pro
             </button>
           )}
         </div>

@@ -42,6 +42,11 @@ jest.mock('../lib/revenuecat', () => ({
   storeToProvider: jest.fn((store: string) => store === 'APP_STORE' ? 'APPLE' : 'GOOGLE'),
 }));
 
+const mockCaptureServerEvent = jest.fn();
+jest.mock('../lib/posthog', () => ({
+  captureServerEvent: (...args: unknown[]) => mockCaptureServerEvent(...args),
+}));
+
 import router from './webhooks.revenuecat';
 import { prisma } from '../lib/prisma';
 import { sendEmailWithAudit } from '../services/email.service';
@@ -144,6 +149,19 @@ describe('POST /webhooks/revenuecat', () => {
     expect(res.status).toHaveBeenCalledWith(200);
   });
 
+  it('should capture the funnel-terminus event on INITIAL_PURCHASE', async () => {
+    const req = createWebhookRequest('INITIAL_PURCHASE');
+    const res = createMockResponse();
+
+    await invokeHandler(handler, req, res as unknown as Response);
+
+    expect(mockCaptureServerEvent).toHaveBeenCalledWith(
+      'user-123',
+      'subscription_checkout_completed',
+      { source: 'revenuecat', store: 'APP_STORE' }
+    );
+  });
+
   it('should upgrade user on RENEWAL', async () => {
     const req = createWebhookRequest('RENEWAL', { store: 'PLAY_STORE' });
     const res = createMockResponse();
@@ -154,6 +172,16 @@ describe('POST /webhooks/revenuecat', () => {
     expect(res.status).toHaveBeenCalledWith(200);
   });
 
+  it('should not capture a checkout event on RENEWAL or UNCANCELLATION', async () => {
+    for (const eventType of ['RENEWAL', 'UNCANCELLATION']) {
+      const req = createWebhookRequest(eventType);
+      const res = createMockResponse();
+      await invokeHandler(handler, req, res as unknown as Response);
+    }
+
+    expect(mockCaptureServerEvent).not.toHaveBeenCalled();
+  });
+
   it('should downgrade user on EXPIRATION', async () => {
     const req = createWebhookRequest('EXPIRATION');
     const res = createMockResponse();
@@ -161,6 +189,11 @@ describe('POST /webhooks/revenuecat', () => {
     await invokeHandler(handler, req, res as unknown as Response);
 
     expect(mockDowngradeUser).toHaveBeenCalledWith('user-123', 'revenuecat_webhook');
+    expect(mockCaptureServerEvent).toHaveBeenCalledWith(
+      'user-123',
+      'subscription_canceled',
+      { source: 'revenuecat', store: 'APP_STORE' }
+    );
     expect(res.status).toHaveBeenCalledWith(200);
   });
 

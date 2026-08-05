@@ -137,6 +137,7 @@ jest.mock('../../lib/posthog', () => ({
 }));
 
 import { resolvers } from '../resolvers';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { checkMutationRateLimit } from '../../lib/rate-limit';
 import { invalidateBikePrediction, getCachedAdvisorSummary, setCachedAdvisorSummary } from '../../services/prediction/cache';
@@ -6230,6 +6231,107 @@ describe('GraphQL Resolvers', () => {
       // No bike named, so nothing to credit or debit.
       expect(data).not.toHaveProperty('bikeId');
       expect(tx.component.updateMany).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Mutation.addRide idempotency (clientMutationId)', () => {
+    const mutation = resolvers.Mutation.addRide;
+
+    // unownedBike keeps the resolver off the bike-lookup and hours-credit
+    // paths, so these tests isolate the idempotency behavior itself.
+    const baseInput = {
+      startTime: '2026-08-05T10:00:00.000Z',
+      durationSeconds: 3600,
+      distanceMeters: 16000,
+      elevationGainMeters: 400,
+      rideType: 'TRAIL',
+      unownedBike: true,
+    };
+
+    const makeTx = () => ({
+      ride: { create: jest.fn().mockResolvedValue({ id: 'ride-new' }) },
+    });
+
+    beforeEach(() => {
+      mockCheckMutationRateLimit.mockResolvedValue({ allowed: true, retryAfter: 0 });
+      (prisma.ride.findUnique as jest.Mock).mockReset();
+      (prisma.$transaction as jest.Mock).mockReset();
+    });
+
+    it('returns the existing ride and skips the insert when the key was already used', async () => {
+      const existing = { id: 'ride-original', clientMutationId: 'key-1' };
+      (prisma.ride.findUnique as jest.Mock).mockResolvedValue(existing);
+
+      const result = await mutation(
+        {}, { input: { ...baseInput, clientMutationId: 'key-1' } }, createMockContext('user-123') as never
+      );
+
+      expect(result).toBe(existing);
+      expect(prisma.ride.findUnique).toHaveBeenCalledWith({
+        where: { userId_clientMutationId: { userId: 'user-123', clientMutationId: 'key-1' } },
+      });
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+      // The original request already fired the funnel event; a replay must not.
+      expect(mockCaptureServerEvent).not.toHaveBeenCalled();
+    });
+
+    it('stores the key on the created ride when it is fresh', async () => {
+      (prisma.ride.findUnique as jest.Mock).mockResolvedValue(null);
+      const tx = makeTx();
+      (prisma.$transaction as jest.Mock).mockImplementation(async (fn: (t: unknown) => unknown) => fn(tx));
+
+      await mutation(
+        {}, { input: { ...baseInput, clientMutationId: 'key-1' } }, createMockContext('user-123') as never
+      );
+
+      expect(tx.ride.create.mock.calls[0][0].data.clientMutationId).toBe('key-1');
+    });
+
+    it('returns the winning row when two retries race past the replay check', async () => {
+      const winner = { id: 'ride-winner', clientMutationId: 'key-1' };
+      (prisma.ride.findUnique as jest.Mock)
+        .mockResolvedValueOnce(null) // replay check: nothing committed yet
+        .mockResolvedValueOnce(winner); // re-read after the unique collision
+      (prisma.$transaction as jest.Mock).mockRejectedValue(
+        new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+          code: 'P2002',
+          clientVersion: 'test',
+          meta: { target: ['userId', 'clientMutationId'] },
+        })
+      );
+
+      const result = await mutation(
+        {}, { input: { ...baseInput, clientMutationId: 'key-1' } }, createMockContext('user-123') as never
+      );
+
+      expect(result).toBe(winner);
+    });
+
+    it('rethrows unique collisions that are not the idempotency key', async () => {
+      (prisma.ride.findUnique as jest.Mock).mockResolvedValue(null);
+      (prisma.$transaction as jest.Mock).mockRejectedValue(
+        new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+          code: 'P2002',
+          clientVersion: 'test',
+          meta: { target: ['garminActivityId'] },
+        })
+      );
+
+      await expect(
+        mutation(
+          {}, { input: { ...baseInput, clientMutationId: 'key-1' } }, createMockContext('user-123') as never
+        )
+      ).rejects.toThrow('Unique constraint failed');
+    });
+
+    it('bypasses the idempotency path entirely when no key is supplied', async () => {
+      const tx = makeTx();
+      (prisma.$transaction as jest.Mock).mockImplementation(async (fn: (t: unknown) => unknown) => fn(tx));
+
+      await mutation({}, { input: { ...baseInput } }, createMockContext('user-123') as never);
+
+      expect(prisma.ride.findUnique).not.toHaveBeenCalled();
+      expect(tx.ride.create.mock.calls[0][0].data).not.toHaveProperty('clientMutationId');
     });
   });
 });

@@ -38,6 +38,14 @@ export default function MarketingFooter() {
               </li>
               <li>
                 <Link
+                  to="/pricing?source=marketing-footer"
+                  className="text-sm text-concrete hover:text-mint transition"
+                >
+                  Pricing
+                </Link>
+              </li>
+              <li>
+                <Link
                   to="/login"
                   className="text-sm text-concrete hover:text-mint transition"
                 >

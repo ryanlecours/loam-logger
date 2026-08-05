@@ -1,12 +1,12 @@
 import { GraphQLError } from 'graphql';
 import type { GraphQLContext } from '../server';
 import { prisma } from '../lib/prisma';
-import { ComponentType as ComponentTypeEnum } from '@prisma/client';
+import { ComponentType as ComponentTypeEnum, Prisma } from '@prisma/client';
 import type {
-  Prisma,
   ComponentType as ComponentTypeLiteral,
   ComponentLocation,
   Bike,
+  Ride,
   Component as ComponentModel,
   UserRole,
 } from '@prisma/client';
@@ -73,6 +73,7 @@ type AddRideInput = {
   notes?: string | null;
   trailSystem?: string | null;
   location?: string | null;
+  clientMutationId?: string | null;
 };
 
 type UpdateRideInput = {
@@ -1884,6 +1885,22 @@ export const resolvers = {
           extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
         });
       }
+      // Idempotency replay check. The mobile offline queue retries addRide
+      // with the same client-generated key until it sees a response; if the
+      // first attempt committed but the response was lost, the retry must
+      // return that ride rather than insert again (which would also
+      // double-credit component hours). Checked before input validation on
+      // purpose: the original submit already passed validation, and a replay
+      // must still succeed even if state changed since (e.g. the bike was
+      // deleted, which would now fail the ownership check below).
+      const clientMutationId = cleanText(input.clientMutationId, 64);
+      if (clientMutationId) {
+        const existing = await prisma.ride.findUnique({
+          where: { userId_clientMutationId: { userId, clientMutationId } },
+        });
+        if (existing) return existing;
+      }
+
       const start = parseIso(input.startTime);
       const durationSeconds = Math.max(0, Math.floor(input.durationSeconds));
       const distanceMeters = Math.max(0, Number(input.distanceMeters));
@@ -1941,6 +1958,7 @@ export const resolvers = {
         ...(notes ? { notes } : {}),
         ...(trailSystem ? { trailSystem } : {}),
         ...(location ? { location } : {}),
+        ...(clientMutationId ? { clientMutationId } : {}),
       };
 
       const hoursDelta = durationSeconds / 3600;
@@ -1950,13 +1968,35 @@ export const resolvers = {
         await invalidateBikePrediction(userId, bikeId);
       }
 
-      const ride = await prisma.$transaction(async (tx) => {
-        const newRide = await tx.ride.create({ data: rideData });
-        if (bikeId) {
-          await incrementBikeComponentHours(tx, { userId, bikeId, hoursDelta });
+      let ride: Ride;
+      try {
+        ride = await prisma.$transaction(async (tx) => {
+          const newRide = await tx.ride.create({ data: rideData });
+          if (bikeId) {
+            await incrementBikeComponentHours(tx, { userId, bikeId, hoursDelta });
+          }
+          return newRide;
+        });
+      } catch (e) {
+        // Two retries of the same offline submit racing each other: the loser
+        // hits the (userId, clientMutationId) unique constraint after the
+        // replay check above passed. The transaction rolled back, so no hours
+        // were credited here; return the winner's ride. The analytics event
+        // and service-due check are skipped, since the winning request fired
+        // them.
+        const isReplayCollision =
+          clientMutationId &&
+          e instanceof Prisma.PrismaClientKnownRequestError &&
+          e.code === 'P2002' &&
+          (e.meta?.target as string[] | undefined)?.includes('clientMutationId');
+        if (isReplayCollision) {
+          const winner = await prisma.ride.findUnique({
+            where: { userId_clientMutationId: { userId, clientMutationId } },
+          });
+          if (winner) return winner;
         }
-        return newRide;
-      });
+        throw e;
+      }
 
       // Invalidate prediction cache after transaction
       if (bikeId) {
