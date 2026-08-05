@@ -13,6 +13,7 @@ import { startWorkers, stopWorkers } from './workers';
 import { getRedisConnection, checkRedisHealth } from './lib/redis';
 import { startEmailScheduler, stopEmailScheduler } from './services/email-scheduler.service';
 import { startImportSessionChecker, stopImportSessionChecker } from './services/import-session-checker.service';
+import { startWeeklyDigestScheduler, stopWeeklyDigestScheduler } from './services/weekly-digest.service';
 import { startOAuthCleanup, stopOAuthCleanup } from './services/oauth-cleanup.service';
 import {
   startPasswordResetCleanup,
@@ -348,6 +349,10 @@ const startServer = async () => {
   // Start import session checker (checks for idle import sessions every minute)
   startImportSessionChecker();
 
+  // Start weekly digest scheduler (sweeps opted-in users every 15 minutes,
+  // sends each their Friday-morning gear-health digest in their local time)
+  startWeeklyDigestScheduler();
+
   // Start OAuth attempt cleanup (deletes expired records hourly)
   startOAuthCleanup();
 
@@ -361,6 +366,7 @@ const startServer = async () => {
   process.on('SIGTERM', async () => {
     await stopEmailScheduler();
     await stopImportSessionChecker();
+    stopWeeklyDigestScheduler();
     stopOAuthCleanup();
     stopPasswordResetCleanup();
     await stopWorkers();
