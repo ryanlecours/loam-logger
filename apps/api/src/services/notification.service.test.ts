@@ -521,7 +521,7 @@ describe('notification.service', () => {
 
       await fireRideNotifications(baseParams);
 
-      expect(enqueueReceiptCheck).toHaveBeenCalledWith('user-1', expect.arrayContaining([expect.any(String)]));
+      expect(enqueueReceiptCheck).toHaveBeenCalledWith('user-1', expect.arrayContaining([expect.any(String)]), 'ExponentPushToken[abc123]');
     });
 
     it('should not enqueue receipt check when no tickets are produced', async () => {
@@ -781,7 +781,7 @@ describe('notification.service', () => {
           data: { screen: 'bike', bikeId: 'bike-1', componentId: 'comp-1' },
         }),
       ]);
-      expect(enqueueReceiptCheck).toHaveBeenCalledWith('user-1', ['ticket-123']);
+      expect(enqueueReceiptCheck).toHaveBeenCalledWith('user-1', ['ticket-123'], 'ExponentPushToken[abc123]');
     });
 
     it('never sends a ride push: this entry point is service-due only', async () => {

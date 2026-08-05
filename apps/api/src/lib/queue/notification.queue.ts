@@ -18,6 +18,18 @@ export type NotificationJobName = 'checkReceipts';
 export type NotificationJobData = {
   userId: string;
   ticketIds: string[];
+  /**
+   * The push token these tickets were sent to. Lets the receipt worker
+   * compare-and-clear on DeviceNotRegistered instead of blindly nulling
+   * User.expoPushToken, which is one column per user rather than per
+   * device: a dead token's receipt arriving after another device has
+   * claimed the slot would otherwise wipe that live device's token.
+   *
+   * Optional only for jobs enqueued before this field existed. Those are
+   * drained within the 15-minute receipt delay of a deploy, and the worker
+   * skips the clear rather than falling back to the unsafe blind write.
+   */
+  pushToken?: string;
 };
 
 let notificationQueue: Queue<NotificationJobData, void, NotificationJobName> | null = null;
@@ -45,13 +57,17 @@ export function getNotificationQueue(): Queue<NotificationJobData, void, Notific
  * Enqueue a delayed job to check Expo push notification receipts.
  * Expo recommends waiting ~15 minutes before polling for receipts.
  */
-export async function enqueueReceiptCheck(userId: string, ticketIds: string[]): Promise<void> {
+export async function enqueueReceiptCheck(
+  userId: string,
+  ticketIds: string[],
+  pushToken?: string
+): Promise<void> {
   if (ticketIds.length === 0) return;
 
   const queue = getNotificationQueue();
 
   try {
-    await queue.add('checkReceipts', { userId, ticketIds }, { delay: RECEIPT_CHECK_DELAY_MS });
+    await queue.add('checkReceipts', { userId, ticketIds, pushToken }, { delay: RECEIPT_CHECK_DELAY_MS });
     logger.debug({ userId, ticketCount: ticketIds.length }, '[NotificationQueue] Enqueued receipt check');
   } catch (err) {
     logger.warn({ userId, error: err }, '[NotificationQueue] Failed to enqueue receipt check (non-fatal)');
