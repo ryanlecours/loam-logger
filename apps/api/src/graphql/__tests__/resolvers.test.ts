@@ -122,8 +122,10 @@ jest.mock('../../services/notification.service', () => ({
   isValidExpoPushToken: jest.fn((token: string) => token.startsWith('ExponentPushToken[') || token.startsWith('ExpoPushToken[')),
 }));
 
+// Resolves rather than bare jest.fn(): addRide fire-and-forgets the enqueue
+// with .catch() chained, so the mock must return a promise.
 jest.mock('../../lib/queue/weather.queue', () => ({
-  enqueueWeatherJob: jest.fn(),
+  enqueueWeatherJob: jest.fn().mockResolvedValue({ enqueued: true }),
 }));
 
 // Prevent captureServerEvent calls from firing real PostHog events during
@@ -6332,6 +6334,133 @@ describe('GraphQL Resolvers', () => {
 
       expect(prisma.ride.findUnique).not.toHaveBeenCalled();
       expect(tx.ride.create.mock.calls[0][0].data).not.toHaveProperty('clientMutationId');
+    });
+  });
+
+  describe('Mutation.addRide start coordinates (in-app recording)', () => {
+    const mutation = resolvers.Mutation.addRide;
+    const { enqueueWeatherJob } = jest.requireMock<{
+      enqueueWeatherJob: jest.Mock;
+    }>('../../lib/queue/weather.queue');
+
+    const baseInput = {
+      startTime: '2026-08-05T10:00:00.000Z',
+      durationSeconds: 3600,
+      distanceMeters: 16000,
+      elevationGainMeters: 400,
+      rideType: 'TRAIL',
+      unownedBike: true,
+    };
+
+    const makeTx = () => ({
+      ride: { create: jest.fn().mockResolvedValue({ id: 'ride-new' }) },
+    });
+
+    beforeEach(() => {
+      mockCheckMutationRateLimit.mockResolvedValue({ allowed: true, retryAfter: 0 });
+      (prisma.$transaction as jest.Mock).mockReset();
+    });
+
+    it('stores both coordinates and enqueues weather enrichment', async () => {
+      const tx = makeTx();
+      (prisma.$transaction as jest.Mock).mockImplementation(async (fn: (t: unknown) => unknown) => fn(tx));
+
+      await mutation(
+        {},
+        { input: { ...baseInput, startLat: 47.6062, startLng: -122.3321 } },
+        createMockContext('user-123') as never
+      );
+
+      const data = tx.ride.create.mock.calls[0][0].data;
+      expect(data.startLat).toBe(47.6062);
+      expect(data.startLng).toBe(-122.3321);
+      expect(enqueueWeatherJob).toHaveBeenCalledWith({ rideId: 'ride-new' });
+    });
+
+    it('skips weather and stores nothing when no coordinates are sent', async () => {
+      const tx = makeTx();
+      (prisma.$transaction as jest.Mock).mockImplementation(async (fn: (t: unknown) => unknown) => fn(tx));
+
+      await mutation({}, { input: { ...baseInput } }, createMockContext('user-123') as never);
+
+      const data = tx.ride.create.mock.calls[0][0].data;
+      expect(data).not.toHaveProperty('startLat');
+      expect(data).not.toHaveProperty('startLng');
+      expect(enqueueWeatherJob).not.toHaveBeenCalled();
+    });
+
+    it('rejects a lone coordinate', async () => {
+      await expect(
+        mutation(
+          {},
+          { input: { ...baseInput, startLat: 47.6062 } },
+          createMockContext('user-123') as never
+        )
+      ).rejects.toThrow('startLat and startLng must be provided together');
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('rejects out-of-range coordinates', async () => {
+      await expect(
+        mutation(
+          {},
+          { input: { ...baseInput, startLat: 91, startLng: 0 } },
+          createMockContext('user-123') as never
+        )
+      ).rejects.toThrow('startLat/startLng out of range');
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('accepts the exact range boundary (90, -180)', async () => {
+      const tx = makeTx();
+      (prisma.$transaction as jest.Mock).mockImplementation(async (fn: (t: unknown) => unknown) => fn(tx));
+
+      await mutation(
+        {},
+        { input: { ...baseInput, startLat: 90, startLng: -180 } },
+        createMockContext('user-123') as never
+      );
+
+      const data = tx.ride.create.mock.calls[0][0].data;
+      expect(data.startLat).toBe(90);
+      expect(data.startLng).toBe(-180);
+    });
+
+    it('rejects the (0, 0) no-fix sentinel', async () => {
+      await expect(
+        mutation(
+          {},
+          { input: { ...baseInput, startLat: 0, startLng: 0 } },
+          createMockContext('user-123') as never
+        )
+      ).rejects.toThrow('startLat/startLng of (0, 0) is not a valid fix');
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(enqueueWeatherJob).not.toHaveBeenCalled();
+    });
+
+    it('skips the weather enqueue on an idempotent replay with coordinates', async () => {
+      (prisma.ride.findUnique as jest.Mock).mockResolvedValue({
+        id: 'ride-original',
+        clientMutationId: 'key-1',
+      });
+
+      const result = await mutation(
+        {},
+        {
+          input: {
+            ...baseInput,
+            clientMutationId: 'key-1',
+            startLat: 47.6062,
+            startLng: -122.3321,
+          },
+        },
+        createMockContext('user-123') as never
+      );
+
+      expect(result).toEqual(expect.objectContaining({ id: 'ride-original' }));
+      // The original request enqueued weather; the replay must not re-fire it.
+      expect(enqueueWeatherJob).not.toHaveBeenCalled();
+      expect(prisma.$transaction).not.toHaveBeenCalled();
     });
   });
 });

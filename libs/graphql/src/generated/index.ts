@@ -101,6 +101,8 @@ export type AddRideInput = {
   location?: InputMaybe<Scalars['String']['input']>;
   notes?: InputMaybe<Scalars['String']['input']>;
   rideType: Scalars['String']['input'];
+  startLat?: InputMaybe<Scalars['Float']['input']>;
+  startLng?: InputMaybe<Scalars['Float']['input']>;
   startTime: Scalars['String']['input'];
   trailSystem?: InputMaybe<Scalars['String']['input']>;
   unownedBike?: InputMaybe<Scalars['Boolean']['input']>;
