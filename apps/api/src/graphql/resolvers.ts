@@ -1951,6 +1951,17 @@ export const resolvers = {
             extensions: { code: 'BAD_USER_INPUT' },
           });
         }
+        // Exactly (0, 0) is treated as "no GPS fix yet", not a place: some
+        // mobile location stacks emit it as a sentinel before acquisition,
+        // and no ride starts at that open-ocean intersection. The recorder
+        // filters it client-side too; this is the backstop that keeps a
+        // slipped sentinel from storing bogus coords and fetching weather
+        // for the Gulf of Guinea.
+        if (startLat === 0 && startLng === 0) {
+          throw new GraphQLError('startLat/startLng of (0, 0) is not a valid fix', {
+            extensions: { code: 'BAD_USER_INPUT' },
+          });
+        }
       }
 
       let bikeId: string | null = null;
