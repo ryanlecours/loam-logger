@@ -2229,12 +2229,26 @@ export const resolvers = {
         await invalidateBikePrediction(userId, bikeId);
       }
 
-      // Hours just landed on a bike (newly assigned, or a longer duration on
-      // an assigned ride): the same threshold-crossing moment a synced ride
-      // triggers, so it gets the same check. Losing hours can't make a
-      // component due, so the shrink/unassign cases stay quiet.
-      if (nextBikeId && (bikeChanged || hoursDiff > 0)) {
-        void fireServiceDueForBike({ userId, bikeId: nextBikeId });
+      // Hours may have landed on more than one bike, and every bike that
+      // gained any gets the same threshold check a synced ride triggers:
+      // - nextBikeId when the ride was newly assigned or its duration grew.
+      // - Every bike in adjustedBikeIds: a component on ANOTHER bike that
+      //   INCLUDEs this ride counts its duration too (computeCountedHours'
+      //   INCLUDE branch), so a duration increase or a startTime move into
+      //   that component's service window raises hours on a bike this ride
+      //   was never assigned to. Firing only for nextBikeId left those
+      //   crossings silent.
+      // A bike in the set whose hours only fell is a cheap no-op: candidates
+      // must cross a threshold and the per-component dedup filters repeats.
+      // The old bike (pure hour loss) is deliberately not added.
+      const serviceDueCandidates = new Set(
+        [
+          nextBikeId && (bikeChanged || hoursDiff > 0) ? nextBikeId : null,
+          ...adjustedBikeIds,
+        ].filter((b): b is string => !!b)
+      );
+      for (const candidateBikeId of serviceDueCandidates) {
+        void fireServiceDueForBike({ userId, bikeId: candidateBikeId });
       }
 
       return updatedRide;
@@ -4677,7 +4691,17 @@ export const resolvers = {
       // their service thresholds in one move, exactly the moment the rider
       // is paying attention. Fire-and-forget (never throws); per-component
       // dedup inside makes it safe even if nothing crossed.
-      void fireServiceDueForBike({ userId, bikeId });
+      //
+      // adjustedBikeIds is included for symmetry with updateRide, though for
+      // THIS mutation it should be a no-op set: assignment doesn't change
+      // ride durations, and a cross-bike component that INCLUDEs one of
+      // these rides was already counting it while unassigned
+      // (computeCountedHours' INCLUDE branch), so other bikes' hours can
+      // only stay equal or fall here. Firing anyway costs one deduped check
+      // and keeps this path correct if that invariant ever shifts.
+      for (const candidateBikeId of new Set([bikeId, ...adjustedBikeIds])) {
+        void fireServiceDueForBike({ userId, bikeId: candidateBikeId });
+      }
 
       return {
         success: true,
