@@ -4273,7 +4273,7 @@ export const resolvers = {
      * Compare-and-clear for expoPushToken. See the schema doc for why this
      * can't be a blind null: the column is one value per USER, not one per
      * device, so the same account signed into two devices only ever has
-     * room for one device's token — whichever registers last silently wins
+     * room for one device's token, and whichever registers last silently wins
      * the slot. A blind clear on logout would let the device that already
      * lost that race null out a different, currently-active device's token.
      * Matching first means a stale device's logout can only ever remove its
@@ -4293,10 +4293,26 @@ export const resolvers = {
         });
       }
 
+      // Same 200-char cap updateUserPreferences applies to this field. It
+      // bounds the value going into the WHERE clause; nothing here is ever
+      // persisted, so this is a resource guard rather than data validation.
+      //
+      // Deliberately NOT also running isValidExpoPushToken, which that path
+      // does. Format validation protects the column on write; on a removal
+      // path it protects nothing and can only turn a legitimate cleanup into
+      // a hard error. A malformed token simply matches no row and returns
+      // false, which is already the correct answer. Being liberal here also
+      // means a token stored under an older Expo format stays removable.
+      if (token.length > 200) {
+        throw new GraphQLError('token exceeds maximum length', {
+          extensions: { code: 'BAD_USER_INPUT' },
+        });
+      }
+
       // updateMany + a where-clause match, not findUnique-then-update: the
       // match check and the clear are one atomic statement, so two devices
       // racing this call can never both observe "yes it's mine" and step on
-      // each other. A false return isn't an error — it means this token
+      // each other. A false return isn't an error: it means this token
       // wasn't the one on file (already cleared, or a different device has
       // since claimed the slot), and there is nothing to unregister.
       const result = await prisma.user.updateMany({

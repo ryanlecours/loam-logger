@@ -3254,6 +3254,29 @@ describe('GraphQL Resolvers', () => {
       expect(mockPrisma.user.updateMany).not.toHaveBeenCalled();
     });
 
+    it('rejects an over-length token, matching updateUserPreferences', async () => {
+      const ctx = createMockContext('user-123');
+
+      await expect(
+        mutation(null, { token: 'a'.repeat(201) }, ctx)
+      ).rejects.toThrow('token exceeds maximum length');
+
+      expect(mockPrisma.user.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('accepts a malformed-but-short token and simply matches nothing', async () => {
+      // Format is deliberately NOT validated on this removal path: a bad
+      // token matches no row and returns false, which is already correct,
+      // and rejecting would only make a legitimate cleanup fail (including
+      // for a token stored under an older Expo format).
+      const ctx = createMockContext('user-123');
+      (mockPrisma.user.updateMany as jest.Mock).mockResolvedValue({ count: 0 });
+
+      const result = await mutation(null, { token: 'not-an-expo-token' }, ctx);
+
+      expect(result).toBe(false);
+    });
+
     it('requires authentication', async () => {
       const ctx = createMockContext(null);
 
