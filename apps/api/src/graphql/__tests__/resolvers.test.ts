@@ -60,6 +60,7 @@ jest.mock('../../lib/prisma', () => ({
     },
     user: {
       update: jest.fn(),
+      updateMany: jest.fn(),
       findUnique: jest.fn(),
       findUniqueOrThrow: jest.fn().mockResolvedValue({ subscriptionTier: 'PRO', isFoundingRider: false, needsDowngradeSelection: false }),
     },
@@ -3182,6 +3183,108 @@ describe('GraphQL Resolvers', () => {
       await mutation(null, { input: { predictionMode: 'predictive' } }, ctx);
 
       expect(mockPrisma.user.update).toHaveBeenCalled();
+    });
+  });
+
+  describe('unregisterPushToken', () => {
+    const mutation = resolvers.Mutation.unregisterPushToken;
+
+    beforeEach(() => {
+      mockCheckMutationRateLimit.mockResolvedValue({ allowed: true, retryAfter: 0 });
+    });
+
+    /**
+     * The bug this mutation exists to prevent: expoPushToken is one column
+     * per USER, not per device. Two devices signed into the same account
+     * share that single slot, and whichever registers last silently wins
+     * it. A blind `updateUserPreferences(expoPushToken: null)` on logout
+     * would let the device that already lost that race null out the OTHER,
+     * currently-active device's token. The where-clause match is what
+     * prevents it: the update only touches the row if the stored token
+     * still equals the caller's own.
+     */
+    it('clears the token only when it matches what is stored', async () => {
+      const ctx = createMockContext('user-123');
+      (mockPrisma.user.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
+
+      const result = await mutation(null, { token: 'ExponentPushToken[mine]' }, ctx);
+
+      expect(mockPrisma.user.updateMany).toHaveBeenCalledWith({
+        where: { id: 'user-123', expoPushToken: 'ExponentPushToken[mine]' },
+        data: { expoPushToken: null },
+      });
+      expect(result).toBe(true);
+    });
+
+    it('leaves a different device\'s token untouched and returns false', async () => {
+      // The stored value is some OTHER device's token (it already won the
+      // slot); updateMany's where-clause matches zero rows, so nothing is
+      // cleared. This is the exact scenario a blind null would have broken.
+      const ctx = createMockContext('user-123');
+      (mockPrisma.user.updateMany as jest.Mock).mockResolvedValue({ count: 0 });
+
+      const result = await mutation(null, { token: 'ExponentPushToken[stale]' }, ctx);
+
+      expect(mockPrisma.user.updateMany).toHaveBeenCalledWith({
+        where: { id: 'user-123', expoPushToken: 'ExponentPushToken[stale]' },
+        data: { expoPushToken: null },
+      });
+      expect(result).toBe(false);
+    });
+
+    it('scopes the match to the authenticated user', async () => {
+      const ctx = createMockContext('user-456');
+      (mockPrisma.user.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
+
+      await mutation(null, { token: 'ExponentPushToken[abc]' }, ctx);
+
+      expect(mockPrisma.user.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ id: 'user-456' }) })
+      );
+    });
+
+    it('rejects when the rate limit is exceeded', async () => {
+      const ctx = createMockContext('user-123');
+      mockCheckMutationRateLimit.mockResolvedValue({ allowed: false, retryAfter: 30 });
+
+      await expect(
+        mutation(null, { token: 'ExponentPushToken[abc]' }, ctx)
+      ).rejects.toThrow('Rate limit exceeded');
+
+      expect(mockPrisma.user.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('rejects an over-length token, matching updateUserPreferences', async () => {
+      const ctx = createMockContext('user-123');
+
+      await expect(
+        mutation(null, { token: 'a'.repeat(201) }, ctx)
+      ).rejects.toThrow('token exceeds maximum length');
+
+      expect(mockPrisma.user.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('accepts a malformed-but-short token and simply matches nothing', async () => {
+      // Format is deliberately NOT validated on this removal path: a bad
+      // token matches no row and returns false, which is already correct,
+      // and rejecting would only make a legitimate cleanup fail (including
+      // for a token stored under an older Expo format).
+      const ctx = createMockContext('user-123');
+      (mockPrisma.user.updateMany as jest.Mock).mockResolvedValue({ count: 0 });
+
+      const result = await mutation(null, { token: 'not-an-expo-token' }, ctx);
+
+      expect(result).toBe(false);
+    });
+
+    it('requires authentication', async () => {
+      const ctx = createMockContext(null);
+
+      await expect(
+        mutation(null, { token: 'ExponentPushToken[abc]' }, ctx)
+      ).rejects.toThrow();
+
+      expect(mockPrisma.user.updateMany).not.toHaveBeenCalled();
     });
   });
 

@@ -1126,6 +1126,22 @@ export const typeDefs = gql`
     bulkUpdateComponentBaselines(input: BulkUpdateBaselinesInput!): [Component!]!
     acceptTerms(input: AcceptTermsInput!): AcceptTermsResult!
     updateUserPreferences(input: UpdateUserPreferencesInput!): User!
+    """
+    Clears expoPushToken, but ONLY if it currently equals the given token:
+    a compare-and-clear, not a blind null. expoPushToken is a single column
+    per user, not per device, so the same account signed into two devices
+    only ever has room for one device's token, and whichever device
+    registers last silently wins the slot. Clearing unconditionally on
+    logout (as updateUserPreferences with expoPushToken: null does) would
+    let a logout on the device that already lost that race null out a
+    different, currently-active device's token. Matching first means a
+    stale device's logout can only ever remove its own (long since
+    overwritten) token, never a foreign one.
+    Returns true only if a row was actually cleared; false is not an error,
+    it means this token was not the one on file (already cleared, or a
+    different device holds the slot), so nothing needed to happen.
+    """
+    unregisterPushToken(token: String!): Boolean!
     updateAnalyticsOptOut(optOut: Boolean!): User!
     acknowledgeImportOverlay(importSessionId: ID!): AcknowledgeResult!
     assignBikeToRides(rideIds: [ID!]!, bikeId: ID!): BulkAssignResult!

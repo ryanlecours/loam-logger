@@ -168,7 +168,7 @@ describe('weekly-digest.service', () => {
       expect(mockPrisma.notificationLog.create).toHaveBeenCalledWith({
         data: { userId: 'user-1', notificationType: 'WEEKLY_DIGEST' },
       });
-      expect(enqueueReceiptCheck).toHaveBeenCalledWith('user-1', ['ticket-1']);
+      expect(enqueueReceiptCheck).toHaveBeenCalledWith('user-1', ['ticket-1'], 'ExponentPushToken[abc123]');
     });
 
     it('does not send outside the window — 8:30 UTC is 1:30am in Los Angeles', async () => {

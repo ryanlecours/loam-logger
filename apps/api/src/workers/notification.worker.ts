@@ -16,7 +16,7 @@ import type { NotificationJobData, NotificationJobName } from '../lib/queue/noti
  * to stop attempting future sends.
  */
 export async function processReceiptCheck(job: Job<NotificationJobData, void, NotificationJobName>): Promise<void> {
-  const { userId, ticketIds } = job.data;
+  const { userId, ticketIds, pushToken } = job.data;
 
   logger.debug({ userId, ticketCount: ticketIds.length }, '[NotificationWorker] Checking receipts');
 
@@ -42,14 +42,38 @@ export async function processReceiptCheck(job: Job<NotificationJobData, void, No
         '[NotificationWorker] Push delivery failed'
       );
 
-      // DeviceNotRegistered means the token is permanently invalid — clear it
+      // DeviceNotRegistered means this token is permanently invalid: the
+      // app was uninstalled or notification permission was revoked.
       if (receipt.details?.error === 'DeviceNotRegistered') {
         if (!tokenCleared) {
-          logger.info({ userId }, '[NotificationWorker] Clearing invalid push token (DeviceNotRegistered)');
-          await prisma.user.update({
-            where: { id: userId },
-            data: { expoPushToken: null },
-          });
+          // Compare-and-clear, never a blind null. User.expoPushToken is one
+          // column per user rather than per device, so two devices on one
+          // account share a single slot and the last to register wins it.
+          // These receipts are ~15 minutes stale by design, which is ample
+          // time for another device to have claimed the slot; nulling
+          // unconditionally would silently kill push on that live device
+          // because a DIFFERENT, now-dead device's receipt came back.
+          // Matching on the token these tickets were actually sent to means
+          // we can only ever clear the dead one.
+          if (!pushToken) {
+            // Job predates pushToken being on the payload. Skip rather than
+            // fall back to the unsafe blind write: the cost is one dead
+            // token surviving until the next send fails, whose receipt job
+            // will carry the token and clear it properly.
+            logger.warn(
+              { userId },
+              '[NotificationWorker] DeviceNotRegistered on a legacy job with no pushToken; skipping clear'
+            );
+          } else {
+            const result = await prisma.user.updateMany({
+              where: { id: userId, expoPushToken: pushToken },
+              data: { expoPushToken: null },
+            });
+            logger.info(
+              { userId, cleared: result.count > 0 },
+              '[NotificationWorker] DeviceNotRegistered; cleared push token if still current'
+            );
+          }
           tokenCleared = true;
         }
       }
