@@ -191,6 +191,14 @@ model Ride {
   liftElevationGainMeters Float?
   liftDistanceMeters      Float?
   liftDetectorVersion     Int?
+  // Client-generated idempotency key for manual ride creation. The mobile app
+  // queues addRide while offline and retries with backoff; without this key a
+  // retry after a lost response would insert a second ride AND double-credit
+  // component hours. Scoped per user (the same UUID from two accounts is not a
+  // collision). NULL for provider-synced rides and legacy rows; Postgres treats
+  // NULLs as distinct in unique indexes, so the constraint only bites when a
+  // key is actually supplied.
+  clientMutationId        String?
   bike                    Bike?                     @relation(fields: [bikeId], references: [id])
   duplicateOf             Ride?                     @relation("DuplicateRides", fields: [duplicateOfId], references: [id], onDelete: SetNull)
   duplicates              Ride[]                    @relation("DuplicateRides")
@@ -205,6 +213,7 @@ model Ride {
   // to keep the ridesMissingWeather COUNT(*) fast once the RideWeather table fills up.
   // Prisma doesn't support partial-index predicates, so the index is managed there.
 
+  @@unique([userId, clientMutationId])
   @@index([importSessionId, bikeId])
   // Backs the userId + bikeId + startTime(range/order) access pattern shared
   // by componentRides (interactive, up to 60/min), the prediction engine's

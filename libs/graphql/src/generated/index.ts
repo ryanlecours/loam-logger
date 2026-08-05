@@ -94,6 +94,7 @@ export type AddComponentInput = {
 export type AddRideInput = {
   averageHr?: InputMaybe<Scalars['Int']['input']>;
   bikeId?: InputMaybe<Scalars['ID']['input']>;
+  clientMutationId?: InputMaybe<Scalars['String']['input']>;
   distanceMeters: Scalars['Float']['input'];
   durationSeconds: Scalars['Int']['input'];
   elevationGainMeters: Scalars['Float']['input'];
@@ -102,6 +103,7 @@ export type AddRideInput = {
   rideType: Scalars['String']['input'];
   startTime: Scalars['String']['input'];
   trailSystem?: InputMaybe<Scalars['String']['input']>;
+  unownedBike?: InputMaybe<Scalars['Boolean']['input']>;
 };
 
 export type AdvisorSummary = {
@@ -649,6 +651,22 @@ export type Mutation = {
   snoozeComponent: Component;
   swapComponents: SwapComponentsResult;
   triggerProviderSync: TriggerSyncResult;
+  /**
+   * Clears expoPushToken, but ONLY if it currently equals the given token:
+   * a compare-and-clear, not a blind null. expoPushToken is a single column
+   * per user, not per device, so the same account signed into two devices
+   * only ever has room for one device's token, and whichever device
+   * registers last silently wins the slot. Clearing unconditionally on
+   * logout (as updateUserPreferences with expoPushToken: null does) would
+   * let a logout on the device that already lost that race null out a
+   * different, currently-active device's token. Matching first means a
+   * stale device's logout can only ever remove its own (long since
+   * overwritten) token, never a foreign one.
+   * Returns true only if a row was actually cleared; false is not an error,
+   * it means this token was not the one on file (already cleared, or a
+   * different device holds the slot), so nothing needed to happen.
+   */
+  unregisterPushToken: Scalars['Boolean']['output'];
   updateAnalyticsOptOut: User;
   updateBike: Bike;
   updateBikeAcquisition: UpdateBikeAcquisitionResult;
@@ -848,6 +866,11 @@ export type MutationTriggerProviderSyncArgs = {
 };
 
 
+export type MutationUnregisterPushTokenArgs = {
+  token: Scalars['String']['input'];
+};
+
+
 export type MutationUpdateAnalyticsOptOutArgs = {
   optOut: Scalars['Boolean']['input'];
 };
@@ -958,6 +981,7 @@ export type Query = {
   servicePreferenceDefaults: Array<ServicePreferenceDefault>;
   sharedBikeHistory?: Maybe<SharedBikeHistory>;
   stravaGearMappings: Array<StravaGearMapping>;
+  unassignedRideCount: Scalars['Int']['output'];
   unassignedRides: UnassignedRidesPage;
   unmappedStravaGears: Array<StravaGearInfo>;
 };
@@ -1084,11 +1108,26 @@ export type Ride = {
   stravaGearId?: Maybe<Scalars['String']['output']>;
   suuntoWorkoutId?: Maybe<Scalars['String']['output']>;
   trailSystem?: Maybe<Scalars['String']['output']>;
+  /**
+   * Ridden on a bike the rider does not own: a demo, a loaner, a rental, a
+   * friend's bike. Always paired with a null bikeId, and the two are kept in
+   * sync by the server (assigning a bike clears this; setting this clears the
+   * bike). Distinguishes "not my bike" from "not assigned yet", so clients can
+   * stop prompting for a bike that is never coming. The ride still counts
+   * toward ride stats and insights; it credits no component either way.
+   */
+  unownedBike: Scalars['Boolean']['output'];
   updatedAt: Scalars['String']['output'];
   userId: Scalars['ID']['output'];
   weather?: Maybe<RideWeather>;
   whoopWorkoutId?: Maybe<Scalars['String']['output']>;
 };
+
+export enum RideSyncNotificationMode {
+  ActionNeeded = 'ACTION_NEEDED',
+  All = 'ALL',
+  Off = 'OFF'
+}
 
 export type RideTrack = {
   __typename?: 'RideTrack';
@@ -1146,6 +1185,7 @@ export type RidesFilterInput = {
   bikeId?: InputMaybe<Scalars['ID']['input']>;
   endDate?: InputMaybe<Scalars['String']['input']>;
   startDate?: InputMaybe<Scalars['String']['input']>;
+  unassigned?: InputMaybe<Scalars['Boolean']['input']>;
 };
 
 export type ServiceEvent = {
@@ -1492,6 +1532,7 @@ export type UpdateRideInput = {
   rideType?: InputMaybe<Scalars['String']['input']>;
   startTime?: InputMaybe<Scalars['String']['input']>;
   trailSystem?: InputMaybe<Scalars['String']['input']>;
+  unownedBike?: InputMaybe<Scalars['Boolean']['input']>;
 };
 
 export type UpdateServiceLogInput = {
@@ -1510,6 +1551,9 @@ export type UpdateUserPreferencesInput = {
   hoursDisplayPreference?: InputMaybe<Scalars['String']['input']>;
   notifyOnRideUpload?: InputMaybe<Scalars['Boolean']['input']>;
   predictionMode?: InputMaybe<Scalars['String']['input']>;
+  rideSyncNotificationMode?: InputMaybe<RideSyncNotificationMode>;
+  timezone?: InputMaybe<Scalars['String']['input']>;
+  weeklyDigestEnabled?: InputMaybe<Scalars['Boolean']['input']>;
 };
 
 export type User = {
@@ -1539,6 +1583,7 @@ export type User = {
   predictionMode?: Maybe<Scalars['String']['output']>;
   /** @deprecated Referral program removed; always null */
   referralCode?: Maybe<Scalars['String']['output']>;
+  rideSyncNotificationMode: RideSyncNotificationMode;
   rides: Array<Ride>;
   ridesMissingWeather: Scalars['Int']['output'];
   role: UserRole;
@@ -1548,6 +1593,7 @@ export type User = {
   tierLimits: TierLimits;
   trailStewardshipNoticeSeenAt?: Maybe<Scalars['String']['output']>;
   weatherBreakdown: WeatherBreakdown;
+  weeklyDigestEnabled: Scalars['Boolean']['output'];
 };
 
 

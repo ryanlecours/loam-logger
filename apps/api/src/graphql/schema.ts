@@ -549,6 +549,11 @@ export const typeDefs = gql`
     notes: String
     trailSystem: String
     location: String
+    # Client-generated idempotency key (a UUID). When a retried submit carries
+    # the same key, the API returns the ride created by the first attempt
+    # instead of inserting a duplicate. Optional: omitting it preserves the
+    # old always-insert behavior.
+    clientMutationId: String
   }
 
   type DeleteRideResult { ok: Boolean!, id: ID! }
