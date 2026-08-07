@@ -3,15 +3,30 @@ import jwt from 'jsonwebtoken';
 
 const { SESSION_SECRET } = process.env;
 
+export type TokenType = 'access' | 'refresh';
+
 export type TokenPayload = {
   uid: string;
   email?: string;
   /** User's sessionTokenVersion at token issue time — used to revoke tokens after password reset */
   v?: number;
+  /**
+   * Which kind of token this is. Both kinds are signed with the same
+   * SESSION_SECRET, so without this claim they are interchangeable: an
+   * access token POSTed to /mobile/refresh would mint a year-long refresh
+   * session, and a refresh token in an Authorization header would act as a
+   * year-long access token that never touches rotation or reuse detection.
+   * Optional only because tokens issued before the claim existed lack it;
+   * those are typed by lifetime instead (see isRefreshTokenPayload).
+   */
+  typ?: TokenType;
   /** Refresh tokens only: MobileSession row id this token belongs to */
   sid?: string;
   /** Refresh tokens only: one-time rotation id, matched against MobileSession.currentJti */
   jti?: string;
+  /** Stamped by jwt.sign; present on any verified payload. */
+  iat?: number;
+  exp?: number;
 };
 
 /**
@@ -22,7 +37,7 @@ export function generateAccessToken(payload: TokenPayload): string {
   if (!SESSION_SECRET) {
     throw new Error('SESSION_SECRET environment variable is not set');
   }
-  return jwt.sign(payload, SESSION_SECRET, { expiresIn: '15m' });
+  return jwt.sign({ ...payload, typ: 'access' }, SESSION_SECRET, { expiresIn: '15m' });
 }
 
 /**
@@ -45,7 +60,42 @@ export function generateRefreshToken(payload: TokenPayload): string {
   if (!SESSION_SECRET) {
     throw new Error('SESSION_SECRET environment variable is not set');
   }
-  return jwt.sign(payload, SESSION_SECRET, { expiresIn: '365d' });
+  return jwt.sign({ ...payload, typ: 'refresh' }, SESSION_SECRET, { expiresIn: '365d' });
+}
+
+// Legacy tokens (issued before the typ claim) are typed by their signed
+// lifetime: access tokens lived 15 minutes, refresh tokens 7 days. One hour
+// splits those cleanly. Web session cookies share the secret and a 7-day
+// lifetime, so they would pass the duration test; they are excluded by their
+// authAt claim, which mobile tokens never carry. The legacy fallbacks below
+// can be deleted once every pre-typ token has expired (7 days after the typ
+// deploy; legacy access tokens die in 15 minutes).
+const LEGACY_ACCESS_MAX_LIFETIME_S = 60 * 60;
+
+function signedLifetimeSeconds(payload: TokenPayload): number | null {
+  return typeof payload.iat === 'number' && typeof payload.exp === 'number'
+    ? payload.exp - payload.iat
+    : null;
+}
+
+function isWebSessionShaped(payload: TokenPayload): boolean {
+  return (payload as { authAt?: unknown }).authAt !== undefined;
+}
+
+/** True iff this verified payload was issued as a mobile refresh token. */
+export function isRefreshTokenPayload(payload: TokenPayload): boolean {
+  if (payload.typ !== undefined) return payload.typ === 'refresh';
+  if (isWebSessionShaped(payload)) return false;
+  const lifetime = signedLifetimeSeconds(payload);
+  return lifetime !== null && lifetime > LEGACY_ACCESS_MAX_LIFETIME_S;
+}
+
+/** True iff this verified payload was issued as a mobile access token. */
+export function isAccessTokenPayload(payload: TokenPayload): boolean {
+  if (payload.typ !== undefined) return payload.typ === 'access';
+  if (isWebSessionShaped(payload)) return false;
+  const lifetime = signedLifetimeSeconds(payload);
+  return lifetime !== null && lifetime <= LEGACY_ACCESS_MAX_LIFETIME_S;
 }
 
 /**

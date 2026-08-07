@@ -7,7 +7,7 @@ import { verifyAppleIdentityToken, type AppleVerifyErrorDetail } from './appleTo
 import { normalizeEmail, getClientIp } from './utils';
 import { validateEmailFormat } from './email.utils';
 import { verifyPassword, validatePassword, hashPassword } from './password.utils';
-import { generateAccessToken, generateRefreshToken, verifyToken } from './token';
+import { generateAccessToken, generateRefreshToken, verifyToken, isRefreshTokenPayload } from './token';
 import { issueMobileTokens } from './session-issuer';
 import { createMobileSession, rotateMobileSession, revokeMobileSession } from './mobile-session';
 import { updateLastAuthAt } from './recent-auth';
@@ -425,6 +425,16 @@ router.post('/mobile/refresh', express.json(), async (req, res) => {
     if (!payload) {
       // Stale / malformed token is the common case here — info, not warn.
       logger.info({ reason: 'invalid-or-expired', route: 'mobile/refresh' }, 'Refresh 401: token invalid or expired');
+      return sendUnauthorized(res, 'Invalid or expired refresh token');
+    }
+
+    // The signature only proves WE minted the token, not that it is a
+    // refresh token: access tokens and web session cookies share the same
+    // secret. Without this check, a leaked 15-minute access token could be
+    // traded here for a year-long session. The real client never does
+    // this, so warn: it is either a bug or someone probing.
+    if (!isRefreshTokenPayload(payload)) {
+      logger.warn({ uid: payload.uid, typ: payload.typ, route: 'mobile/refresh' }, 'Refresh 401: non-refresh token presented');
       return sendUnauthorized(res, 'Invalid or expired refresh token');
     }
 

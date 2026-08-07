@@ -10,7 +10,14 @@ jest.mock('jsonwebtoken');
 const mockedJwt = jwt as jest.Mocked<typeof jwt>;
 
 // Now import the module under test
-import { generateAccessToken, generateRefreshToken, verifyToken, extractBearerToken } from './token';
+import {
+  generateAccessToken,
+  generateRefreshToken,
+  verifyToken,
+  extractBearerToken,
+  isRefreshTokenPayload,
+  isAccessTokenPayload,
+} from './token';
 
 afterAll(() => {
   process.env = originalEnv;
@@ -21,13 +28,13 @@ describe('generateAccessToken', () => {
     jest.clearAllMocks();
   });
 
-  it('should generate access token with 15m expiry', () => {
+  it('should generate access token with 15m expiry and an access typ claim', () => {
     mockedJwt.sign.mockReturnValue('access_token' as never);
 
     const result = generateAccessToken({ uid: 'user123', email: 'test@example.com' });
 
     expect(mockedJwt.sign).toHaveBeenCalledWith(
-      { uid: 'user123', email: 'test@example.com' },
+      { uid: 'user123', email: 'test@example.com', typ: 'access' },
       'test-secret',
       { expiresIn: '15m' }
     );
@@ -40,7 +47,7 @@ describe('generateAccessToken', () => {
     const result = generateAccessToken({ uid: 'user123' });
 
     expect(mockedJwt.sign).toHaveBeenCalledWith(
-      { uid: 'user123' },
+      { uid: 'user123', typ: 'access' },
       'test-secret',
       { expiresIn: '15m' }
     );
@@ -53,17 +60,57 @@ describe('generateRefreshToken', () => {
     jest.clearAllMocks();
   });
 
-  it('should generate refresh token with 365d expiry', () => {
+  it('should generate refresh token with 365d expiry and a refresh typ claim', () => {
     mockedJwt.sign.mockReturnValue('refresh_token' as never);
 
     const result = generateRefreshToken({ uid: 'user123', email: 'test@example.com' });
 
     expect(mockedJwt.sign).toHaveBeenCalledWith(
-      { uid: 'user123', email: 'test@example.com' },
+      { uid: 'user123', email: 'test@example.com', typ: 'refresh' },
       'test-secret',
       { expiresIn: '365d' }
     );
     expect(result).toBe('refresh_token');
+  });
+});
+
+// The two token kinds share a signing secret, so these predicates are the
+// only thing standing between "leaked 15-minute access token" and "minted
+// year-long refresh session" (and the reverse). Legacy tokens without a typ
+// claim are typed by signed lifetime; web session cookies (same secret,
+// 7-day lifetime) are excluded by their authAt claim.
+describe('isRefreshTokenPayload / isAccessTokenPayload', () => {
+  const now = 1_700_000_000;
+
+  it('trusts an explicit typ claim in both directions', () => {
+    expect(isRefreshTokenPayload({ uid: 'u', typ: 'refresh' })).toBe(true);
+    expect(isRefreshTokenPayload({ uid: 'u', typ: 'access' })).toBe(false);
+    expect(isAccessTokenPayload({ uid: 'u', typ: 'access' })).toBe(true);
+    expect(isAccessTokenPayload({ uid: 'u', typ: 'refresh' })).toBe(false);
+  });
+
+  it('ignores lifetime when typ is present (a forged short refresh is still a refresh)', () => {
+    expect(isAccessTokenPayload({ uid: 'u', typ: 'refresh', iat: now, exp: now + 60 })).toBe(false);
+  });
+
+  it('types legacy tokens by signed lifetime', () => {
+    const legacyAccess = { uid: 'u', iat: now, exp: now + 15 * 60 };
+    const legacyRefresh = { uid: 'u', iat: now, exp: now + 7 * 24 * 60 * 60 };
+    expect(isAccessTokenPayload(legacyAccess)).toBe(true);
+    expect(isRefreshTokenPayload(legacyAccess)).toBe(false);
+    expect(isRefreshTokenPayload(legacyRefresh)).toBe(true);
+    expect(isAccessTokenPayload(legacyRefresh)).toBe(false);
+  });
+
+  it('never types a web session cookie as either mobile token', () => {
+    const webCookie = { uid: 'u', authAt: now * 1000, iat: now, exp: now + 7 * 24 * 60 * 60 } as never;
+    expect(isRefreshTokenPayload(webCookie)).toBe(false);
+    expect(isAccessTokenPayload(webCookie)).toBe(false);
+  });
+
+  it('rejects payloads with no typ and no usable lifetime', () => {
+    expect(isRefreshTokenPayload({ uid: 'u' })).toBe(false);
+    expect(isAccessTokenPayload({ uid: 'u' })).toBe(false);
   });
 });
 

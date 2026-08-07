@@ -40,6 +40,10 @@ jest.mock('./ensureUserFromApple', () => ({ ensureUserFromApple: jest.fn() }));
 jest.mock('./appleTokenVerifier', () => ({ verifyAppleIdentityToken: jest.fn() }));
 
 jest.mock('./token', () => ({
+  // Real isRefreshTokenPayload/isAccessTokenPayload: the tests below feed
+  // realistically-shaped payloads through the actual type predicates, so a
+  // regression in that logic fails here, not just in token.test.ts.
+  ...jest.requireActual('./token'),
   generateAccessToken: jest.fn().mockReturnValue('new_access_token'),
   generateRefreshToken: jest.fn().mockReturnValue('new_refresh_token'),
   verifyToken: jest.fn(),
@@ -129,7 +133,7 @@ describe('POST /mobile/refresh', () => {
   });
 
   it('rotates a session-bound token and returns the new pair', async () => {
-    mockVerifyToken.mockReturnValue({ uid: 'user-1', email: USER.email, v: 0, sid: 'sid-1', jti: 'jti-1' });
+    mockVerifyToken.mockReturnValue({ uid: 'user-1', email: USER.email, v: 0, typ: 'refresh', sid: 'sid-1', jti: 'jti-1' });
     mockRotateMobileSession.mockResolvedValue({ ok: true, jti: 'jti-2' });
     const res = createMockResponse();
 
@@ -147,7 +151,7 @@ describe('POST /mobile/refresh', () => {
   });
 
   it('returns 401 and reports when a spent token is replayed', async () => {
-    mockVerifyToken.mockReturnValue({ uid: 'user-1', v: 0, sid: 'sid-1', jti: 'jti-stolen' });
+    mockVerifyToken.mockReturnValue({ uid: 'user-1', v: 0, typ: 'refresh', sid: 'sid-1', jti: 'jti-stolen' });
     mockRotateMobileSession.mockResolvedValue({ ok: false, reason: 'reuse-detected' });
     const res = createMockResponse();
 
@@ -161,7 +165,7 @@ describe('POST /mobile/refresh', () => {
   });
 
   it('returns 401 for a revoked session without Sentry noise', async () => {
-    mockVerifyToken.mockReturnValue({ uid: 'user-1', v: 0, sid: 'sid-1', jti: 'jti-1' });
+    mockVerifyToken.mockReturnValue({ uid: 'user-1', v: 0, typ: 'refresh', sid: 'sid-1', jti: 'jti-1' });
     mockRotateMobileSession.mockResolvedValue({ ok: false, reason: 'revoked' });
     const res = createMockResponse();
 
@@ -172,7 +176,8 @@ describe('POST /mobile/refresh', () => {
   });
 
   it('upgrades a legacy sid-less token to a session instead of rejecting it', async () => {
-    mockVerifyToken.mockReturnValue({ uid: 'user-1', email: USER.email, v: 0 });
+    const iat = Math.floor(Date.now() / 1000);
+    mockVerifyToken.mockReturnValue({ uid: 'user-1', email: USER.email, v: 0, iat, exp: iat + 7 * 24 * 60 * 60 });
     mockCreateMobileSession.mockResolvedValue({ sid: 'sid-new', jti: 'jti-new' });
     const res = createMockResponse();
 
@@ -187,7 +192,7 @@ describe('POST /mobile/refresh', () => {
   });
 
   it('still rejects tokens invalidated by a sessionTokenVersion bump', async () => {
-    mockVerifyToken.mockReturnValue({ uid: 'user-1', v: 0, sid: 'sid-1', jti: 'jti-1' });
+    mockVerifyToken.mockReturnValue({ uid: 'user-1', v: 0, typ: 'refresh', sid: 'sid-1', jti: 'jti-1' });
     mockUserFindUnique.mockResolvedValue({ ...USER, sessionTokenVersion: 1 });
     const res = createMockResponse();
 
@@ -205,6 +210,31 @@ describe('POST /mobile/refresh', () => {
 
     expect(res.status).toHaveBeenCalledWith(401);
   });
+
+  // Access tokens verify with the same secret and, like legacy refresh
+  // tokens, carry no sid/jti. Without the typ gate, a leaked 15-minute
+  // access token POSTed here would be upgraded into a 365-day session.
+  it('refuses to upgrade an access token into a refresh session', async () => {
+    mockVerifyToken.mockReturnValue({ uid: 'user-1', email: USER.email, v: 0, typ: 'access' });
+    const res = createMockResponse();
+
+    await invokeHandler(handler, { body: { refreshToken: 'an-access-token' } } as Request, res as Response);
+
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(mockCreateMobileSession).not.toHaveBeenCalled();
+    expect(mockRotateMobileSession).not.toHaveBeenCalled();
+  });
+
+  it('refuses a legacy-shaped token whose signed lifetime says access token', async () => {
+    const iat = Math.floor(Date.now() / 1000);
+    mockVerifyToken.mockReturnValue({ uid: 'user-1', v: 0, iat, exp: iat + 15 * 60 });
+    const res = createMockResponse();
+
+    await invokeHandler(handler, { body: { refreshToken: 'legacy-access' } } as Request, res as Response);
+
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(mockCreateMobileSession).not.toHaveBeenCalled();
+  });
 });
 
 describe('POST /mobile/logout', () => {
@@ -220,7 +250,7 @@ describe('POST /mobile/logout', () => {
   });
 
   it('revokes the session named by a valid token', async () => {
-    mockVerifyToken.mockReturnValue({ uid: 'user-1', sid: 'sid-1', jti: 'jti-1' });
+    mockVerifyToken.mockReturnValue({ uid: 'user-1', typ: 'refresh', sid: 'sid-1', jti: 'jti-1' });
     const res = createMockResponse();
 
     await invokeHandler(handler, { body: { refreshToken: 'rt' } } as Request, res as Response);
