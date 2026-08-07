@@ -53,6 +53,12 @@ model User {
   // separately via posthog.opt_out_capturing() from the browser SDK.
   analyticsOptOut Boolean @default(false)
 
+  // AI output (the advisor maintenance summary) is strictly opt-in: off by
+  // default at every tier, including existing Pro and Founding Rider users.
+  // Checked in the advisorSummary resolver alongside the Pro gate; false
+  // means the field resolves null and surfaces collapse, never an error.
+  aiFeaturesEnabled Boolean @default(false)
+
   bikes                    Bike[]
   components               Component[]
   tokens                   OauthToken[]

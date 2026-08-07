@@ -4,5 +4,6 @@ mutation UpdateUserPreferences($input: UpdateUserPreferencesInput!) {
     hoursDisplayPreference
     predictionMode
     distanceUnit
+    aiFeaturesEnabled
   }
 }

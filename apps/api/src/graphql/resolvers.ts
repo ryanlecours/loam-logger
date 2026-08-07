@@ -4216,7 +4216,7 @@ export const resolvers = {
 
     updateUserPreferences: async (
       _: unknown,
-      { input }: { input: { hoursDisplayPreference?: string | null; predictionMode?: string | null; distanceUnit?: string | null; expoPushToken?: string | null; notifyOnRideUpload?: boolean | null; rideSyncNotificationMode?: 'ALL' | 'ACTION_NEEDED' | 'OFF' | null; weeklyDigestEnabled?: boolean | null; timezone?: string | null } },
+      { input }: { input: { hoursDisplayPreference?: string | null; predictionMode?: string | null; distanceUnit?: string | null; expoPushToken?: string | null; notifyOnRideUpload?: boolean | null; rideSyncNotificationMode?: 'ALL' | 'ACTION_NEEDED' | 'OFF' | null; weeklyDigestEnabled?: boolean | null; aiFeaturesEnabled?: boolean | null; timezone?: string | null } },
       ctx: GraphQLContext
     ) => {
       const userId = requireUserId(ctx);
@@ -4228,7 +4228,7 @@ export const resolvers = {
         });
       }
 
-      const updateData: { hoursDisplayPreference?: string | null; predictionMode?: string | null; distanceUnit?: string | null; expoPushToken?: string | null; notifyOnRideUpload?: boolean; rideSyncNotificationMode?: 'ALL' | 'ACTION_NEEDED' | 'OFF'; weeklyDigestEnabled?: boolean; timezone?: string | null } = {};
+      const updateData: { hoursDisplayPreference?: string | null; predictionMode?: string | null; distanceUnit?: string | null; expoPushToken?: string | null; notifyOnRideUpload?: boolean; rideSyncNotificationMode?: 'ALL' | 'ACTION_NEEDED' | 'OFF'; weeklyDigestEnabled?: boolean; aiFeaturesEnabled?: boolean; timezone?: string | null } = {};
 
       if (input.hoursDisplayPreference !== undefined) {
         // Input length validation to prevent DoS/excessive storage
@@ -4325,6 +4325,14 @@ export const resolvers = {
 
       if (input.weeklyDigestEnabled !== undefined && input.weeklyDigestEnabled !== null) {
         updateData.weeklyDigestEnabled = input.weeklyDigestEnabled;
+      }
+
+      // Deliberately not Pro-gated at write time: the stored value is only
+      // intent, and the advisorSummary resolver enforces tier at read time.
+      // Recording a free rider's choice means an upgrade honors it at once,
+      // and a toggle-off survives any later tier change.
+      if (input.aiFeaturesEnabled !== undefined && input.aiFeaturesEnabled !== null) {
+        updateData.aiFeaturesEnabled = input.aiFeaturesEnabled;
       }
 
       if (input.timezone !== undefined) {
@@ -6388,6 +6396,12 @@ export const resolvers = {
       // per bike without paying N user lookups.
       const tierUser = await ctx.loaders.tierUserById.load(userId);
       if (!tierUser || !canSeePredictions(tierUser)) return null;
+
+      // AI opt-in gate. AI output is off by default at every tier, including
+      // Pro and Founding Rider: a rider must have switched it on (at upgrade
+      // or in Settings) before any LLM text is generated or served, cached
+      // included. Null here is policy, not an error; every surface collapses.
+      if (!tierUser.aiFeaturesEnabled) return null;
 
       const model = process.env.LOAM_ADVISOR_MODEL || DEFAULT_ADVISOR_MODEL;
       const cacheParams = { userId, bikeId: parent.bikeId, planTier: 'pro', model };

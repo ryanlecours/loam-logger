@@ -37,7 +37,7 @@ describe('AdvisorSummaryCard', () => {
         </MemoryRouter>
       );
       expect(screen.getByText('AI summary')).toBeInTheDocument();
-      expect(screen.getByText(/sums up what to wrench on/i)).toBeInTheDocument();
+      expect(screen.getByText(/sum up what to wrench on/i)).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /included with pro/i })).toBeInTheDocument();
     });
 
@@ -55,7 +55,7 @@ describe('AdvisorSummaryCard', () => {
         </MemoryRouter>
       );
       expect(screen.getByText(summary.text)).toBeInTheDocument();
-      expect(screen.queryByText(/sums up what to wrench on/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/sum up what to wrench on/i)).not.toBeInTheDocument();
     });
   });
 });

@@ -7,6 +7,7 @@ export const UPDATE_USER_PREFERENCES_MUTATION = gql`
       hoursDisplayPreference
       predictionMode
       distanceUnit
+      aiFeaturesEnabled
     }
   }
 `

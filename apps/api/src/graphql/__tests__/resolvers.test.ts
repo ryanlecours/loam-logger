@@ -168,11 +168,15 @@ const createMockContext = (
     isFoundingRider: boolean;
     role: string;
     predictionMode?: string | null;
+    aiFeaturesEnabled?: boolean;
   } | null = {
     subscriptionTier: 'PRO',
     isFoundingRider: false,
     role: 'FREE',
     predictionMode: 'simple',
+    // Opted in by default so advisor happy-path tests exercise the LLM
+    // path; the opt-out (default-off) behavior has its own tests.
+    aiFeaturesEnabled: true,
   }
 ) => ({
   user: userId ? { id: userId } : null,
@@ -3105,6 +3109,20 @@ describe('GraphQL Resolvers', () => {
       });
     });
 
+    it('accepts aiFeaturesEnabled without a tier check (enforced at read time instead)', async () => {
+      const ctx = createMockContext();
+      (mockPrisma.user.update as jest.Mock).mockResolvedValue({ id: 'user-123' });
+
+      await mutation(null, { input: { aiFeaturesEnabled: true } }, ctx);
+
+      expect(mockPrisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'user-123' },
+        data: { aiFeaturesEnabled: true },
+      });
+      // No tier lookup: a free rider's choice is stored and honored on upgrade.
+      expect(mockPrisma.user.findUniqueOrThrow).not.toHaveBeenCalled();
+    });
+
     it('rejects a timezone Intl does not recognize', async () => {
       const ctx = createMockContext();
 
@@ -5384,6 +5402,39 @@ describe('GraphQL Resolvers', () => {
 
       expect(result).toBeNull();
       expect(ctx.loaders.tierUserById.load).toHaveBeenCalledWith('user-123');
+      expect(mockGetCachedAdvisorSummary).not.toHaveBeenCalled();
+      expect(mockGenerateSummary).not.toHaveBeenCalled();
+    });
+
+    it('returns null for a Pro user who has not opted in to AI, without touching cache or LLM', async () => {
+      const ctx = createMockContext('user-123', {}, {
+        subscriptionTier: 'PRO',
+        isFoundingRider: false,
+        role: 'FREE',
+        predictionMode: 'simple',
+        aiFeaturesEnabled: false,
+      });
+
+      const result = await resolver(makeParent(), {}, ctx as never);
+
+      expect(result).toBeNull();
+      // Opt-out must block even cached text from being served.
+      expect(mockGetCachedAdvisorSummary).not.toHaveBeenCalled();
+      expect(mockGenerateSummary).not.toHaveBeenCalled();
+    });
+
+    it('treats a founding rider without the opt-in exactly like any other opted-out user', async () => {
+      const ctx = createMockContext('user-123', {}, {
+        subscriptionTier: 'FREE',
+        isFoundingRider: true,
+        role: 'FREE',
+        predictionMode: 'simple',
+        aiFeaturesEnabled: false,
+      });
+
+      const result = await resolver(makeParent(), {}, ctx as never);
+
+      expect(result).toBeNull();
       expect(mockGetCachedAdvisorSummary).not.toHaveBeenCalled();
       expect(mockGenerateSummary).not.toHaveBeenCalled();
     });

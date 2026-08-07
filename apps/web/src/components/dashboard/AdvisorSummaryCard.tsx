@@ -8,8 +8,10 @@ interface AdvisorSummaryCardProps {
   /**
    * Free tier: the API nulls the summary, so without a teaser the feature is
    * invisible and free users never learn it exists. Pass true only for free
-   * users; a null summary for a Pro user (ALL_GOOD, rate limit, generation
-   * error) must still collapse to nothing.
+   * users; a null summary for a Pro user (not opted in to AI, ALL_GOOD, rate
+   * limit, generation error) must still collapse to nothing. AI is opt-in
+   * and off by default, so the teaser copy must sell it as optional, never
+   * as something Pro switches on for you.
    */
   showTeaser?: boolean;
   /**
@@ -27,23 +29,27 @@ interface AdvisorSummaryCardProps {
 /**
  * Pro-only LLM maintenance summary for the priority-bike hero.
  *
- * The API null-gates this field (free tier, empty bike, ALL_GOOD trivial
- * state, rate-limit, or generation error all yield null), so the client rule
- * is simply: render nothing when null and let the space collapse. No tier
- * check here — mirrors how the rest of the hero treats null predictive fields.
+ * The API null-gates this field (free tier, AI not opted in, empty bike,
+ * ALL_GOOD trivial state, rate-limit, or generation error all yield null), so
+ * the client rule is simply: render nothing when null and let the space
+ * collapse. No tier or opt-in check here — mirrors how the rest of the hero
+ * treats null predictive fields. A Pro rider who has not opted in must see
+ * nothing at all: the absence of AI is a respected choice, not an empty
+ * state to fill.
  */
 export function AdvisorSummaryCard({ summary, hasGarminSource = false, showTeaser = false }: AdvisorSummaryCardProps) {
   if (!summary) {
     if (!showTeaser) return null;
     return (
-      <aside className="advisor-summary" aria-label="AI maintenance summary, included with Pro">
+      <aside className="advisor-summary" aria-label="AI maintenance summary, optional with Pro">
         <div className="advisor-summary-label">
           <Sparkles size={12} className="icon-left" />
           AI summary
           <ProChip source="dashboard-advisor-teaser" className="ml-1.5" />
         </div>
         <p className="advisor-summary-text text-muted">
-          Pro reads this bike's wear picture and sums up what to wrench on this week.
+          If you want it, Pro can read this bike's wear picture and sum up what
+          to wrench on. Optional, and off until you turn it on.
         </p>
       </aside>
     );
