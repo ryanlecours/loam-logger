@@ -1548,6 +1548,7 @@ export type UpdateServicePreferencesInput = {
 };
 
 export type UpdateUserPreferencesInput = {
+  aiFeaturesEnabled?: InputMaybe<Scalars['Boolean']['input']>;
   distanceUnit?: InputMaybe<Scalars['String']['input']>;
   expoPushToken?: InputMaybe<Scalars['String']['input']>;
   hoursDisplayPreference?: InputMaybe<Scalars['String']['input']>;
@@ -1563,6 +1564,7 @@ export type User = {
   accounts: Array<ConnectedAccount>;
   activeDataSource?: Maybe<Scalars['String']['output']>;
   age?: Maybe<Scalars['Int']['output']>;
+  aiFeaturesEnabled: Scalars['Boolean']['output'];
   analyticsOptOut: Scalars['Boolean']['output'];
   avatarUrl?: Maybe<Scalars['String']['output']>;
   createdAt: Scalars['String']['output'];
@@ -1744,7 +1746,7 @@ export type LogComponentServiceMutation = { __typename?: 'Mutation', logComponen
 export type MeQueryVariables = Exact<{ [key: string]: never; }>;
 
 
-export type MeQuery = { __typename?: 'Query', me?: { __typename?: 'User', id: string, email: string, name?: string | null, avatarUrl?: string | null, onboardingCompleted: boolean, hasAcceptedCurrentTerms: boolean, location?: string | null, age?: number | null, role: UserRole, mustChangePassword: boolean, isFoundingRider: boolean, hoursDisplayPreference?: string | null, predictionMode?: string | null, distanceUnit?: string | null, pairedComponentMigrationSeenAt?: string | null, createdAt: string } | null };
+export type MeQuery = { __typename?: 'Query', me?: { __typename?: 'User', id: string, email: string, name?: string | null, avatarUrl?: string | null, onboardingCompleted: boolean, hasAcceptedCurrentTerms: boolean, location?: string | null, age?: number | null, role: UserRole, mustChangePassword: boolean, isFoundingRider: boolean, hoursDisplayPreference?: string | null, predictionMode?: string | null, distanceUnit?: string | null, aiFeaturesEnabled: boolean, pairedComponentMigrationSeenAt?: string | null, createdAt: string } | null };
 
 export type RideTypesQueryVariables = Exact<{ [key: string]: never; }>;
 
@@ -1797,7 +1799,7 @@ export type UpdateUserPreferencesMutationVariables = Exact<{
 }>;
 
 
-export type UpdateUserPreferencesMutation = { __typename?: 'Mutation', updateUserPreferences: { __typename?: 'User', id: string, hoursDisplayPreference?: string | null, predictionMode?: string | null, distanceUnit?: string | null } };
+export type UpdateUserPreferencesMutation = { __typename?: 'Mutation', updateUserPreferences: { __typename?: 'User', id: string, hoursDisplayPreference?: string | null, predictionMode?: string | null, distanceUnit?: string | null, aiFeaturesEnabled: boolean } };
 
 export const ComponentFieldsFragmentDoc = gql`
     fragment ComponentFields on Component {
@@ -2426,6 +2428,7 @@ export const MeDocument = gql`
     hoursDisplayPreference
     predictionMode
     distanceUnit
+    aiFeaturesEnabled
     pairedComponentMigrationSeenAt
     createdAt
   }
@@ -2786,6 +2789,7 @@ export const UpdateUserPreferencesDocument = gql`
     hoursDisplayPreference
     predictionMode
     distanceUnit
+    aiFeaturesEnabled
   }
 }
     `;

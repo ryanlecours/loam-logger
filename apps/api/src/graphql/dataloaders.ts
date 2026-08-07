@@ -12,6 +12,7 @@ export type TierUserRow = {
   isFoundingRider: boolean;
   role: UserRole;
   predictionMode: string | null;
+  aiFeaturesEnabled: boolean;
 };
 
 /**
@@ -99,6 +100,7 @@ async function batchTierUserById(
       isFoundingRider: true,
       role: true,
       predictionMode: true,
+      aiFeaturesEnabled: true,
     },
   });
   const byId = new Map(rows.map((r) => [r.id, r]));

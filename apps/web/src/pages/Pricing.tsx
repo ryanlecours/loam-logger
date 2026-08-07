@@ -103,7 +103,7 @@ export default function Pricing() {
         { text: 'Unlimited bikes', included: true },
         { text: 'Rides left until service due', included: true },
         { text: 'Ride-adjusted wear predictions', included: true },
-        { text: 'AI maintenance summary per bike', included: true },
+        { text: 'Optional AI maintenance summary per bike (off by default)', included: true },
         { text: 'Service-due alerts & weekly bike check', included: true },
         { text: 'Weather on every ride', included: true },
         { text: 'PDF service history export', included: true },
