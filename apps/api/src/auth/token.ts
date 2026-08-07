@@ -8,6 +8,10 @@ export type TokenPayload = {
   email?: string;
   /** User's sessionTokenVersion at token issue time — used to revoke tokens after password reset */
   v?: number;
+  /** Refresh tokens only: MobileSession row id this token belongs to */
+  sid?: string;
+  /** Refresh tokens only: one-time rotation id, matched against MobileSession.currentJti */
+  jti?: string;
 };
 
 /**
@@ -29,9 +33,13 @@ export function generateAccessToken(payload: TokenPayload): string {
  * token on every successful refresh, so the session window slides: a rider
  * who opens the app at least once a year is never logged out. Riding is
  * seasonal (a whole winter off is normal), and a mid-ride logout can cost a
- * recording, so expiry is not a safety net worth that price. Revocation is
- * handled by sessionTokenVersion (bumped on password reset/change), which
- * kills all outstanding tokens for the user immediately regardless of TTL.
+ * recording, so expiry is not a safety net worth that price.
+ *
+ * The long TTL is safe because these tokens are not pure bearer
+ * credentials: each is bound to a MobileSession row (sid + one-time jti,
+ * see mobile-session.ts), giving per-device revocation and reuse detection
+ * when a spent token is replayed. sessionTokenVersion (bumped on password
+ * reset/change) additionally kills all of a user's tokens at once.
  */
 export function generateRefreshToken(payload: TokenPayload): string {
   if (!SESSION_SECRET) {

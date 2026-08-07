@@ -58,6 +58,8 @@ jest.mock('../lib/prisma', () => ({
   prisma: {
     // getSessionTokenVersion (via issueMobileTokens) reads this; undefined → version 0.
     user: { findUnique: jest.fn() },
+    // issueMobileTokens creates a MobileSession row for every token pair.
+    mobileSession: { create: jest.fn().mockResolvedValue({ id: 'session-1' }) },
   },
 }));
 
