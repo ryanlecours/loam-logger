@@ -108,6 +108,27 @@ describe('isRefreshTokenPayload / isAccessTokenPayload', () => {
     expect(isAccessTokenPayload(webCookie)).toBe(false);
   });
 
+  it('never types an unsubscribe token as either mobile token', () => {
+    // The account-takeover shape: {uid, purpose}, 90-day expiry, signed
+    // with the same secret, embedded in every marketing email. A pure
+    // lifetime heuristic typed this as a refresh token, letting anyone
+    // holding an unsubscribe link mint a real session at /mobile/refresh.
+    const unsubscribe = {
+      uid: 'u',
+      purpose: 'unsubscribe',
+      iat: now,
+      exp: now + 90 * 24 * 60 * 60,
+    } as never;
+    expect(isRefreshTokenPayload(unsubscribe)).toBe(false);
+    expect(isAccessTokenPayload(unsubscribe)).toBe(false);
+  });
+
+  it('never types a payload carrying any unknown claim (allowlist, not blocklist)', () => {
+    const future = { uid: 'u', scope: 'anything', iat: now, exp: now + 7 * 24 * 60 * 60 } as never;
+    expect(isRefreshTokenPayload(future)).toBe(false);
+    expect(isAccessTokenPayload(future)).toBe(false);
+  });
+
   it('rejects payloads with no typ and no usable lifetime', () => {
     expect(isRefreshTokenPayload({ uid: 'u' })).toBe(false);
     expect(isAccessTokenPayload({ uid: 'u' })).toBe(false);

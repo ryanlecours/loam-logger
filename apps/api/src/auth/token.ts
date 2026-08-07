@@ -65,12 +65,23 @@ export function generateRefreshToken(payload: TokenPayload): string {
 
 // Legacy tokens (issued before the typ claim) are typed by their signed
 // lifetime: access tokens lived 15 minutes, refresh tokens 7 days. One hour
-// splits those cleanly. Web session cookies share the secret and a 7-day
-// lifetime, so they would pass the duration test; they are excluded by their
-// authAt claim, which mobile tokens never carry. The legacy fallbacks below
-// can be deleted once every pre-typ token has expired (7 days after the typ
-// deploy; legacy access tokens die in 15 minutes).
+// splits those cleanly. The legacy fallbacks below can be deleted once every
+// pre-typ mobile token has expired (7 days after the typ deploy; legacy
+// access tokens die in 15 minutes).
 const LEGACY_ACCESS_MAX_LIFETIME_S = 60 * 60;
+
+// The exact claims a legacy mobile token can carry: what
+// generateAccessToken/generateRefreshToken signed ({uid, email?, v?}) plus
+// jwt.sign's own timestamps. The lifetime heuristic is trusted ONLY for
+// payloads with exactly this shape — any other claim means the token is
+// some other SESSION_SECRET-signed artifact (a web session cookie's authAt,
+// an unsubscribe link's purpose, or whatever gets minted next) and must
+// never be typed as a mobile credential. This is an allowlist rather than a
+// blocklist of known cousins because the failure mode is severe: the
+// unsubscribe token ({uid, purpose}, 90-day expiry, embedded in every
+// marketing email) passed a pure lifetime test and could be redeemed at
+// /mobile/refresh for a fully-authenticated year-long session.
+const LEGACY_MOBILE_TOKEN_CLAIMS = new Set(['uid', 'email', 'v', 'iat', 'exp']);
 
 function signedLifetimeSeconds(payload: TokenPayload): number | null {
   return typeof payload.iat === 'number' && typeof payload.exp === 'number'
@@ -78,14 +89,14 @@ function signedLifetimeSeconds(payload: TokenPayload): number | null {
     : null;
 }
 
-function isWebSessionShaped(payload: TokenPayload): boolean {
-  return (payload as { authAt?: unknown }).authAt !== undefined;
+function isLegacyMobileShaped(payload: TokenPayload): boolean {
+  return Object.keys(payload).every((key) => LEGACY_MOBILE_TOKEN_CLAIMS.has(key));
 }
 
 /** True iff this verified payload was issued as a mobile refresh token. */
 export function isRefreshTokenPayload(payload: TokenPayload): boolean {
   if (payload.typ !== undefined) return payload.typ === 'refresh';
-  if (isWebSessionShaped(payload)) return false;
+  if (!isLegacyMobileShaped(payload)) return false;
   const lifetime = signedLifetimeSeconds(payload);
   return lifetime !== null && lifetime > LEGACY_ACCESS_MAX_LIFETIME_S;
 }
@@ -93,7 +104,7 @@ export function isRefreshTokenPayload(payload: TokenPayload): boolean {
 /** True iff this verified payload was issued as a mobile access token. */
 export function isAccessTokenPayload(payload: TokenPayload): boolean {
   if (payload.typ !== undefined) return payload.typ === 'access';
-  if (isWebSessionShaped(payload)) return false;
+  if (!isLegacyMobileShaped(payload)) return false;
   const lifetime = signedLifetimeSeconds(payload);
   return lifetime !== null && lifetime <= LEGACY_ACCESS_MAX_LIFETIME_S;
 }

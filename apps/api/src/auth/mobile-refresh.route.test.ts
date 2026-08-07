@@ -281,6 +281,27 @@ describe('POST /mobile/refresh', () => {
     expect(res.status).toHaveBeenCalledWith(401);
     expect(mockUpgradeLegacySession).not.toHaveBeenCalled();
   });
+
+  it('refuses to redeem an unsubscribe token for a session', async () => {
+    // Same secret, no typ, no sid/jti, 90-day lifetime: without the
+    // claim-shape allowlist this payload walked straight into the
+    // legacy-upgrade branch and came back as a year-long session, turning
+    // every emailed unsubscribe link into an account-takeover credential.
+    const iat = Math.floor(Date.now() / 1000);
+    mockVerifyToken.mockReturnValue({
+      uid: 'user-1',
+      purpose: 'unsubscribe',
+      iat,
+      exp: iat + 90 * 24 * 60 * 60,
+    });
+    const res = createMockResponse();
+
+    await invokeHandler(handler, { body: { refreshToken: 'an-unsubscribe-token' } } as Request, res as Response);
+
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(mockUpgradeLegacySession).not.toHaveBeenCalled();
+    expect(mockRotateMobileSession).not.toHaveBeenCalled();
+  });
 });
 
 describe('POST /mobile/logout', () => {
