@@ -22,14 +22,22 @@ export function generateAccessToken(payload: TokenPayload): string {
 }
 
 /**
- * Generate a long-lived refresh token (7 days)
+ * Generate a long-lived refresh token (365 days)
  * Used for obtaining new access tokens without re-authenticating
+ *
+ * The TTL is deliberately long and the mobile refresh route rotates the
+ * token on every successful refresh, so the session window slides: a rider
+ * who opens the app at least once a year is never logged out. Riding is
+ * seasonal (a whole winter off is normal), and a mid-ride logout can cost a
+ * recording, so expiry is not a safety net worth that price. Revocation is
+ * handled by sessionTokenVersion (bumped on password reset/change), which
+ * kills all outstanding tokens for the user immediately regardless of TTL.
  */
 export function generateRefreshToken(payload: TokenPayload): string {
   if (!SESSION_SECRET) {
     throw new Error('SESSION_SECRET environment variable is not set');
   }
-  return jwt.sign(payload, SESSION_SECRET, { expiresIn: '7d' });
+  return jwt.sign(payload, SESSION_SECRET, { expiresIn: '365d' });
 }
 
 /**

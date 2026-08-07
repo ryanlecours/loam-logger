@@ -7,7 +7,7 @@ import { verifyAppleIdentityToken, type AppleVerifyErrorDetail } from './appleTo
 import { normalizeEmail, getClientIp } from './utils';
 import { validateEmailFormat } from './email.utils';
 import { verifyPassword, validatePassword, hashPassword } from './password.utils';
-import { generateAccessToken, verifyToken } from './token';
+import { generateAccessToken, generateRefreshToken, verifyToken } from './token';
 import { issueMobileTokens } from './session-issuer';
 import { updateLastAuthAt } from './recent-auth';
 import { prisma } from '../lib/prisma';
@@ -452,7 +452,19 @@ router.post('/mobile/refresh', express.json(), async (req, res) => {
       v: user.sessionTokenVersion,
     });
 
-    res.status(200).json({ accessToken });
+    // Rotate the refresh token too: each successful refresh restarts the
+    // session window, so an actively-used app never hits refresh expiry
+    // (the fixed-expiry version of this route logged riders out 7 days
+    // after login, including mid-ride). The mobile client stores
+    // `refreshToken` from this response when present; older builds that
+    // ignore it simply keep their original fixed-window token.
+    const rotatedRefreshToken = generateRefreshToken({
+      uid: user.id,
+      email: user.email,
+      v: user.sessionTokenVersion,
+    });
+
+    res.status(200).json({ accessToken, refreshToken: rotatedRefreshToken });
   } catch (e) {
     logger.error({ err: e, route: 'mobile/refresh' }, '[MobileAuth] Token refresh failed');
     Sentry.captureException(e, { tags: { route: 'mobile/refresh' } });

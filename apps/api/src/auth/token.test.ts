@@ -53,7 +53,7 @@ describe('generateRefreshToken', () => {
     jest.clearAllMocks();
   });
 
-  it('should generate refresh token with 7d expiry', () => {
+  it('should generate refresh token with 365d expiry', () => {
     mockedJwt.sign.mockReturnValue('refresh_token' as never);
 
     const result = generateRefreshToken({ uid: 'user123', email: 'test@example.com' });
@@ -61,7 +61,7 @@ describe('generateRefreshToken', () => {
     expect(mockedJwt.sign).toHaveBeenCalledWith(
       { uid: 'user123', email: 'test@example.com' },
       'test-secret',
-      { expiresIn: '7d' }
+      { expiresIn: '365d' }
     );
     expect(result).toBe('refresh_token');
   });
