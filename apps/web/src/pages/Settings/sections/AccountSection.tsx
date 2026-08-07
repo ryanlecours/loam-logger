@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { useQuery, useMutation, gql } from '@apollo/client';
 import { toast } from 'sonner';
@@ -33,9 +33,25 @@ export default function AccountSection() {
   // Stripe checkout returns to /settings?billing=success (set server-side in
   // stripe.service.ts). AI is opt-in and off by default at every tier, so
   // the upgrade moment is where the option gets offered once; afterwards it
-  // lives under Preferences. "Keep it off" only closes the card - declining
-  // stores nothing, and the URL param means it never reappears on its own.
-  const [searchParams] = useSearchParams();
+  // lives under Preferences. "Keep it off" only closes the card and stores
+  // nothing. The checkout return is latched into state BEFORE the effect
+  // strips it from the URL - state (not the param) keeps the card up for
+  // this visit, and the strip is what makes the offer genuinely one-time:
+  // without it, a reload or back/forward while ?billing=success is still in
+  // the URL would remount with fresh state and resurrect a declined card.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [arrivedFromCheckout] = useState(
+    () => searchParams.get('billing') === 'success',
+  );
+
+  useEffect(() => {
+    if (searchParams.get('billing') === 'success') {
+      const next = new URLSearchParams(searchParams);
+      next.delete('billing');
+      setSearchParams(next, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
+
   const { isPro } = useUserTier();
   const [updateUserPreferences, { loading: aiOfferSaving }] = useMutation(
     UPDATE_USER_PREFERENCES_MUTATION,
@@ -43,7 +59,7 @@ export default function AccountSection() {
   const [aiOfferClosed, setAiOfferClosed] = useState(false);
 
   const showAiOffer =
-    searchParams.get('billing') === 'success' &&
+    arrivedFromCheckout &&
     isPro &&
     !!user &&
     !user.aiFeaturesEnabled &&
