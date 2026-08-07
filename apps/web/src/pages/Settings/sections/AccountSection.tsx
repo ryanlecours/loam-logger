@@ -20,6 +20,17 @@ const CONNECTED_ACCOUNTS_FOR_PASSWORD = gql`
   }
 `;
 
+// Per-tab latch for the post-checkout AI offer. It cannot live in component
+// state: the settings shell mounts only the active section, so switching to
+// another settings tab unmounts this component, and by then the effect below
+// has already stripped billing=success from the URL - a state latch would
+// re-initialize to false on the way back and silently lose the one-time
+// offer. sessionStorage survives remounts and reloads within the tab, and
+// the key is removed the moment the rider answers either way, which also
+// makes a decline durable across reloads (the param strip alone only made
+// it durable within one mount).
+const AI_OFFER_PENDING_KEY = 'loam-ai-offer-pending';
+
 export default function AccountSection() {
   const navigate = useNavigate();
   const { user, refetch: refetchUser } = useCurrentUser();
@@ -33,19 +44,22 @@ export default function AccountSection() {
   // Stripe checkout returns to /settings?billing=success (set server-side in
   // stripe.service.ts). AI is opt-in and off by default at every tier, so
   // the upgrade moment is where the option gets offered once; afterwards it
-  // lives under Preferences. "Keep it off" only closes the card and stores
-  // nothing. The checkout return is latched into state BEFORE the effect
-  // strips it from the URL - state (not the param) keeps the card up for
-  // this visit, and the strip is what makes the offer genuinely one-time:
-  // without it, a reload or back/forward while ?billing=success is still in
-  // the URL would remount with fresh state and resurrect a declined card.
+  // lives under Preferences. "Keep it off" closes the card and stores
+  // nothing server-side. The checkout return is latched (state + the
+  // sessionStorage key, see AI_OFFER_PENDING_KEY above) BEFORE the effect
+  // strips it from the URL, so the offer survives section remounts and
+  // reloads until answered, while the strip keeps a stale
+  // ?billing=success in history from re-arming an answered one.
   const [searchParams, setSearchParams] = useSearchParams();
-  const [arrivedFromCheckout] = useState(
-    () => searchParams.get('billing') === 'success',
+  const [arrivedFromCheckout, setArrivedFromCheckout] = useState(
+    () =>
+      searchParams.get('billing') === 'success' ||
+      sessionStorage.getItem(AI_OFFER_PENDING_KEY) === '1',
   );
 
   useEffect(() => {
     if (searchParams.get('billing') === 'success') {
+      sessionStorage.setItem(AI_OFFER_PENDING_KEY, '1');
       const next = new URLSearchParams(searchParams);
       next.delete('billing');
       setSearchParams(next, { replace: true });
@@ -77,17 +91,20 @@ export default function AccountSection() {
     }, 2000);
     return () => clearInterval(intervalId);
   }, [arrivedFromCheckout, isPro, refetchUser]);
+
   const [updateUserPreferences, { loading: aiOfferSaving }] = useMutation(
     UPDATE_USER_PREFERENCES_MUTATION,
   );
-  const [aiOfferClosed, setAiOfferClosed] = useState(false);
 
   const showAiOffer =
-    arrivedFromCheckout &&
-    isPro &&
-    !!user &&
-    !user.aiFeaturesEnabled &&
-    !aiOfferClosed;
+    arrivedFromCheckout && isPro && !!user && !user.aiFeaturesEnabled;
+
+  // Answering either way retires the offer for good: clear the per-tab
+  // latch first so no later remount can resurrect the card.
+  const closeAiOffer = () => {
+    sessionStorage.removeItem(AI_OFFER_PENDING_KEY);
+    setArrivedFromCheckout(false);
+  };
 
   const handleEnableAi = async () => {
     try {
@@ -95,7 +112,7 @@ export default function AccountSection() {
       toast.success('AI maintenance summary is on', {
         description: 'You can turn it off any time under Preferences.',
       });
-      setAiOfferClosed(true);
+      closeAiOffer();
     } catch {
       toast.error('Could not save that. The toggle also lives under Preferences.');
     }
@@ -147,7 +164,7 @@ export default function AccountSection() {
             </button>
             <button
               type="button"
-              onClick={() => setAiOfferClosed(true)}
+              onClick={closeAiOffer}
               className="text-sm text-muted hover:text-primary transition"
             >
               Keep it off
