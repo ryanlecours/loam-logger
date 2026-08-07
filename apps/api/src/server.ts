@@ -19,6 +19,10 @@ import {
   startPasswordResetCleanup,
   stopPasswordResetCleanup,
 } from './services/password-reset-cleanup.service';
+import {
+  startMobileSessionCleanup,
+  stopMobileSessionCleanup,
+} from './services/mobile-session-cleanup.service';
 import { rootLogger, logger } from './lib/logger';
 import { validateEncryptionKey } from './lib/crypto';
 import { flushPostHog } from './lib/posthog';
@@ -359,6 +363,9 @@ const startServer = async () => {
   // Start password reset token cleanup (deletes tokens expired >7d ago, daily)
   startPasswordResetCleanup();
 
+  // Start mobile session cleanup (deletes sessions revoked/expired >30d ago, daily)
+  startMobileSessionCleanup();
+
   app.listen(PORT, HOST, () => {
     logger.info({ port: PORT }, 'LoamLogger backend running (GraphQL at /graphql)');
   });
@@ -369,6 +376,7 @@ const startServer = async () => {
     stopWeeklyDigestScheduler();
     stopOAuthCleanup();
     stopPasswordResetCleanup();
+    stopMobileSessionCleanup();
     await stopWorkers();
     await Sentry.flush(2000).catch(() => {});
     await flushPostHog();

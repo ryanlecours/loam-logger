@@ -338,6 +338,21 @@ describe('POST /mobile/logout', () => {
     expect(res.json).toHaveBeenCalledWith({ ok: true });
   });
 
+  it('never revokes on a non-refresh token, even one carrying a sid-shaped field', async () => {
+    // Defense-in-depth mirroring the refresh route: today only refresh
+    // tokens carry sid, but that is a structural accident. If some future
+    // SESSION_SECRET-signed token grew a same-named claim, this endpoint
+    // must not start revoking sessions on its behalf.
+    mockVerifyToken.mockReturnValue({ uid: 'user-1', typ: 'access', sid: 'sid-forged' });
+    const res = createMockResponse();
+
+    await invokeHandler(handler, { body: { refreshToken: 'an-access-token' } } as Request, res as Response);
+
+    expect(mockRevokeMobileSession).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith({ ok: true });
+  });
+
   it('returns 400 when the refresh token is missing', async () => {
     const res = createMockResponse();
 

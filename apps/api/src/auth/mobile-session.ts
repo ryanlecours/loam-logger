@@ -211,6 +211,28 @@ export async function upgradeLegacySession(
 }
 
 /**
+ * Delete rows that stopped mattering a while ago: sessions revoked, or
+ * expired, more than `olderThanDays` days back. The retention window keeps
+ * recent revocations around for incident forensics (a reuse-detection
+ * event is exactly when you want to inspect the row). Deleting an old
+ * revoked row cannot re-open its one-shot legacy claim: legacy tokens all
+ * expire within 7 days of the sessions deploy, far inside any sane
+ * retention, so by deletion time the token that hash guarded is dead.
+ */
+export async function deleteDefunctMobileSessions(olderThanDays: number): Promise<number> {
+  const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000);
+  const result = await prisma.mobileSession.deleteMany({
+    where: {
+      OR: [
+        { revokedAt: { lt: cutoff } },
+        { expiresAt: { lt: cutoff } },
+      ],
+    },
+  });
+  return result.count;
+}
+
+/**
  * Revoke one session. Scoped to the owning user so a forged sid in an
  * otherwise-valid token cannot revoke someone else's session. Idempotent:
  * revoking an already-revoked or missing session is a no-op, because logout

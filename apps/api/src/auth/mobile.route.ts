@@ -563,10 +563,14 @@ router.post('/mobile/logout', express.json(), async (req, res) => {
 
     const payload = verifyToken(refreshToken);
     // An expired or malformed token has no live session worth revoking;
-    // treat as an already-complete logout rather than an error. Only the
-    // sid path does DB work, so only it is rate limited (per user, same
-    // rationale as token-refresh).
-    if (payload?.sid) {
+    // treat as an already-complete logout rather than an error. The
+    // isRefreshTokenPayload gate matches the refresh route: today only
+    // refresh tokens carry sid, but that is a structural accident, and if
+    // any future SESSION_SECRET-signed token grew a same-named field this
+    // endpoint would silently start revoking sessions on its behalf. Only
+    // the revocation path does DB work, so only it is rate limited (per
+    // user, same rationale as token-refresh).
+    if (payload && isRefreshTokenPayload(payload) && payload.sid) {
       const rateLimit = await checkAuthRateLimit('token-logout', payload.uid);
       if (!rateLimit.allowed) {
         logger.warn({ uid: payload.uid, retryAfter: rateLimit.retryAfter, route: 'mobile/logout' }, 'Logout 429: rate limited');

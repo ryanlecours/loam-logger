@@ -4,6 +4,7 @@ jest.mock('../lib/prisma', () => ({
       create: jest.fn(),
       findUnique: jest.fn(),
       updateMany: jest.fn(),
+      deleteMany: jest.fn(),
     },
   },
 }));
@@ -17,6 +18,7 @@ import {
   revokeMobileSession,
   upgradeLegacySession,
   hashLegacyToken,
+  deleteDefunctMobileSessions,
 } from './mobile-session';
 
 const mockCreate = prisma.mobileSession.create as jest.Mock;
@@ -252,6 +254,23 @@ describe('upgradeLegacySession', () => {
     const result = await upgradeLegacySession('user-1', HASH);
 
     expect(result).toEqual({ ok: true, sid: 'sid-1', jti: 'jti-winner' });
+  });
+});
+
+describe('deleteDefunctMobileSessions', () => {
+  it('deletes only rows revoked or expired before the retention cutoff', async () => {
+    const mockDeleteMany = prisma.mobileSession.deleteMany as jest.Mock;
+    mockDeleteMany.mockResolvedValue({ count: 7 });
+
+    const before = Date.now();
+    const deleted = await deleteDefunctMobileSessions(30);
+
+    expect(deleted).toBe(7);
+    const where = mockDeleteMany.mock.calls[0][0].where;
+    const cutoffMs = 30 * 24 * 60 * 60 * 1000;
+    expect(where.OR).toHaveLength(2);
+    expect(where.OR[0].revokedAt.lt.getTime()).toBeLessThanOrEqual(before - cutoffMs + 1_000);
+    expect(where.OR[1].expiresAt.lt.getTime()).toBeLessThanOrEqual(before - cutoffMs + 1_000);
   });
 });
 
