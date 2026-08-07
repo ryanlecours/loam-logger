@@ -53,6 +53,30 @@ export default function AccountSection() {
   }, [searchParams, setSearchParams]);
 
   const { isPro } = useUserTier();
+
+  // The Stripe webhook that flips subscriptionTier races the redirect back
+  // here, with no ordering guarantee, and the success URL carries no session
+  // id so the client cannot reconcile synchronously. On a checkout return
+  // that still reads as free, poll me every 2s for up to 30s. The latch
+  // above keeps the offer armed for the visit and showAiOffer is reactive
+  // to isPro (useUserTier reads the same ME_QUERY document), so the offer
+  // card and the plan panel below both appear the moment the webhook lands
+  // instead of the one-time offer being silently lost to a slow webhook.
+  useEffect(() => {
+    if (!arrivedFromCheckout || isPro) return;
+    let attempts = 0;
+    const intervalId = setInterval(() => {
+      attempts += 1;
+      if (attempts > 15) {
+        clearInterval(intervalId);
+        return;
+      }
+      refetchUser().catch(() => {
+        // Transient fetch failure: keep polling until the attempt cap.
+      });
+    }, 2000);
+    return () => clearInterval(intervalId);
+  }, [arrivedFromCheckout, isPro, refetchUser]);
   const [updateUserPreferences, { loading: aiOfferSaving }] = useMutation(
     UPDATE_USER_PREFERENCES_MUTATION,
   );
