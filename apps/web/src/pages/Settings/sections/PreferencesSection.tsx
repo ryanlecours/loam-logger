@@ -1,6 +1,7 @@
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { useMutation } from '@apollo/client';
 import { useNavigate } from 'react-router';
+import { toast } from 'sonner';
 import { useCurrentUser } from '../../../hooks/useCurrentUser';
 import { usePreferences } from '../../../hooks/usePreferences';
 import { useUserTier } from '../../../hooks/useUserTier';
@@ -60,6 +61,31 @@ export default function PreferencesSection() {
     mutate: mutateDistance,
     label: 'Distance unit',
   });
+
+  // AI is opt-in and off by default at every tier (owner decision recorded
+  // in PRODUCT.md). Reads straight off the cached user and saves on change;
+  // the mutation returns aiFeaturesEnabled so the normalized cache updates
+  // without a refetch, same as the analytics opt-out toggle.
+  const aiEnabled = Boolean(user?.aiFeaturesEnabled);
+  const [aiSaving, setAiSaving] = useState(false);
+
+  const handleAiToggle = async () => {
+    setAiSaving(true);
+    try {
+      await updateUserPreferences({ variables: { input: { aiFeaturesEnabled: !aiEnabled } } });
+      toast.success('Saved', {
+        id: 'settings-preference-ai-summary',
+        description: 'AI maintenance summary',
+      });
+    } catch {
+      toast.error('Could not save', {
+        id: 'settings-preference-ai-summary',
+        description: 'AI maintenance summary',
+      });
+    } finally {
+      setAiSaving(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -221,6 +247,55 @@ export default function PreferencesSection() {
         <p className="text-xs text-muted">
           Distances are always stored in miles. This preference only affects how they are displayed and entered.
         </p>
+      </div>
+
+      <div className="panel-spaced">
+        <div>
+          <p className="label-section">AI</p>
+          <h2 className="title-section">AI maintenance summary</h2>
+        </div>
+        <p className="text-sm text-muted">
+          A short machine-generated read of a bike's wear picture on your
+          dashboard: what to wrench on first and what can wait. Strictly
+          optional and off by default; predictions and service history never
+          depend on it.
+        </p>
+        {isPro ? (
+          <label className="flex items-start gap-3 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={aiEnabled}
+              onChange={handleAiToggle}
+              disabled={aiSaving}
+              className="mt-1 w-5 h-5 rounded border-app bg-surface accent-accent flex-shrink-0 disabled:opacity-50"
+            />
+            <span className="text-sm leading-relaxed text-primary">
+              Show the AI summary on my dashboard.
+            </span>
+          </label>
+        ) : (
+          // Same idiom as the predictive-mode card above: inert control,
+          // quiet Pro chip, the whole row routes to pricing.
+          <label
+            className="flex items-start gap-3 cursor-not-allowed select-none opacity-60"
+            onClick={(e) => {
+              e.preventDefault();
+              navigate('/pricing?source=settings-ai-summary');
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={false}
+              readOnly
+              disabled
+              className="mt-1 w-5 h-5 rounded border-app bg-surface flex-shrink-0"
+            />
+            <span className="text-sm leading-relaxed text-primary">
+              Show the AI summary on my dashboard.
+              <ProChip className="ml-2" source="settings-ai-summary" />
+            </span>
+          </label>
+        )}
       </div>
     </div>
   );

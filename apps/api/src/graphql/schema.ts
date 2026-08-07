@@ -865,6 +865,11 @@ export const typeDefs = gql`
     # time (a free user's toggle stores but sends nothing, mirroring how
     # prediction surfaces degrade elsewhere).
     weeklyDigestEnabled: Boolean
+    # AI output (the advisor maintenance summary). Strictly opt-in, off by
+    # default at every tier; Pro feature at read time (a free user's toggle
+    # stores but the advisorSummary resolver still resolves null, mirroring
+    # weeklyDigestEnabled).
+    aiFeaturesEnabled: Boolean
     # IANA timezone (e.g. "America/Denver"), used only to time the weekly
     # digest. Uploaded by mobile alongside the push token; explicit null
     # clears it, which also stops the digest (no timezone, no send).
@@ -1253,6 +1258,9 @@ export const typeDefs = gql`
     notifyOnRideUpload: Boolean!
     rideSyncNotificationMode: RideSyncNotificationMode!
     weeklyDigestEnabled: Boolean!
+    # AI output (the advisor maintenance summary) is opt-in and off by
+    # default; this reflects the rider's stored choice regardless of tier.
+    aiFeaturesEnabled: Boolean!
     createdAt: String!
     ridesMissingWeather: Int!
     # Count of the viewer's Garmin rides stored without coordinates (a past

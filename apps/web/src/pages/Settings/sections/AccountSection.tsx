@@ -1,7 +1,10 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router';
-import { useQuery, gql } from '@apollo/client';
+import { useNavigate, useSearchParams } from 'react-router';
+import { useQuery, useMutation, gql } from '@apollo/client';
+import { toast } from 'sonner';
 import { useCurrentUser } from '../../../hooks/useCurrentUser';
+import { useUserTier } from '../../../hooks/useUserTier';
+import { UPDATE_USER_PREFERENCES_MUTATION } from '../../../graphql/userPreferences';
 import SetPasswordModal from '../../../components/SetPasswordModal';
 import BillingSection from '../../../components/BillingSection';
 import SettingsSectionHeader from '../SettingsSectionHeader';
@@ -27,6 +30,37 @@ export default function AccountSection() {
 
   const accounts: { provider: string }[] = accountsData?.me?.accounts ?? [];
 
+  // Stripe checkout returns to /settings?billing=success (set server-side in
+  // stripe.service.ts). AI is opt-in and off by default at every tier, so
+  // the upgrade moment is where the option gets offered once; afterwards it
+  // lives under Preferences. "Keep it off" only closes the card - declining
+  // stores nothing, and the URL param means it never reappears on its own.
+  const [searchParams] = useSearchParams();
+  const { isPro } = useUserTier();
+  const [updateUserPreferences, { loading: aiOfferSaving }] = useMutation(
+    UPDATE_USER_PREFERENCES_MUTATION,
+  );
+  const [aiOfferClosed, setAiOfferClosed] = useState(false);
+
+  const showAiOffer =
+    searchParams.get('billing') === 'success' &&
+    isPro &&
+    !!user &&
+    !user.aiFeaturesEnabled &&
+    !aiOfferClosed;
+
+  const handleEnableAi = async () => {
+    try {
+      await updateUserPreferences({ variables: { input: { aiFeaturesEnabled: true } } });
+      toast.success('AI maintenance summary is on', {
+        description: 'You can turn it off any time under Preferences.',
+      });
+      setAiOfferClosed(true);
+    } catch {
+      toast.error('Could not save that. The toggle also lives under Preferences.');
+    }
+  };
+
   const handleSetPassword = () => {
     if (user?.needsReauthForSensitiveActions) {
       navigate('/login?returnTo=/settings&reason=reauth');
@@ -50,6 +84,37 @@ export default function AccountSection() {
         title="Your profile"
         description="Your identity and plan — everything tied to who you are on Loam Logger."
       />
+
+      {showAiOffer && (
+        <div className="panel-spaced">
+          <div>
+            <p className="label-section">Welcome to Pro</p>
+            <h2 className="title-section">Want the AI maintenance summary?</h2>
+          </div>
+          <p className="text-sm text-muted">
+            Pro can add a short machine-generated read of each bike's wear
+            picture to your dashboard. It is off by default and entirely
+            optional; every other Pro feature works the same either way.
+          </p>
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={handleEnableAi}
+              disabled={aiOfferSaving}
+              className="btn-primary disabled:opacity-50"
+            >
+              Turn it on
+            </button>
+            <button
+              type="button"
+              onClick={() => setAiOfferClosed(true)}
+              className="text-sm text-muted hover:text-primary transition"
+            >
+              Keep it off
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="panel-spaced">
         <div>
