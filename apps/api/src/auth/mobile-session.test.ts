@@ -15,6 +15,8 @@ import {
   createMobileSession,
   rotateMobileSession,
   revokeMobileSession,
+  upgradeLegacySession,
+  hashLegacyToken,
 } from './mobile-session';
 
 const mockCreate = prisma.mobileSession.create as jest.Mock;
@@ -122,7 +124,7 @@ describe('rotateMobileSession', () => {
 
     const result = await rotateMobileSession('sid-1', 'jti-previous');
 
-    expect(result).toEqual({ ok: false, reason: 'reuse-detected' });
+    expect(result).toEqual({ ok: false, reason: 'reuse-detected', detail: 'spent-previous' });
     expect(mockUpdateMany).toHaveBeenLastCalledWith({
       where: { id: 'sid-1', revokedAt: null },
       data: { revokedAt: expect.any(Date) },
@@ -135,7 +137,7 @@ describe('rotateMobileSession', () => {
 
     const result = await rotateMobileSession('sid-1', 'jti-from-another-era');
 
-    expect(result).toEqual({ ok: false, reason: 'reuse-detected' });
+    expect(result).toEqual({ ok: false, reason: 'reuse-detected', detail: 'unknown-jti' });
     expect(mockUpdateMany).toHaveBeenLastCalledWith({
       where: { id: 'sid-1', revokedAt: null },
       data: { revokedAt: expect.any(Date) },
@@ -171,6 +173,93 @@ describe('rotateMobileSession', () => {
     const result = await rotateMobileSession('sid-missing', 'jti-current');
 
     expect(result).toEqual({ ok: false, reason: 'not-found' });
+  });
+});
+
+describe('upgradeLegacySession', () => {
+  const HASH = hashLegacyToken('legacy-token-bytes');
+
+  function upgradedSession(overrides: Record<string, unknown> = {}) {
+    return liveSession({
+      previousJti: null,
+      legacyTokenHash: HASH,
+      rotatedAt: new Date(Date.now() - 5_000),
+      ...overrides,
+    });
+  }
+
+  it('claims an unclaimed legacy token by creating a session bound to its hash', async () => {
+    mockFindUnique.mockResolvedValue(null);
+    mockCreate.mockImplementation(({ data }) => Promise.resolve({ id: 'sid-new', ...data }));
+
+    const result = await upgradeLegacySession('user-1', HASH);
+
+    expect(result).toEqual({ ok: true, sid: 'sid-new', jti: expect.any(String) });
+    expect(mockCreate.mock.calls[0][0].data.legacyTokenHash).toBe(HASH);
+  });
+
+  it('re-issues the session pair on a lost-response retry (never rotated, within grace)', async () => {
+    mockFindUnique.mockResolvedValue(upgradedSession());
+
+    const result = await upgradeLegacySession('user-1', HASH);
+
+    expect(result).toEqual({ ok: true, sid: 'sid-1', jti: 'jti-current' });
+    expect(mockCreate).not.toHaveBeenCalled();
+    expect(mockUpdateMany).not.toHaveBeenCalled();
+  });
+
+  it('revokes the claimed session when the legacy token is replayed after the device rotated', async () => {
+    mockFindUnique.mockResolvedValue(upgradedSession({ previousJti: 'jti-rotated-once' }));
+
+    const result = await upgradeLegacySession('user-1', HASH);
+
+    expect(result).toEqual({ ok: false, reason: 'reuse-detected' });
+    expect(mockUpdateMany).toHaveBeenCalledWith({
+      where: { id: 'sid-1', revokedAt: null },
+      data: { revokedAt: expect.any(Date) },
+    });
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it('revokes the claimed session when replayed outside the grace window', async () => {
+    mockFindUnique.mockResolvedValue(
+      upgradedSession({ rotatedAt: new Date(Date.now() - REFRESH_ROTATION_GRACE_MS - 1_000) }),
+    );
+
+    const result = await upgradeLegacySession('user-1', HASH);
+
+    expect(result).toEqual({ ok: false, reason: 'reuse-detected' });
+  });
+
+  it('refuses an already-revoked claim without minting anything', async () => {
+    mockFindUnique.mockResolvedValue(upgradedSession({ revokedAt: new Date() }));
+
+    const result = await upgradeLegacySession('user-1', HASH);
+
+    expect(result).toEqual({ ok: false, reason: 'reuse-detected' });
+    expect(mockCreate).not.toHaveBeenCalled();
+    expect(mockUpdateMany).not.toHaveBeenCalled();
+  });
+
+  it('resolves a concurrent-upgrade race against the winning row', async () => {
+    // Both racers see the token unclaimed; the loser's create hits the
+    // unique index and must settle against the winner's session.
+    mockFindUnique
+      .mockResolvedValueOnce(null)
+      .mockResolvedValue(upgradedSession({ currentJti: 'jti-winner' }));
+    mockCreate.mockRejectedValue(new Error('Unique constraint failed on legacyTokenHash'));
+
+    const result = await upgradeLegacySession('user-1', HASH);
+
+    expect(result).toEqual({ ok: true, sid: 'sid-1', jti: 'jti-winner' });
+  });
+});
+
+describe('hashLegacyToken', () => {
+  it('is deterministic and shaped like sha256 hex', () => {
+    expect(hashLegacyToken('abc')).toBe(hashLegacyToken('abc'));
+    expect(hashLegacyToken('abc')).toMatch(/^[0-9a-f]{64}$/);
+    expect(hashLegacyToken('abc')).not.toBe(hashLegacyToken('abd'));
   });
 });
 

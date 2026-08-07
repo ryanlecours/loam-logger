@@ -54,9 +54,11 @@ jest.mock('./session-issuer', () => ({
 }));
 
 jest.mock('./mobile-session', () => ({
-  createMobileSession: jest.fn(),
+  // Real hashLegacyToken so tests can compute the same hash the route does.
+  ...jest.requireActual('./mobile-session'),
   rotateMobileSession: jest.fn(),
   revokeMobileSession: jest.fn(),
+  upgradeLegacySession: jest.fn(),
 }));
 
 jest.mock('./recent-auth', () => ({
@@ -72,12 +74,14 @@ import * as Sentry from '@sentry/node';
 import router from './mobile.route';
 import { prisma } from '../lib/prisma';
 import { generateRefreshToken, verifyToken } from './token';
-import { createMobileSession, rotateMobileSession, revokeMobileSession } from './mobile-session';
+import { checkAuthRateLimit } from '../lib/rate-limit';
+import { rotateMobileSession, revokeMobileSession, upgradeLegacySession, hashLegacyToken } from './mobile-session';
 
 const mockUserFindUnique = prisma.user.findUnique as jest.Mock;
 const mockVerifyToken = verifyToken as jest.Mock;
 const mockGenerateRefreshToken = generateRefreshToken as jest.Mock;
-const mockCreateMobileSession = createMobileSession as jest.Mock;
+const mockCheckAuthRateLimit = checkAuthRateLimit as jest.Mock;
+const mockUpgradeLegacySession = upgradeLegacySession as jest.Mock;
 const mockRotateMobileSession = rotateMobileSession as jest.Mock;
 const mockRevokeMobileSession = revokeMobileSession as jest.Mock;
 
@@ -150,16 +154,30 @@ describe('POST /mobile/refresh', () => {
     });
   });
 
-  it('returns 401 and reports when a spent token is replayed', async () => {
+  it('returns 401 and reports the stolen-chain signature when a spent token is replayed', async () => {
     mockVerifyToken.mockReturnValue({ uid: 'user-1', v: 0, typ: 'refresh', sid: 'sid-1', jti: 'jti-stolen' });
-    mockRotateMobileSession.mockResolvedValue({ ok: false, reason: 'reuse-detected' });
+    mockRotateMobileSession.mockResolvedValue({ ok: false, reason: 'reuse-detected', detail: 'spent-previous' });
     const res = createMockResponse();
 
     await invokeHandler(handler, { body: { refreshToken: 'rt' } } as Request, res as Response);
 
     expect(res.status).toHaveBeenCalledWith(401);
     expect(Sentry.captureMessage).toHaveBeenCalledWith(
-      'Mobile refresh token reuse detected',
+      'Mobile refresh token reuse detected (spent token replayed)',
+      expect.anything()
+    );
+  });
+
+  it('reports an unknown jti under its own signal, distinct from spent-token replay', async () => {
+    mockVerifyToken.mockReturnValue({ uid: 'user-1', v: 0, typ: 'refresh', sid: 'sid-1', jti: 'jti-mystery' });
+    mockRotateMobileSession.mockResolvedValue({ ok: false, reason: 'reuse-detected', detail: 'unknown-jti' });
+    const res = createMockResponse();
+
+    await invokeHandler(handler, { body: { refreshToken: 'rt' } } as Request, res as Response);
+
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(Sentry.captureMessage).toHaveBeenCalledWith(
+      'Mobile refresh token with unknown jti (client token corruption or theft)',
       expect.anything()
     );
   });
@@ -175,20 +193,48 @@ describe('POST /mobile/refresh', () => {
     expect(Sentry.captureMessage).not.toHaveBeenCalled();
   });
 
-  it('upgrades a legacy sid-less token to a session instead of rejecting it', async () => {
+  it('upgrades a legacy sid-less token to a session, keyed by the token hash', async () => {
     const iat = Math.floor(Date.now() / 1000);
     mockVerifyToken.mockReturnValue({ uid: 'user-1', email: USER.email, v: 0, iat, exp: iat + 7 * 24 * 60 * 60 });
-    mockCreateMobileSession.mockResolvedValue({ sid: 'sid-new', jti: 'jti-new' });
+    mockUpgradeLegacySession.mockResolvedValue({ ok: true, sid: 'sid-new', jti: 'jti-new' });
     const res = createMockResponse();
 
     await invokeHandler(handler, { body: { refreshToken: 'legacy' } } as Request, res as Response);
 
-    expect(mockCreateMobileSession).toHaveBeenCalledWith('user-1');
+    expect(mockUpgradeLegacySession).toHaveBeenCalledWith('user-1', hashLegacyToken('legacy'));
     expect(mockRotateMobileSession).not.toHaveBeenCalled();
     expect(mockGenerateRefreshToken).toHaveBeenCalledWith(
       expect.objectContaining({ sid: 'sid-new', jti: 'jti-new' })
     );
     expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it('returns 401 and reports when a legacy token is replayed after its upgrade', async () => {
+    const iat = Math.floor(Date.now() / 1000);
+    mockVerifyToken.mockReturnValue({ uid: 'user-1', v: 0, iat, exp: iat + 7 * 24 * 60 * 60 });
+    mockUpgradeLegacySession.mockResolvedValue({ ok: false, reason: 'reuse-detected' });
+    const res = createMockResponse();
+
+    await invokeHandler(handler, { body: { refreshToken: 'legacy-replayed' } } as Request, res as Response);
+
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(Sentry.captureMessage).toHaveBeenCalledWith(
+      'Mobile legacy refresh token replayed after upgrade',
+      expect.anything()
+    );
+  });
+
+  it('returns 429 when the per-user refresh rate limit trips, before any DB work', async () => {
+    mockVerifyToken.mockReturnValue({ uid: 'user-1', v: 0, typ: 'refresh', sid: 'sid-1', jti: 'jti-1' });
+    mockCheckAuthRateLimit.mockResolvedValueOnce({ allowed: false, retryAfter: 60 });
+    const res = createMockResponse();
+
+    await invokeHandler(handler, { body: { refreshToken: 'rt' } } as Request, res as Response);
+
+    expect(mockCheckAuthRateLimit).toHaveBeenCalledWith('token-refresh', 'user-1');
+    expect(res.status).toHaveBeenCalledWith(429);
+    expect(mockRotateMobileSession).not.toHaveBeenCalled();
+    expect(mockUserFindUnique).not.toHaveBeenCalled();
   });
 
   it('still rejects tokens invalidated by a sessionTokenVersion bump', async () => {
@@ -221,7 +267,7 @@ describe('POST /mobile/refresh', () => {
     await invokeHandler(handler, { body: { refreshToken: 'an-access-token' } } as Request, res as Response);
 
     expect(res.status).toHaveBeenCalledWith(401);
-    expect(mockCreateMobileSession).not.toHaveBeenCalled();
+    expect(mockUpgradeLegacySession).not.toHaveBeenCalled();
     expect(mockRotateMobileSession).not.toHaveBeenCalled();
   });
 
@@ -233,7 +279,7 @@ describe('POST /mobile/refresh', () => {
     await invokeHandler(handler, { body: { refreshToken: 'legacy-access' } } as Request, res as Response);
 
     expect(res.status).toHaveBeenCalledWith(401);
-    expect(mockCreateMobileSession).not.toHaveBeenCalled();
+    expect(mockUpgradeLegacySession).not.toHaveBeenCalled();
   });
 });
 
@@ -277,5 +323,17 @@ describe('POST /mobile/logout', () => {
     await invokeHandler(handler, { body: {} } as Request, res as Response);
 
     expect(res.status).toHaveBeenCalledWith(400);
+  });
+
+  it('returns 429 when the per-user logout rate limit trips, without revoking', async () => {
+    mockVerifyToken.mockReturnValue({ uid: 'user-1', typ: 'refresh', sid: 'sid-1', jti: 'jti-1' });
+    mockCheckAuthRateLimit.mockResolvedValueOnce({ allowed: false, retryAfter: 60 });
+    const res = createMockResponse();
+
+    await invokeHandler(handler, { body: { refreshToken: 'rt' } } as Request, res as Response);
+
+    expect(mockCheckAuthRateLimit).toHaveBeenCalledWith('token-logout', 'user-1');
+    expect(res.status).toHaveBeenCalledWith(429);
+    expect(mockRevokeMobileSession).not.toHaveBeenCalled();
   });
 });

@@ -122,6 +122,12 @@ model MobileSession {
   // Sliding: pushed forward on every successful refresh.
   expiresAt   DateTime
   revokedAt   DateTime?
+  // sha256 of the pre-session legacy refresh token this session was
+  // upgraded from; null for sessions born at login. The unique index makes
+  // the upgrade one-shot: a legacy token leaked before the sessions deploy
+  // can mint at most one session, and replaying it after that trips reuse
+  // detection instead of minting fresh year-long sessions forever.
+  legacyTokenHash String? @unique
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])

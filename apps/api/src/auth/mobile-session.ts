@@ -1,4 +1,4 @@
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { prisma } from '../lib/prisma';
 
 // Server-side state for mobile refresh tokens. The tokens themselves are
@@ -44,7 +44,16 @@ export async function createMobileSession(userId: string): Promise<NewMobileSess
 
 export type RotationResult =
   | { ok: true; jti: string }
-  | { ok: false; reason: 'not-found' | 'revoked' | 'expired' | 'reuse-detected' };
+  | { ok: false; reason: 'not-found' | 'revoked' | 'expired' }
+  /**
+   * `detail` separates the two ways reuse fires so their alerts can differ:
+   * 'spent-previous' (the session's own previous jti replayed after grace)
+   * is the classic stolen-chain signature, while 'unknown-jti' can also be
+   * a client bug that corrupted or lost the stored token. Both revoke, but
+   * conflating their alerts would train people to ignore the real one if
+   * client bugs ever get noisy.
+   */
+  | { ok: false; reason: 'reuse-detected'; detail: 'spent-previous' | 'unknown-jti' };
 
 /**
  * Validate a presented refresh jti against its session and, when valid,
@@ -117,7 +126,88 @@ export async function rotateMobileSession(
     where: { id: sid, revokedAt: null },
     data: { revokedAt: now },
   });
-  return { ok: false, reason: 'reuse-detected' };
+  const detail = presentedJti === session.previousJti ? 'spent-previous' : 'unknown-jti';
+  return { ok: false, reason: 'reuse-detected', detail };
+}
+
+/** Stable identity for a legacy (pre-session) refresh token. */
+export function hashLegacyToken(token: string): string {
+  return createHash('sha256').update(token).digest('hex');
+}
+
+export type LegacyUpgradeResult =
+  | { ok: true; sid: string; jti: string }
+  | { ok: false; reason: 'reuse-detected' };
+
+/**
+ * One-shot upgrade of a legacy sid-less refresh token to a session.
+ *
+ * The unique legacyTokenHash column is what makes it one-shot. Legacy
+ * tokens are stateless, so without this a single token could be replayed
+ * throughout the 7-day migration window and mint an unlimited number of
+ * independent year-long sessions — converting anything leaked BEFORE the
+ * sessions deploy from a credential with a hard 7-day ceiling into an
+ * indefinitely renewable one. With it, the first presentation claims the
+ * token; a replay gets the same treatment as a spent jti: the claimed
+ * session is revoked and the caller gets reuse-detected.
+ *
+ * The lost-response case gets the same grace rotation retries get: until
+ * the session's first real rotation (previousJti null) and within
+ * REFRESH_ROTATION_GRACE_MS, re-presenting the legacy token re-issues the
+ * session's current pair, because a device whose upgrade response was lost
+ * has nothing else to present. The client retries failed refreshes on a
+ * ~10s cadence, well inside the window.
+ */
+export async function upgradeLegacySession(
+  userId: string,
+  legacyTokenHash: string,
+): Promise<LegacyUpgradeResult> {
+  const now = new Date();
+
+  // Evaluate an already-claimed token; null means unclaimed.
+  const evaluateExisting = async (): Promise<LegacyUpgradeResult | null> => {
+    const existing = await prisma.mobileSession.findUnique({ where: { legacyTokenHash } });
+    if (!existing) return null;
+    if (existing.userId !== userId || existing.revokedAt || existing.expiresAt < now) {
+      return { ok: false, reason: 'reuse-detected' };
+    }
+    const neverRotated = existing.previousJti === null;
+    const withinGrace = now.getTime() - existing.rotatedAt.getTime() < REFRESH_ROTATION_GRACE_MS;
+    if (neverRotated && withinGrace) {
+      return { ok: true, sid: existing.id, jti: existing.currentJti };
+    }
+    // The upgrading device has moved on (rotated) or too much time has
+    // passed: this presentation comes from a second holder of the token.
+    await prisma.mobileSession.updateMany({
+      where: { id: existing.id, revokedAt: null },
+      data: { revokedAt: now },
+    });
+    return { ok: false, reason: 'reuse-detected' };
+  };
+
+  const claimed = await evaluateExisting();
+  if (claimed) return claimed;
+
+  try {
+    const jti = randomUUID();
+    const session = await prisma.mobileSession.create({
+      data: {
+        userId,
+        currentJti: jti,
+        legacyTokenHash,
+        lastUsedAt: now,
+        expiresAt: new Date(now.getTime() + MOBILE_REFRESH_TTL_MS),
+      },
+    });
+    return { ok: true, sid: session.id, jti };
+  } catch (err) {
+    // Unique violation: a concurrent upgrade with the same token won the
+    // create. Evaluate against the winner's row; anything else is a real
+    // error and propagates.
+    const raced = await evaluateExisting();
+    if (raced) return raced;
+    throw err;
+  }
 }
 
 /**
