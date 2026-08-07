@@ -71,6 +71,7 @@ model User {
   notificationLogs         NotificationLog[]
   passwordResetTokens      PasswordResetToken[]
   componentRideAdjustments ComponentRideAdjustment[]
+  mobileSessions           MobileSession[]
 
   // Push notification preferences
   expoPushToken      String?
@@ -97,6 +98,39 @@ model User {
   // null timezone is skipped rather than guessed at, since a digest at 3am
   // is worse than no digest.
   timezone String?
+}
+
+// One row per mobile device sign-in. Refresh tokens carry this row's id
+// (sid) plus a one-time jti; a refresh is honored only when the presented
+// jti matches currentJti (or previousJti inside the retry grace window,
+// because a device that never received the rotation response legitimately
+// retries with the old token). A jti matching neither is evidence the token
+// leaked and was replayed: the session is revoked on the spot. This is what
+// makes the long sliding refresh window safe: leaked tokens are detectable
+// and individual devices are revocable, without touching the stateless
+// access-token path (still signature + sessionTokenVersion only).
+model MobileSession {
+  id          String    @id @default(uuid())
+  userId      String
+  currentJti  String
+  // The jti this session rotated away from, honored briefly (see
+  // REFRESH_ROTATION_GRACE_MS) so a lost response is not misread as theft.
+  previousJti String?
+  rotatedAt   DateTime  @default(now())
+  createdAt   DateTime  @default(now())
+  lastUsedAt  DateTime  @default(now())
+  // Sliding: pushed forward on every successful refresh.
+  expiresAt   DateTime
+  revokedAt   DateTime?
+  // sha256 of the pre-session legacy refresh token this session was
+  // upgraded from; null for sessions born at login. The unique index makes
+  // the upgrade one-shot: a legacy token leaked before the sessions deploy
+  // can mint at most one session, and replaying it after that trips reuse
+  // detection instead of minting fresh year-long sessions forever.
+  legacyTokenHash String? @unique
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 // See User.rideSyncNotificationMode for semantics.

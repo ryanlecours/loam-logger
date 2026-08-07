@@ -52,6 +52,8 @@ jest.mock('../lib/rate-limit', () => ({
 jest.mock('../lib/prisma', () => ({
   prisma: {
     user: { findUnique: jest.fn() },
+    // issueMobileTokens creates a MobileSession row for every token pair.
+    mobileSession: { create: jest.fn().mockResolvedValue({ id: 'session-1' }) },
   },
 }));
 

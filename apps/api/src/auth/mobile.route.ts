@@ -7,8 +7,9 @@ import { verifyAppleIdentityToken, type AppleVerifyErrorDetail } from './appleTo
 import { normalizeEmail, getClientIp } from './utils';
 import { validateEmailFormat } from './email.utils';
 import { verifyPassword, validatePassword, hashPassword } from './password.utils';
-import { generateAccessToken, verifyToken } from './token';
+import { generateAccessToken, generateRefreshToken, verifyToken, isRefreshTokenPayload } from './token';
 import { issueMobileTokens } from './session-issuer';
+import { rotateMobileSession, revokeMobileSession, upgradeLegacySession, hashLegacyToken } from './mobile-session';
 import { updateLastAuthAt } from './recent-auth';
 import { prisma } from '../lib/prisma';
 import { checkAuthRateLimit, checkMutationRateLimit } from '../lib/rate-limit';
@@ -427,6 +428,26 @@ router.post('/mobile/refresh', express.json(), async (req, res) => {
       return sendUnauthorized(res, 'Invalid or expired refresh token');
     }
 
+    // The signature only proves WE minted the token, not that it is a
+    // refresh token: access tokens and web session cookies share the same
+    // secret. Without this check, a leaked 15-minute access token could be
+    // traded here for a year-long session. The real client never does
+    // this, so warn: it is either a bug or someone probing.
+    if (!isRefreshTokenPayload(payload)) {
+      logger.warn({ uid: payload.uid, typ: payload.typ, route: 'mobile/refresh' }, 'Refresh 401: non-refresh token presented');
+      return sendUnauthorized(res, 'Invalid or expired refresh token');
+    }
+
+    // Per-user, not per-IP: the uid is signature-verified by this point (so
+    // junk floods never reach here), a valid-signature flood is inherently
+    // per-user, and carrier-grade NAT would make an IP key throttle
+    // innocent riders. This caps the DB writes each refresh performs.
+    const rateLimit = await checkAuthRateLimit('token-refresh', payload.uid);
+    if (!rateLimit.allowed) {
+      logger.warn({ uid: payload.uid, retryAfter: rateLimit.retryAfter, route: 'mobile/refresh' }, 'Refresh 429: rate limited');
+      return sendTooManyRequests(res, 'Too many refresh attempts. Please try again later.', rateLimit.retryAfter);
+    }
+
     // Verify user still exists
     const user = await prisma.user.findUnique({
       where: { id: payload.uid },
@@ -445,6 +466,60 @@ router.post('/mobile/refresh', express.json(), async (req, res) => {
       return sendUnauthorized(res, 'Refresh token has been revoked');
     }
 
+    // Rotate within the token's server-side session. Each successful
+    // refresh mints a new jti and slides the session expiry forward, so an
+    // actively-used app never hits refresh expiry (the fixed-expiry version
+    // of this route logged riders out 7 days after login, including
+    // mid-ride). Presenting a spent jti revokes the session: that is the
+    // reuse-detection that makes the long sliding window safe.
+    let sid: string;
+    let jti: string;
+    if (payload.sid && payload.jti) {
+      const rotation = await rotateMobileSession(payload.sid, payload.jti);
+      if (!rotation.ok) {
+        if (rotation.reason === 'reuse-detected') {
+          // Loud on purpose: this is the one signal that a refresh token
+          // leaked. Two distinct Sentry messages so a noisy client bug
+          // (unknown jti from a corrupted/lost stored token) cannot bury
+          // the classic stolen-chain signature (spent jti replayed).
+          const message = rotation.detail === 'spent-previous'
+            ? 'Mobile refresh token reuse detected (spent token replayed)'
+            : 'Mobile refresh token with unknown jti (client token corruption or theft)';
+          logger.warn({ userId: user.id, sid: payload.sid, detail: rotation.detail, route: 'mobile/refresh' }, 'Refresh 401: reuse detected, session revoked');
+          Sentry.captureMessage(message, {
+            level: 'warning',
+            tags: { route: 'mobile/refresh' },
+            extra: { userId: user.id, sid: payload.sid, detail: rotation.detail },
+          });
+        } else {
+          logger.info({ userId: user.id, sid: payload.sid, reason: rotation.reason, route: 'mobile/refresh' }, 'Refresh 401: session not usable');
+        }
+        return sendUnauthorized(res, 'Refresh token has been revoked');
+      }
+      sid = payload.sid;
+      jti = rotation.jti;
+    } else {
+      // Legacy token from before sessions existed (7-day TTL, no sid).
+      // Upgrade it in place instead of forcing a re-login — but exactly
+      // once: the token's hash is recorded on the session it creates, so a
+      // replay cannot mint additional sessions. Without that, anything
+      // leaked before the sessions deploy would convert from a credential
+      // with a hard 7-day ceiling into an indefinitely renewable one.
+      // Legacy tokens age out of circulation within 7 days of deploy.
+      const upgrade = await upgradeLegacySession(user.id, hashLegacyToken(refreshToken));
+      if (!upgrade.ok) {
+        logger.warn({ userId: user.id, route: 'mobile/refresh' }, 'Refresh 401: legacy token replayed after upgrade, session revoked');
+        Sentry.captureMessage('Mobile legacy refresh token replayed after upgrade', {
+          level: 'warning',
+          tags: { route: 'mobile/refresh' },
+          extra: { userId: user.id },
+        });
+        return sendUnauthorized(res, 'Refresh token has been revoked');
+      }
+      sid = upgrade.sid;
+      jti = upgrade.jti;
+    }
+
     // Generate new access token stamped with the current token version
     const accessToken = generateAccessToken({
       uid: user.id,
@@ -452,11 +527,64 @@ router.post('/mobile/refresh', express.json(), async (req, res) => {
       v: user.sessionTokenVersion,
     });
 
-    res.status(200).json({ accessToken });
+    // The mobile client stores `refreshToken` from this response when
+    // present; older builds that ignore it keep their previous token, which
+    // stays honored as this session's previousJti only briefly — those
+    // builds fall back to fixed-window behavior and re-login at expiry.
+    const rotatedRefreshToken = generateRefreshToken({
+      uid: user.id,
+      email: user.email,
+      v: user.sessionTokenVersion,
+      sid,
+      jti,
+    });
+
+    res.status(200).json({ accessToken, refreshToken: rotatedRefreshToken });
   } catch (e) {
     logger.error({ err: e, route: 'mobile/refresh' }, '[MobileAuth] Token refresh failed');
     Sentry.captureException(e, { tags: { route: 'mobile/refresh' } });
     return sendInternalError(res, 'Token refresh failed');
+  }
+});
+
+/**
+ * POST /auth/mobile/logout
+ * Revoke the refresh token's server-side session. Best-effort from the
+ * client (a rider logging out in a dead zone must still log out locally),
+ * so the endpoint is idempotent and succeeds even when there is nothing
+ * left to revoke.
+ */
+router.post('/mobile/logout', express.json(), async (req, res) => {
+  try {
+    const { refreshToken } = req.body as { refreshToken?: string };
+    if (!refreshToken) {
+      return sendBadRequest(res, 'Missing refreshToken', 'MISSING_TOKEN');
+    }
+
+    const payload = verifyToken(refreshToken);
+    // An expired or malformed token has no live session worth revoking;
+    // treat as an already-complete logout rather than an error. The
+    // isRefreshTokenPayload gate matches the refresh route: today only
+    // refresh tokens carry sid, but that is a structural accident, and if
+    // any future SESSION_SECRET-signed token grew a same-named field this
+    // endpoint would silently start revoking sessions on its behalf. Only
+    // the revocation path does DB work, so only it is rate limited (per
+    // user, same rationale as token-refresh).
+    if (payload && isRefreshTokenPayload(payload) && payload.sid) {
+      const rateLimit = await checkAuthRateLimit('token-logout', payload.uid);
+      if (!rateLimit.allowed) {
+        logger.warn({ uid: payload.uid, retryAfter: rateLimit.retryAfter, route: 'mobile/logout' }, 'Logout 429: rate limited');
+        return sendTooManyRequests(res, 'Too many requests. Please try again later.', rateLimit.retryAfter);
+      }
+      await revokeMobileSession(payload.sid, payload.uid);
+      auditLogger.info({ userId: payload.uid, sid: payload.sid }, 'Mobile session revoked by logout');
+    }
+
+    return res.status(200).json({ ok: true });
+  } catch (e) {
+    logger.error({ err: e, route: 'mobile/logout' }, '[MobileAuth] Logout failed');
+    Sentry.captureException(e, { tags: { route: 'mobile/logout' } });
+    return sendInternalError(res, 'Logout failed');
   }
 });
 

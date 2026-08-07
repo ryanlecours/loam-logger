@@ -1,7 +1,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import * as Sentry from '@sentry/node';
-import { extractBearerToken, verifyToken } from './token';
+import { extractBearerToken, verifyToken, isAccessTokenPayload } from './token';
 import { prisma } from '../lib/prisma';
 import { logger } from '../lib/logger';
 
@@ -109,7 +109,10 @@ export async function attachUser(req: Request, _res: Response, next: NextFunctio
     const bearerToken = extractBearerToken(req);
     if (bearerToken) {
       const user = verifyToken(bearerToken);
-      if (user && (await isTokenVersionCurrent(user))) {
+      // Access tokens only. A refresh token here would be a year-long
+      // credential that never passes through rotation or reuse detection,
+      // defeating the point of short-lived access tokens entirely.
+      if (user && isAccessTokenPayload(user) && (await isTokenVersionCurrent(user))) {
         req.sessionUser = user;
       }
     }
