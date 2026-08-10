@@ -15,12 +15,17 @@ import { templateConfig as mobileAppLaunchConfig } from './mobile-app-launch';
 import { templateConfig as foundingRidersAprilUpdateConfig } from './founding-riders-april-2026';
 import { templateConfig as foundingRidersMayUpdateConfig } from './founding-riders-may-2026';
 import { templateConfig as foundingRiderUpgradeConfig } from './founding-rider-upgrade';
+import { templateConfig as composerConfig } from './composer';
 // Note: activation template excluded - it's system-triggered, not admin-sendable
 
 import type { TemplateConfig, TemplateConfigDTO } from './types';
+import { FRONTEND_URL } from '../../config/env';
+
+const API_URL = process.env.API_URL || 'http://localhost:4000';
 
 /** All email templates (including system-only ones) */
 const allTemplates: TemplateConfig[] = [
+  composerConfig,
   welcome1Config,
   welcome2Config,
   welcome3Config,
@@ -42,6 +47,40 @@ export const EMAIL_TEMPLATES = allTemplates.filter(t => t.adminVisible !== false
 /** Get a template by ID */
 export function getTemplateById(id: string): TemplateConfig | undefined {
   return allTemplates.find(t => t.id === id);
+}
+
+/** Per-recipient values filled in by the backend, not the admin form */
+export type TemplateAutoFillValues = {
+  recipientFirstName?: string;
+  email?: string;
+  unsubscribeUrl?: string;
+};
+
+/**
+ * Build render props for a template from admin-provided parameters.
+ * Auto-fill values win for their fields; ${FRONTEND_URL}/${API_URL}
+ * placeholders in defaults are resolved here.
+ */
+export function buildTemplateProps(
+  template: TemplateConfig,
+  userParameters: Record<string, string>,
+  autoFillValues: TemplateAutoFillValues
+): Record<string, unknown> {
+  const props: Record<string, unknown> = {};
+
+  for (const param of template.parameters) {
+    if (param.autoFill && autoFillValues[param.autoFill] !== undefined) {
+      props[param.key] = autoFillValues[param.autoFill];
+    } else if (userParameters[param.key] !== undefined && userParameters[param.key] !== '') {
+      props[param.key] = userParameters[param.key];
+    } else if (param.defaultValue !== undefined) {
+      props[param.key] = param.defaultValue
+        .replace('${FRONTEND_URL}', FRONTEND_URL)
+        .replace('${API_URL}', API_URL);
+    }
+  }
+
+  return props;
 }
 
 /** Get template list for API response (without render function) */

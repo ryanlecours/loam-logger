@@ -10,6 +10,7 @@ import { sendReactEmailWithAudit } from '../services/email.service';
 import {
   getTemplateListForAPI,
   getTemplateById,
+  buildTemplateProps,
   type TemplateConfig,
 } from '../templates/emails';
 import FoundingRidersEmail, { FOUNDING_RIDERS_TEMPLATE_VERSION } from '../templates/emails/founding-riders';
@@ -1234,33 +1235,6 @@ router.get('/email/templates', async (_req, res) => {
 });
 
 /**
- * Helper to build template props from user-provided parameters
- */
-function buildTemplateProps(
-  template: TemplateConfig,
-  userParameters: Record<string, string>,
-  autoFillValues: { recipientFirstName?: string; email?: string; unsubscribeUrl?: string }
-): Record<string, unknown> {
-  const props: Record<string, unknown> = {};
-
-  for (const param of template.parameters) {
-    // Auto-fill values take precedence for special fields
-    if (param.autoFill && autoFillValues[param.autoFill] !== undefined) {
-      props[param.key] = autoFillValues[param.autoFill];
-    } else if (userParameters[param.key] !== undefined && userParameters[param.key] !== '') {
-      props[param.key] = userParameters[param.key];
-    } else if (param.defaultValue !== undefined) {
-      // Replace URL placeholders
-      props[param.key] = param.defaultValue
-        .replace('${FRONTEND_URL}', FRONTEND_URL)
-        .replace('${API_URL}', API_URL);
-    }
-  }
-
-  return props;
-}
-
-/**
  * Validate that required template parameters are present and properly typed.
  * Throws an error if validation fails.
  */
@@ -1360,7 +1334,7 @@ router.post('/email/unified/send', async (req, res) => {
       });
     }
 
-    const { templateId, recipientIds, parameters = {}, subject } = req.body;
+    const { templateId, recipientIds, parameters = {}, subject, scheduledFor } = req.body;
 
     // Validate templateId
     if (!templateId || typeof templateId !== 'string') {
@@ -1414,6 +1388,60 @@ router.post('/email/unified/send', async (req, res) => {
     }
 
     const emailSubject = subject || template.defaultSubject;
+
+    // Schedule for later: persist and let the email scheduler deliver it.
+    // Parameters are stored as JSON in messageHtml with a "unified:" template
+    // type marker, which the scheduler resolves back through the registry.
+    if (scheduledFor !== undefined) {
+      if (typeof scheduledFor !== 'string') {
+        return sendBadRequest(res, 'Invalid scheduled time format');
+      }
+      const scheduledDate = new Date(scheduledFor);
+      if (isNaN(scheduledDate.getTime())) {
+        return sendBadRequest(res, 'Invalid scheduled time format');
+      }
+      if (scheduledDate <= new Date()) {
+        return sendBadRequest(res, 'Scheduled time must be in the future');
+      }
+      if (emailSubject.trim().length > MAX_SUBJECT_LENGTH) {
+        return sendBadRequest(res, `Subject must be ${MAX_SUBJECT_LENGTH} characters or less`);
+      }
+
+      const scheduledEmail = await prisma.scheduledEmail.create({
+        data: {
+          subject: emailSubject.trim(),
+          messageHtml: JSON.stringify(parameters),
+          templateType: `unified:${templateId}`,
+          recipientIds: recipients.map((r) => r.id),
+          recipientCount: recipients.length,
+          scheduledFor: scheduledDate,
+          createdBy: adminUserId,
+        },
+      });
+
+      logger.info(
+        {
+          scheduledEmailId: scheduledEmail.id,
+          templateId,
+          scheduledFor: scheduledDate.toISOString(),
+          recipientCount: recipients.length,
+          adminUserId,
+        },
+        '[Admin] Unified email scheduled'
+      );
+
+      return res.json({
+        success: true,
+        scheduledEmail: {
+          id: scheduledEmail.id,
+          subject: scheduledEmail.subject,
+          scheduledFor: scheduledEmail.scheduledFor,
+          recipientCount: scheduledEmail.recipientCount,
+          status: scheduledEmail.status,
+        },
+      });
+    }
+
     const results = { sent: 0, failed: 0, suppressed: 0 };
 
     // Send emails sequentially with delay

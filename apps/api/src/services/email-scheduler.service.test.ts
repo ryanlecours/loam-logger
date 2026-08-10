@@ -25,10 +25,32 @@ jest.mock('./email.service', () => ({
   sendEmailWithAudit: jest.fn(),
 }));
 
-// Mock email templates
+// @react-email/render's CJS build dynamic-imports react-dom/server, which
+// Jest can't execute. Substitute static markup so unified-template tests
+// still assert against real rendered HTML.
+jest.mock('@react-email/render', () => ({
+  render: jest.fn(async (element: unknown) =>
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    require('react-dom/server').renderToStaticMarkup(element)
+  ),
+}));
+
+// Mock email templates. templateConfig is included because the templates
+// index aggregates it into the registry the scheduler now imports.
 jest.mock('../templates/emails/announcement', () => ({
   getAnnouncementEmailHtml: jest.fn().mockResolvedValue('<p>Test Email</p>'),
   ANNOUNCEMENT_TEMPLATE_VERSION: '1.0.0',
+  templateConfig: {
+    id: 'announcement',
+    displayName: 'Announcement',
+    description: 'mock',
+    defaultSubject: 'mock',
+    emailType: 'announcement',
+    templateVersion: '1.0.0',
+    adminVisible: true,
+    parameters: [],
+    render: jest.fn(),
+  },
 }));
 
 // Mock unsubscribe token
@@ -435,6 +457,118 @@ describe('Email Scheduler - Graceful Shutdown', () => {
 
     await stopEmailScheduler();
     consoleSpy.mockRestore();
+  });
+});
+
+describe('Email Scheduler - Unified Template Rows', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    jest.useFakeTimers();
+    mockIsRedisReady.mockReturnValue(false);
+  });
+
+  afterEach(async () => {
+    jest.useRealTimers();
+    await stopEmailScheduler();
+  });
+
+  it('renders a unified:composer row through the registry per recipient', async () => {
+    const scheduledEmail = {
+      id: 'email-unified',
+      subject: 'June update',
+      messageHtml: JSON.stringify({
+        header: 'Big June news',
+        body: 'Hello {{firstName}}, the beta is open.',
+      }),
+      templateType: 'unified:composer',
+      recipientIds: ['user-1'],
+      status: 'processing',
+    };
+
+    (mockPrisma.scheduledEmail.findMany as jest.Mock).mockResolvedValue([
+      { id: 'email-unified' },
+    ]);
+    (mockPrisma.$transaction as jest.Mock).mockResolvedValue(scheduledEmail);
+    (mockPrisma.user.findMany as jest.Mock).mockResolvedValue([
+      { id: 'user-1', email: 'alex@example.com', name: 'Alex Rider', emailUnsubscribed: false },
+    ]);
+    mockSendEmailWithAudit.mockResolvedValue({ status: 'sent' } as never);
+    (mockPrisma.scheduledEmail.update as jest.Mock).mockResolvedValue({});
+
+    startEmailScheduler();
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(mockSendEmailWithAudit).toHaveBeenCalledTimes(1);
+    const call = mockSendEmailWithAudit.mock.calls[0][0];
+    expect(call.subject).toBe('June update');
+    expect(call.emailType).toBe('custom');
+    expect(call.triggerSource).toBe('scheduled');
+    expect(call.html).toContain('Big June news');
+    expect(call.html).toContain('Hello Alex, the beta is open.');
+    expect(call.html).toContain('mock-unsubscribe-token');
+
+    expect(mockPrisma.scheduledEmail.update).toHaveBeenCalledWith({
+      where: { id: 'email-unified' },
+      data: expect.objectContaining({ status: 'sent', sentCount: 1 }),
+    });
+  });
+
+  it('marks the row failed when the template ID is unknown', async () => {
+    const scheduledEmail = {
+      id: 'email-bad-template',
+      subject: 'Test',
+      messageHtml: '{}',
+      templateType: 'unified:does-not-exist',
+      recipientIds: ['user-1'],
+      status: 'processing',
+    };
+
+    (mockPrisma.scheduledEmail.findMany as jest.Mock).mockResolvedValue([
+      { id: 'email-bad-template' },
+    ]);
+    (mockPrisma.$transaction as jest.Mock).mockResolvedValue(scheduledEmail);
+    (mockPrisma.scheduledEmail.update as jest.Mock).mockResolvedValue({});
+
+    startEmailScheduler();
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(mockSendEmailWithAudit).not.toHaveBeenCalled();
+    expect(mockPrisma.scheduledEmail.update).toHaveBeenCalledWith({
+      where: { id: 'email-bad-template' },
+      data: expect.objectContaining({
+        status: 'failed',
+        errorMessage: 'Unknown template: does-not-exist',
+      }),
+    });
+  });
+
+  it('marks the row failed when stored parameters are not valid JSON', async () => {
+    const scheduledEmail = {
+      id: 'email-bad-json',
+      subject: 'Test',
+      messageHtml: '<p>legacy html, not json</p>',
+      templateType: 'unified:composer',
+      recipientIds: ['user-1'],
+      status: 'processing',
+    };
+
+    (mockPrisma.scheduledEmail.findMany as jest.Mock).mockResolvedValue([
+      { id: 'email-bad-json' },
+    ]);
+    (mockPrisma.$transaction as jest.Mock).mockResolvedValue(scheduledEmail);
+    (mockPrisma.scheduledEmail.update as jest.Mock).mockResolvedValue({});
+
+    startEmailScheduler();
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(mockSendEmailWithAudit).not.toHaveBeenCalled();
+    expect(mockPrisma.scheduledEmail.update).toHaveBeenCalledWith({
+      where: { id: 'email-bad-json' },
+      data: expect.objectContaining({
+        status: 'failed',
+        errorMessage: 'Stored template parameters are not valid JSON',
+      }),
+    });
   });
 });
 
