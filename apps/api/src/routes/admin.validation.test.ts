@@ -47,6 +47,7 @@ jest.mock('../auth/password.utils', () => ({
 jest.mock('../services/email.service', () => ({
   sendEmail: jest.fn(),
   sendEmailWithAudit: jest.fn(),
+  sendReactEmailWithAudit: jest.fn().mockResolvedValue({ status: 'sent', messageId: 'mock-id' }),
 }));
 
 jest.mock('../templates/emails', () => ({
@@ -54,6 +55,9 @@ jest.mock('../templates/emails', () => ({
   getActivationEmailHtml: jest.fn().mockReturnValue('<p>Welcome</p>'),
   getAnnouncementEmailHtml: jest.fn().mockReturnValue('<p>Announcement</p>'),
   ANNOUNCEMENT_TEMPLATE_VERSION: '1.0.0',
+  getTemplateListForAPI: jest.fn().mockReturnValue([]),
+  getTemplateById: jest.fn(),
+  buildTemplateProps: jest.fn().mockReturnValue({}),
 }));
 
 jest.mock('../lib/unsubscribe-token', () => ({
@@ -278,6 +282,132 @@ describe('Admin Routes - Subject Length Validation', () => {
       expect(mockPrisma.scheduledEmail.create).toHaveBeenCalled();
     });
   });
+
+  describe('POST /email/unified/send', () => {
+    const handler = findHandler('post', '/email/unified/send');
+    const RECIPIENT_ID = '550e8400-e29b-41d4-a716-446655440000';
+
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { getTemplateById, buildTemplateProps } = require('../templates/emails');
+
+    beforeEach(() => {
+      (buildTemplateProps as jest.Mock).mockReturnValue({});
+      (getTemplateById as jest.Mock).mockReturnValue({
+        id: 'composer',
+        displayName: 'Composer',
+        defaultSubject: 'Default subject',
+        emailType: 'custom',
+        templateVersion: '1.0.0',
+        parameters: [],
+        render: jest.fn(),
+      });
+      (mockPrisma.user.findMany as jest.Mock).mockResolvedValue([
+        { id: RECIPIENT_ID, email: 'rider@example.com', name: 'Rider', emailUnsubscribed: false },
+      ]);
+    });
+
+    it('should reject subject over 200 characters on immediate sends', async () => {
+      const { req, res } = createMocks();
+      req.body = {
+        templateId: 'composer',
+        recipientIds: [RECIPIENT_ID],
+        subject: 'A'.repeat(201),
+        parameters: {},
+      };
+
+      await invokeHandler(handler, req, res);
+
+      expect(mockSendBadRequest).toHaveBeenCalledWith(
+        res,
+        'Subject must be 200 characters or less'
+      );
+    });
+
+    it('should reject subject over 200 characters on scheduled sends', async () => {
+      const { req, res } = createMocks();
+      req.body = {
+        templateId: 'composer',
+        recipientIds: [RECIPIENT_ID],
+        subject: 'A'.repeat(201),
+        parameters: {},
+        scheduledFor: new Date(Date.now() + 3600000).toISOString(),
+      };
+
+      await invokeHandler(handler, req, res);
+
+      expect(mockSendBadRequest).toHaveBeenCalledWith(
+        res,
+        'Subject must be 200 characters or less'
+      );
+      expect(mockPrisma.scheduledEmail.create).not.toHaveBeenCalled();
+    });
+
+    it('should accept subject at 200 characters on immediate sends', async () => {
+      const { req, res } = createMocks();
+      req.body = {
+        templateId: 'composer',
+        recipientIds: [RECIPIENT_ID],
+        subject: 'A'.repeat(200),
+        parameters: {},
+      };
+
+      await invokeHandler(handler, req, res);
+
+      expect(mockSendBadRequest).not.toHaveBeenCalled();
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({ success: true })
+      );
+    });
+
+    it('should trim the subject on immediate sends', async () => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { sendReactEmailWithAudit } = require('../services/email.service');
+      const { req, res } = createMocks();
+      req.body = {
+        templateId: 'composer',
+        recipientIds: [RECIPIENT_ID],
+        subject: '  Big update  ',
+        parameters: {},
+      };
+
+      await invokeHandler(handler, req, res);
+
+      expect(sendReactEmailWithAudit).toHaveBeenCalledWith(
+        expect.objectContaining({ subject: 'Big update' })
+      );
+    });
+
+    it('should reject non-string optional parameters with a clean error', async () => {
+      (getTemplateById as jest.Mock).mockReturnValue({
+        id: 'composer',
+        displayName: 'Composer',
+        defaultSubject: 'Default subject',
+        emailType: 'custom',
+        templateVersion: '1.0.0',
+        parameters: [
+          { key: 'header', label: 'Header', type: 'text', required: true },
+          { key: 'previewText', label: 'Preview Text', type: 'text', required: false },
+        ],
+        render: jest.fn(),
+      });
+      (buildTemplateProps as jest.Mock).mockReturnValue({
+        header: 'H',
+        previewText: 12345,
+      });
+
+      const { req, res } = createMocks();
+      req.body = {
+        templateId: 'composer',
+        recipientIds: [RECIPIENT_ID],
+        subject: 'Subject',
+        parameters: { header: 'H', previewText: 12345 },
+      };
+
+      await invokeHandler(handler, req, res);
+
+      expect(mockSendBadRequest).toHaveBeenCalledWith(res, 'Preview Text must be a string');
+    });
+  });
 });
 
 describe('Admin Routes - Rate Limiting', () => {
@@ -410,6 +540,72 @@ describe('Admin Routes - Schedule Validation', () => {
 
       await invokeHandler(handler, req, res);
 
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({ success: true })
+      );
+    });
+
+    it('should reject messageHtml edits on unified: rows (JSON would be corrupted)', async () => {
+      const { req, res } = createMocks();
+      req.params = { id: 'scheduled-1' };
+      req.body = { messageHtml: 'new body text' };
+
+      (mockPrisma.scheduledEmail.findUnique as jest.Mock).mockResolvedValue({
+        templateType: 'unified:composer',
+        status: 'pending',
+      });
+
+      await invokeHandler(handler, req, res);
+
+      expect(mockSendBadRequest).toHaveBeenCalledWith(
+        res,
+        'Cannot edit the message body of a template-based scheduled email. Cancel it and schedule a new one from the compose form.'
+      );
+      expect(mockPrisma.scheduledEmail.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('should report the real status when editing the body of a sent unified row', async () => {
+      const { req, res } = createMocks();
+      req.params = { id: 'scheduled-1' };
+      req.body = { messageHtml: 'new body text' };
+
+      (mockPrisma.scheduledEmail.findUnique as jest.Mock).mockResolvedValue({
+        templateType: 'unified:composer',
+        status: 'sent',
+      });
+
+      await invokeHandler(handler, req, res);
+
+      expect(mockSendBadRequest).toHaveBeenCalledWith(
+        res,
+        'Cannot edit scheduled email with status: sent'
+      );
+      expect(mockPrisma.scheduledEmail.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('should still allow messageHtml edits on legacy rows', async () => {
+      const { req, res } = createMocks();
+      req.params = { id: 'scheduled-1' };
+      req.body = { messageHtml: 'new body text' };
+
+      // First findUnique: templateType guard; second: response fetch
+      (mockPrisma.scheduledEmail.findUnique as jest.Mock)
+        .mockResolvedValueOnce({ templateType: 'announcement', status: 'pending' })
+        .mockResolvedValueOnce({
+          id: 'scheduled-1',
+          subject: 'Subject',
+          scheduledFor: new Date(),
+          recipientCount: 1,
+          status: 'pending',
+        });
+      (mockPrisma.scheduledEmail.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
+
+      await invokeHandler(handler, req, res);
+
+      expect(mockPrisma.scheduledEmail.updateMany).toHaveBeenCalledWith({
+        where: { id: 'scheduled-1', status: 'pending' },
+        data: expect.objectContaining({ messageHtml: expect.any(String) }),
+      });
       expect(res.json).toHaveBeenCalledWith(
         expect.objectContaining({ success: true })
       );

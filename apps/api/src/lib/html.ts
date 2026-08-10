@@ -15,7 +15,9 @@ export function escapeHtml(unsafe: string): string {
  * Removes control characters and limits length to prevent abuse.
  */
 export function sanitizeUserInput(input: string | undefined | null, maxLength = 100): string {
-  if (!input) return '';
+  // Runtime guard: callers pass through untyped request/JSON data, and
+  // iterating a non-string (e.g. a number) below would throw
+  if (!input || typeof input !== 'string') return '';
   // Remove control characters (except newline \x0A and tab \x09 which might be intentional)
   // Control chars: 0x00-0x08, 0x0B, 0x0C, 0x0E-0x1F, 0x7F
   let result = '';

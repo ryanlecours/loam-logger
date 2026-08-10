@@ -7,12 +7,11 @@ import Welcome1Email, { WELCOME_1_TEMPLATE_VERSION } from '../templates/emails/w
 import Welcome2Email, { WELCOME_2_TEMPLATE_VERSION } from '../templates/emails/welcome-2';
 import Welcome3Email, { WELCOME_3_TEMPLATE_VERSION } from '../templates/emails/welcome-3';
 import MobileAppLaunchEmail, { MOBILE_APP_LAUNCH_TEMPLATE_VERSION } from '../templates/emails/mobile-app-launch';
+import { getTemplateById, buildTemplateProps, type TemplateConfig } from '../templates/emails';
 import { generateUnsubscribeToken } from '../lib/unsubscribe-token';
 import { getRedisConnection, isRedisReady } from '../lib/redis';
 import type { EmailType } from '@prisma/client';
-import { FRONTEND_URL } from '../config/env';
-
-const API_URL = process.env.API_URL || 'http://localhost:4000';
+import { FRONTEND_URL, API_URL } from '../config/env';
 
 /** Delay helper for rate limiting */
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -108,6 +107,47 @@ async function renderEmailHtml(
         messageHtml,
         unsubscribeUrl,
       });
+  }
+}
+
+type UnifiedSchedule = {
+  template: TemplateConfig;
+  parameters: Record<string, string>;
+};
+
+/**
+ * Resolve a "unified:<templateId>" scheduled row back to its registered
+ * template and stored parameters (JSON in messageHtml). Returns null for
+ * legacy rows, or an error string when the row can't be delivered.
+ */
+function resolveUnifiedSchedule(
+  templateType: string | null,
+  messageHtml: string
+): UnifiedSchedule | { error: string } | null {
+  if (!templateType || !templateType.startsWith('unified:')) {
+    return null;
+  }
+
+  const templateId = templateType.slice('unified:'.length);
+  const template = getTemplateById(templateId);
+  if (!template) {
+    return { error: `Unknown template: ${templateId}` };
+  }
+
+  try {
+    const parsed = JSON.parse(messageHtml);
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      return { error: 'Stored template parameters are not an object' };
+    }
+    const parameters: Record<string, string> = {};
+    for (const [key, value] of Object.entries(parsed)) {
+      if (typeof value === 'string') {
+        parameters[key] = value;
+      }
+    }
+    return { template, parameters };
+  } catch {
+    return { error: 'Stored template parameters are not valid JSON' };
   }
 }
 
@@ -232,8 +272,26 @@ async function processScheduledEmail(scheduledEmailId: string): Promise<void> {
     return;
   }
 
+  // Unified rows carry a registered template ID plus JSON parameters;
+  // legacy rows fall through to the templateType switch below.
+  const unified = resolveUnifiedSchedule(scheduledEmail.templateType, scheduledEmail.messageHtml);
+  if (unified && 'error' in unified) {
+    console.error(`[EmailScheduler] Cannot deliver ${scheduledEmailId}: ${unified.error}`);
+    await prisma.scheduledEmail.update({
+      where: { id: scheduledEmailId },
+      data: {
+        status: 'failed',
+        errorMessage: unified.error,
+        processedAt: new Date(),
+      },
+    });
+    return;
+  }
+
   // Determine email type and template version based on templateType
-  const { emailType, templateVersion } = getEmailTypeAndVersion(scheduledEmail.templateType);
+  const { emailType, templateVersion } = unified
+    ? { emailType: unified.template.emailType, templateVersion: unified.template.templateVersion }
+    : getEmailTypeAndVersion(scheduledEmail.templateType);
 
   // Process recipients in batches to avoid memory issues with large recipient lists
   for (let i = 0; i < recipientIds.length; i += RECIPIENT_BATCH_SIZE) {
@@ -263,14 +321,25 @@ async function processScheduledEmail(scheduledEmailId: string): Promise<void> {
         const unsubscribeUrl = `${API_URL}/api/email/unsubscribe?token=${unsubscribeToken}`;
         const firstName = recipient.name?.split(' ')[0] || undefined;
 
-        // Render HTML based on template type
-        const html = await renderEmailHtml(
-          scheduledEmail.templateType,
-          scheduledEmail.subject,
-          scheduledEmail.messageHtml,
-          firstName,
-          unsubscribeUrl
-        );
+        // Render HTML: unified rows go through the template registry with
+        // per-recipient auto-fill, legacy rows through the templateType switch
+        const html = unified
+          ? await render(
+              unified.template.render(
+                buildTemplateProps(unified.template, unified.parameters, {
+                  recipientFirstName: firstName,
+                  email: recipient.email,
+                  unsubscribeUrl,
+                })
+              )
+            )
+          : await renderEmailHtml(
+              scheduledEmail.templateType,
+              scheduledEmail.subject,
+              scheduledEmail.messageHtml,
+              firstName,
+              unsubscribeUrl
+            );
 
         const result = await sendEmailWithAudit({
           to: recipient.email,
