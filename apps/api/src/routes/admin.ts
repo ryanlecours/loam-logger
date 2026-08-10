@@ -1123,6 +1123,21 @@ router.put('/email/scheduled/:id', async (req, res) => {
       if (typeof messageHtml !== 'string') {
         return sendBadRequest(res, 'Invalid message body');
       }
+      // unified: rows store template parameters as JSON in messageHtml;
+      // escaping would corrupt them and the send would fail later.
+      const existing = await prisma.scheduledEmail.findUnique({
+        where: { id },
+        select: { templateType: true },
+      });
+      if (!existing) {
+        return sendBadRequest(res, 'Scheduled email not found');
+      }
+      if (existing.templateType.startsWith('unified:')) {
+        return sendBadRequest(
+          res,
+          'Cannot edit the message body of a template-based scheduled email. Cancel it and schedule a new one from the compose form.'
+        );
+      }
       updateData.messageHtml = escapeHtml(messageHtml).replace(/\n/g, '<br>');
     }
 

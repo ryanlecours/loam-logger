@@ -414,6 +414,52 @@ describe('Admin Routes - Schedule Validation', () => {
         expect.objectContaining({ success: true })
       );
     });
+
+    it('should reject messageHtml edits on unified: rows (JSON would be corrupted)', async () => {
+      const { req, res } = createMocks();
+      req.params = { id: 'scheduled-1' };
+      req.body = { messageHtml: 'new body text' };
+
+      (mockPrisma.scheduledEmail.findUnique as jest.Mock).mockResolvedValue({
+        templateType: 'unified:composer',
+      });
+
+      await invokeHandler(handler, req, res);
+
+      expect(mockSendBadRequest).toHaveBeenCalledWith(
+        res,
+        'Cannot edit the message body of a template-based scheduled email. Cancel it and schedule a new one from the compose form.'
+      );
+      expect(mockPrisma.scheduledEmail.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('should still allow messageHtml edits on legacy rows', async () => {
+      const { req, res } = createMocks();
+      req.params = { id: 'scheduled-1' };
+      req.body = { messageHtml: 'new body text' };
+
+      // First findUnique: templateType guard; second: response fetch
+      (mockPrisma.scheduledEmail.findUnique as jest.Mock)
+        .mockResolvedValueOnce({ templateType: 'announcement' })
+        .mockResolvedValueOnce({
+          id: 'scheduled-1',
+          subject: 'Subject',
+          scheduledFor: new Date(),
+          recipientCount: 1,
+          status: 'pending',
+        });
+      (mockPrisma.scheduledEmail.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
+
+      await invokeHandler(handler, req, res);
+
+      expect(mockPrisma.scheduledEmail.updateMany).toHaveBeenCalledWith({
+        where: { id: 'scheduled-1', status: 'pending' },
+        data: expect.objectContaining({ messageHtml: expect.any(String) }),
+      });
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({ success: true })
+      );
+    });
   });
 });
 
