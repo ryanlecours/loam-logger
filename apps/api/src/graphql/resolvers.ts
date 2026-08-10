@@ -4299,7 +4299,7 @@ export const resolvers = {
 
       // rideSyncNotificationMode is the source of truth for ride-sync pushes;
       // the legacy boolean is kept in sync in both directions so app versions
-      // <= 1.1.4 (which only know the toggle) and current clients never
+      // <= 1.1.3 (which only know the toggle) and current clients never
       // disagree about whether pushes are on.
       if (input.rideSyncNotificationMode !== undefined && input.rideSyncNotificationMode !== null) {
         updateData.rideSyncNotificationMode = input.rideSyncNotificationMode;
