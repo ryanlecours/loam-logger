@@ -1402,7 +1402,11 @@ router.post('/email/unified/send', async (req, res) => {
       return sendBadRequest(res, 'No valid recipients found');
     }
 
-    const emailSubject = subject || template.defaultSubject;
+    const emailSubject =
+      typeof subject === 'string' && subject.trim() !== '' ? subject : template.defaultSubject;
+    if (emailSubject.trim().length > MAX_SUBJECT_LENGTH) {
+      return sendBadRequest(res, `Subject must be ${MAX_SUBJECT_LENGTH} characters or less`);
+    }
 
     // Schedule for later: persist and let the email scheduler deliver it.
     // Parameters are stored as JSON in messageHtml with a "unified:" template
@@ -1417,9 +1421,6 @@ router.post('/email/unified/send', async (req, res) => {
       }
       if (scheduledDate <= new Date()) {
         return sendBadRequest(res, 'Scheduled time must be in the future');
-      }
-      if (emailSubject.trim().length > MAX_SUBJECT_LENGTH) {
-        return sendBadRequest(res, `Subject must be ${MAX_SUBJECT_LENGTH} characters or less`);
       }
 
       const scheduledEmail = await prisma.scheduledEmail.create({
