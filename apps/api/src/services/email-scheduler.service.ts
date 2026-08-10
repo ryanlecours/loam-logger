@@ -11,9 +11,7 @@ import { getTemplateById, buildTemplateProps, type TemplateConfig } from '../tem
 import { generateUnsubscribeToken } from '../lib/unsubscribe-token';
 import { getRedisConnection, isRedisReady } from '../lib/redis';
 import type { EmailType } from '@prisma/client';
-import { FRONTEND_URL } from '../config/env';
-
-const API_URL = process.env.API_URL || 'http://localhost:4000';
+import { FRONTEND_URL, API_URL } from '../config/env';
 
 /** Delay helper for rate limiting */
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));

@@ -5,6 +5,8 @@
 
 export const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
+export const API_URL = process.env.API_URL || 'http://localhost:4000';
+
 export const config = {
   /**
    * True in deployed production. Gates development-only routes out of the

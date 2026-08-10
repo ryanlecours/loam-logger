@@ -288,9 +288,10 @@ describe('Admin Routes - Subject Length Validation', () => {
     const RECIPIENT_ID = '550e8400-e29b-41d4-a716-446655440000';
 
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { getTemplateById } = require('../templates/emails');
+    const { getTemplateById, buildTemplateProps } = require('../templates/emails');
 
     beforeEach(() => {
+      (buildTemplateProps as jest.Mock).mockReturnValue({});
       (getTemplateById as jest.Mock).mockReturnValue({
         id: 'composer',
         displayName: 'Composer',
@@ -356,6 +357,55 @@ describe('Admin Routes - Subject Length Validation', () => {
       expect(res.json).toHaveBeenCalledWith(
         expect.objectContaining({ success: true })
       );
+    });
+
+    it('should trim the subject on immediate sends', async () => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { sendReactEmailWithAudit } = require('../services/email.service');
+      const { req, res } = createMocks();
+      req.body = {
+        templateId: 'composer',
+        recipientIds: [RECIPIENT_ID],
+        subject: '  Big update  ',
+        parameters: {},
+      };
+
+      await invokeHandler(handler, req, res);
+
+      expect(sendReactEmailWithAudit).toHaveBeenCalledWith(
+        expect.objectContaining({ subject: 'Big update' })
+      );
+    });
+
+    it('should reject non-string optional parameters with a clean error', async () => {
+      (getTemplateById as jest.Mock).mockReturnValue({
+        id: 'composer',
+        displayName: 'Composer',
+        defaultSubject: 'Default subject',
+        emailType: 'custom',
+        templateVersion: '1.0.0',
+        parameters: [
+          { key: 'header', label: 'Header', type: 'text', required: true },
+          { key: 'previewText', label: 'Preview Text', type: 'text', required: false },
+        ],
+        render: jest.fn(),
+      });
+      (buildTemplateProps as jest.Mock).mockReturnValue({
+        header: 'H',
+        previewText: 12345,
+      });
+
+      const { req, res } = createMocks();
+      req.body = {
+        templateId: 'composer',
+        recipientIds: [RECIPIENT_ID],
+        subject: 'Subject',
+        parameters: { header: 'H', previewText: 12345 },
+      };
+
+      await invokeHandler(handler, req, res);
+
+      expect(mockSendBadRequest).toHaveBeenCalledWith(res, 'Preview Text must be a string');
     });
   });
 });
@@ -502,6 +552,7 @@ describe('Admin Routes - Schedule Validation', () => {
 
       (mockPrisma.scheduledEmail.findUnique as jest.Mock).mockResolvedValue({
         templateType: 'unified:composer',
+        status: 'pending',
       });
 
       await invokeHandler(handler, req, res);
@@ -513,6 +564,25 @@ describe('Admin Routes - Schedule Validation', () => {
       expect(mockPrisma.scheduledEmail.updateMany).not.toHaveBeenCalled();
     });
 
+    it('should report the real status when editing the body of a sent unified row', async () => {
+      const { req, res } = createMocks();
+      req.params = { id: 'scheduled-1' };
+      req.body = { messageHtml: 'new body text' };
+
+      (mockPrisma.scheduledEmail.findUnique as jest.Mock).mockResolvedValue({
+        templateType: 'unified:composer',
+        status: 'sent',
+      });
+
+      await invokeHandler(handler, req, res);
+
+      expect(mockSendBadRequest).toHaveBeenCalledWith(
+        res,
+        'Cannot edit scheduled email with status: sent'
+      );
+      expect(mockPrisma.scheduledEmail.updateMany).not.toHaveBeenCalled();
+    });
+
     it('should still allow messageHtml edits on legacy rows', async () => {
       const { req, res } = createMocks();
       req.params = { id: 'scheduled-1' };
@@ -520,7 +590,7 @@ describe('Admin Routes - Schedule Validation', () => {
 
       // First findUnique: templateType guard; second: response fetch
       (mockPrisma.scheduledEmail.findUnique as jest.Mock)
-        .mockResolvedValueOnce({ templateType: 'announcement' })
+        .mockResolvedValueOnce({ templateType: 'announcement', status: 'pending' })
         .mockResolvedValueOnce({
           id: 'scheduled-1',
           subject: 'Subject',

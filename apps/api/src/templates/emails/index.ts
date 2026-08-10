@@ -19,9 +19,7 @@ import { templateConfig as composerConfig } from './composer';
 // Note: activation template excluded - it's system-triggered, not admin-sendable
 
 import type { TemplateConfig, TemplateConfigDTO } from './types';
-import { FRONTEND_URL } from '../../config/env';
-
-const API_URL = process.env.API_URL || 'http://localhost:4000';
+import { FRONTEND_URL, API_URL } from '../../config/env';
 
 /** All email templates (including system-only ones) */
 const allTemplates: TemplateConfig[] = [

@@ -27,9 +27,7 @@ import { checkAdminRateLimit } from '../lib/rate-limit';
 import { logError, logger } from '../lib/logger';
 import { escapeHtml } from '../lib/html';
 import type { UserRole } from '@prisma/client';
-import { FRONTEND_URL } from '../config/env';
-
-const API_URL = process.env.API_URL || 'http://localhost:4000';
+import { FRONTEND_URL, API_URL } from '../config/env';
 
 // Validation helpers
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -1124,13 +1122,17 @@ router.put('/email/scheduled/:id', async (req, res) => {
         return sendBadRequest(res, 'Invalid message body');
       }
       // unified: rows store template parameters as JSON in messageHtml;
-      // escaping would corrupt them and the send would fail later.
+      // escaping would corrupt them and the send would fail later. Status is
+      // checked first so a sent row reports its real state, not this guard.
       const existing = await prisma.scheduledEmail.findUnique({
         where: { id },
-        select: { templateType: true },
+        select: { templateType: true, status: true },
       });
       if (!existing) {
         return sendBadRequest(res, 'Scheduled email not found');
+      }
+      if (existing.status !== 'pending') {
+        return sendBadRequest(res, `Cannot edit scheduled email with status: ${existing.status}`);
       }
       if (existing.templateType.startsWith('unified:')) {
         return sendBadRequest(
@@ -1250,22 +1252,21 @@ router.get('/email/templates', async (_req, res) => {
 });
 
 /**
- * Validate that required template parameters are present and properly typed.
- * Throws an error if validation fails.
+ * Validate that required template parameters are present and every provided
+ * parameter is a string. Optional params are type-checked too: a non-string
+ * would crash sanitizeUserInput inside the template render.
  */
 function validateTemplateProps(
   template: TemplateConfig,
   props: Record<string, unknown>
 ): { valid: true } | { valid: false; error: string } {
   for (const param of template.parameters) {
-    if (param.required) {
-      const value = props[param.key];
-      if (value === undefined || value === null || value === '') {
-        return { valid: false, error: `${param.label} is required` };
-      }
-      if (typeof value !== 'string') {
-        return { valid: false, error: `${param.label} must be a string` };
-      }
+    const value = props[param.key];
+    if (param.required && (value === undefined || value === null || value === '')) {
+      return { valid: false, error: `${param.label} is required` };
+    }
+    if (value !== undefined && value !== null && typeof value !== 'string') {
+      return { valid: false, error: `${param.label} must be a string` };
     }
   }
   return { valid: true };
@@ -1402,9 +1403,10 @@ router.post('/email/unified/send', async (req, res) => {
       return sendBadRequest(res, 'No valid recipients found');
     }
 
-    const emailSubject =
-      typeof subject === 'string' && subject.trim() !== '' ? subject : template.defaultSubject;
-    if (emailSubject.trim().length > MAX_SUBJECT_LENGTH) {
+    const emailSubject = (
+      typeof subject === 'string' && subject.trim() !== '' ? subject : template.defaultSubject
+    ).trim();
+    if (emailSubject.length > MAX_SUBJECT_LENGTH) {
       return sendBadRequest(res, `Subject must be ${MAX_SUBJECT_LENGTH} characters or less`);
     }
 
@@ -1425,7 +1427,7 @@ router.post('/email/unified/send', async (req, res) => {
 
       const scheduledEmail = await prisma.scheduledEmail.create({
         data: {
-          subject: emailSubject.trim(),
+          subject: emailSubject,
           messageHtml: JSON.stringify(parameters),
           templateType: `unified:${templateId}`,
           recipientIds: recipients.map((r) => r.id),

@@ -153,6 +153,22 @@ describe('ComposerEmail rendering', () => {
     expect(html).toContain('Thanks for riding, there!');
   });
 
+  it('tolerates non-string props instead of crashing', async () => {
+    const html = await render(
+      ComposerEmail({
+        header: 'Test',
+        body: 'text',
+        previewText: 12345 as unknown as string,
+        recipientFirstName: { name: 'x' } as unknown as string,
+      })
+    );
+
+    // Non-strings sanitize to empty: preview falls back to the header,
+    // greeting falls back to "there"
+    expect(html).toContain('Hi there,');
+    expect(html).toContain('Test');
+  });
+
   it('uses the header as preview text fallback', async () => {
     const html = await render(
       ComposerEmail({ header: 'Fallback preview', body: 'text' })
