@@ -82,7 +82,7 @@ model User {
   expoPushToken      String?
   // Legacy on/off for ride-sync pushes. Kept in sync with
   // rideSyncNotificationMode (mode OFF <=> false) because app versions up to
-  // 1.1.4 still read and write it through updateUserPreferences; the mode
+  // 1.1.3 still read and write it through updateUserPreferences; the mode
   // column below is the source of truth and this is derived on write.
   notifyOnRideUpload Boolean @default(true)
   // How "Ride Synced" pushes behave. ALL preserves the original behavior

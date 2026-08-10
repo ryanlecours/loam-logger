@@ -853,7 +853,7 @@ export const typeDefs = gql`
     predictionMode: String
     distanceUnit: String
     expoPushToken: String
-    # Legacy on/off for ride-sync pushes, still sent by app versions <= 1.1.4.
+    # Legacy on/off for ride-sync pushes, still sent by app versions <= 1.1.3.
     # Maps onto rideSyncNotificationMode (false -> OFF; true -> ALL, unless
     # the stored mode is already a non-OFF value, which is preserved). New
     # clients should send rideSyncNotificationMode instead.
