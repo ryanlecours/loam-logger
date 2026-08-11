@@ -379,4 +379,4 @@ MIT © 2025 Ryan LeCours
 
 ---
 
-### 🏔️ "Log your loam. Track your rides. Know your trails."
+### 🏔️ "Anyone can track a ride. Loam Logger tracks your bike."

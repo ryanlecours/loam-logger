@@ -188,7 +188,7 @@ export default function Login() {
         }}>
         <div className="text-center space-y-1">
           <p className="text-xs uppercase tracking-[0.4em]" style={{ color: 'var(--sage)' }}>Loam Logger</p>
-          <h1 className="text-2xl font-semibold" style={{ color: 'var(--cream)' }}>Track your rides, maintain your bike</h1>
+          <h1 className="text-2xl font-semibold" style={{ color: 'var(--cream)' }}>Drop in knowing your bike&apos;s dialed</h1>
           <p className="text-sm" style={{ color: 'var(--concrete)' }}>Sign in to sync rides, gear hours, and service logs.</p>
         </div>
 

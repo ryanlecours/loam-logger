@@ -25,8 +25,9 @@ export default function WhatItDoesSection() {
             Your Bike's Digital Logbook
           </h2>
           <p className="body mb-6">
-            Stop guessing when your components need service. Loam Logger automatically tracks every ride
-            and monitors wear on every part of your bike, so you know exactly when maintenance is due.
+            Every synced ride clocks hours against the components on your bike. When one nears its
+            service interval, Loam Logger says so, while it is still a workshop job and not a
+            mechanical on the trail.
           </p>
           <a
             href="#how-it-works"
