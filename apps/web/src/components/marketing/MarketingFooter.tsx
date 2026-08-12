@@ -18,7 +18,7 @@ export default function MarketingFooter() {
               <h3 className="text-xl font-bold text-cream">Loam Logger</h3>
             </div>
             <p className="text-sm text-concrete">
-              Track every ride. Optimize every component. Never miss a service again.
+              Fewer mechanicals. More good rides.
             </p>
           </div>
 
