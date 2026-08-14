@@ -12,11 +12,12 @@ vi.mock('motion/react', () => ({
   AnimatePresence: ({ children }: React.PropsWithChildren<object>) => <>{children}</>,
 }));
 
-// Mock StatusDot
+// Mock StatusDot. Mirrors the real component's null handling: a falsy status
+// renders nothing at all. Without that, every assertion about "no dot" would
+// pass against a rendered `status-dot-null` element and prove nothing.
 vi.mock('../dashboard/StatusDot', () => ({
-  StatusDot: ({ status }: { status: string }) => (
-    <span data-testid={`status-dot-${status}`} />
-  ),
+  StatusDot: ({ status }: { status: string | null }) =>
+    status ? <span data-testid={`status-dot-${status}`} /> : null,
 }));
 
 // Mock formatComponentLabel
@@ -144,10 +145,28 @@ describe('ComponentDetailRow', () => {
       expect(screen.getByTestId('status-dot-DUE_SOON')).toBeInTheDocument();
     });
 
-    it('defaults to ALL_GOOD status when no prediction', () => {
+    // Previously defaulted to ALL_GOOD, which claimed a clean bill of health the
+    // engine never issued. A missing prediction means either the type is not
+    // wear-modelled or predictions have not arrived, and neither is an
+    // all-clear, so the row shows no dot rather than a green one.
+    it('renders no status dot when there is no prediction', () => {
       render(<ComponentDetailRow {...defaultProps} prediction={null} />);
 
-      expect(screen.getByTestId('status-dot-ALL_GOOD')).toBeInTheDocument();
+      expect(screen.queryByTestId('status-dot-ALL_GOOD')).not.toBeInTheDocument();
+      expect(document.querySelector('[data-testid^="status-dot-"]')).toBeNull();
+    });
+
+    // Free tier sends a prediction whose status is gated to null. Same visual
+    // result, different cause, and it must keep working.
+    it('renders no status dot when the prediction status is gated to null', () => {
+      render(
+        <ComponentDetailRow
+          {...defaultProps}
+          prediction={{ ...defaultProps.prediction!, status: null as never }}
+        />
+      );
+
+      expect(document.querySelector('[data-testid^="status-dot-"]')).toBeNull();
     });
 
     it('renders hours remaining when present', () => {
