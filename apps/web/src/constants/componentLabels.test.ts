@@ -70,6 +70,11 @@ describe('getComponentLabel', () => {
     expect(getComponentLabel('PIVOT_BEARINGS')).toBe('Pivot Bearings');
   });
 
+  it('returns correct label for e-bike component types', () => {
+    expect(getComponentLabel('MOTOR')).toBe('Motor');
+    expect(getComponentLabel('BATTERY')).toBe('Battery');
+  });
+
   it('returns the input type for unknown component types', () => {
     expect(getComponentLabel('UNKNOWN_TYPE')).toBe('UNKNOWN_TYPE');
     expect(getComponentLabel('CUSTOM_COMPONENT')).toBe('CUSTOM_COMPONENT');
