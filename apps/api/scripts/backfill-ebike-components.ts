@@ -28,6 +28,13 @@
  * IDEMPOTENT: a bike that already has a component of a given type is skipped for
  * that type, so re-running is safe and only fills gaps.
  *
+ * ISOLATED PER BIKE: each bike gets its own transaction and its own try/catch,
+ * so one bike failing on bad data or a connection blip rolls that bike back and
+ * leaves the rest of the run to finish. Failures are listed at the end and set a
+ * non-zero exit code. Combined with idempotency this means the recovery for a
+ * partial run is simply to run it again: everything that committed is skipped,
+ * and only the failures are retried.
+ *
  * DRY RUN BY DEFAULT: prints the plan and writes NOTHING. Pass --execute to
  * commit.
  *
@@ -105,6 +112,7 @@ async function main() {
   let created = 0;
   let skipped = 0;
   let bikesTouched = 0;
+  const failures: { bike: string; error: string }[] = [];
 
   for (const bike of bikes) {
     const label = `${bike.nickname ?? `${bike.manufacturer} ${bike.model}`} (${bike.id})`;
@@ -120,7 +128,6 @@ async function main() {
     // anchor when the rider gave one, because that is when the parts were
     // really on the bike. createdAt is the fallback.
     const installedAt = bike.acquisitionDate ?? bike.createdAt;
-    bikesTouched++;
 
     console.log(`${label}`);
     console.log(`  anchor: ${installedAt.toISOString().slice(0, 10)}${bike.acquisitionDate ? ' (acquisition)' : ' (bike created)'}`);
@@ -128,63 +135,84 @@ async function main() {
     if (!args.execute) {
       for (const type of missing) {
         console.log(`  + ${type} (would create)`);
-        created++;
       }
+      created += missing.length;
+      bikesTouched++;
       console.log('');
       continue;
     }
 
-    await prisma.$transaction(async (tx) => {
-      for (const type of missing) {
-        const def = getComponentByType(type);
-        const component = await tx.component.create({
-          data: {
-            type: type as ComponentType,
-            location: 'NONE' as ComponentLocation,
-            bikeId: bike.id,
-            userId: bike.userId,
-            // Same defaults buildBikeComponents uses for a catalog component
-            // with no 99spokes key. The rider can edit these; the bike's own
-            // motorMaker/batteryWh specs are deliberately NOT copied in, so a
-            // backfilled bike and a newly created one look identical.
-            brand: 'Stock',
-            model: def?.displayName ?? type,
-            isStock: true,
-            hoursUsed: 0,
-            installedAt,
-            baselineWearPercent: 0,
-            baselineMethod: 'DEFAULT',
-            baselineConfidence: 'LOW',
-            baselineSetAt: installedAt,
-          },
-          select: { id: true },
-        });
+    try {
+      // The per-component lines are built inside the transaction and only
+      // printed once it commits. Logging as we go would report components as
+      // created even when a later statement rolls the whole thing back, which
+      // is exactly the output an operator would trust when deciding whether to
+      // re-run.
+      const lines = await prisma.$transaction(async (tx) => {
+        const written: string[] = [];
+        for (const type of missing) {
+          const def = getComponentByType(type);
+          const component = await tx.component.create({
+            data: {
+              type: type as ComponentType,
+              location: 'NONE' as ComponentLocation,
+              bikeId: bike.id,
+              userId: bike.userId,
+              // Same defaults buildBikeComponents uses for a catalog component
+              // with no 99spokes key. The rider can edit these; the bike's own
+              // motorMaker/batteryWh specs are deliberately NOT copied in, so a
+              // backfilled bike and a newly created one look identical.
+              brand: 'Stock',
+              model: def?.displayName ?? type,
+              isStock: true,
+              hoursUsed: 0,
+              installedAt,
+              baselineWearPercent: 0,
+              baselineMethod: 'DEFAULT',
+              baselineConfidence: 'LOW',
+              baselineSetAt: installedAt,
+            },
+            select: { id: true },
+          });
 
-        await tx.bikeComponentInstall.create({
-          data: {
-            userId: bike.userId,
-            bikeId: bike.id,
-            componentId: component.id,
-            slotKey: getSlotKey(type, 'NONE'),
-            installedAt,
-          },
-        });
+          await tx.bikeComponentInstall.create({
+            data: {
+              userId: bike.userId,
+              bikeId: bike.id,
+              componentId: component.id,
+              slotKey: getSlotKey(type, 'NONE'),
+              installedAt,
+            },
+          });
 
-        await tx.serviceLog.create({
-          data: {
-            componentId: component.id,
-            performedAt: installedAt,
-            hoursAtService: 0,
-          },
-        });
+          await tx.serviceLog.create({
+            data: {
+              componentId: component.id,
+              performedAt: installedAt,
+              hoursAtService: 0,
+            },
+          });
 
-        // Created at 0 above; this credits the ride history that already sits
-        // behind the anchor, which is the whole reason the backfill exists.
-        const result = await recomputeComponentHours(tx, component.id);
-        console.log(`  + ${type} -> ${fmtHours(result?.hours ?? 0)}`);
-        created++;
-      }
-    });
+          // Created at 0 above; this credits the ride history that already sits
+          // behind the anchor, which is the whole reason the backfill exists.
+          const result = await recomputeComponentHours(tx, component.id);
+          written.push(`  + ${type} -> ${fmtHours(result?.hours ?? 0)}`);
+        }
+        return written;
+      });
+
+      for (const line of lines) console.log(line);
+      created += lines.length;
+      bikesTouched++;
+    } catch (err) {
+      // One bike's failure must not abandon the rest of the run. Its
+      // transaction has already rolled back, so the bike is untouched rather
+      // than half-written, and the script is idempotent, so a later re-run
+      // retries exactly these and skips everything that succeeded.
+      const message = err instanceof Error ? err.message : String(err);
+      failures.push({ bike: label, error: message });
+      console.log(`  ! FAILED, rolled back, nothing written for this bike: ${message}`);
+    }
 
     console.log('');
   }
@@ -192,6 +220,15 @@ async function main() {
   console.log('---');
   console.log(`${args.execute ? 'Created' : 'Would create'}: ${created} component(s) across ${bikesTouched} bike(s)`);
   if (skipped > 0) console.log(`Already present, skipped: ${skipped}`);
+
+  if (failures.length > 0) {
+    console.log(`\nFailed: ${failures.length} bike(s). Each rolled back on its own and wrote nothing,`);
+    console.log('so every other bike in this run committed normally. Re-running retries only these.');
+    for (const f of failures) console.log(`  - ${f.bike}: ${f.error}`);
+    // Non-zero exit so a failure is visible to whatever ran this, rather than
+    // being buried in output that otherwise reads like a clean run.
+    process.exitCode = 1;
+  }
   if (!args.execute) console.log('\nNothing was written. Re-run with --execute to commit.');
 }
 
