@@ -441,6 +441,7 @@ describe('POST /onboarding/complete', () => {
           bikeSpec: {
             hasFrontSuspension: true,
             hasRearSuspension: true,
+            isEbike: false,
             brakeType: 'disc',
             drivetrainType: '1x',
           },
@@ -465,6 +466,7 @@ describe('POST /onboarding/complete', () => {
           bikeSpec: {
             hasFrontSuspension: true,
             hasRearSuspension: false,
+            isEbike: false,
             brakeType: 'disc',
             drivetrainType: '1x',
           },
@@ -489,9 +491,33 @@ describe('POST /onboarding/complete', () => {
           bikeSpec: {
             hasFrontSuspension: false,
             hasRearSuspension: false,
+            isEbike: false,
             brakeType: 'disc',
             drivetrainType: '1x',
           },
+        })
+      );
+    });
+
+    // isEbike is the only BikeSpec field that cannot be inferred from travel
+    // values or 99spokes data, so it has to survive the trip from the request
+    // body. If it does not, e-bikes silently onboard without motor or battery.
+    it('should carry isEbike through to the BikeSpec when onboarding an e-bike', async () => {
+      mockReq.body = {
+        bikeMake: 'Specialized',
+        bikeModel: 'Turbo Levo',
+        age: 30,
+        bikeTravelFork: 160,
+        bikeTravelShock: 150,
+        isEbike: true,
+      };
+
+      await invokeHandler(handler, mockReq as Request, mockRes as Response);
+
+      expect(mockBuildBikeComponents).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          bikeSpec: expect.objectContaining({ isEbike: true }),
         })
       );
     });

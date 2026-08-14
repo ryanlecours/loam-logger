@@ -152,6 +152,11 @@ export type SpareComponentType =
   | 'PIVOT_BEARINGS'
   | 'HEADSET'
   | 'BOTTOM_BRACKET'
+  // E-bike only once installed, but stockable by anyone: a rider can hold a
+  // spare battery before the bike arrives or between e-bikes. The e-bike check
+  // lives on installComponent/swapComponents, not on inventory.
+  | 'MOTOR'
+  | 'BATTERY'
   | 'OTHER';
 
 export interface SpareFormState {
