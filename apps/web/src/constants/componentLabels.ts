@@ -26,6 +26,8 @@ export const COMPONENT_LABELS: Record<string, string> = {
   CRANK: 'Crankset',
   REAR_DERAILLEUR: 'Rear Derailleur',
   PEDALS: 'Pedals',
+  MOTOR: 'Motor',
+  BATTERY: 'Battery',
 };
 
 /**

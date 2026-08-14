@@ -7,6 +7,9 @@ process.env = { ...originalEnv, SESSION_SECRET: 'test-secret' };
 // Mock dependencies BEFORE importing session.ts
 jest.mock('jsonwebtoken');
 jest.mock('./token', () => ({
+  // Real isAccessTokenPayload: bearer tests exercise the actual token-type
+  // gate, so payloads below carry the typ claim real tokens have.
+  ...jest.requireActual('./token'),
   extractBearerToken: jest.fn(),
   verifyToken: jest.fn(),
 }));
@@ -222,7 +225,7 @@ describe('attachUser — cookie session (web)', () => {
 
 describe('attachUser — bearer token (mobile)', () => {
   it('attaches sessionUser when bearer token is valid and version matches', async () => {
-    const payload = { uid: 'user_1', email: 'a@b.com', v: 2 };
+    const payload = { uid: 'user_1', email: 'a@b.com', v: 2, typ: 'access' };
     mockExtractBearerToken.mockReturnValue('mobile-access-token');
     mockVerifyToken.mockReturnValue(payload);
     mockUserFindUnique.mockResolvedValue({ sessionTokenVersion: 2 });
@@ -234,7 +237,7 @@ describe('attachUser — bearer token (mobile)', () => {
   });
 
   it('rejects a bearer token whose v is stale (mobile device still holding pre-reset token)', async () => {
-    const stalePayload = { uid: 'user_1', v: 0 };
+    const stalePayload = { uid: 'user_1', v: 0, typ: 'access' };
     mockExtractBearerToken.mockReturnValue('stale-mobile-token');
     mockVerifyToken.mockReturnValue(stalePayload);
     mockUserFindUnique.mockResolvedValue({ sessionTokenVersion: 1 });
@@ -243,6 +246,20 @@ describe('attachUser — bearer token (mobile)', () => {
     await runAttachUser(req);
 
     expect(req.sessionUser).toBeUndefined();
+  });
+
+  it('does not attach a user for a refresh token in the Authorization header', async () => {
+    // A refresh token verifies with the same secret; accepting it here
+    // would make it a year-long access credential that never passes
+    // through rotation or reuse detection.
+    mockExtractBearerToken.mockReturnValue('a-refresh-token');
+    mockVerifyToken.mockReturnValue({ uid: 'user_1', v: 0, typ: 'refresh', sid: 'sid-1', jti: 'jti-1' });
+    const req = makeReq();
+
+    await runAttachUser(req);
+
+    expect(req.sessionUser).toBeUndefined();
+    expect(mockUserFindUnique).not.toHaveBeenCalled();
   });
 
   it('does not attach a user when bearer token itself is invalid', async () => {

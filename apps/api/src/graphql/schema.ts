@@ -35,6 +35,16 @@ export const typeDefs = gql`
     BRAKE_ROTOR
     HEADSET
     BOTTOM_BRACKET
+    """
+    E-bike only. Accrues ride hours but has no service interval and no health
+    state: both are excluded from the prediction engine's weight map.
+    """
+    MOTOR
+    """
+    E-bike only. Accrues ride hours but has no service interval and no health
+    state: both are excluded from the prediction engine's weight map.
+    """
+    BATTERY
   }
 
   enum ComponentLocation {

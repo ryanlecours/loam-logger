@@ -22,7 +22,7 @@ export default function HeroSection() {
           transition={{ duration: 0.8, delay: 0.2 }}
         >
           <h1 className="hero-headline mb-6">
-            Stop Guessing.<br />Start Riding Smarter.
+            Anyone can track a ride.<br />Loam Logger tracks your bike.
           </h1>
         </motion.div>
 
@@ -32,7 +32,8 @@ export default function HeroSection() {
           transition={{ duration: 0.8, delay: 0.4 }}
         >
           <p className="body-large text-sand max-w-3xl mx-auto mb-8">
-            Track every ride. Optimize every component. Never miss a service again.
+            Your rides sync automatically and clock hours against every component.
+            Drop in knowing your bike&apos;s dialed.
           </p>
         </motion.div>
 

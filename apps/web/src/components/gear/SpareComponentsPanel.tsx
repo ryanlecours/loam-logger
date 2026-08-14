@@ -1,4 +1,4 @@
-import { Plus, PackageOpen, Wrench, Hand, Disc, Link, Zap, Circle, Waypoints, Cog, ArrowUpDown } from 'lucide-react';
+import { Plus, PackageOpen, Wrench, Hand, Disc, Link, Zap, Circle, Waypoints, Cog, ArrowUpDown, Battery } from 'lucide-react';
 import { Button } from '../ui/Button';
 
 type ComponentDto = {
@@ -46,6 +46,13 @@ const COMPONENT_ICONS: Record<string, React.ReactNode> = {
   PIVOT_BEARINGS: <Wrench size={16} />,
   HEADSET: <Wrench size={16} />,
   BOTTOM_BRACKET: <Wrench size={16} />,
+  // E-bike spares. Motor and battery can only be INSTALLED on an e-bike, but
+  // they are stockable by anyone, so this panel is where an unassigned one
+  // lands. Battery uses the neutral outline rather than a charge-level icon:
+  // ride hours are all that is tracked, so implying a state of charge would
+  // claim more than we know.
+  MOTOR: <Zap size={16} />,
+  BATTERY: <Battery size={16} />,
   OTHER: <PackageOpen size={16} />,
 };
 
@@ -72,6 +79,8 @@ const COMPONENT_LABELS: Record<string, string> = {
   PIVOT_BEARINGS: 'Pivot Bearings',
   HEADSET: 'Headset',
   BOTTOM_BRACKET: 'Bottom Bracket',
+  MOTOR: 'Motor',
+  BATTERY: 'Battery',
   OTHER: 'Other',
 };
 

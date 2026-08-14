@@ -509,6 +509,11 @@ export enum ComponentStatus {
 }
 
 export enum ComponentType {
+  /**
+   * E-bike only. Accrues ride hours but has no service interval and no health
+   * state: both are excluded from the prediction engine's weight map.
+   */
+  Battery = 'BATTERY',
   BottomBracket = 'BOTTOM_BRACKET',
   Brakes = 'BRAKES',
   BrakePad = 'BRAKE_PAD',
@@ -521,6 +526,11 @@ export enum ComponentType {
   Fork = 'FORK',
   Handlebar = 'HANDLEBAR',
   Headset = 'HEADSET',
+  /**
+   * E-bike only. Accrues ride hours but has no service interval and no health
+   * state: both are excluded from the prediction engine's weight map.
+   */
+  Motor = 'MOTOR',
   Other = 'OTHER',
   Pedals = 'PEDALS',
   PivotBearings = 'PIVOT_BEARINGS',

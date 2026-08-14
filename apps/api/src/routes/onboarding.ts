@@ -186,9 +186,11 @@ router.post('/complete', express.json(), async (req: Request, res) => {
       logger.info({ userId, bikeId: bike.id }, '[Onboarding] Created bike');
 
       // Derive BikeSpec from travel values and 99spokes component data
-      // This detects suspension from either travel values OR component presence
+      // This detects suspension from either travel values OR component presence.
+      // isEbike is not inferable from either source, so it comes from the
+      // rider's own answer and gates the motor/battery components.
       const bikeSpec = deriveBikeSpec(
-        { travelForkMm: bikeTravelFork, travelShockMm: bikeTravelShock },
+        { travelForkMm: bikeTravelFork, travelShockMm: bikeTravelShock, isEbike: bikeIsEbike },
         spokesComponents as SpokesComponents | undefined
       );
 

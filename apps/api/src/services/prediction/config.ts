@@ -113,6 +113,22 @@ export const COMPONENT_WEIGHTS: Partial<Record<ComponentType, ComponentWearWeigh
 
   // Rear derailleur cable/housing - hours only, terrain doesn't matter
   REAR_DERAILLEUR: { wH: 1.0, wD: 0.0, wC: 0.0, wV: 0.0 },
+
+  // NOTE: MOTOR and BATTERY are deliberately absent.
+  //
+  // Membership in this map is what makes a type predictable (isTrackableComponent
+  // below is a `type in COMPONENT_WEIGHTS` check, and engine.ts filters on it), so
+  // omitting them is how e-bike motor and battery accrue ride hours while producing
+  // no service interval, no due/overdue status, and nothing in dashboard triage.
+  // That is the shipped scope, and componentCatalog.ts marks both `hoursOnly: true`
+  // to say so on the shared side.
+  //
+  // Do not add weights here to "finish" the feature. Ride duration does not tell us
+  // motor assist level, and battery degradation tracks charge cycles and calendar
+  // age rather than saddle time, so any weights would be invented precision of the
+  // kind Product Principle 3 rules out. Adding either type here silently turns on a
+  // health state for every e-bike; the guardrail tests in
+  // __tests__/engine.test.ts will fail if you do.
 };
 
 /** Default weights for component types not in the map */

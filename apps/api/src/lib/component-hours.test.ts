@@ -5,6 +5,8 @@ import {
   recomputeAdjustedComponentsForRides,
   findAdjustedComponentIdsForRides,
   syncBikeComponentHours,
+  incrementBikeComponentHours,
+  decrementBikeComponentHours,
   type ComponentAttribution,
 } from './component-hours';
 import type { Prisma } from '@prisma/client';
@@ -306,6 +308,59 @@ describe('findAdjustedComponentIdsForRides', () => {
     const tx = makeTx();
     expect(await findAdjustedComponentIdsForRides(asTx(tx), [])).toEqual([]);
     expect(tx.componentRideAdjustment.findMany).not.toHaveBeenCalled();
+  });
+});
+
+// The other half of the e-bike contract. The prediction engine deliberately
+// skips MOTOR and BATTERY (see prediction/config.ts), so hours accrual is the
+// only thing those components actually do. If it silently stopped working,
+// nothing else in the app would notice. What makes it work is that the bulk
+// helpers filter on (userId, bikeId) and never on type, so these assert that
+// no type filter creeps into the where clause.
+describe('hours accrual is type-agnostic', () => {
+  it('increments every component on the bike without filtering by type', async () => {
+    const tx = makeTx();
+    await incrementBikeComponentHours(asTx(tx), {
+      userId: 'user-1',
+      bikeId: 'bike-1',
+      hoursDelta: 2,
+    });
+
+    expect(tx.component.updateMany).toHaveBeenCalledWith({
+      where: { userId: 'user-1', bikeId: 'bike-1' },
+      data: { hoursUsed: { increment: 2 } },
+    });
+    const [{ where }] = tx.component.updateMany.mock.calls[0];
+    expect(where).not.toHaveProperty('type');
+  });
+
+  it('decrements every component on the bike without filtering by type', async () => {
+    const tx = makeTx();
+    await decrementBikeComponentHours(asTx(tx), {
+      userId: 'user-1',
+      bikeId: 'bike-1',
+      hoursDelta: 2,
+    });
+
+    const [{ where }] = tx.component.updateMany.mock.calls[0];
+    expect(where).toMatchObject({ userId: 'user-1', bikeId: 'bike-1' });
+    expect(where).not.toHaveProperty('type');
+  });
+
+  // A spare battery on the shelf has bikeId null, so it must never be credited
+  // ride hours. This falls out of the (userId, bikeId) filter rather than any
+  // explicit inventory check, so it is worth pinning.
+  it('credits nothing when a ride has no bike, leaving inventory untouched', async () => {
+    const tx = makeTx();
+    const affected = await syncBikeComponentHours(
+      asTx(tx),
+      'user-1',
+      { bikeId: null, durationSeconds: null },
+      { bikeId: null, durationSeconds: 3600 }
+    );
+
+    expect(tx.component.updateMany).not.toHaveBeenCalled();
+    expect(affected).toEqual([]);
   });
 });
 

@@ -273,6 +273,15 @@ export const AUTH_RATE_LIMITS = {
   'forgot-password': { windowSeconds: 60, maxRequests: 5 },
   /** shared-history: max 30 requests per minute per IP (public bike-share pages; prevents scripted scraping of known slugs — slug entropy already defeats brute-force enumeration) */
   'shared-history': { windowSeconds: 60, maxRequests: 30 },
+  /** token-refresh: max 10 per minute per USER (not IP: carrier-grade NAT
+   *  puts many riders behind one IP, and the uid is already
+   *  signature-verified by the time this runs, so junk floods never get
+   *  here). Legitimate cadence is ~4/hour/device; 10/min absorbs races and
+   *  retries while capping the DB writes each refresh performs. */
+  'token-refresh': { windowSeconds: 60, maxRequests: 10 },
+  /** token-logout: max 10 per minute per USER (same keying rationale as
+   *  token-refresh; each call is one conditional DB write) */
+  'token-logout': { windowSeconds: 60, maxRequests: 10 },
 } as const;
 
 export type AuthRateLimitType = keyof typeof AUTH_RATE_LIMITS;

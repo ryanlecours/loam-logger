@@ -2308,6 +2308,71 @@ describe('GraphQL Resolvers', () => {
           )
         ).rejects.toThrow('Component not found');
       });
+
+      // Motor and battery are stockable by anyone (a rider can hold a spare
+      // battery before the bike arrives, or between e-bikes), so inventory is
+      // deliberately unguarded and this mutation is where the e-bike
+      // requirement is actually enforced.
+      it.each(['MOTOR', 'BATTERY'])('should reject installing %s on an analog bike', async (type) => {
+        const ctx = createMockContext('user-123');
+        (mockPrisma.bike.findFirst as jest.Mock).mockResolvedValue({
+          id: 'bike-1',
+          userId: 'user-123',
+          isEbike: false,
+        });
+
+        await expect(
+          mutation(
+            {},
+            {
+              input: {
+                bikeId: 'bike-1',
+                slotKey: `${type}_NONE`,
+                newComponent: { brand: 'Bosch', model: 'CX' },
+              },
+            },
+            ctx as never
+          )
+        ).rejects.toThrow('can only be installed on an e-bike');
+      });
+
+      it('should reject an e-bike component before touching the component table', async () => {
+        const ctx = createMockContext('user-123');
+        (mockPrisma.bike.findFirst as jest.Mock).mockResolvedValue({
+          id: 'bike-1',
+          userId: 'user-123',
+          isEbike: false,
+        });
+        mockPrisma.component.findFirst.mockClear();
+
+        await expect(
+          mutation(
+            {},
+            { input: { bikeId: 'bike-1', slotKey: 'MOTOR_NONE', existingComponentId: 'spare-1' } },
+            ctx as never
+          )
+        ).rejects.toThrow('can only be installed on an e-bike');
+        expect(mockPrisma.component.findFirst).not.toHaveBeenCalled();
+      });
+
+      it('should not block a non-e-bike component on an analog bike', async () => {
+        const ctx = createMockContext('user-123');
+        (mockPrisma.bike.findFirst as jest.Mock).mockResolvedValue({
+          id: 'bike-1',
+          userId: 'user-123',
+          isEbike: false,
+        });
+        mockPrisma.component.findFirst.mockResolvedValue(null);
+
+        // Falls through the e-bike guard and fails later, on component lookup.
+        await expect(
+          mutation(
+            {},
+            { input: { bikeId: 'bike-1', slotKey: 'FORK_NONE', existingComponentId: 'comp-1' } },
+            ctx as never
+          )
+        ).rejects.toThrow('Component not found');
+      });
     });
 
     describe('install spare onto occupied slot', () => {
@@ -2676,6 +2741,58 @@ describe('GraphQL Resolvers', () => {
             ctx as never
           )
         ).rejects.toThrow('Cannot swap components of different types');
+      });
+
+      // A swap installs into BOTH slots, so an analog bike on either side would
+      // come out holding a motor, including into a slot it never had. Both
+      // sides therefore have to be e-bikes.
+      it.each([
+        ['the first bike is analog', false, true],
+        ['the second bike is analog', true, false],
+        ['neither bike is an e-bike', false, false],
+      ])('should reject a MOTOR swap when %s', async (_label, aIsEbike, bIsEbike) => {
+        const ctx = createMockContext('user-123');
+        (mockPrisma.bike.findFirst as jest.Mock)
+          .mockResolvedValueOnce({ id: 'bike-1', userId: 'user-123', isEbike: aIsEbike })
+          .mockResolvedValueOnce({ id: 'bike-2', userId: 'user-123', isEbike: bIsEbike });
+
+        await expect(
+          mutation(
+            {},
+            {
+              input: {
+                bikeIdA: 'bike-1',
+                slotKeyA: 'MOTOR_NONE',
+                bikeIdB: 'bike-2',
+                slotKeyB: 'MOTOR_NONE',
+              },
+            },
+            ctx as never
+          )
+        ).rejects.toThrow('can only be installed on an e-bike');
+      });
+
+      it('should allow a MOTOR swap when both bikes are e-bikes', async () => {
+        const ctx = createMockContext('user-123');
+        (mockPrisma.bike.findFirst as jest.Mock)
+          .mockResolvedValueOnce({ id: 'bike-1', userId: 'user-123', isEbike: true })
+          .mockResolvedValueOnce({ id: 'bike-2', userId: 'user-123', isEbike: true });
+        mockPrisma.$transaction.mockImplementation(async () => []);
+
+        await expect(
+          mutation(
+            {},
+            {
+              input: {
+                bikeIdA: 'bike-1',
+                slotKeyA: 'MOTOR_NONE',
+                bikeIdB: 'bike-2',
+                slotKeyB: 'MOTOR_NONE',
+              },
+            },
+            ctx as never
+          )
+        ).resolves.toBeDefined();
       });
     });
 

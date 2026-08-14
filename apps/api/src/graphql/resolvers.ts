@@ -26,6 +26,7 @@ import {
   getApplicableComponents,
   deriveBikeSpec,
   requiresPairing,
+  isEbikeOnlyComponent,
   getSlotKey,
   parseSlotKey,
   type BikeSpec,
@@ -2422,9 +2423,11 @@ export const resolvers = {
         acquisitionDate = parsed;
       }
 
-      // Derive BikeSpec for dynamic component creation
+      // Derive BikeSpec for dynamic component creation. isEbike gates the
+      // EBIKE-category components (motor, battery), which is why it is threaded
+      // in here rather than read off the persisted bike row later.
       const bikeSpec = deriveBikeSpec(
-        { travelForkMm, travelShockMm },
+        { travelForkMm, travelShockMm, isEbike },
         input.spokesComponents as SpokesComponents | undefined
       );
 
@@ -5306,6 +5309,19 @@ export const resolvers = {
         throw new GraphQLError('Bike not found', { extensions: { code: 'NOT_FOUND' } });
       }
 
+      // Motor and battery may be held in inventory by anyone (a rider can buy a
+      // spare battery before the bike arrives, or keep one between e-bikes), so
+      // the e-bike check cannot live on the spare itself, since a spare has no
+      // bikeId. It belongs here, at the moment a bike is actually named. In
+      // practice the UI never offers the slot on an analog bike; this guards the
+      // direct API call.
+      if (isEbikeOnlyComponent(slotType) && !bike.isEbike) {
+        throw new GraphQLError(
+          `${formatComponentType(slotType)} components can only be installed on an e-bike`,
+          { extensions: { code: 'BAD_USER_INPUT' } }
+        );
+      }
+
       // If installing an existing component, validate it
       let existingComponent: ComponentModel | null = null;
       if (existingComponentId) {
@@ -5693,6 +5709,17 @@ export const resolvers = {
         throw new GraphQLError('Cannot swap components of different types', {
           extensions: { code: 'BAD_USER_INPUT' },
         });
+      }
+
+      // Second route onto a bike, so it needs the same e-bike gate as
+      // installComponent. Both slots share a type by the check above, and a swap
+      // installs into BOTH slots, so an analog bike on either side would end up
+      // holding a motor or battery, including into an empty slot it never had.
+      if (isEbikeOnlyComponent(typeA) && !(bikeA.isEbike && bikeB.isEbike)) {
+        throw new GraphQLError(
+          `${formatComponentType(typeA)} components can only be installed on an e-bike`,
+          { extensions: { code: 'BAD_USER_INPUT' } }
+        );
       }
 
       let componentA: ComponentModel | null = null;

@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { isHoursOnlyComponent } from "@loam/shared";
 import { Button } from "./ui";
 import type { SpareFormState, SpareComponentType } from "@/models/BikeComponents";
 import { getComponentLabel } from "@/constants/componentLabels";
@@ -29,6 +30,15 @@ const SPARE_TYPE_OPTIONS: { value: SpareComponentType; label: string }[] = [
   { value: 'OTHER', label: 'Other' },
 ];
 
+// Grouped separately rather than hidden. A rider without an e-bike on the
+// account can still legitimately be holding one of these (bought ahead of the
+// bike, or kept between bikes), so the list stays open and the e-bike
+// requirement is enforced at install time instead.
+const EBIKE_TYPE_OPTIONS: { value: SpareComponentType; label: string }[] = [
+  { value: 'MOTOR', label: 'Motor' },
+  { value: 'BATTERY', label: 'Battery' },
+];
+
 const PAIRED_TYPES: SpareComponentType[] = ['TIRES', 'BRAKE_PAD', 'BRAKE_ROTOR', 'BRAKES'];
 
 type SpareFormProps = {
@@ -46,6 +56,10 @@ export function SpareComponentForm({ initial, submitting, error, onSubmit, onClo
 
   const isBikeComponent = mode === 'bike';
   const requiresLocation = PAIRED_TYPES.includes(form.type);
+  // Motor and battery accrue hours but are never wear-modelled, so the engine
+  // will never act on a service interval entered here. Offering the input would
+  // promise a due/overdue status that cannot arrive.
+  const supportsServiceInterval = !isHoursOnlyComponent(form.type);
 
   // Reset form when initial data changes (new component or updated data)
   useEffect(() => {
@@ -62,6 +76,10 @@ export function SpareComponentForm({ initial, submitting, error, onSubmit, onClo
       ...prev,
       type: newType,
       location: isPaired ? (prev.location ?? 'FRONT') : undefined,
+      // Drop any interval already typed before switching to an hours-only type.
+      // The field is about to be hidden, and submitting a value the engine
+      // ignores would leave a number on the component that nothing acts on.
+      serviceDueAtHours: isHoursOnlyComponent(newType) ? '' : prev.serviceDueAtHours,
     }));
   };
 
@@ -91,6 +109,13 @@ export function SpareComponentForm({ initial, submitting, error, onSubmit, onClo
                 {opt.label}
               </option>
             ))}
+            <optgroup label="E-bike">
+              {EBIKE_TYPE_OPTIONS.map((opt) => (
+                <option value={opt.value} key={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </optgroup>
           </select>
         )}
       </label>
@@ -142,17 +167,25 @@ export function SpareComponentForm({ initial, submitting, error, onSubmit, onClo
             min={0}
           />
         </label>
-        <label className="flex flex-col gap-2 text-sm">
-          <span className="label-muted">Service Due @ (hours)</span>
-          <input
-            type="number"
-            className="max-w-auto rounded-lg border border-app bg-app px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[rgb(var(--ring))]"
-            value={form.serviceDueAtHours}
-            onChange={(e) => setField('serviceDueAtHours', e.target.value)}
-            min={0}
-          />
-        </label>
+        {supportsServiceInterval && (
+          <label className="flex flex-col gap-2 text-sm">
+            <span className="label-muted">Service Due @ (hours)</span>
+            <input
+              type="number"
+              className="max-w-auto rounded-lg border border-app bg-app px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[rgb(var(--ring))]"
+              value={form.serviceDueAtHours}
+              onChange={(e) => setField('serviceDueAtHours', e.target.value)}
+              min={0}
+            />
+          </label>
+        )}
       </div>
+      {!supportsServiceInterval && (
+        <p className="text-xs text-muted">
+          {getComponentLabel(form.type)} hours are tracked, but there is no service interval for
+          them yet, so this component will not show a health status.
+        </p>
+      )}
       {error && (
         <div className="alert-inline alert-inline-error rounded-xl">
           {error}

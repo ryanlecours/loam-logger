@@ -1,0 +1,205 @@
+/**
+ * One-off backfill: give existing e-bikes their motor and battery components.
+ *
+ * Background: MOTOR and BATTERY became real ComponentType values (see the
+ * 20260814120000 migration). New e-bikes get them automatically, because
+ * buildBikeComponents walks the catalog and the EBIKE entries are applicable
+ * whenever BikeSpec.isEbike is true. Bikes created before that ran have no such
+ * components, so without this script their owners would see nothing at all.
+ *
+ * Both types are hours-only: they accrue ride hours but are absent from
+ * COMPONENT_WEIGHTS, so they produce no service interval and no health state.
+ * This script therefore cannot change any existing prediction, which is why it
+ * does not bust the prediction cache: the other components on these bikes are
+ * untouched, and these two never had an entry to invalidate.
+ *
+ * Mirrors buildBikeComponents exactly, writing all three rows it writes:
+ * Component, BikeComponentInstall (so the bike history and slot UI see it), and
+ * an initial ServiceLog at installedAt (so the canonical hours anchor matches
+ * every other component). A backfilled bike ends up indistinguishable from one
+ * created after the migration.
+ *
+ * Hours: components are created at 0 and then run through
+ * recomputeComponentHours, which sums the owner's non-duplicate rides on that
+ * bike since the anchor. Anchor is the acquisition date when the rider gave one,
+ * else the bike row's createdAt. So a rider who has been logging rides for two
+ * seasons sees those hours immediately rather than starting from today.
+ *
+ * IDEMPOTENT: a bike that already has a component of a given type is skipped for
+ * that type, so re-running is safe and only fills gaps.
+ *
+ * DRY RUN BY DEFAULT: prints the plan and writes NOTHING. Pass --execute to
+ * commit.
+ *
+ * Usage (from apps/api):
+ *   DATABASE_URL="…" npx tsx scripts/backfill-ebike-components.ts             # dry run, all e-bikes
+ *   DATABASE_URL="…" npx tsx scripts/backfill-ebike-components.ts --execute    # write
+ *   …scripts/backfill-ebike-components.ts --user <userId>                      # scope to one rider
+ *   …scripts/backfill-ebike-components.ts --limit 10                           # cap bikes processed
+ */
+import type { ComponentType, ComponentLocation } from '@prisma/client';
+import { prisma } from '../src/lib/prisma';
+import { recomputeComponentHours } from '../src/lib/component-hours';
+import { getEbikeOnlyComponentTypes, getComponentByType, getSlotKey } from '@loam/shared';
+
+type Args = {
+  execute: boolean;
+  user?: string;
+  limit?: number;
+};
+
+function parseArgs(argv: string[]): Args {
+  const args: Args = { execute: false };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === '--execute') args.execute = true;
+    else if (a === '--user') args.user = argv[++i];
+    else if (a === '--limit') {
+      const n = Number(argv[++i]);
+      if (!Number.isFinite(n) || n <= 0) throw new Error(`--limit must be a positive number (got "${argv[i]}")`);
+      args.limit = n;
+    }
+  }
+  return args;
+}
+
+const fmtHours = (h: number): string => `${h.toFixed(1)}h`;
+
+async function main() {
+  const args = parseArgs(process.argv.slice(2));
+  const EBIKE_TYPES = getEbikeOnlyComponentTypes();
+
+  if (EBIKE_TYPES.length === 0) {
+    throw new Error('No EBIKE-category components in the catalog. Nothing to backfill.');
+  }
+
+  console.log(args.execute ? '=== EXECUTE ===' : '=== DRY RUN (pass --execute to write) ===');
+  console.log(`Types: ${EBIKE_TYPES.join(', ')}\n`);
+
+  const bikes = await prisma.bike.findMany({
+    where: {
+      isEbike: true,
+      ...(args.user ? { userId: args.user } : {}),
+    },
+    select: {
+      id: true,
+      userId: true,
+      nickname: true,
+      manufacturer: true,
+      model: true,
+      createdAt: true,
+      acquisitionDate: true,
+      components: {
+        // Retired components still occupy the slot conceptually: if a rider
+        // already added and retired a motor, this script must not add a second
+        // one behind their back.
+        select: { type: true },
+      },
+    },
+    orderBy: { createdAt: 'asc' },
+    ...(args.limit ? { take: args.limit } : {}),
+  });
+
+  console.log(`Found ${bikes.length} e-bike(s)\n`);
+
+  let created = 0;
+  let skipped = 0;
+  let bikesTouched = 0;
+
+  for (const bike of bikes) {
+    const label = `${bike.nickname ?? `${bike.manufacturer} ${bike.model}`} (${bike.id})`;
+    const existing = new Set(bike.components.map((c) => c.type as string));
+    const missing = EBIKE_TYPES.filter((t) => !existing.has(t));
+
+    if (missing.length === 0) {
+      skipped += EBIKE_TYPES.length;
+      continue;
+    }
+
+    // Matches buildBikeComponents: the acquisition date is the honest install
+    // anchor when the rider gave one, because that is when the parts were
+    // really on the bike. createdAt is the fallback.
+    const installedAt = bike.acquisitionDate ?? bike.createdAt;
+    bikesTouched++;
+
+    console.log(`${label}`);
+    console.log(`  anchor: ${installedAt.toISOString().slice(0, 10)}${bike.acquisitionDate ? ' (acquisition)' : ' (bike created)'}`);
+
+    if (!args.execute) {
+      for (const type of missing) {
+        console.log(`  + ${type} (would create)`);
+        created++;
+      }
+      console.log('');
+      continue;
+    }
+
+    await prisma.$transaction(async (tx) => {
+      for (const type of missing) {
+        const def = getComponentByType(type);
+        const component = await tx.component.create({
+          data: {
+            type: type as ComponentType,
+            location: 'NONE' as ComponentLocation,
+            bikeId: bike.id,
+            userId: bike.userId,
+            // Same defaults buildBikeComponents uses for a catalog component
+            // with no 99spokes key. The rider can edit these; the bike's own
+            // motorMaker/batteryWh specs are deliberately NOT copied in, so a
+            // backfilled bike and a newly created one look identical.
+            brand: 'Stock',
+            model: def?.displayName ?? type,
+            isStock: true,
+            hoursUsed: 0,
+            installedAt,
+            baselineWearPercent: 0,
+            baselineMethod: 'DEFAULT',
+            baselineConfidence: 'LOW',
+            baselineSetAt: installedAt,
+          },
+          select: { id: true },
+        });
+
+        await tx.bikeComponentInstall.create({
+          data: {
+            userId: bike.userId,
+            bikeId: bike.id,
+            componentId: component.id,
+            slotKey: getSlotKey(type, 'NONE'),
+            installedAt,
+          },
+        });
+
+        await tx.serviceLog.create({
+          data: {
+            componentId: component.id,
+            performedAt: installedAt,
+            hoursAtService: 0,
+          },
+        });
+
+        // Created at 0 above; this credits the ride history that already sits
+        // behind the anchor, which is the whole reason the backfill exists.
+        const result = await recomputeComponentHours(tx, component.id);
+        console.log(`  + ${type} -> ${fmtHours(result?.hours ?? 0)}`);
+        created++;
+      }
+    });
+
+    console.log('');
+  }
+
+  console.log('---');
+  console.log(`${args.execute ? 'Created' : 'Would create'}: ${created} component(s) across ${bikesTouched} bike(s)`);
+  if (skipped > 0) console.log(`Already present, skipped: ${skipped}`);
+  if (!args.execute) console.log('\nNothing was written. Re-run with --execute to commit.');
+}
+
+main()
+  .catch((err) => {
+    console.error(err);
+    process.exitCode = 1;
+  })
+  .finally(async () => {
+    await prisma.$disconnect();
+  });
