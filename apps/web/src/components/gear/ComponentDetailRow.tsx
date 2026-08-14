@@ -107,9 +107,14 @@ export function ComponentDetailRow({
 
   const latestServiceLog = component.latestServiceLog ?? null;
 
-  // Pro-only: status is null for free users — StatusDot renders nothing for
-  // null. Missing prediction keeps the ALL_GOOD default as before.
-  const status = prediction ? prediction.status : 'ALL_GOOD';
+  // Null in two distinct cases, and StatusDot renders nothing for null in both:
+  // a free-tier row (prediction present, status gated to null) and a row with no
+  // prediction at all. The latter used to fall back to ALL_GOOD, which asserted
+  // a clean bill of health the engine never issued. A component has no
+  // prediction when its type is not wear-modelled, or when predictions have not
+  // arrived yet, and neither is an all-clear. Saying nothing is what an
+  // all-clear looks like here, so silence has to mean silence.
+  const status = prediction?.status ?? null;
   const hoursRemaining = prediction?.hoursRemaining;
 
   // Get brand/model from prediction or component
