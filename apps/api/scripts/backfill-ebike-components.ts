@@ -119,10 +119,13 @@ async function main() {
     const existing = new Set(bike.components.map((c) => c.type as string));
     const missing = EBIKE_TYPES.filter((t) => !existing.has(t));
 
-    if (missing.length === 0) {
-      skipped += EBIKE_TYPES.length;
-      continue;
-    }
+    // Count every type that was already present, not just the bikes where all
+    // of them were. A bike that already has a motor but needs a battery has one
+    // pre-existing type, and an all-or-nothing check would report it as zero,
+    // undercounting exactly the partially-backfilled bikes a re-run produces.
+    skipped += EBIKE_TYPES.length - missing.length;
+
+    if (missing.length === 0) continue;
 
     // Matches buildBikeComponents: the acquisition date is the honest install
     // anchor when the rider gave one, because that is when the parts were
@@ -142,13 +145,19 @@ async function main() {
       continue;
     }
 
+    // The try wraps the transaction and NOTHING else. Anything after it has
+    // already committed, so letting post-commit work share this catch would let
+    // a throw there report a committed bike as "rolled back, nothing written",
+    // which is a false negative in the very summary this reporting exists to
+    // make trustworthy.
+    let lines: string[];
     try {
       // The per-component lines are built inside the transaction and only
       // printed once it commits. Logging as we go would report components as
       // created even when a later statement rolls the whole thing back, which
       // is exactly the output an operator would trust when deciding whether to
       // re-run.
-      const lines = await prisma.$transaction(async (tx) => {
+      lines = await prisma.$transaction(async (tx) => {
         const written: string[] = [];
         for (const type of missing) {
           const def = getComponentByType(type);
@@ -200,10 +209,6 @@ async function main() {
         }
         return written;
       });
-
-      for (const line of lines) console.log(line);
-      created += lines.length;
-      bikesTouched++;
     } catch (err) {
       // One bike's failure must not abandon the rest of the run. Its
       // transaction has already rolled back, so the bike is untouched rather
@@ -212,7 +217,15 @@ async function main() {
       const message = err instanceof Error ? err.message : String(err);
       failures.push({ bike: label, error: message });
       console.log(`  ! FAILED, rolled back, nothing written for this bike: ${message}`);
+      console.log('');
+      continue;
     }
+
+    // Committed. Record the success before printing anything, so the counters
+    // survive even if writing to stdout fails.
+    created += lines.length;
+    bikesTouched++;
+    for (const line of lines) console.log(line);
 
     console.log('');
   }
