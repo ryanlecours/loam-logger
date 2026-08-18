@@ -180,6 +180,12 @@ const startServer = async () => {
   // hundred kilobytes on a long ride. The mobile recorder strides its track
   // down to a hard point ceiling before sending, and the resolver enforces the
   // same ceiling, so this is a backstop rather than the real bound.
+  //
+  // Note this raises the ceiling for EVERY json route, not just that mutation.
+  // Kept global because scoping it would mean mounting a second parser ahead of
+  // this one for /graphql alone, and the routes it widens all sit behind auth
+  // and rate limiting. The webhook endpoints that genuinely need their own
+  // limits already bring their own parsers, registered above.
   app.use(express.json({ limit: '2mb' }));
   app.use(express.urlencoded({ extended: false }));
   app.use(cookieParser(process.env.COOKIE_SECRET || 'dev-secret'));

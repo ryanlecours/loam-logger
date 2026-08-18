@@ -1936,7 +1936,32 @@ export const resolvers = {
         const existing = await prisma.ride.findUnique({
           where: { userId_clientMutationId: { userId, clientMutationId } },
         });
-        if (existing) return existing;
+        if (existing) {
+          // A replay is also the only chance to recover a track the original
+          // submit committed the ride for but never finished storing. The
+          // track write is fire-and-forget after the transaction, and SIGTERM
+          // during a rolling deploy does not drain detached work, so a kill in
+          // that window leaves a ride whose route is gone for good: the outbox
+          // retries, this shortcut returns the ride it already has, and
+          // nothing ever looks at the track again.
+          //
+          // Awaited, unlike the fire-and-forget call on the create path,
+          // because this IS the recovery path and must not be droppable the
+          // same way. Holding the response until the track is durable means a
+          // kill mid-write leaves the client without a response, so the outbox
+          // retries and recovers again. persistRecordedTrack swallows its own
+          // errors, so this cannot fail the replay.
+          if (input.track) {
+            const stored = await prisma.rideStream.findUnique({
+              where: { rideId: existing.id },
+              select: { rideId: true },
+            });
+            // Racing the original's own write is harmless: saveRideStream
+            // upserts and the lift job carries a per-ride idempotent id.
+            if (!stored) await persistRecordedTrack(existing.id, input.track);
+          }
+          return existing;
+        }
       }
 
       const start = parseIso(input.startTime);
