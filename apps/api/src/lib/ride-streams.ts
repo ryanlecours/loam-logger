@@ -31,8 +31,15 @@ export type NormalizedStreams = {
   moving?: boolean[];
 };
 
-/** Value stored in `RideStream.source`. */
-export type RideStreamSource = 'strava' | 'garmin';
+/**
+ * Value stored in `RideStream.source`.
+ *
+ * `loam` is an in-app recording: the track came from the rider's own phone
+ * rather than a provider grant, which is why the provider-disconnect cleanup
+ * in ride-stream-store never touches it. Its altitude series is the fused
+ * barometric one the mobile recorder computed, not a raw GPS altitude.
+ */
+export type RideStreamSource = 'strava' | 'garmin' | 'loam';
 
 /**
  * Result of normalizing one activity's streams.

@@ -13,6 +13,8 @@ import type {
 import { checkRateLimit, checkMutationRateLimit, checkQueryRateLimit, checkAuthRateLimit } from '../lib/rate-limit';
 import { getClientIp } from '../auth/utils';
 import { enqueueSyncJob, enqueueWeatherJob, enqueueLiftDetectionJob, enqueueGarminCoordRepairJob, type SyncProvider } from '../lib/queue';
+import { normalizeRecordedTrack, type RecordedTrackInput } from '../lib/recorded-track';
+import { saveRideStream } from '../lib/ride-stream-store';
 import { getRideTrack } from '../lib/ride-track';
 import { invalidateBikePrediction, getCachedAdvisorSummary, setCachedAdvisorSummary } from '../services/prediction/cache';
 import { generateSummary, DEFAULT_ADVISOR_MODEL } from '../services/advisor/summarize';
@@ -76,6 +78,7 @@ type AddRideInput = {
   clientMutationId?: string | null;
   startLat?: number | null;
   startLng?: number | null;
+  track?: RecordedTrackInput | null;
 };
 
 type UpdateRideInput = {
@@ -261,6 +264,39 @@ function parseIso(value: string): Date {
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) throw new Error('Invalid startTime; must be ISO 8601');
   return d;
+}
+
+/**
+ * Store an in-app recording's track and queue it for lift detection.
+ *
+ * Swallows everything. Called after the ride is committed and the mutation has
+ * effectively returned, so there is no caller left to handle a failure and
+ * nothing useful to do with one beyond making it visible. Mirrors the Garmin
+ * ingest path in lib/ride-stream-store for the same reason.
+ */
+async function persistRecordedTrack(rideId: string, track: RecordedTrackInput): Promise<void> {
+  try {
+    const result = normalizeRecordedTrack(track);
+    if (result.status === 'invalid') {
+      // A track the client should never have sent. Worth a warn rather than a
+      // silent drop: the ride is fine, but this means a mobile build is
+      // producing tracks the contract rejects, and nothing else would say so.
+      logger.warn(
+        { event: 'recorded_track_rejected', rideId, reason: result.reason },
+        '[RecordedTrack] Rejected an in-app recording track'
+      );
+      return;
+    }
+
+    await saveRideStream(rideId, 'loam', result.pointCount, result.data);
+
+    // Same treatment a provider-synced ride gets once its stream lands. A
+    // shuttle lap logged in-app is exactly as much not-pedalling as one that
+    // came through Strava.
+    await enqueueLiftDetectionJob({ rideId });
+  } catch (err) {
+    logError(`persistRecordedTrack ${rideId}`, err);
+  }
 }
 
 /** If v is undefined => leave unchanged; if null => ignore (do not update); else parse. */
@@ -2070,6 +2106,22 @@ export const resolvers = {
         enqueueWeatherJob({ rideId: ride.id }).catch((err) =>
           logError(`addRide weather enqueue ${ride.id}`, err),
         );
+      }
+
+      // An in-app recording ships its per-point track. Storing it as a
+      // RideStream is what puts a natively recorded ride on the same footing
+      // as a provider-synced one: the ride-track map and lift detection read
+      // RideStream and nothing else, so before this a rider's own recordings
+      // were the only rides in the product with no route and no lift
+      // adjustment. It also makes the ride's elevation total re-derivable
+      // rather than frozen at whatever the phone computed that day.
+      //
+      // Fire-and-forget, and deliberately after the ride is committed: hours
+      // are already credited and the rider has already been told the ride
+      // saved, so a track that fails to store degrades the map rather than
+      // costing them the ride.
+      if (input.track) {
+        void persistRecordedTrack(ride.id, input.track);
       }
 
       return ride;

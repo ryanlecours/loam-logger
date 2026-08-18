@@ -534,6 +534,27 @@ export const typeDefs = gql`
     location: String
   }
 
+  # Per-point track for an in-app recording. Parallel, index-aligned arrays,
+  # matching the NormalizedStreams shape every provider normalizes into, so an
+  # in-app ride reaches the ride-track map and lift detection through exactly
+  # the same path a Garmin or Strava ride does.
+  #
+  # The altitude array is the recorder's fused barometric series, not raw GPS:
+  # a phone's GNSS vertical error is far too large to accumulate, so the client
+  # fuses pressure with GPS before it ever reaches a total. Sending the fused
+  # series is what keeps the stored track consistent with the ride's own
+  # elevationGainMeters.
+  input RideTrackInput {
+    # Seconds since ride start. Non-decreasing.
+    time: [Int!]!
+    # [lat, lng] pairs.
+    latlng: [[Float!]!]!
+    # Meters.
+    altitude: [Float!]!
+    # False for samples recorded while auto-paused.
+    moving: [Boolean!]!
+  }
+
   input AddRideInput {
     startTime: String!
     durationSeconds: Int!
@@ -546,6 +567,8 @@ export const typeDefs = gql`
     # sole-bike auto-assign that an omitted bikeId would otherwise trigger.
     # Cannot be combined with a bikeId.
     unownedBike: Boolean
+    # Optional; only in-app recordings have one.
+    track: RideTrackInput
     notes: String
     trailSystem: String
     location: String

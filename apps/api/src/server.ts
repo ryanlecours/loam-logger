@@ -175,7 +175,12 @@ const startServer = async () => {
   // body-parser's 100kb default. Same ordering constraint as Stripe/Suunto above.
   app.use(webhooksGarmin);
 
-  app.use(express.json());
+  // 2mb rather than body-parser's 100kb default: addRide carries the per-point
+  // track for an in-app recording (see AddRideInput.track), which runs to a few
+  // hundred kilobytes on a long ride. The mobile recorder strides its track
+  // down to a hard point ceiling before sending, and the resolver enforces the
+  // same ceiling, so this is a backstop rather than the real bound.
+  app.use(express.json({ limit: '2mb' }));
   app.use(express.urlencoded({ extended: false }));
   app.use(cookieParser(process.env.COOKIE_SECRET || 'dev-secret'));
 

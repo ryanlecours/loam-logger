@@ -38,7 +38,11 @@ export async function saveRideStream(
  */
 export async function deleteRideStreamsForProvider(
   userId: string,
-  source: RideStreamSource
+  // Deliberately narrower than RideStreamSource: 'loam' tracks come from the
+  // rider's own phone, not a provider grant, so no disconnect can revoke them
+  // and pointing this function at them would delete data nothing asked to
+  // delete. Ride deletion still cascades to them.
+  source: Exclude<RideStreamSource, 'loam'>
 ): Promise<number> {
   const { count } = await prisma.rideStream.deleteMany({
     where: { source, ride: { userId } },
