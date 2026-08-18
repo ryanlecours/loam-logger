@@ -2548,6 +2548,22 @@ export const resolvers = {
       if (input.subcategory !== undefined) data.subcategory = cleanText(input.subcategory, MAX_LABEL_LEN) ?? null;
       if (input.buildKind !== undefined) data.buildKind = cleanText(input.buildKind, MAX_LABEL_LEN) ?? null;
       if (input.isFrameset !== undefined) data.isFrameset = Boolean(input.isFrameset);
+      // Flipping this on does NOT create MOTOR and BATTERY components, and
+      // that is not an e-bike-specific gap: syncBikeComponents runs below with
+      // createMissing: false, so updateBike creates no component of any type.
+      // Adding fork travel to a rigid bike does not conjure a fork either.
+      // Component provisioning happens once, at creation, from the bike spec.
+      //
+      // Called out because it reads like an oversight and has now been raised
+      // twice in review. If a client ever needs conversion to provision parts,
+      // that is a deliberate new behaviour for the whole catalog, not a special
+      // case bolted on for these two types. The one-off
+      // scripts/backfill-ebike-components.ts covers pre-migration bikes.
+      //
+      // Turning it back off is handled just below: the specs are cleared, but
+      // any MOTOR/BATTERY components and their accrued hours stay, because
+      // those hours were really ridden. The e-bike gate is enforced at install
+      // and swap time only, never retroactively.
       if (input.isEbike !== undefined) data.isEbike = Boolean(input.isEbike);
       if (input.gender !== undefined) data.gender = cleanText(input.gender, MAX_LABEL_LEN) ?? null;
       if (input.frameMaterial !== undefined) data.frameMaterial = cleanText(input.frameMaterial, MAX_LABEL_LEN) ?? null;
