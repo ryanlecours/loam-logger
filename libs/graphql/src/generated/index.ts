@@ -104,6 +104,7 @@ export type AddRideInput = {
   startLat?: InputMaybe<Scalars['Float']['input']>;
   startLng?: InputMaybe<Scalars['Float']['input']>;
   startTime: Scalars['String']['input'];
+  track?: InputMaybe<RideTrackInput>;
   trailSystem?: InputMaybe<Scalars['String']['input']>;
   unownedBike?: InputMaybe<Scalars['Boolean']['input']>;
 };
@@ -1150,6 +1151,13 @@ export type RideTrack = {
    */
   source?: Maybe<Scalars['String']['output']>;
   status: RideTrackStatus;
+};
+
+export type RideTrackInput = {
+  altitude: Array<Scalars['Float']['input']>;
+  latlng: Array<Array<Scalars['Float']['input']>>;
+  moving: Array<Scalars['Boolean']['input']>;
+  time: Array<Scalars['Int']['input']>;
 };
 
 export enum RideTrackStatus {

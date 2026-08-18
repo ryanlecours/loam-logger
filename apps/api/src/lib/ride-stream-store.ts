@@ -10,6 +10,24 @@ import { normalizeGarminSamples, type GarminActivitySample } from './garmin-stre
  * recording which provider it came from, so Strava's fetch-on-demand path and
  * Garmin's push-at-ingest path write through the same function and every
  * consumer (lift detection, the ride-track map) stays provider-blind.
+ *
+ * The upsert is bare last-write-wins, with no precedence between sources. That
+ * is safe only because at most one writer can ever target a given ride, and
+ * each of the three arrives by a different route:
+ *
+ *   - garmin: only ever called with a ride keyed on a Garmin activity id
+ *     (sync.worker, backfill.worker).
+ *   - strava: lift.worker fetches on demand, and ONLY when `!ride.stream`. An
+ *     existing stream of any source short-circuits that branch.
+ *   - loam: written at ride creation for an in-app recording, which carries no
+ *     provider activity id. Nothing later assigns one — cross-provider matches
+ *     are flagged with isDuplicate on separate rows rather than merged onto
+ *     one, so a ride never changes which provider it belongs to.
+ *
+ * A new writer must preserve that. If two sources could ever target one ride,
+ * this needs explicit precedence rather than whichever call happens to land
+ * second, and the lift.worker guard above is the piece most likely to be
+ * refactored away by accident.
  */
 export async function saveRideStream(
   rideId: string,
@@ -38,7 +56,11 @@ export async function saveRideStream(
  */
 export async function deleteRideStreamsForProvider(
   userId: string,
-  source: RideStreamSource
+  // Deliberately narrower than RideStreamSource: 'loam' tracks come from the
+  // rider's own phone, not a provider grant, so no disconnect can revoke them
+  // and pointing this function at them would delete data nothing asked to
+  // delete. Ride deletion still cascades to them.
+  source: Exclude<RideStreamSource, 'loam'>
 ): Promise<number> {
   const { count } = await prisma.rideStream.deleteMany({
     where: { source, ride: { userId } },

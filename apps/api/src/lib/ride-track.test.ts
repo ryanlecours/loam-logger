@@ -103,6 +103,32 @@ describe('getRideTrack', () => {
       expect(track.garminDeviceName).toBeNull();
     });
 
+    // An in-app recording is the rider's own GPS, held under no provider
+    // grant, so it carries no third-party attribution. This is also the test
+    // that keeps the route map working for natively recorded rides at all:
+    // the mobile detail screen renders RideTrackMap for every ride and shows
+    // it purely on AVAILABLE, so a source gate creeping in here would
+    // silently take the map away from in-app rides while provider rides kept
+    // theirs.
+    it('serves an in-app recording like any other track, with no attribution', async () => {
+      mockFindUnique.mockResolvedValueOnce({
+        ...base,
+        garminDeviceName: 'edge_840',
+        stream: {
+          pointCount: 3,
+          source: 'loam',
+          data: { latlng: makeLatLng(3), time: [0, 1, 2] },
+        },
+      });
+
+      const track = await getRideTrack('user-1', 'ride-1');
+
+      expect(track.status).toBe('AVAILABLE');
+      expect(track.points).toHaveLength(3);
+      expect(track.source).toBe('loam');
+      expect(track.garminDeviceName).toBeNull();
+    });
+
     it('reports no device when Garmin did not name one', async () => {
       mockFindUnique.mockResolvedValueOnce({
         ...base,
