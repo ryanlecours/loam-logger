@@ -190,10 +190,15 @@ r.post<Empty, void, { userPermissionsChange?: Array<{
       // rider revokes it we must actually stop syncing, not just note it:
       // continuing to pull after a revocation is a program violation, and this
       // handler previously only logged. Revoking the integration destroys the
-      // stored credentials, so every sync path fails closed —
-      // getValidGarminToken returns null and the workers skip — without tearing
-      // down the UserAccount link, so the rider still sees Garmin listed and
-      // can re-authorize.
+      // stored credentials, so every sync path fails closed:
+      // getValidGarminToken reports `disconnected` and the workers drop the
+      // delivery rather than retrying it. The UserAccount link is left standing,
+      // so the rider still sees Garmin listed and can re-authorize.
+      //
+      // Leaving it standing is also why deliveries keep arriving for a while
+      // after this runs, and therefore why the workers treat `disconnected` as
+      // an expected outcome rather than an error. Deregistration deletes the
+      // link and goes quiet on its own; this does not.
       if (!permissions.includes('ACTIVITY_EXPORT')) {
         logger.warn(
           { event: 'garmin_activity_export_revoked', requestId, userId: userAccount.userId },

@@ -774,13 +774,40 @@ describe('processBackfillJob (via worker processor)', () => {
       expect(global.fetch).not.toHaveBeenCalled();
     });
 
-    it('skips (no throw) when the user has no valid Garmin token', async () => {
+    it.each([['refresh_failed'], ['disconnected']] as const)(
+      'skips (no throw) when the token is unavailable: %s',
+      async (reason) => {
+        aggregate().mockResolvedValue({
+          _count: { _all: 3 },
+          _min: { startTime: new Date('2026-05-01T00:00:00Z') },
+          _max: { startTime: new Date('2026-05-10T00:00:00Z') },
+        });
+        mockGetValidGarminToken.mockResolvedValue({ ok: false, reason });
+
+        await expect(
+          processBackfillJob({
+            name: 'repairGarminCoords',
+            id: 'job-repair',
+            data: { userId: 'user-123', provider: 'garmin' },
+          })
+        ).resolves.toBeUndefined();
+
+        expect(global.fetch).not.toHaveBeenCalled();
+      }
+    );
+
+    // The one case this job does not shrug off. Skipping quietly is right when
+    // the repair can simply run again later; it is wrong when the reason it
+    // cannot run is a key incident, because a maintenance job that no-ops
+    // through an outage is one more place the outage looks like normal
+    // operation.
+    it('escalates rather than skipping when credentials will not decrypt', async () => {
       aggregate().mockResolvedValue({
         _count: { _all: 3 },
         _min: { startTime: new Date('2026-05-01T00:00:00Z') },
         _max: { startTime: new Date('2026-05-10T00:00:00Z') },
       });
-      mockGetValidGarminToken.mockResolvedValue({ ok: false, reason: 'refresh_failed' as const });
+      mockGetValidGarminToken.mockResolvedValue({ ok: false, reason: 'undecryptable' as const });
 
       await expect(
         processBackfillJob({
@@ -788,7 +815,7 @@ describe('processBackfillJob (via worker processor)', () => {
           id: 'job-repair',
           data: { userId: 'user-123', provider: 'garmin' },
         })
-      ).resolves.toBeUndefined();
+      ).rejects.toMatchObject({ name: 'UnrecoverableError' });
 
       expect(global.fetch).not.toHaveBeenCalled();
     });

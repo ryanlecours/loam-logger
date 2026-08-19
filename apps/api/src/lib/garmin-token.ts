@@ -104,11 +104,18 @@ export async function revokeGarminTokenForUser(userId: string): Promise<boolean>
   try {
     const read = await readGarminTokens(userId);
 
-    // Nothing usable to hand back to Garmin, whether the rider already left or
-    // the ciphertext will not open. Either way there is no revocation to make,
+    // Nothing usable to hand back to Garmin, so there is no revocation to make
     // and reporting failure would only block the caller's own cleanup.
+    //
+    // These two are worth telling apart even though the answer is the same. A
+    // rider who already disconnected has nothing left to revoke. An
+    // undecryptable one does: the token is still live at Garmin until it
+    // expires, and we cannot revoke what we cannot read. That gap predates the
+    // encrypted store and closing it needs a way to reach the credential, not a
+    // different answer here, so it is logged with its state rather than being
+    // flattened into "no token found".
     if (read.state !== 'live') {
-      log.info({ userId, state: read.state }, 'No usable token found for user');
+      log.info({ userId, state: read.state }, 'No usable token to revoke');
       return true;
     }
 

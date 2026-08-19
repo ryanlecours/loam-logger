@@ -140,6 +140,16 @@ async function processGarminCoordRepair(userId: string): Promise<void> {
 
   const repairToken = await getValidGarminToken(userId);
   if (!repairToken.ok) {
+    // Being the lowest-stakes job here is a reason to skip quietly for a rider
+    // who left or a refresh that did not land: the repair runs again, and
+    // nothing is lost by waiting. It is not a reason to stay quiet about a
+    // credential that will not decrypt. That is the same key incident the other
+    // paths escalate, and a maintenance job that no-ops through it is one more
+    // place the outage looks like normal operation.
+    if (repairToken.reason === 'undecryptable') {
+      throw new UnrecoverableError('Garmin credentials will not decrypt');
+    }
+
     logger.warn(
       { userId, reason: repairToken.reason },
       '[BackfillWorker] Garmin coord-repair skipped: no valid token'
