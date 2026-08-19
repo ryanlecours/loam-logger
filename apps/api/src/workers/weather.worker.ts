@@ -1,6 +1,7 @@
 import '../instrument';
 import { Worker, Job } from 'bullmq';
 import * as Sentry from '@sentry/node';
+import { reportWorkerFailure } from './report-failure';
 import { getQueueConnection } from '../lib/queue/connection';
 import { prisma } from '../lib/prisma';
 import { logger } from '../lib/logger';
@@ -102,7 +103,7 @@ export function createWeatherWorker(): Worker<WeatherJobData, void, WeatherJobNa
   });
   weatherWorker.on('failed', (job, err) => {
     logger.warn({ jobId: job?.id, error: err.message }, '[WeatherWorker] Job failed');
-    Sentry.captureException(err, { tags: { worker: 'weather' }, extra: { jobId: job?.id } });
+    reportWorkerFailure('weather', job, err);
   });
   weatherWorker.on('error', (err) => {
     logger.error({ error: err.message }, '[WeatherWorker] Worker error');
