@@ -24,6 +24,13 @@ export interface SpokesComponentData {
 export interface BikeData {
   travelForkMm?: number | null;
   travelShockMm?: number | null;
+  /**
+   * Drives the EBIKE-category components. Unlike suspension there is nothing
+   * to infer this from: 99Spokes does not report it in the component payload
+   * this function receives, so it comes from the rider's own answer on the
+   * bike form. Absent means analog.
+   */
+  isEbike?: boolean | null;
 }
 
 /**
@@ -96,6 +103,7 @@ export function deriveBikeSpec(
     hasRearSuspension:
       hasComponentData(spokesComponents?.rearShock) ||
       (bike.travelShockMm ?? 0) > 0,
+    isEbike: bike.isEbike === true,
     brakeType: detectBrakeType(spokesComponents?.brakes?.description),
     drivetrainType: detectDrivetrainType(
       spokesComponents?.rearDerailleur?.description

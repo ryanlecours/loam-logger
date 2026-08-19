@@ -38,6 +38,7 @@ jest.mock('../../../lib/redis', () => ({
 
 import { prisma } from '../../../lib/prisma';
 import { generateBikePredictions } from '../engine';
+import { isTrackableComponent } from '../config';
 import { clearMemoryCache } from '../cache';
 import { RideMetrics } from '../types';
 
@@ -147,6 +148,107 @@ describe('prediction engine', () => {
           userRole: 'FREE',
         })
       ).rejects.toThrow('Not found');
+    });
+  });
+
+  // E-bike motor and battery are tracked components that accrue ride hours but
+  // are deliberately NOT wear-modelled: they carry no service interval and must
+  // never produce a health state. The engine enforces that by filtering on
+  // COMPONENT_WEIGHTS membership, so these tests fail the moment someone adds
+  // weights for either type in config.ts. That is the point: turning on a
+  // health state for every e-bike should be a deliberate, visible change.
+  describe('e-bike components are hours-only', () => {
+    const ebikeBike = {
+      ...mockBike,
+      isEbike: true,
+      components: [
+        ...mockBike.components,
+        {
+          id: 'comp-motor',
+          type: 'MOTOR',
+          location: 'NONE',
+          brand: 'Bosch',
+          model: 'Performance Line CX',
+          hoursUsed: 240,
+          serviceDueAtHours: null,
+        },
+        {
+          id: 'comp-battery',
+          type: 'BATTERY',
+          location: 'NONE',
+          brand: 'Bosch',
+          model: 'PowerTube 750',
+          hoursUsed: 240,
+          serviceDueAtHours: null,
+        },
+      ],
+    };
+
+    beforeEach(() => {
+      (prisma.bike.findUnique as jest.Mock).mockResolvedValue(ebikeBike);
+      (prisma.ride.findMany as jest.Mock).mockResolvedValue(mockRides);
+      (prisma.ride.findFirst as jest.Mock).mockResolvedValue({
+        startTime: new Date('2024-01-01'),
+      });
+      (prisma.serviceLog.findFirst as jest.Mock).mockResolvedValue(null);
+      (prisma.serviceLog.findMany as jest.Mock).mockResolvedValue([]);
+    });
+
+    it('should not emit a prediction for MOTOR', async () => {
+      const result = await generateBikePredictions({
+        userId: 'user-123',
+        bikeId: 'bike-123',
+        userRole: 'FREE',
+      });
+
+      expect(result.components.find((c) => c.componentId === 'comp-motor')).toBeUndefined();
+    });
+
+    it('should not emit a prediction for BATTERY', async () => {
+      const result = await generateBikePredictions({
+        userId: 'user-123',
+        bikeId: 'bike-123',
+        userRole: 'FREE',
+      });
+
+      expect(result.components.find((c) => c.componentId === 'comp-battery')).toBeUndefined();
+    });
+
+    it('should return only the wear-modelled components on an e-bike', async () => {
+      const result = await generateBikePredictions({
+        userId: 'user-123',
+        bikeId: 'bike-123',
+        userRole: 'FREE',
+      });
+
+      expect(result.components.map((c) => c.componentId).sort()).toEqual([
+        'comp-chain',
+        'comp-fork',
+      ]);
+    });
+
+    it('should leave the other components on an e-bike unaffected', async () => {
+      (prisma.bike.findUnique as jest.Mock).mockResolvedValue(mockBike);
+      const analog = await generateBikePredictions({
+        userId: 'user-123',
+        bikeId: 'bike-123',
+        userRole: 'FREE',
+      });
+
+      clearMemoryCache();
+      (prisma.bike.findUnique as jest.Mock).mockResolvedValue(ebikeBike);
+      const ebike = await generateBikePredictions({
+        userId: 'user-123',
+        bikeId: 'bike-123',
+        userRole: 'FREE',
+      });
+
+      expect(ebike.components).toEqual(analog.components);
+    });
+
+    it('should report MOTOR and BATTERY as untrackable', () => {
+      expect(isTrackableComponent('MOTOR' as never)).toBe(false);
+      expect(isTrackableComponent('BATTERY' as never)).toBe(false);
     });
   });
 

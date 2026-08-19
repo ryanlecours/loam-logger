@@ -3,6 +3,10 @@ import {
   requiresPairing,
   getPairedComponentDefinitions,
   getComponentByType,
+  getApplicableComponents,
+  getEbikeOnlyComponentTypes,
+  isEbikeOnlyComponent,
+  isHoursOnlyComponent,
   COMPONENT_CATALOG,
 } from './componentCatalog';
 
@@ -197,8 +201,8 @@ describe('componentCatalog', () => {
     it('should be applicable to all bikes', () => {
       const def = getComponentByType('WHEEL_HUBS');
 
-      expect(def?.isApplicable({ hasFrontSuspension: false, hasRearSuspension: false })).toBe(true);
-      expect(def?.isApplicable({ hasFrontSuspension: true, hasRearSuspension: true })).toBe(true);
+      expect(def?.isApplicable({ hasFrontSuspension: false, hasRearSuspension: false, isEbike: false })).toBe(true);
+      expect(def?.isApplicable({ hasFrontSuspension: true, hasRearSuspension: true, isEbike: false })).toBe(true);
     });
 
     it('should not require pairing', () => {
@@ -232,13 +236,77 @@ describe('componentCatalog', () => {
     it('should be applicable to all bikes', () => {
       const def = getComponentByType('REAR_DERAILLEUR');
 
-      expect(def?.isApplicable({ hasFrontSuspension: false, hasRearSuspension: false })).toBe(true);
+      expect(def?.isApplicable({ hasFrontSuspension: false, hasRearSuspension: false, isEbike: false })).toBe(true);
     });
 
     it('should not require pairing', () => {
       const def = getComponentByType('REAR_DERAILLEUR');
 
       expect(def?.requiresPairing).not.toBe(true);
+    });
+  });
+
+  describe('EBIKE component definitions', () => {
+    const ANALOG = { hasFrontSuspension: true, hasRearSuspension: true, isEbike: false };
+    const EBIKE = { hasFrontSuspension: true, hasRearSuspension: true, isEbike: true };
+
+    it.each(['MOTOR', 'BATTERY'])('should have %s in the catalog under EBIKE', (type) => {
+      const def = getComponentByType(type);
+
+      expect(def).toBeDefined();
+      expect(def?.category).toBe('EBIKE');
+    });
+
+    it.each(['MOTOR', 'BATTERY'])('should apply %s to e-bikes only', (type) => {
+      const def = getComponentByType(type);
+
+      expect(def?.isApplicable(EBIKE)).toBe(true);
+      expect(def?.isApplicable(ANALOG)).toBe(false);
+    });
+
+    it.each(['MOTOR', 'BATTERY'])('should mark %s hours-only', (type) => {
+      expect(getComponentByType(type)?.hoursOnly).toBe(true);
+      expect(isHoursOnlyComponent(type)).toBe(true);
+    });
+
+    it.each(['MOTOR', 'BATTERY'])('should flag %s as e-bike only', (type) => {
+      expect(isEbikeOnlyComponent(type)).toBe(true);
+    });
+
+    it('should derive the e-bike-only list from the catalog', () => {
+      expect(getEbikeOnlyComponentTypes().sort()).toEqual(['BATTERY', 'MOTOR']);
+    });
+
+    it('should not require pairing', () => {
+      expect(getComponentByType('MOTOR')?.requiresPairing).not.toBe(true);
+      expect(getComponentByType('BATTERY')?.requiresPairing).not.toBe(true);
+    });
+
+    it('should exclude e-bike components from an analog build', () => {
+      const types = getApplicableComponents(ANALOG).map((c) => c.type);
+
+      expect(types).not.toContain('MOTOR');
+      expect(types).not.toContain('BATTERY');
+    });
+
+    it('should include e-bike components in an e-bike build', () => {
+      const types = getApplicableComponents(EBIKE).map((c) => c.type);
+
+      expect(types).toContain('MOTOR');
+      expect(types).toContain('BATTERY');
+    });
+
+    it('should leave every non-e-bike component unaffected by the isEbike flag', () => {
+      const analog = getApplicableComponents(ANALOG).map((c) => c.type);
+      const ebike = getApplicableComponents(EBIKE).map((c) => c.type).filter((t) => t !== 'MOTOR' && t !== 'BATTERY');
+
+      expect(ebike).toEqual(analog);
+    });
+
+    it('should treat every other catalog entry as wear-modelled, not hours-only', () => {
+      const hoursOnly = COMPONENT_CATALOG.filter((c) => c.hoursOnly).map((c) => c.type).sort();
+
+      expect(hoursOnly).toEqual(['BATTERY', 'MOTOR']);
     });
   });
 });

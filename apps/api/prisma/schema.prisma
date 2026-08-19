@@ -656,6 +656,12 @@ enum ComponentType {
   BRAKE_ROTOR
   HEADSET
   BOTTOM_BRACKET
+  // E-bike only. Hours-tracked, deliberately NOT wear-modelled: both are
+  // absent from COMPONENT_WEIGHTS in services/prediction/config.ts, so the
+  // engine skips them and they never produce a health state. See the note
+  // there before adding weights.
+  MOTOR
+  BATTERY
 }
 
 enum AcquisitionCondition {
