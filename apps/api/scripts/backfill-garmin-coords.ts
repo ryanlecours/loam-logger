@@ -117,14 +117,18 @@ async function main() {
     }
 
     const token = await getValidGarminToken(g.userId);
-    if (!token) {
-      console.log(`  ↳ SKIP: no valid Garmin token (disconnected or expired)`);
+    if (!token.ok) {
+      console.log(`  ↳ SKIP: no valid Garmin token (${token.reason})`);
       usersSkipped++;
       continue;
     }
 
     try {
-      const result = await triggerGarminBackfillChunks({ accessToken: token, startDate, endDate });
+      const result = await triggerGarminBackfillChunks({
+        accessToken: token.accessToken,
+        startDate,
+        endDate,
+      });
       chunksAccepted += result.totalChunks;
       usersTriggered++;
       const dupNote = result.allDuplicates ? ' (all duplicates — Garmin already backfilled this range)' : '';

@@ -6,10 +6,10 @@
   "scripts": {
     "build": "vite build && npx esbuild src/instrument.ts --bundle --platform=node --format=cjs --outfile=../../dist/apps/api/instrument.cjs --external:@sentry/node --external:dotenv",
     "dev": "tsx --env-file=.env --import ./src/instrument.ts src/server.ts",
-    "type-check": "tsc --noEmit -p tsconfig.app.json",
+    "type-check": "tsc --noEmit -p tsconfig.app.json && tsc -p tsconfig.scripts.json",
     "typecheck": "npm run type-check",
-    "lint": "npx eslint src --ext .ts",
-    "lint-fix": "npx eslint src --ext .ts --fix",
+    "lint": "npx eslint src scripts --ext .ts,.tsx",
+    "lint-fix": "npx eslint src scripts --ext .ts,.tsx --fix",
     "prisma:fmt": "prisma format",
     "prisma:generate": "prisma generate --schema=./prisma/schema.prisma",
     "prisma:mig": "prisma migrate dev --name",

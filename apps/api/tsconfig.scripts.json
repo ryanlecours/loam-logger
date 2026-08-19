@@ -1,0 +1,18 @@
+/*
+ * Type-checking for `scripts/`, which tsconfig.app.json deliberately leaves out
+ * of the build (`include` is src only, and these are never compiled into dist).
+ *
+ * Without this they were checked by nothing. A change to a lib signature would
+ * type-check clean, lint clean, and pass 2000 tests while leaving an operational
+ * script calling the old shape: exactly how backfill-garmin-coords.ts came to
+ * pass a result object where a bearer string was expected.
+ *
+ * `noEmit` because these run through tsx, never through a build step.
+ */
+{
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": ["scripts/**/*.ts", "scripts/**/*.tsx", "src/**/*.ts", "src/**/*.tsx"]
+}
