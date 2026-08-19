@@ -1,3 +1,4 @@
+import type Redis from 'ioredis';
 import { getRedisConnection, isRedisReady } from './redis';
 import { createLogger } from './logger';
 import type { SyncProvider } from './queue';
@@ -263,6 +264,36 @@ const INCR_WITH_TTL = `
   return {count, ttl}
 `;
 
+/** ioredis attaches the script as a method on the connection. */
+type CounterRedis = Redis & {
+  incrWithTtl(key: string, windowSeconds: string): Promise<[number, number]>;
+};
+
+/**
+ * Connections the script has already been registered on. A WeakSet rather than
+ * a flag because the singleton is rebuilt if the connection is torn down, and
+ * because tests hand back a fresh mock per case.
+ */
+const scriptedConnections = new WeakSet<object>();
+
+/**
+ * Get the Redis connection with `incrWithTtl` registered.
+ *
+ * `defineCommand` rather than a bare `eval`: ioredis registers the body once
+ * and calls it by hash thereafter, so this hot path (every rate-limited
+ * mutation and query) doesn't re-send the script on every request. It falls
+ * back to EVAL by itself when Redis answers NOSCRIPT, which is what happens
+ * after a restart flushes the script cache.
+ */
+function getCounterRedis(): CounterRedis {
+  const redis = getRedisConnection();
+  if (!scriptedConnections.has(redis)) {
+    redis.defineCommand('incrWithTtl', { numberOfKeys: 1, lua: INCR_WITH_TTL });
+    scriptedConnections.add(redis);
+  }
+  return redis as CounterRedis;
+}
+
 /**
  * Increment a fixed-window counter, arming (or repairing) its expiry in the
  * same atomic call.
@@ -275,13 +306,7 @@ async function incrementWindowCounter(
   key: string,
   windowSeconds: number
 ): Promise<{ count: number; ttl: number }> {
-  const redis = getRedisConnection();
-  const [count, ttl] = (await redis.eval(
-    INCR_WITH_TTL,
-    1,
-    key,
-    String(windowSeconds)
-  )) as [number, number];
+  const [count, ttl] = await getCounterRedis().incrWithTtl(key, String(windowSeconds));
   return { count, ttl };
 }
 

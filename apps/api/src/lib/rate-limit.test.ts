@@ -19,7 +19,9 @@ import {
   getSuuntoWeekCount,
   checkMutationRateLimit,
   checkQueryRateLimit,
+  checkAuthRateLimit,
   MUTATION_RATE_LIMITS,
+  AUTH_RATE_LIMITS,
 } from './rate-limit';
 import { isRedisReady, getRedisConnection } from './redis';
 
@@ -486,18 +488,27 @@ describe('SUUNTO_QUOTA constant', () => {
   });
 });
 
+/**
+ * The window counters run through a script ioredis registers once per
+ * connection (`defineCommand`), so the mock exposes both the registration hook
+ * and the resulting `incrWithTtl` method.
+ */
+function mockCounterRedis(): { defineCommand: jest.Mock; incrWithTtl: jest.Mock } {
+  return { defineCommand: jest.fn(), incrWithTtl: jest.fn() };
+}
+
 describe('checkMutationRateLimit', () => {
-  let mockRedis: { eval: jest.Mock };
+  let mockRedis: ReturnType<typeof mockCounterRedis>;
 
   beforeEach(() => {
     jest.clearAllMocks();
-    mockRedis = { eval: jest.fn() };
+    mockRedis = mockCounterRedis();
     mockGetRedisConnection.mockReturnValue(mockRedis as never);
   });
 
   it('allows a call under the cap', async () => {
     mockIsRedisReady.mockReturnValue(true);
-    mockRedis.eval.mockResolvedValue([1, 60]);
+    mockRedis.incrWithTtl.mockResolvedValue([1, 60]);
 
     expect(await checkMutationRateLimit('updateUserPreferences', 'user123')).toEqual({
       allowed: true,
@@ -507,7 +518,7 @@ describe('checkMutationRateLimit', () => {
 
   it('increments and expires in a single atomic call', async () => {
     mockIsRedisReady.mockReturnValue(true);
-    mockRedis.eval.mockResolvedValue([1, 60]);
+    mockRedis.incrWithTtl.mockResolvedValue([1, 60]);
 
     await checkMutationRateLimit('updateUserPreferences', 'user123');
 
@@ -515,18 +526,33 @@ describe('checkMutationRateLimit', () => {
     // INCR then EXPIRE could be interrupted between the two, stranding the key
     // without a TTL, and the counter would then never reset, leaving the user
     // rate limited on this mutation permanently.
-    expect(mockRedis.eval).toHaveBeenCalledTimes(1);
-    expect(mockRedis.eval).toHaveBeenCalledWith(
-      expect.any(String),
-      1,
+    expect(mockRedis.incrWithTtl).toHaveBeenCalledTimes(1);
+    expect(mockRedis.incrWithTtl).toHaveBeenCalledWith(
       'rl:mutation:updateUserPreferences:user123',
       String(MUTATION_RATE_LIMITS.updateUserPreferences.windowSeconds)
     );
   });
 
+  it('registers the script once per connection, not per call', async () => {
+    mockIsRedisReady.mockReturnValue(true);
+    mockRedis.incrWithTtl.mockResolvedValue([1, 60]);
+
+    await checkMutationRateLimit('updateUserPreferences', 'user123');
+    await checkMutationRateLimit('updateUserPreferences', 'user123');
+    await checkMutationRateLimit('addRide', 'user456');
+
+    // ioredis calls it by hash afterwards, so the body is not re-sent on a
+    // path that runs for every rate-limited mutation and query.
+    expect(mockRedis.defineCommand).toHaveBeenCalledTimes(1);
+    expect(mockRedis.defineCommand).toHaveBeenCalledWith('incrWithTtl', {
+      numberOfKeys: 1,
+      lua: expect.any(String),
+    });
+  });
+
   it('rejects over the cap and reports the remaining window', async () => {
     mockIsRedisReady.mockReturnValue(true);
-    mockRedis.eval.mockResolvedValue([21, 37]);
+    mockRedis.incrWithTtl.mockResolvedValue([21, 37]);
 
     const result = await checkMutationRateLimit('updateUserPreferences', 'user123');
 
@@ -534,17 +560,17 @@ describe('checkMutationRateLimit', () => {
     if (!result.allowed) expect(result.retryAfter).toBe(37);
   });
 
-  it('sends a script that re-arms the expiry on a counter that lost its TTL', async () => {
+  it('registers a script that re-arms the expiry on a counter that lost its TTL', async () => {
     mockIsRedisReady.mockReturnValue(true);
-    mockRedis.eval.mockResolvedValue([21, 60]);
+    mockRedis.incrWithTtl.mockResolvedValue([21, 60]);
 
     await checkMutationRateLimit('updateUserPreferences', 'user123');
 
     // The repair branch is what lets an already-orphaned key age out on its
     // next hit instead of needing a manual DEL against production Redis.
-    const script = String(mockRedis.eval.mock.calls[0][0]);
-    expect(script).toContain("redis.call('TTL', KEYS[1])");
-    expect(script).toMatch(/if ttl < 0 then\s+redis\.call\('EXPIRE', KEYS\[1\], ARGV\[1\]\)/);
+    const { lua } = mockRedis.defineCommand.mock.calls[0][1] as { lua: string };
+    expect(lua).toContain("redis.call('TTL', KEYS[1])");
+    expect(lua).toMatch(/if ttl < 0 then\s+redis\.call\('EXPIRE', KEYS\[1\], ARGV\[1\]\)/);
   });
 
   it('falls back to the in-memory limiter when Redis is unavailable', async () => {
@@ -553,12 +579,12 @@ describe('checkMutationRateLimit', () => {
     const result = await checkMutationRateLimit('updateUserPreferences', 'memory-user');
 
     expect(result).toEqual({ allowed: true, redisAvailable: false });
-    expect(mockRedis.eval).not.toHaveBeenCalled();
+    expect(mockRedis.incrWithTtl).not.toHaveBeenCalled();
   });
 
   it('falls back to the in-memory limiter when the script throws', async () => {
     mockIsRedisReady.mockReturnValue(true);
-    mockRedis.eval.mockRejectedValue(new Error('Connection failed'));
+    mockRedis.incrWithTtl.mockRejectedValue(new Error('Connection failed'));
 
     const result = await checkMutationRateLimit('updateUserPreferences', 'throwing-user');
 
@@ -567,34 +593,122 @@ describe('checkMutationRateLimit', () => {
 });
 
 describe('checkQueryRateLimit', () => {
-  let mockRedis: { eval: jest.Mock };
+  let mockRedis: ReturnType<typeof mockCounterRedis>;
 
   beforeEach(() => {
     jest.clearAllMocks();
-    mockRedis = { eval: jest.fn() };
+    mockRedis = mockCounterRedis();
     mockGetRedisConnection.mockReturnValue(mockRedis as never);
   });
 
   it('rejects over the cap and reports the remaining window', async () => {
     mockIsRedisReady.mockReturnValue(true);
-    mockRedis.eval.mockResolvedValue([21, 188]);
+    mockRedis.incrWithTtl.mockResolvedValue([21, 188]);
 
     const result = await checkQueryRateLimit('advisorSummary', 'user123');
 
     expect(result.allowed).toBe(false);
     if (!result.allowed) expect(result.retryAfter).toBe(188);
-    expect(mockRedis.eval).toHaveBeenCalledWith(
-      expect.any(String),
-      1,
-      'rl:query:advisorSummary:user123',
-      '300'
+    expect(mockRedis.incrWithTtl).toHaveBeenCalledWith('rl:query:advisorSummary:user123', '300');
+  });
+});
+
+describe('checkAuthRateLimit', () => {
+  let mockRedis: ReturnType<typeof mockCounterRedis>;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockRedis = mockCounterRedis();
+    mockGetRedisConnection.mockReturnValue(mockRedis as never);
+  });
+
+  it('allows a signup attempt under the cap', async () => {
+    mockIsRedisReady.mockReturnValue(true);
+    mockRedis.incrWithTtl.mockResolvedValue([1, 60]);
+
+    expect(await checkAuthRateLimit('signup', '203.0.113.4')).toEqual({
+      allowed: true,
+      redisAvailable: true,
+    });
+  });
+
+  it('keys on the caller identifier and carries the window as the TTL', async () => {
+    mockIsRedisReady.mockReturnValue(true);
+    mockRedis.incrWithTtl.mockResolvedValue([1, 60]);
+
+    await checkAuthRateLimit('forgot-password', '203.0.113.4');
+
+    expect(mockRedis.incrWithTtl).toHaveBeenCalledTimes(1);
+    expect(mockRedis.incrWithTtl).toHaveBeenCalledWith(
+      'rl:auth:forgot-password:203.0.113.4',
+      String(AUTH_RATE_LIMITS['forgot-password'].windowSeconds)
     );
+  });
+
+  it('rejects past the cap and reports the remaining window', async () => {
+    mockIsRedisReady.mockReturnValue(true);
+    // 6th signup from this IP in the minute, against a cap of 5.
+    mockRedis.incrWithTtl.mockResolvedValue([6, 41]);
+
+    const result = await checkAuthRateLimit('signup', '203.0.113.4');
+
+    expect(result.allowed).toBe(false);
+    if (!result.allowed) expect(result.retryAfter).toBe(41);
+  });
+
+  it('still rejects when the counter comes back without a usable TTL', async () => {
+    mockIsRedisReady.mockReturnValue(true);
+    // The script repairs a missing TTL, so this is belt and braces: a brute
+    // force must never be waved through on the strength of a bad TTL read.
+    mockRedis.incrWithTtl.mockResolvedValue([6, -1]);
+
+    const result = await checkAuthRateLimit('signup', '203.0.113.4');
+
+    expect(result.allowed).toBe(false);
+    if (!result.allowed) {
+      expect(result.retryAfter).toBe(AUTH_RATE_LIMITS.signup.windowSeconds);
+    }
+  });
+
+  it('falls back to the in-memory limiter when Redis is unavailable', async () => {
+    mockIsRedisReady.mockReturnValue(false);
+
+    const result = await checkAuthRateLimit('signup', 'auth-memory-ip');
+
+    expect(result).toEqual({ allowed: true, redisAvailable: false });
+    expect(mockRedis.incrWithTtl).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the in-memory limiter when the script throws', async () => {
+    mockIsRedisReady.mockReturnValue(true);
+    mockRedis.incrWithTtl.mockRejectedValue(new Error('Connection failed'));
+
+    const result = await checkAuthRateLimit('signup', 'auth-throwing-ip');
+
+    expect(result).toEqual({ allowed: true, redisAvailable: false });
+  });
+
+  it('caps a brute force at maxRequests once the in-memory limiter takes over', async () => {
+    mockIsRedisReady.mockReturnValue(false);
+    const ip = 'auth-burst-ip';
+    const { maxRequests } = AUTH_RATE_LIMITS.signup;
+
+    const results = [];
+    for (let i = 0; i < maxRequests + 2; i++) {
+      results.push(await checkAuthRateLimit('signup', ip));
+    }
+
+    // The Redis outage must not become an open door: the fallback still holds
+    // the same cap for the window.
+    expect(results.filter((r) => r.allowed)).toHaveLength(maxRequests);
+    expect(results.filter((r) => !r.allowed)).toHaveLength(2);
   });
 });
 
 describe('acquireSuuntoApiCall', () => {
   let mockRedis: {
-    eval: jest.Mock;
+    defineCommand: jest.Mock;
+    incrWithTtl: jest.Mock;
     decr: jest.Mock;
     get: jest.Mock;
   };
@@ -603,7 +717,7 @@ describe('acquireSuuntoApiCall', () => {
     mockRedis = {
       // Both counters now go through the INCR-plus-TTL script, which returns
       // [count, ttl] in one round trip.
-      eval: jest.fn(),
+      ...mockCounterRedis(),
       decr: jest.fn(),
       get: jest.fn(),
     };
@@ -613,7 +727,7 @@ describe('acquireSuuntoApiCall', () => {
   it('allows the call when both counters are well under cap', async () => {
     mockIsRedisReady.mockReturnValue(true);
     // First eval is the minute counter, second is the week counter.
-    mockRedis.eval.mockResolvedValueOnce([1, 90]).mockResolvedValueOnce([1, 691200]);
+    mockRedis.incrWithTtl.mockResolvedValueOnce([1, 90]).mockResolvedValueOnce([1, 691200]);
 
     const result = await acquireSuuntoApiCall();
 
@@ -627,24 +741,24 @@ describe('acquireSuuntoApiCall', () => {
 
   it('passes each bucket its own TTL to the counter script', async () => {
     mockIsRedisReady.mockReturnValue(true);
-    mockRedis.eval.mockResolvedValueOnce([5, 40]).mockResolvedValueOnce([42, 600000]);
+    mockRedis.incrWithTtl.mockResolvedValueOnce([5, 40]).mockResolvedValueOnce([42, 600000]);
 
     await acquireSuuntoApiCall();
 
     // 90s for the minute bucket, 8 days for the week bucket, both as the
     // script's EXPIRE argument.
-    expect(mockRedis.eval).toHaveBeenNthCalledWith(
-      1, expect.any(String), 1, expect.stringContaining('rl:suunto:quota:minute'), '90'
+    expect(mockRedis.incrWithTtl).toHaveBeenNthCalledWith(
+      1, expect.stringContaining('rl:suunto:quota:minute'), '90'
     );
-    expect(mockRedis.eval).toHaveBeenNthCalledWith(
-      2, expect.any(String), 1, expect.stringContaining('rl:suunto:quota:week'), String(8 * 24 * 60 * 60)
+    expect(mockRedis.incrWithTtl).toHaveBeenNthCalledWith(
+      2, expect.stringContaining('rl:suunto:quota:week'), String(8 * 24 * 60 * 60)
     );
   });
 
   it('denies when the per-minute cap is hit and rolls back BOTH counters', async () => {
     mockIsRedisReady.mockReturnValue(true);
     // 11th call in the minute → over 10/min cap.
-    mockRedis.eval.mockResolvedValueOnce([11, 35]).mockResolvedValueOnce([50, 600000]);
+    mockRedis.incrWithTtl.mockResolvedValueOnce([11, 35]).mockResolvedValueOnce([50, 600000]);
     mockRedis.decr.mockResolvedValue(10);
 
     const result = await acquireSuuntoApiCall();
@@ -665,7 +779,7 @@ describe('acquireSuuntoApiCall', () => {
 
   it('falls back to retryAfter=60 when TTL is unavailable', async () => {
     mockIsRedisReady.mockReturnValue(true);
-    mockRedis.eval.mockResolvedValueOnce([11, -1]).mockResolvedValueOnce([50, 600000]);
+    mockRedis.incrWithTtl.mockResolvedValueOnce([11, -1]).mockResolvedValueOnce([50, 600000]);
     mockRedis.decr.mockResolvedValue(10);
 
     const result = await acquireSuuntoApiCall();
@@ -689,7 +803,7 @@ describe('acquireSuuntoApiCall', () => {
 
   it('allows the call when Redis throws (graceful degradation)', async () => {
     mockIsRedisReady.mockReturnValue(true);
-    mockRedis.eval.mockRejectedValue(new Error('Connection failed'));
+    mockRedis.incrWithTtl.mockRejectedValue(new Error('Connection failed'));
 
     const result = await acquireSuuntoApiCall();
 
