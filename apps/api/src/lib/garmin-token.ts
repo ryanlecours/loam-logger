@@ -136,12 +136,17 @@ async function readGarminTokens(userId: string): Promise<IntegrationTokensResult
  * need no credential, but they still must not ingest for a rider who
  * disconnected. Asking for a token instead would fail them on a refresh outage
  * and throw away a payload already in hand.
+ *
+ * Typed as the store's own states rather than as GarminTokenFailure's reasons.
+ * Those differ by one: `refresh_failed` cannot occur here, because this never
+ * attempts a refresh. Borrowing the wider union would put an unreachable member
+ * in the type and, worse, leave callers with a branch they cannot exercise while
+ * making the switch below look complete when it is not.
  */
 export async function getGarminConnectionState(
   userId: string
-): Promise<GarminTokenFailure['reason'] | 'live'> {
-  const read = await readGarminTokens(userId);
-  return read.state === 'live' ? 'live' : read.state;
+): Promise<IntegrationTokensResult['state']> {
+  return (await readGarminTokens(userId)).state;
 }
 
 /**

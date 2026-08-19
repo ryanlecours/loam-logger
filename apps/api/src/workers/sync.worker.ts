@@ -588,16 +588,26 @@ async function syncGarminActivity(
   if (details?.pushedActivity) {
     const connection = await getGarminConnectionState(userId);
 
-    if (connection === 'disconnected') {
-      dropForDisconnected();
-      return;
-    }
+    // Everything that is not `live` is answered explicitly, and the `never`
+    // assignment at the end is what keeps that true. Testing for the known bad
+    // states and letting the rest fall through would read the same today and
+    // silently treat a state added later as a healthy connection, ingesting for
+    // a rider we can no longer vouch for. This way the compiler stops us.
+    if (connection !== 'live') {
+      if (connection === 'disconnected') {
+        dropForDisconnected();
+        return;
+      }
 
-    // Not the rider's doing, so it must not be dropped as though it were: a key
-    // that stopped opening would otherwise read as every rider disconnecting at
-    // once, silently, while their rides went in the bin.
-    if (connection === 'undecryptable') {
-      throw new UnrecoverableError('Garmin credentials will not decrypt');
+      // Not the rider's doing, so it must not be dropped as though it were: a
+      // key that stopped opening would otherwise read as every rider
+      // disconnecting at once, silently, while their rides went in the bin.
+      if (connection === 'undecryptable') {
+        throw new UnrecoverableError('Garmin credentials will not decrypt');
+      }
+
+      const unhandled: never = connection;
+      throw new Error(`Unhandled Garmin connection state: ${String(unhandled)}`);
     }
   } else {
     const token = await getValidGarminToken(userId);

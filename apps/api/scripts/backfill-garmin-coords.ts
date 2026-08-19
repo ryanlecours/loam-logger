@@ -88,6 +88,7 @@ async function main() {
   let totalRides = 0;
   let usersTriggered = 0;
   let usersSkipped = 0;
+  let usersUndecryptable = 0;
   let chunksAccepted = 0;
 
   for (const g of targets) {
@@ -120,6 +121,7 @@ async function main() {
     if (!token.ok) {
       console.log(`  ↳ SKIP: no valid Garmin token (${token.reason})`);
       usersSkipped++;
+      if (token.reason === 'undecryptable') usersUndecryptable++;
       continue;
     }
 
@@ -147,6 +149,19 @@ async function main() {
       `${usersTriggered} ${args.execute ? 'triggered' : 'would trigger'}, ${usersSkipped} skipped` +
       (args.execute ? `, ${chunksAccepted} Garmin chunk(s) accepted` : '')
   );
+
+  // Said once, at the end, where an operator is actually looking. Undecryptable
+  // is not a per-rider fact: it means the encryption key moved, so the run did
+  // not skip N riders for N reasons, it failed for one. Buried in per-rider
+  // lines that reads as a quiet no-op run.
+  if (usersUndecryptable > 0) {
+    console.error(
+      `\nWARNING: ${usersUndecryptable} rider(s) had credentials that would not decrypt.\n` +
+        `This is an encryption-key problem, not a connection problem: check that\n` +
+        `TOKEN_ENCRYPTION_KEY matches the key these rows were written with before\n` +
+        `reading anything into the skip count above.`
+    );
+  }
   if (!args.execute) {
     console.log('Dry run only — re-run with --execute to fire Garmin backfill requests.');
   } else {
