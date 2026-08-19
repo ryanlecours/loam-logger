@@ -25,8 +25,11 @@
  * else the bike row's createdAt. So a rider who has been logging rides for two
  * seasons sees those hours immediately rather than starting from today.
  *
- * IDEMPOTENT: a bike that already has a component of a given type is skipped for
- * that type, so re-running is safe and only fills gaps.
+ * IDEMPOTENT: a bike that has EVER had a component of a given type is skipped
+ * for that type, so re-running is safe and only fills gaps. "Ever" is load
+ * bearing: a retired component no longer belongs to the bike, so the check
+ * reads install history rather than the current component list, and a part the
+ * rider retired on purpose is never resurrected by a later run.
  *
  * ISOLATED PER BIKE: each bike gets its own transaction and its own try/catch,
  * so one bike failing on bad data or a connection blip rolls that bike back and
@@ -97,10 +100,22 @@ async function main() {
       createdAt: true,
       acquisitionDate: true,
       components: {
-        // Retired components still occupy the slot conceptually: if a rider
-        // already added and retired a motor, this script must not add a second
-        // one behind their back.
         select: { type: true },
+      },
+      // Install history, which is the only durable record that a type was ever
+      // on this bike. Retiring a component nulls its bikeId (see the retire and
+      // swap paths in resolvers.ts, and the note on Component.bikeId in
+      // schema.prisma, which does it to keep the
+      // unique(bikeId, type, location) index free for the replacement), so a
+      // retired motor drops out of `components` entirely. Reading only that
+      // relation would make this script re-create a motor the rider had
+      // deliberately retired, silently, on the next run.
+      //
+      // BikeComponentInstall keeps bikeId non-null forever and only marks
+      // removedAt, so rows here survive retirement. No removedAt filter on
+      // purpose: a removed install is exactly the case being guarded against.
+      installs: {
+        select: { component: { select: { type: true } } },
       },
     },
     orderBy: { createdAt: 'asc' },
@@ -116,7 +131,13 @@ async function main() {
 
   for (const bike of bikes) {
     const label = `${bike.nickname ?? `${bike.manufacturer} ${bike.model}`} (${bike.id})`;
-    const existing = new Set(bike.components.map((c) => c.type as string));
+    // Union of both sources, because neither alone is complete. The relation
+    // catches a component installed without an install row (legacy data); the
+    // history catches one that has since been retired off the bike.
+    const existing = new Set<string>([
+      ...bike.components.map((c) => c.type as string),
+      ...bike.installs.map((i) => i.component.type as string),
+    ]);
     const missing = EBIKE_TYPES.filter((t) => !existing.has(t));
 
     // Count every type that was already present, not just the bikes where all
@@ -214,8 +235,17 @@ async function main() {
       // transaction has already rolled back, so the bike is untouched rather
       // than half-written, and the script is idempotent, so a later re-run
       // retries exactly these and skips everything that succeeded.
-      const message = err instanceof Error ? err.message : String(err);
+      //
+      // The summary keeps one line per bike, because its job is to be glanced
+      // at to see which bikes need a retry. Prisma's known-request errors carry
+      // the whole failing query across many lines, which would turn that list
+      // into a wall of unindented text. So stdout gets the first line and
+      // stderr gets the whole thing: a run piped to a file stays scannable
+      // while the detail needed to actually diagnose a failure is never lost.
+      const raw = err instanceof Error ? err.message : String(err);
+      const message = raw.split(/\r?\n/)[0].trim() || raw.slice(0, 200);
       failures.push({ bike: label, error: message });
+      console.error(`[backfill] ${label} failed:`, err);
       console.log(`  ! FAILED, rolled back, nothing written for this bike: ${message}`);
       console.log('');
       continue;
