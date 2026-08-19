@@ -441,7 +441,9 @@ describe('garmin-token', () => {
       expect(mockLegacyFindUnique).not.toHaveBeenCalled();
     });
 
-    it('reports no connection when the ciphertext will not decrypt', async () => {
+    // Reported as its own reason rather than as a disconnect: the rider did not
+    // do this, and the callers escalate it instead of dropping the delivery.
+    it('reports undecryptable when the ciphertext will not decrypt', async () => {
       mockIntegrationFindUnique.mockResolvedValue({
         accessTokenEnc: 'corrupt',
         refreshTokenEnc: null,
@@ -449,7 +451,11 @@ describe('garmin-token', () => {
         revokedAt: null,
       });
 
-      expect(await getValidGarminToken('user-123')).toEqual({ ok: false, reason: 'disconnected' });
+      expect(await getValidGarminToken('user-123')).toEqual({
+        ok: false,
+        reason: 'undecryptable',
+      });
+      expect(await getGarminConnectionState('user-123')).toBe('undecryptable');
       expect(mockIntegrationUpsert).not.toHaveBeenCalled();
       expect(mockLegacyFindUnique).not.toHaveBeenCalled();
     });

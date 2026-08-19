@@ -1,7 +1,8 @@
 import '../instrument'; // Ensure Sentry is initialized even if worker runs in a separate process
-import { Worker, Job } from 'bullmq';
+import { Worker, Job, UnrecoverableError } from 'bullmq';
 import * as Sentry from '@sentry/node';
 import { getQueueConnection } from '../lib/queue/connection';
+import { reportWorkerFailure } from './report-failure';
 import { acquireLock, releaseLock } from '../lib/rate-limit';
 import { prisma } from '../lib/prisma';
 import { getValidGarminToken } from '../lib/garmin-token';
@@ -256,10 +257,23 @@ async function processGarminBackfill(userId: string, year: string): Promise<void
   const backfillToken = await getValidGarminToken(userId);
 
   // Still throws for both causes, unlike the webhook-driven paths: the rider
-  // asked for this import and an ImportSession is already marked running, so
-  // returning quietly would strand it as running forever.
+  // asked for this import and a BackfillRequest is already marked in_progress,
+  // so returning quietly would strand it. Throwing runs the catch that marks it
+  // failed.
+  //
+  // How it throws differs, though. A disconnected rider cannot be fixed by
+  // trying again, so UnrecoverableError ends the job on the first attempt while
+  // still failing it. A refresh that did not complete may well be a Garmin blip,
+  // so that one keeps its retries.
   if (!backfillToken.ok) {
-    throw new Error(`Garmin token expired or not connected: ${backfillToken.reason}`);
+    if (backfillToken.reason === 'refresh_failed') {
+      throw new Error('Garmin token refresh failed');
+    }
+    throw new UnrecoverableError(
+      backfillToken.reason === 'undecryptable'
+        ? 'Garmin credentials will not decrypt'
+        : 'Garmin not connected'
+    );
   }
 
   const accessToken = backfillToken.accessToken;
@@ -732,8 +746,11 @@ async function processGarminCallback(userId: string, callbackURL: string): Promi
       event: 'garmin_callback_error',
       userId,
       error: callbackToken.reason,
-    }, '[BackfillWorker] Garmin token refresh failed for callback');
-    throw new Error('Garmin token refresh failed');
+    }, '[BackfillWorker] No usable Garmin credential for callback');
+
+    throw callbackToken.reason === 'undecryptable'
+      ? new UnrecoverableError('Garmin credentials will not decrypt')
+      : new Error('Garmin token refresh failed');
   }
 
   const accessToken = callbackToken.accessToken;
@@ -1080,22 +1097,7 @@ export function createBackfillWorker(): Worker<BackfillJobData, void, BackfillJo
       'Backfill job failed'
     );
 
-    // BullMQ emits this on every attempt, so a job configured for N retries used
-    // to ship N copies of one failure. Report only the attempt that ends it: the
-    // retries in between are the queue working as designed, not N incidents.
-    // UnrecoverableError ends a job early, with attempts left on the clock, so it
-    // is checked by name rather than being silently filtered out here.
-    const attempts = job?.opts.attempts ?? 1;
-    const isFinalAttempt = !job || job.attemptsMade >= attempts;
-    if (!isFinalAttempt && err.name !== 'UnrecoverableError') return;
-
-    Sentry.captureException(err, {
-      tags: { worker: 'backfill', jobName: job?.name, provider: job?.data.provider },
-      // Sentry counts affected users from this, not from tags. Without it every
-      // worker issue reports "0 users impacted" no matter how many riders hit it.
-      user: job?.data.userId ? { id: job.data.userId } : undefined,
-      extra: { jobId: job?.id },
-    });
+    reportWorkerFailure('backfill', job, err);
   });
 
   backfillWorker.on('error', (err) => {

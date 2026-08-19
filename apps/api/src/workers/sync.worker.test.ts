@@ -16,6 +16,7 @@ jest.mock('bullmq', () => ({
       this.name = 'DelayedError';
     }
   },
+  UnrecoverableError: jest.requireActual('bullmq').UnrecoverableError,
 }));
 
 jest.mock('../lib/rate-limit', () => ({
@@ -1003,6 +1004,45 @@ describe('processSyncJob (via worker processor)', () => {
 
         expect(mockPrisma.ride.upsert).not.toHaveBeenCalled();
         expect(mockFetch).not.toHaveBeenCalled();
+      });
+
+      /**
+       * The failure mode the disconnected-drop could otherwise create.
+       *
+       * A rotated or misconfigured TOKEN_ENCRYPTION_KEY makes every stored
+       * credential unreadable at once. Classified as "disconnected" that would
+       * present as the whole userbase quietly choosing to leave on the same
+       * afternoon, with their rides dropped and nothing raised anywhere. It is
+       * its own state, escalated rather than dropped, and unrecoverably so
+       * because retrying cannot re-derive a key.
+       */
+      it('escalates rather than drops when credentials will not decrypt', async () => {
+        mockGetGarminConnectionState.mockResolvedValue('undecryptable');
+
+        await expect(
+          processSyncJob({
+            name: 'syncActivity',
+            data: {
+              userId: 'user123',
+              provider: 'garmin',
+              activityId: 'summary-456',
+              pushedActivity: { ...GARMIN_SUMMARY },
+            },
+          })
+        ).rejects.toMatchObject({ name: 'UnrecoverableError' });
+
+        expect(mockPrisma.ride.upsert).not.toHaveBeenCalled();
+      });
+
+      it('escalates an undecryptable credential on the ping path too', async () => {
+        mockGetValidGarminToken.mockResolvedValue({ ok: false, reason: 'undecryptable' });
+
+        await expect(
+          processSyncJob({
+            name: 'syncActivity',
+            data: { userId: 'user123', provider: 'garmin', activityId: 'summary-456' },
+          })
+        ).rejects.toMatchObject({ name: 'UnrecoverableError' });
       });
 
       // The notification path does need a credential, so it still separates the

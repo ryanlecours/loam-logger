@@ -13,7 +13,7 @@ import { createLogger } from './logger';
 import {
   getIntegrationTokens,
   saveIntegrationTokens,
-  type IntegrationTokens,
+  type IntegrationTokensResult,
 } from './integration-tokens';
 
 const log = createLogger('garmin-token');
@@ -102,14 +102,17 @@ export async function revokeGarminToken(accessToken: string): Promise<boolean> {
  */
 export async function revokeGarminTokenForUser(userId: string): Promise<boolean> {
   try {
-    const tokens = await readGarminTokens(userId);
+    const read = await readGarminTokens(userId);
 
-    if (!tokens) {
-      log.info({ userId }, 'No token found for user');
-      return true; // No token to revoke
+    // Nothing usable to hand back to Garmin, whether the rider already left or
+    // the ciphertext will not open. Either way there is no revocation to make,
+    // and reporting failure would only block the caller's own cleanup.
+    if (read.state !== 'live') {
+      log.info({ userId, state: read.state }, 'No usable token found for user');
+      return true;
     }
 
-    return await revokeGarminToken(tokens.accessToken);
+    return await revokeGarminToken(read.tokens.accessToken);
   } catch (error) {
     log.error({ err: error, userId }, 'Token revocation for user failed');
     return false;
@@ -118,12 +121,11 @@ export async function revokeGarminTokenForUser(userId: string): Promise<boolean>
 
 
 /**
- * Read this user's Garmin tokens. Returns null when the user has no live
- * Garmin connection, which now includes a connection that was revoked or whose
- * ciphertext will not decrypt: both are states the encrypted store answers on
- * its own, with no second place to look.
+ * Read this user's Garmin tokens. A missing, revoked, or undecryptable
+ * integration all come back as a state rather than a token: the encrypted store
+ * answers each on its own, with no second place to look.
  */
-async function readGarminTokens(userId: string): Promise<IntegrationTokens | null> {
+async function readGarminTokens(userId: string): Promise<IntegrationTokensResult> {
   return getIntegrationTokens(userId, 'GARMIN');
 }
 
@@ -137,8 +139,9 @@ async function readGarminTokens(userId: string): Promise<IntegrationTokens | nul
  */
 export async function getGarminConnectionState(
   userId: string
-): Promise<'live' | 'disconnected'> {
-  return (await readGarminTokens(userId)) ? 'live' : 'disconnected';
+): Promise<GarminTokenFailure['reason'] | 'live'> {
+  const read = await readGarminTokens(userId);
+  return read.state === 'live' ? 'live' : read.state;
 }
 
 /**
@@ -153,13 +156,20 @@ export async function getGarminConnectionState(
  * but Garmin would not mint a token, or the refresh is misconfigured. Worth
  * retrying, worth alerting on.
  *
+ * `undecryptable` is a fault too, but a different one: the credential is there
+ * and we cannot read it, which means the encryption key changed under us. No
+ * amount of retrying fixes that, so it is raised once rather than retried.
+ *
  * These used to collapse into a single `null`, which is how a rider revoking
  * ACTIVITY_EXPORT turned into a recurring production error rather than a log
  * line.
  */
-export type GarminTokenResult =
-  | { ok: true; accessToken: string }
-  | { ok: false; reason: 'disconnected' | 'refresh_failed' };
+export type GarminTokenFailure = {
+  ok: false;
+  reason: 'disconnected' | 'undecryptable' | 'refresh_failed';
+};
+
+export type GarminTokenResult = { ok: true; accessToken: string } | GarminTokenFailure;
 
 /**
  * Get a valid Garmin access token for a user
@@ -169,11 +179,13 @@ export type GarminTokenResult =
  * trigger token refresh simultaneously.
  */
 export async function getValidGarminToken(userId: string): Promise<GarminTokenResult> {
-  const token = await readGarminTokens(userId);
+  const read = await readGarminTokens(userId);
 
-  if (!token) {
-    return { ok: false, reason: 'disconnected' };
+  if (read.state !== 'live') {
+    return { ok: false, reason: read.state };
   }
+
+  const token = read.tokens;
 
   // Check if token is expired or about to expire (within 5 minutes)
   const now = new Date();

@@ -1,7 +1,8 @@
 import '../instrument'; // Ensure Sentry is initialized even if worker runs in a separate process
-import { Worker, Job, DelayedError } from 'bullmq';
+import { Worker, Job, DelayedError, UnrecoverableError } from 'bullmq';
 import * as Sentry from '@sentry/node';
 import { getQueueConnection } from '../lib/queue/connection';
+import { reportWorkerFailure } from './report-failure';
 import { acquireLock, releaseLock } from '../lib/rate-limit';
 import { prisma } from '../lib/prisma';
 import { getValidStravaToken } from '../lib/strava-token';
@@ -477,6 +478,14 @@ async function syncGarminLatest(userId: string): Promise<void> {
       );
       return;
     }
+
+    // The credential is there and will not open, so the encryption key moved
+    // under us. Retrying cannot re-derive it, but this must not pass silently:
+    // it is an operational fault affecting every rider at once.
+    if (token.reason === 'undecryptable') {
+      throw new UnrecoverableError('Garmin credentials will not decrypt');
+    }
+
     throw new Error('Garmin token refresh failed');
   }
 
@@ -577,9 +586,18 @@ async function syncGarminActivity(
   let accessToken: string | undefined;
 
   if (details?.pushedActivity) {
-    if ((await getGarminConnectionState(userId)) === 'disconnected') {
+    const connection = await getGarminConnectionState(userId);
+
+    if (connection === 'disconnected') {
       dropForDisconnected();
       return;
+    }
+
+    // Not the rider's doing, so it must not be dropped as though it were: a key
+    // that stopped opening would otherwise read as every rider disconnecting at
+    // once, silently, while their rides went in the bin.
+    if (connection === 'undecryptable') {
+      throw new UnrecoverableError('Garmin credentials will not decrypt');
     }
   } else {
     const token = await getValidGarminToken(userId);
@@ -595,8 +613,11 @@ async function syncGarminActivity(
         userId,
         activityId,
         error: token.reason,
-      }, '[SyncWorker] Garmin token refresh failed');
-      throw new Error('Garmin token refresh failed');
+      }, '[SyncWorker] No usable Garmin credential');
+
+      throw token.reason === 'undecryptable'
+        ? new UnrecoverableError('Garmin credentials will not decrypt')
+        : new Error('Garmin token refresh failed');
     }
 
     accessToken = token.accessToken;
@@ -1382,22 +1403,7 @@ export function createSyncWorker(): Worker<SyncJobData, void, SyncJobName> {
   syncWorker.on('failed', (job, err) => {
     logger.error({ jobId: job?.id, jobName: job?.name, error: err.message }, '[SyncWorker] Job failed');
 
-    // BullMQ emits this on every attempt, so a job configured for N retries used
-    // to ship N copies of one failure. Report only the attempt that ends it: the
-    // retries in between are the queue working as designed, not N incidents.
-    // UnrecoverableError ends a job early, with attempts left on the clock, so it
-    // is checked by name rather than being silently filtered out here.
-    const attempts = job?.opts.attempts ?? 1;
-    const isFinalAttempt = !job || job.attemptsMade >= attempts;
-    if (!isFinalAttempt && err.name !== 'UnrecoverableError') return;
-
-    Sentry.captureException(err, {
-      tags: { worker: 'sync', jobName: job?.name, provider: job?.data.provider },
-      // Sentry counts affected users from this, not from tags. Without it every
-      // worker issue reports "0 users impacted" no matter how many riders hit it.
-      user: job?.data.userId ? { id: job.data.userId } : undefined,
-      extra: { jobId: job?.id },
-    });
+    reportWorkerFailure('sync', job, err);
   });
 
   syncWorker.on('error', (err) => {

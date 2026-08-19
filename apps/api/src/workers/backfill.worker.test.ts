@@ -10,6 +10,7 @@ jest.mock('bullmq', () => ({
     on: jest.fn(),
     close: jest.fn().mockResolvedValue(undefined),
   })),
+  UnrecoverableError: jest.requireActual('bullmq').UnrecoverableError,
 }));
 
 jest.mock('../lib/rate-limit', () => ({
@@ -858,7 +859,7 @@ describe('processBackfillJob (via worker processor)', () => {
       ).rejects.toThrow('Lock not available, will retry');
     });
 
-    it('should throw when Garmin token is not available', async () => {
+    it('should throw when the Garmin token refresh fails', async () => {
       mockGetValidGarminToken.mockResolvedValue({ ok: false, reason: 'refresh_failed' as const });
 
       await expect(
@@ -871,7 +872,27 @@ describe('processBackfillJob (via worker processor)', () => {
             year: '2024',
           },
         })
-      ).rejects.toThrow('Garmin token expired or not connected');
+      ).rejects.toThrow('Garmin token refresh failed');
+    });
+
+    // Rider-initiated, so it still throws rather than returning: the
+    // BackfillRequest is already marked in_progress and the catch is what marks
+    // it failed. It throws unrecoverably, though, because no number of retries
+    // reconnects an account.
+    it('should fail a disconnected rider without retrying', async () => {
+      mockGetValidGarminToken.mockResolvedValue({ ok: false, reason: 'disconnected' as const });
+
+      await expect(
+        processBackfillJob({
+          name: 'backfillYear',
+          id: 'job-123',
+          data: { userId: 'user-123', provider: 'garmin', year: '2024' },
+        })
+      ).rejects.toMatchObject({ name: 'UnrecoverableError' });
+
+      expect(mockPrisma.backfillRequest.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ status: 'failed' }) })
+      );
     });
 
     it('should update status to in_progress at start', async () => {
