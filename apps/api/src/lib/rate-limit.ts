@@ -236,6 +236,56 @@ function checkMemoryRateLimit(
 }
 
 /**
+ * Lua: increment a window counter and guarantee it carries an expiry.
+ *
+ * Replaces the old `INCR` then `if (count === 1) EXPIRE` pair, which was two
+ * round trips and not atomic. If anything interrupted the gap between them (a
+ * container restart mid-request, an ioredis reconnect, an EXPIRE that errored
+ * into the caller's catch block), the key survived with no TTL. A counter with
+ * no TTL never resets, so once it passed the cap the user was rate limited on
+ * that operation forever, and `TTL` returning -1 made every rejection report
+ * the full window as `retryAfter`. That is exactly how NODE-7 stranded one
+ * rider's updateUserPreferences for four months.
+ *
+ * The `ttl < 0` branch is the self-heal: it re-arms the expiry on any key that
+ * already lost one, so existing orphans age out on their next hit instead of
+ * needing a manual DEL.
+ *
+ * Returns [count, ttl]; ttl is always positive on return.
+ */
+const INCR_WITH_TTL = `
+  local count = redis.call('INCR', KEYS[1])
+  local ttl = redis.call('TTL', KEYS[1])
+  if ttl < 0 then
+    redis.call('EXPIRE', KEYS[1], ARGV[1])
+    ttl = tonumber(ARGV[1])
+  end
+  return {count, ttl}
+`;
+
+/**
+ * Increment a fixed-window counter, arming (or repairing) its expiry in the
+ * same atomic call.
+ *
+ * @param key - The Redis counter key
+ * @param windowSeconds - Window length, used as the key's TTL
+ * @returns The post-increment count and the key's remaining TTL in seconds
+ */
+async function incrementWindowCounter(
+  key: string,
+  windowSeconds: number
+): Promise<{ count: number; ttl: number }> {
+  const redis = getRedisConnection();
+  const [count, ttl] = (await redis.eval(
+    INCR_WITH_TTL,
+    1,
+    key,
+    String(windowSeconds)
+  )) as [number, number];
+  return { count, ttl };
+}
+
+/**
  * Rate limit configuration for admin actions.
  * Values are in seconds.
  */
@@ -398,22 +448,20 @@ export async function checkMutationRateLimit(
   }
 
   try {
-    const redis = getRedisConnection();
-
-    // Increment the counter
-    const count = await redis.incr(key);
-
-    // Set expiry on first request in the window
-    if (count === 1) {
-      await redis.expire(key, config.windowSeconds);
-    }
+    // Counter and expiry move together: see incrementWindowCounter for why a
+    // key that loses its TTL strands the caller permanently.
+    const { count, ttl } = await incrementWindowCounter(key, config.windowSeconds);
 
     if (count <= config.maxRequests) {
       return { allowed: true, redisAvailable: true };
     }
 
-    // Rate limited - get TTL for retry info
-    const ttl = await redis.ttl(key);
+    // Rejections no longer reach Sentry (they are the limiter working), so
+    // this log is the only trace a caller was throttled.
+    console.warn(
+      `[RateLimit] mutation ${operation} rejected for ${userId}, retry in ${ttl > 0 ? ttl : config.windowSeconds}s`
+    );
+    // Rate limited - report the remaining window for retry info
     return {
       allowed: false,
       retryAfter: ttl > 0 ? ttl : config.windowSeconds,
@@ -463,22 +511,20 @@ export async function checkQueryRateLimit(
   }
 
   try {
-    const redis = getRedisConnection();
-
-    // Increment the counter
-    const count = await redis.incr(key);
-
-    // Set expiry on first request in the window
-    if (count === 1) {
-      await redis.expire(key, config.windowSeconds);
-    }
+    // Counter and expiry move together: see incrementWindowCounter for why a
+    // key that loses its TTL strands the caller permanently.
+    const { count, ttl } = await incrementWindowCounter(key, config.windowSeconds);
 
     if (count <= config.maxRequests) {
       return { allowed: true, redisAvailable: true };
     }
 
-    // Rate limited - get TTL for retry info
-    const ttl = await redis.ttl(key);
+    // Rejections no longer reach Sentry (they are the limiter working), so
+    // this log is the only trace a caller was throttled.
+    console.warn(
+      `[RateLimit] query ${operation} rejected for ${userId}, retry in ${ttl > 0 ? ttl : config.windowSeconds}s`
+    );
+    // Rate limited - report the remaining window for retry info
     return {
       allowed: false,
       retryAfter: ttl > 0 ? ttl : config.windowSeconds,
@@ -528,22 +574,20 @@ export async function checkAuthRateLimit(
   }
 
   try {
-    const redis = getRedisConnection();
-
-    // Increment the counter
-    const count = await redis.incr(key);
-
-    // Set expiry on first request in the window
-    if (count === 1) {
-      await redis.expire(key, config.windowSeconds);
-    }
+    // Counter and expiry move together: see incrementWindowCounter for why a
+    // key that loses its TTL strands the caller permanently.
+    const { count, ttl } = await incrementWindowCounter(key, config.windowSeconds);
 
     if (count <= config.maxRequests) {
       return { allowed: true, redisAvailable: true };
     }
 
-    // Rate limited - get TTL for retry info
-    const ttl = await redis.ttl(key);
+    // Rejections no longer reach Sentry (they are the limiter working), so
+    // this log is the only trace a caller was throttled.
+    console.warn(
+      `[RateLimit] auth ${operation} rejected for ${identifier}, retry in ${ttl > 0 ? ttl : config.windowSeconds}s`
+    );
+    // Rate limited - report the remaining window for retry info
     return {
       allowed: false,
       retryAfter: ttl > 0 ? ttl : config.windowSeconds,
@@ -729,19 +773,13 @@ export async function acquireSuuntoApiCall(): Promise<SuuntoQuotaResult> {
     const minuteKey = buildSuuntoMinuteKey();
     const weekKey = buildSuuntoWeekKey();
 
-    const minuteCount = await redis.incr(minuteKey);
-    if (minuteCount === 1) {
-      // First hit in this bucket — set TTL slightly longer than the bucket
-      // window so a slow rollover doesn't leave the key dangling forever.
-      await redis.expire(minuteKey, 90);
-    }
-
-    const weekCount = await redis.incr(weekKey);
-    if (weekCount === 1) {
-      // 8 days TTL — slightly longer than a week to avoid early eviction
-      // around the bucket boundary.
-      await redis.expire(weekKey, 8 * 24 * 60 * 60);
-    }
+    // TTL slightly longer than each bucket window so a slow rollover doesn't
+    // leave the key dangling: 90s for the minute bucket, 8 days for the week.
+    // Both go through incrementWindowCounter so the expiry can never be lost
+    // between the INCR and the EXPIRE. A weekly counter stuck without a TTL
+    // would exhaust that week's Suunto budget and never recover.
+    const { count: minuteCount, ttl: minuteTtl } = await incrementWindowCounter(minuteKey, 90);
+    const { count: weekCount } = await incrementWindowCounter(weekKey, 8 * 24 * 60 * 60);
 
     if (minuteCount > SUUNTO_QUOTA.perMinute) {
       // Roll back BOTH counters: the call is being denied so it never hits
@@ -751,8 +789,7 @@ export async function acquireSuuntoApiCall(): Promise<SuuntoQuotaResult> {
       // weeklyStartRejectAt gate earlier than necessary.
       await redis.decr(minuteKey);
       await redis.decr(weekKey);
-      const ttl = await redis.ttl(minuteKey);
-      const retryAfter = ttl > 0 ? ttl : 60;
+      const retryAfter = minuteTtl > 0 ? minuteTtl : 60;
       quotaLog.warn(
         { minuteCount, weekCount, retryAfter },
         'Per-minute cap hit'

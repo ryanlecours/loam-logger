@@ -110,6 +110,20 @@ describe('sentryApolloPlugin — didEncounterErrors', () => {
     expect(mockedSentry.captureException).not.toHaveBeenCalled();
   });
 
+  it('does NOT capture RATE_LIMITED errors', async () => {
+    // The retryAfter seconds sit in the message, so every distinct value used
+    // to open its own Sentry issue for the same working limiter.
+    const limited = new GraphQLError('Rate limit exceeded. Try again in 37 seconds.', {
+      extensions: { code: 'RATE_LIMITED', retryAfter: 37 },
+    });
+    await runDidEncounterErrors({
+      request: { operationName: 'UpdateUserPreferences', variables: null, query: null },
+      errors: [limited],
+    });
+
+    expect(mockedSentry.captureException).not.toHaveBeenCalled();
+  });
+
   it('does NOT capture validation errors', async () => {
     const validation = new GraphQLError('bad query syntax', {
       extensions: { code: 'GRAPHQL_VALIDATION_FAILED' },
