@@ -32,19 +32,19 @@ export async function apiGet<T>(
   query?: Record<string, string>
 ): Promise<T> {
   const token = await getValidGarminToken(userId);
-  if (!token) throw new Error('No Garmin token for user');
+  if (!token.ok) throw new Error(`No Garmin token for user: ${token.reason}`);
 
   const request = (bearer: string) =>
     fetch(buildUrl(path, query), {
       headers: { authorization: `Bearer ${bearer}`, accept: 'application/json' },
     });
 
-  let res = await request(token);
+  let res = await request(token.accessToken);
 
   if (res.status === 401 || res.status === 403) {
     const retryToken = await getValidGarminToken(userId);
-    if (retryToken && retryToken !== token) {
-      res = await request(retryToken);
+    if (retryToken.ok && retryToken.accessToken !== token.accessToken) {
+      res = await request(retryToken.accessToken);
     }
   }
 

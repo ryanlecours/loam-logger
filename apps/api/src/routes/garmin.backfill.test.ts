@@ -132,7 +132,7 @@ describe('GET /garmin/backfill/fetch', () => {
     };
 
     // Default: user has valid token
-    mockGetValidGarminToken.mockResolvedValue('valid-access-token');
+    mockGetValidGarminToken.mockResolvedValue({ ok: true, accessToken: 'valid-access-token' });
     // Default: no existing backfill
     mockBackfillFindUnique.mockResolvedValue(null);
     mockBackfillUpsert.mockResolvedValue({});
@@ -161,7 +161,7 @@ describe('GET /garmin/backfill/fetch', () => {
     });
 
     it('should return 400 when Garmin token is not available', async () => {
-      mockGetValidGarminToken.mockResolvedValue(null);
+      mockGetValidGarminToken.mockResolvedValue({ ok: false, reason: 'disconnected' });
 
       await invokeHandler(handler, mockReq as Request, mockRes as Response);
 
@@ -706,7 +706,7 @@ describe('extractMinStartDate behavior', () => {
       json: jest.fn().mockReturnThis(),
     };
 
-    mockGetValidGarminToken.mockResolvedValue('valid-token');
+    mockGetValidGarminToken.mockResolvedValue({ ok: true, accessToken: 'valid-token' });
     mockBackfillFindUnique.mockResolvedValue(null);
     mockBackfillUpsert.mockResolvedValue({});
     mockImportSessionFindFirst.mockResolvedValue(null);

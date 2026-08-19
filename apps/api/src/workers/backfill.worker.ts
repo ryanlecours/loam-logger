@@ -137,11 +137,15 @@ async function processGarminCoordRepair(userId: string): Promise<void> {
     return;
   }
 
-  const accessToken = await getValidGarminToken(userId);
-  if (!accessToken) {
-    logger.warn({ userId }, '[BackfillWorker] Garmin coord-repair skipped: no valid token');
+  const repairToken = await getValidGarminToken(userId);
+  if (!repairToken.ok) {
+    logger.warn(
+      { userId, reason: repairToken.reason },
+      '[BackfillWorker] Garmin coord-repair skipped: no valid token'
+    );
     return;
   }
+  const accessToken = repairToken.accessToken;
 
   // End one day past the last affected ride so its 30-day chunk is fully covered.
   const startDate = minStart;
@@ -249,11 +253,16 @@ async function processBackfillJob(job: Job<BackfillJobData, void, BackfillJobNam
  * 30-day chunks. Activities are delivered asynchronously via webhooks.
  */
 async function processGarminBackfill(userId: string, year: string): Promise<void> {
-  const accessToken = await getValidGarminToken(userId);
+  const backfillToken = await getValidGarminToken(userId);
 
-  if (!accessToken) {
-    throw new Error('Garmin token expired or not connected');
+  // Still throws for both causes, unlike the webhook-driven paths: the rider
+  // asked for this import and an ImportSession is already marked running, so
+  // returning quietly would strand it as running forever.
+  if (!backfillToken.ok) {
+    throw new Error(`Garmin token expired or not connected: ${backfillToken.reason}`);
   }
+
+  const accessToken = backfillToken.accessToken;
 
   // Calculate date range
   const currentYear = new Date().getFullYear();
@@ -705,16 +714,29 @@ async function processSuuntoBackfill(userId: string, year: string): Promise<void
  * Fetches activities from the callback URL and upserts them.
  */
 async function processGarminCallback(userId: string, callbackURL: string): Promise<void> {
-  const accessToken = await getValidGarminToken(userId);
+  const callbackToken = await getValidGarminToken(userId);
 
-  if (!accessToken) {
+  if (!callbackToken.ok) {
+    // Webhook-driven like the sync worker, so the same rule applies: a rider who
+    // disconnected between requesting a backfill and Garmin answering it is not
+    // an incident, and retrying cannot produce a credential they revoked.
+    if (callbackToken.reason === 'disconnected') {
+      logger.warn({
+        event: 'garmin_callback_skipped_disconnected',
+        userId,
+      }, '[BackfillWorker] Garmin callback for a disconnected rider; dropping');
+      return;
+    }
+
     logger.error({
       event: 'garmin_callback_error',
       userId,
-      error: 'no_valid_token',
-    }, '[BackfillWorker] No valid Garmin token for callback');
-    throw new Error('Garmin token expired or not connected');
+      error: callbackToken.reason,
+    }, '[BackfillWorker] Garmin token refresh failed for callback');
+    throw new Error('Garmin token refresh failed');
   }
+
+  const accessToken = callbackToken.accessToken;
 
   logger.info({
     event: 'garmin_callback_fetch_start',
@@ -1057,7 +1079,23 @@ export function createBackfillWorker(): Worker<BackfillJobData, void, BackfillJo
       { jobId: job?.id, jobName: job?.name, year: job?.data.year, error: err.message },
       'Backfill job failed'
     );
-    Sentry.captureException(err, { tags: { worker: 'backfill', jobName: job?.name }, extra: { jobId: job?.id } });
+
+    // BullMQ emits this on every attempt, so a job configured for N retries used
+    // to ship N copies of one failure. Report only the attempt that ends it: the
+    // retries in between are the queue working as designed, not N incidents.
+    // UnrecoverableError ends a job early, with attempts left on the clock, so it
+    // is checked by name rather than being silently filtered out here.
+    const attempts = job?.opts.attempts ?? 1;
+    const isFinalAttempt = !job || job.attemptsMade >= attempts;
+    if (!isFinalAttempt && err.name !== 'UnrecoverableError') return;
+
+    Sentry.captureException(err, {
+      tags: { worker: 'backfill', jobName: job?.name, provider: job?.data.provider },
+      // Sentry counts affected users from this, not from tags. Without it every
+      // worker issue reports "0 users impacted" no matter how many riders hit it.
+      user: job?.data.userId ? { id: job.data.userId } : undefined,
+      extra: { jobId: job?.id },
+    });
   });
 
   backfillWorker.on('error', (err) => {

@@ -22,7 +22,7 @@ const log = createLogger('garmin-token');
 // When multiple requests need a token refresh simultaneously, they share the same promise
 // Stores { promise, timestamp } to enable timeout-based cleanup
 interface CacheEntry {
-  promise: Promise<string | null>;
+  promise: Promise<GarminTokenResult>;
   timestamp: number;
 }
 const refreshPromiseCache = new Map<string, CacheEntry>();
@@ -128,17 +128,51 @@ async function readGarminTokens(userId: string): Promise<IntegrationTokens | nul
 }
 
 /**
+ * Whether this user has a Garmin connection at all, without minting anything.
+ *
+ * For callers holding data Garmin PUSHed to them: they make no request, so they
+ * need no credential, but they still must not ingest for a rider who
+ * disconnected. Asking for a token instead would fail them on a refresh outage
+ * and throw away a payload already in hand.
+ */
+export async function getGarminConnectionState(
+  userId: string
+): Promise<'live' | 'disconnected'> {
+  return (await readGarminTokens(userId)) ? 'live' : 'disconnected';
+}
+
+/**
+ * Why a token request did not produce one.
+ *
+ * `disconnected` is a state the rider put us in: no integration row, a revoked
+ * one, or ciphertext that will not decrypt under the current key. Retrying
+ * cannot conjure the credential back and nobody needs paging for it, so callers
+ * stop quietly.
+ *
+ * `refresh_failed` is a fault on our side of the line: the connection is live
+ * but Garmin would not mint a token, or the refresh is misconfigured. Worth
+ * retrying, worth alerting on.
+ *
+ * These used to collapse into a single `null`, which is how a rider revoking
+ * ACTIVITY_EXPORT turned into a recurring production error rather than a log
+ * line.
+ */
+export type GarminTokenResult =
+  | { ok: true; accessToken: string }
+  | { ok: false; reason: 'disconnected' | 'refresh_failed' };
+
+/**
  * Get a valid Garmin access token for a user
  * Automatically refreshes the token if it's expired
  *
  * Uses promise caching to prevent race conditions when multiple requests
  * trigger token refresh simultaneously.
  */
-export async function getValidGarminToken(userId: string): Promise<string | null> {
+export async function getValidGarminToken(userId: string): Promise<GarminTokenResult> {
   const token = await readGarminTokens(userId);
 
   if (!token) {
-    return null;
+    return { ok: false, reason: 'disconnected' };
   }
 
   // Check if token is expired or about to expire (within 5 minutes)
@@ -147,13 +181,15 @@ export async function getValidGarminToken(userId: string): Promise<string | null
 
   if (now < expiryBuffer) {
     // Token is still valid
-    return token.accessToken;
+    return { ok: true, accessToken: token.accessToken };
   }
 
-  // Token is expired or about to expire, try to refresh it
+  // Token is expired or about to expire, try to refresh it. A live connection
+  // with no refresh token is stranded rather than disconnected: the row is
+  // there, we simply cannot renew it, and only a reconnect fixes that.
   if (!token.refreshToken) {
     log.error({ userId }, 'No refresh token available');
-    return null;
+    return { ok: false, reason: 'refresh_failed' };
   }
 
   // Check if there's already a refresh in progress for this user
@@ -192,14 +228,17 @@ export async function getValidGarminToken(userId: string): Promise<string | null
 /**
  * Internal function to perform the actual token refresh
  */
-async function refreshGarminToken(userId: string, refreshToken: string): Promise<string | null> {
+async function refreshGarminToken(
+  userId: string,
+  refreshToken: string
+): Promise<GarminTokenResult> {
   try {
     const TOKEN_URL = process.env.GARMIN_TOKEN_URL;
     const CLIENT_ID = process.env.GARMIN_CLIENT_ID;
 
     if (!TOKEN_URL || !CLIENT_ID) {
       log.error('Missing GARMIN_TOKEN_URL or GARMIN_CLIENT_ID');
-      return null;
+      return { ok: false, reason: 'refresh_failed' };
     }
 
     log.info({ userId }, 'Refreshing expired token');
@@ -228,7 +267,7 @@ async function refreshGarminToken(userId: string, refreshToken: string): Promise
         body = '(failed to read response body)';
       }
       log.error({ status: refreshRes.status, userId, body }, 'Token refresh failed');
-      return null;
+      return { ok: false, reason: 'refresh_failed' };
     }
 
     type TokenResp = {
@@ -249,9 +288,9 @@ async function refreshGarminToken(userId: string, refreshToken: string): Promise
     });
 
     log.info({ userId }, 'Token refreshed successfully');
-    return newTokens.access_token;
+    return { ok: true, accessToken: newTokens.access_token };
   } catch (error) {
     log.error({ err: error, userId }, 'Token refresh error');
-    return null;
+    return { ok: false, reason: 'refresh_failed' };
   }
 }

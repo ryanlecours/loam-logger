@@ -44,11 +44,13 @@ r.get<Empty, void, Empty, { days?: string; year?: string }>(
       }
 
       // Get valid OAuth token (auto-refreshes if expired)
-      const accessToken = await getValidGarminToken(userId);
+      const token = await getValidGarminToken(userId);
 
-      if (!accessToken) {
+      if (!token.ok) {
         return sendBadRequest(res, 'Garmin not connected or token expired. Please reconnect your Garmin account.');
       }
+
+      const accessToken = token.accessToken;
 
       // Check for existing running ImportSession - prevent concurrent backfills
       const existingImportSession = await prisma.importSession.findFirst({
