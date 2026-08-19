@@ -1,11 +1,12 @@
 import '../instrument'; // Ensure Sentry is initialized even if worker runs in a separate process
-import { Worker, Job, DelayedError } from 'bullmq';
+import { Worker, Job, DelayedError, UnrecoverableError } from 'bullmq';
 import * as Sentry from '@sentry/node';
 import { getQueueConnection } from '../lib/queue/connection';
+import { reportWorkerFailure } from './report-failure';
 import { acquireLock, releaseLock } from '../lib/rate-limit';
 import { prisma } from '../lib/prisma';
 import { getValidStravaToken } from '../lib/strava-token';
-import { getValidGarminToken } from '../lib/garmin-token';
+import { getGarminConnectionState, getValidGarminToken } from '../lib/garmin-token';
 import { getValidWhoopToken } from '../lib/whoop-token';
 import { getValidSuuntoToken } from '../lib/suunto-token';
 import { deriveLocation, deriveLocationAsync, shouldApplyAutoLocation } from '../lib/location';
@@ -465,11 +466,30 @@ async function syncGarminLatest(userId: string): Promise<void> {
     return;
   }
 
-  const accessToken = await getValidGarminToken(userId);
+  const token = await getValidGarminToken(userId);
 
-  if (!accessToken) {
-    throw new Error('No valid Garmin token available');
+  if (!token.ok) {
+    // Disconnected is the rider's decision, not a fault. Retrying cannot undo it
+    // and alerting on it buries the refresh failures that do need someone.
+    if (token.reason === 'disconnected') {
+      logger.warn(
+        { event: 'garmin_sync_skipped_disconnected', userId },
+        '[SyncWorker] Garmin sync skipped: rider is not connected'
+      );
+      return;
+    }
+
+    // The credential is there and will not open, so the encryption key moved
+    // under us. Retrying cannot re-derive it, but this must not pass silently:
+    // it is an operational fault affecting every rider at once.
+    if (token.reason === 'undecryptable') {
+      throw new UnrecoverableError('Garmin credentials will not decrypt');
+    }
+
+    throw new Error('Garmin token refresh failed');
   }
+
+  const accessToken = token.accessToken;
 
   // Fetch activities from the last 30 days
   const thirtyDaysAgo = Math.floor((Date.now() - 30 * 24 * 60 * 60 * 1000) / 1000);
@@ -518,6 +538,21 @@ type GarminDetailsHint = {
   pushedActivity?: unknown;
 };
 
+/**
+ * Narrow the optional token at the point a request actually needs one.
+ *
+ * Only the PUSH path leaves it unset, and that path never reaches a fetch, so
+ * this is an invariant check rather than a state to handle. Better a loud throw
+ * than `Bearer undefined` reaching Garmin, where it would come back as an auth
+ * failure and read as a token problem rather than the logic break it is.
+ */
+function requireGarminToken(accessToken: string | undefined): string {
+  if (!accessToken) {
+    throw new Error('Garmin fetch attempted without an access token');
+  }
+  return accessToken;
+}
+
 async function syncGarminActivity(
   userId: string,
   activityId: string,
@@ -529,16 +564,73 @@ async function syncGarminActivity(
     activityId,
   }, '[SyncWorker] Starting Garmin activity pull');
 
-  const accessToken = await getValidGarminToken(userId);
-
-  if (!accessToken) {
-    logger.error({
-      event: 'garmin_pull_error',
+  // A delivery can outrun a revocation: Garmin pushes or pings an activity that
+  // finished before the rider disconnected, and keeps retrying it afterwards.
+  // Dropping it is right. Throwing was not, because BullMQ then spends five
+  // attempts on a credential that is never coming back and ships five Sentry
+  // events per delivery for a rider exercising a choice we gave them.
+  const dropForDisconnected = (): void => {
+    logger.warn({
+      event: 'garmin_delivery_after_disconnect',
       userId,
       activityId,
-      error: 'no_valid_token',
-    }, '[SyncWorker] No valid Garmin token');
-    throw new Error('No valid Garmin token available');
+      wasPushed: details?.pushedActivity != null,
+    }, '[SyncWorker] Garmin delivery for a disconnected rider; dropping');
+  };
+
+  // A PUSHed activity is already in hand, so there is no request to make and no
+  // credential to need. Consent is still required, hence the connection probe:
+  // a revocation must stop ingest even for data we already hold. Asking for a
+  // token instead would throw the payload away over a refresh outage that has
+  // no bearing on it, which is what this path did until now.
+  let accessToken: string | undefined;
+
+  if (details?.pushedActivity) {
+    const connection = await getGarminConnectionState(userId);
+
+    // Everything that is not `live` is answered explicitly, and the `never`
+    // assignment at the end is what keeps that true. Testing for the known bad
+    // states and letting the rest fall through would read the same today and
+    // silently treat a state added later as a healthy connection, ingesting for
+    // a rider we can no longer vouch for. This way the compiler stops us.
+    if (connection !== 'live') {
+      if (connection === 'disconnected') {
+        dropForDisconnected();
+        return;
+      }
+
+      // Not the rider's doing, so it must not be dropped as though it were: a
+      // key that stopped opening would otherwise read as every rider
+      // disconnecting at once, silently, while their rides went in the bin.
+      if (connection === 'undecryptable') {
+        throw new UnrecoverableError('Garmin credentials will not decrypt');
+      }
+
+      const unhandled: never = connection;
+      throw new Error(`Unhandled Garmin connection state: ${String(unhandled)}`);
+    }
+  } else {
+    const token = await getValidGarminToken(userId);
+
+    if (!token.ok) {
+      if (token.reason === 'disconnected') {
+        dropForDisconnected();
+        return;
+      }
+
+      logger.error({
+        event: 'garmin_pull_error',
+        userId,
+        activityId,
+        error: token.reason,
+      }, '[SyncWorker] No usable Garmin credential');
+
+      throw token.reason === 'undecryptable'
+        ? new UnrecoverableError('Garmin credentials will not decrypt')
+        : new Error('Garmin token refresh failed');
+    }
+
+    accessToken = token.accessToken;
   }
 
   try {
@@ -563,7 +655,7 @@ async function syncGarminActivity(
 
     if (!activity && details?.callbackURL) {
       activity = (await fetchGarminActivityFromCallback({
-        accessToken,
+        accessToken: requireGarminToken(accessToken),
         summaryId: activityId,
         callbackURL: details.callbackURL,
       })) as GarminActivity | null;
@@ -597,7 +689,7 @@ async function syncGarminActivity(
         `${config.garminApiBase}/rest/activities/${activityId}`,
         {
           headers: {
-            Authorization: `Bearer ${accessToken}`,
+            Authorization: `Bearer ${requireGarminToken(accessToken)}`,
             Accept: 'application/json',
           },
         }
@@ -1320,7 +1412,8 @@ export function createSyncWorker(): Worker<SyncJobData, void, SyncJobName> {
 
   syncWorker.on('failed', (job, err) => {
     logger.error({ jobId: job?.id, jobName: job?.name, error: err.message }, '[SyncWorker] Job failed');
-    Sentry.captureException(err, { tags: { worker: 'sync', jobName: job?.name }, extra: { jobId: job?.id } });
+
+    reportWorkerFailure('sync', job, err);
   });
 
   syncWorker.on('error', (err) => {

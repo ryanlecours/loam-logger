@@ -1,7 +1,8 @@
 import '../instrument'; // Ensure Sentry is initialized even if worker runs in a separate process
-import { Worker, Job } from 'bullmq';
+import { Worker, Job, UnrecoverableError } from 'bullmq';
 import * as Sentry from '@sentry/node';
 import { getQueueConnection } from '../lib/queue/connection';
+import { reportWorkerFailure } from './report-failure';
 import { acquireLock, releaseLock } from '../lib/rate-limit';
 import { prisma } from '../lib/prisma';
 import { getValidGarminToken } from '../lib/garmin-token';
@@ -137,11 +138,25 @@ async function processGarminCoordRepair(userId: string): Promise<void> {
     return;
   }
 
-  const accessToken = await getValidGarminToken(userId);
-  if (!accessToken) {
-    logger.warn({ userId }, '[BackfillWorker] Garmin coord-repair skipped: no valid token');
+  const repairToken = await getValidGarminToken(userId);
+  if (!repairToken.ok) {
+    // Being the lowest-stakes job here is a reason to skip quietly for a rider
+    // who left or a refresh that did not land: the repair runs again, and
+    // nothing is lost by waiting. It is not a reason to stay quiet about a
+    // credential that will not decrypt. That is the same key incident the other
+    // paths escalate, and a maintenance job that no-ops through it is one more
+    // place the outage looks like normal operation.
+    if (repairToken.reason === 'undecryptable') {
+      throw new UnrecoverableError('Garmin credentials will not decrypt');
+    }
+
+    logger.warn(
+      { userId, reason: repairToken.reason },
+      '[BackfillWorker] Garmin coord-repair skipped: no valid token'
+    );
     return;
   }
+  const accessToken = repairToken.accessToken;
 
   // End one day past the last affected ride so its 30-day chunk is fully covered.
   const startDate = minStart;
@@ -249,11 +264,29 @@ async function processBackfillJob(job: Job<BackfillJobData, void, BackfillJobNam
  * 30-day chunks. Activities are delivered asynchronously via webhooks.
  */
 async function processGarminBackfill(userId: string, year: string): Promise<void> {
-  const accessToken = await getValidGarminToken(userId);
+  const backfillToken = await getValidGarminToken(userId);
 
-  if (!accessToken) {
-    throw new Error('Garmin token expired or not connected');
+  // Still throws for both causes, unlike the webhook-driven paths: the rider
+  // asked for this import and a BackfillRequest is already marked in_progress,
+  // so returning quietly would strand it. Throwing runs the catch that marks it
+  // failed.
+  //
+  // How it throws differs, though. A disconnected rider cannot be fixed by
+  // trying again, so UnrecoverableError ends the job on the first attempt while
+  // still failing it. A refresh that did not complete may well be a Garmin blip,
+  // so that one keeps its retries.
+  if (!backfillToken.ok) {
+    if (backfillToken.reason === 'refresh_failed') {
+      throw new Error('Garmin token refresh failed');
+    }
+    throw new UnrecoverableError(
+      backfillToken.reason === 'undecryptable'
+        ? 'Garmin credentials will not decrypt'
+        : 'Garmin not connected'
+    );
   }
+
+  const accessToken = backfillToken.accessToken;
 
   // Calculate date range
   const currentYear = new Date().getFullYear();
@@ -705,16 +738,32 @@ async function processSuuntoBackfill(userId: string, year: string): Promise<void
  * Fetches activities from the callback URL and upserts them.
  */
 async function processGarminCallback(userId: string, callbackURL: string): Promise<void> {
-  const accessToken = await getValidGarminToken(userId);
+  const callbackToken = await getValidGarminToken(userId);
 
-  if (!accessToken) {
+  if (!callbackToken.ok) {
+    // Webhook-driven like the sync worker, so the same rule applies: a rider who
+    // disconnected between requesting a backfill and Garmin answering it is not
+    // an incident, and retrying cannot produce a credential they revoked.
+    if (callbackToken.reason === 'disconnected') {
+      logger.warn({
+        event: 'garmin_callback_skipped_disconnected',
+        userId,
+      }, '[BackfillWorker] Garmin callback for a disconnected rider; dropping');
+      return;
+    }
+
     logger.error({
       event: 'garmin_callback_error',
       userId,
-      error: 'no_valid_token',
-    }, '[BackfillWorker] No valid Garmin token for callback');
-    throw new Error('Garmin token expired or not connected');
+      error: callbackToken.reason,
+    }, '[BackfillWorker] No usable Garmin credential for callback');
+
+    throw callbackToken.reason === 'undecryptable'
+      ? new UnrecoverableError('Garmin credentials will not decrypt')
+      : new Error('Garmin token refresh failed');
   }
+
+  const accessToken = callbackToken.accessToken;
 
   logger.info({
     event: 'garmin_callback_fetch_start',
@@ -1057,7 +1106,8 @@ export function createBackfillWorker(): Worker<BackfillJobData, void, BackfillJo
       { jobId: job?.id, jobName: job?.name, year: job?.data.year, error: err.message },
       'Backfill job failed'
     );
-    Sentry.captureException(err, { tags: { worker: 'backfill', jobName: job?.name }, extra: { jobId: job?.id } });
+
+    reportWorkerFailure('backfill', job, err);
   });
 
   backfillWorker.on('error', (err) => {

@@ -10,6 +10,7 @@ jest.mock('bullmq', () => ({
     on: jest.fn(),
     close: jest.fn().mockResolvedValue(undefined),
   })),
+  UnrecoverableError: jest.requireActual('bullmq').UnrecoverableError,
 }));
 
 jest.mock('../lib/rate-limit', () => ({
@@ -205,7 +206,7 @@ describe('processBackfillJob (via worker processor)', () => {
 
   describe('processCallback job', () => {
     beforeEach(() => {
-      mockGetValidGarminToken.mockResolvedValue('valid-token');
+      mockGetValidGarminToken.mockResolvedValue({ ok: true, accessToken: 'valid-token' });
       (mockPrisma.importSession.findFirst as jest.Mock).mockResolvedValue(null);
       (mockPrisma.ride.findUnique as jest.Mock).mockResolvedValue(null);
       (mockPrisma.ride.upsert as jest.Mock).mockResolvedValue({});
@@ -566,7 +567,7 @@ describe('processBackfillJob (via worker processor)', () => {
 
       for (const activityType of cyclingTypes) {
         jest.clearAllMocks();
-        mockGetValidGarminToken.mockResolvedValue('valid-token');
+        mockGetValidGarminToken.mockResolvedValue({ ok: true, accessToken: 'valid-token' });
         (mockPrisma.importSession.findFirst as jest.Mock).mockResolvedValue(null);
         (mockPrisma.ride.findUnique as jest.Mock).mockResolvedValue(null);
 
@@ -596,8 +597,8 @@ describe('processBackfillJob (via worker processor)', () => {
       }
     });
 
-    it('should throw when Garmin token is not available', async () => {
-      mockGetValidGarminToken.mockResolvedValue(null);
+    it('should throw when the Garmin token refresh fails', async () => {
+      mockGetValidGarminToken.mockResolvedValue({ ok: false, reason: 'refresh_failed' as const });
 
       await expect(
         processBackfillJob({
@@ -609,7 +610,28 @@ describe('processBackfillJob (via worker processor)', () => {
             callbackURL: 'https://apis.garmin.com/callback/xyz',
           },
         })
-      ).rejects.toThrow('Garmin token expired or not connected');
+      ).rejects.toThrow('Garmin token refresh failed');
+    });
+
+    // Garmin answers a backfill request asynchronously, so the rider can
+    // disconnect between asking and the callback arriving. Retrying cannot
+    // produce a credential they revoked, so the job ends quietly.
+    it('should drop the callback without throwing when the rider is disconnected', async () => {
+      mockGetValidGarminToken.mockResolvedValue({ ok: false, reason: 'disconnected' as const });
+
+      await expect(
+        processBackfillJob({
+          name: 'processCallback',
+          id: 'job-123',
+          data: {
+            userId: 'user-123',
+            provider: 'garmin',
+            callbackURL: 'https://apis.garmin.com/callback/xyz',
+          },
+        })
+      ).resolves.toBeUndefined();
+
+      expect(mockFetch).not.toHaveBeenCalled();
     });
 
     it('should throw when callback fetch fails', async () => {
@@ -720,7 +742,7 @@ describe('processBackfillJob (via worker processor)', () => {
         _min: { startTime: new Date('2026-05-01T00:00:00Z') },
         _max: { startTime: new Date('2026-05-20T00:00:00Z') },
       });
-      mockGetValidGarminToken.mockResolvedValue('valid-token');
+      mockGetValidGarminToken.mockResolvedValue({ ok: true, accessToken: 'valid-token' });
       (global.fetch as jest.Mock).mockResolvedValue({ status: 202, ok: true });
 
       await processBackfillJob({
@@ -752,13 +774,40 @@ describe('processBackfillJob (via worker processor)', () => {
       expect(global.fetch).not.toHaveBeenCalled();
     });
 
-    it('skips (no throw) when the user has no valid Garmin token', async () => {
+    it.each([['refresh_failed'], ['disconnected']] as const)(
+      'skips (no throw) when the token is unavailable: %s',
+      async (reason) => {
+        aggregate().mockResolvedValue({
+          _count: { _all: 3 },
+          _min: { startTime: new Date('2026-05-01T00:00:00Z') },
+          _max: { startTime: new Date('2026-05-10T00:00:00Z') },
+        });
+        mockGetValidGarminToken.mockResolvedValue({ ok: false, reason });
+
+        await expect(
+          processBackfillJob({
+            name: 'repairGarminCoords',
+            id: 'job-repair',
+            data: { userId: 'user-123', provider: 'garmin' },
+          })
+        ).resolves.toBeUndefined();
+
+        expect(global.fetch).not.toHaveBeenCalled();
+      }
+    );
+
+    // The one case this job does not shrug off. Skipping quietly is right when
+    // the repair can simply run again later; it is wrong when the reason it
+    // cannot run is a key incident, because a maintenance job that no-ops
+    // through an outage is one more place the outage looks like normal
+    // operation.
+    it('escalates rather than skipping when credentials will not decrypt', async () => {
       aggregate().mockResolvedValue({
         _count: { _all: 3 },
         _min: { startTime: new Date('2026-05-01T00:00:00Z') },
         _max: { startTime: new Date('2026-05-10T00:00:00Z') },
       });
-      mockGetValidGarminToken.mockResolvedValue(null);
+      mockGetValidGarminToken.mockResolvedValue({ ok: false, reason: 'undecryptable' as const });
 
       await expect(
         processBackfillJob({
@@ -766,7 +815,7 @@ describe('processBackfillJob (via worker processor)', () => {
           id: 'job-repair',
           data: { userId: 'user-123', provider: 'garmin' },
         })
-      ).resolves.toBeUndefined();
+      ).rejects.toMatchObject({ name: 'UnrecoverableError' });
 
       expect(global.fetch).not.toHaveBeenCalled();
     });
@@ -780,7 +829,7 @@ describe('processBackfillJob (via worker processor)', () => {
         lockValue: 'value-123',
         redisAvailable: true,
       });
-      mockGetValidGarminToken.mockResolvedValue('valid-token');
+      mockGetValidGarminToken.mockResolvedValue({ ok: true, accessToken: 'valid-token' });
       (mockPrisma.backfillRequest.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
       (mockPrisma.backfillRequest.findUnique as jest.Mock).mockResolvedValue(null);
     });
@@ -837,8 +886,8 @@ describe('processBackfillJob (via worker processor)', () => {
       ).rejects.toThrow('Lock not available, will retry');
     });
 
-    it('should throw when Garmin token is not available', async () => {
-      mockGetValidGarminToken.mockResolvedValue(null);
+    it('should throw when the Garmin token refresh fails', async () => {
+      mockGetValidGarminToken.mockResolvedValue({ ok: false, reason: 'refresh_failed' as const });
 
       await expect(
         processBackfillJob({
@@ -850,7 +899,27 @@ describe('processBackfillJob (via worker processor)', () => {
             year: '2024',
           },
         })
-      ).rejects.toThrow('Garmin token expired or not connected');
+      ).rejects.toThrow('Garmin token refresh failed');
+    });
+
+    // Rider-initiated, so it still throws rather than returning: the
+    // BackfillRequest is already marked in_progress and the catch is what marks
+    // it failed. It throws unrecoverably, though, because no number of retries
+    // reconnects an account.
+    it('should fail a disconnected rider without retrying', async () => {
+      mockGetValidGarminToken.mockResolvedValue({ ok: false, reason: 'disconnected' as const });
+
+      await expect(
+        processBackfillJob({
+          name: 'backfillYear',
+          id: 'job-123',
+          data: { userId: 'user-123', provider: 'garmin', year: '2024' },
+        })
+      ).rejects.toMatchObject({ name: 'UnrecoverableError' });
+
+      expect(mockPrisma.backfillRequest.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ status: 'failed' }) })
+      );
     });
 
     it('should update status to in_progress at start', async () => {
@@ -1098,7 +1167,7 @@ describe('Activity metric conversions', () => {
 
     createBackfillWorker();
 
-    mockGetValidGarminToken.mockResolvedValue('valid-token');
+    mockGetValidGarminToken.mockResolvedValue({ ok: true, accessToken: 'valid-token' });
     (mockPrisma.importSession.findFirst as jest.Mock).mockResolvedValue(null);
     (mockPrisma.ride.findUnique as jest.Mock).mockResolvedValue(null);
     (mockPrisma.bike.findMany as jest.Mock).mockResolvedValue([

@@ -16,6 +16,7 @@ jest.mock('bullmq', () => ({
       this.name = 'DelayedError';
     }
   },
+  UnrecoverableError: jest.requireActual('bullmq').UnrecoverableError,
 }));
 
 jest.mock('../lib/rate-limit', () => ({
@@ -50,6 +51,7 @@ jest.mock('../lib/strava-token', () => ({
 
 jest.mock('../lib/garmin-token', () => ({
   getValidGarminToken: jest.fn(),
+  getGarminConnectionState: jest.fn(),
 }));
 
 jest.mock('../lib/garmin-activity-details', () => ({
@@ -102,7 +104,7 @@ import { Worker } from 'bullmq';
 import { acquireLock, releaseLock } from '../lib/rate-limit';
 import { prisma } from '../lib/prisma';
 import { getValidStravaToken } from '../lib/strava-token';
-import { getValidGarminToken } from '../lib/garmin-token';
+import { getValidGarminToken, getGarminConnectionState } from '../lib/garmin-token';
 import { fetchGarminActivityFromCallback } from '../lib/garmin-activity-details';
 import { config } from '../config/env';
 import { persistGarminStream } from '../lib/ride-stream-store';
@@ -117,6 +119,7 @@ const mockPrisma = prisma as jest.Mocked<typeof prisma>;
 const mockGetValidStravaToken = getValidStravaToken as jest.MockedFunction<typeof getValidStravaToken>;
 const mockGetValidWhoopToken = getValidWhoopToken as jest.MockedFunction<typeof getValidWhoopToken>;
 const mockGetValidGarminToken = getValidGarminToken as jest.MockedFunction<typeof getValidGarminToken>;
+const mockGetGarminConnectionState = getGarminConnectionState as jest.MockedFunction<typeof getGarminConnectionState>;
 const mockFetchFromCallback = fetchGarminActivityFromCallback as jest.MockedFunction<
   typeof fetchGarminActivityFromCallback
 >;
@@ -464,7 +467,7 @@ describe('processSyncJob (via worker processor)', () => {
         lockValue: 'value123',
         redisAvailable: true,
       });
-      mockGetValidGarminToken.mockResolvedValue('valid-garmin-token');
+      mockGetValidGarminToken.mockResolvedValue({ ok: true, accessToken: 'valid-garmin-token' });
       mockFetch.mockResolvedValue({
         ok: true,
         json: () => Promise.resolve([]),
@@ -485,21 +488,42 @@ describe('processSyncJob (via worker processor)', () => {
       );
     });
 
-    it('should throw when Garmin token is not available', async () => {
+    it('should throw when the Garmin token refresh fails', async () => {
       mockAcquireLock.mockResolvedValue({
         acquired: true,
         lockKey: 'lock:garmin:user123',
         lockValue: 'value123',
         redisAvailable: true,
       });
-      mockGetValidGarminToken.mockResolvedValue(null);
+      mockGetValidGarminToken.mockResolvedValue({ ok: false, reason: 'refresh_failed' as const });
 
       await expect(
         processSyncJob({
           name: 'syncLatest',
           data: { userId: 'user123', provider: 'garmin' },
         })
-      ).rejects.toThrow('No valid Garmin token available');
+      ).rejects.toThrow('Garmin token refresh failed');
+    });
+
+    // The rider disconnected. Retrying cannot undo that, so the job succeeds
+    // quietly rather than burning five attempts and five Sentry events.
+    it('should skip without throwing when the rider is disconnected', async () => {
+      mockAcquireLock.mockResolvedValue({
+        acquired: true,
+        lockKey: 'lock:garmin:user123',
+        lockValue: 'value123',
+        redisAvailable: true,
+      });
+      mockGetValidGarminToken.mockResolvedValue({ ok: false, reason: 'disconnected' as const });
+
+      await expect(
+        processSyncJob({
+          name: 'syncLatest',
+          data: { userId: 'user123', provider: 'garmin' },
+        })
+      ).resolves.toBeUndefined();
+
+      expect(mockFetch).not.toHaveBeenCalled();
     });
 
     it('should sync Suunto workouts', async () => {
@@ -890,7 +914,8 @@ describe('processSyncJob (via worker processor)', () => {
           lockValue: 'value123',
           redisAvailable: true,
         });
-        mockGetValidGarminToken.mockResolvedValue('valid-garmin-token');
+        mockGetValidGarminToken.mockResolvedValue({ ok: true, accessToken: 'valid-garmin-token' });
+        mockGetGarminConnectionState.mockResolvedValue('live');
         mockConfig.garminVerificationMode = false;
         mockFetchFromCallback.mockResolvedValue(null);
         // Fresh copy per call: the worker mutates the object it parsed, and
@@ -927,6 +952,121 @@ describe('processSyncJob (via worker processor)', () => {
         expect(mockFetch).not.toHaveBeenCalled();
         expect(mockFetchFromCallback).not.toHaveBeenCalled();
         expect(mockPrisma.ride.upsert).toHaveBeenCalled();
+      });
+
+      /**
+       * The regression this file is here to hold shut.
+       *
+       * A PUSHed activity is already in hand, so the worker makes no request and
+       * needs no credential. It asked for one anyway, ahead of the short-circuit
+       * that would have used it, and threw when the rider's token was gone. That
+       * threw away a ride Garmin had already handed us, five BullMQ attempts and
+       * five Sentry events at a time, for riders who were still connected and
+       * merely mid-refresh.
+       */
+      it('ingests a pushed activity without asking for a token', async () => {
+        mockGetValidGarminToken.mockResolvedValue({
+          ok: false,
+          reason: 'refresh_failed',
+        });
+
+        await processSyncJob({
+          name: 'syncActivity',
+          data: {
+            userId: 'user123',
+            provider: 'garmin',
+            activityId: 'summary-456',
+            pushedActivity: { ...GARMIN_SUMMARY },
+          },
+        });
+
+        expect(mockGetValidGarminToken).not.toHaveBeenCalled();
+        expect(mockPrisma.ride.upsert).toHaveBeenCalled();
+      });
+
+      // Consent still gates ingest, even for data already in hand: a revocation
+      // has to stop the ride being stored. It stops it quietly, though, because
+      // a rider who left is not an incident.
+      it('drops a pushed activity for a disconnected rider without throwing', async () => {
+        mockGetGarminConnectionState.mockResolvedValue('disconnected');
+
+        await expect(
+          processSyncJob({
+            name: 'syncActivity',
+            data: {
+              userId: 'user123',
+              provider: 'garmin',
+              activityId: 'summary-456',
+              pushedActivity: { ...GARMIN_SUMMARY },
+            },
+          })
+        ).resolves.toBeUndefined();
+
+        expect(mockPrisma.ride.upsert).not.toHaveBeenCalled();
+        expect(mockFetch).not.toHaveBeenCalled();
+      });
+
+      /**
+       * The failure mode the disconnected-drop could otherwise create.
+       *
+       * A rotated or misconfigured TOKEN_ENCRYPTION_KEY makes every stored
+       * credential unreadable at once. Classified as "disconnected" that would
+       * present as the whole userbase quietly choosing to leave on the same
+       * afternoon, with their rides dropped and nothing raised anywhere. It is
+       * its own state, escalated rather than dropped, and unrecoverably so
+       * because retrying cannot re-derive a key.
+       */
+      it('escalates rather than drops when credentials will not decrypt', async () => {
+        mockGetGarminConnectionState.mockResolvedValue('undecryptable');
+
+        await expect(
+          processSyncJob({
+            name: 'syncActivity',
+            data: {
+              userId: 'user123',
+              provider: 'garmin',
+              activityId: 'summary-456',
+              pushedActivity: { ...GARMIN_SUMMARY },
+            },
+          })
+        ).rejects.toMatchObject({ name: 'UnrecoverableError' });
+
+        expect(mockPrisma.ride.upsert).not.toHaveBeenCalled();
+      });
+
+      it('escalates an undecryptable credential on the ping path too', async () => {
+        mockGetValidGarminToken.mockResolvedValue({ ok: false, reason: 'undecryptable' });
+
+        await expect(
+          processSyncJob({
+            name: 'syncActivity',
+            data: { userId: 'user123', provider: 'garmin', activityId: 'summary-456' },
+          })
+        ).rejects.toMatchObject({ name: 'UnrecoverableError' });
+      });
+
+      // The notification path does need a credential, so it still separates the
+      // two causes: a rider who left is dropped, a refresh that failed is raised.
+      it('drops a ping for a disconnected rider but raises a failed refresh', async () => {
+        mockGetValidGarminToken.mockResolvedValue({ ok: false, reason: 'disconnected' });
+
+        await expect(
+          processSyncJob({
+            name: 'syncActivity',
+            data: { userId: 'user123', provider: 'garmin', activityId: 'summary-456' },
+          })
+        ).resolves.toBeUndefined();
+
+        expect(mockPrisma.ride.upsert).not.toHaveBeenCalled();
+
+        mockGetValidGarminToken.mockResolvedValue({ ok: false, reason: 'refresh_failed' });
+
+        await expect(
+          processSyncJob({
+            name: 'syncActivity',
+            data: { userId: 'user123', provider: 'garmin', activityId: 'summary-456' },
+          })
+        ).rejects.toThrow('Garmin token refresh failed');
       });
 
       it('stores the track that came with the pushed activity', async () => {
@@ -1293,7 +1433,7 @@ describe('processSyncJob (via worker processor)', () => {
         lockValue: 'value123',
         redisAvailable: true,
       });
-      mockGetValidGarminToken.mockResolvedValue('valid-token');
+      mockGetValidGarminToken.mockResolvedValue({ ok: true, accessToken: 'valid-token' });
       mockFetch.mockResolvedValue({
         ok: false,
         status: 403,

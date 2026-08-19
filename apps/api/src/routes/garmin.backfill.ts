@@ -1,4 +1,5 @@
 import { Router as createRouter, type Router, type Request, type Response } from 'express';
+import * as Sentry from '@sentry/node';
 import { getValidGarminToken } from '../lib/garmin-token';
 import { subDays } from 'date-fns';
 import { prisma } from '../lib/prisma';
@@ -44,11 +45,32 @@ r.get<Empty, void, Empty, { days?: string; year?: string }>(
       }
 
       // Get valid OAuth token (auto-refreshes if expired)
-      const accessToken = await getValidGarminToken(userId);
+      const token = await getValidGarminToken(userId);
 
-      if (!accessToken) {
+      if (!token.ok) {
+        // "Reconnect your account" is the right remedy for a rider whose
+        // connection lapsed, and the wrong one for a credential we cannot read.
+        // That is our fault, not theirs, and a reconnect would quietly paper
+        // over it: re-encrypting under whatever key is currently loaded fixes
+        // that one rider and leaves the cause in place, so the incident
+        // disappears one account at a time instead of being noticed.
+        if (token.reason === 'undecryptable') {
+          const err = new Error('Garmin credentials will not decrypt');
+          logError('Garmin backfill', err);
+          Sentry.captureException(err, {
+            tags: { route: 'garmin-backfill', reason: 'undecryptable' },
+            user: { id: userId },
+          });
+          return sendInternalError(
+            res,
+            'Garmin sync is temporarily unavailable. This is on our side, and we are looking into it.'
+          );
+        }
+
         return sendBadRequest(res, 'Garmin not connected or token expired. Please reconnect your Garmin account.');
       }
+
+      const accessToken = token.accessToken;
 
       // Check for existing running ImportSession - prevent concurrent backfills
       const existingImportSession = await prisma.importSession.findFirst({

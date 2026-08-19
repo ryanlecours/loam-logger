@@ -27,18 +27,35 @@ export type IntegrationTokens = {
 };
 
 /**
+ * What a read of the encrypted store found.
+ *
+ * `undecryptable` is split out from `disconnected` on purpose. Both mean "no
+ * usable credential right now", and neither should throw through a queue worker
+ * and retry forever, so the original reasoning behind collapsing them holds. But
+ * they are not the same event: a rider disconnecting is routine and expected,
+ * while ciphertext that will not open under the current key is an operational
+ * fault, usually a rotated or misconfigured `TOKEN_ENCRYPTION_KEY`, affecting
+ * every rider at once.
+ *
+ * Told apart, the first can be dropped quietly and the second can be raised
+ * once, without retries, so a key incident surfaces instead of looking like the
+ * whole userbase chose to disconnect on the same afternoon.
+ */
+export type IntegrationTokensResult =
+  | { state: 'live'; tokens: IntegrationTokens }
+  | { state: 'disconnected' }
+  | { state: 'undecryptable' };
+
+/**
  * Read and decrypt a provider's tokens.
  *
- * Returns null — meaning "this user has no usable connection" — when the
- * integration is missing, has been revoked, or cannot be decrypted. Callers
- * already handle a null token as "not connected", so a rotated or misconfigured
- * `TOKEN_ENCRYPTION_KEY` degrades to a reconnect prompt instead of throwing
- * through a queue worker and retrying forever.
+ * Never throws: a missing, revoked, or unreadable integration is reported as a
+ * state so callers can decide how loud to be about it.
  */
 export async function getIntegrationTokens(
   userId: string,
   provider: IntegrationProvider
-): Promise<IntegrationTokens | null> {
+): Promise<IntegrationTokensResult> {
   const integration = await prisma.userIntegration.findUnique({
     where: { userId_provider: { userId, provider } },
     select: {
@@ -49,32 +66,35 @@ export async function getIntegrationTokens(
     },
   });
 
-  if (!integration) return null;
+  if (!integration) return { state: 'disconnected' };
 
   // A revoked integration keeps its row for connection history, but its tokens
   // must never be handed out again. This is what makes a Garmin permission
   // revocation actually stop sync rather than merely get logged.
   if (integration.revokedAt) {
     log.debug({ userId, provider }, 'Integration is revoked; refusing to return tokens');
-    return null;
+    return { state: 'disconnected' };
   }
 
   try {
     return {
-      accessToken: decrypt(integration.accessTokenEnc),
-      refreshToken: integration.refreshTokenEnc
-        ? decrypt(integration.refreshTokenEnc)
-        : null,
-      expiresAt: integration.expiresAt,
+      state: 'live',
+      tokens: {
+        accessToken: decrypt(integration.accessTokenEnc),
+        refreshToken: integration.refreshTokenEnc
+          ? decrypt(integration.refreshTokenEnc)
+          : null,
+        expiresAt: integration.expiresAt,
+      },
     };
   } catch (err) {
     // Wrong/rotated key, or corrupt ciphertext. Deliberately does not log the
     // ciphertext or any token material.
     log.error(
       { err, userId, provider },
-      'Failed to decrypt integration tokens — treating as disconnected'
+      'Failed to decrypt integration tokens'
     );
-    return null;
+    return { state: 'undecryptable' };
   }
 }
 

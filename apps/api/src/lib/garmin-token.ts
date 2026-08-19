@@ -13,7 +13,7 @@ import { createLogger } from './logger';
 import {
   getIntegrationTokens,
   saveIntegrationTokens,
-  type IntegrationTokens,
+  type IntegrationTokensResult,
 } from './integration-tokens';
 
 const log = createLogger('garmin-token');
@@ -22,7 +22,7 @@ const log = createLogger('garmin-token');
 // When multiple requests need a token refresh simultaneously, they share the same promise
 // Stores { promise, timestamp } to enable timeout-based cleanup
 interface CacheEntry {
-  promise: Promise<string | null>;
+  promise: Promise<GarminTokenResult>;
   timestamp: number;
 }
 const refreshPromiseCache = new Map<string, CacheEntry>();
@@ -102,14 +102,24 @@ export async function revokeGarminToken(accessToken: string): Promise<boolean> {
  */
 export async function revokeGarminTokenForUser(userId: string): Promise<boolean> {
   try {
-    const tokens = await readGarminTokens(userId);
+    const read = await readGarminTokens(userId);
 
-    if (!tokens) {
-      log.info({ userId }, 'No token found for user');
-      return true; // No token to revoke
+    // Nothing usable to hand back to Garmin, so there is no revocation to make
+    // and reporting failure would only block the caller's own cleanup.
+    //
+    // These two are worth telling apart even though the answer is the same. A
+    // rider who already disconnected has nothing left to revoke. An
+    // undecryptable one does: the token is still live at Garmin until it
+    // expires, and we cannot revoke what we cannot read. That gap predates the
+    // encrypted store and closing it needs a way to reach the credential, not a
+    // different answer here, so it is logged with its state rather than being
+    // flattened into "no token found".
+    if (read.state !== 'live') {
+      log.info({ userId, state: read.state }, 'No usable token to revoke');
+      return true;
     }
 
-    return await revokeGarminToken(tokens.accessToken);
+    return await revokeGarminToken(read.tokens.accessToken);
   } catch (error) {
     log.error({ err: error, userId }, 'Token revocation for user failed');
     return false;
@@ -118,14 +128,60 @@ export async function revokeGarminTokenForUser(userId: string): Promise<boolean>
 
 
 /**
- * Read this user's Garmin tokens. Returns null when the user has no live
- * Garmin connection, which now includes a connection that was revoked or whose
- * ciphertext will not decrypt: both are states the encrypted store answers on
- * its own, with no second place to look.
+ * Read this user's Garmin tokens. A missing, revoked, or undecryptable
+ * integration all come back as a state rather than a token: the encrypted store
+ * answers each on its own, with no second place to look.
  */
-async function readGarminTokens(userId: string): Promise<IntegrationTokens | null> {
+async function readGarminTokens(userId: string): Promise<IntegrationTokensResult> {
   return getIntegrationTokens(userId, 'GARMIN');
 }
+
+/**
+ * Whether this user has a Garmin connection at all, without minting anything.
+ *
+ * For callers holding data Garmin PUSHed to them: they make no request, so they
+ * need no credential, but they still must not ingest for a rider who
+ * disconnected. Asking for a token instead would fail them on a refresh outage
+ * and throw away a payload already in hand.
+ *
+ * Typed as the store's own states rather than as GarminTokenFailure's reasons.
+ * Those differ by one: `refresh_failed` cannot occur here, because this never
+ * attempts a refresh. Borrowing the wider union would put an unreachable member
+ * in the type and, worse, leave callers with a branch they cannot exercise while
+ * making the switch below look complete when it is not.
+ */
+export async function getGarminConnectionState(
+  userId: string
+): Promise<IntegrationTokensResult['state']> {
+  return (await readGarminTokens(userId)).state;
+}
+
+/**
+ * Why a token request did not produce one.
+ *
+ * `disconnected` is a state the rider put us in: no integration row, a revoked
+ * one, or ciphertext that will not decrypt under the current key. Retrying
+ * cannot conjure the credential back and nobody needs paging for it, so callers
+ * stop quietly.
+ *
+ * `refresh_failed` is a fault on our side of the line: the connection is live
+ * but Garmin would not mint a token, or the refresh is misconfigured. Worth
+ * retrying, worth alerting on.
+ *
+ * `undecryptable` is a fault too, but a different one: the credential is there
+ * and we cannot read it, which means the encryption key changed under us. No
+ * amount of retrying fixes that, so it is raised once rather than retried.
+ *
+ * These used to collapse into a single `null`, which is how a rider revoking
+ * ACTIVITY_EXPORT turned into a recurring production error rather than a log
+ * line.
+ */
+export type GarminTokenFailure = {
+  ok: false;
+  reason: 'disconnected' | 'undecryptable' | 'refresh_failed';
+};
+
+export type GarminTokenResult = { ok: true; accessToken: string } | GarminTokenFailure;
 
 /**
  * Get a valid Garmin access token for a user
@@ -134,12 +190,14 @@ async function readGarminTokens(userId: string): Promise<IntegrationTokens | nul
  * Uses promise caching to prevent race conditions when multiple requests
  * trigger token refresh simultaneously.
  */
-export async function getValidGarminToken(userId: string): Promise<string | null> {
-  const token = await readGarminTokens(userId);
+export async function getValidGarminToken(userId: string): Promise<GarminTokenResult> {
+  const read = await readGarminTokens(userId);
 
-  if (!token) {
-    return null;
+  if (read.state !== 'live') {
+    return { ok: false, reason: read.state };
   }
+
+  const token = read.tokens;
 
   // Check if token is expired or about to expire (within 5 minutes)
   const now = new Date();
@@ -147,13 +205,15 @@ export async function getValidGarminToken(userId: string): Promise<string | null
 
   if (now < expiryBuffer) {
     // Token is still valid
-    return token.accessToken;
+    return { ok: true, accessToken: token.accessToken };
   }
 
-  // Token is expired or about to expire, try to refresh it
+  // Token is expired or about to expire, try to refresh it. A live connection
+  // with no refresh token is stranded rather than disconnected: the row is
+  // there, we simply cannot renew it, and only a reconnect fixes that.
   if (!token.refreshToken) {
     log.error({ userId }, 'No refresh token available');
-    return null;
+    return { ok: false, reason: 'refresh_failed' };
   }
 
   // Check if there's already a refresh in progress for this user
@@ -192,14 +252,17 @@ export async function getValidGarminToken(userId: string): Promise<string | null
 /**
  * Internal function to perform the actual token refresh
  */
-async function refreshGarminToken(userId: string, refreshToken: string): Promise<string | null> {
+async function refreshGarminToken(
+  userId: string,
+  refreshToken: string
+): Promise<GarminTokenResult> {
   try {
     const TOKEN_URL = process.env.GARMIN_TOKEN_URL;
     const CLIENT_ID = process.env.GARMIN_CLIENT_ID;
 
     if (!TOKEN_URL || !CLIENT_ID) {
       log.error('Missing GARMIN_TOKEN_URL or GARMIN_CLIENT_ID');
-      return null;
+      return { ok: false, reason: 'refresh_failed' };
     }
 
     log.info({ userId }, 'Refreshing expired token');
@@ -228,7 +291,7 @@ async function refreshGarminToken(userId: string, refreshToken: string): Promise
         body = '(failed to read response body)';
       }
       log.error({ status: refreshRes.status, userId, body }, 'Token refresh failed');
-      return null;
+      return { ok: false, reason: 'refresh_failed' };
     }
 
     type TokenResp = {
@@ -249,9 +312,9 @@ async function refreshGarminToken(userId: string, refreshToken: string): Promise
     });
 
     log.info({ userId }, 'Token refreshed successfully');
-    return newTokens.access_token;
+    return { ok: true, accessToken: newTokens.access_token };
   } catch (error) {
     log.error({ err: error, userId }, 'Token refresh error');
-    return null;
+    return { ok: false, reason: 'refresh_failed' };
   }
 }

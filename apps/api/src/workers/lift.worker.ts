@@ -1,6 +1,7 @@
 import '../instrument';
 import { Worker, Job } from 'bullmq';
 import * as Sentry from '@sentry/node';
+import { reportWorkerFailure } from './report-failure';
 import { getQueueConnection } from '../lib/queue/connection';
 import { prisma } from '../lib/prisma';
 import { logger } from '../lib/logger';
@@ -174,7 +175,7 @@ export function createLiftWorker(): Worker<LiftJobData, void, LiftJobName> {
   });
   liftWorker.on('failed', (job, err) => {
     logger.warn({ jobId: job?.id, error: err.message }, '[LiftWorker] Job failed');
-    Sentry.captureException(err, { tags: { worker: 'lift' }, extra: { jobId: job?.id } });
+    reportWorkerFailure('lift', job, err);
   });
   liftWorker.on('error', (err) => {
     logger.error({ error: err.message }, '[LiftWorker] Worker error');

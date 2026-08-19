@@ -44,18 +44,21 @@ describe('getIntegrationTokens', () => {
       revokedAt: null,
     });
 
-    const tokens = await getIntegrationTokens('user-1', 'GARMIN');
+    const read = await getIntegrationTokens('user-1', 'GARMIN');
 
-    expect(tokens).toEqual({
-      accessToken: 'access-abc',
-      refreshToken: 'refresh-xyz',
-      expiresAt: new Date('2030-01-01'),
+    expect(read).toEqual({
+      state: 'live',
+      tokens: {
+        accessToken: 'access-abc',
+        refreshToken: 'refresh-xyz',
+        expiresAt: new Date('2030-01-01'),
+      },
     });
   });
 
-  it('returns null when the user has no integration', async () => {
+  it('reports disconnected when the user has no integration', async () => {
     mockFindUnique.mockResolvedValue(null);
-    expect(await getIntegrationTokens('user-1', 'GARMIN')).toBeNull();
+    expect(await getIntegrationTokens('user-1', 'GARMIN')).toEqual({ state: 'disconnected' });
   });
 
   // This is what makes a Garmin permission revocation actually stop sync
@@ -68,12 +71,20 @@ describe('getIntegrationTokens', () => {
       revokedAt: new Date('2026-07-01'),
     });
 
-    expect(await getIntegrationTokens('user-1', 'GARMIN')).toBeNull();
+    expect(await getIntegrationTokens('user-1', 'GARMIN')).toEqual({ state: 'disconnected' });
   });
 
-  // A rotated or misconfigured key must degrade to "reconnect", not throw
-  // through a queue worker and retry forever.
-  it('treats undecryptable ciphertext as disconnected instead of throwing', async () => {
+  /**
+   * A rotated or misconfigured key must still not throw through a queue worker
+   * and retry forever, so this stays a returned state rather than an exception.
+   *
+   * It is its own state, though, not `disconnected`. Both mean "no usable
+   * credential", but one is a rider's choice and the other is an operational
+   * fault hitting every rider at once. Reported as the same thing, a key
+   * incident is indistinguishable from the entire userbase disconnecting on the
+   * same afternoon, and the rides it drops go quietly.
+   */
+  it('reports undecryptable ciphertext as its own state, not as disconnected', async () => {
     mockFindUnique.mockResolvedValue({
       accessTokenEnc: 'not-valid-ciphertext',
       refreshTokenEnc: null,
@@ -81,7 +92,9 @@ describe('getIntegrationTokens', () => {
       revokedAt: null,
     });
 
-    await expect(getIntegrationTokens('user-1', 'GARMIN')).resolves.toBeNull();
+    await expect(getIntegrationTokens('user-1', 'GARMIN')).resolves.toEqual({
+      state: 'undecryptable',
+    });
   });
 
   it('handles an integration with no refresh token', async () => {
@@ -92,8 +105,8 @@ describe('getIntegrationTokens', () => {
       revokedAt: null,
     });
 
-    const tokens = await getIntegrationTokens('user-1', 'GARMIN');
-    expect(tokens?.refreshToken).toBeNull();
+    const read = await getIntegrationTokens('user-1', 'GARMIN');
+    expect(read).toMatchObject({ state: 'live', tokens: { refreshToken: null } });
   });
 });
 

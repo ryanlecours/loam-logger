@@ -132,7 +132,7 @@ describe('GET /garmin/backfill/fetch', () => {
     };
 
     // Default: user has valid token
-    mockGetValidGarminToken.mockResolvedValue('valid-access-token');
+    mockGetValidGarminToken.mockResolvedValue({ ok: true, accessToken: 'valid-access-token' });
     // Default: no existing backfill
     mockBackfillFindUnique.mockResolvedValue(null);
     mockBackfillUpsert.mockResolvedValue({});
@@ -161,7 +161,7 @@ describe('GET /garmin/backfill/fetch', () => {
     });
 
     it('should return 400 when Garmin token is not available', async () => {
-      mockGetValidGarminToken.mockResolvedValue(null);
+      mockGetValidGarminToken.mockResolvedValue({ ok: false, reason: 'disconnected' });
 
       await invokeHandler(handler, mockReq as Request, mockRes as Response);
 
@@ -169,6 +169,30 @@ describe('GET /garmin/backfill/fetch', () => {
       expect(jsonResponse).toMatchObject({
         error: 'Garmin not connected or token expired. Please reconnect your Garmin account.',
       });
+    });
+
+    it('should return 400 and ask for a reconnect when the refresh failed', async () => {
+      mockGetValidGarminToken.mockResolvedValue({ ok: false, reason: 'refresh_failed' });
+
+      await invokeHandler(handler, mockReq as Request, mockRes as Response);
+
+      expect(statusCode).toBe(400);
+    });
+
+    /**
+     * A credential we cannot decrypt is our fault, so it must not come back as
+     * a 400 telling the rider to reconnect. Beyond blaming them for our
+     * problem, a reconnect re-encrypts under whatever key is loaded now, which
+     * fixes that one account and leaves the cause in place: the incident would
+     * disappear one rider at a time instead of being noticed.
+     */
+    it('should return 500, not a reconnect prompt, when credentials will not decrypt', async () => {
+      mockGetValidGarminToken.mockResolvedValue({ ok: false, reason: 'undecryptable' });
+
+      await invokeHandler(handler, mockReq as Request, mockRes as Response);
+
+      expect(statusCode).toBe(500);
+      expect(JSON.stringify(jsonResponse)).not.toMatch(/reconnect/i);
     });
   });
 
@@ -706,7 +730,7 @@ describe('extractMinStartDate behavior', () => {
       json: jest.fn().mockReturnThis(),
     };
 
-    mockGetValidGarminToken.mockResolvedValue('valid-token');
+    mockGetValidGarminToken.mockResolvedValue({ ok: true, accessToken: 'valid-token' });
     mockBackfillFindUnique.mockResolvedValue(null);
     mockBackfillUpsert.mockResolvedValue({});
     mockImportSessionFindFirst.mockResolvedValue(null);

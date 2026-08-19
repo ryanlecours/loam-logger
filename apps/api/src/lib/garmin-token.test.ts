@@ -47,6 +47,7 @@ import {
   revokeGarminToken,
   revokeGarminTokenForUser,
   getValidGarminToken,
+  getGarminConnectionState,
 } from './garmin-token';
 import { encrypt, decrypt } from './crypto';
 
@@ -168,10 +169,10 @@ describe('garmin-token', () => {
   });
 
   describe('getValidGarminToken', () => {
-    it('should return null if no token exists', async () => {
+    it('reports disconnected if no token exists', async () => {
       mockIntegrationFindUnique.mockResolvedValue(null);
 
-      expect(await getValidGarminToken('user-123')).toBeNull();
+      expect(await getValidGarminToken('user-123')).toEqual({ ok: false, reason: 'disconnected' });
     });
 
     it('should return existing token if not expired', async () => {
@@ -181,7 +182,7 @@ describe('garmin-token', () => {
 
       const result = await getValidGarminToken('user-123');
 
-      expect(result).toBe('valid-access-token');
+      expect(result).toEqual({ ok: true, accessToken: 'valid-access-token' });
       expect(mockFetch).not.toHaveBeenCalled(); // No refresh needed
     });
 
@@ -205,7 +206,7 @@ describe('garmin-token', () => {
 
       const result = await getValidGarminToken('user-123');
 
-      expect(result).toBe('new-access-token');
+      expect(result).toEqual({ ok: true, accessToken: 'new-access-token' });
 
       const call = mockIntegrationUpdate.mock.calls[0][0];
       expect(call.where).toEqual({
@@ -233,11 +234,11 @@ describe('garmin-token', () => {
 
       const result = await getValidGarminToken('user-123');
 
-      expect(result).toBe('new-access-token');
+      expect(result).toEqual({ ok: true, accessToken: 'new-access-token' });
       expect(mockFetch).toHaveBeenCalled(); // Refresh was triggered
     });
 
-    it('should return null if no refresh token available', async () => {
+    it('reports refresh_failed if no refresh token available', async () => {
       mockIntegrationFindUnique.mockResolvedValue(
         integrationRow({
           refreshToken: null,
@@ -245,11 +246,11 @@ describe('garmin-token', () => {
         })
       );
 
-      expect(await getValidGarminToken('user-123')).toBeNull();
+      expect(await getValidGarminToken('user-123')).toEqual({ ok: false, reason: 'refresh_failed' });
       expect(mockFetch).not.toHaveBeenCalled();
     });
 
-    it('should return null if refresh request fails', async () => {
+    it('reports refresh_failed if refresh request fails', async () => {
       mockIntegrationFindUnique.mockResolvedValue(
         integrationRow({ expiresAt: new Date(Date.now() - 60 * 1000) })
       );
@@ -260,10 +261,10 @@ describe('garmin-token', () => {
         text: async () => 'Bad request',
       });
 
-      expect(await getValidGarminToken('user-123')).toBeNull();
+      expect(await getValidGarminToken('user-123')).toEqual({ ok: false, reason: 'refresh_failed' });
     });
 
-    it('should return null if missing env vars', async () => {
+    it('reports refresh_failed if missing env vars', async () => {
       delete process.env.GARMIN_TOKEN_URL;
       delete process.env.GARMIN_CLIENT_ID;
 
@@ -271,7 +272,7 @@ describe('garmin-token', () => {
         integrationRow({ expiresAt: new Date(Date.now() - 60 * 1000) })
       );
 
-      expect(await getValidGarminToken('user-123')).toBeNull();
+      expect(await getValidGarminToken('user-123')).toEqual({ ok: false, reason: 'refresh_failed' });
     });
 
     it('should not update refresh token if not provided in response', async () => {
@@ -303,13 +304,30 @@ describe('garmin-token', () => {
 
     // A revoked integration must stay revoked. Garmin tells us about permission
     // withdrawal via webhook; honoring it is a program obligation.
-    it('returns null for a revoked integration even before expiry', async () => {
+    it('reports disconnected for a revoked integration even before expiry', async () => {
       mockIntegrationFindUnique.mockResolvedValue(
         integrationRow({ revokedAt: new Date() })
       );
 
-      expect(await getValidGarminToken('user-123')).toBeNull();
+      expect(await getValidGarminToken('user-123')).toEqual({ ok: false, reason: 'disconnected' });
       expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    // The distinction the sync worker branches on. A rider who left is dropped
+    // quietly; a refresh we could not complete is retried and alerted. Collapsing
+    // both into one falsy value is what put a disconnect into the error budget.
+    it('separates a rider who disconnected from a refresh that failed', async () => {
+      mockIntegrationFindUnique.mockResolvedValue(integrationRow({ revokedAt: new Date() }));
+      const revoked = await getValidGarminToken('user-123');
+
+      mockIntegrationFindUnique.mockResolvedValue(
+        integrationRow({ expiresAt: new Date(Date.now() - 60 * 1000) })
+      );
+      mockFetch.mockResolvedValue({ ok: false, status: 500, text: async () => 'boom' });
+      const broken = await getValidGarminToken('user-123');
+
+      expect(revoked).toEqual({ ok: false, reason: 'disconnected' });
+      expect(broken).toEqual({ ok: false, reason: 'refresh_failed' });
     });
 
     describe('race condition prevention', () => {
@@ -341,14 +359,48 @@ describe('garmin-token', () => {
 
         // All should get the same result
         expect(results).toEqual([
-          'new-access-token',
-          'new-access-token',
-          'new-access-token',
+          { ok: true, accessToken: 'new-access-token' },
+          { ok: true, accessToken: 'new-access-token' },
+          { ok: true, accessToken: 'new-access-token' },
         ]);
 
         // Only 1 DB update should have been made
         expect(mockIntegrationUpdate).toHaveBeenCalledTimes(1);
       });
+    });
+  });
+
+  describe('getGarminConnectionState', () => {
+    it('reports live for a usable integration', async () => {
+      mockIntegrationFindUnique.mockResolvedValue(
+        integrationRow({ accessToken: 'valid-access-token' })
+      );
+
+      expect(await getGarminConnectionState('user-123')).toBe('live');
+    });
+
+    it('reports disconnected for a revoked integration', async () => {
+      mockIntegrationFindUnique.mockResolvedValue(integrationRow({ revokedAt: new Date() }));
+
+      expect(await getGarminConnectionState('user-123')).toBe('disconnected');
+    });
+
+    it('reports disconnected when there is no integration at all', async () => {
+      mockIntegrationFindUnique.mockResolvedValue(null);
+
+      expect(await getGarminConnectionState('user-123')).toBe('disconnected');
+    });
+
+    // The property the PUSH path depends on: an expired token still means the
+    // rider is connected, so an activity already in hand is ingested rather than
+    // discarded over a credential it was never going to use.
+    it('reports live for an expired token without attempting a refresh', async () => {
+      mockIntegrationFindUnique.mockResolvedValue(
+        integrationRow({ expiresAt: new Date(Date.now() - 60 * 1000) })
+      );
+
+      expect(await getGarminConnectionState('user-123')).toBe('live');
+      expect(mockFetch).not.toHaveBeenCalled();
     });
   });
 
@@ -373,7 +425,7 @@ describe('garmin-token', () => {
     it('never reads the legacy plaintext table', async () => {
       mockIntegrationFindUnique.mockResolvedValue(null);
 
-      expect(await getValidGarminToken('user-123')).toBeNull();
+      expect(await getValidGarminToken('user-123')).toEqual({ ok: false, reason: 'disconnected' });
       expect(mockLegacyFindUnique).not.toHaveBeenCalled();
     });
 
@@ -384,12 +436,14 @@ describe('garmin-token', () => {
     it('reports no connection when the integration is revoked', async () => {
       mockIntegrationFindUnique.mockResolvedValue(integrationRow({ revokedAt: new Date() }));
 
-      expect(await getValidGarminToken('user-123')).toBeNull();
+      expect(await getValidGarminToken('user-123')).toEqual({ ok: false, reason: 'disconnected' });
       expect(mockIntegrationUpsert).not.toHaveBeenCalled();
       expect(mockLegacyFindUnique).not.toHaveBeenCalled();
     });
 
-    it('reports no connection when the ciphertext will not decrypt', async () => {
+    // Reported as its own reason rather than as a disconnect: the rider did not
+    // do this, and the callers escalate it instead of dropping the delivery.
+    it('reports undecryptable when the ciphertext will not decrypt', async () => {
       mockIntegrationFindUnique.mockResolvedValue({
         accessTokenEnc: 'corrupt',
         refreshTokenEnc: null,
@@ -397,7 +451,11 @@ describe('garmin-token', () => {
         revokedAt: null,
       });
 
-      expect(await getValidGarminToken('user-123')).toBeNull();
+      expect(await getValidGarminToken('user-123')).toEqual({
+        ok: false,
+        reason: 'undecryptable',
+      });
+      expect(await getGarminConnectionState('user-123')).toBe('undecryptable');
       expect(mockIntegrationUpsert).not.toHaveBeenCalled();
       expect(mockLegacyFindUnique).not.toHaveBeenCalled();
     });
