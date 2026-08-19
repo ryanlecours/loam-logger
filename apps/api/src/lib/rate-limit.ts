@@ -1,4 +1,5 @@
 import type Redis from 'ioredis';
+import * as Sentry from '@sentry/node';
 import { getRedisConnection, isRedisReady } from './redis';
 import { createLogger } from './logger';
 import type { SyncProvider } from './queue';
@@ -9,6 +10,10 @@ import type { SyncProvider } from './queue';
 // goes through pino so the logs flow into the structured pipeline with
 // timestamps, levels, and the `suunto-quota` service tag.
 const quotaLog = createLogger('suunto-quota');
+
+// Rejection logging for the limiters below. Structured, so a rejection is
+// queryable in the JSON log stream rather than being a bare console line.
+const limitLog = createLogger('rate-limit');
 
 // Time constants in seconds (for Redis TTL)
 const SECONDS = 1;
@@ -203,7 +208,7 @@ function checkMemoryRateLimit(
   key: string,
   maxRequests: number,
   windowSeconds: number
-): RateLimitResult {
+): CountedRateLimitResult {
   const now = Date.now();
   const windowMs = windowSeconds * 1000;
 
@@ -217,22 +222,25 @@ function checkMemoryRateLimit(
   if (!entry || entry.resetAt <= now) {
     // Start new window
     memoryRateLimits.set(key, { count: 1, resetAt: now + windowMs });
-    return { allowed: true, redisAvailable: false };
+    return { result: { allowed: true, redisAvailable: false }, count: 1 };
   }
 
   // Increment counter
   entry.count++;
 
   if (entry.count <= maxRequests) {
-    return { allowed: true, redisAvailable: false };
+    return { result: { allowed: true, redisAvailable: false }, count: entry.count };
   }
 
   // Rate limited
   const retryAfter = Math.ceil((entry.resetAt - now) / 1000);
   return {
-    allowed: false,
-    retryAfter: retryAfter > 0 ? retryAfter : windowSeconds,
-    redisAvailable: false,
+    result: {
+      allowed: false,
+      retryAfter: retryAfter > 0 ? retryAfter : windowSeconds,
+      redisAvailable: false,
+    },
+    count: entry.count,
   };
 }
 
@@ -373,6 +381,15 @@ export type RateLimitResult =
   | { allowed: false; retryAfter: number; redisAvailable: boolean };
 
 /**
+ * An in-memory limiter result with its post-increment counter alongside.
+ * Internal, and deliberately not folded into RateLimitResult: it lets
+ * checkAuthRateLimit tell the first rejection of a window from the hundred
+ * that follow it, so an abuse report fires once per window per identifier
+ * instead of once per request, without widening what every caller receives.
+ */
+type CountedRateLimitResult = { result: RateLimitResult; count: number };
+
+/**
  * Build a rate limit key.
  * Format: rl:<operation>:<provider>:<userId>
  */
@@ -469,7 +486,7 @@ export async function checkMutationRateLimit(
 
   // Fallback to in-memory rate limiting if Redis is unavailable
   if (!isRedisReady()) {
-    return checkMemoryRateLimit(key, config.maxRequests, config.windowSeconds);
+    return checkMemoryRateLimit(key, config.maxRequests, config.windowSeconds).result;
   }
 
   try {
@@ -481,10 +498,11 @@ export async function checkMutationRateLimit(
       return { allowed: true, redisAvailable: true };
     }
 
-    // Rejections no longer reach Sentry (they are the limiter working), so
-    // this log is the only trace a caller was throttled.
-    console.warn(
-      `[RateLimit] mutation ${operation} rejected for ${userId}, retry in ${ttl > 0 ? ttl : config.windowSeconds}s`
+    // Rejections no longer open a Sentry issue (they are the limiter working),
+    // so this log is the trace that a caller was throttled.
+    limitLog.warn(
+      { kind: 'mutation', operation, count, retryAfter: ttl > 0 ? ttl : config.windowSeconds },
+      'Mutation rate limit rejected a call'
     );
     // Rate limited - report the remaining window for retry info
     return {
@@ -498,7 +516,7 @@ export async function checkMutationRateLimit(
       `[RateLimit] Redis error during mutation ${operation} check for ${userId}, using in-memory fallback:`,
       err instanceof Error ? err.message : 'Unknown error'
     );
-    return checkMemoryRateLimit(key, config.maxRequests, config.windowSeconds);
+    return checkMemoryRateLimit(key, config.maxRequests, config.windowSeconds).result;
   }
 }
 
@@ -532,7 +550,7 @@ export async function checkQueryRateLimit(
 
   // Fallback to in-memory rate limiting if Redis is unavailable
   if (!isRedisReady()) {
-    return checkMemoryRateLimit(key, config.maxRequests, config.windowSeconds);
+    return checkMemoryRateLimit(key, config.maxRequests, config.windowSeconds).result;
   }
 
   try {
@@ -544,10 +562,11 @@ export async function checkQueryRateLimit(
       return { allowed: true, redisAvailable: true };
     }
 
-    // Rejections no longer reach Sentry (they are the limiter working), so
-    // this log is the only trace a caller was throttled.
-    console.warn(
-      `[RateLimit] query ${operation} rejected for ${userId}, retry in ${ttl > 0 ? ttl : config.windowSeconds}s`
+    // Rejections no longer open a Sentry issue (they are the limiter working),
+    // so this log is the trace that a caller was throttled.
+    limitLog.warn(
+      { kind: 'query', operation, count, retryAfter: ttl > 0 ? ttl : config.windowSeconds },
+      'Query rate limit rejected a call'
     );
     // Rate limited - report the remaining window for retry info
     return {
@@ -561,7 +580,7 @@ export async function checkQueryRateLimit(
       `[RateLimit] Redis error during query ${operation} check for ${userId}, using in-memory fallback:`,
       err instanceof Error ? err.message : 'Unknown error'
     );
-    return checkMemoryRateLimit(key, config.maxRequests, config.windowSeconds);
+    return checkMemoryRateLimit(key, config.maxRequests, config.windowSeconds).result;
   }
 }
 
@@ -574,6 +593,67 @@ function buildAuthRateLimitKey(
   identifier: string
 ): string {
   return `rl:auth:${operation}:${identifier}`;
+}
+
+/**
+ * Log an auth-limiter rejection, and raise it to Sentry on the first rejection
+ * of the window.
+ *
+ * The auth limiter guards signup, forgot/reset-password, OAuth login and token
+ * refresh, so a run of rejections is not a client bug like it is on the other
+ * limiters: it is someone brute-forcing. Eight of its ten call sites answer
+ * with a plain 429 from an Express route rather than a thrown GraphQLError, so
+ * these rejections never reached Sentry even before RATE_LIMITED was filtered
+ * out of the Apollo plugin, and stdout logs carry no alerting. This closes that
+ * gap.
+ *
+ * `count === maxRequests + 1` is the first request past the cap, so a
+ * credential-stuffing run raises one Sentry event per identifier per window
+ * however many thousands of requests it fires. Sentry alert rules can key on
+ * `ratelimit.operation`.
+ *
+ * The identifier (a client IP for the public routes, a user id for the token
+ * ones) rides in the Sentry event, not in the log line: the pino config redacts
+ * IPs from stdout as PII, and this keeps that policy intact while still naming
+ * the source somewhere the on-call can act on it.
+ */
+/** Report a rejection coming out of the in-memory fallback, then pass it on. */
+function reportIfAuthRejected(
+  operation: AuthRateLimitType,
+  identifier: string,
+  fallback: CountedRateLimitResult
+): RateLimitResult {
+  const { result, count } = fallback;
+  if (!result.allowed) {
+    reportAuthLimitTrip(operation, identifier, count, result.retryAfter);
+  }
+  return result;
+}
+
+function reportAuthLimitTrip(
+  operation: AuthRateLimitType,
+  identifier: string,
+  count: number,
+  retryAfter: number
+): void {
+  const config = AUTH_RATE_LIMITS[operation];
+  limitLog.warn(
+    { kind: 'auth', operation, count, retryAfter },
+    'Auth rate limit rejected a call'
+  );
+
+  if (count !== config.maxRequests + 1) return;
+  Sentry.captureMessage(`Auth rate limit tripped: ${operation}`, {
+    level: 'warning',
+    tags: { 'ratelimit.operation': operation },
+    extra: {
+      operation,
+      identifier,
+      count,
+      maxRequests: config.maxRequests,
+      windowSeconds: config.windowSeconds,
+    },
+  });
 }
 
 /**
@@ -593,9 +673,14 @@ export async function checkAuthRateLimit(
   const config = AUTH_RATE_LIMITS[operation];
   const key = buildAuthRateLimitKey(operation, identifier);
 
-  // Fallback to in-memory rate limiting if Redis is unavailable
+  // Fallback to in-memory rate limiting if Redis is unavailable. A Redis
+  // outage must not silence the abuse signal, so the fallback reports too.
   if (!isRedisReady()) {
-    return checkMemoryRateLimit(key, config.maxRequests, config.windowSeconds);
+    return reportIfAuthRejected(
+      operation,
+      identifier,
+      checkMemoryRateLimit(key, config.maxRequests, config.windowSeconds)
+    );
   }
 
   try {
@@ -607,11 +692,7 @@ export async function checkAuthRateLimit(
       return { allowed: true, redisAvailable: true };
     }
 
-    // Rejections no longer reach Sentry (they are the limiter working), so
-    // this log is the only trace a caller was throttled.
-    console.warn(
-      `[RateLimit] auth ${operation} rejected for ${identifier}, retry in ${ttl > 0 ? ttl : config.windowSeconds}s`
-    );
+    reportAuthLimitTrip(operation, identifier, count, ttl > 0 ? ttl : config.windowSeconds);
     // Rate limited - report the remaining window for retry info
     return {
       allowed: false,
@@ -624,7 +705,11 @@ export async function checkAuthRateLimit(
       `[RateLimit] Redis error during auth ${operation} check for ${identifier}, using in-memory fallback:`,
       err instanceof Error ? err.message : 'Unknown error'
     );
-    return checkMemoryRateLimit(key, config.maxRequests, config.windowSeconds);
+    return reportIfAuthRejected(
+      operation,
+      identifier,
+      checkMemoryRateLimit(key, config.maxRequests, config.windowSeconds)
+    );
   }
 }
 

@@ -4,6 +4,12 @@ jest.mock('./redis', () => ({
   getRedisConnection: jest.fn(),
 }));
 
+// The auth limiter raises abuse reports through Sentry; spy on them rather
+// than shipping events from the test run.
+jest.mock('@sentry/node', () => ({
+  captureMessage: jest.fn(),
+}));
+
 import {
   RATE_LIMITS,
   ADMIN_RATE_LIMITS,
@@ -24,9 +30,11 @@ import {
   AUTH_RATE_LIMITS,
 } from './rate-limit';
 import { isRedisReady, getRedisConnection } from './redis';
+import * as Sentry from '@sentry/node';
 
 const mockIsRedisReady = isRedisReady as jest.MockedFunction<typeof isRedisReady>;
 const mockGetRedisConnection = getRedisConnection as jest.MockedFunction<typeof getRedisConnection>;
+const mockCaptureMessage = Sentry.captureMessage as jest.MockedFunction<typeof Sentry.captureMessage>;
 
 describe('RATE_LIMITS', () => {
   it('should have syncLatest at 60 seconds', () => {
@@ -686,6 +694,70 @@ describe('checkAuthRateLimit', () => {
     const result = await checkAuthRateLimit('signup', 'auth-throwing-ip');
 
     expect(result).toEqual({ allowed: true, redisAvailable: false });
+  });
+
+  it('raises a Sentry report on the first rejection of the window', async () => {
+    mockIsRedisReady.mockReturnValue(true);
+    mockRedis.incrWithTtl.mockResolvedValue([AUTH_RATE_LIMITS.signup.maxRequests + 1, 41]);
+
+    await checkAuthRateLimit('signup', '203.0.113.4');
+
+    // These rejections answer with a plain 429 from an Express route, so they
+    // never went through the Apollo plugin and would otherwise land nowhere an
+    // alert can see.
+    expect(mockCaptureMessage).toHaveBeenCalledTimes(1);
+    expect(mockCaptureMessage).toHaveBeenCalledWith(
+      'Auth rate limit tripped: signup',
+      expect.objectContaining({
+        level: 'warning',
+        tags: { 'ratelimit.operation': 'signup' },
+        extra: expect.objectContaining({ identifier: '203.0.113.4', operation: 'signup' }),
+      })
+    );
+  });
+
+  it('reports once per window however long the run continues', async () => {
+    mockIsRedisReady.mockReturnValue(true);
+    const { maxRequests } = AUTH_RATE_LIMITS.signup;
+    // One crossing, then a thousand more requests behind it.
+    mockRedis.incrWithTtl
+      .mockResolvedValueOnce([maxRequests + 1, 41])
+      .mockResolvedValueOnce([maxRequests + 2, 40])
+      .mockResolvedValueOnce([maxRequests + 900, 12]);
+
+    await checkAuthRateLimit('signup', '203.0.113.4');
+    await checkAuthRateLimit('signup', '203.0.113.4');
+    await checkAuthRateLimit('signup', '203.0.113.4');
+
+    // A credential-stuffing run must be one alert, not one per request.
+    expect(mockCaptureMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not report while the caller is under the cap', async () => {
+    mockIsRedisReady.mockReturnValue(true);
+    mockRedis.incrWithTtl.mockResolvedValue([AUTH_RATE_LIMITS.signup.maxRequests, 41]);
+
+    await checkAuthRateLimit('signup', '203.0.113.4');
+
+    expect(mockCaptureMessage).not.toHaveBeenCalled();
+  });
+
+  it('still reports when Redis is down and the in-memory limiter is holding', async () => {
+    mockIsRedisReady.mockReturnValue(false);
+    const ip = 'auth-report-fallback-ip';
+    const { maxRequests } = AUTH_RATE_LIMITS.signup;
+
+    for (let i = 0; i < maxRequests + 3; i++) {
+      await checkAuthRateLimit('signup', ip);
+    }
+
+    // A Redis outage is exactly when an attacker would like the alerting to go
+    // quiet, so the fallback path reports on its own first crossing too.
+    expect(mockCaptureMessage).toHaveBeenCalledTimes(1);
+    expect(mockCaptureMessage).toHaveBeenCalledWith(
+      'Auth rate limit tripped: signup',
+      expect.objectContaining({ extra: expect.objectContaining({ identifier: ip }) })
+    );
   });
 
   it('caps a brute force at maxRequests once the in-memory limiter takes over', async () => {
