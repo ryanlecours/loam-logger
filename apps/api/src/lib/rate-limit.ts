@@ -1,3 +1,5 @@
+import type Redis from 'ioredis';
+import * as Sentry from '@sentry/node';
 import { getRedisConnection, isRedisReady } from './redis';
 import { createLogger } from './logger';
 import type { SyncProvider } from './queue';
@@ -8,6 +10,10 @@ import type { SyncProvider } from './queue';
 // goes through pino so the logs flow into the structured pipeline with
 // timestamps, levels, and the `suunto-quota` service tag.
 const quotaLog = createLogger('suunto-quota');
+
+// Rejection logging for the limiters below. Structured, so a rejection is
+// queryable in the JSON log stream rather than being a bare console line.
+const limitLog = createLogger('rate-limit');
 
 // Time constants in seconds (for Redis TTL)
 const SECONDS = 1;
@@ -202,7 +208,7 @@ function checkMemoryRateLimit(
   key: string,
   maxRequests: number,
   windowSeconds: number
-): RateLimitResult {
+): CountedRateLimitResult {
   const now = Date.now();
   const windowMs = windowSeconds * 1000;
 
@@ -216,23 +222,100 @@ function checkMemoryRateLimit(
   if (!entry || entry.resetAt <= now) {
     // Start new window
     memoryRateLimits.set(key, { count: 1, resetAt: now + windowMs });
-    return { allowed: true, redisAvailable: false };
+    return { result: { allowed: true, redisAvailable: false }, count: 1 };
   }
 
   // Increment counter
   entry.count++;
 
   if (entry.count <= maxRequests) {
-    return { allowed: true, redisAvailable: false };
+    return { result: { allowed: true, redisAvailable: false }, count: entry.count };
   }
 
   // Rate limited
   const retryAfter = Math.ceil((entry.resetAt - now) / 1000);
   return {
-    allowed: false,
-    retryAfter: retryAfter > 0 ? retryAfter : windowSeconds,
-    redisAvailable: false,
+    result: {
+      allowed: false,
+      retryAfter: retryAfter > 0 ? retryAfter : windowSeconds,
+      redisAvailable: false,
+    },
+    count: entry.count,
   };
+}
+
+/**
+ * Lua: increment a window counter and guarantee it carries an expiry.
+ *
+ * Replaces the old `INCR` then `if (count === 1) EXPIRE` pair, which was two
+ * round trips and not atomic. If anything interrupted the gap between them (a
+ * container restart mid-request, an ioredis reconnect, an EXPIRE that errored
+ * into the caller's catch block), the key survived with no TTL. A counter with
+ * no TTL never resets, so once it passed the cap the user was rate limited on
+ * that operation forever, and `TTL` returning -1 made every rejection report
+ * the full window as `retryAfter`. That is exactly how NODE-7 stranded one
+ * rider's updateUserPreferences for four months.
+ *
+ * The `ttl < 0` branch is the self-heal: it re-arms the expiry on any key that
+ * already lost one, so existing orphans age out on their next hit instead of
+ * needing a manual DEL.
+ *
+ * Returns [count, ttl]; ttl is always positive on return.
+ */
+const INCR_WITH_TTL = `
+  local count = redis.call('INCR', KEYS[1])
+  local ttl = redis.call('TTL', KEYS[1])
+  if ttl < 0 then
+    redis.call('EXPIRE', KEYS[1], ARGV[1])
+    ttl = tonumber(ARGV[1])
+  end
+  return {count, ttl}
+`;
+
+/** ioredis attaches the script as a method on the connection. */
+type CounterRedis = Redis & {
+  incrWithTtl(key: string, windowSeconds: string): Promise<[number, number]>;
+};
+
+/**
+ * Connections the script has already been registered on. A WeakSet rather than
+ * a flag because the singleton is rebuilt if the connection is torn down, and
+ * because tests hand back a fresh mock per case.
+ */
+const scriptedConnections = new WeakSet<object>();
+
+/**
+ * Get the Redis connection with `incrWithTtl` registered.
+ *
+ * `defineCommand` rather than a bare `eval`: ioredis registers the body once
+ * and calls it by hash thereafter, so this hot path (every rate-limited
+ * mutation and query) doesn't re-send the script on every request. It falls
+ * back to EVAL by itself when Redis answers NOSCRIPT, which is what happens
+ * after a restart flushes the script cache.
+ */
+function getCounterRedis(): CounterRedis {
+  const redis = getRedisConnection();
+  if (!scriptedConnections.has(redis)) {
+    redis.defineCommand('incrWithTtl', { numberOfKeys: 1, lua: INCR_WITH_TTL });
+    scriptedConnections.add(redis);
+  }
+  return redis as CounterRedis;
+}
+
+/**
+ * Increment a fixed-window counter, arming (or repairing) its expiry in the
+ * same atomic call.
+ *
+ * @param key - The Redis counter key
+ * @param windowSeconds - Window length, used as the key's TTL
+ * @returns The post-increment count and the key's remaining TTL in seconds
+ */
+async function incrementWindowCounter(
+  key: string,
+  windowSeconds: number
+): Promise<{ count: number; ttl: number }> {
+  const [count, ttl] = await getCounterRedis().incrWithTtl(key, String(windowSeconds));
+  return { count, ttl };
 }
 
 /**
@@ -296,6 +379,15 @@ export type RateLimitType = keyof typeof RATE_LIMITS;
 export type RateLimitResult =
   | { allowed: true; redisAvailable: boolean }
   | { allowed: false; retryAfter: number; redisAvailable: boolean };
+
+/**
+ * An in-memory limiter result with its post-increment counter alongside.
+ * Internal, and deliberately not folded into RateLimitResult: it lets
+ * checkAuthRateLimit tell the first rejection of a window from the hundred
+ * that follow it, so an abuse report fires once per window per identifier
+ * instead of once per request, without widening what every caller receives.
+ */
+type CountedRateLimitResult = { result: RateLimitResult; count: number };
 
 /**
  * Build a rate limit key.
@@ -394,26 +486,25 @@ export async function checkMutationRateLimit(
 
   // Fallback to in-memory rate limiting if Redis is unavailable
   if (!isRedisReady()) {
-    return checkMemoryRateLimit(key, config.maxRequests, config.windowSeconds);
+    return checkMemoryRateLimit(key, config.maxRequests, config.windowSeconds).result;
   }
 
   try {
-    const redis = getRedisConnection();
-
-    // Increment the counter
-    const count = await redis.incr(key);
-
-    // Set expiry on first request in the window
-    if (count === 1) {
-      await redis.expire(key, config.windowSeconds);
-    }
+    // Counter and expiry move together: see incrementWindowCounter for why a
+    // key that loses its TTL strands the caller permanently.
+    const { count, ttl } = await incrementWindowCounter(key, config.windowSeconds);
 
     if (count <= config.maxRequests) {
       return { allowed: true, redisAvailable: true };
     }
 
-    // Rate limited - get TTL for retry info
-    const ttl = await redis.ttl(key);
+    // Rejections no longer open a Sentry issue (they are the limiter working),
+    // so this log is the trace that a caller was throttled.
+    limitLog.warn(
+      { kind: 'mutation', operation, count, retryAfter: ttl > 0 ? ttl : config.windowSeconds },
+      'Mutation rate limit rejected a call'
+    );
+    // Rate limited - report the remaining window for retry info
     return {
       allowed: false,
       retryAfter: ttl > 0 ? ttl : config.windowSeconds,
@@ -425,7 +516,7 @@ export async function checkMutationRateLimit(
       `[RateLimit] Redis error during mutation ${operation} check for ${userId}, using in-memory fallback:`,
       err instanceof Error ? err.message : 'Unknown error'
     );
-    return checkMemoryRateLimit(key, config.maxRequests, config.windowSeconds);
+    return checkMemoryRateLimit(key, config.maxRequests, config.windowSeconds).result;
   }
 }
 
@@ -459,26 +550,25 @@ export async function checkQueryRateLimit(
 
   // Fallback to in-memory rate limiting if Redis is unavailable
   if (!isRedisReady()) {
-    return checkMemoryRateLimit(key, config.maxRequests, config.windowSeconds);
+    return checkMemoryRateLimit(key, config.maxRequests, config.windowSeconds).result;
   }
 
   try {
-    const redis = getRedisConnection();
-
-    // Increment the counter
-    const count = await redis.incr(key);
-
-    // Set expiry on first request in the window
-    if (count === 1) {
-      await redis.expire(key, config.windowSeconds);
-    }
+    // Counter and expiry move together: see incrementWindowCounter for why a
+    // key that loses its TTL strands the caller permanently.
+    const { count, ttl } = await incrementWindowCounter(key, config.windowSeconds);
 
     if (count <= config.maxRequests) {
       return { allowed: true, redisAvailable: true };
     }
 
-    // Rate limited - get TTL for retry info
-    const ttl = await redis.ttl(key);
+    // Rejections no longer open a Sentry issue (they are the limiter working),
+    // so this log is the trace that a caller was throttled.
+    limitLog.warn(
+      { kind: 'query', operation, count, retryAfter: ttl > 0 ? ttl : config.windowSeconds },
+      'Query rate limit rejected a call'
+    );
+    // Rate limited - report the remaining window for retry info
     return {
       allowed: false,
       retryAfter: ttl > 0 ? ttl : config.windowSeconds,
@@ -490,7 +580,7 @@ export async function checkQueryRateLimit(
       `[RateLimit] Redis error during query ${operation} check for ${userId}, using in-memory fallback:`,
       err instanceof Error ? err.message : 'Unknown error'
     );
-    return checkMemoryRateLimit(key, config.maxRequests, config.windowSeconds);
+    return checkMemoryRateLimit(key, config.maxRequests, config.windowSeconds).result;
   }
 }
 
@@ -503,6 +593,67 @@ function buildAuthRateLimitKey(
   identifier: string
 ): string {
   return `rl:auth:${operation}:${identifier}`;
+}
+
+/**
+ * Log an auth-limiter rejection, and raise it to Sentry on the first rejection
+ * of the window.
+ *
+ * The auth limiter guards signup, forgot/reset-password, OAuth login and token
+ * refresh, so a run of rejections is not a client bug like it is on the other
+ * limiters: it is someone brute-forcing. Eight of its ten call sites answer
+ * with a plain 429 from an Express route rather than a thrown GraphQLError, so
+ * these rejections never reached Sentry even before RATE_LIMITED was filtered
+ * out of the Apollo plugin, and stdout logs carry no alerting. This closes that
+ * gap.
+ *
+ * `count === maxRequests + 1` is the first request past the cap, so a
+ * credential-stuffing run raises one Sentry event per identifier per window
+ * however many thousands of requests it fires. Sentry alert rules can key on
+ * `ratelimit.operation`.
+ *
+ * The identifier (a client IP for the public routes, a user id for the token
+ * ones) rides in the Sentry event, not in the log line: the pino config redacts
+ * IPs from stdout as PII, and this keeps that policy intact while still naming
+ * the source somewhere the on-call can act on it.
+ */
+/** Report a rejection coming out of the in-memory fallback, then pass it on. */
+function reportIfAuthRejected(
+  operation: AuthRateLimitType,
+  identifier: string,
+  fallback: CountedRateLimitResult
+): RateLimitResult {
+  const { result, count } = fallback;
+  if (!result.allowed) {
+    reportAuthLimitTrip(operation, identifier, count, result.retryAfter);
+  }
+  return result;
+}
+
+function reportAuthLimitTrip(
+  operation: AuthRateLimitType,
+  identifier: string,
+  count: number,
+  retryAfter: number
+): void {
+  const config = AUTH_RATE_LIMITS[operation];
+  limitLog.warn(
+    { kind: 'auth', operation, count, retryAfter },
+    'Auth rate limit rejected a call'
+  );
+
+  if (count !== config.maxRequests + 1) return;
+  Sentry.captureMessage(`Auth rate limit tripped: ${operation}`, {
+    level: 'warning',
+    tags: { 'ratelimit.operation': operation },
+    extra: {
+      operation,
+      identifier,
+      count,
+      maxRequests: config.maxRequests,
+      windowSeconds: config.windowSeconds,
+    },
+  });
 }
 
 /**
@@ -522,28 +673,27 @@ export async function checkAuthRateLimit(
   const config = AUTH_RATE_LIMITS[operation];
   const key = buildAuthRateLimitKey(operation, identifier);
 
-  // Fallback to in-memory rate limiting if Redis is unavailable
+  // Fallback to in-memory rate limiting if Redis is unavailable. A Redis
+  // outage must not silence the abuse signal, so the fallback reports too.
   if (!isRedisReady()) {
-    return checkMemoryRateLimit(key, config.maxRequests, config.windowSeconds);
+    return reportIfAuthRejected(
+      operation,
+      identifier,
+      checkMemoryRateLimit(key, config.maxRequests, config.windowSeconds)
+    );
   }
 
   try {
-    const redis = getRedisConnection();
-
-    // Increment the counter
-    const count = await redis.incr(key);
-
-    // Set expiry on first request in the window
-    if (count === 1) {
-      await redis.expire(key, config.windowSeconds);
-    }
+    // Counter and expiry move together: see incrementWindowCounter for why a
+    // key that loses its TTL strands the caller permanently.
+    const { count, ttl } = await incrementWindowCounter(key, config.windowSeconds);
 
     if (count <= config.maxRequests) {
       return { allowed: true, redisAvailable: true };
     }
 
-    // Rate limited - get TTL for retry info
-    const ttl = await redis.ttl(key);
+    reportAuthLimitTrip(operation, identifier, count, ttl > 0 ? ttl : config.windowSeconds);
+    // Rate limited - report the remaining window for retry info
     return {
       allowed: false,
       retryAfter: ttl > 0 ? ttl : config.windowSeconds,
@@ -555,7 +705,11 @@ export async function checkAuthRateLimit(
       `[RateLimit] Redis error during auth ${operation} check for ${identifier}, using in-memory fallback:`,
       err instanceof Error ? err.message : 'Unknown error'
     );
-    return checkMemoryRateLimit(key, config.maxRequests, config.windowSeconds);
+    return reportIfAuthRejected(
+      operation,
+      identifier,
+      checkMemoryRateLimit(key, config.maxRequests, config.windowSeconds)
+    );
   }
 }
 
@@ -729,19 +883,13 @@ export async function acquireSuuntoApiCall(): Promise<SuuntoQuotaResult> {
     const minuteKey = buildSuuntoMinuteKey();
     const weekKey = buildSuuntoWeekKey();
 
-    const minuteCount = await redis.incr(minuteKey);
-    if (minuteCount === 1) {
-      // First hit in this bucket — set TTL slightly longer than the bucket
-      // window so a slow rollover doesn't leave the key dangling forever.
-      await redis.expire(minuteKey, 90);
-    }
-
-    const weekCount = await redis.incr(weekKey);
-    if (weekCount === 1) {
-      // 8 days TTL — slightly longer than a week to avoid early eviction
-      // around the bucket boundary.
-      await redis.expire(weekKey, 8 * 24 * 60 * 60);
-    }
+    // TTL slightly longer than each bucket window so a slow rollover doesn't
+    // leave the key dangling: 90s for the minute bucket, 8 days for the week.
+    // Both go through incrementWindowCounter so the expiry can never be lost
+    // between the INCR and the EXPIRE. A weekly counter stuck without a TTL
+    // would exhaust that week's Suunto budget and never recover.
+    const { count: minuteCount, ttl: minuteTtl } = await incrementWindowCounter(minuteKey, 90);
+    const { count: weekCount } = await incrementWindowCounter(weekKey, 8 * 24 * 60 * 60);
 
     if (minuteCount > SUUNTO_QUOTA.perMinute) {
       // Roll back BOTH counters: the call is being denied so it never hits
@@ -751,8 +899,7 @@ export async function acquireSuuntoApiCall(): Promise<SuuntoQuotaResult> {
       // weeklyStartRejectAt gate earlier than necessary.
       await redis.decr(minuteKey);
       await redis.decr(weekKey);
-      const ttl = await redis.ttl(minuteKey);
-      const retryAfter = ttl > 0 ? ttl : 60;
+      const retryAfter = minuteTtl > 0 ? minuteTtl : 60;
       quotaLog.warn(
         { minuteCount, weekCount, retryAfter },
         'Per-minute cap hit'

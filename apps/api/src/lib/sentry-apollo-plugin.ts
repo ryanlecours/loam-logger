@@ -5,8 +5,9 @@ import type { GraphQLContext } from '../server';
 
 /**
  * Extension codes that indicate *client-side* issues — bad input, missing auth,
- * forbidden access. These are expected and don't warrant a Sentry alert.
- * Anything else (thrown resolver, Prisma error, network timeout) should surface.
+ * forbidden access, tripping a rate limit. These are expected and don't warrant
+ * a Sentry alert. Anything else (thrown resolver, Prisma error, network
+ * timeout) should surface.
  */
 const CLIENT_ERROR_CODES = new Set([
   'BAD_USER_INPUT',
@@ -16,6 +17,11 @@ const CLIENT_ERROR_CODES = new Set([
   'PERSISTED_QUERY_NOT_SUPPORTED',
   'UNAUTHENTICATED',
   'FORBIDDEN',
+  // A rate-limit rejection is the limiter working as designed. It was absent
+  // from this list, so every rejection opened a Sentry error, and because the
+  // message carries the retryAfter seconds, each distinct value spawned its own
+  // issue. Rejections are logged server-side instead (see rate-limit.ts).
+  'RATE_LIMITED',
 ]);
 
 function isClientError(err: GraphQLFormattedError): boolean {
