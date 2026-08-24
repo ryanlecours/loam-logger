@@ -175,6 +175,23 @@ describe('MassAssignBikeModal', () => {
       expect(screen.getByText(/Start date must be before end date/i)).toBeInTheDocument();
     });
 
+    it('promises only what one pass covers when the match exceeds the cap', () => {
+      // The rider is agreeing to 2000, not 2600. The button used to name the
+      // whole match while the pass could only take part of it.
+      setSummary(summary({ totalCount: 2600 }));
+
+      render(<MassAssignBikeModal {...defaultProps} />);
+
+      expect(screen.getByRole('button', { name: /Assign 2000 of 2600 Rides/i })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /^Assign 2600 Rides$/i })).not.toBeInTheDocument();
+    });
+
+    it('names the whole match when one pass covers it', () => {
+      render(<MassAssignBikeModal {...defaultProps} />);
+
+      expect(screen.getByRole('button', { name: /Assign 2 Rides/i })).toBeInTheDocument();
+    });
+
     it('shows message when no rides match filters', () => {
       setSummary(summary({ totalCount: 0, totalDurationSeconds: 0, byProvider: [] }));
 
@@ -269,7 +286,7 @@ describe('MassAssignBikeModal', () => {
       render(<MassAssignBikeModal {...defaultProps} />);
       selectBike();
 
-      fireEvent.click(screen.getByRole('button', { name: /Assign 2600 Rides/i }));
+      fireEvent.click(screen.getByRole('button', { name: /Assign 2000 of 2600 Rides/i }));
 
       await waitFor(() => {
         expect(screen.getByText(/600 more match/i)).toBeInTheDocument();
@@ -293,7 +310,7 @@ describe('MassAssignBikeModal', () => {
       render(<MassAssignBikeModal {...defaultProps} />);
       selectBike();
 
-      fireEvent.click(screen.getByRole('button', { name: /Assign 2600 Rides/i }));
+      fireEvent.click(screen.getByRole('button', { name: /Assign 2000 of 2600 Rides/i }));
 
       await waitFor(() => {
         expect(screen.getByText(/560 more match/i)).toBeInTheDocument();
@@ -315,7 +332,7 @@ describe('MassAssignBikeModal', () => {
       render(<MassAssignBikeModal {...defaultProps} />);
       selectBike();
 
-      fireEvent.click(screen.getByRole('button', { name: /Assign 2600 Rides/i }));
+      fireEvent.click(screen.getByRole('button', { name: /Assign 2000 of 2600 Rides/i }));
 
       await waitFor(() => {
         expect(screen.getByText(/600 more match/i)).toBeInTheDocument();
