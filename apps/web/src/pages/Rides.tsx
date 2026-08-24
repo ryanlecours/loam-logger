@@ -233,10 +233,11 @@ export default function RidesPage() {
         </aside>
       </div>
 
+      {/* No `rides` prop: the modal selects server-side. Passing this page's
+          list scoped every bulk assignment to the date filter above it. */}
       <MassAssignBikeModal
         isOpen={showMassAssignModal}
         onClose={() => setShowMassAssignModal(false)}
-        rides={rides}
         bikes={bikes}
         onSuccess={() => refetch()}
       />

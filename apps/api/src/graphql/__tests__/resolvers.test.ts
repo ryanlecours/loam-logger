@@ -2167,6 +2167,62 @@ describe('GraphQL Resolvers', () => {
       expect(mockPrisma.bike.findUnique).not.toHaveBeenCalled();
       expect(mockPrisma.ride.findMany).not.toHaveBeenCalled();
     });
+
+    it('should narrow to one provider bucket, excluding higher-priority sources', async () => {
+      const ctx = createMockContext('user-123');
+      mockPrisma.ride.findMany.mockResolvedValue([] as never);
+
+      await query({}, { take: 10, filter: { provider: 'GARMIN' } }, ctx as never);
+
+      // Strava outranks Garmin, so a Garmin-recorded ride imported through
+      // Strava belongs to the Strava bucket, not this one.
+      expect(mockPrisma.ride.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            userId: 'user-123',
+            stravaActivityId: null,
+            garminActivityId: { not: null },
+          },
+        })
+      );
+    });
+
+    it('should combine the provider bucket with unassigned and a date window', async () => {
+      const ctx = createMockContext('user-123');
+      mockPrisma.ride.findMany.mockResolvedValue([] as never);
+
+      // The exact selection a bulk assignment sends: one provider, one window,
+      // still waiting on a bike.
+      await query(
+        {},
+        {
+          take: 2000,
+          filter: {
+            unassigned: true,
+            provider: 'GARMIN',
+            startDate: '2026-01-01T00:00:00.000Z',
+            endDate: '2026-06-30T23:59:59.999Z',
+          },
+        },
+        ctx as never
+      );
+
+      expect(mockPrisma.ride.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            userId: 'user-123',
+            bikeId: null,
+            unownedBike: false,
+            stravaActivityId: null,
+            garminActivityId: { not: null },
+            startTime: {
+              gte: new Date('2026-01-01T00:00:00.000Z'),
+              lte: new Date('2026-06-30T23:59:59.999Z'),
+            },
+          },
+        })
+      );
+    });
   });
 
   describe('Query.unassignedRideCount', () => {
@@ -2189,6 +2245,143 @@ describe('GraphQL Resolvers', () => {
 
       await expect(query({}, {}, ctx as never)).rejects.toThrow();
       expect(mockPrisma.ride.count).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Query.unassignedRideSummary', () => {
+    const query = resolvers.Query.unassignedRideSummary;
+
+    const aggregateResult = (overrides = {}) => ({
+      _count: { _all: 0 },
+      _sum: { durationSeconds: null },
+      _min: { startTime: null },
+      _max: { startTime: null },
+      ...overrides,
+    });
+
+    it('should aggregate the rides still waiting on a bike', async () => {
+      const ctx = createMockContext('user-123');
+      mockPrisma.ride.aggregate.mockResolvedValue(
+        aggregateResult({
+          _count: { _all: 12 },
+          _sum: { durationSeconds: 43200 },
+          _min: { startTime: new Date('2026-03-01T10:00:00.000Z') },
+          _max: { startTime: new Date('2026-08-01T10:00:00.000Z') },
+        }) as never
+      );
+      mockPrisma.ride.count.mockResolvedValue(0 as never);
+
+      const result = await query({}, {}, ctx as never);
+
+      expect(mockPrisma.ride.aggregate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { userId: 'user-123', bikeId: null, unownedBike: false },
+        })
+      );
+      expect(result).toMatchObject({
+        totalCount: 12,
+        totalDurationSeconds: 43200,
+        earliestStartTime: '2026-03-01T10:00:00.000Z',
+        latestStartTime: '2026-08-01T10:00:00.000Z',
+      });
+    });
+
+    it('should report zero hours rather than null when nothing matches', async () => {
+      const ctx = createMockContext('user-123');
+      mockPrisma.ride.aggregate.mockResolvedValue(aggregateResult() as never);
+      mockPrisma.ride.count.mockResolvedValue(0 as never);
+
+      const result = await query({}, {}, ctx as never);
+
+      // Prisma sums an empty set to null. The client asked how many hours a
+      // bulk assignment would credit, and the answer is none, not unknown.
+      expect(result).toMatchObject({
+        totalCount: 0,
+        totalDurationSeconds: 0,
+        earliestStartTime: null,
+        latestStartTime: null,
+        byProvider: [],
+      });
+    });
+
+    it('should apply the provider filter to the totals', async () => {
+      const ctx = createMockContext('user-123');
+      mockPrisma.ride.aggregate.mockResolvedValue(aggregateResult() as never);
+      mockPrisma.ride.count.mockResolvedValue(0 as never);
+
+      await query({}, { filter: { provider: 'GARMIN' } }, ctx as never);
+
+      expect(mockPrisma.ride.aggregate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            userId: 'user-123',
+            bikeId: null,
+            unownedBike: false,
+            stravaActivityId: null,
+            garminActivityId: { not: null },
+          },
+        })
+      );
+    });
+
+    it('should break down by provider over the date-scoped set, ignoring the provider filter', async () => {
+      const ctx = createMockContext('user-123');
+      mockPrisma.ride.aggregate.mockResolvedValue(aggregateResult() as never);
+      mockPrisma.ride.count.mockResolvedValue(0 as never);
+
+      await query(
+        {},
+        { filter: { provider: 'GARMIN', startDate: '2026-01-01T00:00:00.000Z' } },
+        ctx as never
+      );
+
+      // byProvider drives the picker itself, so narrowing it to the provider
+      // already selected would leave the rider no way back to the others.
+      // The date window still applies: the counts have to match what tapping
+      // a chip would actually select.
+      const strava = mockPrisma.ride.count.mock.calls.find(
+        (call) => (call[0] as { where: Record<string, unknown> }).where.stravaActivityId !== null
+      );
+      expect(strava?.[0]).toEqual({
+        where: {
+          userId: 'user-123',
+          bikeId: null,
+          unownedBike: false,
+          startTime: { gte: new Date('2026-01-01T00:00:00.000Z') },
+          stravaActivityId: { not: null },
+        },
+      });
+      expect(mockPrisma.ride.count).toHaveBeenCalledTimes(5);
+    });
+
+    it('should drop providers with no unassigned rides', async () => {
+      const ctx = createMockContext('user-123');
+      mockPrisma.ride.aggregate.mockResolvedValue(
+        aggregateResult({ _count: { _all: 7 }, _sum: { durationSeconds: 100 } }) as never
+      );
+      // Counts are returned in RIDE_PROVIDERS order: Strava, Garmin, WHOOP,
+      // Suunto, Manual.
+      mockPrisma.ride.count
+        .mockResolvedValueOnce(0 as never)
+        .mockResolvedValueOnce(5 as never)
+        .mockResolvedValueOnce(0 as never)
+        .mockResolvedValueOnce(0 as never)
+        .mockResolvedValueOnce(2 as never);
+
+      const result = await query({}, {}, ctx as never);
+
+      // A provider the rider never connected is not a filter worth rendering.
+      expect(result.byProvider).toEqual([
+        { provider: 'GARMIN', count: 5 },
+        { provider: 'MANUAL', count: 2 },
+      ]);
+    });
+
+    it('should throw when unauthenticated', async () => {
+      const ctx = createMockContext(null);
+
+      await expect(query({}, {}, ctx as never)).rejects.toThrow();
+      expect(mockPrisma.ride.aggregate).not.toHaveBeenCalled();
     });
   });
 

@@ -1306,6 +1306,25 @@ export const typeDefs = gql`
     weatherBreakdown(filter: RidesFilterInput): WeatherBreakdown!
   }
 
+  """
+  The one provider a ride is filed under, by the same priority the clients use
+  when a UI can only name a single source: Strava > Garmin > WHOOP > Suunto >
+  Manual.
+
+  Exclusive on purpose, unlike attribution. A Garmin-recorded ride imported via
+  Strava is attributed to both (the Garmin API Brand Guidelines require it
+  wherever the data appears), but as a *filter* that overlap would make
+  per-provider counts sum past the total and offer the same ride up in two
+  different buckets. These five buckets partition the rider's rides.
+  """
+  enum RideProvider {
+    STRAVA
+    GARMIN
+    WHOOP
+    SUUNTO
+    MANUAL
+  }
+
   input RidesFilterInput {
     startDate: String
     endDate: String
@@ -1316,6 +1335,49 @@ export const typeDefs = gql`
     # list those rides. Mutually exclusive with bikeId: sending both is a
     # BAD_USER_INPUT error rather than a silently-ignored filter.
     unassigned: Boolean
+    # Rides filed under exactly one provider. Lets a client select a bulk
+    # target ("every unassigned Garmin ride in this window") server-side
+    # instead of filtering a page it happens to have loaded.
+    provider: RideProvider
+  }
+
+  # Filter for the unassigned-ride aggregates below. Deliberately not
+  # RidesFilterInput: "unassigned" is implied by the query and "bikeId" is
+  # meaningless against a set defined by having no bike, and an input that
+  # can express neither cannot be misused.
+  input UnassignedRideFilterInput {
+    startDate: String
+    endDate: String
+    provider: RideProvider
+  }
+
+  type ProviderRideCount {
+    provider: RideProvider!
+    count: Int!
+  }
+
+  """
+  Aggregates over the rides still waiting on a bike, so a client can preview a
+  bulk assignment without downloading the rides themselves.
+
+  totalCount, totalDurationSeconds and the two bounds describe the set the
+  whole filter selects. byProvider deliberately ignores the filter's provider
+  field and breaks down the date-scoped set instead: it exists to populate the
+  provider picker, and a breakdown of a set already narrowed to one provider
+  would only ever hold one bucket.
+
+  totalDurationSeconds is the point of the preview as much as the count is.
+  Assigning a bike credits exactly those hours to its components, which is what
+  moves service predictions, so the rider should see the number before it lands
+  rather than after.
+  """
+  type UnassignedRideSummary {
+    totalCount: Int!
+    totalDurationSeconds: Int!
+    # Null when nothing matches.
+    earliestStartTime: String
+    latestStartTime: String
+    byProvider: [ProviderRideCount!]!
   }
 
   enum ComponentInstallEventType {
@@ -1421,6 +1483,11 @@ export const typeDefs = gql`
     # to go assign them; those rides' hours are credited to no component until
     # they are.
     unassignedRideCount: Int!
+    # Aggregates over the same set, narrowed by date window and provider, for
+    # previewing a bulk bike assignment. Companion to
+    # rides(filter: { unassigned: true, ... }), which returns the rides the
+    # numbers describe.
+    unassignedRideSummary(filter: UnassignedRideFilterInput): UnassignedRideSummary!
     calibrationState: CalibrationState
     servicePreferenceDefaults: [ServicePreferenceDefault!]!
     bikeNotes(bikeId: ID!, take: Int = 20, after: ID): BikeNotesPage!

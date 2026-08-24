@@ -974,6 +974,12 @@ export enum PredictionStatus {
   Overdue = 'OVERDUE'
 }
 
+export type ProviderRideCount = {
+  __typename?: 'ProviderRideCount';
+  count: Scalars['Int']['output'];
+  provider: RideProvider;
+};
+
 export type Query = {
   __typename?: 'Query';
   bike?: Maybe<Bike>;
@@ -995,6 +1001,7 @@ export type Query = {
   sharedBikeHistory?: Maybe<SharedBikeHistory>;
   stravaGearMappings: Array<StravaGearMapping>;
   unassignedRideCount: Scalars['Int']['output'];
+  unassignedRideSummary: UnassignedRideSummary;
   unassignedRides: UnassignedRidesPage;
   unmappedStravaGears: Array<StravaGearInfo>;
 };
@@ -1055,6 +1062,11 @@ export type QueryRidesArgs = {
 
 export type QuerySharedBikeHistoryArgs = {
   slug: Scalars['String']['input'];
+};
+
+
+export type QueryUnassignedRideSummaryArgs = {
+  filter?: InputMaybe<UnassignedRideFilterInput>;
 };
 
 
@@ -1136,6 +1148,25 @@ export type Ride = {
   whoopWorkoutId?: Maybe<Scalars['String']['output']>;
 };
 
+/**
+ * The one provider a ride is filed under, by the same priority the clients use
+ * when a UI can only name a single source: Strava > Garmin > WHOOP > Suunto >
+ * Manual.
+ *
+ * Exclusive on purpose, unlike attribution. A Garmin-recorded ride imported via
+ * Strava is attributed to both (the Garmin API Brand Guidelines require it
+ * wherever the data appears), but as a *filter* that overlap would make
+ * per-provider counts sum past the total and offer the same ride up in two
+ * different buckets. These five buckets partition the rider's rides.
+ */
+export enum RideProvider {
+  Garmin = 'GARMIN',
+  Manual = 'MANUAL',
+  Strava = 'STRAVA',
+  Suunto = 'SUUNTO',
+  Whoop = 'WHOOP'
+}
+
 export enum RideSyncNotificationMode {
   ActionNeeded = 'ACTION_NEEDED',
   All = 'ALL',
@@ -1204,6 +1235,7 @@ export type RideWeather = {
 export type RidesFilterInput = {
   bikeId?: InputMaybe<Scalars['ID']['input']>;
   endDate?: InputMaybe<Scalars['String']['input']>;
+  provider?: InputMaybe<RideProvider>;
   startDate?: InputMaybe<Scalars['String']['input']>;
   unassigned?: InputMaybe<Scalars['Boolean']['input']>;
 };
@@ -1433,6 +1465,36 @@ export type UnassignedRide = {
   location?: Maybe<Scalars['String']['output']>;
   rideType: Scalars['String']['output'];
   startTime: Scalars['String']['output'];
+};
+
+export type UnassignedRideFilterInput = {
+  endDate?: InputMaybe<Scalars['String']['input']>;
+  provider?: InputMaybe<RideProvider>;
+  startDate?: InputMaybe<Scalars['String']['input']>;
+};
+
+/**
+ * Aggregates over the rides still waiting on a bike, so a client can preview a
+ * bulk assignment without downloading the rides themselves.
+ *
+ * totalCount, totalDurationSeconds and the two bounds describe the set the
+ * whole filter selects. byProvider deliberately ignores the filter's provider
+ * field and breaks down the date-scoped set instead: it exists to populate the
+ * provider picker, and a breakdown of a set already narrowed to one provider
+ * would only ever hold one bucket.
+ *
+ * totalDurationSeconds is the point of the preview as much as the count is.
+ * Assigning a bike credits exactly those hours to its components, which is what
+ * moves service predictions, so the rider should see the number before it lands
+ * rather than after.
+ */
+export type UnassignedRideSummary = {
+  __typename?: 'UnassignedRideSummary';
+  byProvider: Array<ProviderRideCount>;
+  earliestStartTime?: Maybe<Scalars['String']['output']>;
+  latestStartTime?: Maybe<Scalars['String']['output']>;
+  totalCount: Scalars['Int']['output'];
+  totalDurationSeconds: Scalars['Int']['output'];
 };
 
 export type UnassignedRidesPage = {
