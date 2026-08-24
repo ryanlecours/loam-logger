@@ -101,6 +101,10 @@ export function MassAssignBikeModal({
   }, [isOpen, bikes]);
 
   const matchCount = summary?.totalCount ?? 0;
+  // What a single pass actually covers. The button must not promise the whole
+  // match when the cap means only part of it lands.
+  const isCapped = matchCount > MAX_RIDES_PER_PASS;
+  const passCount = Math.min(matchCount, MAX_RIDES_PER_PASS);
   const matchHours = Math.round((summary?.totalDurationSeconds ?? 0) / SECONDS_PER_HOUR);
 
   // byProvider always describes the date-scoped set regardless of which
@@ -349,7 +353,8 @@ export function MassAssignBikeModal({
                   </p>
                   {matchCount > MAX_RIDES_PER_PASS && (
                     <p className="text-xs text-muted mt-1">
-                      Assigns {MAX_RIDES_PER_PASS} at a time. Run it again for the rest.
+                      Assigns the {MAX_RIDES_PER_PASS} most recent at a time. Run it again for
+                      the rest.
                     </p>
                   )}
                 </>
@@ -386,7 +391,9 @@ export function MassAssignBikeModal({
                   ? progress
                     ? `Assigning ${progress.done} of ${progress.total}...`
                     : 'Assigning...'
-                  : `Assign ${matchCount} Ride${matchCount !== 1 ? 's' : ''}`}
+                  : isCapped
+                    ? `Assign ${passCount} of ${matchCount} Rides`
+                    : `Assign ${matchCount} Ride${matchCount !== 1 ? 's' : ''}`}
               </Button>
             </div>
           </>
