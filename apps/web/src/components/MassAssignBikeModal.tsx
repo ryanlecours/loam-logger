@@ -147,7 +147,10 @@ export function MassAssignBikeModal({
       const rideIds = (idData?.rides ?? []).map((ride) => ride.id);
 
       if (rideIds.length === 0) {
-        setError('Those rides already have bikes. Nothing left to assign.');
+        // Deliberately does not name a cause. A ride leaves the unassigned set
+        // by gaining a bike OR by being flagged "not my bike", and from here
+        // the two are indistinguishable.
+        setError('Those rides are no longer waiting on a bike. Nothing left to assign.');
         return;
       }
 
@@ -162,16 +165,29 @@ export function MassAssignBikeModal({
         setProgress({ done: assigned, total: rideIds.length });
       }
 
-      const remaining = Math.max(0, matchCount - assigned);
+      // Call onSuccess to trigger refetch in parent
+      onSuccess?.();
+
+      // What still matches now that the writes have landed, rather than the
+      // count the preview was showing before them. Rides can leave the set
+      // for reasons this pass had nothing to do with (assigned in another
+      // tab, flagged "not my bike"), so subtracting from the previewed count
+      // would quote a stale number back to the rider.
+      let remaining: number;
+      try {
+        const refreshed = await refetchSummary();
+        remaining = refreshed.data?.unassignedRideSummary?.totalCount ?? 0;
+      } catch {
+        // A failed refetch is a stale screen, not a failed assignment. Fall
+        // back to the previewed count so the rider still gets a number.
+        remaining = Math.max(0, matchCount - assigned);
+      }
+
       setSuccessMessage(
         remaining > 0
           ? `Assigned ${assigned} rides. ${remaining} more match: assign again to continue.`
           : `Assigned ${assigned} ride${assigned !== 1 ? 's' : ''} to bike!`
       );
-
-      // Call onSuccess to trigger refetch in parent
-      onSuccess?.();
-      await refetchSummary();
     } catch (err) {
       console.error('Failed to assign bikes:', err);
       // Each chunk is its own transaction, so a mid-run failure leaves real

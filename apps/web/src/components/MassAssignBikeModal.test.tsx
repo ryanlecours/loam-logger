@@ -65,6 +65,12 @@ describe('MassAssignBikeModal', () => {
     setSummary(summary());
     lastSummaryFilter = undefined;
     mockFetchRideIds.mockResolvedValue(idsFor('ride-1', 'ride-2'));
+    // The remaining count is read back from the server after the writes land,
+    // so the refetch has to answer with a real summary. Empty by default:
+    // everything the pass selected got assigned.
+    mockRefetchSummary.mockResolvedValue({
+      data: { unassignedRideSummary: summary({ totalCount: 0 }) },
+    });
     mockAssignBikeToRides.mockResolvedValue({
       data: { assignBikeToRides: { success: true, updatedCount: 2 } },
     });
@@ -256,6 +262,9 @@ describe('MassAssignBikeModal', () => {
         data: { assignBikeToRides: { success: true, updatedCount: 500 } },
       });
       setSummary(summary({ totalCount: 2600 }));
+      mockRefetchSummary.mockResolvedValue({
+        data: { unassignedRideSummary: summary({ totalCount: 600 }) },
+      });
 
       render(<MassAssignBikeModal {...defaultProps} />);
       selectBike();
@@ -267,6 +276,53 @@ describe('MassAssignBikeModal', () => {
       });
     });
 
+    it('reports the remaining count the server gives, not the preview minus what landed', async () => {
+      // 2600 previewed, 2000 assigned this pass, but 40 of the rest were
+      // marked "not my bike" in another tab meanwhile. Subtracting would say
+      // 600; only the server knows it is 560.
+      const ids = Array.from({ length: 2000 }, (_, i) => `ride-${i}`);
+      mockFetchRideIds.mockResolvedValue(idsFor(...ids));
+      mockAssignBikeToRides.mockResolvedValue({
+        data: { assignBikeToRides: { success: true, updatedCount: 500 } },
+      });
+      setSummary(summary({ totalCount: 2600 }));
+      mockRefetchSummary.mockResolvedValue({
+        data: { unassignedRideSummary: summary({ totalCount: 560 }) },
+      });
+
+      render(<MassAssignBikeModal {...defaultProps} />);
+      selectBike();
+
+      fireEvent.click(screen.getByRole('button', { name: /Assign 2600 Rides/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/560 more match/i)).toBeInTheDocument();
+      });
+      expect(screen.queryByText(/600 more match/i)).not.toBeInTheDocument();
+    });
+
+    it('falls back to the previewed count when the post-assign refetch fails', async () => {
+      // A failed refetch is a stale screen, not a failed assignment: the rider
+      // still gets a number and, above all, still gets told the rides landed.
+      const ids = Array.from({ length: 2000 }, (_, i) => `ride-${i}`);
+      mockFetchRideIds.mockResolvedValue(idsFor(...ids));
+      mockAssignBikeToRides.mockResolvedValue({
+        data: { assignBikeToRides: { success: true, updatedCount: 500 } },
+      });
+      setSummary(summary({ totalCount: 2600 }));
+      mockRefetchSummary.mockRejectedValue(new Error('Network error'));
+
+      render(<MassAssignBikeModal {...defaultProps} />);
+      selectBike();
+
+      fireEvent.click(screen.getByRole('button', { name: /Assign 2600 Rides/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/600 more match/i)).toBeInTheDocument();
+      });
+      expect(screen.queryByText(/Failed to assign/i)).not.toBeInTheDocument();
+    });
+
     it('handles the selection emptying out between preview and submit', async () => {
       mockFetchRideIds.mockResolvedValue(idsFor());
 
@@ -275,9 +331,12 @@ describe('MassAssignBikeModal', () => {
 
       fireEvent.click(screen.getByRole('button', { name: /Assign 2 Rides/i }));
 
+      // Rides also leave the unassigned set by being flagged "not my bike",
+      // so the copy must not assert that they were assigned a bike.
       await waitFor(() => {
-        expect(screen.getByText(/already have bikes/i)).toBeInTheDocument();
+        expect(screen.getByText(/no longer waiting on a bike/i)).toBeInTheDocument();
       });
+      expect(screen.queryByText(/already have bikes/i)).not.toBeInTheDocument();
       expect(mockAssignBikeToRides).not.toHaveBeenCalled();
     });
 
