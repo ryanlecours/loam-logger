@@ -22,7 +22,12 @@ import type { BikePredictionSummary } from '../services/prediction/types';
 import { clearServiceNotificationLogs, fireServiceDueForBike, isValidExpoPushToken } from '../services/notification.service';
 // The canonical "still waiting on a bike" predicate; see lib/ride-predicates
 // for why this is one constant and what it deliberately excludes.
-import { UNASSIGNED_RIDE_WHERE } from '../lib/ride-predicates';
+import {
+  RIDE_PROVIDERS,
+  UNASSIGNED_RIDE_WHERE,
+  providerRideWhere,
+  type RideProvider,
+} from '../lib/ride-predicates';
 import { getBaseInterval, BASE_INTERVALS_HOURS, DEFAULT_INTERVAL_HOURS } from '../services/prediction/config';
 import {
   getApplicableComponents,
@@ -919,7 +924,26 @@ type RidesFilterInput = {
   endDate?: string | null;
   bikeId?: string | null;
   unassigned?: boolean | null;
+  provider?: RideProvider | null;
 };
+
+/** The unassigned-summary input: no `bikeId`, and `unassigned` is implied. */
+type UnassignedRideFilterInput = Pick<RidesFilterInput, 'startDate' | 'endDate' | 'provider'>;
+
+/**
+ * The `startTime` clause for a date window, or undefined when neither bound is
+ * set. Shared so `rides` and `unassignedRideSummary` cannot drift on inclusive
+ * vs. exclusive bounds and start disagreeing about what a window contains.
+ */
+function rideDateWhere(
+  filter?: Pick<RidesFilterInput, 'startDate' | 'endDate'> | null
+): { gte?: Date; lte?: Date } | undefined {
+  if (!filter?.startDate && !filter?.endDate) return undefined;
+  const clause: { gte?: Date; lte?: Date } = {};
+  if (filter.startDate) clause.gte = new Date(filter.startDate);
+  if (filter.endDate) clause.lte = new Date(filter.endDate);
+  return clause;
+}
 
 /**
  * `unassigned: true` and `bikeId` select disjoint sets, so a filter carrying
@@ -1077,14 +1101,15 @@ export const resolvers = {
       };
 
       // Apply date filters if provided
-      if (filter?.startDate || filter?.endDate) {
-        whereClause.startTime = {};
-        if (filter.startDate) {
-          whereClause.startTime.gte = new Date(filter.startDate);
-        }
-        if (filter.endDate) {
-          whereClause.startTime.lte = new Date(filter.endDate);
-        }
+      const dateWhere = rideDateWhere(filter);
+      if (dateWhere) {
+        whereClause.startTime = dateWhere;
+      }
+
+      // Rides filed under one provider, by the exclusive priority buckets in
+      // lib/ride-predicates (not the overlapping attribution rule).
+      if (filter?.provider) {
+        Object.assign(whereClause, providerRideWhere(filter.provider));
       }
 
       // Apply bike filter if provided
@@ -1363,6 +1388,75 @@ export const resolvers = {
       // nagging forever: a demo or loaner ride also has no bikeId, but it is
       // finished business.
       return prisma.ride.count({ where: { userId, ...UNASSIGNED_RIDE_WHERE } });
+    },
+
+    /**
+     * Preview numbers for a bulk bike assignment: how many unassigned rides a
+     * date window and provider select, how many hours that would credit, and
+     * what the picker should offer next.
+     *
+     * Exists so a client never has to filter a list it happens to have loaded.
+     * The web modal used to do exactly that and silently scoped every "assign
+     * all my Garmin rides" to whatever page of rides was on screen.
+     */
+    unassignedRideSummary: async (
+      _: unknown,
+      { filter }: { filter?: UnassignedRideFilterInput | null },
+      ctx: GraphQLContext
+    ) => {
+      const userId = requireUserId(ctx);
+
+      const rateLimit = await checkQueryRateLimit('unassignedRideSummary', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
+
+      // The date-scoped set, before any provider narrowing. Both the
+      // per-provider breakdown and the fully-filtered aggregate build on it.
+      const dateWhere = rideDateWhere(filter);
+      const scopedWhere: Prisma.RideWhereInput = {
+        userId,
+        ...UNASSIGNED_RIDE_WHERE,
+        ...(dateWhere ? { startTime: dateWhere } : {}),
+      };
+
+      const [aggregate, providerCounts] = await Promise.all([
+        prisma.ride.aggregate({
+          where: {
+            ...scopedWhere,
+            ...(filter?.provider ? providerRideWhere(filter.provider) : {}),
+          },
+          _count: { _all: true },
+          _sum: { durationSeconds: true },
+          _min: { startTime: true },
+          _max: { startTime: true },
+        }),
+        // One COUNT per bucket rather than a groupBy: the buckets are defined
+        // by a priority rule across four nullable columns, not by one column's
+        // value. Five bounded counts over an already user-scoped set.
+        Promise.all(
+          RIDE_PROVIDERS.map(async (provider) => ({
+            provider,
+            count: await prisma.ride.count({
+              where: { ...scopedWhere, ...providerRideWhere(provider) },
+            }),
+          }))
+        ),
+      ]);
+
+      return {
+        totalCount: aggregate._count._all,
+        // Null when nothing matched; the client asked for a total, not a gap.
+        totalDurationSeconds: aggregate._sum.durationSeconds ?? 0,
+        earliestStartTime: aggregate._min.startTime?.toISOString() ?? null,
+        latestStartTime: aggregate._max.startTime?.toISOString() ?? null,
+        // Empty buckets are dropped here rather than in each client: a
+        // provider the rider has never connected is not a filter worth
+        // rendering, and every client would otherwise filter this list itself.
+        byProvider: providerCounts.filter((entry) => entry.count > 0),
+      };
     },
 
     calibrationState: async (_: unknown, __: unknown, ctx: GraphQLContext) => {
@@ -6774,10 +6868,17 @@ export const resolvers = {
 
       const rideWhere: Prisma.RideWhereInput = { userId: parent.id };
 
-      if (filter?.startDate || filter?.endDate) {
-        rideWhere.startTime = {};
-        if (filter.startDate) rideWhere.startTime.gte = new Date(filter.startDate);
-        if (filter.endDate) rideWhere.startTime.lte = new Date(filter.endDate);
+      const dateWhere = rideDateWhere(filter);
+      if (dateWhere) {
+        rideWhere.startTime = dateWhere;
+      }
+
+      // Same buckets as Query.rides, from the same helper. RidesFilterInput is
+      // shared, so leaving `provider` unread here would make the identical
+      // filter mean two different things depending on which field it was sent
+      // to — the exact drift the unassigned clause below already had once.
+      if (filter?.provider) {
+        Object.assign(rideWhere, providerRideWhere(filter.provider));
       }
 
       if (filter?.bikeId) {

@@ -1,3 +1,5 @@
+import type { Prisma } from '@prisma/client';
+
 /**
  * The canonical "still waiting on a bike" predicate.
  *
@@ -18,3 +20,51 @@
  * predicate out in its COUNT and has to be updated alongside.
  */
 export const UNASSIGNED_RIDE_WHERE = { bikeId: null, unownedBike: false } as const;
+
+/**
+ * The providers a ride can be filtered by, in the priority order the clients
+ * already use when a UI can only name one source (web's `getRideSource`,
+ * mobile's ride row). Order is load-bearing here, not cosmetic: see
+ * `providerRideWhere` below.
+ */
+export const RIDE_PROVIDERS = ['STRAVA', 'GARMIN', 'WHOOP', 'SUUNTO', 'MANUAL'] as const;
+
+export type RideProvider = (typeof RIDE_PROVIDERS)[number];
+
+/** The Ride column that proves a given provider supplied the activity. */
+const PROVIDER_ID_COLUMN: Record<Exclude<RideProvider, 'MANUAL'>, string> = {
+  STRAVA: 'stravaActivityId',
+  GARMIN: 'garminActivityId',
+  WHOOP: 'whoopWorkoutId',
+  SUUNTO: 'suuntoWorkoutId',
+};
+
+/**
+ * Rides belonging to exactly one provider bucket.
+ *
+ * Deliberately EXCLUSIVE, unlike attribution. A ride recorded on a Garmin and
+ * imported through Strava carries data from both, and the badge UIs show both
+ * because the Garmin API Brand Guidelines require attribution wherever that
+ * data appears. A filter must not behave that way: overlapping buckets make
+ * per-provider counts sum past the total, and a rider working through their
+ * unassigned backlog one provider at a time would be shown the same ride twice.
+ *
+ * So each bucket claims a ride only if no higher-priority provider already
+ * has: GARMIN means "has a Garmin activity and did not come via Strava", and
+ * MANUAL means "no provider at all". The five buckets partition the set.
+ */
+export function providerRideWhere(provider: RideProvider): Prisma.RideWhereInput {
+  const where: Record<string, null | { not: null }> = {};
+  for (const candidate of RIDE_PROVIDERS) {
+    if (candidate === 'MANUAL') continue;
+    const column = PROVIDER_ID_COLUMN[candidate];
+    if (candidate === provider) {
+      where[column] = { not: null };
+      return where;
+    }
+    // Outranks the requested provider, so its absence is part of the bucket.
+    where[column] = null;
+  }
+  // MANUAL: fell through with every provider column pinned to null.
+  return where;
+}

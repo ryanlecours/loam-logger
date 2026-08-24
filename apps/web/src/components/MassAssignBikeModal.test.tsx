@@ -1,34 +1,48 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MassAssignBikeModal } from './MassAssignBikeModal';
-import type { Ride } from '../models/Ride';
+import type { UnassignedRideSummary } from '../graphql/unassignedRides';
 
-// Mock the GraphQL mutation hook
 const mockAssignBikeToRides = vi.fn();
 vi.mock('../graphql/importSession', () => ({
   useAssignBikeToRides: () => [mockAssignBikeToRides],
 }));
 
-// Helper to create test rides
-const createRide = (overrides: Partial<Ride> = {}): Ride => ({
-  id: `ride-${Math.random().toString(36).slice(2)}`,
-  startTime: '2024-06-15T12:00:00Z',
-  durationSeconds: 3600,
-  distanceMeters: 10,
-  elevationGainMeters: 500,
-  rideType: 'Trail',
-  bikeId: null,
-  averageHr: null,
-  notes: null,
-  trailSystem: null,
-  location: null,
-  stravaActivityId: null,
-  garminActivityId: null,
-  whoopWorkoutId: null,
+// The modal reads its selection from the server rather than from a list of
+// rides handed in as a prop, so the tests drive it through these two hooks.
+const mockFetchRideIds = vi.fn();
+const mockRefetchSummary = vi.fn();
+let summaryResult: { data?: { unassignedRideSummary: UnassignedRideSummary }; loading: boolean };
+let lastSummaryFilter: unknown;
+
+vi.mock('../graphql/unassignedRides', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../graphql/unassignedRides')>();
+  return {
+    ...actual,
+    useUnassignedRideSummary: (filter: unknown) => {
+      lastSummaryFilter = filter;
+      return { ...summaryResult, refetch: mockRefetchSummary };
+    },
+    useUnassignedRideIds: () => [mockFetchRideIds],
+  };
+});
+
+const summary = (overrides: Partial<UnassignedRideSummary> = {}): UnassignedRideSummary => ({
+  totalCount: 2,
+  totalDurationSeconds: 7200,
+  earliestStartTime: '2026-03-01T12:00:00.000Z',
+  latestStartTime: '2026-06-15T12:00:00.000Z',
+  byProvider: [
+    { provider: 'STRAVA', count: 1 },
+    { provider: 'GARMIN', count: 1 },
+  ],
   ...overrides,
 });
 
-// Helper to create test bikes
+const setSummary = (value: UnassignedRideSummary) => {
+  summaryResult = { data: { unassignedRideSummary: value }, loading: false };
+};
+
 const createBike = (id: string, nickname: string) => ({
   id,
   nickname,
@@ -36,24 +50,27 @@ const createBike = (id: string, nickname: string) => ({
   model: 'Slash',
 });
 
+const idsFor = (...ids: string[]) => ({ data: { rides: ids.map((id) => ({ id })) } });
+
 describe('MassAssignBikeModal', () => {
   const defaultProps = {
     isOpen: true,
     onClose: vi.fn(),
-    rides: [
-      createRide({ id: 'ride-1', bikeId: null }),
-      createRide({ id: 'ride-2', bikeId: null }),
-      createRide({ id: 'ride-3', bikeId: 'existing-bike' }),
-    ],
-    bikes: [
-      createBike('bike-1', 'My Trek'),
-      createBike('bike-2', 'My Santa Cruz'),
-    ],
+    bikes: [createBike('bike-1', 'My Trek'), createBike('bike-2', 'My Santa Cruz')],
     onSuccess: vi.fn(),
   };
 
   beforeEach(() => {
     vi.clearAllMocks();
+    setSummary(summary());
+    lastSummaryFilter = undefined;
+    mockFetchRideIds.mockResolvedValue(idsFor('ride-1', 'ride-2'));
+    // The remaining count is read back from the server after the writes land,
+    // so the refetch has to answer with a real summary. Empty by default:
+    // everything the pass selected got assigned.
+    mockRefetchSummary.mockResolvedValue({
+      data: { unassignedRideSummary: summary({ totalCount: 0 }) },
+    });
     mockAssignBikeToRides.mockResolvedValue({
       data: { assignBikeToRides: { success: true, updatedCount: 2 } },
     });
@@ -64,14 +81,15 @@ describe('MassAssignBikeModal', () => {
       render(<MassAssignBikeModal {...defaultProps} />);
 
       expect(screen.getByText('Mass Assign Bike')).toBeInTheDocument();
-      expect(screen.getByText('Assign a bike to multiple unassigned rides at once')).toBeInTheDocument();
+      expect(
+        screen.getByText('Assign a bike to multiple unassigned rides at once')
+      ).toBeInTheDocument();
     });
 
     it('renders bike selector dropdown', () => {
       render(<MassAssignBikeModal {...defaultProps} />);
 
       expect(screen.getByText('Select Bike')).toBeInTheDocument();
-      expect(screen.getByRole('combobox')).toBeInTheDocument();
       expect(screen.getByRole('option', { name: 'My Trek' })).toBeInTheDocument();
       expect(screen.getByRole('option', { name: 'My Santa Cruz' })).toBeInTheDocument();
     });
@@ -80,26 +98,30 @@ describe('MassAssignBikeModal', () => {
       render(<MassAssignBikeModal {...defaultProps} />);
 
       expect(screen.getByText('Date Range')).toBeInTheDocument();
-      // Note: date inputs may be rendered differently, check for container text
-      expect(screen.getByText(/optional/i)).toBeInTheDocument();
+      expect(screen.getByLabelText('Start date')).toBeInTheDocument();
+      expect(screen.getByLabelText('End date')).toBeInTheDocument();
     });
 
-    it('renders provider filter options', () => {
+    it('offers only the providers that actually have unassigned rides', () => {
       render(<MassAssignBikeModal {...defaultProps} />);
 
-      expect(screen.getByText('Provider')).toBeInTheDocument();
-      expect(screen.getByLabelText('All providers')).toBeInTheDocument();
-      expect(screen.getByLabelText('Strava')).toBeInTheDocument();
-      expect(screen.getByLabelText('Garmin')).toBeInTheDocument();
-      expect(screen.getByLabelText('WHOOP')).toBeInTheDocument();
-      expect(screen.getByLabelText('Manual')).toBeInTheDocument();
+      expect(screen.getByLabelText(/All providers/)).toBeInTheDocument();
+      expect(screen.getByLabelText(/Strava/)).toBeInTheDocument();
+      expect(screen.getByLabelText(/Garmin/)).toBeInTheDocument();
+      // A provider the rider has never connected is not a filter worth showing.
+      expect(screen.queryByLabelText(/WHOOP/)).not.toBeInTheDocument();
+      expect(screen.queryByLabelText(/Suunto/)).not.toBeInTheDocument();
     });
 
-    it('shows unassigned ride count in preview', () => {
+    it('shows the hours a bulk assignment would credit', () => {
+      setSummary(summary({ totalCount: 12, totalDurationSeconds: 43200 }));
+
       render(<MassAssignBikeModal {...defaultProps} />);
 
-      // 2 rides are unassigned (ride-1 and ride-2) - check button text for count
-      expect(screen.getByRole('button', { name: /Assign 2 Rides/i })).toBeInTheDocument();
+      // The hours are the consequence: they land on the bike's components and
+      // move its service predictions.
+      expect(screen.getByText(/About 12 h credited/)).toBeInTheDocument();
+      expect(screen.getByText(/Mar 1, 2026 to Jun 15, 2026/)).toBeInTheDocument();
     });
 
     it('shows message when no bikes available', () => {
@@ -109,125 +131,232 @@ describe('MassAssignBikeModal', () => {
     });
   });
 
-  describe('filtering', () => {
-    it('filters out rides that already have bikes assigned', () => {
-      const rides = [
-        createRide({ id: 'ride-1', bikeId: null }),
-        createRide({ id: 'ride-2', bikeId: 'some-bike' }),
-        createRide({ id: 'ride-3', bikeId: null }),
-      ];
+  describe('selection', () => {
+    it('asks the server for the whole unassigned set, not a loaded page', () => {
+      render(<MassAssignBikeModal {...defaultProps} />);
 
-      render(<MassAssignBikeModal {...defaultProps} rides={rides} />);
-
-      // Only 2 unassigned rides - check the button text for count
-      expect(screen.getByRole('button', { name: /Assign 2 Rides/i })).toBeInTheDocument();
+      expect(lastSummaryFilter).toEqual({
+        startDate: null,
+        endDate: null,
+        provider: null,
+      });
     });
 
-    it('filters by provider when selected', () => {
-      const rides = [
-        createRide({ id: 'ride-1', bikeId: null, stravaActivityId: 'strava-1' }),
-        createRide({ id: 'ride-2', bikeId: null, garminActivityId: 'garmin-1' }),
-        createRide({ id: 'ride-3', bikeId: null }), // manual
-      ];
+    it('narrows the selection by provider', () => {
+      render(<MassAssignBikeModal {...defaultProps} />);
 
-      render(<MassAssignBikeModal {...defaultProps} rides={rides} />);
+      fireEvent.click(screen.getByLabelText(/Strava/));
 
-      // Initially all 3 unassigned - check button text
-      expect(screen.getByRole('button', { name: /Assign 3 Rides/i })).toBeInTheDocument();
-
-      // Select Strava filter
-      fireEvent.click(screen.getByLabelText('Strava'));
-
-      // Should show only 1 Strava ride
-      expect(screen.getByRole('button', { name: /Assign 1 Ride$/i })).toBeInTheDocument();
+      expect(lastSummaryFilter).toMatchObject({ provider: 'STRAVA' });
     });
 
-    it('filters by date range', () => {
-      const rides = [
-        createRide({ id: 'ride-1', bikeId: null, startTime: '2024-01-15T12:00:00Z' }),
-        createRide({ id: 'ride-2', bikeId: null, startTime: '2024-06-15T12:00:00Z' }),
-        createRide({ id: 'ride-3', bikeId: null, startTime: '2024-12-15T12:00:00Z' }),
-      ];
+    it('narrows the selection by date window', () => {
+      render(<MassAssignBikeModal {...defaultProps} />);
 
-      render(<MassAssignBikeModal {...defaultProps} rides={rides} />);
+      fireEvent.change(screen.getByLabelText('Start date'), {
+        target: { value: '2026-06-01' },
+      });
 
-      // Set start date to filter out January ride
-      const startDateInput = screen.getAllByDisplayValue('')[0];
-      fireEvent.change(startDateInput, { target: { value: '2024-06-01' } });
+      expect(lastSummaryFilter).toMatchObject({
+        startDate: new Date('2026-06-01T00:00:00.000').toISOString(),
+      });
+    });
 
-      // Should show 2 rides (June and December) - check button text
-      expect(screen.getByRole('button', { name: /Assign 2 Rides/i })).toBeInTheDocument();
+    it('rejects a backwards date range before querying', () => {
+      render(<MassAssignBikeModal {...defaultProps} />);
+
+      fireEvent.change(screen.getByLabelText('Start date'), {
+        target: { value: '2026-06-01' },
+      });
+      fireEvent.change(screen.getByLabelText('End date'), {
+        target: { value: '2026-01-01' },
+      });
+
+      expect(screen.getByText(/Start date must be before end date/i)).toBeInTheDocument();
     });
 
     it('shows message when no rides match filters', () => {
-      const rides = [
-        createRide({ id: 'ride-1', bikeId: 'existing' }), // Already assigned
-      ];
+      setSummary(summary({ totalCount: 0, totalDurationSeconds: 0, byProvider: [] }));
 
-      render(<MassAssignBikeModal {...defaultProps} rides={rides} />);
+      render(<MassAssignBikeModal {...defaultProps} />);
 
       expect(screen.getByText(/No unassigned rides match/i)).toBeInTheDocument();
     });
   });
 
   describe('bike assignment', () => {
-    it('calls mutation with correct ride IDs and bike ID', async () => {
-      const rides = [
-        createRide({ id: 'ride-1', bikeId: null }),
-        createRide({ id: 'ride-2', bikeId: null }),
-      ];
+    const selectBike = () => {
+      fireEvent.change(screen.getByRole('combobox'), { target: { value: 'bike-1' } });
+    };
 
-      render(<MassAssignBikeModal {...defaultProps} rides={rides} />);
+    it('re-reads the ride ids at submit time with the unassigned predicate', async () => {
+      render(<MassAssignBikeModal {...defaultProps} />);
+      selectBike();
 
-      // Select a bike
-      const bikeSelect = screen.getByRole('combobox');
-      fireEvent.change(bikeSelect, { target: { value: 'bike-1' } });
-
-      // Click assign button
-      const assignButton = screen.getByRole('button', { name: /Assign 2 Rides/i });
-      fireEvent.click(assignButton);
+      fireEvent.click(screen.getByRole('button', { name: /Assign 2 Rides/i }));
 
       await waitFor(() => {
-        expect(mockAssignBikeToRides).toHaveBeenCalledWith({
+        // `unassigned: true` is what keeps rides the rider marked "not my bike"
+        // out of a bulk assignment: the server predicate is
+        // { bikeId: null, unownedBike: false }.
+        expect(mockFetchRideIds).toHaveBeenCalledWith({
           variables: {
-            rideIds: ['ride-1', 'ride-2'],
-            bikeId: 'bike-1',
+            filter: { startDate: null, endDate: null, provider: null, unassigned: true },
+            take: 2000,
           },
         });
       });
+      expect(mockAssignBikeToRides).toHaveBeenCalledWith({
+        variables: { rideIds: ['ride-1', 'ride-2'], bikeId: 'bike-1' },
+      });
+    });
+
+    it('splits a large selection across several bounded calls', async () => {
+      const ids = Array.from({ length: 1200 }, (_, i) => `ride-${i}`);
+      mockFetchRideIds.mockResolvedValue(idsFor(...ids));
+      mockAssignBikeToRides.mockResolvedValue({
+        data: { assignBikeToRides: { success: true, updatedCount: 500 } },
+      });
+      setSummary(summary({ totalCount: 1200 }));
+
+      render(<MassAssignBikeModal {...defaultProps} />);
+      selectBike();
+
+      fireEvent.click(screen.getByRole('button', { name: /Assign 1200 Rides/i }));
+
+      await waitFor(() => {
+        expect(mockAssignBikeToRides).toHaveBeenCalledTimes(3);
+      });
+      const sizes = mockAssignBikeToRides.mock.calls.map(
+        (call) => call[0].variables.rideIds.length
+      );
+      expect(sizes).toEqual([500, 500, 200]);
+    });
+
+    it('reports how much landed when a later chunk fails', async () => {
+      const ids = Array.from({ length: 900 }, (_, i) => `ride-${i}`);
+      mockFetchRideIds.mockResolvedValue(idsFor(...ids));
+      mockAssignBikeToRides
+        .mockResolvedValueOnce({
+          data: { assignBikeToRides: { success: true, updatedCount: 500 } },
+        })
+        .mockRejectedValueOnce(new Error('Network error'));
+      setSummary(summary({ totalCount: 900 }));
+
+      render(<MassAssignBikeModal {...defaultProps} />);
+      selectBike();
+
+      fireEvent.click(screen.getByRole('button', { name: /Assign 900 Rides/i }));
+
+      // Each chunk is its own transaction, so half the work really did land.
+      await waitFor(() => {
+        expect(screen.getByText(/Assigned 500 rides, then hit an error/i)).toBeInTheDocument();
+      });
+      expect(defaultProps.onSuccess).toHaveBeenCalled();
+    });
+
+    it('tells the rider when more rides remain than one pass can take', async () => {
+      const ids = Array.from({ length: 2000 }, (_, i) => `ride-${i}`);
+      mockFetchRideIds.mockResolvedValue(idsFor(...ids));
+      mockAssignBikeToRides.mockResolvedValue({
+        data: { assignBikeToRides: { success: true, updatedCount: 500 } },
+      });
+      setSummary(summary({ totalCount: 2600 }));
+      mockRefetchSummary.mockResolvedValue({
+        data: { unassignedRideSummary: summary({ totalCount: 600 }) },
+      });
+
+      render(<MassAssignBikeModal {...defaultProps} />);
+      selectBike();
+
+      fireEvent.click(screen.getByRole('button', { name: /Assign 2600 Rides/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/600 more match/i)).toBeInTheDocument();
+      });
+    });
+
+    it('reports the remaining count the server gives, not the preview minus what landed', async () => {
+      // 2600 previewed, 2000 assigned this pass, but 40 of the rest were
+      // marked "not my bike" in another tab meanwhile. Subtracting would say
+      // 600; only the server knows it is 560.
+      const ids = Array.from({ length: 2000 }, (_, i) => `ride-${i}`);
+      mockFetchRideIds.mockResolvedValue(idsFor(...ids));
+      mockAssignBikeToRides.mockResolvedValue({
+        data: { assignBikeToRides: { success: true, updatedCount: 500 } },
+      });
+      setSummary(summary({ totalCount: 2600 }));
+      mockRefetchSummary.mockResolvedValue({
+        data: { unassignedRideSummary: summary({ totalCount: 560 }) },
+      });
+
+      render(<MassAssignBikeModal {...defaultProps} />);
+      selectBike();
+
+      fireEvent.click(screen.getByRole('button', { name: /Assign 2600 Rides/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/560 more match/i)).toBeInTheDocument();
+      });
+      expect(screen.queryByText(/600 more match/i)).not.toBeInTheDocument();
+    });
+
+    it('falls back to the previewed count when the post-assign refetch fails', async () => {
+      // A failed refetch is a stale screen, not a failed assignment: the rider
+      // still gets a number and, above all, still gets told the rides landed.
+      const ids = Array.from({ length: 2000 }, (_, i) => `ride-${i}`);
+      mockFetchRideIds.mockResolvedValue(idsFor(...ids));
+      mockAssignBikeToRides.mockResolvedValue({
+        data: { assignBikeToRides: { success: true, updatedCount: 500 } },
+      });
+      setSummary(summary({ totalCount: 2600 }));
+      mockRefetchSummary.mockRejectedValue(new Error('Network error'));
+
+      render(<MassAssignBikeModal {...defaultProps} />);
+      selectBike();
+
+      fireEvent.click(screen.getByRole('button', { name: /Assign 2600 Rides/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/600 more match/i)).toBeInTheDocument();
+      });
+      expect(screen.queryByText(/Failed to assign/i)).not.toBeInTheDocument();
+    });
+
+    it('handles the selection emptying out between preview and submit', async () => {
+      mockFetchRideIds.mockResolvedValue(idsFor());
+
+      render(<MassAssignBikeModal {...defaultProps} />);
+      selectBike();
+
+      fireEvent.click(screen.getByRole('button', { name: /Assign 2 Rides/i }));
+
+      // Rides also leave the unassigned set by being flagged "not my bike",
+      // so the copy must not assert that they were assigned a bike.
+      await waitFor(() => {
+        expect(screen.getByText(/no longer waiting on a bike/i)).toBeInTheDocument();
+      });
+      expect(screen.queryByText(/already have bikes/i)).not.toBeInTheDocument();
+      expect(mockAssignBikeToRides).not.toHaveBeenCalled();
     });
 
     it('shows success message after assignment', async () => {
-      const rides = [createRide({ id: 'ride-1', bikeId: null })];
+      render(<MassAssignBikeModal {...defaultProps} />);
+      selectBike();
 
-      render(<MassAssignBikeModal {...defaultProps} rides={rides} />);
-
-      // Select a bike
-      const bikeSelect = screen.getByRole('combobox');
-      fireEvent.change(bikeSelect, { target: { value: 'bike-1' } });
-
-      // Click assign button
-      const assignButton = screen.getByRole('button', { name: /Assign 1 Ride/i });
-      fireEvent.click(assignButton);
+      fireEvent.click(screen.getByRole('button', { name: /Assign 2 Rides/i }));
 
       await waitFor(() => {
-        expect(screen.getByText(/Assigned.*ride.*to bike/i)).toBeInTheDocument();
+        expect(screen.getByText(/Assigned 2 rides to bike/i)).toBeInTheDocument();
       });
     });
 
     it('calls onSuccess after successful assignment', async () => {
       const onSuccess = vi.fn();
-      const rides = [createRide({ id: 'ride-1', bikeId: null })];
+      render(<MassAssignBikeModal {...defaultProps} onSuccess={onSuccess} />);
+      selectBike();
 
-      render(<MassAssignBikeModal {...defaultProps} rides={rides} onSuccess={onSuccess} />);
-
-      // Select a bike
-      const bikeSelect = screen.getByRole('combobox');
-      fireEvent.change(bikeSelect, { target: { value: 'bike-1' } });
-
-      // Click assign button
-      const assignButton = screen.getByRole('button', { name: /Assign 1 Ride/i });
-      fireEvent.click(assignButton);
+      fireEvent.click(screen.getByRole('button', { name: /Assign 2 Rides/i }));
 
       await waitFor(() => {
         expect(onSuccess).toHaveBeenCalled();
@@ -236,17 +365,11 @@ describe('MassAssignBikeModal', () => {
 
     it('shows error message on failure', async () => {
       mockAssignBikeToRides.mockRejectedValue(new Error('Network error'));
-      const rides = [createRide({ id: 'ride-1', bikeId: null })];
 
-      render(<MassAssignBikeModal {...defaultProps} rides={rides} />);
+      render(<MassAssignBikeModal {...defaultProps} />);
+      selectBike();
 
-      // Select a bike
-      const bikeSelect = screen.getByRole('combobox');
-      fireEvent.change(bikeSelect, { target: { value: 'bike-1' } });
-
-      // Click assign button
-      const assignButton = screen.getByRole('button', { name: /Assign 1 Ride/i });
-      fireEvent.click(assignButton);
+      fireEvent.click(screen.getByRole('button', { name: /Assign 2 Rides/i }));
 
       await waitFor(() => {
         expect(screen.getByText(/Failed to assign rides/i)).toBeInTheDocument();
@@ -254,25 +377,18 @@ describe('MassAssignBikeModal', () => {
     });
 
     it('disables assign button when no bike selected', () => {
-      const rides = [createRide({ id: 'ride-1', bikeId: null })];
+      render(<MassAssignBikeModal {...defaultProps} />);
 
-      render(<MassAssignBikeModal {...defaultProps} rides={rides} />);
-
-      const assignButton = screen.getByRole('button', { name: /Assign/i });
-      expect(assignButton).toBeDisabled();
+      expect(screen.getByRole('button', { name: /Assign/i })).toBeDisabled();
     });
 
     it('disables assign button when no matching rides', () => {
-      const rides = [createRide({ id: 'ride-1', bikeId: 'existing' })];
+      setSummary(summary({ totalCount: 0, totalDurationSeconds: 0, byProvider: [] }));
 
-      render(<MassAssignBikeModal {...defaultProps} rides={rides} />);
+      render(<MassAssignBikeModal {...defaultProps} />);
+      fireEvent.change(screen.getByRole('combobox'), { target: { value: 'bike-1' } });
 
-      // Select a bike
-      const bikeSelect = screen.getByRole('combobox');
-      fireEvent.change(bikeSelect, { target: { value: 'bike-1' } });
-
-      const assignButton = screen.getByRole('button', { name: /Assign 0 Rides/i });
-      expect(assignButton).toBeDisabled();
+      expect(screen.getByRole('button', { name: /Assign 0 Rides/i })).toBeDisabled();
     });
   });
 
@@ -287,60 +403,40 @@ describe('MassAssignBikeModal', () => {
     });
 
     it('auto-selects bike when only one bike available', () => {
-      const bikes = [createBike('bike-1', 'Only Bike')];
+      render(<MassAssignBikeModal {...defaultProps} bikes={[createBike('bike-1', 'Only Bike')]} />);
 
-      render(<MassAssignBikeModal {...defaultProps} bikes={bikes} />);
-
-      const bikeSelect = screen.getByRole('combobox');
-      expect(bikeSelect).toHaveValue('bike-1');
+      expect(screen.getByRole('combobox')).toHaveValue('bike-1');
     });
 
     it('resets state when modal opens', () => {
-      const { rerender } = render(
-        <MassAssignBikeModal {...defaultProps} isOpen={false} />
-      );
+      const { rerender } = render(<MassAssignBikeModal {...defaultProps} isOpen={false} />);
 
       rerender(<MassAssignBikeModal {...defaultProps} isOpen={true} />);
 
-      // Provider filter should be reset to "all"
-      expect(screen.getByLabelText('All providers')).toBeChecked();
+      expect(screen.getByLabelText(/All providers/)).toBeChecked();
     });
   });
 
   describe('preview text', () => {
     it('shows singular "ride" for 1 ride', () => {
-      const rides = [createRide({ id: 'ride-1', bikeId: null })];
+      setSummary(summary({ totalCount: 1 }));
 
-      render(<MassAssignBikeModal {...defaultProps} rides={rides} />);
+      render(<MassAssignBikeModal {...defaultProps} />);
 
-      // Text is split across elements, so check for the count and the word separately
-      expect(screen.getByText('1')).toBeInTheDocument();
       expect(screen.getByText(/unassigned ride will be assigned/i)).toBeInTheDocument();
     });
 
     it('shows plural "rides" for multiple rides', () => {
-      const rides = [
-        createRide({ id: 'ride-1', bikeId: null }),
-        createRide({ id: 'ride-2', bikeId: null }),
-      ];
+      render(<MassAssignBikeModal {...defaultProps} />);
 
-      render(<MassAssignBikeModal {...defaultProps} rides={rides} />);
-
-      // Text is split across elements, so check for the count and the word separately
-      expect(screen.getByText('2')).toBeInTheDocument();
       expect(screen.getByText(/unassigned rides will be assigned/i)).toBeInTheDocument();
     });
 
     it('shows selected bike name in preview', () => {
-      const rides = [createRide({ id: 'ride-1', bikeId: null })];
+      render(<MassAssignBikeModal {...defaultProps} />);
 
-      render(<MassAssignBikeModal {...defaultProps} rides={rides} />);
+      fireEvent.change(screen.getByRole('combobox'), { target: { value: 'bike-1' } });
 
-      // Select a bike
-      const bikeSelect = screen.getByRole('combobox');
-      fireEvent.change(bikeSelect, { target: { value: 'bike-1' } });
-
-      // "My Trek" appears in both dropdown option and preview text
       const trekElements = screen.getAllByText(/My Trek/);
       expect(trekElements.length).toBeGreaterThanOrEqual(2);
     });

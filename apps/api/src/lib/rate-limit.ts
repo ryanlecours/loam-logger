@@ -153,6 +153,13 @@ export const QUERY_RATE_LIMITS = {
    *  rider's whole Ride table and its sibling unassignedRides is limited the
    *  same way. A client that starts polling it inherits the protection. */
   unassignedRideCount: { windowSeconds: 60, maxRequests: 60 },
+  /** unassignedRideSummary: max 120 requests per minute per user. Higher than
+   *  its siblings because it is interactive rather than incidental: the
+   *  bulk-assign UI refetches it on every provider chip and date-window tap,
+   *  and a rider comparing windows can legitimately fire a dozen in a few
+   *  seconds. Each call is one aggregate plus five COUNTs over the rider's
+   *  own rides, all bounded by the same user scope. */
+  unassignedRideSummary: { windowSeconds: 60, maxRequests: 120 },
   /** importNotificationState: max 30 requests per minute per user (supports 30s polling) */
   importNotificationState: { windowSeconds: 60, maxRequests: 30 },
   /** rideTrack: max 60 requests per minute per user (map open + post-request polling) */
