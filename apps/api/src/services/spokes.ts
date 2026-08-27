@@ -41,6 +41,12 @@ export interface SpokesSearchResult {
   family: string;
   category: string;
   subcategory: string | null;
+  /** Product shot, already paid for by the `include` on the search request. */
+  thumbnailUrl: string | null;
+  /** 'complete' | 'frameset' when 99spokes reports it on list items. */
+  buildKind: string | null;
+  /** Resolved frame-only flag. See `isFramesetResult` for how it is derived. */
+  isFrameset: boolean;
 }
 
 export interface SpokesComponent {
@@ -212,6 +218,72 @@ const setCache = async <T>(key: string, value: T, ttlSeconds: number): Promise<v
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Search result shaping
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Model names 99spokes uses for a frame-only listing. The flag below is the
+ * primary signal; this is the fallback for when it is missing.
+ */
+const FRAMESET_NAME_PATTERN = /\bframeset\b|\bframe[\s-]?(only|kit)\b/i;
+
+/**
+ * Is this listing a bare frame rather than a complete bike?
+ *
+ * `isFrameset` / `buildKind` are documented on the 99spokes bike object but are
+ * NOT in the `include` list we send with the search request, so list items may
+ * arrive without them. Adding them to `include` is unverified against the live
+ * API and a rejected `include` value would break search outright, so this reads
+ * whichever field is present and falls back to the model name. "Framed" (the
+ * brand) does not match: the pattern is word-bounded.
+ */
+export function isFramesetResult(bike: Pick<SpokesBike, 'model' | 'buildKind' | 'isFrameset'>): boolean {
+  if (typeof bike.isFrameset === 'boolean') {
+    return bike.isFrameset;
+  }
+  if (bike.buildKind) {
+    return bike.buildKind.toLowerCase() === 'frameset';
+  }
+  return FRAMESET_NAME_PATTERN.test(bike.model ?? '');
+}
+
+/**
+ * Map the raw 99spokes items to our search shape, newest model year first.
+ *
+ * The rider is almost always adding a bike they own now, so a 2026 build should
+ * outrank a 2023 one that scored better on the upstream text match. Sort is
+ * stable, so upstream relevance still orders bikes within a single year, and
+ * anything missing a year sorts last rather than jumping to the top.
+ *
+ * Framesets are kept here and filtered per-caller, so one cache entry can serve
+ * both the onboarding flow (which excludes them) and Add Bike (which does not).
+ */
+/** Applied after the cache read so one cached entry serves both callers. */
+export function applyFramesetFilter(
+  results: SpokesSearchResult[],
+  excludeFramesets?: boolean,
+): SpokesSearchResult[] {
+  return excludeFramesets ? results.filter((bike) => !bike.isFrameset) : results;
+}
+
+export function normalizeSearchResults(items: SpokesBike[]): SpokesSearchResult[] {
+  return items
+    .map((bike) => ({
+      id: bike.id,
+      maker: bike.maker,
+      model: bike.model,
+      year: bike.year,
+      family: bike.family,
+      category: bike.category,
+      subcategory: bike.subcategory,
+      thumbnailUrl: bike.thumbnailUrl ?? null,
+      buildKind: bike.buildKind ?? null,
+      isFrameset: isFramesetResult(bike),
+    }))
+    .sort((a, b) => (b.year || 0) - (a.year || 0));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // API Methods
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -224,6 +296,13 @@ export async function searchBikes(params: {
   year?: number;
   category?: string;
   limit?: number;
+  /**
+   * Drop frame-only listings. Onboarding sets this: a frameset carries no fork,
+   * drivetrain, brakes or tires from 99spokes, so a rider who picks one lands on
+   * a bike with almost nothing to track, and the 'All Stock' step that follows
+   * would be describing components that do not exist.
+   */
+  excludeFramesets?: boolean;
 }): Promise<SpokesSearchResult[]> {
   assertApiKeyConfigured();
 
@@ -232,13 +311,16 @@ export async function searchBikes(params: {
     return [];
   }
 
-  // Build cache key with sanitized user input
-  const cacheKey = `spokes:search:${sanitizeCacheKey(query.toLowerCase())}:${params.year || 'any'}:${sanitizeCacheKey(params.category || 'all')}`;
+  // Build cache key with sanitized user input. The v2 generation carries
+  // thumbnails, the frameset flag and the year sort; v1 entries have none of
+  // them and would otherwise keep serving thumbnail-less rows for 24 hours.
+  const cacheKey = `spokes:search:v2:${sanitizeCacheKey(query.toLowerCase())}:${params.year || 'any'}:${sanitizeCacheKey(params.category || 'all')}`;
 
-  // Check cache
+  // The cache holds the unfiltered superset, so the same entry serves callers
+  // that want framesets and callers that do not.
   const cached = await getCached<SpokesSearchResult[]>(cacheKey);
   if (cached) {
-    return cached;
+    return applyFramesetFilter(cached, params.excludeFramesets);
   }
 
   try {
@@ -273,20 +355,12 @@ export async function searchBikes(params: {
 
     const data = (await response.json()) as SpokesApiResponse;
 
-    const results: SpokesSearchResult[] = data.items.map((bike) => ({
-      id: bike.id,
-      maker: bike.maker,
-      model: bike.model,
-      year: bike.year,
-      family: bike.family,
-      category: bike.category,
-      subcategory: bike.subcategory,
-    }));
+    const results = normalizeSearchResults(data.items);
 
     // Cache results
     await setCache(cacheKey, results, SEARCH_CACHE_TTL_SECONDS);
 
-    return results;
+    return applyFramesetFilter(results, params.excludeFramesets);
   } catch (error) {
     logError('Spokes Search', error);
     return [];
