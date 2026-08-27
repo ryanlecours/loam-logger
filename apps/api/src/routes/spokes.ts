@@ -13,8 +13,9 @@ const router = Router();
  *   q (required): Search query (min 2 chars)
  *   year (optional): Filter by model year
  *   category (optional): Filter by category (mountain, road, urban, bmx, youth)
- *   excludeFramesets (optional): "1"/"true" drops frame-only listings. Set by
- *     the onboarding flow, which cannot build a trackable bike from a frameset.
+ *   excludeFramesets (optional): "1"/"true", any case, drops frame-only
+ *     listings. Set by the onboarding flow, which cannot build a trackable
+ *     bike from a frameset.
  */
 router.get('/search', async (req, res) => {
   try {
@@ -34,8 +35,8 @@ router.get('/search', async (req, res) => {
     const year = req.query.year ? parseInt(req.query.year as string, 10) : undefined;
     const category = req.query.category as string | undefined;
 
-    const excludeFramesets =
-      req.query.excludeFramesets === '1' || req.query.excludeFramesets === 'true';
+    const framesetFlag = String(req.query.excludeFramesets ?? '').toLowerCase();
+    const excludeFramesets = framesetFlag === '1' || framesetFlag === 'true';
 
     const results = await searchBikes({
       query,

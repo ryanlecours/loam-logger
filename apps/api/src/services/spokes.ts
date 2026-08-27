@@ -37,7 +37,8 @@ export interface SpokesSearchResult {
   id: string;
   maker: string;
   model: string;
-  year: number;
+  /** Null when 99spokes sends a listing with no model year. Sorts last. */
+  year: number | null;
   family: string;
   category: string;
   subcategory: string | null;
@@ -103,7 +104,8 @@ export interface SpokesBike {
   id: string;
   makerId: string;
   maker: string;
-  year: number;
+  /** Absent on some listings. Nothing validates this payload on arrival. */
+  year: number | null;
   model: string;
   family: string;
   category: string;
@@ -258,21 +260,13 @@ export function isFramesetResult(bike: Pick<SpokesBike, 'model' | 'buildKind' | 
  * Framesets are kept here and filtered per-caller, so one cache entry can serve
  * both the onboarding flow (which excludes them) and Add Bike (which does not).
  */
-/** Applied after the cache read so one cached entry serves both callers. */
-export function applyFramesetFilter(
-  results: SpokesSearchResult[],
-  excludeFramesets?: boolean,
-): SpokesSearchResult[] {
-  return excludeFramesets ? results.filter((bike) => !bike.isFrameset) : results;
-}
-
 export function normalizeSearchResults(items: SpokesBike[]): SpokesSearchResult[] {
   return items
     .map((bike) => ({
       id: bike.id,
       maker: bike.maker,
       model: bike.model,
-      year: bike.year,
+      year: bike.year ?? null,
       family: bike.family,
       category: bike.category,
       subcategory: bike.subcategory,
@@ -280,7 +274,15 @@ export function normalizeSearchResults(items: SpokesBike[]): SpokesSearchResult[
       buildKind: bike.buildKind ?? null,
       isFrameset: isFramesetResult(bike),
     }))
-    .sort((a, b) => (b.year || 0) - (a.year || 0));
+    .sort((a, b) => (b.year ?? 0) - (a.year ?? 0));
+}
+
+/** Applied after the cache read so one cached entry serves both callers. */
+export function applyFramesetFilter(
+  results: SpokesSearchResult[],
+  excludeFramesets?: boolean,
+): SpokesSearchResult[] {
+  return excludeFramesets ? results.filter((bike) => !bike.isFrameset) : results;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -79,11 +79,12 @@ describe('normalizeSearchResults', () => {
 
   it('sorts a yearless listing last instead of to the top', () => {
     const results = normalizeSearchResults([
-      bike({ id: 'unknown-year', year: undefined as unknown as number }),
+      bike({ id: 'unknown-year', year: null }),
       bike({ id: 'known', year: 2020 }),
     ]);
 
     expect(results.map((r) => r.id)).toEqual(['known', 'unknown-year']);
+    expect(results[1].year).toBeNull();
   });
 
   it('keeps framesets, flagged, so one cache entry serves both callers', () => {
