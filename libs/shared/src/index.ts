@@ -3,6 +3,7 @@ export * from './types/user';
 export * from './types/ride';
 export * from './types/bike';
 export * from './types/snapshot';
+export * from './types/spokes';
 
 // Utils
 export * from './utils/format';

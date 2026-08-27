@@ -12,6 +12,7 @@ import {
 import { Modal, Select, Button, Input } from './ui';
 import { getBikeName } from '../utils/formatters';
 import { getAuthHeaders } from '@/lib/csrf';
+import { canCreateBikeFrom, type SpokesSearchResult } from '@loam/shared';
 
 type StravaGearMapping = {
   id: string;
@@ -38,16 +39,6 @@ type Bike = {
   nickname?: string | null;
   manufacturer: string;
   model: string;
-};
-
-type SpokesSearchResult = {
-  id: string;
-  maker: string;
-  model: string;
-  year: number;
-  family: string;
-  category: string;
-  subcategory: string | null;
 };
 
 type Props = {
@@ -208,6 +199,16 @@ export default function StravaBikeMappingOverlay({ open, onClose, onSuccess }: P
   const handleCreateAndMap = async () => {
     if (!selectedSpokesBike || !mappingGearId) {
       setError('Please select a bike from the search results');
+      return;
+    }
+
+    // `AddBikeInput.year` is a required Int!, and a search result can carry a
+    // null year when 99spokes has no model year for the listing. Passing it
+    // through fails the mutation with a schema error the rider cannot act on,
+    // so refuse here with something they can: these two flows create a bike
+    // straight from the search row, with no field to type a year into.
+    if (!canCreateBikeFrom(selectedSpokesBike)) {
+      setError('That listing has no model year. Pick another result, or add the bike from Gear.');
       return;
     }
 

@@ -218,7 +218,12 @@ export function BikeForm({
       spokesId: bike.id,
       manufacturer: bike.maker,
       model: bike.model,
-      year: String(bike.year),
+      // A null year is a real state on a search result, and String(null) is
+      // "null": truthy, so it sails past the `form.year` checks that gate
+      // Continue, and lands in the label as "null Evil Offering". Empty
+      // string instead, which fails those checks and puts the rider in the
+      // Year field that is already on this form.
+      year: bike.year === null ? '' : String(bike.year),
       family: bike.family || null,
       category: bike.category || null,
       subcategory: bike.subcategory || null,
