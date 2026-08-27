@@ -5,6 +5,7 @@ import { ADD_BIKE } from '../graphql/gear';
 import { CREATE_STRAVA_GEAR_MAPPING } from '../graphql/stravaGear';
 import { Modal, Select, Button, Input } from './ui';
 import { getAuthHeaders } from '@/lib/csrf';
+import { formatSpokesBikeLabel, canCreateBikeFrom, type SpokesSearchResult } from '@loam/shared';
 
 type UnmappedGear = {
   gearId: string;
@@ -25,16 +26,6 @@ type Bike = {
   nickname?: string | null;
   manufacturer: string;
   model: string;
-};
-
-type SpokesSearchResult = {
-  id: string;
-  maker: string;
-  model: string;
-  year: number;
-  family: string;
-  category: string;
-  subcategory: string | null;
 };
 
 const SNOOZE_KEY = 'loam-strava-mapping-snoozed';
@@ -193,6 +184,16 @@ export default function StravaGearMappingModal({
   const handleCreateAndMap = async () => {
     if (!selectedSpokesBike || !currentGear) {
       setError('Please select a bike from the search results');
+      return;
+    }
+
+    // `AddBikeInput.year` is a required Int!, and a search result can carry a
+    // null year when 99spokes has no model year for the listing. Passing it
+    // through fails the mutation with a schema error the rider cannot act on,
+    // so refuse here with something they can: these two flows create a bike
+    // straight from the search row, with no field to type a year into.
+    if (!canCreateBikeFrom(selectedSpokesBike)) {
+      setError('That listing has no model year. Pick another result, or add the bike from Gear.');
       return;
     }
 
@@ -391,7 +392,7 @@ export default function StravaGearMappingModal({
                   type="button"
                   role="option"
                   aria-selected={selectedSpokesBike?.id === bike.id}
-                  aria-label={`${bike.year} ${bike.maker} ${bike.model}, ${bike.category}`}
+                  aria-label={`${formatSpokesBikeLabel(bike)}, ${bike.category}`}
                   onClick={() => {
                     setSelectedSpokesBike(bike);
                     setError(null);

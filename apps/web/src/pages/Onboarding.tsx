@@ -195,7 +195,11 @@ export default function Onboarding() {
       spokesId: bike.id,
       bikeMake: bike.maker,
       bikeModel: bike.model,
-      bikeYear: bike.year,
+      // 0 is this form's "unset" sentinel: `isBikeDataValid` gates on
+      // `bikeYear > 0` and the missing-fields check gates on falsiness, so a
+      // listing with no model year lands the rider in the Year field below
+      // rather than carrying a null into the mutation.
+      bikeYear: bike.year ?? 0,
       // Store basic metadata from search result
       family: bike.family || undefined,
       category: bike.category || undefined,

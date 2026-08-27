@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import type { SpokesSearchResult } from '@loam/shared';
 import { getRedisConnection, isRedisReady } from '../lib/redis';
 import { logError } from '../lib/logger';
 
@@ -33,22 +34,13 @@ let requestQueuePromise: Promise<void> = Promise.resolve();
 // Types matching 99spokes API response
 // ─────────────────────────────────────────────────────────────────────────────
 
-export interface SpokesSearchResult {
-  id: string;
-  maker: string;
-  model: string;
-  /** Null when 99spokes sends a listing with no model year. Sorts last. */
-  year: number | null;
-  family: string;
-  category: string;
-  subcategory: string | null;
-  /** Product shot, already paid for by the `include` on the search request. */
-  thumbnailUrl: string | null;
-  /** 'complete' | 'frameset' when 99spokes reports it on list items. */
-  buildKind: string | null;
-  /** Resolved frame-only flag. See `isFramesetResult` for how it is derived. */
-  isFrameset: boolean;
-}
+/**
+ * Re-exported so existing importers keep working. The declaration lives in
+ * `@loam/shared` because the web app consumes this same payload, and three of
+ * its components used to describe it with hand-rolled copies that silently
+ * drifted when this shape changed.
+ */
+export type { SpokesSearchResult };
 
 export interface SpokesComponent {
   make?: string;

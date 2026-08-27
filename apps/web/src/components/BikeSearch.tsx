@@ -1,15 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { getAuthHeaders } from '@/lib/csrf';
+import { formatSpokesBikeLabel, type SpokesSearchResult } from '@loam/shared';
 
-export interface SpokesSearchResult {
-  id: string;
-  maker: string;
-  model: string;
-  year: number;
-  family: string;
-  category: string;
-  subcategory: string | null;
-}
+// Re-exported: BikeForm and Onboarding import the type from here, and the
+// declaration itself belongs with the API that produces the payload.
+export type { SpokesSearchResult };
 
 interface BikeSearchProps {
   onSelect: (bike: SpokesSearchResult) => void;
@@ -119,7 +114,7 @@ export function BikeSearch({
 
   // Handle selection
   const handleSelect = (bike: SpokesSearchResult) => {
-    setQuery(`${bike.year} ${bike.maker} ${bike.model}`);
+    setQuery(formatSpokesBikeLabel(bike));
     setIsOpen(false);
     onSelect(bike);
   };
