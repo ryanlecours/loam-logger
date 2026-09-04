@@ -222,11 +222,69 @@ describe('Onboarding', () => {
       expect(GARMIN_CONNECT_APP_NAME).toBe('Garmin Connect™');
     });
 
+    it('shows Suunto connect option', async () => {
+      const user = userEvent.setup();
+      await navigateToStep6(user);
+
+      expect(screen.getByText('Suunto')).toBeInTheDocument();
+    });
+
+    it('shows WHOOP connect option', async () => {
+      const user = userEvent.setup();
+      await navigateToStep6(user);
+
+      expect(screen.getByText('WHOOP')).toBeInTheDocument();
+    });
+
+    it('lists only Coros as coming soon', async () => {
+      const user = userEvent.setup();
+      await navigateToStep6(user);
+
+      // WHOOP had a working OAuth flow and a Settings connect card while this
+      // tile still called it unreleased, so riders who owned one were told to
+      // wait for something they could already use. That is the regression
+      // these three assertions guard.
+      expect(screen.getByText('Coros')).toBeInTheDocument();
+      expect(screen.queryByText('Coros, Whoop')).not.toBeInTheDocument();
+    });
+
     it('shows Skip for now button', async () => {
       const user = userEvent.setup();
       await navigateToStep6(user);
 
       expect(screen.getByText('Skip for now')).toBeInTheDocument();
+    });
+
+    describe('with a device already connected', () => {
+      beforeEach(() => {
+        mockUseQuery.mockReturnValue({
+          data: { me: { accounts: [{ provider: 'whoop', connectedAt: '2026-09-01T00:00:00Z' }] } },
+          refetch: vi.fn(),
+        });
+      });
+
+      it('labels the secondary action Back rather than Skip for now', async () => {
+        const user = userEvent.setup();
+        await navigateToStep6(user);
+
+        expect(screen.getByText('Back')).toBeInTheDocument();
+        expect(screen.queryByText('Skip for now')).not.toBeInTheDocument();
+      });
+
+      it('actually navigates back a step instead of completing onboarding', async () => {
+        const user = userEvent.setup();
+        await navigateToStep6(user);
+
+        await user.click(screen.getByText('Back'));
+
+        // Step 5 (colorway), not the completion call. This button used to run
+        // the skip path, so a rider reaching for Back finished onboarding.
+        expect(screen.getByText('Which colorway do you have?')).toBeInTheDocument();
+        expect(mockFetch).not.toHaveBeenCalledWith(
+          expect.stringContaining('/onboarding/complete'),
+          expect.anything()
+        );
+      });
     });
   });
 
