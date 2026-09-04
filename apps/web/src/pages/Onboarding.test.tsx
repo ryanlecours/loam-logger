@@ -222,6 +222,32 @@ describe('Onboarding', () => {
       expect(GARMIN_CONNECT_APP_NAME).toBe('Garmin Connect™');
     });
 
+    it('shows Suunto connect option', async () => {
+      const user = userEvent.setup();
+      await navigateToStep6(user);
+
+      expect(screen.getByText('Suunto')).toBeInTheDocument();
+    });
+
+    it('shows WHOOP connect option', async () => {
+      const user = userEvent.setup();
+      await navigateToStep6(user);
+
+      expect(screen.getByText('WHOOP')).toBeInTheDocument();
+    });
+
+    it('lists only Coros as coming soon', async () => {
+      const user = userEvent.setup();
+      await navigateToStep6(user);
+
+      // WHOOP had a working OAuth flow and a Settings connect card while this
+      // tile still called it unreleased, so riders who owned one were told to
+      // wait for something they could already use. That is the regression
+      // these three assertions guard.
+      expect(screen.getByText('Coros')).toBeInTheDocument();
+      expect(screen.queryByText('Coros, Whoop')).not.toBeInTheDocument();
+    });
+
     it('shows Skip for now button', async () => {
       const user = userEvent.setup();
       await navigateToStep6(user);

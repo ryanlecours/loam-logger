@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { useApolloClient, useQuery, gql } from '@apollo/client';
-import { Settings, Check, ChevronDown, ChevronUp, Clock } from 'lucide-react';
+import { Settings, Check, ChevronDown, ChevronUp, Clock, Activity } from 'lucide-react';
 import GarminConnectMark from '@/components/attribution/GarminConnectMark';
 import { GARMIN_CONNECT_APP_NAME } from '@loam/shared';
 import { StravaIcon, SuuntoIcon } from '../components/icons/BrandIcons';
@@ -141,8 +141,18 @@ export default function Onboarding() {
 
   const accounts = accountsData?.me?.accounts || [];
   const hasConnectedDevice = accounts.some((acc: { provider: string }) =>
-    acc.provider === 'garmin' || acc.provider === 'strava' || acc.provider === 'suunto'
+    acc.provider === 'garmin' || acc.provider === 'strava' ||
+    acc.provider === 'suunto' || acc.provider === 'whoop'
   );
+  // WHOOP connects here but is deliberately absent from this list: the
+  // onboarding import form only speaks the three backfill APIs it lists, and
+  // WHOOP's historical import lives in Settings. A WHOOP-only rider would
+  // otherwise get an import form with nothing to pick.
+  const backfillProviders = accounts
+    .filter((a: { provider: string }) =>
+      a.provider === 'strava' || a.provider === 'garmin' || a.provider === 'suunto'
+    )
+    .map((a: { provider: string }) => a.provider as 'strava' | 'garmin' | 'suunto');
 
   // Load initial data from sessionStorage if available (for OAuth redirects)
   const loadSavedData = (): OnboardingData => {
@@ -439,6 +449,11 @@ export default function Onboarding() {
   const handleConnectSuunto = () => {
     const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:4000';
     window.location.href = `${apiBase}/auth/suunto/start`;
+  };
+
+  const handleConnectWhoop = () => {
+    const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+    window.location.href = `${apiBase}/auth/whoop/start`;
   };
 
   const handleSkipDevices = async () => {
@@ -940,12 +955,44 @@ export default function Onboarding() {
                   </button>
                 )}
 
+                {/* WHOOP Connection */}
+                {accounts.find((acc: { provider: string }) => acc.provider === 'whoop') ? (
+                  <div className="w-full rounded-2xl border border-[#00FF87]/50 bg-surface-2 px-4 py-4">
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="flex items-center gap-3">
+                        <Activity size={18} style={{ color: '#00FF87' }} />
+                        <div className="text-left">
+                          <p className="font-semibold">WHOOP</p>
+                          <p className="text-xs text-success">Connected ✓</p>
+                        </div>
+                      </div>
+                      <span className="text-xs text-success">Ready</span>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={handleConnectWhoop}
+                    className="w-full rounded-2xl border border-[#00FF87]/50 bg-[#00FF87]/10 hover:bg-[#00FF87]/20 px-4 py-4 transition text-left"
+                  >
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="flex items-center gap-3">
+                        <Activity size={18} style={{ color: '#00FF87' }} />
+                        <div>
+                          <p className="font-semibold">WHOOP</p>
+                          <p className="text-xs text-muted">Import activities automatically</p>
+                        </div>
+                      </div>
+                      <span className="text-xs" style={{ color: '#00FF87' }}>Connect</span>
+                    </div>
+                  </button>
+                )}
+
                 {/* Coming Soon */}
                 <div className="w-full rounded-2xl border border-app/30 bg-surface-2/50 px-4 py-4 opacity-60 cursor-not-allowed">
                   <div className="flex items-center justify-between gap-4">
                     <div className="text-left">
                       <p className="font-semibold text-muted">Coming Soon</p>
-                      <p className="text-xs text-muted">Coros, Whoop</p>
+                      <p className="text-xs text-muted">Coros</p>
                     </div>
                   </div>
                 </div>
@@ -971,14 +1018,8 @@ export default function Onboarding() {
               {/* Optional Actions */}
               <div className="grid gap-3 max-w-md mx-auto text-left">
                 {/* 1. Import past rides (only if device connected) */}
-                {hasConnectedDevice && (
-                  <ImportRidesForm
-                    connectedProviders={accounts
-                      .filter((a: { provider: string }) =>
-                        a.provider === 'strava' || a.provider === 'garmin' || a.provider === 'suunto'
-                      )
-                      .map((a: { provider: string }) => a.provider as 'strava' | 'garmin' | 'suunto')}
-                  />
+                {backfillProviders.length > 0 && (
+                  <ImportRidesForm connectedProviders={backfillProviders} />
                 )}
 
                 {/* 2. Log Service History - inline form */}
