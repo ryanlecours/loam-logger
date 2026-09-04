@@ -1103,8 +1103,15 @@ export default function Onboarding() {
               </Button>
             ) : (
               <div className="flex gap-4 w-full">
+                {/* Step 6 is excluded from the shared Back button above, so this
+                    slot is the only secondary action here, and it means two
+                    different things: with nothing connected there is something
+                    to skip, and with a device connected there is not. The label
+                    already said "Back"; the handler was still the skip path,
+                    which made this button a second Continue that silently
+                    completed onboarding for anyone who had connected. */}
                 <Button
-                  onClick={handleSkipDevices}
+                  onClick={hasConnectedDevice ? handleBack : handleSkipDevices}
                   variant="secondary"
                   className="flex-1"
                   disabled={isLoading}

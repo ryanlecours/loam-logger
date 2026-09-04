@@ -254,6 +254,38 @@ describe('Onboarding', () => {
 
       expect(screen.getByText('Skip for now')).toBeInTheDocument();
     });
+
+    describe('with a device already connected', () => {
+      beforeEach(() => {
+        mockUseQuery.mockReturnValue({
+          data: { me: { accounts: [{ provider: 'whoop', connectedAt: '2026-09-01T00:00:00Z' }] } },
+          refetch: vi.fn(),
+        });
+      });
+
+      it('labels the secondary action Back rather than Skip for now', async () => {
+        const user = userEvent.setup();
+        await navigateToStep6(user);
+
+        expect(screen.getByText('Back')).toBeInTheDocument();
+        expect(screen.queryByText('Skip for now')).not.toBeInTheDocument();
+      });
+
+      it('actually navigates back a step instead of completing onboarding', async () => {
+        const user = userEvent.setup();
+        await navigateToStep6(user);
+
+        await user.click(screen.getByText('Back'));
+
+        // Step 5 (colorway), not the completion call. This button used to run
+        // the skip path, so a rider reaching for Back finished onboarding.
+        expect(screen.getByText('Which colorway do you have?')).toBeInTheDocument();
+        expect(mockFetch).not.toHaveBeenCalledWith(
+          expect.stringContaining('/onboarding/complete'),
+          expect.anything()
+        );
+      });
+    });
   });
 
   describe('handleComplete', () => {
