@@ -1,6 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render as rtlRender, screen, fireEvent } from '@testing-library/react';
+import { MemoryRouter } from 'react-router';
 import { ComponentDetailRow } from './ComponentDetailRow';
+
+// The row links to the component's full history page, so it needs router
+// context. Wrapping here keeps every call site below a plain render().
+const render = (ui: React.ReactElement) =>
+  rtlRender(<MemoryRouter>{ui}</MemoryRouter>);
 
 // Mock framer-motion to avoid animation issues in tests
 vi.mock('motion/react', () => ({
@@ -364,6 +370,28 @@ describe('ComponentDetailRow', () => {
 
       expect(screen.getByText('Last Serviced')).toBeInTheDocument();
       expect(screen.getByText('Jan 15, 2024')).toBeInTheDocument();
+    });
+  });
+
+  describe('full history link', () => {
+    it('links to the component history page once expanded', () => {
+      render(<ComponentDetailRow {...defaultProps} />);
+      fireEvent.click(screen.getByRole('button', { expanded: false }));
+
+      const link = screen.getByRole('link', { name: /view full history/i });
+      // Bike-independent route: the page has to work for inventory and retired
+      // parts, which carry no bikeId to nest under.
+      expect(link).toHaveAttribute('href', '/gear/components/comp-1');
+    });
+
+    it('does not collapse the row when the link is clicked', () => {
+      render(<ComponentDetailRow {...defaultProps} />);
+      const summary = screen.getByRole('button', { expanded: false });
+      fireEvent.click(summary);
+
+      fireEvent.click(screen.getByRole('link', { name: /view full history/i }));
+
+      expect(screen.getByRole('button', { expanded: true })).toBeInTheDocument();
     });
   });
 

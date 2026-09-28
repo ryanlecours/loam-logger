@@ -389,18 +389,24 @@ export type Component = {
   bikeId?: Maybe<Scalars['ID']['output']>;
   brand: Scalars['String']['output'];
   createdAt: Scalars['String']['output'];
+  hoursSinceInspection: Scalars['Float']['output'];
+  hoursSinceService: Scalars['Float']['output'];
   hoursUsed: Scalars['Float']['output'];
   id: Scalars['ID']['output'];
+  inspectionDueAtHours?: Maybe<Scalars['Float']['output']>;
   installedAt?: Maybe<Scalars['String']['output']>;
   isSpare: Scalars['Boolean']['output'];
   isStock: Scalars['Boolean']['output'];
+  lastInspectedAt?: Maybe<Scalars['String']['output']>;
   lastServicedAt?: Maybe<Scalars['String']['output']>;
   latestServiceLog?: Maybe<ServiceLog>;
+  lifetimeHours: Scalars['Float']['output'];
   location: ComponentLocation;
   model: Scalars['String']['output'];
   notes?: Maybe<Scalars['String']['output']>;
   pairGroupId?: Maybe<Scalars['String']['output']>;
   pairedComponent?: Maybe<Component>;
+  priorHours: Scalars['Float']['output'];
   replacedById?: Maybe<Scalars['ID']['output']>;
   retiredAt?: Maybe<Scalars['String']['output']>;
   serviceDueAtHours?: Maybe<Scalars['Float']['output']>;
@@ -417,10 +423,47 @@ export type ComponentBaselineInput = {
   wearPercent: Scalars['Int']['input'];
 };
 
+export type ComponentConditionBucket = {
+  __typename?: 'ComponentConditionBucket';
+  condition: WeatherCondition;
+  durationSeconds: Scalars['Int']['output'];
+  rideCount: Scalars['Int']['output'];
+};
+
+export type ComponentCumulativePoint = {
+  __typename?: 'ComponentCumulativePoint';
+  cumulativeDistanceMeters: Scalars['Float']['output'];
+  cumulativeElevationGainMeters: Scalars['Float']['output'];
+  cumulativeHours: Scalars['Float']['output'];
+  date: Scalars['String']['output'];
+};
+
 export type ComponentFilterInput = {
   bikeId?: InputMaybe<Scalars['ID']['input']>;
   onlySpare?: InputMaybe<Scalars['Boolean']['input']>;
   types?: InputMaybe<Array<ComponentType>>;
+};
+
+export enum ComponentHistoryCoverage {
+  Full = 'FULL',
+  NoTenureData = 'NO_TENURE_DATA',
+  SyntheticFallback = 'SYNTHETIC_FALLBACK'
+}
+
+export type ComponentHistoryPayload = {
+  __typename?: 'ComponentHistoryPayload';
+  anchor?: Maybe<Scalars['String']['output']>;
+  component: Component;
+  conditions: Array<ComponentConditionBucket>;
+  consistencyWarning: Scalars['Boolean']['output'];
+  coverage: ComponentHistoryCoverage;
+  cumulative: Array<ComponentCumulativePoint>;
+  driftDetected: Scalars['Boolean']['output'];
+  historyIncomplete: Scalars['Boolean']['output'];
+  lifetime: ComponentUsageTotals;
+  serviceEvents: Array<ServiceLog>;
+  sinceService: ComponentUsageTotals;
+  tenures: Array<ComponentTenure>;
 };
 
 export type ComponentInstallEvent = {
@@ -451,12 +494,19 @@ export type ComponentPrediction = {
   currentHours: Scalars['Float']['output'];
   drivers?: Maybe<Array<WearDriver>>;
   hoursRemaining?: Maybe<Scalars['Float']['output']>;
+  hoursSinceInspection?: Maybe<Scalars['Float']['output']>;
   hoursSinceService: Scalars['Float']['output'];
+  inspectionHoursRemaining?: Maybe<Scalars['Float']['output']>;
+  inspectionIntervalHours?: Maybe<Scalars['Float']['output']>;
+  inspectionStatus?: Maybe<PredictionStatus>;
+  lifetimeHours: Scalars['Float']['output'];
+  limitingClock?: Maybe<Scalars['String']['output']>;
   location: ComponentLocation;
   model: Scalars['String']['output'];
   ridesRemainingEstimate?: Maybe<Scalars['Int']['output']>;
   ridesSinceService: Scalars['Int']['output'];
   serviceIntervalHours: Scalars['Float']['output'];
+  serviceStatus?: Maybe<PredictionStatus>;
   status?: Maybe<PredictionStatus>;
   why?: Maybe<Scalars['String']['output']>;
 };
@@ -509,6 +559,17 @@ export enum ComponentStatus {
   Retired = 'RETIRED'
 }
 
+export type ComponentTenure = {
+  __typename?: 'ComponentTenure';
+  bike?: Maybe<Bike>;
+  id: Scalars['ID']['output'];
+  installedAt: Scalars['String']['output'];
+  removedAt?: Maybe<Scalars['String']['output']>;
+  slotKey: Scalars['String']['output'];
+  synthetic: Scalars['Boolean']['output'];
+  totals: ComponentUsageTotals;
+};
+
 export enum ComponentType {
   /**
    * E-bike only. Accrues ride hours but has no service interval and no health
@@ -544,6 +605,16 @@ export enum ComponentType {
   Tires = 'TIRES',
   WheelHubs = 'WHEEL_HUBS'
 }
+
+export type ComponentUsageTotals = {
+  __typename?: 'ComponentUsageTotals';
+  distanceMeters: Scalars['Float']['output'];
+  durationSeconds: Scalars['Int']['output'];
+  elevationGainMeters: Scalars['Float']['output'];
+  firstRideAt?: Maybe<Scalars['String']['output']>;
+  lastRideAt?: Maybe<Scalars['String']['output']>;
+  rideCount: Scalars['Int']['output'];
+};
 
 export enum ConfidenceLevel {
   High = 'HIGH',
@@ -609,6 +680,7 @@ export type InstallComponentResult = {
 
 export type LogServiceInput = {
   componentId: Scalars['ID']['input'];
+  kind?: InputMaybe<ServiceLogKind>;
   notes?: InputMaybe<Scalars['String']['input']>;
   performedAt?: InputMaybe<Scalars['String']['input']>;
 };
@@ -987,6 +1059,8 @@ export type Query = {
   bikeNotes: BikeNotesPage;
   bikes: Array<Bike>;
   calibrationState?: Maybe<CalibrationState>;
+  component?: Maybe<Component>;
+  componentHistory: ComponentHistoryPayload;
   componentRides: ComponentRidesPayload;
   components: Array<Component>;
   importNotificationState?: Maybe<ImportNotificationState>;
@@ -1028,6 +1102,16 @@ export type QueryBikeNotesArgs = {
 
 export type QueryBikesArgs = {
   includeInactive?: InputMaybe<Scalars['Boolean']['input']>;
+};
+
+
+export type QueryComponentArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type QueryComponentHistoryArgs = {
+  componentId: Scalars['ID']['input'];
 };
 
 
@@ -1255,9 +1339,15 @@ export type ServiceLog = {
   createdAt: Scalars['String']['output'];
   hoursAtService: Scalars['Float']['output'];
   id: Scalars['ID']['output'];
+  kind: ServiceLogKind;
   notes?: Maybe<Scalars['String']['output']>;
   performedAt: Scalars['String']['output'];
 };
+
+export enum ServiceLogKind {
+  Inspection = 'INSPECTION',
+  Service = 'SERVICE'
+}
 
 export enum ServiceNotificationMode {
   AtService = 'AT_SERVICE',
@@ -1596,10 +1686,12 @@ export type UpdateBikeServicePreferencesInput = {
 export type UpdateComponentInput = {
   brand?: InputMaybe<Scalars['String']['input']>;
   hoursUsed?: InputMaybe<Scalars['Float']['input']>;
+  inspectionDueAtHours?: InputMaybe<Scalars['Float']['input']>;
   isStock?: InputMaybe<Scalars['Boolean']['input']>;
   location?: InputMaybe<ComponentLocation>;
   model?: InputMaybe<Scalars['String']['input']>;
   notes?: InputMaybe<Scalars['String']['input']>;
+  priorHours?: InputMaybe<Scalars['Float']['input']>;
   serviceDueAtHours?: InputMaybe<Scalars['Float']['input']>;
 };
 

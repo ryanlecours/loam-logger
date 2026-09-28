@@ -474,11 +474,18 @@ describe('POST /duplicates/merge', () => {
 
     // Duplicate deleted inside the integrity transaction
     expect(mockRideDelete).toHaveBeenCalledWith({ where: { id: 'del-1' } });
-    // Bike-1's components decremented by the deleted ride's hours (bulk helper)
+    // Bike-1's components decremented by the deleted ride's hours (bulk helper).
+    // All four counters move together so lifetimeHours stays consistent with the
+    // since-service figure it is the ceiling for.
     expect(mockComponentUpdateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({ userId: 'user-123', bikeId: 'bike-1' }),
-        data: { hoursUsed: { decrement: 1 } },
+        data: {
+          hoursUsed: { decrement: 1 },
+          lifetimeHours: { decrement: 1 },
+          hoursSinceService: { decrement: 1 },
+          hoursSinceInspection: { decrement: 1 },
+        },
       })
     );
     // Prediction cache busted for the affected bike

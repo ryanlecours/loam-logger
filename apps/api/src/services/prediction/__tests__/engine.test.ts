@@ -26,6 +26,9 @@ jest.mock('../../../lib/prisma', () => ({
     componentRideAdjustment: {
       findMany: jest.fn().mockResolvedValue([]),
     },
+    bikeComponentInstall: {
+      findMany: jest.fn().mockResolvedValue([]),
+    },
   },
 }));
 
@@ -55,6 +58,9 @@ describe('prediction engine', () => {
     (prisma.bikeServicePreference as unknown as { findMany: jest.Mock }).findMany.mockResolvedValue([]);
     // Default: no per-component ride adjustments
     (prisma.componentRideAdjustment as unknown as { findMany: jest.Mock }).findMany.mockResolvedValue([]);
+    // Default: no open install rows, so the tenure bound falls back to
+    // Component.installedAt (which most fixtures leave null = unbounded).
+    (prisma.bikeComponentInstall as unknown as { findMany: jest.Mock }).findMany.mockResolvedValue([]);
   });
 
   const mockBike = {

@@ -80,12 +80,12 @@ model User {
   mobileSessions           MobileSession[]
 
   // Push notification preferences
-  expoPushToken      String?
+  expoPushToken            String?
   // Legacy on/off for ride-sync pushes. Kept in sync with
   // rideSyncNotificationMode (mode OFF <=> false) because app versions up to
   // 1.1.3 still read and write it through updateUserPreferences; the mode
   // column below is the source of truth and this is derived on write.
-  notifyOnRideUpload Boolean @default(true)
+  notifyOnRideUpload       Boolean                  @default(true)
   // How "Ride Synced" pushes behave. ALL preserves the original behavior
   // (every new integration ride pushes, burst-suppressed). ACTION_NEEDED
   // pushes only when the ride needs a bike assigned or is the account's
@@ -98,12 +98,12 @@ model User {
   // Weekly gear-health digest ("is the bike ready for the weekend"), sent
   // Friday morning in the user's local time. Opt-in, off by default, and
   // Pro-gated at send time like every prediction surface.
-  weeklyDigestEnabled Boolean @default(false)
+  weeklyDigestEnabled      Boolean                  @default(false)
   // IANA timezone (e.g. "America/Los_Angeles"), uploaded by mobile alongside
   // the push token. Only read by the weekly digest scheduler; a user with a
   // null timezone is skipped rather than guessed at, since a digest at 3am
   // is worse than no digest.
-  timezone String?
+  timezone                 String?
 }
 
 // One row per mobile device sign-in. Refresh tokens carry this row's id
@@ -116,25 +116,25 @@ model User {
 // and individual devices are revocable, without touching the stateless
 // access-token path (still signature + sessionTokenVersion only).
 model MobileSession {
-  id          String    @id @default(uuid())
-  userId      String
-  currentJti  String
+  id              String    @id @default(uuid())
+  userId          String
+  currentJti      String
   // The jti this session rotated away from, honored briefly (see
   // REFRESH_ROTATION_GRACE_MS) so a lost response is not misread as theft.
-  previousJti String?
-  rotatedAt   DateTime  @default(now())
-  createdAt   DateTime  @default(now())
-  lastUsedAt  DateTime  @default(now())
+  previousJti     String?
+  rotatedAt       DateTime  @default(now())
+  createdAt       DateTime  @default(now())
+  lastUsedAt      DateTime  @default(now())
   // Sliding: pushed forward on every successful refresh.
-  expiresAt   DateTime
-  revokedAt   DateTime?
+  expiresAt       DateTime
+  revokedAt       DateTime?
   // sha256 of the pre-session legacy refresh token this session was
   // upgraded from; null for sessions born at login. The unique index makes
   // the upgrade one-shot: a legacy token leaked before the sessions deploy
   // can mint at most one session, and replaying it after that trips reuse
   // detection instead of minting fresh year-long sessions forever.
-  legacyTokenHash String? @unique
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  legacyTokenHash String?   @unique
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
 }
@@ -432,26 +432,55 @@ model StravaGearMapping {
 }
 
 model Component {
-  id                  String             @id @default(uuid())
-  bikeId              String?
-  type                ComponentType
-  location            ComponentLocation  @default(NONE)
-  brand               String
-  model               String
-  installedAt         DateTime?
-  hoursUsed           Float              @default(0)
-  serviceDueAtHours   Float?
-  notes               String?
-  createdAt           DateTime           @default(now())
-  updatedAt           DateTime           @updatedAt
-  isStock             Boolean            @default(false)
-  baselineWearPercent Int?               @default(0)
-  baselineMethod      BaselineMethod     @default(DEFAULT)
-  baselineConfidence  BaselineConfidence @default(HIGH)
-  baselineSetAt       DateTime?
-  lastServicedAt      DateTime?
-  userId              String
-  status              ComponentStatus    @default(INSTALLED)
+  id                String            @id @default(uuid())
+  bikeId            String?
+  type              ComponentType
+  location          ComponentLocation @default(NONE)
+  brand             String
+  model             String
+  installedAt       DateTime?
+  hoursUsed         Float             @default(0)
+  serviceDueAtHours Float?
+  notes             String?
+
+  // ------------------------------------------------------------------ counters
+  // `priorHours` is DECLARED, never derived: hours the part accrued before Loam
+  // Logger ever saw it. A rider fitting used wheels states this; no amount of
+  // ride data can reconstruct it. It is the one input the old model had no
+  // honest place for, which is why installs used to fake a zero-hour
+  // ServiceLog to shift the prediction anchor.
+  priorHours Float @default(0)
+
+  // Derived caches, rebuilt from the ledger (BikeComponentInstall x Ride x
+  // ServiceLog) by lib/component-counters.ts. Stored for cheap reads; the
+  // ledger stays the source of truth so backdated services, edited rides and
+  // per-ride adjustments all still self-heal.
+  //
+  // lifetimeHours = priorHours + every counted ride across every tenure.
+  // Both "since" counters are SUBTRACTIONS from it, which is what makes
+  // `hoursSince* <= lifetimeHours` structural rather than coincidental:
+  //   hoursSinceService = lifetimeHours - latest SERVICE log's hoursAtLog
+  // The old rule paired the component's CURRENT bike with an arbitrarily old
+  // anchor and could credit a part hundreds of hours it was never fitted for.
+  lifetimeHours        Float @default(0)
+  hoursSinceService    Float @default(0)
+  hoursSinceInspection Float @default(0)
+
+  // Inspection is a separate clock from service: an inspection that finds
+  // nothing resets it without any work being done. Null means this component
+  // is not inspection-tracked (most types are service-only).
+  inspectionDueAtHours Float?
+  lastInspectedAt      DateTime?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  isStock              Boolean            @default(false)
+  baselineWearPercent  Int?               @default(0)
+  baselineMethod       BaselineMethod     @default(DEFAULT)
+  baselineConfidence   BaselineConfidence @default(HIGH)
+  baselineSetAt        DateTime?
+  lastServicedAt       DateTime?
+  userId               String
+  status               ComponentStatus    @default(INSTALLED)
 
   // Front/rear pairing support
   pairGroupId  String?
@@ -501,19 +530,43 @@ model BikeComponentInstall {
   @@index([bikeId, removedAt])
 }
 
+/// A logbook entry: work actually performed, or an inspection actually carried
+/// out. Installs are NOT service events — BikeComponentInstall records those.
+/// The old model wrote a zero-hour ServiceLog on every install purely to move
+/// the prediction anchor, which put fictional work in the rider's logbook and
+/// asserted (falsely, for a used part) that it had zero hours at that moment.
 model ServiceLog {
-  id             String    @id @default(uuid())
-  component      Component @relation(fields: [componentId], references: [id], onDelete: Cascade)
-  componentId    String
-  performedAt    DateTime  @default(now())
-  notes          String?
-  hoursAtService Float     @default(0)
+  id          String         @id @default(uuid())
+  component   Component      @relation(fields: [componentId], references: [id], onDelete: Cascade)
+  componentId String
+  performedAt DateTime       @default(now())
+  notes       String?
+  kind        ServiceLogKind @default(SERVICE)
+
+  /// The component's LIFETIME hours at the moment this was performed — what a
+  /// mechanic writes on the workshop card. Both "since" counters are derived by
+  /// subtracting this from lifetimeHours, so it must be a lifetime figure.
+  /// (Pre-Loam services are user-declared; nothing can derive them.)
+  ///
+  /// Historically this stored the since-service counter instead, which made it
+  /// near-meaningless; migration 20260927 rewrites existing rows.
+  hoursAtService Float @default(0)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([componentId])
   @@index([performedAt])
+  @@index([componentId, kind, performedAt])
+}
+
+enum ServiceLogKind {
+  /// Work was performed: a fork lower-leg service, new brake pads, a bleed.
+  SERVICE
+  /// The part was checked. Resets the inspection clock, not the service clock.
+  /// A rider checking pivot bearings that turn out fine has inspected, not
+  /// serviced, and the logbook must be able to say so.
+  INSPECTION
 }
 
 enum ComponentRideAdjustmentKind {

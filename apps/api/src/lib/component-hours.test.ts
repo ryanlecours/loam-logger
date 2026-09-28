@@ -27,6 +27,12 @@ const makeTx = () => ({
   ride: {
     aggregate: jest.fn().mockResolvedValue({ _sum: { durationSeconds: 0 }, _count: 0 }),
   },
+  // recomputeComponentHours now delegates to lib/component-counters.ts, which
+  // derives hours from install tenures rather than from the component's current
+  // bikeId. No install rows = no attributable tenures.
+  bikeComponentInstall: {
+    findMany: jest.fn().mockResolvedValue([]),
+  },
 });
 type MockTx = ReturnType<typeof makeTx>;
 const asTx = (tx: MockTx) => tx as unknown as Prisma.TransactionClient;
@@ -222,20 +228,42 @@ describe('computeCountedHours', () => {
 describe('recomputeComponentHours', () => {
   it('persists the canonical value and returns it with the attribution used', async () => {
     const tx = makeTx();
-    tx.component.findUnique.mockResolvedValue({ ...BASE_COMPONENT });
+    // Counters are derived from install TENURES now, so the fixture needs one.
+    tx.component.findUnique.mockResolvedValue({
+      ...BASE_COMPONENT,
+      createdAt: new Date('2024-01-01T00:00:00Z'),
+      retiredAt: null,
+      priorHours: 0,
+    });
+    tx.bikeComponentInstall.findMany.mockResolvedValue([
+      {
+        id: 'inst-1',
+        bikeId: 'bike-1',
+        slotKey: 'FORK_NONE',
+        installedAt: new Date('2024-01-01T00:00:00Z'),
+        removedAt: null,
+      },
+    ]);
     tx.serviceLog.findFirst.mockResolvedValue(null);
-    tx.ride.aggregate.mockResolvedValueOnce({ _sum: { durationSeconds: 9000 }, _count: 2 });
+    tx.ride.aggregate.mockResolvedValue({ _sum: { durationSeconds: 9000 }, _count: 2 });
 
     const result = await recomputeComponentHours(asTx(tx), 'comp-1');
 
     expect(result?.hours).toBe(2.5);
-    // Attribution is returned so callers (e.g. the adjustment mutations'
+    // Attribution is still returned so callers (e.g. the adjustment mutations'
     // counted flag) don't re-run the same reads.
     expect(result?.attribution.component.id).toBe('comp-1');
     expect(result?.attribution.anchor).toBeNull();
+    // Writes all four counters. With no service log the clocks have never been
+    // reset, so both "since" figures equal lifetimeHours.
     expect(tx.component.update).toHaveBeenCalledWith({
       where: { id: 'comp-1' },
-      data: { hoursUsed: 2.5 },
+      data: {
+        lifetimeHours: 2.5,
+        hoursSinceService: 2.5,
+        hoursSinceInspection: 2.5,
+        hoursUsed: 2.5,
+      },
     });
   });
 
@@ -326,9 +354,16 @@ describe('hours accrual is type-agnostic', () => {
       hoursDelta: 2,
     });
 
+    // All four counters move together: hoursUsed stays in lockstep with
+    // hoursSinceService, and lifetimeHours must stay monotonic.
     expect(tx.component.updateMany).toHaveBeenCalledWith({
       where: { userId: 'user-1', bikeId: 'bike-1' },
-      data: { hoursUsed: { increment: 2 } },
+      data: {
+        hoursUsed: { increment: 2 },
+        lifetimeHours: { increment: 2 },
+        hoursSinceService: { increment: 2 },
+        hoursSinceInspection: { increment: 2 },
+      },
     });
     const [{ where }] = tx.component.updateMany.mock.calls[0];
     expect(where).not.toHaveProperty('type');

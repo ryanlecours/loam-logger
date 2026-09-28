@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ChevronDown, Pencil, ArrowLeftRight, RefreshCw, Wrench, History } from 'lucide-react';
+import { ChevronDown, Pencil, ArrowLeftRight, RefreshCw, Wrench, History, ScrollText } from 'lucide-react';
+import { Link } from 'react-router';
 import { StatusDot } from '../dashboard/StatusDot';
 import type { PredictionStatus } from '../../types/prediction';
 import { formatComponentLabel } from '../../utils/formatters';
@@ -336,6 +337,17 @@ export function ComponentDetailRow({
                   <History size={11} />
                   View rides
                 </button>
+                {/* The full life story: every bike it has been on, lifetime
+                    totals, services and conditions. The rides modal above stays
+                    the quick per-ride attribution view. */}
+                <Link
+                  to={`/gear/components/${component.id}`}
+                  className="component-detail-action-btn"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <ScrollText size={11} />
+                  View full history
+                </Link>
                 {onReplace && (
                   <button
                     type="button"

@@ -62,6 +62,19 @@ import {
   recomputeAdjustedComponentsForRides,
   findAdjustedComponentIdsForRides,
 } from '../lib/component-hours';
+import {
+  normalizeTenures,
+  mergeWindows,
+  aggregateLifetime,
+  cumulativeSeries,
+  emptyTotals,
+  emptyConditionBuckets,
+  foldConditionBuckets,
+  TENURE_CAP,
+  type NormalizedTenure,
+  type UsageTotals,
+} from '../lib/component-history';
+import { recomputeComponentCounters, lifetimeHoursAt } from '../lib/component-counters';
 import { captureSetupSnapshot } from '../lib/capture-snapshot';
 import type { SetupSnapshot } from '@loam/shared';
 import { randomBytes } from 'crypto';
@@ -256,6 +269,10 @@ type UpdateComponentInputGQL = {
   isStock?: boolean | null;
   hoursUsed?: number | null;
   serviceDueAtHours?: number | null;
+  /** Declared hours the part carried before Loam Logger saw it (used parts). */
+  priorHours?: number | null;
+  /** Per-component inspection interval override. */
+  inspectionDueAtHours?: number | null;
 };
 
 type ComponentFilterInputGQL = {
@@ -836,15 +853,8 @@ export async function buildBikeComponents(
         skipDuplicates: true,
       });
 
-      // Create initial service logs so predictions start from installation date
-      await tx.serviceLog.createMany({
-        data: createdComponents.map((c) => ({
-          componentId: c.id,
-          performedAt: c.installedAt ?? c.createdAt,
-          hoursAtService: 0,
-        })),
-        skipDuplicates: true,
-      });
+      // No install "service" logs — see lib/component-counters.ts. The install
+      // rows above are the record; hoursSinceService is derived by subtraction.
     }
   }
 }
@@ -1088,6 +1098,194 @@ export const resolvers = {
         hoursUsed: component.hoursUsed,
         countedRideCount: counted.rideCount,
         hasMore,
+      };
+    },
+
+    component: async (_: unknown, { id }: { id: string }, ctx: GraphQLContext) => {
+      const userId = requireUserId(ctx);
+      // Strict not-found on foreign ownership — never reveal existence.
+      const component = await prisma.component.findFirst({ where: { id, userId } });
+      if (!component) {
+        throw new GraphQLError('Component not found', { extensions: { code: 'NOT_FOUND' } });
+      }
+      return component;
+    },
+
+    // A component's whole life, aggregated. See lib/component-history.ts for
+    // the canonical lifetime rule and why it differs from the since-service
+    // rule in lib/component-hours.ts.
+    //
+    // Returns no ride rows on purpose: totals come from one bounded findMany,
+    // conditions from a groupBy and the chart from one grouped raw query, so
+    // the response is constant-size whether the rider has 50 rides or 50,000.
+    // Clients wanting rows use componentRides, which is id-cursor paged.
+    componentHistory: async (
+      _: unknown,
+      { componentId }: { componentId: string },
+      ctx: GraphQLContext
+    ) => {
+      const userId = requireUserId(ctx);
+
+      const rateLimit = await checkQueryRateLimit('componentHistory', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
+
+      // loadComponentAttribution gives us the component row, the service
+      // anchor and the adjustment rows in one place — and reusing it is what
+      // guarantees our sinceService figure is derived from exactly the same
+      // inputs the dashboard's counter is.
+      const attribution = await loadComponentAttribution(prisma, componentId);
+      if (!attribution || attribution.component.userId !== userId) {
+        throw new GraphQLError('Component not found', { extensions: { code: 'NOT_FOUND' } });
+      }
+      const { anchor, excludedRideIds, includedRideIds } = attribution;
+
+      const component = await prisma.component.findFirst({
+        where: { id: componentId, userId },
+      });
+      if (!component) {
+        throw new GraphQLError('Component not found', { extensions: { code: 'NOT_FOUND' } });
+      }
+
+      // Defense in depth: ownership is validated above, but the tenure read
+      // filters userId as well as componentId, matching the convention
+      // bikeHistory documents at resolvers.ts:1741-1744.
+      const installRows = await prisma.bikeComponentInstall.findMany({
+        where: { componentId, userId },
+        orderBy: [{ installedAt: 'asc' }, { id: 'asc' }],
+        take: TENURE_CAP,
+        select: {
+          id: true,
+          bikeId: true,
+          slotKey: true,
+          installedAt: true,
+          removedAt: true,
+        },
+      });
+
+      const { tenures, coverage, driftDetected, historyIncomplete } = normalizeTenures(
+        {
+          id: component.id,
+          userId: component.userId,
+          bikeId: component.bikeId,
+          installedAt: component.installedAt,
+          createdAt: component.createdAt,
+          retiredAt: component.retiredAt,
+          hoursUsed: component.hoursUsed,
+        },
+        installRows
+      );
+
+      if (driftDetected) {
+        // Same signal the orphan sweep logs at resolvers.ts:5629-5636. The
+        // page repairs around it, but it means the two sources of truth for
+        // "where is this component" have diverged and something wrote one
+        // without the other.
+        logger.warn(
+          { componentId, userId, bikeId: component.bikeId },
+          '[componentHistory] Component.bikeId disagrees with open install rows; synthesized a tenure'
+        );
+      }
+
+      const [aggregate, serviceLogs] = await Promise.all([
+        aggregateLifetime(prisma, {
+          userId,
+          tenures,
+          includedRideIds,
+          excludedRideIds,
+        }),
+        prisma.serviceLog.findMany({
+          where: { componentId, component: { userId } },
+          orderBy: [{ performedAt: 'desc' }, { createdAt: 'desc' }],
+        }),
+      ]);
+
+      const cumulative = await cumulativeSeries(prisma, {
+        userId,
+        windows: mergeWindows(tenures),
+        includedRideIds,
+        excludedRideIds,
+      });
+
+      // Batch-resolve the tenure bikes here rather than via a field resolver:
+      // tenures are bounded at TENURE_CAP and usually number a handful, and
+      // one findMany beats a per-tenure lookup. A bike missing from this map
+      // was deleted, which is exactly the case ComponentTenure.bike is
+      // nullable for.
+      const bikeIds = [...new Set(tenures.map((t) => t.bikeId))];
+      const bikes = bikeIds.length
+        ? await prisma.bike.findMany({ where: { id: { in: bikeIds }, userId } })
+        : [];
+      const bikeById = new Map(bikes.map((b) => [b.id, b]));
+
+      // Reuse the canonical since-service computation rather than deriving a
+      // second one. If these ever disagree with the dashboard, that is a bug
+      // in one shared function instead of a discrepancy between two screens.
+      const counted = await computeCountedHours(prisma, attribution);
+      const sinceServiceSeconds = Math.round(counted.hours * 3600);
+
+      const toTotals = (t: UsageTotals) => ({
+        rideCount: t.rideCount,
+        durationSeconds: Math.round(t.durationSeconds),
+        distanceMeters: t.distanceMeters,
+        elevationGainMeters: t.elevationGainMeters,
+        firstRideAt: t.firstRideAt ? t.firstRideAt.toISOString() : null,
+        lastRideAt: t.lastRideAt ? t.lastRideAt.toISOString() : null,
+      });
+
+      const tenurePayload = tenures.map((t: NormalizedTenure) => ({
+        id: t.id,
+        bike: bikeById.get(t.bikeId) ?? null,
+        slotKey: t.slotKey,
+        installedAt: t.start.toISOString(),
+        removedAt: t.removedAt ? t.removedAt.toISOString() : null,
+        synthetic: t.synthetic,
+        totals: toTotals(aggregate.perTenure.get(t.id) ?? emptyTotals()),
+      }));
+
+      return {
+        component,
+        tenures: tenurePayload,
+        lifetime: toTotals(aggregate.lifetime),
+        sinceService: {
+          rideCount: counted.rideCount,
+          durationSeconds: sinceServiceSeconds,
+          // Distance and elevation have no since-service counterpart in the
+          // canonical rule (it sums duration only), and inventing one here
+          // would produce a number no other surface could corroborate.
+          distanceMeters: 0,
+          elevationGainMeters: 0,
+          firstRideAt: anchor ? anchor.toISOString() : null,
+          lastRideAt: null,
+        },
+        anchor: anchor ? anchor.toISOString() : null,
+        serviceEvents: serviceLogs,
+        cumulative: cumulative.map((p) => ({
+          date: p.date.toISOString(),
+          cumulativeHours: p.cumulativeHours,
+          cumulativeDistanceMeters: p.cumulativeDistanceMeters,
+          cumulativeElevationGainMeters: p.cumulativeElevationGainMeters,
+        })),
+        coverage,
+        // A tenure whose bike no longer resolves is a gap we cannot fill:
+        // deleteBike cascades install rows away AND nulls the rides' bikeId
+        // (resolvers.ts:2782), destroying the join key on both sides.
+        historyIncomplete: historyIncomplete || tenurePayload.some((t) => t.bike === null),
+        driftDetected,
+        // Reachable rather than hypothetical: computeCountedHours counts every
+        // ride on the component's current bike back to the anchor with no
+        // tenure bound, so moving a component to a busier bike with an old
+        // anchor can credit it months of rides it was never mounted for.
+        // Reported, not clamped — clamping would hide the inconsistency.
+        consistencyWarning: sinceServiceSeconds > aggregate.lifetime.durationSeconds,
+        // Handed to the conditions field resolver so it can reuse the exact
+        // ride set these totals describe, without recomputing tenures. Not
+        // part of the GraphQL type, so it never leaves the server.
+        __rideWhere: aggregate.rideWhere,
+        __userId: userId,
       };
     },
 
@@ -2953,14 +3151,11 @@ export const resolvers = {
               },
             });
 
-            // Create initial service log so predictions start from installation date
-            await tx.serviceLog.create({
-              data: {
-                componentId: created.id,
-                performedAt: installedAt,
-                hoursAtService: 0,
-              },
-            });
+            // No install "service" log. BikeComponentInstall already records the install,
+          // and hoursSinceService is now derived by subtracting the latest real
+          // log's lifetime reading — so no anchor row is needed. The old zero-hour
+          // rows put work that never happened in the rider's logbook and asserted
+          // a used part had zero hours. See lib/component-counters.ts.
           }
 
           return created;
@@ -3008,13 +3203,29 @@ export const resolvers = {
         await invalidateBikePrediction(userId, existing.bikeId);
       }
 
-      const updated = await prisma.component.update({
+      let updated = await prisma.component.update({
         where: { id },
         data: {
           ...normalized,
           ...(input.location !== undefined && input.location !== null && { location: input.location }),
+          ...(input.priorHours !== undefined &&
+            input.priorHours !== null && { priorHours: Math.max(0, input.priorHours) }),
+          ...(input.inspectionDueAtHours !== undefined && {
+            inspectionDueAtHours:
+              input.inspectionDueAtHours === null
+                ? null
+                : Math.max(0, input.inspectionDueAtHours),
+          }),
         },
       });
+
+      // priorHours is an addend of lifetimeHours, so declaring "these wheels came
+      // with 200 hours on them" has to rebuild the derived counters. Nothing else
+      // in this mutation affects them.
+      if (input.priorHours !== undefined && input.priorHours !== null) {
+        await recomputeComponentCounters(prisma, id);
+        updated = (await prisma.component.findUnique({ where: { id } })) ?? updated;
+      }
 
       // Invalidate prediction cache after update
       if (existing.bikeId) {
@@ -3073,12 +3284,17 @@ export const resolvers = {
 
       // Use transaction to create service log AND recompute hours atomically
       const updated = await prisma.$transaction(async (tx) => {
-        // Create service log to record this service event
+        // hoursAtService records the component's LIFETIME hours at the moment of
+        // service — what a mechanic writes on the workshop card — because the
+        // "since" counters are derived by subtracting it from lifetimeHours.
+        // Computed AS OF the service date, so a backdated service does not
+        // subtract hours ridden after it and yield a negative "since" figure.
         await tx.serviceLog.create({
           data: {
             componentId: id,
             performedAt: serviceDate,
-            hoursAtService: existing.hoursUsed,
+            kind: 'SERVICE',
+            hoursAtService: await lifetimeHoursAt(tx, id, serviceDate),
           },
         });
 
@@ -3116,7 +3332,7 @@ export const resolvers = {
 
     logService: async (
       _: unknown,
-      { input }: { input: { componentId: string; notes?: string | null; performedAt?: string | null } },
+      { input }: { input: { componentId: string; notes?: string | null; performedAt?: string | null; kind?: 'SERVICE' | 'INSPECTION' | null } },
       ctx: GraphQLContext
     ) => {
       const userId = requireUserId(ctx);
@@ -3158,12 +3374,15 @@ export const resolvers = {
 
       const serviceLog = await prisma.$transaction(async (tx) => {
         // Create service log
+        // See the note in logComponentService: a lifetime reading, as of the
+        // (possibly backdated) service date.
         const log = await tx.serviceLog.create({
           data: {
             componentId: input.componentId,
             performedAt,
             notes,
-            hoursAtService: component.hoursUsed,
+            kind: input.kind ?? 'SERVICE',
+            hoursAtService: await lifetimeHoursAt(tx, input.componentId, performedAt),
           },
         });
 
@@ -5141,12 +5360,14 @@ export const resolvers = {
       // Create service logs and recompute hours in transaction
       await prisma.$transaction(async (tx) => {
         for (const component of components) {
-          // Create service log
+          // See the note in logComponentService: a lifetime reading, as of the
+          // (possibly backdated) calibration date.
           await tx.serviceLog.create({
             data: {
               componentId: component.id,
               performedAt: serviceDate,
-              hoursAtService: component.hoursUsed,
+              kind: 'SERVICE',
+              hoursAtService: await lifetimeHoursAt(tx, component.id, serviceDate),
             },
           });
 
@@ -5349,14 +5570,11 @@ export const resolvers = {
           });
         }
 
-        // Create initial service log so predictions start from installation date
-        await tx.serviceLog.create({
-          data: {
-            componentId: newComponent.id,
-            performedAt: installedAt,
-            hoursAtService: 0,
-          },
-        });
+        // No install "service" log. BikeComponentInstall already records the install,
+          // and hoursSinceService is now derived by subtracting the latest real
+          // log's lifetime reading — so no anchor row is needed. The old zero-hour
+          // rows put work that never happened in the rider's logbook and asserted
+          // a used part had zero hours. See lib/component-counters.ts.
 
         // Update the old component to point to the replacement
         await tx.component.update({
@@ -5424,14 +5642,11 @@ export const resolvers = {
               });
             }
 
-            // Create initial service log for paired component
-            await tx.serviceLog.create({
-              data: {
-                componentId: newPairedComponent.id,
-                performedAt: installedAt,
-                hoursAtService: 0,
-              },
-            });
+            // No install "service" log. BikeComponentInstall already records the install,
+          // and hoursSinceService is now derived by subtracting the latest real
+          // log's lifetime reading — so no anchor row is needed. The old zero-hour
+          // rows put work that never happened in the rider's logbook and asserted
+          // a used part had zero hours. See lib/component-counters.ts.
 
             // Update the old paired component to point to the replacement
             await tx.component.update({
@@ -5657,14 +5872,11 @@ export const resolvers = {
             },
           });
 
-          // Create initial service log so predictions start from installation date
-          await tx.serviceLog.create({
-            data: {
-              componentId: componentToInstall.id,
-              performedAt: now,
-              hoursAtService: 0,
-            },
-          });
+          // No install "service" log. BikeComponentInstall already records the install,
+          // and hoursSinceService is now derived by subtracting the latest real
+          // log's lifetime reading — so no anchor row is needed. The old zero-hour
+          // rows put work that never happened in the rider's logbook and asserted
+          // a used part had zero hours. See lib/component-counters.ts.
 
           // Set replacedById chain if we displaced a component
           if (displacedComponent) {
@@ -5752,14 +5964,11 @@ export const resolvers = {
               },
             });
 
-            // Create initial service log for paired component
-            await tx.serviceLog.create({
-              data: {
-                componentId: pairedComponent.id,
-                performedAt: now,
-                hoursAtService: 0,
-              },
-            });
+            // No install "service" log. BikeComponentInstall already records the install,
+          // and hoursSinceService is now derived by subtracting the latest real
+          // log's lifetime reading — so no anchor row is needed. The old zero-hour
+          // rows put work that never happened in the rider's logbook and asserted
+          // a used part had zero hours. See lib/component-counters.ts.
 
             // Update the primary installed component with the pair group
             await tx.component.update({
@@ -5851,6 +6060,18 @@ export const resolvers = {
         isNewComponent: Boolean(newComponent),
         displaced: Boolean(displacedComponent),
       });
+
+      // Tenures just changed, so every affected part's counters must be rebuilt
+      // from the ledger. These paths previously recomputed nothing at all: a
+      // moved component kept the hours it accrued on its old bike while its
+      // bikeId pointed somewhere new, which is what let hoursUsed exceed the
+      // part's real lifetime. Runs after the transaction — a fresh read of the
+      // committed tenure rows is exactly what the rule needs.
+      // Cast past the narrowing: TS does not track assignments made inside the
+      // transaction callback above, same reason the return uses `!`.
+      for (const c of [installedComponent, displacedComponent] as (ComponentModel | null)[]) {
+        if (c) await recomputeComponentCounters(prisma, c.id);
+      }
 
       return {
         installedComponent: installedComponent!,
@@ -6073,6 +6294,17 @@ export const resolvers = {
           installEventId: note.installEventId,
         };
       };
+
+      // Tenures just changed, so every affected part's counters must be rebuilt
+      // from the ledger. These paths previously recomputed nothing at all: a
+      // moved component kept the hours it accrued on its old bike while its
+      // bikeId pointed somewhere new, which is what let hoursUsed exceed the
+      // part's real lifetime. Runs after the transaction — a fresh read of the
+      // committed tenure rows is exactly what the rule needs.
+      // See the note in installComponent about the cast.
+      for (const c of [componentA, componentB] as (ComponentModel | null)[]) {
+        if (c) await recomputeComponentCounters(prisma, c.id);
+      }
 
       return {
         componentA: componentA!,
@@ -6718,6 +6950,53 @@ export const resolvers = {
   RideWeather: {
     fetchedAt: (w: { fetchedAt: Date | string }) =>
       w.fetchedAt instanceof Date ? w.fetchedAt.toISOString() : w.fetchedAt,
+  },
+
+  ComponentHistoryPayload: {
+    // Weather is Pro-only, and Ride.weather enforces that in a FIELD resolver
+    // (see Ride.weather above). An aggregate that read RideWeather inside the
+    // query resolver would walk straight around that gate, so the check lives
+    // here instead: GraphQL resolves lazily, so a free client that doesn't
+    // select this never pays for the groupBy, and a future code path that
+    // builds this payload differently cannot forget the check.
+    conditions: async (
+      parent: { __rideWhere?: Prisma.RideWhereInput | null; __userId?: string },
+      _args: unknown,
+      ctx: GraphQLContext
+    ) => {
+      const userId = parent.__userId ?? ctx.user?.id;
+      if (!userId) return emptyConditionBuckets();
+      const tierUser = await ctx.loaders.tierUserById.load(userId);
+      // Zeros rather than null or an error, matching User.weatherBreakdown:
+      // zeros are indistinguishable from "no rides had weather", which is the
+      // right amount of information to give a free user. The query below is
+      // skipped entirely, never computed and then blanked.
+      if (!tierUser || !canSeeWeather(tierUser)) return emptyConditionBuckets();
+
+      const rideWhere = parent.__rideWhere;
+      if (!rideWhere) return emptyConditionBuckets();
+
+      // Read from the RideWeather side, filtered by the same ride predicate
+      // the totals used, so the buckets can never describe a different ride
+      // set than the numbers above them. Note this is NOT an
+      // `include: { weather: ... }` on the ride findMany — bikeHistory avoids
+      // that shape deliberately (resolvers.ts:1754-1759).
+      //
+      // A findMany rather than a groupBy because durationSeconds lives on Ride
+      // and Prisma cannot sum a related field in a groupBy. Bounded by the
+      // counted ride set, and the response stays constant-size regardless.
+      const rows = await prisma.rideWeather.findMany({
+        where: { ride: rideWhere },
+        select: { condition: true, ride: { select: { durationSeconds: true } } },
+      });
+
+      return foldConditionBuckets(rows, (condition) =>
+        logger.warn(
+          { condition },
+          '[componentHistory] Unknown WeatherCondition — schema likely drifted; add a bucket.'
+        )
+      );
+    },
   },
 
   Component: {

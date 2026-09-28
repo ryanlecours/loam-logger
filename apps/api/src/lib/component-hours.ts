@@ -1,4 +1,5 @@
 import type { PrismaClient, Prisma } from '@prisma/client';
+import { recomputeComponentCounters } from './component-counters';
 
 type TransactionClient = Omit<PrismaClient, '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'>;
 
@@ -13,9 +14,20 @@ export async function incrementBikeComponentHours(
   opts: { userId: string; bikeId: string; hoursDelta: number }
 ) {
   if (opts.hoursDelta <= 0) return;
+  // All four counters move together. For the overwhelmingly common case — a ride
+  // added to the bike a component is currently fitted to, inside its tenure —
+  // incrementing is exactly right, and it keeps lifetimeHours monotonic without
+  // a per-ride tenure query. The authoritative tenure-aware recompute
+  // (lib/component-counters.ts) runs on the paths where the fast path cannot be
+  // trusted: installs, swaps, services, ride edits and per-ride adjustments.
   await (tx as TransactionClient).component.updateMany({
     where: { userId: opts.userId, bikeId: opts.bikeId },
-    data: { hoursUsed: { increment: opts.hoursDelta } },
+    data: {
+      hoursUsed: { increment: opts.hoursDelta },
+      lifetimeHours: { increment: opts.hoursDelta },
+      hoursSinceService: { increment: opts.hoursDelta },
+      hoursSinceInspection: { increment: opts.hoursDelta },
+    },
   });
 }
 
@@ -31,13 +43,23 @@ export async function decrementBikeComponentHours(
   if (opts.hoursDelta <= 0) return;
   await (tx as TransactionClient).component.updateMany({
     where: { userId: opts.userId, bikeId: opts.bikeId },
-    data: { hoursUsed: { decrement: opts.hoursDelta } },
+    data: {
+      hoursUsed: { decrement: opts.hoursDelta },
+      lifetimeHours: { decrement: opts.hoursDelta },
+      hoursSinceService: { decrement: opts.hoursDelta },
+      hoursSinceInspection: { decrement: opts.hoursDelta },
+    },
   });
-  // Floor at zero
-  await (tx as TransactionClient).component.updateMany({
-    where: { userId: opts.userId, bikeId: opts.bikeId, hoursUsed: { lt: 0 } },
-    data: { hoursUsed: 0 },
-  });
+  // Floor each counter at zero independently: a decrement can legitimately
+  // overshoot one of them (a part serviced mid-window has a small
+  // hoursSinceService but a large lifetimeHours), so a shared guard would leave
+  // one negative.
+  for (const column of ['hoursUsed', 'lifetimeHours', 'hoursSinceService', 'hoursSinceInspection'] as const) {
+    await (tx as TransactionClient).component.updateMany({
+      where: { userId: opts.userId, bikeId: opts.bikeId, [column]: { lt: 0 } },
+      data: { [column]: 0 },
+    });
+  }
 }
 
 /**
@@ -272,12 +294,18 @@ export async function recomputeComponentHours(
   const attribution = await loadComponentAttribution(tx, componentId);
   if (!attribution) return null;
 
-  const { hours } = await computeCountedHours(tx, attribution);
-  await tx.component.update({
-    where: { id: componentId },
-    data: { hoursUsed: hours },
-  });
-  return { hours, attribution };
+  // Delegates to the tenure-aware counter rule in lib/component-counters.ts,
+  // which writes lifetimeHours, hoursSinceService, hoursSinceInspection AND
+  // keeps hoursUsed in lockstep with hoursSinceService.
+  //
+  // Kept as a wrapper rather than replaced at ~15 call sites so every existing
+  // mutation path picks up the corrected rule at once. `attribution` is still
+  // returned because the ride-adjustment mutations use its anchor and
+  // include/exclude sets to report whether a ride now counts.
+  const counters = await recomputeComponentCounters(tx, componentId);
+  if (!counters) return null;
+
+  return { hours: counters.hoursSinceService, attribution };
 }
 
 /**

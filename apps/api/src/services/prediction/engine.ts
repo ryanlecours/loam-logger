@@ -23,6 +23,7 @@ import {
   MAX_EXTENSION_RATIO,
   BASELINE_WEAR_PER_HOUR,
   getBaseInterval,
+  getBaseInspectionInterval,
   getComponentWeights,
   isTrackableComponent,
 } from './config';
@@ -64,6 +65,14 @@ type PredictionContext = {
   bikeCreatedAt: Date;
   /** All rides for the bike, ordered by startTime ascending */
   allRides: RideMetrics[];
+  /**
+   * componentId -> the start of the component's CURRENT tenure on this bike.
+   *
+   * Needed because `allRides` is the bike's whole history: without this bound, a
+   * component moved onto a busy bike absorbs every ride that bike did since the
+   * component's old service anchor. That is the 7x overcount this bound closes.
+   */
+  tenureStartMap: Map<string, Date>;
   /** Map of componentType -> effective service preference (bike override > global > system default) */
   effectivePreferences: Map<string, EffectiveServicePreference>;
   /**
@@ -224,11 +233,28 @@ function predictComponent(
   // Get last service date from pre-fetched context
   const lastServiceDate = getLastServiceDateFromContext(component, ctx);
 
-  // Get rides and hours since last service from pre-fetched context,
-  // honoring this component's ride adjustments
-  const ridesSinceService = getRidesSinceDateForComponent(component.id, lastServiceDate, ctx);
-  const hoursSinceService = calculateTotalHours(ridesSinceService);
+  // Rides on THIS bike since the later of (last service, current tenure start).
+  //
+  // The tenure bound is the fix for the old overcount: `ctx.allRides` is the
+  // bike's entire history, so a part fitted last week would otherwise be
+  // charged for every ride the bike did back to its own old service anchor.
+  const tenureStart = ctx.tenureStartMap.get(component.id);
+  const windowStart =
+    tenureStart && tenureStart > lastServiceDate ? tenureStart : lastServiceDate;
+  const ridesSinceService = getRidesSinceDateForComponent(component.id, windowStart, ctx);
   const rideCountSinceService = ridesSinceService.length;
+
+  // The authoritative scalar comes from the stored, ledger-backed counter
+  // (lib/component-counters.ts), NOT from summing the window above. The counter
+  // spans every bike the part has been on and includes its declared pre-Loam
+  // hours, so it is correct for a component that has moved or arrived used —
+  // the window can only ever see the current bike.
+  //
+  // Falls back to the window sum when the counter is still 0, so predictions
+  // stay sane on rows the post-deploy backfill has not reached yet.
+  const storedSinceService = component.hoursSinceService ?? 0;
+  const hoursSinceService =
+    storedSinceService > 0 ? storedSinceService : calculateTotalHours(ridesSinceService);
 
   // Calculate confidence FIRST to decide whether to use adaptive prediction
   const totalHours = calculateTotalHours(recentRides);
@@ -292,8 +318,45 @@ function predictComponent(
   }
 
   // Determine status
-  const status = getStatus(hoursRemaining, baseInterval);
+  const serviceStatus = getStatus(hoursRemaining, baseInterval);
   const ridesRemainingEstimate = estimateRidesRemaining(hoursRemaining, recentRides);
+
+  // ------------------------------------------------------------- inspection
+  // A second, independent clock. An inspection is a check rather than work: a
+  // rider who spins a hub and finds it fine has reset this clock without
+  // touching the service clock. A service resets both, because you cannot
+  // service a part without looking at it (see component-counters.ts).
+  //
+  // Null interval means the type is not inspection-tracked. That is deliberately
+  // NOT rendered as a passing inspection — most component types have no
+  // standard inspection cadence, and inventing one would be the invented
+  // precision PRODUCT.md forbids.
+  const inspectionIntervalHours =
+    component.inspectionDueAtHours ??
+    getBaseInspectionInterval(component.type, component.location);
+
+  let inspectionStatus: PredictionStatus | null = null;
+  let hoursSinceInspection: number | null = null;
+  let inspectionHoursRemaining: number | null = null;
+
+  if (inspectionIntervalHours != null) {
+    hoursSinceInspection = component.hoursSinceInspection ?? 0;
+    inspectionHoursRemaining = inspectionIntervalHours - hoursSinceInspection;
+    inspectionStatus = getStatus(inspectionHoursRemaining, inspectionIntervalHours);
+  }
+
+  // The headline stays ONE state: the worse of the two clocks. PRODUCT.md's test
+  // is "is the bike I want to ride good to go", and two competing badges per
+  // part cannot be read at a glance. `limitingClock` says which one won so a
+  // surface can explain it, and DESIGN.md's four-state ramp is unchanged.
+  const status =
+    inspectionStatus && statusSeverity(inspectionStatus) > statusSeverity(serviceStatus)
+      ? inspectionStatus
+      : serviceStatus;
+  const limitingClock: 'SERVICE' | 'INSPECTION' =
+    status === inspectionStatus && inspectionStatus !== serviceStatus
+      ? 'INSPECTION'
+      : 'SERVICE';
 
   // Generate explanation for Pro tier
   let why: string | null = null;
@@ -324,9 +387,32 @@ function predictComponent(
     serviceIntervalHours: baseInterval,
     hoursSinceService: Math.round(hoursSinceService * 10) / 10,
     ridesSinceService: rideCountSinceService,
+    lifetimeHours: Math.round((component.lifetimeHours ?? 0) * 10) / 10,
+    serviceStatus,
+    inspectionStatus,
+    inspectionIntervalHours,
+    hoursSinceInspection:
+      hoursSinceInspection == null ? null : Math.round(hoursSinceInspection * 10) / 10,
+    inspectionHoursRemaining:
+      inspectionHoursRemaining == null ? null : Math.round(inspectionHoursRemaining * 10) / 10,
+    limitingClock,
     why,
     drivers,
   };
+}
+
+/** Severity ordering for the four-state ramp; higher is more urgent. */
+function statusSeverity(status: PredictionStatus): number {
+  switch (status) {
+    case 'OVERDUE':
+      return 3;
+    case 'DUE_NOW':
+      return 2;
+    case 'DUE_SOON':
+      return 1;
+    default:
+      return 0;
+  }
 }
 
 /**
@@ -484,7 +570,7 @@ export async function generateBikePredictions(
   // Batch fetch all data needed for predictions to avoid N+1 queries
   const componentIds = trackableComponents.map((c) => c.id);
 
-  const [serviceLogs, firstRideDate, allRides, recentRides, rideAdjustments] = await Promise.all([
+  const [serviceLogs, firstRideDate, allRides, recentRides, rideAdjustments, openInstalls] = await Promise.all([
     // Fetch all service logs for all components at once
     prisma.serviceLog.findMany({
       where: { componentId: { in: componentIds } },
@@ -502,7 +588,27 @@ export async function generateBikePredictions(
       where: { componentId: { in: componentIds } },
       select: { componentId: true, rideId: true, kind: true },
     }),
+    // Open install rows: when each component's CURRENT tenure on this bike
+    // began. Bounds the rides-since-service window so a freshly fitted part is
+    // not charged for the bike's earlier history.
+    prisma.bikeComponentInstall.findMany({
+      where: { userId, bikeId, componentId: { in: componentIds }, removedAt: null },
+      select: { componentId: true, installedAt: true },
+    }),
   ]);
+
+  // Build tenure-start map (componentId -> start of its current tenure here).
+  // Falls back to Component.installedAt when no open row exists — the orphan
+  // drift installComponent sweeps for, where the two sources disagree.
+  const tenureStartMap = new Map<string, Date>();
+  for (const row of openInstalls) {
+    tenureStartMap.set(row.componentId, row.installedAt);
+  }
+  for (const component of trackableComponents) {
+    if (!tenureStartMap.has(component.id) && component.installedAt) {
+      tenureStartMap.set(component.id, component.installedAt);
+    }
+  }
 
   // Build service log map (componentId -> most recent service date)
   const serviceLogMap = new Map<string, Date>();
@@ -562,6 +668,7 @@ export async function generateBikePredictions(
     firstRideDate,
     bikeCreatedAt: bike.createdAt,
     allRides,
+    tenureStartMap,
     effectivePreferences: effectivePreferencesMap,
     adjustmentMap,
     includedRideMap,

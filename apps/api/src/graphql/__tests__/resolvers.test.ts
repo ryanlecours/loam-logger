@@ -331,6 +331,10 @@ describe('GraphQL Resolvers', () => {
           userId: 'user-123',
           bikeId: 'bike-1',
           hoursUsed: 50,
+          installedAt: new Date('2025-01-01'),
+          createdAt: new Date('2025-01-01'),
+          retiredAt: null,
+          priorHours: 0,
         } as never);
 
         mockPrisma.$transaction.mockImplementation(async (fn) => {
@@ -340,10 +344,23 @@ describe('GraphQL Resolvers', () => {
           return [];
         });
         mockPrisma.serviceLog.create.mockResolvedValue({ id: 'log-1' } as never);
-        // The canonical recompute inside the tx aggregates rides.
+        // Counters derive from install TENURES, so the fixture needs one.
+        (mockPrisma.bikeComponentInstall.findMany as jest.Mock).mockResolvedValue([
+          {
+            id: 'inst-1', bikeId: 'bike-1', slotKey: 'FORK_NONE',
+            installedAt: new Date('2025-01-01'), removedAt: null,
+          },
+        ] as never);
+        // 50 lifetime hours accrued at the moment of service.
         (mockPrisma.ride.aggregate as jest.Mock).mockResolvedValue({
-          _sum: { durationSeconds: 0 },
-          _count: 0,
+          _sum: { durationSeconds: 180000 },
+          _count: 10,
+        } as never);
+        // The recompute reads back the log just written: its lifetime reading of
+        // 50 is what drives hoursSinceService to 0.
+        (mockPrisma.serviceLog.findFirst as jest.Mock).mockResolvedValue({
+          performedAt: new Date(),
+          hoursAtService: 50,
         } as never);
         mockPrisma.component.update.mockResolvedValue({ id: 'comp-1', hoursUsed: 0 } as never);
 
@@ -355,11 +372,18 @@ describe('GraphQL Resolvers', () => {
             hoursAtService: 50,
           }),
         });
-        // Recompute (canonical hours, 0 with no rides) and the anchor write
-        // are now two separate updates.
+        // Recompute and the anchor write are two separate updates. The service
+        // log records 50 LIFETIME hours, so subtracting it from lifetimeHours
+        // resets both "since" clocks to 0 while lifetimeHours stays at 50 —
+        // servicing a part does not un-ride it.
         expect(mockPrisma.component.update).toHaveBeenCalledWith({
           where: { id: 'comp-1' },
-          data: { hoursUsed: 0 },
+          data: {
+            lifetimeHours: 50,
+            hoursSinceService: 0,
+            hoursSinceInspection: 0,
+            hoursUsed: 0,
+          },
         });
         expect(mockPrisma.component.update).toHaveBeenCalledWith({
           where: { id: 'comp-1' },
@@ -1064,6 +1088,8 @@ describe('GraphQL Resolvers', () => {
               update: jest.fn().mockResolvedValue({ ...unpairedComponent, location: 'FRONT', pairGroupId: 'pair-123' }),
               create: jest.fn().mockResolvedValue(newRearComponent),
             },
+        // Counters derive from install tenures now (lib/component-counters.ts).
+        bikeComponentInstall: { findMany: jest.fn().mockResolvedValue([]) },
           };
           return fn(mockTx);
         }
@@ -1111,6 +1137,8 @@ describe('GraphQL Resolvers', () => {
                 return Promise.resolve({ ...data, id: `new-${data.pairGroupId}` });
               }),
             },
+        // Counters derive from install tenures now (lib/component-counters.ts).
+        bikeComponentInstall: { findMany: jest.fn().mockResolvedValue([]) },
           };
           return fn(mockTx);
         }
@@ -3315,6 +3343,8 @@ describe('GraphQL Resolvers', () => {
         ride: { updateMany: jest.fn() },
         stravaGearMapping: { deleteMany: jest.fn() },
         bike: { delete: jest.fn() },
+        // Counters derive from install tenures now (lib/component-counters.ts).
+        bikeComponentInstall: { findMany: jest.fn().mockResolvedValue([]) },
       };
       mockPrisma.$transaction.mockImplementation(async (fn) => {
         if (typeof fn === 'function') return fn(mockTx as never);
@@ -3779,6 +3809,8 @@ describe('GraphQL Resolvers', () => {
           aggregate: jest.fn().mockResolvedValue({ _sum: { durationSeconds: 0 }, _count: 0 }),
         },
         componentRideAdjustment: { findMany: jest.fn().mockResolvedValue([]) },
+        // Counters derive from install tenures now (lib/component-counters.ts).
+        bikeComponentInstall: { findMany: jest.fn().mockResolvedValue([]) },
       };
       (mockPrisma.$transaction as jest.Mock).mockImplementation((fn: (...args: unknown[]) => unknown) => fn(mockTx));
 
@@ -3815,6 +3847,8 @@ describe('GraphQL Resolvers', () => {
           },
           ride: { aggregate: mockRideAggregate },
           componentRideAdjustment: mockPrisma.componentRideAdjustment,
+          // Counters derive from install tenures now (lib/component-counters.ts).
+          bikeComponentInstall: mockPrisma.bikeComponentInstall,
         };
         return fn(tx);
       });
@@ -3952,9 +3986,24 @@ describe('GraphQL Resolvers', () => {
         .mockResolvedValueOnce({ performedAt: new Date('2026-03-10') })
         .mockResolvedValueOnce({ performedAt: new Date('2026-03-10') });
       mockComponentFindUnique.mockResolvedValue({
-        id: 'comp-1', userId: 'user-123', bikeId: 'bike-1', installedAt: null, hoursUsed: 0,
+        id: 'comp-1', userId: 'user-123', bikeId: 'bike-1',
+        installedAt: new Date('2025-01-01'), createdAt: new Date('2025-01-01'),
+        retiredAt: null, hoursUsed: 0, priorHours: 0,
       });
-      mockRideAggregate.mockResolvedValueOnce({ _sum: { durationSeconds: 3600 }, _count: 1 });
+      // Counters derive from install TENURES now, so an open tenure is needed
+      // for any ride to be attributable to this component.
+      (mockPrisma.bikeComponentInstall.findMany as jest.Mock).mockResolvedValue([
+        {
+          id: 'inst-1', bikeId: 'bike-1', slotKey: 'FORK_NONE',
+          installedAt: new Date('2025-01-01'), removedAt: null,
+        },
+      ]);
+      // Lifetime 4h; the new latest log reads 3h, leaving 1h since service.
+      mockRideAggregate.mockResolvedValue({ _sum: { durationSeconds: 14400 }, _count: 4 });
+      mockLogFindFirst
+        .mockReset()
+        .mockResolvedValueOnce({ id: 'log-latest', performedAt: new Date('2026-01-01') })
+        .mockResolvedValue({ performedAt: new Date('2026-03-10'), hoursAtService: 3 });
 
       const ctx = createMockContext('user-123');
       await mutation(
@@ -3970,7 +4019,12 @@ describe('GraphQL Resolvers', () => {
       });
       expect(mockComponentUpdate).toHaveBeenCalledWith({
         where: { id: 'comp-1' },
-        data: { hoursUsed: 1 },
+        data: {
+          lifetimeHours: 4,
+          hoursSinceService: 1,
+          hoursSinceInspection: 1,
+          hoursUsed: 1,
+        },
       });
     });
 
@@ -3986,9 +4040,23 @@ describe('GraphQL Resolvers', () => {
         .mockResolvedValueOnce({ performedAt: new Date('2026-04-15') })
         .mockResolvedValueOnce({ performedAt: new Date('2026-04-15') });
       mockComponentFindUnique.mockResolvedValue({
-        id: 'comp-1', userId: 'user-123', bikeId: 'bike-1', installedAt: null, hoursUsed: 0,
+        id: 'comp-1', userId: 'user-123', bikeId: 'bike-1', installedAt: new Date('2026-01-01'),
+        createdAt: new Date('2026-01-01'), retiredAt: null, hoursUsed: 0, priorHours: 0,
       });
-      mockRideAggregate.mockResolvedValueOnce({ _sum: { durationSeconds: 7200 }, _count: 2 }); // 2 hours
+      // Counters derive from install TENURES, not from Component.bikeId, so the
+      // fixture needs an open tenure for any ride to be attributable.
+      (mockPrisma.bikeComponentInstall.findMany as jest.Mock).mockResolvedValue([
+        {
+          id: 'inst-1', bikeId: 'bike-1', slotKey: 'FORK_NONE',
+          installedAt: new Date('2026-01-01'), removedAt: null,
+        },
+      ]);
+      // Lifetime = 10h; the log now reads 8h, so 2h remain since the service.
+      mockRideAggregate.mockResolvedValue({ _sum: { durationSeconds: 36000 }, _count: 4 });
+      mockLogFindFirst
+        .mockReset()
+        .mockResolvedValueOnce({ id: 'log-latest', performedAt: new Date('2026-03-01') })
+        .mockResolvedValue({ performedAt: new Date('2026-04-15'), hoursAtService: 8 });
 
       const ctx = createMockContext('user-123');
       await mutation(
@@ -3997,14 +4065,19 @@ describe('GraphQL Resolvers', () => {
         ctx as never
       );
 
-      // Canonical aggregate: scoped to the user, duplicates filtered.
+      // The aggregate is now scoped by TENURE WINDOWS rather than by "this bike
+      // since the anchor". Half-open bounds; no `startTime: { gte: anchor }`.
       expect(mockRideAggregate).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
             userId: 'user-123',
-            bikeId: 'bike-1',
             isDuplicate: false,
-            startTime: { gte: new Date('2026-04-15') },
+            OR: [
+              expect.objectContaining({
+                bikeId: 'bike-1',
+                startTime: expect.objectContaining({ gte: new Date('2026-01-01') }),
+              }),
+            ],
           }),
         })
       );
@@ -4012,9 +4085,16 @@ describe('GraphQL Resolvers', () => {
         where: { id: 'comp-1' },
         data: { lastServicedAt: new Date('2026-04-15') },
       });
+      // hoursSinceService = lifetimeHours - the log's lifetime reading = 10 - 8.
+      // hoursUsed is kept in lockstep with it for existing readers.
       expect(mockComponentUpdate).toHaveBeenCalledWith({
         where: { id: 'comp-1' },
-        data: { hoursUsed: 2 },
+        data: {
+          lifetimeHours: 10,
+          hoursSinceService: 2,
+          hoursSinceInspection: 2,
+          hoursUsed: 2,
+        },
       });
     });
 
@@ -4059,6 +4139,8 @@ describe('GraphQL Resolvers', () => {
           },
           ride: { aggregate: mockRideAggregate },
           componentRideAdjustment: mockPrisma.componentRideAdjustment,
+          // Counters derive from install tenures now (lib/component-counters.ts).
+          bikeComponentInstall: mockPrisma.bikeComponentInstall,
         };
         return fn(tx);
       });
@@ -4114,9 +4196,24 @@ describe('GraphQL Resolvers', () => {
         .mockResolvedValueOnce({ performedAt: new Date('2026-01-01') })
         .mockResolvedValueOnce({ performedAt: new Date('2026-01-01') });
       mockComponentFindUnique.mockResolvedValue({
-        id: 'comp-1', userId: 'user-123', bikeId: 'bike-1', installedAt: null, hoursUsed: 0,
+        id: 'comp-1', userId: 'user-123', bikeId: 'bike-1',
+        installedAt: new Date('2025-01-01'), createdAt: new Date('2025-01-01'),
+        retiredAt: null, hoursUsed: 0, priorHours: 0,
       });
-      mockRideAggregate.mockResolvedValueOnce({ _sum: { durationSeconds: 18000 }, _count: 3 }); // 5 hours
+      // Counters derive from install TENURES now, so an open tenure is needed
+      // for any ride to be attributable to this component.
+      (mockPrisma.bikeComponentInstall.findMany as jest.Mock).mockResolvedValue([
+        {
+          id: 'inst-1', bikeId: 'bike-1', slotKey: 'FORK_NONE',
+          installedAt: new Date('2025-01-01'), removedAt: null,
+        },
+      ]);
+      // Lifetime 20h; the surviving prior log reads 15h, leaving 5h.
+      mockRideAggregate.mockResolvedValue({ _sum: { durationSeconds: 72000 }, _count: 6 });
+      mockLogFindFirst
+        .mockReset()
+        .mockResolvedValueOnce({ id: 'log-latest' })
+        .mockResolvedValue({ performedAt: new Date('2026-01-01'), hoursAtService: 15 });
 
       const ctx = createMockContext('user-123');
       await mutation({}, { id: 'log-latest' }, ctx as never);
@@ -4127,7 +4224,12 @@ describe('GraphQL Resolvers', () => {
       });
       expect(mockComponentUpdate).toHaveBeenCalledWith({
         where: { id: 'comp-1' },
-        data: { hoursUsed: 5 },
+        data: {
+          lifetimeHours: 20,
+          hoursSinceService: 5,
+          hoursSinceInspection: 5,
+          hoursUsed: 5,
+        },
       });
     });
 
@@ -4141,27 +4243,49 @@ describe('GraphQL Resolvers', () => {
         .mockResolvedValueOnce(null) // no remaining logs (re-anchor)
         .mockResolvedValueOnce(null); // no remaining logs (attribution)
       mockComponentFindUnique.mockResolvedValue({
-        id: 'comp-1', userId: 'user-123', bikeId: 'bike-1', installedAt: null, hoursUsed: 0,
+        id: 'comp-1', userId: 'user-123', bikeId: 'bike-1',
+        installedAt: new Date('2025-01-01'), createdAt: new Date('2025-01-01'),
+        retiredAt: null, hoursUsed: 0, priorHours: 0,
       });
-      mockRideAggregate.mockResolvedValueOnce({ _sum: { durationSeconds: 360000 }, _count: 10 }); // 100 hours
+      // Counters derive from install TENURES now, so an open tenure is needed
+      // for any ride to be attributable to this component.
+      (mockPrisma.bikeComponentInstall.findMany as jest.Mock).mockResolvedValue([
+        {
+          id: 'inst-1', bikeId: 'bike-1', slotKey: 'FORK_NONE',
+          installedAt: new Date('2025-01-01'), removedAt: null,
+        },
+      ]);
+      mockRideAggregate.mockResolvedValue({ _sum: { durationSeconds: 360000 }, _count: 10 });
 
       const ctx = createMockContext('user-123');
       await mutation({}, { id: 'log-last' }, ctx as never);
 
-      // installedAt is null too, so the window is all-time (no startTime
-      // clause); canonical aggregate scopes by user and filters duplicates.
-      expect(mockRideAggregate).toHaveBeenCalledWith({
-        where: { userId: 'user-123', bikeId: 'bike-1', isDuplicate: false },
-        _sum: { durationSeconds: true },
-        _count: true,
-      });
+      // The aggregate is tenure-scoped: half-open windows per bike, with no
+      // service-anchor clause at all (lifetime never applies the anchor).
+      expect(mockRideAggregate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            userId: 'user-123',
+            isDuplicate: false,
+            OR: [expect.objectContaining({ bikeId: 'bike-1' })],
+          }),
+          _sum: { durationSeconds: true },
+        })
+      );
       expect(mockComponentUpdate).toHaveBeenCalledWith({
         where: { id: 'comp-1' },
         data: { lastServicedAt: null },
       });
+      // No log of either kind survives, so neither clock has ever been reset
+      // and both "since" figures equal the full lifetime.
       expect(mockComponentUpdate).toHaveBeenCalledWith({
         where: { id: 'comp-1' },
-        data: { hoursUsed: 100 },
+        data: {
+          lifetimeHours: 100,
+          hoursSinceService: 100,
+          hoursSinceInspection: 100,
+          hoursUsed: 100,
+        },
       });
     });
 
@@ -6093,10 +6217,17 @@ describe('GraphQL Resolvers', () => {
         create: { userId: 'user-123', componentId: 'comp-1', rideId: 'ride-1', kind: 'EXCLUDE' },
         update: { kind: 'EXCLUDE' },
       });
-      // The recompute persisted canonical hours inside the tx.
+      // The recompute persisted all four counters inside the tx. This fixture
+      // has no install tenures, so nothing is attributable and every counter is
+      // 0 — the adjustment itself is what the test is asserting.
       expect(mockComponentUpdate).toHaveBeenCalledWith({
         where: { id: 'comp-1' },
-        data: { hoursUsed: 1 },
+        data: {
+          lifetimeHours: 0,
+          hoursSinceService: 0,
+          hoursSinceInspection: 0,
+          hoursUsed: 0,
+        },
       });
       expect(result.counted).toBe(false);
       expect(result.rideId).toBe('ride-1');
@@ -6321,6 +6452,8 @@ describe('GraphQL Resolvers', () => {
       },
       serviceLog: { findFirst: jest.fn().mockResolvedValue(null) },
       componentRideAdjustment: { findMany: jest.fn().mockResolvedValue([]) },
+        // Counters derive from install tenures now (lib/component-counters.ts).
+        bikeComponentInstall: { findMany: jest.fn().mockResolvedValue([]) },
     });
 
     beforeEach(() => {
@@ -6352,7 +6485,12 @@ describe('GraphQL Resolvers', () => {
       expect(tx.component.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({ userId: 'user-123', bikeId: 'bike-1' }),
-          data: { hoursUsed: { decrement: 1 } },
+          data: {
+            hoursUsed: { decrement: 1 },
+            lifetimeHours: { decrement: 1 },
+            hoursSinceService: { decrement: 1 },
+            hoursSinceInspection: { decrement: 1 },
+          },
         })
       );
     });
@@ -6423,6 +6561,8 @@ describe('GraphQL Resolvers', () => {
       },
       serviceLog: { findFirst: jest.fn().mockResolvedValue(null) },
       componentRideAdjustment: { findMany: jest.fn().mockResolvedValue([]) },
+        // Counters derive from install tenures now (lib/component-counters.ts).
+        bikeComponentInstall: { findMany: jest.fn().mockResolvedValue([]) },
     });
 
     beforeEach(() => {
@@ -6452,7 +6592,12 @@ describe('GraphQL Resolvers', () => {
       expect(tx.component.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({ userId: 'user-123', bikeId: 'bike-9' }),
-          data: { hoursUsed: { increment: 1.5 } },
+          data: {
+            hoursUsed: { increment: 1.5 },
+            lifetimeHours: { increment: 1.5 },
+            hoursSinceService: { increment: 1.5 },
+            hoursSinceInspection: { increment: 1.5 },
+          },
         })
       );
     });
@@ -6567,6 +6712,8 @@ describe('GraphQL Resolvers', () => {
       },
       serviceLog: { findFirst: jest.fn().mockResolvedValue(null) },
       componentRideAdjustment: { findMany: jest.fn().mockResolvedValue([]) },
+        // Counters derive from install tenures now (lib/component-counters.ts).
+        bikeComponentInstall: { findMany: jest.fn().mockResolvedValue([]) },
     });
 
     beforeEach(() => {

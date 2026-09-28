@@ -168,6 +168,12 @@ export const QUERY_RATE_LIMITS = {
    *  pagination + post-adjustment refetches all hit it; each call is a few
    *  bounded findMany/aggregate queries) */
   componentRides: { windowSeconds: 60, maxRequests: 60 },
+  /** componentHistory: max 60 requests per minute per user. Same ceiling as
+   *  componentRides for the same reason — page mount, the lifetime/since
+   *  toggle and cache-and-network refetches all hit it in bursts. Each call is
+   *  a bounded findMany plus a groupBy and one grouped raw query, all scoped
+   *  to the viewer's own rides. */
+  componentHistory: { windowSeconds: 60, maxRequests: 60 },
   /** advisorSummary: max 20 LLM calls per 5 minutes per user. Checked only
    *  on cache MISS in the resolver, not on cache-hit refreshes, so the
    *  limit bounds Anthropic dollar cost directly (~$0.96/hour worst case
