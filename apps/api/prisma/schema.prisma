@@ -549,7 +549,8 @@ model ServiceLog {
   /// (Pre-Loam services are user-declared; nothing can derive them.)
   ///
   /// Historically this stored the since-service counter instead, which made it
-  /// near-meaningless; migration 20260927 rewrites existing rows.
+  /// near-meaningless; scripts/backfill-component-counters.ts rescales the rows
+  /// that predate migration 20260927.
   hoursAtService Float @default(0)
 
   createdAt DateTime @default(now())

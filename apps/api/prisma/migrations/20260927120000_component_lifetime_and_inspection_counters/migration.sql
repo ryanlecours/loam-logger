@@ -23,6 +23,67 @@
 -- after deploy. Reads tolerate 0 until then because the GraphQL layer falls
 -- back to the legacy hoursUsed counter when lifetimeHours is 0.
 
+-- 0. Snapshot every ServiceLog row before anything below touches the table.
+--
+-- Two uses. It is the backup for step 4's DELETE, which is otherwise
+-- irreversible. And it marks which rows predate this migration: their
+-- hoursAtService is on the OLD scale (the since-service counter at the time),
+-- and the backfill script rescales exactly those rows onto the lifetime scale.
+--
+-- Lives in its own schema so Prisma never sees it: a table in "public" that
+-- schema.prisma does not declare would show up as drift, and the next
+-- `migrate dev` would generate a DROP for it. Drop the schema by hand once the
+-- backfill has run and the logbooks have been checked.
+--
+-- The anchor predicate is evaluated here, once, and step 4 deletes by this flag,
+-- so the archive records precisely what was removed.
+--
+-- An install anchor was always written in the same transaction as either the
+-- component (new part) or a BikeComponentInstall row (existing part fitted), and
+-- always dated to that moment. So a row counts as an anchor only when BOTH hold:
+--
+--   created within 30s of its component, or of one of its install rows, AND
+--   dated exactly at the component's creation, its installedAt, or one of its
+--   install rows' installedAt.
+--
+-- Matching against install history, not only Component.installedAt, catches
+-- anchors that predicate alone missed: installedAt is nulled when a part goes
+-- to inventory and overwritten when it is refitted, which orphaned the earlier
+-- anchors. The createdAt condition is what protects a genuine same-day service
+-- with no notes: logging one takes a separate request after the part exists,
+-- which lands far outside 30s even when a date-only picker normalises its
+-- timestamp to match the install exactly.
+CREATE SCHEMA IF NOT EXISTS "loam_archive";
+
+CREATE TABLE "loam_archive"."ServiceLog_pre_20260927" AS
+SELECT
+  sl.*,
+  (
+    sl."hoursAtService" = 0
+    AND sl."notes" IS NULL
+    AND (
+      abs(extract(epoch FROM sl."createdAt" - c."createdAt")) <= 30
+      OR EXISTS (
+        SELECT 1 FROM "BikeComponentInstall" i
+        WHERE i."componentId" = sl."componentId"
+          AND abs(extract(epoch FROM sl."createdAt" - i."installedAt")) <= 30
+      )
+    )
+    AND (
+      sl."performedAt" = c."createdAt"
+      OR sl."performedAt" = c."installedAt"
+      OR EXISTS (
+        SELECT 1 FROM "BikeComponentInstall" i
+        WHERE i."componentId" = sl."componentId"
+          AND i."installedAt" = sl."performedAt"
+      )
+    )
+  ) AS "deletedAsInstallAnchor"
+FROM "ServiceLog" sl
+JOIN "Component" c ON c."id" = sl."componentId";
+
+ALTER TABLE "loam_archive"."ServiceLog_pre_20260927" ADD PRIMARY KEY ("id");
+
 -- 1. Inspection is a distinct event kind from service.
 CREATE TYPE "ServiceLogKind" AS ENUM ('SERVICE', 'INSPECTION');
 
@@ -50,15 +111,11 @@ CREATE INDEX "ServiceLog_componentId_kind_performedAt_idx"
 -- install event itself is already recorded in BikeComponentInstall, so these
 -- rows carry no information that is lost by removing them.
 --
--- Scoped deliberately narrowly: hoursAtService = 0 AND no notes AND performedAt
--- equal to the component's installedAt. A genuine zero-hour service (a rider
--- servicing a part the day it was fitted) with notes or a different date is
--- preserved. Deleting these is safe under the NEW rule because it derives
--- hoursSinceService by subtraction rather than from an anchor date.
+-- Which rows qualify is decided in step 0 and recorded in the archive, where
+-- every deleted row survives in full. Deleting these is safe under the NEW rule
+-- because it derives hoursSinceService by subtraction rather than from an
+-- anchor date.
 DELETE FROM "ServiceLog" sl
-USING "Component" c
-WHERE sl."componentId" = c."id"
-  AND sl."hoursAtService" = 0
-  AND sl."notes" IS NULL
-  AND c."installedAt" IS NOT NULL
-  AND sl."performedAt" = c."installedAt";
+USING "loam_archive"."ServiceLog_pre_20260927" a
+WHERE a."id" = sl."id"
+  AND a."deletedAsInstallAnchor";
