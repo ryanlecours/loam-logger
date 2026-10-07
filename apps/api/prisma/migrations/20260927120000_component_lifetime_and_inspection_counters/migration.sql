@@ -20,20 +20,24 @@
 -- requires the tenure x ride x adjustment attribution rule, which lives in
 -- lib/component-counters.ts. Columns land at 0 and are populated by the
 -- idempotent backfill script (scripts/backfill-component-counters.ts), run
--- after deploy. Reads tolerate 0 until then because the GraphQL layer falls
--- back to the legacy hoursUsed counter when lifetimeHours is 0.
+-- after deploy. Reads tolerate the gap because they key on
+-- Component.countersComputedAt (added by 20261006120000), not on the counter
+-- values: while it is NULL the prediction engine falls back to its ride window
+-- and ride credits only move the legacy hoursUsed. Any recompute, or the
+-- backfill, derives the counters and sets it.
 
 -- 0. Snapshot every ServiceLog row before anything below touches the table.
 --
--- Two uses. It is the backup for step 4's DELETE, which is otherwise
--- irreversible. And it marks which rows predate this migration: their
--- hoursAtService is on the OLD scale (the since-service counter at the time),
--- and the backfill script rescales exactly those rows onto the lifetime scale.
+-- It is the backup for step 4's DELETE, which is otherwise irreversible. No
+-- code reads it: the rows that predate this migration hold hoursAtService on
+-- the OLD scale (the since-service counter at the time), and every recompute
+-- re-derives undeclared readings from their dates, which moves those rows onto
+-- the lifetime scale without needing to identify them.
 --
 -- Lives in its own schema so Prisma never sees it: a table in "public" that
 -- schema.prisma does not declare would show up as drift, and the next
 -- `migrate dev` would generate a DROP for it. Drop the schema by hand once the
--- backfill has run and the logbooks have been checked.
+-- backfill has run and the logbooks have been checked (issue #324).
 --
 -- The anchor predicate is evaluated here, once, and step 4 deletes by this flag,
 -- so the archive records precisely what was removed.
