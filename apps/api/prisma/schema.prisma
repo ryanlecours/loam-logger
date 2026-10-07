@@ -80,12 +80,12 @@ model User {
   mobileSessions           MobileSession[]
 
   // Push notification preferences
-  expoPushToken            String?
+  expoPushToken      String?
   // Legacy on/off for ride-sync pushes. Kept in sync with
   // rideSyncNotificationMode (mode OFF <=> false) because app versions up to
   // 1.1.3 still read and write it through updateUserPreferences; the mode
   // column below is the source of truth and this is derived on write.
-  notifyOnRideUpload       Boolean                  @default(true)
+  notifyOnRideUpload Boolean @default(true)
   // How "Ride Synced" pushes behave. ALL preserves the original behavior
   // (every new integration ride pushes, burst-suppressed). ACTION_NEEDED
   // pushes only when the ride needs a bike assigned or is the account's
@@ -98,12 +98,12 @@ model User {
   // Weekly gear-health digest ("is the bike ready for the weekend"), sent
   // Friday morning in the user's local time. Opt-in, off by default, and
   // Pro-gated at send time like every prediction surface.
-  weeklyDigestEnabled      Boolean                  @default(false)
+  weeklyDigestEnabled Boolean @default(false)
   // IANA timezone (e.g. "America/Los_Angeles"), uploaded by mobile alongside
   // the push token. Only read by the weekly digest scheduler; a user with a
   // null timezone is skipped rather than guessed at, since a digest at 3am
   // is worse than no digest.
-  timezone                 String?
+  timezone String?
 }
 
 // One row per mobile device sign-in. Refresh tokens carry this row's id
@@ -116,25 +116,25 @@ model User {
 // and individual devices are revocable, without touching the stateless
 // access-token path (still signature + sessionTokenVersion only).
 model MobileSession {
-  id              String    @id @default(uuid())
-  userId          String
-  currentJti      String
+  id          String    @id @default(uuid())
+  userId      String
+  currentJti  String
   // The jti this session rotated away from, honored briefly (see
   // REFRESH_ROTATION_GRACE_MS) so a lost response is not misread as theft.
-  previousJti     String?
-  rotatedAt       DateTime  @default(now())
-  createdAt       DateTime  @default(now())
-  lastUsedAt      DateTime  @default(now())
+  previousJti String?
+  rotatedAt   DateTime  @default(now())
+  createdAt   DateTime  @default(now())
+  lastUsedAt  DateTime  @default(now())
   // Sliding: pushed forward on every successful refresh.
-  expiresAt       DateTime
-  revokedAt       DateTime?
+  expiresAt   DateTime
+  revokedAt   DateTime?
   // sha256 of the pre-session legacy refresh token this session was
   // upgraded from; null for sessions born at login. The unique index makes
   // the upgrade one-shot: a legacy token leaked before the sessions deploy
   // can mint at most one session, and replaying it after that trips reuse
   // detection instead of minting fresh year-long sessions forever.
-  legacyTokenHash String?   @unique
-  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  legacyTokenHash String? @unique
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
 }
