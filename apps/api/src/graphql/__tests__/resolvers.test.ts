@@ -3952,6 +3952,59 @@ describe('GraphQL Resolvers', () => {
       expect(mockRideAggregate).not.toHaveBeenCalled();
     });
 
+    // A pre-migration row is recognised by its updatedAt matching the archive.
+    // This edit bumps updatedAt, so without a rescale first a notes-only edit
+    // would leave its old-scale hoursAtService in place for good.
+    it('rescales a legacy log before a notes-only edit can hide it', async () => {
+      const mockQueryRaw = jest.fn().mockImplementation(async (sql: string) =>
+        sql.includes('to_regclass')
+          ? [{ present: true }]
+          : [{ id: 'log-legacy', performedAt: new Date('2026-02-01') }]
+      );
+      mockTransaction.mockImplementation(async (fn: (tx: unknown) => unknown) =>
+        fn({
+          $queryRawUnsafe: mockQueryRaw,
+          serviceLog: { findFirst: mockLogFindFirst, update: mockLogUpdate },
+          component: { findUnique: mockComponentFindUnique, update: mockComponentUpdate },
+          ride: { aggregate: mockRideAggregate },
+          componentRideAdjustment: mockPrisma.componentRideAdjustment,
+          bikeComponentInstall: mockPrisma.bikeComponentInstall,
+        })
+      );
+      mockLogFindUnique.mockResolvedValueOnce({
+        id: 'log-legacy',
+        component: { id: 'comp-1', userId: 'user-123', bikeId: 'bike-1' },
+      });
+      mockLogFindFirst.mockResolvedValueOnce({ id: 'log-legacy', performedAt: new Date('2026-02-01') });
+      mockComponentFindUnique.mockResolvedValue({
+        id: 'comp-1',
+        userId: 'user-123',
+        bikeId: 'bike-1',
+        installedAt: new Date('2026-01-01'),
+        createdAt: new Date('2026-01-01'),
+        retiredAt: null,
+        hoursUsed: 0,
+        priorHours: 0,
+      });
+      mockRideAggregate.mockResolvedValue({ _sum: { durationSeconds: 10 * 3600 } });
+
+      setLegacyArchiveDropped(false);
+      try {
+        await mutation({}, { id: 'log-legacy', input: { notes: 'typo' } }, createMockContext('user-123') as never);
+      } finally {
+        setLegacyArchiveDropped(true);
+      }
+
+      expect(mockLogUpdate.mock.calls[0][0]).toEqual({
+        where: { id: 'log-legacy' },
+        data: { hoursAtService: 10 },
+      });
+      expect(mockLogUpdate.mock.calls[1][0]).toEqual({
+        where: { id: 'log-legacy' },
+        data: { notes: 'typo' },
+      });
+    });
+
     it('skips recompute when a non-latest date shift stays behind the previous latest', async () => {
       // Regression: previously any date change triggered recompute. Moving
       // an old log forward a few days but still earlier than the latest log

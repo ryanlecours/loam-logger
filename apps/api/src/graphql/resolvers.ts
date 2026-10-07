@@ -74,7 +74,11 @@ import {
   type NormalizedTenure,
   type UsageTotals,
 } from '../lib/component-history';
-import { recomputeComponentCounters, lifetimeHoursAt } from '../lib/component-counters';
+import {
+  recomputeComponentCounters,
+  lifetimeHoursAt,
+  rescaleLegacyServiceLogs,
+} from '../lib/component-counters';
 import { captureSetupSnapshot } from '../lib/capture-snapshot';
 import type { SetupSnapshot } from '@loam/shared';
 import { randomBytes } from 'crypto';
@@ -3488,6 +3492,12 @@ export const resolvers = {
         });
         const wasLatest = currentLatest?.id === id;
 
+        // Rescale before editing. The rescale recognises a pre-migration row by
+        // its updatedAt still matching the archive, and this write bumps it, so
+        // a notes- or date-only edit would otherwise strand an old-scale
+        // hoursAtService that no later recompute or backfill would touch.
+        await rescaleLegacyServiceLogs(tx, existing.component.id);
+
         const updatedLog = await tx.serviceLog.update({
           where: { id },
           data: {
@@ -3829,6 +3839,9 @@ export const resolvers = {
 
         let serviceLogsMoved = 0;
         for (const [ts, compIds] of byOldDate) {
+          // Moving a log bumps its updatedAt, so rescale any legacy rows first
+          // (see updateServiceLog).
+          for (const componentId of compIds) await rescaleLegacyServiceLogs(tx, componentId);
           const { count } = await tx.serviceLog.updateMany({
             where: {
               componentId: { in: compIds },
@@ -3967,6 +3980,9 @@ export const resolvers = {
 
           let movedLogs = 0;
           for (const [ts, compIds] of byOldDate) {
+            // Moving a log bumps its updatedAt, so rescale any legacy rows
+            // first (see updateServiceLog).
+            for (const componentId of compIds) await rescaleLegacyServiceLogs(tx, componentId);
             const { count } = await tx.serviceLog.updateMany({
               where: {
                 componentId: { in: compIds },
