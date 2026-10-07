@@ -1,4 +1,5 @@
-import type { PrismaClient, Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
+import type { PrismaClient } from '@prisma/client';
 import { logger } from './logger';
 import {
   normalizeTenures,
@@ -230,10 +231,8 @@ export async function computeComponentCounters(
  * every existing reader (prediction engine, dashboard, mobile) still consumes,
  * so writing both means this change corrects those surfaces rather than
  * requiring them all to migrate at once.
- *
- * Exported so the backfill script writes exactly what a recompute writes.
  */
-export async function persistCounters(
+async function persistCounters(
   tx: TransactionClient | Prisma.TransactionClient,
   componentId: string,
   counters: ComponentCounters
@@ -251,93 +250,53 @@ export async function persistCounters(
 }
 
 /**
- * Archive written by migration 20260927120000. Rows in it whose live copy still
- * has the same updatedAt hold hoursAtService on the OLD scale (the since-service
- * counter at the time) and have not been rescaled yet.
- */
-const LEGACY_ARCHIVE = 'loam_archive."ServiceLog_pre_20260927"';
-
-/**
- * Set once the archive is seen to be gone. It is dropped by hand after the
- * backfill and never comes back, so a process that has seen it missing can stop
- * asking. The reverse is not cached: a drop while the process runs must be
- * noticed, or the next query would reference a table that no longer exists.
- */
-let legacyArchiveDropped = false;
-
-/**
- * Test hook. Suites whose mocked clients do not model the archive declare it
- * dropped (the post-cleanup state); counter tests reset it to exercise the
- * rescale.
- */
-export function setLegacyArchiveDropped(dropped: boolean): void {
-  legacyArchiveDropped = dropped;
-}
-
-/**
- * Move any of a component's pre-migration service logs onto the lifetime scale.
+ * Re-derive every service reading the rider did not type in.
  *
- * Runs inside every recompute, not only in the backfill script, because the
- * window between deploy and backfill is real: a ride sync or service write in
- * that window recomputes the part, and subtracting an old-scale reading from a
- * lifetime figure makes a serviced part look freshly serviced. Rescaling first
- * makes every recompute correct whether or not the backfill has reached it.
+ * A log's hoursAtService is the part's lifetime hours as of its date. Unless a
+ * rider declared it (hoursAtServiceDeclared), it is a cache of the ledger like
+ * the counters themselves, and goes stale whenever a ride dated before the
+ * service arrives later: a Strava history import after the service was logged
+ * is the common case. A stale reading leaves every one of those rides counted
+ * as "since service". Refreshing on each recompute keeps the subtraction
+ * honest, and it also moves pre-migration rows (which held the old
+ * since-service figure) onto the lifetime scale.
  *
- * Idempotent through updatedAt: the rescale write bumps it (Prisma @updatedAt),
- * so a rescaled row no longer matches its archived copy, and nor does a row a
- * rider has edited since the deploy (whose figure is already on the new scale).
+ * Declared readings are left alone: a pre-Loam service ("serviced at 300h") is
+ * the rider's statement, and nothing in the ledger can check it.
  *
- * Returns the number of logs rescaled.
+ * Returns the number of readings that changed.
  */
-export async function rescaleLegacyServiceLogs(
+async function refreshDerivedReadings(
   tx: TransactionClient | Prisma.TransactionClient,
-  componentId: string
+  component: HistoryComponent & { priorHours: number },
+  where: Prisma.RideWhereInput | null
 ): Promise<number> {
-  if (legacyArchiveDropped) return 0;
-
   const client = tx as TransactionClient;
-  const [{ present }] = await client.$queryRawUnsafe<{ present: boolean }[]>(
-    `SELECT to_regclass('${LEGACY_ARCHIVE}') IS NOT NULL AS "present"`
-  );
-  if (!present) {
-    legacyArchiveDropped = true;
-    return 0;
-  }
-
-  const legacyLogs = await client.$queryRawUnsafe<{ id: string; performedAt: Date }[]>(
-    `SELECT sl."id", sl."performedAt"
-       FROM "ServiceLog" sl
-       JOIN ${LEGACY_ARCHIVE} a ON a."id" = sl."id"
-      WHERE sl."componentId" = $1
-        AND sl."updatedAt" = a."updatedAt"`,
-    componentId
-  );
-  if (!legacyLogs.length) return 0;
-
-  // lifetimeHoursAt per log would reload the component, its tenures and its
-  // adjustments every time. Build the counted-ride predicate once instead; only
-  // the date bound differs between logs.
-  const component = await loadComponent(tx, componentId);
-  if (!component) return 0;
-  const where = await countedRideWhere(tx, component);
-  for (const log of legacyLogs) {
+  const logs = await client.serviceLog.findMany({
+    where: { componentId: component.id, hoursAtServiceDeclared: false },
+    select: { id: true, performedAt: true, hoursAtService: true },
+  });
+  let changed = 0;
+  for (const log of logs) {
     // See the note in lifetimeHoursAt about the `?? 0`.
     const reading = (component.priorHours ?? 0) + (await countedHours(tx, where, log.performedAt));
+    if (Math.abs(reading - log.hoursAtService) < 1e-6) continue;
     await client.serviceLog.update({ where: { id: log.id }, data: { hoursAtService: reading } });
+    changed += 1;
   }
-  return legacyLogs.length;
+  return changed;
 }
 
 /**
  * Take the component's row lock for the rest of the transaction.
  *
  * A recompute reads the ledger, then writes absolute values. Without the lock a
- * concurrent writer can land in between and be overwritten: a fast-path ride
- * increment, or another recompute that read an older ledger. Taking the lock
- * first serialises them. If the other writer already holds it, this waits until
- * that transaction commits, and under READ COMMITTED the ledger reads that
- * follow see its rows. If this takes it first, the other writer's increment
- * waits and lands on top of the value written here.
+ * concurrent writer can land in between and be overwritten: a per-ride credit,
+ * or another recompute that read an older ledger. Taking the lock first
+ * serialises them. If the other writer already holds it, this waits until that
+ * transaction commits, and under READ COMMITTED the ledger reads that follow
+ * see its rows. If this takes it first, the other writer's increment waits and
+ * lands on top of the value written here.
  *
  * Only meaningful inside a transaction: on the root client the lock is released
  * as soon as the statement ends.
@@ -350,15 +309,46 @@ export async function lockComponentRow(
     SELECT 1 FROM "Component" WHERE "id" = ${componentId} FOR UPDATE`;
 }
 
+/** What a recompute did, for callers that report on it (the backfill). */
+export interface RecomputeResult {
+  counters: ComponentCounters;
+  readingsRefreshed: number;
+}
+
+/**
+ * Recompute and persist one component's counters, reporting what changed.
+ * recomputeComponentCounters is the usual entry point.
+ */
+export async function recomputeComponentCountersWithStats(
+  tx: TransactionClient | Prisma.TransactionClient,
+  componentId: string
+): Promise<RecomputeResult | null> {
+  await lockComponentRow(tx, componentId);
+  const component = await loadComponent(tx, componentId);
+  if (!component) return null;
+  const readingsRefreshed = await refreshDerivedReadings(
+    tx,
+    component,
+    await countedRideWhere(tx, component)
+  );
+
+  const counters = await computeComponentCounters(tx, componentId);
+  if (!counters) return null;
+  await persistCounters(tx, componentId, counters);
+  return { counters, readingsRefreshed };
+}
+
 /**
  * Recompute and persist one component's counters. The single authoritative
- * write path: every mutation that can change a component's accrued hours ends
- * here, so no caller has to know the rule.
+ * write path: every mutation that can change a component's accrued hours
+ * without going through the per-ride credit below ends here, so no caller has
+ * to know the rule.
  *
- * Rescales the part's legacy service logs first (see rescaleLegacyServiceLogs),
- * so the result is right even before the backfill has reached this row, and
- * stamps countersComputedAt so readers and the fast-path increment trust it.
- * Must run inside a transaction: it holds the component's row lock throughout.
+ * Refreshes the part's derived service readings first (see
+ * refreshDerivedReadings), so the result is right even for rows the backfill
+ * has not reached, and stamps countersComputedAt so readers and the per-ride
+ * credit trust it. Must run inside a transaction: it holds the component's row
+ * lock throughout.
  *
  * Returns null when the component no longer exists, matching the tolerant
  * behavior of the path it replaces.
@@ -367,11 +357,229 @@ export async function recomputeComponentCounters(
   tx: TransactionClient | Prisma.TransactionClient,
   componentId: string
 ): Promise<ComponentCounters | null> {
-  await lockComponentRow(tx, componentId);
-  await rescaleLegacyServiceLogs(tx, componentId);
-  const counters = await computeComponentCounters(tx, componentId);
-  if (!counters) return null;
+  return (await recomputeComponentCountersWithStats(tx, componentId))?.counters ?? null;
+}
 
-  await persistCounters(tx, componentId, counters);
-  return counters;
+// ---------------------------------------------------------------------------
+// Per-ride credit: the fast path
+// ---------------------------------------------------------------------------
+
+/**
+ * Floor every counter at zero after a debit, and on computed rows cap both
+ * "since" counters (and hoursUsed, which tracks hoursSinceService) at the
+ * floored lifetimeHours, so clamping one column cannot break
+ * hoursSince* <= lifetimeHours until the next recompute. Uncomputed rows are
+ * only floored: their lifetimeHours is 0, and capping their legacy hoursUsed to
+ * it would wipe it.
+ *
+ * One statement: every SET expression reads the row as it was before the
+ * UPDATE, hence the repeated GREATEST("lifetimeHours", 0).
+ */
+async function floorAndCapCounters(
+  tx: TransactionClient | Prisma.TransactionClient,
+  where: Prisma.Sql
+): Promise<void> {
+  await (tx as TransactionClient).$executeRaw`
+    UPDATE "Component" SET
+      "lifetimeHours" = GREATEST("lifetimeHours", 0),
+      "hoursUsed" = CASE WHEN "countersComputedAt" IS NULL THEN GREATEST("hoursUsed", 0)
+        ELSE LEAST(GREATEST("hoursUsed", 0), GREATEST("lifetimeHours", 0)) END,
+      "hoursSinceService" = CASE WHEN "countersComputedAt" IS NULL THEN GREATEST("hoursSinceService", 0)
+        ELSE LEAST(GREATEST("hoursSinceService", 0), GREATEST("lifetimeHours", 0)) END,
+      "hoursSinceInspection" = CASE WHEN "countersComputedAt" IS NULL THEN GREATEST("hoursSinceInspection", 0)
+        ELSE LEAST(GREATEST("hoursSinceInspection", 0), GREATEST("lifetimeHours", 0)) END
+    WHERE (${where})
+      AND (
+        "hoursUsed" < 0 OR "lifetimeHours" < 0 OR "hoursSinceService" < 0 OR "hoursSinceInspection" < 0
+        OR ("countersComputedAt" IS NOT NULL AND (
+          "hoursUsed" > "lifetimeHours" OR "hoursSinceService" > "lifetimeHours"
+          OR "hoursSinceInspection" > "lifetimeHours"))
+      )`;
+}
+
+/**
+ * Every computed component whose ride window could include a ride on `bikeId`:
+ * those with any install row on it, plus those whose bikeId points at it (the
+ * drifted rows normalizeTenures synthesizes a tenure for). A superset; callers
+ * narrow it with the tenure rule.
+ */
+async function loadBikeCandidates(
+  tx: TransactionClient | Prisma.TransactionClient,
+  userId: string,
+  bikeId: string
+) {
+  const client = tx as TransactionClient;
+  const installRows = await client.bikeComponentInstall.findMany({
+    where: { userId, bikeId },
+    orderBy: [{ installedAt: 'asc' }, { id: 'asc' }],
+    select: { id: true, componentId: true, bikeId: true, slotKey: true, installedAt: true, removedAt: true },
+  });
+  const components = await client.component.findMany({
+    where: {
+      userId,
+      countersComputedAt: { not: null },
+      OR: [{ bikeId }, { id: { in: [...new Set(installRows.map((r) => r.componentId))] } }],
+    },
+    select: {
+      id: true,
+      userId: true,
+      bikeId: true,
+      installedAt: true,
+      createdAt: true,
+      retiredAt: true,
+      hoursUsed: true,
+    },
+  });
+  return { installRows, components };
+}
+
+/**
+ * Credit (or, with a negative `hoursDelta`, debit) one ride to every component
+ * whose counted window includes it, producing what a recompute would.
+ *
+ * The old fast path bumped every part currently on the bike, which is the same
+ * shape of error this model exists to remove: a ride synced late, dated before
+ * a part was fitted or while it was on another bike, was charged to it anyway,
+ * and a ride dated before the part's last service was charged as "since
+ * service". Here, for a ride at `startTime`:
+ *
+ *   - Only components with a tenure on this bike covering startTime count it,
+ *     by the same normalizeTenures rule the recompute uses. That includes parts
+ *     since moved elsewhere or retired.
+ *   - lifetimeHours moves for each of them.
+ *   - Every derived (not declared) service reading dated after startTime moves
+ *     too, because that reading is "lifetime as of its date".
+ *   - A "since" counter moves unless its latest resetting log is a derived
+ *     reading dated after the ride. Then lifetime and reading moved together
+ *     and the subtraction is unchanged: the ride happened before the service.
+ *
+ * Per-ride adjustments are not consulted. A new ride cannot have any, and the
+ * callers that edit or delete an existing ride run
+ * recomputeAdjustedComponentsForRides afterwards, whose recompute wins.
+ *
+ * Components whose counters were never computed get only the legacy hoursUsed
+ * change, applied to the parts on the bike as before. Their counters are 0s,
+ * not figures, and the recompute or backfill derives them.
+ *
+ * Returns the current bikeIds of the parts it changed, `bikeId` included, for
+ * prediction-cache invalidation: a credited part may have moved since.
+ */
+export async function creditRideToComponents(
+  tx: TransactionClient | Prisma.TransactionClient,
+  opts: { userId: string; bikeId: string; startTime: Date; hoursDelta: number }
+): Promise<string[]> {
+  const { userId, bikeId, startTime, hoursDelta } = opts;
+  if (hoursDelta === 0) return [];
+  const client = tx as TransactionClient;
+
+  await client.component.updateMany({
+    where: { userId, bikeId, countersComputedAt: null },
+    data: { hoursUsed: { increment: hoursDelta } },
+  });
+  if (hoursDelta < 0) {
+    await floorAndCapCounters(
+      tx,
+      Prisma.sql`"userId" = ${userId} AND "bikeId" = ${bikeId} AND "countersComputedAt" IS NULL`
+    );
+  }
+
+  const { installRows, components } = await loadBikeCandidates(tx, userId, bikeId);
+  const covering = components.filter((c) => {
+    const rows = installRows.filter((r) => r.componentId === c.id);
+    // Half-open, matching buildCountedRideWhere: gte start, lt end.
+    return normalizeTenures(c, rows).tenures.some(
+      (t) => t.bikeId === bikeId && t.start <= startTime && startTime < t.end
+    );
+  });
+  if (!covering.length) return [bikeId];
+  const coveringIds = covering.map((c) => c.id);
+
+  // Newest first, so the first log of each kind per component is its latest.
+  const logs = await client.serviceLog.findMany({
+    where: { componentId: { in: coveringIds } },
+    orderBy: [{ performedAt: 'desc' }, { createdAt: 'desc' }],
+    select: { componentId: true, kind: true, performedAt: true, hoursAtServiceDeclared: true },
+  });
+  type Log = (typeof logs)[number];
+  const sinceMoves = (latest: Log | undefined) =>
+    !(latest && !latest.hoursAtServiceDeclared && latest.performedAt > startTime);
+  const resets = (kinds: readonly string[]) => (l: Log) => kinds.includes(l.kind);
+
+  // At most four distinct updates, however many parts are credited.
+  const groups = new Map<string, { service: boolean; inspection: boolean; ids: string[] }>();
+  for (const id of coveringIds) {
+    const own = logs.filter((l) => l.componentId === id);
+    const service = sinceMoves(own.find(resets(SERVICE_KINDS)));
+    const inspection = sinceMoves(own.find(resets(INSPECTION_KINDS)));
+    const key = `${service}:${inspection}`;
+    const group = groups.get(key) ?? { service, inspection, ids: [] };
+    group.ids.push(id);
+    groups.set(key, group);
+  }
+  for (const { service, inspection, ids } of groups.values()) {
+    await client.component.updateMany({
+      where: { id: { in: ids } },
+      data: {
+        lifetimeHours: { increment: hoursDelta },
+        ...(service
+          ? { hoursSinceService: { increment: hoursDelta }, hoursUsed: { increment: hoursDelta } }
+          : {}),
+        ...(inspection ? { hoursSinceInspection: { increment: hoursDelta } } : {}),
+      },
+    });
+  }
+
+  // Strictly after, matching lifetimeHoursAt's strictly-before reading.
+  await client.serviceLog.updateMany({
+    where: {
+      componentId: { in: coveringIds },
+      hoursAtServiceDeclared: false,
+      performedAt: { gt: startTime },
+    },
+    data: { hoursAtService: { increment: hoursDelta } },
+  });
+
+  if (hoursDelta < 0) await floorAndCapCounters(tx, Prisma.sql`"id" = ANY(${coveringIds})`);
+
+  const bikeIds = new Set([bikeId]);
+  for (const c of covering) if (c.bikeId) bikeIds.add(c.bikeId);
+  return [...bikeIds];
+}
+
+/**
+ * Recompute every computed component that could count rides on `bikeId`.
+ *
+ * For changes that move many rides at once (a Strava gear mapping, a bulk
+ * reassignment, deleting a provider's imported rides). Crediting each ride
+ * would cost several queries per ride; this costs one recompute per part that
+ * has ever been on the bike, however many rides moved. Uncomputed parts on the
+ * bike get the legacy hoursUsed change, as with a single ride.
+ *
+ * Returns the current bikeIds of the parts it changed, `bikeId` included.
+ */
+export async function recomputeCountersForBike(
+  tx: TransactionClient | Prisma.TransactionClient,
+  opts: { userId: string; bikeId: string; legacyHoursDelta: number }
+): Promise<string[]> {
+  const { userId, bikeId, legacyHoursDelta } = opts;
+  if (legacyHoursDelta !== 0) {
+    await (tx as TransactionClient).component.updateMany({
+      where: { userId, bikeId, countersComputedAt: null },
+      data: { hoursUsed: { increment: legacyHoursDelta } },
+    });
+  }
+  if (legacyHoursDelta < 0) {
+    await floorAndCapCounters(
+      tx,
+      Prisma.sql`"userId" = ${userId} AND "bikeId" = ${bikeId} AND "countersComputedAt" IS NULL`
+    );
+  }
+  const { components } = await loadBikeCandidates(tx, userId, bikeId);
+  // Sorted, so concurrent bulk changes take the row locks in the same order.
+  const sorted = [...components].sort((a, b) => a.id.localeCompare(b.id));
+  for (const c of sorted) await recomputeComponentCounters(tx, c.id);
+
+  const bikeIds = new Set([bikeId]);
+  for (const c of sorted) if (c.bikeId) bikeIds.add(c.bikeId);
+  return [...bikeIds];
 }

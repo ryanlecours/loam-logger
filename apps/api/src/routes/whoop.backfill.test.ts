@@ -180,7 +180,10 @@ describe('whoop.backfill routes', () => {
       mockTransaction.mockImplementation(async (fn) => fn({
         $executeRaw: jest.fn().mockResolvedValue(0),
         ride: { create: mockCreate },
-        component: { updateMany: mockUpdateMany },
+        component: { updateMany: mockUpdateMany, findMany: jest.fn().mockResolvedValue([]) },
+        // Read by the per-ride credit and the per-bike recompute.
+        bikeComponentInstall: { findMany: jest.fn().mockResolvedValue([]) },
+        serviceLog: { findMany: jest.fn().mockResolvedValue([]), updateMany: jest.fn() },
       }));
       mockCreate.mockResolvedValue({});
       // Lock acquisition succeeds by default
@@ -640,10 +643,13 @@ describe('whoop.backfill routes', () => {
 
       mockTransaction.mockImplementation(async (fn) => fn({
         $executeRaw: jest.fn().mockResolvedValue(0),
-        component: { updateMany: mockUpdateMany },
+        component: { updateMany: mockUpdateMany, findMany: jest.fn().mockResolvedValue([]) },
         ride: { deleteMany: mockDeleteMany },
         backfillRequest: { deleteMany: mockDeleteMany },
         componentRideAdjustment: { findMany: jest.fn().mockResolvedValue([]) },
+        // Read by the per-ride credit and the per-bike recompute.
+        bikeComponentInstall: { findMany: jest.fn().mockResolvedValue([]) },
+        serviceLog: { findMany: jest.fn().mockResolvedValue([]), updateMany: jest.fn() },
       }));
     });
 
@@ -690,7 +696,12 @@ describe('whoop.backfill routes', () => {
 
       await invokeHandler(handler, mockReq as Request, mockRes as Response);
 
-      expect(mockUpdateMany).toHaveBeenCalled();
+      // Bulk delete: the per-bike recompute moves the legacy counter of parts
+      // whose counters were never computed by the bike's total.
+      expect(mockUpdateMany).toHaveBeenCalledWith({
+        where: { userId: 'user-123', bikeId: 'bike-1', countersComputedAt: null },
+        data: { hoursUsed: { increment: -1 } },
+      });
     });
 
     it('should invalidate prediction caches for the decremented bikes', async () => {

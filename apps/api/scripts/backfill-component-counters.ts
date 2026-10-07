@@ -12,10 +12,10 @@
  * its countersComputedAt is NULL: the prediction engine falls back to summing
  * its ride window, the fast-path ride increment leaves its counters alone, and
  * the component history page computes them on first view. Any recompute in the
- * gap (a service, an install, a ride edit) also completes the row, legacy log
- * rescale included. So the gap shows legacy figures, never wrong new ones, and
- * there is no hard ordering between deploy and this run. Run it promptly anyway:
- * until it does, most parts show no lifetime figure.
+ * gap (a service, an install, a ride edit) also completes the row, refreshing
+ * its service readings. So the gap shows legacy figures, never wrong new ones,
+ * and there is no hard ordering between deploy and this run. Run it promptly
+ * anyway: until it does, most parts show no lifetime figure.
  *
  * By default only rows with countersComputedAt NULL are processed, so a re-run
  * after completion is a no-op and a --limit run picks up where the last one
@@ -25,20 +25,18 @@
  * DRY RUN BY DEFAULT: prints what would change and writes NOTHING. Pass
  * --execute to persist.
  *
- * It also rescales legacy ServiceLog rows, through the same
- * rescaleLegacyServiceLogs every recompute runs. Before the migration,
- * hoursAtService stored the since-service counter at the time of service; the
- * new rule subtracts it from lifetimeHours, so it must be the LIFETIME reading
- * as of that date. Left alone, every part serviced twice or more would read as
- * overdue. Legacy rows are the ones in the migration's archive table, and a row
- * is only rescaled while its updatedAt still matches the archived copy: once
- * rescaled, or once a rider edits it after the deploy, it is left alone. Any
- * hoursAtService a rider typed in by hand before the migration was on the old
- * scale too, and is rescaled with the rest.
+ * It also refreshes service readings, through the same recompute every
+ * request uses. A reading (hoursAtService) is the part's lifetime hours as of
+ * its date, and every reading a rider did not type in is re-derived from the
+ * ledger. Before the migration, hoursAtService stored the since-service counter
+ * instead; the new rule subtracts it from lifetimeHours, so left alone every
+ * part serviced twice or more would read as overdue. The refresh moves those
+ * rows onto the lifetime scale. All pre-migration rows are treated as derived:
+ * old-scale values cannot be told apart from typed ones.
  *
- * Each component runs in its own transaction. A dry run performs the rescale
- * and then rolls it back, so its counter figures are the ones --execute would
- * write rather than figures computed from old-scale readings.
+ * Each component runs in its own transaction. A dry run performs the whole
+ * recompute and then rolls it back, so its figures are the ones --execute
+ * would write rather than figures computed from old-scale readings.
  *
  * `priorHours` is deliberately NOT inferred. It is a declared input — hours a
  * part accrued before Loam Logger saw it — and guessing it from the old
@@ -54,17 +52,13 @@
  */
 import { prisma } from '../src/lib/prisma';
 import {
-  computeComponentCounters,
-  persistCounters,
-  rescaleLegacyServiceLogs,
-  type ComponentCounters,
+  recomputeComponentCountersWithStats,
+  type RecomputeResult,
 } from '../src/lib/component-counters';
-
-type Outcome = { counters: ComponentCounters | null; rescaled: number };
 
 /** Thrown to roll back a dry-run transaction after its figures are read. */
 class DryRunRollback extends Error {
-  constructor(readonly outcome: Outcome) {
+  constructor(readonly result: RecomputeResult | null) {
     super('dry run rollback');
   }
 }
@@ -121,34 +115,31 @@ async function main() {
   // anchored-window rule had overcharged. Worth reporting: these are the rows
   // whose health state will visibly change for riders.
   let overcharged = 0;
-  let rescaledLogs = 0;
+  let refreshedReadings = 0;
 
   for (const [i, component] of components.entries()) {
     try {
-      const { counters, rescaled } = await prisma
+      const result = await prisma
         .$transaction(
-          async (tx): Promise<Outcome> => {
-            // The same two steps recomputeComponentCounters runs, split so a dry
-            // run can read the figures before rolling the rescale back.
-            const rescaled = await rescaleLegacyServiceLogs(tx, component.id);
-            const counters = await computeComponentCounters(tx, component.id);
-            if (!execute) throw new DryRunRollback({ counters, rescaled });
-            if (counters) await persistCounters(tx, component.id, counters);
-            return { counters, rescaled };
+          async (tx) => {
+            const recomputed = await recomputeComponentCountersWithStats(tx, component.id);
+            if (!execute) throw new DryRunRollback(recomputed);
+            return recomputed;
           },
           { timeout: 30_000 }
         )
         .catch((err) => {
-          if (err instanceof DryRunRollback) return err.outcome;
+          if (err instanceof DryRunRollback) return err.result;
           throw err;
         });
-      // Tallied after the transaction settles, so one that fails part-way and
-      // rolls back cannot leave the total over-reporting.
-      rescaledLogs += rescaled;
-      if (!counters) {
+      if (!result) {
         failed += 1;
         continue;
       }
+      const { counters } = result;
+      // Tallied after the transaction settles, so one that fails part-way and
+      // rolls back cannot leave the total over-reporting.
+      refreshedReadings += result.readingsRefreshed;
 
       const wasOvercharged = component.hoursUsed > counters.lifetimeHours + 0.01;
       if (wasOvercharged) {
@@ -174,7 +165,7 @@ async function main() {
 
   console.log(
     `[backfill-component-counters] done: ${changed} processed, ${failed} failed, ` +
-      `${overcharged} previously overcharged, ${rescaledLogs} legacy service logs ${execute ? 'rescaled' : 'would be rescaled'}`
+      `${overcharged} previously overcharged, ${refreshedReadings} service readings ${execute ? 'refreshed' : 'would be refreshed'}`
   );
   if (!execute) {
     console.log('[backfill-component-counters] DRY RUN — nothing was written. Re-run with --execute.');

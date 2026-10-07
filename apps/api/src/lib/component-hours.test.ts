@@ -10,22 +10,22 @@ import {
   type ComponentAttribution,
 } from './component-hours';
 import type { Prisma } from '@prisma/client';
-import { setLegacyArchiveDropped } from './component-counters';
 
-// The mocked clients here do not model the legacy ServiceLog archive, so run in
-// its post-cleanup state. component-counters.test.ts covers the rescale.
-setLegacyArchiveDropped(true);
+const d = (iso: string) => new Date(iso);
 
 // Minimal mock transaction client covering the models these helpers touch.
 const makeTx = () => ({
   $executeRaw: jest.fn().mockResolvedValue(0),
   component: {
     findUnique: jest.fn(),
+    findMany: jest.fn().mockResolvedValue([]),
     update: jest.fn(),
     updateMany: jest.fn(),
   },
   serviceLog: {
     findFirst: jest.fn(),
+    findMany: jest.fn().mockResolvedValue([]),
+    updateMany: jest.fn(),
   },
   componentRideAdjustment: {
     findMany: jest.fn().mockResolvedValue([]),
@@ -360,22 +360,16 @@ describe('hours accrual is type-agnostic', () => {
       userId: 'user-1',
       bikeId: 'bike-1',
       hoursDelta: 2,
+      startTime: d('2026-05-01T08:00:00Z'),
     });
 
-    // All four counters move together: hoursUsed stays in lockstep with
-    // hoursSinceService, and lifetimeHours must stay monotonic.
-    expect(tx.component.updateMany).toHaveBeenCalledWith({
-      where: { userId: 'user-1', bikeId: 'bike-1', countersComputedAt: { not: null } },
-      data: {
-        hoursUsed: { increment: 2 },
-        lifetimeHours: { increment: 2 },
-        hoursSinceService: { increment: 2 },
-        hoursSinceInspection: { increment: 2 },
-      },
-    });
+    // Neither the legacy bump nor the candidate read filters on type; which
+    // parts count the ride is decided by tenure alone.
     for (const [{ where }] of tx.component.updateMany.mock.calls) {
       expect(where).not.toHaveProperty('type');
     }
+    const [{ where: candidates }] = tx.component.findMany.mock.calls[0];
+    expect(candidates).not.toHaveProperty('type');
   });
 
   // Before the backfill reaches a row its counters are zeroes, not figures.
@@ -387,6 +381,7 @@ describe('hours accrual is type-agnostic', () => {
       userId: 'user-1',
       bikeId: 'bike-1',
       hoursDelta: 2,
+      startTime: d('2026-05-01T08:00:00Z'),
     });
 
     expect(tx.component.updateMany).toHaveBeenCalledWith({
@@ -401,32 +396,12 @@ describe('hours accrual is type-agnostic', () => {
       userId: 'user-1',
       bikeId: 'bike-1',
       hoursDelta: 2,
+      startTime: d('2026-05-01T08:00:00Z'),
     });
 
     const [{ where }] = tx.component.updateMany.mock.calls[0];
     expect(where).toMatchObject({ userId: 'user-1', bikeId: 'bike-1' });
     expect(where).not.toHaveProperty('type');
-  });
-
-  // Independent floors alone could leave hoursSinceService above lifetimeHours
-  // when only lifetimeHours was clamped. The cap keeps the invariant without
-  // waiting for the next recompute, and only on computed rows: an uncomputed
-  // row's lifetimeHours is 0, and capping its legacy hoursUsed to that would
-  // wipe it.
-  it('floors every counter and caps the "since" counters at lifetime, on computed rows only', async () => {
-    const tx = makeTx();
-    await decrementBikeComponentHours(asTx(tx), { userId: 'user-1', bikeId: 'bike-1', hoursDelta: 2 });
-
-    const [strings, ...values] = tx.$executeRaw.mock.calls[0];
-    const sql = (strings as string[]).join('?');
-    expect(sql).toContain('"lifetimeHours" = GREATEST("lifetimeHours", 0)');
-    for (const column of ['hoursUsed', 'hoursSinceService', 'hoursSinceInspection']) {
-      expect(sql).toContain(
-        `"${column}" = CASE WHEN "countersComputedAt" IS NULL THEN GREATEST("${column}", 0)`
-      );
-    }
-    expect(sql.match(/LEAST\(GREATEST\("\w+", 0\), GREATEST\("lifetimeHours", 0\)\)/g)).toHaveLength(3);
-    expect(values).toEqual(['user-1', 'bike-1']);
   });
 
   // A spare battery on the shelf has bikeId null, so it must never be credited
@@ -437,8 +412,8 @@ describe('hours accrual is type-agnostic', () => {
     const affected = await syncBikeComponentHours(
       asTx(tx),
       'user-1',
-      { bikeId: null, durationSeconds: null },
-      { bikeId: null, durationSeconds: 3600 }
+      { bikeId: null, durationSeconds: null, startTime: null },
+      { bikeId: null, durationSeconds: 3600, startTime: d('2026-05-01T08:00:00Z') }
     );
 
     expect(tx.component.updateMany).not.toHaveBeenCalled();
@@ -455,8 +430,8 @@ describe('syncBikeComponentHours', () => {
     const affected = await syncBikeComponentHours(
       asTx(tx),
       'user-1',
-      { bikeId: 'bike-1', durationSeconds: 3600 },
-      { bikeId: 'bike-2', durationSeconds: 3600 }
+      { bikeId: 'bike-1', durationSeconds: 3600, startTime: d('2026-05-01T08:00:00Z') },
+      { bikeId: 'bike-2', durationSeconds: 3600, startTime: d('2026-05-01T08:00:00Z') }
     );
     expect(new Set(affected)).toEqual(new Set(['bike-1', 'bike-2']));
   });
@@ -466,8 +441,8 @@ describe('syncBikeComponentHours', () => {
     const affected = await syncBikeComponentHours(
       asTx(tx),
       'user-1',
-      { bikeId: 'bike-1', durationSeconds: 3600 },
-      { bikeId: 'bike-1', durationSeconds: 7200 }
+      { bikeId: 'bike-1', durationSeconds: 3600, startTime: d('2026-05-01T08:00:00Z') },
+      { bikeId: 'bike-1', durationSeconds: 7200, startTime: d('2026-05-01T08:00:00Z') }
     );
     expect(affected).toEqual(['bike-1']);
   });
@@ -477,10 +452,33 @@ describe('syncBikeComponentHours', () => {
     const affected = await syncBikeComponentHours(
       asTx(tx),
       'user-1',
-      { bikeId: 'bike-1', durationSeconds: 3600 },
-      { bikeId: null, durationSeconds: 0 }
+      { bikeId: 'bike-1', durationSeconds: 3600, startTime: d('2026-05-01T08:00:00Z') },
+      { bikeId: null, durationSeconds: 0, startTime: null }
     );
     expect(affected).toEqual(['bike-1']);
+  });
+
+  // A new start can carry the ride across an install or a service, so an edit
+  // that only moves the start is a debit at the old time and a credit at the
+  // new one, not a no-op.
+  it('treats a start-time edit as a move', async () => {
+    const tx = makeTx();
+    const affected = await syncBikeComponentHours(
+      asTx(tx),
+      'user-1',
+      { bikeId: 'bike-1', durationSeconds: 3600, startTime: d('2026-05-01T08:00:00Z') },
+      { bikeId: 'bike-1', durationSeconds: 3600, startTime: d('2026-03-01T08:00:00Z') }
+    );
+
+    expect(affected).toEqual(['bike-1']);
+    expect(tx.component.updateMany).toHaveBeenCalledWith({
+      where: { userId: 'user-1', bikeId: 'bike-1', countersComputedAt: null },
+      data: { hoursUsed: { increment: -1 } },
+    });
+    expect(tx.component.updateMany).toHaveBeenCalledWith({
+      where: { userId: 'user-1', bikeId: 'bike-1', countersComputedAt: null },
+      data: { hoursUsed: { increment: 1 } },
+    });
   });
 
   it('returns nothing when neither bike nor duration changed', async () => {
@@ -488,8 +486,8 @@ describe('syncBikeComponentHours', () => {
     const affected = await syncBikeComponentHours(
       asTx(tx),
       'user-1',
-      { bikeId: 'bike-1', durationSeconds: 3600 },
-      { bikeId: 'bike-1', durationSeconds: 3600 }
+      { bikeId: 'bike-1', durationSeconds: 3600, startTime: d('2026-05-01T08:00:00Z') },
+      { bikeId: 'bike-1', durationSeconds: 3600, startTime: d('2026-05-01T08:00:00Z') }
     );
     expect(affected).toEqual([]);
     // A no-op must not touch component rows.
@@ -515,8 +513,8 @@ describe('syncBikeComponentHours', () => {
     const affected = await syncBikeComponentHours(
       asTx(tx),
       'user-1',
-      { bikeId: 'bike-1', durationSeconds: 3600 },
-      { bikeId: 'bike-1', durationSeconds: 7200 },
+      { bikeId: 'bike-1', durationSeconds: 3600, startTime: d('2026-05-01T08:00:00Z') },
+      { bikeId: 'bike-1', durationSeconds: 7200, startTime: d('2026-05-01T08:00:00Z') },
       'ride-9'
     );
 
@@ -538,8 +536,8 @@ describe('syncBikeComponentHours', () => {
     const affected = await syncBikeComponentHours(
       asTx(tx),
       'user-1',
-      { bikeId: 'bike-1', durationSeconds: 3600 },
-      { bikeId: 'bike-1', durationSeconds: 7200 },
+      { bikeId: 'bike-1', durationSeconds: 3600, startTime: d('2026-05-01T08:00:00Z') },
+      { bikeId: 'bike-1', durationSeconds: 7200, startTime: d('2026-05-01T08:00:00Z') },
       'ride-9'
     );
 
@@ -551,8 +549,8 @@ describe('syncBikeComponentHours', () => {
     const affected = await syncBikeComponentHours(
       asTx(tx),
       'user-1',
-      { bikeId: 'bike-1', durationSeconds: 3600 },
-      { bikeId: 'bike-1', durationSeconds: 3600 },
+      { bikeId: 'bike-1', durationSeconds: 3600, startTime: d('2026-05-01T08:00:00Z') },
+      { bikeId: 'bike-1', durationSeconds: 3600, startTime: d('2026-05-01T08:00:00Z') },
       'ride-9'
     );
     expect(affected).toEqual([]);

@@ -43,7 +43,7 @@ export async function removeGarminRideIfPresent(
   const { removed, affectedBikeIds } = await prisma.$transaction(async (tx) => {
     const existing = await tx.ride.findUnique({
       where: { garminActivityId },
-      select: { id: true, userId: true, durationSeconds: true, bikeId: true },
+      select: { id: true, userId: true, durationSeconds: true, startTime: true, bikeId: true },
     });
 
     // Scoped to the owner as well as the activity id. The id is unique, so this
@@ -58,8 +58,8 @@ export async function removeGarminRideIfPresent(
     const affected = await syncBikeComponentHours(
       tx,
       userId,
-      { bikeId: existing.bikeId ?? null, durationSeconds: existing.durationSeconds },
-      { bikeId: null, durationSeconds: 0 }
+      { bikeId: existing.bikeId ?? null, durationSeconds: existing.durationSeconds, startTime: existing.startTime },
+      { bikeId: null, durationSeconds: 0, startTime: null }
     );
 
     await tx.ride.delete({ where: { id: existing.id } });

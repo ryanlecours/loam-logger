@@ -6,10 +6,10 @@ import { sendBadRequest, sendUnauthorized, sendForbidden, sendInternalError } fr
 import { canBackfillYear } from '../auth/tier-access';
 import {
   incrementBikeComponentHours,
-  decrementBikeComponentHours,
   findAdjustedComponentIdsForRides,
   recomputeAdjustedComponentsForRides,
 } from '../lib/component-hours';
+import { recomputeCountersForBike } from '../lib/component-counters';
 import { invalidateBikePrediction } from '../services/prediction/cache';
 import { logError, logger } from '../lib/logger';
 import { acquireLock, releaseLock } from '../lib/rate-limit';
@@ -258,7 +258,12 @@ r.get<Empty, void, Empty, { year?: string }>(
 
           // Update component hours if bike is assigned
           if (autoAssignBikeId) {
-            await incrementBikeComponentHours(tx, { userId, bikeId: autoAssignBikeId, hoursDelta: durationHours });
+            await incrementBikeComponentHours(tx, {
+              userId,
+              bikeId: autoAssignBikeId,
+              hoursDelta: durationHours,
+              startTime,
+            });
           }
         });
 
@@ -440,10 +445,6 @@ r.delete<Empty, void, Empty>(
           rides.map((r) => r.id)
         );
 
-        for (const [bikeId, hours] of hoursByBike.entries()) {
-          await decrementBikeComponentHours(tx, { userId, bikeId, hoursDelta: hours });
-        }
-
         await tx.ride.deleteMany({
           where: {
             userId,
@@ -456,7 +457,19 @@ r.delete<Empty, void, Empty>(
           where: { userId, provider: 'whoop' },
         });
 
-        return recomputeAdjustedComponentsForRides(tx, { componentIds: adjustedComponentIds });
+        // Many rides at once: one recompute per part that has been on each
+        // bike, after the rides are gone, beats a debit per ride.
+        const recomputedBikes: string[] = [];
+        for (const [bikeId, hours] of hoursByBike.entries()) {
+          recomputedBikes.push(
+            ...(await recomputeCountersForBike(tx, { userId, bikeId, legacyHoursDelta: -hours }))
+          );
+        }
+
+        return [
+          ...recomputedBikes,
+          ...(await recomputeAdjustedComponentsForRides(tx, { componentIds: adjustedComponentIds })),
+        ];
       });
 
       // Invalidate prediction caches for every bike whose component hours

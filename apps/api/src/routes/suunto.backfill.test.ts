@@ -82,12 +82,15 @@ jest.mock('../lib/duplicate-detector', () => ({
 }));
 
 const mockIncrementBikeComponentHours = jest.fn();
-const mockDecrementBikeComponentHours = jest.fn();
 jest.mock('../lib/component-hours', () => ({
   incrementBikeComponentHours: mockIncrementBikeComponentHours,
-  decrementBikeComponentHours: mockDecrementBikeComponentHours,
   findAdjustedComponentIdsForRides: jest.fn().mockResolvedValue([]),
   recomputeAdjustedComponentsForRides: jest.fn().mockResolvedValue([]),
+}));
+
+const mockRecomputeCountersForBike = jest.fn();
+jest.mock('../lib/component-counters', () => ({
+  recomputeCountersForBike: mockRecomputeCountersForBike,
 }));
 
 const mockFetch = jest.fn();
@@ -659,7 +662,7 @@ describe('suunto.backfill routes', () => {
 
       mockFindMany.mockResolvedValue([]);
       mockDeleteMany.mockResolvedValue({ count: 0 });
-      mockDecrementBikeComponentHours.mockResolvedValue(undefined);
+      mockRecomputeCountersForBike.mockImplementation(async (_tx, { bikeId }) => [bikeId]);
       mockTransaction.mockImplementation(async (fn) => fn({
         component: { updateMany: mockUpdateMany },
         ride: { deleteMany: mockDeleteMany },
@@ -696,7 +699,22 @@ describe('suunto.backfill routes', () => {
       await invokeHandler(handler, mockReq as Request, mockRes as Response);
 
       expect(mockTransaction).toHaveBeenCalled();
-      expect(mockDecrementBikeComponentHours).toHaveBeenCalledTimes(2);
+      // One recompute per bike, carrying that bike's total for the legacy
+      // counter, and only once the rides are gone so the ledger excludes them.
+      expect(mockRecomputeCountersForBike).toHaveBeenCalledTimes(2);
+      expect(mockRecomputeCountersForBike).toHaveBeenCalledWith(expect.anything(), {
+        userId: 'user-123',
+        bikeId: 'bike-1',
+        legacyHoursDelta: -2,
+      });
+      expect(mockRecomputeCountersForBike).toHaveBeenCalledWith(expect.anything(), {
+        userId: 'user-123',
+        bikeId: 'bike-2',
+        legacyHoursDelta: -1,
+      });
+      expect(mockRecomputeCountersForBike.mock.invocationCallOrder[0]).toBeGreaterThan(
+        mockDeleteMany.mock.invocationCallOrder[0]
+      );
       expect(jsonResponse).toMatchObject({
         success: true,
         deletedRides: 3,
@@ -711,7 +729,7 @@ describe('suunto.backfill routes', () => {
 
       await invokeHandler(handler, mockReq as Request, mockRes as Response);
 
-      expect(mockDecrementBikeComponentHours).not.toHaveBeenCalled();
+      expect(mockRecomputeCountersForBike).not.toHaveBeenCalled();
       expect(jsonResponse).toMatchObject({
         success: true,
         deletedRides: 1,

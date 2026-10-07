@@ -1,0 +1,13 @@
+-- Which service readings a rider declared.
+--
+-- ServiceLog.hoursAtService is the part's lifetime hours as of the service date.
+-- When Loam derives it, it goes stale as soon as a ride dated before the service
+-- arrives later (a Strava history import after the service was logged), and
+-- every such ride would then count as "since service". Derived readings are now
+-- refreshed on every recompute (lib/component-counters.ts); declared ones (a
+-- rider's "serviced at 300h" for a pre-Loam service) are kept as given.
+--
+-- Existing rows are all treated as derived: the old-scale values they hold
+-- cannot be told apart from typed ones, and rescaling them is what the backfill
+-- already did.
+ALTER TABLE "ServiceLog" ADD COLUMN "hoursAtServiceDeclared" BOOLEAN NOT NULL DEFAULT false;

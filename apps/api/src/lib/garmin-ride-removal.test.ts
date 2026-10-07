@@ -51,6 +51,7 @@ describe('removeGarminRideIfPresent', () => {
     userId: 'user-1',
     durationSeconds: 5340,
     bikeId: 'bike-1',
+    startTime: new Date('2026-05-01T08:00:00Z'),
   };
 
   /**
@@ -68,8 +69,8 @@ describe('removeGarminRideIfPresent', () => {
     expect(mockSyncBikeComponentHours).toHaveBeenCalledWith(
       tx,
       'user-1',
-      { bikeId: 'bike-1', durationSeconds: 5340 },
-      { bikeId: null, durationSeconds: 0 }
+      { bikeId: 'bike-1', durationSeconds: 5340, startTime: RIDE.startTime },
+      { bikeId: null, durationSeconds: 0, startTime: null }
     );
     expect(mockRideDelete).toHaveBeenCalledWith({ where: { id: 'ride-1' } });
   });

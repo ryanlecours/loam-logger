@@ -182,7 +182,7 @@ async function processWorkoutCreated(event: WorkoutCreatedEvent): Promise<void> 
   // behavior aligned with the sync worker and backfill paths.
   const existing = await prisma.ride.findUnique({
     where: { suuntoWorkoutId: workout.workoutKey },
-    select: { id: true, durationSeconds: true, bikeId: true },
+    select: { id: true, durationSeconds: true, startTime: true, bikeId: true },
   });
 
   const isNewRide = !existing;
@@ -232,8 +232,8 @@ async function processWorkoutCreated(event: WorkoutCreatedEvent): Promise<void> 
     affectedBikeIds = await syncBikeComponentHours(
       tx,
       userAccount.userId,
-      { bikeId: existing?.bikeId ?? null, durationSeconds: existing?.durationSeconds ?? null },
-      { bikeId: ride.bikeId ?? null, durationSeconds: ride.durationSeconds },
+      { bikeId: existing?.bikeId ?? null, durationSeconds: existing?.durationSeconds ?? null, startTime: existing?.startTime ?? null },
+      { bikeId: ride.bikeId ?? null, durationSeconds: ride.durationSeconds, startTime: ride.startTime },
       // Existing ride: adjusted components need the canonical recompute.
       existing ? ride.id : undefined
     );

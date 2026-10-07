@@ -681,6 +681,7 @@ async function processSuuntoBackfill(userId: string, year: string): Promise<void
           userId,
           bikeId: autoAssignBikeId,
           hoursDelta: durationHours,
+          startTime,
         });
       }
     });
@@ -919,7 +920,7 @@ async function processGarminCallback(userId: string, callbackURL: string): Promi
 
     const existingRide = await prisma.ride.findUnique({
       where: { garminActivityId: rideKey },
-      select: { location: true, bikeId: true, durationSeconds: true },
+      select: { location: true, bikeId: true, durationSeconds: true, startTime: true },
     });
 
     const locationUpdate = shouldApplyAutoLocation(
@@ -972,14 +973,14 @@ async function processGarminCallback(userId: string, callbackURL: string): Promi
           ...(startLat != null ? { startLat } : {}),
           ...(startLng != null ? { startLng } : {}),
         },
-        select: { id: true, bikeId: true, durationSeconds: true },
+        select: { id: true, bikeId: true, durationSeconds: true, startTime: true },
       });
 
       affectedBikeIds = await syncBikeComponentHours(
         tx,
         userId,
-        { bikeId: existingRide?.bikeId ?? null, durationSeconds: existingRide?.durationSeconds ?? null },
-        { bikeId: ride.bikeId ?? null, durationSeconds: ride.durationSeconds },
+        { bikeId: existingRide?.bikeId ?? null, durationSeconds: existingRide?.durationSeconds ?? null, startTime: existingRide?.startTime ?? null },
+        { bikeId: ride.bikeId ?? null, durationSeconds: ride.durationSeconds, startTime: ride.startTime },
         // Existing ride: adjusted components need the canonical recompute.
         existingRide ? ride.id : undefined
       );

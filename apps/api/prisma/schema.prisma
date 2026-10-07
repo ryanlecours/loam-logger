@@ -552,10 +552,14 @@ model ServiceLog {
   /// subtracting this from lifetimeHours, so it must be a lifetime figure.
   /// (Pre-Loam services are user-declared; nothing can derive them.)
   ///
-  /// Historically this stored the since-service counter instead, which made it
-  /// near-meaningless; scripts/backfill-component-counters.ts rescales the rows
-  /// that predate migration 20260927.
+  /// Unless declared, this is derived from the ledger and refreshed by every
+  /// recompute (lib/component-counters.ts), so a ride imported later and dated
+  /// before the service lands on the right side of it. Historically it stored
+  /// the since-service counter instead; the same refresh rescales those rows.
   hoursAtService Float @default(0)
+  /// True when a rider typed hoursAtService in (typically a pre-Loam service).
+  /// Declared readings are kept as given; nothing in the ledger can check them.
+  hoursAtServiceDeclared Boolean @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

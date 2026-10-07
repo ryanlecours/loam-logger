@@ -1,8 +1,7 @@
 import {
   computeComponentCounters,
   recomputeComponentCounters,
-  rescaleLegacyServiceLogs,
-  setLegacyArchiveDropped,
+  creditRideToComponents,
   lifetimeHoursAt,
 } from './component-counters';
 import { logger } from './logger';
@@ -45,30 +44,40 @@ const matches = (r: Ride, w: Record<string, unknown>): boolean => {
   return true;
 };
 
+type Log = {
+  id: string;
+  kind: 'SERVICE' | 'INSPECTION';
+  performedAt: Date;
+  createdAt: Date;
+  hoursAtService: number;
+  hoursAtServiceDeclared: boolean;
+};
+
 const makeTx = (opts: {
   rides?: Ride[];
   component?: Record<string, unknown> | null;
+  /** The component's own install rows (the recompute's tenure read). */
   installs?: Array<Record<string, unknown>>;
   adjustments?: Array<{ rideId: string; kind: string }>;
-  /** Latest log per kind-set, keyed by the first kind in the query's `in`. */
+  /** Canned latest-log answers, for tests that do not need a logbook. */
   latestService?: { hoursAtService: number } | null;
   latestInspection?: { hoursAtService: number } | null;
   /**
-   * The migration's ServiceLog archive. Absent by default (the post-cleanup
-   * state); `legacyLogs` are the rows still on the old scale.
+   * A stateful logbook. When given, latest-log reads, the reading refresh and
+   * its writes all go through it, so a refreshed reading feeds the counters.
    */
-  archive?: { legacyLogs: Array<{ id: string; performedAt: Date }> };
+  logs?: Log[];
+  /** Per-ride credit: every install row on the bike, and the computed candidates. */
+  bikeInstalls?: Array<Record<string, unknown>>;
+  candidates?: Array<Record<string, unknown>>;
 }) => {
   const rides = opts.rides ?? [];
+  const logs = opts.logs;
+  const newestFirst = (a: Log, b: Log) =>
+    b.performedAt.getTime() - a.performedAt.getTime() || b.createdAt.getTime() - a.createdAt.getTime();
   return {
-    // The recompute's row lock (SELECT ... FOR UPDATE).
+    // The recompute's row lock (SELECT ... FOR UPDATE) and the debit's floor pass.
     $executeRaw: jest.fn().mockResolvedValue(1),
-    // Two raw reads: the archive-existence probe, then the legacy-row select.
-    $queryRawUnsafe: jest.fn().mockImplementation(async (sql: string) =>
-      sql.includes('to_regclass')
-        ? [{ present: opts.archive !== undefined }]
-        : opts.archive?.legacyLogs ?? []
-    ),
     component: {
       findUnique: jest.fn().mockResolvedValue(
         opts.component === undefined
@@ -85,10 +94,14 @@ const makeTx = (opts: {
           : opts.component
       ),
       update: jest.fn().mockResolvedValue({}),
-      findMany: jest.fn().mockResolvedValue([]),
+      updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+      findMany: jest.fn().mockResolvedValue(opts.candidates ?? []),
     },
     bikeComponentInstall: {
-      findMany: jest.fn().mockResolvedValue(opts.installs ?? []),
+      // Keyed by shape: the recompute asks per component, the credit per bike.
+      findMany: jest.fn().mockImplementation(async ({ where }: { where: Record<string, unknown> }) =>
+        where.componentId ? opts.installs ?? [] : opts.bikeInstalls ?? []
+      ),
     },
     componentRideAdjustment: {
       findMany: jest.fn().mockResolvedValue(opts.adjustments ?? []),
@@ -103,10 +116,21 @@ const makeTx = (opts: {
       }),
     },
     serviceLog: {
-      update: jest.fn().mockResolvedValue({}),
+      findMany: jest.fn().mockImplementation(async ({ where }: { where: Record<string, unknown> }) =>
+        (logs ?? [])
+          .filter((l) => where.hoursAtServiceDeclared === undefined || l.hoursAtServiceDeclared === where.hoursAtServiceDeclared)
+          .sort(newestFirst)
+      ),
+      update: jest.fn().mockImplementation(async ({ where, data }: { where: { id: string }; data: { hoursAtService: number } }) => {
+        const log = logs?.find((l) => l.id === where.id);
+        if (log) log.hoursAtService = data.hoursAtService;
+        return log ?? {};
+      }),
+      updateMany: jest.fn().mockResolvedValue({ count: 0 }),
       // Distinguishes the two reads by which kinds they ask for.
       findFirst: jest.fn().mockImplementation(async ({ where }: { where: { kind: { in: string[] } } }) => {
         const kinds = where.kind.in;
+        if (logs) return [...logs].sort(newestFirst).find((l) => kinds.includes(l.kind)) ?? null;
         return kinds.includes('INSPECTION')
           ? opts.latestInspection ?? null
           : opts.latestService ?? null;
@@ -134,9 +158,6 @@ const OPEN_TENURE = {
   installedAt: d('2025-01-01T00:00:00Z'),
   removedAt: null,
 };
-
-// The "archive dropped" answer is cached per process; each test starts unknown.
-beforeEach(() => setLegacyArchiveDropped(false));
 
 describe('computeComponentCounters', () => {
   it('sums lifetime hours from the tenure ledger', async () => {
@@ -288,75 +309,121 @@ describe('computeComponentCounters', () => {
   });
 });
 
-describe('rescaleLegacyServiceLogs', () => {
-  it('rewrites each legacy log to the lifetime reading at its date', async () => {
+const log = (id: string, iso: string, hoursAtService: number, extra: Partial<Log> = {}): Log => ({
+  id,
+  kind: 'SERVICE',
+  performedAt: d(iso),
+  createdAt: d(iso),
+  hoursAtService,
+  hoursAtServiceDeclared: false,
+  ...extra,
+});
+
+describe('service readings in a recompute', () => {
+  // The regression behind "derive unless declared". A service logged on 1 Apr
+  // with 10h on the fork; a Strava history import then brings in a 5h ride
+  // from March. That ride happened BEFORE the service, so hours since service
+  // must not move. A stored reading of 10 would leave it counted as since.
+  it('keeps a ride imported after the service, but dated before it, out of "since service"', async () => {
+    const book = [log('svc', '2025-04-01T00:00:00Z', 10)];
     const tx = makeTx({
       installs: [OPEN_TENURE],
       rides: [
-        ride('r1', 'bike-1', '2025-02-01T00:00:00Z', 4),
-        ride('r2', 'bike-1', '2025-06-01T00:00:00Z', 6),
+        ride('feb', 'bike-1', '2025-02-01T00:00:00Z', 10),
+        ride('mar-import', 'bike-1', '2025-03-01T00:00:00Z', 5),
+        ride('may', 'bike-1', '2025-05-01T00:00:00Z', 2),
       ],
-      archive: {
-        legacyLogs: [
-          { id: 'log-1', performedAt: d('2025-04-01T00:00:00Z') },
-          { id: 'log-2', performedAt: d('2025-12-01T00:00:00Z') },
-        ],
-      },
+      logs: book,
     });
 
-    expect(await rescaleLegacyServiceLogs(asTx(tx), 'comp-1')).toBe(2);
-    expect(tx.serviceLog.update).toHaveBeenCalledWith({
-      where: { id: 'log-1' },
-      data: { hoursAtService: 4 },
-    });
-    expect(tx.serviceLog.update).toHaveBeenCalledWith({
-      where: { id: 'log-2' },
-      data: { hoursAtService: 10 },
-    });
+    const c = await recomputeComponentCounters(asTx(tx), 'comp-1');
+
+    expect(book[0].hoursAtService).toBe(15);
+    expect(c).toEqual({ lifetimeHours: 17, hoursSinceService: 2, hoursSinceInspection: 2 });
   });
 
-  it('builds the counted-ride predicate once, however many logs need rescaling', async () => {
+  // A rider's "serviced at 300h" for a pre-Loam service is their statement and
+  // nothing in the ledger can check it, so the refresh never asks for it.
+  it('only re-derives readings the rider did not declare', async () => {
+    const tx = makeTx({ installs: [OPEN_TENURE], logs: [] });
+
+    await recomputeComponentCounters(asTx(tx), 'comp-1');
+
+    expect(tx.serviceLog.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { componentId: 'comp-1', hoursAtServiceDeclared: false } })
+    );
+  });
+
+  it('keeps a declared reading as given', async () => {
+    const book = [log('pre-loam', '2025-01-01T00:00:00Z', 300, { hoursAtServiceDeclared: true })];
+    const tx = makeTx({
+      component: {
+        id: 'comp-1', userId: 'user-1', bikeId: 'bike-1',
+        installedAt: d('2025-01-01T00:00:00Z'), createdAt: d('2025-01-01T00:00:00Z'),
+        retiredAt: null, hoursUsed: 0, priorHours: 320,
+      },
+      installs: [OPEN_TENURE],
+      rides: [ride('r1', 'bike-1', '2025-02-01T00:00:00Z', 5)],
+      logs: book,
+    });
+
+    const c = await recomputeComponentCounters(asTx(tx), 'comp-1');
+
+    expect(book[0].hoursAtService).toBe(300);
+    expect(tx.serviceLog.update).not.toHaveBeenCalled();
+    expect(c?.hoursSinceService).toBe(25);
+  });
+
+  it('writes nothing when a derived reading is already right', async () => {
     const tx = makeTx({
       installs: [OPEN_TENURE],
-      archive: {
-        legacyLogs: [
-          { id: 'log-1', performedAt: d('2025-02-01T00:00:00Z') },
-          { id: 'log-2', performedAt: d('2025-03-01T00:00:00Z') },
-          { id: 'log-3', performedAt: d('2025-04-01T00:00:00Z') },
-        ],
-      },
+      rides: [ride('r1', 'bike-1', '2025-02-01T00:00:00Z', 4)],
+      logs: [log('svc', '2025-03-01T00:00:00Z', 4)],
     });
 
-    await rescaleLegacyServiceLogs(asTx(tx), 'comp-1');
+    await recomputeComponentCounters(asTx(tx), 'comp-1');
 
-    expect(tx.component.findUnique).toHaveBeenCalledTimes(1);
-    expect(tx.bikeComponentInstall.findMany).toHaveBeenCalledTimes(1);
-    expect(tx.componentRideAdjustment.findMany).toHaveBeenCalledTimes(1);
-    expect(tx.ride.aggregate).toHaveBeenCalledTimes(3);
-  });
-
-  it('scopes the legacy select to the component, as a bound parameter', async () => {
-    const tx = makeTx({ archive: { legacyLogs: [] } });
-
-    await rescaleLegacyServiceLogs(asTx(tx), 'comp-1');
-
-    const select = tx.$queryRawUnsafe.mock.calls.find(([sql]) => !String(sql).includes('to_regclass'));
-    expect(select?.[0]).toContain('"updatedAt" = a."updatedAt"');
-    expect(select?.slice(1)).toEqual(['comp-1']);
-  });
-
-  it('does nothing once the archive is gone, and stops asking', async () => {
-    const tx = makeTx({});
-
-    expect(await rescaleLegacyServiceLogs(asTx(tx), 'comp-1')).toBe(0);
-    expect(await rescaleLegacyServiceLogs(asTx(tx), 'comp-2')).toBe(0);
-
-    // One existence probe, then the cached answer.
-    expect(tx.$queryRawUnsafe).toHaveBeenCalledTimes(1);
     expect(tx.serviceLog.update).not.toHaveBeenCalled();
   });
-});
 
+  // Pre-migration rows held the since-service figure, not a lifetime reading.
+  // They are not declared, so the same refresh moves them onto the new scale:
+  // here a second service that used to read "50h since the first".
+  it('moves pre-migration readings onto the lifetime scale', async () => {
+    const book = [log('first', '2025-02-01T00:00:00Z', 0), log('second', '2025-06-01T00:00:00Z', 50)];
+    const tx = makeTx({
+      installs: [OPEN_TENURE],
+      rides: [
+        ride('a', 'bike-1', '2025-01-15T00:00:00Z', 50),
+        ride('b', 'bike-1', '2025-04-01T00:00:00Z', 50),
+        ride('c', 'bike-1', '2025-07-01T00:00:00Z', 10),
+      ],
+      logs: book,
+    });
+
+    const c = await recomputeComponentCounters(asTx(tx), 'comp-1');
+
+    expect(book.map((l) => l.hoursAtService)).toEqual([50, 100]);
+    expect(c?.hoursSinceService).toBe(10);
+  });
+
+  it('builds the counted-ride predicate once, however many readings it refreshes', async () => {
+    const tx = makeTx({
+      installs: [OPEN_TENURE],
+      logs: [
+        log('a', '2025-02-01T00:00:00Z', 9),
+        log('b', '2025-03-01T00:00:00Z', 9),
+        log('c', '2025-04-01T00:00:00Z', 9),
+      ],
+    });
+
+    await recomputeComponentCounters(asTx(tx), 'comp-1');
+
+    // One tenure read for the refresh and one for computing the counters,
+    // never one per log.
+    expect(tx.bikeComponentInstall.findMany).toHaveBeenCalledTimes(2);
+  });
+});
 
 describe('lifetimeHoursAt', () => {
   it('counts only rides before the given moment', async () => {
@@ -414,21 +481,21 @@ describe('recomputeComponentCounters', () => {
     });
   });
 
-  // The deploy-to-backfill window: a ride sync or service write recomputes a
-  // part whose logs are still on the old scale. Rescaling first is what stops
-  // it subtracting an old-scale reading from a lifetime figure.
-  it('rescales legacy logs before deriving the counters', async () => {
+  // Readings must be fresh before the subtraction reads them, or a stale one
+  // (an old-scale row, or one a later import has outdated) is what the
+  // counters get derived from.
+  it('refreshes readings before deriving the counters', async () => {
     const tx = makeTx({
       installs: [OPEN_TENURE],
       rides: [ride('r1', 'bike-1', '2025-02-01T00:00:00Z', 40)],
-      archive: { legacyLogs: [{ id: 'log-1', performedAt: d('2025-03-01T00:00:00Z') }] },
+      logs: [log('svc', '2025-03-01T00:00:00Z', 7)],
     });
 
     await recomputeComponentCounters(asTx(tx), 'comp-1');
 
-    const rescaledAt = tx.serviceLog.update.mock.invocationCallOrder[0];
+    const refreshedAt = tx.serviceLog.update.mock.invocationCallOrder[0];
     const firstLatestRead = Math.min(...tx.serviceLog.findFirst.mock.invocationCallOrder);
-    expect(rescaledAt).toBeLessThan(firstLatestRead);
+    expect(refreshedAt).toBeLessThan(firstLatestRead);
   });
 
   // A recompute reads the ledger and then writes absolute values, so a
@@ -436,7 +503,7 @@ describe('recomputeComponentCounters', () => {
   // row lock must be taken before the first ledger read, not just before the
   // write.
   it('locks the component row before reading anything', async () => {
-    const tx = makeTx({ installs: [OPEN_TENURE], archive: { legacyLogs: [] } });
+    const tx = makeTx({ installs: [OPEN_TENURE], logs: [] });
 
     await recomputeComponentCounters(asTx(tx), 'comp-1');
 
@@ -445,8 +512,8 @@ describe('recomputeComponentCounters', () => {
     expect(id).toBe('comp-1');
     const lockedAt = tx.$executeRaw.mock.invocationCallOrder[0];
     const firstRead = Math.min(
-      ...tx.$queryRawUnsafe.mock.invocationCallOrder,
-      ...tx.component.findUnique.mock.invocationCallOrder
+      ...tx.component.findUnique.mock.invocationCallOrder,
+      ...tx.serviceLog.findMany.mock.invocationCallOrder
     );
     expect(lockedAt).toBeLessThan(firstRead);
   });
@@ -519,5 +586,187 @@ describe('regression: a component moved between bikes', () => {
     expect(legacyHours).toBe(210);
     expect(counters?.lifetimeHours).toBe(30);
     expect(legacyHours / counters!.lifetimeHours).toBe(7);
+  });
+});
+
+// The per-ride fast path must land exactly where a recompute would. Each case
+// is a ride the old "every part on the bike" increment got wrong.
+describe('creditRideToComponents', () => {
+  const part = (id: string, bikeId: string | null, installedIso: string) => ({
+    id,
+    userId: 'user-1',
+    bikeId,
+    installedAt: d(installedIso),
+    createdAt: d(installedIso),
+    retiredAt: null,
+    hoursUsed: 0,
+  });
+  const tenure = (id: string, componentId: string, fromIso: string, toIso: string | null = null) => ({
+    id,
+    componentId,
+    bikeId: 'bike-1',
+    slotKey: 'FORK_NONE',
+    installedAt: d(fromIso),
+    removedAt: toIso ? d(toIso) : null,
+  });
+  const credit = (tx: MockTx, iso: string, hoursDelta = 2) =>
+    creditRideToComponents(asTx(tx), { userId: 'user-1', bikeId: 'bike-1', startTime: d(iso), hoursDelta });
+  const updateFor = (tx: MockTx, id: string) =>
+    tx.component.updateMany.mock.calls
+      .map(([arg]) => arg)
+      .find((arg) => (arg.where.id?.in ?? []).includes(id));
+
+  it('skips a part fitted after the ride', async () => {
+    const tx = makeTx({
+      bikeInstalls: [tenure('t1', 'old-fork', '2025-01-01T00:00:00Z'), tenure('t2', 'new-shock', '2025-06-01T00:00:00Z')],
+      candidates: [part('old-fork', 'bike-1', '2025-01-01T00:00:00Z'), part('new-shock', 'bike-1', '2025-06-01T00:00:00Z')],
+    });
+
+    await credit(tx, '2025-03-01T00:00:00Z');
+
+    expect(updateFor(tx, 'old-fork')).toBeDefined();
+    expect(updateFor(tx, 'new-shock')).toBeUndefined();
+  });
+
+  it('credits a part that was on the bike then, even though it has moved since', async () => {
+    const tx = makeTx({
+      bikeInstalls: [tenure('t1', 'moved-fork', '2025-01-01T00:00:00Z', '2025-05-01T00:00:00Z')],
+      candidates: [part('moved-fork', 'bike-2', '2025-01-01T00:00:00Z')],
+    });
+
+    const bikeIds = await credit(tx, '2025-03-01T00:00:00Z');
+
+    expect(updateFor(tx, 'moved-fork')).toBeDefined();
+    // Its new bike's predictions read its counters too.
+    expect(bikeIds).toEqual(expect.arrayContaining(['bike-1', 'bike-2']));
+  });
+
+  it('counts a ride before the latest derived service toward lifetime only', async () => {
+    const tx = makeTx({
+      bikeInstalls: [tenure('t1', 'fork', '2025-01-01T00:00:00Z')],
+      candidates: [part('fork', 'bike-1', '2025-01-01T00:00:00Z')],
+      logs: [{ ...log('svc', '2025-04-01T00:00:00Z', 10), id: 'svc' }],
+    });
+    tx.serviceLog.findMany.mockResolvedValue([
+      { componentId: 'fork', kind: 'SERVICE', performedAt: d('2025-04-01T00:00:00Z'), hoursAtServiceDeclared: false },
+    ]);
+
+    await credit(tx, '2025-03-01T00:00:00Z');
+
+    expect(updateFor(tx, 'fork')?.data).toEqual({ lifetimeHours: { increment: 2 } });
+    // The service's reading moves with lifetime, so the subtraction holds.
+    expect(tx.serviceLog.updateMany).toHaveBeenCalledWith({
+      where: {
+        componentId: { in: ['fork'] },
+        hoursAtServiceDeclared: false,
+        performedAt: { gt: d('2025-03-01T00:00:00Z') },
+      },
+      data: { hoursAtService: { increment: 2 } },
+    });
+  });
+
+  it('counts a ride after the latest service toward every counter', async () => {
+    const tx = makeTx({
+      bikeInstalls: [tenure('t1', 'fork', '2025-01-01T00:00:00Z')],
+      candidates: [part('fork', 'bike-1', '2025-01-01T00:00:00Z')],
+    });
+    tx.serviceLog.findMany.mockResolvedValue([
+      { componentId: 'fork', kind: 'SERVICE', performedAt: d('2025-02-01T00:00:00Z'), hoursAtServiceDeclared: false },
+    ]);
+
+    await credit(tx, '2025-03-01T00:00:00Z');
+
+    expect(updateFor(tx, 'fork')?.data).toEqual({
+      lifetimeHours: { increment: 2 },
+      hoursSinceService: { increment: 2 },
+      hoursUsed: { increment: 2 },
+      hoursSinceInspection: { increment: 2 },
+    });
+  });
+
+  // A declared reading does not move with lifetime, so a ride before it still
+  // widens the gap: since = lifetime - declared.
+  it('moves "since" for a ride before a declared service', async () => {
+    const tx = makeTx({
+      bikeInstalls: [tenure('t1', 'fork', '2025-01-01T00:00:00Z')],
+      candidates: [part('fork', 'bike-1', '2025-01-01T00:00:00Z')],
+    });
+    tx.serviceLog.findMany.mockResolvedValue([
+      { componentId: 'fork', kind: 'SERVICE', performedAt: d('2025-04-01T00:00:00Z'), hoursAtServiceDeclared: true },
+    ]);
+
+    await credit(tx, '2025-03-01T00:00:00Z');
+
+    expect(updateFor(tx, 'fork')?.data).toMatchObject({ hoursSinceService: { increment: 2 } });
+  });
+
+  it('lets an inspection after the ride hold only the inspection clock', async () => {
+    const tx = makeTx({
+      bikeInstalls: [tenure('t1', 'fork', '2025-01-01T00:00:00Z')],
+      candidates: [part('fork', 'bike-1', '2025-01-01T00:00:00Z')],
+    });
+    tx.serviceLog.findMany.mockResolvedValue([
+      { componentId: 'fork', kind: 'INSPECTION', performedAt: d('2025-04-01T00:00:00Z'), hoursAtServiceDeclared: false },
+      { componentId: 'fork', kind: 'SERVICE', performedAt: d('2025-02-01T00:00:00Z'), hoursAtServiceDeclared: false },
+    ]);
+
+    await credit(tx, '2025-03-01T00:00:00Z');
+
+    expect(updateFor(tx, 'fork')?.data).toEqual({
+      lifetimeHours: { increment: 2 },
+      hoursSinceService: { increment: 2 },
+      hoursUsed: { increment: 2 },
+    });
+  });
+
+  it('gives parts with uncomputed counters only the legacy hoursUsed change', async () => {
+    const tx = makeTx({});
+
+    await credit(tx, '2025-03-01T00:00:00Z');
+
+    expect(tx.component.updateMany).toHaveBeenCalledWith({
+      where: { userId: 'user-1', bikeId: 'bike-1', countersComputedAt: null },
+      data: { hoursUsed: { increment: 2 } },
+    });
+    // The candidate read asks for computed rows only.
+    expect(tx.component.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ countersComputedAt: { not: null } }) })
+    );
+  });
+
+  // Independent floors could leave hoursSinceService above lifetimeHours when
+  // only lifetimeHours was clamped. The cap keeps the invariant without waiting
+  // for the next recompute, and only on computed rows: an uncomputed row's
+  // lifetimeHours is 0, and capping its legacy hoursUsed to that would wipe it.
+  it('floors and caps the debited parts after a debit', async () => {
+    const tx = makeTx({
+      bikeInstalls: [tenure('t1', 'fork', '2025-01-01T00:00:00Z')],
+      candidates: [part('fork', 'bike-1', '2025-01-01T00:00:00Z')],
+    });
+
+    await credit(tx, '2025-03-01T00:00:00Z', -2);
+
+    const statements = tx.$executeRaw.mock.calls.map(([strings]) => (strings as string[]).join('?'));
+    expect(statements).toHaveLength(2);
+    for (const sql of statements) {
+      expect(sql).toContain('"lifetimeHours" = GREATEST("lifetimeHours", 0)');
+      for (const column of ['hoursUsed', 'hoursSinceService', 'hoursSinceInspection']) {
+        expect(sql).toContain(
+          `"${column}" = CASE WHEN "countersComputedAt" IS NULL THEN GREATEST("${column}", 0)`
+        );
+      }
+      expect(sql.match(/LEAST\(GREATEST\("\w+", 0\), GREATEST\("lifetimeHours", 0\)\)/g)).toHaveLength(3);
+    }
+  });
+
+  it('does not floor anything after a credit', async () => {
+    const tx = makeTx({
+      bikeInstalls: [tenure('t1', 'fork', '2025-01-01T00:00:00Z')],
+      candidates: [part('fork', 'bike-1', '2025-01-01T00:00:00Z')],
+    });
+
+    await credit(tx, '2025-03-01T00:00:00Z', 2);
+
+    expect(tx.$executeRaw).not.toHaveBeenCalled();
   });
 });

@@ -56,6 +56,7 @@ import { parseISO } from 'date-fns';
 import {
   incrementBikeComponentHours,
   decrementBikeComponentHours,
+  syncBikeComponentHours,
   loadComponentAttribution,
   computeCountedHours,
   recomputeComponentHours,
@@ -76,8 +77,8 @@ import {
 } from '../lib/component-history';
 import {
   recomputeComponentCounters,
+  recomputeCountersForBike,
   lifetimeHoursAt,
-  rescaleLegacyServiceLogs,
 } from '../lib/component-counters';
 import { captureSetupSnapshot } from '../lib/capture-snapshot';
 import type { SetupSnapshot } from '@loam/shared';
@@ -2380,7 +2381,12 @@ export const resolvers = {
         ride = await prisma.$transaction(async (tx) => {
           const newRide = await tx.ride.create({ data: rideData });
           if (bikeId) {
-            await incrementBikeComponentHours(tx, { userId, bikeId, hoursDelta });
+            await incrementBikeComponentHours(tx, {
+              userId,
+              bikeId,
+              hoursDelta,
+              startTime: newRide.startTime,
+            });
           }
           return newRide;
         });
@@ -2469,7 +2475,7 @@ export const resolvers = {
 
       const ride = await prisma.ride.findUnique({
         where: { id },
-        select: { userId: true, durationSeconds: true, bikeId: true },
+        select: { userId: true, durationSeconds: true, bikeId: true, startTime: true },
       });
       if (!ride || ride.userId !== userId) {
         throw new Error('Ride not found');
@@ -2492,7 +2498,12 @@ export const resolvers = {
         const adjustedComponentIds = await findAdjustedComponentIdsForRides(tx, [id]);
 
         if (ride.bikeId) {
-          await decrementBikeComponentHours(tx, { userId, bikeId: ride.bikeId, hoursDelta });
+          await decrementBikeComponentHours(tx, {
+            userId,
+            bikeId: ride.bikeId,
+            hoursDelta,
+            startTime: ride.startTime,
+          });
         }
 
         await tx.ride.delete({ where: { id } });
@@ -2525,7 +2536,7 @@ export const resolvers = {
 
       const existing = await prisma.ride.findUnique({
         where: { id },
-        select: { userId: true, durationSeconds: true, bikeId: true },
+        select: { userId: true, durationSeconds: true, bikeId: true, startTime: true },
       });
       if (!existing || existing.userId !== userId) throw new Error('Ride not found');
 
@@ -2638,7 +2649,6 @@ export const resolvers = {
       const hoursBefore = Math.max(0, existing.durationSeconds ?? 0) / 3600;
       const hoursAfter = Math.max(0, nextDurationSeconds ?? 0) / 3600;
       const hoursDiff = hoursAfter - hoursBefore;
-      const durationChanged = durationUpdate !== undefined;
       const bikeChanged = bikeUpdate !== undefined && nextBikeId !== existing.bikeId;
 
       // Invalidate prediction cache BEFORE transaction to prevent stale reads
@@ -2649,45 +2659,24 @@ export const resolvers = {
         await invalidateBikePrediction(userId, nextBikeId);
       }
 
-      const startChanged = start !== undefined;
-
       const { updatedRide, adjustedBikeIds } = await prisma.$transaction(async (tx) => {
         const updated = await tx.ride.update({
           where: { id },
           data,
         });
 
-        if (bikeChanged || durationChanged) {
-          // Remove hours from the old bike when it loses the ride or when hours shrink
-          if (existing.bikeId) {
-            if (bikeChanged) {
-              await decrementBikeComponentHours(tx, { userId, bikeId: existing.bikeId, hoursDelta: hoursBefore });
-            } else if (durationChanged && hoursDiff < 0) {
-              await decrementBikeComponentHours(tx, { userId, bikeId: existing.bikeId, hoursDelta: Math.abs(hoursDiff) });
-            }
-          }
-
-          // Add hours to the new/current bike when appropriate
-          if (nextBikeId) {
-            if (bikeChanged) {
-              await incrementBikeComponentHours(tx, { userId, bikeId: nextBikeId, hoursDelta: hoursAfter });
-            } else if (durationChanged && hoursDiff > 0) {
-              await incrementBikeComponentHours(tx, { userId, bikeId: nextBikeId, hoursDelta: hoursDiff });
-            }
-          }
-        }
-
-        // Components with adjustments referencing this ride need a canonical
-        // recompute when the ride's bike, duration, or startTime changed —
-        // the bulk paths above either mis-credit them (EXCLUDE) or never
-        // touch them (cross-bike INCLUDE). startTime matters because it can
-        // move the ride across the component's attribution window; note the
-        // bulk paths deliberately ignore startTime-only edits for unadjusted
-        // components (existing semantics, kept).
-        const recomputedBikes =
-          bikeChanged || durationChanged || startChanged
-            ? await recomputeAdjustedComponentsForRides(tx, { rideIds: [id] })
-            : [];
+        // A start-time edit is a move, not a no-op: it can carry the ride across
+        // an install or a service, which changes which parts count it and
+        // whether it is "since service". The helper debits the old placement
+        // and credits the new one, then recomputes any component with an
+        // adjustment on this ride (whose recompute wins as the last write).
+        const recomputedBikes = await syncBikeComponentHours(
+          tx,
+          userId,
+          { bikeId: existing.bikeId, durationSeconds: existing.durationSeconds, startTime: existing.startTime },
+          { bikeId: nextBikeId, durationSeconds: nextDurationSeconds, startTime: updated.startTime },
+          id
+        );
 
         return { updatedRide: updated, adjustedBikeIds: recomputedBikes };
       });
@@ -3485,48 +3474,24 @@ export const resolvers = {
 
       const updated = await prisma.$transaction(async (tx) => {
         // Is this row currently the most recent for its component?
-        const currentLatest = await tx.serviceLog.findFirst({
-          where: { componentId: existing.component.id },
-          orderBy: [{ performedAt: 'desc' }, { createdAt: 'desc' }],
-          select: { id: true, performedAt: true },
-        });
-        const wasLatest = currentLatest?.id === id;
-
-        // Rescale before editing. The rescale recognises a pre-migration row by
-        // its updatedAt still matching the archive, and this write bumps it, so
-        // a notes- or date-only edit would otherwise strand an old-scale
-        // hoursAtService that no later recompute or backfill would touch.
-        await rescaleLegacyServiceLogs(tx, existing.component.id);
-
+        // A typed reading becomes the rider's declaration and is kept as given;
+        // every other reading is derived from the date by the recompute.
         const updatedLog = await tx.serviceLog.update({
           where: { id },
           data: {
             ...(newPerformedAt ? { performedAt: newPerformedAt } : {}),
             ...(newNotes !== undefined ? { notes: newNotes } : {}),
-            ...(newHoursAtService !== undefined ? { hoursAtService: newHoursAtService } : {}),
+            ...(newHoursAtService !== undefined
+              ? { hoursAtService: newHoursAtService, hoursAtServiceDeclared: true }
+              : {}),
           },
         });
 
-        // Recompute anchor + hoursUsed only when the edit could have moved
-        // `max(performedAt)` for this component:
-        //   a) This log WAS the latest and its date changed. Either it's
-        //      still latest at a new date, or it moved behind another log
-        //      that's now latest — either way, the anchor shifts.
-        //   b) This log WAS NOT the latest but its new date is later than
-        //      the previous latest, meaning it just became latest.
-        //
-        // Non-latest edits with non-anchor-crossing date shifts (e.g. moving
-        // a mid-history log a few days within its window) and
-        // metadata-only edits (notes/hours on any log) leave the anchor
-        // untouched — skipping the helper saves a ride-aggregate query and
-        // a component.update round-trip.
-        const dateChanged = !!newPerformedAt;
-        const becameLatest =
-          !wasLatest &&
-          dateChanged &&
-          !!currentLatest &&
-          newPerformedAt! > currentLatest.performedAt;
-        if ((wasLatest && dateChanged) || becameLatest) {
+        // Recompute whenever the edit can change a reading or which log is
+        // latest. A new date re-derives this log's reading (unless declared),
+        // and a typed reading on the latest log moves the "since" counters
+        // directly. Only a notes-only edit is skipped.
+        if (newPerformedAt || newHoursAtService !== undefined) {
           await recomputeComponentAfterServiceChange(tx, existing.component.id);
         }
 
@@ -3839,9 +3804,6 @@ export const resolvers = {
 
         let serviceLogsMoved = 0;
         for (const [ts, compIds] of byOldDate) {
-          // Moving a log bumps its updatedAt, so rescale any legacy rows first
-          // (see updateServiceLog).
-          for (const componentId of compIds) await rescaleLegacyServiceLogs(tx, componentId);
           const { count } = await tx.serviceLog.updateMany({
             where: {
               componentId: { in: compIds },
@@ -3980,9 +3942,6 @@ export const resolvers = {
 
           let movedLogs = 0;
           for (const [ts, compIds] of byOldDate) {
-            // Moving a log bumps its updatedAt, so rescale any legacy rows
-            // first (see updateServiceLog).
-            for (const componentId of compIds) await rescaleLegacyServiceLogs(tx, componentId);
             const { count } = await tx.serviceLog.updateMany({
               where: {
                 componentId: { in: compIds },
@@ -4321,14 +4280,22 @@ export const resolvers = {
           const totalSeconds = ridesToUpdate.reduce((sum, r) => sum + r.durationSeconds, 0);
           const totalHours = totalSeconds / 3600;
 
-          await incrementBikeComponentHours(tx, { userId, bikeId: input.bikeId, hoursDelta: totalHours });
+          // Many rides at once: one recompute per part beats a credit per ride.
+          const bikeIds = await recomputeCountersForBike(tx, {
+            userId,
+            bikeId: input.bikeId,
+            legacyHoursDelta: totalHours,
+          });
 
           // Components with adjustments referencing the newly-assigned rides
           // (e.g. an INCLUDE created while the ride was unassigned) need the
           // canonical recompute to avoid double counting.
-          recomputedBikes = await recomputeAdjustedComponentsForRides(tx, {
-            rideIds: ridesToUpdate.map((r) => r.id),
-          });
+          recomputedBikes = [
+            ...bikeIds,
+            ...(await recomputeAdjustedComponentsForRides(tx, {
+              rideIds: ridesToUpdate.map((r) => r.id),
+            })),
+          ];
         }
 
         return { mapping: newMapping, adjustedBikeIds: recomputedBikes };
@@ -4377,14 +4344,22 @@ export const resolvers = {
           data: { bikeId: null },
         });
 
-        await decrementBikeComponentHours(tx, { userId, bikeId: mapping.bikeId, hoursDelta: totalHours });
+        // Many rides at once: one recompute per part beats a debit per ride.
+        const bikeIds = await recomputeCountersForBike(tx, {
+          userId,
+          bikeId: mapping.bikeId,
+          legacyHoursDelta: -totalHours,
+        });
 
         await tx.stravaGearMapping.delete({ where: { id } });
 
         // Rides just went bike-less: EXCLUDE rows on them go inert and any
         // INCLUDEs elsewhere are unaffected, but components that carried
         // those adjustments need their counters snapped to canonical.
-        return recomputeAdjustedComponentsForRides(tx, { rideIds: rides.map((r) => r.id) });
+        return [
+          ...bikeIds,
+          ...(await recomputeAdjustedComponentsForRides(tx, { rideIds: rides.map((r) => r.id) })),
+        ];
       });
 
       // Invalidate prediction cache for the bike (plus adjusted components' bikes)
@@ -5257,14 +5232,17 @@ export const resolvers = {
           data: { bikeId, unownedBike: false },
         });
 
-        // Add hours to bike's components
-        await incrementBikeComponentHours(tx, { userId, bikeId, hoursDelta: totalHours });
+        // Many rides at once: one recompute per part beats a credit per ride.
+        const bikeIds = await recomputeCountersForBike(tx, {
+          userId,
+          bikeId,
+          legacyHoursDelta: totalHours,
+        });
 
-        // A previously-unassigned ride can already be INCLUDEd in a
-        // component on the target bike — the bulk increment above would
-        // double-count it there (and adjusted components elsewhere keep
-        // stale sums). Targeted canonical recompute wins as the last write.
-        return recomputeAdjustedComponentsForRides(tx, { rideIds });
+        // A previously-unassigned ride can already be INCLUDEd in a component
+        // elsewhere, whose sum the recompute above does not touch. Targeted
+        // canonical recompute wins as the last write.
+        return [...bikeIds, ...(await recomputeAdjustedComponentsForRides(tx, { rideIds }))];
       });
 
       // Invalidate prediction cache after transaction (target bike plus any

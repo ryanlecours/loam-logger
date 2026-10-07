@@ -1,103 +1,67 @@
 import type { PrismaClient, Prisma } from '@prisma/client';
-import { recomputeComponentCounters } from './component-counters';
+import { recomputeComponentCounters, creditRideToComponents } from './component-counters';
 
 type TransactionClient = Omit<PrismaClient, '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'>;
 
 const secondsToHours = (seconds: number | null | undefined) => Math.max(0, seconds ?? 0) / 3600;
 
-/**
- * Increment hoursUsed for all currently-installed components on a bike.
- * Skips if hoursDelta is zero or negative.
- */
-export async function incrementBikeComponentHours(
-  tx: TransactionClient | Prisma.TransactionClient,
-  opts: { userId: string; bikeId: string; hoursDelta: number }
-) {
-  if (opts.hoursDelta <= 0) return;
-  // All four counters move together. For the overwhelmingly common case — a ride
-  // added to the bike a component is currently fitted to, inside its tenure —
-  // incrementing is exactly right, and it keeps lifetimeHours monotonic without
-  // a per-ride tenure query. The authoritative tenure-aware recompute
-  // (lib/component-counters.ts) runs on the paths where the fast path cannot be
-  // trusted: installs, swaps, services, ride edits and per-ride adjustments.
-  //
-  // Rows whose counters have never been computed (countersComputedAt NULL) get
-  // only the legacy hoursUsed bump. Incrementing their zeroed counters would
-  // produce a "lifetime" of just the rides since deploy, which readers would
-  // then trust; the recompute or backfill derives the real figure instead.
-  await (tx as TransactionClient).component.updateMany({
-    where: { userId: opts.userId, bikeId: opts.bikeId, countersComputedAt: { not: null } },
-    data: {
-      hoursUsed: { increment: opts.hoursDelta },
-      lifetimeHours: { increment: opts.hoursDelta },
-      hoursSinceService: { increment: opts.hoursDelta },
-      hoursSinceInspection: { increment: opts.hoursDelta },
-    },
-  });
-  await (tx as TransactionClient).component.updateMany({
-    where: { userId: opts.userId, bikeId: opts.bikeId, countersComputedAt: null },
-    data: { hoursUsed: { increment: opts.hoursDelta } },
-  });
+/** One ride's effect on a bike's parts. */
+export interface RideHours {
+  userId: string;
+  bikeId: string;
+  hoursDelta: number;
+  /** The ride's start. Decides which parts' windows include it; see creditRideToComponents. */
+  startTime: Date;
 }
 
 /**
- * Decrement hoursUsed for all currently-installed components on a bike.
- * Floors hoursUsed at zero to prevent negative values.
+ * Credit one ride's hours to the parts whose windows include it.
  * Skips if hoursDelta is zero or negative.
+ *
+ * Returns the bikeIds whose predictions the change can affect.
+ */
+export async function incrementBikeComponentHours(
+  tx: TransactionClient | Prisma.TransactionClient,
+  opts: RideHours
+): Promise<string[]> {
+  if (opts.hoursDelta <= 0) return [];
+  return creditRideToComponents(tx, opts);
+}
+
+/**
+ * Debit one ride's hours from the parts whose windows include it, flooring
+ * every counter at zero. Skips if hoursDelta is zero or negative.
+ *
+ * Returns the bikeIds whose predictions the change can affect.
  */
 export async function decrementBikeComponentHours(
   tx: TransactionClient | Prisma.TransactionClient,
-  opts: { userId: string; bikeId: string; hoursDelta: number }
-) {
-  if (opts.hoursDelta <= 0) return;
-  // Same split as incrementBikeComponentHours: uncomputed rows only move hoursUsed.
-  await (tx as TransactionClient).component.updateMany({
-    where: { userId: opts.userId, bikeId: opts.bikeId, countersComputedAt: { not: null } },
-    data: {
-      hoursUsed: { decrement: opts.hoursDelta },
-      lifetimeHours: { decrement: opts.hoursDelta },
-      hoursSinceService: { decrement: opts.hoursDelta },
-      hoursSinceInspection: { decrement: opts.hoursDelta },
-    },
-  });
-  await (tx as TransactionClient).component.updateMany({
-    where: { userId: opts.userId, bikeId: opts.bikeId, countersComputedAt: null },
-    data: { hoursUsed: { decrement: opts.hoursDelta } },
-  });
-  // Floor each counter at zero: a decrement can legitimately overshoot one of
-  // them (a part serviced mid-window has a small hoursSinceService but a large
-  // lifetimeHours). On computed rows, also cap both "since" counters (and
-  // hoursUsed, which tracks hoursSinceService) at the floored lifetimeHours, so
-  // a clamp on one column cannot break hoursSince* <= lifetimeHours until the
-  // next recompute. One statement: every SET expression reads the row as it was
-  // before the UPDATE, hence the repeated GREATEST("lifetimeHours", 0).
-  await (tx as TransactionClient).$executeRaw`
-    UPDATE "Component" SET
-      "lifetimeHours" = GREATEST("lifetimeHours", 0),
-      "hoursUsed" = CASE WHEN "countersComputedAt" IS NULL THEN GREATEST("hoursUsed", 0)
-        ELSE LEAST(GREATEST("hoursUsed", 0), GREATEST("lifetimeHours", 0)) END,
-      "hoursSinceService" = CASE WHEN "countersComputedAt" IS NULL THEN GREATEST("hoursSinceService", 0)
-        ELSE LEAST(GREATEST("hoursSinceService", 0), GREATEST("lifetimeHours", 0)) END,
-      "hoursSinceInspection" = CASE WHEN "countersComputedAt" IS NULL THEN GREATEST("hoursSinceInspection", 0)
-        ELSE LEAST(GREATEST("hoursSinceInspection", 0), GREATEST("lifetimeHours", 0)) END
-    WHERE "userId" = ${opts.userId} AND "bikeId" = ${opts.bikeId}
-      AND (
-        "hoursUsed" < 0 OR "lifetimeHours" < 0 OR "hoursSinceService" < 0 OR "hoursSinceInspection" < 0
-        OR ("countersComputedAt" IS NOT NULL AND (
-          "hoursUsed" > "lifetimeHours" OR "hoursSinceService" > "lifetimeHours"
-          OR "hoursSinceInspection" > "lifetimeHours"))
-      )`;
+  opts: RideHours
+): Promise<string[]> {
+  if (opts.hoursDelta <= 0) return [];
+  return creditRideToComponents(tx, { ...opts, hoursDelta: -opts.hoursDelta });
+}
+
+/**
+ * Where a ride sits, as far as component hours care. startTime is null only on
+ * the side of a create or delete that has no ride (bikeId null there too).
+ */
+export interface RidePlacement {
+  bikeId: string | null;
+  durationSeconds: number | null | undefined;
+  startTime: Date | null | undefined;
 }
 
 /**
  * Diff-based sync of component hours across an upsert.
  *
- * Given the previous (bikeId, durationSeconds) and next state of a ride,
- * credit/debit component hours correctly:
- *  - Bike changed: decrement the old bike's components by the full previous
- *    duration, increment the new bike's components by the full new duration.
- *  - Same bike, longer ride: increment by the delta.
- *  - Same bike, shorter ride: decrement by the absolute delta.
+ * Given the previous (bikeId, durationSeconds, startTime) and next state of a
+ * ride, credit/debit component hours correctly:
+ *  - Bike or start changed: debit the old placement by the full previous
+ *    duration, credit the new one by the full new duration. A new start can
+ *    move the ride across an install or a service, so it is not a delta.
+ *  - Same bike and start, longer ride: credit the delta.
+ *  - Same bike and start, shorter ride: debit the absolute delta.
  *  - No bike on either side: no-op.
  *
  * When `rideId` is provided (upsert of an EXISTING ride) and the prev/next
@@ -119,8 +83,8 @@ export async function decrementBikeComponentHours(
 export async function syncBikeComponentHours(
   tx: Prisma.TransactionClient,
   userId: string,
-  previous: { bikeId: string | null; durationSeconds: number | null | undefined },
-  next: { bikeId: string | null; durationSeconds: number | null | undefined },
+  previous: RidePlacement,
+  next: RidePlacement,
   rideId?: string
 ): Promise<string[]> {
   const prevBikeId = previous.bikeId;
@@ -128,33 +92,41 @@ export async function syncBikeComponentHours(
   const prevHours = secondsToHours(previous.durationSeconds);
   const nextHours = secondsToHours(next.durationSeconds);
   const bikeChanged = prevBikeId !== nextBikeId;
+  const startChanged = (previous.startTime?.getTime() ?? null) !== (next.startTime?.getTime() ?? null);
+  const moved = bikeChanged || startChanged;
   const hoursDiff = nextHours - prevHours;
 
-  // Bikes whose hoursUsed this call actually mutates — only these need their
-  // cached predictions busted (a pure no-op leaves the set empty).
+  // Bikes whose hours this call actually mutates, including bikes that parts
+  // credited here have since moved to. Only these need their cached
+  // predictions busted (a pure no-op leaves the set empty).
   const affectedBikeIds = new Set<string>();
+  const note = (bikeIds: string[]) => bikeIds.forEach((b) => affectedBikeIds.add(b));
 
-  if (prevBikeId) {
-    if (bikeChanged) {
-      await decrementBikeComponentHours(tx, { userId, bikeId: prevBikeId, hoursDelta: prevHours });
-      affectedBikeIds.add(prevBikeId);
+  if (prevBikeId && previous.startTime) {
+    if (moved) {
+      note(await decrementBikeComponentHours(tx, {
+        userId, bikeId: prevBikeId, hoursDelta: prevHours, startTime: previous.startTime,
+      }));
     } else if (hoursDiff < 0) {
-      await decrementBikeComponentHours(tx, { userId, bikeId: prevBikeId, hoursDelta: Math.abs(hoursDiff) });
-      affectedBikeIds.add(prevBikeId);
+      note(await decrementBikeComponentHours(tx, {
+        userId, bikeId: prevBikeId, hoursDelta: Math.abs(hoursDiff), startTime: previous.startTime,
+      }));
     }
   }
 
-  if (nextBikeId) {
-    if (bikeChanged) {
-      await incrementBikeComponentHours(tx, { userId, bikeId: nextBikeId, hoursDelta: nextHours });
-      affectedBikeIds.add(nextBikeId);
+  if (nextBikeId && next.startTime) {
+    if (moved) {
+      note(await incrementBikeComponentHours(tx, {
+        userId, bikeId: nextBikeId, hoursDelta: nextHours, startTime: next.startTime,
+      }));
     } else if (hoursDiff > 0) {
-      await incrementBikeComponentHours(tx, { userId, bikeId: nextBikeId, hoursDelta: hoursDiff });
-      affectedBikeIds.add(nextBikeId);
+      note(await incrementBikeComponentHours(tx, {
+        userId, bikeId: nextBikeId, hoursDelta: hoursDiff, startTime: next.startTime,
+      }));
     }
   }
 
-  if (rideId && (bikeChanged || hoursDiff !== 0)) {
+  if (rideId && (moved || hoursDiff !== 0)) {
     const adjustedBikeIds = await recomputeAdjustedComponentsForRides(tx, { rideIds: [rideId] });
     for (const bikeId of adjustedBikeIds) affectedBikeIds.add(bikeId);
   }

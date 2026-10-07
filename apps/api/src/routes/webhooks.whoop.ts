@@ -110,7 +110,7 @@ r.post('/whoop', async (req: Request, res: Response) => {
         const affectedBikeIds = await prisma.$transaction(async (tx) => {
           const rides = await tx.ride.findMany({
             where: { userId: user.id, whoopWorkoutId: workoutId },
-            select: { id: true, bikeId: true, durationSeconds: true },
+            select: { id: true, bikeId: true, durationSeconds: true, startTime: true },
           });
 
           if (rides.length === 0) {
@@ -135,8 +135,8 @@ r.post('/whoop', async (req: Request, res: Response) => {
             await syncBikeComponentHours(
               tx,
               user.id,
-              { bikeId: ride.bikeId ?? null, durationSeconds: ride.durationSeconds },
-              { bikeId: null, durationSeconds: 0 }
+              { bikeId: ride.bikeId ?? null, durationSeconds: ride.durationSeconds, startTime: ride.startTime },
+              { bikeId: null, durationSeconds: 0, startTime: null }
             );
           }
 
