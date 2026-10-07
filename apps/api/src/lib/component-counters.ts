@@ -54,6 +54,9 @@ type TransactionClient = Omit<
 // only way to express it was to backdate a fictional service — which is why
 // installs wrote `hoursAtService: 0` logs into the rider's logbook.
 
+/** A refreshed reading this close to the stored one is not rewritten. */
+const READING_EPSILON = 1e-6;
+
 /** Which logbook events reset which clock. */
 const SERVICE_KINDS = ['SERVICE'] as const;
 /** A service necessarily involves looking at the part, so it resets both. */
@@ -65,23 +68,32 @@ export interface ComponentCounters {
   hoursSinceInspection: number;
 }
 
+/**
+ * The component columns the counter rules read. Shared by every loader here so
+ * a column the rules start to need cannot go missing from one of them.
+ */
+const COUNTER_COMPONENT_SELECT = {
+  id: true,
+  userId: true,
+  bikeId: true,
+  installedAt: true,
+  createdAt: true,
+  retiredAt: true,
+  hoursUsed: true,
+  priorHours: true,
+} as const;
+
+/** A component as the counter rules see it. */
+type CounterComponent = HistoryComponent & { priorHours: number };
+
 /** Load the component columns the counter rules read. */
 async function loadComponent(
   tx: TransactionClient | Prisma.TransactionClient,
   componentId: string
-): Promise<(HistoryComponent & { priorHours: number }) | null> {
+): Promise<CounterComponent | null> {
   const c = await (tx as TransactionClient).component.findUnique({
     where: { id: componentId },
-    select: {
-      id: true,
-      userId: true,
-      bikeId: true,
-      installedAt: true,
-      createdAt: true,
-      retiredAt: true,
-      hoursUsed: true,
-      priorHours: true,
-    },
+    select: COUNTER_COMPONENT_SELECT,
   });
   return c ?? null;
 }
@@ -176,8 +188,20 @@ export async function computeComponentCounters(
 ): Promise<ComponentCounters | null> {
   const component = await loadComponent(tx, componentId);
   if (!component) return null;
+  return deriveCounters(tx, component, await countedRideWhere(tx, component));
+}
 
-  const where = await countedRideWhere(tx, component);
+/**
+ * The derivation behind computeComponentCounters, for callers that already hold
+ * the component and its counted-ride predicate (the recompute builds both once
+ * and shares them with the reading refresh).
+ */
+async function deriveCounters(
+  tx: TransactionClient | Prisma.TransactionClient,
+  component: CounterComponent,
+  where: Prisma.RideWhereInput | null
+): Promise<ComponentCounters> {
+  const componentId = component.id;
   // See the note in lifetimeHoursAt about the `?? 0`.
   const lifetimeHours = (component.priorHours ?? 0) + (await countedHours(tx, where));
 
@@ -264,23 +288,47 @@ async function persistCounters(
  * Declared readings are left alone: a pre-Loam service ("serviced at 300h") is
  * the rider's statement, and nothing in the ledger can check it.
  *
- * Returns the number of readings that changed.
+ * One ride read covers every reading: the part's counted rides come back in
+ * start order once, and each log's reading is the running total of the rides
+ * strictly before its date, the same rule lifetimeHoursAt applies. A per-log
+ * aggregate would cost a query per log on every recompute, and the bulk paths
+ * run a recompute for every part on a bike while holding row locks.
+ *
+ * Returns the number of readings that changed. Only those are written.
  */
 async function refreshDerivedReadings(
   tx: TransactionClient | Prisma.TransactionClient,
-  component: HistoryComponent & { priorHours: number },
+  component: CounterComponent,
   where: Prisma.RideWhereInput | null
 ): Promise<number> {
   const client = tx as TransactionClient;
   const logs = await client.serviceLog.findMany({
     where: { componentId: component.id, hoursAtServiceDeclared: false },
+    orderBy: [{ performedAt: 'asc' }, { id: 'asc' }],
     select: { id: true, performedAt: true, hoursAtService: true },
   });
+  if (!logs.length) return 0;
+
+  const rides = where
+    ? await client.ride.findMany({
+        where,
+        orderBy: [{ startTime: 'asc' }, { id: 'asc' }],
+        select: { startTime: true, durationSeconds: true },
+      })
+    : [];
+
+  // Logs and rides are both in date order, so one pass carries the total.
+  let seconds = 0;
+  let next = 0;
   let changed = 0;
   for (const log of logs) {
+    while (next < rides.length && rides[next].startTime < log.performedAt) {
+      seconds += rides[next].durationSeconds ?? 0;
+      next += 1;
+    }
     // See the note in lifetimeHoursAt about the `?? 0`.
-    const reading = (component.priorHours ?? 0) + (await countedHours(tx, where, log.performedAt));
-    if (Math.abs(reading - log.hoursAtService) < 1e-6) continue;
+    const reading = (component.priorHours ?? 0) + seconds / 3600;
+    if (Math.abs(reading - log.hoursAtService) < READING_EPSILON) continue;
     await client.serviceLog.update({ where: { id: log.id }, data: { hoursAtService: reading } });
     changed += 1;
   }
@@ -326,14 +374,11 @@ export async function recomputeComponentCountersWithStats(
   await lockComponentRow(tx, componentId);
   const component = await loadComponent(tx, componentId);
   if (!component) return null;
-  const readingsRefreshed = await refreshDerivedReadings(
-    tx,
-    component,
-    await countedRideWhere(tx, component)
-  );
 
-  const counters = await computeComponentCounters(tx, componentId);
-  if (!counters) return null;
+  // Built once and shared: the refresh and the derivation count the same rides.
+  const where = await countedRideWhere(tx, component);
+  const readingsRefreshed = await refreshDerivedReadings(tx, component, where);
+  const counters = await deriveCounters(tx, component, where);
   await persistCounters(tx, componentId, counters);
   return { counters, readingsRefreshed };
 }
@@ -374,12 +419,18 @@ export async function recomputeComponentCounters(
  *
  * One statement: every SET expression reads the row as it was before the
  * UPDATE, hence the repeated GREATEST("lifetimeHours", 0).
+ *
+ * Logged when it changes anything, matching the warning deriveCounters gives
+ * for a reading above lifetime. A clamp means the debit took a counter past
+ * what the ledger supports (typically a declared reading above lifetime), so
+ * the stored figures under-report until the part's next recompute.
  */
 async function floorAndCapCounters(
   tx: TransactionClient | Prisma.TransactionClient,
-  where: Prisma.Sql
+  where: Prisma.Sql,
+  context: Record<string, unknown>
 ): Promise<void> {
-  await (tx as TransactionClient).$executeRaw`
+  const clamped = await (tx as TransactionClient).$executeRaw`
     UPDATE "Component" SET
       "lifetimeHours" = GREATEST("lifetimeHours", 0),
       "hoursUsed" = CASE WHEN "countersComputedAt" IS NULL THEN GREATEST("hoursUsed", 0)
@@ -395,6 +446,12 @@ async function floorAndCapCounters(
           "hoursUsed" > "lifetimeHours" OR "hoursSinceService" > "lifetimeHours"
           OR "hoursSinceInspection" > "lifetimeHours"))
       )`;
+  if (clamped > 0) {
+    logger.warn(
+      { ...context, clamped },
+      '[component-counters] debit clamped counters; they under-report until the next recompute'
+    );
+  }
 }
 
 /**
@@ -420,15 +477,7 @@ async function loadBikeCandidates(
       countersComputedAt: { not: null },
       OR: [{ bikeId }, { id: { in: [...new Set(installRows.map((r) => r.componentId))] } }],
     },
-    select: {
-      id: true,
-      userId: true,
-      bikeId: true,
-      installedAt: true,
-      createdAt: true,
-      retiredAt: true,
-      hoursUsed: true,
-    },
+    select: COUNTER_COMPONENT_SELECT,
   });
   return { installRows, components };
 }
@@ -479,7 +528,8 @@ export async function creditRideToComponents(
   if (hoursDelta < 0) {
     await floorAndCapCounters(
       tx,
-      Prisma.sql`"userId" = ${userId} AND "bikeId" = ${bikeId} AND "countersComputedAt" IS NULL`
+      Prisma.sql`"userId" = ${userId} AND "bikeId" = ${bikeId} AND "countersComputedAt" IS NULL`,
+      { bikeId, scope: 'uncomputed' }
     );
   }
 
@@ -539,7 +589,12 @@ export async function creditRideToComponents(
     data: { hoursAtService: { increment: hoursDelta } },
   });
 
-  if (hoursDelta < 0) await floorAndCapCounters(tx, Prisma.sql`"id" = ANY(${coveringIds})`);
+  if (hoursDelta < 0) {
+    await floorAndCapCounters(tx, Prisma.sql`"id" = ANY(${coveringIds})`, {
+      bikeId,
+      componentIds: coveringIds,
+    });
+  }
 
   const bikeIds = new Set([bikeId]);
   for (const c of covering) if (c.bikeId) bikeIds.add(c.bikeId);
@@ -571,7 +626,8 @@ export async function recomputeCountersForBike(
   if (legacyHoursDelta < 0) {
     await floorAndCapCounters(
       tx,
-      Prisma.sql`"userId" = ${userId} AND "bikeId" = ${bikeId} AND "countersComputedAt" IS NULL`
+      Prisma.sql`"userId" = ${userId} AND "bikeId" = ${bikeId} AND "countersComputedAt" IS NULL`,
+      { bikeId, scope: 'uncomputed' }
     );
   }
   const { components } = await loadBikeCandidates(tx, userId, bikeId);

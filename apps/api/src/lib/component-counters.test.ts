@@ -114,12 +114,25 @@ const makeTx = (opts: {
           _count: hit.length,
         };
       }),
+      // The reading refresh's single read: counted rides in start order.
+      findMany: jest.fn().mockImplementation(async ({ where }: { where: Record<string, unknown> }) =>
+        rides
+          .filter((r) => matches(r, where))
+          .sort((a, b) => a.startTime.getTime() - b.startTime.getTime())
+          .map((r) => ({ startTime: r.startTime, durationSeconds: r.durationSeconds }))
+      ),
     },
     serviceLog: {
-      findMany: jest.fn().mockImplementation(async ({ where }: { where: Record<string, unknown> }) =>
-        (logs ?? [])
-          .filter((l) => where.hoursAtServiceDeclared === undefined || l.hoursAtServiceDeclared === where.hoursAtServiceDeclared)
-          .sort(newestFirst)
+      // Honors the direction asked for: the refresh reads oldest first, the
+      // per-ride credit newest first.
+      findMany: jest.fn().mockImplementation(
+        async ({ where, orderBy }: { where: Record<string, unknown>; orderBy?: Array<Record<string, string>> }) => {
+          const hit = (logs ?? []).filter(
+            (l) => where.hoursAtServiceDeclared === undefined || l.hoursAtServiceDeclared === where.hoursAtServiceDeclared
+          );
+          const sorted = [...hit].sort(newestFirst);
+          return orderBy?.[0]?.performedAt === 'asc' ? sorted.reverse() : sorted;
+        }
       ),
       update: jest.fn().mockImplementation(async ({ where, data }: { where: { id: string }; data: { hoursAtService: number } }) => {
         const log = logs?.find((l) => l.id === where.id);
@@ -419,9 +432,40 @@ describe('service readings in a recompute', () => {
 
     await recomputeComponentCounters(asTx(tx), 'comp-1');
 
-    // One tenure read for the refresh and one for computing the counters,
-    // never one per log.
-    expect(tx.bikeComponentInstall.findMany).toHaveBeenCalledTimes(2);
+    // One tenure read, shared by the refresh and the counter derivation.
+    expect(tx.bikeComponentInstall.findMany).toHaveBeenCalledTimes(1);
+    expect(tx.component.findUnique).toHaveBeenCalledTimes(1);
+  });
+
+  // The guard the review asked for: the refresh must not cost a query per log.
+  // The bulk paths recompute every part on a bike while holding row locks.
+  it('reads rides once for every reading, however many logs there are', async () => {
+    const book = Array.from({ length: 12 }, (_, i) =>
+      log(`l${i}`, `2025-${String(i + 1).padStart(2, '0')}-15T00:00:00Z`, 0)
+    );
+    const tx = makeTx({
+      installs: [OPEN_TENURE],
+      rides: Array.from({ length: 12 }, (_, i) =>
+        ride(`r${i}`, 'bike-1', `2025-${String(i + 1).padStart(2, '0')}-01T00:00:00Z`, 1)
+      ),
+      logs: book,
+    });
+
+    await recomputeComponentCounters(asTx(tx), 'comp-1');
+
+    expect(tx.ride.findMany).toHaveBeenCalledTimes(1);
+    // The only aggregate left is the lifetime total.
+    expect(tx.ride.aggregate).toHaveBeenCalledTimes(1);
+    // Each log reads the rides strictly before it: one ride per month so far.
+    expect(book.map((l) => l.hoursAtService)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+  });
+
+  it('skips the ride read when there is nothing to refresh', async () => {
+    const tx = makeTx({ installs: [OPEN_TENURE], rides: [ride('r1', 'bike-1', '2025-02-01T00:00:00Z')], logs: [] });
+
+    await recomputeComponentCounters(asTx(tx), 'comp-1');
+
+    expect(tx.ride.findMany).not.toHaveBeenCalled();
   });
 });
 
@@ -757,6 +801,25 @@ describe('creditRideToComponents', () => {
       }
       expect(sql.match(/LEAST\(GREATEST\("\w+", 0\), GREATEST\("lifetimeHours", 0\)\)/g)).toHaveLength(3);
     }
+  });
+
+  it('logs when a debit had to clamp a counter', async () => {
+    const warn = jest.spyOn(logger, 'warn').mockImplementation(() => undefined as never);
+    const tx = makeTx({
+      bikeInstalls: [tenure('t1', 'fork', '2025-01-01T00:00:00Z')],
+      candidates: [part('fork', 'bike-1', '2025-01-01T00:00:00Z')],
+    });
+    // Legacy floor clamps nothing; the covering part's floor clamps one row.
+    tx.$executeRaw.mockResolvedValueOnce(0).mockResolvedValueOnce(1);
+
+    await credit(tx, '2025-03-01T00:00:00Z', -2);
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({ bikeId: 'bike-1', componentIds: ['fork'], clamped: 1 }),
+      expect.stringContaining('under-report')
+    );
+    warn.mockRestore();
   });
 
   it('does not floor anything after a credit', async () => {

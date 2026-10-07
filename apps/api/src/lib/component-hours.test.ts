@@ -114,6 +114,20 @@ describe('loadComponentAttribution', () => {
   });
 });
 
+describe('loadComponentAttribution with a preloaded row', () => {
+  // componentHistory already holds the full row, so the attribution must not
+  // read it a second time.
+  it('uses the row it is given instead of reading the component again', async () => {
+    const tx = makeTx();
+    tx.serviceLog.findFirst.mockResolvedValue(null);
+
+    const result = await loadComponentAttribution(asTx(tx), 'comp-1', BASE_COMPONENT);
+
+    expect(tx.component.findUnique).not.toHaveBeenCalled();
+    expect(result?.component).toBe(BASE_COMPONENT);
+  });
+});
+
 describe('computeCountedHours', () => {
   it('sums the on-bike window excluding EXCLUDEd rides and duplicates', async () => {
     const tx = makeTx();

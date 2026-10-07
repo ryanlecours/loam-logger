@@ -1152,16 +1152,7 @@ export const resolvers = {
         });
       }
 
-      // loadComponentAttribution gives us the component row, the service
-      // anchor and the adjustment rows in one place — and reusing it is what
-      // guarantees our sinceService figure is derived from exactly the same
-      // inputs the dashboard's counter is.
-      const attribution = await loadComponentAttribution(prisma, componentId);
-      if (!attribution || attribution.component.userId !== userId) {
-        throw new GraphQLError('Component not found', { extensions: { code: 'NOT_FOUND' } });
-      }
-      const { anchor, excludedRideIds, includedRideIds } = attribution;
-
+      // Scoped to the owner, so a part that is not theirs reads as missing.
       let component = await prisma.component.findFirst({
         where: { id: componentId, userId },
       });
@@ -1169,13 +1160,27 @@ export const resolvers = {
         throw new GraphQLError('Component not found', { extensions: { code: 'NOT_FOUND' } });
       }
 
-      // A part the post-deploy backfill has not reached still holds zeroed
-      // counters. This page exists to show its lifetime, so derive them now
-      // (the same write the backfill would make) rather than render a 0.
+      // The one write this query makes. A part the post-deploy backfill has
+      // not reached still holds zeroed counters, and this page exists to show
+      // its lifetime, so derive them now rather than render a 0. It is the same
+      // recompute the backfill would run: idempotent, so a repeat view or a
+      // later backfill pass converges on the same values. It takes the part's
+      // row lock, which is why it is limited to rows never computed; once
+      // countersComputedAt is set, every later view is a pure read.
       if (component.countersComputedAt == null) {
         await prisma.$transaction((tx) => recomputeComponentCounters(tx, componentId));
         component = (await prisma.component.findFirst({ where: { id: componentId, userId } })) ?? component;
       }
+
+      // loadComponentAttribution gives us the service anchor and the adjustment
+      // rows in one place, and reusing it is what guarantees our sinceService
+      // figure is derived from exactly the same inputs the dashboard's counter
+      // is. It takes the row loaded above rather than reading it again.
+      const attribution = await loadComponentAttribution(prisma, componentId, component);
+      if (!attribution) {
+        throw new GraphQLError('Component not found', { extensions: { code: 'NOT_FOUND' } });
+      }
+      const { anchor, excludedRideIds, includedRideIds } = attribution;
 
       // Defense in depth: ownership is validated above, but the tenure read
       // filters userId as well as componentId, matching the convention
