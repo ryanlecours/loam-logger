@@ -1143,11 +1143,19 @@ export const resolvers = {
       }
       const { anchor, excludedRideIds, includedRideIds } = attribution;
 
-      const component = await prisma.component.findFirst({
+      let component = await prisma.component.findFirst({
         where: { id: componentId, userId },
       });
       if (!component) {
         throw new GraphQLError('Component not found', { extensions: { code: 'NOT_FOUND' } });
+      }
+
+      // A part the post-deploy backfill has not reached still holds zeroed
+      // counters. This page exists to show its lifetime, so derive them now
+      // (the same write the backfill would make) rather than render a 0.
+      if (component.countersComputedAt == null) {
+        await prisma.$transaction((tx) => recomputeComponentCounters(tx, componentId));
+        component = (await prisma.component.findFirst({ where: { id: componentId, userId } })) ?? component;
       }
 
       // Defense in depth: ownership is validated above, but the tenure read

@@ -1,8 +1,11 @@
 import {
   computeComponentCounters,
   recomputeComponentCounters,
+  rescaleLegacyServiceLogs,
+  setLegacyArchiveDropped,
   lifetimeHoursAt,
 } from './component-counters';
+import { logger } from './logger';
 import { computeCountedHours, type ComponentAttribution } from './component-hours';
 import type { Prisma } from '@prisma/client';
 
@@ -50,9 +53,20 @@ const makeTx = (opts: {
   /** Latest log per kind-set, keyed by the first kind in the query's `in`. */
   latestService?: { hoursAtService: number } | null;
   latestInspection?: { hoursAtService: number } | null;
+  /**
+   * The migration's ServiceLog archive. Absent by default (the post-cleanup
+   * state); `legacyLogs` are the rows still on the old scale.
+   */
+  archive?: { legacyLogs: Array<{ id: string; performedAt: Date }> };
 }) => {
   const rides = opts.rides ?? [];
   return {
+    // Two raw reads: the archive-existence probe, then the legacy-row select.
+    $queryRawUnsafe: jest.fn().mockImplementation(async (sql: string) =>
+      sql.includes('to_regclass')
+        ? [{ present: opts.archive !== undefined }]
+        : opts.archive?.legacyLogs ?? []
+    ),
     component: {
       findUnique: jest.fn().mockResolvedValue(
         opts.component === undefined
@@ -87,6 +101,7 @@ const makeTx = (opts: {
       }),
     },
     serviceLog: {
+      update: jest.fn().mockResolvedValue({}),
       // Distinguishes the two reads by which kinds they ask for.
       findFirst: jest.fn().mockImplementation(async ({ where }: { where: { kind: { in: string[] } } }) => {
         const kinds = where.kind.in;
@@ -117,6 +132,9 @@ const OPEN_TENURE = {
   installedAt: d('2025-01-01T00:00:00Z'),
   removedAt: null,
 };
+
+// The "archive dropped" answer is cached per process; each test starts unknown.
+beforeEach(() => setLegacyArchiveDropped(false));
 
 describe('computeComponentCounters', () => {
   it('sums lifetime hours from the tenure ledger', async () => {
@@ -230,7 +248,93 @@ describe('computeComponentCounters', () => {
     const tx = makeTx({ component: null });
     expect(await computeComponentCounters(asTx(tx), 'gone')).toBeNull();
   });
+  it('clamps a service reading above lifetime to zero and logs it', async () => {
+    // Rides deleted after the service was recorded: the reading now exceeds
+    // what the ledger can derive. Zero is the only truthful "since", but the
+    // inconsistency is worth a log line rather than silence.
+    const warn = jest.spyOn(logger, 'warn').mockImplementation(() => undefined as never);
+    const tx = makeTx({
+      installs: [OPEN_TENURE],
+      rides: [ride('r1', 'bike-1', '2025-02-01T00:00:00Z', 10)],
+      latestService: { hoursAtService: 30 },
+      latestInspection: { hoursAtService: 30 },
+    });
+
+    const c = await computeComponentCounters(asTx(tx), 'comp-1');
+
+    expect(c?.hoursSinceService).toBe(0);
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({ componentId: 'comp-1', hoursAtService: 30, lifetimeHours: 10 }),
+      expect.any(String)
+    );
+    warn.mockRestore();
+  });
+
+  it('never lets a "since" figure exceed lifetime, whatever the reading', async () => {
+    // Float error in a stored reading must not break hoursSince* <= lifetime.
+    const tx = makeTx({
+      installs: [OPEN_TENURE],
+      rides: [ride('r1', 'bike-1', '2025-02-01T00:00:00Z', 10)],
+      latestService: { hoursAtService: -1e-9 },
+      latestInspection: { hoursAtService: -1e-9 },
+    });
+
+    const c = await computeComponentCounters(asTx(tx), 'comp-1');
+
+    expect(c?.hoursSinceService).toBe(10);
+    expect(c?.hoursSinceInspection).toBe(10);
+  });
 });
+
+describe('rescaleLegacyServiceLogs', () => {
+  it('rewrites each legacy log to the lifetime reading at its date', async () => {
+    const tx = makeTx({
+      installs: [OPEN_TENURE],
+      rides: [
+        ride('r1', 'bike-1', '2025-02-01T00:00:00Z', 4),
+        ride('r2', 'bike-1', '2025-06-01T00:00:00Z', 6),
+      ],
+      archive: {
+        legacyLogs: [
+          { id: 'log-1', performedAt: d('2025-04-01T00:00:00Z') },
+          { id: 'log-2', performedAt: d('2025-12-01T00:00:00Z') },
+        ],
+      },
+    });
+
+    expect(await rescaleLegacyServiceLogs(asTx(tx), 'comp-1')).toBe(2);
+    expect(tx.serviceLog.update).toHaveBeenCalledWith({
+      where: { id: 'log-1' },
+      data: { hoursAtService: 4 },
+    });
+    expect(tx.serviceLog.update).toHaveBeenCalledWith({
+      where: { id: 'log-2' },
+      data: { hoursAtService: 10 },
+    });
+  });
+
+  it('scopes the legacy select to the component, as a bound parameter', async () => {
+    const tx = makeTx({ archive: { legacyLogs: [] } });
+
+    await rescaleLegacyServiceLogs(asTx(tx), 'comp-1');
+
+    const select = tx.$queryRawUnsafe.mock.calls.find(([sql]) => !String(sql).includes('to_regclass'));
+    expect(select?.[0]).toContain('"updatedAt" = a."updatedAt"');
+    expect(select?.slice(1)).toEqual(['comp-1']);
+  });
+
+  it('does nothing once the archive is gone, and stops asking', async () => {
+    const tx = makeTx({});
+
+    expect(await rescaleLegacyServiceLogs(asTx(tx), 'comp-1')).toBe(0);
+    expect(await rescaleLegacyServiceLogs(asTx(tx), 'comp-2')).toBe(0);
+
+    // One existence probe, then the cached answer.
+    expect(tx.$queryRawUnsafe).toHaveBeenCalledTimes(1);
+    expect(tx.serviceLog.update).not.toHaveBeenCalled();
+  });
+});
+
 
 describe('lifetimeHoursAt', () => {
   it('counts only rides before the given moment', async () => {
@@ -283,8 +387,26 @@ describe('recomputeComponentCounters', () => {
         hoursSinceService: 25,
         hoursSinceInspection: 25,
         hoursUsed: 25,
+        countersComputedAt: expect.any(Date),
       },
     });
+  });
+
+  // The deploy-to-backfill window: a ride sync or service write recomputes a
+  // part whose logs are still on the old scale. Rescaling first is what stops
+  // it subtracting an old-scale reading from a lifetime figure.
+  it('rescales legacy logs before deriving the counters', async () => {
+    const tx = makeTx({
+      installs: [OPEN_TENURE],
+      rides: [ride('r1', 'bike-1', '2025-02-01T00:00:00Z', 40)],
+      archive: { legacyLogs: [{ id: 'log-1', performedAt: d('2025-03-01T00:00:00Z') }] },
+    });
+
+    await recomputeComponentCounters(asTx(tx), 'comp-1');
+
+    const rescaledAt = tx.serviceLog.update.mock.invocationCallOrder[0];
+    const firstLatestRead = Math.min(...tx.serviceLog.findFirst.mock.invocationCallOrder);
+    expect(rescaledAt).toBeLessThan(firstLatestRead);
   });
 });
 

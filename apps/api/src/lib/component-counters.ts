@@ -1,4 +1,5 @@
 import type { PrismaClient, Prisma } from '@prisma/client';
+import { logger } from './logger';
 import {
   normalizeTenures,
   mergeWindows,
@@ -189,11 +190,24 @@ export async function computeComponentCounters(
   // part has ever done counts — including its declared prior hours, because an
   // unserviced used part really is carrying that wear.
   //
-  // Clamped at zero: hoursAtService for a pre-Loam service is user-declared and
-  // can legitimately exceed what we can derive, and a negative "hours since"
-  // is never a truthful answer.
-  const since = (logged: number | undefined) =>
-    logged === undefined ? lifetimeHours : Math.max(0, lifetimeHours - logged);
+  // Clamped to [0, lifetimeHours]: hoursAtService for a pre-Loam service is
+  // user-declared and can legitimately exceed what we can derive, a negative
+  // "hours since" is never a truthful answer, and float error in the
+  // subtraction must not break the hoursSince* <= lifetimeHours invariant.
+  //
+  // A reading well above lifetime is clamped but logged, not silently absorbed:
+  // it means rides were deleted or priorHours was lowered after the service was
+  // recorded, and the part now reads as just serviced.
+  const since = (logged: number | undefined) => {
+    if (logged === undefined) return lifetimeHours;
+    if (logged > lifetimeHours + 0.01) {
+      logger.warn(
+        { componentId, hoursAtService: logged, lifetimeHours },
+        '[component-counters] service reading exceeds lifetime hours; clamping to 0 since'
+      );
+    }
+    return Math.min(lifetimeHours, Math.max(0, lifetimeHours - logged));
+  };
 
   return {
     lifetimeHours,
@@ -203,14 +217,111 @@ export async function computeComponentCounters(
 }
 
 /**
- * Recompute and persist one component's counters. The single authoritative
- * write path — every mutation that can change a component's accrued hours ends
- * here, so no caller has to know the rule.
+ * Write a computed counter set to its component and mark it computed.
  *
  * `hoursUsed` is kept in lockstep with `hoursSinceService`. It is the column
  * every existing reader (prediction engine, dashboard, mobile) still consumes,
  * so writing both means this change corrects those surfaces rather than
  * requiring them all to migrate at once.
+ *
+ * Exported so the backfill script writes exactly what a recompute writes.
+ */
+export async function persistCounters(
+  tx: TransactionClient | Prisma.TransactionClient,
+  componentId: string,
+  counters: ComponentCounters
+): Promise<void> {
+  await (tx as TransactionClient).component.update({
+    where: { id: componentId },
+    data: {
+      lifetimeHours: counters.lifetimeHours,
+      hoursSinceService: counters.hoursSinceService,
+      hoursSinceInspection: counters.hoursSinceInspection,
+      hoursUsed: counters.hoursSinceService,
+      countersComputedAt: new Date(),
+    },
+  });
+}
+
+/**
+ * Archive written by migration 20260927120000. Rows in it whose live copy still
+ * has the same updatedAt hold hoursAtService on the OLD scale (the since-service
+ * counter at the time) and have not been rescaled yet.
+ */
+const LEGACY_ARCHIVE = 'loam_archive."ServiceLog_pre_20260927"';
+
+/**
+ * Set once the archive is seen to be gone. It is dropped by hand after the
+ * backfill and never comes back, so a process that has seen it missing can stop
+ * asking. The reverse is not cached: a drop while the process runs must be
+ * noticed, or the next query would reference a table that no longer exists.
+ */
+let legacyArchiveDropped = false;
+
+/**
+ * Test hook. Suites whose mocked clients do not model the archive declare it
+ * dropped (the post-cleanup state); counter tests reset it to exercise the
+ * rescale.
+ */
+export function setLegacyArchiveDropped(dropped: boolean): void {
+  legacyArchiveDropped = dropped;
+}
+
+/**
+ * Move any of a component's pre-migration service logs onto the lifetime scale.
+ *
+ * Runs inside every recompute, not only in the backfill script, because the
+ * window between deploy and backfill is real: a ride sync or service write in
+ * that window recomputes the part, and subtracting an old-scale reading from a
+ * lifetime figure makes a serviced part look freshly serviced. Rescaling first
+ * makes every recompute correct whether or not the backfill has reached it.
+ *
+ * Idempotent through updatedAt: the rescale write bumps it (Prisma @updatedAt),
+ * so a rescaled row no longer matches its archived copy, and nor does a row a
+ * rider has edited since the deploy (whose figure is already on the new scale).
+ *
+ * Returns the number of logs rescaled.
+ */
+export async function rescaleLegacyServiceLogs(
+  tx: TransactionClient | Prisma.TransactionClient,
+  componentId: string
+): Promise<number> {
+  if (legacyArchiveDropped) return 0;
+
+  const client = tx as TransactionClient;
+  const [{ present }] = await client.$queryRawUnsafe<{ present: boolean }[]>(
+    `SELECT to_regclass('${LEGACY_ARCHIVE}') IS NOT NULL AS "present"`
+  );
+  if (!present) {
+    legacyArchiveDropped = true;
+    return 0;
+  }
+
+  const legacyLogs = await client.$queryRawUnsafe<{ id: string; performedAt: Date }[]>(
+    `SELECT sl."id", sl."performedAt"
+       FROM "ServiceLog" sl
+       JOIN ${LEGACY_ARCHIVE} a ON a."id" = sl."id"
+      WHERE sl."componentId" = $1
+        AND sl."updatedAt" = a."updatedAt"`,
+    componentId
+  );
+  for (const log of legacyLogs) {
+    await client.serviceLog.update({
+      where: { id: log.id },
+      data: { hoursAtService: await lifetimeHoursAt(tx, componentId, log.performedAt) },
+    });
+  }
+  return legacyLogs.length;
+}
+
+/**
+ * Recompute and persist one component's counters. The single authoritative
+ * write path: every mutation that can change a component's accrued hours ends
+ * here, so no caller has to know the rule.
+ *
+ * Rescales the part's legacy service logs first (see rescaleLegacyServiceLogs),
+ * so the result is right even before the backfill has reached this row, and
+ * stamps countersComputedAt so readers and the fast-path increment trust it.
  *
  * Returns null when the component no longer exists, matching the tolerant
  * behavior of the path it replaces.
@@ -219,87 +330,10 @@ export async function recomputeComponentCounters(
   tx: TransactionClient | Prisma.TransactionClient,
   componentId: string
 ): Promise<ComponentCounters | null> {
+  await rescaleLegacyServiceLogs(tx, componentId);
   const counters = await computeComponentCounters(tx, componentId);
   if (!counters) return null;
 
-  await (tx as TransactionClient).component.update({
-    where: { id: componentId },
-    data: {
-      lifetimeHours: counters.lifetimeHours,
-      hoursSinceService: counters.hoursSinceService,
-      hoursSinceInspection: counters.hoursSinceInspection,
-      hoursUsed: counters.hoursSinceService,
-    },
-  });
+  await persistCounters(tx, componentId, counters);
   return counters;
-}
-
-/**
- * Recompute every component that could be affected by a set of bikes' rides
- * changing: anything with a tenure on one of those bikes, plus anything whose
- * per-ride adjustments reference the touched rides.
- *
- * Tenure-based rather than `Component.bikeId`-based on purpose. A ride added to
- * bike B changes the lifetime hours of every part that was *ever* fitted to B,
- * not just the parts on it today — which is exactly the case the old
- * bikeId-scoped bulk helpers could not see.
- */
-export async function recomputeCountersForBikes(
-  tx: TransactionClient | Prisma.TransactionClient,
-  opts: { userId: string; bikeIds: (string | null | undefined)[]; rideIds?: string[] }
-): Promise<string[]> {
-  const bikeIds = [...new Set(opts.bikeIds.filter((b): b is string => !!b))];
-
-  const componentIds = new Set<string>();
-
-  if (bikeIds.length) {
-    const tenures = await (tx as TransactionClient).bikeComponentInstall.findMany({
-      where: { userId: opts.userId, bikeId: { in: bikeIds } },
-      select: { componentId: true },
-      distinct: ['componentId'],
-    });
-    for (const t of tenures) componentIds.add(t.componentId);
-
-    // Defence in depth: a component whose bikeId points at a touched bike but
-    // whose install row is missing (the orphan drift installComponent sweeps
-    // for) would otherwise be skipped by the tenure query above.
-    const orphans = await (tx as TransactionClient).component.findMany({
-      where: { userId: opts.userId, bikeId: { in: bikeIds } },
-      select: { id: true },
-    });
-    for (const o of orphans) componentIds.add(o.id);
-  }
-
-  if (opts.rideIds?.length) {
-    const adjusted = await (tx as TransactionClient).componentRideAdjustment.findMany({
-      where: { rideId: { in: opts.rideIds } },
-      select: { componentId: true },
-      distinct: ['componentId'],
-    });
-    for (const a of adjusted) componentIds.add(a.componentId);
-  }
-
-  const affectedBikeIds = new Set<string>(bikeIds);
-  for (const componentId of componentIds) {
-    const counters = await computeComponentCounters(tx, componentId);
-    if (!counters) continue;
-    await (tx as TransactionClient).component.update({
-      where: { id: componentId },
-      data: {
-        lifetimeHours: counters.lifetimeHours,
-        hoursSinceService: counters.hoursSinceService,
-        hoursSinceInspection: counters.hoursSinceInspection,
-        hoursUsed: counters.hoursSinceService,
-      },
-    });
-  }
-
-  // Callers use this to target prediction-cache invalidation.
-  const touched = await (tx as TransactionClient).component.findMany({
-    where: { id: { in: [...componentIds] }, bikeId: { not: null } },
-    select: { bikeId: true },
-  });
-  for (const t of touched) if (t.bikeId) affectedBikeIds.add(t.bikeId);
-
-  return [...affectedBikeIds];
 }

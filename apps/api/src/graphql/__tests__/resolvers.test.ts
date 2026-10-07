@@ -34,6 +34,7 @@ jest.mock('../../lib/prisma', () => ({
     },
     rideWeather: {
       groupBy: jest.fn().mockResolvedValue([]),
+      findMany: jest.fn().mockResolvedValue([]),
     },
     componentRideAdjustment: {
       findMany: jest.fn().mockResolvedValue([]),
@@ -147,6 +148,11 @@ import { checkQueryRateLimit } from '../../lib/rate-limit';
 import { generateSummary } from '../../services/advisor/summarize';
 import { captureServerEvent } from '../../lib/posthog';
 import { CURRENT_TERMS_VERSION } from '@loam/shared';
+import { setLegacyArchiveDropped } from '../../lib/component-counters';
+
+// The mocked clients here do not model the legacy ServiceLog archive, so run in
+// its post-cleanup state. lib/component-counters.test.ts covers the rescale.
+setLegacyArchiveDropped(true);
 
 const mockPrisma = prisma as jest.Mocked<typeof prisma>;
 const mockCheckMutationRateLimit = checkMutationRateLimit as jest.MockedFunction<typeof checkMutationRateLimit>;
@@ -383,6 +389,7 @@ describe('GraphQL Resolvers', () => {
             hoursSinceService: 0,
             hoursSinceInspection: 0,
             hoursUsed: 0,
+            countersComputedAt: expect.any(Date),
           },
         });
         expect(mockPrisma.component.update).toHaveBeenCalledWith({
@@ -4024,6 +4031,7 @@ describe('GraphQL Resolvers', () => {
           hoursSinceService: 1,
           hoursSinceInspection: 1,
           hoursUsed: 1,
+          countersComputedAt: expect.any(Date),
         },
       });
     });
@@ -4094,6 +4102,7 @@ describe('GraphQL Resolvers', () => {
           hoursSinceService: 2,
           hoursSinceInspection: 2,
           hoursUsed: 2,
+          countersComputedAt: expect.any(Date),
         },
       });
     });
@@ -4229,6 +4238,7 @@ describe('GraphQL Resolvers', () => {
           hoursSinceService: 5,
           hoursSinceInspection: 5,
           hoursUsed: 5,
+          countersComputedAt: expect.any(Date),
         },
       });
     });
@@ -4285,6 +4295,7 @@ describe('GraphQL Resolvers', () => {
           hoursSinceService: 100,
           hoursSinceInspection: 100,
           hoursUsed: 100,
+          countersComputedAt: expect.any(Date),
         },
       });
     });
@@ -5086,6 +5097,46 @@ describe('GraphQL Resolvers', () => {
       const result = await resolver({ id: 'ride-1' }, {}, ctx as never);
 
       expect(result).toBe(weatherRow);
+    });
+
+    // componentHistory aggregates RideWeather directly, so it would walk around
+    // the Ride.weather field gate if the payload's conditions resolver did not
+    // enforce the tier itself.
+    it('ComponentHistoryPayload.conditions returns empty buckets for free users without querying', async () => {
+      const resolver = resolvers.ComponentHistoryPayload.conditions;
+      const mockFindMany = prisma.rideWeather.findMany as jest.Mock;
+      mockFindMany.mockClear();
+      const ctx = createMockContext('user-123', {}, freeTier);
+
+      const result = await resolver(
+        { __rideWhere: { userId: 'user-123' }, __userId: 'user-123' },
+        {},
+        ctx as never
+      );
+
+      expect(result.every((b: { rideCount: number }) => b.rideCount === 0)).toBe(true);
+      expect(mockFindMany).not.toHaveBeenCalled();
+    });
+
+    it('ComponentHistoryPayload.conditions aggregates weather for Pro users', async () => {
+      const resolver = resolvers.ComponentHistoryPayload.conditions;
+      const mockFindMany = prisma.rideWeather.findMany as jest.Mock;
+      mockFindMany.mockClear();
+      mockFindMany.mockResolvedValueOnce([
+        { condition: 'RAINY', ride: { durationSeconds: 3600 } },
+      ]);
+      const ctx = createMockContext('user-123');
+
+      const result = await resolver(
+        { __rideWhere: { userId: 'user-123' }, __userId: 'user-123' },
+        {},
+        ctx as never
+      );
+
+      expect(mockFindMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { ride: { userId: 'user-123' } } })
+      );
+      expect(result.find((b: { condition: string }) => b.condition === 'RAINY')?.rideCount).toBe(1);
     });
 
     it('User.weatherBreakdown returns a zeroed shape for free users without querying', async () => {
@@ -6227,6 +6278,7 @@ describe('GraphQL Resolvers', () => {
           hoursSinceService: 0,
           hoursSinceInspection: 0,
           hoursUsed: 0,
+          countersComputedAt: expect.any(Date),
         },
       });
       expect(result.counted).toBe(false);

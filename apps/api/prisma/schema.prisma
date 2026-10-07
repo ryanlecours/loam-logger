@@ -465,6 +465,10 @@ model Component {
   lifetimeHours        Float @default(0)
   hoursSinceService    Float @default(0)
   hoursSinceInspection Float @default(0)
+  // When the counters above were last derived from the ledger. NULL means never:
+  // the row predates the counters and still holds 0s, so readers fall back to the
+  // legacy figures and the fast-path ride increment leaves them alone.
+  countersComputedAt   DateTime?
 
   // Inspection is a separate clock from service: an inspection that finds
   // nothing resets it without any work being done. Null means this component
@@ -556,7 +560,6 @@ model ServiceLog {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@index([componentId])
   @@index([performedAt])
   @@index([componentId, kind, performedAt])
 }

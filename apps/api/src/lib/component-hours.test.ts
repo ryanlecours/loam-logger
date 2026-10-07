@@ -10,6 +10,11 @@ import {
   type ComponentAttribution,
 } from './component-hours';
 import type { Prisma } from '@prisma/client';
+import { setLegacyArchiveDropped } from './component-counters';
+
+// The mocked clients here do not model the legacy ServiceLog archive, so run in
+// its post-cleanup state. component-counters.test.ts covers the rescale.
+setLegacyArchiveDropped(true);
 
 // Minimal mock transaction client covering the models these helpers touch.
 const makeTx = () => ({
@@ -263,6 +268,7 @@ describe('recomputeComponentHours', () => {
         hoursSinceService: 2.5,
         hoursSinceInspection: 2.5,
         hoursUsed: 2.5,
+        countersComputedAt: expect.any(Date),
       },
     });
   });
@@ -357,7 +363,7 @@ describe('hours accrual is type-agnostic', () => {
     // All four counters move together: hoursUsed stays in lockstep with
     // hoursSinceService, and lifetimeHours must stay monotonic.
     expect(tx.component.updateMany).toHaveBeenCalledWith({
-      where: { userId: 'user-1', bikeId: 'bike-1' },
+      where: { userId: 'user-1', bikeId: 'bike-1', countersComputedAt: { not: null } },
       data: {
         hoursUsed: { increment: 2 },
         lifetimeHours: { increment: 2 },
@@ -365,8 +371,26 @@ describe('hours accrual is type-agnostic', () => {
         hoursSinceInspection: { increment: 2 },
       },
     });
-    const [{ where }] = tx.component.updateMany.mock.calls[0];
-    expect(where).not.toHaveProperty('type');
+    for (const [{ where }] of tx.component.updateMany.mock.calls) {
+      expect(where).not.toHaveProperty('type');
+    }
+  });
+
+  // Before the backfill reaches a row its counters are zeroes, not figures.
+  // Incrementing them would invent a "lifetime" of just the rides since deploy,
+  // which readers would then trust over the legacy fallback.
+  it('moves only hoursUsed on rows whose counters were never computed', async () => {
+    const tx = makeTx();
+    await incrementBikeComponentHours(asTx(tx), {
+      userId: 'user-1',
+      bikeId: 'bike-1',
+      hoursDelta: 2,
+    });
+
+    expect(tx.component.updateMany).toHaveBeenCalledWith({
+      where: { userId: 'user-1', bikeId: 'bike-1', countersComputedAt: null },
+      data: { hoursUsed: { increment: 2 } },
+    });
   });
 
   it('decrements every component on the bike without filtering by type', async () => {

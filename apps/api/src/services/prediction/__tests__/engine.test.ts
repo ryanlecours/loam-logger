@@ -1164,6 +1164,64 @@ describe('prediction engine', () => {
     });
   });
 
+  // Whether the stored counter or the ride window is used is keyed on
+  // countersComputedAt, not on the counter's value: a computed 0 (a part just
+  // serviced) is a real answer, and an uncomputed row's counters are not.
+  describe('stored counters vs. the pre-backfill fallback', () => {
+    const fork = {
+      id: 'comp-fork',
+      type: 'FORK',
+      location: 'NONE',
+      brand: 'Fox',
+      model: '38',
+      hoursUsed: 0,
+      serviceDueAtHours: 50,
+      inspectionDueAtHours: 20,
+      installedAt: new Date('2024-01-01T00:00:00Z'),
+    };
+
+    const run = async (component: Record<string, unknown>) => {
+      (prisma.bike.findUnique as jest.Mock).mockResolvedValue({ ...mockBike, components: [component] });
+      (prisma.ride.findMany as jest.Mock).mockResolvedValue([
+        { id: 'ride-1', durationSeconds: 3 * 3600, distanceMeters: 30000, elevationGainMeters: 800, startTime: new Date('2024-01-15') },
+      ]);
+      (prisma.ride.findFirst as jest.Mock).mockResolvedValue({ startTime: new Date('2024-01-01') });
+      (prisma.serviceLog.findFirst as jest.Mock).mockResolvedValue(null);
+      (prisma.serviceLog.findMany as jest.Mock).mockResolvedValue([]);
+      const result = await generateBikePredictions({ userId: 'user-123', bikeId: 'bike-123', userRole: 'FREE' });
+      return result.components[0];
+    };
+
+    it('trusts a computed zero rather than summing the window', async () => {
+      const c = await run({
+        ...fork,
+        countersComputedAt: new Date('2024-02-01'),
+        lifetimeHours: 3,
+        hoursSinceService: 0,
+        hoursSinceInspection: 0,
+      });
+
+      expect(c.hoursSinceService).toBe(0);
+      expect(c.hoursSinceInspection).toBe(0);
+    });
+
+    it('sums the window and shows no inspection clock while uncomputed', async () => {
+      // A ride increment before the backfill can no longer move these off 0,
+      // but even if a row held stray values they must not be read.
+      const c = await run({
+        ...fork,
+        countersComputedAt: null,
+        lifetimeHours: 1,
+        hoursSinceService: 1,
+        hoursSinceInspection: 1,
+      });
+
+      expect(c.hoursSinceService).toBe(3);
+      expect(c.hoursSinceInspection).toBeNull();
+      expect(c.inspectionStatus).toBeNull();
+    });
+  });
+
   describe('per-component ride adjustments', () => {
     const ridesWithIds: RideMetrics[] = [
       {

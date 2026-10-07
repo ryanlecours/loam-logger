@@ -20,14 +20,23 @@ export async function incrementBikeComponentHours(
   // a per-ride tenure query. The authoritative tenure-aware recompute
   // (lib/component-counters.ts) runs on the paths where the fast path cannot be
   // trusted: installs, swaps, services, ride edits and per-ride adjustments.
+  //
+  // Rows whose counters have never been computed (countersComputedAt NULL) get
+  // only the legacy hoursUsed bump. Incrementing their zeroed counters would
+  // produce a "lifetime" of just the rides since deploy, which readers would
+  // then trust; the recompute or backfill derives the real figure instead.
   await (tx as TransactionClient).component.updateMany({
-    where: { userId: opts.userId, bikeId: opts.bikeId },
+    where: { userId: opts.userId, bikeId: opts.bikeId, countersComputedAt: { not: null } },
     data: {
       hoursUsed: { increment: opts.hoursDelta },
       lifetimeHours: { increment: opts.hoursDelta },
       hoursSinceService: { increment: opts.hoursDelta },
       hoursSinceInspection: { increment: opts.hoursDelta },
     },
+  });
+  await (tx as TransactionClient).component.updateMany({
+    where: { userId: opts.userId, bikeId: opts.bikeId, countersComputedAt: null },
+    data: { hoursUsed: { increment: opts.hoursDelta } },
   });
 }
 
@@ -41,14 +50,19 @@ export async function decrementBikeComponentHours(
   opts: { userId: string; bikeId: string; hoursDelta: number }
 ) {
   if (opts.hoursDelta <= 0) return;
+  // Same split as incrementBikeComponentHours: uncomputed rows only move hoursUsed.
   await (tx as TransactionClient).component.updateMany({
-    where: { userId: opts.userId, bikeId: opts.bikeId },
+    where: { userId: opts.userId, bikeId: opts.bikeId, countersComputedAt: { not: null } },
     data: {
       hoursUsed: { decrement: opts.hoursDelta },
       lifetimeHours: { decrement: opts.hoursDelta },
       hoursSinceService: { decrement: opts.hoursDelta },
       hoursSinceInspection: { decrement: opts.hoursDelta },
     },
+  });
+  await (tx as TransactionClient).component.updateMany({
+    where: { userId: opts.userId, bikeId: opts.bikeId, countersComputedAt: null },
+    data: { hoursUsed: { decrement: opts.hoursDelta } },
   });
   // Floor each counter at zero independently: a decrement can legitimately
   // overshoot one of them (a part serviced mid-window has a small

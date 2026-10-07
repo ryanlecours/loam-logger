@@ -250,11 +250,14 @@ function predictComponent(
   // hours, so it is correct for a component that has moved or arrived used —
   // the window can only ever see the current bike.
   //
-  // Falls back to the window sum when the counter is still 0, so predictions
-  // stay sane on rows the post-deploy backfill has not reached yet.
-  const storedSinceService = component.hoursSinceService ?? 0;
-  const hoursSinceService =
-    storedSinceService > 0 ? storedSinceService : calculateTotalHours(ridesSinceService);
+  // Falls back to the window sum only while the counters have never been
+  // computed (countersComputedAt NULL), so predictions stay sane on rows the
+  // post-deploy backfill has not reached yet. Keyed on the marker rather than
+  // on the value: a computed 0 is a real answer (a new part, a fresh service).
+  const countersComputed = component.countersComputedAt != null;
+  const hoursSinceService = countersComputed
+    ? component.hoursSinceService
+    : calculateTotalHours(ridesSinceService);
 
   // Calculate confidence FIRST to decide whether to use adaptive prediction
   const totalHours = calculateTotalHours(recentRides);
@@ -339,8 +342,11 @@ function predictComponent(
   let hoursSinceInspection: number | null = null;
   let inspectionHoursRemaining: number | null = null;
 
-  if (inspectionIntervalHours != null) {
-    hoursSinceInspection = component.hoursSinceInspection ?? 0;
+  // Uncomputed counters have no inspection figure to offer, and there is no
+  // legacy one to fall back to, so the inspection clock stays unrendered until
+  // the recompute or backfill reaches this part rather than reading as passing.
+  if (inspectionIntervalHours != null && countersComputed) {
+    hoursSinceInspection = component.hoursSinceInspection;
     inspectionHoursRemaining = inspectionIntervalHours - hoursSinceInspection;
     inspectionStatus = getStatus(inspectionHoursRemaining, inspectionIntervalHours);
   }

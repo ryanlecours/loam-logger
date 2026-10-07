@@ -8,22 +8,28 @@
  * src/lib/component-counters.ts. The columns land at 0 and this script fills
  * them.
  *
- * Reads tolerate the gap in the meantime: the prediction engine falls back to
- * summing its ride window when hoursSinceService is still 0, and the GraphQL
- * layer keeps serving the legacy hoursUsed counter. So there is no hard ordering
- * requirement between deploy and this run — but until it runs, no component
- * shows a lifetime figure.
+ * Reads tolerate the gap in the meantime. Until a row's counters are computed
+ * its countersComputedAt is NULL: the prediction engine falls back to summing
+ * its ride window, the fast-path ride increment leaves its counters alone, and
+ * the component history page computes them on first view. Any recompute in the
+ * gap (a service, an install, a ride edit) also completes the row, legacy log
+ * rescale included. So the gap shows legacy figures, never wrong new ones, and
+ * there is no hard ordering between deploy and this run. Run it promptly anyway:
+ * until it does, most parts show no lifetime figure.
  *
- * IDEMPOTENT: recomputes from the ledger every time, so re-running is safe and
- * converges to the same answer. Run it again after any bulk data repair.
+ * By default only rows with countersComputedAt NULL are processed, so a re-run
+ * after completion is a no-op and a --limit run picks up where the last one
+ * stopped. Pass --all to recompute every component from the ledger (idempotent,
+ * converges to the same answer); use it after a bulk data repair.
  *
  * DRY RUN BY DEFAULT: prints what would change and writes NOTHING. Pass
  * --execute to persist.
  *
- * It also rescales legacy ServiceLog rows. Before the migration, hoursAtService
- * stored the since-service counter at the time of service; the new rule
- * subtracts it from lifetimeHours, so it must be the LIFETIME reading as of
- * that date. Left alone, every part serviced twice or more would read as
+ * It also rescales legacy ServiceLog rows, through the same
+ * rescaleLegacyServiceLogs every recompute runs. Before the migration,
+ * hoursAtService stored the since-service counter at the time of service; the
+ * new rule subtracts it from lifetimeHours, so it must be the LIFETIME reading
+ * as of that date. Left alone, every part serviced twice or more would read as
  * overdue. Legacy rows are the ones in the migration's archive table, and a row
  * is only rescaled while its updatedAt still matches the archived copy: once
  * rescaled, or once a rider edits it after the deploy, it is left alone. Any
@@ -44,41 +50,64 @@
  *   DATABASE_URL="…" npx tsx scripts/backfill-component-counters.ts --execute   # persist
  *   …scripts/backfill-component-counters.ts --user <userId>                     # scope to one user
  *   …scripts/backfill-component-counters.ts --limit 100                         # cap components
+ *   …scripts/backfill-component-counters.ts --all                               # include computed rows
  */
 import { prisma } from '../src/lib/prisma';
-import { computeComponentCounters, lifetimeHoursAt } from '../src/lib/component-counters';
+import {
+  computeComponentCounters,
+  persistCounters,
+  rescaleLegacyServiceLogs,
+  type ComponentCounters,
+} from '../src/lib/component-counters';
+
+type Outcome = { counters: ComponentCounters | null; rescaled: number };
 
 /** Thrown to roll back a dry-run transaction after its figures are read. */
-class DryRunRollback extends Error {}
+class DryRunRollback extends Error {
+  constructor(readonly outcome: Outcome) {
+    super('dry run rollback');
+  }
+}
 
-type Counters = Awaited<ReturnType<typeof computeComponentCounters>>;
-
-type Args = { execute: boolean; userId?: string; limit?: number };
+type Args = { execute: boolean; all: boolean; userId?: string; limit?: number };
 
 function parseArgs(argv: string[]): Args {
-  const execute = argv.includes('--execute');
   const at = (flag: string) => {
     const i = argv.indexOf(flag);
-    return i >= 0 ? argv[i + 1] : undefined;
+    if (i < 0) return undefined;
+    const value = argv[i + 1];
+    if (value === undefined || value.startsWith('--')) throw new Error(`${flag} needs a value`);
+    return value;
   };
   const rawLimit = at('--limit');
+  // Fail loudly. `--limit abc` used to parse as NaN, which is falsy, so the run
+  // went ahead with no limit at all: the opposite of what was asked.
+  const limit = rawLimit === undefined ? undefined : Number(rawLimit);
+  if (limit !== undefined && !(Number.isInteger(limit) && limit > 0)) {
+    throw new Error(`--limit must be a positive integer, got "${rawLimit}"`);
+  }
   return {
-    execute,
+    execute: argv.includes('--execute'),
+    all: argv.includes('--all'),
     userId: at('--user'),
-    limit: rawLimit ? Number(rawLimit) : undefined,
+    limit,
   };
 }
 
 async function main() {
-  const { execute, userId, limit } = parseArgs(process.argv.slice(2));
+  const { execute, all, userId, limit } = parseArgs(process.argv.slice(2));
 
   console.log(
     `[backfill-component-counters] ${execute ? 'EXECUTING' : 'DRY RUN'}` +
-      `${userId ? ` user=${userId}` : ' all users'}${limit ? ` limit=${limit}` : ''}`
+      `${userId ? ` user=${userId}` : ' all users'}${limit ? ` limit=${limit}` : ''}` +
+      `${all ? ' (all rows)' : ' (uncomputed rows)'}`
   );
 
   const components = await prisma.component.findMany({
-    where: userId ? { userId } : {},
+    where: {
+      ...(userId ? { userId } : {}),
+      ...(all ? {} : { countersComputedAt: null }),
+    },
     select: { id: true, userId: true, type: true, brand: true, model: true, hoursUsed: true },
     orderBy: { createdAt: 'asc' },
     ...(limit ? { take: limit } : {}),
@@ -96,44 +125,26 @@ async function main() {
 
   for (const [i, component] of components.entries()) {
     try {
-      const counters = await prisma
+      const { counters, rescaled } = await prisma
         .$transaction(
-          async (tx) => {
-            const legacyLogs = await tx.$queryRaw<{ id: string; performedAt: Date }[]>`
-              SELECT sl."id", sl."performedAt"
-              FROM "ServiceLog" sl
-              JOIN "loam_archive"."ServiceLog_pre_20260927" a ON a."id" = sl."id"
-              WHERE sl."componentId" = ${component.id}
-                AND sl."updatedAt" = a."updatedAt"`;
-            for (const log of legacyLogs) {
-              await tx.serviceLog.update({
-                where: { id: log.id },
-                data: { hoursAtService: await lifetimeHoursAt(tx, component.id, log.performedAt) },
-              });
-            }
-            rescaledLogs += legacyLogs.length;
-
-            const result = await computeComponentCounters(tx, component.id);
-            if (result && execute) {
-              await tx.component.update({
-                where: { id: component.id },
-                data: {
-                  lifetimeHours: result.lifetimeHours,
-                  hoursSinceService: result.hoursSinceService,
-                  hoursSinceInspection: result.hoursSinceInspection,
-                  hoursUsed: result.hoursSinceService,
-                },
-              });
-            }
-            if (!execute) throw new DryRunRollback(JSON.stringify(result));
-            return result;
+          async (tx): Promise<Outcome> => {
+            // The same two steps recomputeComponentCounters runs, split so a dry
+            // run can read the figures before rolling the rescale back.
+            const rescaled = await rescaleLegacyServiceLogs(tx, component.id);
+            const counters = await computeComponentCounters(tx, component.id);
+            if (!execute) throw new DryRunRollback({ counters, rescaled });
+            if (counters) await persistCounters(tx, component.id, counters);
+            return { counters, rescaled };
           },
           { timeout: 30_000 }
         )
         .catch((err) => {
-          if (err instanceof DryRunRollback) return JSON.parse(err.message) as Counters;
+          if (err instanceof DryRunRollback) return err.outcome;
           throw err;
         });
+      // Tallied after the transaction settles, so one that fails part-way and
+      // rolls back cannot leave the total over-reporting.
+      rescaledLogs += rescaled;
       if (!counters) {
         failed += 1;
         continue;
@@ -163,7 +174,7 @@ async function main() {
 
   console.log(
     `[backfill-component-counters] done: ${changed} processed, ${failed} failed, ` +
-      `${overcharged} previously overcharged, ${rescaledLogs} legacy service logs rescaled`
+      `${overcharged} previously overcharged, ${rescaledLogs} legacy service logs ${execute ? 'rescaled' : 'would be rescaled'}`
   );
   if (!execute) {
     console.log('[backfill-component-counters] DRY RUN — nothing was written. Re-run with --execute.');
