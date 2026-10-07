@@ -459,7 +459,7 @@ model Component {
   // lifetimeHours = priorHours + every counted ride across every tenure.
   // Both "since" counters are SUBTRACTIONS from it, which is what makes
   // `hoursSince* <= lifetimeHours` structural rather than coincidental:
-  //   hoursSinceService = lifetimeHours - latest SERVICE log's hoursAtLog
+  //   hoursSinceService = lifetimeHours - latest SERVICE log's hoursAtService
   // The old rule paired the component's CURRENT bike with an arbitrarily old
   // anchor and could credit a part hundreds of hours it was never fitted for.
   lifetimeHours        Float @default(0)
