@@ -1202,10 +1202,31 @@ describe('prediction engine', () => {
       });
 
       expect(c.hoursSinceService).toBe(0);
-      expect(c.hoursSinceInspection).toBe(0);
     });
 
-    it('sums the window and shows no inspection clock while uncomputed', async () => {
+    // Inspections are optional stand-ins for a due service, not a schedule of
+    // their own. At launch no rider had logged one, so a separate inspection
+    // clock read every inspectable part as overdue while its service clock had
+    // plenty left. Health must come from the service clock alone.
+    it('takes health from the service clock alone, however long since an inspection', async () => {
+      const c = await run({
+        ...fork,
+        countersComputedAt: new Date('2024-02-01'),
+        lifetimeHours: 300,
+        hoursSinceService: 10,
+        hoursSinceInspection: 300,
+      });
+
+      expect(c.status).toBe('ALL_GOOD');
+      expect(c.status).toBe(c.serviceStatus);
+      expect(c.limitingClock).toBe('SERVICE');
+      expect(c.inspectionStatus).toBeNull();
+      expect(c.inspectionIntervalHours).toBeNull();
+      expect(c.hoursSinceInspection).toBeNull();
+      expect(c.inspectionHoursRemaining).toBeNull();
+    });
+
+    it('sums the window while uncomputed', async () => {
       // A ride increment before the backfill can no longer move these off 0,
       // but even if a row held stray values they must not be read.
       const c = await run({
