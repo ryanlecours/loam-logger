@@ -4357,19 +4357,51 @@ describe('GraphQL Resolvers', () => {
       expect(mockLogDelete).not.toHaveBeenCalled();
     });
 
-    it('leaves the anchor alone when deleting a non-latest log', async () => {
+    // The review's case: a service on day 1 and an inspection on day 5, then the
+    // service is deleted. It is not the newest log overall, but it was the newest
+    // SERVICE, so hoursSinceService must fall back to "never serviced". The old
+    // "newest of any kind" gate skipped the recompute and left the part looking
+    // freshly serviced.
+    it('recomputes when the deleted service is older than a surviving inspection', async () => {
       mockLogFindUnique.mockResolvedValueOnce({
-        id: 'log-old',
+        id: 'svc-day1',
         component: { id: 'comp-1', userId: 'user-123', bikeId: 'bike-1' },
       });
-      mockLogFindFirst.mockResolvedValueOnce({ id: 'log-newer' });
+      const inspection = { performedAt: new Date('2026-01-05'), hoursAtService: 8 };
+      // After the delete only the inspection remains: reads that accept it get
+      // it, and a read for SERVICE logs alone finds nothing.
+      mockLogFindFirst.mockImplementation(async ({ where }: { where: { kind?: { in: string[] } } }) =>
+        where.kind && !where.kind.in.includes('INSPECTION') ? null : inspection
+      );
+      mockComponentFindUnique.mockResolvedValue({
+        id: 'comp-1', userId: 'user-123', bikeId: 'bike-1',
+        installedAt: new Date('2025-01-01'), createdAt: new Date('2025-01-01'),
+        retiredAt: null, hoursUsed: 0, priorHours: 0,
+      });
+      (mockPrisma.bikeComponentInstall.findMany as jest.Mock).mockResolvedValue([
+        {
+          id: 'inst-1', bikeId: 'bike-1', slotKey: 'FORK_NONE',
+          installedAt: new Date('2025-01-01'), removedAt: null,
+        },
+      ]);
+      // Lifetime 10h.
+      mockRideAggregate.mockResolvedValue({ _sum: { durationSeconds: 36000 }, _count: 5 });
 
-      const ctx = createMockContext('user-123');
-      await mutation({}, { id: 'log-old' }, ctx as never);
+      await mutation({}, { id: 'svc-day1' }, createMockContext('user-123') as never);
 
-      expect(mockLogDelete).toHaveBeenCalledWith({ where: { id: 'log-old' } });
-      expect(mockComponentUpdate).not.toHaveBeenCalled();
-      expect(mockRideAggregate).not.toHaveBeenCalled();
+      expect(mockLogDelete).toHaveBeenCalledWith({ where: { id: 'svc-day1' } });
+      expect(mockComponentUpdate).toHaveBeenCalledWith({
+        where: { id: 'comp-1' },
+        data: {
+          lifetimeHours: 10,
+          // No service left: every hour counts.
+          hoursSinceService: 10,
+          // The inspection at 8h still resets its own clock.
+          hoursSinceInspection: 2,
+          hoursUsed: 10,
+          countersComputedAt: expect.any(Date),
+        },
+      });
     });
 
     it('rolls anchor back to the prior log when deleting the latest', async () => {
@@ -4378,7 +4410,6 @@ describe('GraphQL Resolvers', () => {
         component: { id: 'comp-1', userId: 'user-123', bikeId: 'bike-1' },
       });
       mockLogFindFirst
-        .mockResolvedValueOnce({ id: 'log-latest' }) // was latest
         // Prior log after delete: recompute re-anchor + attribution anchor.
         .mockResolvedValueOnce({ performedAt: new Date('2026-01-01') })
         .mockResolvedValueOnce({ performedAt: new Date('2026-01-01') });
@@ -4399,7 +4430,6 @@ describe('GraphQL Resolvers', () => {
       mockRideAggregate.mockResolvedValue({ _sum: { durationSeconds: 72000 }, _count: 6 });
       mockLogFindFirst
         .mockReset()
-        .mockResolvedValueOnce({ id: 'log-latest' })
         .mockResolvedValue({ performedAt: new Date('2026-01-01'), hoursAtService: 15 });
 
       const ctx = createMockContext('user-123');
@@ -4427,7 +4457,6 @@ describe('GraphQL Resolvers', () => {
         component: { id: 'comp-1', userId: 'user-123', bikeId: 'bike-1' },
       });
       mockLogFindFirst
-        .mockResolvedValueOnce({ id: 'log-last' })
         .mockResolvedValueOnce(null) // no remaining logs (re-anchor)
         .mockResolvedValueOnce(null); // no remaining logs (attribution)
       mockComponentFindUnique.mockResolvedValue({

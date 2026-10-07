@@ -3498,7 +3498,6 @@ export const resolvers = {
       if (bikeId) await invalidateBikePrediction(userId, bikeId);
 
       const updated = await prisma.$transaction(async (tx) => {
-        // Is this row currently the most recent for its component?
         // A typed reading becomes the rider's declaration and is kept as given;
         // every other reading is derived from the date by the recompute.
         const updatedLog = await tx.serviceLog.update({
@@ -3556,18 +3555,14 @@ export const resolvers = {
       if (bikeId) await invalidateBikePrediction(userId, bikeId);
 
       await prisma.$transaction(async (tx) => {
-        const currentLatest = await tx.serviceLog.findFirst({
-          where: { componentId },
-          orderBy: [{ performedAt: 'desc' }, { createdAt: 'desc' }],
-          select: { id: true },
-        });
-        const wasLatest = currentLatest?.id === id;
-
         await tx.serviceLog.delete({ where: { id } });
 
-        if (wasLatest) {
-          await recomputeComponentAfterServiceChange(tx, componentId);
-        }
+        // Always recompute. Each "since" counter subtracts the reading of the
+        // newest log of its own kind, so deleting a service can change
+        // hoursSinceService even when a newer inspection makes it not the
+        // newest log overall. Gating on "newest of any kind" left those parts
+        // looking freshly serviced until some other recompute ran.
+        await recomputeComponentAfterServiceChange(tx, componentId);
       });
 
       if (bikeId) await invalidateBikePrediction(userId, bikeId);
