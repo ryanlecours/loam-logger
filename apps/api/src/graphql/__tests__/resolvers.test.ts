@@ -4123,6 +4123,7 @@ describe('GraphQL Resolvers', () => {
     it('declares a typed reading and recomputes', async () => {
       mockLogFindUnique.mockResolvedValueOnce({
         id: 'log-1',
+        hoursAtService: 42.5,
         component: { id: 'comp-1', userId: 'user-123', bikeId: 'bike-1' },
       });
 
@@ -4137,6 +4138,58 @@ describe('GraphQL Resolvers', () => {
         data: { hoursAtService: 300, hoursAtServiceDeclared: true },
       });
       expect(mockComponentFindUnique).toHaveBeenCalled();
+    });
+
+    // Both edit forms (web, and the released mobile app) prefill the hours field
+    // with the stored reading and send it on every save. Sending it back
+    // unchanged must not declare it, or a date or notes edit would pin a derived
+    // reading and stop it self-healing.
+    it('does not declare a reading the form sent back unchanged', async () => {
+      mockLogFindUnique.mockResolvedValueOnce({
+        id: 'log-1',
+        hoursAtService: 42.123456789,
+        component: { id: 'comp-1', userId: 'user-123', bikeId: 'bike-1' },
+      });
+
+      await mutation(
+        {},
+        {
+          id: 'log-1',
+          input: {
+            performedAt: '2026-02-20T12:00:00.000Z',
+            notes: 'new pads',
+            hoursAtService: Number(String(42.123456789)),
+          },
+        },
+        createMockContext('user-123') as never
+      );
+
+      expect(mockLogUpdate).toHaveBeenCalledWith({
+        where: { id: 'log-1' },
+        data: { performedAt: new Date('2026-02-20T12:00:00.000Z'), notes: 'new pads' },
+      });
+      // The date moved, so the reading is re-derived at the new date.
+      expect(mockComponentFindUnique).toHaveBeenCalled();
+    });
+
+    it('skips the recompute when only notes change and the hours come back unchanged', async () => {
+      mockLogFindUnique.mockResolvedValueOnce({
+        id: 'log-1',
+        hoursAtService: 0,
+        component: { id: 'comp-1', userId: 'user-123', bikeId: 'bike-1' },
+      });
+
+      await mutation(
+        {},
+        { id: 'log-1', input: { notes: 'typo fixed', hoursAtService: 0 } },
+        createMockContext('user-123') as never
+      );
+
+      expect(mockLogUpdate).toHaveBeenCalledWith({
+        where: { id: 'log-1' },
+        data: { notes: 'typo fixed' },
+      });
+      expect(mockComponentFindUnique).not.toHaveBeenCalled();
     });
 
     // Any date change re-derives the moved log's reading (unless declared), so

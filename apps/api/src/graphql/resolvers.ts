@@ -351,6 +351,14 @@ const MAX_LABEL_LEN = 120;
 const MAX_SERVICE_HOURS = 100_000;
 
 /**
+ * An "hours at service" edit within this of the stored reading is the edit form
+ * sending the reading back, not the rider typing one. Both forms (web and the
+ * released mobile app) prefill the field with the stored value at full
+ * precision and submit it on every save.
+ */
+const RESUBMITTED_READING_EPSILON = 1e-6;
+
+/**
  * Reject an hours figure a rider supplied unless it is a finite number in
  * [0, MAX_SERVICE_HOURS]. GraphQL's Float rejects NaN and Infinity on the wire,
  * but nothing stops a value like 1e15, and anything that reaches a counter
@@ -3484,7 +3492,12 @@ export const resolvers = {
             `hoursAtService must be between 0 and ${MAX_SERVICE_HOURS}`
           );
         }
-        newHoursAtService = input.hoursAtService;
+        // An unchanged value is not a declaration. Treating it as one would
+        // pin a derived reading on any date or notes edit, so it would stop
+        // following the ledger, and a moved date would keep the old date's hours.
+        if (Math.abs(input.hoursAtService - existing.hoursAtService) >= RESUBMITTED_READING_EPSILON) {
+          newHoursAtService = input.hoursAtService;
+        }
       }
 
       const bikeId = existing.component.bikeId;
