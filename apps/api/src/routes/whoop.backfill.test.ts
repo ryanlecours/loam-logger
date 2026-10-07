@@ -178,6 +178,7 @@ describe('whoop.backfill routes', () => {
       mockFindUnique.mockResolvedValue(null); // No existing rides/backfill requests
       mockUpsert.mockResolvedValue({});
       mockTransaction.mockImplementation(async (fn) => fn({
+        $executeRaw: jest.fn().mockResolvedValue(0),
         ride: { create: mockCreate },
         component: { updateMany: mockUpdateMany },
       }));
@@ -460,6 +461,7 @@ describe('whoop.backfill routes', () => {
 
       let createdRideData: Record<string, unknown> | undefined;
       mockTransaction.mockImplementation(async (fn) => fn({
+        $executeRaw: jest.fn().mockResolvedValue(0),
         ride: {
           create: jest.fn().mockImplementation((args) => {
             createdRideData = args.data;
@@ -486,6 +488,7 @@ describe('whoop.backfill routes', () => {
 
       let createdRideData: Record<string, unknown> | undefined;
       mockTransaction.mockImplementation(async (fn) => fn({
+        $executeRaw: jest.fn().mockResolvedValue(0),
         ride: {
           create: jest.fn().mockImplementation((args) => {
             createdRideData = args.data;
@@ -512,6 +515,7 @@ describe('whoop.backfill routes', () => {
 
       let createdRideData: Record<string, unknown> | undefined;
       mockTransaction.mockImplementation(async (fn) => fn({
+        $executeRaw: jest.fn().mockResolvedValue(0),
         ride: {
           create: jest.fn().mockImplementation((args) => {
             createdRideData = args.data;
@@ -635,6 +639,7 @@ describe('whoop.backfill routes', () => {
       mockDeleteMany.mockResolvedValue({ count: 0 });
 
       mockTransaction.mockImplementation(async (fn) => fn({
+        $executeRaw: jest.fn().mockResolvedValue(0),
         component: { updateMany: mockUpdateMany },
         ride: { deleteMany: mockDeleteMany },
         backfillRequest: { deleteMany: mockDeleteMany },

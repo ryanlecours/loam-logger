@@ -439,6 +439,7 @@ describe('POST /duplicates/merge', () => {
     // and the ride delete/update.
     mockTransaction.mockImplementation(async (fn) =>
       fn({
+        $executeRaw: jest.fn().mockResolvedValue(0),
         componentRideAdjustment: { findMany: jest.fn().mockResolvedValue([]) },
         component: { updateMany: mockComponentUpdateMany },
         ride: { delete: mockRideDelete, update: mockUpdate },

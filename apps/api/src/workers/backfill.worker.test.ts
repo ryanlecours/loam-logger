@@ -1,12 +1,14 @@
 // Mock dependencies before imports
 jest.mock('../lib/queue/connection', () => ({
   getQueueConnection: jest.fn(() => ({
+    $executeRaw: jest.fn().mockResolvedValue(0),
     connection: { host: 'localhost', port: 6379 },
   })),
 }));
 
 jest.mock('bullmq', () => ({
   Worker: jest.fn().mockImplementation(() => ({
+    $executeRaw: jest.fn().mockResolvedValue(0),
     on: jest.fn(),
     close: jest.fn().mockResolvedValue(undefined),
   })),
@@ -39,6 +41,8 @@ jest.mock('../lib/prisma', () => {
     // Needed by syncBikeComponentHours, which now runs inside the Garmin
     // callback's $transaction wrapper as part of the component-hour fix.
     component: { updateMany: jest.fn() },
+    // The decrement's floor-and-cap pass is one raw UPDATE.
+    $executeRaw: jest.fn().mockResolvedValue(0),
     bike: { findMany: jest.fn() },
     userAccount: { findUnique: jest.fn() },
     // Pass the same mock as the transaction client so any tx.* calls hit the
@@ -69,6 +73,7 @@ jest.mock('../lib/logger', () => ({
   // calls createLogger at module load. Without this mock the test suite fails
   // before any test runs.
   createLogger: jest.fn(() => ({
+    $executeRaw: jest.fn().mockResolvedValue(0),
     info: jest.fn(),
     debug: jest.fn(),
     warn: jest.fn(),
@@ -137,6 +142,7 @@ describe('createBackfillWorker', () => {
   it('should set up event handlers', () => {
     const mockOn = jest.fn();
     MockedWorker.mockImplementation(() => ({
+      $executeRaw: jest.fn().mockResolvedValue(0),
       on: mockOn,
       close: jest.fn().mockResolvedValue(undefined),
     }) as never);
@@ -157,6 +163,7 @@ describe('closeBackfillWorker', () => {
   it('should close the worker if it exists', async () => {
     const mockClose = jest.fn().mockResolvedValue(undefined);
     MockedWorker.mockImplementation(() => ({
+      $executeRaw: jest.fn().mockResolvedValue(0),
       on: jest.fn(),
       close: mockClose,
     }) as never);

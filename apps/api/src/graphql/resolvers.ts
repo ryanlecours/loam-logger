@@ -3235,7 +3235,7 @@ export const resolvers = {
       // with 200 hours on them" has to rebuild the derived counters. Nothing else
       // in this mutation affects them.
       if (input.priorHours !== undefined && input.priorHours !== null) {
-        await recomputeComponentCounters(prisma, id);
+        await prisma.$transaction((tx) => recomputeComponentCounters(tx, id));
         updated = (await prisma.component.findUnique({ where: { id } })) ?? updated;
       }
 
@@ -6093,8 +6093,11 @@ export const resolvers = {
       // committed tenure rows is exactly what the rule needs.
       // Cast past the narrowing: TS does not track assignments made inside the
       // transaction callback above, same reason the return uses `!`.
+      //
+      // Each recompute gets its own transaction so its row lock (see
+      // recomputeComponentCounters) holds from the ledger read to the write.
       for (const c of [installedComponent, displacedComponent] as (ComponentModel | null)[]) {
-        if (c) await recomputeComponentCounters(prisma, c.id);
+        if (c) await prisma.$transaction((tx) => recomputeComponentCounters(tx, c.id));
       }
 
       return {
@@ -6325,9 +6328,10 @@ export const resolvers = {
       // bikeId pointed somewhere new, which is what let hoursUsed exceed the
       // part's real lifetime. Runs after the transaction — a fresh read of the
       // committed tenure rows is exactly what the rule needs.
-      // See the note in installComponent about the cast.
+      // See the note in installComponent about the cast, and about running each
+      // recompute in its own transaction.
       for (const c of [componentA, componentB] as (ComponentModel | null)[]) {
-        if (c) await recomputeComponentCounters(prisma, c.id);
+        if (c) await prisma.$transaction((tx) => recomputeComponentCounters(tx, c.id));
       }
 
       return {

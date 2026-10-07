@@ -142,6 +142,13 @@ async function countedHours(
 /**
  * The component's lifetime hours as of a moment in time. Used when writing or
  * editing a log entry so its hoursAtService lands on the right scale.
+ *
+ * Strictly before `at`. The service pickers are date-only, so most services
+ * arrive at midnight and a ride earlier that same day is counted as AFTER the
+ * service. Deliberate: it errs toward an earlier due date, never a later one,
+ * and the error is at most one day's riding. Counting same-day rides as before
+ * would instead hide a real post-service ride whenever the rider serviced the
+ * part in the morning and rode in the afternoon.
  */
 export async function lifetimeHoursAt(
   tx: TransactionClient | Prisma.TransactionClient,
@@ -305,13 +312,42 @@ export async function rescaleLegacyServiceLogs(
         AND sl."updatedAt" = a."updatedAt"`,
     componentId
   );
+  if (!legacyLogs.length) return 0;
+
+  // lifetimeHoursAt per log would reload the component, its tenures and its
+  // adjustments every time. Build the counted-ride predicate once instead; only
+  // the date bound differs between logs.
+  const component = await loadComponent(tx, componentId);
+  if (!component) return 0;
+  const where = await countedRideWhere(tx, component);
   for (const log of legacyLogs) {
-    await client.serviceLog.update({
-      where: { id: log.id },
-      data: { hoursAtService: await lifetimeHoursAt(tx, componentId, log.performedAt) },
-    });
+    // See the note in lifetimeHoursAt about the `?? 0`.
+    const reading = (component.priorHours ?? 0) + (await countedHours(tx, where, log.performedAt));
+    await client.serviceLog.update({ where: { id: log.id }, data: { hoursAtService: reading } });
   }
   return legacyLogs.length;
+}
+
+/**
+ * Take the component's row lock for the rest of the transaction.
+ *
+ * A recompute reads the ledger, then writes absolute values. Without the lock a
+ * concurrent writer can land in between and be overwritten: a fast-path ride
+ * increment, or another recompute that read an older ledger. Taking the lock
+ * first serialises them. If the other writer already holds it, this waits until
+ * that transaction commits, and under READ COMMITTED the ledger reads that
+ * follow see its rows. If this takes it first, the other writer's increment
+ * waits and lands on top of the value written here.
+ *
+ * Only meaningful inside a transaction: on the root client the lock is released
+ * as soon as the statement ends.
+ */
+export async function lockComponentRow(
+  tx: TransactionClient | Prisma.TransactionClient,
+  componentId: string
+): Promise<void> {
+  await (tx as TransactionClient).$executeRaw`
+    SELECT 1 FROM "Component" WHERE "id" = ${componentId} FOR UPDATE`;
 }
 
 /**
@@ -322,6 +358,7 @@ export async function rescaleLegacyServiceLogs(
  * Rescales the part's legacy service logs first (see rescaleLegacyServiceLogs),
  * so the result is right even before the backfill has reached this row, and
  * stamps countersComputedAt so readers and the fast-path increment trust it.
+ * Must run inside a transaction: it holds the component's row lock throughout.
  *
  * Returns null when the component no longer exists, matching the tolerant
  * behavior of the path it replaces.
@@ -330,6 +367,7 @@ export async function recomputeComponentCounters(
   tx: TransactionClient | Prisma.TransactionClient,
   componentId: string
 ): Promise<ComponentCounters | null> {
+  await lockComponentRow(tx, componentId);
   await rescaleLegacyServiceLogs(tx, componentId);
   const counters = await computeComponentCounters(tx, componentId);
   if (!counters) return null;

@@ -61,6 +61,8 @@ const makeTx = (opts: {
 }) => {
   const rides = opts.rides ?? [];
   return {
+    // The recompute's row lock (SELECT ... FOR UPDATE).
+    $executeRaw: jest.fn().mockResolvedValue(1),
     // Two raw reads: the archive-existence probe, then the legacy-row select.
     $queryRawUnsafe: jest.fn().mockImplementation(async (sql: string) =>
       sql.includes('to_regclass')
@@ -313,6 +315,26 @@ describe('rescaleLegacyServiceLogs', () => {
     });
   });
 
+  it('builds the counted-ride predicate once, however many logs need rescaling', async () => {
+    const tx = makeTx({
+      installs: [OPEN_TENURE],
+      archive: {
+        legacyLogs: [
+          { id: 'log-1', performedAt: d('2025-02-01T00:00:00Z') },
+          { id: 'log-2', performedAt: d('2025-03-01T00:00:00Z') },
+          { id: 'log-3', performedAt: d('2025-04-01T00:00:00Z') },
+        ],
+      },
+    });
+
+    await rescaleLegacyServiceLogs(asTx(tx), 'comp-1');
+
+    expect(tx.component.findUnique).toHaveBeenCalledTimes(1);
+    expect(tx.bikeComponentInstall.findMany).toHaveBeenCalledTimes(1);
+    expect(tx.componentRideAdjustment.findMany).toHaveBeenCalledTimes(1);
+    expect(tx.ride.aggregate).toHaveBeenCalledTimes(3);
+  });
+
   it('scopes the legacy select to the component, as a bound parameter', async () => {
     const tx = makeTx({ archive: { legacyLogs: [] } });
 
@@ -407,6 +429,26 @@ describe('recomputeComponentCounters', () => {
     const rescaledAt = tx.serviceLog.update.mock.invocationCallOrder[0];
     const firstLatestRead = Math.min(...tx.serviceLog.findFirst.mock.invocationCallOrder);
     expect(rescaledAt).toBeLessThan(firstLatestRead);
+  });
+
+  // A recompute reads the ledger and then writes absolute values, so a
+  // concurrent ride increment landing in between would be overwritten. The
+  // row lock must be taken before the first ledger read, not just before the
+  // write.
+  it('locks the component row before reading anything', async () => {
+    const tx = makeTx({ installs: [OPEN_TENURE], archive: { legacyLogs: [] } });
+
+    await recomputeComponentCounters(asTx(tx), 'comp-1');
+
+    const [strings, id] = tx.$executeRaw.mock.calls[0];
+    expect((strings as string[]).join('?')).toMatch(/FROM "Component" WHERE "id" = \? FOR UPDATE/);
+    expect(id).toBe('comp-1');
+    const lockedAt = tx.$executeRaw.mock.invocationCallOrder[0];
+    const firstRead = Math.min(
+      ...tx.$queryRawUnsafe.mock.invocationCallOrder,
+      ...tx.component.findUnique.mock.invocationCallOrder
+    );
+    expect(lockedAt).toBeLessThan(firstRead);
   });
 });
 

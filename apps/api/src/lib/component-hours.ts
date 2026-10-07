@@ -64,16 +64,29 @@ export async function decrementBikeComponentHours(
     where: { userId: opts.userId, bikeId: opts.bikeId, countersComputedAt: null },
     data: { hoursUsed: { decrement: opts.hoursDelta } },
   });
-  // Floor each counter at zero independently: a decrement can legitimately
-  // overshoot one of them (a part serviced mid-window has a small
-  // hoursSinceService but a large lifetimeHours), so a shared guard would leave
-  // one negative.
-  for (const column of ['hoursUsed', 'lifetimeHours', 'hoursSinceService', 'hoursSinceInspection'] as const) {
-    await (tx as TransactionClient).component.updateMany({
-      where: { userId: opts.userId, bikeId: opts.bikeId, [column]: { lt: 0 } },
-      data: { [column]: 0 },
-    });
-  }
+  // Floor each counter at zero: a decrement can legitimately overshoot one of
+  // them (a part serviced mid-window has a small hoursSinceService but a large
+  // lifetimeHours). On computed rows, also cap both "since" counters (and
+  // hoursUsed, which tracks hoursSinceService) at the floored lifetimeHours, so
+  // a clamp on one column cannot break hoursSince* <= lifetimeHours until the
+  // next recompute. One statement: every SET expression reads the row as it was
+  // before the UPDATE, hence the repeated GREATEST("lifetimeHours", 0).
+  await (tx as TransactionClient).$executeRaw`
+    UPDATE "Component" SET
+      "lifetimeHours" = GREATEST("lifetimeHours", 0),
+      "hoursUsed" = CASE WHEN "countersComputedAt" IS NULL THEN GREATEST("hoursUsed", 0)
+        ELSE LEAST(GREATEST("hoursUsed", 0), GREATEST("lifetimeHours", 0)) END,
+      "hoursSinceService" = CASE WHEN "countersComputedAt" IS NULL THEN GREATEST("hoursSinceService", 0)
+        ELSE LEAST(GREATEST("hoursSinceService", 0), GREATEST("lifetimeHours", 0)) END,
+      "hoursSinceInspection" = CASE WHEN "countersComputedAt" IS NULL THEN GREATEST("hoursSinceInspection", 0)
+        ELSE LEAST(GREATEST("hoursSinceInspection", 0), GREATEST("lifetimeHours", 0)) END
+    WHERE "userId" = ${opts.userId} AND "bikeId" = ${opts.bikeId}
+      AND (
+        "hoursUsed" < 0 OR "lifetimeHours" < 0 OR "hoursSinceService" < 0 OR "hoursSinceInspection" < 0
+        OR ("countersComputedAt" IS NOT NULL AND (
+          "hoursUsed" > "lifetimeHours" OR "hoursSinceService" > "lifetimeHours"
+          OR "hoursSinceInspection" > "lifetimeHours"))
+      )`;
 }
 
 /**

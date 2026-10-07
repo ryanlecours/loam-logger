@@ -6,6 +6,7 @@ jest.mock('@paralleldrive/cuid2', () => ({
 // Mock dependencies before imports
 jest.mock('../../lib/prisma', () => ({
   prisma: {
+    $executeRaw: jest.fn().mockResolvedValue(0),
     component: {
       findUnique: jest.fn(),
       findFirst: jest.fn(),
@@ -185,6 +186,7 @@ const createMockContext = (
     aiFeaturesEnabled: true,
   }
 ) => ({
+  $executeRaw: jest.fn().mockResolvedValue(0),
   user: userId ? { id: userId } : null,
   loaders: {
     serviceLogsByComponentId: { load: jest.fn() },
@@ -542,6 +544,7 @@ describe('GraphQL Resolvers', () => {
       it('should throw error when batch size > 50', async () => {
         const ctx = createMockContext('user-123');
         const updates = Array.from({ length: 51 }, (_, i) => ({
+          $executeRaw: jest.fn().mockResolvedValue(0),
           componentId: `comp-${i}`,
           wearPercent: 50,
           method: 'SLIDER' as const,
@@ -1091,6 +1094,7 @@ describe('GraphQL Resolvers', () => {
       mockPrisma.$transaction.mockImplementation(async (fn) => {
         if (typeof fn === 'function') {
           const mockTx = {
+            $executeRaw: jest.fn().mockResolvedValue(0),
             component: {
               update: jest.fn().mockResolvedValue({ ...unpairedComponent, location: 'FRONT', pairGroupId: 'pair-123' }),
               create: jest.fn().mockResolvedValue(newRearComponent),
@@ -1135,6 +1139,7 @@ describe('GraphQL Resolvers', () => {
       mockPrisma.$transaction.mockImplementation(async (fn) => {
         if (typeof fn === 'function') {
           const mockTx = {
+            $executeRaw: jest.fn().mockResolvedValue(0),
             component: {
               update: jest.fn().mockImplementation(({ where }) => {
                 const comp = unpairedComponents.find(c => c.id === where.id);
@@ -1219,6 +1224,7 @@ describe('GraphQL Resolvers', () => {
       mockPrisma.$transaction.mockImplementation(async (fn) => {
         if (typeof fn === 'function') {
           const mockTx = {
+            $executeRaw: jest.fn().mockResolvedValue(0),
             component: {
               update: jest.fn()
                 .mockResolvedValueOnce(retiredComponent) // retire old
@@ -1275,6 +1281,7 @@ describe('GraphQL Resolvers', () => {
       mockPrisma.$transaction.mockImplementation(async (fn) => {
         if (typeof fn !== 'function') return [];
         const mockTx = {
+          $executeRaw: jest.fn().mockResolvedValue(0),
           component: {
             update: jest
               .fn()
@@ -1358,6 +1365,7 @@ describe('GraphQL Resolvers', () => {
       mockPrisma.$transaction.mockImplementation(async (fn) => {
         if (typeof fn === 'function') {
           const mockTx = {
+            $executeRaw: jest.fn().mockResolvedValue(0),
             component: {
               update: jest.fn().mockImplementation(({ where }) => {
                 if (where.id === 'comp-1') {
@@ -1738,6 +1746,7 @@ describe('GraphQL Resolvers', () => {
         // Mock $transaction to execute the callback with a mock tx client
         mockPrisma.$transaction.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) => {
           const mockTx = {
+            $executeRaw: jest.fn().mockResolvedValue(0),
             bikeServicePreference: {
               deleteMany: mockTxDeleteMany,
               upsert: mockTxUpsert,
@@ -2287,6 +2296,7 @@ describe('GraphQL Resolvers', () => {
     const query = resolvers.Query.unassignedRideSummary;
 
     const aggregateResult = (overrides = {}) => ({
+      $executeRaw: jest.fn().mockResolvedValue(0),
       _count: { _all: 0 },
       _sum: { durationSeconds: null },
       _min: { startTime: null },
@@ -2428,7 +2438,11 @@ describe('GraphQL Resolvers', () => {
 
     // Helper to create a mock transaction client matching the Prisma mock shape
     const createMockTx = () => ({
+      $executeRaw: jest.fn().mockResolvedValue(0),
       component: {
+        // The post-commit counter recompute runs in its own transaction and
+        // lands here; null makes it the no-op these tests do not exercise.
+        findUnique: jest.fn().mockResolvedValue(null),
         findFirst: jest.fn(),
         create: jest.fn(),
         update: jest.fn(),
@@ -2897,7 +2911,10 @@ describe('GraphQL Resolvers', () => {
     const mutation = resolvers.Mutation.swapComponents;
 
     const createMockTx = () => ({
+      $executeRaw: jest.fn().mockResolvedValue(0),
       component: {
+        // See installComponent's createMockTx.
+        findUnique: jest.fn().mockResolvedValue(null),
         update: jest.fn(),
       },
       bikeComponentInstall: {
@@ -3346,6 +3363,7 @@ describe('GraphQL Resolvers', () => {
       mockPrisma.bike.findUnique.mockResolvedValue({ userId: 'user-123' } as never);
 
       const mockTx = {
+        $executeRaw: jest.fn().mockResolvedValue(0),
         component: { deleteMany: jest.fn() },
         ride: { updateMany: jest.fn() },
         stravaGearMapping: { deleteMany: jest.fn() },
@@ -3801,6 +3819,7 @@ describe('GraphQL Resolvers', () => {
       });
 
       const mockTx = {
+        $executeRaw: jest.fn().mockResolvedValue(0),
         serviceLog: {
           create: jest.fn(),
           findFirst: jest.fn().mockResolvedValue(null),
@@ -3843,6 +3862,7 @@ describe('GraphQL Resolvers', () => {
     const setTransactionPassthrough = () => {
       mockTransaction.mockImplementation(async (fn: (tx: unknown) => unknown) => {
         const tx = {
+          $executeRaw: jest.fn().mockResolvedValue(0),
           serviceLog: {
             findFirst: mockLogFindFirst,
             update: mockLogUpdate,
@@ -3963,6 +3983,7 @@ describe('GraphQL Resolvers', () => {
       );
       mockTransaction.mockImplementation(async (fn: (tx: unknown) => unknown) =>
         fn({
+          $executeRaw: jest.fn().mockResolvedValue(0),
           $queryRawUnsafe: mockQueryRaw,
           serviceLog: { findFirst: mockLogFindFirst, update: mockLogUpdate },
           component: { findUnique: mockComponentFindUnique, update: mockComponentUpdate },
@@ -4190,6 +4211,7 @@ describe('GraphQL Resolvers', () => {
     const setTransactionPassthrough = () => {
       mockTransaction.mockImplementation(async (fn: (tx: unknown) => unknown) => {
         const tx = {
+          $executeRaw: jest.fn().mockResolvedValue(0),
           serviceLog: {
             findFirst: mockLogFindFirst,
             update: mockPrisma.serviceLog.update,
@@ -4618,6 +4640,7 @@ describe('GraphQL Resolvers', () => {
     const setTransactionPassthrough = () => {
       mockTransaction.mockImplementation(async (fn: (tx: unknown) => unknown) => {
         return fn({
+          $executeRaw: jest.fn().mockResolvedValue(0),
           bike: { update: mockBikeUpdate },
           bikeComponentInstall: {
             findMany: mockInstallFindMany,
@@ -4751,6 +4774,7 @@ describe('GraphQL Resolvers', () => {
       // fix), so the tx mock needs to expose it alongside updateMany.
       mockTransaction.mockReset().mockImplementation(async (fn: (tx: unknown) => unknown) =>
         fn({
+          $executeRaw: jest.fn().mockResolvedValue(0),
           bikeComponentInstall: { findMany: mockFindMany, updateMany: mockUpdateMany },
           serviceLog: { updateMany: mockServiceLogUpdateMany },
         })
@@ -4900,6 +4924,7 @@ describe('GraphQL Resolvers', () => {
       const mockBikeUpdateMany = jest.fn().mockResolvedValue({ count: 2 });
       const mockUserUpdate = jest.fn().mockResolvedValue({});
       const tx = {
+        $executeRaw: jest.fn().mockResolvedValue(0),
         user: {
           findUniqueOrThrow: jest.fn().mockResolvedValue({
             needsDowngradeSelection: overrides.needsDowngradeSelection ?? true,
@@ -5838,6 +5863,7 @@ describe('GraphQL Resolvers', () => {
     it('marks truncated=true when the ride cap is hit', async () => {
       mockBikeFindFirst.mockResolvedValueOnce({ id: 'bike-1', userId: 'user-123' });
       const lotsOfRides = Array.from({ length: 2000 }, (_, i) => ({
+        $executeRaw: jest.fn().mockResolvedValue(0),
         id: `r${i}`,
         distanceMeters: 1000,
         durationSeconds: 600,
@@ -6094,6 +6120,7 @@ describe('GraphQL Resolvers', () => {
     const ANCHOR = new Date('2026-06-01T00:00:00Z');
 
     const ride = (id: string, over: Record<string, unknown> = {}) => ({
+      $executeRaw: jest.fn().mockResolvedValue(0),
       id,
       bikeId: 'bike-1',
       startTime: new Date('2026-06-15T00:00:00Z'),
@@ -6424,6 +6451,7 @@ describe('GraphQL Resolvers', () => {
         // loadComponentAttribution inside the recompute
         .mockResolvedValue([]);
       const tx = {
+        $executeRaw: jest.fn().mockResolvedValue(0),
         ride: {
           delete: jest.fn().mockResolvedValue({}),
           aggregate: jest.fn().mockResolvedValue({ _sum: { durationSeconds: 0 }, _count: 0 }),
@@ -6471,6 +6499,7 @@ describe('GraphQL Resolvers', () => {
      * recompute touches bike-2 and returns it in adjustedBikeIds.
      */
     const makeAdjustedTx = () => ({
+      $executeRaw: jest.fn().mockResolvedValue(0),
       ride: {
         update: jest.fn().mockResolvedValue({ id: 'ride-1' }),
         aggregate: jest.fn().mockResolvedValue({ _sum: { durationSeconds: 7200 }, _count: 1 }),
@@ -6546,6 +6575,7 @@ describe('GraphQL Resolvers', () => {
 
     /** tx double covering the writes updateRide performs. */
     const makeTx = () => ({
+      $executeRaw: jest.fn().mockResolvedValue(0),
       ride: {
         update: jest.fn().mockResolvedValue({ id: 'ride-1' }),
         aggregate: jest.fn().mockResolvedValue({ _sum: { durationSeconds: 0 }, _count: 0 }),
@@ -6655,6 +6685,7 @@ describe('GraphQL Resolvers', () => {
     const mutation = resolvers.Mutation.assignBikeToRides;
 
     const makeTx = () => ({
+      $executeRaw: jest.fn().mockResolvedValue(0),
       ride: {
         updateMany: jest.fn().mockResolvedValue({ count: 2 }),
         aggregate: jest.fn().mockResolvedValue({ _sum: { durationSeconds: 0 }, _count: 0 }),
@@ -6770,6 +6801,7 @@ describe('GraphQL Resolvers', () => {
       // deduped no-op (assignment moves no hours onto bike-2), but the
       // fan-out keeps assign and update symmetric.
       const tx = {
+        $executeRaw: jest.fn().mockResolvedValue(0),
         ride: {
           updateMany: jest.fn().mockResolvedValue({ count: 1 }),
           aggregate: jest.fn().mockResolvedValue({ _sum: { durationSeconds: 3600 }, _count: 1 }),
@@ -6806,6 +6838,7 @@ describe('GraphQL Resolvers', () => {
     const mutation = resolvers.Mutation.updateRide;
 
     const makeTx = () => ({
+      $executeRaw: jest.fn().mockResolvedValue(0),
       ride: {
         update: jest.fn().mockResolvedValue({ id: 'ride-1' }),
         aggregate: jest.fn().mockResolvedValue({ _sum: { durationSeconds: 0 }, _count: 0 }),
@@ -6864,6 +6897,7 @@ describe('GraphQL Resolvers', () => {
     };
 
     const makeTx = () => ({
+      $executeRaw: jest.fn().mockResolvedValue(0),
       ride: { create: jest.fn().mockResolvedValue({ id: 'ride-new' }) },
     });
 
@@ -6966,6 +7000,7 @@ describe('GraphQL Resolvers', () => {
     };
 
     const makeTx = () => ({
+      $executeRaw: jest.fn().mockResolvedValue(0),
       ride: { create: jest.fn().mockResolvedValue({ id: 'ride-new' }) },
     });
 
