@@ -126,7 +126,7 @@ describe('prediction engine', () => {
       expect(result.bikeId).toBe('bike-123');
       expect(result.bikeName).toBe('Trail Slayer');
       expect(result.components).toHaveLength(2);
-      expect(result.algoVersion).toBe('v3');
+      expect(result.algoVersion).toBe('v4');
     });
 
     it('should throw for unauthorized bike access', async () => {
