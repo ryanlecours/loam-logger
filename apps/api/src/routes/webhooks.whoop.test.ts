@@ -244,14 +244,14 @@ describe('WHOOP Webhook Handler', () => {
 
       (prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 'user-123' });
       mockRideFindMany.mockResolvedValue([
-        { id: 'ride-1', bikeId: 'bike-1', durationSeconds: 3600 },
+        { id: 'ride-1', bikeId: 'bike-1', durationSeconds: 3600, startTime: new Date('2026-05-01T08:00:00Z') },
       ]);
 
       await handler!(req as Request, res as Response);
 
       expect(mockRideFindMany).toHaveBeenCalledWith({
         where: { userId: 'user-123', whoopWorkoutId: 'workout-uuid-to-delete' },
-        select: { id: true, bikeId: true, durationSeconds: true },
+        select: { id: true, bikeId: true, durationSeconds: true, startTime: true },
       });
       expect(mockRideDeleteMany).toHaveBeenCalledWith({ where: { id: { in: ['ride-1'] } } });
       expect(logger.info).toHaveBeenCalledWith(
@@ -274,7 +274,7 @@ describe('WHOOP Webhook Handler', () => {
 
       (prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 'user-123' });
       mockRideFindMany.mockResolvedValue([
-        { id: 'ride-1', bikeId: 'bike-1', durationSeconds: 3600 },
+        { id: 'ride-1', bikeId: 'bike-1', durationSeconds: 3600, startTime: new Date('2026-05-01T08:00:00Z') },
       ]);
       // A cross-bike INCLUDE adjustment lives on a component of bike-2.
       mockRecomputeAdjustedComponentsForRides.mockResolvedValue(['bike-2']);
@@ -287,8 +287,8 @@ describe('WHOOP Webhook Handler', () => {
       expect(mockSyncBikeComponentHours).toHaveBeenCalledWith(
         expect.anything(),
         'user-123',
-        { bikeId: 'bike-1', durationSeconds: 3600 },
-        { bikeId: null, durationSeconds: 0 }
+        { bikeId: 'bike-1', durationSeconds: 3600, startTime: new Date('2026-05-01T08:00:00Z') },
+        { bikeId: null, durationSeconds: 0, startTime: null }
       );
       // Both the ride's own bike and the recomputed cross-bike component's bike get busted
       expect(mockInvalidateBikePrediction).toHaveBeenCalledWith('user-123', 'bike-1');
@@ -309,7 +309,7 @@ describe('WHOOP Webhook Handler', () => {
 
       (prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 'user-123' });
       mockRideFindMany.mockResolvedValue([
-        { id: 'ride-1', bikeId: 'bike-1', durationSeconds: 3600 },
+        { id: 'ride-1', bikeId: 'bike-1', durationSeconds: 3600, startTime: new Date('2026-05-01T08:00:00Z') },
       ]);
       // The delete commits, then the post-commit cache bust fails.
       mockInvalidateBikePrediction.mockRejectedValue(new Error('redis down'));

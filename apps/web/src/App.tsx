@@ -19,6 +19,10 @@ const BikeHistory = lazy(() => import('./pages/BikeHistory'));
 // Public shared bike-history page — lazy for the same reason: only visitors
 // following a share link pay for it.
 const SharedBikeHistory = lazy(() => import('./pages/SharedBikeHistory'));
+// Lazy for the same reason, and with an extra one: this page is the only
+// recharts consumer, so keeping it split means the charting library never
+// lands in the main bundle.
+const ComponentHistory = lazy(() => import('./pages/ComponentHistory'));
 import Admin from './pages/Admin';
 import AuthComplete from './pages/AuthComplete';
 import Signup from './pages/Signup';
@@ -110,6 +114,19 @@ function AppRoutes() {
           <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
           <Route path="/rides" element={<ProtectedRoute><Rides /></ProtectedRoute>} />
           <Route path="/gear" element={<ProtectedRoute><Gear /></ProtectedRoute>} />
+          {/* Bike-independent on purpose: a component outlives any single bike,
+              and inventory/retired parts have no bikeId to nest under. Three
+              segments, so it never collides with /gear/:bikeId. */}
+          <Route
+            path="/gear/components/:componentId"
+            element={
+              <ProtectedRoute>
+                <Suspense fallback={<div className="p-6 text-muted">Loading history…</div>}>
+                  <ComponentHistory />
+                </Suspense>
+              </ProtectedRoute>
+            }
+          />
           <Route path="/gear/:bikeId" element={<ProtectedRoute><BikeDetail /></ProtectedRoute>} />
           <Route
             path="/gear/:bikeId/history"

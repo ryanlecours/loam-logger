@@ -12,10 +12,10 @@ import {
 import { canBackfillYear } from '../auth/tier-access';
 import {
   incrementBikeComponentHours,
-  decrementBikeComponentHours,
   findAdjustedComponentIdsForRides,
   recomputeAdjustedComponentsForRides,
 } from '../lib/component-hours';
+import { recomputeCountersForBike, BULK_RECOMPUTE_TX_OPTIONS } from '../lib/component-counters';
 import { invalidateBikePrediction } from '../services/prediction/cache';
 import { logError, logger } from '../lib/logger';
 import { acquireLock, releaseLock, extendLock, LOCK_TTL } from '../lib/rate-limit';
@@ -351,6 +351,7 @@ r.get<Empty, void, Empty, { year?: string }>(
               userId,
               bikeId: autoAssignBikeId,
               hoursDelta: durationHours,
+              startTime,
             });
           }
         });
@@ -714,14 +715,6 @@ r.delete<Empty, void, Empty>(
           rides.map((r) => r.id)
         );
 
-        for (const [bikeId, hours] of hoursByBike.entries()) {
-          await decrementBikeComponentHours(tx, {
-            userId,
-            bikeId,
-            hoursDelta: hours,
-          });
-        }
-
         await tx.ride.deleteMany({
           where: { userId, suuntoWorkoutId: { not: null } },
         });
@@ -730,8 +723,20 @@ r.delete<Empty, void, Empty>(
           where: { userId, provider: 'suunto' },
         });
 
-        return recomputeAdjustedComponentsForRides(tx, { componentIds: adjustedComponentIds });
-      });
+        // Many rides at once: one recompute per part that has been on each
+        // bike, after the rides are gone, beats a debit per ride.
+        const recomputedBikes: string[] = [];
+        for (const [bikeId, hours] of hoursByBike.entries()) {
+          recomputedBikes.push(
+            ...(await recomputeCountersForBike(tx, { userId, bikeId, legacyHoursDelta: -hours }))
+          );
+        }
+
+        return [
+          ...recomputedBikes,
+          ...(await recomputeAdjustedComponentsForRides(tx, { componentIds: adjustedComponentIds })),
+        ];
+      }, BULK_RECOMPUTE_TX_OPTIONS);
 
       // Invalidate prediction caches for every bike whose component hours
       // changed — the decremented bikes plus any bike holding a component

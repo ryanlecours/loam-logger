@@ -432,26 +432,59 @@ model StravaGearMapping {
 }
 
 model Component {
-  id                  String             @id @default(uuid())
-  bikeId              String?
-  type                ComponentType
-  location            ComponentLocation  @default(NONE)
-  brand               String
-  model               String
-  installedAt         DateTime?
-  hoursUsed           Float              @default(0)
-  serviceDueAtHours   Float?
-  notes               String?
-  createdAt           DateTime           @default(now())
-  updatedAt           DateTime           @updatedAt
-  isStock             Boolean            @default(false)
-  baselineWearPercent Int?               @default(0)
-  baselineMethod      BaselineMethod     @default(DEFAULT)
-  baselineConfidence  BaselineConfidence @default(HIGH)
-  baselineSetAt       DateTime?
-  lastServicedAt      DateTime?
-  userId              String
-  status              ComponentStatus    @default(INSTALLED)
+  id                String            @id @default(uuid())
+  bikeId            String?
+  type              ComponentType
+  location          ComponentLocation @default(NONE)
+  brand             String
+  model             String
+  installedAt       DateTime?
+  hoursUsed         Float             @default(0)
+  serviceDueAtHours Float?
+  notes             String?
+
+  // ------------------------------------------------------------------ counters
+  // `priorHours` is DECLARED, never derived: hours the part accrued before Loam
+  // Logger ever saw it. A rider fitting used wheels states this; no amount of
+  // ride data can reconstruct it. It is the one input the old model had no
+  // honest place for, which is why installs used to fake a zero-hour
+  // ServiceLog to shift the prediction anchor.
+  priorHours Float @default(0)
+
+  // Derived caches, rebuilt from the ledger (BikeComponentInstall x Ride x
+  // ServiceLog) by lib/component-counters.ts. Stored for cheap reads; the
+  // ledger stays the source of truth so backdated services, edited rides and
+  // per-ride adjustments all still self-heal.
+  //
+  // lifetimeHours = priorHours + every counted ride across every tenure.
+  // Both "since" counters are SUBTRACTIONS from it, which is what makes
+  // `hoursSince* <= lifetimeHours` structural rather than coincidental:
+  //   hoursSinceService = lifetimeHours - latest SERVICE log's hoursAtService
+  // The old rule paired the component's CURRENT bike with an arbitrarily old
+  // anchor and could credit a part hundreds of hours it was never fitted for.
+  lifetimeHours        Float @default(0)
+  hoursSinceService    Float @default(0)
+  hoursSinceInspection Float @default(0)
+  // When the counters above were last derived from the ledger. NULL means never:
+  // the row predates the counters and still holds 0s, so readers fall back to the
+  // legacy figures and the fast-path ride increment leaves them alone.
+  countersComputedAt   DateTime?
+
+  // Inspection is a separate clock from service: an inspection that finds
+  // nothing resets it without any work being done. Null means this component
+  // is not inspection-tracked (most types are service-only).
+  inspectionDueAtHours Float?
+  lastInspectedAt      DateTime?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  isStock              Boolean            @default(false)
+  baselineWearPercent  Int?               @default(0)
+  baselineMethod       BaselineMethod     @default(DEFAULT)
+  baselineConfidence   BaselineConfidence @default(HIGH)
+  baselineSetAt        DateTime?
+  lastServicedAt       DateTime?
+  userId               String
+  status               ComponentStatus    @default(INSTALLED)
 
   // Front/rear pairing support
   pairGroupId  String?
@@ -501,19 +534,47 @@ model BikeComponentInstall {
   @@index([bikeId, removedAt])
 }
 
+/// A logbook entry: work actually performed, or an inspection actually carried
+/// out. Installs are NOT service events — BikeComponentInstall records those.
+/// The old model wrote a zero-hour ServiceLog on every install purely to move
+/// the prediction anchor, which put fictional work in the rider's logbook and
+/// asserted (falsely, for a used part) that it had zero hours at that moment.
 model ServiceLog {
-  id             String    @id @default(uuid())
-  component      Component @relation(fields: [componentId], references: [id], onDelete: Cascade)
-  componentId    String
-  performedAt    DateTime  @default(now())
-  notes          String?
-  hoursAtService Float     @default(0)
+  id          String         @id @default(uuid())
+  component   Component      @relation(fields: [componentId], references: [id], onDelete: Cascade)
+  componentId String
+  performedAt DateTime       @default(now())
+  notes       String?
+  kind        ServiceLogKind @default(SERVICE)
+
+  /// The component's LIFETIME hours at the moment this was performed — what a
+  /// mechanic writes on the workshop card. Both "since" counters are derived by
+  /// subtracting this from lifetimeHours, so it must be a lifetime figure.
+  /// (Pre-Loam services are user-declared; nothing can derive them.)
+  ///
+  /// Unless declared, this is derived from the ledger and refreshed by every
+  /// recompute (lib/component-counters.ts), so a ride imported later and dated
+  /// before the service lands on the right side of it. Historically it stored
+  /// the since-service counter instead; the same refresh rescales those rows.
+  hoursAtService Float @default(0)
+  /// True when a rider typed hoursAtService in (typically a pre-Loam service).
+  /// Declared readings are kept as given; nothing in the ledger can check them.
+  hoursAtServiceDeclared Boolean @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@index([componentId])
   @@index([performedAt])
+  @@index([componentId, kind, performedAt])
+}
+
+enum ServiceLogKind {
+  /// Work was performed: a fork lower-leg service, new brake pads, a bleed.
+  SERVICE
+  /// The part was checked. Resets the inspection clock, not the service clock.
+  /// A rider checking pivot bearings that turn out fine has inspected, not
+  /// serviced, and the logbook must be able to say so.
+  INSPECTION
 }
 
 enum ComponentRideAdjustmentKind {

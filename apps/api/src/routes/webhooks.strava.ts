@@ -239,7 +239,7 @@ async function processActivityEvent(event: StravaWebhookEvent): Promise<void> {
     const affectedBikeIds = await prisma.$transaction(async (tx) => {
       const existing = await tx.ride.findUnique({
         where: { stravaActivityId: activityId.toString() },
-        select: { id: true, userId: true, durationSeconds: true, bikeId: true },
+        select: { id: true, userId: true, durationSeconds: true, startTime: true, bikeId: true },
       });
 
       if (!existing || existing.userId !== userAccount.userId) {
@@ -255,8 +255,8 @@ async function processActivityEvent(event: StravaWebhookEvent): Promise<void> {
       const affected = await syncBikeComponentHours(
         tx,
         userAccount.userId,
-        { bikeId: existing.bikeId ?? null, durationSeconds: existing.durationSeconds },
-        { bikeId: null, durationSeconds: 0 }
+        { bikeId: existing.bikeId ?? null, durationSeconds: existing.durationSeconds, startTime: existing.startTime },
+        { bikeId: null, durationSeconds: 0, startTime: null }
       );
 
       await tx.ride.delete({ where: { id: existing.id } });
@@ -351,7 +351,7 @@ async function processActivityEvent(event: StravaWebhookEvent): Promise<void> {
       const { syncedRideId, isNewRide, affectedBikeIds } = await prisma.$transaction(async (tx) => {
         const existing = await tx.ride.findUnique({
           where: { stravaActivityId: activityId.toString() },
-          select: { id: true, durationSeconds: true, bikeId: true, location: true },
+          select: { id: true, durationSeconds: true, startTime: true, bikeId: true, location: true },
         });
 
         const locationUpdate = shouldApplyAutoLocation(existing?.location ?? null, autoLocation?.title ?? null);
@@ -407,10 +407,12 @@ async function processActivityEvent(event: StravaWebhookEvent): Promise<void> {
           {
             bikeId: existing?.bikeId ?? null,
             durationSeconds: existing?.durationSeconds ?? null,
+            startTime: existing?.startTime ?? null,
           },
           {
             bikeId: ride.bikeId ?? null,
             durationSeconds: ride.durationSeconds,
+            startTime: ride.startTime,
           },
           // Existing ride: adjusted components need the canonical recompute.
           existing ? ride.id : undefined

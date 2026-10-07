@@ -67,7 +67,9 @@ export function EditServiceModal({ log, componentLabel, bikeId, onClose }: EditS
           input: {
             performedAt: dateInputToIsoNoon(performedAt),
             notes: notes.trim() || null,
-            hoursAtService: hoursNum,
+            // Sending hours makes them the rider's declared reading, which
+            // stops following ride history. Only send them when they changed.
+            ...(hoursNum !== (log.hoursAtService ?? 0) ? { hoursAtService: hoursNum } : {}),
           },
         },
       });

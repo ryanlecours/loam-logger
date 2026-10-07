@@ -111,6 +111,7 @@ import { persistGarminStream } from '../lib/ride-stream-store';
 import { removeGarminRideIfPresent } from '../lib/garmin-ride-removal';
 import { getValidWhoopToken } from '../lib/whoop-token';
 import { getValidSuuntoToken } from '../lib/suunto-token';
+import { logger } from '../lib/logger';
 
 const MockedWorker = Worker as jest.MockedClass<typeof Worker>;
 const mockAcquireLock = acquireLock as jest.MockedFunction<typeof acquireLock>;
@@ -931,6 +932,64 @@ describe('processSyncJob (via worker processor)', () => {
           bikeId: null,
           durationSeconds: 5340,
         });
+        // The ride is saved and credited inside one transaction, so run the
+        // callback against the same mock these tests assert on.
+        mockPrisma.$transaction.mockImplementation(async (cb) => cb(mockPrisma));
+      });
+
+      // A recompute writes absolute values from the ledger; the credit
+      // increments. Saving the ride in one transaction and crediting it in a
+      // second let a recompute between the two count the ride, and the credit
+      // then add it again. Both now happen on one transaction client.
+      it('saves the ride and credits its hours in one transaction', async () => {
+        const txUpsert = jest.fn().mockResolvedValue({
+          id: 'ride-1', bikeId: null, durationSeconds: 5340, startTime: new Date(1706123456 * 1000),
+        });
+        mockPrisma.$transaction.mockImplementation(async (cb) =>
+          cb({ ride: { upsert: txUpsert }, component: { updateMany: jest.fn() } })
+        );
+
+        await processSyncJob({
+          name: 'syncActivity',
+          data: {
+            userId: 'user123',
+            provider: 'garmin',
+            activityId: 'summary-456',
+            pushedActivity: { ...GARMIN_SUMMARY },
+          },
+        });
+
+        expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1);
+        expect(txUpsert).toHaveBeenCalledWith(
+          expect.objectContaining({ where: { garminActivityId: 'summary-456' } })
+        );
+        // Nothing saved outside the transaction.
+        expect(mockPrisma.ride.upsert).not.toHaveBeenCalled();
+      });
+
+      // Garmin will not resend the activity, so a failed credit must not lose
+      // the ride: the transaction rolls it back, and the fallback saves it alone
+      // and reports the orphaned hours.
+      it('still saves the ride when crediting its hours fails', async () => {
+        mockPrisma.$transaction.mockRejectedValue(new Error('lock timeout'));
+        const errorSpy = jest.spyOn(logger, 'error').mockImplementation(() => undefined as never);
+
+        await processSyncJob({
+          name: 'syncActivity',
+          data: {
+            userId: 'user123',
+            provider: 'garmin',
+            activityId: 'summary-456',
+            pushedActivity: { ...GARMIN_SUMMARY },
+          },
+        });
+
+        expect(mockPrisma.ride.upsert).toHaveBeenCalledTimes(1);
+        expect(errorSpy).toHaveBeenCalledWith(
+          expect.objectContaining({ event: 'orphaned_component_hours', provider: 'garmin', rideId: 'ride-1' }),
+          expect.any(String)
+        );
+        errorSpy.mockRestore();
       });
 
       const CALLBACK_URL = 'https://apis.garmin.com/wellness-api/rest/activityDetails?x=1';

@@ -439,8 +439,11 @@ describe('POST /duplicates/merge', () => {
     // and the ride delete/update.
     mockTransaction.mockImplementation(async (fn) =>
       fn({
+        $executeRaw: jest.fn().mockResolvedValue(0),
         componentRideAdjustment: { findMany: jest.fn().mockResolvedValue([]) },
-        component: { updateMany: mockComponentUpdateMany },
+        component: { updateMany: mockComponentUpdateMany, findMany: jest.fn().mockResolvedValue([]) },
+        bikeComponentInstall: { findMany: jest.fn().mockResolvedValue([]) },
+        serviceLog: { findMany: jest.fn().mockResolvedValue([]), updateMany: jest.fn() },
         ride: { delete: mockRideDelete, update: mockUpdate },
       })
     );
@@ -455,7 +458,12 @@ describe('POST /duplicates/merge', () => {
   }) {
     mockRideFindUnique
       .mockResolvedValueOnce({ userId: 'user-123', duplicateOfId: 'del-1' }) // keepRide
-      .mockResolvedValueOnce({ userId: 'user-123', duplicateOfId: 'keep-1', ...deleteRide }); // deleteRide
+      .mockResolvedValueOnce({
+        userId: 'user-123',
+        duplicateOfId: 'keep-1',
+        startTime: new Date('2026-05-01T08:00:00Z'),
+        ...deleteRide,
+      }); // deleteRide
   }
 
   it('rejects unauthenticated requests', async () => {
@@ -474,13 +482,13 @@ describe('POST /duplicates/merge', () => {
 
     // Duplicate deleted inside the integrity transaction
     expect(mockRideDelete).toHaveBeenCalledWith({ where: { id: 'del-1' } });
-    // Bike-1's components decremented by the deleted ride's hours (bulk helper)
-    expect(mockComponentUpdateMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({ userId: 'user-123', bikeId: 'bike-1' }),
-        data: { hoursUsed: { decrement: 1 } },
-      })
-    );
+    // The deleted ride's hour comes off bike-1's parts. With no computed part
+    // whose window holds the ride, only the legacy hoursUsed of uncomputed
+    // parts moves (lib/component-counters.ts creditRideToComponents).
+    expect(mockComponentUpdateMany).toHaveBeenCalledWith({
+      where: { userId: 'user-123', bikeId: 'bike-1', countersComputedAt: null },
+      data: { hoursUsed: { increment: -1 } },
+    });
     // Prediction cache busted for the affected bike
     expect(mockInvalidateBikePrediction).toHaveBeenCalledWith('user-123', 'bike-1');
     expect(jsonResponse).toMatchObject({ success: true, keptRideId: 'keep-1' });

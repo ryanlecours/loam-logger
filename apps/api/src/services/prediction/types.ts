@@ -61,6 +61,34 @@ export interface ComponentPrediction {
   hoursSinceService: number;
   ridesSinceService: number;
 
+  /**
+   * Lifetime hours: every counted ride across every bike this part has been
+   * fitted to, plus its declared pre-Loam hours. `currentHours` is the
+   * since-service figure, which for a part that has moved bikes or arrived
+   * used is a much smaller number.
+   */
+  lifetimeHours: number;
+
+  /**
+   * The service clock on its own. `status` above is the headline — the worse of
+   * this and `inspectionStatus` — so that a component still shows exactly one
+   * health state, per PRODUCT.md's "is the bike good to go" test.
+   */
+  serviceStatus: PredictionStatus;
+
+  /**
+   * The inspection clock. Null when this component type is not
+   * inspection-tracked (most are service-only), which is a different statement
+   * from "inspection is fine" and must not render as an ALL_GOOD badge.
+   */
+  inspectionStatus: PredictionStatus | null;
+  inspectionIntervalHours: number | null;
+  hoursSinceInspection: number | null;
+  inspectionHoursRemaining: number | null;
+
+  /** Which clock produced `status`. Lets a surface say *why* a part is due. */
+  limitingClock: 'SERVICE' | 'INSPECTION';
+
   // Pro-only explanation fields (null for FREE tier)
   why: string | null;
   drivers: WearDriver[] | null;

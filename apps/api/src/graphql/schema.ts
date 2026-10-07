@@ -317,6 +317,21 @@ export const typeDefs = gql`
     hoursUsed: Float!
     serviceDueAtHours: Float
     notes: String
+
+    # Hours the part accrued BEFORE Loam Logger saw it. Declared by the rider
+    # (used wheels bought secondhand), never derived — no ride data can
+    # reconstruct it.
+    priorHours: Float!
+    # priorHours plus every counted ride across every bike this part has been
+    # fitted to. hoursUsed is the since-service figure, which for a part that
+    # has moved bikes or arrived used is a much smaller number.
+    lifetimeHours: Float!
+    hoursSinceService: Float!
+    hoursSinceInspection: Float!
+    # Null when this component type is not inspection-tracked, which is a
+    # different statement from "inspection is fine".
+    inspectionDueAtHours: Float
+    lastInspectedAt: String
     isStock: Boolean!
     bikeId: ID
     isSpare: Boolean!
@@ -340,13 +355,26 @@ export const typeDefs = gql`
     pairedComponent: Component
   }
 
+  # Work actually performed, or an inspection actually carried out. Installs are
+  # NOT service events — they are recorded as install history instead.
   type ServiceLog {
     id: ID!
     componentId: ID!
     performedAt: String!
     notes: String
+    kind: ServiceLogKind!
+    # The component's LIFETIME hours when this was performed, which is what a
+    # mechanic writes on a workshop card. The "hours since" counters are derived
+    # by subtracting this from lifetimeHours.
     hoursAtService: Float!
     createdAt: String!
+  }
+
+  enum ServiceLogKind {
+    # Work was performed: a fork lower-leg service, new pads, a bleed.
+    SERVICE
+    # The part was checked. Resets the inspection clock, not the service clock.
+    INSPECTION
   }
 
   enum ComponentRideAdjustmentKind {
@@ -390,6 +418,98 @@ export const typeDefs = gql`
     hasMore: Boolean!
   }
 
+  # How much of a component's lifetime history we can actually account for.
+  enum ComponentHistoryCoverage {
+    # At least one real install row backs this history.
+    FULL
+    # No install rows existed; the tenure was reconstructed from the
+    # component's own columns (legacy rows predating BikeComponentInstall).
+    SYNTHETIC_FALLBACK
+    # No install rows and no current bike — nothing is attributable. Distinct
+    # from "all zeros", which would read as "never ridden".
+    NO_TENURE_DATA
+  }
+
+  # Raw usage sums. Always the raw ride columns, never lift-corrected: every
+  # other consumer (wear model, prediction engine, bikeHistory totals,
+  # component hours) is raw, and diverging here alone would make a component's
+  # lifetime smaller than the same rides' bike history with no explanation.
+  type ComponentUsageTotals {
+    rideCount: Int!
+    durationSeconds: Int!
+    distanceMeters: Float!
+    elevationGainMeters: Float!
+    firstRideAt: String
+    lastRideAt: String
+  }
+
+  # One stretch of time a component spent mounted on one bike.
+  type ComponentTenure {
+    id: ID!
+    # Null when the bike has since been deleted.
+    bike: Bike
+    slotKey: String!
+    installedAt: String!
+    # Null means "still mounted".
+    removedAt: String
+    # True when this tenure was reconstructed rather than read from a row.
+    synthetic: Boolean!
+    totals: ComponentUsageTotals!
+  }
+
+  type ComponentConditionBucket {
+    condition: WeatherCondition!
+    rideCount: Int!
+    durationSeconds: Int!
+  }
+
+  type ComponentCumulativePoint {
+    # Start of the month bucket, ISO.
+    date: String!
+    cumulativeHours: Float!
+    cumulativeDistanceMeters: Float!
+    cumulativeElevationGainMeters: Float!
+  }
+
+  type ComponentHistoryPayload {
+    component: Component!
+    # Unmerged, oldest first — one entry per install event, so the rider sees
+    # each mount as its own chapter.
+    tenures: [ComponentTenure!]!
+    # Everything the component has done ON RECORD, across every bike: summed
+    # from rides, so it does NOT include declared pre-Loam hours. Component
+    # .lifetimeHours is the full figure (this plus priorHours); distance and
+    # elevation have no pre-Loam counterpart, because a rider declaring "these
+    # wheels have 200 hours on them" is not declaring a mileage.
+    lifetime: ComponentUsageTotals!
+    # The counted rides since the latest SERVICE log (an inspection does not
+    # reset it), bounded by install tenures like the lifetime totals.
+    # durationSeconds is Component.hoursSinceService, the figure the dashboard
+    # and prediction engine use, so it includes declared pre-Loam hours or a
+    # declared reading that no listed ride accounts for. rideCount, distance and
+    # elevation are summed from the rides.
+    sinceService: ComponentUsageTotals!
+    # ISO date of the latest SERVICE log, where the since-service window
+    # starts; null when the part has never been serviced (all rides count).
+    anchor: String
+    serviceEvents: [ServiceLog!]!
+    # Ride conditions this component has seen. Pro-only: free users get a
+    # zeroed set, matching User.weatherBreakdown. Descriptive only — ride
+    # conditions do not currently affect service intervals.
+    conditions: [ComponentConditionBucket!]!
+    # Monthly cumulative wear for the history chart.
+    cumulative: [ComponentCumulativePoint!]!
+
+    coverage: ComponentHistoryCoverage!
+    # True when tenure rows were lost or unusable, so the client never presents
+    # the totals as an authoritative lifetime. Notably: deleting a bike
+    # cascades its install rows away and nulls the rides' bikeId, which
+    # destroys the join key on both sides and is unrecoverable at read time.
+    historyIncomplete: Boolean!
+    # Component.bikeId disagrees with the open install rows.
+    driftDetected: Boolean!
+  }
+
   type WearDriver {
     factor: String!
     contribution: Int!
@@ -416,6 +536,19 @@ export const typeDefs = gql`
     serviceIntervalHours: Float!
     hoursSinceService: Float!
     ridesSinceService: Int!
+    # Lifetime hours across every bike, including declared pre-Loam hours.
+    lifetimeHours: Float!
+    # The service clock alone. \`status\` above is the headline: the worse of this
+    # and inspectionStatus, so a component still shows exactly one health state.
+    serviceStatus: PredictionStatus
+    # The inspection clock. Null when the type is not inspection-tracked; that
+    # must not render as a passing inspection.
+    inspectionStatus: PredictionStatus
+    inspectionIntervalHours: Float
+    hoursSinceInspection: Float
+    inspectionHoursRemaining: Float
+    # Which clock produced \`status\`, so a surface can say why a part is due.
+    limitingClock: String
     why: String
     drivers: [WearDriver!]
   }
@@ -723,6 +856,13 @@ export const typeDefs = gql`
     isStock: Boolean
     hoursUsed: Float
     serviceDueAtHours: Float
+    # Hours the part carried before Loam Logger saw it — the honest way to say
+    # "these wheels are secondhand". Setting it rebuilds the component's
+    # counters, since lifetimeHours is priorHours plus its counted rides.
+    priorHours: Float
+    # Per-component inspection interval override. Null falls back to the type's
+    # default, and types with no default are simply not inspection-tracked.
+    inspectionDueAtHours: Float
   }
 
   input ComponentFilterInput {
@@ -735,6 +875,7 @@ export const typeDefs = gql`
     componentId: ID!
     notes: String
     performedAt: String
+    kind: ServiceLogKind
   }
 
   input UpdateServiceLogInput {
@@ -1498,6 +1639,17 @@ export const typeDefs = gql`
     # canonical attribution rule (rides on the component's bike since the
     # last-service anchor, ± per-ride adjustments). Owner-only.
     componentRides(componentId: ID!, take: Int = 50, after: ID): ComponentRidesPayload!
+    # A single component by id. Owner-only.
+    component(id: ID!): Component
+    # A component's whole life: every bike it has been mounted on, lifetime
+    # distance/elevation/hours, its services, and the conditions it has ridden
+    # in. Aggregate-only by design — no ride rows, so the response stays
+    # constant-size for any history length. Use componentRides for the rows.
+    #
+    # Deliberately takes no date or condition arguments: narrowing windows over
+    # a weather aggregate would let a free user binary-search single rides and
+    # recover the per-ride weather that Ride.weather gates behind Pro.
+    componentHistory(componentId: ID!): ComponentHistoryPayload!
     # Public (unauthenticated) sanitized history for a shared bike.
     # Returns null for unknown or revoked slugs.
     sharedBikeHistory(slug: String!): SharedBikeHistory

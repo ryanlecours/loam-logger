@@ -1,54 +1,71 @@
 import type { PrismaClient, Prisma } from '@prisma/client';
+import {
+  recomputeComponentCounters,
+  recomputeComponents,
+  creditRideToComponents,
+} from './component-counters';
 
 type TransactionClient = Omit<PrismaClient, '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'>;
 
 const secondsToHours = (seconds: number | null | undefined) => Math.max(0, seconds ?? 0) / 3600;
 
-/**
- * Increment hoursUsed for all currently-installed components on a bike.
- * Skips if hoursDelta is zero or negative.
- */
-export async function incrementBikeComponentHours(
-  tx: TransactionClient | Prisma.TransactionClient,
-  opts: { userId: string; bikeId: string; hoursDelta: number }
-) {
-  if (opts.hoursDelta <= 0) return;
-  await (tx as TransactionClient).component.updateMany({
-    where: { userId: opts.userId, bikeId: opts.bikeId },
-    data: { hoursUsed: { increment: opts.hoursDelta } },
-  });
+/** One ride's effect on a bike's parts. */
+export interface RideHours {
+  userId: string;
+  bikeId: string;
+  hoursDelta: number;
+  /** The ride's start. Decides which parts' windows include it; see creditRideToComponents. */
+  startTime: Date;
 }
 
 /**
- * Decrement hoursUsed for all currently-installed components on a bike.
- * Floors hoursUsed at zero to prevent negative values.
+ * Credit one ride's hours to the parts whose windows include it.
  * Skips if hoursDelta is zero or negative.
+ *
+ * Returns the bikeIds whose predictions the change can affect.
+ */
+export async function incrementBikeComponentHours(
+  tx: TransactionClient | Prisma.TransactionClient,
+  opts: RideHours
+): Promise<string[]> {
+  if (opts.hoursDelta <= 0) return [];
+  return creditRideToComponents(tx, opts);
+}
+
+/**
+ * Debit one ride's hours from the parts whose windows include it, flooring
+ * every counter at zero. Skips if hoursDelta is zero or negative.
+ *
+ * Returns the bikeIds whose predictions the change can affect.
  */
 export async function decrementBikeComponentHours(
   tx: TransactionClient | Prisma.TransactionClient,
-  opts: { userId: string; bikeId: string; hoursDelta: number }
-) {
-  if (opts.hoursDelta <= 0) return;
-  await (tx as TransactionClient).component.updateMany({
-    where: { userId: opts.userId, bikeId: opts.bikeId },
-    data: { hoursUsed: { decrement: opts.hoursDelta } },
-  });
-  // Floor at zero
-  await (tx as TransactionClient).component.updateMany({
-    where: { userId: opts.userId, bikeId: opts.bikeId, hoursUsed: { lt: 0 } },
-    data: { hoursUsed: 0 },
-  });
+  opts: RideHours
+): Promise<string[]> {
+  if (opts.hoursDelta <= 0) return [];
+  return creditRideToComponents(tx, { ...opts, hoursDelta: -opts.hoursDelta });
+}
+
+/**
+ * Where a ride sits, as far as component hours care. startTime is null only on
+ * the side of a create or delete that has no ride (bikeId null there too).
+ */
+export interface RidePlacement {
+  bikeId: string | null;
+  durationSeconds: number | null | undefined;
+  startTime: Date | null | undefined;
 }
 
 /**
  * Diff-based sync of component hours across an upsert.
  *
- * Given the previous (bikeId, durationSeconds) and next state of a ride,
- * credit/debit component hours correctly:
- *  - Bike changed: decrement the old bike's components by the full previous
- *    duration, increment the new bike's components by the full new duration.
- *  - Same bike, longer ride: increment by the delta.
- *  - Same bike, shorter ride: decrement by the absolute delta.
+ * Given the previous (bikeId, durationSeconds, startTime) and next state of a
+ * ride, credit/debit component hours correctly:
+ *  - Bike or start changed: debit the old placement by the full previous
+ *    duration, credit the new one by the full new duration. A new start can
+ *    move the ride across an install or a service, so it is not a delta.
+ *  - Same bike and start, longer ride: credit the delta.
+ *  - Same bike and start, shorter ride: debit the absolute delta.
  *  - No bike on either side: no-op.
  *
  * When `rideId` is provided (upsert of an EXISTING ride) and the prev/next
@@ -70,8 +87,8 @@ export async function decrementBikeComponentHours(
 export async function syncBikeComponentHours(
   tx: Prisma.TransactionClient,
   userId: string,
-  previous: { bikeId: string | null; durationSeconds: number | null | undefined },
-  next: { bikeId: string | null; durationSeconds: number | null | undefined },
+  previous: RidePlacement,
+  next: RidePlacement,
   rideId?: string
 ): Promise<string[]> {
   const prevBikeId = previous.bikeId;
@@ -79,33 +96,41 @@ export async function syncBikeComponentHours(
   const prevHours = secondsToHours(previous.durationSeconds);
   const nextHours = secondsToHours(next.durationSeconds);
   const bikeChanged = prevBikeId !== nextBikeId;
+  const startChanged = (previous.startTime?.getTime() ?? null) !== (next.startTime?.getTime() ?? null);
+  const moved = bikeChanged || startChanged;
   const hoursDiff = nextHours - prevHours;
 
-  // Bikes whose hoursUsed this call actually mutates — only these need their
-  // cached predictions busted (a pure no-op leaves the set empty).
+  // Bikes whose hours this call actually mutates, including bikes that parts
+  // credited here have since moved to. Only these need their cached
+  // predictions busted (a pure no-op leaves the set empty).
   const affectedBikeIds = new Set<string>();
+  const note = (bikeIds: string[]) => bikeIds.forEach((b) => affectedBikeIds.add(b));
 
-  if (prevBikeId) {
-    if (bikeChanged) {
-      await decrementBikeComponentHours(tx, { userId, bikeId: prevBikeId, hoursDelta: prevHours });
-      affectedBikeIds.add(prevBikeId);
+  if (prevBikeId && previous.startTime) {
+    if (moved) {
+      note(await decrementBikeComponentHours(tx, {
+        userId, bikeId: prevBikeId, hoursDelta: prevHours, startTime: previous.startTime,
+      }));
     } else if (hoursDiff < 0) {
-      await decrementBikeComponentHours(tx, { userId, bikeId: prevBikeId, hoursDelta: Math.abs(hoursDiff) });
-      affectedBikeIds.add(prevBikeId);
+      note(await decrementBikeComponentHours(tx, {
+        userId, bikeId: prevBikeId, hoursDelta: Math.abs(hoursDiff), startTime: previous.startTime,
+      }));
     }
   }
 
-  if (nextBikeId) {
-    if (bikeChanged) {
-      await incrementBikeComponentHours(tx, { userId, bikeId: nextBikeId, hoursDelta: nextHours });
-      affectedBikeIds.add(nextBikeId);
+  if (nextBikeId && next.startTime) {
+    if (moved) {
+      note(await incrementBikeComponentHours(tx, {
+        userId, bikeId: nextBikeId, hoursDelta: nextHours, startTime: next.startTime,
+      }));
     } else if (hoursDiff > 0) {
-      await incrementBikeComponentHours(tx, { userId, bikeId: nextBikeId, hoursDelta: hoursDiff });
-      affectedBikeIds.add(nextBikeId);
+      note(await incrementBikeComponentHours(tx, {
+        userId, bikeId: nextBikeId, hoursDelta: hoursDiff, startTime: next.startTime,
+      }));
     }
   }
 
-  if (rideId && (bikeChanged || hoursDiff !== 0)) {
+  if (rideId && (moved || hoursDiff !== 0)) {
     const adjustedBikeIds = await recomputeAdjustedComponentsForRides(tx, { rideIds: [rideId] });
     for (const bikeId of adjustedBikeIds) affectedBikeIds.add(bikeId);
   }
@@ -114,29 +139,30 @@ export async function syncBikeComponentHours(
 }
 
 // ---------------------------------------------------------------------------
-// Canonical per-component attribution (ComponentRideAdjustment-aware)
+// Per-component attribution: adjustments and the service anchor
 // ---------------------------------------------------------------------------
 //
-// The increment/decrement helpers above are the FAST path: they bulk-update
-// every component currently on a bike and know nothing about per-component
-// ride adjustments. The functions below are the AUTHORITATIVE path: they
-// derive one component's hoursUsed from the canonical rule and overwrite the
-// counter. Convention: bulk helpers run first, then a targeted recompute for
-// the (rare) components whose adjustments reference the touched rides — the
-// recompute is the last write in the transaction, so it wins.
+// The counters themselves are written only by lib/component-counters.ts: the
+// per-ride credit above (creditRideToComponents) and the tenure-aware
+// recompute. Convention: the per-ride credit runs first and ignores
+// adjustments; then recomputeAdjustedComponentsForRides recomputes the (rare)
+// components whose adjustments reference the touched rides. That recompute is
+// the last write in the transaction, so it wins.
 //
-// Canonical rule:
+// What remains here is the anchored attribution: the service anchor plus the
+// EXCLUDE/INCLUDE sets. It no longer writes any counter. It serves readers
+// that still describe "rides since the anchor" (the componentRides query, the
+// history page's since-service ride list) and the adjustment mutations'
+// `counted` flag:
+//
 //   anchor  = latest ServiceLog.performedAt ?? component.installedAt ?? null
 //   counted = user's rides where isDuplicate = false
 //             AND (anchor is null OR startTime >= anchor)
 //             AND ( (bikeId == component.bikeId AND no EXCLUDE row)
 //                   OR has INCLUDE row )
-//   hoursUsed = sum(counted.durationSeconds) / 3600
 //
-// INCLUDE respects the anchor: the prediction engine's hoursSinceService is
-// definitionally "since last service", and counter/engine must agree. An
-// INCLUDE on a ride older than the anchor is stored but dormant; it springs
-// back if the anchor moves (service log deleted/backdated).
+// It has no tenure bound, so it must never be used to set a counter again:
+// that is the rule which charged a moved fork for its new bike's history.
 
 /** Everything needed to evaluate the canonical rule for one component. */
 export interface ComponentAttribution {
@@ -272,19 +298,27 @@ export async function recomputeComponentHours(
   const attribution = await loadComponentAttribution(tx, componentId);
   if (!attribution) return null;
 
-  const { hours } = await computeCountedHours(tx, attribution);
-  await tx.component.update({
-    where: { id: componentId },
-    data: { hoursUsed: hours },
-  });
-  return { hours, attribution };
+  // Delegates to the tenure-aware counter rule in lib/component-counters.ts,
+  // which writes lifetimeHours, hoursSinceService, hoursSinceInspection AND
+  // keeps hoursUsed in lockstep with hoursSinceService.
+  //
+  // Kept as a wrapper rather than replaced at ~15 call sites so every existing
+  // mutation path picks up the corrected rule at once. `attribution` is still
+  // returned because the ride-adjustment mutations use its anchor and
+  // include/exclude sets to report whether a ride now counts.
+  const counters = await recomputeComponentCounters(tx, componentId);
+  if (!counters) return null;
+
+  return { hours: counters.hoursSinceService, attribution };
 }
 
 /**
  * After a mutation deletes rides or changes their bikeId/duration/startTime,
  * recompute every component whose adjustments reference those rides. The
- * bulk updateMany paths have already run; this targeted pass overwrites the
- * few adjusted components with authoritative values.
+ * per-ride credit has already run and ignores adjustments; this targeted pass
+ * replaces the few adjusted components' counters with the full tenure-aware
+ * recompute (lib/component-counters.ts), which locks the row, refreshes its
+ * derived readings and keeps hoursUsed in lockstep with hoursSinceService.
  *
  * Ride DELETE callers must capture componentIds BEFORE the delete (the
  * adjustment rows cascade away with the ride) and pass them via
@@ -309,27 +343,10 @@ export async function recomputeAdjustedComponentsForRides(
   }
   if (!componentIds.length) return [];
 
-  // Sequential on purpose — DO NOT wrap this loop in Promise.all. `tx` is a
-  // Prisma interactive transaction: all its queries share one connection and
-  // must run one at a time; firing the per-component work concurrently on the
-  // same `tx` throws ("Transaction already closed") / corrupts the tx. The
-  // per-component cost (3 metadata reads + 1-2 aggregates + 1 update) is
-  // acceptable because `componentIds` is DISTINCT components carrying an
-  // adjustment that references the touched rides — normally 0, and bounded by
-  // the rarity of adjustments (manual corrections) plus the 500-per-component
-  // cap. A bulk op touching many distinct adjusted components would pay this
-  // serially; if that ever shows up in practice, batch the three metadata
-  // reads across all componentIds (the ride.aggregate step stays per-component
-  // — each has its own bike/anchor/excluded-id set) rather than parallelizing.
-  const affectedBikeIds = new Set<string>();
-  for (const componentId of componentIds) {
-    const attribution = await loadComponentAttribution(tx, componentId);
-    if (!attribution) continue;
-    const { hours } = await computeCountedHours(tx, attribution);
-    await tx.component.update({ where: { id: componentId }, data: { hoursUsed: hours } });
-    if (attribution.component.bikeId) affectedBikeIds.add(attribution.component.bikeId);
-  }
-  return [...affectedBikeIds];
+  // One recompute per DISTINCT component carrying an adjustment on the touched
+  // rides: normally zero, and bounded by the rarity of adjustments (manual
+  // corrections) plus the 500-per-component cap.
+  return recomputeComponents(tx, componentIds);
 }
 
 /**
