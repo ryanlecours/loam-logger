@@ -3788,6 +3788,97 @@ describe('GraphQL Resolvers', () => {
     });
   });
 
+  // hoursUsed and serviceDueAtHours feed every prediction for a part, and both
+  // mutations share one normalizer, so the bounds are pinned on each entry point.
+  describe('component hour bounds', () => {
+    const OUT_OF_RANGE: Array<[string, number]> = [
+      ['hoursUsed', 1e15],
+      ['hoursUsed', -5],
+      ['hoursUsed', Number.NaN],
+      ['hoursUsed', Number.POSITIVE_INFINITY],
+      ['serviceDueAtHours', 1e15],
+      ['serviceDueAtHours', -1],
+      ['serviceDueAtHours', Number.NaN],
+    ];
+    const rejection = (field: string) => ({
+      message: `${field} must be between 0 and 100000`,
+      extensions: { code: 'BAD_USER_INPUT' },
+    });
+
+    describe('addComponent', () => {
+      const mutation = resolvers.Mutation.addComponent;
+      const create = jest.fn();
+
+      beforeEach(() => {
+        create.mockReset().mockResolvedValue({ id: 'comp-new' });
+        (mockPrisma.$transaction as jest.Mock)
+          .mockReset()
+          .mockImplementation(async (fn: (tx: unknown) => unknown) =>
+            fn({ component: { create }, bikeComponentInstall: { create: jest.fn() } })
+          );
+      });
+
+      it.each(OUT_OF_RANGE)('rejects %s = %p before creating anything', async (field, value) => {
+        await expect(
+          mutation({}, { input: { type: 'FORK', [field]: value } }, createMockContext('user-123') as never)
+        ).rejects.toMatchObject(rejection(field));
+        expect(create).not.toHaveBeenCalled();
+      });
+
+      it('stores in-range values as given', async () => {
+        await mutation(
+          {},
+          { input: { type: 'FORK', hoursUsed: 120, serviceDueAtHours: 50 } },
+          createMockContext('user-123') as never
+        );
+
+        expect(create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({ hoursUsed: 120, serviceDueAtHours: 50 }),
+          })
+        );
+      });
+    });
+
+    describe('updateComponent', () => {
+      const mutation = resolvers.Mutation.updateComponent;
+      const mockComponentFindUnique = mockPrisma.component.findUnique as jest.Mock;
+      const mockComponentUpdate = mockPrisma.component.update as jest.Mock;
+
+      beforeEach(() => {
+        mockCheckMutationRateLimit.mockResolvedValue({ allowed: true, retryAfter: 0 });
+        mockComponentFindUnique.mockReset().mockResolvedValue({
+          id: 'comp-1', userId: 'user-123', bikeId: null, type: 'FORK',
+          brand: 'Fox', model: '36', notes: null, isStock: false, hoursUsed: 10, serviceDueAtHours: 50,
+        });
+        mockComponentUpdate.mockReset().mockResolvedValue({ id: 'comp-1' });
+      });
+
+      it.each(OUT_OF_RANGE)('rejects %s = %p before writing anything', async (field, value) => {
+        await expect(
+          mutation({}, { id: 'comp-1', input: { [field]: value } }, createMockContext('user-123') as never)
+        ).rejects.toMatchObject(rejection(field));
+        expect(mockComponentUpdate).not.toHaveBeenCalled();
+      });
+
+      // The null meanings are unchanged: a null hoursUsed is 0, and a null
+      // interval clears the override back to the default.
+      it('keeps null meaning 0 hours and a cleared interval', async () => {
+        await mutation(
+          {},
+          { id: 'comp-1', input: { hoursUsed: null, serviceDueAtHours: null } },
+          createMockContext('user-123') as never
+        );
+
+        expect(mockComponentUpdate).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({ hoursUsed: 0, serviceDueAtHours: null }),
+          })
+        );
+      });
+    });
+  });
+
   describe('Mutation.updateServiceLog', () => {
     const mutation = resolvers.Mutation.updateServiceLog;
     const mockLogFindUnique = mockPrisma.serviceLog.findUnique as jest.Mock;
