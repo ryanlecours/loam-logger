@@ -59,6 +59,27 @@
 -- timestamp to match the install exactly.
 CREATE SCHEMA IF NOT EXISTS "loam_archive";
 
+-- A previous run can have left an archive here: `prisma migrate reset` drops
+-- only the public schema, so replaying migrations on a reset database finds the
+-- old table and CREATE TABLE fails. Move any existing archive aside under a
+-- timestamped name rather than dropping it: this step must never destroy the
+-- only backup of rows a run deleted. Its primary-key index is renamed with it,
+-- or the new table's ADD PRIMARY KEY would collide with the old index name.
+DO $archive$
+DECLARE
+  suffix text := to_char(clock_timestamp(), 'YYYYMMDD"T"HH24MISSMS');
+BEGIN
+  IF to_regclass('"loam_archive"."ServiceLog_pre_20260927"') IS NOT NULL THEN
+    EXECUTE format('ALTER TABLE "loam_archive"."ServiceLog_pre_20260927" RENAME TO %I',
+      'ServiceLog_pre_20260927_superseded_' || suffix);
+  END IF;
+  IF to_regclass('"loam_archive"."ServiceLog_pre_20260927_pkey"') IS NOT NULL THEN
+    EXECUTE format('ALTER INDEX "loam_archive"."ServiceLog_pre_20260927_pkey" RENAME TO %I',
+      'ServiceLog_pre_20260927_superseded_' || suffix || '_pkey');
+  END IF;
+END
+$archive$;
+
 CREATE TABLE "loam_archive"."ServiceLog_pre_20260927" AS
 SELECT
   sl.*,
