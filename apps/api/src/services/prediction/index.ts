@@ -23,6 +23,8 @@ export {
   generateBikePredictions,
   generateAllBikePredictions,
   getPriorityBike,
+  resolveServiceIntervalHours,
+  recommendedInspectionExtensionHours,
 } from './engine';
 
 // Cache - Invalidation Functions

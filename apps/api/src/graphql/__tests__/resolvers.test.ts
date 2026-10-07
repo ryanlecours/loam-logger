@@ -68,8 +68,12 @@ jest.mock('../../lib/prisma', () => ({
     },
     bikeServicePreference: {
       findMany: jest.fn(),
+      findFirst: jest.fn(),
       upsert: jest.fn(),
       deleteMany: jest.fn(),
+    },
+    userServicePreference: {
+      findFirst: jest.fn(),
     },
     bikeNotificationPreference: {
       findUnique: jest.fn(),
@@ -150,6 +154,8 @@ import { generateSummary } from '../../services/advisor/summarize';
 import { captureServerEvent } from '../../lib/posthog';
 import { CURRENT_TERMS_VERSION } from '@loam/shared';
 import * as componentCounters from '../../lib/component-counters';
+import * as componentHours from '../../lib/component-hours';
+import { getBaseInterval } from '../../services/prediction/config';
 
 const mockPrisma = prisma as jest.Mocked<typeof prisma>;
 const mockCheckMutationRateLimit = checkMutationRateLimit as jest.MockedFunction<typeof checkMutationRateLimit>;
@@ -386,6 +392,7 @@ describe('GraphQL Resolvers', () => {
             lifetimeHours: 50,
             hoursSinceService: 0,
             hoursSinceInspection: 0,
+            serviceExtensionHours: null,
             hoursUsed: 0,
             countersComputedAt: expect.any(Date),
           },
@@ -4339,9 +4346,14 @@ describe('GraphQL Resolvers', () => {
       ]);
       // Lifetime 4h; the new latest log reads 3h, leaving 1h since service.
       mockRideAggregate.mockResolvedValue({ _sum: { durationSeconds: 14400 }, _count: 4 });
+      // The log is a service; there is no inspection.
       mockLogFindFirst
         .mockReset()
-        .mockResolvedValue({ performedAt: new Date('2026-03-10'), hoursAtService: 3 });
+        .mockImplementation(async ({ where }: { where: { kind?: { in: string[] } } }) =>
+          where.kind?.in.length === 1 && where.kind.in[0] === 'INSPECTION'
+            ? null
+            : { performedAt: new Date('2026-03-10'), hoursAtService: 3 }
+        );
 
       const ctx = createMockContext('user-123');
       await mutation(
@@ -4353,7 +4365,7 @@ describe('GraphQL Resolvers', () => {
       // Re-anchor and hours recompute are now two separate writes.
       expect(mockComponentUpdate).toHaveBeenCalledWith({
         where: { id: 'comp-1' },
-        data: { lastServicedAt: new Date('2026-03-10') },
+        data: { lastServicedAt: new Date('2026-03-10'), lastInspectedAt: null },
       });
       expect(mockComponentUpdate).toHaveBeenCalledWith({
         where: { id: 'comp-1' },
@@ -4361,6 +4373,7 @@ describe('GraphQL Resolvers', () => {
           lifetimeHours: 4,
           hoursSinceService: 1,
           hoursSinceInspection: 1,
+          serviceExtensionHours: null,
           hoursUsed: 1,
           countersComputedAt: expect.any(Date),
         },
@@ -4390,9 +4403,14 @@ describe('GraphQL Resolvers', () => {
       ]);
       // Lifetime = 10h; the log now reads 8h, so 2h remain since the service.
       mockRideAggregate.mockResolvedValue({ _sum: { durationSeconds: 36000 }, _count: 4 });
+      // The log is a service; there is no inspection.
       mockLogFindFirst
         .mockReset()
-        .mockResolvedValue({ performedAt: new Date('2026-04-15'), hoursAtService: 8 });
+        .mockImplementation(async ({ where }: { where: { kind?: { in: string[] } } }) =>
+          where.kind?.in.length === 1 && where.kind.in[0] === 'INSPECTION'
+            ? null
+            : { performedAt: new Date('2026-04-15'), hoursAtService: 8 }
+        );
 
       const ctx = createMockContext('user-123');
       await mutation(
@@ -4419,7 +4437,7 @@ describe('GraphQL Resolvers', () => {
       );
       expect(mockComponentUpdate).toHaveBeenCalledWith({
         where: { id: 'comp-1' },
-        data: { lastServicedAt: new Date('2026-04-15') },
+        data: { lastServicedAt: new Date('2026-04-15'), lastInspectedAt: null },
       });
       // hoursSinceService = lifetimeHours - the log's lifetime reading = 10 - 8.
       // hoursUsed is kept in lockstep with it for existing readers.
@@ -4429,6 +4447,7 @@ describe('GraphQL Resolvers', () => {
           lifetimeHours: 10,
           hoursSinceService: 2,
           hoursSinceInspection: 2,
+          serviceExtensionHours: null,
           hoursUsed: 2,
           countersComputedAt: expect.any(Date),
         },
@@ -4449,6 +4468,170 @@ describe('GraphQL Resolvers', () => {
         (c) => c[1] === 'bike-7'
       );
       expect(calls.length).toBeGreaterThanOrEqual(2);
+    });
+  });
+
+  // An inspection stands in for a due service when the part is still in good
+  // shape: the rider says how many more hours it can run before the next
+  // service, and Loam suggests half its service interval. Snooze, the button
+  // released clients already have for "checked it, still good", now records one.
+  describe('inspections standing in for a service', () => {
+    const mockComponentFindUnique = mockPrisma.component.findUnique as jest.Mock;
+    const mockLogFindUnique = mockPrisma.serviceLog.findUnique as jest.Mock;
+    const mockBikePref = mockPrisma.bikeServicePreference.findFirst as jest.Mock;
+    const mockUserPref = mockPrisma.userServicePreference.findFirst as jest.Mock;
+    const mockTransaction = mockPrisma.$transaction as jest.Mock;
+    const create = jest.fn();
+    const componentUpdate = jest.fn();
+    let recomputeSpy: jest.SpyInstance;
+    let lifetimeSpy: jest.SpyInstance;
+
+    const fork = {
+      id: 'comp-1', userId: 'user-123', bikeId: 'bike-1', hoursUsed: 0,
+      type: 'FORK', location: 'NONE', serviceDueAtHours: null,
+    };
+    const halfOf = (hours: number) => Math.round(hours * 0.5 * 10) / 10;
+    const createdLog = () => create.mock.calls[0][0].data;
+
+    beforeEach(() => {
+      mockCheckMutationRateLimit.mockResolvedValue({ allowed: true, retryAfter: 0 });
+      mockComponentFindUnique.mockReset().mockResolvedValue(fork);
+      mockLogFindUnique.mockReset();
+      mockBikePref.mockReset().mockResolvedValue(null);
+      mockUserPref.mockReset().mockResolvedValue(null);
+      create.mockReset().mockResolvedValue({ id: 'log-new' });
+      componentUpdate.mockReset().mockResolvedValue({ id: 'comp-1' });
+      mockTransaction.mockReset().mockImplementation(async (fn: (tx: unknown) => unknown) =>
+        fn({ serviceLog: { create, update: create }, component: { update: componentUpdate } })
+      );
+      recomputeSpy = jest.spyOn(componentHours, 'recomputeComponentHours').mockResolvedValue(null);
+      lifetimeSpy = jest.spyOn(componentCounters, 'lifetimeHoursAt').mockResolvedValue(40);
+    });
+
+    afterEach(() => {
+      recomputeSpy.mockRestore();
+      lifetimeSpy.mockRestore();
+    });
+
+    describe('logService', () => {
+      const mutation = resolvers.Mutation.logService;
+      const log = (input: Record<string, unknown>) =>
+        mutation({}, { input: { componentId: 'comp-1', ...input } } as never, createMockContext('user-123') as never);
+
+      it('suggests half the service interval when an inspection gives no extension', async () => {
+        await log({ kind: 'INSPECTION' });
+
+        expect(createdLog()).toMatchObject({
+          kind: 'INSPECTION',
+          serviceExtensionHours: halfOf(getBaseInterval('FORK', 'NONE')),
+          hoursAtService: 40,
+        });
+        // An inspection is not a service.
+        expect(componentUpdate).toHaveBeenCalledWith(
+          expect.objectContaining({ data: { lastInspectedAt: expect.any(Date) } })
+        );
+        expect(recomputeSpy).toHaveBeenCalled();
+      });
+
+      it('keeps the extension the rider gives', async () => {
+        await log({ kind: 'INSPECTION', serviceExtensionHours: 12 });
+
+        expect(createdLog()).toMatchObject({ kind: 'INSPECTION', serviceExtensionHours: 12 });
+      });
+
+      it('resolves the interval through the bike preference', async () => {
+        mockBikePref.mockResolvedValue({ customInterval: 80 });
+
+        await log({ kind: 'INSPECTION' });
+
+        expect(createdLog()).toMatchObject({ serviceExtensionHours: 40 });
+      });
+
+      it('rejects an extension on a service', async () => {
+        await expect(log({ kind: 'SERVICE', serviceExtensionHours: 12 })).rejects.toMatchObject({
+          extensions: { code: 'BAD_USER_INPUT' },
+        });
+        expect(create).not.toHaveBeenCalled();
+      });
+
+      it('rejects an out-of-range extension', async () => {
+        await expect(log({ kind: 'INSPECTION', serviceExtensionHours: -1 })).rejects.toMatchObject({
+          extensions: { code: 'BAD_USER_INPUT' },
+        });
+        expect(create).not.toHaveBeenCalled();
+      });
+
+      it('records no extension on a service', async () => {
+        await log({});
+
+        expect(createdLog()).toMatchObject({ kind: 'SERVICE', serviceExtensionHours: null });
+        expect(componentUpdate).toHaveBeenCalledWith(
+          expect.objectContaining({ data: { lastServicedAt: expect.any(Date) } })
+        );
+      });
+    });
+
+    describe('snoozeComponent', () => {
+      const mutation = resolvers.Mutation.snoozeComponent;
+      const snooze = (hours?: number) =>
+        mutation({}, { id: 'comp-1', ...(hours === undefined ? {} : { hours }) }, createMockContext('user-123') as never);
+
+      // Snooze used to raise serviceDueAtHours, which outlived the next service.
+      it('logs an inspection with the suggested extension instead of raising the interval', async () => {
+        mockBikePref.mockResolvedValue({ customInterval: 80 });
+
+        await snooze();
+
+        expect(createdLog()).toMatchObject({ componentId: 'comp-1', kind: 'INSPECTION', serviceExtensionHours: 40 });
+        expect(componentUpdate).toHaveBeenCalledWith({
+          where: { id: 'comp-1' },
+          data: { lastInspectedAt: expect.any(Date) },
+        });
+        expect(mockPrisma.component.update).not.toHaveBeenCalledWith(
+          expect.objectContaining({ data: expect.objectContaining({ serviceDueAtHours: expect.anything() }) })
+        );
+        expect(recomputeSpy).toHaveBeenCalled();
+      });
+
+      it('uses the hours given, clamped as before', async () => {
+        await snooze(500);
+
+        expect(createdLog()).toMatchObject({ serviceExtensionHours: 400 });
+      });
+    });
+
+    describe('updateServiceLog', () => {
+      const mutation = resolvers.Mutation.updateServiceLog;
+
+      it('revises the extension of an inspection', async () => {
+        mockLogFindUnique.mockResolvedValue({
+          id: 'log-1', kind: 'INSPECTION', hoursAtService: 40, serviceExtensionHours: 25,
+          component: { id: 'comp-1', userId: 'user-123', bikeId: 'bike-1' },
+        });
+        mockTransaction.mockImplementation(async (fn: (tx: unknown) => unknown) =>
+          fn({
+            serviceLog: { update: create, findFirst: jest.fn().mockResolvedValue(null) },
+            // The component is gone by the recompute, which then no-ops.
+            component: { findUnique: jest.fn().mockResolvedValue(null), update: componentUpdate },
+          })
+        );
+
+        await mutation({}, { id: 'log-1', input: { serviceExtensionHours: 10 } }, createMockContext('user-123') as never);
+
+        expect(create).toHaveBeenCalledWith({ where: { id: 'log-1' }, data: { serviceExtensionHours: 10 } });
+      });
+
+      it('rejects an extension on a service log', async () => {
+        mockLogFindUnique.mockResolvedValue({
+          id: 'log-1', kind: 'SERVICE', hoursAtService: 40, serviceExtensionHours: null,
+          component: { id: 'comp-1', userId: 'user-123', bikeId: 'bike-1' },
+        });
+
+        await expect(
+          mutation({}, { id: 'log-1', input: { serviceExtensionHours: 10 } }, createMockContext('user-123') as never)
+        ).rejects.toMatchObject({ extensions: { code: 'BAD_USER_INPUT' } });
+        expect(create).not.toHaveBeenCalled();
+      });
     });
   });
 
@@ -4551,6 +4734,7 @@ describe('GraphQL Resolvers', () => {
           hoursSinceService: 10,
           // The inspection at 8h still resets its own clock.
           hoursSinceInspection: 2,
+          serviceExtensionHours: null,
           hoursUsed: 10,
           countersComputedAt: expect.any(Date),
         },
@@ -4581,16 +4765,21 @@ describe('GraphQL Resolvers', () => {
       ]);
       // Lifetime 20h; the surviving prior log reads 15h, leaving 5h.
       mockRideAggregate.mockResolvedValue({ _sum: { durationSeconds: 72000 }, _count: 6 });
+      // The surviving log is a service; no inspection is left.
       mockLogFindFirst
         .mockReset()
-        .mockResolvedValue({ performedAt: new Date('2026-01-01'), hoursAtService: 15 });
+        .mockImplementation(async ({ where }: { where: { kind?: { in: string[] } } }) =>
+          where.kind?.in.length === 1 && where.kind.in[0] === 'INSPECTION'
+            ? null
+            : { performedAt: new Date('2026-01-01'), hoursAtService: 15 }
+        );
 
       const ctx = createMockContext('user-123');
       await mutation({}, { id: 'log-latest' }, ctx as never);
 
       expect(mockComponentUpdate).toHaveBeenCalledWith({
         where: { id: 'comp-1' },
-        data: { lastServicedAt: new Date('2026-01-01') },
+        data: { lastServicedAt: new Date('2026-01-01'), lastInspectedAt: null },
       });
       expect(mockComponentUpdate).toHaveBeenCalledWith({
         where: { id: 'comp-1' },
@@ -4598,6 +4787,7 @@ describe('GraphQL Resolvers', () => {
           lifetimeHours: 20,
           hoursSinceService: 5,
           hoursSinceInspection: 5,
+          serviceExtensionHours: null,
           hoursUsed: 5,
           countersComputedAt: expect.any(Date),
         },
@@ -4644,7 +4834,7 @@ describe('GraphQL Resolvers', () => {
       );
       expect(mockComponentUpdate).toHaveBeenCalledWith({
         where: { id: 'comp-1' },
-        data: { lastServicedAt: null },
+        data: { lastServicedAt: null, lastInspectedAt: null },
       });
       // No log of either kind survives, so neither clock has ever been reset
       // and both "since" figures equal the full lifetime.
@@ -4654,6 +4844,7 @@ describe('GraphQL Resolvers', () => {
           lifetimeHours: 100,
           hoursSinceService: 100,
           hoursSinceInspection: 100,
+          serviceExtensionHours: null,
           hoursUsed: 100,
           countersComputedAt: expect.any(Date),
         },
@@ -6748,6 +6939,7 @@ describe('GraphQL Resolvers', () => {
           lifetimeHours: 0,
           hoursSinceService: 0,
           hoursSinceInspection: 0,
+          serviceExtensionHours: null,
           hoursUsed: 0,
           countersComputedAt: expect.any(Date),
         },
@@ -6876,6 +7068,7 @@ describe('GraphQL Resolvers', () => {
           lifetimeHours: 0,
           hoursSinceService: 0,
           hoursSinceInspection: 0,
+          serviceExtensionHours: null,
           hoursUsed: 0,
           countersComputedAt: expect.any(Date),
         },

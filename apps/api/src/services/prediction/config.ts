@@ -181,6 +181,13 @@ export const BASE_INTERVALS_HOURS: Partial<
 /** Default interval for component types not in the map */
 export const DEFAULT_INTERVAL_HOURS = 100;
 
+/**
+ * The extension Loam suggests when a rider logs an inspection in place of a due
+ * service, as a share of the part's service interval. The rider can change it:
+ * they have seen the part, and this is only a starting point.
+ */
+export const INSPECTION_EXTENSION_RATIO = 0.5;
+
 // =============================================================================
 // Helper Functions
 // =============================================================================

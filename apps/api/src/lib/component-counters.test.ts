@@ -179,6 +179,39 @@ const OPEN_TENURE = {
 };
 
 describe('computeComponentCounters', () => {
+  // An inspection standing in for a due service starts the next cycle with the
+  // extension the rider granted. The recompute caches it for the engine.
+  it('caches the extension when the latest service-or-inspection is an inspection', async () => {
+    const tx = makeTx({
+      installs: [OPEN_TENURE],
+      rides: [ride('r1', 'bike-1', '2025-02-01T00:00:00Z', 30)],
+      latestService: { hoursAtService: 10 },
+      latestInspection: { hoursAtService: 25, kind: 'INSPECTION', serviceExtensionHours: 12 } as never,
+    });
+
+    const c = await computeComponentCounters(asTx(tx), 'comp-1');
+
+    expect(c).toEqual({
+      lifetimeHours: 30,
+      hoursSinceService: 20,
+      hoursSinceInspection: 5,
+      serviceExtensionHours: 12,
+    });
+  });
+
+  it('caches no extension when the latest of the two is a service', async () => {
+    const tx = makeTx({
+      installs: [OPEN_TENURE],
+      rides: [ride('r1', 'bike-1', '2025-02-01T00:00:00Z', 30)],
+      latestService: { hoursAtService: 25 },
+      latestInspection: { hoursAtService: 25, kind: 'SERVICE', serviceExtensionHours: null } as never,
+    });
+
+    const c = await computeComponentCounters(asTx(tx), 'comp-1');
+
+    expect(c?.serviceExtensionHours).toBeNull();
+  });
+
   it('sums lifetime hours from the tenure ledger', async () => {
     const tx = makeTx({
       installs: [OPEN_TENURE],
@@ -257,7 +290,7 @@ describe('computeComponentCounters', () => {
     });
 
     const c = await computeComponentCounters(asTx(tx), 'comp-1');
-    expect(c).toEqual({ lifetimeHours: 12, hoursSinceService: 12, hoursSinceInspection: 12 });
+    expect(c).toEqual({ lifetimeHours: 12, hoursSinceService: 12, hoursSinceInspection: 12, serviceExtensionHours: null });
   });
 
   it('clamps a since-figure at zero rather than reporting negative hours', async () => {
@@ -358,7 +391,7 @@ describe('service readings in a recompute', () => {
     const c = await recomputeComponentCounters(asTx(tx), 'comp-1');
 
     expect(book[0].hoursAtService).toBe(15);
-    expect(c).toEqual({ lifetimeHours: 17, hoursSinceService: 2, hoursSinceInspection: 2 });
+    expect(c).toEqual({ lifetimeHours: 17, hoursSinceService: 2, hoursSinceInspection: 2, serviceExtensionHours: null });
   });
 
   // A rider's "serviced at 300h" for a pre-Loam service is their statement and
@@ -525,6 +558,7 @@ describe('recomputeComponentCounters', () => {
         lifetimeHours: 40,
         hoursSinceService: 25,
         hoursSinceInspection: 25,
+        serviceExtensionHours: null,
         hoursUsed: 25,
         countersComputedAt: expect.any(Date),
       },

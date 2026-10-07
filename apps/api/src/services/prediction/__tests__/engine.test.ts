@@ -1226,6 +1226,72 @@ describe('prediction engine', () => {
       expect(c.inspectionHoursRemaining).toBeNull();
     });
 
+    // An inspection standing in for a due service: the part is due the granted
+    // extension after the inspection, and "since service / interval" restates
+    // that from the last service so the two figures stay consistent.
+    it('counts down the extension an inspection granted', async () => {
+      const c = await run({
+        ...fork,
+        countersComputedAt: new Date('2024-02-01'),
+        lifetimeHours: 80,
+        // Serviced at 20h, inspected at 75h with 25h granted.
+        hoursSinceService: 60,
+        hoursSinceInspection: 5,
+        serviceExtensionHours: 25,
+      });
+
+      expect(c.hoursRemaining).toBe(20);
+      expect(c.serviceIntervalHours).toBe(80);
+      expect(c.hoursSinceService).toBe(60);
+      expect(c.status).toBe('ALL_GOOD');
+      expect(c.serviceExtensionHours).toBe(25);
+      // Half the part's own 50h interval, not of the extended due point.
+      expect(c.recommendedExtensionHours).toBe(25);
+    });
+
+    it('judges due-soon against the extension', async () => {
+      const c = await run({
+        ...fork,
+        countersComputedAt: new Date('2024-02-01'),
+        lifetimeHours: 92,
+        hoursSinceService: 72,
+        hoursSinceInspection: 17,
+        serviceExtensionHours: 25,
+      });
+
+      expect(c.hoursRemaining).toBe(8);
+      expect(c.status).toBe('DUE_SOON');
+    });
+
+    it('goes overdue once the extension is used up', async () => {
+      const c = await run({
+        ...fork,
+        countersComputedAt: new Date('2024-02-01'),
+        lifetimeHours: 105,
+        hoursSinceService: 85,
+        hoursSinceInspection: 30,
+        serviceExtensionHours: 25,
+      });
+
+      expect(c.hoursRemaining).toBe(-5);
+      expect(c.status).toBe('OVERDUE');
+    });
+
+    it('ignores a stray extension while uncomputed', async () => {
+      const c = await run({
+        ...fork,
+        countersComputedAt: null,
+        lifetimeHours: 1,
+        hoursSinceService: 1,
+        hoursSinceInspection: 1,
+        serviceExtensionHours: 25,
+      });
+
+      expect(c.serviceIntervalHours).toBe(50);
+      expect(c.hoursRemaining).toBe(47);
+      expect(c.serviceExtensionHours).toBeNull();
+    });
+
     it('sums the window while uncomputed', async () => {
       // A ride increment before the backfill can no longer move these off 0,
       // but even if a row held stray values they must not be read.
