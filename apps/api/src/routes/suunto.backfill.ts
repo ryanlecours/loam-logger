@@ -15,7 +15,7 @@ import {
   findAdjustedComponentIdsForRides,
   recomputeAdjustedComponentsForRides,
 } from '../lib/component-hours';
-import { recomputeCountersForBike } from '../lib/component-counters';
+import { recomputeCountersForBike, BULK_RECOMPUTE_TX_OPTIONS } from '../lib/component-counters';
 import { invalidateBikePrediction } from '../services/prediction/cache';
 import { logError, logger } from '../lib/logger';
 import { acquireLock, releaseLock, extendLock, LOCK_TTL } from '../lib/rate-limit';
@@ -736,7 +736,7 @@ r.delete<Empty, void, Empty>(
           ...recomputedBikes,
           ...(await recomputeAdjustedComponentsForRides(tx, { componentIds: adjustedComponentIds })),
         ];
-      });
+      }, BULK_RECOMPUTE_TX_OPTIONS);
 
       // Invalidate prediction caches for every bike whose component hours
       // changed — the decremented bikes plus any bike holding a component

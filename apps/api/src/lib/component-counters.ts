@@ -604,6 +604,19 @@ export async function creditRideToComponents(
 }
 
 /**
+ * Interactive-transaction options for every caller of recomputeCountersForBike.
+ *
+ * The bulk paths (Strava gear mapping and unmapping, bulk ride assignment, a
+ * provider's delete-imported-rides route) recompute every part ever fitted to
+ * the bike inside one transaction, and Prisma's default limit is 5 seconds.
+ * Measured on a throwaway Postgres (2026-10-07): a bike with 30 parts, 4 logs
+ * each and 1,500 rides took ~0.3s and 302 queries; production's largest bike
+ * has 520 rides and 29 parts. 30s leaves room for a bike far beyond that while
+ * still failing a transaction that has genuinely stalled.
+ */
+export const BULK_RECOMPUTE_TX_OPTIONS = { timeout: 30_000 } as const;
+
+/**
  * Recompute every computed component that could count rides on `bikeId`.
  *
  * For changes that move many rides at once (a Strava gear mapping, a bulk

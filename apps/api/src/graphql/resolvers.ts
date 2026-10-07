@@ -78,6 +78,7 @@ import {
 import {
   recomputeComponentCounters,
   recomputeCountersForBike,
+  BULK_RECOMPUTE_TX_OPTIONS,
   lifetimeHoursAt,
 } from '../lib/component-counters';
 import { captureSetupSnapshot } from '../lib/capture-snapshot';
@@ -4311,7 +4312,7 @@ export const resolvers = {
         }
 
         return { mapping: newMapping, adjustedBikeIds: recomputedBikes };
-      });
+      }, BULK_RECOMPUTE_TX_OPTIONS);
 
       // Invalidate prediction cache for the bike (plus adjusted components' bikes)
       for (const affected of new Set([input.bikeId, ...adjustedBikeIds])) {
@@ -4372,7 +4373,7 @@ export const resolvers = {
           ...bikeIds,
           ...(await recomputeAdjustedComponentsForRides(tx, { rideIds: rides.map((r) => r.id) })),
         ];
-      });
+      }, BULK_RECOMPUTE_TX_OPTIONS);
 
       // Invalidate prediction cache for the bike (plus adjusted components' bikes)
       for (const affected of new Set([deletedBikeId, ...adjustedBikeIds])) {
@@ -5255,7 +5256,7 @@ export const resolvers = {
         // elsewhere, whose sum the recompute above does not touch. Targeted
         // canonical recompute wins as the last write.
         return [...bikeIds, ...(await recomputeAdjustedComponentsForRides(tx, { rideIds }))];
-      });
+      }, BULK_RECOMPUTE_TX_OPTIONS);
 
       // Invalidate prediction cache after transaction (target bike plus any
       // bike holding a component adjusted against these rides)

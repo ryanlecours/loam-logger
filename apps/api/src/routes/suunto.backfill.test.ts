@@ -91,6 +91,7 @@ jest.mock('../lib/component-hours', () => ({
 const mockRecomputeCountersForBike = jest.fn();
 jest.mock('../lib/component-counters', () => ({
   recomputeCountersForBike: mockRecomputeCountersForBike,
+  BULK_RECOMPUTE_TX_OPTIONS: { timeout: 30_000 },
 }));
 
 const mockFetch = jest.fn();
@@ -715,6 +716,8 @@ describe('suunto.backfill routes', () => {
       expect(mockRecomputeCountersForBike.mock.invocationCallOrder[0]).toBeGreaterThan(
         mockDeleteMany.mock.invocationCallOrder[0]
       );
+      // Recomputing every part on a bike can outlast Prisma's 5s default.
+      expect(mockTransaction).toHaveBeenCalledWith(expect.any(Function), { timeout: 30_000 });
       expect(jsonResponse).toMatchObject({
         success: true,
         deletedRides: 3,

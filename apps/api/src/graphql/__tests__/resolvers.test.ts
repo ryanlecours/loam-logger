@@ -6950,6 +6950,9 @@ describe('GraphQL Resolvers', () => {
         where: { id: { in: ['ride-1', 'ride-2'] } },
         data: { bikeId: 'bike-9', unownedBike: false },
       });
+      // A bulk change recomputes every part on the bike in one transaction,
+      // so it gets the longer bulk timeout rather than Prisma's 5s default.
+      expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), { timeout: 30_000 });
       // Many rides at once go through the per-bike recompute: computed parts
       // are rederived from the ledger, and the 1.5h total reaches the legacy
       // hoursUsed of parts whose counters were never computed.
