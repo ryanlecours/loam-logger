@@ -927,15 +927,19 @@ const normalizeLooseComponentInput = (
     input.notes !== undefined ? cleanText(input.notes, MAX_NOTES_LEN) : undefined;
   const isStock =
     input.isStock !== undefined ? Boolean(input.isStock) : defaults.isStock ?? false;
+  // Both feed every prediction for the part: hoursUsed is the hours it has
+  // carried, and serviceDueAtHours is the interval those hours are measured
+  // against. Shared by addComponent and updateComponent, and runs before either
+  // writes. A null hoursUsed still means 0 and a null interval still clears it.
+  if (input.hoursUsed != null) assertHoursInRange('hoursUsed', input.hoursUsed);
+  if (input.serviceDueAtHours != null) {
+    assertHoursInRange('serviceDueAtHours', input.serviceDueAtHours);
+  }
   const hoursUsed =
-    input.hoursUsed !== undefined
-      ? Math.max(0, Number(input.hoursUsed ?? 0))
-      : defaults.hoursUsed ?? 0;
+    input.hoursUsed !== undefined ? input.hoursUsed ?? 0 : defaults.hoursUsed ?? 0;
   const serviceDueAtHours =
     input.serviceDueAtHours !== undefined
-      ? input.serviceDueAtHours == null
-        ? null
-        : Math.max(0, Number(input.serviceDueAtHours))
+      ? input.serviceDueAtHours ?? null
       : defaults.serviceDueAtHours ?? null;
 
   return {
