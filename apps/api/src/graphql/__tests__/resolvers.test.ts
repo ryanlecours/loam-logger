@@ -3861,6 +3861,68 @@ describe('GraphQL Resolvers', () => {
     });
   });
 
+  describe('Mutation.updateComponent hour bounds', () => {
+    const mutation = resolvers.Mutation.updateComponent;
+    const mockComponentFindUnique = mockPrisma.component.findUnique as jest.Mock;
+    const mockComponentUpdate = mockPrisma.component.update as jest.Mock;
+
+    beforeEach(() => {
+      mockCheckMutationRateLimit.mockResolvedValue({ allowed: true, retryAfter: 0 });
+      mockComponentFindUnique.mockReset().mockResolvedValue({
+        id: 'comp-1', userId: 'user-123', bikeId: null, type: 'FORK',
+        brand: 'Fox', model: '36', notes: null, isStock: false, hoursUsed: 0, serviceDueAtHours: null,
+      });
+      mockComponentUpdate.mockReset().mockResolvedValue({ id: 'comp-1' });
+      (mockPrisma.$transaction as jest.Mock).mockReset().mockResolvedValue(null);
+    });
+
+    // priorHours is an addend of lifetimeHours, so one absurd value would skew
+    // lifetime and both "since" figures for every prediction on the part.
+    it.each([
+      ['priorHours', 1e15],
+      ['priorHours', -5],
+      ['priorHours', Number.NaN],
+      ['priorHours', Number.POSITIVE_INFINITY],
+      ['inspectionDueAtHours', 1e15],
+      ['inspectionDueAtHours', -1],
+      ['inspectionDueAtHours', Number.NaN],
+    ])('rejects %s = %p before writing anything', async (field, value) => {
+      await expect(
+        mutation({}, { id: 'comp-1', input: { [field]: value } }, createMockContext('user-123') as never)
+      ).rejects.toMatchObject({
+        message: `${field} must be between 0 and 100000`,
+        extensions: { code: 'BAD_USER_INPUT' },
+      });
+      expect(mockComponentUpdate).not.toHaveBeenCalled();
+    });
+
+    it('stores in-range values as given', async () => {
+      await mutation(
+        {},
+        { id: 'comp-1', input: { priorHours: 200, inspectionDueAtHours: 20 } },
+        createMockContext('user-123') as never
+      );
+
+      expect(mockComponentUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ priorHours: 200, inspectionDueAtHours: 20 }),
+        })
+      );
+    });
+
+    it('still lets a rider clear the inspection interval', async () => {
+      await mutation(
+        {},
+        { id: 'comp-1', input: { inspectionDueAtHours: null } },
+        createMockContext('user-123') as never
+      );
+
+      expect(mockComponentUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ inspectionDueAtHours: null }) })
+      );
+    });
+  });
+
   describe('Mutation.updateServiceLog', () => {
     const mutation = resolvers.Mutation.updateServiceLog;
     const mockLogFindUnique = mockPrisma.serviceLog.findUnique as jest.Mock;

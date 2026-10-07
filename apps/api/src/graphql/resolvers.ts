@@ -349,6 +349,20 @@ const MAX_LABEL_LEN = 120;
  */
 const MAX_SERVICE_HOURS = 100_000;
 
+/**
+ * Reject an hours figure a rider supplied unless it is a finite number in
+ * [0, MAX_SERVICE_HOURS]. GraphQL's Float rejects NaN and Infinity on the wire,
+ * but nothing stops a value like 1e15, and anything that reaches a counter
+ * flows into lifetimeHours and both "since" figures for every prediction.
+ */
+function assertHoursInRange(field: string, value: number): void {
+  if (!Number.isFinite(value) || value < 0 || value > MAX_SERVICE_HOURS) {
+    throw new GraphQLError(`${field} must be between 0 and ${MAX_SERVICE_HOURS}`, {
+      extensions: { code: 'BAD_USER_INPUT' },
+    });
+  }
+}
+
 // Bound on ComponentRideAdjustment rows per component — keeps the
 // id IN (...) lists in the canonical recompute and componentRides
 // queries small. Far above any plausible manual-correction volume.
@@ -3190,6 +3204,15 @@ export const resolvers = {
       const existing = await prisma.component.findUnique({ where: { id } });
       if (!existing || existing.userId !== userId) throw new Error('Component not found');
 
+      // Checked before anything is written. priorHours is an addend of
+      // lifetimeHours, and an inspection interval is compared against hours
+      // since inspection, so an unbounded value skews every figure derived
+      // from them.
+      if (input.priorHours != null) assertHoursInRange('priorHours', input.priorHours);
+      if (input.inspectionDueAtHours != null) {
+        assertHoursInRange('inspectionDueAtHours', input.inspectionDueAtHours);
+      }
+
       const normalized = normalizeLooseComponentInput(existing.type, input, {
         brand: existing.brand,
         model: existing.model,
@@ -3210,12 +3233,10 @@ export const resolvers = {
           ...normalized,
           ...(input.location !== undefined && input.location !== null && { location: input.location }),
           ...(input.priorHours !== undefined &&
-            input.priorHours !== null && { priorHours: Math.max(0, input.priorHours) }),
+            input.priorHours !== null && { priorHours: input.priorHours }),
           ...(input.inspectionDueAtHours !== undefined && {
             inspectionDueAtHours:
-              input.inspectionDueAtHours === null
-                ? null
-                : Math.max(0, input.inspectionDueAtHours),
+              input.inspectionDueAtHours === null ? null : input.inspectionDueAtHours,
           }),
         },
       });
