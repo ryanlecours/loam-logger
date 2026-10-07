@@ -57,6 +57,13 @@ type TransactionClient = Omit<
 /** A refreshed reading this close to the stored one is not rewritten. */
 const READING_EPSILON = 1e-6;
 
+/**
+ * Orders component ids the way Postgres orders them under COLLATE "C" (byte
+ * order), so every path that takes several component row locks takes them in
+ * the same order and two of them cannot deadlock each other.
+ */
+const byLockOrder = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+
 /** Which logbook events reset which clock. */
 const SERVICE_KINDS = ['SERVICE'] as const;
 /** A service necessarily involves looking at the part, so it resets both. */
@@ -407,6 +414,28 @@ export async function recomputeComponentCounters(
   return (await recomputeComponentCountersWithStats(tx, componentId))?.counters ?? null;
 }
 
+/**
+ * Recompute a set of components, taking their row locks in byLockOrder so
+ * concurrent callers cannot deadlock each other. Returns the distinct current
+ * bikeIds of the recomputed parts, for prediction-cache invalidation.
+ *
+ * Sequential on purpose; DO NOT wrap this loop in Promise.all. `tx` is a
+ * Prisma interactive transaction: all its queries share one connection and
+ * must run one at a time, and firing the per-component work concurrently on
+ * the same `tx` throws ("Transaction already closed") or corrupts it.
+ */
+export async function recomputeComponents(
+  tx: TransactionClient | Prisma.TransactionClient,
+  componentIds: string[]
+): Promise<string[]> {
+  const bikeIds = new Set<string>();
+  for (const componentId of [...new Set(componentIds)].sort(byLockOrder)) {
+    const result = await recomputeComponentCountersWithStats(tx, componentId);
+    if (result?.bikeId) bikeIds.add(result.bikeId);
+  }
+  return [...bikeIds];
+}
+
 // ---------------------------------------------------------------------------
 // Per-ride credit: the fast path
 // ---------------------------------------------------------------------------
@@ -455,13 +484,6 @@ async function floorAndCapCounters(
     );
   }
 }
-
-/**
- * Orders component ids the way Postgres orders them under COLLATE "C" (byte
- * order), so every path that takes several component row locks takes them in
- * the same order and two of them cannot deadlock each other.
- */
-const byLockOrder = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
 /**
  * Take the row lock of every component loadBikeCandidates would return, in

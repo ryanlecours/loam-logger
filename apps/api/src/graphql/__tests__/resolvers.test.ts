@@ -149,6 +149,7 @@ import { checkQueryRateLimit } from '../../lib/rate-limit';
 import { generateSummary } from '../../services/advisor/summarize';
 import { captureServerEvent } from '../../lib/posthog';
 import { CURRENT_TERMS_VERSION } from '@loam/shared';
+import * as componentCounters from '../../lib/component-counters';
 
 const mockPrisma = prisma as jest.Mocked<typeof prisma>;
 const mockCheckMutationRateLimit = checkMutationRateLimit as jest.MockedFunction<typeof checkMutationRateLimit>;
@@ -4821,6 +4822,7 @@ describe('GraphQL Resolvers', () => {
     const mockComponentUpdateMany = mockPrisma.component.updateMany as jest.Mock;
     const mockServiceLogUpdateMany = mockPrisma.serviceLog.updateMany as jest.Mock;
     const mockTransaction = mockPrisma.$transaction as jest.Mock;
+    let recomputeSpy: jest.SpyInstance;
 
     const setTransactionPassthrough = () => {
       mockTransaction.mockImplementation(async (fn: (tx: unknown) => unknown) => {
@@ -4847,7 +4849,11 @@ describe('GraphQL Resolvers', () => {
       mockServiceLogUpdateMany.mockReset().mockResolvedValue({ count: 0 });
       mockTransaction.mockReset();
       setTransactionPassthrough();
+      recomputeSpy = jest.spyOn(componentCounters, 'recomputeComponents').mockResolvedValue([]);
+      (invalidateBikePrediction as jest.Mock).mockClear();
     });
+
+    afterEach(() => recomputeSpy.mockRestore());
 
     it('rejects when the bike is not owned by the viewer', async () => {
       mockBikeFindFirst.mockResolvedValueOnce(null);
@@ -4877,7 +4883,7 @@ describe('GraphQL Resolvers', () => {
       ).rejects.toThrow('acquisitionDate cannot be in the future');
     });
 
-    it('cascades to eligible installs and groups baseline service logs by old date', async () => {
+    it('cascades to eligible installs and recomputes their parts', async () => {
       // Two components with the same buggy creation date (common migration
       // case) + one pre-existing install on a later date that must NOT be
       // moved by the cascade.
@@ -4893,7 +4899,8 @@ describe('GraphQL Resolvers', () => {
       ]);
       mockInstallUpdateMany.mockResolvedValueOnce({ count: 2 });
       mockComponentUpdateMany.mockResolvedValueOnce({ count: 2 });
-      mockServiceLogUpdateMany.mockResolvedValueOnce({ count: 2 });
+      // c2 has since moved to another bike.
+      recomputeSpy.mockResolvedValueOnce(['bike-1', 'bike-2']);
       mockBikeFindUnique.mockResolvedValueOnce({ id: 'bike-1', acquisitionDate: new Date('2024-05-10') });
 
       const ctx = createMockContext('user-123');
@@ -4904,19 +4911,38 @@ describe('GraphQL Resolvers', () => {
       );
 
       expect(result.installsMoved).toBe(2);
-      expect(result.serviceLogsMoved).toBe(2);
+      // The moved tenures change which rides each part counts.
+      expect(recomputeSpy).toHaveBeenCalledWith(expect.anything(), ['c1', 'c2']);
+      expect(mockTransaction).toHaveBeenCalledWith(
+        expect.any(Function),
+        componentCounters.BULK_RECOMPUTE_TX_OPTIONS
+      );
+      expect(invalidateBikePrediction).toHaveBeenCalledWith('user-123', 'bike-2');
+    });
 
-      // Single updateMany call because both installs share the same old
-      // date — grouping collapsed them.
-      expect(mockServiceLogUpdateMany).toHaveBeenCalledTimes(1);
-      expect(mockServiceLogUpdateMany).toHaveBeenCalledWith({
-        where: {
-          componentId: { in: ['c1', 'c2'] },
-          performedAt: oldDate,
-          hoursAtService: 0,
-        },
-        data: { performedAt: new Date('2024-05-10T00:00:00Z') },
+    // With install anchors gone, a zero-hour log on the old install date is a
+    // real service logged on the day the part went on. It happened when it
+    // happened, so the date change must not carry it along.
+    it('leaves service logs on the old install date where they are', async () => {
+      mockBikeFindFirst.mockResolvedValueOnce({
+        id: 'bike-1',
+        userId: 'user-123',
+        createdAt: new Date('2026-04-01T00:00:00Z'),
       });
+      mockInstallFindMany.mockResolvedValueOnce([
+        { id: 'i1', componentId: 'c1', installedAt: new Date('2026-04-01T00:00:05Z') },
+      ]);
+      mockInstallUpdateMany.mockResolvedValueOnce({ count: 1 });
+      mockBikeFindUnique.mockResolvedValueOnce({ id: 'bike-1' });
+
+      const result = await mutation(
+        {},
+        { bikeId: 'bike-1', input: { acquisitionDate: '2024-05-10T00:00:00Z' } },
+        createMockContext('user-123') as never
+      );
+
+      expect(mockServiceLogUpdateMany).not.toHaveBeenCalled();
+      expect(result.serviceLogsMoved).toBe(0);
     });
 
     it('skips the cascade when cascadeInstalls is false', async () => {
@@ -4950,8 +4976,13 @@ describe('GraphQL Resolvers', () => {
     const mockUpdateMany = mockPrisma.bikeComponentInstall.updateMany as jest.Mock;
     const mockServiceLogUpdateMany = mockPrisma.serviceLog.updateMany as jest.Mock;
     const mockTransaction = mockPrisma.$transaction as jest.Mock;
+    let recomputeSpy: jest.SpyInstance;
+
+    afterEach(() => recomputeSpy.mockRestore());
 
     beforeEach(() => {
+      recomputeSpy = jest.spyOn(componentCounters, 'recomputeComponents').mockResolvedValue([]);
+      (invalidateBikePrediction as jest.Mock).mockClear();
       mockFindMany.mockReset();
       mockUpdateMany.mockReset().mockResolvedValue({ count: 0 });
       mockServiceLogUpdateMany.mockReset().mockResolvedValue({ count: 0 });
@@ -5068,7 +5099,7 @@ describe('GraphQL Resolvers', () => {
       );
     });
 
-    it('updates installs and moves baseline service logs grouped by old date', async () => {
+    it('updates installs, recomputes their parts and leaves service logs alone', async () => {
       const oldDateA = new Date('2024-02-01T00:00:00Z');
       const oldDateB = new Date('2024-03-10T00:00:00Z');
       mockFindMany.mockResolvedValueOnce([
@@ -5077,9 +5108,8 @@ describe('GraphQL Resolvers', () => {
         { id: 'i3', userId: 'user-123', bikeId: 'bike-1', componentId: 'c3', installedAt: oldDateB, removedAt: null },
       ]);
       mockUpdateMany.mockResolvedValueOnce({ count: 3 });
-      mockServiceLogUpdateMany
-        .mockResolvedValueOnce({ count: 2 })
-        .mockResolvedValueOnce({ count: 1 });
+      // c3 has since moved to another bike.
+      recomputeSpy.mockResolvedValueOnce(['bike-1', 'bike-3']);
 
       const ctx = createMockContext('user-123');
       const result = await mutation(
@@ -5089,9 +5119,16 @@ describe('GraphQL Resolvers', () => {
       );
 
       expect(result.updatedCount).toBe(3);
-      expect(result.serviceLogsMoved).toBe(3);
-      // Two groups → two serviceLog.updateMany calls.
-      expect(mockServiceLogUpdateMany).toHaveBeenCalledTimes(2);
+      expect(recomputeSpy).toHaveBeenCalledWith(expect.anything(), ['c1', 'c2', 'c3']);
+      expect(mockTransaction).toHaveBeenCalledWith(
+        expect.any(Function),
+        componentCounters.BULK_RECOMPUTE_TX_OPTIONS
+      );
+      expect(invalidateBikePrediction).toHaveBeenCalledWith('user-123', 'bike-3');
+      // A real service logged on a part's install day happened when it
+      // happened; the date edit must not carry it along.
+      expect(mockServiceLogUpdateMany).not.toHaveBeenCalled();
+      expect(result.serviceLogsMoved).toBe(0);
     });
   });
 

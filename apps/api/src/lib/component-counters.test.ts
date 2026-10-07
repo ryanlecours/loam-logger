@@ -1,6 +1,7 @@
 import {
   computeComponentCounters,
   recomputeComponentCounters,
+  recomputeComponents,
   creditRideToComponents,
   lifetimeHoursAt,
 } from './component-counters';
@@ -570,6 +571,31 @@ describe('recomputeComponentCounters', () => {
 
 // The regression that motivated this whole model. Reproduces the exact fixture
 // that previously charged a fork 210 hours it had never been ridden for.
+describe('recomputeComponents', () => {
+  // Every multi-part path takes the row locks in one order, or two of them
+  // can deadlock each other.
+  it('recomputes each part once, locking in id order, and returns their bikes', async () => {
+    const tx = makeTx({ installs: [OPEN_TENURE] });
+    const bikeOf: Record<string, string | null> = { 'c-b': 'bike-1', 'c-a': 'bike-2', 'c-c': null };
+    tx.component.findUnique.mockImplementation(async ({ where }: { where: { id: string } }) => ({
+      id: where.id,
+      userId: 'user-1',
+      bikeId: bikeOf[where.id],
+      installedAt: d('2025-01-01T00:00:00Z'),
+      createdAt: d('2025-01-01T00:00:00Z'),
+      retiredAt: null,
+      hoursUsed: 0,
+      priorHours: 0,
+    }));
+
+    const bikeIds = await recomputeComponents(asTx(tx), ['c-b', 'c-c', 'c-a', 'c-b']);
+
+    const locked = tx.$executeRaw.mock.calls.map(([, id]) => id);
+    expect(locked).toEqual(['c-a', 'c-b', 'c-c']);
+    expect(bikeIds.sort()).toEqual(['bike-1', 'bike-2']);
+  });
+});
+
 describe('regression: a component moved between bikes', () => {
   // Fork serviced 1 Jan while on Bike A (ridden lightly), moved to Bike B (the
   // rider's main bike, ridden hard all year) on 1 Sep.

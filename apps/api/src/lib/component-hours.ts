@@ -1,7 +1,7 @@
 import type { PrismaClient, Prisma } from '@prisma/client';
 import {
   recomputeComponentCounters,
-  recomputeComponentCountersWithStats,
+  recomputeComponents,
   creditRideToComponents,
 } from './component-counters';
 
@@ -343,21 +343,10 @@ export async function recomputeAdjustedComponentsForRides(
   }
   if (!componentIds.length) return [];
 
-  // Sequential on purpose; DO NOT wrap this loop in Promise.all. `tx` is a
-  // Prisma interactive transaction: all its queries share one connection and
-  // must run one at a time, and firing the per-component work concurrently on
-  // the same `tx` throws ("Transaction already closed") or corrupts it. The
-  // cost is one recompute per DISTINCT component carrying an adjustment on the
-  // touched rides: normally zero, and bounded by the rarity of adjustments
-  // (manual corrections) plus the 500-per-component cap.
-  //
-  // Sorted, so concurrent calls take the recompute's row locks in one order.
-  const affectedBikeIds = new Set<string>();
-  for (const componentId of [...new Set(componentIds)].sort()) {
-    const result = await recomputeComponentCountersWithStats(tx, componentId);
-    if (result?.bikeId) affectedBikeIds.add(result.bikeId);
-  }
-  return [...affectedBikeIds];
+  // One recompute per DISTINCT component carrying an adjustment on the touched
+  // rides: normally zero, and bounded by the rarity of adjustments (manual
+  // corrections) plus the 500-per-component cap.
+  return recomputeComponents(tx, componentIds);
 }
 
 /**

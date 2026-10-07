@@ -77,6 +77,7 @@ import {
 } from '../lib/component-history';
 import {
   recomputeComponentCounters,
+  recomputeComponents,
   recomputeCountersForBike,
   BULK_RECOMPUTE_TX_OPTIONS,
   lifetimeHoursAt,
@@ -3755,7 +3756,7 @@ export const resolvers = {
         });
 
         if (!cascade) {
-          return { installsMoved: 0, serviceLogsMoved: 0 };
+          return { installsMoved: 0, serviceLogsMoved: 0, recomputedBikeIds: [] as string[] };
         }
 
         // "Buggy auto-date" predicate: the old code path always stamped
@@ -3780,7 +3781,7 @@ export const resolvers = {
         });
 
         if (eligible.length === 0) {
-          return { installsMoved: 0, serviceLogsMoved: 0 };
+          return { installsMoved: 0, serviceLogsMoved: 0, recomputedBikeIds: [] as string[] };
         }
 
         const installIds = eligible.map((e) => e.id);
@@ -3815,36 +3816,22 @@ export const resolvers = {
           data: { installedAt: acquisitionDate },
         });
 
-        // Move the paired baseline ServiceLog (hoursAtService=0, same
-        // performedAt as the old install date). Group by old-installedAt
-        // so the common migration case (one shared date) collapses to a
-        // single UPDATE; multi-select across different dates would pay
-        // one UPDATE per group.
-        const byOldDate = new Map<number, string[]>();
-        for (const e of eligible) {
-          const key = e.installedAt.getTime();
-          const list = byOldDate.get(key) ?? [];
-          list.push(e.componentId);
-          byOldDate.set(key, list);
-        }
+        // A moved install date moves the part's tenure, so the rides it counts.
+        // Service logs stay where they are: they used to follow the install
+        // date because installs wrote a fictional 0h "service" anchor, and the
+        // only logs left on that date now are real services, which happened
+        // when they happened. The recompute re-derives their readings.
+        const recomputedBikeIds = await recomputeComponents(tx, componentIds);
 
-        let serviceLogsMoved = 0;
-        for (const [ts, compIds] of byOldDate) {
-          const { count } = await tx.serviceLog.updateMany({
-            where: {
-              componentId: { in: compIds },
-              performedAt: new Date(ts),
-              hoursAtService: 0,
-            },
-            data: { performedAt: acquisitionDate },
-          });
-          serviceLogsMoved += count;
-        }
+        // serviceLogsMoved stays in the payload for released clients, which
+        // hide their "anchors moved" note when it is 0.
+        return { installsMoved, serviceLogsMoved: 0, recomputedBikeIds };
+      }, BULK_RECOMPUTE_TX_OPTIONS);
 
-        return { installsMoved, serviceLogsMoved };
-      });
-
-      await invalidateBikePrediction(userId, bikeId);
+      // A recomputed part may have moved to another bike since this install.
+      for (const id of new Set([bikeId, ...result.recomputedBikeIds])) {
+        await invalidateBikePrediction(userId, id);
+      }
 
       const updatedBike = await prisma.bike.findUnique({ where: { id: bikeId } });
 
@@ -3956,39 +3943,27 @@ export const resolvers = {
             data: { installedAt },
           });
 
-          // Same baseline-log-migration logic as updateBikeAcquisition:
-          // group by old date to minimize UPDATE count.
-          const byOldDate = new Map<number, string[]>();
-          for (const row of existing) {
-            const key = row.installedAt.getTime();
-            const list = byOldDate.get(key) ?? [];
-            list.push(row.componentId);
-            byOldDate.set(key, list);
-          }
-
-          let movedLogs = 0;
-          for (const [ts, compIds] of byOldDate) {
-            const { count } = await tx.serviceLog.updateMany({
-              where: {
-                componentId: { in: compIds },
-                performedAt: new Date(ts),
-                hoursAtService: 0,
-              },
-              data: { performedAt: installedAt },
-            });
-            movedLogs += count;
-          }
+          // The moved tenures change which rides each part counts. Service
+          // logs stay put, as in updateBikeAcquisition.
+          const recomputedBikeIds = await recomputeComponents(
+            tx,
+            existing.map((r) => r.componentId)
+          );
 
           const bikeIds = Array.from(
-            new Set(existing.map((r) => r.bikeId).filter((id): id is string => id !== null))
+            new Set([
+              ...existing.map((r) => r.bikeId).filter((id): id is string => id !== null),
+              ...recomputedBikeIds,
+            ])
           );
 
           return {
             updatedCount: updated,
-            serviceLogsMoved: movedLogs,
+            serviceLogsMoved: 0,
             affectedBikeIds: bikeIds,
           };
-        }
+        },
+        BULK_RECOMPUTE_TX_OPTIONS
       );
 
       // Post-transaction invalidation only. The usual "bracket before +
