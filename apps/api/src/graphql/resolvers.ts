@@ -3227,27 +3227,31 @@ export const resolvers = {
         await invalidateBikePrediction(userId, existing.bikeId);
       }
 
-      let updated = await prisma.component.update({
-        where: { id },
-        data: {
-          ...normalized,
-          ...(input.location !== undefined && input.location !== null && { location: input.location }),
-          ...(input.priorHours !== undefined &&
-            input.priorHours !== null && { priorHours: input.priorHours }),
-          ...(input.inspectionDueAtHours !== undefined && {
-            inspectionDueAtHours:
-              input.inspectionDueAtHours === null ? null : input.inspectionDueAtHours,
-          }),
-        },
-      });
+      // One transaction for the write and the recompute it triggers. Separately,
+      // a failed recompute would leave the new priorHours saved under stale
+      // counters, and nothing would flag the row: countersComputedAt stays set.
+      const updated = await prisma.$transaction(async (tx) => {
+        const written = await tx.component.update({
+          where: { id },
+          data: {
+            ...normalized,
+            ...(input.location !== undefined && input.location !== null && { location: input.location }),
+            ...(input.priorHours !== undefined &&
+              input.priorHours !== null && { priorHours: input.priorHours }),
+            ...(input.inspectionDueAtHours !== undefined && {
+              inspectionDueAtHours:
+                input.inspectionDueAtHours === null ? null : input.inspectionDueAtHours,
+            }),
+          },
+        });
 
-      // priorHours is an addend of lifetimeHours, so declaring "these wheels came
-      // with 200 hours on them" has to rebuild the derived counters. Nothing else
-      // in this mutation affects them.
-      if (input.priorHours !== undefined && input.priorHours !== null) {
-        await prisma.$transaction((tx) => recomputeComponentCounters(tx, id));
-        updated = (await prisma.component.findUnique({ where: { id } })) ?? updated;
-      }
+        // priorHours is an addend of lifetimeHours, so declaring "these wheels
+        // came with 200 hours on them" has to rebuild the derived counters.
+        // Nothing else in this mutation affects them.
+        if (input.priorHours === undefined || input.priorHours === null) return written;
+        await recomputeComponentCounters(tx, id);
+        return (await tx.component.findUnique({ where: { id } })) ?? written;
+      });
 
       // Invalidate prediction cache after update
       if (existing.bikeId) {

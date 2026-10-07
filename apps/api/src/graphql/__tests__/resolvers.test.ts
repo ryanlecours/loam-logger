@@ -3873,7 +3873,9 @@ describe('GraphQL Resolvers', () => {
         brand: 'Fox', model: '36', notes: null, isStock: false, hoursUsed: 0, serviceDueAtHours: null,
       });
       mockComponentUpdate.mockReset().mockResolvedValue({ id: 'comp-1' });
-      (mockPrisma.$transaction as jest.Mock).mockReset().mockResolvedValue(null);
+      (mockPrisma.$transaction as jest.Mock)
+        .mockReset()
+        .mockImplementation(async (fn: (tx: unknown) => unknown) => fn(mockPrisma));
     });
 
     // priorHours is an addend of lifetimeHours, so one absurd value would skew
@@ -3908,6 +3910,69 @@ describe('GraphQL Resolvers', () => {
           data: expect.objectContaining({ priorHours: 200, inspectionDueAtHours: 20 }),
         })
       );
+    });
+
+    // The new priorHours and the counters it changes must land together. Run
+    // separately, a failed recompute left priorHours saved under stale counters
+    // with nothing marking the row for a redo.
+    describe('atomic with the recompute', () => {
+      const makeTx = () => ({
+        $executeRaw: jest.fn().mockResolvedValue(1),
+        component: {
+          update: jest.fn().mockResolvedValue({ id: 'comp-1', priorHours: 200 }),
+          findUnique: jest.fn().mockResolvedValue({
+            id: 'comp-1', userId: 'user-123', bikeId: null, installedAt: null,
+            createdAt: new Date('2025-01-01'), retiredAt: null, hoursUsed: 0, priorHours: 200,
+          }),
+        },
+        bikeComponentInstall: { findMany: jest.fn().mockResolvedValue([]) },
+        componentRideAdjustment: { findMany: jest.fn().mockResolvedValue([]) },
+        serviceLog: {
+          findMany: jest.fn().mockResolvedValue([]),
+          findFirst: jest.fn().mockResolvedValue(null),
+        },
+        ride: { aggregate: jest.fn().mockResolvedValue({ _sum: { durationSeconds: 0 } }) },
+      });
+
+      it('writes priorHours and recomputes on one transaction client', async () => {
+        const tx = makeTx();
+        (mockPrisma.$transaction as jest.Mock).mockImplementation(async (fn: (t: unknown) => unknown) => fn(tx));
+
+        await mutation({}, { id: 'comp-1', input: { priorHours: 200 } }, createMockContext('user-123') as never);
+
+        expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1);
+        expect(tx.component.update).toHaveBeenCalledWith(
+          expect.objectContaining({ data: expect.objectContaining({ priorHours: 200 }) })
+        );
+        // The recompute's row lock and its counter write ran on the same client.
+        expect(tx.$executeRaw).toHaveBeenCalled();
+        expect(tx.component.update).toHaveBeenCalledWith(
+          expect.objectContaining({ data: expect.objectContaining({ lifetimeHours: 200 }) })
+        );
+        expect(mockComponentUpdate).not.toHaveBeenCalled();
+      });
+
+      it('fails the whole mutation when the recompute fails', async () => {
+        const tx = makeTx();
+        tx.$executeRaw.mockRejectedValue(new Error('lock timeout'));
+        (mockPrisma.$transaction as jest.Mock).mockImplementation(async (fn: (t: unknown) => unknown) => fn(tx));
+
+        await expect(
+          mutation({}, { id: 'comp-1', input: { priorHours: 200 } }, createMockContext('user-123') as never)
+        ).rejects.toThrow('lock timeout');
+        // Thrown inside the transaction callback, so Prisma rolls the write back.
+        expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1);
+      });
+
+      it('skips the recompute when priorHours is not part of the edit', async () => {
+        const tx = makeTx();
+        (mockPrisma.$transaction as jest.Mock).mockImplementation(async (fn: (t: unknown) => unknown) => fn(tx));
+
+        await mutation({}, { id: 'comp-1', input: { brand: 'RockShox' } }, createMockContext('user-123') as never);
+
+        expect(tx.component.update).toHaveBeenCalledTimes(1);
+        expect(tx.$executeRaw).not.toHaveBeenCalled();
+      });
     });
 
     it('still lets a rider clear the inspection interval', async () => {
