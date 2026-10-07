@@ -1,7 +1,12 @@
 import type { ComponentType, ComponentLocation } from '@prisma/client';
 import type { ComponentWearWeights } from './types';
 
-/** Algorithm version for cache keys. v3: hoursRemaining is no longer clamped
+/** Algorithm version for cache keys. v4: status is the service clock alone,
+ * with no separate inspection clock. Bumped so cached v3 predictions, which
+ * marked parts overdue for an inspection nobody had been asked to log, cannot
+ * linger after deploy.
+ *
+ * v3: hoursRemaining is no longer clamped
  * at zero, so an overdue component reports how far past due it is instead of
  * a flat 0. Bumped so cached v2 predictions computed with the clamp cannot
  * linger and keep serving "0h overdue" after deploy.
@@ -10,7 +15,7 @@ import type { ComponentWearWeights } from './types';
  * service log exists (parity with the canonical hoursUsed anchor in
  * lib/component-hours.ts) — bumped so cached v1 predictions computed with the
  * old bike-level anchor can't linger. */
-export const ALGO_VERSION = 'v3';
+export const ALGO_VERSION = 'v4';
 
 /** Default cache TTL in seconds (30 minutes) */
 export const DEFAULT_CACHE_TTL_SECONDS = 30 * 60;
