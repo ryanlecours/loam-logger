@@ -85,7 +85,7 @@ r.post<Empty, void, { keepRideId: string; deleteRideId: string }>(
         prisma.ride.findUnique({ where: { id: keepRideId }, select: { userId: true, duplicateOfId: true } }),
         prisma.ride.findUnique({
           where: { id: deleteRideId },
-          select: { userId: true, duplicateOfId: true, bikeId: true, durationSeconds: true },
+          select: { userId: true, duplicateOfId: true, bikeId: true, durationSeconds: true, startTime: true },
         }),
       ]);
 
@@ -120,8 +120,8 @@ r.post<Empty, void, { keepRideId: string; deleteRideId: string }>(
         await syncBikeComponentHours(
           tx,
           userId,
-          { bikeId: deleteRide.bikeId ?? null, durationSeconds: deleteRide.durationSeconds },
-          { bikeId: null, durationSeconds: 0 }
+          { bikeId: deleteRide.bikeId ?? null, durationSeconds: deleteRide.durationSeconds, startTime: deleteRide.startTime },
+          { bikeId: null, durationSeconds: 0, startTime: null }
         );
 
         // Delete the duplicate

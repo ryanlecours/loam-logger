@@ -11,21 +11,33 @@ import {
 } from './component-hours';
 import type { Prisma } from '@prisma/client';
 
+const d = (iso: string) => new Date(iso);
+
 // Minimal mock transaction client covering the models these helpers touch.
 const makeTx = () => ({
+  $executeRaw: jest.fn().mockResolvedValue(0),
   component: {
     findUnique: jest.fn(),
+    findMany: jest.fn().mockResolvedValue([]),
     update: jest.fn(),
     updateMany: jest.fn(),
   },
   serviceLog: {
     findFirst: jest.fn(),
+    findMany: jest.fn().mockResolvedValue([]),
+    updateMany: jest.fn(),
   },
   componentRideAdjustment: {
     findMany: jest.fn().mockResolvedValue([]),
   },
   ride: {
     aggregate: jest.fn().mockResolvedValue({ _sum: { durationSeconds: 0 }, _count: 0 }),
+  },
+  // recomputeComponentHours now delegates to lib/component-counters.ts, which
+  // derives hours from install tenures rather than from the component's current
+  // bikeId. No install rows = no attributable tenures.
+  bikeComponentInstall: {
+    findMany: jest.fn().mockResolvedValue([]),
   },
 });
 type MockTx = ReturnType<typeof makeTx>;
@@ -40,6 +52,7 @@ const BASE_COMPONENT = {
 };
 
 const attribution = (over: Partial<ComponentAttribution> = {}): ComponentAttribution => ({
+  $executeRaw: jest.fn().mockResolvedValue(0),
   component: { ...BASE_COMPONENT },
   anchor: null,
   excludedRideIds: [],
@@ -222,20 +235,43 @@ describe('computeCountedHours', () => {
 describe('recomputeComponentHours', () => {
   it('persists the canonical value and returns it with the attribution used', async () => {
     const tx = makeTx();
-    tx.component.findUnique.mockResolvedValue({ ...BASE_COMPONENT });
+    // Counters are derived from install TENURES now, so the fixture needs one.
+    tx.component.findUnique.mockResolvedValue({
+      ...BASE_COMPONENT,
+      createdAt: new Date('2024-01-01T00:00:00Z'),
+      retiredAt: null,
+      priorHours: 0,
+    });
+    tx.bikeComponentInstall.findMany.mockResolvedValue([
+      {
+        id: 'inst-1',
+        bikeId: 'bike-1',
+        slotKey: 'FORK_NONE',
+        installedAt: new Date('2024-01-01T00:00:00Z'),
+        removedAt: null,
+      },
+    ]);
     tx.serviceLog.findFirst.mockResolvedValue(null);
-    tx.ride.aggregate.mockResolvedValueOnce({ _sum: { durationSeconds: 9000 }, _count: 2 });
+    tx.ride.aggregate.mockResolvedValue({ _sum: { durationSeconds: 9000 }, _count: 2 });
 
     const result = await recomputeComponentHours(asTx(tx), 'comp-1');
 
     expect(result?.hours).toBe(2.5);
-    // Attribution is returned so callers (e.g. the adjustment mutations'
+    // Attribution is still returned so callers (e.g. the adjustment mutations'
     // counted flag) don't re-run the same reads.
     expect(result?.attribution.component.id).toBe('comp-1');
     expect(result?.attribution.anchor).toBeNull();
+    // Writes all four counters. With no service log the clocks have never been
+    // reset, so both "since" figures equal lifetimeHours.
     expect(tx.component.update).toHaveBeenCalledWith({
       where: { id: 'comp-1' },
-      data: { hoursUsed: 2.5 },
+      data: {
+        lifetimeHours: 2.5,
+        hoursSinceService: 2.5,
+        hoursSinceInspection: 2.5,
+        hoursUsed: 2.5,
+        countersComputedAt: expect.any(Date),
+      },
     });
   });
 
@@ -324,14 +360,34 @@ describe('hours accrual is type-agnostic', () => {
       userId: 'user-1',
       bikeId: 'bike-1',
       hoursDelta: 2,
+      startTime: d('2026-05-01T08:00:00Z'),
+    });
+
+    // Neither the legacy bump nor the candidate read filters on type; which
+    // parts count the ride is decided by tenure alone.
+    for (const [{ where }] of tx.component.updateMany.mock.calls) {
+      expect(where).not.toHaveProperty('type');
+    }
+    const [{ where: candidates }] = tx.component.findMany.mock.calls[0];
+    expect(candidates).not.toHaveProperty('type');
+  });
+
+  // Before the backfill reaches a row its counters are zeroes, not figures.
+  // Incrementing them would invent a "lifetime" of just the rides since deploy,
+  // which readers would then trust over the legacy fallback.
+  it('moves only hoursUsed on rows whose counters were never computed', async () => {
+    const tx = makeTx();
+    await incrementBikeComponentHours(asTx(tx), {
+      userId: 'user-1',
+      bikeId: 'bike-1',
+      hoursDelta: 2,
+      startTime: d('2026-05-01T08:00:00Z'),
     });
 
     expect(tx.component.updateMany).toHaveBeenCalledWith({
-      where: { userId: 'user-1', bikeId: 'bike-1' },
+      where: { userId: 'user-1', bikeId: 'bike-1', countersComputedAt: null },
       data: { hoursUsed: { increment: 2 } },
     });
-    const [{ where }] = tx.component.updateMany.mock.calls[0];
-    expect(where).not.toHaveProperty('type');
   });
 
   it('decrements every component on the bike without filtering by type', async () => {
@@ -340,6 +396,7 @@ describe('hours accrual is type-agnostic', () => {
       userId: 'user-1',
       bikeId: 'bike-1',
       hoursDelta: 2,
+      startTime: d('2026-05-01T08:00:00Z'),
     });
 
     const [{ where }] = tx.component.updateMany.mock.calls[0];
@@ -355,8 +412,8 @@ describe('hours accrual is type-agnostic', () => {
     const affected = await syncBikeComponentHours(
       asTx(tx),
       'user-1',
-      { bikeId: null, durationSeconds: null },
-      { bikeId: null, durationSeconds: 3600 }
+      { bikeId: null, durationSeconds: null, startTime: null },
+      { bikeId: null, durationSeconds: 3600, startTime: d('2026-05-01T08:00:00Z') }
     );
 
     expect(tx.component.updateMany).not.toHaveBeenCalled();
@@ -373,8 +430,8 @@ describe('syncBikeComponentHours', () => {
     const affected = await syncBikeComponentHours(
       asTx(tx),
       'user-1',
-      { bikeId: 'bike-1', durationSeconds: 3600 },
-      { bikeId: 'bike-2', durationSeconds: 3600 }
+      { bikeId: 'bike-1', durationSeconds: 3600, startTime: d('2026-05-01T08:00:00Z') },
+      { bikeId: 'bike-2', durationSeconds: 3600, startTime: d('2026-05-01T08:00:00Z') }
     );
     expect(new Set(affected)).toEqual(new Set(['bike-1', 'bike-2']));
   });
@@ -384,8 +441,8 @@ describe('syncBikeComponentHours', () => {
     const affected = await syncBikeComponentHours(
       asTx(tx),
       'user-1',
-      { bikeId: 'bike-1', durationSeconds: 3600 },
-      { bikeId: 'bike-1', durationSeconds: 7200 }
+      { bikeId: 'bike-1', durationSeconds: 3600, startTime: d('2026-05-01T08:00:00Z') },
+      { bikeId: 'bike-1', durationSeconds: 7200, startTime: d('2026-05-01T08:00:00Z') }
     );
     expect(affected).toEqual(['bike-1']);
   });
@@ -395,10 +452,33 @@ describe('syncBikeComponentHours', () => {
     const affected = await syncBikeComponentHours(
       asTx(tx),
       'user-1',
-      { bikeId: 'bike-1', durationSeconds: 3600 },
-      { bikeId: null, durationSeconds: 0 }
+      { bikeId: 'bike-1', durationSeconds: 3600, startTime: d('2026-05-01T08:00:00Z') },
+      { bikeId: null, durationSeconds: 0, startTime: null }
     );
     expect(affected).toEqual(['bike-1']);
+  });
+
+  // A new start can carry the ride across an install or a service, so an edit
+  // that only moves the start is a debit at the old time and a credit at the
+  // new one, not a no-op.
+  it('treats a start-time edit as a move', async () => {
+    const tx = makeTx();
+    const affected = await syncBikeComponentHours(
+      asTx(tx),
+      'user-1',
+      { bikeId: 'bike-1', durationSeconds: 3600, startTime: d('2026-05-01T08:00:00Z') },
+      { bikeId: 'bike-1', durationSeconds: 3600, startTime: d('2026-03-01T08:00:00Z') }
+    );
+
+    expect(affected).toEqual(['bike-1']);
+    expect(tx.component.updateMany).toHaveBeenCalledWith({
+      where: { userId: 'user-1', bikeId: 'bike-1', countersComputedAt: null },
+      data: { hoursUsed: { increment: -1 } },
+    });
+    expect(tx.component.updateMany).toHaveBeenCalledWith({
+      where: { userId: 'user-1', bikeId: 'bike-1', countersComputedAt: null },
+      data: { hoursUsed: { increment: 1 } },
+    });
   });
 
   it('returns nothing when neither bike nor duration changed', async () => {
@@ -406,8 +486,8 @@ describe('syncBikeComponentHours', () => {
     const affected = await syncBikeComponentHours(
       asTx(tx),
       'user-1',
-      { bikeId: 'bike-1', durationSeconds: 3600 },
-      { bikeId: 'bike-1', durationSeconds: 3600 }
+      { bikeId: 'bike-1', durationSeconds: 3600, startTime: d('2026-05-01T08:00:00Z') },
+      { bikeId: 'bike-1', durationSeconds: 3600, startTime: d('2026-05-01T08:00:00Z') }
     );
     expect(affected).toEqual([]);
     // A no-op must not touch component rows.
@@ -433,8 +513,8 @@ describe('syncBikeComponentHours', () => {
     const affected = await syncBikeComponentHours(
       asTx(tx),
       'user-1',
-      { bikeId: 'bike-1', durationSeconds: 3600 },
-      { bikeId: 'bike-1', durationSeconds: 7200 },
+      { bikeId: 'bike-1', durationSeconds: 3600, startTime: d('2026-05-01T08:00:00Z') },
+      { bikeId: 'bike-1', durationSeconds: 7200, startTime: d('2026-05-01T08:00:00Z') },
       'ride-9'
     );
 
@@ -456,8 +536,8 @@ describe('syncBikeComponentHours', () => {
     const affected = await syncBikeComponentHours(
       asTx(tx),
       'user-1',
-      { bikeId: 'bike-1', durationSeconds: 3600 },
-      { bikeId: 'bike-1', durationSeconds: 7200 },
+      { bikeId: 'bike-1', durationSeconds: 3600, startTime: d('2026-05-01T08:00:00Z') },
+      { bikeId: 'bike-1', durationSeconds: 7200, startTime: d('2026-05-01T08:00:00Z') },
       'ride-9'
     );
 
@@ -469,8 +549,8 @@ describe('syncBikeComponentHours', () => {
     const affected = await syncBikeComponentHours(
       asTx(tx),
       'user-1',
-      { bikeId: 'bike-1', durationSeconds: 3600 },
-      { bikeId: 'bike-1', durationSeconds: 3600 },
+      { bikeId: 'bike-1', durationSeconds: 3600, startTime: d('2026-05-01T08:00:00Z') },
+      { bikeId: 'bike-1', durationSeconds: 3600, startTime: d('2026-05-01T08:00:00Z') },
       'ride-9'
     );
     expect(affected).toEqual([]);
