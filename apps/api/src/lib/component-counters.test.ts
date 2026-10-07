@@ -5,7 +5,11 @@ import {
   lifetimeHoursAt,
 } from './component-counters';
 import { logger } from './logger';
-import { computeCountedHours, type ComponentAttribution } from './component-hours';
+import {
+  computeCountedHours,
+  recomputeAdjustedComponentsForRides,
+  type ComponentAttribution,
+} from './component-hours';
 import type { Prisma } from '@prisma/client';
 
 const d = (iso: string) => new Date(iso);
@@ -141,8 +145,9 @@ const makeTx = (opts: {
       }),
       updateMany: jest.fn().mockResolvedValue({ count: 0 }),
       // Distinguishes the two reads by which kinds they ask for.
-      findFirst: jest.fn().mockImplementation(async ({ where }: { where: { kind: { in: string[] } } }) => {
-        const kinds = where.kind.in;
+      // A read with no kind filter (the service anchor) takes the newest log.
+      findFirst: jest.fn().mockImplementation(async ({ where }: { where: { kind?: { in: string[] } } }) => {
+        const kinds = where.kind?.in ?? ['SERVICE', 'INSPECTION'];
         if (logs) return [...logs].sort(newestFirst).find((l) => kinds.includes(l.kind)) ?? null;
         return kinds.includes('INSPECTION')
           ? opts.latestInspection ?? null
@@ -630,6 +635,37 @@ describe('regression: a component moved between bikes', () => {
     expect(legacyHours).toBe(210);
     expect(counters?.lifetimeHours).toBe(30);
     expect(legacyHours / counters!.lifetimeHours).toBe(7);
+  });
+
+  // The pass that runs after a ride edit or delete for every part with an
+  // adjustment on the touched ride. It used to write hoursUsed from the old
+  // anchored rule straight over the new counters, so this fork went back to
+  // 205h (the 210h overcount, less the excluded ride) while hoursSinceService
+  // still said 25h. Now it is the full recompute, and the two agree.
+  it('keeps hoursUsed in lockstep when an adjusted ride is touched', async () => {
+    const tx = makeTx({
+      component,
+      installs: tenures,
+      rides,
+      // The fork's own correction: s0 was ridden on a borrowed fork.
+      adjustments: [{ rideId: 's0', kind: 'EXCLUDE', componentId: 'comp-1' } as never],
+      // Serviced 1 Jan 2026 while on Bike A, before any ride it carried.
+      logs: [log('svc', '2026-01-01T00:00:00Z', 0)],
+    });
+
+    const bikeIds = await recomputeAdjustedComponentsForRides(asTx(tx), { rideIds: ['s0'] });
+
+    const [{ data }] = tx.component.update.mock.calls.at(-1)!;
+    // 20h on Bike A + s1 on Bike B; s0 excluded.
+    expect(data.lifetimeHours).toBe(25);
+    expect(data.hoursUsed).toBe(data.hoursSinceService);
+    expect(data.hoursUsed).toBe(25);
+    expect(data.countersComputedAt).toEqual(expect.any(Date));
+    // The recompute took the row lock first.
+    expect(tx.$executeRaw.mock.invocationCallOrder[0]).toBeLessThan(
+      tx.component.update.mock.invocationCallOrder[0]
+    );
+    expect(bikeIds).toEqual(['B_B']);
   });
 });
 

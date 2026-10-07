@@ -1,5 +1,9 @@
 import type { PrismaClient, Prisma } from '@prisma/client';
-import { recomputeComponentCounters, creditRideToComponents } from './component-counters';
+import {
+  recomputeComponentCounters,
+  recomputeComponentCountersWithStats,
+  creditRideToComponents,
+} from './component-counters';
 
 type TransactionClient = Omit<PrismaClient, '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'>;
 
@@ -135,29 +139,30 @@ export async function syncBikeComponentHours(
 }
 
 // ---------------------------------------------------------------------------
-// Canonical per-component attribution (ComponentRideAdjustment-aware)
+// Per-component attribution: adjustments and the service anchor
 // ---------------------------------------------------------------------------
 //
-// The increment/decrement helpers above are the FAST path: they bulk-update
-// every component currently on a bike and know nothing about per-component
-// ride adjustments. The functions below are the AUTHORITATIVE path: they
-// derive one component's hoursUsed from the canonical rule and overwrite the
-// counter. Convention: bulk helpers run first, then a targeted recompute for
-// the (rare) components whose adjustments reference the touched rides — the
-// recompute is the last write in the transaction, so it wins.
+// The counters themselves are written only by lib/component-counters.ts: the
+// per-ride credit above (creditRideToComponents) and the tenure-aware
+// recompute. Convention: the per-ride credit runs first and ignores
+// adjustments; then recomputeAdjustedComponentsForRides recomputes the (rare)
+// components whose adjustments reference the touched rides. That recompute is
+// the last write in the transaction, so it wins.
 //
-// Canonical rule:
+// What remains here is the anchored attribution: the service anchor plus the
+// EXCLUDE/INCLUDE sets. It no longer writes any counter. It serves readers
+// that still describe "rides since the anchor" (the componentRides query, the
+// history page's since-service ride list) and the adjustment mutations'
+// `counted` flag:
+//
 //   anchor  = latest ServiceLog.performedAt ?? component.installedAt ?? null
 //   counted = user's rides where isDuplicate = false
 //             AND (anchor is null OR startTime >= anchor)
 //             AND ( (bikeId == component.bikeId AND no EXCLUDE row)
 //                   OR has INCLUDE row )
-//   hoursUsed = sum(counted.durationSeconds) / 3600
 //
-// INCLUDE respects the anchor: the prediction engine's hoursSinceService is
-// definitionally "since last service", and counter/engine must agree. An
-// INCLUDE on a ride older than the anchor is stored but dormant; it springs
-// back if the anchor moves (service log deleted/backdated).
+// It has no tenure bound, so it must never be used to set a counter again:
+// that is the rule which charged a moved fork for its new bike's history.
 
 /** Everything needed to evaluate the canonical rule for one component. */
 export interface ComponentAttribution {
@@ -314,8 +319,10 @@ export async function recomputeComponentHours(
 /**
  * After a mutation deletes rides or changes their bikeId/duration/startTime,
  * recompute every component whose adjustments reference those rides. The
- * bulk updateMany paths have already run; this targeted pass overwrites the
- * few adjusted components with authoritative values.
+ * per-ride credit has already run and ignores adjustments; this targeted pass
+ * replaces the few adjusted components' counters with the full tenure-aware
+ * recompute (lib/component-counters.ts), which locks the row, refreshes its
+ * derived readings and keeps hoursUsed in lockstep with hoursSinceService.
  *
  * Ride DELETE callers must capture componentIds BEFORE the delete (the
  * adjustment rows cascade away with the ride) and pass them via
@@ -340,25 +347,19 @@ export async function recomputeAdjustedComponentsForRides(
   }
   if (!componentIds.length) return [];
 
-  // Sequential on purpose — DO NOT wrap this loop in Promise.all. `tx` is a
+  // Sequential on purpose; DO NOT wrap this loop in Promise.all. `tx` is a
   // Prisma interactive transaction: all its queries share one connection and
-  // must run one at a time; firing the per-component work concurrently on the
-  // same `tx` throws ("Transaction already closed") / corrupts the tx. The
-  // per-component cost (3 metadata reads + 1-2 aggregates + 1 update) is
-  // acceptable because `componentIds` is DISTINCT components carrying an
-  // adjustment that references the touched rides — normally 0, and bounded by
-  // the rarity of adjustments (manual corrections) plus the 500-per-component
-  // cap. A bulk op touching many distinct adjusted components would pay this
-  // serially; if that ever shows up in practice, batch the three metadata
-  // reads across all componentIds (the ride.aggregate step stays per-component
-  // — each has its own bike/anchor/excluded-id set) rather than parallelizing.
+  // must run one at a time, and firing the per-component work concurrently on
+  // the same `tx` throws ("Transaction already closed") or corrupts it. The
+  // cost is one recompute per DISTINCT component carrying an adjustment on the
+  // touched rides: normally zero, and bounded by the rarity of adjustments
+  // (manual corrections) plus the 500-per-component cap.
+  //
+  // Sorted, so concurrent calls take the recompute's row locks in one order.
   const affectedBikeIds = new Set<string>();
-  for (const componentId of componentIds) {
-    const attribution = await loadComponentAttribution(tx, componentId);
-    if (!attribution) continue;
-    const { hours } = await computeCountedHours(tx, attribution);
-    await tx.component.update({ where: { id: componentId }, data: { hoursUsed: hours } });
-    if (attribution.component.bikeId) affectedBikeIds.add(attribution.component.bikeId);
+  for (const componentId of [...new Set(componentIds)].sort()) {
+    const result = await recomputeComponentCountersWithStats(tx, componentId);
+    if (result?.bikeId) affectedBikeIds.add(result.bikeId);
   }
   return [...affectedBikeIds];
 }

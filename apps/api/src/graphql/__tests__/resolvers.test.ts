@@ -6580,7 +6580,7 @@ describe('GraphQL Resolvers', () => {
       const txAdjustmentFindMany = jest.fn()
         // findAdjustedComponentIdsForRides (pre-delete capture)
         .mockResolvedValueOnce([{ componentId: 'comp-other' }])
-        // loadComponentAttribution inside the recompute
+        // the recompute's adjustment fetch
         .mockResolvedValue([]);
       const tx = {
         $executeRaw: jest.fn().mockResolvedValue(0),
@@ -6609,10 +6609,17 @@ describe('GraphQL Resolvers', () => {
       expect(txAdjustmentFindMany.mock.invocationCallOrder[0]).toBeLessThan(
         tx.ride.delete.mock.invocationCallOrder[0]
       );
-      // The adjusted component was recomputed post-delete
+      // The adjusted component got the full recompute post-delete: every
+      // counter written together, not just hoursUsed.
       expect(tx.component.update).toHaveBeenCalledWith({
         where: { id: 'comp-other' },
-        data: { hoursUsed: 0 },
+        data: {
+          lifetimeHours: 0,
+          hoursSinceService: 0,
+          hoursSinceInspection: 0,
+          hoursUsed: 0,
+          countersComputedAt: expect.any(Date),
+        },
       });
       // Both the ride's bike and the adjusted component's bike invalidated
       const invalidatedBikes = mockInvalidate.mock.calls.map((c: unknown[]) => c[1]);
@@ -6652,9 +6659,10 @@ describe('GraphQL Resolvers', () => {
           // findAdjustedComponentIdsForRides: the edited ride is INCLUDEd
           // by a component living on bike-2.
           .mockResolvedValueOnce([{ componentId: 'comp-other' }])
-          // loadComponentAttribution's adjustment fetch.
+          // The recompute's adjustment fetch.
           .mockResolvedValue([]),
       },
+      bikeComponentInstall: { findMany: jest.fn().mockResolvedValue([]) },
     });
 
     beforeEach(() => {

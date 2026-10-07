@@ -357,10 +357,12 @@ export async function lockComponentRow(
     SELECT 1 FROM "Component" WHERE "id" = ${componentId} FOR UPDATE`;
 }
 
-/** What a recompute did, for callers that report on it (the backfill). */
+/** What a recompute did, for callers that report on it or invalidate by bike. */
 export interface RecomputeResult {
   counters: ComponentCounters;
   readingsRefreshed: number;
+  /** The part's current bike, for prediction-cache invalidation. */
+  bikeId: string | null;
 }
 
 /**
@@ -380,7 +382,7 @@ export async function recomputeComponentCountersWithStats(
   const readingsRefreshed = await refreshDerivedReadings(tx, component, where);
   const counters = await deriveCounters(tx, component, where);
   await persistCounters(tx, componentId, counters);
-  return { counters, readingsRefreshed };
+  return { counters, readingsRefreshed, bikeId: component.bikeId };
 }
 
 /**
