@@ -7,10 +7,10 @@ import { gql } from '@apollo/client';
 // constant-size for any history length. COMPONENT_RIDES is the paged
 // row-level companion.
 //
-// Note `lifetime` and `sinceService` are different windows, not two views of
-// one number: lifetime spans every install tenure with no service anchor,
-// while sinceService is the canonical dashboard window. See
-// apps/api/src/lib/component-history.ts for why they must differ.
+// `lifetime` and `sinceService` are two windows over the same tenure-bounded
+// rides: every ride, and the rides since the latest service. sinceService's
+// hours are the stored counter the dashboard shows. See
+// apps/api/src/lib/component-history.ts.
 export const COMPONENT_HISTORY = gql`
   query ComponentHistory($componentId: ID!) {
     componentHistory(componentId: $componentId) {
@@ -18,7 +18,6 @@ export const COMPONENT_HISTORY = gql`
       coverage
       historyIncomplete
       driftDetected
-      consistencyWarning
       component {
         id
         type
@@ -56,6 +55,10 @@ export const COMPONENT_HISTORY = gql`
       sinceService {
         rideCount
         durationSeconds
+        distanceMeters
+        elevationGainMeters
+        firstRideAt
+        lastRideAt
       }
       tenures {
         id

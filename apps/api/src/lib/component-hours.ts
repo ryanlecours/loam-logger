@@ -187,16 +187,12 @@ export interface ComponentAttribution {
  */
 export async function loadComponentAttribution(
   tx: Prisma.TransactionClient,
-  componentId: string,
-  /** The component row, when the caller has already loaded it. */
-  preloaded?: ComponentAttribution['component']
+  componentId: string
 ): Promise<ComponentAttribution | null> {
-  const component =
-    preloaded ??
-    (await tx.component.findUnique({
-      where: { id: componentId },
-      select: { id: true, userId: true, bikeId: true, installedAt: true, hoursUsed: true },
-    }));
+  const component = await tx.component.findUnique({
+    where: { id: componentId },
+    select: { id: true, userId: true, bikeId: true, installedAt: true, hoursUsed: true },
+  });
   if (!component) return null;
 
   const latestLog = await tx.serviceLog.findFirst({

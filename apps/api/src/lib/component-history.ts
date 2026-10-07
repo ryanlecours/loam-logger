@@ -319,6 +319,13 @@ export function buildCountedRideWhere(params: {
 
 export interface LifetimeAggregate {
   lifetime: UsageTotals;
+  /**
+   * The same counted rides, from the latest service on: startTime at or after
+   * `sinceServiceAt`, or every ride when the part was never serviced. Matches
+   * the counter rule exactly (lib/component-counters.ts): a derived reading
+   * counts the rides strictly before its date, so "since" is the rest.
+   */
+  sinceService: UsageTotals;
   /** Keyed by NormalizedTenure.id, same order as the input tenures. */
   perTenure: Map<string, UsageTotals>;
   /** INCLUDEd rides that fell outside every tenure window. */
@@ -342,9 +349,12 @@ export async function aggregateLifetime(
     tenures: NormalizedTenure[];
     includedRideIds: string[];
     excludedRideIds: string[];
+    /** The latest SERVICE log's date; null when the part was never serviced. */
+    sinceServiceAt?: Date | null;
   }
 ): Promise<LifetimeAggregate> {
   const { userId, tenures, includedRideIds, excludedRideIds } = params;
+  const sinceServiceAt = params.sinceServiceAt ?? null;
 
   const windows = mergeWindows(tenures);
   const rideWhere = buildCountedRideWhere({
@@ -358,10 +368,11 @@ export async function aggregateLifetime(
   for (const t of tenures) perTenure.set(t.id, emptyTotals());
 
   const lifetime = emptyTotals();
+  const sinceService = emptyTotals();
   const adjustments = emptyTotals();
 
   if (!rideWhere) {
-    return { lifetime, perTenure, adjustments, rideWhere };
+    return { lifetime, sinceService, perTenure, adjustments, rideWhere };
   }
 
   // Served by @@index([userId, bikeId, startTime]) (schema.prisma:263) as a
@@ -399,9 +410,11 @@ export async function aggregateLifetime(
       addRide(adjustments, ride);
     }
     addRide(lifetime, ride);
+    // Folded from the same rows, so the window costs no extra query.
+    if (!sinceServiceAt || ride.startTime >= sinceServiceAt) addRide(sinceService, ride);
   }
 
-  return { lifetime, perTenure, adjustments, rideWhere };
+  return { lifetime, sinceService, perTenure, adjustments, rideWhere };
 }
 
 /**

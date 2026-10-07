@@ -327,6 +327,61 @@ describe('aggregateLifetime', () => {
     expect(summed).toBe(res.lifetime.rideCount);
   });
 
+  // The since-service tab used to come from the old rule: every ride on the
+  // part's CURRENT bike back to the newest log of any kind, with no tenure
+  // bound. It now folds the same tenure-bounded rows from the latest service.
+  describe('since-service window', () => {
+    const rides = [
+      ride({ id: 'r1', bikeId: 'bike-1', startTime: d('2024-02-01T00:00:00Z'), distanceMeters: 1000 }),
+      ride({ id: 'r2', bikeId: 'bike-1', startTime: d('2024-03-01T00:00:00Z'), distanceMeters: 2000 }),
+      ride({ id: 'r3', bikeId: 'bike-2', startTime: d('2024-08-01T00:00:00Z'), distanceMeters: 4000 }),
+    ];
+
+    it('counts only rides on or after the latest service, across tenures', async () => {
+      const res = await aggregateLifetime(asTx(makeTx(rides)), {
+        userId: 'user-1',
+        tenures,
+        includedRideIds: [],
+        excludedRideIds: [],
+        sinceServiceAt: d('2024-03-01T00:00:00Z'),
+      });
+
+      // r2 is on the service date itself: the reading counts rides strictly
+      // before, so a ride at that moment is "since". r3 is on the next bike.
+      expect(res.sinceService.rideCount).toBe(2);
+      expect(res.sinceService.distanceMeters).toBe(6000);
+      expect(res.sinceService.firstRideAt).toEqual(d('2024-03-01T00:00:00Z'));
+      expect(res.sinceService.lastRideAt).toEqual(d('2024-08-01T00:00:00Z'));
+      expect(res.lifetime.rideCount).toBe(3);
+    });
+
+    it('is the whole lifetime when the part was never serviced', async () => {
+      const res = await aggregateLifetime(asTx(makeTx(rides)), {
+        userId: 'user-1',
+        tenures,
+        includedRideIds: [],
+        excludedRideIds: [],
+        sinceServiceAt: null,
+      });
+
+      expect(res.sinceService).toEqual(res.lifetime);
+    });
+
+    it('costs no extra query', async () => {
+      const tx = makeTx(rides);
+
+      await aggregateLifetime(asTx(tx), {
+        userId: 'user-1',
+        tenures,
+        includedRideIds: [],
+        excludedRideIds: [],
+        sinceServiceAt: d('2024-03-01T00:00:00Z'),
+      });
+
+      expect(tx.ride.findMany).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it('credits a swap-instant ride to exactly one tenure', async () => {
     // The outgoing tenure ends and the incoming one starts at the same
     // timestamp; half-open windows mean the incoming component gets it.

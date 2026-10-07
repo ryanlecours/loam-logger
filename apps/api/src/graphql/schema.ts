@@ -482,10 +482,15 @@ export const typeDefs = gql`
     # elevation have no pre-Loam counterpart, because a rider declaring "these
     # wheels have 200 hours on them" is not declaring a mileage.
     lifetime: ComponentUsageTotals!
-    # The same window the dashboard and prediction engine use. Present so the
-    # two numbers can be shown side by side without the client recomputing one.
+    # The counted rides since the latest SERVICE log (an inspection does not
+    # reset it), bounded by install tenures like the lifetime totals.
+    # durationSeconds is Component.hoursSinceService, the figure the dashboard
+    # and prediction engine use, so it includes declared pre-Loam hours or a
+    # declared reading that no listed ride accounts for. rideCount, distance and
+    # elevation are summed from the rides.
     sinceService: ComponentUsageTotals!
-    # ISO timestamp the since-service window starts at; null = all-time.
+    # ISO date of the latest SERVICE log, where the since-service window
+    # starts; null when the part has never been serviced (all rides count).
     anchor: String
     serviceEvents: [ServiceLog!]!
     # Ride conditions this component has seen. Pro-only: free users get a
@@ -503,11 +508,6 @@ export const typeDefs = gql`
     historyIncomplete: Boolean!
     # Component.bikeId disagrees with the open install rows.
     driftDetected: Boolean!
-    # since-service hours exceed lifetime hours. Reachable, because the
-    # since-service rule counts every ride on the current bike back to the
-    # anchor with no tenure bound. Surfaced rather than clamped: clamping would
-    # hide the underlying inconsistency instead of reporting it.
-    consistencyWarning: Boolean!
   }
 
   type WearDriver {

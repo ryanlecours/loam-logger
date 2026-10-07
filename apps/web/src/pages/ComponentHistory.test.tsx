@@ -68,7 +68,6 @@ const BASE = {
   coverage: 'FULL',
   historyIncomplete: false,
   driftDetected: false,
-  consistencyWarning: false,
   component: {
     id: 'comp-1',
     type: 'FORK',
@@ -103,7 +102,14 @@ const BASE = {
     firstRideAt: '2024-01-15T00:00:00.000Z',
     lastRideAt: '2026-08-01T00:00:00.000Z',
   },
-  sinceService: { rideCount: 12, durationSeconds: 144000 }, // 40h
+  sinceService: {
+    rideCount: 12,
+    durationSeconds: 144000, // 40h
+    distanceMeters: 381000,
+    elevationGainMeters: 11200,
+    firstRideAt: '2025-06-03T00:00:00.000Z',
+    lastRideAt: '2026-08-01T00:00:00.000Z',
+  },
   tenures: [
     {
       id: 't1',
@@ -204,15 +210,17 @@ describe('ComponentHistory', () => {
     expect(screen.getByText('96')).toBeInTheDocument();
   });
 
-  it('switches to the since-service window and hides distance and elevation', () => {
+  it('switches to the since-service window with its own distance and elevation', () => {
     renderPage();
     fireEvent.click(screen.getByRole('button', { name: 'Since last service' }));
 
     expect(screen.getByText('40h 0m')).toBeInTheDocument();
     expect(screen.getByText('12')).toBeInTheDocument();
-    // Distance/elevation have no canonical since-service counterpart, so they
-    // must read as unavailable rather than as zero.
-    expect(screen.getAllByText('—')).toHaveLength(2);
+    // The window is now totalled from the same tenure-bounded rides as the
+    // lifetime tab, so distance and elevation are real figures, not dashes.
+    expect(screen.queryAllByText('—')).toHaveLength(0);
+    expect(screen.getByText(/counting from the last service on/i)).toBeInTheDocument();
+    expect(screen.queryByText(/only totalled over/i)).not.toBeInTheDocument();
   });
 
   it('lists every bike the component has lived on with per-tenure totals', () => {
@@ -298,10 +306,12 @@ describe('ComponentHistory', () => {
     expect(screen.getByText(/install history is missing/i)).toBeInTheDocument();
   });
 
-  it('warns when since-service hours exceed lifetime', () => {
-    setPayload({ consistencyWarning: true });
+  it('says every ride counts when no service is logged', () => {
+    setPayload({ anchor: null });
     renderPage();
-    expect(screen.getByText(/exceed its recorded lifetime/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Since last service' }));
+
+    expect(screen.getByText(/no service logged yet/i)).toBeInTheDocument();
   });
 
   it('explains an inventory component instead of showing zeros', () => {

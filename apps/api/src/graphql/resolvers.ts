@@ -1131,8 +1131,8 @@ export const resolvers = {
     },
 
     // A component's whole life, aggregated. See lib/component-history.ts for
-    // the canonical lifetime rule and why it differs from the since-service
-    // rule in lib/component-hours.ts.
+    // the tenure rule. The since-service window uses the same rule from the
+    // latest SERVICE log on, so both tabs agree with the stored counters.
     //
     // Returns no ride rows on purpose: totals come from one bounded findMany,
     // conditions from a groupBy and the chart from one grouped raw query, so
@@ -1172,15 +1172,14 @@ export const resolvers = {
         component = (await prisma.component.findFirst({ where: { id: componentId, userId } })) ?? component;
       }
 
-      // loadComponentAttribution gives us the service anchor and the adjustment
-      // rows in one place, and reusing it is what guarantees our sinceService
-      // figure is derived from exactly the same inputs the dashboard's counter
-      // is. It takes the row loaded above rather than reading it again.
-      const attribution = await loadComponentAttribution(prisma, componentId, component);
-      if (!attribution) {
-        throw new GraphQLError('Component not found', { extensions: { code: 'NOT_FOUND' } });
-      }
-      const { anchor, excludedRideIds, includedRideIds } = attribution;
+      // The rider's per-ride corrections, which both windows honour exactly as
+      // the counters do.
+      const adjustments = await prisma.componentRideAdjustment.findMany({
+        where: { componentId },
+        select: { rideId: true, kind: true },
+      });
+      const includedRideIds = adjustments.filter((a) => a.kind === 'INCLUDE').map((a) => a.rideId);
+      const excludedRideIds = adjustments.filter((a) => a.kind === 'EXCLUDE').map((a) => a.rideId);
 
       // Defense in depth: ownership is validated above, but the tenure read
       // filters userId as well as componentId, matching the convention
@@ -1222,18 +1221,22 @@ export const resolvers = {
         );
       }
 
-      const [aggregate, serviceLogs] = await Promise.all([
-        aggregateLifetime(prisma, {
-          userId,
-          tenures,
-          includedRideIds,
-          excludedRideIds,
-        }),
-        prisma.serviceLog.findMany({
-          where: { componentId, component: { userId } },
-          orderBy: [{ performedAt: 'desc' }, { createdAt: 'desc' }],
-        }),
-      ]);
+      const serviceLogs = await prisma.serviceLog.findMany({
+        where: { componentId, component: { userId } },
+        orderBy: [{ performedAt: 'desc' }, { createdAt: 'desc' }],
+      });
+      // The window "since service" starts at the latest SERVICE, as the counter
+      // does. An inspection resets only the inspection clock, so it must not
+      // move this date.
+      const latestService = serviceLogs.find((l) => l.kind === 'SERVICE') ?? null;
+
+      const aggregate = await aggregateLifetime(prisma, {
+        userId,
+        tenures,
+        includedRideIds,
+        excludedRideIds,
+        sinceServiceAt: latestService?.performedAt ?? null,
+      });
 
       const cumulative = await cumulativeSeries(prisma, {
         userId,
@@ -1252,12 +1255,6 @@ export const resolvers = {
         ? await prisma.bike.findMany({ where: { id: { in: bikeIds }, userId } })
         : [];
       const bikeById = new Map(bikes.map((b) => [b.id, b]));
-
-      // Reuse the canonical since-service computation rather than deriving a
-      // second one. If these ever disagree with the dashboard, that is a bug
-      // in one shared function instead of a discrepancy between two screens.
-      const counted = await computeCountedHours(prisma, attribution);
-      const sinceServiceSeconds = Math.round(counted.hours * 3600);
 
       const toTotals = (t: UsageTotals) => ({
         rideCount: t.rideCount,
@@ -1283,17 +1280,13 @@ export const resolvers = {
         tenures: tenurePayload,
         lifetime: toTotals(aggregate.lifetime),
         sinceService: {
-          rideCount: counted.rideCount,
-          durationSeconds: sinceServiceSeconds,
-          // Distance and elevation have no since-service counterpart in the
-          // canonical rule (it sums duration only), and inventing one here
-          // would produce a number no other surface could corroborate.
-          distanceMeters: 0,
-          elevationGainMeters: 0,
-          firstRideAt: anchor ? anchor.toISOString() : null,
-          lastRideAt: null,
+          ...toTotals(aggregate.sinceService),
+          // The counter, not the ride sum: it is the figure every other screen
+          // shows, and it carries declared pre-Loam hours and declared readings
+          // that no ride accounts for. For a derived reading the two agree.
+          durationSeconds: Math.round(component.hoursSinceService * 3600),
         },
-        anchor: anchor ? anchor.toISOString() : null,
+        anchor: latestService ? latestService.performedAt.toISOString() : null,
         serviceEvents: serviceLogs,
         cumulative: cumulative.map((p) => ({
           date: p.date.toISOString(),
@@ -1307,12 +1300,6 @@ export const resolvers = {
         // (resolvers.ts:2782), destroying the join key on both sides.
         historyIncomplete: historyIncomplete || tenurePayload.some((t) => t.bike === null),
         driftDetected,
-        // Reachable rather than hypothetical: computeCountedHours counts every
-        // ride on the component's current bike back to the anchor with no
-        // tenure bound, so moving a component to a busier bike with an old
-        // anchor can credit it months of rides it was never mounted for.
-        // Reported, not clamped — clamping would hide the inconsistency.
-        consistencyWarning: sinceServiceSeconds > aggregate.lifetime.durationSeconds,
         // Handed to the conditions field resolver so it can reuse the exact
         // ride set these totals describe, without recomputing tenures. Not
         // part of the GraphQL type, so it never leaves the server.

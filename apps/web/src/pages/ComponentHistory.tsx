@@ -96,7 +96,6 @@ type HistoryPayload = {
   coverage: 'FULL' | 'SYNTHETIC_FALLBACK' | 'NO_TENURE_DATA';
   historyIncomplete: boolean;
   driftDetected: boolean;
-  consistencyWarning: boolean;
   component: {
     id: string;
     type: string;
@@ -121,7 +120,7 @@ type HistoryPayload = {
     replacedById?: string | null;
   };
   lifetime: Totals;
-  sinceService: { rideCount: number; durationSeconds: number };
+  sinceService: Totals;
   tenures: Tenure[];
   serviceEvents: Array<{
     id: string;
@@ -239,22 +238,18 @@ export default function ComponentHistory() {
 
   if (!payload) return null;
 
-  // Hours come from the stored, ledger-backed counters — they include declared
-  // pre-Loam hours, which the ride-summed `lifetime` totals cannot know about.
-  // Distance, elevation and ride counts stay ride-derived, because a rider
-  // declaring "these wheels have 200 hours on them" is not declaring a mileage.
+  // Hours come from the stored, ledger-backed counters, which include declared
+  // pre-Loam hours the ride-summed `lifetime` totals cannot know about. The
+  // API already returns sinceService that way. Distance, elevation and ride
+  // counts stay ride-derived, because a rider declaring "these wheels have 200
+  // hours on them" is not declaring a mileage.
   const shown: Totals =
     window === 'lifetime'
       ? {
           ...payload.lifetime,
           durationSeconds: Math.round(payload.component.lifetimeHours * 3600),
         }
-      : {
-          rideCount: payload.sinceService.rideCount,
-          durationSeconds: Math.round(payload.component.hoursSinceService * 3600),
-          distanceMeters: 0,
-          elevationGainMeters: 0,
-        };
+      : payload.sinceService;
 
   return (
     <div className="bike-detail-page p-6 max-w-5xl mx-auto">
@@ -304,26 +299,19 @@ export default function ComponentHistory() {
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-2">
             <StatTile label="Hours" value={fmtDuration(shown.durationSeconds)} />
             <StatTile label="Rides" value={shown.rideCount.toLocaleString()} />
-            <StatTile
-              label="Distance"
-              value={
-                window === 'lifetime' ? fmtDistance(shown.distanceMeters, distanceUnit) : '—'
-              }
-            />
+            <StatTile label="Distance" value={fmtDistance(shown.distanceMeters, distanceUnit)} />
             <StatTile
               label="Elevation"
-              value={
-                window === 'lifetime'
-                  ? fmtElevation(shown.elevationGainMeters, distanceUnit)
-                  : '—'
-              }
+              value={fmtElevation(shown.elevationGainMeters, distanceUnit)}
             />
           </div>
 
           {/* Declared pre-Loam hours are stated explicitly rather than folded
               silently into the headline: the rider told us this, we did not
               measure it, and a secondhand part's history should say so. */}
-          {payload.component.priorHours > 0 && (
+          {/* Since a service, the hours are measured from that service's reading,
+              so declared pre-Loam hours only remain in them while none is logged. */}
+          {payload.component.priorHours > 0 && (window === 'lifetime' || !payload.anchor) && (
             <div className="text-xs text-muted mb-1">
               Includes {Math.round(payload.component.priorHours)}h declared before this
               component was tracked in Loam Logger.
@@ -346,11 +334,11 @@ export default function ComponentHistory() {
                 ? `First recorded ride ${fmtDateTime(payload.lifetime.firstRideAt)}.`
                 : 'No rides recorded against this component yet.'
               : payload.anchor
-              ? `Counting from the last service on ${fmtDateTime(payload.anchor)}. Distance and elevation are only totalled over a component's whole life.`
-              : 'Counting all recorded rides. Distance and elevation are only totalled over a component’s whole life.'}
+              ? `Counting from the last service on ${fmtDateTime(payload.anchor)}.`
+              : 'No service logged yet, so this counts every recorded ride.'}
           </div>
 
-          {(payload.historyIncomplete || payload.consistencyWarning) && (
+          {payload.historyIncomplete && (
             <div className="rounded-lg border border-border bg-surface-2 p-3 text-xs text-muted mb-5 flex gap-2">
               <TriangleAlert size={14} className="shrink-0 mt-0.5" />
               <div>
@@ -359,13 +347,6 @@ export default function ComponentHistory() {
                     Part of this component's install history is missing, so these totals
                     may understate its real life. Deleting a bike removes the records
                     linking its rides to the parts that were on it.
-                  </p>
-                )}
-                {payload.consistencyWarning && (
-                  <p>
-                    The since-service hours on this component exceed its recorded lifetime.
-                    That usually means it moved to a busier bike without a service being
-                    logged at the swap.
                   </p>
                 )}
               </div>

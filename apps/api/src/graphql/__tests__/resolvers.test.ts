@@ -6241,6 +6241,76 @@ describe('GraphQL Resolvers', () => {
     });
   });
 
+  describe('Query.componentHistory since-service window', () => {
+    const query = resolvers.Query.componentHistory;
+
+    // A fork serviced on 1 Mar and inspected on 1 May. Rides on 1 Feb, 1 Apr
+    // and 1 Jun, all inside its one tenure.
+    const SERVICED = [
+      { id: 'insp', kind: 'INSPECTION', performedAt: new Date('2025-05-01'), createdAt: new Date('2025-05-01') },
+      { id: 'svc', kind: 'SERVICE', performedAt: new Date('2025-03-01'), createdAt: new Date('2025-03-01') },
+    ];
+    // One-shot values throughout, so nothing leaks into later describes that
+    // rely on the module mock's defaults.
+    const setup = (logs: unknown[] = SERVICED) => {
+      mockCheckQueryRateLimit.mockResolvedValue({ allowed: true } as never);
+      (mockPrisma.component.findFirst as jest.Mock).mockResolvedValueOnce({
+        id: 'comp-1', userId: 'user-123', bikeId: 'bike-1', type: 'FORK',
+        installedAt: new Date('2025-01-01'), createdAt: new Date('2025-01-01'), retiredAt: null,
+        hoursUsed: 7, lifetimeHours: 10, hoursSinceService: 7, hoursSinceInspection: 3,
+        countersComputedAt: new Date('2026-01-01'),
+      });
+      (mockPrisma.componentRideAdjustment.findMany as jest.Mock).mockResolvedValueOnce([]);
+      (mockPrisma.bikeComponentInstall.findMany as jest.Mock).mockResolvedValueOnce([
+        { id: 'inst-1', bikeId: 'bike-1', slotKey: 'FORK_NONE', installedAt: new Date('2025-01-01'), removedAt: null },
+      ]);
+      (mockPrisma.serviceLog.findMany as jest.Mock).mockResolvedValueOnce(logs);
+      const ride = (id: string, iso: string, hours: number) => ({
+        id, bikeId: 'bike-1', startTime: new Date(iso), durationSeconds: hours * 3600,
+        distanceMeters: 1000 * hours, elevationGainMeters: 100 * hours,
+      });
+      (mockPrisma.ride.findMany as jest.Mock).mockResolvedValueOnce([
+        ride('r1', '2025-02-01', 3),
+        ride('r2', '2025-04-01', 4),
+        ride('r3', '2025-06-01', 3),
+      ]);
+      (mockPrisma.bike.findMany as jest.Mock).mockResolvedValueOnce([{ id: 'bike-1', userId: 'user-123' }]);
+      (mockPrisma as unknown as { $queryRaw: jest.Mock }).$queryRaw = jest.fn().mockResolvedValueOnce([]);
+    };
+
+    it('starts at the latest service, not a newer inspection', async () => {
+      setup();
+
+      const res = await query({}, { componentId: 'comp-1' }, createMockContext('user-123') as never);
+
+      expect(res.anchor).toBe(new Date('2025-03-01').toISOString());
+      // r2 and r3 are after the service; r1 is before it.
+      expect(res.sinceService.rideCount).toBe(2);
+      expect(res.sinceService.distanceMeters).toBe(7000);
+      expect(res.sinceService.elevationGainMeters).toBe(700);
+    });
+
+    // The hours are the counter, so the tab agrees with the dashboard even
+    // where a declared reading or pre-Loam hours make it differ from the rides.
+    it('reports the counter as the since-service hours', async () => {
+      setup();
+
+      const res = await query({}, { componentId: 'comp-1' }, createMockContext('user-123') as never);
+
+      expect(res.sinceService.durationSeconds).toBe(7 * 3600);
+    });
+
+    it('has no anchor and counts every ride when the part was never serviced', async () => {
+      setup([SERVICED[0]]);
+
+      const res = await query({}, { componentId: 'comp-1' }, createMockContext('user-123') as never);
+
+      expect(res.anchor).toBeNull();
+      expect(res.sinceService.rideCount).toBe(3);
+      expect(res).not.toHaveProperty('consistencyWarning');
+    });
+  });
+
   describe('Query.componentRides', () => {
     const resolver = resolvers.Query.componentRides;
     const mockComponentFindUnique = prisma.component.findUnique as jest.Mock;

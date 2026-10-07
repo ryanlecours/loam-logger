@@ -455,7 +455,6 @@ export type ComponentHistoryPayload = {
   anchor?: Maybe<Scalars['String']['output']>;
   component: Component;
   conditions: Array<ComponentConditionBucket>;
-  consistencyWarning: Scalars['Boolean']['output'];
   coverage: ComponentHistoryCoverage;
   cumulative: Array<ComponentCumulativePoint>;
   driftDetected: Scalars['Boolean']['output'];
