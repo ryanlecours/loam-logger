@@ -18,7 +18,7 @@ import { isGarminCyclingActivity } from '../types/garmin';
 import { normalizeGarminDeviceName } from '@loam/shared';
 import { removeGarminRideIfPresent } from '../lib/garmin-ride-removal';
 import { garminRideKey } from '../lib/garmin-ride-key';
-import { syncBikeComponentHours } from '../lib/component-hours';
+import { syncBikeComponentHours, type RidePlacement } from '../lib/component-hours';
 import { invalidateBikePredictionsForBikes } from '../services/prediction/cache';
 import { logger } from '../lib/logger';
 import { fireRideNotifications } from '../services/notification.service';
@@ -743,6 +743,73 @@ async function syncGarminActivity(
   }
 }
 
+/**
+ * Save a synced ride and credit its component hours in ONE transaction, and
+ * fall back to saving the ride alone if that fails.
+ *
+ * One transaction is what keeps the per-ride credit from double counting. The
+ * credit increments, while a recompute writes absolute values from the ledger.
+ * If the ride were committed first and credited in a second transaction, a
+ * recompute running between the two would count the committed ride, and the
+ * credit would then add it again. Inside one transaction a concurrent
+ * recompute either cannot see the ride yet (and the credit lands on top of its
+ * result) or waits for the commit and counts the ride itself.
+ *
+ * The fallback keeps the guarantee these syncs had before: the provider will
+ * not resend the activity, so a failed credit must never lose the ride. That
+ * path saves the ride without crediting it and reports the orphaned hours, as
+ * the previous two-step flow did. Any later recompute of the affected parts
+ * derives them from the ledger, ride included.
+ */
+async function upsertRideAndCreditHours(opts: {
+  userId: string;
+  provider: 'garmin' | 'suunto';
+  label: string;
+  upsert: Prisma.RideUpsertArgs;
+  previous: RidePlacement | null;
+}): Promise<{ ride: Awaited<ReturnType<typeof prisma.ride.upsert>>; affectedBikeIds: string[] }> {
+  const { userId, provider, label, upsert, previous } = opts;
+  try {
+    return await prisma.$transaction(async (tx) => {
+      const ride = await tx.ride.upsert(upsert);
+      const affectedBikeIds = await syncBikeComponentHours(
+        tx,
+        userId,
+        previous ?? { bikeId: null, durationSeconds: null, startTime: null },
+        { bikeId: ride.bikeId ?? null, durationSeconds: ride.durationSeconds, startTime: ride.startTime },
+        // Existing ride: adjusted components need the canonical recompute.
+        previous ? ride.id : undefined
+      );
+      return { ride, affectedBikeIds };
+    });
+  } catch (err) {
+    // The transaction rolled back, ride included. Save the ride on its own; if
+    // this throws too, the ride itself failed and the job fails as it would
+    // have before.
+    const ride = await prisma.ride.upsert(upsert);
+    // Orphaned-hours warning: the ride is saved but its component hours were
+    // not credited. A re-sync cannot recover this, because
+    // syncBikeComponentHours diffs prev vs next and once the ride is in the DB
+    // both sides match. A recompute of the affected parts does recover it.
+    // Logged with bikeId + duration and shipped to Sentry so it is visible at
+    // trigger time rather than buried in log volume.
+    logger.error({
+      event: 'orphaned_component_hours',
+      provider,
+      err,
+      userId,
+      rideId: ride.id,
+      bikeId: ride.bikeId,
+      durationSeconds: ride.durationSeconds,
+    }, `[SyncWorker] Failed to sync component hours for ${label} — manual recovery required`);
+    Sentry.captureException(err, {
+      tags: { worker: 'sync', provider, issue: 'orphaned_component_hours' },
+      extra: { userId, rideId: ride.id, bikeId: ride.bikeId, durationSeconds: ride.durationSeconds },
+    });
+    return { ride, affectedBikeIds: [] };
+  }
+}
+
 async function upsertGarminActivity(userId: string, activity: GarminActivity): Promise<void> {
   // One ride, two deliveries: the Activity Summary arrives as "123" and its
   // Activity Details as "123-detail". Keying on the raw id made the details
@@ -816,90 +883,63 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
     select: { id: true },
   });
 
-  // Upsert ride first — this is the primary data, must not be lost
-  const ride = await prisma.ride.upsert({
-    where: { garminActivityId: rideKey },
-    create: {
-      userId,
-      garminActivityId: rideKey,
-      startTime,
-      durationSeconds: activity.durationInSeconds,
-      distanceMeters,
-      elevationGainMeters,
-      averageHr: activity.averageHeartRateInBeatsPerMinute ?? null,
-      rideType: activity.activityType,
-      notes: activity.activityName ?? null,
-      location: autoLocation?.title ?? null,
-      importSessionId: runningSession?.id ?? null,
-      bikeId,
-      startLat,
-      startLng,
-      garminDeviceName: garminDeviceName ?? null,
+  // The ride and its hours are saved together; see upsertRideAndCreditHours
+  // for why, and for the fallback that keeps a failed credit from losing it.
+  const { ride, affectedBikeIds } = await upsertRideAndCreditHours({
+    userId,
+    provider: 'garmin',
+    label: 'Garmin activity',
+    upsert: {
+      where: { garminActivityId: rideKey },
+      create: {
+        userId,
+        garminActivityId: rideKey,
+        startTime,
+        durationSeconds: activity.durationInSeconds,
+        distanceMeters,
+        elevationGainMeters,
+        averageHr: activity.averageHeartRateInBeatsPerMinute ?? null,
+        rideType: activity.activityType,
+        notes: activity.activityName ?? null,
+        location: autoLocation?.title ?? null,
+        importSessionId: runningSession?.id ?? null,
+        bikeId,
+        startLat,
+        startLng,
+        garminDeviceName: garminDeviceName ?? null,
+      },
+      update: {
+        startTime,
+        durationSeconds: activity.durationInSeconds,
+        distanceMeters,
+        elevationGainMeters,
+        averageHr: activity.averageHeartRateInBeatsPerMinute ?? null,
+        rideType: activity.activityType,
+        notes: activity.activityName ?? null,
+        // Only written when a real model is present, never cleared — a re-sync
+        // that omits deviceName or sends the "unknown" sentinel must not blank or
+        // downgrade an attribution we already display.
+        ...(garminDeviceName ? { garminDeviceName } : {}),
+        ...(locationUpdate !== undefined ? { location: locationUpdate } : {}),
+        // Known limitation: coords are only written, never cleared. If a
+        // Garmin activity's coords become unavailable on a later re-sync,
+        // the originally-stored startLat/startLng stick around. Weather
+        // already fetched is unaffected; a hypothetical future weather
+        // re-fetch would use the stale coord.
+        ...(startLat != null ? { startLat } : {}),
+        ...(startLng != null ? { startLng } : {}),
+      },
     },
-    update: {
-      startTime,
-      durationSeconds: activity.durationInSeconds,
-      distanceMeters,
-      elevationGainMeters,
-      averageHr: activity.averageHeartRateInBeatsPerMinute ?? null,
-      rideType: activity.activityType,
-      notes: activity.activityName ?? null,
-      // Only written when a real model is present, never cleared — a re-sync
-      // that omits deviceName or sends the "unknown" sentinel must not blank or
-      // downgrade an attribution we already display.
-      ...(garminDeviceName ? { garminDeviceName } : {}),
-      ...(locationUpdate !== undefined ? { location: locationUpdate } : {}),
-      // Known limitation: coords are only written, never cleared. If a
-      // Garmin activity's coords become unavailable on a later re-sync,
-      // the originally-stored startLat/startLng stick around. Weather
-      // already fetched is unaffected; a hypothetical future weather
-      // re-fetch would use the stale coord.
-      ...(startLat != null ? { startLat } : {}),
-      ...(startLng != null ? { startLng } : {}),
-    },
+    previous: existing
+      ? { bikeId: existing.bikeId ?? null, durationSeconds: existing.durationSeconds ?? null, startTime: existing.startTime ?? null }
+      : null,
   });
 
   const syncedRideId = ride.id;
   const syncedBikeId = ride.bikeId ?? null;
 
-  // Sync component hours separately — secondary to recording the ride.
-  // A failure here should not roll back the ride (Garmin won't resend it).
-  let affectedBikeIds: string[] = [];
-  try {
-    affectedBikeIds = await prisma.$transaction(async (tx) => {
-      return syncBikeComponentHours(
-        tx,
-        userId,
-        { bikeId: existing?.bikeId ?? null, durationSeconds: existing?.durationSeconds ?? null, startTime: existing?.startTime ?? null },
-        { bikeId: ride.bikeId ?? null, durationSeconds: ride.durationSeconds, startTime: ride.startTime },
-        // Existing ride: adjusted components need the canonical recompute.
-        existing ? ride.id : undefined
-      );
-    });
-  } catch (err) {
-    // Orphaned-hours warning: the ride upsert succeeded but its component
-    // hours weren't credited. A future re-sync can't auto-recover this —
-    // syncBikeComponentHours diffs prev vs next, and once the ride is in the
-    // DB both sides match, so the diff is zero. Log the bikeId + duration
-    // so an admin can credit the hours manually, and ship to Sentry so it's
-    // visible at trigger time rather than buried in log volume.
-    logger.error({
-      event: 'orphaned_component_hours',
-      provider: 'garmin',
-      err,
-      userId,
-      rideId: ride.id,
-      bikeId: ride.bikeId,
-      durationSeconds: ride.durationSeconds,
-    }, '[SyncWorker] Failed to sync component hours for Garmin activity — manual recovery required');
-    Sentry.captureException(err, {
-      tags: { worker: 'sync', provider: 'garmin', issue: 'orphaned_component_hours' },
-      extra: { userId, rideId: ride.id, bikeId: ride.bikeId, durationSeconds: ride.durationSeconds },
-    });
-  }
-
   // Bust cached predictions for every bike whose hours changed. Empty (so a
-  // no-op) when the sync above threw — nothing was credited to invalidate.
+  // no-op) when the credit failed and fell back: nothing was credited.
   await invalidateBikePredictionsForBikes(userId, affectedBikeIds);
 
   // Update session's lastActivityReceivedAt if there's a running session
@@ -1285,73 +1325,45 @@ async function upsertSuuntoActivity(
     }
   }
 
-  // Upsert ride first — this is the primary data, must not be lost if the
-  // component-hour sync fails.
-  const ride = await prisma.ride.upsert({
-    where: { suuntoWorkoutId: workout.workoutKey },
-    create: {
-      userId,
-      suuntoWorkoutId: workout.workoutKey,
-      startTime,
-      durationSeconds,
-      distanceMeters,
-      elevationGainMeters,
-      averageHr,
-      rideType,
-      bikeId,
-      startLat,
-      startLng,
+  // The ride and its hours are saved together; see upsertRideAndCreditHours
+  // for why, and for the fallback that keeps a failed credit from losing it.
+  const { ride, affectedBikeIds } = await upsertRideAndCreditHours({
+    userId,
+    provider: 'suunto',
+    label: 'Suunto workout',
+    upsert: {
+      where: { suuntoWorkoutId: workout.workoutKey },
+      create: {
+        userId,
+        suuntoWorkoutId: workout.workoutKey,
+        startTime,
+        durationSeconds,
+        distanceMeters,
+        elevationGainMeters,
+        averageHr,
+        rideType,
+        bikeId,
+        startLat,
+        startLng,
+      },
+      update: {
+        startTime,
+        durationSeconds,
+        distanceMeters,
+        elevationGainMeters,
+        averageHr,
+        rideType,
+        ...(startLat != null ? { startLat } : {}),
+        ...(startLng != null ? { startLng } : {}),
+      },
     },
-    update: {
-      startTime,
-      durationSeconds,
-      distanceMeters,
-      elevationGainMeters,
-      averageHr,
-      rideType,
-      ...(startLat != null ? { startLat } : {}),
-      ...(startLng != null ? { startLng } : {}),
-    },
+    previous: existing
+      ? { bikeId: existing.bikeId ?? null, durationSeconds: existing.durationSeconds ?? null, startTime: existing.startTime ?? null }
+      : null,
   });
 
-  // Component hours are secondary — a failure here should not roll back the
-  // ride because Suunto won't re-deliver it.
-  let affectedBikeIds: string[] = [];
-  try {
-    affectedBikeIds = await prisma.$transaction(async (tx) => {
-      return syncBikeComponentHours(
-        tx,
-        userId,
-        { bikeId: existing?.bikeId ?? null, durationSeconds: existing?.durationSeconds ?? null, startTime: existing?.startTime ?? null },
-        { bikeId: ride.bikeId ?? null, durationSeconds: ride.durationSeconds, startTime: ride.startTime },
-        // Existing ride: adjusted components need the canonical recompute.
-        existing ? ride.id : undefined
-      );
-    });
-  } catch (err) {
-    // Orphaned-hours warning: the ride upsert succeeded but its component
-    // hours weren't credited. A future re-sync can't auto-recover this —
-    // syncBikeComponentHours diffs prev vs next, and once the ride is in the
-    // DB both sides match, so the diff is zero. Log the bikeId + duration
-    // so an admin can credit the hours manually, and ship to Sentry so it's
-    // visible at trigger time rather than buried in log volume.
-    logger.error({
-      event: 'orphaned_component_hours',
-      provider: 'suunto',
-      err,
-      userId,
-      rideId: ride.id,
-      bikeId: ride.bikeId,
-      durationSeconds: ride.durationSeconds,
-    }, '[SyncWorker] Failed to sync component hours for Suunto workout — manual recovery required');
-    Sentry.captureException(err, {
-      tags: { worker: 'sync', provider: 'suunto', issue: 'orphaned_component_hours' },
-      extra: { userId, rideId: ride.id, bikeId: ride.bikeId, durationSeconds: ride.durationSeconds },
-    });
-  }
-
   // Bust cached predictions for every bike whose hours changed. Empty (so a
-  // no-op) when the sync above threw — nothing was credited to invalidate.
+  // no-op) when the credit failed and fell back: nothing was credited.
   await invalidateBikePredictionsForBikes(userId, affectedBikeIds);
 
   logger.debug({ suuntoWorkoutId: workout.workoutKey }, '[SyncWorker] Upserted Suunto workout');
