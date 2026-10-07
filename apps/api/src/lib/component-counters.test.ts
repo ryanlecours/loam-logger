@@ -691,6 +691,10 @@ describe('creditRideToComponents', () => {
   });
   const credit = (tx: MockTx, iso: string, hoursDelta = 2) =>
     creditRideToComponents(asTx(tx), { userId: 'user-1', bikeId: 'bike-1', startTime: d(iso), hoursDelta });
+  const floorStatements = (tx: MockTx) =>
+    tx.$executeRaw.mock.calls
+      .map(([strings]) => (strings as string[]).join('?'))
+      .filter((sql) => !sql.includes('FOR UPDATE'));
   const updateFor = (tx: MockTx, id: string) =>
     tx.component.updateMany.mock.calls
       .map(([arg]) => arg)
@@ -826,7 +830,7 @@ describe('creditRideToComponents', () => {
 
     await credit(tx, '2025-03-01T00:00:00Z', -2);
 
-    const statements = tx.$executeRaw.mock.calls.map(([strings]) => (strings as string[]).join('?'));
+    const statements = floorStatements(tx);
     expect(statements).toHaveLength(2);
     for (const sql of statements) {
       expect(sql).toContain('"lifetimeHours" = GREATEST("lifetimeHours", 0)');
@@ -846,7 +850,11 @@ describe('creditRideToComponents', () => {
       candidates: [part('fork', 'bike-1', '2025-01-01T00:00:00Z')],
     });
     // Legacy floor clamps nothing; the covering part's floor clamps one row.
-    tx.$executeRaw.mockResolvedValueOnce(0).mockResolvedValueOnce(1);
+    // The candidates' row lock is not a floor, so it does not take a turn.
+    let floors = 0;
+    tx.$executeRaw.mockImplementation(async (strings: string[]) =>
+      strings.join('?').includes('FOR UPDATE') ? 1 : floors++ === 0 ? 0 : 1
+    );
 
     await credit(tx, '2025-03-01T00:00:00Z', -2);
 
@@ -866,6 +874,34 @@ describe('creditRideToComponents', () => {
 
     await credit(tx, '2025-03-01T00:00:00Z', 2);
 
-    expect(tx.$executeRaw).not.toHaveBeenCalled();
+    expect(floorStatements(tx)).toHaveLength(0);
+  });
+
+  // Whether a ride moves a "since" counter depends on the part's tenures and
+  // latest logs. Reading them before taking the row locks let a concurrent
+  // service write change them in between, so the credit could disagree with
+  // the recompute that wrote the counters.
+  it('locks the candidates, in id order, before reading tenures or logs', async () => {
+    const tx = makeTx({
+      bikeInstalls: [tenure('t1', 'fork', '2025-01-01T00:00:00Z')],
+      candidates: [part('fork', 'bike-1', '2025-01-01T00:00:00Z')],
+    });
+
+    await credit(tx, '2025-03-01T00:00:00Z');
+
+    const lockAt = tx.$executeRaw.mock.calls.findIndex(([strings]) =>
+      (strings as string[]).join('?').includes('FOR UPDATE')
+    );
+    expect(lockAt).toBeGreaterThanOrEqual(0);
+    const [strings, ...values] = tx.$executeRaw.mock.calls[lockAt];
+    const sql = (strings as string[]).join('?');
+    expect(sql).toMatch(/"countersComputedAt" IS NOT NULL/);
+    expect(sql).toMatch(/ORDER BY "id" COLLATE "C"\s+FOR UPDATE/);
+    expect(values).toEqual(['user-1', 'bike-1', 'user-1', 'bike-1']);
+
+    const lockedAt = tx.$executeRaw.mock.invocationCallOrder[lockAt];
+    expect(lockedAt).toBeLessThan(tx.bikeComponentInstall.findMany.mock.invocationCallOrder[0]);
+    expect(lockedAt).toBeLessThan(tx.component.findMany.mock.invocationCallOrder[0]);
+    expect(lockedAt).toBeLessThan(tx.serviceLog.findMany.mock.invocationCallOrder[0]);
   });
 });

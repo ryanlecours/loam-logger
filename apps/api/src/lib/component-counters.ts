@@ -457,10 +457,42 @@ async function floorAndCapCounters(
 }
 
 /**
+ * Orders component ids the way Postgres orders them under COLLATE "C" (byte
+ * order), so every path that takes several component row locks takes them in
+ * the same order and two of them cannot deadlock each other.
+ */
+const byLockOrder = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+
+/**
+ * Take the row lock of every component loadBikeCandidates would return, in
+ * byLockOrder, for the rest of the transaction. The WHERE must stay in step
+ * with loadBikeCandidates.
+ *
+ * One statement: the rows are locked in ORDER BY order, and any row another
+ * transaction holds is waited for, then re-checked against the WHERE as it
+ * committed.
+ */
+async function lockBikeCandidates(
+  tx: TransactionClient | Prisma.TransactionClient,
+  userId: string,
+  bikeId: string
+): Promise<void> {
+  await (tx as TransactionClient).$executeRaw`
+    SELECT 1 FROM "Component"
+    WHERE "userId" = ${userId}
+      AND "countersComputedAt" IS NOT NULL
+      AND ("bikeId" = ${bikeId} OR "id" IN (
+        SELECT "componentId" FROM "BikeComponentInstall"
+        WHERE "userId" = ${userId} AND "bikeId" = ${bikeId}))
+    ORDER BY "id" COLLATE "C"
+    FOR UPDATE`;
+}
+
+/**
  * Every computed component whose ride window could include a ride on `bikeId`:
  * those with any install row on it, plus those whose bikeId points at it (the
  * drifted rows normalizeTenures synthesizes a tenure for). A superset; callers
- * narrow it with the tenure rule.
+ * narrow it with the tenure rule. lockBikeCandidates locks the same set.
  */
 async function loadBikeCandidates(
   tx: TransactionClient | Prisma.TransactionClient,
@@ -504,6 +536,13 @@ async function loadBikeCandidates(
  *     reading dated after the ride. Then lifetime and reading moved together
  *     and the subtraction is unchanged: the ride happened before the service.
  *
+ * Those decisions read the install rows and the logbook, so the candidates'
+ * row locks are taken first, as a recompute takes its part's. A service logged,
+ * re-dated or deleted concurrently commits either before the reads here (and is
+ * seen) or after this transaction (and its recompute sees this ride). A part
+ * first fitted to the bike after the lock is read unlocked, but the install's
+ * own recompute has committed by then, so its logbook is already settled.
+ *
  * Per-ride adjustments are not consulted. A new ride cannot have any, and the
  * callers that edit or delete an existing ride run
  * recomputeAdjustedComponentsForRides afterwards, whose recompute wins.
@@ -535,6 +574,7 @@ export async function creditRideToComponents(
     );
   }
 
+  await lockBikeCandidates(tx, userId, bikeId);
   const { installRows, components } = await loadBikeCandidates(tx, userId, bikeId);
   const covering = components.filter((c) => {
     const rows = installRows.filter((r) => r.componentId === c.id);
@@ -646,8 +686,9 @@ export async function recomputeCountersForBike(
     );
   }
   const { components } = await loadBikeCandidates(tx, userId, bikeId);
-  // Sorted, so concurrent bulk changes take the row locks in the same order.
-  const sorted = [...components].sort((a, b) => a.id.localeCompare(b.id));
+  // Sorted, so concurrent bulk changes and ride credits take the row locks in
+  // the same order.
+  const sorted = [...components].sort((a, b) => byLockOrder(a.id, b.id));
   for (const c of sorted) await recomputeComponentCounters(tx, c.id);
 
   const bikeIds = new Set([bikeId]);
