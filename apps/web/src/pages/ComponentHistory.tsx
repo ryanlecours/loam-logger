@@ -111,8 +111,6 @@ type HistoryPayload = {
     priorHours: number;
     lifetimeHours: number;
     hoursSinceService: number;
-    hoursSinceInspection: number;
-    inspectionDueAtHours?: number | null;
     lastInspectedAt?: string | null;
     installedAt?: string | null;
     lastServicedAt?: string | null;
@@ -128,6 +126,7 @@ type HistoryPayload = {
     notes?: string | null;
     kind: 'SERVICE' | 'INSPECTION';
     hoursAtService: number;
+    serviceExtensionHours?: number | null;
   }>;
   conditions: Array<{ condition: string; rideCount: number; durationSeconds: number }>;
   cumulative: Array<{
@@ -212,8 +211,8 @@ export default function ComponentHistory() {
   // — a filter that also hid a genuine service on a part with no hours on it.
   // Installs are recorded as install history instead.
   const logEntries = payload?.serviceEvents ?? [];
-  // Only SERVICE entries mark the wear chart: an inspection resets the
-  // inspection clock without altering the service interval the chart shows.
+  // Only SERVICE entries mark the wear chart: an inspection that stood in for a
+  // service moves the due point, but no work was done on the part.
   const serviceMarks = useMemo(
     () => logEntries.filter((s) => s.kind === 'SERVICE'),
     [logEntries]
@@ -318,15 +317,6 @@ export default function ComponentHistory() {
             </div>
           )}
 
-          {payload.component.inspectionDueAtHours != null && (
-            <div className="text-xs text-muted mb-1">
-              Inspection: {Math.round(payload.component.hoursSinceInspection)}h since last
-              check, every {Math.round(payload.component.inspectionDueAtHours)}h.
-              {payload.component.lastInspectedAt
-                ? ` Last inspected ${fmtDateTime(payload.component.lastInspectedAt)}.`
-                : ' Not yet inspected.'}
-            </div>
-          )}
 
           <div className="text-xs text-muted mb-5">
             {window === 'lifetime'
@@ -562,6 +552,8 @@ export default function ComponentHistory() {
                         <span className="text-muted">
                           {' · '}
                           {s.kind === 'INSPECTION' ? 'Inspected' : 'Serviced'}
+                          {s.kind === 'INSPECTION' && s.serviceExtensionHours != null &&
+                            `, good for ${Math.round(s.serviceExtensionHours)}h more`}
                         </span>
                       </div>
                       {s.notes && <div className="text-xs text-muted">{s.notes}</div>}

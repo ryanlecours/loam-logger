@@ -86,8 +86,6 @@ const BASE = {
     priorHours: 0,
     lifetimeHours: 312,
     hoursSinceService: 40,
-    hoursSinceInspection: 12,
-    inspectionDueAtHours: null,
     lastInspectedAt: null,
     installedAt: '2024-01-01T00:00:00.000Z',
     lastServicedAt: '2025-06-01T00:00:00.000Z',
@@ -156,7 +154,7 @@ const BASE = {
   ],
   serviceEvents: [
     { id: 's1', performedAt: '2025-06-01T00:00:00.000Z', notes: 'Lower leg service', kind: 'SERVICE', hoursAtService: 272 },
-    { id: 'i1', performedAt: '2025-08-01T00:00:00.000Z', notes: 'Bushings fine', kind: 'INSPECTION', hoursAtService: 290 },
+    { id: 'i1', performedAt: '2025-08-01T00:00:00.000Z', notes: 'Bushings fine', kind: 'INSPECTION', hoursAtService: 290, serviceExtensionHours: 25 },
   ],
   conditions: [
     { condition: 'SUNNY', rideCount: 31, durationSeconds: 352800 },
@@ -279,24 +277,18 @@ describe('ComponentHistory', () => {
     expect(screen.getByText(/200h declared before this component was tracked/i)).toBeInTheDocument();
   });
 
-  it('shows the inspection clock only when the type is inspection-tracked', () => {
+  // An inspection stood in for a due service, so its logbook entry says how
+  // much riding it granted before the next one.
+  it('shows the extension an inspection granted', () => {
     renderPage();
-    expect(screen.queryByText(/Inspection:/)).not.toBeInTheDocument();
-
-    setPayload({
-      component: { ...BASE.component, inspectionDueAtHours: 50, hoursSinceInspection: 12 },
-    });
-    renderPage();
-    // Absent is a different statement from "inspection is fine", so a
-    // non-inspectable part must render no inspection line at all.
-    expect(screen.getByText(/12h since last check, every 50h/i)).toBeInTheDocument();
+    expect(screen.getByText(/Inspected, good for 25h more/)).toBeInTheDocument();
   });
 
   it('marks only service dates on the wear chart, not inspections', () => {
     renderPage();
     expect(screen.getByTestId('wear-chart')).toHaveAttribute('data-points', '3');
-    // Two log entries, one of which is an inspection: an inspection resets the
-    // inspection clock without changing the service interval the chart shows.
+    // Two log entries, one of which is an inspection: it moved the due point,
+    // but no work was done on the part.
     expect(screen.getAllByTestId('service-mark')).toHaveLength(1);
   });
 

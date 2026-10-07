@@ -270,18 +270,19 @@ export function CalibrationOverlay({ isOpen, onClose }: CalibrationOverlayProps)
   }, [bikes, bulkDates, selectedComponents, calibratedIds]);
 
   const handleSnooze = useCallback(async (componentId: string) => {
-    // Snooze extends the service interval by 50% (visual inspection, component is fine)
+    // Snooze logs an inspection: the part was checked and is still good, so the
+    // next service is due half its service interval from now.
     try {
       await snoozeComponent({ variables: { id: componentId } });
 
       // Mark as calibrated locally
       setCalibratedIds((prev) => new Set([...prev, componentId]));
 
-      setSuccessMessage('Service interval extended by 50%');
+      setSuccessMessage('Inspection logged: next service due in half the interval');
       setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err) {
-      console.error('Failed to snooze component:', err);
-      setError('Failed to snooze component');
+      console.error('Failed to log inspection:', err);
+      setError('Failed to log the inspection');
       setTimeout(() => setError(null), 3000);
     }
   }, [snoozeComponent]);
@@ -479,9 +480,9 @@ export function CalibrationOverlay({ isOpen, onClose }: CalibrationOverlayProps)
         {/* Button explanation */}
         <div className="calibration-info-secondary">
           <p>
-            <strong>Log Service</strong> — Record a date you serviced this component.<br />
-            <strong>Acknowledge</strong> — Hours are accurate, no service performed yet.<br />
-            <strong>Snooze</strong> — Visually inspected, extend interval by 50%.
+            <strong>Log Service</strong>: record a date you serviced this component.<br />
+            <strong>Acknowledge</strong>: hours are accurate, no service performed yet.<br />
+            <strong>Snooze</strong>: inspected and still good, so the next service is due in half the interval.
           </p>
         </div>
 
@@ -903,7 +904,7 @@ function ComponentRow({
         size="sm"
         onClick={onSnoozeAlert}
         disabled={isSubmitting}
-        title="Visually inspected - extend service interval by 50%"
+        title="Inspected and still good: next service due in half the interval"
       >
         <BellOff size={10} className="icon-left" />
         Snooze

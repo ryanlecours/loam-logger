@@ -36,8 +36,6 @@ export const COMPONENT_HISTORY = gql`
         priorHours
         lifetimeHours
         hoursSinceService
-        hoursSinceInspection
-        inspectionDueAtHours
         lastInspectedAt
         installedAt
         lastServicedAt
@@ -85,10 +83,12 @@ export const COMPONENT_HISTORY = gql`
         id
         performedAt
         notes
-        # SERVICE = work performed; INSPECTION = checked, which resets only the
-        # inspection clock.
+        # SERVICE = work performed; INSPECTION = checked at a due service and
+        # found good, so it stood in for the service.
         kind
         hoursAtService
+        # INSPECTION only: hours of riding it granted before the next service.
+        serviceExtensionHours
       }
       conditions {
         condition
