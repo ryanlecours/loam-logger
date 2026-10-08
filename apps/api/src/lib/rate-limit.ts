@@ -138,6 +138,10 @@ export const MUTATION_RATE_LIMITS = {
    *  single throttled per-user job that fires Garmin backfill requests, so the
    *  limit just stops a client loop from re-queuing needlessly. */
   backfillGarminWeather: { windowSeconds: 300, maxRequests: 3 },
+  /** createComponentShare / revokeComponentShare: max 20 per minute per user.
+   *  A share is a click; this only stops a client loop minting links. */
+  createComponentShare: { windowSeconds: 60, maxRequests: 20 },
+  revokeComponentShare: { windowSeconds: 60, maxRequests: 20 },
 } as const;
 
 /**

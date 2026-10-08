@@ -2,14 +2,10 @@ import { useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router';
 import { useQuery } from '@apollo/client';
 import {
-  Area,
-  AreaChart,
   Bar,
   BarChart,
-  CartesianGrid,
   Cell,
   LabelList,
-  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -24,26 +20,15 @@ import { useUserTier } from '@/hooks/useUserTier';
 import { getComponentLabel } from '@/constants/componentLabels';
 import { ProChip } from '@/components/UpgradePrompt';
 import { GarminDerivedNote } from '@/components/attribution/GarminAttribution';
+import { WearChart } from '@/components/history/WearChart';
+import { CHART } from '@/components/history/chartTheme';
+import { ComponentSharePanel } from '@/components/history/ComponentSharePanel';
 
-// Chart colors, per the Data Visualization section of DESIGN.md.
-//
-// Two rules are load-bearing here. First, the health ramp (mahogany /
-// terracotta / danger) is reserved for actual component health — a wear chart
-// or a conditions breakdown borrowing it would dilute the one signal the
-// product exists to deliver. Second, marks follow the Two Inks Rule: fills go
-// behind things (areas, bars), inks go on things (lines, labels).
-//
 // The conditions scale is a lightness ramp rather than a hue wheel, because
 // the system has no sanctioned categorical palette and seven hues would either
 // leave the palette or collapse into indistinguishable neighbours. Every bar
 // is directly labelled, so colour is reinforcement rather than the signal.
-const CHART = {
-  axis: '#8A8A91', // stone-light: the dimmest usable text tone
-  grid: 'rgba(58, 58, 62, 0.5)', // ash, translucent
-  wearLine: '#9CB0A4', // mint ink
-  wearFill: 'rgba(120, 140, 128, 0.25)', // sage fill
-  serviceMark: '#788C80', // sage ink
-};
+// (The chart colours themselves, and why, live with WearChart.)
 
 const CONDITION_SCALE: Record<string, string> = {
   SUNNY: '#E8E6E2',
@@ -178,19 +163,6 @@ export default function ComponentHistory() {
 
   const payload = data?.componentHistory;
 
-  const chartData = useMemo(
-    () =>
-      (payload?.cumulative ?? []).map((p) => ({
-        date: p.date,
-        label: new Date(p.date).toLocaleDateString(undefined, {
-          month: 'short',
-          year: '2-digit',
-        }),
-        hours: Number(p.cumulativeHours.toFixed(1)),
-      })),
-    [payload?.cumulative]
-  );
-
   const conditionData = useMemo(
     () =>
       (payload?.conditions ?? [])
@@ -213,8 +185,8 @@ export default function ComponentHistory() {
   const logEntries = payload?.serviceEvents ?? [];
   // Only SERVICE entries mark the wear chart: an inspection that stood in for a
   // service moves the due point, but no work was done on the part.
-  const serviceMarks = useMemo(
-    () => logEntries.filter((s) => s.kind === 'SERVICE'),
+  const serviceDates = useMemo(
+    () => logEntries.filter((s) => s.kind === 'SERVICE').map((s) => s.performedAt),
     [logEntries]
   );
 
@@ -268,6 +240,16 @@ export default function ComponentHistory() {
             {payload.component.isStock ? ' · Stock' : ' · Aftermarket'}
           </div>
         </div>
+        {payload.coverage !== 'NO_TENURE_DATA' && (
+          <ComponentSharePanel
+            componentId={payload.component.id}
+            installedAt={
+              payload.tenures[0]?.installedAt ??
+              payload.component.installedAt ??
+              new Date().toISOString()
+            }
+          />
+        )}
       </div>
 
       {/* Derived from ride data, so contributing sources are named adjacent to
@@ -344,63 +326,14 @@ export default function ComponentHistory() {
           )}
 
           {/* Wear over time */}
-          {chartData.length > 1 && (
+          {payload.cumulative.length > 1 && (
             <section className="bike-detail-section mb-6">
               <h2 className="bike-detail-section-title">Wear over time</h2>
               <p className="text-xs text-muted mb-3">
                 Cumulative hours ridden. Service dates are marked so you can see how much
                 use each interval covered.
               </p>
-              <div className="h-56 w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={chartData} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
-                    <CartesianGrid stroke={CHART.grid} vertical={false} />
-                    <XAxis
-                      dataKey="label"
-                      tick={{ fill: CHART.axis, fontSize: 11 }}
-                      stroke={CHART.grid}
-                      minTickGap={24}
-                    />
-                    <YAxis
-                      tick={{ fill: CHART.axis, fontSize: 11 }}
-                      stroke={CHART.grid}
-                      width={40}
-                      unit="h"
-                    />
-                    <Tooltip
-                      contentStyle={{
-                        background: 'rgb(22, 22, 26)',
-                        border: '1px solid rgba(58, 58, 62, 0.7)',
-                        borderRadius: 12,
-                        fontSize: 12,
-                      }}
-                      labelStyle={{ color: CHART.axis }}
-                      formatter={(v) => [`${Number(v ?? 0)}h`, 'Cumulative']}
-                    />
-                    {serviceMarks.map((s) => {
-                      const label = new Date(s.performedAt).toLocaleDateString(undefined, {
-                        month: 'short',
-                        year: '2-digit',
-                      });
-                      return (
-                        <ReferenceLine
-                          key={s.id}
-                          x={label}
-                          stroke={CHART.serviceMark}
-                          strokeDasharray="3 3"
-                        />
-                      );
-                    })}
-                    <Area
-                      type="monotone"
-                      dataKey="hours"
-                      stroke={CHART.wearLine}
-                      strokeWidth={2}
-                      fill={CHART.wearFill}
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
+              <WearChart points={payload.cumulative} serviceDates={serviceDates} />
             </section>
           )}
 

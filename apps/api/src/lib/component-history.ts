@@ -296,8 +296,10 @@ export function buildCountedRideWhere(params: {
   windows: Array<{ bikeId: string; start: Date; end: Date }>;
   includedRideIds: string[];
   excludedRideIds: string[];
+  /** Narrow to rides starting in [start, end); either bound may be open. */
+  range?: DateRange;
 }): Prisma.RideWhereInput | null {
-  const { userId, windows, includedRideIds, excludedRideIds } = params;
+  const { userId, windows, includedRideIds, excludedRideIds, range } = params;
 
   const orBranches: Prisma.RideWhereInput[] = windows.map((w) => ({
     bikeId: w.bikeId,
@@ -309,11 +311,31 @@ export function buildCountedRideWhere(params: {
   }
   if (!orBranches.length) return null;
 
+  const startTime = rangeFilter(range);
   return {
     userId,
     isDuplicate: false,
     ...(excludedRideIds.length ? { id: { notIn: excludedRideIds } } : {}),
+    // A top-level key, so it narrows every branch, the INCLUDEd rides too.
+    ...(startTime ? { startTime } : {}),
     OR: orBranches,
+  };
+}
+
+/**
+ * A window over a component's history: rides starting in [start, end). A null
+ * bound is open, so { start: null, end: null } is the whole lifetime.
+ */
+export interface DateRange {
+  start: Date | null;
+  end: Date | null;
+}
+
+function rangeFilter(range: DateRange | undefined): Prisma.DateTimeFilter | null {
+  if (!range || (!range.start && !range.end)) return null;
+  return {
+    ...(range.start ? { gte: range.start } : {}),
+    ...(range.end ? { lt: range.end } : {}),
   };
 }
 
@@ -351,9 +373,14 @@ export async function aggregateLifetime(
     excludedRideIds: string[];
     /** The latest SERVICE log's date; null when the part was never serviced. */
     sinceServiceAt?: Date | null;
+    /**
+     * Narrow every total to rides in this window (a shared link's scope). The
+     * `lifetime` field then holds the window's totals.
+     */
+    range?: DateRange;
   }
 ): Promise<LifetimeAggregate> {
-  const { userId, tenures, includedRideIds, excludedRideIds } = params;
+  const { userId, tenures, includedRideIds, excludedRideIds, range } = params;
   const sinceServiceAt = params.sinceServiceAt ?? null;
 
   const windows = mergeWindows(tenures);
@@ -362,6 +389,7 @@ export async function aggregateLifetime(
     windows,
     includedRideIds,
     excludedRideIds,
+    range,
   });
 
   const perTenure = new Map<string, UsageTotals>();
@@ -431,6 +459,8 @@ export async function cumulativeSeries(
     windows: Array<{ bikeId: string; start: Date; end: Date }>;
     includedRideIds: string[];
     excludedRideIds: string[];
+    /** Only rides in this window, so the series starts from 0 at its start. */
+    range?: DateRange;
   }
 ): Promise<
   Array<{
@@ -440,7 +470,7 @@ export async function cumulativeSeries(
     cumulativeElevationGainMeters: number;
   }>
 > {
-  const { userId, windows, includedRideIds, excludedRideIds } = params;
+  const { userId, windows, includedRideIds, excludedRideIds, range } = params;
   if (!windows.length && !includedRideIds.length) return [];
 
   const { Prisma: P } = await import('@prisma/client');
@@ -456,6 +486,8 @@ export async function cumulativeSeries(
   const exclusion = excludedRideIds.length
     ? P.sql`AND "id" NOT IN (${P.join(excludedRideIds)})`
     : P.empty;
+  const fromBound = range?.start ? P.sql`AND "startTime" >= ${range.start}` : P.empty;
+  const toBound = range?.end ? P.sql`AND "startTime" < ${range.end}` : P.empty;
 
   const rows = await (tx as TransactionClient).$queryRaw<
     Array<{
@@ -473,6 +505,8 @@ export async function cumulativeSeries(
      WHERE "userId" = ${userId}
        AND "isDuplicate" = false
        ${exclusion}
+       ${fromBound}
+       ${toBound}
        AND (${P.join(branches, ' OR ')})
      GROUP BY 1
      ORDER BY 1 ASC
