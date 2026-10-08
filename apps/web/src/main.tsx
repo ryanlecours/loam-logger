@@ -12,8 +12,10 @@ import { GoogleOAuthProvider } from '@react-oauth/google';
 import { inject } from '@vercel/analytics';
 import client from './lib/apolloClient';
 import { initPostHog } from './lib/posthog';
+import { installChunkReloadHandler } from './lib/chunkReload';
 
 initPostHog();
+installChunkReloadHandler();
 
 createRoot(document.getElementById('root')!, {
   onUncaughtError: reactErrorHandler(),
