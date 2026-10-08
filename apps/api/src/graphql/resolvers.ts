@@ -83,6 +83,12 @@ import {
   BULK_RECOMPUTE_TX_OPTIONS,
   lifetimeHoursAt,
 } from '../lib/component-counters';
+import {
+  buildSharedComponentHistory,
+  componentStartDate,
+  rangeError,
+  MAX_SHARES_PER_COMPONENT,
+} from '../lib/component-share';
 import { captureSetupSnapshot } from '../lib/capture-snapshot';
 import type { SetupSnapshot } from '@loam/shared';
 import { randomBytes } from 'crypto';
@@ -2140,6 +2146,29 @@ export const resolvers = {
           serviceLogs.length >= SERVICE_CAP ||
           installs.length >= INSTALL_CAP,
       };
+    },
+
+    // Public (no auth): one share link's window of a component's history. The
+    // payload is built from an allowlist in lib/component-share.ts: no owner
+    // identity, notes, bike nicknames, ride rows or weather.
+    sharedComponentHistory: async (_: unknown, { slug }: { slug: string }, ctx: GraphQLContext) => {
+      // Unauthenticated, like sharedBikeHistory, so it is throttled by IP and
+      // shares that limiter. Slug entropy (~72 bits) defeats enumeration.
+      const rateLimit = await checkAuthRateLimit('shared-history', getClientIp(ctx.req));
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(
+          `Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`,
+          { extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter } }
+        );
+      }
+      if (!/^[A-Za-z0-9_-]{8,64}$/.test(slug)) return null;
+
+      const share = await prisma.componentShare.findUnique({
+        where: { slug },
+        include: { component: true },
+      });
+      if (!share) return null;
+      return buildSharedComponentHistory(prisma, share);
     },
 
     // Public (no auth): sanitized history for the shareable bike page.
@@ -6753,6 +6782,119 @@ export const resolvers = {
       };
     },
 
+    // Create a share link for one window of a component's history. Free for all
+    // tiers, like bike sharing.
+    createComponentShare: async (
+      _: unknown,
+      {
+        input,
+      }: {
+        input: {
+          componentId: string;
+          scope: 'LIFETIME' | 'SINCE_SERVICE' | 'RANGE';
+          rangeStart?: string | null;
+          rangeEnd?: string | null;
+        };
+      },
+      ctx: GraphQLContext
+    ) => {
+      const userId = requireUserId(ctx);
+      const rateLimit = await checkMutationRateLimit('createComponentShare', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
+
+      const component = await prisma.component.findFirst({ where: { id: input.componentId, userId } });
+      if (!component) {
+        throw new GraphQLError('Component not found', { extensions: { code: 'NOT_FOUND' } });
+      }
+      const badInput = (message: string) =>
+        new GraphQLError(message, { extensions: { code: 'BAD_USER_INPUT' } });
+
+      let rangeStart: Date | null = null;
+      let rangeEnd: Date | null = null;
+      if (input.scope === 'RANGE') {
+        if (!input.rangeStart || !input.rangeEnd) throw badInput('A date range needs a start and an end');
+        rangeStart = parseISO(input.rangeStart);
+        rangeEnd = parseISO(input.rangeEnd);
+        const installRows = await prisma.bikeComponentInstall.findMany({
+          where: { componentId: component.id, userId },
+          orderBy: [{ installedAt: 'asc' }, { id: 'asc' }],
+          take: TENURE_CAP,
+          select: { id: true, bikeId: true, slotKey: true, installedAt: true, removedAt: true },
+        });
+        const { tenures } = normalizeTenures(
+          {
+            id: component.id,
+            userId,
+            bikeId: component.bikeId,
+            installedAt: component.installedAt,
+            createdAt: component.createdAt,
+            retiredAt: component.retiredAt,
+            hoursUsed: component.hoursUsed,
+          },
+          installRows
+        );
+        const problem = rangeError({
+          start: rangeStart,
+          end: rangeEnd,
+          startDate: componentStartDate(tenures, component),
+          now: new Date(),
+        });
+        if (problem) throw badInput(problem);
+      } else if (input.rangeStart || input.rangeEnd) {
+        throw badInput('Only a date-range share takes dates');
+      }
+
+      // One link per scope (and per range): asking again hands back the same
+      // URL instead of minting another.
+      //
+      // The dedupe and the cap below are check-then-create, so two simultaneous
+      // requests from the owner can still make a duplicate link or a 21st. That
+      // is harmless (an extra link the owner can revoke), and a constraint would
+      // need a partial or NULLS NOT DISTINCT unique index, which Prisma's schema
+      // cannot express. Accepted rather than enforced.
+      const existing = await prisma.componentShare.findFirst({
+        where: { componentId: component.id, scope: input.scope, rangeStart, rangeEnd },
+      });
+      if (existing) return existing;
+
+      const count = await prisma.componentShare.count({ where: { componentId: component.id } });
+      if (count >= MAX_SHARES_PER_COMPONENT) {
+        throw badInput(`A component can have at most ${MAX_SHARES_PER_COMPONENT} share links. Revoke one first.`);
+      }
+
+      return prisma.componentShare.create({
+        data: {
+          // 12 base64url chars, about 71 bits: unguessable, short enough to read aloud.
+          slug: randomBytes(9).toString('base64url'),
+          componentId: component.id,
+          userId,
+          scope: input.scope,
+          rangeStart,
+          rangeEnd,
+        },
+      });
+    },
+
+    revokeComponentShare: async (_: unknown, { id }: { id: string }, ctx: GraphQLContext) => {
+      const userId = requireUserId(ctx);
+      const rateLimit = await checkMutationRateLimit('revokeComponentShare', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
+      // Owner-scoped, so someone else's link reads as missing.
+      const { count } = await prisma.componentShare.deleteMany({ where: { id, userId } });
+      if (count === 0) {
+        throw new GraphQLError('Share link not found', { extensions: { code: 'NOT_FOUND' } });
+      }
+      return true;
+    },
+
     // Enable public sharing of a bike's history. Available to all tiers —
     // the branded share page is a growth surface, not a paid feature.
     // Idempotent: re-enabling returns the existing link.
@@ -7097,7 +7239,22 @@ export const resolvers = {
     },
   },
 
+  ComponentShare: {
+    url: (share: { slug: string }) => `${FRONTEND_URL}/share/component/${share.slug}`,
+    rangeStart: (share: { rangeStart: Date | null }) => share.rangeStart?.toISOString() ?? null,
+    rangeEnd: (share: { rangeEnd: Date | null }) => share.rangeEnd?.toISOString() ?? null,
+    createdAt: (share: { createdAt: Date }) => share.createdAt.toISOString(),
+  },
+
   Component: {
+    // Owner-only: anyone else sees none, because the URLs are the secret.
+    shares: (component: ComponentModel, _args: unknown, ctx: GraphQLContext) =>
+      ctx.user?.id && ctx.user.id === component.userId
+        ? prisma.componentShare.findMany({
+            where: { componentId: component.id, userId: component.userId },
+            orderBy: { createdAt: 'desc' },
+          })
+        : [],
     lastServicedAt: (component: ComponentModel & { lastServicedAt?: Date | string | null }) =>
       component.lastServicedAt instanceof Date
         ? component.lastServicedAt.toISOString()

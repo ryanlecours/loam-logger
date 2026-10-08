@@ -75,6 +75,14 @@ jest.mock('../../lib/prisma', () => ({
     userServicePreference: {
       findFirst: jest.fn(),
     },
+    componentShare: {
+      findUnique: jest.fn(),
+      findFirst: jest.fn(),
+      findMany: jest.fn(),
+      count: jest.fn(),
+      create: jest.fn(),
+      deleteMany: jest.fn(),
+    },
     bikeNotificationPreference: {
       findUnique: jest.fn(),
       upsert: jest.fn(),
@@ -155,6 +163,7 @@ import { captureServerEvent } from '../../lib/posthog';
 import { CURRENT_TERMS_VERSION } from '@loam/shared';
 import * as componentCounters from '../../lib/component-counters';
 import * as componentHours from '../../lib/component-hours';
+import * as componentShare from '../../lib/component-share';
 import { getBaseInterval } from '../../services/prediction/config';
 
 const mockPrisma = prisma as jest.Mocked<typeof prisma>;
@@ -5775,6 +5784,162 @@ describe('GraphQL Resolvers', () => {
 
       expect(result).toBe(0);
       expect(mockRideCount).not.toHaveBeenCalled();
+    });
+  });
+
+  // A component share link shows one window of a part's history to anyone with
+  // the URL, and is locked to that window.
+  describe('component sharing', () => {
+    const share = prisma.componentShare as unknown as Record<string, jest.Mock>;
+    const mockComponentFindFirst = prisma.component.findFirst as jest.Mock;
+    const mockInstallFindMany = prisma.bikeComponentInstall.findMany as jest.Mock;
+    const create = (input: Record<string, unknown>) =>
+      resolvers.Mutation.createComponentShare(
+        {},
+        { input: { componentId: 'comp-1', ...input } } as never,
+        createMockContext('user-123') as never
+      );
+    const hubs = {
+      id: 'comp-1', userId: 'user-123', bikeId: 'bike-1',
+      installedAt: new Date('2025-09-15T16:00:00Z'), createdAt: new Date('2025-09-15T16:00:00Z'),
+      retiredAt: null, hoursUsed: 0,
+    };
+
+    beforeEach(() => {
+      for (const fn of Object.values(share)) fn.mockReset();
+      share.findFirst.mockResolvedValue(null);
+      share.count.mockResolvedValue(0);
+      share.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({ id: 'share-1', ...data }));
+      mockComponentFindFirst.mockReset().mockResolvedValue(hubs);
+      mockInstallFindMany.mockReset().mockResolvedValue([
+        { id: 'inst-1', bikeId: 'bike-1', slotKey: 'WHEEL_HUBS_NONE', installedAt: new Date('2025-09-15T16:00:00Z'), removedAt: null },
+      ]);
+    });
+
+    it('creates a lifetime link with an unguessable slug', async () => {
+      const created = await create({ scope: 'LIFETIME' });
+
+      expect(share.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ componentId: 'comp-1', userId: 'user-123', scope: 'LIFETIME', rangeStart: null, rangeEnd: null }),
+      });
+      expect(created.slug).toMatch(/^[A-Za-z0-9_-]{12}$/);
+      expect(resolvers.ComponentShare.url(created as never)).toMatch(/\/share\/component\/[A-Za-z0-9_-]{12}$/);
+    });
+
+    it('hands back the existing link for a scope instead of minting another', async () => {
+      share.findFirst.mockResolvedValue({ id: 'share-old', slug: 'existing-slug', scope: 'SINCE_SERVICE' });
+
+      const result = await create({ scope: 'SINCE_SERVICE' });
+
+      expect(result).toMatchObject({ id: 'share-old' });
+      expect(share.create).not.toHaveBeenCalled();
+    });
+
+    it('stores a range link with its dates', async () => {
+      await create({ scope: 'RANGE', rangeStart: '2026-01-01T08:00:00.000Z', rangeEnd: '2026-02-01T08:00:00.000Z' });
+
+      expect(share.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          scope: 'RANGE',
+          rangeStart: new Date('2026-01-01T08:00:00.000Z'),
+          rangeEnd: new Date('2026-02-01T08:00:00.000Z'),
+        }),
+      });
+    });
+
+    it('rejects a range that starts before the part was installed', async () => {
+      await expect(
+        create({ scope: 'RANGE', rangeStart: '2025-08-01T08:00:00.000Z', rangeEnd: '2026-02-01T08:00:00.000Z' })
+      ).rejects.toMatchObject({ extensions: { code: 'BAD_USER_INPUT' } });
+      expect(share.create).not.toHaveBeenCalled();
+    });
+
+    it('rejects a range that ends after today', async () => {
+      const nextMonth = new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString();
+      await expect(
+        create({ scope: 'RANGE', rangeStart: '2026-01-01T08:00:00.000Z', rangeEnd: nextMonth })
+      ).rejects.toMatchObject({ extensions: { code: 'BAD_USER_INPUT' } });
+    });
+
+    it('rejects a range with a missing date, and dates on any other scope', async () => {
+      await expect(create({ scope: 'RANGE', rangeStart: '2026-01-01T08:00:00.000Z' })).rejects.toMatchObject({
+        extensions: { code: 'BAD_USER_INPUT' },
+      });
+      await expect(create({ scope: 'LIFETIME', rangeStart: '2026-01-01T08:00:00.000Z' })).rejects.toMatchObject({
+        extensions: { code: 'BAD_USER_INPUT' },
+      });
+      expect(share.create).not.toHaveBeenCalled();
+    });
+
+    it("refuses a component that isn't the caller's", async () => {
+      mockComponentFindFirst.mockResolvedValue(null);
+      await expect(create({ scope: 'LIFETIME' })).rejects.toThrow('Component not found');
+      expect(mockComponentFindFirst).toHaveBeenCalledWith({ where: { id: 'comp-1', userId: 'user-123' } });
+    });
+
+    it('caps the links per component', async () => {
+      share.count.mockResolvedValue(20);
+      await expect(create({ scope: 'LIFETIME' })).rejects.toThrow(/at most 20 share links/);
+    });
+
+    it("revokes only the caller's own link", async () => {
+      share.deleteMany.mockResolvedValueOnce({ count: 1 });
+      expect(
+        await resolvers.Mutation.revokeComponentShare({}, { id: 'share-1' }, createMockContext('user-123') as never)
+      ).toBe(true);
+      expect(share.deleteMany).toHaveBeenCalledWith({ where: { id: 'share-1', userId: 'user-123' } });
+
+      share.deleteMany.mockResolvedValueOnce({ count: 0 });
+      await expect(
+        resolvers.Mutation.revokeComponentShare({}, { id: 'share-x' }, createMockContext('user-123') as never)
+      ).rejects.toThrow('Share link not found');
+    });
+
+    it('lists the links for the owner only', async () => {
+      share.findMany.mockResolvedValue([{ id: 'share-1' }]);
+      const owner = await resolvers.Component.shares(hubs as never, {}, createMockContext('user-123') as never);
+      const stranger = await resolvers.Component.shares(hubs as never, {}, createMockContext('someone-else') as never);
+
+      expect(owner).toEqual([{ id: 'share-1' }]);
+      expect(stranger).toEqual([]);
+    });
+
+    it('sharedComponentHistory throttles by IP before touching the database', async () => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { checkAuthRateLimit } = require('../../lib/rate-limit') as { checkAuthRateLimit: jest.Mock };
+      checkAuthRateLimit.mockResolvedValueOnce({ allowed: false, retryAfter: 30 });
+
+      await expect(
+        resolvers.Query.sharedComponentHistory({}, { slug: 'slug12345678' }, createMockContext(null) as never)
+      ).rejects.toThrow('Rate limit exceeded. Try again in 30 seconds.');
+      expect(checkAuthRateLimit).toHaveBeenCalledWith('shared-history', expect.any(String));
+      expect(share.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('sharedComponentHistory returns null for unknown, revoked or malformed slugs', async () => {
+      const query = resolvers.Query.sharedComponentHistory;
+      expect(await query({}, { slug: 'not valid !!' }, createMockContext(null) as never)).toBeNull();
+      expect(share.findUnique).not.toHaveBeenCalled();
+
+      share.findUnique.mockResolvedValueOnce(null);
+      expect(await query({}, { slug: 'unknown-slug-123' }, createMockContext(null) as never)).toBeNull();
+    });
+
+    it('sharedComponentHistory builds the payload for a live link', async () => {
+      const builder = jest
+        .spyOn(componentShare, 'buildSharedComponentHistory')
+        .mockResolvedValue({ scope: 'LIFETIME' } as never);
+      const found = { id: 'share-1', slug: 'slug12345678', scope: 'LIFETIME', component: hubs };
+      share.findUnique.mockResolvedValueOnce(found);
+
+      const result = await resolvers.Query.sharedComponentHistory(
+        {}, { slug: 'slug12345678' }, createMockContext(null) as never
+      );
+
+      expect(share.findUnique).toHaveBeenCalledWith({ where: { slug: 'slug12345678' }, include: { component: true } });
+      expect(builder).toHaveBeenCalledWith(expect.anything(), found);
+      expect(result).toEqual({ scope: 'LIFETIME' });
+      builder.mockRestore();
     });
   });
 

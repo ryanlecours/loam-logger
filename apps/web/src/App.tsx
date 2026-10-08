@@ -19,6 +19,7 @@ const BikeHistory = lazy(() => import('./pages/BikeHistory'));
 // Public shared bike-history page — lazy for the same reason: only visitors
 // following a share link pay for it.
 const SharedBikeHistory = lazy(() => import('./pages/SharedBikeHistory'));
+const SharedComponentHistory = lazy(() => import('./pages/SharedComponentHistory'));
 // Lazy for the same reason, and with an extra one: this page is the only
 // recharts consumer, so keeping it split means the charting library never
 // lands in the main bundle.
@@ -102,6 +103,16 @@ function AppRoutes() {
               <Page>
                 <Suspense fallback={<div className="min-h-screen" />}>
                   <SharedBikeHistory />
+                </Suspense>
+              </Page>
+            }
+          />
+          <Route
+            path="/share/component/:slug"
+            element={
+              <Page>
+                <Suspense fallback={<div className="min-h-screen" />}>
+                  <SharedComponentHistory />
                 </Suspense>
               </Page>
             }

@@ -35,6 +35,14 @@ vi.mock('@/components/UpgradePrompt', () => ({
   ProChip: () => <span data-testid="pro-chip">Pro</span>,
 }));
 
+// The share panel has its own tests; here it only has to show up with the
+// component's first install as the earliest shareable date.
+vi.mock('@/components/history/ComponentSharePanel', () => ({
+  ComponentSharePanel: ({ installedAt }: { installedAt: string }) => (
+    <div data-testid="share-panel" data-installed-at={installedAt} />
+  ),
+}));
+
 // recharts renders nothing useful in jsdom (no layout), so the charts are
 // stubbed down to probes that assert what was handed to them.
 vi.mock('recharts', () => {
@@ -323,5 +331,21 @@ describe('ComponentHistory', () => {
   it('names contributing sources above the fold', () => {
     renderPage();
     expect(screen.getByTestId('garmin-note')).toBeInTheDocument();
+  });
+
+  // A shared date range may start no earlier than the part's first install.
+  it('offers sharing from the first install on', () => {
+    renderPage();
+    expect(screen.getByTestId('share-panel')).toHaveAttribute('data-installed-at', '2024-01-01T00:00:00.000Z');
+  });
+
+  it('has nothing to share for a part that has never been on a bike', () => {
+    setPayload({
+      coverage: 'NO_TENURE_DATA',
+      tenures: [],
+      component: { ...BASE.component, bikeId: null, status: 'INVENTORY' },
+    });
+    renderPage();
+    expect(screen.queryByTestId('share-panel')).not.toBeInTheDocument();
   });
 });
