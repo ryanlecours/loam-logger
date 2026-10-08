@@ -5,6 +5,8 @@ import { useApolloClient } from '@apollo/client';
 import { GoogleLogin, type CredentialResponse } from '@react-oauth/google';
 import { ME_QUERY } from '../graphql/me';
 import { setCsrfToken } from '@/lib/csrf';
+import { readPendingProviderLink, type PendingProviderLink } from '@/lib/providerLink';
+import ProviderLinkModal from '../components/ProviderLinkModal';
 
 export default function Signup() {
   const navigate = useNavigate();
@@ -16,6 +18,7 @@ export default function Signup() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [pendingLink, setPendingLink] = useState<PendingProviderLink | null>(null);
 
   useEffect(() => {
     document.documentElement.classList.add('marketing-page');
@@ -91,6 +94,15 @@ export default function Signup() {
     }
   };
 
+  const finishGoogleSignIn = async (csrfToken: string | undefined) => {
+    if (csrfToken) {
+      setCsrfToken(csrfToken);
+    }
+    const { data: meData } = await apollo.query({ query: ME_QUERY, fetchPolicy: 'network-only' });
+    apollo.writeQuery({ query: ME_QUERY, data: meData });
+    navigate('/onboarding', { replace: true });
+  };
+
   const handleGoogleSuccess = async (resp: CredentialResponse) => {
     const credential = resp.credential;
     if (!credential) {
@@ -110,18 +122,17 @@ export default function Signup() {
       });
 
       if (!res.ok) {
+        const pending = await readPendingProviderLink(res);
+        if (pending) {
+          setPendingLink(pending);
+          return;
+        }
         setError('Google signup failed. Please try again.');
         return;
       }
 
       const { csrfToken } = await res.json();
-      if (csrfToken) {
-        setCsrfToken(csrfToken);
-      }
-
-      const { data: meData } = await apollo.query({ query: ME_QUERY, fetchPolicy: 'network-only' });
-      apollo.writeQuery({ query: ME_QUERY, data: meData });
-      navigate('/onboarding', { replace: true });
+      await finishGoogleSignIn(csrfToken);
     } catch {
       setError('A network error occurred. Please try again.');
     } finally {
@@ -132,6 +143,17 @@ export default function Signup() {
   // Form
   return (
     <section className="relative min-h-screen flex items-center justify-center overflow-hidden bg-dark">
+      <ProviderLinkModal
+        pending={pendingLink}
+        onClose={() => setPendingLink(null)}
+        onLinked={(csrfToken) => {
+          setPendingLink(null);
+          finishGoogleSignIn(csrfToken).catch((err) => {
+            console.error('[Signup] Failed after linking', err);
+            setError('Signed in, but the page could not load. Please refresh.');
+          });
+        }}
+      />
       <div className="absolute inset-0 z-0 hidden md:block bg-hero-desktop bg-cover-center bg-fixed">
         <div className="absolute inset-0 bg-gradient-to-b from-black/75 via-black/60 to-black/75" />
       </div>
