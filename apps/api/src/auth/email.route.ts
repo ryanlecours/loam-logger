@@ -112,6 +112,7 @@ router.post('/login', express.json(), async (req, res) => {
 
     const rateLimit = await checkLoginRateLimit(getClientIp(req), email);
     if (!rateLimit.allowed) {
+      logger.warn({ route: 'login', retryAfter: rateLimit.retryAfter }, 'Email login 429: rate limited');
       return sendTooManyRequests(res, LOGIN_RATE_LIMIT_MESSAGE, rateLimit.retryAfter);
     }
 
