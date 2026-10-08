@@ -16,6 +16,7 @@ import {
   sendPasswordResetEmail,
 } from '../services/password-reset.service';
 import { logger } from '../lib/logger';
+import { checkLoginRateLimit, LOGIN_RATE_LIMIT_MESSAGE } from './login-rate-limit';
 import { createNewUser, verifyEmailAvailable } from '../services/signup.service';
 
 const router = express.Router();
@@ -107,6 +108,12 @@ router.post('/login', express.json(), async (req, res) => {
     const email = normalizeEmail(rawEmail);
     if (!email) {
       return sendBadRequest(res, 'Invalid email');
+    }
+
+    const rateLimit = await checkLoginRateLimit(getClientIp(req), email);
+    if (!rateLimit.allowed) {
+      logger.warn({ route: 'login', retryAfter: rateLimit.retryAfter }, 'Email login 429: rate limited');
+      return sendTooManyRequests(res, LOGIN_RATE_LIMIT_MESSAGE, rateLimit.retryAfter);
     }
 
     // Find user by email

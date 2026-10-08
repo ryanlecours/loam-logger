@@ -1,6 +1,7 @@
 import express from 'express';
 import { OAuth2Client } from 'google-auth-library';
 import { ensureUserFromGoogle } from './ensureUserFromGoogle';
+import { UnverifiedProviderEmailError, UNVERIFIED_PROVIDER_EMAIL_MESSAGE } from './account-linking';
 import { clearSessionCookie } from './session';
 import { issueWebSession } from './session-issuer';
 import { setCsrfCookie, clearCsrfCookie } from './csrf';
@@ -53,6 +54,9 @@ router.post('/google/code', express.json(), async (req, res) => {
     const csrfToken = setCsrfCookie(res);
     res.status(200).json({ ok: true, csrfToken });
   } catch (e) {
+    if (e instanceof UnverifiedProviderEmailError) {
+      return res.status(401).send(UNVERIFIED_PROVIDER_EMAIL_MESSAGE);
+    }
     logger.error({ err: e }, '[GoogleAuth] ID-token login failed');
     res.status(500).send('Auth failed');
   }

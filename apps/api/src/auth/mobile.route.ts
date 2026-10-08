@@ -3,6 +3,8 @@ import * as Sentry from '@sentry/node';
 import { OAuth2Client } from 'google-auth-library';
 import { ensureUserFromGoogle } from './ensureUserFromGoogle';
 import { ensureUserFromApple } from './ensureUserFromApple';
+import { UnverifiedProviderEmailError, UNVERIFIED_PROVIDER_EMAIL_MESSAGE } from './account-linking';
+import { checkLoginRateLimit, LOGIN_RATE_LIMIT_MESSAGE } from './login-rate-limit';
 import { verifyAppleIdentityToken, type AppleVerifyErrorDetail } from './appleTokenVerifier';
 import { normalizeEmail, getClientIp } from './utils';
 import { validateEmailFormat } from './email.utils';
@@ -15,7 +17,7 @@ import { prisma } from '../lib/prisma';
 import { checkAuthRateLimit, checkMutationRateLimit } from '../lib/rate-limit';
 import { sendPasswordAddedNotification, sendPasswordChangedNotification } from '../services/password-notification.service';
 import { logger, createLogger } from '../lib/logger';
-import { sendUnauthorized, sendBadRequest, sendForbidden, sendConflict, sendInternalError, sendTooManyRequests } from '../lib/api-response';
+import { sendError, sendUnauthorized, sendBadRequest, sendForbidden, sendConflict, sendInternalError, sendTooManyRequests } from '../lib/api-response';
 import { config } from '../config/env';
 import { createNewUser, verifyEmailAvailable } from '../services/signup.service';
 
@@ -203,6 +205,9 @@ router.post('/mobile/google', express.json(), async (req, res) => {
       },
     });
   } catch (e) {
+    if (e instanceof UnverifiedProviderEmailError) {
+      return sendError(res, 401, UNVERIFIED_PROVIDER_EMAIL_MESSAGE, e.code);
+    }
     logger.error({ err: e, sub: googleSub, route: 'mobile/google' }, '[MobileAuth] Google login failed');
     Sentry.captureException(e, { tags: { route: 'mobile/google', stage: 'ensure-user' }, contexts: { google_signin: { sub: googleSub ?? 'unknown' } } });
     return sendInternalError(res, 'Authentication failed');
@@ -313,6 +318,9 @@ router.post('/mobile/apple', express.json(), async (req, res) => {
       },
     });
   } catch (e) {
+    if (e instanceof UnverifiedProviderEmailError) {
+      return sendError(res, 401, UNVERIFIED_PROVIDER_EMAIL_MESSAGE, e.code);
+    }
     logger.error({ err: e, sub: appleSub, route: 'mobile/apple' }, '[MobileAuth] Apple login failed');
     Sentry.captureException(e, {
       tags: { route: 'mobile/apple', stage: 'ensure-user' },
@@ -328,8 +336,6 @@ router.post('/mobile/apple', express.json(), async (req, res) => {
  * Returns access token and refresh token for mobile app
  */
 router.post('/mobile/login', express.json(), async (req, res) => {
-  // NOTE: this route currently has no rate-limit check — out of scope for this change,
-  // but worth adding to match /mobile/google and /mobile/apple. Tracked separately.
   try {
     const { email: rawEmail, password } = req.body as {
       email?: string;
@@ -346,6 +352,12 @@ router.post('/mobile/login', express.json(), async (req, res) => {
     if (!email) {
       logger.warn({ field: 'email', route: 'mobile/login' }, 'Email login 400: invalid email');
       return sendBadRequest(res, 'Invalid email', 'INVALID_EMAIL');
+    }
+
+    const rateLimit = await checkLoginRateLimit(getClientIp(req), email);
+    if (!rateLimit.allowed) {
+      logger.warn({ route: 'mobile/login', retryAfter: rateLimit.retryAfter }, 'Email login 429: rate limited');
+      return sendTooManyRequests(res, LOGIN_RATE_LIMIT_MESSAGE, rateLimit.retryAfter);
     }
 
     // Find user by email

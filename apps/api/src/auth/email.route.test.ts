@@ -426,3 +426,58 @@ describe('POST /reset-password', () => {
     });
   });
 });
+
+// ============================================================================
+// POST /login
+// ============================================================================
+
+describe('POST /login', () => {
+  let handler: RequestHandler | undefined;
+
+  beforeAll(() => {
+    handler = getHandler('/login', 'post');
+    if (!handler) throw new Error('Handler not found for /login');
+  });
+
+  it('returns 429 before looking up the user when the IP is over the limit', async () => {
+    mockCheckAuthRateLimit.mockResolvedValue({ allowed: false, retryAfter: 42 });
+    const req = createMockRequest({ body: { email: 'Rider@Example.com', password: 'guess' } });
+    const res = createMockResponse();
+
+    await invokeHandler(handler, req as Request, res as unknown as Response);
+
+    expect(res.status).toHaveBeenCalledWith(429);
+    expect(mockCheckAuthRateLimit).toHaveBeenCalledWith('login', '1.2.3.4');
+    // A blocked IP does not also charge the account's budget.
+    expect(mockCheckAuthRateLimit).not.toHaveBeenCalledWith('login-email', expect.anything());
+    expect(mockUserFindUnique).not.toHaveBeenCalled();
+  });
+
+  it('returns 429 when the account is over the limit, keyed by a hash of the email', async () => {
+    mockCheckAuthRateLimit.mockImplementation(async (operation: string) =>
+      operation === 'login-email' ? { allowed: false, retryAfter: 600 } : { allowed: true }
+    );
+    const req = createMockRequest({ body: { email: 'Rider@Example.com', password: 'guess' } });
+    const res = createMockResponse();
+
+    await invokeHandler(handler, req as Request, res as unknown as Response);
+
+    expect(res.status).toHaveBeenCalledWith(429);
+    const emailCall = mockCheckAuthRateLimit.mock.calls.find(([op]) => op === 'login-email');
+    expect(emailCall?.[1]).toMatch(/^[0-9a-f]{32}$/);
+    expect(emailCall?.[1]).not.toContain('rider');
+    expect(mockUserFindUnique).not.toHaveBeenCalled();
+  });
+
+  it('checks both limits and proceeds to the lookup when under them', async () => {
+    mockUserFindUnique.mockResolvedValue(null);
+    const req = createMockRequest({ body: { email: 'rider@example.com', password: 'guess' } });
+    const res = createMockResponse();
+
+    await invokeHandler(handler, req as Request, res as unknown as Response);
+
+    expect(mockCheckAuthRateLimit).toHaveBeenCalledWith('login', '1.2.3.4');
+    expect(mockCheckAuthRateLimit).toHaveBeenCalledWith('login-email', expect.any(String));
+    expect(res.status).toHaveBeenCalledWith(401);
+  });
+});
