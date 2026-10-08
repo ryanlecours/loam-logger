@@ -140,10 +140,18 @@ const startServer = async () => {
     }
   };
 
+  // Disallowed origins are refused here, before any route runs, with a plain
+  // 403. This used to be an Error passed to the cors callback, which blocked
+  // the request the same way but surfaced as a 500 and a Sentry event per
+  // request; scanners alone produced 1,500+ of them (NODE-B).
+  app.use((req, res, next) => {
+    if (allowOrigin(req.headers.origin)) return next();
+    res.status(403).json({ error: 'Origin not allowed' });
+  });
+
   const corsMw = cors({
     origin(origin, cb) {
-      if (allowOrigin(origin)) return cb(null, true);
-      return cb(new Error(`CORS blocked for origin: ${origin}`));
+      cb(null, allowOrigin(origin));
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
