@@ -87,7 +87,8 @@ jest.mock('../services/signup.service', () => ({
 import router from './mobile.route';
 import { OAuth2Client } from 'google-auth-library';
 import { ensureUserFromGoogle } from './ensureUserFromGoogle';
-import { UnverifiedProviderEmailError } from './account-linking';
+import { ProviderLinkNeedsPasswordError, UnverifiedProviderEmailError } from './account-linking';
+import { verifyProviderLinkToken } from './provider-link';
 import { prisma } from '../lib/prisma';
 
 // The route module builds its Google client at import time. Capture that
@@ -399,6 +400,63 @@ describe('refused provider links', () => {
       expect.objectContaining({ code: 'PROVIDER_EMAIL_UNVERIFIED' }),
     );
     expect(mockSentryCaptureException).not.toHaveBeenCalled();
+  });
+
+  describe('a sign-in that matches a password account with an unverified email', () => {
+    const savedSecret = process.env.SESSION_SECRET;
+    beforeAll(() => {
+      process.env.SESSION_SECRET = 'test-secret';
+    });
+    afterAll(() => {
+      process.env.SESSION_SECRET = savedSecret;
+    });
+
+    it('POST /mobile/google answers 409 with a link token for the Google identity', async () => {
+      googleClient.verifyIdToken.mockResolvedValue({
+        getPayload: () => ({ sub: 'google-123', email: 'rider@example.com', email_verified: true, name: 'Alex' }),
+      });
+      mockEnsureUserFromGoogle.mockRejectedValue(
+        new ProviderLinkNeedsPasswordError('google', 'legacy', 'rider@example.com')
+      );
+      const req = { body: { idToken: 'valid-token' }, ip: '127.0.0.1', headers: {} } as unknown as Request;
+      const res = createMockResponse();
+
+      await invokeHandler(getHandler('/mobile/google', 'post'), req, res as unknown as Response);
+
+      expect(res.status).toHaveBeenCalledWith(409);
+      const body = (res.json as jest.Mock).mock.calls[0][0];
+      expect(body.code).toBe('LINK_NEEDS_PASSWORD');
+      expect(verifyProviderLinkToken(body.details.linkToken)).toMatchObject({
+        provider: 'google',
+        sub: 'google-123',
+        userId: 'legacy',
+        name: 'Alex',
+      });
+      expect(mockSentryCaptureException).not.toHaveBeenCalled();
+    });
+
+    it('POST /mobile/apple answers 409 with a link token for the Apple identity', async () => {
+      mockVerifyAppleIdentityToken.mockResolvedValue({
+        sub: 'apple-001',
+        email: 'rider@example.com',
+        email_verified: 'true',
+      });
+      mockEnsureUserFromApple.mockRejectedValue(
+        new ProviderLinkNeedsPasswordError('apple', 'legacy', 'rider@example.com')
+      );
+      const req = { body: { identityToken: 'valid-token' }, ip: '127.0.0.1', headers: {} } as unknown as Request;
+      const res = createMockResponse();
+
+      await invokeHandler(getHandler('/mobile/apple', 'post'), req, res as unknown as Response);
+
+      expect(res.status).toHaveBeenCalledWith(409);
+      const body = (res.json as jest.Mock).mock.calls[0][0];
+      expect(verifyProviderLinkToken(body.details.linkToken)).toMatchObject({
+        provider: 'apple',
+        sub: 'apple-001',
+        userId: 'legacy',
+      });
+    });
   });
 });
 

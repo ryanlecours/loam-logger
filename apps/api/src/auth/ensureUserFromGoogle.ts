@@ -39,7 +39,7 @@ async function ensureUserFromGoogleInner(
     const user = await tx.user.findUnique({ where: { email } });
 
     if (user) {
-      await secureAccountBeforeLinking(tx, user, 'google', claims.email_verified);
+      secureAccountBeforeLinking(user, 'google', claims.email_verified);
 
       // User exists and is activated — update profile and link Google account
       await tx.user.update({

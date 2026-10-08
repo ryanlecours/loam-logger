@@ -24,7 +24,7 @@ jest.mock('../config/env', () => ({
 }));
 
 import { ensureUserFromApple } from './ensureUserFromApple';
-import { UnverifiedProviderEmailError } from './account-linking';
+import { ProviderLinkNeedsPasswordError, UnverifiedProviderEmailError } from './account-linking';
 
 function createTx() {
   return {
@@ -160,28 +160,22 @@ describe('ensureUserFromApple', () => {
       expect(mockUserUpdate).not.toHaveBeenCalled();
     });
 
-    it('clears an unverified password and revokes sessions before linking', async () => {
-      // Password signup never verifies email, so whoever set this password may
-      // not own the address. The verified apple sign-in is the owner.
+    it('holds the link for the password on an account with an unverified email', async () => {
+      // Whoever set this password may not own the address, and nothing on the
+      // account says whether it is a squatter or a rider from before email
+      // verification. The link waits for the password; nothing is wiped.
       mockUserFindUnique.mockResolvedValue({
-        id: 'victim', email: 'test@test.com', passwordHash: 'squatter-hash', emailVerified: null,
+        id: 'legacy', email: 'test@test.com', passwordHash: 'hash', emailVerified: null,
       });
 
-      await ensureUserFromApple(baseClaims);
+      const err = await ensureUserFromApple(baseClaims).catch((e: unknown) => e);
 
-      expect(mockUserUpdate).toHaveBeenCalledWith({
-        where: { id: 'victim' },
-        data: { passwordHash: null, sessionTokenVersion: { increment: 1 } },
-      });
-      // Share links outlive sessions, so the squatter's are revoked too.
-      expect(mockBikeUpdateMany).toHaveBeenCalledWith({
-        where: { userId: 'victim', shareSlug: { not: null } },
-        data: { shareSlug: null },
-      });
-      expect(mockComponentShareDeleteMany).toHaveBeenCalledWith({ where: { userId: 'victim' } });
-      expect(mockUserAccountCreate).toHaveBeenCalledWith({
-        data: { userId: 'victim', provider: 'apple', providerUserId: 'apple-001.abc123' },
-      });
+      expect(err).toBeInstanceOf(ProviderLinkNeedsPasswordError);
+      expect(err).toMatchObject({ provider: 'apple', userId: 'legacy', email: 'test@test.com' });
+      expect(mockUserUpdate).not.toHaveBeenCalled();
+      expect(mockBikeUpdateMany).not.toHaveBeenCalled();
+      expect(mockComponentShareDeleteMany).not.toHaveBeenCalled();
+      expect(mockUserAccountCreate).not.toHaveBeenCalled();
     });
 
     it('keeps the password of an account whose email is already verified', async () => {
