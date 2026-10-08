@@ -5,6 +5,8 @@ import { useApolloClient } from '@apollo/client';
 import { GoogleLogin, type CredentialResponse } from '@react-oauth/google';
 import { ME_QUERY } from '../graphql/me';
 import { setCsrfToken } from '@/lib/csrf';
+import { TurnstileWidget } from '../components/TurnstileWidget';
+import { TURNSTILE_SITE_KEY } from '@/lib/turnstile';
 
 export default function Signup() {
   const navigate = useNavigate();
@@ -16,6 +18,8 @@ export default function Signup() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const [turnstileResetKey, setTurnstileResetKey] = useState(0);
 
   useEffect(() => {
     document.documentElement.classList.add('marketing-page');
@@ -50,6 +54,11 @@ export default function Signup() {
       return;
     }
 
+    if (TURNSTILE_SITE_KEY && !turnstileToken) {
+      setError('One moment: we are still checking your browser. Try again in a few seconds.');
+      return;
+    }
+
     setIsSubmitting(true);
     setError(null);
 
@@ -62,6 +71,7 @@ export default function Signup() {
           email: email.trim(),
           name: name.trim(),
           password,
+          turnstileToken: turnstileToken ?? undefined,
         }),
       });
 
@@ -72,6 +82,9 @@ export default function Signup() {
           navigate('/login', { replace: true });
           return;
         }
+        // The server spent the challenge token on this attempt, so get a
+        // fresh one before the rider tries again.
+        setTurnstileResetKey((k) => k + 1);
         setError(data.message || data.error || 'Signup failed');
         return;
       }
@@ -245,6 +258,14 @@ export default function Signup() {
               required
             />
           </div>
+
+          {TURNSTILE_SITE_KEY && (
+            <TurnstileWidget
+              siteKey={TURNSTILE_SITE_KEY}
+              onToken={setTurnstileToken}
+              resetKey={turnstileResetKey}
+            />
+          )}
 
           {error && (
             <motion.div

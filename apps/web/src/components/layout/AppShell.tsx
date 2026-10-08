@@ -8,6 +8,7 @@ import { useUserTier } from '../../hooks/useUserTier';
 import { getAuthHeaders, clearCsrfToken } from '@/lib/csrf';
 import Footer from './Footer';
 import DowngradeSelectionModal from '../DowngradeSelectionModal';
+import EmailVerificationBanner from '../EmailVerificationBanner';
 import { ProBadge } from '../ui/ProBadge';
 
 const BASE_NAV_LINKS = [
@@ -194,6 +195,8 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
       {/* Spacer to account for fixed navbar */}
       <div className="h-16" />
+
+      <EmailVerificationBanner />
 
       <motion.main
         className="app-shell__content"
