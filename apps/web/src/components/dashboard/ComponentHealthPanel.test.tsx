@@ -523,7 +523,7 @@ describe('ComponentHealthPanel', () => {
       render(<ComponentHealthPanel components={components} />);
       await user.click(screen.getByRole('button'));
 
-      expect(screen.queryByText('Snooze 100h')).not.toBeInTheDocument();
+      expect(screen.queryByText('Good for 50h more')).not.toBeInTheDocument();
       expect(screen.queryByText('custom duration')).not.toBeInTheDocument();
     });
 
@@ -535,7 +535,7 @@ describe('ComponentHealthPanel', () => {
       await user.click(screen.getByRole('button'));
       await user.click(screen.getByText('Looks Good'));
 
-      expect(screen.getByText('Snooze 100h')).toBeInTheDocument();
+      expect(screen.getByText('Good for 50h more')).toBeInTheDocument();
       expect(screen.getByText('custom duration')).toBeInTheDocument();
     });
 
@@ -563,19 +563,21 @@ describe('ComponentHealthPanel', () => {
       expect(screen.getByText('Log Service')).toBeInTheDocument();
     });
 
-    it('calls snoozeComponent with recommended hours when clicking snooze button', async () => {
+    // Looks Good logs an inspection standing in for the due service, with the
+    // extension the server suggests (half the service interval).
+    it('logs an inspection with the extension the server suggests', async () => {
       const user = userEvent.setup();
-      const components = [createComponent({ serviceIntervalHours: 150 })];
+      const components = [createComponent({ serviceIntervalHours: 150, recommendedExtensionHours: 60 })];
 
       render(<ComponentHealthPanel components={components} />);
       await user.click(screen.getByRole('button'));
       await user.click(screen.getByText('Looks Good'));
-      await user.click(screen.getByText('Snooze 150h'));
+      await user.click(screen.getByText('Good for 60h more'));
 
       expect(mockSnoozeComponent).toHaveBeenCalledWith({
         variables: {
           id: expect.any(String),
-          hours: 150,
+          hours: 60,
         },
       });
     });
@@ -659,17 +661,17 @@ describe('ComponentHealthPanel', () => {
       expect(applyButton).toBeDisabled();
     });
 
-    it('shows Snoozed! on success', async () => {
+    it('shows Inspection logged on success', async () => {
       const user = userEvent.setup();
       const components = [createComponent({ serviceIntervalHours: 100 })];
 
       render(<ComponentHealthPanel components={components} />);
       await user.click(screen.getByRole('button'));
       await user.click(screen.getByText('Looks Good'));
-      await user.click(screen.getByText('Snooze 100h'));
+      await user.click(screen.getByText('Good for 50h more'));
 
       await waitFor(() => {
-        expect(screen.getByText('Snoozed!')).toBeInTheDocument();
+        expect(screen.getByText('Inspection logged')).toBeInTheDocument();
       });
     });
 
@@ -680,15 +682,15 @@ describe('ComponentHealthPanel', () => {
       render(<ComponentHealthPanel components={components} />);
       await user.click(screen.getByRole('button'));
       await user.click(screen.getByText('Looks Good'));
-      await user.click(screen.getByText('Snooze 100h'));
+      await user.click(screen.getByText('Good for 50h more'));
 
       await waitFor(() => {
-        expect(screen.queryByText('Snooze 100h')).not.toBeInTheDocument();
+        expect(screen.queryByText('Good for 50h more')).not.toBeInTheDocument();
         expect(screen.queryByText('custom duration')).not.toBeInTheDocument();
       });
     });
 
-    it('uses default 50h when serviceIntervalHours is null', async () => {
+    it('offers half the 50h default when serviceIntervalHours is null', async () => {
       const user = userEvent.setup();
       const components = [createComponent({ serviceIntervalHours: null as unknown as number })];
 
@@ -696,7 +698,7 @@ describe('ComponentHealthPanel', () => {
       await user.click(screen.getByRole('button'));
       await user.click(screen.getByText('Looks Good'));
 
-      expect(screen.getByText('Snooze 50h')).toBeInTheDocument();
+      expect(screen.getByText('Good for 25h more')).toBeInTheDocument();
     });
 
     it('calls onLogService and closes modal when clicking Log Service', async () => {

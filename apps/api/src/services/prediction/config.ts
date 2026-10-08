@@ -1,7 +1,12 @@
 import type { ComponentType, ComponentLocation } from '@prisma/client';
 import type { ComponentWearWeights } from './types';
 
-/** Algorithm version for cache keys. v3: hoursRemaining is no longer clamped
+/** Algorithm version for cache keys. v4: status is the service clock alone,
+ * with no separate inspection clock. Bumped so cached v3 predictions, which
+ * marked parts overdue for an inspection nobody had been asked to log, cannot
+ * linger after deploy.
+ *
+ * v3: hoursRemaining is no longer clamped
  * at zero, so an overdue component reports how far past due it is instead of
  * a flat 0. Bumped so cached v2 predictions computed with the clamp cannot
  * linger and keep serving "0h overdue" after deploy.
@@ -10,7 +15,7 @@ import type { ComponentWearWeights } from './types';
  * service log exists (parity with the canonical hoursUsed anchor in
  * lib/component-hours.ts) — bumped so cached v1 predictions computed with the
  * old bike-level anchor can't linger. */
-export const ALGO_VERSION = 'v3';
+export const ALGO_VERSION = 'v4';
 
 /** Default cache TTL in seconds (30 minutes) */
 export const DEFAULT_CACHE_TTL_SECONDS = 30 * 60;
@@ -177,50 +182,11 @@ export const BASE_INTERVALS_HOURS: Partial<
 export const DEFAULT_INTERVAL_HOURS = 100;
 
 /**
- * Base INSPECTION intervals per component type — a separate, shorter clock from
- * service. An inspection is a check, not work: a rider who pulls a wheel, spins
- * the hub and finds it fine has inspected it, and that resets this clock without
- * resetting the service clock. A service resets both (you cannot service a part
- * without looking at it).
- *
- * Deliberately sparse. Only types where a periodic look is genuinely standard
- * practice appear here; everything else is absent, meaning "not inspection
- * tracked", and no inspection state is produced for it. Inventing an inspection
- * cadence for all 24 component types would be exactly the invented precision
- * PRODUCT.md's Principle 3 forbids — the same reasoning that keeps MOTOR and
- * BATTERY out of COMPONENT_WEIGHTS.
- *
- * These values are a starting point drawn from the safety-relevant checks a
- * shop would do between services, and they want a mechanic's review before they
- * are treated as authoritative. They are separated from BASE_INTERVALS_HOURS
- * rather than derived as a fraction of it precisely so they can be tuned per
- * type without touching service behaviour.
+ * The extension Loam suggests when a rider logs an inspection in place of a due
+ * service, as a share of the part's service interval. The rider can change it:
+ * they have seen the part, and this is only a starting point.
  */
-export const BASE_INSPECTION_INTERVALS_HOURS: Partial<
-  Record<ComponentType, number | LocationBasedInterval>
-> = {
-  // Safety-critical and cheap to check: pad thickness and rotor wear.
-  BRAKE_PAD: { front: 15, rear: 15 },
-  BRAKE_ROTOR: { front: 50, rear: 50 },
-  // Chain stretch is measured, not serviced — the canonical inspection.
-  CHAIN: 20,
-  // Sidewall, casing and sealant checks between replacements.
-  TIRES: { front: 25, rear: 25 },
-  // Play and knock develop long before a bearing service is due.
-  PIVOT_BEARINGS: 50,
-  HEADSET: 60,
-  BOTTOM_BRACKET: 60,
-  WHEEL_HUBS: 60,
-  // Air pressure and stanchion condition, between full services.
-  FORK: 20,
-  SHOCK: 20,
-};
-
-/**
- * No default: a component type absent from the inspection map is not
- * inspection-tracked, rather than silently inheriting a made-up cadence.
- */
-export const DEFAULT_INSPECTION_INTERVAL_HOURS: number | null = null;
+export const INSPECTION_EXTENSION_RATIO = 0.5;
 
 // =============================================================================
 // Helper Functions
@@ -261,46 +227,6 @@ export function getBaseInterval(
 
   // Default to front interval if location is NONE
   return interval.front;
-}
-
-/**
- * Get the base INSPECTION interval for a component, or null when the type is
- * not inspection-tracked. Mirrors getBaseInterval's location handling, but
- * returns null rather than a default: absence means "we do not claim an
- * inspection cadence for this part", which is a different statement from
- * "inspect it every 100 hours".
- */
-export function getBaseInspectionInterval(
-  type: ComponentType,
-  location: ComponentLocation
-): number | null {
-  const interval = BASE_INSPECTION_INTERVALS_HOURS[type];
-
-  if (interval === undefined) {
-    return DEFAULT_INSPECTION_INTERVAL_HOURS;
-  }
-
-  if (typeof interval === 'number') {
-    return interval;
-  }
-
-  if (location === 'FRONT') {
-    return interval.front;
-  }
-  if (location === 'REAR') {
-    return interval.rear;
-  }
-
-  return interval.front;
-}
-
-/**
- * Whether a component type carries an inspection clock at all. Callers use this
- * to decide whether to render an inspection state, rather than rendering an
- * "all good" inspection badge for a part nobody inspects.
- */
-export function isInspectableComponent(type: ComponentType): boolean {
-  return type in BASE_INSPECTION_INTERVALS_HOURS;
 }
 
 /**

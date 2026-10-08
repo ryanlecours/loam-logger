@@ -464,15 +464,23 @@ model Component {
   // anchor and could credit a part hundreds of hours it was never fitted for.
   lifetimeHours        Float @default(0)
   hoursSinceService    Float @default(0)
+  // Hours since the latest SERVICE or INSPECTION log. An inspection stands in
+  // for a due service when the part is still in good shape, so when the latest
+  // of the two is an inspection, the part is due again `serviceExtensionHours`
+  // after it.
   hoursSinceInspection Float @default(0)
+  // The extension granted by the latest SERVICE-or-INSPECTION log when that log
+  // is an inspection; null when it is a service or there is none. A cache of
+  // ServiceLog.serviceExtensionHours, written by the same recompute.
+  serviceExtensionHours Float?
   // When the counters above were last derived from the ledger. NULL means never:
   // the row predates the counters and still holds 0s, so readers fall back to the
   // legacy figures and the fast-path ride increment leaves them alone.
   countersComputedAt   DateTime?
 
-  // Inspection is a separate clock from service: an inspection that finds
-  // nothing resets it without any work being done. Null means this component
-  // is not inspection-tracked (most types are service-only).
+  // Unused. It set the interval of a separate inspection clock, which was
+  // removed: inspections are optional stand-ins for a due service, not a
+  // schedule of their own.
   inspectionDueAtHours Float?
   lastInspectedAt      DateTime?
   createdAt            DateTime           @default(now())
@@ -560,6 +568,11 @@ model ServiceLog {
   /// True when a rider typed hoursAtService in (typically a pre-Loam service).
   /// Declared readings are kept as given; nothing in the ledger can check them.
   hoursAtServiceDeclared Boolean @default(false)
+  /// INSPECTION only: hours of riding until the next service is due, counted
+  /// from this inspection. The rider sets it when the part is still in good
+  /// shape at a due service; Loam suggests half the service interval. Null on
+  /// SERVICE rows.
+  serviceExtensionHours Float?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

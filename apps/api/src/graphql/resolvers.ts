@@ -28,7 +28,8 @@ import {
   providerRideWhere,
   type RideProvider,
 } from '../lib/ride-predicates';
-import { getBaseInterval, BASE_INTERVALS_HOURS, DEFAULT_INTERVAL_HOURS } from '../services/prediction/config';
+import { BASE_INTERVALS_HOURS, DEFAULT_INTERVAL_HOURS } from '../services/prediction/config';
+import { recommendedInspectionExtensionHours } from '../services/prediction/engine';
 import {
   getApplicableComponents,
   deriveBikeSpec,
@@ -373,6 +374,21 @@ function assertHoursInRange(field: string, value: number): void {
   }
 }
 
+/**
+ * An inspection's extension: hours of riding until the next service. Zero (or
+ * less) would make the part due the moment the inspection is saved, so it must
+ * be positive. snoozeComponent clamps instead, to keep released clients'
+ * behaviour; these paths reject.
+ */
+function assertExtensionInRange(value: number): void {
+  assertHoursInRange('serviceExtensionHours', value);
+  if (value <= 0) {
+    throw new GraphQLError('serviceExtensionHours must be greater than 0', {
+      extensions: { code: 'BAD_USER_INPUT' },
+    });
+  }
+}
+
 // Bound on ComponentRideAdjustment rows per component — keeps the
 // id IN (...) lists in the canonical recompute and componentRides
 // queries small. Far above any plausible manual-correction volume.
@@ -432,14 +448,22 @@ async function recomputeComponentAfterServiceChange(
   // no service log exists — both deliberate corrections over the old
   // inline aggregate (engine parity; a never-serviced part must not absorb
   // the bike's pre-install history).
-  const latestLog = await tx.serviceLog.findFirst({
-    where: { componentId },
-    orderBy: [{ performedAt: 'desc' }, { createdAt: 'desc' }],
-    select: { performedAt: true },
-  });
+  // Each date follows its own kind: an inspection that stood in for a service
+  // is not a service.
+  const latestOf = (kind: 'SERVICE' | 'INSPECTION') =>
+    tx.serviceLog.findFirst({
+      where: { componentId, kind: { in: [kind] } },
+      orderBy: [{ performedAt: 'desc' }, { createdAt: 'desc' }],
+      select: { performedAt: true },
+    });
+  const latestService = await latestOf('SERVICE');
+  const latestInspection = await latestOf('INSPECTION');
   await tx.component.update({
     where: { id: componentId },
-    data: { lastServicedAt: latestLog?.performedAt ?? null },
+    data: {
+      lastServicedAt: latestService?.performedAt ?? null,
+      lastInspectedAt: latestInspection?.performedAt ?? null,
+    },
   });
 
   await recomputeComponentHours(tx, componentId);
@@ -1240,8 +1264,8 @@ export const resolvers = {
         orderBy: [{ performedAt: 'desc' }, { createdAt: 'desc' }],
       });
       // The window "since service" starts at the latest SERVICE, as the counter
-      // does. An inspection resets only the inspection clock, so it must not
-      // move this date.
+      // does. An inspection that stood in for a service moves the due point, not
+      // the date of the last service, so it must not move this date.
       const latestService = serviceLogs.find((l) => l.kind === 'SERVICE') ?? null;
 
       const aggregate = await aggregateLifetime(prisma, {
@@ -3364,7 +3388,17 @@ export const resolvers = {
 
     logService: async (
       _: unknown,
-      { input }: { input: { componentId: string; notes?: string | null; performedAt?: string | null; kind?: 'SERVICE' | 'INSPECTION' | null } },
+      {
+        input,
+      }: {
+        input: {
+          componentId: string;
+          notes?: string | null;
+          performedAt?: string | null;
+          kind?: 'SERVICE' | 'INSPECTION' | null;
+          serviceExtensionHours?: number | null;
+        };
+      },
       ctx: GraphQLContext
     ) => {
       const userId = requireUserId(ctx);
@@ -3380,11 +3414,33 @@ export const resolvers = {
       // Verify component ownership
       const component = await prisma.component.findUnique({
         where: { id: input.componentId },
-        select: { userId: true, bikeId: true, hoursUsed: true },
+        select: {
+          userId: true,
+          bikeId: true,
+          hoursUsed: true,
+          type: true,
+          location: true,
+          serviceDueAtHours: true,
+        },
       });
 
       if (!component || component.userId !== userId) {
         throw new Error('Component not found');
+      }
+
+      // An inspection stands in for a due service: the rider says how many more
+      // hours the part can run, and Loam suggests half its service interval. A
+      // service carries no extension; its interval comes from the part.
+      const kind = input.kind ?? 'SERVICE';
+      let serviceExtensionHours: number | null = null;
+      if (kind === 'INSPECTION') {
+        if (input.serviceExtensionHours != null) assertExtensionInRange(input.serviceExtensionHours);
+        serviceExtensionHours =
+          input.serviceExtensionHours ?? (await recommendedInspectionExtensionHours(component));
+      } else if (input.serviceExtensionHours != null) {
+        throw new GraphQLError('serviceExtensionHours applies to inspections only', {
+          extensions: { code: 'BAD_USER_INPUT' },
+        });
       }
 
       let performedAt = new Date();
@@ -3413,7 +3469,8 @@ export const resolvers = {
             componentId: input.componentId,
             performedAt,
             notes,
-            kind: input.kind ?? 'SERVICE',
+            kind,
+            serviceExtensionHours,
             hoursAtService: await lifetimeHoursAt(tx, input.componentId, performedAt),
           },
         });
@@ -3425,7 +3482,7 @@ export const resolvers = {
 
         await tx.component.update({
           where: { id: input.componentId },
-          data: { lastServicedAt: performedAt },
+          data: kind === 'INSPECTION' ? { lastInspectedAt: performedAt } : { lastServicedAt: performedAt },
         });
 
         return log;
@@ -3449,7 +3506,12 @@ export const resolvers = {
         input,
       }: {
         id: string;
-        input: { performedAt?: string | null; notes?: string | null; hoursAtService?: number | null };
+        input: {
+          performedAt?: string | null;
+          notes?: string | null;
+          hoursAtService?: number | null;
+          serviceExtensionHours?: number | null;
+        };
       },
       ctx: GraphQLContext
     ) => {
@@ -3504,6 +3566,19 @@ export const resolvers = {
           newHoursAtService = input.hoursAtService;
         }
       }
+      // An inspection's extension can be revised; a service has none.
+      let newExtension: number | undefined;
+      if (input.serviceExtensionHours != null) {
+        if (existing.kind !== 'INSPECTION') {
+          throw new GraphQLError('serviceExtensionHours applies to inspections only', {
+            extensions: { code: 'BAD_USER_INPUT' },
+          });
+        }
+        assertExtensionInRange(input.serviceExtensionHours);
+        if (input.serviceExtensionHours !== existing.serviceExtensionHours) {
+          newExtension = input.serviceExtensionHours;
+        }
+      }
 
       const bikeId = existing.component.bikeId;
       if (bikeId) await invalidateBikePrediction(userId, bikeId);
@@ -3519,14 +3594,15 @@ export const resolvers = {
             ...(newHoursAtService !== undefined
               ? { hoursAtService: newHoursAtService, hoursAtServiceDeclared: true }
               : {}),
+            ...(newExtension !== undefined ? { serviceExtensionHours: newExtension } : {}),
           },
         });
 
-        // Recompute whenever the edit can change a reading or which log is
-        // latest. A new date re-derives this log's reading (unless declared),
-        // and a typed reading on the latest log moves the "since" counters
-        // directly. Only a notes-only edit is skipped.
-        if (newPerformedAt || newHoursAtService !== undefined) {
+        // Recompute whenever the edit can change a reading, which log is latest,
+        // or the current cycle's extension. A new date re-derives this log's
+        // reading (unless declared), and a typed reading on the latest log moves
+        // the "since" counters directly. Only a notes-only edit is skipped.
+        if (newPerformedAt || newHoursAtService !== undefined || newExtension !== undefined) {
           await recomputeComponentAfterServiceChange(tx, existing.component.id);
         }
 
@@ -4007,33 +4083,44 @@ export const resolvers = {
         throw new Error('Component not found');
       }
 
-      // Get current interval
-      const currentInterval =
-        existing.serviceDueAtHours ?? getBaseInterval(existing.type, existing.location);
-
-      // Calculate snooze amount:
-      // - If hours provided: use that value (clamped between 1 and 400)
-      // - If no hours: use current interval (recommended snooze)
-      const snoozeHours =
-        hours != null ? Math.min(400, Math.max(1, hours)) : currentInterval;
-
-      const extendedInterval = currentInterval + snoozeHours;
+      // Snooze is "checked it, still good": an inspection today that stands in
+      // for the due service. It used to raise serviceDueAtHours, which outlived
+      // the next real service; an inspection's extension ends there. Released
+      // clients call this name, so it keeps it.
+      //   - hours given: that extension (clamped to 1..400, as before)
+      //   - no hours: the recommended extension, half the service interval
+      const serviceExtensionHours =
+        hours != null
+          ? Math.min(400, Math.max(1, hours))
+          : await recommendedInspectionExtensionHours({ ...existing, userId });
 
       // Invalidate prediction cache BEFORE update
       if (existing.bikeId) {
         await invalidateBikePrediction(userId, existing.bikeId);
       }
 
-      // Update component with extended service interval
-      const updated = await prisma.component.update({
-        where: { id },
-        data: { serviceDueAtHours: extendedInterval },
+      const performedAt = new Date();
+      const updated = await prisma.$transaction(async (tx) => {
+        await tx.serviceLog.create({
+          data: {
+            componentId: id,
+            performedAt,
+            kind: 'INSPECTION',
+            serviceExtensionHours,
+            hoursAtService: await lifetimeHoursAt(tx, id, performedAt),
+          },
+        });
+        await recomputeComponentHours(tx, id);
+        return tx.component.update({ where: { id }, data: { lastInspectedAt: performedAt } });
       });
 
       // Invalidate prediction cache AFTER update
       if (existing.bikeId) {
         await invalidateBikePrediction(userId, existing.bikeId);
       }
+
+      // The part has a fresh due point, so it can notify again when it nears it.
+      clearServiceNotificationLogs(id, userId).catch((err) => logError('clearServiceNotificationLogs', err));
 
       return updated;
     },

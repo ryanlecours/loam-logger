@@ -147,15 +147,18 @@ function ComponentDetailOverlay({ component, onClose, onServiceLogged, onLogServ
         onClose();
       }, 1000);
     } catch (err) {
-      console.error('Failed to snooze component:', err);
-      alert('Failed to snooze component. Please try again.');
+      console.error('Failed to log inspection:', err);
+      alert('Failed to log the inspection. Please try again.');
     } finally {
       setIsSnoozing(false);
     }
   };
 
-  // Recommended snooze hours = service interval
-  const recommendedHours = component.serviceIntervalHours ?? 50;
+  // "Looks good" logs an inspection that stands in for the due service. The
+  // server suggests half the part's service interval; the fallback covers a
+  // prediction cached before it sent the suggestion.
+  const recommendedHours =
+    component.recommendedExtensionHours ?? Math.round((component.serviceIntervalHours ?? 50) / 2);
 
   const handleLooksGoodClick = () => {
     setShowSnoozeOptions(true);
@@ -187,7 +190,7 @@ function ComponentDetailOverlay({ component, onClose, onServiceLogged, onLogServ
             type="button"
           >
             <Check size={14} />
-            <span>{snoozeSuccess ? 'Snoozed!' : 'Looks Good'}</span>
+            <span>{snoozeSuccess ? 'Inspection logged' : 'Looks Good'}</span>
           </button>
 
           {onLogService && (
@@ -216,7 +219,7 @@ function ComponentDetailOverlay({ component, onClose, onServiceLogged, onLogServ
                 onClick={() => handleSnooze(recommendedHours)}
                 disabled={isSnoozing}
               >
-                {isSnoozing ? 'Snoozing...' : `Snooze ${recommendedHours}h`}
+                {isSnoozing ? 'Logging...' : `Good for ${recommendedHours}h more`}
               </button>
               <span className="component-snooze-divider">or</span>
               {!showCustomInput ? (

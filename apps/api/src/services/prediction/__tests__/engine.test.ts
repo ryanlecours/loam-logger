@@ -126,7 +126,7 @@ describe('prediction engine', () => {
       expect(result.bikeId).toBe('bike-123');
       expect(result.bikeName).toBe('Trail Slayer');
       expect(result.components).toHaveLength(2);
-      expect(result.algoVersion).toBe('v3');
+      expect(result.algoVersion).toBe('v4');
     });
 
     it('should throw for unauthorized bike access', async () => {
@@ -1202,10 +1202,138 @@ describe('prediction engine', () => {
       });
 
       expect(c.hoursSinceService).toBe(0);
-      expect(c.hoursSinceInspection).toBe(0);
     });
 
-    it('sums the window and shows no inspection clock while uncomputed', async () => {
+    // Inspections are optional stand-ins for a due service, not a schedule of
+    // their own. At launch no rider had logged one, so a separate inspection
+    // clock read every inspectable part as overdue while its service clock had
+    // plenty left. Health must come from the service clock alone.
+    it('takes health from the service clock alone, however long since an inspection', async () => {
+      const c = await run({
+        ...fork,
+        countersComputedAt: new Date('2024-02-01'),
+        lifetimeHours: 300,
+        hoursSinceService: 10,
+        hoursSinceInspection: 300,
+      });
+
+      expect(c.status).toBe('ALL_GOOD');
+      expect(c.status).toBe(c.serviceStatus);
+      expect(c.limitingClock).toBe('SERVICE');
+      expect(c.inspectionStatus).toBeNull();
+      expect(c.inspectionIntervalHours).toBeNull();
+      expect(c.hoursSinceInspection).toBeNull();
+      expect(c.inspectionHoursRemaining).toBeNull();
+    });
+
+    // An inspection standing in for a due service: the part is due the granted
+    // extension after the inspection, and "since service / interval" restates
+    // that from the last service so the two figures stay consistent.
+    it('counts down the extension an inspection granted', async () => {
+      const c = await run({
+        ...fork,
+        countersComputedAt: new Date('2024-02-01'),
+        lifetimeHours: 80,
+        // Serviced at 20h, inspected at 75h with 25h granted.
+        hoursSinceService: 60,
+        hoursSinceInspection: 5,
+        serviceExtensionHours: 25,
+      });
+
+      expect(c.hoursRemaining).toBe(20);
+      expect(c.serviceIntervalHours).toBe(80);
+      expect(c.hoursSinceService).toBe(60);
+      expect(c.status).toBe('ALL_GOOD');
+      expect(c.serviceExtensionHours).toBe(25);
+      // Half the part's own 50h interval, not of the extended due point.
+      expect(c.recommendedExtensionHours).toBe(25);
+    });
+
+    it('judges due-soon against the extension', async () => {
+      const c = await run({
+        ...fork,
+        countersComputedAt: new Date('2024-02-01'),
+        lifetimeHours: 92,
+        hoursSinceService: 72,
+        hoursSinceInspection: 17,
+        serviceExtensionHours: 25,
+      });
+
+      expect(c.hoursRemaining).toBe(8);
+      expect(c.status).toBe('DUE_SOON');
+    });
+
+    it('goes overdue once the extension is used up', async () => {
+      const c = await run({
+        ...fork,
+        countersComputedAt: new Date('2024-02-01'),
+        lifetimeHours: 105,
+        hoursSinceService: 85,
+        hoursSinceInspection: 30,
+        serviceExtensionHours: 25,
+      });
+
+      expect(c.hoursRemaining).toBe(-5);
+      expect(c.status).toBe('OVERDUE');
+    });
+
+    // The extension is the rider's call after looking at the part, so the Pro
+    // wear model must not rescale it the way it rescales a normal interval.
+    it('does not let the Pro adaptive model rescale an extension', async () => {
+      const steepRides = Array.from({ length: 12 }, (_, i) => ({
+        id: `steep-${i}`,
+        durationSeconds: 2 * 3600,
+        distanceMeters: 20000,
+        elevationGainMeters: 1500,
+        startTime: new Date(Date.UTC(2024, 0, 2 + i)),
+      }));
+      const predict = async (bikeId: string, component: Record<string, unknown>) => {
+        (prisma.bike.findUnique as jest.Mock).mockResolvedValue({ ...mockBike, id: bikeId, components: [component] });
+        (prisma.ride.findMany as jest.Mock).mockResolvedValue(steepRides);
+        (prisma.ride.findFirst as jest.Mock).mockResolvedValue({ startTime: new Date('2024-01-01') });
+        (prisma.serviceLog.findFirst as jest.Mock).mockResolvedValue(null);
+        (prisma.serviceLog.findMany as jest.Mock).mockResolvedValue([]);
+        const result = await generateBikePredictions({
+          userId: 'user-123',
+          bikeId,
+          userRole: 'PRO',
+          predictionMode: 'predictive',
+        });
+        return result.components[0];
+      };
+      const computed = {
+        ...fork,
+        countersComputedAt: new Date('2024-02-01'),
+        lifetimeHours: 80,
+        hoursSinceService: 60,
+        hoursSinceInspection: 5,
+      };
+
+      // Control: with no extension the adaptive model does move the figure off
+      // the plain "interval minus hours since service" (50 - 60 = -10).
+      const adaptive = await predict('bike-adaptive', { ...computed, serviceExtensionHours: null });
+      expect(adaptive.hoursRemaining).not.toBe(-10);
+
+      const extended = await predict('bike-extended', { ...computed, serviceExtensionHours: 25 });
+      expect(extended.hoursRemaining).toBe(20);
+    });
+
+    it('ignores a stray extension while uncomputed', async () => {
+      const c = await run({
+        ...fork,
+        countersComputedAt: null,
+        lifetimeHours: 1,
+        hoursSinceService: 1,
+        hoursSinceInspection: 1,
+        serviceExtensionHours: 25,
+      });
+
+      expect(c.serviceIntervalHours).toBe(50);
+      expect(c.hoursRemaining).toBe(47);
+      expect(c.serviceExtensionHours).toBeNull();
+    });
+
+    it('sums the window while uncomputed', async () => {
       // A ride increment before the backfill can no longer move these off 0,
       // but even if a row held stray values they must not be read.
       const c = await run({

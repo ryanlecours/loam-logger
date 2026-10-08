@@ -69,24 +69,29 @@ export interface ComponentPrediction {
    */
   lifetimeHours: number;
 
-  /**
-   * The service clock on its own. `status` above is the headline — the worse of
-   * this and `inspectionStatus` — so that a component still shows exactly one
-   * health state, per PRODUCT.md's "is the bike good to go" test.
-   */
+  /** The service clock's state. Health is the service clock alone, so it equals `status`. */
   serviceStatus: PredictionStatus;
 
   /**
-   * The inspection clock. Null when this component type is not
-   * inspection-tracked (most are service-only), which is a different statement
-   * from "inspection is fine" and must not render as an ALL_GOOD badge.
+   * When an inspection standing in for a service started the current cycle,
+   * the hours it granted before the next service; null otherwise.
+   */
+  serviceExtensionHours: number | null;
+
+  /** The extension Loam suggests for an inspection logged now: half the interval. */
+  recommendedExtensionHours: number;
+
+  /**
+   * Always null. Inspections are optional stand-ins for a due service, not a
+   * schedule of their own, so there is no inspection clock to report. Kept so
+   * clients that request these fields keep working.
    */
   inspectionStatus: PredictionStatus | null;
   inspectionIntervalHours: number | null;
   hoursSinceInspection: number | null;
   inspectionHoursRemaining: number | null;
 
-  /** Which clock produced `status`. Lets a surface say *why* a part is due. */
+  /** Always 'SERVICE', for the same reason. */
   limitingClock: 'SERVICE' | 'INSPECTION';
 
   // Pro-only explanation fields (null for FREE tier)

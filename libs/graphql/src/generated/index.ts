@@ -410,6 +410,7 @@ export type Component = {
   replacedById?: Maybe<Scalars['ID']['output']>;
   retiredAt?: Maybe<Scalars['String']['output']>;
   serviceDueAtHours?: Maybe<Scalars['Float']['output']>;
+  serviceExtensionHours?: Maybe<Scalars['Float']['output']>;
   serviceLogs: Array<ServiceLog>;
   status: ComponentStatus;
   type: ComponentType;
@@ -502,8 +503,10 @@ export type ComponentPrediction = {
   limitingClock?: Maybe<Scalars['String']['output']>;
   location: ComponentLocation;
   model: Scalars['String']['output'];
+  recommendedExtensionHours: Scalars['Float']['output'];
   ridesRemainingEstimate?: Maybe<Scalars['Int']['output']>;
   ridesSinceService: Scalars['Int']['output'];
+  serviceExtensionHours?: Maybe<Scalars['Float']['output']>;
   serviceIntervalHours: Scalars['Float']['output'];
   serviceStatus?: Maybe<PredictionStatus>;
   status?: Maybe<PredictionStatus>;
@@ -682,6 +685,7 @@ export type LogServiceInput = {
   kind?: InputMaybe<ServiceLogKind>;
   notes?: InputMaybe<Scalars['String']['input']>;
   performedAt?: InputMaybe<Scalars['String']['input']>;
+  serviceExtensionHours?: InputMaybe<Scalars['Float']['input']>;
 };
 
 export type MigratePairedComponentsResult = {
@@ -1341,6 +1345,7 @@ export type ServiceLog = {
   kind: ServiceLogKind;
   notes?: Maybe<Scalars['String']['output']>;
   performedAt: Scalars['String']['output'];
+  serviceExtensionHours?: Maybe<Scalars['Float']['output']>;
 };
 
 export enum ServiceLogKind {
@@ -1712,6 +1717,7 @@ export type UpdateServiceLogInput = {
   hoursAtService?: InputMaybe<Scalars['Float']['input']>;
   notes?: InputMaybe<Scalars['String']['input']>;
   performedAt?: InputMaybe<Scalars['String']['input']>;
+  serviceExtensionHours?: InputMaybe<Scalars['Float']['input']>;
 };
 
 export type UpdateServicePreferencesInput = {

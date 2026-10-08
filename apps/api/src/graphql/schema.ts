@@ -327,9 +327,13 @@ export const typeDefs = gql`
     # has moved bikes or arrived used is a much smaller number.
     lifetimeHours: Float!
     hoursSinceService: Float!
+    # Hours since the latest service or inspection.
     hoursSinceInspection: Float!
-    # Null when this component type is not inspection-tracked, which is a
-    # different statement from "inspection is fine".
+    # When the latest service-or-inspection was an inspection standing in for a
+    # due service, the hours of riding it granted before the next service.
+    # Null when the current cycle started with a service.
+    serviceExtensionHours: Float
+    # Unused: there is no separate inspection schedule. Always null in practice.
     inspectionDueAtHours: Float
     lastInspectedAt: String
     isStock: Boolean!
@@ -367,13 +371,17 @@ export const typeDefs = gql`
     # mechanic writes on a workshop card. The "hours since" counters are derived
     # by subtracting this from lifetimeHours.
     hoursAtService: Float!
+    # INSPECTION only: hours of riding until the next service, counted from
+    # this inspection. Null on services.
+    serviceExtensionHours: Float
     createdAt: String!
   }
 
   enum ServiceLogKind {
     # Work was performed: a fork lower-leg service, new pads, a bleed.
     SERVICE
-    # The part was checked. Resets the inspection clock, not the service clock.
+    # The part was checked at a due service and found good, so it stands in
+    # for the service: the next service is due serviceExtensionHours later.
     INSPECTION
   }
 
@@ -533,21 +541,29 @@ export const typeDefs = gql`
     ridesRemainingEstimate: Int
     confidence: ConfidenceLevel
     currentHours: Float!
+    # Hours from the last service to the point the part is due. After an
+    # inspection that stood in for a service, that is the hours up to the
+    # inspection plus the extension it granted.
     serviceIntervalHours: Float!
     hoursSinceService: Float!
     ridesSinceService: Int!
     # Lifetime hours across every bike, including declared pre-Loam hours.
     lifetimeHours: Float!
-    # The service clock alone. \`status\` above is the headline: the worse of this
-    # and inspectionStatus, so a component still shows exactly one health state.
+    # Same as status: health is the service clock alone.
     serviceStatus: PredictionStatus
-    # The inspection clock. Null when the type is not inspection-tracked; that
-    # must not render as a passing inspection.
+    # When an inspection started the current cycle, the hours it granted before
+    # the next service. Null when the cycle started with a service.
+    serviceExtensionHours: Float
+    # The extension Loam suggests for an inspection logged now: half the
+    # component's service interval.
+    recommendedExtensionHours: Float!
+    # Always null: there is no separate inspection schedule. Kept for clients
+    # that request these fields.
     inspectionStatus: PredictionStatus
     inspectionIntervalHours: Float
     hoursSinceInspection: Float
     inspectionHoursRemaining: Float
-    # Which clock produced \`status\`, so a surface can say why a part is due.
+    # Always SERVICE, for the same reason.
     limitingClock: String
     why: String
     drivers: [WearDriver!]
@@ -876,12 +892,17 @@ export const typeDefs = gql`
     notes: String
     performedAt: String
     kind: ServiceLogKind
+    # INSPECTION only: hours until the next service. Defaults to half the
+    # component's service interval. Rejected on a SERVICE.
+    serviceExtensionHours: Float
   }
 
   input UpdateServiceLogInput {
     performedAt: String
     notes: String
     hoursAtService: Float
+    # INSPECTION logs only.
+    serviceExtensionHours: Float
   }
 
   """
@@ -1298,6 +1319,9 @@ export const typeDefs = gql`
     logService(input: LogServiceInput!): ServiceLog!
     updateServiceLog(id: ID!, input: UpdateServiceLogInput!): ServiceLog!
     deleteServiceLog(id: ID!): Boolean!
+    # Records an inspection today that stands in for the due service: the next
+    # service is due \`hours\` later (default: half the service interval). Kept
+    # under this name for released clients.
     snoozeComponent(id: ID!, hours: Float): Component!
     # Per-ride attribution corrections. EXCLUDE removes an on-bike ride's
     # hours from the component; INCLUDE applies a ride from another bike
