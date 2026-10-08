@@ -20,6 +20,8 @@ import { logger, createLogger } from '../lib/logger';
 import { sendError, sendUnauthorized, sendBadRequest, sendForbidden, sendConflict, sendInternalError, sendTooManyRequests } from '../lib/api-response';
 import { config } from '../config/env';
 import { createNewUser, verifyEmailAvailable } from '../services/signup.service';
+import { startEmailVerification } from '../services/email-verification.service';
+import { checkSignupRateLimit, SIGNUP_RATE_LIMIT_MESSAGE } from './signup-rate-limit';
 
 // Filter Railway logs with `module:"auth-audit"` to see only successful sign-ins and
 // account creations — the audit stream. Failure-side logs use the regular `logger`.
@@ -53,10 +55,10 @@ router.post('/mobile/signup', express.json(), async (req, res) => {
   try {
     // Rate limit by IP to prevent automated spam signups
     const clientIp = getClientIp(req);
-    const rateLimit = await checkAuthRateLimit('signup', clientIp);
+    const rateLimit = await checkSignupRateLimit(clientIp);
     if (!rateLimit.allowed) {
       logger.warn({ clientIp, operation: 'signup', retryAfter: rateLimit.retryAfter, route: 'mobile/signup' }, 'Mobile signup rate-limited');
-      return sendTooManyRequests(res, 'Too many signup attempts. Please try again later.', rateLimit.retryAfter);
+      return sendTooManyRequests(res, SIGNUP_RATE_LIMIT_MESSAGE, rateLimit.retryAfter);
     }
 
     const { email: rawEmail, password, name } = req.body as {
@@ -109,6 +111,8 @@ router.post('/mobile/signup', express.json(), async (req, res) => {
     }
 
     const { user } = await createNewUser({ email: verifiedEmail, name: trimmedName, passwordHash });
+    // Fire and forget: never throws, and a slow send should not hold up signup.
+    void startEmailVerification(user);
 
     const { accessToken, refreshToken } = await issueMobileTokens({ id: user.id, email: user.email });
 
@@ -180,6 +184,7 @@ router.post('/mobile/google', express.json(), async (req, res) => {
       name: payload.name,
       picture: payload.picture,
     });
+    if (wasCreated && !user.emailVerified) void startEmailVerification(user);
 
     // Update last auth timestamp for recent-auth gating (non-blocking)
     updateLastAuthAt(user.id).catch((err) =>
@@ -293,6 +298,7 @@ router.post('/mobile/apple', express.json(), async (req, res) => {
       email_verified: emailVerified,
       name,
     });
+    if (wasCreated && !user.emailVerified) void startEmailVerification(user);
 
     // Update last auth timestamp for recent-auth gating (non-blocking)
     updateLastAuthAt(user.id).catch((err) =>

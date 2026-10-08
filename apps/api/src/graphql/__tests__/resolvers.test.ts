@@ -5816,6 +5816,18 @@ describe('GraphQL Resolvers', () => {
       ]);
     });
 
+    it('refuses a new account that has not confirmed its email', async () => {
+      (prisma.user.findUnique as jest.Mock).mockResolvedValueOnce({
+        emailVerificationRequired: true,
+        emailVerified: null,
+      });
+
+      await expect(create({ scope: 'LIFETIME' })).rejects.toMatchObject({
+        extensions: { code: 'EMAIL_NOT_VERIFIED' },
+      });
+      expect(share.create).not.toHaveBeenCalled();
+    });
+
     it('creates a lifetime link with an unguessable slug', async () => {
       const created = await create({ scope: 'LIFETIME' });
 
@@ -5974,6 +5986,32 @@ describe('GraphQL Resolvers', () => {
 
       expect(url.endsWith('/share/existing-slug')).toBe(true);
       expect(mockBikeUpdate).not.toHaveBeenCalled();
+    });
+
+    it('enableBikeShare refuses a new account that has not confirmed its email', async () => {
+      (prisma.user.findUnique as jest.Mock).mockResolvedValueOnce({
+        emailVerificationRequired: true,
+        emailVerified: null,
+      });
+      const ctx = createMockContext('user-123');
+
+      await expect(
+        resolvers.Mutation.enableBikeShare({}, { bikeId: 'bike-1' }, ctx as never)
+      ).rejects.toMatchObject({ extensions: { code: 'EMAIL_NOT_VERIFIED' } });
+      expect(mockBikeUpdate).not.toHaveBeenCalled();
+    });
+
+    it('enableBikeShare lets a verified new account through', async () => {
+      (prisma.user.findUnique as jest.Mock).mockResolvedValueOnce({
+        emailVerificationRequired: true,
+        emailVerified: new Date(),
+      });
+      mockBikeFindFirst.mockResolvedValueOnce({ id: 'bike-1', shareSlug: 'existing-slug' });
+      const ctx = createMockContext('user-123');
+
+      const url = await resolvers.Mutation.enableBikeShare({}, { bikeId: 'bike-1' }, ctx as never);
+
+      expect(url.endsWith('/share/existing-slug')).toBe(true);
     });
 
     it("enableBikeShare rejects bikes the user doesn't own", async () => {

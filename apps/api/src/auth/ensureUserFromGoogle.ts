@@ -95,6 +95,7 @@ async function ensureUserFromGoogleInner(
           name: claims.name ?? null,
           avatarUrl: claims.picture ?? null,
           emailVerified: claims.email_verified ? new Date() : null,
+          emailVerificationRequired: !claims.email_verified,
           role: 'FREE',
           subscriptionTier: 'FREE',
         },

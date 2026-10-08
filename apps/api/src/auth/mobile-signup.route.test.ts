@@ -10,6 +10,7 @@ const mockLoggerInfo = jest.fn();
 const mockLoggerError = jest.fn();
 const mockLoggerDebug = jest.fn();
 const mockSentryCaptureException = jest.fn();
+const mockStartEmailVerification = jest.fn().mockResolvedValue(undefined);
 
 jest.mock('@sentry/node', () => ({
   captureException: (...args: unknown[]) => mockSentryCaptureException(...args),
@@ -90,6 +91,10 @@ jest.mock('../services/signup.service', () => ({
   verifyEmailAvailable: (...args: unknown[]) => mockVerifyEmailAvailable(...args),
 }));
 
+jest.mock('../services/email-verification.service', () => ({
+  startEmailVerification: (...args: unknown[]) => mockStartEmailVerification(...args),
+}));
+
 import router from './mobile.route';
 
 interface RouteLayer {
@@ -168,6 +173,25 @@ describe('POST /mobile/signup', () => {
         avatarUrl: null,
       },
     });
+    expect(mockStartEmailVerification).toHaveBeenCalledWith({ id: 'u1', email: 'test@example.com' });
+  });
+
+  it('should return 429 when the daily per-IP signup limit is spent', async () => {
+    mockCheckAuthRateLimit.mockImplementation(async (op: string) =>
+      op === 'signup-daily' ? { allowed: false, retryAfter: 3600 } : { allowed: true }
+    );
+
+    const req = {
+      body: { email: 'test@example.com', password: 'StrongPassw0rd!', name: 'Test User' },
+      ip: '127.0.0.1',
+      headers: {},
+    } as unknown as Request;
+    const res = createMockResponse();
+
+    await invokeHandler(handler, req, res as unknown as Response);
+
+    expect(res.status).toHaveBeenCalledWith(429);
+    expect(mockCreateNewUser).not.toHaveBeenCalled();
   });
 
   it('should return 409 when the email is already registered', async () => {
@@ -184,5 +208,6 @@ describe('POST /mobile/signup', () => {
 
     expect(res.status).toHaveBeenCalledWith(409);
     expect(mockCreateNewUser).not.toHaveBeenCalled();
+    expect(mockStartEmailVerification).not.toHaveBeenCalled();
   });
 });

@@ -1,4 +1,5 @@
 import { cleanupExpiredPasswordResetTokens } from './password-reset.service';
+import { cleanupExpiredEmailVerificationTokens } from './email-verification.service';
 import { createLogger } from '../lib/logger';
 
 const log = createLogger('password-reset-cleanup');
@@ -21,6 +22,16 @@ async function runCleanup(): Promise<void> {
     }
   } catch (err) {
     log.error({ err }, 'Password reset token cleanup failed');
+  }
+  // Email verification tokens follow the same lifecycle, so they ride along
+  // on this job rather than getting a timer of their own.
+  try {
+    const deleted = await cleanupExpiredEmailVerificationTokens(EXPIRED_OLDER_THAN_HOURS);
+    if (deleted > 0) {
+      log.info({ deleted }, 'Cleaned up expired email verification tokens');
+    }
+  } catch (err) {
+    log.error({ err }, 'Email verification token cleanup failed');
   }
 }
 

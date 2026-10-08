@@ -363,6 +363,17 @@ export const ADMIN_RATE_LIMITS = {
 export const AUTH_RATE_LIMITS = {
   /** signup: max 5 requests per minute per IP (prevents automated spam) */
   signup: { windowSeconds: 60, maxRequests: 5 },
+  /** signup-daily: max 30 signup attempts per day per IP, checked after the
+   *  per-minute limit. Stops a single source pacing itself under 5/min to
+   *  mint thousands of accounts a day; 30 still covers a shared network
+   *  (a shop, a club ride) signing up together, typos included. */
+  'signup-daily': { windowSeconds: 86400, maxRequests: 30 },
+  /** verify-email: max 10 per minute per IP (the token is the authorization;
+   *  this only slows guessing, which 256-bit tokens already defeat) */
+  'verify-email': { windowSeconds: 60, maxRequests: 10 },
+  /** resend-verification: max 3 per hour per USER (each one sends an email,
+   *  so this bounds how hard an account can be used to mail its address) */
+  'resend-verification': { windowSeconds: 3600, maxRequests: 3 },
   /** oauth-login: max 10 requests per minute per IP (Google/Apple token verification) */
   'oauth-login': { windowSeconds: 60, maxRequests: 10 },
   /** login: max 10 password attempts per minute per IP (slows password

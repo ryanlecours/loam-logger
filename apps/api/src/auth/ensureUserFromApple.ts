@@ -93,6 +93,8 @@ async function ensureUserFromAppleInner(
           name: claims.name ?? null,
           avatarUrl: null,
           emailVerified: claims.email_verified ? new Date() : null,
+          // Covers the client-supplied fallback email, which nothing has proven.
+          emailVerificationRequired: !claims.email_verified,
           role: 'FREE',
           subscriptionTier: 'FREE',
         },

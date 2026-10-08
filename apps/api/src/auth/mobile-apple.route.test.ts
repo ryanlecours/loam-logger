@@ -11,6 +11,7 @@ const mockLoggerInfo = jest.fn();
 const mockLoggerError = jest.fn();
 const mockLoggerDebug = jest.fn();
 const mockSentryCaptureException = jest.fn();
+const mockStartEmailVerification = jest.fn().mockResolvedValue(undefined);
 
 jest.mock('@sentry/node', () => ({
   captureException: (...args: unknown[]) => mockSentryCaptureException(...args),
@@ -82,6 +83,10 @@ jest.mock('../config/env', () => ({
 jest.mock('../services/signup.service', () => ({
   createNewUser: jest.fn(),
   verifyEmailAvailable: jest.fn(),
+}));
+
+jest.mock('../services/email-verification.service', () => ({
+  startEmailVerification: (...args: unknown[]) => mockStartEmailVerification(...args),
 }));
 
 import router from './mobile.route';
@@ -294,6 +299,22 @@ describe('POST /mobile/apple', () => {
     );
   });
 
+  it('sends a verification email for a new account created from the client email', async () => {
+    const mockUser = { id: 'u1', email: 'client@user.com', name: null, avatarUrl: null, emailVerified: null };
+    mockVerifyAppleIdentityToken.mockResolvedValue({ sub: 'apple-001', email_verified: 'false' });
+    mockEnsureUserFromApple.mockResolvedValue({ user: mockUser, wasCreated: true });
+
+    const req = {
+      body: { identityToken: 'valid-token', user: { email: 'client@user.com' } },
+      ip: '127.0.0.1',
+      headers: {},
+    } as unknown as Request;
+
+    await invokeHandler(handler, req, createMockResponse() as unknown as Response);
+
+    expect(mockStartEmailVerification).toHaveBeenCalledWith(mockUser);
+  });
+
   it('should return tokens and user on success', async () => {
     const mockUser = { id: 'u1', email: 'jane@example.com', name: 'Jane Doe', avatarUrl: null };
     mockVerifyAppleIdentityToken.mockResolvedValue({
@@ -324,6 +345,7 @@ describe('POST /mobile/apple', () => {
       },
     });
     expect(mockUpdateLastAuthAt).toHaveBeenCalledWith('u1');
+    expect(mockStartEmailVerification).not.toHaveBeenCalled();
   });
 
   it('should return 401 when Apple token verification fails and log the reason', async () => {

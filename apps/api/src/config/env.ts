@@ -50,4 +50,11 @@ export const config = {
    * RevenueCat webhook authorization key for verifying inbound IAP webhooks.
    */
   revenuecatWebhookAuthKey: process.env.REVENUECAT_WEBHOOK_AUTH_KEY,
+
+  /**
+   * Cloudflare Turnstile secret for the web signup challenge. Unset means
+   * the check is skipped (local dev, and the window before the web build
+   * that sends tokens is live). See lib/turnstile.ts.
+   */
+  turnstileSecretKey: process.env.TURNSTILE_SECRET_KEY || undefined,
 } as const;

@@ -63,6 +63,14 @@ jest.mock('../services/signup.service', () => ({
   verifyEmailAvailable: jest.fn(),
 }));
 
+jest.mock('../services/email-verification.service', () => ({
+  startEmailVerification: jest.fn().mockResolvedValue(undefined),
+}));
+
+jest.mock('../lib/turnstile', () => ({
+  verifyTurnstileToken: jest.fn().mockResolvedValue({ ok: true }),
+}));
+
 jest.mock('../lib/logger', () => ({
   logger: { error: jest.fn(), info: jest.fn(), warn: jest.fn(), debug: jest.fn() },
 }));
@@ -78,6 +86,9 @@ import {
 import { validateEmailFormat } from './email.utils';
 import { hashPassword, validatePassword } from './password.utils';
 import { logger } from '../lib/logger';
+import { createNewUser, verifyEmailAvailable } from '../services/signup.service';
+import { startEmailVerification } from '../services/email-verification.service';
+import { verifyTurnstileToken } from '../lib/turnstile';
 
 const mockPrisma = prisma as jest.Mocked<typeof prisma>;
 const mockUserFindUnique = mockPrisma.user.findUnique as unknown as jest.Mock;
@@ -91,6 +102,10 @@ const mockHashPassword = hashPassword as jest.Mock;
 const mockValidatePassword = validatePassword as jest.Mock;
 const mockLoggerWarn = logger.warn as unknown as jest.Mock;
 const mockLoggerInfo = logger.info as unknown as jest.Mock;
+const mockCreateNewUser = createNewUser as jest.Mock;
+const mockVerifyEmailAvailable = verifyEmailAvailable as jest.Mock;
+const mockStartEmailVerification = startEmailVerification as jest.Mock;
+const mockVerifyTurnstile = verifyTurnstileToken as jest.Mock;
 
 interface RouteLayer {
   route?: {
@@ -143,6 +158,63 @@ beforeEach(() => {
   mockValidateEmailFormat.mockReturnValue(true);
   mockValidatePassword.mockReturnValue({ isValid: true });
   mockHashPassword.mockResolvedValue('hashed_new_password');
+  mockVerifyTurnstile.mockResolvedValue({ ok: true });
+});
+
+// ============================================================================
+// POST /signup
+// ============================================================================
+
+describe('POST /signup', () => {
+  const handler = getHandler('/signup', 'post');
+  const body = { email: 'rider@example.com', name: 'Alex', password: 'NewPass123!', turnstileToken: 'ts' };
+
+  it('checks the per-minute and the daily per-IP limits', async () => {
+    mockVerifyEmailAvailable.mockResolvedValue({ available: true, email: 'rider@example.com' });
+    mockCreateNewUser.mockResolvedValue({ user: { id: 'user_1', email: 'rider@example.com' } });
+    const res = createMockResponse();
+
+    await invokeHandler(handler, createMockRequest({ body }) as Request, res as unknown as Response);
+
+    expect(mockCheckAuthRateLimit).toHaveBeenCalledWith('signup', '1.2.3.4');
+    expect(mockCheckAuthRateLimit).toHaveBeenCalledWith('signup-daily', '1.2.3.4');
+  });
+
+  it('returns 429 without creating a user when the daily limit is spent', async () => {
+    mockCheckAuthRateLimit.mockImplementation(async (op: string) =>
+      op === 'signup-daily' ? { allowed: false, retryAfter: 3600 } : { allowed: true }
+    );
+    const res = createMockResponse();
+
+    await invokeHandler(handler, createMockRequest({ body }) as Request, res as unknown as Response);
+
+    expect(res.status).toHaveBeenCalledWith(429);
+    expect(mockCreateNewUser).not.toHaveBeenCalled();
+  });
+
+  it('refuses a failed bot challenge before looking up the email', async () => {
+    mockVerifyTurnstile.mockResolvedValue({ ok: false, errorCodes: ['invalid-input-response'] });
+    const res = createMockResponse();
+
+    await invokeHandler(handler, createMockRequest({ body }) as Request, res as unknown as Response);
+
+    expect(mockVerifyTurnstile).toHaveBeenCalledWith('ts', '1.2.3.4');
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ code: 'CHALLENGE_FAILED' }));
+    expect(mockVerifyEmailAvailable).not.toHaveBeenCalled();
+    expect(mockCreateNewUser).not.toHaveBeenCalled();
+  });
+
+  it('creates the user, starts email verification and returns 201', async () => {
+    mockVerifyEmailAvailable.mockResolvedValue({ available: true, email: 'rider@example.com' });
+    mockCreateNewUser.mockResolvedValue({ user: { id: 'user_1', email: 'rider@example.com' } });
+    const res = createMockResponse();
+
+    await invokeHandler(handler, createMockRequest({ body }) as Request, res as unknown as Response);
+
+    expect(res.status).toHaveBeenCalledWith(201);
+    expect(mockStartEmailVerification).toHaveBeenCalledWith({ id: 'user_1', email: 'rider@example.com' });
+  });
 });
 
 // ============================================================================
@@ -392,6 +464,7 @@ describe('POST /reset-password', () => {
         id: 'user_1',
         email: 'rider@example.com',
         name: 'Alex',
+        emailVerified: null,
       });
       mockUserUpdate.mockResolvedValue({});
 
@@ -406,10 +479,31 @@ describe('POST /reset-password', () => {
         data: {
           passwordHash: 'hashed_new_password',
           mustChangePassword: false,
+          // The reset link proved the inbox, so an unverified address becomes verified.
+          emailVerified: expect.any(Date),
           sessionTokenVersion: { increment: 1 },
         },
       });
       expect(res.json).toHaveBeenCalledWith({ ok: true });
+    });
+
+    it('keeps an existing emailVerified timestamp', async () => {
+      const verifiedAt = new Date('2026-01-01T00:00:00Z');
+      mockConsumeToken.mockResolvedValue({ ok: true, userId: 'user_1' });
+      mockUserFindUnique.mockResolvedValue({
+        id: 'user_1',
+        email: 'rider@example.com',
+        name: 'Alex',
+        emailVerified: verifiedAt,
+      });
+      mockUserUpdate.mockResolvedValue({});
+
+      const req = createMockRequest({ body: { token: 't', newPassword: 'NewPass123!' } });
+      await invokeHandler(handler, req as Request, createMockResponse() as unknown as Response);
+
+      expect(mockUserUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ emailVerified: verifiedAt }) })
+      );
     });
 
     it('defensively rejects if the user has vanished between token consumption and update', async () => {
