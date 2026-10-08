@@ -45,7 +45,7 @@ async function ensureUserFromAppleInner(
     const user = await tx.user.findUnique({ where: { email: trustedEmail } });
 
     if (user) {
-      await secureAccountBeforeLinking(tx, user, 'apple', claims.email_verified);
+      secureAccountBeforeLinking(user, 'apple', claims.email_verified);
 
       // User exists and is activated — update profile and link Apple account
       const needsNameUpdate = !user.name && claims.name;

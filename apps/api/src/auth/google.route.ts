@@ -1,7 +1,12 @@
 import express from 'express';
 import { OAuth2Client } from 'google-auth-library';
 import { ensureUserFromGoogle } from './ensureUserFromGoogle';
-import { UnverifiedProviderEmailError, UNVERIFIED_PROVIDER_EMAIL_MESSAGE } from './account-linking';
+import {
+  ProviderLinkNeedsPasswordError,
+  UnverifiedProviderEmailError,
+  UNVERIFIED_PROVIDER_EMAIL_MESSAGE,
+} from './account-linking';
+import { sendLinkNeedsPassword } from './provider-link';
 import { clearSessionCookie } from './session';
 import { issueWebSession } from './session-issuer';
 import { setCsrfCookie, clearCsrfCookie } from './csrf';
@@ -23,6 +28,7 @@ const client = new OAuth2Client({
 });
 
 router.post('/google/code', express.json(), async (req, res) => {
+  let identity: { sub: string; name?: string | null; picture?: string | null } | undefined;
   try {
     const { credential } = req.body as { credential?: string };
     if (!credential) return res.status(400).send('Missing credential');
@@ -34,6 +40,7 @@ router.post('/google/code', express.json(), async (req, res) => {
     });
     const p = ticket.getPayload();
     if (!p?.sub) return res.status(401).send('Invalid Google token');
+    identity = { sub: p.sub, name: p.name, picture: p.picture };
 
     const { user } = await ensureUserFromGoogle({
       sub: p.sub,
@@ -56,6 +63,9 @@ router.post('/google/code', express.json(), async (req, res) => {
   } catch (e) {
     if (e instanceof UnverifiedProviderEmailError) {
       return res.status(401).send(UNVERIFIED_PROVIDER_EMAIL_MESSAGE);
+    }
+    if (e instanceof ProviderLinkNeedsPasswordError && identity) {
+      return sendLinkNeedsPassword(res, e, identity);
     }
     logger.error({ err: e }, '[GoogleAuth] ID-token login failed');
     res.status(500).send('Auth failed');

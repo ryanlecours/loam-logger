@@ -48,6 +48,7 @@ const CSRF_EXEMPT_PATHS = new Set([
   '/auth/google/code',     // Google OAuth login - creates session
   '/auth/signup',          // Email signup - creates session
   '/auth/login',           // Email login - creates session
+  '/auth/link-provider',   // Google link after password check - creates session
   '/auth/garmin/callback', // Garmin OAuth callback - creates session
   '/auth/strava/callback', // Strava OAuth callback - creates session
   // Garmin webhooks. NOT signature-verified today, despite what this list's
