@@ -412,6 +412,7 @@ export type Component = {
   serviceDueAtHours?: Maybe<Scalars['Float']['output']>;
   serviceExtensionHours?: Maybe<Scalars['Float']['output']>;
   serviceLogs: Array<ServiceLog>;
+  shares: Array<ComponentShare>;
   status: ComponentStatus;
   type: ComponentType;
   updatedAt: Scalars['String']['output'];
@@ -544,6 +545,22 @@ export type ComponentRidesPayload = {
   hoursUsed: Scalars['Float']['output'];
 };
 
+export type ComponentShare = {
+  __typename?: 'ComponentShare';
+  createdAt: Scalars['String']['output'];
+  id: Scalars['ID']['output'];
+  rangeEnd?: Maybe<Scalars['String']['output']>;
+  rangeStart?: Maybe<Scalars['String']['output']>;
+  scope: ComponentShareScope;
+  url: Scalars['String']['output'];
+};
+
+export enum ComponentShareScope {
+  Lifetime = 'LIFETIME',
+  Range = 'RANGE',
+  SinceService = 'SINCE_SERVICE'
+}
+
 export type ComponentSnapshot = {
   __typename?: 'ComponentSnapshot';
   brand: Scalars['String']['output'];
@@ -630,6 +647,13 @@ export type ConnectedAccount = {
   provider: Scalars['String']['output'];
 };
 
+export type CreateComponentShareInput = {
+  componentId: Scalars['ID']['input'];
+  rangeEnd?: InputMaybe<Scalars['String']['input']>;
+  rangeStart?: InputMaybe<Scalars['String']['input']>;
+  scope: ComponentShareScope;
+};
+
 export type CreateStravaGearMappingInput = {
   bikeId: Scalars['ID']['input'];
   stravaGearId: Scalars['String']['input'];
@@ -711,6 +735,7 @@ export type Mutation = {
   completeCalibration: User;
   createBillingPortalSession: BillingPortalResult;
   createCheckoutSession: CheckoutSessionResult;
+  createComponentShare: ComponentShare;
   createStravaGearMapping: StravaGearMapping;
   deleteBike: DeleteResult;
   deleteBikeComponentInstall: Scalars['Boolean']['output'];
@@ -734,6 +759,7 @@ export type Mutation = {
   requestRideTrack: RideTrack;
   resetCalibration: User;
   retireBike: Bike;
+  revokeComponentShare: Scalars['Boolean']['output'];
   selectBikeForDowngrade: Bike;
   setComponentRideAdjustment: ComponentRideAdjustmentResult;
   snoozeComponent: Component;
@@ -834,6 +860,11 @@ export type MutationCreateCheckoutSessionArgs = {
 };
 
 
+export type MutationCreateComponentShareArgs = {
+  input: CreateComponentShareInput;
+};
+
+
 export type MutationCreateStravaGearMappingArgs = {
   input: CreateStravaGearMappingInput;
 };
@@ -923,6 +954,11 @@ export type MutationRequestRideTrackArgs = {
 export type MutationRetireBikeArgs = {
   id: Scalars['ID']['input'];
   status: BikeStatus;
+};
+
+
+export type MutationRevokeComponentShareArgs = {
+  id: Scalars['ID']['input'];
 };
 
 
@@ -1076,6 +1112,7 @@ export type Query = {
   rides: Array<Ride>;
   servicePreferenceDefaults: Array<ServicePreferenceDefault>;
   sharedBikeHistory?: Maybe<SharedBikeHistory>;
+  sharedComponentHistory?: Maybe<SharedComponentHistory>;
   stravaGearMappings: Array<StravaGearMapping>;
   unassignedRideCount: Scalars['Int']['output'];
   unassignedRideSummary: UnassignedRideSummary;
@@ -1148,6 +1185,11 @@ export type QueryRidesArgs = {
 
 
 export type QuerySharedBikeHistoryArgs = {
+  slug: Scalars['String']['input'];
+};
+
+
+export type QuerySharedComponentHistoryArgs = {
   slug: Scalars['String']['input'];
 };
 
@@ -1420,6 +1462,53 @@ export type SharedComponent = {
   location: ComponentLocation;
   model: Scalars['String']['output'];
   type: ComponentType;
+};
+
+export type SharedComponentBike = {
+  __typename?: 'SharedComponentBike';
+  manufacturer: Scalars['String']['output'];
+  model: Scalars['String']['output'];
+  thumbnailUrl?: Maybe<Scalars['String']['output']>;
+  year?: Maybe<Scalars['Int']['output']>;
+};
+
+export type SharedComponentHistory = {
+  __typename?: 'SharedComponentHistory';
+  bikes: Array<SharedComponentTenure>;
+  component: SharedComponentInfo;
+  contributingSources: Array<Scalars['String']['output']>;
+  cumulative: Array<ComponentCumulativePoint>;
+  declaredPriorHours: Scalars['Float']['output'];
+  logbook: Array<SharedComponentLogEntry>;
+  scope: ComponentShareScope;
+  totals: ComponentUsageTotals;
+  windowEnd?: Maybe<Scalars['String']['output']>;
+  windowStart?: Maybe<Scalars['String']['output']>;
+};
+
+export type SharedComponentInfo = {
+  __typename?: 'SharedComponentInfo';
+  brand: Scalars['String']['output'];
+  isStock: Scalars['Boolean']['output'];
+  location: ComponentLocation;
+  model: Scalars['String']['output'];
+  type: ComponentType;
+};
+
+export type SharedComponentLogEntry = {
+  __typename?: 'SharedComponentLogEntry';
+  hoursAtService: Scalars['Float']['output'];
+  kind: ServiceLogKind;
+  performedAt: Scalars['String']['output'];
+  serviceExtensionHours?: Maybe<Scalars['Float']['output']>;
+};
+
+export type SharedComponentTenure = {
+  __typename?: 'SharedComponentTenure';
+  bike?: Maybe<SharedComponentBike>;
+  installedAt: Scalars['String']['output'];
+  removedAt?: Maybe<Scalars['String']['output']>;
+  totals: ComponentUsageTotals;
 };
 
 export type SharedInstallEvent = {

@@ -78,6 +78,7 @@ model User {
   passwordResetTokens      PasswordResetToken[]
   componentRideAdjustments ComponentRideAdjustment[]
   mobileSessions           MobileSession[]
+  componentShares          ComponentShare[]
 
   // Push notification preferences
   expoPushToken      String?
@@ -505,6 +506,7 @@ model Component {
   notificationLogs NotificationLog[]
   installs         BikeComponentInstall[]
   rideAdjustments  ComponentRideAdjustment[]
+  shares           ComponentShare[]
 
   // Self-referential relation for replacement chain
   replacedBy Component? @relation("ComponentReplacement", fields: [replacedById], references: [id])
@@ -547,6 +549,36 @@ model BikeComponentInstall {
 /// The old model wrote a zero-hour ServiceLog on every install purely to move
 /// the prediction anchor, which put fictional work in the rider's logbook and
 /// asserted (falsely, for a used part) that it had zero hours at that moment.
+/// What a component share link shows. LIFETIME and SINCE_SERVICE stay live:
+/// they always describe the part as it is now. RANGE is the fixed window in
+/// rangeStart..rangeEnd.
+enum ComponentShareScope {
+  LIFETIME
+  SINCE_SERVICE
+  RANGE
+}
+
+/// A public, read-only link to one window of a component's history
+/// (loamlogger.app/share/component/<slug>). Each link is locked to its scope:
+/// the viewer sees that window and nothing wider. Revoking deletes the row.
+model ComponentShare {
+  id          String              @id @default(uuid())
+  /// Unguessable random token, the only thing the public URL carries.
+  slug        String              @unique
+  componentId String
+  component   Component           @relation(fields: [componentId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  scope       ComponentShareScope
+  /// RANGE only: the window, as [rangeStart, rangeEnd).
+  rangeStart  DateTime?
+  rangeEnd    DateTime?
+  createdAt   DateTime            @default(now())
+
+  @@index([componentId])
+  @@index([userId])
+}
+
 model ServiceLog {
   id          String         @id @default(uuid())
   component   Component      @relation(fields: [componentId], references: [id], onDelete: Cascade)

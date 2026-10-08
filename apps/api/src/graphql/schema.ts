@@ -350,6 +350,9 @@ export const typeDefs = gql`
     # "last serviced" metadata avoid pulling a component's entire service
     # history over the wire.
     latestServiceLog: ServiceLog
+    # The owner's share links for this component, newest first. Empty for
+    # anyone else.
+    shares: [ComponentShare!]!
     createdAt: String!
     updatedAt: String!
     # Front/rear pairing support
@@ -1323,6 +1326,11 @@ export const typeDefs = gql`
     # service is due \`hours\` later (default: half the service interval). Kept
     # under this name for released clients.
     snoozeComponent(id: ID!, hours: Float): Component!
+    # Create a public link to one window of a component's history. Asking again
+    # for a scope that already has a link returns that link.
+    createComponentShare(input: CreateComponentShareInput!): ComponentShare!
+    # Revoke a share link. Its URL stops working at once.
+    revokeComponentShare(id: ID!): Boolean!
     # Per-ride attribution corrections. EXCLUDE removes an on-bike ride's
     # hours from the component; INCLUDE applies a ride from another bike
     # (or unassigned) to it. Setting flips an existing row; clearing a
@@ -1616,6 +1624,87 @@ export const typeDefs = gql`
     component: SharedComponent!
   }
 
+  # What a component share link shows. LIFETIME and SINCE_SERVICE stay live;
+  # RANGE is a fixed window.
+  enum ComponentShareScope {
+    LIFETIME
+    SINCE_SERVICE
+    RANGE
+  }
+
+  # One of the owner's share links for a component. Each is locked to its scope:
+  # the viewer sees that window and nothing wider.
+  type ComponentShare {
+    id: ID!
+    scope: ComponentShareScope!
+    # RANGE only: the window, as [rangeStart, rangeEnd).
+    rangeStart: String
+    rangeEnd: String
+    url: String!
+    createdAt: String!
+  }
+
+  input CreateComponentShareInput {
+    componentId: ID!
+    scope: ComponentShareScope!
+    # RANGE only, ISO timestamps: [rangeStart, rangeEnd). No earlier than the
+    # component's install date, no later than today.
+    rangeStart: String
+    rangeEnd: String
+  }
+
+  # Public, sanitized component-history shapes for /share/component/<slug>.
+  # Deliberately excludes owner identity, notes, bike nicknames and ids,
+  # per-ride rows and weather (Pro-gated, and a date window over it could be
+  # narrowed to single rides).
+  type SharedComponentInfo {
+    type: ComponentType!
+    location: ComponentLocation!
+    brand: String!
+    model: String!
+    isStock: Boolean!
+  }
+
+  type SharedComponentBike {
+    manufacturer: String!
+    model: String!
+    year: Int
+    thumbnailUrl: String
+  }
+
+  type SharedComponentTenure {
+    # Null when the bike has since been deleted.
+    bike: SharedComponentBike
+    installedAt: String!
+    removedAt: String
+    # This tenure's share of the window.
+    totals: ComponentUsageTotals!
+  }
+
+  type SharedComponentLogEntry {
+    performedAt: String!
+    kind: ServiceLogKind!
+    hoursAtService: Float!
+    serviceExtensionHours: Float
+  }
+
+  type SharedComponentHistory {
+    component: SharedComponentInfo!
+    scope: ComponentShareScope!
+    # The window shown: null start means from the beginning, null end means now.
+    windowStart: String
+    windowEnd: String
+    totals: ComponentUsageTotals!
+    # Declared pre-Loam hours included in totals.durationSeconds; 0 when none.
+    declaredPriorHours: Float!
+    bikes: [SharedComponentTenure!]!
+    logbook: [SharedComponentLogEntry!]!
+    cumulative: [ComponentCumulativePoint!]!
+    # Providers whose rides contribute to the numbers above, for the
+    # downstream attribution the Garmin API Brand Guidelines require.
+    contributingSources: [String!]!
+  }
+
   type SharedBikeHistory {
     bike: SharedBike!
     serviceEvents: [SharedServiceEvent!]!
@@ -1677,5 +1766,8 @@ export const typeDefs = gql`
     # Public (unauthenticated) sanitized history for a shared bike.
     # Returns null for unknown or revoked slugs.
     sharedBikeHistory(slug: String!): SharedBikeHistory
+    # Public (unauthenticated) sanitized history for one component share link.
+    # Returns null for unknown or revoked slugs.
+    sharedComponentHistory(slug: String!): SharedComponentHistory
   }
 `;
