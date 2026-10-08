@@ -22,6 +22,10 @@ const CLIENT_ERROR_CODES = new Set([
   // message carries the retryAfter seconds, each distinct value spawned its own
   // issue. Rejections are logged server-side instead (see rate-limit.ts).
   'RATE_LIMITED',
+  // Tier gates are the same: a Free user reaching the bike limit or a Pro-only
+  // action is the paywall doing its job, not a server fault (NODE-T).
+  'TIER_LIMIT_EXCEEDED',
+  'NOT_PRO',
 ]);
 
 function isClientError(err: GraphQLFormattedError): boolean {
