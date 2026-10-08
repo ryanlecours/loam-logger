@@ -56,6 +56,7 @@ type Log = {
   createdAt: Date;
   hoursAtService: number;
   hoursAtServiceDeclared: boolean;
+  serviceExtensionHours?: number | null;
 };
 
 const makeTx = (opts: {
@@ -179,6 +180,39 @@ const OPEN_TENURE = {
 };
 
 describe('computeComponentCounters', () => {
+  // An inspection standing in for a due service starts the next cycle with the
+  // extension the rider granted. The recompute caches it for the engine.
+  it('caches the extension when the latest service-or-inspection is an inspection', async () => {
+    const tx = makeTx({
+      installs: [OPEN_TENURE],
+      rides: [ride('r1', 'bike-1', '2025-02-01T00:00:00Z', 30)],
+      latestService: { hoursAtService: 10 },
+      latestInspection: { hoursAtService: 25, kind: 'INSPECTION', serviceExtensionHours: 12 } as never,
+    });
+
+    const c = await computeComponentCounters(asTx(tx), 'comp-1');
+
+    expect(c).toEqual({
+      lifetimeHours: 30,
+      hoursSinceService: 20,
+      hoursSinceInspection: 5,
+      serviceExtensionHours: 12,
+    });
+  });
+
+  it('caches no extension when the latest of the two is a service', async () => {
+    const tx = makeTx({
+      installs: [OPEN_TENURE],
+      rides: [ride('r1', 'bike-1', '2025-02-01T00:00:00Z', 30)],
+      latestService: { hoursAtService: 25 },
+      latestInspection: { hoursAtService: 25, kind: 'SERVICE', serviceExtensionHours: null } as never,
+    });
+
+    const c = await computeComponentCounters(asTx(tx), 'comp-1');
+
+    expect(c?.serviceExtensionHours).toBeNull();
+  });
+
   it('sums lifetime hours from the tenure ledger', async () => {
     const tx = makeTx({
       installs: [OPEN_TENURE],
@@ -257,7 +291,7 @@ describe('computeComponentCounters', () => {
     });
 
     const c = await computeComponentCounters(asTx(tx), 'comp-1');
-    expect(c).toEqual({ lifetimeHours: 12, hoursSinceService: 12, hoursSinceInspection: 12 });
+    expect(c).toEqual({ lifetimeHours: 12, hoursSinceService: 12, hoursSinceInspection: 12, serviceExtensionHours: null });
   });
 
   it('clamps a since-figure at zero rather than reporting negative hours', async () => {
@@ -358,7 +392,7 @@ describe('service readings in a recompute', () => {
     const c = await recomputeComponentCounters(asTx(tx), 'comp-1');
 
     expect(book[0].hoursAtService).toBe(15);
-    expect(c).toEqual({ lifetimeHours: 17, hoursSinceService: 2, hoursSinceInspection: 2 });
+    expect(c).toEqual({ lifetimeHours: 17, hoursSinceService: 2, hoursSinceInspection: 2, serviceExtensionHours: null });
   });
 
   // A rider's "serviced at 300h" for a pre-Loam service is their statement and
@@ -475,6 +509,42 @@ describe('service readings in a recompute', () => {
   });
 });
 
+// An inspection standing in for a due service grants an extension, and the
+// next real service ends it: the part goes back to its normal interval.
+describe('an inspection extension across the logbook', () => {
+  it('holds after the inspection and ends at the next service', async () => {
+    const book = [
+      log('svc-1', '2025-02-01T12:00:00Z', 0),
+      log('insp', '2025-04-01T12:00:00Z', 0, { kind: 'INSPECTION', serviceExtensionHours: 12 }),
+    ];
+    const tx = makeTx({
+      installs: [OPEN_TENURE],
+      rides: [
+        ride('r1', 'bike-1', '2025-01-15T10:00:00Z', 10),
+        ride('r2', 'bike-1', '2025-03-15T10:00:00Z', 10),
+        ride('r3', 'bike-1', '2025-05-15T10:00:00Z', 10),
+      ],
+      logs: book,
+    });
+
+    expect(await recomputeComponentCounters(asTx(tx), 'comp-1')).toEqual({
+      lifetimeHours: 30,
+      hoursSinceService: 20,
+      hoursSinceInspection: 10,
+      serviceExtensionHours: 12,
+    });
+
+    book.push(log('svc-2', '2025-06-01T12:00:00Z', 0));
+
+    expect(await recomputeComponentCounters(asTx(tx), 'comp-1')).toEqual({
+      lifetimeHours: 30,
+      hoursSinceService: 0,
+      hoursSinceInspection: 0,
+      serviceExtensionHours: null,
+    });
+  });
+});
+
 describe('lifetimeHoursAt', () => {
   it('counts only rides before the given moment', async () => {
     // This is what keeps a backdated service log honest: its lifetime reading
@@ -525,6 +595,7 @@ describe('recomputeComponentCounters', () => {
         lifetimeHours: 40,
         hoursSinceService: 25,
         hoursSinceInspection: 25,
+        serviceExtensionHours: null,
         hoursUsed: 25,
         countersComputedAt: expect.any(Date),
       },

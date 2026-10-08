@@ -73,6 +73,15 @@ export interface ComponentPrediction {
   serviceStatus: PredictionStatus;
 
   /**
+   * When an inspection standing in for a service started the current cycle,
+   * the hours it granted before the next service; null otherwise.
+   */
+  serviceExtensionHours: number | null;
+
+  /** The extension Loam suggests for an inspection logged now: half the interval. */
+  recommendedExtensionHours: number;
+
+  /**
    * Always null. Inspections are optional stand-ins for a due service, not a
    * schedule of their own, so there is no inspection clock to report. Kept so
    * clients that request these fields keep working.

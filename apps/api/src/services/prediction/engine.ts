@@ -1,4 +1,4 @@
-import type { Component, UserRole } from '@prisma/client';
+import type { Component, ComponentLocation, ComponentType, UserRole } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { logError } from '../../lib/logger';
 import type {
@@ -24,6 +24,7 @@ import {
   BASELINE_WEAR_PER_HOUR,
   getBaseInterval,
   getComponentWeights,
+  INSPECTION_EXTENSION_RATIO,
   isTrackableComponent,
 } from './config';
 import {
@@ -209,6 +210,41 @@ function getRidesSinceDateForComponent(
 }
 
 /**
+ * A component's service interval, resolved the way predictComponent resolves
+ * it: the component's own override, then the bike's preference, then the
+ * rider's, then the system default.
+ */
+export async function resolveServiceIntervalHours(component: {
+  userId: string;
+  bikeId: string | null;
+  type: ComponentType;
+  location: ComponentLocation;
+  serviceDueAtHours: number | null;
+}): Promise<number> {
+  if (component.serviceDueAtHours != null) return component.serviceDueAtHours;
+  const bikePref = component.bikeId
+    ? await prisma.bikeServicePreference.findFirst({
+        where: { bikeId: component.bikeId, componentType: component.type },
+        select: { customInterval: true },
+      })
+    : null;
+  if (bikePref?.customInterval != null) return bikePref.customInterval;
+  const userPref = await prisma.userServicePreference.findFirst({
+    where: { userId: component.userId, componentType: component.type },
+    select: { customInterval: true },
+  });
+  return userPref?.customInterval ?? getBaseInterval(component.type, component.location);
+}
+
+/** The extension Loam suggests for an inspection: half the service interval. */
+export async function recommendedInspectionExtensionHours(
+  component: Parameters<typeof resolveServiceIntervalHours>[0]
+): Promise<number> {
+  const interval = await resolveServiceIntervalHours(component);
+  return Math.round(interval * INSPECTION_EXTENSION_RATIO * 10) / 10;
+}
+
+/**
  * Generate prediction for a single component.
  *
  * Simple mode: Deterministic (hoursRemaining = baseInterval - hoursSinceService)
@@ -258,6 +294,18 @@ function predictComponent(
     ? component.hoursSinceService
     : calculateTotalHours(ridesSinceService);
 
+  // An inspection can stand in for a due service when the part is still in good
+  // shape: the rider grants it a number of hours (Loam suggests half the
+  // interval). When the current cycle started with one, the part is due that many
+  // hours after the inspection. The figure is the rider's call, so the adaptive
+  // wear model below does not rescale it. `serviceInterval` restates the due
+  // point from the last service, so "since service / interval" stays readable.
+  const extensionHours = countersComputed ? component.serviceExtensionHours : null;
+  const serviceInterval =
+    extensionHours != null
+      ? Math.max(0, hoursSinceService - component.hoursSinceInspection) + extensionHours
+      : baseInterval;
+
   // Calculate confidence FIRST to decide whether to use adaptive prediction
   const totalHours = calculateTotalHours(recentRides);
   const recentWearPerHour = recentRides.length > 0
@@ -274,6 +322,7 @@ function predictComponent(
   // 3. Has recent rides to analyze
   // 4. Confidence is at least MEDIUM (LOW = insufficient data)
   const useAdaptivePrediction =
+    extensionHours == null &&
     predictionMode === 'predictive' &&
     isPro &&
     recentRides.length > 0 &&
@@ -315,12 +364,13 @@ function predictComponent(
     // here is why ten consecutive overdue rows on the mobile dashboard all read
     // "0h overdue": the sign was thrown away before it reached the string.
   } else {
-    // FREE tier OR LOW confidence: Deterministic prediction using base intervals
-    hoursRemaining = baseInterval - hoursSinceService;
+    // FREE tier, LOW confidence or an inspection's extension: deterministic.
+    hoursRemaining = serviceInterval - hoursSinceService;
   }
 
-  // Determine status
-  const serviceStatus = getStatus(hoursRemaining, baseInterval);
+  // Determine status. After an inspection, "due soon" is judged against the
+  // extension the rider granted, not the full interval.
+  const serviceStatus = getStatus(hoursRemaining, extensionHours ?? baseInterval);
   const ridesRemainingEstimate = estimateRidesRemaining(hoursRemaining, recentRides);
 
   // Health is the service clock alone. Inspections are optional: a rider can
@@ -358,11 +408,13 @@ function predictComponent(
     ridesRemainingEstimate,
     confidence,
     currentHours: Math.round(component.hoursUsed * 10) / 10,
-    serviceIntervalHours: baseInterval,
+    serviceIntervalHours: serviceInterval,
     hoursSinceService: Math.round(hoursSinceService * 10) / 10,
     ridesSinceService: rideCountSinceService,
     lifetimeHours: Math.round((component.lifetimeHours ?? 0) * 10) / 10,
     serviceStatus,
+    serviceExtensionHours: extensionHours,
+    recommendedExtensionHours: Math.round(baseInterval * INSPECTION_EXTENSION_RATIO * 10) / 10,
     inspectionStatus: null,
     inspectionIntervalHours: null,
     hoursSinceInspection: null,

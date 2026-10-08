@@ -25,6 +25,11 @@ type TransactionClient = Omit<
 //   hoursSinceService    = lifetimeHours - latest SERVICE log's hoursAtService
 //   hoursSinceInspection = lifetimeHours - latest SERVICE-or-INSPECTION log's
 //
+// An inspection stands in for a due service when the part is still in good
+// shape: the rider grants it `serviceExtensionHours` more riding. When the latest
+// SERVICE-or-INSPECTION log is an inspection, that extension is cached on the
+// component too, and the part is due once hoursSinceInspection reaches it.
+//
 // Why this shape, and not the old one:
 //
 // The old rule was `rides on component.bikeId since (latest service ?? install)`
@@ -66,13 +71,21 @@ const byLockOrder = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
 /** Which logbook events reset which clock. */
 const SERVICE_KINDS = ['SERVICE'] as const;
-/** A service necessarily involves looking at the part, so it resets both. */
+/**
+ * The events that start a service cycle: a service, or an inspection standing
+ * in for one. A service necessarily involves looking at the part.
+ */
 const INSPECTION_KINDS = ['SERVICE', 'INSPECTION'] as const;
 
 export interface ComponentCounters {
   lifetimeHours: number;
   hoursSinceService: number;
   hoursSinceInspection: number;
+  /**
+   * The extension the current cycle's inspection granted, or null when the
+   * cycle started with a service (or has not started).
+   */
+  serviceExtensionHours: number | null;
 }
 
 /**
@@ -221,7 +234,7 @@ async function deriveCounters(
     (tx as TransactionClient).serviceLog.findFirst({
       where: { componentId, kind: { in: [...INSPECTION_KINDS] } },
       orderBy: [{ performedAt: 'desc' }, { createdAt: 'desc' }],
-      select: { hoursAtService: true },
+      select: { hoursAtService: true, kind: true, serviceExtensionHours: true },
     }),
   ]);
 
@@ -252,6 +265,8 @@ async function deriveCounters(
     lifetimeHours,
     hoursSinceService: since(latestService?.hoursAtService),
     hoursSinceInspection: since(latestInspection?.hoursAtService),
+    serviceExtensionHours:
+      latestInspection?.kind === 'INSPECTION' ? latestInspection.serviceExtensionHours ?? null : null,
   };
 }
 
@@ -274,6 +289,7 @@ async function persistCounters(
       lifetimeHours: counters.lifetimeHours,
       hoursSinceService: counters.hoursSinceService,
       hoursSinceInspection: counters.hoursSinceInspection,
+      serviceExtensionHours: counters.serviceExtensionHours,
       hoursUsed: counters.hoursSinceService,
       countersComputedAt: new Date(),
     },

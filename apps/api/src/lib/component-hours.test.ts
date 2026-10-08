@@ -269,6 +269,7 @@ describe('recomputeComponentHours', () => {
         lifetimeHours: 2.5,
         hoursSinceService: 2.5,
         hoursSinceInspection: 2.5,
+        serviceExtensionHours: null,
         hoursUsed: 2.5,
         countersComputedAt: expect.any(Date),
       },

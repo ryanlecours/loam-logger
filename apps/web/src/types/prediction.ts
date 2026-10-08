@@ -47,6 +47,13 @@ export interface ComponentPrediction {
   serviceIntervalHours: number;
   hoursSinceService: number;
   ridesSinceService: number;
+  /**
+   * When an inspection standing in for a service started the current cycle,
+   * the hours it granted before the next service; null otherwise.
+   */
+  serviceExtensionHours?: number | null;
+  /** The extension Loam suggests for an inspection logged now: half the interval. */
+  recommendedExtensionHours?: number;
   why: string | null;
   drivers: WearDriver[] | null;
 }
