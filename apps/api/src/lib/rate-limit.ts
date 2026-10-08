@@ -365,6 +365,14 @@ export const AUTH_RATE_LIMITS = {
   signup: { windowSeconds: 60, maxRequests: 5 },
   /** oauth-login: max 10 requests per minute per IP (Google/Apple token verification) */
   'oauth-login': { windowSeconds: 60, maxRequests: 10 },
+  /** login: max 10 password attempts per minute per IP (slows password
+   *  guessing from one source; generous enough for a household behind NAT) */
+  login: { windowSeconds: 60, maxRequests: 10 },
+  /** login-email: max 10 password attempts per 15 minutes per account, keyed
+   *  by a hash of the email so it holds against attempts spread across many
+   *  IPs. A deliberate flood can lock that email's password login for the
+   *  window; Google and Apple sign-in are unaffected, which bounds the cost. */
+  'login-email': { windowSeconds: 900, maxRequests: 10 },
   /** public-stats: max 30 requests per minute per IP (cached endpoint, prevent abuse) */
   'public-stats': { windowSeconds: 60, maxRequests: 30 },
   /** reset-password: max 10 requests per minute per IP (prevents token-guessing floods) */
