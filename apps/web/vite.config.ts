@@ -5,13 +5,14 @@ import { nxViteTsPaths } from "@nx/vite/plugins/nx-tsconfig-paths.plugin";
 import { sentryVitePlugin } from "@sentry/vite-plugin";
 import path from "path";
 
-// One release for runtime events and uploaded source maps. CI sets
-// SENTRY_RELEASE; Vercel, which builds the deployed site, provides
-// VERCEL_GIT_COMMIT_SHA. VITE_SENTRY_RELEASE is deliberately not read from
-// the environment: Vercel does not expand `$VAR` references in project env
-// values, so it arrived as the literal "$VERCEL_GIT_COMMIT_SHA".
+// One release for runtime events and uploaded source maps: the commit SHA.
+// Vercel, which builds the deployed site, provides VERCEL_GIT_COMMIT_SHA, and
+// it is checked first because Vercel does not expand `$VAR` references in
+// project env values: VITE_SENTRY_RELEASE arrived as the literal
+// "$VERCEL_GIT_COMMIT_SHA", and the project's SENTRY_RELEASE was set up the
+// same way. CI, which is not Vercel, sets SENTRY_RELEASE to the same SHA.
 const sentryRelease =
-  process.env.SENTRY_RELEASE || process.env.VERCEL_GIT_COMMIT_SHA || "";
+  process.env.VERCEL_GIT_COMMIT_SHA || process.env.SENTRY_RELEASE || "";
 
 export default defineConfig({
   root: __dirname,
