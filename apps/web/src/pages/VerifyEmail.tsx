@@ -25,7 +25,8 @@ export default function VerifyEmail() {
   const navigate = useNavigate();
   const apollo = useApolloClient();
   const [searchParams] = useSearchParams();
-  const token = searchParams.get('token');
+  // Read once: the URL is cleaned below, and the token must outlive that.
+  const [token] = useState(() => searchParams.get('token'));
   const [status, setStatus] = useState<Status>(token ? 'verifying' : 'invalid');
   // StrictMode runs effects twice in development; the token is single use.
   const submitted = useRef(false);
@@ -33,6 +34,9 @@ export default function VerifyEmail() {
   useEffect(() => {
     if (!token || submitted.current) return;
     submitted.current = true;
+    // Drop the token from the address bar so analytics pageviews, history and
+    // anything that reads the URL never see it.
+    navigate('/verify-email', { replace: true });
 
     (async () => {
       try {
@@ -55,7 +59,7 @@ export default function VerifyEmail() {
         setStatus('error');
       }
     })();
-  }, [token, apollo]);
+  }, [token, apollo, navigate]);
 
   const { title, body } = COPY[status];
 

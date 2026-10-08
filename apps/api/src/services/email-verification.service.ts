@@ -41,26 +41,31 @@ function hashToken(rawToken: string): string {
 }
 
 /**
- * Generate a new verification token for a user, invalidating any earlier
- * unused ones so only the newest email's link works.
+ * Store a new verification token for a user. Earlier links keep working
+ * until retireOtherVerificationTokens runs, which issueEmailVerification only
+ * does once the new email is out.
  * Returns the raw token. Only its hash is stored.
  */
-export async function createEmailVerificationToken(userId: string): Promise<string> {
+export async function createEmailVerificationToken(
+  userId: string
+): Promise<{ rawToken: string; tokenId: string }> {
   const rawToken = crypto.randomBytes(TOKEN_BYTES).toString('base64url');
   const tokenHash = hashToken(rawToken);
   const expiresAt = new Date(Date.now() + EMAIL_VERIFICATION_TTL_HOURS * 60 * 60 * 1000);
 
-  await prisma.$transaction([
-    prisma.emailVerificationToken.updateMany({
-      where: { userId, usedAt: null },
-      data: { usedAt: new Date() },
-    }),
-    prisma.emailVerificationToken.create({
-      data: { userId, tokenHash, expiresAt },
-    }),
-  ]);
+  const { id } = await prisma.emailVerificationToken.create({
+    data: { userId, tokenHash, expiresAt },
+    select: { id: true },
+  });
+  return { rawToken, tokenId: id };
+}
 
-  return rawToken;
+/** Invalidate every unused token for a user except the one just sent. */
+export async function retireOtherVerificationTokens(userId: string, keepTokenId: string): Promise<void> {
+  await prisma.emailVerificationToken.updateMany({
+    where: { userId, usedAt: null, id: { not: keepTokenId } },
+    data: { usedAt: new Date() },
+  });
 }
 
 /** The link in the email lands on the web app's verify-email page. */
@@ -98,14 +103,28 @@ export async function sendEmailVerificationEmail(
 }
 
 /**
- * Issue a token and send the email for a freshly created account. Never
- * throws: a failed send must not fail the signup, and the rider can resend
- * from the app.
+ * Issue a token, send it, and only then retire older links, so only the
+ * newest email's link works. If the send fails, the link already in the
+ * rider's inbox keeps working; the unsent token just expires. Throws on
+ * failure.
+ */
+export async function issueEmailVerification(
+  user: EmailVerificationUser,
+  triggerSource: TriggerSource
+): Promise<void> {
+  const { rawToken, tokenId } = await createEmailVerificationToken(user.id);
+  await sendEmailVerificationEmail(user, rawToken, triggerSource);
+  await retireOtherVerificationTokens(user.id, tokenId);
+}
+
+/**
+ * Send the verification email for a freshly created account. Never throws:
+ * a failed send must not fail the signup, and the rider can resend from the
+ * app.
  */
 export async function startEmailVerification(user: EmailVerificationUser): Promise<void> {
   try {
-    const rawToken = await createEmailVerificationToken(user.id);
-    await sendEmailVerificationEmail(user, rawToken, 'user_action');
+    await issueEmailVerification(user, 'user_action');
   } catch (err) {
     logger.error({ err, userId: user.id }, 'Failed to send email verification email');
   }

@@ -39,6 +39,7 @@ import {
   cleanupExpiredEmailVerificationTokens,
   consumeEmailVerificationToken,
   createEmailVerificationToken,
+  issueEmailVerification,
   needsEmailVerification,
   sendEmailVerificationEmail,
   startEmailVerification,
@@ -55,7 +56,7 @@ const past = () => new Date(Date.now() - 60 * 1000);
 beforeEach(() => {
   jest.clearAllMocks();
   tokens.updateMany.mockResolvedValue({ count: 1 });
-  tokens.create.mockResolvedValue({});
+  tokens.create.mockResolvedValue({ id: 'new_token' });
   users.updateMany.mockResolvedValue({ count: 1 });
   mockSend.mockResolvedValue({ messageId: 'mid_1', status: 'sent' });
 });
@@ -70,13 +71,11 @@ describe('needsEmailVerification', () => {
 });
 
 describe('createEmailVerificationToken', () => {
-  it('invalidates earlier unused tokens and stores only the hash', async () => {
-    const raw = await createEmailVerificationToken('user_1');
+  it('stores only the hash and leaves earlier links alone', async () => {
+    const { rawToken: raw, tokenId } = await createEmailVerificationToken('user_1');
 
-    expect(tokens.updateMany).toHaveBeenCalledWith({
-      where: { userId: 'user_1', usedAt: null },
-      data: { usedAt: expect.any(Date) },
-    });
+    expect(tokenId).toBe('new_token');
+    expect(tokens.updateMany).not.toHaveBeenCalled();
     const created = tokens.create.mock.calls[0][0].data;
     expect(created.userId).toBe('user_1');
     expect(created.tokenHash).toBe(sha256(raw));
@@ -106,6 +105,30 @@ describe('sendEmailVerificationEmail', () => {
         bypassUnsubscribe: true,
       })
     );
+  });
+});
+
+describe('issueEmailVerification', () => {
+  it('retires older links only after the new email is sent', async () => {
+    await issueEmailVerification({ id: 'user_1', email: 'rider@example.com' }, 'user_action');
+
+    expect(mockSend).toHaveBeenCalled();
+    expect(tokens.updateMany).toHaveBeenCalledWith({
+      where: { userId: 'user_1', usedAt: null, id: { not: 'new_token' } },
+      data: { usedAt: expect.any(Date) },
+    });
+    expect(mockSend.mock.invocationCallOrder[0]).toBeLessThan(
+      tokens.updateMany.mock.invocationCallOrder[0]
+    );
+  });
+
+  it('keeps the earlier link working when the send fails', async () => {
+    mockSend.mockRejectedValue(new Error('resend down'));
+
+    await expect(
+      issueEmailVerification({ id: 'user_1', email: 'rider@example.com' }, 'user_action')
+    ).rejects.toThrow('resend down');
+    expect(tokens.updateMany).not.toHaveBeenCalled();
   });
 });
 

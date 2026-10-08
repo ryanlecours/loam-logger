@@ -22,6 +22,14 @@ if (!config.turnstileSecretKey && config.isProduction) {
  * A missing or rejected token fails the check. Cloudflare being unreachable
  * does not: an outage there should not stop real riders signing up, and a bot
  * cannot cause one. The signup rate limits still apply either way.
+ *
+ * Any non-2xx answer counts as unreachable too, 4xx included. Siteverify
+ * reports a bad token, and a bad secret, as 200 with success false, so those
+ * still fail closed. A 4xx means the request itself was malformed, which is
+ * our bug, and failing closed on it would refuse every web signup. The
+ * accepted cost: if something made siteverify return errors for our server,
+ * signups would pass unchallenged, bounded by the per-IP minute and daily
+ * limits, until the Sentry warning below is noticed.
  */
 export async function verifyTurnstileToken(
   token: string | undefined,

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router';
+import { MemoryRouter, useLocation } from 'react-router';
 import VerifyEmail from './VerifyEmail';
 
 const mockRefetchQueries = vi.fn().mockResolvedValue([]);
@@ -10,10 +10,16 @@ vi.mock('@apollo/client', () => ({
 
 const mockFetch = vi.fn();
 
+function LocationProbe() {
+  const location = useLocation();
+  return <div data-testid="location">{location.pathname + location.search}</div>;
+}
+
 function renderAt(path: string) {
   return render(
     <MemoryRouter initialEntries={[path]}>
       <VerifyEmail />
+      <LocationProbe />
     </MemoryRouter>
   );
 }
@@ -39,6 +45,15 @@ describe('VerifyEmail', () => {
     expect(url).toMatch(/\/auth\/verify-email$/);
     expect(JSON.parse(init.body)).toEqual({ token: 'abc' });
     await waitFor(() => expect(mockRefetchQueries).toHaveBeenCalled());
+  });
+
+  it('removes the token from the URL', async () => {
+    apiReturns(200, { ok: true });
+
+    renderAt('/verify-email?token=abc');
+
+    await screen.findByText('Email confirmed');
+    expect(screen.getByTestId('location')).toHaveTextContent(/^\/verify-email$/);
   });
 
   it('explains an expired link', async () => {

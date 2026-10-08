@@ -6,9 +6,8 @@ import { sendBadRequest, sendInternalError, sendTooManyRequests, sendUnauthorize
 import { logger } from '../lib/logger';
 import {
   consumeEmailVerificationToken,
-  createEmailVerificationToken,
+  issueEmailVerification,
   needsEmailVerification,
-  sendEmailVerificationEmail,
 } from '../services/email-verification.service';
 
 const router = express.Router();
@@ -82,8 +81,7 @@ router.post('/resend-verification', async (req, res) => {
       return res.json({ ok: true, alreadyVerified: true });
     }
 
-    const rawToken = await createEmailVerificationToken(user.id);
-    await sendEmailVerificationEmail(user, rawToken, 'user_action');
+    await issueEmailVerification(user, 'user_action');
     return res.json({ ok: true, alreadyVerified: false });
   } catch (e) {
     logger.error({ err: e }, '[EmailVerification] Resend failed');

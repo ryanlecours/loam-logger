@@ -2,8 +2,7 @@ import type { Request, Response, NextFunction, RequestHandler } from 'express';
 
 const mockCheckAuthRateLimit = jest.fn();
 const mockConsume = jest.fn();
-const mockCreateToken = jest.fn();
-const mockSendEmail = jest.fn();
+const mockIssue = jest.fn();
 const mockUserFindUnique = jest.fn();
 
 jest.mock('../lib/rate-limit', () => ({
@@ -16,8 +15,7 @@ jest.mock('../lib/prisma', () => ({
 
 jest.mock('../services/email-verification.service', () => ({
   consumeEmailVerificationToken: (...args: unknown[]) => mockConsume(...args),
-  createEmailVerificationToken: (...args: unknown[]) => mockCreateToken(...args),
-  sendEmailVerificationEmail: (...args: unknown[]) => mockSendEmail(...args),
+  issueEmailVerification: (...args: unknown[]) => mockIssue(...args),
   needsEmailVerification: (u: { emailVerificationRequired: boolean; emailVerified: Date | null }) =>
     u.emailVerificationRequired && !u.emailVerified,
 }));
@@ -125,7 +123,7 @@ describe('POST /resend-verification', () => {
     const res = await call(handler, {});
 
     expect(res.status).toHaveBeenCalledWith(401);
-    expect(mockSendEmail).not.toHaveBeenCalled();
+    expect(mockIssue).not.toHaveBeenCalled();
   });
 
   it('rate limits per user, not per IP', async () => {
@@ -135,7 +133,7 @@ describe('POST /resend-verification', () => {
 
     expect(mockCheckAuthRateLimit).toHaveBeenCalledWith('resend-verification', 'user_1');
     expect(res.status).toHaveBeenCalledWith(429);
-    expect(mockSendEmail).not.toHaveBeenCalled();
+    expect(mockIssue).not.toHaveBeenCalled();
   });
 
   it('sends nothing to an account that does not need verifying', async () => {
@@ -149,7 +147,7 @@ describe('POST /resend-verification', () => {
     const res = await call(handler, signedIn);
 
     expect(res.json).toHaveBeenCalledWith({ ok: true, alreadyVerified: true });
-    expect(mockCreateToken).not.toHaveBeenCalled();
+    expect(mockIssue).not.toHaveBeenCalled();
   });
 
   it('issues a fresh token and sends it', async () => {
@@ -160,12 +158,11 @@ describe('POST /resend-verification', () => {
       emailVerificationRequired: true,
     };
     mockUserFindUnique.mockResolvedValue(user);
-    mockCreateToken.mockResolvedValue('raw');
+    mockIssue.mockResolvedValue(undefined);
 
     const res = await call(handler, signedIn);
 
-    expect(mockCreateToken).toHaveBeenCalledWith('user_1');
-    expect(mockSendEmail).toHaveBeenCalledWith(user, 'raw', 'user_action');
+    expect(mockIssue).toHaveBeenCalledWith(user, 'user_action');
     expect(res.json).toHaveBeenCalledWith({ ok: true, alreadyVerified: false });
   });
 });
