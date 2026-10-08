@@ -4561,6 +4561,14 @@ describe('GraphQL Resolvers', () => {
         expect(create).not.toHaveBeenCalled();
       });
 
+      // Zero would make the part due the moment the inspection is saved.
+      it('rejects a zero extension', async () => {
+        await expect(log({ kind: 'INSPECTION', serviceExtensionHours: 0 })).rejects.toMatchObject({
+          extensions: { code: 'BAD_USER_INPUT' },
+        });
+        expect(create).not.toHaveBeenCalled();
+      });
+
       it('records no extension on a service', async () => {
         await log({});
 
@@ -4619,6 +4627,18 @@ describe('GraphQL Resolvers', () => {
         await mutation({}, { id: 'log-1', input: { serviceExtensionHours: 10 } }, createMockContext('user-123') as never);
 
         expect(create).toHaveBeenCalledWith({ where: { id: 'log-1' }, data: { serviceExtensionHours: 10 } });
+      });
+
+      it('rejects a zero extension', async () => {
+        mockLogFindUnique.mockResolvedValue({
+          id: 'log-1', kind: 'INSPECTION', hoursAtService: 40, serviceExtensionHours: 25,
+          component: { id: 'comp-1', userId: 'user-123', bikeId: 'bike-1' },
+        });
+
+        await expect(
+          mutation({}, { id: 'log-1', input: { serviceExtensionHours: 0 } }, createMockContext('user-123') as never)
+        ).rejects.toMatchObject({ extensions: { code: 'BAD_USER_INPUT' } });
+        expect(create).not.toHaveBeenCalled();
       });
 
       it('rejects an extension on a service log', async () => {

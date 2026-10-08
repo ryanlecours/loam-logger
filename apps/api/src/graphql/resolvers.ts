@@ -374,6 +374,21 @@ function assertHoursInRange(field: string, value: number): void {
   }
 }
 
+/**
+ * An inspection's extension: hours of riding until the next service. Zero (or
+ * less) would make the part due the moment the inspection is saved, so it must
+ * be positive. snoozeComponent clamps instead, to keep released clients'
+ * behaviour; these paths reject.
+ */
+function assertExtensionInRange(value: number): void {
+  assertHoursInRange('serviceExtensionHours', value);
+  if (value <= 0) {
+    throw new GraphQLError('serviceExtensionHours must be greater than 0', {
+      extensions: { code: 'BAD_USER_INPUT' },
+    });
+  }
+}
+
 // Bound on ComponentRideAdjustment rows per component — keeps the
 // id IN (...) lists in the canonical recompute and componentRides
 // queries small. Far above any plausible manual-correction volume.
@@ -3419,9 +3434,7 @@ export const resolvers = {
       const kind = input.kind ?? 'SERVICE';
       let serviceExtensionHours: number | null = null;
       if (kind === 'INSPECTION') {
-        if (input.serviceExtensionHours != null) {
-          assertHoursInRange('serviceExtensionHours', input.serviceExtensionHours);
-        }
+        if (input.serviceExtensionHours != null) assertExtensionInRange(input.serviceExtensionHours);
         serviceExtensionHours =
           input.serviceExtensionHours ?? (await recommendedInspectionExtensionHours(component));
       } else if (input.serviceExtensionHours != null) {
@@ -3561,7 +3574,7 @@ export const resolvers = {
             extensions: { code: 'BAD_USER_INPUT' },
           });
         }
-        assertHoursInRange('serviceExtensionHours', input.serviceExtensionHours);
+        assertExtensionInRange(input.serviceExtensionHours);
         if (input.serviceExtensionHours !== existing.serviceExtensionHours) {
           newExtension = input.serviceExtensionHours;
         }

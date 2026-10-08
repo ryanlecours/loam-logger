@@ -1277,6 +1277,47 @@ describe('prediction engine', () => {
       expect(c.status).toBe('OVERDUE');
     });
 
+    // The extension is the rider's call after looking at the part, so the Pro
+    // wear model must not rescale it the way it rescales a normal interval.
+    it('does not let the Pro adaptive model rescale an extension', async () => {
+      const steepRides = Array.from({ length: 12 }, (_, i) => ({
+        id: `steep-${i}`,
+        durationSeconds: 2 * 3600,
+        distanceMeters: 20000,
+        elevationGainMeters: 1500,
+        startTime: new Date(Date.UTC(2024, 0, 2 + i)),
+      }));
+      const predict = async (bikeId: string, component: Record<string, unknown>) => {
+        (prisma.bike.findUnique as jest.Mock).mockResolvedValue({ ...mockBike, id: bikeId, components: [component] });
+        (prisma.ride.findMany as jest.Mock).mockResolvedValue(steepRides);
+        (prisma.ride.findFirst as jest.Mock).mockResolvedValue({ startTime: new Date('2024-01-01') });
+        (prisma.serviceLog.findFirst as jest.Mock).mockResolvedValue(null);
+        (prisma.serviceLog.findMany as jest.Mock).mockResolvedValue([]);
+        const result = await generateBikePredictions({
+          userId: 'user-123',
+          bikeId,
+          userRole: 'PRO',
+          predictionMode: 'predictive',
+        });
+        return result.components[0];
+      };
+      const computed = {
+        ...fork,
+        countersComputedAt: new Date('2024-02-01'),
+        lifetimeHours: 80,
+        hoursSinceService: 60,
+        hoursSinceInspection: 5,
+      };
+
+      // Control: with no extension the adaptive model does move the figure off
+      // the plain "interval minus hours since service" (50 - 60 = -10).
+      const adaptive = await predict('bike-adaptive', { ...computed, serviceExtensionHours: null });
+      expect(adaptive.hoursRemaining).not.toBe(-10);
+
+      const extended = await predict('bike-extended', { ...computed, serviceExtensionHours: 25 });
+      expect(extended.hoursRemaining).toBe(20);
+    });
+
     it('ignores a stray extension while uncomputed', async () => {
       const c = await run({
         ...fork,

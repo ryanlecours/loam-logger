@@ -56,6 +56,7 @@ type Log = {
   createdAt: Date;
   hoursAtService: number;
   hoursAtServiceDeclared: boolean;
+  serviceExtensionHours?: number | null;
 };
 
 const makeTx = (opts: {
@@ -505,6 +506,42 @@ describe('service readings in a recompute', () => {
     await recomputeComponentCounters(asTx(tx), 'comp-1');
 
     expect(tx.ride.findMany).not.toHaveBeenCalled();
+  });
+});
+
+// An inspection standing in for a due service grants an extension, and the
+// next real service ends it: the part goes back to its normal interval.
+describe('an inspection extension across the logbook', () => {
+  it('holds after the inspection and ends at the next service', async () => {
+    const book = [
+      log('svc-1', '2025-02-01T12:00:00Z', 0),
+      log('insp', '2025-04-01T12:00:00Z', 0, { kind: 'INSPECTION', serviceExtensionHours: 12 }),
+    ];
+    const tx = makeTx({
+      installs: [OPEN_TENURE],
+      rides: [
+        ride('r1', 'bike-1', '2025-01-15T10:00:00Z', 10),
+        ride('r2', 'bike-1', '2025-03-15T10:00:00Z', 10),
+        ride('r3', 'bike-1', '2025-05-15T10:00:00Z', 10),
+      ],
+      logs: book,
+    });
+
+    expect(await recomputeComponentCounters(asTx(tx), 'comp-1')).toEqual({
+      lifetimeHours: 30,
+      hoursSinceService: 20,
+      hoursSinceInspection: 10,
+      serviceExtensionHours: 12,
+    });
+
+    book.push(log('svc-2', '2025-06-01T12:00:00Z', 0));
+
+    expect(await recomputeComponentCounters(asTx(tx), 'comp-1')).toEqual({
+      lifetimeHours: 30,
+      hoursSinceService: 0,
+      hoursSinceInspection: 0,
+      serviceExtensionHours: null,
+    });
   });
 });
 
