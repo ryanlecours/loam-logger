@@ -30,7 +30,9 @@ import {
   runWithRequestContext,
   createRequestContext,
   enrichRequestContext,
+  getRequestContext,
 } from './lib/requestContext';
+import { CLIENT_HEADER, resolveClient } from './lib/clientPlatform';
 
 import authGarmin from './routes/auth.garmin';
 import authStrava from './routes/auth.strava';
@@ -155,7 +157,7 @@ const startServer = async () => {
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'x-csrf-token', 'sentry-trace', 'baggage'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-csrf-token', 'sentry-trace', 'baggage', CLIENT_HEADER],
   });
 
   app.use(corsMw);
@@ -237,13 +239,19 @@ const startServer = async () => {
   // Attach user/session
   app.use(attachUser);
 
-  // Enrich context with userId after auth
+  // Enrich context with userId and the calling client after auth
   app.use((req, _res, next) => {
     const userId = req.sessionUser?.uid ?? req.user?.id;
     if (userId) {
       enrichRequestContext({ userId });
       Sentry.setUser({ id: userId });
     }
+    const client = resolveClient({
+      header: req.headers[CLIENT_HEADER],
+      authTransport: getRequestContext()?.authTransport,
+      path: req.path,
+    });
+    if (client) enrichRequestContext({ client });
     next();
   });
 

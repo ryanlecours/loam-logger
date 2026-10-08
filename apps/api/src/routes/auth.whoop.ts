@@ -321,7 +321,13 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string; error
         });
       });
 
-      captureServerEvent(authenticatedUserId, 'provider_connected', { provider: 'whoop', isReconnect });
+      // The callback runs in a browser even for the mobile flow, so the request
+      // itself can't say which app started it. The flow can.
+      captureServerEvent(authenticatedUserId, 'provider_connected', {
+        provider: 'whoop',
+        isReconnect,
+        client_platform: isMobileFlow ? 'mobile' : 'web',
+      });
 
       // Mobile stops here. Everything below only picks a web redirect path, and
       // there is no cookie to clear — the attempt row was already consumed.

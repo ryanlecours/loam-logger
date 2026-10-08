@@ -1,6 +1,7 @@
 import { __test } from './posthog';
+import { createRequestContext, runWithRequestContext } from './requestContext';
 
-const { scrub, FILTERED, clearOptOutCache } = __test;
+const { scrub, withClientContext, FILTERED, clearOptOutCache } = __test;
 
 // Opt-out cache is module-level state shared across tests in the same
 // process; clear it between cases so tests that may touch isOptedOut()
@@ -166,5 +167,35 @@ describe('posthog scrub', () => {
         secret: FILTERED,
       });
     });
+  });
+});
+
+describe('posthog withClientContext', () => {
+  function inRequest<T>(client: Parameters<typeof runWithRequestContext>[0]['client'], fn: () => T): T {
+    return runWithRequestContext({ ...createRequestContext('POST', '/graphql'), client }, fn);
+  }
+
+  it('adds the calling platform and app version inside a client request', () => {
+    const tagged = inRequest({ platform: 'ios', appVersion: '1.4.0' }, () =>
+      withClientContext({ bikeId: 'b_1' })
+    );
+    expect(tagged).toEqual({ client_platform: 'ios', client_app_version: '1.4.0', bikeId: 'b_1' });
+  });
+
+  it('omits the app version when the client sent none', () => {
+    const tagged = inRequest({ platform: 'web' }, () => withClientContext({}));
+    expect(tagged).toEqual({ client_platform: 'web' });
+  });
+
+  it('lets an explicit client_platform win over the request', () => {
+    const tagged = inRequest({ platform: 'web' }, () =>
+      withClientContext({ client_platform: 'mobile' })
+    );
+    expect(tagged).toEqual({ client_platform: 'mobile' });
+  });
+
+  it('adds nothing outside a request or when no client resolved', () => {
+    expect(withClientContext({ a: 1 })).toEqual({ a: 1 });
+    expect(inRequest(undefined, () => withClientContext({ a: 1 }))).toEqual({ a: 1 });
   });
 });
