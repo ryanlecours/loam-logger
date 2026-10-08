@@ -2148,10 +2148,9 @@ export const resolvers = {
       };
     },
 
-    // Public (no auth): sanitized history for the shareable bike page.
-    // Exposes only the bike, its components, wrench history, and aggregate
-    // usage totals — no owner identity, no per-ride rows, no GPS, and no
-    // freeform service notes (riders type identity-linked info into those).
+    // Public (no auth): one share link's window of a component's history. The
+    // payload is built from an allowlist in lib/component-share.ts: no owner
+    // identity, notes, bike nicknames, ride rows or weather.
     sharedComponentHistory: async (_: unknown, { slug }: { slug: string }, ctx: GraphQLContext) => {
       // Unauthenticated, like sharedBikeHistory, so it is throttled by IP and
       // shares that limiter. Slug entropy (~72 bits) defeats enumeration.
@@ -2172,6 +2171,10 @@ export const resolvers = {
       return buildSharedComponentHistory(prisma, share);
     },
 
+    // Public (no auth): sanitized history for the shareable bike page.
+    // Exposes only the bike, its components, wrench history, and aggregate
+    // usage totals — no owner identity, no per-ride rows, no GPS, and no
+    // freeform service notes (riders type identity-linked info into those).
     sharedBikeHistory: async (_: unknown, { slug }: { slug: string }, ctx: GraphQLContext) => {
       // The only unauthenticated resolver — the per-userId rate limiters
       // don't apply, so throttle by IP instead. Slug entropy (~72 bits)
@@ -6779,9 +6782,8 @@ export const resolvers = {
       };
     },
 
-    // Enable public sharing of a bike's history. Available to all tiers —
-    // the branded share page is a growth surface, not a paid feature.
-    // Idempotent: re-enabling returns the existing link.
+    // Create a share link for one window of a component's history. Free for all
+    // tiers, like bike sharing.
     createComponentShare: async (
       _: unknown,
       {
@@ -6848,6 +6850,12 @@ export const resolvers = {
 
       // One link per scope (and per range): asking again hands back the same
       // URL instead of minting another.
+      //
+      // The dedupe and the cap below are check-then-create, so two simultaneous
+      // requests from the owner can still make a duplicate link or a 21st. That
+      // is harmless (an extra link the owner can revoke), and a constraint would
+      // need a partial or NULLS NOT DISTINCT unique index, which Prisma's schema
+      // cannot express. Accepted rather than enforced.
       const existing = await prisma.componentShare.findFirst({
         where: { componentId: component.id, scope: input.scope, rangeStart, rangeEnd },
       });
@@ -6887,6 +6895,9 @@ export const resolvers = {
       return true;
     },
 
+    // Enable public sharing of a bike's history. Available to all tiers —
+    // the branded share page is a growth surface, not a paid feature.
+    // Idempotent: re-enabling returns the existing link.
     enableBikeShare: async (_: unknown, { bikeId }: { bikeId: string }, ctx: GraphQLContext) => {
       const userId = requireUserId(ctx);
 

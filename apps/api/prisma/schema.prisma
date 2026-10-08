@@ -544,11 +544,6 @@ model BikeComponentInstall {
   @@index([bikeId, removedAt])
 }
 
-/// A logbook entry: work actually performed, or an inspection actually carried
-/// out. Installs are NOT service events — BikeComponentInstall records those.
-/// The old model wrote a zero-hour ServiceLog on every install purely to move
-/// the prediction anchor, which put fictional work in the rider's logbook and
-/// asserted (falsely, for a used part) that it had zero hours at that moment.
 /// What a component share link shows. LIFETIME and SINCE_SERVICE stay live:
 /// they always describe the part as it is now. RANGE is the fixed window in
 /// rangeStart..rangeEnd.
@@ -579,6 +574,11 @@ model ComponentShare {
   @@index([userId])
 }
 
+/// A logbook entry: work actually performed, or an inspection actually carried
+/// out. Installs are NOT service events — BikeComponentInstall records those.
+/// The old model wrote a zero-hour ServiceLog on every install purely to move
+/// the prediction anchor, which put fictional work in the rider's logbook and
+/// asserted (falsely, for a used part) that it had zero hours at that moment.
 model ServiceLog {
   id          String         @id @default(uuid())
   component   Component      @relation(fields: [componentId], references: [id], onDelete: Cascade)

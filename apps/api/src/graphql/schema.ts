@@ -1648,7 +1648,9 @@ export const typeDefs = gql`
     componentId: ID!
     scope: ComponentShareScope!
     # RANGE only, ISO timestamps: [rangeStart, rangeEnd). No earlier than the
-    # component's install date, no later than today.
+    # component's install date, no later than today. The server allows a day of
+    # slack at each end so a rider far from UTC can pick their own install day or
+    # today; the client's date picker enforces the exact bounds.
     rangeStart: String
     rangeEnd: String
   }

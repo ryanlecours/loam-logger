@@ -230,6 +230,23 @@ describe('buildSharedComponentHistory', () => {
     expect(result.windowEnd).toBe('2026-08-15T07:00:00.000Z');
   });
 
+  // The allowlist holds for a fixed window too, including an inspection in it.
+  it('keeps a range link to its allowlist, inspections included', async () => {
+    const db = makeDb();
+    const result = await build(db, {
+      scope: 'RANGE',
+      rangeStart: d('2026-08-15T07:00:00Z'),
+      rangeEnd: d('2026-09-15T07:00:00Z'),
+    });
+
+    expect(result.logbook).toEqual([
+      { performedAt: '2026-09-01T12:00:00.000Z', kind: 'INSPECTION', hoursAtService: 170, serviceExtensionHours: 30 },
+    ]);
+    expect(db.serviceLog.findMany.mock.calls[0][0].select).not.toHaveProperty('notes');
+    expect(db.bike.findMany.mock.calls[0][0].select).not.toHaveProperty('nickname');
+    expect(JSON.stringify(result)).not.toContain('private note');
+  });
+
   it('counts declared pre-Loam hours only where the owner page does', async () => {
     const db = makeDb();
     const lifetime = await buildSharedComponentHistory(db as unknown as PrismaClient, {
