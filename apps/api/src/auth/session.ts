@@ -4,6 +4,7 @@ import * as Sentry from '@sentry/node';
 import { extractBearerToken, verifyToken, isAccessTokenPayload } from './token';
 import { prisma } from '../lib/prisma';
 import { logger } from '../lib/logger';
+import { enrichRequestContext } from '../lib/requestContext';
 
 const { SESSION_SECRET } = process.env;
 
@@ -98,6 +99,7 @@ export async function attachUser(req: Request, _res: Response, next: NextFunctio
         const user = jwt.verify(cookieToken, SESSION_SECRET!) as SessionUser;
         if (await isTokenVersionCurrent(user)) {
           req.sessionUser = user;
+          enrichRequestContext({ authTransport: 'cookie' });
         }
         return next();
       } catch {
@@ -114,6 +116,7 @@ export async function attachUser(req: Request, _res: Response, next: NextFunctio
       // defeating the point of short-lived access tokens entirely.
       if (user && isAccessTokenPayload(user) && (await isTokenVersionCurrent(user))) {
         req.sessionUser = user;
+        enrichRequestContext({ authTransport: 'bearer' });
       }
     }
 

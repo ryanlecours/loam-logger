@@ -292,7 +292,13 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string }>(
         });
       });
 
-      captureServerEvent(authenticatedUserId, 'provider_connected', { provider: 'strava', isReconnect });
+      // The callback runs in a browser even for the mobile flow, so the request
+      // itself can't say which app started it. The flow can.
+      captureServerEvent(authenticatedUserId, 'provider_connected', {
+        provider: 'strava',
+        isReconnect,
+        client_platform: isMobileFlow ? 'mobile' : 'web',
+      });
 
       // Check if multiple providers are connected (for data source prompt)
       const userAccounts = await prisma.userAccount.findMany({

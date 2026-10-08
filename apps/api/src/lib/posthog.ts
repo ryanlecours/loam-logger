@@ -14,6 +14,7 @@ import { LRUCache } from 'lru-cache';
 import { PostHog } from 'posthog-node';
 import { logger } from './logger';
 import { prisma } from './prisma';
+import { getRequestContext } from './requestContext';
 
 // Broad by design. `token` subsumes access_token / refresh_token / id_token /
 // resetToken / sessionToken via substring match. `apiKey` and `api_key` are
@@ -83,6 +84,21 @@ function getClient(): PostHog | null {
 
 function scrub(properties: Record<string, unknown>): Record<string, unknown> {
   return scrubDeep(properties, 0, new WeakSet<object>()) as Record<string, unknown>;
+}
+
+// Tag the event with the app that made the request (see clientPlatform.ts),
+// so API events split by platform the same way client events do. Explicit
+// properties win: an OAuth callback runs in a browser even for the mobile
+// flow, so it passes `client_platform` itself. Outside a client request
+// (workers, webhooks) there is nothing to add.
+function withClientContext(properties: Record<string, unknown>): Record<string, unknown> {
+  const client = getRequestContext()?.client;
+  if (!client) return properties;
+  return {
+    client_platform: client.platform,
+    ...(client.appVersion ? { client_app_version: client.appVersion } : {}),
+    ...properties,
+  };
 }
 
 // --- Per-user opt-out cache -------------------------------------------------
@@ -165,6 +181,7 @@ function clearOptOutCache(): void {
 // captureServerEvent, which scrubs internally.
 export const __test = {
   scrub,
+  withClientContext,
   SENSITIVE_KEY_PATTERN,
   MAX_DEPTH,
   FILTERED,
@@ -187,6 +204,8 @@ export function captureServerEvent(
 ): void {
   const c = getClient();
   if (!c) return;
+  // Read the request context now, while still on the caller's stack.
+  const tagged = withClientContext(properties);
   // Fire and forget. The opt-out lookup + capture run on a microtask; the
   // caller (resolver, webhook, worker) is never blocked on PostHog.
   void (async () => {
@@ -195,7 +214,7 @@ export function captureServerEvent(
       c.capture({
         distinctId,
         event,
-        properties: scrub(properties),
+        properties: scrub(tagged),
       });
     } catch (err) {
       logger?.warn?.({ err, event }, 'PostHog capture failed');

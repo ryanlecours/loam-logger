@@ -303,7 +303,13 @@ r.get<Empty, void, Empty, { code?: string; state?: string }>(
         });
       });
 
-      captureServerEvent(authenticatedUserId, 'provider_connected', { provider: 'garmin', isReconnect });
+      // The callback runs in a browser even for the mobile flow, so the request
+      // itself can't say which app started it. The flow can.
+      captureServerEvent(authenticatedUserId, 'provider_connected', {
+        provider: 'garmin',
+        isReconnect,
+        client_platform: isMobileFlow ? 'mobile' : 'web',
+      });
 
       if (isMobileFlow && attemptId) {
         // Attempt already consumed atomically by consumeOAuthAttempt
