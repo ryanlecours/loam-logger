@@ -6,6 +6,8 @@ const mockUserUpdate = jest.fn();
 const mockOauthTokenCreate = jest.fn();
 const mockOauthTokenUpsert = jest.fn();
 const mockTransaction = jest.fn();
+const mockBikeUpdateMany = jest.fn();
+const mockComponentShareDeleteMany = jest.fn();
 
 jest.mock('../lib/prisma', () => ({
   prisma: {
@@ -37,6 +39,8 @@ function createTx() {
       create: mockUserCreate,
       update: mockUserUpdate,
     },
+    bike: { updateMany: mockBikeUpdateMany },
+    componentShare: { deleteMany: mockComponentShareDeleteMany },
     oauthToken: {
       create: mockOauthTokenCreate,
       upsert: mockOauthTokenUpsert,
@@ -101,6 +105,8 @@ describe('ensureUserFromGoogle', () => {
       mockUserAccountFindUnique.mockResolvedValue(null);
       mockUserAccountCreate.mockResolvedValue({});
       mockUserUpdate.mockResolvedValue({});
+      mockBikeUpdateMany.mockResolvedValue({ count: 0 });
+      mockComponentShareDeleteMany.mockResolvedValue({ count: 0 });
     });
 
     it('refuses to link when the provider has not verified the email', async () => {
@@ -128,6 +134,12 @@ describe('ensureUserFromGoogle', () => {
         where: { id: 'victim' },
         data: { passwordHash: null, sessionTokenVersion: { increment: 1 } },
       });
+      // Share links outlive sessions, so the squatter's are revoked too.
+      expect(mockBikeUpdateMany).toHaveBeenCalledWith({
+        where: { userId: 'victim', shareSlug: { not: null } },
+        data: { shareSlug: null },
+      });
+      expect(mockComponentShareDeleteMany).toHaveBeenCalledWith({ where: { userId: 'victim' } });
       expect(mockUserAccountCreate).toHaveBeenCalledWith({
         data: { userId: 'victim', provider: 'google', providerUserId: 'google-123' },
       });
@@ -143,6 +155,8 @@ describe('ensureUserFromGoogle', () => {
       expect(mockUserUpdate).not.toHaveBeenCalledWith(
         expect.objectContaining({ data: expect.objectContaining({ passwordHash: null }) })
       );
+      expect(mockBikeUpdateMany).not.toHaveBeenCalled();
+      expect(mockComponentShareDeleteMany).not.toHaveBeenCalled();
       expect(mockUserAccountCreate).toHaveBeenCalled();
     });
 
@@ -156,6 +170,7 @@ describe('ensureUserFromGoogle', () => {
       expect(mockUserUpdate).not.toHaveBeenCalledWith(
         expect.objectContaining({ data: expect.objectContaining({ sessionTokenVersion: expect.anything() }) })
       );
+      expect(mockComponentShareDeleteMany).not.toHaveBeenCalled();
       expect(mockUserAccountCreate).toHaveBeenCalled();
     });
   });

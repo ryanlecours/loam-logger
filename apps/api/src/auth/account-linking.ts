@@ -34,10 +34,11 @@ export const UNVERIFIED_PROVIDER_EMAIL_MESSAGE =
  * and set its password. When the real owner later signs in through a
  * provider, linking would hand them an account the squatter can still log in
  * to. A provider-verified sign-in is the first proof of ownership that
- * account has seen, so an unverified password is cleared and every existing
- * session is revoked by bumping sessionTokenVersion, the same mechanism a
- * password reset uses. The owner keeps provider sign-in, and can set a
- * password again through forgot-password, which proves the address.
+ * account has seen, so an unverified password is cleared, every existing
+ * session is revoked by bumping sessionTokenVersion (the same mechanism a
+ * password reset uses), and public share links are revoked. The owner keeps
+ * provider sign-in, and can set a password again through forgot-password,
+ * which proves the address.
  *
  * Runs inside the caller's transaction, before the link is written.
  */
@@ -60,9 +61,25 @@ export async function secureAccountBeforeLinking(
       where: { id: user.id },
       data: { passwordHash: null, sessionTokenVersion: { increment: 1 } },
     });
+    // Public share links outlive sessions: a squatter who made one could keep
+    // reading the account's bike and component history through it after
+    // losing access. Revoked the same way disableBikeShare and
+    // revokeComponentShare do. Integrations are left alone; they are not an
+    // access path, and disconnecting a genuine rider's Strava or Garmin here
+    // would cost far more than a broken share link.
+    const bikeShares = await tx.bike.updateMany({
+      where: { userId: user.id, shareSlug: { not: null } },
+      data: { shareSlug: null },
+    });
+    const componentShares = await tx.componentShare.deleteMany({ where: { userId: user.id } });
     auditLogger.warn(
-      { userId: user.id, provider },
-      'Cleared unverified password and revoked sessions before linking provider'
+      {
+        userId: user.id,
+        provider,
+        revokedBikeShares: bikeShares.count,
+        revokedComponentShares: componentShares.count,
+      },
+      'Cleared unverified password, revoked sessions and share links before linking provider'
     );
   }
 }
