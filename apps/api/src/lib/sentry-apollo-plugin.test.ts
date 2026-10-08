@@ -124,6 +124,19 @@ describe('sentryApolloPlugin — didEncounterErrors', () => {
     expect(mockedSentry.captureException).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['TIER_LIMIT_EXCEEDED', 'Your Free plan covers 1 bike.'],
+    ['NOT_PRO', 'This feature requires Pro.'],
+  ])('does NOT capture %s tier-gate errors', async (code, message) => {
+    const gated = new GraphQLError(message, { extensions: { code } });
+    await runDidEncounterErrors({
+      request: { operationName: 'AddBike', variables: null, query: null },
+      errors: [gated],
+    });
+
+    expect(mockedSentry.captureException).not.toHaveBeenCalled();
+  });
+
   it('does NOT capture validation errors', async () => {
     const validation = new GraphQLError('bad query syntax', {
       extensions: { code: 'GRAPHQL_VALIDATION_FAILED' },
