@@ -19,6 +19,12 @@ model User {
   name                           String?
   avatarUrl                      String?
   emailVerified                  DateTime?
+  // True for accounts created after email verification shipped whose address
+  // was not proven at signup (password signups, and provider sign-ins the
+  // provider had not verified). Gates public share links until
+  // emailVerified is set. Accounts from before the change stay false, so
+  // existing riders are never asked to verify retroactively.
+  emailVerificationRequired      Boolean               @default(false)
   passwordHash                   String?
   lastAuthAt                     DateTime? // Track last successful authentication time
   age                            Int?
@@ -76,6 +82,7 @@ model User {
   integrations             UserIntegration[]
   notificationLogs         NotificationLog[]
   passwordResetTokens      PasswordResetToken[]
+  emailVerificationTokens  EmailVerificationToken[]
   componentRideAdjustments ComponentRideAdjustment[]
   mobileSessions           MobileSession[]
   componentShares          ComponentShare[]
@@ -819,6 +826,7 @@ enum EmailType {
   password_added
   password_changed
   password_reset
+  email_verification
   upgrade_confirmation
   downgrade_notice
   payment_failed
@@ -1074,6 +1082,19 @@ model NotificationLog {
   @@index([userId])
   @@index([componentId])
   @@index([bikeId])
+}
+
+model EmailVerificationToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
 }
 
 model PasswordResetToken {

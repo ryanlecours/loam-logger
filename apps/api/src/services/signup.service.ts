@@ -30,7 +30,7 @@ export type CreateNewUserResult = {
 };
 
 /**
- * Create a new active FREE user.
+ * Create a new active FREE user from a password signup.
  *
  * This is the single source of truth for user creation across all signup
  * routes (web, mobile). Each route is responsible for:
@@ -50,6 +50,9 @@ export async function createNewUser(opts: CreateNewUserOpts): Promise<CreateNewU
       role: 'FREE',
       subscriptionTier: 'FREE',
       passwordHash,
+      // Nothing has proven this address yet. The route sends the
+      // verification email; until it is used, public share links are gated.
+      emailVerificationRequired: true,
     },
   });
 

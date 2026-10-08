@@ -92,6 +92,7 @@ export default function BikeHistory() {
 
   // Public share link — free for all tiers (it's a growth surface).
   const [shareState, setShareState] = useState<'idle' | 'copied'>('idle');
+  const [shareError, setShareError] = useState<string | null>(null);
   const [enableShare, { loading: shareLoading }] = useMutation(ENABLE_BIKE_SHARE, {
     refetchQueries: bikeId ? [{ query: BIKE_HISTORY, variables: { bikeId, ...range } }] : [],
   });
@@ -101,6 +102,7 @@ export default function BikeHistory() {
 
   const handleShare = async () => {
     if (!bikeId) return;
+    setShareError(null);
     try {
       const { data: shareData } = await enableShare({ variables: { bikeId } });
       const url = shareData?.enableBikeShare;
@@ -111,6 +113,7 @@ export default function BikeHistory() {
       }
     } catch (err) {
       console.error('Failed to enable bike share:', err);
+      setShareError(err instanceof Error ? err.message : 'Could not create the share link.');
     }
   };
 
@@ -286,6 +289,12 @@ export default function BikeHistory() {
               )}
             </div>
           </div>
+
+          {shareError && (
+            <div className="alert-inline alert-inline-error mb-4" role="alert">
+              <p>{shareError}</p>
+            </div>
+          )}
 
           {showPdfUpsell && !isPro && (
             <div className="mb-4">

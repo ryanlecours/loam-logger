@@ -6,6 +6,8 @@ const mockUserUpdate = jest.fn();
 const mockOauthTokenCreate = jest.fn();
 const mockOauthTokenUpsert = jest.fn();
 const mockTransaction = jest.fn();
+const mockBikeUpdateMany = jest.fn();
+const mockComponentShareDeleteMany = jest.fn();
 
 jest.mock('../lib/prisma', () => ({
   prisma: {
@@ -15,6 +17,7 @@ jest.mock('../lib/prisma', () => ({
 
 jest.mock('../lib/logger', () => ({
   logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
+  createLogger: () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn() }),
 }));
 
 const mockConfig = { bypassWaitlistFlow: false };
@@ -23,6 +26,7 @@ jest.mock('../config/env', () => ({
 }));
 
 import { ensureUserFromGoogle } from './ensureUserFromGoogle';
+import { UnverifiedProviderEmailError } from './account-linking';
 
 function createTx() {
   return {
@@ -35,6 +39,8 @@ function createTx() {
       create: mockUserCreate,
       update: mockUserUpdate,
     },
+    bike: { updateMany: mockBikeUpdateMany },
+    componentShare: { deleteMany: mockComponentShareDeleteMany },
     oauthToken: {
       create: mockOauthTokenCreate,
       upsert: mockOauthTokenUpsert,
@@ -91,5 +97,81 @@ describe('ensureUserFromGoogle', () => {
 
     expect(result).toEqual({ user: existingUser, wasCreated: false });
     expect(mockUserCreate).not.toHaveBeenCalled();
+  });
+
+  describe('linking to an existing account found by email', () => {
+    beforeEach(() => {
+      mockTransaction.mockImplementation(async (fn: (t: unknown) => unknown) => fn(createTx()));
+      mockUserAccountFindUnique.mockResolvedValue(null);
+      mockUserAccountCreate.mockResolvedValue({});
+      mockUserUpdate.mockResolvedValue({});
+      mockBikeUpdateMany.mockResolvedValue({ count: 0 });
+      mockComponentShareDeleteMany.mockResolvedValue({ count: 0 });
+    });
+
+    it('refuses to link when the provider has not verified the email', async () => {
+      mockUserFindUnique.mockResolvedValue({
+        id: 'victim', email: 'test@test.com', passwordHash: 'hash', emailVerified: null,
+      });
+
+      await expect(
+        ensureUserFromGoogle({ ...baseClaims, email_verified: false })
+      ).rejects.toBeInstanceOf(UnverifiedProviderEmailError);
+      expect(mockUserAccountCreate).not.toHaveBeenCalled();
+      expect(mockUserUpdate).not.toHaveBeenCalled();
+    });
+
+    it('clears an unverified password and revokes sessions before linking', async () => {
+      // Password signup never verifies email, so whoever set this password may
+      // not own the address. The verified google sign-in is the owner.
+      mockUserFindUnique.mockResolvedValue({
+        id: 'victim', email: 'test@test.com', passwordHash: 'squatter-hash', emailVerified: null,
+      });
+
+      await ensureUserFromGoogle(baseClaims);
+
+      expect(mockUserUpdate).toHaveBeenCalledWith({
+        where: { id: 'victim' },
+        data: { passwordHash: null, sessionTokenVersion: { increment: 1 } },
+      });
+      // Share links outlive sessions, so the squatter's are revoked too.
+      expect(mockBikeUpdateMany).toHaveBeenCalledWith({
+        where: { userId: 'victim', shareSlug: { not: null } },
+        data: { shareSlug: null },
+      });
+      expect(mockComponentShareDeleteMany).toHaveBeenCalledWith({ where: { userId: 'victim' } });
+      expect(mockUserAccountCreate).toHaveBeenCalledWith({
+        data: { userId: 'victim', provider: 'google', providerUserId: 'google-123' },
+      });
+    });
+
+    it('keeps the password of an account whose email is already verified', async () => {
+      mockUserFindUnique.mockResolvedValue({
+        id: 'owner', email: 'test@test.com', passwordHash: 'hash', emailVerified: new Date(),
+      });
+
+      await ensureUserFromGoogle(baseClaims);
+
+      expect(mockUserUpdate).not.toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ passwordHash: null }) })
+      );
+      expect(mockBikeUpdateMany).not.toHaveBeenCalled();
+      expect(mockComponentShareDeleteMany).not.toHaveBeenCalled();
+      expect(mockUserAccountCreate).toHaveBeenCalled();
+    });
+
+    it('links an account with no password without touching sessions', async () => {
+      mockUserFindUnique.mockResolvedValue({
+        id: 'oauth-only', email: 'test@test.com', passwordHash: null, emailVerified: null,
+      });
+
+      await ensureUserFromGoogle(baseClaims);
+
+      expect(mockUserUpdate).not.toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ sessionTokenVersion: expect.anything() }) })
+      );
+      expect(mockComponentShareDeleteMany).not.toHaveBeenCalled();
+      expect(mockUserAccountCreate).toHaveBeenCalled();
+    });
   });
 });

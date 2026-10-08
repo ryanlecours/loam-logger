@@ -1446,6 +1446,9 @@ export const typeDefs = gql`
     role: UserRole!
     mustChangePassword: Boolean!
     hasPassword: Boolean!
+    # True while a new account has not yet confirmed its email address.
+    # Public share links stay locked until it is false.
+    needsEmailVerification: Boolean!
     needsReauthForSensitiveActions: Boolean!
     isFoundingRider: Boolean!
     subscriptionTier: SubscriptionTier!

@@ -9,6 +9,7 @@ import { requireRecentAuth } from './requireRecentAuth';
 import { prisma } from '../lib/prisma';
 import { sendBadRequest, sendUnauthorized, sendConflict, sendInternalError, sendTooManyRequests } from '../lib/api-response';
 import { checkAuthRateLimit, checkMutationRateLimit } from '../lib/rate-limit';
+import { verifyTurnstileToken } from '../lib/turnstile';
 import { sendPasswordChangedNotification } from '../services/password-notification.service';
 import {
   consumePasswordResetToken,
@@ -16,7 +17,10 @@ import {
   sendPasswordResetEmail,
 } from '../services/password-reset.service';
 import { logger } from '../lib/logger';
+import { checkLoginRateLimit, LOGIN_RATE_LIMIT_MESSAGE } from './login-rate-limit';
 import { createNewUser, verifyEmailAvailable } from '../services/signup.service';
+import { startEmailVerification } from '../services/email-verification.service';
+import { checkSignupRateLimit, SIGNUP_RATE_LIMIT_MESSAGE } from './signup-rate-limit';
 
 const router = express.Router();
 
@@ -28,16 +32,25 @@ router.post('/signup', express.json(), async (req, res) => {
   try {
     // Rate limit by IP to prevent automated spam signups
     const clientIp = getClientIp(req);
-    const rateLimit = await checkAuthRateLimit('signup', clientIp);
+    const rateLimit = await checkSignupRateLimit(clientIp);
     if (!rateLimit.allowed) {
-      return sendTooManyRequests(res, 'Too many signup attempts. Please try again later.', rateLimit.retryAfter);
+      return sendTooManyRequests(res, SIGNUP_RATE_LIMIT_MESSAGE, rateLimit.retryAfter);
     }
 
-    const { email: rawEmail, name, password } = req.body as {
+    const { email: rawEmail, name, password, turnstileToken } = req.body as {
       email?: string;
       name?: string;
       password?: string;
+      turnstileToken?: string;
     };
+
+    // Bot challenge before any validation or lookup, so a scripted client
+    // learns nothing (not even whether an email is taken) without passing it.
+    const challenge = await verifyTurnstileToken(turnstileToken, clientIp);
+    if (!challenge.ok) {
+      logger.warn({ errorCodes: challenge.errorCodes }, '[EmailAuth] Signup refused: bot challenge failed');
+      return sendBadRequest(res, 'Please complete the verification check and try again.', 'CHALLENGE_FAILED');
+    }
 
     if (!rawEmail) {
       return sendBadRequest(res, 'Email is required');
@@ -77,6 +90,8 @@ router.post('/signup', express.json(), async (req, res) => {
 
     const passwordHash = await hashPassword(password);
     const { user } = await createNewUser({ email: verifiedEmail, name: name.trim(), passwordHash });
+    // Fire and forget: never throws, and a slow send should not hold up signup.
+    void startEmailVerification(user);
 
     await issueWebSession(res, { id: user.id, email: user.email });
     const csrfToken = setCsrfCookie(res);
@@ -107,6 +122,12 @@ router.post('/login', express.json(), async (req, res) => {
     const email = normalizeEmail(rawEmail);
     if (!email) {
       return sendBadRequest(res, 'Invalid email');
+    }
+
+    const rateLimit = await checkLoginRateLimit(getClientIp(req), email);
+    if (!rateLimit.allowed) {
+      logger.warn({ route: 'login', retryAfter: rateLimit.retryAfter }, 'Email login 429: rate limited');
+      return sendTooManyRequests(res, LOGIN_RATE_LIMIT_MESSAGE, rateLimit.retryAfter);
     }
 
     // Find user by email
@@ -354,7 +375,7 @@ router.post('/reset-password', express.json(), async (req, res) => {
 
     const user = await prisma.user.findUnique({
       where: { id: result.userId },
-      select: { id: true, email: true, name: true },
+      select: { id: true, email: true, name: true, emailVerified: true },
     });
 
     if (!user) {
@@ -367,6 +388,9 @@ router.post('/reset-password', express.json(), async (req, res) => {
       data: {
         passwordHash,
         mustChangePassword: false,
+        // The reset link reached this inbox, which proves the address as
+        // well as a verification link would.
+        emailVerified: user.emailVerified ?? new Date(),
         // Invalidate all existing sessions — any active cookie/token issued before
         // this reset will fail the version check in attachUser.
         sessionTokenVersion: { increment: 1 },

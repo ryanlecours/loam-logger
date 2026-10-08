@@ -2,6 +2,7 @@ import { Prisma, type User } from '@prisma/client';
 import { normalizeEmail } from './utils';
 import { type AppleClaims } from './types';
 import { prisma } from '../lib/prisma';
+import { secureAccountBeforeLinking } from './account-linking';
 import { logger } from '../lib/logger';
 
 export type AppleUserResult = { user: User; wasCreated: boolean };
@@ -44,6 +45,8 @@ async function ensureUserFromAppleInner(
     const user = await tx.user.findUnique({ where: { email: trustedEmail } });
 
     if (user) {
+      await secureAccountBeforeLinking(tx, user, 'apple', claims.email_verified);
+
       // User exists and is activated — update profile and link Apple account
       const needsNameUpdate = !user.name && claims.name;
       const needsEmailVerified = claims.email_verified && !user.emailVerified;
@@ -90,6 +93,8 @@ async function ensureUserFromAppleInner(
           name: claims.name ?? null,
           avatarUrl: null,
           emailVerified: claims.email_verified ? new Date() : null,
+          // Covers the client-supplied fallback email, which nothing has proven.
+          emailVerificationRequired: !claims.email_verified,
           role: 'FREE',
           subscriptionTier: 'FREE',
         },

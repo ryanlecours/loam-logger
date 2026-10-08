@@ -1846,6 +1846,7 @@ export type User = {
   mustChangePassword: Scalars['Boolean']['output'];
   name?: Maybe<Scalars['String']['output']>;
   needsDowngradeSelection: Scalars['Boolean']['output'];
+  needsEmailVerification: Scalars['Boolean']['output'];
   needsReauthForSensitiveActions: Scalars['Boolean']['output'];
   notifyOnRideUpload: Scalars['Boolean']['output'];
   onboardingCompleted: Scalars['Boolean']['output'];

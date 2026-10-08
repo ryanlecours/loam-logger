@@ -11,6 +11,7 @@ const mockLoggerInfo = jest.fn();
 const mockLoggerError = jest.fn();
 const mockLoggerDebug = jest.fn();
 const mockSentryCaptureException = jest.fn();
+const mockStartEmailVerification = jest.fn().mockResolvedValue(undefined);
 
 jest.mock('@sentry/node', () => ({
   captureException: (...args: unknown[]) => mockSentryCaptureException(...args),
@@ -84,7 +85,23 @@ jest.mock('../services/signup.service', () => ({
   verifyEmailAvailable: jest.fn(),
 }));
 
+jest.mock('../services/email-verification.service', () => ({
+  startEmailVerification: (...args: unknown[]) => mockStartEmailVerification(...args),
+}));
+
 import router from './mobile.route';
+import { OAuth2Client } from 'google-auth-library';
+import { ensureUserFromGoogle } from './ensureUserFromGoogle';
+import { UnverifiedProviderEmailError } from './account-linking';
+import { prisma } from '../lib/prisma';
+
+// The route module builds its Google client at import time. Capture that
+// instance now, before any clearAllMocks wipes mock.results.
+const googleClient = (OAuth2Client as unknown as jest.Mock).mock.results[0].value as {
+  verifyIdToken: jest.Mock;
+};
+const mockEnsureUserFromGoogle = ensureUserFromGoogle as jest.Mock;
+const mockUserFindUnique = prisma.user.findUnique as jest.Mock;
 
 interface RouteLayer {
   route?: {
@@ -282,6 +299,22 @@ describe('POST /mobile/apple', () => {
     );
   });
 
+  it('sends a verification email for a new account created from the client email', async () => {
+    const mockUser = { id: 'u1', email: 'client@user.com', name: null, avatarUrl: null, emailVerified: null };
+    mockVerifyAppleIdentityToken.mockResolvedValue({ sub: 'apple-001', email_verified: 'false' });
+    mockEnsureUserFromApple.mockResolvedValue({ user: mockUser, wasCreated: true });
+
+    const req = {
+      body: { identityToken: 'valid-token', user: { email: 'client@user.com' } },
+      ip: '127.0.0.1',
+      headers: {},
+    } as unknown as Request;
+
+    await invokeHandler(handler, req, createMockResponse() as unknown as Response);
+
+    expect(mockStartEmailVerification).toHaveBeenCalledWith(mockUser);
+  });
+
   it('should return tokens and user on success', async () => {
     const mockUser = { id: 'u1', email: 'jane@example.com', name: 'Jane Doe', avatarUrl: null };
     mockVerifyAppleIdentityToken.mockResolvedValue({
@@ -312,6 +345,7 @@ describe('POST /mobile/apple', () => {
       },
     });
     expect(mockUpdateLastAuthAt).toHaveBeenCalledWith('u1');
+    expect(mockStartEmailVerification).not.toHaveBeenCalled();
   });
 
   it('should return 401 when Apple token verification fails and log the reason', async () => {
@@ -336,5 +370,81 @@ describe('POST /mobile/apple', () => {
       expect.stringMatching(/token verification failed/i)
     );
     expect(mockSentryCaptureException).toHaveBeenCalled();
+  });
+});
+
+describe('refused provider links', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockCheckAuthRateLimit.mockResolvedValue({ allowed: true });
+  });
+
+  it('POST /mobile/apple turns a "false" email_verified claim into a 401 refusal', async () => {
+    // The string-to-boolean conversion lives in the route, so this is the
+    // only place the path from Apple's raw claim to the 401 is covered.
+    mockVerifyAppleIdentityToken.mockResolvedValue({
+      sub: 'apple-001',
+      email: 'rider@example.com',
+      email_verified: 'false',
+    });
+    mockEnsureUserFromApple.mockImplementation(async (claims: { email_verified?: boolean }) => {
+      if (!claims.email_verified) throw new UnverifiedProviderEmailError('apple');
+      throw new Error('expected email_verified to arrive as false');
+    });
+    const req = { body: { identityToken: 'valid-token' }, ip: '127.0.0.1', headers: {} } as unknown as Request;
+    const res = createMockResponse();
+
+    await invokeHandler(getHandler('/mobile/apple', 'post'), req, res as unknown as Response);
+
+    expect(mockEnsureUserFromApple).toHaveBeenCalledWith(
+      expect.objectContaining({ email_verified: false }),
+    );
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({ code: 'PROVIDER_EMAIL_UNVERIFIED' }),
+    );
+    expect(mockSentryCaptureException).not.toHaveBeenCalled();
+  });
+
+  it('POST /mobile/google answers a refused link with 401, not a 500', async () => {
+    googleClient.verifyIdToken.mockResolvedValue({
+      getPayload: () => ({ sub: 'google-123', email: 'rider@example.com', email_verified: false }),
+    });
+    mockEnsureUserFromGoogle.mockRejectedValue(new UnverifiedProviderEmailError('google'));
+    const req = { body: { idToken: 'valid-token' }, ip: '127.0.0.1', headers: {} } as unknown as Request;
+    const res = createMockResponse();
+
+    await invokeHandler(getHandler('/mobile/google', 'post'), req, res as unknown as Response);
+
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({ code: 'PROVIDER_EMAIL_UNVERIFIED' }),
+    );
+    expect(mockSentryCaptureException).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /mobile/login rate limiting', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockCheckAuthRateLimit.mockResolvedValue({ allowed: true });
+  });
+
+  it('returns 429 before looking up the user when over the limit', async () => {
+    mockCheckAuthRateLimit.mockImplementation(async (operation: string) =>
+      operation === 'login' ? { allowed: false, retryAfter: 42 } : { allowed: true }
+    );
+    const req = {
+      body: { email: 'rider@example.com', password: 'guess' },
+      ip: '127.0.0.1',
+      headers: {},
+    } as unknown as Request;
+    const res = createMockResponse();
+
+    await invokeHandler(getHandler('/mobile/login', 'post'), req, res as unknown as Response);
+
+    expect(res.status).toHaveBeenCalledWith(429);
+    expect(res.setHeader).toHaveBeenCalledWith('Retry-After', '42');
+    expect(mockUserFindUnique).not.toHaveBeenCalled();
   });
 });

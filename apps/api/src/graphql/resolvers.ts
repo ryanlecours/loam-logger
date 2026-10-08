@@ -93,6 +93,7 @@ import { captureSetupSnapshot } from '../lib/capture-snapshot';
 import type { SetupSnapshot } from '@loam/shared';
 import { randomBytes } from 'crypto';
 import { FRONTEND_URL } from '../config/env';
+import { EMAIL_NOT_VERIFIED_MESSAGE, needsEmailVerification } from '../services/email-verification.service';
 
 type ComponentType = ComponentTypeLiteral;
 
@@ -511,6 +512,21 @@ const requireUserId = (ctx: GraphQLContext) => {
   const id = ctx.user?.id;
   if (!id) throw new GraphQLError('Unauthorized', { extensions: { code: 'UNAUTHENTICATED' } });
   return id;
+};
+
+/**
+ * Refuse a public-facing action until a new account has confirmed its email.
+ * Share pages are the only place rider-written text is served to the open
+ * web, which makes them what a bot account would be made for.
+ */
+const requireVerifiedEmailForSharing = async (userId: string) => {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { emailVerificationRequired: true, emailVerified: true },
+  });
+  if (user && needsEmailVerification(user)) {
+    throw new GraphQLError(EMAIL_NOT_VERIFIED_MESSAGE, { extensions: { code: 'EMAIL_NOT_VERIFIED' } });
+  }
 };
 
 /**
@@ -6805,6 +6821,7 @@ export const resolvers = {
           extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
         });
       }
+      await requireVerifiedEmailForSharing(userId);
 
       const component = await prisma.component.findFirst({ where: { id: input.componentId, userId } });
       if (!component) {
@@ -6900,6 +6917,7 @@ export const resolvers = {
     // Idempotent: re-enabling returns the existing link.
     enableBikeShare: async (_: unknown, { bikeId }: { bikeId: string }, ctx: GraphQLContext) => {
       const userId = requireUserId(ctx);
+      await requireVerifiedEmailForSharing(userId);
 
       const bike = await prisma.bike.findFirst({
         where: { id: bikeId, userId },
@@ -7297,6 +7315,11 @@ export const resolvers = {
     role: (parent: { role: string }) => parent.role,
     mustChangePassword: (parent: { mustChangePassword?: boolean }) => parent.mustChangePassword ?? false,
     hasPassword: (parent: { passwordHash?: string | null }) => !!parent.passwordHash,
+    needsEmailVerification: (parent: { emailVerificationRequired?: boolean; emailVerified?: Date | null }) =>
+      needsEmailVerification({
+        emailVerificationRequired: parent.emailVerificationRequired ?? false,
+        emailVerified: parent.emailVerified ?? null,
+      }),
     needsReauthForSensitiveActions: async (
       parent: { id: string },
       _args: unknown,
