@@ -13,9 +13,12 @@ import { FRONTEND_URL } from '../config/env';
 export const EMAIL_VERIFICATION_TTL_HOURS = 24;
 const TOKEN_BYTES = 32;
 
-/** Shown when a gated action is refused for an unverified account. */
+/**
+ * Shown when a gated action is refused for an unverified account. Worded for
+ * every client, including app versions with no banner or resend button.
+ */
 export const EMAIL_NOT_VERIFIED_MESSAGE =
-  'Confirm your email address first. Check your inbox for the link, or resend it from the banner at the top of the page.';
+  'Confirm your email address to turn on share links. Tap the link in the email we sent when you signed up.';
 
 export type EmailVerificationUser = {
   id: string;

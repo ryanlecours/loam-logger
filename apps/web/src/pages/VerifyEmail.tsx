@@ -12,7 +12,7 @@ const COPY: Record<Status, { title: string; body: string }> = {
   verified: { title: 'Email confirmed', body: 'Thanks. Share links are now turned on for your account.' },
   expired: {
     title: 'Link expired',
-    body: 'This link has expired or a newer one replaced it. Sign in and use the banner at the top of the page to send a fresh link.',
+    body: 'This link has expired or a newer one replaced it. Sign in at loamlogger.app or in the app to send a fresh link.',
   },
   invalid: {
     title: 'Link not recognized',
