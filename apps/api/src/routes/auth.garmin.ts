@@ -11,7 +11,7 @@ import { revokeIntegration } from '../lib/integration-tokens';
 import { createOAuthAttempt, consumeOAuthAttempt } from '../lib/oauthState';
 import { encrypt } from '../lib/crypto';
 import { renderOAuthCompletionPage } from '../lib/oauthCompletionPage';
-import { captureServerEvent } from '../lib/posthog';
+import { captureProviderConnected } from '../lib/posthog';
 
 const log = createLogger('garmin-oauth');
 
@@ -303,13 +303,7 @@ r.get<Empty, void, Empty, { code?: string; state?: string }>(
         });
       });
 
-      // The callback runs in a browser even for the mobile flow, so the request
-      // itself can't say which app started it. The flow can.
-      captureServerEvent(authenticatedUserId, 'provider_connected', {
-        provider: 'garmin',
-        isReconnect,
-        client_platform: isMobileFlow ? 'mobile' : 'web',
-      });
+      captureProviderConnected(authenticatedUserId, 'garmin', { isReconnect, isMobileFlow });
 
       if (isMobileFlow && attemptId) {
         // Attempt already consumed atomically by consumeOAuthAttempt

@@ -223,6 +223,26 @@ export function captureServerEvent(
 }
 
 /**
+ * Record a completed provider OAuth connection. Shared by the four OAuth
+ * callbacks so the event shape stays the same across providers.
+ *
+ * The callback runs in a browser even for the mobile flow, so the request
+ * itself can't say which app started it. The flow can, so `client_platform`
+ * is set here and wins over the request context.
+ */
+export function captureProviderConnected(
+  userId: string,
+  provider: 'garmin' | 'strava' | 'suunto' | 'whoop',
+  { isReconnect, isMobileFlow }: { isReconnect: boolean; isMobileFlow: boolean }
+): void {
+  captureServerEvent(userId, 'provider_connected', {
+    provider,
+    isReconnect,
+    client_platform: isMobileFlow ? 'mobile' : 'web',
+  });
+}
+
+/**
  * Flush pending events and shut down the client. Call from SIGTERM so in-flight
  * events aren't lost on deploy.
  *

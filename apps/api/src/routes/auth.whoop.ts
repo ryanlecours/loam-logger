@@ -6,7 +6,7 @@ import { sendBadRequest, sendSuccess, sendUnauthorized, sendInternalError, sendT
 import { createLogger } from '../lib/logger';
 import { revokeWhoopTokenForUser } from '../lib/whoop-token';
 import { WHOOP_API_BASE, WHOOP_AUTH_URL, WHOOP_TOKEN_URL, type WhoopUserProfile } from '../types/whoop';
-import { captureServerEvent } from '../lib/posthog';
+import { captureProviderConnected } from '../lib/posthog';
 import { checkMutationRateLimit } from '../lib/rate-limit';
 import { createOAuthAttempt, consumeOAuthAttempt } from '../lib/oauthState';
 import { renderOAuthCompletionPage } from '../lib/oauthCompletionPage';
@@ -321,13 +321,7 @@ r.get<Empty, void, Empty, { code?: string; state?: string; scope?: string; error
         });
       });
 
-      // The callback runs in a browser even for the mobile flow, so the request
-      // itself can't say which app started it. The flow can.
-      captureServerEvent(authenticatedUserId, 'provider_connected', {
-        provider: 'whoop',
-        isReconnect,
-        client_platform: isMobileFlow ? 'mobile' : 'web',
-      });
+      captureProviderConnected(authenticatedUserId, 'whoop', { isReconnect, isMobileFlow });
 
       // Mobile stops here. Everything below only picks a web redirect path, and
       // there is no cookie to clear — the attempt row was already consumed.
