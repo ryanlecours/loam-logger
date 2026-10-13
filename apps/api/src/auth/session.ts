@@ -4,6 +4,8 @@ import * as Sentry from '@sentry/node';
 import { extractBearerToken, verifyToken, isAccessTokenPayload } from './token';
 import { prisma } from '../lib/prisma';
 import { logger } from '../lib/logger';
+import { enrichRequestContext, getRequestContext } from '../lib/requestContext';
+import { CLIENT_HEADER, resolveClient } from '../lib/clientPlatform';
 
 const { SESSION_SECRET } = process.env;
 
@@ -98,6 +100,7 @@ export async function attachUser(req: Request, _res: Response, next: NextFunctio
         const user = jwt.verify(cookieToken, SESSION_SECRET!) as SessionUser;
         if (await isTokenVersionCurrent(user)) {
           req.sessionUser = user;
+          enrichRequestContext({ authTransport: 'cookie' });
         }
         return next();
       } catch {
@@ -114,6 +117,7 @@ export async function attachUser(req: Request, _res: Response, next: NextFunctio
       // defeating the point of short-lived access tokens entirely.
       if (user && isAccessTokenPayload(user) && (await isTokenVersionCurrent(user))) {
         req.sessionUser = user;
+        enrichRequestContext({ authTransport: 'bearer' });
       }
     }
 
@@ -127,3 +131,30 @@ export async function attachUser(req: Request, _res: Response, next: NextFunctio
     next(err);
   }
 }
+
+/**
+ * Tag the request context with the signed-in user and the calling app (see
+ * clientPlatform.ts). Reads the auth transport attachUser records, so it must
+ * run after attachUser: mount both through `sessionMiddleware`.
+ */
+export function enrichContextFromSession(req: Request, _res: Response, next: NextFunction): void {
+  const userId = req.sessionUser?.uid ?? req.user?.id;
+  if (userId) {
+    enrichRequestContext({ userId });
+    Sentry.setUser({ id: userId });
+  }
+  const client = resolveClient({
+    header: req.headers[CLIENT_HEADER],
+    authTransport: getRequestContext()?.authTransport,
+    path: req.path,
+  });
+  if (client) enrichRequestContext({ client });
+  next();
+}
+
+/**
+ * attachUser, then enrichContextFromSession. Mounted as one unit so the two
+ * can't be reordered: tagging before auth would drop the cookie and bearer
+ * fallbacks and leave older app builds untagged.
+ */
+export const sessionMiddleware = [attachUser, enrichContextFromSession];

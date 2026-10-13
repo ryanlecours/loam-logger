@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from 'async_hooks';
 import crypto from 'crypto';
+import type { AuthTransport, ClientInfo } from './clientPlatform';
 
 /**
  * Request context stored in AsyncLocalStorage.
@@ -18,6 +19,10 @@ export interface RequestContext {
   path?: string;
   /** Request start time for duration calculation */
   startTime?: number;
+  /** How attachUser authenticated the request (set only when a session verified) */
+  authTransport?: AuthTransport;
+  /** Which app made the request (see clientPlatform.ts) */
+  client?: ClientInfo;
 }
 
 /**

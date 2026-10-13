@@ -31,6 +31,7 @@ import {
   createRequestContext,
   enrichRequestContext,
 } from './lib/requestContext';
+import { CLIENT_HEADER } from './lib/clientPlatform';
 
 import authGarmin from './routes/auth.garmin';
 import authStrava from './routes/auth.strava';
@@ -56,7 +57,7 @@ import adminRouter from './routes/admin';
 import adminLiftRouter from './routes/admin.lift';
 import spokesRouter from './routes/spokes';
 import emailUnsubscribeRouter from './routes/email.unsubscribe';
-import { googleRouter, emailRouter, deleteAccountRouter, passwordRouter, attachUser, verifyCsrf } from './auth/index';
+import { googleRouter, emailRouter, deleteAccountRouter, passwordRouter, sessionMiddleware, verifyCsrf } from './auth/index';
 import webhooksStripe from './routes/webhooks.stripe';
 import webhooksRevenueCat from './routes/webhooks.revenuecat';
 import { validateStripeConfig } from './lib/stripe';
@@ -155,7 +156,7 @@ const startServer = async () => {
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'x-csrf-token', 'sentry-trace', 'baggage'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-csrf-token', 'sentry-trace', 'baggage', CLIENT_HEADER],
   });
 
   app.use(corsMw);
@@ -234,18 +235,8 @@ const startServer = async () => {
   // HTTP request/response logging
   app.use(httpLogger);
 
-  // Attach user/session
-  app.use(attachUser);
-
-  // Enrich context with userId after auth
-  app.use((req, _res, next) => {
-    const userId = req.sessionUser?.uid ?? req.user?.id;
-    if (userId) {
-      enrichRequestContext({ userId });
-      Sentry.setUser({ id: userId });
-    }
-    next();
-  });
+  // Attach user/session, then tag the context with the user and calling client
+  app.use(sessionMiddleware);
 
   // CSRF protection for state-changing requests
   // Skips: GET/HEAD/OPTIONS, Bearer token auth (mobile), unauthenticated requests
