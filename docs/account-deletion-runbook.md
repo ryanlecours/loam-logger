@@ -22,6 +22,8 @@ The page says: "No longer have access to that inbox? Email us and we'll help." R
 2. **They can sign in another way** (Google or Apple sign-in on the account, or a password they still know): ask them to sign in and delete from Settings, in the app or on the website.
 3. **They've lost access to the inbox and can't sign in:** they email Ryan (ryan.lecours@loamlogger.app, the address on the public page), who resolves it case by case and decides what is enough to show the account is theirs. If the answer is to delete, do it from the admin panel.
 
+**Requests to delete only some data** (a ride, a bike, imported tracks): point them to https://loamlogger.app/delete-account#delete-some-data, which has the steps to do it themselves. Anything those steps don't cover comes to Ryan.
+
 Aim to answer within a month of the request, the limit GDPR sets for erasure requests from riders in the EU and UK.
 
 ## Deleting from the admin panel

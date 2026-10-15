@@ -126,3 +126,24 @@ describe('Delete by email form', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
+
+describe('Delete some data without deleting your account', () => {
+  // Play shows this section's link on the store listing as the partial
+  // deletion URL, and asks for the steps to be prominent there too.
+  it('gives steps for rides, bikes and imported data', () => {
+    renderPage();
+    for (const name of [
+      'Delete a ride',
+      'Delete a bike',
+      'Remove data imported from Garmin or Strava',
+      'Anything else',
+    ]) {
+      expect(screen.getByRole('heading', { level: 3, name })).toBeInTheDocument();
+    }
+    expect(screen.getByRole('link', { name: 'Settings, then Data Sources' })).toHaveAttribute(
+      'href',
+      '/settings?section=data-sources'
+    );
+    expect(screen.getByRole('link', { name: 'My Bikes' })).toHaveAttribute('href', '/gear');
+  });
+});

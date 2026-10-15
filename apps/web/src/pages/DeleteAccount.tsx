@@ -209,8 +209,40 @@ export default function DeleteAccount() {
 
                                 <section id="delete-some-data">
                                     <h2 className="card-title mb-3">Delete some data without deleting your account</h2>
+                                    <p className="body text-muted mb-3">
+                                        You can remove rides, bikes and imported GPS tracks at any time and keep your account. Each deletion is permanent.
+                                    </p>
+
+                                    <h3 className="text-base font-semibold text-cream mb-2">Delete a ride</h3>
+                                    <ul className="list-disc pl-6 space-y-2 body text-muted mb-4">
+                                        <li><strong className="text-cream">In the app:</strong> open the Rides tab, tap the ride, tap Delete, then tap Delete again to confirm.</li>
+                                        <li><strong className="text-cream">On the website:</strong> open <Link to="/rides" className={linkClass}>Rides</Link> and select Delete ride on the ride, then confirm.</li>
+                                    </ul>
+                                    <p className="body text-muted mb-4">
+                                        This deletes the ride with its GPS track, weather and notes, and removes its hours from your components.
+                                    </p>
+
+                                    <h3 className="text-base font-semibold text-cream mb-2">Delete a bike</h3>
+                                    <ul className="list-disc pl-6 space-y-2 body text-muted mb-4">
+                                        <li><strong className="text-cream">In the app:</strong> open the Gear tab, tap the bike, tap Delete Bike, then tap Delete to confirm.</li>
+                                        <li><strong className="text-cream">On the website:</strong> open <Link to="/gear" className={linkClass}>My Bikes</Link>, open the bike's actions menu and choose Delete bike.</li>
+                                    </ul>
+                                    <p className="body text-muted mb-4">
+                                        This deletes the bike, its components and their service history. Your rides are kept but are no longer linked to that bike.
+                                    </p>
+
+                                    <h3 className="text-base font-semibold text-cream mb-2">Remove data imported from Garmin or Strava</h3>
+                                    <ul className="list-disc pl-6 space-y-2 body text-muted mb-4">
+                                        <li><strong className="text-cream">In the app:</strong> open the Settings tab and, under Connected Services, tap Disconnect next to the provider.</li>
+                                        <li><strong className="text-cream">On the website:</strong> open <Link to="/settings?section=data-sources" className={linkClass}>Settings, then Data Sources</Link>, and disconnect the provider.</li>
+                                    </ul>
+                                    <p className="body text-muted mb-4">
+                                        Disconnecting stops new imports and deletes the GPS tracks we imported from that provider. Your rides and their totals stay. Disconnecting WHOOP or Suunto stops new imports from them.
+                                    </p>
+
+                                    <h3 className="text-base font-semibold text-cream mb-2">Anything else</h3>
                                     <p className="body text-muted">
-                                        You can delete individual rides and bikes in the app or on the website at any time. Disconnecting a provider in Settings deletes the raw GPS tracks imported from it. To have anything else removed, email <a className={linkClass} href={`mailto:${DELETION_EMAIL}`}>{DELETION_EMAIL}</a>.
+                                        To have other data removed, email <a className={linkClass} href={`mailto:${DELETION_EMAIL}`}>{DELETION_EMAIL}</a> and say what you'd like deleted.
                                     </p>
                                 </section>
 
