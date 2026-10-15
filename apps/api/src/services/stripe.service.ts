@@ -153,6 +153,10 @@ function isStripeResourceMissing(err: unknown): boolean {
  * subscription on the customer that we never recorded. Invoices and charges
  * are kept by Stripe for accounting and remain refundable from the dashboard.
  *
+ * After each Stripe step the user row is updated to match (see
+ * clearLocalStripeBilling), so it stays consistent even if the rest of the
+ * account deletion fails and the rider never retries.
+ *
  * Idempotent: an already-ended subscription or an already-deleted customer
  * counts as done, so a retry after a partial failure succeeds. Any other
  * Stripe error is thrown so the caller can refuse to delete the account.
@@ -185,6 +189,7 @@ export async function cancelStripeBillingForAccountDeletion(userId: string): Pro
       if (!isStripeResourceMissing(err)) throw err;
       logger.warn({ userId, stripeSubscriptionId }, 'Account deletion: Stripe subscription not found, nothing to cancel');
     }
+    await clearLocalStripeBilling(userId, { clearCustomer: false });
   }
 
   if (stripeCustomerId) {
@@ -195,5 +200,45 @@ export async function cancelStripeBillingForAccountDeletion(userId: string): Pro
       if (!isStripeResourceMissing(err)) throw err;
       logger.warn({ userId, stripeCustomerId }, 'Account deletion: Stripe customer not found, nothing to delete');
     }
+    await clearLocalStripeBilling(userId, { clearCustomer: true });
   }
+}
+
+/**
+ * Bring the user row in line with Stripe as soon as billing has stopped.
+ *
+ * The webhook skips events tagged with ACCOUNT_DELETION_CANCELLATION_COMMENT,
+ * and the rest of the account teardown is not one transaction, so without this
+ * a deletion that fails after the Stripe step would leave the rider PRO with a
+ * dead subscription (and a deleted customer id that breaks a later checkout).
+ *
+ * Mirrors downgradeUser's tier logic but sends no email and no analytics, and
+ * also clears stripeCustomerId once the customer is gone. Only a Stripe-backed
+ * PRO is downgraded: founding riders and riders who are PRO through the App
+ * Store or Google Play keep their tier and only lose the stale Stripe ids.
+ */
+async function clearLocalStripeBilling(userId: string, { clearCustomer }: { clearCustomer: boolean }): Promise<void> {
+  await prisma.$transaction(async (tx) => {
+    const user = await tx.user.findUnique({
+      where: { id: userId },
+      select: { isFoundingRider: true, subscriptionTier: true, subscriptionProvider: true },
+    });
+    if (!user) return;
+
+    const stripeBacked = user.subscriptionProvider === 'STRIPE';
+    const downgrade = stripeBacked && !user.isFoundingRider && user.subscriptionTier === 'PRO';
+    const activeBikeCount = downgrade
+      ? await tx.bike.count({ where: { userId, status: 'ACTIVE' } })
+      : 0;
+
+    await tx.user.update({
+      where: { id: userId },
+      data: {
+        stripeSubscriptionId: null,
+        ...(clearCustomer ? { stripeCustomerId: null } : {}),
+        ...(stripeBacked ? { subscriptionProvider: null } : {}),
+        ...(downgrade ? { subscriptionTier: 'FREE', needsDowngradeSelection: activeBikeCount > 1 } : {}),
+      },
+    });
+  });
 }

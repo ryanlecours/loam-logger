@@ -36,6 +36,14 @@ jest.mock('../lib/strava-token', () => ({
   revokeStravaTokenForUser: jest.fn().mockResolvedValue(true),
 }));
 
+jest.mock('./email.service', () => ({
+  sendEmailWithAudit: jest.fn(),
+}));
+
+jest.mock('../lib/posthog', () => ({
+  captureServerEvent: jest.fn(),
+}));
+
 jest.mock('../lib/garmin-token', () => ({
   revokeGarminTokenForUser: jest.fn().mockResolvedValue(true),
 }));
@@ -44,6 +52,8 @@ import { deleteUserAccount, BillingCancellationError } from './account-deletion.
 import { prisma } from '../lib/prisma';
 import { revokeStravaTokenForUser } from '../lib/strava-token';
 import { revokeGarminTokenForUser } from '../lib/garmin-token';
+import { sendEmailWithAudit } from './email.service';
+import { captureServerEvent } from '../lib/posthog';
 
 const mockPrisma = prisma as unknown as {
   user: { findUnique: jest.Mock; delete: jest.Mock };
@@ -54,6 +64,11 @@ const mockPrisma = prisma as unknown as {
   userIntegration: { deleteMany: jest.Mock };
   userAccount: { deleteMany: jest.Mock };
   $transaction: jest.Mock;
+};
+
+const tx = {
+  user: { findUnique: jest.fn(), update: jest.fn() },
+  bike: { count: jest.fn() },
 };
 
 function stripeError(code: string, message = 'Stripe error') {
@@ -71,7 +86,13 @@ describe('deleteUserAccount', () => {
     mockPrisma.component.deleteMany.mockResolvedValue({ count: 0 });
     mockPrisma.bike.deleteMany.mockResolvedValue({ count: 0 });
     mockPrisma.userAccount.deleteMany.mockResolvedValue({ count: 0 });
-    mockPrisma.$transaction.mockResolvedValue([]);
+    // Interactive form: the local Stripe clear. Array form: the OAuth teardown.
+    tx.user.findUnique.mockResolvedValue({ isFoundingRider: false, subscriptionTier: 'PRO', subscriptionProvider: 'STRIPE' });
+    tx.user.update.mockResolvedValue({});
+    tx.bike.count.mockResolvedValue(1);
+    mockPrisma.$transaction.mockImplementation((arg: unknown) =>
+      typeof arg === 'function' ? (arg as (t: typeof tx) => unknown)(tx) : Promise.resolve([])
+    );
   });
 
   afterEach(() => {
@@ -177,12 +198,13 @@ describe('deleteUserAccount', () => {
       expect(mockPrisma.component.deleteMany).not.toHaveBeenCalled();
       expect(mockPrisma.bike.deleteMany).not.toHaveBeenCalled();
       expect(revokeStravaTokenForUser).not.toHaveBeenCalled();
-      expect(mockPrisma.$transaction).not.toHaveBeenCalled();
+      expect(mockPrisma.oauthToken.deleteMany).not.toHaveBeenCalled();
+      expect(mockPrisma.userIntegration.deleteMany).not.toHaveBeenCalled();
       expect(mockPrisma.userAccount.deleteMany).not.toHaveBeenCalled();
       expect(mockPrisma.user.delete).not.toHaveBeenCalled();
     }
 
-    it('throws BillingCancellationError and deletes nothing when cancellation fails', async () => {
+    it('throws BillingCancellationError and changes nothing when cancellation fails', async () => {
       const cause = Object.assign(new Error('Stripe is down'), { type: 'StripeAPIError' });
       mockSubscriptionsCancel.mockRejectedValue(cause);
 
@@ -191,15 +213,96 @@ describe('deleteUserAccount', () => {
       await expect(promise).rejects.toBeInstanceOf(BillingCancellationError);
       await expect(promise).rejects.toMatchObject({ cause });
       expect(mockCustomersDel).not.toHaveBeenCalled();
+      expect(tx.user.update).not.toHaveBeenCalled();
       expectNothingDeleted();
     });
 
-    it('throws BillingCancellationError and deletes nothing when deleting the customer fails', async () => {
+    it('throws BillingCancellationError after recording the cancelled subscription when deleting the customer fails', async () => {
       mockSubscriptionsCancel.mockResolvedValue({ id: 'sub_123', status: 'canceled' });
       mockCustomersDel.mockRejectedValue(Object.assign(new Error('Connection error'), { type: 'StripeConnectionError' }));
 
       await expect(deleteUserAccount('user-1')).rejects.toBeInstanceOf(BillingCancellationError);
+
+      // The subscription is gone in Stripe, so the row reflects that; the
+      // customer still exists, so its id is kept for the retry.
+      expect(tx.user.update).toHaveBeenCalledTimes(1);
+      expect(tx.user.update.mock.calls[0][0].data).not.toHaveProperty('stripeCustomerId');
+      expect(tx.user.update.mock.calls[0][0].data).toMatchObject({ stripeSubscriptionId: null, subscriptionTier: 'FREE' });
       expectNothingDeleted();
+    });
+  });
+
+  describe('local billing state once Stripe billing stops', () => {
+    beforeEach(() => {
+      mockPrisma.user.findUnique.mockResolvedValue({ stripeCustomerId: 'cus_123', stripeSubscriptionId: 'sub_123' });
+      mockSubscriptionsRetrieve.mockResolvedValue({ id: 'sub_123', status: 'active' });
+      mockSubscriptionsCancel.mockResolvedValue({ id: 'sub_123', status: 'canceled' });
+      mockCustomersDel.mockResolvedValue({ id: 'cus_123', deleted: true });
+    });
+
+    it('leaves the row FREE with Stripe ids cleared, and sends nothing, when a later delete throws', async () => {
+      const dbError = new Error('DB connection lost');
+      mockPrisma.ride.deleteMany.mockRejectedValue(dbError);
+
+      await expect(deleteUserAccount('user-1')).rejects.toBe(dbError);
+
+      expect(tx.user.update).toHaveBeenNthCalledWith(1, {
+        where: { id: 'user-1' },
+        data: {
+          stripeSubscriptionId: null,
+          subscriptionProvider: null,
+          subscriptionTier: 'FREE',
+          needsDowngradeSelection: false,
+        },
+      });
+      expect(tx.user.update).toHaveBeenLastCalledWith({
+        where: { id: 'user-1' },
+        data: expect.objectContaining({ stripeCustomerId: null, stripeSubscriptionId: null }),
+      });
+      expect(mockPrisma.user.delete).not.toHaveBeenCalled();
+      expect(sendEmailWithAudit).not.toHaveBeenCalled();
+      expect(captureServerEvent).not.toHaveBeenCalled();
+    });
+
+    it('flags bike selection when the downgraded rider has more than one active bike', async () => {
+      tx.bike.count.mockResolvedValue(3);
+
+      await deleteUserAccount('user-1');
+
+      expect(tx.user.update.mock.calls[0][0].data).toMatchObject({ subscriptionTier: 'FREE', needsDowngradeSelection: true });
+    });
+
+    it('keeps the tier of a rider who is PRO through the App Store, clearing only stale Stripe ids', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue({ stripeCustomerId: 'cus_old', stripeSubscriptionId: null });
+      tx.user.findUnique.mockResolvedValue({ isFoundingRider: false, subscriptionTier: 'PRO', subscriptionProvider: 'APPLE' });
+
+      await deleteUserAccount('user-1');
+
+      expect(tx.user.update).toHaveBeenCalledTimes(1);
+      expect(tx.user.update).toHaveBeenCalledWith({
+        where: { id: 'user-1' },
+        data: { stripeSubscriptionId: null, stripeCustomerId: null },
+      });
+      expect(tx.bike.count).not.toHaveBeenCalled();
+    });
+
+    it('keeps a founding rider PRO while clearing the Stripe provider and ids', async () => {
+      tx.user.findUnique.mockResolvedValue({ isFoundingRider: true, subscriptionTier: 'PRO', subscriptionProvider: 'STRIPE' });
+
+      await deleteUserAccount('user-1');
+
+      for (const [call] of tx.user.update.mock.calls) {
+        expect(call.data).not.toHaveProperty('subscriptionTier');
+        expect(call.data).toMatchObject({ stripeSubscriptionId: null, subscriptionProvider: null });
+      }
+    });
+
+    it('does not touch the row for a user with no Stripe ids', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue({ stripeCustomerId: null, stripeSubscriptionId: null });
+
+      await deleteUserAccount('user-1');
+
+      expect(tx.user.update).not.toHaveBeenCalled();
     });
   });
 });
