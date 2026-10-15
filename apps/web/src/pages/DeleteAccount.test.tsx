@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import DeleteAccount, { DELETION_EMAIL } from './DeleteAccount';
 
@@ -37,7 +37,7 @@ describe('DeleteAccount', () => {
     expect(sections.slice(0, 3)).toEqual([
       'Delete from the app',
       'Delete on the website',
-      'Ask us by email',
+      'Delete by email',
     ]);
   });
 
@@ -65,8 +65,64 @@ describe('DeleteAccount', () => {
     expect(screen.getByText(/kept for up to 12 months/)).toBeInTheDocument();
   });
 
-  it('warns that deleting does not cancel a subscription', () => {
+  it('warns that deleting does not cancel a store subscription', () => {
     renderPage();
-    expect(screen.getByText(/does not cancel a Loam Logger Pro subscription/)).toBeInTheDocument();
+    expect(screen.getByText(/does not cancel a Loam Logger Pro subscription bought through the App Store or Google Play/)).toBeInTheDocument();
+  });
+});
+
+describe('Delete by email form', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.stubGlobal(
+      'IntersectionObserver',
+      class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      }
+    );
+  });
+
+  function submit(email: string) {
+    fireEvent.change(screen.getByLabelText('Account email'), { target: { value: email } });
+    fireEvent.click(screen.getByRole('button', { name: 'Email me a confirmation link' }));
+  }
+
+  it('asks the API to email a link, without credentials, then says to check the inbox', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ ok: true }) });
+    vi.stubGlobal('fetch', fetchMock);
+    renderPage();
+
+    submit(' rider@example.com ');
+
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      "If rider@example.com has a Loam Logger account, we've sent it a confirmation link."
+    );
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toMatch(/\/auth\/delete-account\/request$/);
+    expect(init).toMatchObject({ method: 'POST', body: JSON.stringify({ email: 'rider@example.com' }) });
+    expect(init.credentials).toBeUndefined();
+  });
+
+  it('shows the retry time when rate limited', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 429, json: async () => ({ retryAfter: 42 }) }));
+    renderPage();
+
+    submit('rider@example.com');
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Too many attempts. Please try again in 42 seconds.');
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it('asks for an email before sending anything', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    renderPage();
+
+    submit('   ');
+
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Please enter your email.'));
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
