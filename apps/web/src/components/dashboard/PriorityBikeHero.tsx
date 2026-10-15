@@ -158,12 +158,10 @@ export function PriorityBikeHero({
                 <Wrench size={12} className="icon-left" />
                 Log service
               </Button>
-              <span title="Coming soon - available by January 21, 2026">
-                <Button variant="secondary" size="sm" disabled>
-                  <Settings size={12} className="icon-left" />
-                  View maintenance
-                </Button>
-              </span>
+              <Link to={`/gear/${bike.id}/history?show=service`} className="btn-secondary btn-sm font-medium">
+                <Settings size={12} className="icon-left" />
+                View maintenance
+              </Link>
             </div>
           </motion.div>
         </AnimatePresence>

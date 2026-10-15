@@ -1,5 +1,5 @@
 import { Suspense, lazy, useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router';
+import { Link, useParams, useSearchParams } from 'react-router';
 import { gql, useMutation, useQuery } from '@apollo/client';
 import { ArrowLeft, Bike as BikeIcon, CalendarClock, Check, FileDown, Link2, MinusCircle, PlusCircle, TriangleAlert, Wrench } from 'lucide-react';
 
@@ -54,7 +54,10 @@ export default function BikeHistory() {
   const { isPro } = useUserTier();
   const [timeframe, setTimeframe] = useState<Timeframe>('all');
   const [showPdfUpsell, setShowPdfUpsell] = useState(false);
-  const [showRides, setShowRides] = useState(true);
+  // `?show=service` opens on the service log alone (the dashboard's "View
+  // maintenance" link); the Rides pill still turns rides back on.
+  const [searchParams] = useSearchParams();
+  const [showRides, setShowRides] = useState(searchParams.get('show') !== 'service');
   const [showService, setShowService] = useState(true);
   const [editingService, setEditingService] = useState<{
     log: EditableServiceLog;
@@ -526,6 +529,7 @@ function TogglePill({ active, onClick, children }: { active: boolean; onClick: (
     <button
       type="button"
       onClick={onClick}
+      aria-pressed={active}
       className={`px-3 py-1 rounded-full text-xs border ${active ? 'bg-mint/10 border-mint text-mint' : 'border-border text-muted'}`}
     >
       {children}
