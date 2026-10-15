@@ -17,20 +17,25 @@ let initialized = false;
 const EMAIL_PATTERN = /[\w.+-]+@[\w-]+\.[\w.-]+/g;
 const EMAIL_REDACTED = '[email]';
 
-// Autocapture records click/change events with the element's visible text in
-// `$el_text`. If a page ever renders the user's email/name as visible text
-// (not inside an input — maskAllInputs doesn't apply here), that string
-// lands in the event. Strip `$el_text` from autocaptures entirely rather
-// than rely on per-element tagging; button labels in this app don't carry
-// semantic meaning we can't recover from the CSS selector + attributes.
-function sanitizeProperties(
-  properties: Record<string, unknown>,
-  eventName: string
-): Record<string, unknown> {
+// Autocapture records the clicked element and its ancestors, by default with
+// each element's visible text (`$el_text`, and `text=` in `$elements_chain`)
+// and its attributes. Both carry rider data in this app: cards show a bike's
+// name, and labels are built from it (`aria-label="Log service for <name>"`,
+// a tile's `title`, a bike photo's `alt`). Dropping `$el_text` alone missed
+// the chain, so drop all element text at the source and ignore the
+// attributes that hold readable labels. Clicks are still identified by tag,
+// classes, id, href and position. Dead-click capture keeps its own attribute
+// ignorelist: it is off for this project, so give it this list if it is ever
+// turned on.
+export const AUTOCAPTURE_PRIVACY = {
+  mask_all_text: true,
+  autocapture: { element_attribute_ignorelist: ['aria-label', 'title', 'alt'] },
+};
+
+// Redact email-shaped strings in every top-level string property, which
+// includes `$elements_chain` (a `mailto:` href, for one).
+export function sanitizeProperties(properties: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = { ...properties };
-  if (eventName === '$autocapture') {
-    delete out.$el_text;
-  }
   for (const k of Object.keys(out)) {
     const v = out[k];
     if (typeof v === 'string') {
@@ -52,10 +57,10 @@ export function initPostHog(): void {
   posthog.init(key, {
     api_host: host,
     persistence: 'localStorage+cookie',
-    autocapture: true,
+    ...AUTOCAPTURE_PRIVACY,
     // Opt specific elements out of autocapture by adding the `ph-no-capture`
     // class (PostHog's built-in opt-out marker — a defense-in-depth layer
-    // beyond sanitize_properties below).
+    // beyond AUTOCAPTURE_PRIVACY and sanitize_properties).
     // Pageviews are captured manually from React Router so SPA navigations
     // are tracked accurately. See usePostHogPageviews in App.tsx.
     capture_pageview: false,
