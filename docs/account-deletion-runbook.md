@@ -16,17 +16,17 @@ App Store and Google Play subscriptions can't be cancelled by us. The rider has 
 
 The page says: "No longer have access to that inbox? Email us and we'll help." Requests can also arrive as replies to other emails, or through the Support form.
 
-**Never delete on the strength of an email alone.** The From address of an email can be forged, so "it came from the account's address" proves nothing. Ownership is proven by receiving mail at that address (the emailed link) or by signing in.
+**Don't delete on the strength of an email alone.** The From address of an email can be forged, so "it came from the account's address" proves nothing. Ownership is proven by receiving mail at that address (the emailed link) or by signing in. Case 3 is the one exception, and Ryan handles it personally.
 
 1. **They still have the inbox:** reply with the link to https://loamlogger.app/delete-account#by-email and ask them to use the form. The confirmation email is the identity check, and the account is deleted once they confirm. Nothing else is needed from us.
 2. **They can sign in another way** (Google or Apple sign-in on the account, or a password they still know): ask them to sign in and delete from Settings, in the app or on the website.
-3. **They've lost access to the inbox and can't sign in:** we can't verify they own the account. Suggest recovering the inbox with their email provider, then using the form. Do not delete the account for them. *(Policy to confirm: whether any other proof is acceptable, such as a request from a new address naming the account plus details only the owner would know.)*
+3. **They've lost access to the inbox and can't sign in:** they email Ryan (ryan.lecours@loamlogger.app, the address on the public page), who resolves it case by case and decides what is enough to show the account is theirs. If the answer is to delete, do it from the admin panel.
 
 Aim to answer within a month of the request, the limit GDPR sets for erasure requests from riders in the EU and UK.
 
 ## Deleting from the admin panel
 
-Admin, then Users, then delete. Use it only once one of the checks above has proven ownership, or for your own test accounts.
+Admin, then Users, then delete. Use it only once one of the checks above has proven ownership, when Ryan has resolved a lost-access request, or for your own test accounts.
 
 It runs the same `deleteUserAccount` as the self-serve paths. If it answers "Couldn't cancel this user's Stripe subscription", nothing was deleted: wait a few minutes and try again, or check the subscription in the Stripe dashboard.
 
