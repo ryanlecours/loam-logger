@@ -1331,6 +1331,9 @@ export const typeDefs = gql`
     createComponentShare(input: CreateComponentShareInput!): ComponentShare!
     # Revoke a share link. Its URL stops working at once.
     revokeComponentShare(id: ID!): Boolean!
+    # Turn a sent link's ride list on or off without changing its URL. Takes
+    # effect at once for everyone holding the link.
+    updateComponentShare(id: ID!, includeRides: Boolean!): ComponentShare!
     # Per-ride attribution corrections. EXCLUDE removes an on-bike ride's
     # hours from the component; INCLUDE applies a ride from another bike
     # (or unassigned) to it. Setting flips an existing row; clearing a
@@ -1640,6 +1643,8 @@ export const typeDefs = gql`
     # RANGE only: the window, as [rangeStart, rangeEnd).
     rangeStart: String
     rangeEnd: String
+    # The link also lists each ride in its window (sharedComponentRides).
+    includeRides: Boolean!
     url: String!
     createdAt: String!
   }
@@ -1653,12 +1658,16 @@ export const typeDefs = gql`
     # today; the client's date picker enforces the exact bounds.
     rangeStart: String
     rangeEnd: String
+    # Opt in to listing each ride in the window: its date, trail, location,
+    # duration, distance and climb. Off unless asked for. A link with rides and
+    # one without are different links, even over the same window.
+    includeRides: Boolean = false
   }
 
   # Public, sanitized component-history shapes for /share/component/<slug>.
-  # Deliberately excludes owner identity, notes, bike nicknames and ids,
-  # per-ride rows and weather (Pro-gated, and a date window over it could be
-  # narrowed to single rides).
+  # Deliberately excludes owner identity, notes, bike nicknames and ids and
+  # weather (Pro-gated, and a date window over it could be narrowed to single
+  # rides). Per-ride rows appear only on links the owner opted in.
   type SharedComponentInfo {
     type: ComponentType!
     location: ComponentLocation!
@@ -1699,12 +1708,46 @@ export const typeDefs = gql`
     totals: ComponentUsageTotals!
     # Declared pre-Loam hours included in totals.durationSeconds; 0 when none.
     declaredPriorHours: Float!
+    # The owner opted this link into a ride list; page it with
+    # sharedComponentRides.
+    includeRides: Boolean!
     bikes: [SharedComponentTenure!]!
     logbook: [SharedComponentLogEntry!]!
     cumulative: [ComponentCumulativePoint!]!
     # Providers whose rides contribute to the numbers above, for the
     # downstream attribution the Garmin API Brand Guidelines require.
     contributingSources: [String!]!
+  }
+
+  # One ride on an opted-in share link. No id, notes, heart rate or weather.
+  type SharedComponentRide {
+    # The calendar day it was ridden, YYYY-MM-DD, local to where it was ridden.
+    # Never the time of day: a public list of start times says when the rider
+    # is away from home.
+    date: String!
+    durationSeconds: Int!
+    distanceMeters: Float!
+    elevationGainMeters: Float!
+    trailSystem: String
+    location: String
+    # Every provider that contributed this ride's data ("strava", "garmin",
+    # "whoop", "suunto"); empty for a manual ride.
+    sources: [String!]!
+    # "Garmin Edge 840", or "Garmin" when no model is known. Set whenever the
+    # ride carries Garmin device-sourced data, and must be shown on the row.
+    garminAttribution: String
+  }
+
+  type SharedComponentRidesPayload {
+    # Newest first.
+    rides: [SharedComponentRide!]!
+    hasMore: Boolean!
+  }
+
+  type ComponentHistoryRidesPayload {
+    # Newest first.
+    rides: [Ride!]!
+    hasMore: Boolean!
   }
 
   type SharedBikeHistory {
@@ -1759,17 +1802,31 @@ export const typeDefs = gql`
     # A component's whole life: every bike it has been mounted on, lifetime
     # distance/elevation/hours, its services, and the conditions it has ridden
     # in. Aggregate-only by design — no ride rows, so the response stays
-    # constant-size for any history length. Use componentRides for the rows.
+    # constant-size for any history length. Use componentHistoryRides for the rows.
     #
     # Deliberately takes no date or condition arguments: narrowing windows over
     # a weather aggregate would let a free user binary-search single rides and
     # recover the per-ride weather that Ride.weather gates behind Pro.
     componentHistory(componentId: ID!): ComponentHistoryPayload!
+    # The rides componentHistory's totals sum, one row each, newest first:
+    # every counted ride by default, or those since the latest service. Same
+    # tenure rule as the totals, so the list and the numbers above it agree.
+    # Offset-paged; take is capped at 100. Owner-only.
+    componentHistoryRides(
+      componentId: ID!
+      sinceService: Boolean = false
+      take: Int = 25
+      offset: Int = 0
+    ): ComponentHistoryRidesPayload!
     # Public (unauthenticated) sanitized history for a shared bike.
     # Returns null for unknown or revoked slugs.
     sharedBikeHistory(slug: String!): SharedBikeHistory
     # Public (unauthenticated) sanitized history for one component share link.
     # Returns null for unknown or revoked slugs.
     sharedComponentHistory(slug: String!): SharedComponentHistory
+    # Public (unauthenticated): one page of a share link's rides, newest first,
+    # over the link's window. Null for unknown or revoked slugs and for links
+    # the owner did not opt into a ride list. Offset-paged; take is capped at 100.
+    sharedComponentRides(slug: String!, take: Int = 25, offset: Int = 0): SharedComponentRidesPayload
   }
 `;

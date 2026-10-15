@@ -4,7 +4,7 @@ import { gql } from '@apollo/client';
 // distance/elevation/hours, its services, and the conditions it has ridden in.
 //
 // Aggregate-only by design — the server returns no ride rows, so this stays
-// constant-size for any history length. COMPONENT_RIDES is the paged
+// constant-size for any history length. COMPONENT_HISTORY_RIDES is the paged
 // row-level companion.
 //
 // `lifetime` and `sinceService` are two windows over the same tenure-bounded
@@ -100,6 +100,41 @@ export const COMPONENT_HISTORY = gql`
         cumulativeHours
         cumulativeDistanceMeters
         cumulativeElevationGainMeters
+      }
+    }
+  }
+`;
+
+// The rides COMPONENT_HISTORY's totals sum, newest first, by the same tenure
+// rule: every counted ride, or (sinceService) those since the latest service.
+// Offset-paged; merge pages with fetchMore.
+export const COMPONENT_HISTORY_RIDES = gql`
+  query ComponentHistoryRides($componentId: ID!, $sinceService: Boolean, $take: Int, $offset: Int) {
+    componentHistoryRides(
+      componentId: $componentId
+      sinceService: $sinceService
+      take: $take
+      offset: $offset
+    ) {
+      hasMore
+      rides {
+        id
+        startTime
+        durationSeconds
+        distanceMeters
+        elevationGainMeters
+        trailSystem
+        location
+        rideType
+        bikeId
+        # Provider ids and device names, so each row attributes its source
+        # (RideSourceBadges): Garmin requires it wherever its data appears.
+        stravaActivityId
+        stravaDeviceName
+        garminActivityId
+        garminDeviceName
+        whoopWorkoutId
+        suuntoWorkoutId
       }
     }
   }

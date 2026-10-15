@@ -72,6 +72,8 @@ import {
   emptyTotals,
   emptyConditionBuckets,
   foldConditionBuckets,
+  loadCountedRideBasis,
+  pageCountedRides,
   TENURE_CAP,
   type NormalizedTenure,
   type UsageTotals,
@@ -85,6 +87,7 @@ import {
 } from '../lib/component-counters';
 import {
   buildSharedComponentHistory,
+  sharedComponentRidesPage,
   componentStartDate,
   rangeError,
   MAX_SHARES_PER_COMPONENT,
@@ -1181,7 +1184,7 @@ export const resolvers = {
     // Returns no ride rows on purpose: totals come from one bounded findMany,
     // conditions from a groupBy and the chart from one grouped raw query, so
     // the response is constant-size whether the rider has 50 rides or 50,000.
-    // Clients wanting rows use componentRides, which is id-cursor paged.
+    // Clients wanting rows use componentHistoryRides, which pages the same set.
     componentHistory: async (
       _: unknown,
       { componentId }: { componentId: string },
@@ -1350,6 +1353,46 @@ export const resolvers = {
         __rideWhere: aggregate.rideWhere,
         __userId: userId,
       };
+    },
+
+    // The rides componentHistory sums, one row each. Built from the same basis
+    // and where clause as aggregateLifetime, so the list under a total holds
+    // exactly the rides that total counts. Ride.weather stays Pro-gated by its
+    // own field resolver.
+    componentHistoryRides: async (
+      _: unknown,
+      {
+        componentId,
+        sinceService = false,
+        take = 25,
+        offset = 0,
+      }: { componentId: string; sinceService?: boolean | null; take?: number | null; offset?: number | null },
+      ctx: GraphQLContext
+    ) => {
+      const userId = requireUserId(ctx);
+
+      const rateLimit = await checkQueryRateLimit('componentHistoryRides', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
+
+      // Scoped to the owner, so a part that is not theirs reads as missing.
+      const component = await prisma.component.findFirst({ where: { id: componentId, userId } });
+      if (!component) {
+        throw new GraphQLError('Component not found', { extensions: { code: 'NOT_FOUND' } });
+      }
+
+      const basis = await loadCountedRideBasis(prisma, component);
+      return pageCountedRides(prisma, {
+        userId,
+        basis,
+        // Never serviced: every ride counts, as componentHistory's sinceService does.
+        range: sinceService ? { start: basis.latestServiceAt, end: null } : undefined,
+        take: take ?? 25,
+        offset: offset ?? 0,
+      });
     },
 
     rides: async (_: unknown, { take = 1000, after, filter }: RidesArgs, ctx: GraphQLContext) => {
@@ -2169,6 +2212,31 @@ export const resolvers = {
       });
       if (!share) return null;
       return buildSharedComponentHistory(prisma, share);
+    },
+
+    // Public (no auth): one page of an opted-in share link's rides. Null for a
+    // link without the opt-in, exactly as for an unknown slug.
+    sharedComponentRides: async (
+      _: unknown,
+      { slug, take = 25, offset = 0 }: { slug: string; take?: number | null; offset?: number | null },
+      ctx: GraphQLContext
+    ) => {
+      // Same IP limiter as the page's own query: paging is part of viewing it.
+      const rateLimit = await checkAuthRateLimit('shared-history', getClientIp(ctx.req));
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(
+          `Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`,
+          { extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter } }
+        );
+      }
+      if (!/^[A-Za-z0-9_-]{8,64}$/.test(slug)) return null;
+
+      const share = await prisma.componentShare.findUnique({
+        where: { slug },
+        include: { component: true },
+      });
+      if (!share) return null;
+      return sharedComponentRidesPage(prisma, share, { take: take ?? 25, offset: offset ?? 0 });
     },
 
     // Public (no auth): sanitized history for the shareable bike page.
@@ -6794,11 +6862,13 @@ export const resolvers = {
           scope: 'LIFETIME' | 'SINCE_SERVICE' | 'RANGE';
           rangeStart?: string | null;
           rangeEnd?: string | null;
+          includeRides?: boolean | null;
         };
       },
       ctx: GraphQLContext
     ) => {
       const userId = requireUserId(ctx);
+      const includeRides = input.includeRides === true;
       const rateLimit = await checkMutationRateLimit('createComponentShare', userId);
       if (!rateLimit.allowed) {
         throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
@@ -6848,8 +6918,10 @@ export const resolvers = {
         throw badInput('Only a date-range share takes dates');
       }
 
-      // One link per scope (and per range): asking again hands back the same
-      // URL instead of minting another.
+      // One link per scope (and per range, and per ride-list choice): asking
+      // again hands back the same URL instead of minting another. The ride
+      // list is part of the key, so asking for rides never hands back a link
+      // already sent out without them, or the reverse.
       //
       // The dedupe and the cap below are check-then-create, so two simultaneous
       // requests from the owner can still make a duplicate link or a 21st. That
@@ -6857,7 +6929,7 @@ export const resolvers = {
       // need a partial or NULLS NOT DISTINCT unique index, which Prisma's schema
       // cannot express. Accepted rather than enforced.
       const existing = await prisma.componentShare.findFirst({
-        where: { componentId: component.id, scope: input.scope, rangeStart, rangeEnd },
+        where: { componentId: component.id, scope: input.scope, rangeStart, rangeEnd, includeRides },
       });
       if (existing) return existing;
 
@@ -6875,6 +6947,7 @@ export const resolvers = {
           scope: input.scope,
           rangeStart,
           rangeEnd,
+          includeRides,
         },
       });
     },
@@ -6893,6 +6966,35 @@ export const resolvers = {
         throw new GraphQLError('Share link not found', { extensions: { code: 'NOT_FOUND' } });
       }
       return true;
+    },
+
+    // Turn a sent link's ride list on or off, keeping its URL. Turning it off is
+    // the case this exists for: a rider who regrets showing where they rode
+    // should not have to break a link they posted somewhere. Flipping one link
+    // can leave it matching another over the same window; that is harmless (the
+    // create dedupe then returns either), as with the race noted there.
+    updateComponentShare: async (
+      _: unknown,
+      { id, includeRides }: { id: string; includeRides: boolean },
+      ctx: GraphQLContext
+    ) => {
+      const userId = requireUserId(ctx);
+      const rateLimit = await checkMutationRateLimit('updateComponentShare', userId);
+      if (!rateLimit.allowed) {
+        throw new GraphQLError(`Rate limit exceeded. Try again in ${rateLimit.retryAfter} seconds.`, {
+          extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
+        });
+      }
+      // Owner-scoped, so someone else's link reads as missing. One statement,
+      // so a link revoked mid-request is NOT_FOUND too, never a server error.
+      try {
+        return await prisma.componentShare.update({ where: { id, userId }, data: { includeRides } });
+      } catch (e) {
+        if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2025') {
+          throw new GraphQLError('Share link not found', { extensions: { code: 'NOT_FOUND' } });
+        }
+        throw e;
+      }
     },
 
     // Enable public sharing of a bike's history. Available to all tiers —

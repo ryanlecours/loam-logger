@@ -13,8 +13,9 @@ import {
 } from 'recharts';
 import { ArrowLeft, Bike as BikeIcon, Eye, TriangleAlert, Wrench } from 'lucide-react';
 
-import { COMPONENT_HISTORY } from '@/graphql/componentHistory';
+import { COMPONENT_HISTORY, COMPONENT_HISTORY_RIDES } from '@/graphql/componentHistory';
 import { fmtDateTime, fmtDistance, fmtDuration, fmtElevation } from '@/lib/format';
+import { fmtDay } from '@/lib/componentShare';
 import { usePreferences } from '@/hooks/usePreferences';
 import { useUserTier } from '@/hooks/useUserTier';
 import { getComponentLabel } from '@/constants/componentLabels';
@@ -23,6 +24,11 @@ import { GarminDerivedNote } from '@/components/attribution/GarminAttribution';
 import { WearChart } from '@/components/history/WearChart';
 import { CHART } from '@/components/history/chartTheme';
 import { ComponentSharePanel } from '@/components/history/ComponentSharePanel';
+import { HistoryRideList } from '@/components/history/HistoryRideList';
+import RideSourceBadges from '@/components/RideSourceBadges';
+
+/** Rides per page in the ride list. */
+const RIDE_PAGE = 25;
 
 // The conditions scale is a lightness ramp rather than a hue wheel, because
 // the system has no sanctioned categorical palette and seven hues would either
@@ -122,6 +128,25 @@ type HistoryPayload = {
   }>;
 };
 
+type HistoryRide = {
+  id: string;
+  startTime: string;
+  durationSeconds: number;
+  distanceMeters: number;
+  elevationGainMeters: number;
+  trailSystem?: string | null;
+  location?: string | null;
+  bikeId?: string | null;
+  stravaActivityId?: string | null;
+  stravaDeviceName?: string | null;
+  garminActivityId?: string | null;
+  garminDeviceName?: string | null;
+  whoopWorkoutId?: string | null;
+  suuntoWorkoutId?: string | null;
+};
+
+type RidesPayload = { componentHistoryRides: { rides: HistoryRide[]; hasMore: boolean } };
+
 function bikeLabel(bike: Tenure['bike']): string {
   if (!bike) return 'Deleted bike';
   return bike.nickname || `${bike.manufacturer} ${bike.model}`;
@@ -162,6 +187,48 @@ export default function ComponentHistory() {
   );
 
   const payload = data?.componentHistory;
+
+  // The rows behind the totals, following the same Lifetime / Since last
+  // service toggle. Fetched alongside the history rather than after it.
+  const [loadingMoreRides, setLoadingMoreRides] = useState(false);
+  const ridesQuery = useQuery<RidesPayload>(COMPONENT_HISTORY_RIDES, {
+    variables: { componentId, sinceService: window === 'sinceService', take: RIDE_PAGE, offset: 0 },
+    skip: !componentId,
+    fetchPolicy: 'cache-and-network',
+  });
+  const rides = ridesQuery.data?.componentHistoryRides.rides ?? [];
+  const loadMoreRides = async () => {
+    setLoadingMoreRides(true);
+    try {
+      await ridesQuery.fetchMore({
+        variables: { offset: rides.length },
+        updateQuery: (prev, { fetchMoreResult }) => {
+          if (!fetchMoreResult) return prev;
+          // Offset paging: a ride synced since the last page shifts every row
+          // down one, so the next page can repeat a row already listed.
+          const seen = new Set(prev.componentHistoryRides.rides.map((r) => r.id));
+          return {
+            componentHistoryRides: {
+              ...fetchMoreResult.componentHistoryRides,
+              rides: [
+                ...prev.componentHistoryRides.rides,
+                ...fetchMoreResult.componentHistoryRides.rides.filter((r) => !seen.has(r.id)),
+              ],
+            },
+          };
+        },
+      });
+    } finally {
+      setLoadingMoreRides(false);
+    }
+  };
+
+  // Name the bike on each row only when the part has lived on more than one.
+  const rideBikeLabel = useMemo(() => {
+    const tenures = payload?.tenures ?? [];
+    const byId = new Map(tenures.filter((t) => t.bike).map((t) => [t.bike!.id, bikeLabel(t.bike)]));
+    return byId.size > 1 ? (bikeId?: string | null) => (bikeId ? byId.get(bikeId) ?? null : null) : () => null;
+  }, [payload?.tenures]);
 
   const conditionData = useMemo(
     () =>
@@ -499,6 +566,39 @@ export default function ComponentHistory() {
                   </li>
                 ))}
               </ul>
+            )}
+          </section>
+
+          {/* Rides: the rows behind the totals above, by the same rule. */}
+          <section className="bike-detail-section mb-6">
+            <h2 className="bike-detail-section-title">Rides</h2>
+            <p className="text-xs text-muted mb-1">
+              {window === 'lifetime'
+                ? 'Every ride counted toward the totals above, newest first.'
+                : 'Every ride since the last service, newest first.'}
+            </p>
+            {ridesQuery.error ? (
+              <div className="alert-inline alert-inline-error mt-2">{ridesQuery.error.message}</div>
+            ) : ridesQuery.loading && rides.length === 0 ? (
+              <p className="text-sm text-muted mt-2">Loading rides…</p>
+            ) : rides.length === 0 ? (
+              <p className="text-sm text-muted mt-2">
+                {window === 'lifetime' ? 'No rides recorded yet.' : 'No rides since the last service.'}
+              </p>
+            ) : (
+              <HistoryRideList
+                rides={rides.map((r) => ({
+                  ...r,
+                  key: r.id,
+                  dateLabel: fmtDay(r.startTime),
+                  note: rideBikeLabel(r.bikeId),
+                  badges: <RideSourceBadges ride={r} />,
+                }))}
+                distanceUnit={distanceUnit}
+                hasMore={ridesQuery.data?.componentHistoryRides.hasMore ?? false}
+                loadingMore={loadingMoreRides}
+                onLoadMore={loadMoreRides}
+              />
             )}
           </section>
         </>
