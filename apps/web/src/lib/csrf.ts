@@ -56,13 +56,18 @@ let refreshing: Promise<string | undefined> | null = null;
  */
 export function refreshCsrfToken(): Promise<string | undefined> {
   if (!refreshing) {
-    refreshing = fetch(`${import.meta.env.VITE_API_URL}/auth/csrf-token`, { credentials: 'include' })
+    // Built like the GraphQL URL in apolloClient.ts: no doubled slash, and a
+    // relative path when the variable is unset.
+    const apiBase = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '');
+    refreshing = fetch(`${apiBase}/auth/csrf-token`, { credentials: 'include' })
       .then(async (res) => {
         if (!res.ok) return undefined;
         const { csrfToken } = (await res.json()) as { csrfToken?: string };
         if (csrfToken) setCsrfToken(csrfToken);
         return csrfToken;
       })
+      // Swallowed on purpose: the caller then surfaces the original 403,
+      // which is more useful than a network or parse error from this fetch.
       .catch(() => undefined)
       .finally(() => {
         refreshing = null;

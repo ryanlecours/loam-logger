@@ -38,6 +38,7 @@ jest.mock('./session-issuer', () => ({
 
 jest.mock('./csrf', () => ({
   setCsrfCookie: jest.fn().mockReturnValue('csrf_token'),
+  isWellFormedCsrfToken: jest.requireActual('./csrf').isWellFormedCsrfToken,
 }));
 
 jest.mock('./recent-auth', () => ({
@@ -533,6 +534,7 @@ describe('GET /csrf-token', () => {
 
     await invokeHandler(handler, req as Request, res as unknown as Response);
 
+    expect(setCsrfCookie).toHaveBeenCalledWith(res);
     expect(res.json).toHaveBeenCalledWith({ csrfToken: 'csrf_token' });
   });
 });

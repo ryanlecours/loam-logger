@@ -3,7 +3,7 @@ import { normalizeEmail, getClientIp } from './utils';
 import { hashPassword, verifyPassword, validatePassword } from './password.utils';
 import { validateEmailFormat } from './email.utils';
 import { issueWebSession } from './session-issuer';
-import { setCsrfCookie } from './csrf'; // Used by /auth/csrf-token endpoint
+import { isWellFormedCsrfToken, setCsrfCookie } from './csrf';
 import { updateLastAuthAt } from './recent-auth';
 import { requireRecentAuth } from './requireRecentAuth';
 import { prisma } from '../lib/prisma';
@@ -407,8 +407,7 @@ router.get('/csrf-token', (req, res) => {
   // invalidate the copy every other open tab has cached, and those tabs would
   // then each refresh in turn.
   const existing: unknown = req.cookies?.ll_csrf;
-  const token =
-    typeof existing === 'string' && /^[0-9a-f]{64}$/.test(existing) ? existing : setCsrfCookie(res);
+  const token = isWellFormedCsrfToken(existing) ? existing : setCsrfCookie(res);
   res.json({ csrfToken: token });
 });
 
