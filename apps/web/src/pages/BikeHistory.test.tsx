@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
-import { MemoryRouter } from 'react-router';
+import { MemoryRouter, useLocation } from 'react-router';
 import BikeHistory from './BikeHistory';
 
 // Apollo — useQuery returns the fixed fixture below; useMutation returns
@@ -160,10 +160,16 @@ const fixture = {
   },
 };
 
+// Renders the current query string so tests can see the filter's URL.
+function SearchProbe() {
+  return <div data-testid="search">{useLocation().search}</div>;
+}
+
 function renderPage(path = '/gear/bike-1/history') {
   return render(
     <MemoryRouter initialEntries={[path]}>
       <BikeHistory />
+      <SearchProbe />
     </MemoryRouter>
   );
 }
@@ -188,6 +194,19 @@ describe('BikeHistory filters', () => {
 
     fireEvent.click(rides);
     expect(rides).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('keeps the rides filter in the URL', () => {
+    renderPage();
+    const rides = screen.getByRole('button', { name: 'Rides' });
+
+    fireEvent.click(rides);
+    expect(rides).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByTestId('search')).toHaveTextContent('?show=service');
+
+    fireEvent.click(rides);
+    expect(rides).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('search')).toBeEmptyDOMElement();
   });
 });
 

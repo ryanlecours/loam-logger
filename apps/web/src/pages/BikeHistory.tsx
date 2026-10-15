@@ -54,10 +54,22 @@ export default function BikeHistory() {
   const { isPro } = useUserTier();
   const [timeframe, setTimeframe] = useState<Timeframe>('all');
   const [showPdfUpsell, setShowPdfUpsell] = useState(false);
-  // `?show=service` opens on the service log alone (the dashboard's "View
-  // maintenance" link); the Rides pill still turns rides back on.
-  const [searchParams] = useSearchParams();
-  const [showRides, setShowRides] = useState(searchParams.get('show') !== 'service');
+  // The rides filter lives in the URL (`?show=service` hides rides), so the
+  // dashboard's "View maintenance" link lands on the service log alone and
+  // the filter follows back/forward and same-route navigations instead of
+  // going stale in state. Replace, so toggling doesn't stack history entries.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const showRides = searchParams.get('show') !== 'service';
+  const toggleRides = () =>
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (showRides) next.set('show', 'service');
+        else next.delete('show');
+        return next;
+      },
+      { replace: true }
+    );
   const [showService, setShowService] = useState(true);
   const [editingService, setEditingService] = useState<{
     log: EditableServiceLog;
@@ -328,7 +340,7 @@ export default function BikeHistory() {
               ))}
             </select>
             <div className="mx-2 h-4 w-px bg-border" />
-            <TogglePill active={showRides} onClick={() => setShowRides((v) => !v)}>
+            <TogglePill active={showRides} onClick={toggleRides}>
               Rides
             </TogglePill>
             <TogglePill active={showService} onClick={() => setShowService((v) => !v)}>
