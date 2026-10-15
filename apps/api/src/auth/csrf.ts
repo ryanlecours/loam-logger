@@ -12,6 +12,15 @@ function generateCsrfToken(): string {
   return crypto.randomBytes(CSRF_TOKEN_LENGTH).toString('hex');
 }
 
+/** Whether a value has the shape generateCsrfToken produces. */
+export function isWellFormedCsrfToken(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    value.length === CSRF_TOKEN_LENGTH * 2 &&
+    /^[0-9a-f]+$/.test(value)
+  );
+}
+
 /**
  * Set the CSRF cookie if not already present.
  * Called on session establishment (login, signup).
