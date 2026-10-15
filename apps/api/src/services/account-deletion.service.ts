@@ -1,4 +1,5 @@
 import { prisma } from '../lib/prisma';
+import { logger } from '../lib/logger';
 import { revokeStravaTokenForUser } from '../lib/strava-token';
 import { revokeGarminTokenForUser } from '../lib/garmin-token';
 import { cancelStripeBillingForAccountDeletion } from './stripe.service';
@@ -31,7 +32,7 @@ export interface DeletedAccount {
  *   no data has been deleted in that case.
  */
 export async function deleteUserAccount(userId: string): Promise<DeletedAccount> {
-  console.log(`[DeleteAccount] Deleting account and data for user: ${userId}`);
+  logger.info({ userId }, 'Account deletion: started');
 
   // 0. Stop Stripe billing BEFORE deleting anything.
   // Unlike the OAuth revocations in step 4, a failure here blocks deletion:
@@ -53,24 +54,24 @@ export async function deleteUserAccount(userId: string): Promise<DeletedAccount>
   await prisma.ride.deleteMany({
     where: { userId },
   });
-  console.log(`[DeleteAccount] Deleted rides for user: ${userId}`);
+  logger.info({ userId }, 'Account deletion: deleted rides');
 
   // 2. Delete components (these reference userId with onDelete: Cascade, but do it explicitly)
   await prisma.component.deleteMany({
     where: { userId },
   });
-  console.log(`[DeleteAccount] Deleted components for user: ${userId}`);
+  logger.info({ userId }, 'Account deletion: deleted components');
 
   // 3. Delete bikes
   await prisma.bike.deleteMany({
     where: { userId },
   });
-  console.log(`[DeleteAccount] Deleted bikes for user: ${userId}`);
+  logger.info({ userId }, 'Account deletion: deleted bikes');
 
   // 4. Revoke OAuth tokens with providers BEFORE deleting locally
   // This ensures tokens are invalidated on Strava/Garmin servers
   // Note: We proceed with deletion even if revocation fails (GDPR compliance)
-  console.log(`[DeleteAccount] Revoking OAuth tokens for user: ${userId}`);
+  logger.info({ userId }, 'Account deletion: revoking OAuth tokens');
   const [stravaRevoked, garminRevoked] = await Promise.all([
     revokeStravaTokenForUser(userId),
     revokeGarminTokenForUser(userId),
@@ -79,12 +80,12 @@ export async function deleteUserAccount(userId: string): Promise<DeletedAccount>
   // Log warnings for failed revocations - tokens will still be deleted locally
   // but may remain valid on provider side until they expire
   if (!stravaRevoked) {
-    console.warn(`[DeleteAccount] WARNING: Strava token revocation failed for user ${userId}. Token may remain valid on Strava until it expires.`);
+    logger.warn({ userId }, 'Account deletion: Strava token revocation failed, token may remain valid on Strava until it expires');
   }
   if (!garminRevoked) {
-    console.warn(`[DeleteAccount] WARNING: Garmin token revocation failed for user ${userId}. Token may remain valid on Garmin until it expires.`);
+    logger.warn({ userId }, 'Account deletion: Garmin token revocation failed, token may remain valid on Garmin until it expires');
   }
-  console.log(`[DeleteAccount] Token revocation complete - Strava: ${stravaRevoked}, Garmin: ${garminRevoked}`);
+  logger.info({ userId, stravaRevoked, garminRevoked }, 'Account deletion: token revocation complete');
 
   // 5. Delete OAuth tokens from database.
   // UserIntegration holds the encrypted provider credentials and would be
@@ -95,19 +96,20 @@ export async function deleteUserAccount(userId: string): Promise<DeletedAccount>
     prisma.oauthToken.deleteMany({ where: { userId } }),
     prisma.userIntegration.deleteMany({ where: { userId } }),
   ]);
-  console.log(`[DeleteAccount] Deleted OAuth tokens for user: ${userId}`);
+  logger.info({ userId }, 'Account deletion: deleted OAuth tokens and integrations');
 
   // 6. Delete user accounts (these reference userId with onDelete: Cascade, but do it explicitly)
   await prisma.userAccount.deleteMany({
     where: { userId },
   });
-  console.log(`[DeleteAccount] Deleted user accounts for user: ${userId}`);
+  logger.info({ userId }, 'Account deletion: deleted user accounts');
 
   // 7. Finally, delete the user
   const deletedUser = await prisma.user.delete({
     where: { id: userId },
   });
-  console.log(`[DeleteAccount] Successfully deleted user: ${deletedUser.email}`);
+  // Log the id only: the email is personal data the rider just asked us to erase.
+  logger.info({ userId }, 'Account deletion: deleted user');
 
   return { email: deletedUser.email };
 }
