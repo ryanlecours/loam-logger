@@ -254,6 +254,42 @@ describe('Stripe Webhooks', () => {
       expect(res.status).toBe(200);
       expect(sendEmailWithAudit).not.toHaveBeenCalled();
     });
+
+    it('should skip entirely when the cancellation came from account deletion', async () => {
+      mockConstructEvent.mockReturnValue(makeEvent('customer.subscription.deleted', {
+        ...subscription,
+        cancellation_details: { comment: 'loam_account_deleted', reason: 'cancellation_requested' },
+      }));
+
+      const res = await request(app)
+        .post('/')
+        .set('stripe-signature', 'valid')
+        .send(JSON.stringify(subscription));
+
+      expect(res.status).toBe(200);
+      expect(mockPrisma.$transaction).not.toHaveBeenCalled();
+      expect(mockPrisma.user.findUnique).not.toHaveBeenCalled();
+      expect(sendEmailWithAudit).not.toHaveBeenCalled();
+    });
+
+    it('should return 200 without emailing when the user no longer exists', async () => {
+      (mockPrisma.$transaction as jest.Mock).mockImplementation(async (fn: (tx: unknown) => unknown) => {
+        const tx = {
+          user: { findUnique: jest.fn().mockResolvedValue(null), update: jest.fn() },
+          bike: { count: jest.fn() },
+        };
+        return fn(tx);
+      });
+      (mockPrisma.user.findUnique as jest.Mock).mockResolvedValueOnce(null);
+
+      const res = await request(app)
+        .post('/')
+        .set('stripe-signature', 'valid')
+        .send(JSON.stringify(subscription));
+
+      expect(res.status).toBe(200);
+      expect(sendEmailWithAudit).not.toHaveBeenCalled();
+    });
   });
 
   describe('customer.subscription.updated', () => {
@@ -263,6 +299,24 @@ describe('Stripe Webhooks', () => {
       customer: 'cus_123',
       status: 'active',
     };
+
+    it('should skip a canceled update that came from account deletion', async () => {
+      mockConstructEvent.mockReturnValue(makeEvent('customer.subscription.updated', {
+        ...subscription,
+        status: 'canceled',
+        cancellation_details: { comment: 'loam_account_deleted', reason: 'cancellation_requested' },
+      }));
+
+      const res = await request(app)
+        .post('/')
+        .set('stripe-signature', 'valid')
+        .send(JSON.stringify(subscription));
+
+      expect(res.status).toBe(200);
+      expect(mockPrisma.user.findUnique).not.toHaveBeenCalled();
+      expect(mockPrisma.$transaction).not.toHaveBeenCalled();
+      expect(sendEmailWithAudit).not.toHaveBeenCalled();
+    });
 
     it('should re-upgrade user when subscription resumes (active after past_due)', async () => {
       mockConstructEvent.mockReturnValue(makeEvent('customer.subscription.updated', subscription));

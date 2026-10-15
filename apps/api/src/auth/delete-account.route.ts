@@ -1,10 +1,11 @@
 import express, { type Request } from 'express';
 import { prisma } from '../lib/prisma';
 import { clearSessionCookie, type SessionUser } from './session';
-import { sendBadRequest, sendUnauthorized, sendInternalError } from '../lib/api-response';
+import { sendBadRequest, sendUnauthorized, sendInternalError, sendError } from '../lib/api-response';
 import { logError } from '../lib/logger';
 import { revokeStravaTokenForUser } from '../lib/strava-token';
 import { revokeGarminTokenForUser } from '../lib/garmin-token';
+import { cancelStripeBillingForAccountDeletion } from '../services/stripe.service';
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
@@ -34,6 +35,25 @@ router.delete('/delete-account', async (req: Request, res) => {
     const userId = sessionUser.uid;
 
     console.log(`[DeleteAccount] Deleting account and data for user: ${userId}`);
+
+    // 0. Stop Stripe billing BEFORE deleting anything.
+    // Unlike the OAuth revocations in step 4, a failure here blocks deletion:
+    // once the user row is gone the rider has no account to cancel from and we
+    // lose the link to their Stripe customer, so they would keep being charged.
+    // Running first means a failure leaves the account fully intact and the
+    // rider can simply retry. Store-managed (App Store / Google Play)
+    // subscriptions cannot be cancelled server-side and are left alone.
+    try {
+      await cancelStripeBillingForAccountDeletion(userId);
+    } catch (stripeError) {
+      logError('DeleteAccount:Stripe', stripeError);
+      return sendError(
+        res,
+        503,
+        "We couldn't cancel your Loam Logger Pro subscription, so your account has not been deleted. Please try again in a few minutes.",
+        'BILLING_CANCELLATION_FAILED'
+      );
+    }
 
     // Delete all user data in the correct order based on foreign key relationships
     // This will cascade delete based on the Prisma schema definitions
