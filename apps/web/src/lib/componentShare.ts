@@ -28,6 +28,17 @@ export function fmtDay(iso: string): string {
   return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(iso));
 }
 
+/**
+ * A `YYYY-MM-DD` calendar day, as sent for a shared ride. It names a day, not
+ * an instant, so it is formatted as-is rather than shifted into the viewer's
+ * timezone (which would show the day before for anyone west of UTC).
+ */
+export function fmtCalendarDay(day: string): string {
+  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeZone: 'UTC' }).format(
+    new Date(`${day}T00:00:00Z`)
+  );
+}
+
 /** "Jan 1, 2026 – Jan 31, 2026" for a stored [start, end) range. */
 export function rangeLabel(startIso: string, endIso: string): string {
   // The end is exclusive, so the last day shown is the one before it.

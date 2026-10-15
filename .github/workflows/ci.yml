@@ -82,14 +82,14 @@ jobs:
         # SENTRY_AUTH_TOKEN enables @sentry/vite-plugin to upload source maps
         # during the build. Without it the plugin is a no-op (disable: !token).
         # SENTRY_RELEASE tags the uploaded maps so they bind to the matching
-        # runtime release in each app's Sentry.init. Uses the full commit SHA
+        # runtime release in each app's Sentry.init (the web build bakes it in
+        # through apps/web/vite.config.ts). Uses the full commit SHA
         # ($GITHUB_SHA) so releases match the value we push to Railway's
         # SENTRY_RELEASE env var in the next step — keeping source-map uploads
         # and runtime events on the same release tag.
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           SENTRY_RELEASE: ${{ github.sha }}
-          VITE_SENTRY_RELEASE: ${{ github.sha }}
         run: npx nx affected -t build --parallel=3 --verbose
 
       - name: Update Railway SENTRY_RELEASE to this commit SHA

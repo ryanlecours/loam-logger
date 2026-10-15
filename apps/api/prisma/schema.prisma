@@ -557,18 +557,22 @@ enum ComponentShareScope {
 /// (loamlogger.app/share/component/<slug>). Each link is locked to its scope:
 /// the viewer sees that window and nothing wider. Revoking deletes the row.
 model ComponentShare {
-  id          String              @id @default(uuid())
+  id           String              @id @default(uuid())
   /// Unguessable random token, the only thing the public URL carries.
-  slug        String              @unique
-  componentId String
-  component   Component           @relation(fields: [componentId], references: [id], onDelete: Cascade)
-  userId      String
-  user        User                @relation(fields: [userId], references: [id], onDelete: Cascade)
-  scope       ComponentShareScope
+  slug         String              @unique
+  componentId  String
+  component    Component           @relation(fields: [componentId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  scope        ComponentShareScope
   /// RANGE only: the window, as [rangeStart, rangeEnd).
-  rangeStart  DateTime?
-  rangeEnd    DateTime?
-  createdAt   DateTime            @default(now())
+  rangeStart   DateTime?
+  rangeEnd     DateTime?
+  /// The owner opted this link into listing each ride in its window (date,
+  /// trail, location, duration, distance, climb). Off by default: a dated ride
+  /// list says where the rider was and when, which totals alone do not.
+  includeRides Boolean             @default(false)
+  createdAt    DateTime            @default(now())
 
   @@index([componentId])
   @@index([userId])

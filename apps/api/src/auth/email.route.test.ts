@@ -38,6 +38,7 @@ jest.mock('./session-issuer', () => ({
 
 jest.mock('./csrf', () => ({
   setCsrfCookie: jest.fn().mockReturnValue('csrf_token'),
+  isWellFormedCsrfToken: jest.requireActual('./csrf').isWellFormedCsrfToken,
 }));
 
 jest.mock('./recent-auth', () => ({
@@ -78,6 +79,7 @@ import {
 import { validateEmailFormat } from './email.utils';
 import { hashPassword, validatePassword } from './password.utils';
 import { logger } from '../lib/logger';
+import { setCsrfCookie } from './csrf';
 
 const mockPrisma = prisma as jest.Mocked<typeof prisma>;
 const mockUserFindUnique = mockPrisma.user.findUnique as unknown as jest.Mock;
@@ -424,5 +426,115 @@ describe('POST /reset-password', () => {
       expect(res.status).toHaveBeenCalledWith(400);
       expect(mockUserUpdate).not.toHaveBeenCalled();
     });
+  });
+});
+
+// ============================================================================
+// POST /login
+// ============================================================================
+
+describe('POST /login', () => {
+  let handler: RequestHandler | undefined;
+
+  beforeAll(() => {
+    handler = getHandler('/login', 'post');
+    if (!handler) throw new Error('Handler not found for /login');
+  });
+
+  it('returns 429 before looking up the user when the IP is over the limit', async () => {
+    mockCheckAuthRateLimit.mockResolvedValue({ allowed: false, retryAfter: 42 });
+    const req = createMockRequest({ body: { email: 'Rider@Example.com', password: 'guess' } });
+    const res = createMockResponse();
+
+    await invokeHandler(handler, req as Request, res as unknown as Response);
+
+    expect(res.status).toHaveBeenCalledWith(429);
+    expect(mockCheckAuthRateLimit).toHaveBeenCalledWith('login', '1.2.3.4');
+    // A blocked IP does not also charge the account's budget.
+    expect(mockCheckAuthRateLimit).not.toHaveBeenCalledWith('login-email', expect.anything());
+    expect(mockUserFindUnique).not.toHaveBeenCalled();
+  });
+
+  it('returns 429 when the account is over the limit, keyed by a hash of the email', async () => {
+    mockCheckAuthRateLimit.mockImplementation(async (operation: string) =>
+      operation === 'login-email' ? { allowed: false, retryAfter: 600 } : { allowed: true }
+    );
+    const req = createMockRequest({ body: { email: 'Rider@Example.com', password: 'guess' } });
+    const res = createMockResponse();
+
+    await invokeHandler(handler, req as Request, res as unknown as Response);
+
+    expect(res.status).toHaveBeenCalledWith(429);
+    const emailCall = mockCheckAuthRateLimit.mock.calls.find(([op]) => op === 'login-email');
+    expect(emailCall?.[1]).toMatch(/^[0-9a-f]{32}$/);
+    expect(emailCall?.[1]).not.toContain('rider');
+    expect(mockUserFindUnique).not.toHaveBeenCalled();
+  });
+
+  it('checks both limits and proceeds to the lookup when under them', async () => {
+    mockUserFindUnique.mockResolvedValue(null);
+    const req = createMockRequest({ body: { email: 'rider@example.com', password: 'guess' } });
+    const res = createMockResponse();
+
+    await invokeHandler(handler, req as Request, res as unknown as Response);
+
+    expect(mockCheckAuthRateLimit).toHaveBeenCalledWith('login', '1.2.3.4');
+    expect(mockCheckAuthRateLimit).toHaveBeenCalledWith('login-email', expect.any(String));
+    expect(res.status).toHaveBeenCalledWith(401);
+  });
+});
+
+// ============================================================================
+// GET /csrf-token
+// ============================================================================
+
+describe('GET /csrf-token', () => {
+  const handler = getHandler('/csrf-token', 'get');
+  const VALID_TOKEN = 'a'.repeat(64);
+
+  it('refuses a request with no session', async () => {
+    const req = createMockRequest();
+    const res = createMockResponse();
+
+    await invokeHandler(handler, req as Request, res as unknown as Response);
+
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(setCsrfCookie).not.toHaveBeenCalled();
+  });
+
+  it('returns the token the browser already holds without rotating it', async () => {
+    const req = createMockRequest({
+      sessionUser: { uid: 'user-1' },
+      cookies: { ll_csrf: VALID_TOKEN },
+    } as Partial<Request>);
+    const res = createMockResponse();
+
+    await invokeHandler(handler, req as Request, res as unknown as Response);
+
+    expect(res.json).toHaveBeenCalledWith({ csrfToken: VALID_TOKEN });
+    expect(setCsrfCookie).not.toHaveBeenCalled();
+  });
+
+  it('mints a token when the browser has none', async () => {
+    const req = createMockRequest({ sessionUser: { uid: 'user-1' } } as Partial<Request>);
+    const res = createMockResponse();
+
+    await invokeHandler(handler, req as Request, res as unknown as Response);
+
+    expect(setCsrfCookie).toHaveBeenCalledWith(res);
+    expect(res.json).toHaveBeenCalledWith({ csrfToken: 'csrf_token' });
+  });
+
+  it('mints a token rather than echo a malformed cookie', async () => {
+    const req = createMockRequest({
+      sessionUser: { uid: 'user-1' },
+      cookies: { ll_csrf: '<script>' },
+    } as Partial<Request>);
+    const res = createMockResponse();
+
+    await invokeHandler(handler, req as Request, res as unknown as Response);
+
+    expect(setCsrfCookie).toHaveBeenCalledWith(res);
+    expect(res.json).toHaveBeenCalledWith({ csrfToken: 'csrf_token' });
   });
 });

@@ -2,6 +2,7 @@ import { Prisma, type User } from '@prisma/client';
 import { normalizeEmail, computeExpiry } from './utils';
 import { type GoogleClaims, type GoogleTokens } from './types';
 import { prisma } from '../lib/prisma';
+import { secureAccountBeforeLinking } from './account-linking';
 
 export type GoogleUserResult = { user: User; wasCreated: boolean };
 
@@ -38,6 +39,8 @@ async function ensureUserFromGoogleInner(
     const user = await tx.user.findUnique({ where: { email } });
 
     if (user) {
+      await secureAccountBeforeLinking(tx, user, 'google', claims.email_verified);
+
       // User exists and is activated — update profile and link Google account
       await tx.user.update({
         where: { id: user.id },

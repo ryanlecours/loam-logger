@@ -1,4 +1,4 @@
-export { Button } from "./Button";
+export { Button, LinkButton } from "./Button";
 export { Card } from "./Card";
 export { Input, Textarea, Select, Label } from "./Input";
 export { Modal } from "./Modal";

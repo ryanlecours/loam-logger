@@ -138,10 +138,12 @@ export const MUTATION_RATE_LIMITS = {
    *  single throttled per-user job that fires Garmin backfill requests, so the
    *  limit just stops a client loop from re-queuing needlessly. */
   backfillGarminWeather: { windowSeconds: 300, maxRequests: 3 },
-  /** createComponentShare / revokeComponentShare: max 20 per minute per user.
-   *  A share is a click; this only stops a client loop minting links. */
+  /** createComponentShare / revokeComponentShare / updateComponentShare: max
+   *  20 per minute per user. A share is a click; this only stops a client loop
+   *  minting or flipping links. */
   createComponentShare: { windowSeconds: 60, maxRequests: 20 },
   revokeComponentShare: { windowSeconds: 60, maxRequests: 20 },
+  updateComponentShare: { windowSeconds: 60, maxRequests: 20 },
 } as const;
 
 /**
@@ -178,6 +180,10 @@ export const QUERY_RATE_LIMITS = {
    *  a bounded findMany plus a groupBy and one grouped raw query, all scoped
    *  to the viewer's own rides. */
   componentHistory: { windowSeconds: 60, maxRequests: 60 },
+  /** componentHistoryRides: max 60 requests per minute per user. Rides the
+   *  same bursts as componentHistory (mount, window toggle, refetches) plus
+   *  "Show more" paging. Each call is three small reads and one bounded page. */
+  componentHistoryRides: { windowSeconds: 60, maxRequests: 60 },
   /** advisorSummary: max 20 LLM calls per 5 minutes per user. Checked only
    *  on cache MISS in the resolver, not on cache-hit refreshes, so the
    *  limit bounds Anthropic dollar cost directly (~$0.96/hour worst case
@@ -365,6 +371,14 @@ export const AUTH_RATE_LIMITS = {
   signup: { windowSeconds: 60, maxRequests: 5 },
   /** oauth-login: max 10 requests per minute per IP (Google/Apple token verification) */
   'oauth-login': { windowSeconds: 60, maxRequests: 10 },
+  /** login: max 10 password attempts per minute per IP (slows password
+   *  guessing from one source; generous enough for a household behind NAT) */
+  login: { windowSeconds: 60, maxRequests: 10 },
+  /** login-email: max 10 password attempts per 15 minutes per account, keyed
+   *  by a hash of the email so it holds against attempts spread across many
+   *  IPs. A deliberate flood can lock that email's password login for the
+   *  window; Google and Apple sign-in are unaffected, which bounds the cost. */
+  'login-email': { windowSeconds: 900, maxRequests: 10 },
   /** public-stats: max 30 requests per minute per IP (cached endpoint, prevent abuse) */
   'public-stats': { windowSeconds: 60, maxRequests: 30 },
   /** reset-password: max 10 requests per minute per IP (prevents token-guessing floods) */

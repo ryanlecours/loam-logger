@@ -3,7 +3,7 @@ import { normalizeEmail, getClientIp } from './utils';
 import { hashPassword, verifyPassword, validatePassword } from './password.utils';
 import { validateEmailFormat } from './email.utils';
 import { issueWebSession } from './session-issuer';
-import { setCsrfCookie } from './csrf'; // Used by /auth/csrf-token endpoint
+import { isWellFormedCsrfToken, setCsrfCookie } from './csrf';
 import { updateLastAuthAt } from './recent-auth';
 import { requireRecentAuth } from './requireRecentAuth';
 import { prisma } from '../lib/prisma';
@@ -16,6 +16,7 @@ import {
   sendPasswordResetEmail,
 } from '../services/password-reset.service';
 import { logger } from '../lib/logger';
+import { checkLoginRateLimit, LOGIN_RATE_LIMIT_MESSAGE } from './login-rate-limit';
 import { createNewUser, verifyEmailAvailable } from '../services/signup.service';
 
 const router = express.Router();
@@ -107,6 +108,12 @@ router.post('/login', express.json(), async (req, res) => {
     const email = normalizeEmail(rawEmail);
     if (!email) {
       return sendBadRequest(res, 'Invalid email');
+    }
+
+    const rateLimit = await checkLoginRateLimit(getClientIp(req), email);
+    if (!rateLimit.allowed) {
+      logger.warn({ route: 'login', retryAfter: rateLimit.retryAfter }, 'Email login 429: rate limited');
+      return sendTooManyRequests(res, LOGIN_RATE_LIMIT_MESSAGE, rateLimit.retryAfter);
     }
 
     // Find user by email
@@ -386,8 +393,9 @@ router.post('/reset-password', express.json(), async (req, res) => {
 
 /**
  * GET /auth/csrf-token
- * Get or refresh the CSRF token for authenticated sessions.
- * The token is returned in the response body and also set as a cookie.
+ * Get the CSRF token for an authenticated session, minting one if the browser
+ * has none. The web app calls this when a tab has no cached copy: the ll_csrf
+ * cookie lives on the API host, so the web origin cannot read it.
  */
 router.get('/csrf-token', (req, res) => {
   // Only provide CSRF token if user is authenticated via session cookie
@@ -395,8 +403,11 @@ router.get('/csrf-token', (req, res) => {
     return sendUnauthorized(res, 'Authentication required');
   }
 
-  // Set a new CSRF cookie and return the token
-  const token = setCsrfCookie(res);
+  // Hand back the token the browser already holds. Minting a new one would
+  // invalidate the copy every other open tab has cached, and those tabs would
+  // then each refresh in turn.
+  const existing: unknown = req.cookies?.ll_csrf;
+  const token = isWellFormedCsrfToken(existing) ? existing : setCsrfCookie(res);
   res.json({ csrfToken: token });
 });
 
