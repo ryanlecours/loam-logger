@@ -3,6 +3,7 @@ import { setContext } from '@apollo/client/link/context';
 import { onError } from '@apollo/client/link/error';
 import * as Sentry from '@sentry/react';
 import { getCsrfToken } from './csrf';
+import { csrfRetryLink } from './csrfRetryLink';
 
 const graphqlUrl = import.meta.env.VITE_API_URL
   ? `${import.meta.env.VITE_API_URL.replace(/\/$/, '')}/graphql`
@@ -66,7 +67,9 @@ export const typePolicies = {
 };
 
 const client = new ApolloClient({
-  link: from([errorLink, sentryBreadcrumbLink, authLink, httpLink]),
+  // csrfRetryLink sits above authLink so a retry re-reads the refreshed token,
+  // and below errorLink so a rejection that recovers is never logged.
+  link: from([errorLink, sentryBreadcrumbLink, csrfRetryLink, authLink, httpLink]),
   // Disable canonizeResults to avoid frozen-object and object-identity issues in React strict mode
   cache: new InMemoryCache({ canonizeResults: false, typePolicies }),
 });
