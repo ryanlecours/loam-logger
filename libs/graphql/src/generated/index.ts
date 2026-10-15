@@ -467,6 +467,12 @@ export type ComponentHistoryPayload = {
   tenures: Array<ComponentTenure>;
 };
 
+export type ComponentHistoryRidesPayload = {
+  __typename?: 'ComponentHistoryRidesPayload';
+  hasMore: Scalars['Boolean']['output'];
+  rides: Array<Ride>;
+};
+
 export type ComponentInstallEvent = {
   __typename?: 'ComponentInstallEvent';
   component: Component;
@@ -549,6 +555,7 @@ export type ComponentShare = {
   __typename?: 'ComponentShare';
   createdAt: Scalars['String']['output'];
   id: Scalars['ID']['output'];
+  includeRides: Scalars['Boolean']['output'];
   rangeEnd?: Maybe<Scalars['String']['output']>;
   rangeStart?: Maybe<Scalars['String']['output']>;
   scope: ComponentShareScope;
@@ -649,6 +656,7 @@ export type ConnectedAccount = {
 
 export type CreateComponentShareInput = {
   componentId: Scalars['ID']['input'];
+  includeRides?: InputMaybe<Scalars['Boolean']['input']>;
   rangeEnd?: InputMaybe<Scalars['String']['input']>;
   rangeStart?: InputMaybe<Scalars['String']['input']>;
   scope: ComponentShareScope;
@@ -789,6 +797,7 @@ export type Mutation = {
   updateBikeServicePreferences: Array<BikeServicePreference>;
   updateBikesOrder: Array<Bike>;
   updateComponent: Component;
+  updateComponentShare: ComponentShare;
   updateRide: Ride;
   updateServiceLog: ServiceLog;
   updateServicePreferences: Array<UserServicePreference>;
@@ -1039,6 +1048,12 @@ export type MutationUpdateComponentArgs = {
 };
 
 
+export type MutationUpdateComponentShareArgs = {
+  id: Scalars['ID']['input'];
+  includeRides: Scalars['Boolean']['input'];
+};
+
+
 export type MutationUpdateRideArgs = {
   id: Scalars['ID']['input'];
   input: UpdateRideInput;
@@ -1100,6 +1115,7 @@ export type Query = {
   calibrationState?: Maybe<CalibrationState>;
   component?: Maybe<Component>;
   componentHistory: ComponentHistoryPayload;
+  componentHistoryRides: ComponentHistoryRidesPayload;
   componentRides: ComponentRidesPayload;
   components: Array<Component>;
   importNotificationState?: Maybe<ImportNotificationState>;
@@ -1113,6 +1129,7 @@ export type Query = {
   servicePreferenceDefaults: Array<ServicePreferenceDefault>;
   sharedBikeHistory?: Maybe<SharedBikeHistory>;
   sharedComponentHistory?: Maybe<SharedComponentHistory>;
+  sharedComponentRides?: Maybe<SharedComponentRidesPayload>;
   stravaGearMappings: Array<StravaGearMapping>;
   unassignedRideCount: Scalars['Int']['output'];
   unassignedRideSummary: UnassignedRideSummary;
@@ -1155,6 +1172,14 @@ export type QueryComponentHistoryArgs = {
 };
 
 
+export type QueryComponentHistoryRidesArgs = {
+  componentId: Scalars['ID']['input'];
+  offset?: InputMaybe<Scalars['Int']['input']>;
+  sinceService?: InputMaybe<Scalars['Boolean']['input']>;
+  take?: InputMaybe<Scalars['Int']['input']>;
+};
+
+
 export type QueryComponentRidesArgs = {
   after?: InputMaybe<Scalars['ID']['input']>;
   componentId: Scalars['ID']['input'];
@@ -1191,6 +1216,13 @@ export type QuerySharedBikeHistoryArgs = {
 
 export type QuerySharedComponentHistoryArgs = {
   slug: Scalars['String']['input'];
+};
+
+
+export type QuerySharedComponentRidesArgs = {
+  offset?: InputMaybe<Scalars['Int']['input']>;
+  slug: Scalars['String']['input'];
+  take?: InputMaybe<Scalars['Int']['input']>;
 };
 
 
@@ -1479,6 +1511,7 @@ export type SharedComponentHistory = {
   contributingSources: Array<Scalars['String']['output']>;
   cumulative: Array<ComponentCumulativePoint>;
   declaredPriorHours: Scalars['Float']['output'];
+  includeRides: Scalars['Boolean']['output'];
   logbook: Array<SharedComponentLogEntry>;
   scope: ComponentShareScope;
   totals: ComponentUsageTotals;
@@ -1501,6 +1534,24 @@ export type SharedComponentLogEntry = {
   kind: ServiceLogKind;
   performedAt: Scalars['String']['output'];
   serviceExtensionHours?: Maybe<Scalars['Float']['output']>;
+};
+
+export type SharedComponentRide = {
+  __typename?: 'SharedComponentRide';
+  distanceMeters: Scalars['Float']['output'];
+  durationSeconds: Scalars['Int']['output'];
+  elevationGainMeters: Scalars['Float']['output'];
+  garminAttribution?: Maybe<Scalars['String']['output']>;
+  location?: Maybe<Scalars['String']['output']>;
+  sources: Array<Scalars['String']['output']>;
+  startTime: Scalars['String']['output'];
+  trailSystem?: Maybe<Scalars['String']['output']>;
+};
+
+export type SharedComponentRidesPayload = {
+  __typename?: 'SharedComponentRidesPayload';
+  hasMore: Scalars['Boolean']['output'];
+  rides: Array<SharedComponentRide>;
 };
 
 export type SharedComponentTenure = {

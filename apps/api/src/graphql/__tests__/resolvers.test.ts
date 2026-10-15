@@ -77,10 +77,12 @@ jest.mock('../../lib/prisma', () => ({
     },
     componentShare: {
       findUnique: jest.fn(),
+      findUniqueOrThrow: jest.fn(),
       findFirst: jest.fn(),
       findMany: jest.fn(),
       count: jest.fn(),
       create: jest.fn(),
+      updateMany: jest.fn(),
       deleteMany: jest.fn(),
     },
     bikeNotificationPreference: {
@@ -5940,6 +5942,185 @@ describe('GraphQL Resolvers', () => {
       expect(builder).toHaveBeenCalledWith(expect.anything(), found);
       expect(result).toEqual({ scope: 'LIFETIME' });
       builder.mockRestore();
+    });
+
+    // A dated ride list says where the rider was and when, so it is opt-in.
+    it('creates links without rides unless asked', async () => {
+      await create({ scope: 'LIFETIME' });
+      expect(share.create).toHaveBeenCalledWith({ data: expect.objectContaining({ includeRides: false }) });
+
+      share.create.mockClear();
+      await create({ scope: 'LIFETIME', includeRides: true });
+      expect(share.create).toHaveBeenCalledWith({ data: expect.objectContaining({ includeRides: true }) });
+    });
+
+    // A rider who regrets showing where they rode turns rides off without
+    // breaking the URL they sent.
+    it("turns a sent link's ride list on or off, keeping its URL", async () => {
+      share.updateMany.mockResolvedValueOnce({ count: 1 });
+      share.findUniqueOrThrow.mockResolvedValueOnce({ id: 'share-1', slug: 'abcdefghijkl', includeRides: false });
+
+      const result = await resolvers.Mutation.updateComponentShare(
+        {}, { id: 'share-1', includeRides: false }, createMockContext('user-123') as never
+      );
+
+      expect(share.updateMany).toHaveBeenCalledWith({
+        where: { id: 'share-1', userId: 'user-123' },
+        data: { includeRides: false },
+      });
+      expect(result).toMatchObject({ slug: 'abcdefghijkl', includeRides: false });
+    });
+
+    it("refuses to change someone else's link, as if it did not exist", async () => {
+      share.updateMany.mockResolvedValueOnce({ count: 0 });
+      await expect(
+        resolvers.Mutation.updateComponentShare(
+          {}, { id: 'share-x', includeRides: true }, createMockContext('user-123') as never
+        )
+      ).rejects.toThrow('Share link not found');
+      expect(share.findUniqueOrThrow).not.toHaveBeenCalled();
+    });
+
+    it('rate-limits ride-list changes like the other link mutations', async () => {
+      mockCheckMutationRateLimit.mockResolvedValueOnce({ allowed: false, retryAfter: 30 });
+      await expect(
+        resolvers.Mutation.updateComponentShare(
+          {}, { id: 'share-1', includeRides: true }, createMockContext('user-123') as never
+        )
+      ).rejects.toThrow('Rate limit exceeded');
+      expect(mockCheckMutationRateLimit).toHaveBeenCalledWith('updateComponentShare', 'user-123');
+      expect(share.updateMany).not.toHaveBeenCalled();
+    });
+
+    // Otherwise asking for rides could hand back a link already sent without
+    // them, or opting out could return a link that lists them.
+    it('keys the existing-link lookup on the ride-list choice', async () => {
+      await create({ scope: 'SINCE_SERVICE', includeRides: true });
+      expect(share.findFirst).toHaveBeenCalledWith({
+        where: expect.objectContaining({ scope: 'SINCE_SERVICE', includeRides: true }),
+      });
+    });
+
+    it('sharedComponentRides throttles by IP and rejects malformed slugs before touching the database', async () => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { checkAuthRateLimit } = require('../../lib/rate-limit') as { checkAuthRateLimit: jest.Mock };
+      checkAuthRateLimit.mockResolvedValueOnce({ allowed: false, retryAfter: 30 });
+      const query = resolvers.Query.sharedComponentRides;
+
+      await expect(query({}, { slug: 'slug12345678' }, createMockContext(null) as never)).rejects.toThrow(
+        'Rate limit exceeded. Try again in 30 seconds.'
+      );
+      expect(checkAuthRateLimit).toHaveBeenCalledWith('shared-history', expect.any(String));
+      expect(await query({}, { slug: 'not valid !!' }, createMockContext(null) as never)).toBeNull();
+      expect(share.findUnique).not.toHaveBeenCalled();
+
+      share.findUnique.mockResolvedValueOnce(null);
+      expect(await query({}, { slug: 'unknown-slug-123' }, createMockContext(null) as never)).toBeNull();
+    });
+
+    it('sharedComponentRides pages a live link through the share builder', async () => {
+      const builder = jest
+        .spyOn(componentShare, 'sharedComponentRidesPage')
+        .mockResolvedValue({ rides: [], hasMore: false } as never);
+      const found = { id: 'share-1', slug: 'slug12345678', scope: 'LIFETIME', includeRides: true, component: hubs };
+      share.findUnique.mockResolvedValueOnce(found);
+
+      const result = await resolvers.Query.sharedComponentRides(
+        {}, { slug: 'slug12345678', take: 10, offset: 20 }, createMockContext(null) as never
+      );
+
+      expect(builder).toHaveBeenCalledWith(expect.anything(), found, { take: 10, offset: 20 });
+      expect(result).toEqual({ rides: [], hasMore: false });
+      builder.mockRestore();
+    });
+  });
+
+  // The rows behind componentHistory's totals, by the same tenure rule.
+  describe('Query.componentHistoryRides', () => {
+    const query = resolvers.Query.componentHistoryRides;
+    const mockComponentFindFirst = prisma.component.findFirst as jest.Mock;
+    const mockInstallFindMany = prisma.bikeComponentInstall.findMany as jest.Mock;
+    const mockAdjustmentFindMany = prisma.componentRideAdjustment.findMany as jest.Mock;
+    const mockServiceLogFindFirst = prisma.serviceLog.findFirst as jest.Mock;
+    const mockRideFindMany = prisma.ride.findMany as jest.Mock;
+    const SERVICED = new Date('2026-08-01T12:00:00Z');
+
+    beforeEach(() => {
+      mockCheckQueryRateLimit.mockResolvedValue({ allowed: true, retryAfter: 0 });
+      mockComponentFindFirst.mockReset().mockResolvedValue({
+        id: 'comp-1', userId: 'user-123', bikeId: 'bike-2',
+        installedAt: new Date('2026-03-01T00:00:00Z'), createdAt: new Date('2025-09-15T16:00:00Z'),
+        retiredAt: null, hoursUsed: 10,
+      });
+      // Lived on two bikes: a closed tenure on bike-1, then the open one on bike-2.
+      mockInstallFindMany.mockReset().mockResolvedValue([
+        { id: 'inst-1', bikeId: 'bike-1', slotKey: 'FORK_NONE', installedAt: new Date('2025-09-15T16:00:00Z'), removedAt: new Date('2026-03-01T00:00:00Z') },
+        { id: 'inst-2', bikeId: 'bike-2', slotKey: 'FORK_NONE', installedAt: new Date('2026-03-01T00:00:00Z'), removedAt: null },
+      ]);
+      mockAdjustmentFindMany.mockReset().mockResolvedValue([
+        { rideId: 'r-in', kind: 'INCLUDE' },
+        { rideId: 'r-out', kind: 'EXCLUDE' },
+      ]);
+      mockServiceLogFindFirst.mockReset().mockResolvedValue({ performedAt: SERVICED });
+      mockRideFindMany.mockReset().mockResolvedValue([{ id: 'r-2' }, { id: 'r-1' }]);
+    });
+
+    it("reads a component that isn't the caller's as missing", async () => {
+      mockComponentFindFirst.mockResolvedValue(null);
+      await expect(
+        query({}, { componentId: 'comp-1' }, createMockContext('user-123') as never)
+      ).rejects.toThrow('Component not found');
+      expect(mockComponentFindFirst).toHaveBeenCalledWith({ where: { id: 'comp-1', userId: 'user-123' } });
+      expect(mockRideFindMany).not.toHaveBeenCalled();
+    });
+
+    it('rejects when rate limited', async () => {
+      mockCheckQueryRateLimit.mockResolvedValue({ allowed: false, retryAfter: 30 });
+      await expect(
+        query({}, { componentId: 'comp-1' }, createMockContext('user-123') as never)
+      ).rejects.toThrow('Rate limit exceeded');
+      expect(mockCheckQueryRateLimit).toHaveBeenCalledWith('componentHistoryRides', 'user-123');
+    });
+
+    // Every bike it has lived on, not just the current one: that is what the
+    // lifetime total sums, and what separates this from componentRides.
+    it('lists the counted rides across every tenure, newest first', async () => {
+      const result = await query({}, { componentId: 'comp-1' }, createMockContext('user-123') as never);
+
+      const args = mockRideFindMany.mock.calls[0][0];
+      expect(args.where).toMatchObject({
+        userId: 'user-123',
+        isDuplicate: false,
+        id: { notIn: ['r-out'] },
+        OR: [
+          { bikeId: 'bike-1', startTime: { gte: new Date('2025-09-15T16:00:00Z'), lt: new Date('2026-03-01T00:00:00Z') } },
+          { bikeId: 'bike-2', startTime: expect.objectContaining({ gte: new Date('2026-03-01T00:00:00Z') }) },
+          { id: { in: ['r-in'] } },
+        ],
+      });
+      expect(args.where).not.toHaveProperty('startTime');
+      expect(args.orderBy).toEqual([{ startTime: 'desc' }, { id: 'desc' }]);
+      expect(args).toMatchObject({ skip: 0, take: 26 });
+      expect(result).toEqual({ rides: [{ id: 'r-2' }, { id: 'r-1' }], hasMore: false });
+    });
+
+    it('narrows to rides since the latest SERVICE log', async () => {
+      await query(
+        {}, { componentId: 'comp-1', sinceService: true, take: 1, offset: 4 }, createMockContext('user-123') as never
+      );
+
+      expect(mockServiceLogFindFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { componentId: 'comp-1', kind: 'SERVICE' } })
+      );
+      const args = mockRideFindMany.mock.calls[0][0];
+      expect(args.where).toMatchObject({ startTime: { gte: SERVICED } });
+      expect(args).toMatchObject({ skip: 4, take: 2 });
+    });
+
+    it('counts every ride since service when the part was never serviced', async () => {
+      mockServiceLogFindFirst.mockResolvedValue(null);
+      await query({}, { componentId: 'comp-1', sinceService: true }, createMockContext('user-123') as never);
+      expect(mockRideFindMany.mock.calls[0][0].where).not.toHaveProperty('startTime');
     });
   });
 

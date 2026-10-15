@@ -1,6 +1,7 @@
 import type { PrismaClient } from '@prisma/client';
 import {
   buildSharedComponentHistory,
+  sharedComponentRidesPage,
   componentStartDate,
   rangeError,
   shareWindow,
@@ -262,5 +263,110 @@ describe('buildSharedComponentHistory', () => {
 
     expect(lifetime.declaredPriorHours).toBe(200);
     expect(range.declaredPriorHours).toBe(0);
+  });
+});
+
+describe('sharedComponentRidesPage', () => {
+  const hubs = {
+    id: 'comp-1',
+    userId: 'user-1',
+    bikeId: 'bike-1',
+    installedAt: d('2025-09-15T16:00:00Z'),
+    createdAt: d('2025-09-15T16:00:00Z'),
+    retiredAt: null,
+    hoursUsed: 40,
+  };
+  const rows = [
+    {
+      startTime: d('2026-08-10T10:00:00Z'), durationSeconds: 7200, distanceMeters: 20000, elevationGainMeters: 900,
+      trailSystem: 'Duthie Hill', location: 'Issaquah, WA',
+      stravaActivityId: 's-1', stravaDeviceName: 'Garmin Edge 840', garminActivityId: null, garminDeviceName: null,
+      whoopWorkoutId: null, suuntoWorkoutId: null,
+    },
+    {
+      startTime: d('2026-08-09T10:00:00Z'), durationSeconds: 3600, distanceMeters: 10000, elevationGainMeters: 400,
+      trailSystem: null, location: null,
+      stravaActivityId: null, stravaDeviceName: null, garminActivityId: null, garminDeviceName: null,
+      whoopWorkoutId: null, suuntoWorkoutId: null,
+    },
+  ];
+
+  const makeDb = (found = rows) => ({
+    componentRideAdjustment: { findMany: jest.fn().mockResolvedValue([{ rideId: 'r-out', kind: 'EXCLUDE' }]) },
+    bikeComponentInstall: {
+      findMany: jest.fn().mockResolvedValue([
+        { id: 'inst-1', bikeId: 'bike-1', slotKey: 'WHEEL_HUBS_NONE', installedAt: d('2025-09-15T16:00:00Z'), removedAt: null },
+      ]),
+    },
+    serviceLog: { findFirst: jest.fn().mockResolvedValue({ performedAt: d('2026-08-01T12:00:00Z') }) },
+    ride: { findMany: jest.fn().mockResolvedValue(found) },
+  });
+  const page = (db: ReturnType<typeof makeDb>, share: Record<string, unknown>, take = 25, offset = 0) =>
+    sharedComponentRidesPage(
+      db as unknown as PrismaClient,
+      {
+        id: 'share-1', slug: 'abcdefghijkl', componentId: 'comp-1', userId: 'user-1',
+        scope: 'LIFETIME', rangeStart: null, rangeEnd: null, createdAt: NOW,
+        ...share,
+        component: hubs,
+      } as never,
+      { take, offset }
+    );
+
+  it('is null for a link the owner did not opt in, without reading any rides', async () => {
+    const db = makeDb();
+    expect(await page(db, { includeRides: false })).toBeNull();
+    expect(db.ride.findMany).not.toHaveBeenCalled();
+  });
+
+  // The page is public, so each row is an allowlist: no ids, notes, heart rate
+  // or weather, and the provider ids are read only to attribute the row.
+  it('lists only allowlisted fields, with each ride attributed', async () => {
+    const db = makeDb();
+    const result = await page(db, { includeRides: true });
+
+    expect(result?.rides).toEqual([
+      {
+        startTime: '2026-08-10T10:00:00.000Z', durationSeconds: 7200, distanceMeters: 20000, elevationGainMeters: 900,
+        trailSystem: 'Duthie Hill', location: 'Issaquah, WA',
+        // Recorded on a Garmin and imported via Strava: both are attributed.
+        sources: ['strava', 'garmin'], garminAttribution: 'Garmin Edge 840',
+      },
+      {
+        startTime: '2026-08-09T10:00:00.000Z', durationSeconds: 3600, distanceMeters: 10000, elevationGainMeters: 400,
+        trailSystem: null, location: null, sources: [], garminAttribution: null,
+      },
+    ]);
+    const select = db.ride.findMany.mock.calls[0][0].select;
+    for (const field of ['id', 'notes', 'averageHr', 'weather', 'bikeId', 'userId']) {
+      expect(select).not.toHaveProperty(field);
+    }
+    expect(JSON.stringify(result)).not.toContain('s-1');
+  });
+
+  it('follows the counted-ride rule and the link window, newest first', async () => {
+    const db = makeDb();
+    await page(db, { includeRides: true, scope: 'SINCE_SERVICE' });
+
+    const args = db.ride.findMany.mock.calls[0][0];
+    expect(args.where).toMatchObject({
+      userId: 'user-1',
+      isDuplicate: false,
+      id: { notIn: ['r-out'] },
+      startTime: { gte: d('2026-08-01T12:00:00Z') },
+    });
+    expect(args.orderBy).toEqual([{ startTime: 'desc' }, { id: 'desc' }]);
+  });
+
+  it('pages by offset, reading one extra row to answer hasMore, and caps take', async () => {
+    const db = makeDb();
+    const result = await page(db, { includeRides: true }, 1, 5);
+
+    expect(db.ride.findMany.mock.calls[0][0]).toMatchObject({ skip: 5, take: 2 });
+    expect(result?.rides).toHaveLength(1);
+    expect(result?.hasMore).toBe(true);
+
+    await page(db, { includeRides: true }, 5000, -3);
+    expect(db.ride.findMany.mock.calls[1][0]).toMatchObject({ skip: 0, take: 101 });
   });
 });

@@ -1,11 +1,14 @@
 import type { Component, ComponentShare, ComponentShareScope, PrismaClient } from '@prisma/client';
+import { formatGarminSource, garminSourceDevice, hasGarminData } from '@loam/shared';
 import {
   aggregateLifetime,
   buildCountedRideWhere,
   cumulativeSeries,
   emptyTotals,
+  loadCountedRideBasis,
   mergeWindows,
   normalizeTenures,
+  pageCountedRides,
   TENURE_CAP,
   type DateRange,
   type NormalizedTenure,
@@ -27,10 +30,14 @@ import {
 //   RANGE          a fixed [rangeStart, rangeEnd) window
 //
 // The page is public and unauthenticated, so the payload is built from an
-// explicit allowlist: no notes, no owner identity, no bike nicknames or ids, no
-// per-ride rows and no weather. Weather is Pro-gated in Ride.weather, and a
-// date-windowed aggregate of it would let anyone narrow the window down to
-// single rides.
+// explicit allowlist: no notes, no owner identity, no bike nicknames or ids and
+// no weather. Weather is Pro-gated in Ride.weather, and a date-windowed
+// aggregate of it would let anyone narrow the window down to single rides.
+//
+// Per-ride rows are opt-in per link (ComponentShare.includeRides), because a
+// dated list of trails says where the rider was and when. An opted-in link
+// lists each ride's date, trail, location, duration, distance and climb, plus
+// the providers that recorded it; still no ids, notes, heart rate or weather.
 
 /** Links per component. A share is a click; this only bounds link sprawl. */
 export const MAX_SHARES_PER_COMPONENT = 20;
@@ -239,6 +246,7 @@ export async function buildSharedComponentHistory(
     windowEnd: range.end ? range.end.toISOString() : null,
     totals,
     declaredPriorHours,
+    includeRides: share.includeRides,
     bikes: overlapping.map((t) => {
       const bike = bikeById.get(t.bikeId);
       return {
@@ -270,5 +278,66 @@ export async function buildSharedComponentHistory(
       whoop ? 'whoop' : null,
       suunto ? 'suunto' : null,
     ].filter((s): s is string => s !== null),
+  };
+}
+
+/**
+ * One page of an opted-in link's rides, newest first, from the same counted-ride
+ * rule and window as its totals. Null when the owner did not opt the link in,
+ * so the public page cannot tell "no rides" from "not shared".
+ */
+export async function sharedComponentRidesPage(
+  db: PrismaClient,
+  share: ComponentShare & { component: Component },
+  page: { take: number; offset: number }
+) {
+  if (!share.includeRides) return null;
+
+  const basis = await loadCountedRideBasis(db, share.component);
+  const { rides, hasMore } = await pageCountedRides(db, {
+    userId: share.component.userId,
+    basis,
+    range: shareWindow(share, basis.latestServiceAt),
+    take: page.take,
+    offset: page.offset,
+    // The allowlist. Provider ids and device names are read only to derive the
+    // attribution below; none of them is returned.
+    select: {
+      startTime: true,
+      durationSeconds: true,
+      distanceMeters: true,
+      elevationGainMeters: true,
+      trailSystem: true,
+      location: true,
+      stravaActivityId: true,
+      stravaDeviceName: true,
+      garminActivityId: true,
+      garminDeviceName: true,
+      whoopWorkoutId: true,
+      suuntoWorkoutId: true,
+    },
+  });
+
+  return {
+    rides: rides.map((r) => ({
+      startTime: r.startTime.toISOString(),
+      durationSeconds: r.durationSeconds,
+      distanceMeters: r.distanceMeters,
+      elevationGainMeters: r.elevationGainMeters,
+      trailSystem: r.trailSystem,
+      location: r.location,
+      // Every contributing provider, as the owner's ride rows show them: the
+      // Garmin API Brand Guidelines require attribution wherever its
+      // device-sourced data appears, including a Garmin ride imported via Strava.
+      sources: [
+        r.stravaActivityId ? 'strava' : null,
+        hasGarminData(r) ? 'garmin' : null,
+        r.whoopWorkoutId ? 'whoop' : null,
+        r.suuntoWorkoutId ? 'suunto' : null,
+      ].filter((s): s is string => s !== null),
+      // "Garmin Edge 840", or plain "Garmin" when no model is known.
+      garminAttribution: hasGarminData(r) ? formatGarminSource(garminSourceDevice(r)) : null,
+    })),
+    hasMore,
   };
 }

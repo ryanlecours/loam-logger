@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import SharedComponentHistory from './SharedComponentHistory';
 
@@ -63,8 +63,28 @@ const PAYLOAD = {
   contributingSources: ['garmin'],
 };
 
-const renderPage = (payload: unknown) => {
-  mockUseQuery.mockReturnValue({ data: { sharedComponentHistory: payload }, loading: false, error: undefined });
+const RIDES = [
+  {
+    startTime: '2026-10-06T16:00:00.000Z', durationSeconds: 5400, distanceMeters: 16093, elevationGainMeters: 610,
+    trailSystem: 'Galbraith', location: 'Bellingham, WA', sources: ['strava', 'garmin'],
+    garminAttribution: 'Garmin Edge 840',
+  },
+  {
+    startTime: '2026-10-01T16:00:00.000Z', durationSeconds: 3000, distanceMeters: 8047, elevationGainMeters: 300,
+    trailSystem: null, location: null, sources: [], garminAttribution: null,
+  },
+];
+
+const mockFetchMore = vi.fn();
+const ridesCalls = () =>
+  mockUseQuery.mock.calls.filter(([doc]) => String(doc).includes('sharedComponentRides'));
+
+const renderPage = (payload: unknown, ridePage: unknown = { rides: RIDES, hasMore: false }) => {
+  mockUseQuery.mockImplementation((doc: unknown) =>
+    String(doc).includes('sharedComponentRides')
+      ? { data: { sharedComponentRides: ridePage }, loading: false, error: undefined, fetchMore: mockFetchMore }
+      : { data: { sharedComponentHistory: payload }, loading: false, error: undefined }
+  );
   return render(
     <MemoryRouter>
       <SharedComponentHistory />
@@ -73,7 +93,10 @@ const renderPage = (payload: unknown) => {
 };
 
 describe('SharedComponentHistory', () => {
-  beforeEach(() => mockUseQuery.mockReset());
+  beforeEach(() => {
+    mockUseQuery.mockReset();
+    mockFetchMore.mockReset();
+  });
 
   it('shows the window the link was made for, with its totals', () => {
     renderPage(PAYLOAD);
@@ -126,5 +149,38 @@ describe('SharedComponentHistory', () => {
   it('explains a revoked or unknown link', () => {
     renderPage(null);
     expect(screen.getByText("This history isn't shared")).toBeInTheDocument();
+  });
+
+  // Rides say where the owner rode and when, so they show only on a link the
+  // owner opted in, and the page never even asks for them otherwise.
+  it('lists no rides, and asks for none, on a link without the opt-in', () => {
+    renderPage({ ...PAYLOAD, includeRides: false });
+    expect(screen.queryByRole('heading', { name: 'Rides' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Galbraith')).not.toBeInTheDocument();
+    expect(ridesCalls().every(([, opts]) => opts.skip === true)).toBe(true);
+  });
+
+  it('lists each ride on an opted-in link, with its source attributed on the row', () => {
+    renderPage({ ...PAYLOAD, includeRides: true });
+    const list = screen.getByRole('heading', { name: 'Rides' }).closest('section')!;
+
+    expect(within(list).getByText('Galbraith')).toBeInTheDocument();
+    expect(within(list).getByText('Strava')).toBeInTheDocument();
+    expect(within(list).getByText('Garmin Edge 840')).toBeInTheDocument();
+    expect(within(list).getByText('1h 30m')).toBeInTheDocument();
+    expect(within(list).getByText('Ride')).toBeInTheDocument();
+  });
+
+  it('pages the rides cookieless, like the page itself, and on from where the list ends', () => {
+    renderPage({ ...PAYLOAD, includeRides: true }, { rides: RIDES, hasMore: true });
+    const [, opts] = ridesCalls().at(-1)!;
+    expect(opts).toMatchObject({
+      variables: { slug: 'abcdefghijkl', offset: 0 },
+      skip: false,
+      context: { fetchOptions: { credentials: 'omit' } },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show more rides' }));
+    expect(mockFetchMore).toHaveBeenCalledWith(expect.objectContaining({ variables: { offset: 2 } }));
   });
 });
