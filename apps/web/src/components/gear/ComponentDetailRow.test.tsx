@@ -14,6 +14,8 @@ vi.mock('motion/react', () => ({
     div: ({ children, ...props }: React.PropsWithChildren<React.HTMLAttributes<HTMLDivElement>>) => (
       <div {...props}>{children}</div>
     ),
+    // ui/Button wraps the router Link with motion.create at import time.
+    create: <T,>(component: T) => component,
   },
   AnimatePresence: ({ children }: React.PropsWithChildren<object>) => <>{children}</>,
 }));

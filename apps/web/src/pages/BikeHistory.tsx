@@ -1,5 +1,5 @@
 import { Suspense, lazy, useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router';
+import { Link, useParams, useSearchParams } from 'react-router';
 import { gql, useMutation, useQuery } from '@apollo/client';
 import { ArrowLeft, Bike as BikeIcon, CalendarClock, Check, FileDown, Link2, MinusCircle, PlusCircle, TriangleAlert, Wrench } from 'lucide-react';
 
@@ -54,7 +54,22 @@ export default function BikeHistory() {
   const { isPro } = useUserTier();
   const [timeframe, setTimeframe] = useState<Timeframe>('all');
   const [showPdfUpsell, setShowPdfUpsell] = useState(false);
-  const [showRides, setShowRides] = useState(true);
+  // The rides filter lives in the URL (`?show=service` hides rides), so the
+  // dashboard's "View maintenance" link lands on the service log alone and
+  // the filter follows back/forward and same-route navigations instead of
+  // going stale in state. Replace, so toggling doesn't stack history entries.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const showRides = searchParams.get('show') !== 'service';
+  const toggleRides = () =>
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (showRides) next.set('show', 'service');
+        else next.delete('show');
+        return next;
+      },
+      { replace: true }
+    );
   const [showService, setShowService] = useState(true);
   const [editingService, setEditingService] = useState<{
     log: EditableServiceLog;
@@ -325,7 +340,7 @@ export default function BikeHistory() {
               ))}
             </select>
             <div className="mx-2 h-4 w-px bg-border" />
-            <TogglePill active={showRides} onClick={() => setShowRides((v) => !v)}>
+            <TogglePill active={showRides} onClick={toggleRides}>
               Rides
             </TogglePill>
             <TogglePill active={showService} onClick={() => setShowService((v) => !v)}>
@@ -526,6 +541,7 @@ function TogglePill({ active, onClick, children }: { active: boolean; onClick: (
     <button
       type="button"
       onClick={onClick}
+      aria-pressed={active}
       className={`px-3 py-1 rounded-full text-xs border ${active ? 'bg-mint/10 border-mint text-mint' : 'border-border text-muted'}`}
     >
       {children}

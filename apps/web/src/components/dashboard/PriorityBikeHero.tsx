@@ -10,7 +10,7 @@ import { ComponentHealthPanel } from './ComponentHealthPanel';
 import { AdvisorSummaryCard } from './AdvisorSummaryCard';
 import { useUserTier } from '../../hooks/useUserTier';
 import { CompactRideRow } from './CompactRideRow';
-import { Button } from '../ui/Button';
+import { Button, LinkButton } from '../ui/Button';
 
 interface PriorityBikeHeroProps {
   bike: BikeWithPredictions | null;
@@ -158,12 +158,10 @@ export function PriorityBikeHero({
                 <Wrench size={12} className="icon-left" />
                 Log service
               </Button>
-              <span title="Coming soon - available by January 21, 2026">
-                <Button variant="secondary" size="sm" disabled>
-                  <Settings size={12} className="icon-left" />
-                  View maintenance
-                </Button>
-              </span>
+              <LinkButton variant="secondary" size="sm" to={`/gear/${bike.id}/history?show=service`}>
+                <Settings size={12} className="icon-left" />
+                View maintenance
+              </LinkButton>
             </div>
           </motion.div>
         </AnimatePresence>

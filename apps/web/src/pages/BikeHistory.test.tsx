@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
-import { MemoryRouter } from 'react-router';
+import { MemoryRouter, useLocation } from 'react-router';
 import BikeHistory from './BikeHistory';
 
 // Apollo — useQuery returns the fixed fixture below; useMutation returns
@@ -160,13 +160,55 @@ const fixture = {
   },
 };
 
-function renderPage() {
+// Renders the current query string so tests can see the filter's URL.
+function SearchProbe() {
+  return <div data-testid="search">{useLocation().search}</div>;
+}
+
+function renderPage(path = '/gear/bike-1/history') {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[path]}>
       <BikeHistory />
+      <SearchProbe />
     </MemoryRouter>
   );
 }
+
+describe('BikeHistory filters', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockUseQuery.mockReturnValue({ data: fixture, loading: false, error: undefined });
+  });
+
+  it('shows rides and service by default', () => {
+    renderPage();
+    expect(screen.getByRole('button', { name: 'Rides' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Service & Installs' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('opens on the service log alone with ?show=service', () => {
+    renderPage('/gear/bike-1/history?show=service');
+    const rides = screen.getByRole('button', { name: 'Rides' });
+    expect(rides).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByRole('button', { name: 'Service & Installs' })).toHaveAttribute('aria-pressed', 'true');
+
+    fireEvent.click(rides);
+    expect(rides).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('keeps the rides filter in the URL', () => {
+    renderPage();
+    const rides = screen.getByRole('button', { name: 'Rides' });
+
+    fireEvent.click(rides);
+    expect(rides).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByTestId('search')).toHaveTextContent('?show=service');
+
+    fireEvent.click(rides);
+    expect(rides).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('search')).toBeEmptyDOMElement();
+  });
+});
 
 // Scope queries to the bottom action bar so TotalChip counts ("0 rides",
 // "3 service events") don't collide with "N selected" text.
