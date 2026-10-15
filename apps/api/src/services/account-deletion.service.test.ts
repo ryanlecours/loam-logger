@@ -54,6 +54,7 @@ import { revokeStravaTokenForUser } from '../lib/strava-token';
 import { revokeGarminTokenForUser } from '../lib/garmin-token';
 import { sendEmailWithAudit } from './email.service';
 import { captureServerEvent } from '../lib/posthog';
+import { logger } from '../lib/logger';
 
 const mockPrisma = prisma as unknown as {
   user: { findUnique: jest.Mock; delete: jest.Mock };
@@ -78,8 +79,6 @@ function stripeError(code: string, message = 'Stripe error') {
 describe('deleteUserAccount', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    jest.spyOn(console, 'log').mockImplementation(() => undefined);
-    jest.spyOn(console, 'warn').mockImplementation(() => undefined);
     mockPrisma.user.findUnique.mockResolvedValue({ stripeCustomerId: null, stripeSubscriptionId: null });
     mockPrisma.user.delete.mockResolvedValue({ id: 'user-1', email: 'rider@example.com' });
     mockPrisma.ride.deleteMany.mockResolvedValue({ count: 0 });
@@ -111,6 +110,21 @@ describe('deleteUserAccount', () => {
     expect(mockPrisma.$transaction).toHaveBeenCalled();
     expect(mockPrisma.userAccount.deleteMany).toHaveBeenCalledWith({ where: { userId: 'user-1' } });
     expect(mockPrisma.user.delete).toHaveBeenCalledWith({ where: { id: 'user-1' } });
+  });
+
+  it('logs the user id but never the email', async () => {
+    const consoleLog = jest.spyOn(console, 'log');
+
+    await deleteUserAccount('user-1');
+
+    const logCalls = [
+      ...(logger.info as jest.Mock).mock.calls,
+      ...(logger.warn as jest.Mock).mock.calls,
+      ...(logger.error as jest.Mock).mock.calls,
+    ];
+    expect(logCalls).toContainEqual([{ userId: 'user-1' }, 'Account deletion: deleted user']);
+    expect(JSON.stringify(logCalls)).not.toContain('rider@example.com');
+    expect(consoleLog).not.toHaveBeenCalled();
   });
 
   it('continues when Strava/Garmin token revocation fails', async () => {
