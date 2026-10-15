@@ -4,6 +4,7 @@ import { gql, useQuery } from '@apollo/client';
 import { Bike as BikeIcon, Wrench, ArrowUpDown } from 'lucide-react';
 import { fmtDistance, fmtDuration, fmtDateTime } from '@/lib/format';
 import { getComponentLabel } from '@/constants/componentLabels';
+import { PUBLIC_QUERY_CONTEXT } from '@/lib/publicQuery';
 import {
   GarminDerivedNote,
   GarminTrademarkNotice,
@@ -80,6 +81,7 @@ export default function SharedBikeHistory() {
     variables: { slug },
     skip: !slug,
     fetchPolicy: 'cache-first',
+    context: PUBLIC_QUERY_CONTEXT,
   });
 
   const payload = data?.sharedBikeHistory ?? null;

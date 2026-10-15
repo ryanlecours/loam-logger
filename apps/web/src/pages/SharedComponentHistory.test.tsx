@@ -116,6 +116,13 @@ describe('SharedComponentHistory', () => {
     expect(screen.getAllByTestId('garmin-note')).toHaveLength(1);
   });
 
+  it('fetches without cookies, so a signed-in viewer is not stopped by the CSRF check', () => {
+    renderPage(PAYLOAD);
+    expect(mockUseQuery.mock.calls[0][1]).toMatchObject({
+      context: { fetchOptions: { credentials: 'omit' } },
+    });
+  });
+
   it('explains a revoked or unknown link', () => {
     renderPage(null);
     expect(screen.getByText("This history isn't shared")).toBeInTheDocument();

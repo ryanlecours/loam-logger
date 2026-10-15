@@ -7,6 +7,7 @@ import { SHARED_COMPONENT_HISTORY } from '@/graphql/componentShare';
 import { fmtDateTime, fmtDistance, fmtDuration, fmtElevation } from '@/lib/format';
 import { fmtDay, rangeLabel, type ComponentShareScope } from '@/lib/componentShare';
 import { getComponentLabel } from '@/constants/componentLabels';
+import { PUBLIC_QUERY_CONTEXT } from '@/lib/publicQuery';
 import { WearChart } from '@/components/history/WearChart';
 import {
   GarminDerivedNote,
@@ -79,7 +80,7 @@ export default function SharedComponentHistory() {
   const { slug } = useParams<{ slug: string }>();
   const { data, loading, error } = useQuery<{ sharedComponentHistory: SharedPayload | null }>(
     SHARED_COMPONENT_HISTORY,
-    { variables: { slug }, skip: !slug, fetchPolicy: 'cache-first' }
+    { variables: { slug }, skip: !slug, fetchPolicy: 'cache-first', context: PUBLIC_QUERY_CONTEXT }
   );
   const payload = data?.sharedComponentHistory ?? null;
 
