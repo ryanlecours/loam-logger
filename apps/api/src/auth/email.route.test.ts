@@ -78,6 +78,7 @@ import {
 import { validateEmailFormat } from './email.utils';
 import { hashPassword, validatePassword } from './password.utils';
 import { logger } from '../lib/logger';
+import { setCsrfCookie } from './csrf';
 
 const mockPrisma = prisma as jest.Mocked<typeof prisma>;
 const mockUserFindUnique = mockPrisma.user.findUnique as unknown as jest.Mock;
@@ -479,5 +480,59 @@ describe('POST /login', () => {
     expect(mockCheckAuthRateLimit).toHaveBeenCalledWith('login', '1.2.3.4');
     expect(mockCheckAuthRateLimit).toHaveBeenCalledWith('login-email', expect.any(String));
     expect(res.status).toHaveBeenCalledWith(401);
+  });
+});
+
+// ============================================================================
+// GET /csrf-token
+// ============================================================================
+
+describe('GET /csrf-token', () => {
+  const handler = getHandler('/csrf-token', 'get');
+  const VALID_TOKEN = 'a'.repeat(64);
+
+  it('refuses a request with no session', async () => {
+    const req = createMockRequest();
+    const res = createMockResponse();
+
+    await invokeHandler(handler, req as Request, res as unknown as Response);
+
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(setCsrfCookie).not.toHaveBeenCalled();
+  });
+
+  it('returns the token the browser already holds without rotating it', async () => {
+    const req = createMockRequest({
+      sessionUser: { uid: 'user-1' },
+      cookies: { ll_csrf: VALID_TOKEN },
+    } as Partial<Request>);
+    const res = createMockResponse();
+
+    await invokeHandler(handler, req as Request, res as unknown as Response);
+
+    expect(res.json).toHaveBeenCalledWith({ csrfToken: VALID_TOKEN });
+    expect(setCsrfCookie).not.toHaveBeenCalled();
+  });
+
+  it('mints a token when the browser has none', async () => {
+    const req = createMockRequest({ sessionUser: { uid: 'user-1' } } as Partial<Request>);
+    const res = createMockResponse();
+
+    await invokeHandler(handler, req as Request, res as unknown as Response);
+
+    expect(setCsrfCookie).toHaveBeenCalledWith(res);
+    expect(res.json).toHaveBeenCalledWith({ csrfToken: 'csrf_token' });
+  });
+
+  it('mints a token rather than echo a malformed cookie', async () => {
+    const req = createMockRequest({
+      sessionUser: { uid: 'user-1' },
+      cookies: { ll_csrf: '<script>' },
+    } as Partial<Request>);
+    const res = createMockResponse();
+
+    await invokeHandler(handler, req as Request, res as unknown as Response);
+
+    expect(res.json).toHaveBeenCalledWith({ csrfToken: 'csrf_token' });
   });
 });

@@ -44,6 +44,33 @@ export function getCsrfToken(): string | undefined {
   return undefined;
 }
 
+let refreshing: Promise<string | undefined> | null = null;
+
+/**
+ * Fetch the session's CSRF token from the API and cache it. Concurrent callers
+ * share one request. Resolves undefined when there is no session to protect.
+ *
+ * Needed because the ll_csrf cookie belongs to the API host, so this origin
+ * can only read the copy in sessionStorage, and a tab opened by pasting a URL
+ * starts without one.
+ */
+export function refreshCsrfToken(): Promise<string | undefined> {
+  if (!refreshing) {
+    refreshing = fetch(`${import.meta.env.VITE_API_URL}/auth/csrf-token`, { credentials: 'include' })
+      .then(async (res) => {
+        if (!res.ok) return undefined;
+        const { csrfToken } = (await res.json()) as { csrfToken?: string };
+        if (csrfToken) setCsrfToken(csrfToken);
+        return csrfToken;
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        refreshing = null;
+      });
+  }
+  return refreshing;
+}
+
 /**
  * Get headers object with CSRF token included.
  * Use this for all state-changing requests (POST, PUT, DELETE, etc.)

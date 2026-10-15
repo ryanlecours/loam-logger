@@ -393,8 +393,9 @@ router.post('/reset-password', express.json(), async (req, res) => {
 
 /**
  * GET /auth/csrf-token
- * Get or refresh the CSRF token for authenticated sessions.
- * The token is returned in the response body and also set as a cookie.
+ * Get the CSRF token for an authenticated session, minting one if the browser
+ * has none. The web app calls this when a tab has no cached copy: the ll_csrf
+ * cookie lives on the API host, so the web origin cannot read it.
  */
 router.get('/csrf-token', (req, res) => {
   // Only provide CSRF token if user is authenticated via session cookie
@@ -402,8 +403,12 @@ router.get('/csrf-token', (req, res) => {
     return sendUnauthorized(res, 'Authentication required');
   }
 
-  // Set a new CSRF cookie and return the token
-  const token = setCsrfCookie(res);
+  // Hand back the token the browser already holds. Minting a new one would
+  // invalidate the copy every other open tab has cached, and those tabs would
+  // then each refresh in turn.
+  const existing: unknown = req.cookies?.ll_csrf;
+  const token =
+    typeof existing === 'string' && /^[0-9a-f]{64}$/.test(existing) ? existing : setCsrfCookie(res);
   res.json({ csrfToken: token });
 });
 
