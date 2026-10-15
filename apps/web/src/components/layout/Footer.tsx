@@ -29,7 +29,7 @@ export default function Footer() {
                     <div className="space-y-4">
                         <div className="flex items-center gap-3">
                             <img
-                                src="/web-app-manifest-192x192.png"
+                                src="/loam-mark-192.png"
                                 alt="Loam Logger"
                                 className="w-10 h-10 rounded-lg"
                             />
