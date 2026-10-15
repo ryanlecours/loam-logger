@@ -62,6 +62,7 @@ import webhooksStripe from './routes/webhooks.stripe';
 import webhooksRevenueCat from './routes/webhooks.revenuecat';
 import { validateStripeConfig } from './lib/stripe';
 import { FRONTEND_URL, config } from './config/env';
+import { createOriginAllowlist, parseExtraOrigins } from './lib/cors-origin';
 import mobileAuthRouter from './auth/mobile.route';
 
 export type GraphQLContext = {
@@ -102,44 +103,10 @@ const startServer = async () => {
     res.json({ sessionUser: req.sessionUser ?? null });
   });
 
-  const EXTRA_ORIGINS = (process.env.CORS_EXTRA_ORIGINS || '')
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean);
-
-  const allowOrigin = (origin?: string) => {
-    if (!origin) return true; // SSR/tools/no Origin header
-
-    // Allow Expo/custom schemes quickly (these are not valid URLs for new URL())
-    if (origin.startsWith('exp://') || origin.startsWith('loamlogger://')) return true;
-
-    try {
-      const u = new URL(origin);
-      const host = u.hostname;
-
-      if (
-        origin === FRONTEND_URL ||
-        origin === 'http://localhost:5173' ||
-        EXTRA_ORIGINS.includes(origin) ||
-        host.endsWith('.vercel.app')
-      ) {
-        return true;
-      }
-
-      // Local RN dev servers (http only)
-      if (
-        origin.startsWith('http://localhost:8081') ||
-        origin.startsWith('http://localhost:19000') ||
-        origin.startsWith('http://localhost:19006')
-      ) {
-        return true;
-      }
-
-      return false;
-    } catch {
-      return false;
-    }
-  };
+  const allowOrigin = createOriginAllowlist({
+    frontendUrl: FRONTEND_URL,
+    extraOrigins: parseExtraOrigins(process.env.CORS_EXTRA_ORIGINS),
+  });
 
   // Disallowed origins are refused here, before any route runs, with a plain
   // 403. This used to be an Error passed to the cors callback, which blocked
