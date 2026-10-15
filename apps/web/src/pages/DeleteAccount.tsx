@@ -39,21 +39,12 @@ export default function DeleteAccount() {
                                 <p className="body text-muted">
                                     Loam Logger is made by Loam Labs LLC. You can delete your account and the data stored with it from the app, from this website, or by email. Deletion is permanent and cannot be undone.
                                 </p>
+                                <p className="body text-muted mt-3">
+                                    If you pay for Loam Logger Pro, <a className={linkClass} href="#cancel-subscription">cancel your subscription</a> first. Deleting your account does not cancel it.
+                                </p>
                             </div>
 
                             <div className="space-y-6">
-                                <section id="cancel-subscription">
-                                    <h2 className="card-title mb-3">First, cancel any subscription</h2>
-                                    <p className="body text-muted mb-3">
-                                        Deleting your account does not cancel a Loam Logger Pro subscription. If you have one, cancel it before you delete your account:
-                                    </p>
-                                    <ul className="list-disc pl-6 space-y-2 body text-muted">
-                                        <li><strong className="text-cream">Bought on Android:</strong> in the Google Play Store, open Payments &amp; subscriptions, then Subscriptions.</li>
-                                        <li><strong className="text-cream">Bought on iPhone or iPad:</strong> in the Settings app, tap your name, then Subscriptions.</li>
-                                        <li><strong className="text-cream">Bought on the website:</strong> sign in, open Settings, then Account, and choose Manage Subscription.</li>
-                                    </ul>
-                                </section>
-
                                 <section id="in-the-app">
                                     <h2 className="card-title mb-3">Delete from the app</h2>
                                     <ol className="list-decimal pl-6 space-y-2 body text-muted">
@@ -78,6 +69,18 @@ export default function DeleteAccount() {
                                     <p className="body text-muted">
                                         If you can't sign in, email <a className={linkClass} href={mailto}>{DELETION_EMAIL}</a> from the address on your account and ask us to delete it. We delete the same data as the steps above and reply when it's done.
                                     </p>
+                                </section>
+
+                                <section id="cancel-subscription">
+                                    <h2 className="card-title mb-3">Cancel a Pro subscription first</h2>
+                                    <p className="body text-muted mb-3">
+                                        Deleting your account does not cancel a Loam Logger Pro subscription. If you have one, cancel it before you delete your account:
+                                    </p>
+                                    <ul className="list-disc pl-6 space-y-2 body text-muted">
+                                        <li><strong className="text-cream">Bought on Android:</strong> in the Google Play Store, open Payments &amp; subscriptions, then Subscriptions.</li>
+                                        <li><strong className="text-cream">Bought on iPhone or iPad:</strong> in the Settings app, tap your name, then Subscriptions.</li>
+                                        <li><strong className="text-cream">Bought on the website:</strong> sign in, open Settings, then Account, and choose Manage Subscription.</li>
+                                    </ul>
                                 </section>
 
                                 <section id="what-is-deleted">

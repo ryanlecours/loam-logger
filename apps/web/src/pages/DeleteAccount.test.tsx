@@ -31,6 +31,16 @@ describe('DeleteAccount', () => {
     expect(screen.getByText(/made by Loam Labs LLC/)).toBeInTheDocument();
   });
 
+  it('leads with the deletion steps, as Play asks them to be prominent', () => {
+    renderPage();
+    const sections = screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent);
+    expect(sections.slice(0, 3)).toEqual([
+      'Delete from the app',
+      'Delete on the website',
+      'Ask us by email',
+    ]);
+  });
+
   it('gives app, website and email routes to deletion', () => {
     renderPage();
     expect(screen.getByRole('heading', { name: 'Delete from the app' })).toBeInTheDocument();
