@@ -77,12 +77,11 @@ jest.mock('../../lib/prisma', () => ({
     },
     componentShare: {
       findUnique: jest.fn(),
-      findUniqueOrThrow: jest.fn(),
       findFirst: jest.fn(),
       findMany: jest.fn(),
       count: jest.fn(),
       create: jest.fn(),
-      updateMany: jest.fn(),
+      update: jest.fn(),
       deleteMany: jest.fn(),
     },
     bikeNotificationPreference: {
@@ -5957,28 +5956,39 @@ describe('GraphQL Resolvers', () => {
     // A rider who regrets showing where they rode turns rides off without
     // breaking the URL they sent.
     it("turns a sent link's ride list on or off, keeping its URL", async () => {
-      share.updateMany.mockResolvedValueOnce({ count: 1 });
-      share.findUniqueOrThrow.mockResolvedValueOnce({ id: 'share-1', slug: 'abcdefghijkl', includeRides: false });
+      share.update.mockResolvedValueOnce({ id: 'share-1', slug: 'abcdefghijkl', includeRides: false });
 
       const result = await resolvers.Mutation.updateComponentShare(
         {}, { id: 'share-1', includeRides: false }, createMockContext('user-123') as never
       );
 
-      expect(share.updateMany).toHaveBeenCalledWith({
+      expect(share.update).toHaveBeenCalledWith({
         where: { id: 'share-1', userId: 'user-123' },
         data: { includeRides: false },
       });
       expect(result).toMatchObject({ slug: 'abcdefghijkl', includeRides: false });
     });
 
+    // Someone else's link, or one revoked mid-request: either way no row
+    // matches, and the rider sees NOT_FOUND rather than a server error.
     it("refuses to change someone else's link, as if it did not exist", async () => {
-      share.updateMany.mockResolvedValueOnce({ count: 0 });
+      share.update.mockRejectedValueOnce(
+        new Prisma.PrismaClientKnownRequestError('No record found', { code: 'P2025', clientVersion: 'test' })
+      );
       await expect(
         resolvers.Mutation.updateComponentShare(
           {}, { id: 'share-x', includeRides: true }, createMockContext('user-123') as never
         )
-      ).rejects.toThrow('Share link not found');
-      expect(share.findUniqueOrThrow).not.toHaveBeenCalled();
+      ).rejects.toMatchObject({ message: 'Share link not found', extensions: { code: 'NOT_FOUND' } });
+    });
+
+    it('lets any other database error through', async () => {
+      share.update.mockRejectedValueOnce(new Error('connection reset'));
+      await expect(
+        resolvers.Mutation.updateComponentShare(
+          {}, { id: 'share-1', includeRides: true }, createMockContext('user-123') as never
+        )
+      ).rejects.toThrow('connection reset');
     });
 
     it('rate-limits ride-list changes like the other link mutations', async () => {
@@ -5989,7 +5999,7 @@ describe('GraphQL Resolvers', () => {
         )
       ).rejects.toThrow('Rate limit exceeded');
       expect(mockCheckMutationRateLimit).toHaveBeenCalledWith('updateComponentShare', 'user-123');
-      expect(share.updateMany).not.toHaveBeenCalled();
+      expect(share.update).not.toHaveBeenCalled();
     });
 
     // Otherwise asking for rides could hand back a link already sent without

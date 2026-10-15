@@ -1,12 +1,13 @@
 import type { PrismaClient } from '@prisma/client';
 import {
   buildSharedComponentHistory,
+  rideLocalDate,
   sharedComponentRidesPage,
   componentStartDate,
   rangeError,
   shareWindow,
 } from './component-share';
-import { buildCountedRideWhere } from './component-history';
+import { buildCountedRideWhere, RIDE_OFFSET_MAX } from './component-history';
 
 const d = (iso: string) => new Date(iso);
 const NOW = d('2026-10-08T12:00:00Z');
@@ -266,6 +267,26 @@ describe('buildSharedComponentHistory', () => {
   });
 });
 
+describe('rideLocalDate', () => {
+  // 01:30 UTC on Aug 11 is the evening of Aug 10 anywhere in the Americas.
+  const lateEvening = d('2026-08-11T01:30:00Z');
+
+  it('dates a ride by where it was ridden, from its start longitude', () => {
+    expect(rideLocalDate(lateEvening, -122.3, null)).toBe('2026-08-10');
+    // The owner's zone is ignored when the ride itself says where it was.
+    expect(rideLocalDate(lateEvening, 8.5, 'America/Los_Angeles')).toBe('2026-08-11');
+  });
+
+  it("falls back to the owner's timezone for a ride with no GPS start", () => {
+    expect(rideLocalDate(lateEvening, null, 'America/Denver')).toBe('2026-08-10');
+  });
+
+  it('falls back to UTC with no position and no zone, or an unknown zone', () => {
+    expect(rideLocalDate(lateEvening, null, null)).toBe('2026-08-11');
+    expect(rideLocalDate(lateEvening, null, 'Not/AZone')).toBe('2026-08-11');
+  });
+});
+
 describe('sharedComponentRidesPage', () => {
   const hubs = {
     id: 'comp-1',
@@ -278,13 +299,17 @@ describe('sharedComponentRidesPage', () => {
   };
   const rows = [
     {
-      startTime: d('2026-08-10T10:00:00Z'), durationSeconds: 7200, distanceMeters: 20000, elevationGainMeters: 900,
+      // The evening of Aug 10 near Seattle, though already Aug 11 in UTC.
+      startTime: d('2026-08-11T01:30:00Z'), startLng: -122.0,
+      durationSeconds: 7200, distanceMeters: 20000, elevationGainMeters: 900,
       trailSystem: 'Duthie Hill', location: 'Issaquah, WA',
       stravaActivityId: 's-1', stravaDeviceName: 'Garmin Edge 840', garminActivityId: null, garminDeviceName: null,
       whoopWorkoutId: null, suuntoWorkoutId: null,
     },
     {
-      startTime: d('2026-08-09T10:00:00Z'), durationSeconds: 3600, distanceMeters: 10000, elevationGainMeters: 400,
+      // No GPS start: dated in the owner's timezone.
+      startTime: d('2026-08-09T10:00:00Z'), startLng: null,
+      durationSeconds: 3600, distanceMeters: 10000, elevationGainMeters: 400,
       trailSystem: null, location: null,
       stravaActivityId: null, stravaDeviceName: null, garminActivityId: null, garminDeviceName: null,
       whoopWorkoutId: null, suuntoWorkoutId: null,
@@ -300,6 +325,7 @@ describe('sharedComponentRidesPage', () => {
     },
     serviceLog: { findFirst: jest.fn().mockResolvedValue({ performedAt: d('2026-08-01T12:00:00Z') }) },
     ride: { findMany: jest.fn().mockResolvedValue(found) },
+    user: { findUnique: jest.fn().mockResolvedValue({ timezone: 'America/Los_Angeles' }) },
   });
   const page = (db: ReturnType<typeof makeDb>, share: Record<string, unknown>, take = 25, offset = 0) =>
     sharedComponentRidesPage(
@@ -313,35 +339,62 @@ describe('sharedComponentRidesPage', () => {
       { take, offset }
     );
 
-  it('is null for a link the owner did not opt in, without reading any rides', async () => {
+  // Covers a link toggled off after it was sent too: the flag is all it reads.
+  it('is null for a link without the opt-in, without reading any rides', async () => {
     const db = makeDb();
     expect(await page(db, { includeRides: false })).toBeNull();
     expect(db.ride.findMany).not.toHaveBeenCalled();
   });
 
-  // The page is public, so each row is an allowlist: no ids, notes, heart rate
-  // or weather, and the provider ids are read only to attribute the row.
-  it('lists only allowlisted fields, with each ride attributed', async () => {
+  // The page is public, so each row is an allowlist: no ids, notes, heart rate,
+  // weather or time of day. Provider ids are read only to attribute the row.
+  it('lists only allowlisted fields, dated by day, with each ride attributed', async () => {
     const db = makeDb();
     const result = await page(db, { includeRides: true });
 
     expect(result?.rides).toEqual([
       {
-        startTime: '2026-08-10T10:00:00.000Z', durationSeconds: 7200, distanceMeters: 20000, elevationGainMeters: 900,
+        date: '2026-08-10', durationSeconds: 7200, distanceMeters: 20000, elevationGainMeters: 900,
         trailSystem: 'Duthie Hill', location: 'Issaquah, WA',
         // Recorded on a Garmin and imported via Strava: both are attributed.
         sources: ['strava', 'garmin'], garminAttribution: 'Garmin Edge 840',
       },
       {
-        startTime: '2026-08-09T10:00:00.000Z', durationSeconds: 3600, distanceMeters: 10000, elevationGainMeters: 400,
+        date: '2026-08-09', durationSeconds: 3600, distanceMeters: 10000, elevationGainMeters: 400,
         trailSystem: null, location: null, sources: [], garminAttribution: null,
       },
     ]);
     const select = db.ride.findMany.mock.calls[0][0].select;
-    for (const field of ['id', 'notes', 'averageHr', 'weather', 'bikeId', 'userId']) {
+    for (const field of ['id', 'notes', 'averageHr', 'weather', 'bikeId', 'userId', 'startLat']) {
       expect(select).not.toHaveProperty(field);
     }
-    expect(JSON.stringify(result)).not.toContain('s-1');
+    const json = JSON.stringify(result);
+    expect(json).not.toContain('s-1');
+    expect(json).not.toContain('T01:30');
+    expect(json).not.toContain('-122');
+  });
+
+  it("reads the owner's timezone only when a ride has no GPS start", async () => {
+    const db = makeDb([rows[0]]);
+    await page(db, { includeRides: true });
+    expect(db.user.findUnique).not.toHaveBeenCalled();
+
+    const fallback = makeDb([rows[1]]);
+    await page(fallback, { includeRides: true });
+    expect(fallback.user.findUnique).toHaveBeenCalledWith({ where: { id: 'user-1' }, select: { timezone: true } });
+  });
+
+  it('keeps a range link to its fixed window', async () => {
+    const db = makeDb();
+    await page(db, {
+      includeRides: true,
+      scope: 'RANGE',
+      rangeStart: d('2026-07-01T07:00:00Z'),
+      rangeEnd: d('2026-08-15T07:00:00Z'),
+    });
+    expect(db.ride.findMany.mock.calls[0][0].where).toMatchObject({
+      startTime: { gte: d('2026-07-01T07:00:00Z'), lt: d('2026-08-15T07:00:00Z') },
+    });
   });
 
   it('follows the counted-ride rule and the link window, newest first', async () => {
@@ -358,15 +411,38 @@ describe('sharedComponentRidesPage', () => {
     expect(args.orderBy).toEqual([{ startTime: 'desc' }, { id: 'desc' }]);
   });
 
-  it('pages by offset, reading one extra row to answer hasMore, and caps take', async () => {
+  it('pages by offset, reading one extra row to answer hasMore', async () => {
     const db = makeDb();
     const result = await page(db, { includeRides: true }, 1, 5);
 
     expect(db.ride.findMany.mock.calls[0][0]).toMatchObject({ skip: 5, take: 2 });
     expect(result?.rides).toHaveLength(1);
     expect(result?.hasMore).toBe(true);
+  });
 
+  it('clamps take and offset to sane bounds', async () => {
+    const db = makeDb();
     await page(db, { includeRides: true }, 5000, -3);
-    expect(db.ride.findMany.mock.calls[1][0]).toMatchObject({ skip: 0, take: 101 });
+    await page(db, { includeRides: true }, 0, 0);
+    await page(db, { includeRides: true }, -10, 0);
+
+    expect(db.ride.findMany.mock.calls.map(([args]) => [args.skip, args.take])).toEqual([
+      [0, 101],
+      [0, 2],
+      [0, 2],
+    ]);
+  });
+
+  // Postgres reads every skipped row, and this endpoint is public.
+  it('stops paging at the depth cap rather than scanning further', async () => {
+    const db = makeDb();
+    expect(await page(db, { includeRides: true }, 25, RIDE_OFFSET_MAX)).toEqual({ rides: [], hasMore: false });
+    expect(db.ride.findMany).not.toHaveBeenCalled();
+
+    // The last page before the cap is trimmed to it, and says there is no more.
+    const last = await page(db, { includeRides: true }, 25, RIDE_OFFSET_MAX - 1);
+    expect(db.ride.findMany.mock.calls[0][0]).toMatchObject({ skip: RIDE_OFFSET_MAX - 1, take: 2 });
+    expect(last?.rides).toHaveLength(1);
+    expect(last?.hasMore).toBe(false);
   });
 });

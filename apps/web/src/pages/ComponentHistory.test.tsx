@@ -422,6 +422,23 @@ describe('ComponentHistory', () => {
     expect(mockFetchMore).toHaveBeenCalledWith(expect.objectContaining({ variables: { offset: 2 } }));
   });
 
+  // A ride synced between pages shifts the offset window, so the next page
+  // can repeat a row; the merge drops it rather than listing a ride twice.
+  it('merges a new page without repeating a ride already listed', async () => {
+    setRides(RIDES, true);
+    mockFetchMore.mockResolvedValue({});
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Show more rides' }));
+
+    const { updateQuery } = mockFetchMore.mock.calls[0][0];
+    const prev = { componentHistoryRides: { rides: RIDES, hasMore: true } };
+    const next = { componentHistoryRides: { rides: [RIDES[1], { ...RIDES[1], id: 'r0' }], hasMore: false } };
+    const merged = updateQuery(prev, { fetchMoreResult: next });
+
+    expect(merged.componentHistoryRides.rides.map((r: { id: string }) => r.id)).toEqual(['r2', 'r1', 'r0']);
+    expect(merged.componentHistoryRides.hasMore).toBe(false);
+  });
+
   it('says so when there are no rides yet', () => {
     setRides([]);
     renderPage();

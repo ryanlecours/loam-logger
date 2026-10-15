@@ -1538,13 +1538,13 @@ export type SharedComponentLogEntry = {
 
 export type SharedComponentRide = {
   __typename?: 'SharedComponentRide';
+  date: Scalars['String']['output'];
   distanceMeters: Scalars['Float']['output'];
   durationSeconds: Scalars['Int']['output'];
   elevationGainMeters: Scalars['Float']['output'];
   garminAttribution?: Maybe<Scalars['String']['output']>;
   location?: Maybe<Scalars['String']['output']>;
   sources: Array<Scalars['String']['output']>;
-  startTime: Scalars['String']['output'];
   trailSystem?: Maybe<Scalars['String']['output']>;
 };
 

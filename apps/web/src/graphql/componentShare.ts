@@ -111,7 +111,7 @@ export const SHARED_COMPONENT_RIDES = gql`
     sharedComponentRides(slug: $slug, take: $take, offset: $offset) {
       hasMore
       rides {
-        startTime
+        date
         durationSeconds
         distanceMeters
         elevationGainMeters

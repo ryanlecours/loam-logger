@@ -65,12 +65,12 @@ const PAYLOAD = {
 
 const RIDES = [
   {
-    startTime: '2026-10-06T16:00:00.000Z', durationSeconds: 5400, distanceMeters: 16093, elevationGainMeters: 610,
+    date: '2026-10-06', durationSeconds: 5400, distanceMeters: 16093, elevationGainMeters: 610,
     trailSystem: 'Galbraith', location: 'Bellingham, WA', sources: ['strava', 'garmin'],
     garminAttribution: 'Garmin Edge 840',
   },
   {
-    startTime: '2026-10-01T16:00:00.000Z', durationSeconds: 3000, distanceMeters: 8047, elevationGainMeters: 300,
+    date: '2026-10-01', durationSeconds: 3000, distanceMeters: 8047, elevationGainMeters: 300,
     trailSystem: null, location: null, sources: [], garminAttribution: null,
   },
 ];
@@ -169,6 +169,17 @@ describe('SharedComponentHistory', () => {
     expect(within(list).getByText('Garmin Edge 840')).toBeInTheDocument();
     expect(within(list).getByText('1h 30m')).toBeInTheDocument();
     expect(within(list).getByText('Ride')).toBeInTheDocument();
+  });
+
+  // The API sends a bare calendar day, never a time. Formatting it as an
+  // instant would show the day before to every viewer west of UTC.
+  it('shows the day a ride was ridden as sent, whatever the viewer timezone', () => {
+    renderPage({ ...PAYLOAD, includeRides: true });
+    const list = screen.getByRole('heading', { name: 'Rides' }).closest('section')!;
+    const expected = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeZone: 'UTC' }).format(
+      new Date('2026-10-06T00:00:00Z')
+    );
+    expect(within(list).getByText(new RegExp(`^${expected}`))).toBeInTheDocument();
   });
 
   it('pages the rides cookieless, like the page itself, and on from where the list ends', () => {

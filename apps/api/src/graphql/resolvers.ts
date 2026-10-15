@@ -6985,15 +6985,16 @@ export const resolvers = {
           extensions: { code: 'RATE_LIMITED', retryAfter: rateLimit.retryAfter },
         });
       }
-      // Owner-scoped, so someone else's link reads as missing.
-      const { count } = await prisma.componentShare.updateMany({
-        where: { id, userId },
-        data: { includeRides },
-      });
-      if (count === 0) {
-        throw new GraphQLError('Share link not found', { extensions: { code: 'NOT_FOUND' } });
+      // Owner-scoped, so someone else's link reads as missing. One statement,
+      // so a link revoked mid-request is NOT_FOUND too, never a server error.
+      try {
+        return await prisma.componentShare.update({ where: { id, userId }, data: { includeRides } });
+      } catch (e) {
+        if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2025') {
+          throw new GraphQLError('Share link not found', { extensions: { code: 'NOT_FOUND' } });
+        }
+        throw e;
       }
-      return prisma.componentShare.findUniqueOrThrow({ where: { id } });
     },
 
     // Enable public sharing of a bike's history. Available to all tiers —

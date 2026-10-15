@@ -1721,7 +1721,10 @@ export const typeDefs = gql`
 
   # One ride on an opted-in share link. No id, notes, heart rate or weather.
   type SharedComponentRide {
-    startTime: String!
+    # The calendar day it was ridden, YYYY-MM-DD, local to where it was ridden.
+    # Never the time of day: a public list of start times says when the rider
+    # is away from home.
+    date: String!
     durationSeconds: Int!
     distanceMeters: Float!
     elevationGainMeters: Float!

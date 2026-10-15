@@ -37,7 +37,8 @@ import {
 // Per-ride rows are opt-in per link (ComponentShare.includeRides), because a
 // dated list of trails says where the rider was and when. An opted-in link
 // lists each ride's date, trail, location, duration, distance and climb, plus
-// the providers that recorded it; still no ids, notes, heart rate or weather.
+// the providers that recorded it; still no ids, notes, heart rate, weather or
+// start time (the date only, see rideLocalDate).
 
 /** Links per component. A share is a click; this only bounds link sprawl. */
 export const MAX_SHARES_PER_COMPONENT = 20;
@@ -281,6 +282,40 @@ export async function buildSharedComponentHistory(
   };
 }
 
+const MS_PER_HOUR = 60 * 60 * 1000;
+
+/**
+ * The calendar day a ride started on, where it was ridden, as YYYY-MM-DD. The
+ * share page shows each ride's date and never its time, because a public list
+ * of start times says when the rider is away from home.
+ *
+ * Rides carry no timezone, so the day comes from, in order: the ride's start
+ * longitude (solar time, within an hour or two of local clock time, so only a
+ * ride started close to midnight can land on a neighbouring day), the owner's
+ * timezone when the app has reported one, or UTC.
+ */
+export function rideLocalDate(startTime: Date, startLng: number | null, ownerTimeZone: string | null): string {
+  if (startLng != null && Number.isFinite(startLng)) {
+    const solar = new Date(startTime.getTime() + Math.round(startLng / 15) * MS_PER_HOUR);
+    return solar.toISOString().slice(0, 10);
+  }
+  if (ownerTimeZone) {
+    try {
+      const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: ownerTimeZone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).formatToParts(startTime);
+      const part = (type: string) => parts.find((p) => p.type === type)?.value;
+      return `${part('year')}-${part('month')}-${part('day')}`;
+    } catch {
+      // An unrecognised zone name falls through to UTC.
+    }
+  }
+  return startTime.toISOString().slice(0, 10);
+}
+
 /**
  * One page of an opted-in link's rides, newest first, from the same counted-ride
  * rule and window as its totals. Null when the owner did not opt the link in,
@@ -293,17 +328,20 @@ export async function sharedComponentRidesPage(
 ) {
   if (!share.includeRides) return null;
 
+  const userId = share.component.userId;
   const basis = await loadCountedRideBasis(db, share.component);
   const { rides, hasMore } = await pageCountedRides(db, {
-    userId: share.component.userId,
+    userId,
     basis,
     range: shareWindow(share, basis.latestServiceAt),
     take: page.take,
     offset: page.offset,
     // The allowlist. Provider ids and device names are read only to derive the
-    // attribution below; none of them is returned.
+    // attribution below, and startTime and startLng only to derive the date;
+    // none of them is returned.
     select: {
       startTime: true,
+      startLng: true,
       durationSeconds: true,
       distanceMeters: true,
       elevationGainMeters: true,
@@ -318,9 +356,14 @@ export async function sharedComponentRidesPage(
     },
   });
 
+  // Only needed for rides with no GPS start, so it is only read for those.
+  const ownerTimeZone = rides.some((r) => r.startLng == null)
+    ? (await db.user.findUnique({ where: { id: userId }, select: { timezone: true } }))?.timezone ?? null
+    : null;
+
   return {
     rides: rides.map((r) => ({
-      startTime: r.startTime.toISOString(),
+      date: rideLocalDate(r.startTime, r.startLng, ownerTimeZone),
       durationSeconds: r.durationSeconds,
       distanceMeters: r.distanceMeters,
       elevationGainMeters: r.elevationGainMeters,

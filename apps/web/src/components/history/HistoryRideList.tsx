@@ -2,11 +2,12 @@ import type { ReactNode } from 'react';
 
 import { Button } from '@/components/ui/Button';
 import { fmtDistance, fmtDuration, fmtElevation } from '@/lib/format';
-import { fmtDay } from '@/lib/componentShare';
 
 export type HistoryRide = {
   key: string;
-  startTime: string;
+  /** The ride's date, already formatted: the owner's page and the share page
+   *  start from different values (an instant, and a bare calendar day). */
+  dateLabel: string;
   durationSeconds: number;
   distanceMeters: number;
   elevationGainMeters: number;
@@ -57,7 +58,7 @@ export function HistoryRideList({
                   {r.badges}
                 </div>
                 <div className="text-xs text-muted truncate">
-                  {[fmtDay(r.startTime), where, r.note].filter(Boolean).join(' · ')}
+                  {[r.dateLabel, where, r.note].filter(Boolean).join(' · ')}
                 </div>
               </div>
               <div className="text-right shrink-0">

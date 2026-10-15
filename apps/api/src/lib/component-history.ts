@@ -540,6 +540,13 @@ export async function cumulativeSeries(
 /** Largest page of ride rows a caller may ask for. */
 export const RIDE_PAGE_MAX = 100;
 
+/**
+ * How deep offset paging may go. Postgres reads and discards every skipped
+ * row, and the share page is public, so the depth is bounded; 10,000 rides is
+ * far past any one part's life, and paging simply ends there.
+ */
+export const RIDE_OFFSET_MAX = 10_000;
+
 export interface CountedRideBasis {
   tenures: NormalizedTenure[];
   includedRideIds: string[];
@@ -620,10 +627,11 @@ export async function pageCountedRides(
     excludedRideIds: basis.excludedRideIds,
     range,
   });
-  if (!where) return { rides: [], hasMore: false };
-
-  const limit = Math.min(RIDE_PAGE_MAX, Math.max(1, Math.floor(params.take) || 1));
   const offset = Math.max(0, Math.floor(params.offset) || 0);
+  if (!where || offset >= RIDE_OFFSET_MAX) return { rides: [], hasMore: false };
+
+  // The page never reaches past the depth cap.
+  const limit = Math.min(RIDE_PAGE_MAX, Math.max(1, Math.floor(params.take) || 1), RIDE_OFFSET_MAX - offset);
   const rows: unknown[] = await (db as TransactionClient).ride.findMany({
     where,
     ...(select ? { select } : {}),
@@ -633,8 +641,8 @@ export async function pageCountedRides(
     take: limit + 1,
   });
 
-  const hasMore = rows.length > limit;
-  return { rides: hasMore ? rows.slice(0, limit) : rows, hasMore };
+  const hasMore = rows.length > limit && offset + limit < RIDE_OFFSET_MAX;
+  return { rides: rows.slice(0, limit), hasMore };
 }
 
 // ---------------------------------------------------------------------------

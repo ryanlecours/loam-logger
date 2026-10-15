@@ -5,7 +5,7 @@ import { Bike as BikeIcon, Eye, Wrench } from 'lucide-react';
 
 import { SHARED_COMPONENT_HISTORY, SHARED_COMPONENT_RIDES } from '@/graphql/componentShare';
 import { fmtDateTime, fmtDistance, fmtDuration, fmtElevation } from '@/lib/format';
-import { fmtDay, rangeLabel, type ComponentShareScope } from '@/lib/componentShare';
+import { fmtCalendarDay, fmtDay, rangeLabel, type ComponentShareScope } from '@/lib/componentShare';
 import { getComponentLabel } from '@/constants/componentLabels';
 import { PUBLIC_QUERY_CONTEXT } from '@/lib/publicQuery';
 import { SOURCE_LABELS, type RideSource } from '@/utils/rideSource';
@@ -49,7 +49,8 @@ type SharedPayload = {
 };
 
 type SharedRide = {
-  startTime: string;
+  /** YYYY-MM-DD, local to where it was ridden. The time is never shared. */
+  date: string;
   durationSeconds: number;
   distanceMeters: number;
   elevationGainMeters: number;
@@ -292,8 +293,9 @@ export default function SharedComponentHistory() {
                   rides={rides.map((r, i) => ({
                     ...r,
                     // No ids on this page; the list is append-only, so the
-                    // position plus the start time is a stable key.
-                    key: `${r.startTime}-${i}`,
+                    // position plus the date is a stable key.
+                    key: `${r.date}-${i}`,
+                    dateLabel: fmtCalendarDay(r.date),
                     badges: <SharedRideBadges ride={r} />,
                   }))}
                   distanceUnit="mi"

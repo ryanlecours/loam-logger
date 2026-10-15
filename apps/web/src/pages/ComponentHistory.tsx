@@ -15,6 +15,7 @@ import { ArrowLeft, Bike as BikeIcon, Eye, TriangleAlert, Wrench } from 'lucide-
 
 import { COMPONENT_HISTORY, COMPONENT_HISTORY_RIDES } from '@/graphql/componentHistory';
 import { fmtDateTime, fmtDistance, fmtDuration, fmtElevation } from '@/lib/format';
+import { fmtDay } from '@/lib/componentShare';
 import { usePreferences } from '@/hooks/usePreferences';
 import { useUserTier } from '@/hooks/useUserTier';
 import { getComponentLabel } from '@/constants/componentLabels';
@@ -201,18 +202,21 @@ export default function ComponentHistory() {
     try {
       await ridesQuery.fetchMore({
         variables: { offset: rides.length },
-        updateQuery: (prev, { fetchMoreResult }) =>
-          fetchMoreResult
-            ? {
-                componentHistoryRides: {
-                  ...fetchMoreResult.componentHistoryRides,
-                  rides: [
-                    ...prev.componentHistoryRides.rides,
-                    ...fetchMoreResult.componentHistoryRides.rides,
-                  ],
-                },
-              }
-            : prev,
+        updateQuery: (prev, { fetchMoreResult }) => {
+          if (!fetchMoreResult) return prev;
+          // Offset paging: a ride synced since the last page shifts every row
+          // down one, so the next page can repeat a row already listed.
+          const seen = new Set(prev.componentHistoryRides.rides.map((r) => r.id));
+          return {
+            componentHistoryRides: {
+              ...fetchMoreResult.componentHistoryRides,
+              rides: [
+                ...prev.componentHistoryRides.rides,
+                ...fetchMoreResult.componentHistoryRides.rides.filter((r) => !seen.has(r.id)),
+              ],
+            },
+          };
+        },
       });
     } finally {
       setLoadingMoreRides(false);
@@ -586,6 +590,7 @@ export default function ComponentHistory() {
                 rides={rides.map((r) => ({
                   ...r,
                   key: r.id,
+                  dateLabel: fmtDay(r.startTime),
                   note: rideBikeLabel(r.bikeId),
                   badges: <RideSourceBadges ride={r} />,
                 }))}
