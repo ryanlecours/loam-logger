@@ -1,11 +1,8 @@
 import express, { type Request } from 'express';
-import { prisma } from '../lib/prisma';
 import { clearSessionCookie, type SessionUser } from './session';
 import { sendBadRequest, sendUnauthorized, sendInternalError, sendError } from '../lib/api-response';
 import { logError } from '../lib/logger';
-import { revokeStravaTokenForUser } from '../lib/strava-token';
-import { revokeGarminTokenForUser } from '../lib/garmin-token';
-import { cancelStripeBillingForAccountDeletion } from '../services/stripe.service';
+import { deleteUserAccount, BillingCancellationError } from '../services/account-deletion.service';
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
@@ -32,91 +29,7 @@ router.delete('/delete-account', async (req: Request, res) => {
       return sendUnauthorized(res, 'No active session');
     }
 
-    const userId = sessionUser.uid;
-
-    console.log(`[DeleteAccount] Deleting account and data for user: ${userId}`);
-
-    // 0. Stop Stripe billing BEFORE deleting anything.
-    // Unlike the OAuth revocations in step 4, a failure here blocks deletion:
-    // once the user row is gone the rider has no account to cancel from and we
-    // lose the link to their Stripe customer, so they would keep being charged.
-    // Running first means a failure leaves the account fully intact and the
-    // rider can simply retry. Store-managed (App Store / Google Play)
-    // subscriptions cannot be cancelled server-side and are left alone.
-    try {
-      await cancelStripeBillingForAccountDeletion(userId);
-    } catch (stripeError) {
-      logError('DeleteAccount:Stripe', stripeError);
-      return sendError(
-        res,
-        503,
-        "We couldn't cancel your Loam Logger Pro subscription, so your account has not been deleted. Please try again in a few minutes.",
-        'BILLING_CANCELLATION_FAILED'
-      );
-    }
-
-    // Delete all user data in the correct order based on foreign key relationships
-    // This will cascade delete based on the Prisma schema definitions
-
-    // 1. Delete rides (these have bikeId references)
-    await prisma.ride.deleteMany({
-      where: { userId },
-    });
-    console.log(`[DeleteAccount] Deleted rides for user: ${userId}`);
-
-    // 2. Delete components (these reference userId with onDelete: Cascade, but do it explicitly)
-    await prisma.component.deleteMany({
-      where: { userId },
-    });
-    console.log(`[DeleteAccount] Deleted components for user: ${userId}`);
-
-    // 3. Delete bikes
-    await prisma.bike.deleteMany({
-      where: { userId },
-    });
-    console.log(`[DeleteAccount] Deleted bikes for user: ${userId}`);
-
-    // 4. Revoke OAuth tokens with providers BEFORE deleting locally
-    // This ensures tokens are invalidated on Strava/Garmin servers
-    // Note: We proceed with deletion even if revocation fails (GDPR compliance)
-    console.log(`[DeleteAccount] Revoking OAuth tokens for user: ${userId}`);
-    const [stravaRevoked, garminRevoked] = await Promise.all([
-      revokeStravaTokenForUser(userId),
-      revokeGarminTokenForUser(userId),
-    ]);
-
-    // Log warnings for failed revocations - tokens will still be deleted locally
-    // but may remain valid on provider side until they expire
-    if (!stravaRevoked) {
-      console.warn(`[DeleteAccount] WARNING: Strava token revocation failed for user ${userId}. Token may remain valid on Strava until it expires.`);
-    }
-    if (!garminRevoked) {
-      console.warn(`[DeleteAccount] WARNING: Garmin token revocation failed for user ${userId}. Token may remain valid on Garmin until it expires.`);
-    }
-    console.log(`[DeleteAccount] Token revocation complete - Strava: ${stravaRevoked}, Garmin: ${garminRevoked}`);
-
-    // 5. Delete OAuth tokens from database.
-    // UserIntegration holds the encrypted provider credentials and would be
-    // removed by the cascade on step 7 anyway, but credential-bearing rows are
-    // deleted explicitly here so the teardown does not depend on a schema
-    // detail — same reasoning as step 6.
-    await prisma.$transaction([
-      prisma.oauthToken.deleteMany({ where: { userId } }),
-      prisma.userIntegration.deleteMany({ where: { userId } }),
-    ]);
-    console.log(`[DeleteAccount] Deleted OAuth tokens for user: ${userId}`);
-
-    // 6. Delete user accounts (these reference userId with onDelete: Cascade, but do it explicitly)
-    await prisma.userAccount.deleteMany({
-      where: { userId },
-    });
-    console.log(`[DeleteAccount] Deleted user accounts for user: ${userId}`);
-
-    // 7. Finally, delete the user
-    const deletedUser = await prisma.user.delete({
-      where: { id: userId },
-    });
-    console.log(`[DeleteAccount] Successfully deleted user: ${deletedUser.email}`);
+    await deleteUserAccount(sessionUser.uid);
 
     // Clear the session cookie
     clearSessionCookie(res);
@@ -126,6 +39,16 @@ router.delete('/delete-account', async (req: Request, res) => {
       message: 'Account successfully deleted'
     });
   } catch (error) {
+    if (error instanceof BillingCancellationError) {
+      logError('DeleteAccount:Stripe', error.cause);
+      return sendError(
+        res,
+        503,
+        "We couldn't cancel your Loam Logger Pro subscription, so your account has not been deleted. Please try again in a few minutes.",
+        'BILLING_CANCELLATION_FAILED'
+      );
+    }
+
     const errorMessage = error instanceof Error ? error.message : String(error);
     logError('DeleteAccount', error);
 
