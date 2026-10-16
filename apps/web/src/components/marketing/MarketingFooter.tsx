@@ -69,6 +69,14 @@ export default function MarketingFooter() {
                   Privacy Policy
                 </Link>
               </li>
+              <li>
+                <Link
+                  to="/delete-account"
+                  className="text-sm text-concrete hover:text-mint transition"
+                >
+                  Delete Your Account
+                </Link>
+              </li>
             </ul>
           </div>
         </div>

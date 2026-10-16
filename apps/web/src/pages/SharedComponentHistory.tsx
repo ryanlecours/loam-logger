@@ -1,14 +1,16 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router';
 import { useQuery } from '@apollo/client';
 import { Bike as BikeIcon, Eye, Wrench } from 'lucide-react';
 
-import { SHARED_COMPONENT_HISTORY } from '@/graphql/componentShare';
+import { SHARED_COMPONENT_HISTORY, SHARED_COMPONENT_RIDES } from '@/graphql/componentShare';
 import { fmtDateTime, fmtDistance, fmtDuration, fmtElevation } from '@/lib/format';
-import { fmtDay, rangeLabel, type ComponentShareScope } from '@/lib/componentShare';
+import { fmtCalendarDay, fmtDay, rangeLabel, type ComponentShareScope } from '@/lib/componentShare';
 import { getComponentLabel } from '@/constants/componentLabels';
 import { PUBLIC_QUERY_CONTEXT } from '@/lib/publicQuery';
+import { SOURCE_LABELS, type RideSource } from '@/utils/rideSource';
 import { WearChart } from '@/components/history/WearChart';
+import { HistoryRideList } from '@/components/history/HistoryRideList';
 import {
   GarminDerivedNote,
   GarminTrademarkNotice,
@@ -29,6 +31,7 @@ type SharedPayload = {
   windowEnd: string | null;
   totals: Totals & { elevationGainMeters: number };
   declaredPriorHours: number;
+  includeRides: boolean;
   bikes: Array<{
     bike: { manufacturer: string; model: string; year?: number | null; thumbnailUrl?: string | null } | null;
     installedAt: string;
@@ -44,6 +47,46 @@ type SharedPayload = {
   cumulative: Array<{ date: string; cumulativeHours: number }>;
   contributingSources: string[];
 };
+
+type SharedRide = {
+  /** YYYY-MM-DD, local to where it was ridden. The time is never shared. */
+  date: string;
+  durationSeconds: number;
+  distanceMeters: number;
+  elevationGainMeters: number;
+  trailSystem?: string | null;
+  location?: string | null;
+  sources: string[];
+  garminAttribution?: string | null;
+};
+
+type SharedRidesPayload = { sharedComponentRides: { rides: SharedRide[]; hasMore: boolean } | null };
+
+const RIDE_PAGE = 25;
+
+/**
+ * Per-ride source badges from the public payload, which carries the providers
+ * rather than their ids. Same classes as RideSourceBadges, Garmin's label
+ * included, because the attribution travels with the data onto this page too.
+ */
+function SharedRideBadges({ ride }: { ride: SharedRide }) {
+  return (
+    <>
+      {ride.sources.map((source) => (
+        <span
+          key={source}
+          className={`source-badge source-badge-${source}${
+            source === 'garmin' ? ' source-badge-garmin-attribution' : ''
+          }`}
+        >
+          {source === 'garmin'
+            ? ride.garminAttribution || 'Garmin'
+            : SOURCE_LABELS[source as RideSource] ?? source}
+        </span>
+      ))}
+    </>
+  );
+}
 
 function componentTitle(c: SharedPayload['component']): string {
   const label = getComponentLabel(c.type);
@@ -88,6 +131,36 @@ export default function SharedComponentHistory() {
     () => (payload?.logbook ?? []).filter((l) => l.kind === 'SERVICE').map((l) => l.performedAt),
     [payload?.logbook]
   );
+
+  // Only an opted-in link has rides to page, so ask only once the page says so.
+  const [loadingMoreRides, setLoadingMoreRides] = useState(false);
+  const ridesQuery = useQuery<SharedRidesPayload>(SHARED_COMPONENT_RIDES, {
+    variables: { slug, take: RIDE_PAGE, offset: 0 },
+    skip: !slug || !payload?.includeRides,
+    fetchPolicy: 'cache-first',
+    // Cookieless like the page's own query, or a signed-in viewer on a fresh
+    // tab trips the CSRF check (see PUBLIC_QUERY_CONTEXT).
+    context: PUBLIC_QUERY_CONTEXT,
+  });
+  const ridePage = ridesQuery.data?.sharedComponentRides ?? null;
+  const rides = ridePage?.rides ?? [];
+  const loadMoreRides = async () => {
+    setLoadingMoreRides(true);
+    try {
+      await ridesQuery.fetchMore({
+        variables: { offset: rides.length },
+        updateQuery: (prev, { fetchMoreResult }) => {
+          const next = fetchMoreResult?.sharedComponentRides;
+          if (!next || !prev.sharedComponentRides) return prev;
+          return {
+            sharedComponentRides: { ...next, rides: [...prev.sharedComponentRides.rides, ...next.rides] },
+          };
+        },
+      });
+    } finally {
+      setLoadingMoreRides(false);
+    }
+  };
 
   if (loading && !payload) {
     return <div className="min-h-screen flex items-center justify-center text-muted">Loading history…</div>;
@@ -205,6 +278,35 @@ export default function SharedComponentHistory() {
             </ul>
           )}
         </section>
+
+        {payload.includeRides && (
+          <section className="space-y-2">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">Rides</h2>
+            <p className="text-xs text-muted">Every ride counted in this window, newest first.</p>
+            {ridesQuery.loading && rides.length === 0 ? (
+              <p className="text-sm text-muted">Loading rides…</p>
+            ) : rides.length === 0 ? (
+              <p className="text-sm text-muted">No rides in this window.</p>
+            ) : (
+              <div className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-1">
+                <HistoryRideList
+                  rides={rides.map((r, i) => ({
+                    ...r,
+                    // No ids on this page; the list is append-only, so the
+                    // position plus the date is a stable key.
+                    key: `${r.date}-${i}`,
+                    dateLabel: fmtCalendarDay(r.date),
+                    badges: <SharedRideBadges ride={r} />,
+                  }))}
+                  distanceUnit="mi"
+                  hasMore={ridePage?.hasMore ?? false}
+                  loadingMore={loadingMoreRides}
+                  onLoadMore={loadMoreRides}
+                />
+              </div>
+            )}
+          </section>
+        )}
 
         <footer className="border-t border-white/10 pt-4 text-center space-y-2">
           <p className="text-xs text-muted">

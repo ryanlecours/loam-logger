@@ -6,6 +6,7 @@ import cookieParser from 'cookie-parser';
 import pinoHttp from 'pino-http';
 import { ApolloServer } from '@apollo/server';
 import { sentryApolloPlugin } from './lib/sentry-apollo-plugin';
+import { deprecatedFieldUsagePlugin } from './lib/deprecated-field-usage-plugin';
 import { expressMiddleware, type ExpressContextFunctionArgument } from '@as-integrations/express4';
 import { typeDefs } from './graphql/schema';
 import { resolvers } from './graphql/resolvers';
@@ -57,7 +58,7 @@ import adminRouter from './routes/admin';
 import adminLiftRouter from './routes/admin.lift';
 import spokesRouter from './routes/spokes';
 import emailUnsubscribeRouter from './routes/email.unsubscribe';
-import { googleRouter, emailRouter, deleteAccountRouter, passwordRouter, sessionMiddleware, verifyCsrf } from './auth/index';
+import { googleRouter, emailRouter, deleteAccountRouter, deleteAccountEmailRouter, passwordRouter, sessionMiddleware, verifyCsrf } from './auth/index';
 import webhooksStripe from './routes/webhooks.stripe';
 import webhooksRevenueCat from './routes/webhooks.revenuecat';
 import { validateStripeConfig } from './lib/stripe';
@@ -215,7 +216,7 @@ const startServer = async () => {
     resolvers,
     // Turn resolver-thrown errors into first-class Sentry events with the
     // operation name + variables + query, instead of generic Express noise.
-    plugins: [sentryApolloPlugin()],
+    plugins: [sentryApolloPlugin(), deprecatedFieldUsagePlugin()],
   });
   await server.start();
 
@@ -248,6 +249,7 @@ const startServer = async () => {
   app.use('/auth', googleRouter);
   app.use('/auth', emailRouter);
   app.use('/auth', deleteAccountRouter);
+  app.use('/auth', deleteAccountEmailRouter);
   app.use('/auth', passwordRouter);
   app.use('/auth', mobileAuthRouter);
   app.use('/auth', authGarmin);

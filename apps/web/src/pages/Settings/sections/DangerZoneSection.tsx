@@ -16,8 +16,10 @@ export default function DangerZoneSection() {
       });
 
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || 'Failed to delete account');
+        // API errors are { error, code }; e.g. a 503 BILLING_CANCELLATION_FAILED
+        // explains that the subscription could not be cancelled.
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.error || body?.message || 'Failed to delete account');
       }
 
       setOpen(false);

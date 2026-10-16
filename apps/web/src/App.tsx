@@ -46,6 +46,8 @@ import Pricing from './pages/Pricing';
 import Disclaimer from './pages/Disclaimer';
 import About from './pages/About';
 import Support from './pages/Support';
+import DeleteAccount from './pages/DeleteAccount';
+import DeleteAccountConfirm from './pages/DeleteAccountConfirm';
 
 function Page({ children, className }: { children: React.ReactNode; className?: string }) {
   const reduce = useReducedMotion();
@@ -91,6 +93,8 @@ function AppRoutes() {
           <Route path="/disclaimer" element={<Page><Disclaimer /></Page>} />
           <Route path="/about" element={<Page><About /></Page>} />
           <Route path="/support" element={<Page><Support /></Page>} />
+          <Route path="/delete-account" element={<Page><DeleteAccount /></Page>} />
+          <Route path="/delete-account/confirm" element={<Page><DeleteAccountConfirm /></Page>} />
           <Route path="/login" element={<Page><Login /></Page>} />
           <Route path="/signup" element={<Page><Signup /></Page>} />
           <Route path="/change-password" element={<Page><ChangePassword /></Page>} />

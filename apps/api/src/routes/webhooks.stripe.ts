@@ -4,6 +4,7 @@ import { prisma } from '../lib/prisma';
 import { logger } from '../lib/logger';
 import { sendEmailWithAudit } from '../services/email.service';
 import { upgradeUser, downgradeUser } from '../services/subscription.service';
+import { ACCOUNT_DELETION_CANCELLATION_COMMENT } from '../services/stripe.service';
 import { getPaymentFailedEmailHtml, getPaymentFailedEmailSubject, PAYMENT_FAILED_TEMPLATE_VERSION } from '../templates/emails/payment-failed';
 import { captureServerEvent } from '../lib/posthog';
 import type Stripe from 'stripe';
@@ -25,6 +26,16 @@ async function resolveUserId(metadata: Stripe.Metadata | undefined | null, custo
   });
 
   return user?.id ?? null;
+}
+
+/**
+ * True when the subscription was cancelled by our own account deletion flow.
+ * Those events can land while the user is mid-deletion or already gone, so
+ * they must not downgrade, send a downgrade email, or emit analytics for a
+ * rider who just asked to be erased.
+ */
+function isAccountDeletionCancellation(subscription: Stripe.Subscription): boolean {
+  return subscription.cancellation_details?.comment === ACCOUNT_DELETION_CANCELLATION_COMMENT;
 }
 
 const router = Router();
@@ -108,6 +119,11 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
 }
 
 async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
+  if (isAccountDeletionCancellation(subscription)) {
+    logger.info({ subscriptionId: subscription.id }, 'Subscription update: cancelled by account deletion, skipping');
+    return;
+  }
+
   const userId = await resolveUserId(subscription.metadata, subscription.customer);
   if (!userId) {
     logger.warn({ subscriptionId: subscription.id }, 'Subscription update: could not resolve userId');
@@ -141,13 +157,27 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
 }
 
 async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
+  if (isAccountDeletionCancellation(subscription)) {
+    logger.info({ subscriptionId: subscription.id }, 'Subscription deletion: cancelled by account deletion, skipping');
+    return;
+  }
+
   const userId = await resolveUserId(subscription.metadata, subscription.customer);
   if (!userId) {
     logger.warn({ subscriptionId: subscription.id }, 'Subscription deletion: could not resolve userId');
     return;
   }
 
+  // downgradeUser already no-ops for a missing user.
   await downgradeUser(userId, 'stripe_webhook');
+
+  // metadata.userId outlives the user row, so confirm the rider still exists
+  // before tracking: a deleted account must not reappear in analytics.
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
+  if (!user) {
+    logger.info({ userId, subscriptionId: subscription.id }, 'Subscription deletion: user no longer exists, skipping analytics');
+    return;
+  }
 
   captureServerEvent(userId, 'subscription_canceled', {
     source: 'stripe',

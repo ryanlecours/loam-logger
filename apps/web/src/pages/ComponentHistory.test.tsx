@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import ComponentHistory from './ComponentHistory';
 
@@ -180,13 +180,44 @@ const BASE = {
   ],
 };
 
+// Newest first, as the API pages them: one on each bike the fork has lived on.
+const RIDES = [
+  {
+    id: 'r2', startTime: '2026-08-01T16:00:00.000Z', durationSeconds: 5400,
+    distanceMeters: 16093, elevationGainMeters: 610, trailSystem: 'Galbraith', location: 'Bellingham, WA',
+    bikeId: 'bike-1', garminActivityId: 'g-2', garminDeviceName: 'edge_840',
+  },
+  {
+    id: 'r1', startTime: '2025-01-10T16:00:00.000Z', durationSeconds: 3000,
+    distanceMeters: 8047, elevationGainMeters: 300, trailSystem: null, location: null,
+    bikeId: 'bike-0', stravaActivityId: 's-1',
+  },
+];
+
+const mockFetchMore = vi.fn();
+let historyResult: unknown;
+let ridesResult: unknown;
+
 const setPayload = (over: Record<string, unknown> = {}) => {
-  mockUseQuery.mockReturnValue({
+  historyResult = {
     data: { componentHistory: { ...BASE, ...over } },
     loading: false,
     error: undefined,
-  });
+  };
 };
+
+const setRides = (rides: unknown[] = RIDES, hasMore = false) => {
+  ridesResult = {
+    data: { componentHistoryRides: { rides, hasMore } },
+    loading: false,
+    error: undefined,
+    fetchMore: mockFetchMore,
+  };
+};
+
+// The page runs two queries: the aggregate history and its ride rows.
+const ridesCalls = () =>
+  mockUseQuery.mock.calls.filter(([doc]) => String(doc).includes('componentHistoryRides'));
 
 const renderPage = () =>
   render(
@@ -200,6 +231,10 @@ describe('ComponentHistory', () => {
     vi.clearAllMocks();
     mockIsPro.mockReturnValue(true);
     setPayload();
+    setRides();
+    mockUseQuery.mockImplementation((doc: unknown) =>
+      String(doc).includes('componentHistoryRides') ? ridesResult : historyResult
+    );
   });
 
   it('shows the component identity and where it currently lives', () => {
@@ -347,5 +382,67 @@ describe('ComponentHistory', () => {
     });
     renderPage();
     expect(screen.queryByTestId('share-panel')).not.toBeInTheDocument();
+  });
+
+  // The rows behind the totals, so a rider can see what each ride was.
+  it('lists each counted ride, attributed and named by its bike', () => {
+    renderPage();
+    const list = screen.getByRole('heading', { name: 'Rides' }).closest('section')!;
+
+    expect(within(list).getByText('Galbraith')).toBeInTheDocument();
+    // Garmin's device-model attribution sits on the row itself.
+    expect(within(list).getByText('Garmin Edge 840')).toBeInTheDocument();
+    expect(within(list).getByText(/Bellingham, WA · Ripmo/)).toBeInTheDocument();
+    expect(within(list).getByText('1h 30m')).toBeInTheDocument();
+    // No trail or location: the same fallback title the rides list uses.
+    expect(within(list).getByText('Ride')).toBeInTheDocument();
+    expect(within(list).getByText(/Old Hardtail/)).toBeInTheDocument();
+  });
+
+  it('leaves the bike off each row when the part has only lived on one', () => {
+    setPayload({ tenures: [BASE.tenures[1]] });
+    renderPage();
+    const list = screen.getByRole('heading', { name: 'Rides' }).closest('section')!;
+    expect(within(list).queryByText(/Ripmo/)).not.toBeInTheDocument();
+  });
+
+  it('asks for every ride by default and for rides since service after the toggle', () => {
+    renderPage();
+    expect(ridesCalls().at(-1)![1].variables).toMatchObject({ componentId: 'comp-1', sinceService: false, offset: 0 });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Since last service' }));
+    expect(ridesCalls().at(-1)![1].variables).toMatchObject({ sinceService: true, offset: 0 });
+    expect(screen.getByText(/every ride since the last service/i)).toBeInTheDocument();
+  });
+
+  it('pages on from where the list ends', () => {
+    setRides(RIDES, true);
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Show more rides' }));
+    expect(mockFetchMore).toHaveBeenCalledWith(expect.objectContaining({ variables: { offset: 2 } }));
+  });
+
+  // A ride synced between pages shifts the offset window, so the next page
+  // can repeat a row; the merge drops it rather than listing a ride twice.
+  it('merges a new page without repeating a ride already listed', async () => {
+    setRides(RIDES, true);
+    mockFetchMore.mockResolvedValue({});
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Show more rides' }));
+
+    const { updateQuery } = mockFetchMore.mock.calls[0][0];
+    const prev = { componentHistoryRides: { rides: RIDES, hasMore: true } };
+    const next = { componentHistoryRides: { rides: [RIDES[1], { ...RIDES[1], id: 'r0' }], hasMore: false } };
+    const merged = updateQuery(prev, { fetchMoreResult: next });
+
+    expect(merged.componentHistoryRides.rides.map((r: { id: string }) => r.id)).toEqual(['r2', 'r1', 'r0']);
+    expect(merged.componentHistoryRides.hasMore).toBe(false);
+  });
+
+  it('says so when there are no rides yet', () => {
+    setRides([]);
+    renderPage();
+    expect(screen.getByText('No rides recorded yet.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Show more rides' })).not.toBeInTheDocument();
   });
 });

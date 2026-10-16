@@ -8,6 +8,7 @@ import {
   COMPONENT_SHARES,
   CREATE_COMPONENT_SHARE,
   REVOKE_COMPONENT_SHARE,
+  UPDATE_COMPONENT_SHARE,
 } from '@/graphql/componentShare';
 import { isoToDateInput, todayDateInput } from '@/lib/format';
 import {
@@ -23,9 +24,13 @@ type Share = {
   scope: ComponentShareScope;
   rangeStart: string | null;
   rangeEnd: string | null;
+  includeRides: boolean;
   url: string;
   createdAt: string;
 };
+
+/** Names a link apart from one over the same window that differs only in rides. */
+const linkName = (share: Share) => `${shareScopeLabel(share)}${share.includeRides ? ' with rides' : ''}`;
 
 const SCOPES: Array<{ scope: ComponentShareScope; label: string }> = [
   { scope: 'LIFETIME', label: 'Lifetime' },
@@ -52,6 +57,8 @@ export function ComponentSharePanel({
   const today = todayDateInput();
   const [from, setFrom] = useState(minDate);
   const [to, setTo] = useState(today);
+  // Off by default: a dated ride list says where the rider was and when.
+  const [includeRides, setIncludeRides] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -62,6 +69,9 @@ export function ComponentSharePanel({
   });
   const [createShare, { loading: creating }] = useMutation(CREATE_COMPONENT_SHARE, { refetchQueries: refetch });
   const [revokeShare] = useMutation(REVOKE_COMPONENT_SHARE, { refetchQueries: refetch });
+  // Returns the share by id, so Apollo updates the listed link in place.
+  const [updateShare] = useMutation(UPDATE_COMPONENT_SHARE);
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
   const shares = data?.component?.shares ?? [];
 
   const rangeInvalid = scope === 'RANGE' && (!from || !to || from > to || from < minDate || to > today);
@@ -84,6 +94,7 @@ export function ComponentSharePanel({
           input: {
             componentId,
             scope,
+            includeRides,
             ...(scope === 'RANGE'
               ? { rangeStart: localDayStartIso(from), rangeEnd: localDayAfterIso(to) }
               : {}),
@@ -106,6 +117,19 @@ export function ComponentSharePanel({
     }
   };
 
+  // Rides on or off for a link already sent, keeping its URL.
+  const handleToggleRides = async (id: string, next: boolean) => {
+    setError(null);
+    setUpdatingId(id);
+    try {
+      await updateShare({ variables: { id, includeRides: next } });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not change the link.');
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
   return (
     <>
       <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
@@ -117,7 +141,7 @@ export function ComponentSharePanel({
         isOpen={open}
         onClose={() => setOpen(false)}
         title="Share this component's history"
-        subtitle="Anyone with a link sees that window: totals, the wear chart, the bikes it was on and its service dates. Notes, your name and weather are never shared."
+        subtitle="Anyone with a link sees that window: totals, the wear chart, the bikes it was on and its service dates, plus each ride if you choose. Notes, your name and weather are never shared."
         size="md"
       >
         <div className="space-y-4">
@@ -171,6 +195,22 @@ export function ComponentSharePanel({
             </div>
           )}
 
+          <label className="flex items-start gap-2 text-sm cursor-pointer">
+            <input
+              type="checkbox"
+              checked={includeRides}
+              onChange={(e) => setIncludeRides(e.target.checked)}
+              className="mt-0.5"
+            />
+            <span>
+              Include each ride
+              <span className="block text-xs text-muted">
+                Its date, trail, location, time, distance and climb. This shows where you rode
+                and when.
+              </span>
+            </span>
+          </label>
+
           <Button variant="primary" size="sm" onClick={handleCreate} disabled={creating || rangeInvalid}>
             {creating ? 'Creating link…' : 'Create and copy link'}
           </Button>
@@ -182,34 +222,50 @@ export function ComponentSharePanel({
             {shares.length === 0 ? (
               <p className="text-sm text-muted">No links yet.</p>
             ) : (
-              <ul className="space-y-2">
-                {shares.map((share) => (
-                  <li key={share.id} className="flex items-center gap-2 rounded-lg border border-border px-3 py-2">
-                    <div className="min-w-0 flex-1">
-                      <div className="text-sm">{shareScopeLabel(share)}</div>
-                      <div className="text-xs text-muted truncate">
-                        Created {fmtDay(share.createdAt)} · {share.url}
+              <>
+                <p className="text-xs text-muted mb-2">
+                  Turning rides on or off changes what everyone with that link sees, right away.
+                  The link itself stays the same.
+                </p>
+                <ul className="space-y-2">
+                  {shares.map((share) => (
+                    <li key={share.id} className="flex items-center gap-2 rounded-lg border border-border px-3 py-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm">{shareScopeLabel(share)}</div>
+                        <div className="text-xs text-muted truncate">
+                          Created {fmtDay(share.createdAt)} · {share.url}
+                        </div>
+                        <label className="mt-1 inline-flex items-center gap-1.5 text-xs text-muted cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={share.includeRides}
+                            disabled={updatingId === share.id}
+                            onChange={(e) => handleToggleRides(share.id, e.target.checked)}
+                            aria-label={`Show each ride on the ${shareScopeLabel(share)} link created ${fmtDay(share.createdAt)}`}
+                          />
+                          Show each ride
+                        </label>
                       </div>
-                    </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => copy(share)}
-                      aria-label={`Copy the ${shareScopeLabel(share)} link`}
-                    >
-                      {copiedId === share.id ? <Check size={14} /> : <Copy size={14} />}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleRevoke(share.id)}
-                      aria-label={`Revoke the ${shareScopeLabel(share)} link`}
-                    >
-                      <Trash2 size={14} />
-                    </Button>
-                  </li>
-                ))}
-              </ul>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => copy(share)}
+                        aria-label={`Copy the ${linkName(share)} link`}
+                      >
+                        {copiedId === share.id ? <Check size={14} /> : <Copy size={14} />}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleRevoke(share.id)}
+                        aria-label={`Revoke the ${linkName(share)} link`}
+                      >
+                        <Trash2 size={14} />
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              </>
             )}
           </div>
         </div>

@@ -6,10 +6,14 @@ import { todayDateInput } from '@/lib/format';
 
 const mockCreate = vi.fn();
 const mockRevoke = vi.fn();
+const mockUpdate = vi.fn();
 const mockUseQuery = vi.fn();
 vi.mock('@apollo/client', () => ({
   useQuery: (...args: unknown[]) => mockUseQuery(...args),
-  useMutation: (doc: string) => [doc.includes('createComponentShare') ? mockCreate : mockRevoke, { loading: false }],
+  useMutation: (doc: string) => [
+    doc.includes('createComponentShare') ? mockCreate : doc.includes('updateComponentShare') ? mockUpdate : mockRevoke,
+    { loading: false },
+  ],
   gql: vi.fn((strings: TemplateStringsArray) => strings.join('')),
 }));
 
@@ -30,6 +34,7 @@ const created = {
   scope: 'LIFETIME',
   rangeStart: null,
   rangeEnd: null,
+  includeRides: false,
   url: 'https://loamlogger.app/share/component/abcdefghijkl',
   createdAt: '2026-10-08T12:00:00.000Z',
 };
@@ -43,6 +48,7 @@ describe('ComponentSharePanel', () => {
   beforeEach(() => {
     mockCreate.mockReset().mockResolvedValue({ data: { createComponentShare: created } });
     mockRevoke.mockReset().mockResolvedValue({ data: { revokeComponentShare: true } });
+    mockUpdate.mockReset().mockResolvedValue({ data: { updateComponentShare: created } });
     mockUseQuery.mockReset().mockReturnValue({ data: { component: { id: 'comp-1', shares: [] } } });
     writeText.mockClear();
   });
@@ -53,7 +59,7 @@ describe('ComponentSharePanel', () => {
 
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(created.url));
     expect(mockCreate).toHaveBeenCalledWith({
-      variables: { input: { componentId: 'comp-1', scope: 'LIFETIME' } },
+      variables: { input: { componentId: 'comp-1', scope: 'LIFETIME', includeRides: false } },
     });
   });
 
@@ -63,7 +69,11 @@ describe('ComponentSharePanel', () => {
     fireEvent.click(screen.getByRole('button', { name: /Create and copy link/ }));
 
     await waitFor(() => expect(mockCreate).toHaveBeenCalled());
-    expect(mockCreate.mock.calls[0][0].variables.input).toEqual({ componentId: 'comp-1', scope: 'SINCE_SERVICE' });
+    expect(mockCreate.mock.calls[0][0].variables.input).toEqual({
+      componentId: 'comp-1',
+      scope: 'SINCE_SERVICE',
+      includeRides: false,
+    });
   });
 
   // No earlier than the install date, no later than today; the end day counts.
@@ -84,6 +94,7 @@ describe('ComponentSharePanel', () => {
     expect(mockCreate.mock.calls[0][0].variables.input).toEqual({
       componentId: 'comp-1',
       scope: 'RANGE',
+      includeRides: false,
       rangeStart: localDayStartIso('2026-01-01'),
       rangeEnd: localDayAfterIso('2026-01-31'),
     });
@@ -112,6 +123,62 @@ describe('ComponentSharePanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Revoke the .* link/ }));
     await waitFor(() => expect(mockRevoke).toHaveBeenCalledWith({ variables: { id: 'share-2' } }));
+  });
+
+  // A dated ride list says where the rider was and when, so it is opt-in.
+  it('leaves rides off unless the rider ticks the box, then asks for them', async () => {
+    renderPanel();
+    const box = screen.getByRole('checkbox', { name: /Include each ride/ });
+    expect(box).not.toBeChecked();
+
+    fireEvent.click(box);
+    fireEvent.click(screen.getByRole('button', { name: /Create and copy link/ }));
+
+    await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+    expect(mockCreate.mock.calls[0][0].variables.input).toMatchObject({ scope: 'LIFETIME', includeRides: true });
+  });
+
+  it('tells apart two links over the same window that differ only in rides', () => {
+    mockUseQuery.mockReturnValue({
+      data: {
+        component: {
+          id: 'comp-1',
+          shares: [created, { ...created, id: 'share-2', includeRides: true }],
+        },
+      },
+    });
+    renderPanel();
+
+    const toggles = screen.getAllByRole('checkbox', { name: /Show each ride on the Lifetime link/ });
+    expect(toggles.map((t) => (t as HTMLInputElement).checked)).toEqual([false, true]);
+    expect(screen.getByRole('button', { name: 'Copy the Lifetime link' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Copy the Lifetime with rides link' })).toBeInTheDocument();
+  });
+
+  // A rider who regrets showing where they rode turns rides off without
+  // breaking the URL they already sent, and can turn them back on the same way.
+  it('turns rides off and on for a link already sent, keeping the link', async () => {
+    mockUseQuery.mockReturnValue({
+      data: { component: { id: 'comp-1', shares: [{ ...created, includeRides: true }] } },
+    });
+    renderPanel();
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /Show each ride on the Lifetime link/ }));
+    await waitFor(() =>
+      expect(mockUpdate).toHaveBeenCalledWith({ variables: { id: 'share-1', includeRides: false } })
+    );
+    expect(mockCreate).not.toHaveBeenCalled();
+    expect(mockRevoke).not.toHaveBeenCalled();
+    expect(screen.getByText(/changes what everyone with that link sees/)).toBeInTheDocument();
+  });
+
+  it('says so when a link cannot be changed', async () => {
+    mockUpdate.mockRejectedValue(new Error('Share link not found'));
+    mockUseQuery.mockReturnValue({ data: { component: { id: 'comp-1', shares: [created] } } });
+    renderPanel();
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /Show each ride on the Lifetime link/ }));
+    expect(await screen.findByText('Share link not found')).toBeInTheDocument();
   });
 
   it('says so when a link cannot be created', async () => {

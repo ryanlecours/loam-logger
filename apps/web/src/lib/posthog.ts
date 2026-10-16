@@ -17,6 +17,14 @@ let initialized = false;
 const EMAIL_PATTERN = /[\w.+-]+@[\w-]+\.[\w.-]+/g;
 const EMAIL_REDACTED = '[email]';
 
+// `token` URL parameters are emailed credentials: a password reset link
+// (/reset-password?token=) or an account deletion link
+// (/delete-account/confirm?token=). Pageviews send window.location.href, so
+// without this the token would reach PostHog while it can still be redeemed.
+// Same /g caveat as above.
+const URL_TOKEN_PATTERN = /([?&#]token=)[^&#\s"']+/gi;
+const URL_TOKEN_REDACTED = '$1[redacted]';
+
 // Autocapture records the clicked element and its ancestors, by default with
 // each element's visible text (`$el_text`, and `text=` in `$elements_chain`)
 // and its attributes. Both carry rider data in this app: cards show a bike's
@@ -32,14 +40,17 @@ export const AUTOCAPTURE_PRIVACY = {
   autocapture: { element_attribute_ignorelist: ['aria-label', 'title', 'alt'] },
 };
 
-// Redact email-shaped strings in every top-level string property, which
-// includes `$elements_chain` (a `mailto:` href, for one).
+// Redact email-shaped strings and `token` URL parameters in every top-level
+// string property, which includes `$current_url`, `$referrer` and
+// `$elements_chain` (a `mailto:` href, for one).
 export function sanitizeProperties(properties: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = { ...properties };
   for (const k of Object.keys(out)) {
     const v = out[k];
     if (typeof v === 'string') {
-      const redacted = v.replace(EMAIL_PATTERN, EMAIL_REDACTED);
+      const redacted = v
+        .replace(EMAIL_PATTERN, EMAIL_REDACTED)
+        .replace(URL_TOKEN_PATTERN, URL_TOKEN_REDACTED);
       if (redacted !== v) out[k] = redacted;
     }
   }
