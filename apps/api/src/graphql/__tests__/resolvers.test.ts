@@ -4002,9 +4002,6 @@ describe('GraphQL Resolvers', () => {
       ['priorHours', -5],
       ['priorHours', Number.NaN],
       ['priorHours', Number.POSITIVE_INFINITY],
-      ['inspectionDueAtHours', 1e15],
-      ['inspectionDueAtHours', -1],
-      ['inspectionDueAtHours', Number.NaN],
     ])('rejects %s = %p before writing anything', async (field, value) => {
       await expect(
         mutation({}, { id: 'comp-1', input: { [field]: value } }, createMockContext('user-123') as never)
@@ -4018,13 +4015,13 @@ describe('GraphQL Resolvers', () => {
     it('stores in-range values as given', async () => {
       await mutation(
         {},
-        { id: 'comp-1', input: { priorHours: 200, inspectionDueAtHours: 20 } },
+        { id: 'comp-1', input: { priorHours: 200 } },
         createMockContext('user-123') as never
       );
 
       expect(mockComponentUpdate).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({ priorHours: 200, inspectionDueAtHours: 20 }),
+          data: expect.objectContaining({ priorHours: 200 }),
         })
       );
     });
@@ -4092,16 +4089,28 @@ describe('GraphQL Resolvers', () => {
       });
     });
 
-    it('still lets a rider clear the inspection interval', async () => {
+    // The column is gone (#333). Even if an old caller sent the field, it must
+    // never reach the write.
+    it('never writes inspectionDueAtHours', async () => {
       await mutation(
         {},
-        { id: 'comp-1', input: { inspectionDueAtHours: null } },
+        { id: 'comp-1', input: { brand: 'RockShox', inspectionDueAtHours: 20 } as never },
         createMockContext('user-123') as never
       );
 
       expect(mockComponentUpdate).toHaveBeenCalledWith(
-        expect.objectContaining({ data: expect.objectContaining({ inspectionDueAtHours: null }) })
+        expect.objectContaining({ data: expect.not.objectContaining({ inspectionDueAtHours: expect.anything() }) })
       );
+    });
+  });
+
+  describe('Component.inspectionDueAtHours', () => {
+    // Deprecated: mobile builds up to 1.3.0 still select it, so it resolves to
+    // null rather than failing their queries.
+    it('always resolves to null', () => {
+      const resolve = (resolvers as unknown as { Component: { inspectionDueAtHours: () => unknown } }).Component
+        .inspectionDueAtHours;
+      expect(resolve()).toBeNull();
     });
   });
 

@@ -479,10 +479,6 @@ model Component {
   // legacy figures and the fast-path ride increment leaves them alone.
   countersComputedAt   DateTime?
 
-  // Unused. It set the interval of a separate inspection clock, which was
-  // removed: inspections are optional stand-ins for a due service, not a
-  // schedule of their own.
-  inspectionDueAtHours Float?
   lastInspectedAt      DateTime?
   createdAt            DateTime           @default(now())
   updatedAt            DateTime           @updatedAt
