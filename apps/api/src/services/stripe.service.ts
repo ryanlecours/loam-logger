@@ -128,3 +128,117 @@ export async function createBillingPortalSession(userId: string, platform: Check
   logger.info({ userId, platform }, 'Created Stripe billing portal session');
   return { url: session.url };
 }
+
+/**
+ * Written to `cancellation_details.comment` when account deletion cancels a
+ * subscription. The Stripe webhook checks for it so the resulting
+ * `customer.subscription.deleted` event does not downgrade, email, or track a
+ * user who is mid-deletion or already gone.
+ */
+export const ACCOUNT_DELETION_CANCELLATION_COMMENT = 'loam_account_deleted';
+
+/** Subscription statuses that can no longer bill, so there is nothing to cancel. */
+const ENDED_SUBSCRIPTION_STATUSES: ReadonlySet<string> = new Set(['canceled', 'incomplete_expired']);
+
+function isStripeResourceMissing(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && (err as { code?: unknown }).code === 'resource_missing';
+}
+
+/**
+ * Stop all Stripe billing for a user whose account is being deleted.
+ *
+ * Cancels the recorded subscription immediately (no proration or refund), then
+ * deletes the Stripe customer. Deleting the customer removes the rider's email,
+ * name, and saved payment methods from Stripe, and also cancels any other
+ * subscription on the customer that we never recorded. Invoices and charges
+ * are kept by Stripe for accounting and remain refundable from the dashboard.
+ *
+ * After each Stripe step the user row is updated to match (see
+ * clearLocalStripeBilling), so it stays consistent even if the rest of the
+ * account deletion fails and the rider never retries.
+ *
+ * Idempotent: an already-ended subscription or an already-deleted customer
+ * counts as done, so a retry after a partial failure succeeds. Any other
+ * Stripe error is thrown so the caller can refuse to delete the account.
+ *
+ * App Store and Google Play subscriptions are store-managed and cannot be
+ * cancelled server-side, so they are not touched here.
+ */
+export async function cancelStripeBillingForAccountDeletion(userId: string): Promise<void> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { stripeCustomerId: true, stripeSubscriptionId: true },
+  });
+
+  if (!user?.stripeCustomerId && !user?.stripeSubscriptionId) return;
+
+  const { stripeCustomerId, stripeSubscriptionId } = user;
+
+  if (stripeSubscriptionId) {
+    try {
+      const subscription = await stripe.subscriptions.retrieve(stripeSubscriptionId);
+      if (ENDED_SUBSCRIPTION_STATUSES.has(subscription.status)) {
+        logger.info({ userId, stripeSubscriptionId, status: subscription.status }, 'Account deletion: Stripe subscription already ended');
+      } else {
+        await stripe.subscriptions.cancel(stripeSubscriptionId, {
+          cancellation_details: { comment: ACCOUNT_DELETION_CANCELLATION_COMMENT },
+        });
+        logger.info({ userId, stripeSubscriptionId }, 'Account deletion: cancelled Stripe subscription');
+      }
+    } catch (err) {
+      if (!isStripeResourceMissing(err)) throw err;
+      logger.warn({ userId, stripeSubscriptionId }, 'Account deletion: Stripe subscription not found, nothing to cancel');
+    }
+    await clearLocalStripeBilling(userId, { clearCustomer: false });
+  }
+
+  if (stripeCustomerId) {
+    try {
+      await stripe.customers.del(stripeCustomerId);
+      logger.info({ userId, stripeCustomerId }, 'Account deletion: deleted Stripe customer');
+    } catch (err) {
+      if (!isStripeResourceMissing(err)) throw err;
+      logger.warn({ userId, stripeCustomerId }, 'Account deletion: Stripe customer not found, nothing to delete');
+    }
+    await clearLocalStripeBilling(userId, { clearCustomer: true });
+  }
+}
+
+/**
+ * Bring the user row in line with Stripe as soon as billing has stopped.
+ *
+ * The webhook skips events tagged with ACCOUNT_DELETION_CANCELLATION_COMMENT,
+ * and the rest of the account teardown is not one transaction, so without this
+ * a deletion that fails after the Stripe step would leave the rider PRO with a
+ * dead subscription (and a deleted customer id that breaks a later checkout).
+ *
+ * Mirrors downgradeUser's tier logic but sends no email and no analytics, and
+ * also clears stripeCustomerId once the customer is gone. Only a Stripe-backed
+ * PRO is downgraded: founding riders and riders who are PRO through the App
+ * Store or Google Play keep their tier and only lose the stale Stripe ids.
+ */
+async function clearLocalStripeBilling(userId: string, { clearCustomer }: { clearCustomer: boolean }): Promise<void> {
+  await prisma.$transaction(async (tx) => {
+    const user = await tx.user.findUnique({
+      where: { id: userId },
+      select: { isFoundingRider: true, subscriptionTier: true, subscriptionProvider: true },
+    });
+    if (!user) return;
+
+    const stripeBacked = user.subscriptionProvider === 'STRIPE';
+    const downgrade = stripeBacked && !user.isFoundingRider && user.subscriptionTier === 'PRO';
+    const activeBikeCount = downgrade
+      ? await tx.bike.count({ where: { userId, status: 'ACTIVE' } })
+      : 0;
+
+    await tx.user.update({
+      where: { id: userId },
+      data: {
+        stripeSubscriptionId: null,
+        ...(clearCustomer ? { stripeCustomerId: null } : {}),
+        ...(stripeBacked ? { subscriptionProvider: null } : {}),
+        ...(downgrade ? { subscriptionTier: 'FREE', needsDowngradeSelection: activeBikeCount > 1 } : {}),
+      },
+    });
+  });
+}
