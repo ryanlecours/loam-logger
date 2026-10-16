@@ -7,6 +7,7 @@ import { BillingCancellationError } from '../services/account-deletion.service';
 import { normalizeEmail, getClientIp } from './utils';
 import { validateEmailFormat } from './email.utils';
 import { clearSessionCookie } from './session';
+import { loginEmailKey } from './login-rate-limit';
 import {
   confirmAccountDeletion,
   sendAccountDeletionEmail,
@@ -21,7 +22,12 @@ const router = express.Router();
  *
  * Always returns 200, whether or not the address matches an account, so the
  * response can't be used to find out who has one. Same contract as
- * /auth/forgot-password.
+ * /auth/forgot-password. The email is sent without awaiting it, so response
+ * time doesn't give the answer away either.
+ *
+ * The web calls this and /confirm without credentials, so no session cookie
+ * is sent and verifyCsrf (mounted before this router) passes them through.
+ * Sending credentials would require the CSRF header.
  */
 router.post('/delete-account/request', express.json(), async (req, res) => {
   try {
@@ -31,8 +37,8 @@ router.post('/delete-account/request', express.json(), async (req, res) => {
       return sendTooManyRequests(res, 'Too many attempts. Please try again later.', rateLimit.retryAfter);
     }
 
-    const { email: rawEmail } = req.body as { email?: string };
-    if (!rawEmail) {
+    const { email: rawEmail } = req.body as { email?: unknown };
+    if (typeof rawEmail !== 'string' || !rawEmail) {
       return sendBadRequest(res, 'Email is required');
     }
 
@@ -41,17 +47,23 @@ router.post('/delete-account/request', express.json(), async (req, res) => {
       return res.json({ ok: true });
     }
 
+    // A per-address limit as well as the per-IP one, so rotating IPs can't
+    // flood one inbox with deletion links. Over the limit, answer 200 like
+    // any other request: a 429 here would say the address was seen before.
+    const perAddress = await checkAuthRateLimit('delete-account-request-email', loginEmailKey(email));
+    if (!perAddress.allowed) {
+      return res.json({ ok: true });
+    }
+
     const user = await prisma.user.findUnique({
       where: { email },
-      select: { id: true, email: true, name: true },
+      select: { id: true, email: true, name: true, sessionTokenVersion: true },
     });
 
     if (user) {
-      try {
-        await sendAccountDeletionEmail(user);
-      } catch (err) {
+      void sendAccountDeletionEmail(user).catch((err) => {
         logger.error({ err, userId: user.id }, '[AccountDeletion] Confirmation email send failed');
-      }
+      });
     }
 
     res.json({ ok: true });

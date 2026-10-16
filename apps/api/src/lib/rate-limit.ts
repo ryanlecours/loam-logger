@@ -387,6 +387,8 @@ export const AUTH_RATE_LIMITS = {
   'forgot-password': { windowSeconds: 60, maxRequests: 5 },
   /** delete-account-request: max 5 requests per minute per IP (public; prevents email-blast abuse, like forgot-password) */
   'delete-account-request': { windowSeconds: 60, maxRequests: 5 },
+  /** delete-account-request-email: max 3 deletion emails per hour per address, keyed by a hash of the email (holds when requests come from many IPs; over the limit the route still answers 200) */
+  'delete-account-request-email': { windowSeconds: 3600, maxRequests: 3 },
   /** delete-account-confirm: max 10 requests per minute per IP (prevents token-guessing floods) */
   'delete-account-confirm': { windowSeconds: 60, maxRequests: 10 },
   /** shared-history: max 30 requests per minute per IP (public bike-share pages; prevents scripted scraping of known slugs — slug entropy already defeats brute-force enumeration) */

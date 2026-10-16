@@ -13,11 +13,13 @@ import {
   getAccountDeletionEmailSubject,
 } from '../templates/emails/account-deletion';
 import { FRONTEND_URL } from '../config/env';
+import { normalizeEmail } from '../auth/utils';
 
 export type AccountDeletionRequestUser = {
   id: string;
   email: string;
   name?: string | null;
+  sessionTokenVersion: number;
 };
 
 /**
@@ -39,7 +41,7 @@ export function buildAccountDeletionConfirmUrl(rawToken: string): string {
  * confirmed request deletes the audit rows with the user anyway.
  */
 export async function sendAccountDeletionEmail(user: AccountDeletionRequestUser): Promise<void> {
-  const rawToken = generateAccountDeletionToken(user.id, user.email);
+  const rawToken = generateAccountDeletionToken(user.id, user.email, user.sessionTokenVersion);
   const html = await render(
     buildAccountDeletionEmailElement({
       recipientFirstName: user.name?.split(' ')[0],
@@ -60,8 +62,10 @@ export type ConfirmAccountDeletionResult =
 /**
  * Redeem an emailed deletion token and delete the account it names.
  *
- * The token must still match the account's current email: a link sent before
- * an email change goes to an address that may no longer belong to the rider.
+ * The token must still match the account's current email and session version:
+ * a link sent before an email change goes to an address that may no longer
+ * belong to the rider, and one sent before a password reset or change predates
+ * whatever prompted it. Emails are compared normalized, as they are stored.
  * Errors from the deletion itself (such as a Stripe cancellation failure)
  * propagate so the route can answer the way DELETE /auth/delete-account does.
  */
@@ -73,9 +77,13 @@ export async function confirmAccountDeletion(rawToken: string): Promise<ConfirmA
 
   const user = await prisma.user.findUnique({
     where: { id: verified.userId },
-    select: { id: true, email: true },
+    select: { id: true, email: true, sessionTokenVersion: true },
   });
-  if (!user || user.email !== verified.email) {
+  if (
+    !user ||
+    normalizeEmail(user.email) !== normalizeEmail(verified.email) ||
+    user.sessionTokenVersion !== verified.sessionTokenVersion
+  ) {
     return { ok: false, reason: 'invalid' };
   }
 

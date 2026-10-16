@@ -53,9 +53,9 @@ describe('buildAccountDeletionConfirmUrl', () => {
 
 describe('sendAccountDeletionEmail', () => {
   it('signs a token for the user and emails it to their address', async () => {
-    await sendAccountDeletionEmail({ id: 'user_1', email: 'rider@example.com', name: 'Alex Rider' });
+    await sendAccountDeletionEmail({ id: 'user_1', email: 'rider@example.com', name: 'Alex Rider', sessionTokenVersion: 2 });
 
-    expect(generateAccountDeletionToken).toHaveBeenCalledWith('user_1', 'rider@example.com');
+    expect(generateAccountDeletionToken).toHaveBeenCalledWith('user_1', 'rider@example.com', 2);
     expect(mockSendEmail).toHaveBeenCalledWith({
       to: 'rider@example.com',
       subject: 'Confirm your Loam Logger account deletion',
@@ -77,7 +77,7 @@ describe('confirmAccountDeletion', () => {
   });
 
   it('rejects a token for an account that no longer exists', async () => {
-    mockVerify.mockReturnValue({ ok: true, userId: 'user_1', email: 'rider@example.com' });
+    mockVerify.mockReturnValue({ ok: true, userId: 'user_1', email: 'rider@example.com', sessionTokenVersion: 0 });
     mockFindUnique.mockResolvedValue(null);
 
     await expect(confirmAccountDeletion('t')).resolves.toEqual({ ok: false, reason: 'invalid' });
@@ -85,24 +85,39 @@ describe('confirmAccountDeletion', () => {
   });
 
   it('rejects a token sent before the account email changed', async () => {
-    mockVerify.mockReturnValue({ ok: true, userId: 'user_1', email: 'old@example.com' });
-    mockFindUnique.mockResolvedValue({ id: 'user_1', email: 'new@example.com' });
+    mockVerify.mockReturnValue({ ok: true, userId: 'user_1', email: 'old@example.com', sessionTokenVersion: 0 });
+    mockFindUnique.mockResolvedValue({ id: 'user_1', email: 'new@example.com', sessionTokenVersion: 0 });
 
     await expect(confirmAccountDeletion('t')).resolves.toEqual({ ok: false, reason: 'invalid' });
     expect(mockDelete).not.toHaveBeenCalled();
   });
 
+  it('rejects a token sent before a password reset or change', async () => {
+    mockVerify.mockReturnValue({ ok: true, userId: 'user_1', email: 'rider@example.com', sessionTokenVersion: 0 });
+    mockFindUnique.mockResolvedValue({ id: 'user_1', email: 'rider@example.com', sessionTokenVersion: 1 });
+
+    await expect(confirmAccountDeletion('t')).resolves.toEqual({ ok: false, reason: 'invalid' });
+    expect(mockDelete).not.toHaveBeenCalled();
+  });
+
+  it('compares emails normalized, so a case difference in a stored row still matches', async () => {
+    mockVerify.mockReturnValue({ ok: true, userId: 'user_1', email: 'rider@example.com', sessionTokenVersion: 0 });
+    mockFindUnique.mockResolvedValue({ id: 'user_1', email: 'Rider@Example.com', sessionTokenVersion: 0 });
+
+    await expect(confirmAccountDeletion('t')).resolves.toEqual({ ok: true, userId: 'user_1' });
+  });
+
   it('deletes the account through the shared deletion service', async () => {
-    mockVerify.mockReturnValue({ ok: true, userId: 'user_1', email: 'rider@example.com' });
-    mockFindUnique.mockResolvedValue({ id: 'user_1', email: 'rider@example.com' });
+    mockVerify.mockReturnValue({ ok: true, userId: 'user_1', email: 'rider@example.com', sessionTokenVersion: 0 });
+    mockFindUnique.mockResolvedValue({ id: 'user_1', email: 'rider@example.com', sessionTokenVersion: 0 });
 
     await expect(confirmAccountDeletion('t')).resolves.toEqual({ ok: true, userId: 'user_1' });
     expect(mockDelete).toHaveBeenCalledWith('user_1');
   });
 
   it('lets deletion errors propagate to the route', async () => {
-    mockVerify.mockReturnValue({ ok: true, userId: 'user_1', email: 'rider@example.com' });
-    mockFindUnique.mockResolvedValue({ id: 'user_1', email: 'rider@example.com' });
+    mockVerify.mockReturnValue({ ok: true, userId: 'user_1', email: 'rider@example.com', sessionTokenVersion: 0 });
+    mockFindUnique.mockResolvedValue({ id: 'user_1', email: 'rider@example.com', sessionTokenVersion: 0 });
     mockDelete.mockRejectedValueOnce(new Error('stripe down'));
 
     await expect(confirmAccountDeletion('t')).rejects.toThrow('stripe down');

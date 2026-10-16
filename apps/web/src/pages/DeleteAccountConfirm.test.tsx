@@ -89,3 +89,28 @@ describe('DeleteAccountConfirm', () => {
     expect(screen.getByRole('button', { name: 'Delete my account' })).toBeEnabled();
   });
 });
+
+describe('DeleteAccountConfirm token handling', () => {
+  beforeEach(stubObserver);
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    window.history.replaceState(null, '', '/');
+  });
+
+  it('strips the token from the address bar but still uses it to confirm', async () => {
+    window.history.replaceState({ idx: 0 }, '', '/delete-account/confirm?token=abc&source=email#top');
+    const fetchMock = respond(200, { ok: true });
+    vi.stubGlobal('fetch', fetchMock);
+
+    renderAt('/delete-account/confirm?token=abc');
+
+    expect(window.location.pathname).toBe('/delete-account/confirm');
+    expect(window.location.search).toBe('?source=email');
+    expect(window.location.hash).toBe('#top');
+    expect(window.history.state).toEqual({ idx: 0 });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete my account' }));
+    expect(await screen.findByRole('heading', { name: 'Your account has been deleted' })).toBeInTheDocument();
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ body: JSON.stringify({ token: 'abc' }) });
+  });
+});

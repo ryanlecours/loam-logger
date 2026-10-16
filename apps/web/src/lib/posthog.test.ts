@@ -28,4 +28,20 @@ describe('sanitizeProperties', () => {
     const props = { $current_url: 'https://loamlogger.app/gear', count: 3 };
     expect(sanitizeProperties(props)).toEqual(props);
   });
+
+  it('redacts emailed tokens in URLs, keeping the rest of the URL', () => {
+    const out = sanitizeProperties({
+      $current_url: 'https://loamlogger.app/delete-account/confirm?token=eyJhbGci.payload.sig',
+      $referrer: 'https://loamlogger.app/reset-password?token=abc123&source=email',
+      later: 'https://loamlogger.app/x?a=1&token=t0k#frag',
+    });
+    expect(out.$current_url).toBe('https://loamlogger.app/delete-account/confirm?token=[redacted]');
+    expect(out.$referrer).toBe('https://loamlogger.app/reset-password?token=[redacted]&source=email');
+    expect(out.later).toBe('https://loamlogger.app/x?a=1&token=[redacted]#frag');
+  });
+
+  it('leaves parameters that merely end in "token" alone', () => {
+    const props = { $current_url: 'https://loamlogger.app/x?csrftoken=keep' };
+    expect(sanitizeProperties(props)).toEqual(props);
+  });
 });

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useLayoutEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { motion } from 'motion/react';
 import { Card } from '../components/ui';
@@ -19,11 +19,24 @@ type Status =
  * Opening the link deletes nothing: mail scanners and link previewers fetch
  * links on arrival, so deletion waits for this page's button, which POSTs the
  * token. The request carries no credentials; the token is the authorization.
+ *
+ * The token is a live credential for 60 minutes, so it is read once into state
+ * and stripped from the address bar before paint. That keeps it out of
+ * browser history and Referer headers, and away from session replay. The
+ * PostHog sanitizer also redacts `token=` from event URLs.
  */
 export default function DeleteAccountConfirm() {
     const [searchParams] = useSearchParams();
-    const token = searchParams.get('token');
+    const [token] = useState(() => searchParams.get('token'));
     const [status, setStatus] = useState<Status>(token ? { kind: 'ready' } : { kind: 'invalid' });
+
+    useLayoutEffect(() => {
+        const url = new URL(window.location.href);
+        if (!url.searchParams.has('token')) return;
+        url.searchParams.delete('token');
+        // Keep react-router's history state so back/forward still work.
+        window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash);
+    }, []);
 
     async function handleConfirm() {
         if (!token) return;

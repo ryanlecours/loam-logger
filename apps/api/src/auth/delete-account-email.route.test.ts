@@ -17,6 +17,10 @@ jest.mock('./utils', () => ({
   getClientIp: jest.fn().mockReturnValue('1.2.3.4'),
 }));
 
+jest.mock('./login-rate-limit', () => ({
+  loginEmailKey: jest.fn((e: string) => `hash(${e})`),
+}));
+
 jest.mock('./session', () => ({
   clearSessionCookie: jest.fn(),
 }));
@@ -91,6 +95,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockRateLimit.mockResolvedValue({ allowed: true });
   mockValidateEmail.mockReturnValue(true);
+  mockSendEmail.mockResolvedValue(undefined);
 });
 
 describe('POST /delete-account/request', () => {
@@ -124,8 +129,36 @@ describe('POST /delete-account/request', () => {
     expect(mockFindUnique).not.toHaveBeenCalled();
   });
 
+  it('returns 400 for a non-string email', async () => {
+    const res = await call('/delete-account/request', { email: { $ne: '' } });
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(mockFindUnique).not.toHaveBeenCalled();
+  });
+
+  it('limits per address too, answering 200 without sending when over it', async () => {
+    mockRateLimit.mockImplementation(async (op: string) =>
+      op === 'delete-account-request-email' ? { allowed: false, retryAfter: 3600 } : { allowed: true }
+    );
+    const res = await call('/delete-account/request', { email: 'Rider@Example.com' });
+
+    expect(mockRateLimit).toHaveBeenCalledWith('delete-account-request-email', 'hash(rider@example.com)');
+    expect(res.json).toHaveBeenCalledWith({ ok: true });
+    expect(res.status).not.toHaveBeenCalled();
+    expect(mockFindUnique).not.toHaveBeenCalled();
+    expect(mockSendEmail).not.toHaveBeenCalled();
+  });
+
+  it('answers without waiting for the email to send', async () => {
+    mockFindUnique.mockResolvedValue({ id: 'user_1', email: 'rider@example.com', name: null, sessionTokenVersion: 0 });
+    mockSendEmail.mockReturnValue(new Promise(() => {}));
+    const res = await call('/delete-account/request', { email: 'rider@example.com' });
+
+    expect(mockSendEmail).toHaveBeenCalled();
+    expect(res.json).toHaveBeenCalledWith({ ok: true });
+  });
+
   it('emails the confirmation link to a matching account, looked up by normalized email', async () => {
-    const user = { id: 'user_1', email: 'rider@example.com', name: 'Alex' };
+    const user = { id: 'user_1', email: 'rider@example.com', name: 'Alex', sessionTokenVersion: 0 };
     mockFindUnique.mockResolvedValue(user);
     const res = await call('/delete-account/request', { email: '  Rider@Example.com ' });
 
@@ -137,7 +170,7 @@ describe('POST /delete-account/request', () => {
   });
 
   it('still returns 200 when the email fails to send', async () => {
-    mockFindUnique.mockResolvedValue({ id: 'user_1', email: 'rider@example.com', name: null });
+    mockFindUnique.mockResolvedValue({ id: 'user_1', email: 'rider@example.com', name: null, sessionTokenVersion: 0 });
     mockSendEmail.mockRejectedValue(new Error('Resend down'));
     const res = await call('/delete-account/request', { email: 'rider@example.com' });
 
