@@ -2,125 +2,69 @@
 const originalEnv = process.env;
 process.env = { ...originalEnv, SESSION_SECRET: 'test-secret-key' };
 
-// Import jwt first so we can mock it
-import * as jwt from 'jsonwebtoken';
-jest.mock('jsonwebtoken');
-const mockedJwt = jwt as jest.Mocked<typeof jwt>;
-
-// Now import the module under test
-import { generateUnsubscribeToken, verifyUnsubscribeToken } from './unsubscribe-token';
+import jwt from 'jsonwebtoken';
+import { generateUnsubscribeToken, generateUnsubscribeUrl, verifyUnsubscribeToken } from './unsubscribe-token';
 
 afterAll(() => {
   process.env = originalEnv;
 });
 
 describe('generateUnsubscribeToken', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
+  it('round-trips the user id', () => {
+    expect(verifyUnsubscribeToken(generateUnsubscribeToken('user123'))).toEqual({ userId: 'user123' });
   });
 
-  it('should generate token with 90d expiry', () => {
-    mockedJwt.sign.mockReturnValue('unsubscribe_token' as never);
-
-    const result = generateUnsubscribeToken('user123');
-
-    expect(mockedJwt.sign).toHaveBeenCalledWith(
-      { uid: 'user123', purpose: 'unsubscribe' },
-      'test-secret-key',
-      { expiresIn: '90d' }
-    );
-    expect(result).toBe('unsubscribe_token');
+  it('expires after 90 days', () => {
+    const decoded = jwt.decode(generateUnsubscribeToken('user123')) as { iat: number; exp: number; purpose: string };
+    expect(decoded.purpose).toBe('unsubscribe');
+    expect(decoded.exp - decoded.iat).toBe(90 * 24 * 60 * 60);
   });
 
-  it('should include purpose field in payload', () => {
-    mockedJwt.sign.mockReturnValue('token' as never);
-
-    generateUnsubscribeToken('user456');
-
-    expect(mockedJwt.sign).toHaveBeenCalledWith(
-      expect.objectContaining({ purpose: 'unsubscribe' }),
-      expect.any(String),
-      expect.any(Object)
-    );
+  // While these were signed with SESSION_SECRET, the web session check took one
+  // pasted into the ll_session cookie as a login.
+  it('is not signed with SESSION_SECRET', () => {
+    expect(() => jwt.verify(generateUnsubscribeToken('user123'), 'test-secret-key')).toThrow();
   });
 });
 
 describe('verifyUnsubscribeToken', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
+  it('still accepts links already sent, signed with SESSION_SECRET', () => {
+    const sent = jwt.sign({ uid: 'user123', purpose: 'unsubscribe' }, 'test-secret-key', { expiresIn: '90d' });
+    expect(verifyUnsubscribeToken(sent)).toEqual({ userId: 'user123' });
   });
 
-  it('should return userId for valid unsubscribe token', () => {
-    const payload = { uid: 'user123', purpose: 'unsubscribe' };
-    mockedJwt.verify.mockReturnValue(payload as never);
-
-    const result = verifyUnsubscribeToken('valid_token');
-
-    expect(mockedJwt.verify).toHaveBeenCalledWith('valid_token', 'test-secret-key');
-    expect(result).toEqual({ userId: 'user123' });
+  it('returns null for an expired token', () => {
+    const expired = jwt.sign({ uid: 'user123', purpose: 'unsubscribe' }, 'test-secret-key', { expiresIn: -10 });
+    expect(verifyUnsubscribeToken(expired)).toBeNull();
   });
 
-  it('should return null for expired token', () => {
-    mockedJwt.verify.mockImplementation(() => {
-      throw new Error('jwt expired');
-    });
-
-    const result = verifyUnsubscribeToken('expired_token');
-
-    expect(result).toBeNull();
+  it('returns null for a malformed or tampered token', () => {
+    expect(verifyUnsubscribeToken('not-a-token')).toBeNull();
+    expect(verifyUnsubscribeToken(`${generateUnsubscribeToken('user123')}x`)).toBeNull();
   });
 
-  it('should return null for malformed token', () => {
-    mockedJwt.verify.mockImplementation(() => {
-      throw new Error('jwt malformed');
-    });
-
-    const result = verifyUnsubscribeToken('malformed_token');
-
-    expect(result).toBeNull();
+  it('returns null for a token signed with an unknown key', () => {
+    const forged = jwt.sign({ uid: 'user123', purpose: 'unsubscribe' }, 'attacker-key');
+    expect(verifyUnsubscribeToken(forged)).toBeNull();
   });
 
-  it('should return null for invalid signature', () => {
-    mockedJwt.verify.mockImplementation(() => {
-      throw new Error('invalid signature');
-    });
-
-    const result = verifyUnsubscribeToken('tampered_token');
-
-    expect(result).toBeNull();
+  // A session or mobile token is validly signed with SESSION_SECRET, so the
+  // legacy fallback would verify it: the purpose check is what stops it.
+  it('returns null for another SESSION_SECRET token, such as a session', () => {
+    const session = jwt.sign({ uid: 'user123', v: 0, typ: 'web' }, 'test-secret-key', { expiresIn: '7d' });
+    expect(verifyUnsubscribeToken(session)).toBeNull();
   });
 
-  it('should return null if purpose is not unsubscribe', () => {
-    const payload = { uid: 'user123', purpose: 'access' };
-    mockedJwt.verify.mockReturnValue(payload as never);
-
-    const result = verifyUnsubscribeToken('wrong_purpose_token');
-
-    expect(result).toBeNull();
-  });
-
-  it('should return null if uid is missing', () => {
-    const payload = { purpose: 'unsubscribe' };
-    mockedJwt.verify.mockReturnValue(payload as never);
-
-    const result = verifyUnsubscribeToken('missing_uid_token');
-
-    expect(result).toBeNull();
-  });
-
-  it('should return null if uid is empty string', () => {
-    const payload = { uid: '', purpose: 'unsubscribe' };
-    mockedJwt.verify.mockReturnValue(payload as never);
-
-    const result = verifyUnsubscribeToken('empty_uid_token');
-
-    expect(result).toBeNull();
+  it('returns null when uid is missing or empty', () => {
+    expect(verifyUnsubscribeToken(jwt.sign({ purpose: 'unsubscribe' }, 'test-secret-key'))).toBeNull();
+    expect(verifyUnsubscribeToken(jwt.sign({ uid: '', purpose: 'unsubscribe' }, 'test-secret-key'))).toBeNull();
   });
 });
 
-describe('SESSION_SECRET validation', () => {
-  it('should have functions defined when SESSION_SECRET is set', () => {
-    expect(generateUnsubscribeToken).toBeDefined();
-    expect(verifyUnsubscribeToken).toBeDefined();
+describe('generateUnsubscribeUrl', () => {
+  it('builds a link whose token verifies', () => {
+    const url = new URL(generateUnsubscribeUrl('user123'));
+    expect(url.pathname).toBe('/unsubscribe');
+    expect(verifyUnsubscribeToken(url.searchParams.get('token')!)).toEqual({ userId: 'user123' });
   });
 });

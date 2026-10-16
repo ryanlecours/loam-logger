@@ -1,7 +1,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import * as Sentry from '@sentry/node';
-import { extractBearerToken, verifyToken, isAccessTokenPayload } from './token';
+import { extractBearerToken, verifyToken, isAccessTokenPayload, type TokenType } from './token';
 import { prisma } from '../lib/prisma';
 import { logger } from '../lib/logger';
 import { enrichRequestContext, getRequestContext } from '../lib/requestContext';
@@ -16,10 +16,41 @@ export type SessionUser = {
   authAt?: number;
   /** User's sessionTokenVersion at token issue time — used to revoke sessions after password reset */
   v?: number;
+  /**
+   * Which kind of token authenticated the request: 'web' on session cookies
+   * issued since the claim existed, the mobile token's own typ on bearer auth.
+   */
+  typ?: 'web' | TokenType;
+}
+
+/**
+ * Every claim a web session cookie can carry: what issueWebSession signs plus
+ * jwt.sign's timestamps. The only shape issued in the 30 days before `typ`
+ * existed was { uid, email, authAt, v }.
+ */
+const WEB_SESSION_CLAIMS = new Set(['uid', 'email', 'authAt', 'v', 'typ', 'iat', 'exp']);
+
+/**
+ * True iff a verified ll_session payload is a web session.
+ *
+ * Other tokens are signed with the same SESSION_SECRET (mobile access and
+ * refresh tokens, and unsubscribe links signed before they moved to their own
+ * key), and the cookie path once took any of them that carried a uid: a
+ * forwarded marketing email's unsubscribe link signed its holder in as the
+ * rider. So the payload must be marked `typ: 'web'`, or, for cookies issued
+ * before the mark, carry no claim outside the allowlist. That legacy branch
+ * can go once those cookies expire, 7 days after this deploy.
+ */
+export function isWebSessionPayload(payload: unknown): payload is SessionUser {
+  if (typeof payload !== 'object' || payload === null) return false;
+  const p = payload as Record<string, unknown>;
+  if (typeof p.uid !== 'string' || !p.uid) return false;
+  if (p.typ !== undefined && p.typ !== 'web') return false;
+  return Object.keys(p).every((key) => WEB_SESSION_CLAIMS.has(key));
 }
 
 export function setSessionCookie(res: Response, payload: SessionUser) {
-  const token = jwt.sign(payload, SESSION_SECRET!, { expiresIn: '7d' });
+  const token = jwt.sign({ ...payload, typ: 'web' }, SESSION_SECRET!, { expiresIn: '7d' });
   res.cookie('ll_session', token, {
     httpOnly: true,
     secure: process.env.APP_ENV === 'production',
@@ -96,15 +127,28 @@ export async function attachUser(req: Request, _res: Response, next: NextFunctio
     // First, try cookie-based session (for web)
     const cookieToken = req.cookies?.ll_session;
     if (cookieToken) {
+      let user: SessionUser | null = null;
       try {
-        const user = jwt.verify(cookieToken, SESSION_SECRET!) as SessionUser;
+        const payload = jwt.verify(cookieToken, SESSION_SECRET!, { algorithms: ['HS256'] });
+        if (isWebSessionPayload(payload)) {
+          user = payload;
+        } else {
+          // A validly signed token that is not a web session: a mobile token or
+          // an emailed link pasted into the cookie. Never a browser's own doing.
+          logger.warn(
+            { claims: typeof payload === 'object' ? Object.keys(payload).sort() : typeof payload },
+            '[Session] Rejected a non-session token in the ll_session cookie'
+          );
+        }
+      } catch {
+        // ignore invalid/expired cookie token — fall through to bearer
+      }
+      if (user) {
         if (await isTokenVersionCurrent(user)) {
           req.sessionUser = user;
           enrichRequestContext({ authTransport: 'cookie' });
         }
         return next();
-      } catch {
-        // ignore invalid/expired cookie token — fall through to bearer
       }
     }
 
