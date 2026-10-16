@@ -288,8 +288,6 @@ type UpdateComponentInputGQL = {
   serviceDueAtHours?: number | null;
   /** Declared hours the part carried before Loam Logger saw it (used parts). */
   priorHours?: number | null;
-  /** Per-component inspection interval override. */
-  inspectionDueAtHours?: number | null;
 };
 
 type ComponentFilterInputGQL = {
@@ -3332,13 +3330,8 @@ export const resolvers = {
       if (!existing || existing.userId !== userId) throw new Error('Component not found');
 
       // Checked before anything is written. priorHours is an addend of
-      // lifetimeHours, and an inspection interval is compared against hours
-      // since inspection, so an unbounded value skews every figure derived
-      // from them.
+      // lifetimeHours, so an unbounded value skews every figure derived from it.
       if (input.priorHours != null) assertHoursInRange('priorHours', input.priorHours);
-      if (input.inspectionDueAtHours != null) {
-        assertHoursInRange('inspectionDueAtHours', input.inspectionDueAtHours);
-      }
 
       const normalized = normalizeLooseComponentInput(existing.type, input, {
         brand: existing.brand,
@@ -3365,10 +3358,6 @@ export const resolvers = {
             ...(input.location !== undefined && input.location !== null && { location: input.location }),
             ...(input.priorHours !== undefined &&
               input.priorHours !== null && { priorHours: input.priorHours }),
-            ...(input.inspectionDueAtHours !== undefined && {
-              inspectionDueAtHours:
-                input.inspectionDueAtHours === null ? null : input.inspectionDueAtHours,
-            }),
           },
         });
 
@@ -7349,6 +7338,9 @@ export const resolvers = {
   },
 
   Component: {
+    // Deprecated and always null: the column was dropped with the separate
+    // inspection clock. Mobile builds up to 1.3.0 still select it.
+    inspectionDueAtHours: () => null,
     // Owner-only: anyone else sees none, because the URLs are the secret.
     shares: (component: ComponentModel, _args: unknown, ctx: GraphQLContext) =>
       ctx.user?.id && ctx.user.id === component.userId

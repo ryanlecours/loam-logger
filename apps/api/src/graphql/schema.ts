@@ -333,8 +333,9 @@ export const typeDefs = gql`
     # due service, the hours of riding it granted before the next service.
     # Null when the current cycle started with a service.
     serviceExtensionHours: Float
-    # Unused: there is no separate inspection schedule. Always null in practice.
-    inspectionDueAtHours: Float
+    # Always null: there is no separate inspection schedule, and the column is
+    # gone. Kept only for released clients that still select it.
+    inspectionDueAtHours: Float @deprecated(reason: "Mobile builds up to 1.3.0 request this. Remove once they stop (see the deprecatedFieldUsage plugin).")
     lastInspectedAt: String
     isStock: Boolean!
     bikeId: ID
@@ -562,12 +563,12 @@ export const typeDefs = gql`
     recommendedExtensionHours: Float!
     # Always null: there is no separate inspection schedule. Kept for clients
     # that request these fields.
-    inspectionStatus: PredictionStatus
-    inspectionIntervalHours: Float
-    hoursSinceInspection: Float
-    inspectionHoursRemaining: Float
+    inspectionStatus: PredictionStatus @deprecated(reason: "Mobile builds up to 1.3.0 request this. Remove once they stop (see the deprecatedFieldUsage plugin).")
+    inspectionIntervalHours: Float @deprecated(reason: "Mobile builds up to 1.3.0 request this. Remove once they stop (see the deprecatedFieldUsage plugin).")
+    hoursSinceInspection: Float @deprecated(reason: "Mobile builds up to 1.3.0 request this. Remove once they stop (see the deprecatedFieldUsage plugin).")
+    inspectionHoursRemaining: Float @deprecated(reason: "Mobile builds up to 1.3.0 request this. Remove once they stop (see the deprecatedFieldUsage plugin).")
     # Always SERVICE, for the same reason.
-    limitingClock: String
+    limitingClock: String @deprecated(reason: "Mobile builds up to 1.3.0 request this. Remove once they stop (see the deprecatedFieldUsage plugin).")
     why: String
     drivers: [WearDriver!]
   }
@@ -879,9 +880,6 @@ export const typeDefs = gql`
     # "these wheels are secondhand". Setting it rebuilds the component's
     # counters, since lifetimeHours is priorHours plus its counted rides.
     priorHours: Float
-    # Per-component inspection interval override. Null falls back to the type's
-    # default, and types with no default are simply not inspection-tracked.
-    inspectionDueAtHours: Float
   }
 
   input ComponentFilterInput {

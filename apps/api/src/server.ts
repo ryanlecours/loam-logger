@@ -6,6 +6,7 @@ import cookieParser from 'cookie-parser';
 import pinoHttp from 'pino-http';
 import { ApolloServer } from '@apollo/server';
 import { sentryApolloPlugin } from './lib/sentry-apollo-plugin';
+import { deprecatedFieldUsagePlugin } from './lib/deprecated-field-usage-plugin';
 import { expressMiddleware, type ExpressContextFunctionArgument } from '@as-integrations/express4';
 import { typeDefs } from './graphql/schema';
 import { resolvers } from './graphql/resolvers';
@@ -215,7 +216,7 @@ const startServer = async () => {
     resolvers,
     // Turn resolver-thrown errors into first-class Sentry events with the
     // operation name + variables + query, instead of generic Express noise.
-    plugins: [sentryApolloPlugin()],
+    plugins: [sentryApolloPlugin(), deprecatedFieldUsagePlugin()],
   });
   await server.start();
 
