@@ -393,6 +393,7 @@ export type Component = {
   hoursSinceService: Scalars['Float']['output'];
   hoursUsed: Scalars['Float']['output'];
   id: Scalars['ID']['output'];
+  /** @deprecated Mobile builds up to 1.3.0 request this. Remove once they stop (see the deprecatedFieldUsage plugin). */
   inspectionDueAtHours?: Maybe<Scalars['Float']['output']>;
   installedAt?: Maybe<Scalars['String']['output']>;
   isSpare: Scalars['Boolean']['output'];
@@ -501,12 +502,17 @@ export type ComponentPrediction = {
   currentHours: Scalars['Float']['output'];
   drivers?: Maybe<Array<WearDriver>>;
   hoursRemaining?: Maybe<Scalars['Float']['output']>;
+  /** @deprecated Mobile builds up to 1.3.0 request this. Remove once they stop (see the deprecatedFieldUsage plugin). */
   hoursSinceInspection?: Maybe<Scalars['Float']['output']>;
   hoursSinceService: Scalars['Float']['output'];
+  /** @deprecated Mobile builds up to 1.3.0 request this. Remove once they stop (see the deprecatedFieldUsage plugin). */
   inspectionHoursRemaining?: Maybe<Scalars['Float']['output']>;
+  /** @deprecated Mobile builds up to 1.3.0 request this. Remove once they stop (see the deprecatedFieldUsage plugin). */
   inspectionIntervalHours?: Maybe<Scalars['Float']['output']>;
+  /** @deprecated Mobile builds up to 1.3.0 request this. Remove once they stop (see the deprecatedFieldUsage plugin). */
   inspectionStatus?: Maybe<PredictionStatus>;
   lifetimeHours: Scalars['Float']['output'];
+  /** @deprecated Mobile builds up to 1.3.0 request this. Remove once they stop (see the deprecatedFieldUsage plugin). */
   limitingClock?: Maybe<Scalars['String']['output']>;
   location: ComponentLocation;
   model: Scalars['String']['output'];
@@ -1830,7 +1836,6 @@ export type UpdateBikeServicePreferencesInput = {
 export type UpdateComponentInput = {
   brand?: InputMaybe<Scalars['String']['input']>;
   hoursUsed?: InputMaybe<Scalars['Float']['input']>;
-  inspectionDueAtHours?: InputMaybe<Scalars['Float']['input']>;
   isStock?: InputMaybe<Scalars['Boolean']['input']>;
   location?: InputMaybe<ComponentLocation>;
   model?: InputMaybe<Scalars['String']['input']>;
