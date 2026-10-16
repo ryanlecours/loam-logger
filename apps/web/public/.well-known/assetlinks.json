@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.loamlabs.loamlogger",
+      "sha256_cert_fingerprints": [
+        "8C:43:AF:86:42:92:D5:7C:F0:66:04:2D:E0:5D:A7:61:CB:4C:4A:3C:B0:55:86:FC:83:5E:A1:EF:F6:D8:BD:46"
+      ]
+    }
+  }
+]
