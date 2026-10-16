@@ -57,7 +57,7 @@ import adminRouter from './routes/admin';
 import adminLiftRouter from './routes/admin.lift';
 import spokesRouter from './routes/spokes';
 import emailUnsubscribeRouter from './routes/email.unsubscribe';
-import { googleRouter, emailRouter, deleteAccountRouter, passwordRouter, sessionMiddleware, verifyCsrf } from './auth/index';
+import { googleRouter, emailRouter, deleteAccountRouter, deleteAccountEmailRouter, passwordRouter, sessionMiddleware, verifyCsrf } from './auth/index';
 import webhooksStripe from './routes/webhooks.stripe';
 import webhooksRevenueCat from './routes/webhooks.revenuecat';
 import { validateStripeConfig } from './lib/stripe';
@@ -248,6 +248,7 @@ const startServer = async () => {
   app.use('/auth', googleRouter);
   app.use('/auth', emailRouter);
   app.use('/auth', deleteAccountRouter);
+  app.use('/auth', deleteAccountEmailRouter);
   app.use('/auth', passwordRouter);
   app.use('/auth', mobileAuthRouter);
   app.use('/auth', authGarmin);

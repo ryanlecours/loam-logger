@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import { motion } from 'motion/react';
 import { Card } from '../components/ui';
@@ -5,6 +6,85 @@ import { Card } from '../components/ui';
 export const DELETION_EMAIL = 'ryan.lecours@loamlogger.app';
 
 const linkClass = 'text-mint hover:text-sage transition-colors underline';
+
+/**
+ * Asks the API to email a deletion confirmation link. The API answers 200
+ * whether or not the address has an account, so the success copy is
+ * conditional ("if that address has an account"). Sent without credentials,
+ * like the forgot-password request: no session cookie, so no CSRF header.
+ */
+function DeleteByEmailForm() {
+    const [email, setEmail] = useState('');
+    const [submitted, setSubmitted] = useState(false);
+    const [isLoading, setIsLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    async function handleSubmit(e: React.FormEvent) {
+        e.preventDefault();
+        setError(null);
+        if (!email.trim()) {
+            setError('Please enter your email.');
+            return;
+        }
+
+        setIsLoading(true);
+        try {
+            const res = await fetch(`${import.meta.env.VITE_API_URL}/auth/delete-account/request`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: email.trim() }),
+            });
+
+            if (res.status === 429) {
+                const data = await res.json().catch(() => ({}));
+                const retryAfter = typeof data.retryAfter === 'number' ? data.retryAfter : 60;
+                setError(`Too many attempts. Please try again in ${retryAfter} seconds.`);
+                return;
+            }
+
+            setSubmitted(true);
+        } catch {
+            setError('A network error occurred. Please try again.');
+        } finally {
+            setIsLoading(false);
+        }
+    }
+
+    if (submitted) {
+        return (
+            <p role="status" className="body text-cream">
+                If {email.trim()} has a Loam Logger account, we've sent it a confirmation link. Open it within 60 minutes to finish deleting your account.
+            </p>
+        );
+    }
+
+    return (
+        <form onSubmit={handleSubmit} className="space-y-3" noValidate>
+            <div>
+                <label htmlFor="delete-email" className="block text-sm font-medium text-primary mb-1">
+                    Account email
+                </label>
+                <input
+                    type="email"
+                    id="delete-email"
+                    autoComplete="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="you@example.com"
+                    className="w-full px-3 py-2 bg-surface border border-app rounded-lg text-primary placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-mint focus:border-transparent"
+                />
+            </div>
+            {error && <p role="alert" className="text-sm text-danger">{error}</p>}
+            <button
+                type="submit"
+                disabled={isLoading}
+                className="btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+                {isLoading ? 'Sending…' : 'Email me a confirmation link'}
+            </button>
+        </form>
+    );
+}
 
 /**
  * Public account-deletion page. Google Play requires every app that lets
@@ -15,9 +95,22 @@ const linkClass = 'text-mint hover:text-sage transition-colors underline';
  * treat the path as a public contract, like the anchors in PrivacyPolicy.
  *
  * Keep "What is kept" in step with the privacy policy's Retention & Deletion
- * section and with what DELETE /auth/delete-account actually removes.
+ * section and with what deleteUserAccount (api services/account-deletion.service.ts)
+ * actually removes. Every deletion path, signed in or emailed, runs it.
  */
 export default function DeleteAccount() {
+    // Same fix as PrivacyPolicy: the card mounts behind a fade/translate, so
+    // native hash scrolling lands in the wrong place. The confirm page links
+    // to #by-email and #what-is-deleted, so scroll once the animation settles.
+    useEffect(() => {
+        const id = window.location.hash.slice(1);
+        if (!id) return;
+        const timer = setTimeout(() => {
+            document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 650);
+        return () => clearTimeout(timer);
+    }, []);
+
     const mailto = `mailto:${DELETION_EMAIL}?subject=${encodeURIComponent('Delete my Loam Logger account')}`;
 
     return (
@@ -37,10 +130,10 @@ export default function DeleteAccount() {
                             <div>
                                 <h1 className="title-page mb-2">Delete your Loam Logger account</h1>
                                 <p className="body text-muted">
-                                    Loam Logger is made by Loam Labs LLC. You can delete your account and the data stored with it from the app, from this website, or by email. Deletion is permanent and cannot be undone.
+                                    Loam Logger is made by Loam Labs LLC. You can delete your account and the data stored with it from the app, from this website, or with a link we email you. Deletion is permanent and cannot be undone.
                                 </p>
                                 <p className="body text-muted mt-3">
-                                    If you pay for Loam Logger Pro, <a className={linkClass} href="#cancel-subscription">cancel your subscription</a> first. Deleting your account does not cancel it.
+                                    If you pay for Loam Logger Pro through the App Store or Google Play, <a className={linkClass} href="#cancel-subscription">cancel that subscription</a> first. Deleting your account does not cancel it.
                                 </p>
                             </div>
 
@@ -65,21 +158,25 @@ export default function DeleteAccount() {
                                 </section>
 
                                 <section id="by-email">
-                                    <h2 className="card-title mb-3">Ask us by email</h2>
-                                    <p className="body text-muted">
-                                        If you can't sign in, email <a className={linkClass} href={mailto}>{DELETION_EMAIL}</a> from the address on your account and ask us to delete it. We delete the same data as the steps above and reply when it's done.
+                                    <h2 className="card-title mb-3">Delete by email</h2>
+                                    <p className="body text-muted mb-4">
+                                        If you can't sign in, enter the email address on your account. We'll send it a link to confirm the deletion. The link expires in 60 minutes, and nothing is deleted until you confirm.
+                                    </p>
+                                    <DeleteByEmailForm />
+                                    <p className="body text-muted mt-4">
+                                        No longer have access to that inbox? Email <a className={linkClass} href={mailto}>{DELETION_EMAIL}</a> and we'll help.
                                     </p>
                                 </section>
 
                                 <section id="cancel-subscription">
-                                    <h2 className="card-title mb-3">Cancel a Pro subscription first</h2>
+                                    <h2 className="card-title mb-3">Cancel an App Store or Google Play subscription first</h2>
                                     <p className="body text-muted mb-3">
-                                        Deleting your account does not cancel a Loam Logger Pro subscription. If you have one, cancel it before you delete your account:
+                                        Deleting your account does not cancel a Loam Logger Pro subscription bought through the App Store or Google Play. If you have one, cancel it before you delete your account:
                                     </p>
                                     <ul className="list-disc pl-6 space-y-2 body text-muted">
                                         <li><strong className="text-cream">Bought on Android:</strong> in the Google Play Store, open Payments &amp; subscriptions, then Subscriptions.</li>
                                         <li><strong className="text-cream">Bought on iPhone or iPad:</strong> in the Settings app, tap your name, then Subscriptions.</li>
-                                        <li><strong className="text-cream">Bought on the website:</strong> sign in, open Settings, then Account, and choose Manage Subscription.</li>
+                                        <li><strong className="text-cream">Bought on the website:</strong> nothing to do. Deleting your account cancels it, and you will not be charged again.</li>
                                     </ul>
                                 </section>
 
@@ -112,8 +209,40 @@ export default function DeleteAccount() {
 
                                 <section id="delete-some-data">
                                     <h2 className="card-title mb-3">Delete some data without deleting your account</h2>
+                                    <p className="body text-muted mb-3">
+                                        You can remove rides, bikes and imported GPS tracks at any time and keep your account. Each deletion is permanent.
+                                    </p>
+
+                                    <h3 className="text-base font-semibold text-cream mb-2">Delete a ride</h3>
+                                    <ul className="list-disc pl-6 space-y-2 body text-muted mb-4">
+                                        <li><strong className="text-cream">In the app:</strong> open the Rides tab, tap the ride, tap Delete, then tap Delete again to confirm.</li>
+                                        <li><strong className="text-cream">On the website:</strong> open <Link to="/rides" className={linkClass}>Rides</Link> and select Delete ride on the ride, then confirm.</li>
+                                    </ul>
+                                    <p className="body text-muted mb-4">
+                                        This deletes the ride with its GPS track, weather and notes, and removes its hours from your components.
+                                    </p>
+
+                                    <h3 className="text-base font-semibold text-cream mb-2">Delete a bike</h3>
+                                    <ul className="list-disc pl-6 space-y-2 body text-muted mb-4">
+                                        <li><strong className="text-cream">In the app:</strong> open the Gear tab, tap the bike, tap Delete Bike, then tap Delete to confirm.</li>
+                                        <li><strong className="text-cream">On the website:</strong> open <Link to="/gear" className={linkClass}>My Bikes</Link>, open the bike's actions menu and choose Delete bike.</li>
+                                    </ul>
+                                    <p className="body text-muted mb-4">
+                                        This deletes the bike, its components and their service history. Your rides are kept but are no longer linked to that bike.
+                                    </p>
+
+                                    <h3 className="text-base font-semibold text-cream mb-2">Remove data imported from Garmin or Strava</h3>
+                                    <ul className="list-disc pl-6 space-y-2 body text-muted mb-4">
+                                        <li><strong className="text-cream">In the app:</strong> open the Settings tab and, under Connected Services, tap Disconnect next to the provider.</li>
+                                        <li><strong className="text-cream">On the website:</strong> open <Link to="/settings?section=data-sources" className={linkClass}>Settings, then Data Sources</Link>, and disconnect the provider.</li>
+                                    </ul>
+                                    <p className="body text-muted mb-4">
+                                        Disconnecting stops new imports and deletes the GPS tracks we imported from that provider. Your rides and their totals stay. Disconnecting WHOOP or Suunto stops new imports from them.
+                                    </p>
+
+                                    <h3 className="text-base font-semibold text-cream mb-2">Anything else</h3>
                                     <p className="body text-muted">
-                                        You can delete individual rides and bikes in the app or on the website at any time. Disconnecting a provider in Settings deletes the raw GPS tracks imported from it. To have anything else removed, email <a className={linkClass} href={`mailto:${DELETION_EMAIL}`}>{DELETION_EMAIL}</a>.
+                                        To have other data removed, email <a className={linkClass} href={`mailto:${DELETION_EMAIL}`}>{DELETION_EMAIL}</a> and say what you'd like deleted.
                                     </p>
                                 </section>
 
