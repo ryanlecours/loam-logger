@@ -72,7 +72,7 @@ router.post('/signup', express.json(), async (req, res) => {
     // Check if user already exists
     const check = await verifyEmailAvailable(email);
     if (!check.available) {
-      return sendConflict(res, 'An account with this email already exists. Please log in.');
+      return sendConflict(res, 'An account with this email already exists. Please log in.', 'EMAIL_EXISTS');
     }
     const verifiedEmail = check.email;
 

@@ -80,6 +80,7 @@ import { validateEmailFormat } from './email.utils';
 import { hashPassword, validatePassword } from './password.utils';
 import { logger } from '../lib/logger';
 import { setCsrfCookie } from './csrf';
+import { createNewUser, verifyEmailAvailable } from '../services/signup.service';
 
 const mockPrisma = prisma as jest.Mocked<typeof prisma>;
 const mockUserFindUnique = mockPrisma.user.findUnique as unknown as jest.Mock;
@@ -249,6 +250,28 @@ describe('POST /forgot-password', () => {
       );
       expect(res.json).toHaveBeenCalledWith({ ok: true });
     });
+  });
+});
+
+// ============================================================================
+// POST /signup: email already registered
+// ============================================================================
+
+describe('POST /signup when the email is taken', () => {
+  it('returns 409 with the EMAIL_EXISTS code and creates nothing', async () => {
+    const handler = getHandler('/signup', 'post');
+    (verifyEmailAvailable as jest.Mock).mockResolvedValue({ available: false });
+    const req = createMockRequest({
+      body: { email: 'taken@example.com', name: 'Rider', password: 'StrongPassw0rd!' },
+    });
+    const res = createMockResponse();
+
+    await invokeHandler(handler, req as Request, res as unknown as Response);
+
+    expect(res.status).toHaveBeenCalledWith(409);
+    // Clients branch on the code, not the wording, to offer log in or reset.
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ code: 'EMAIL_EXISTS' }));
+    expect(createNewUser).not.toHaveBeenCalled();
   });
 });
 
