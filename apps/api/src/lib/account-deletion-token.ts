@@ -20,9 +20,9 @@ type AccountDeletionTokenPayload = {
 
 /**
  * The signing key is derived from SESSION_SECRET rather than being
- * SESSION_SECRET itself. The web session check verifies any
- * SESSION_SECRET-signed JWT that carries a uid, so a deletion link signed with
- * the raw secret could be pasted into the ll_session cookie and act as a
+ * SESSION_SECRET itself. The web session check once accepted any
+ * SESSION_SECRET-signed JWT carrying a uid (it now takes web sessions only, see
+ * isWebSessionPayload), so a raw-secret deletion link could have acted as a
  * login. A derived key cannot verify there, and session tokens cannot verify
  * here.
  */

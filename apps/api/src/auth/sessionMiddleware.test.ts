@@ -21,7 +21,7 @@ import express from 'express';
 import cookieParser from 'cookie-parser';
 import jwt from 'jsonwebtoken';
 import request from 'supertest';
-import { attachUser, enrichContextFromSession, sessionMiddleware } from './session';
+import { attachUser, enrichContextFromSession, sessionMiddleware, setSessionCookie } from './session';
 import { generateAccessToken } from './token';
 import { prisma } from '../lib/prisma';
 import {
@@ -100,5 +100,62 @@ describe('sessionMiddleware', () => {
     mockUserFindUnique.mockResolvedValue({ sessionTokenVersion: 1 });
     const res = await request(makeApp()).post('/graphql').set('Cookie', cookie());
     expect(res.body).toEqual({ userId: null, client: null });
+  });
+});
+
+// Every token the API signs is a JWT, and before this fix all of them were
+// signed with SESSION_SECRET. The cookie path checked only the signature and
+// sessionTokenVersion (a missing `v` reads as 0, the column default), so any
+// of them carrying a uid worked as a web session. The unsubscribe token sits
+// in every marketing email for 90 days: forwarding one let the recipient sign
+// in as the rider.
+describe('the ll_session cookie accepts only web session tokens', () => {
+  const asCookie = (token: string) => `ll_session=${token}`;
+  const signedIn = async (token: string) =>
+    (await request(makeApp()).post('/graphql').set('Cookie', asCookie(token))).body.userId;
+
+  it('rejects an unsubscribe token signed with SESSION_SECRET (forwarded marketing email)', async () => {
+    const unsubscribe = jwt.sign({ uid: 'victim', purpose: 'unsubscribe' }, 'test-secret', { expiresIn: '90d' });
+    expect(await signedIn(unsubscribe)).toBeNull();
+  });
+
+  it('rejects mobile access and refresh tokens', async () => {
+    const access = generateAccessToken({ uid: 'victim', v: 0 });
+    const refresh = jwt.sign({ uid: 'victim', v: 0, typ: 'refresh', sid: 's', jti: 'j' }, 'test-secret', {
+      expiresIn: '365d',
+    });
+    expect(await signedIn(access)).toBeNull();
+    expect(await signedIn(refresh)).toBeNull();
+  });
+
+  it('rejects any token with a claim a web session never carries', async () => {
+    const odd = jwt.sign({ uid: 'victim', v: 0, role: 'ADMIN' }, 'test-secret', { expiresIn: '7d' });
+    expect(await signedIn(odd)).toBeNull();
+  });
+
+  it('accepts a session cookie as issued before typ existed', async () => {
+    const legacy = jwt.sign({ uid: 'user_web', email: 'r@example.com', authAt: Date.now(), v: 0 }, 'test-secret', {
+      expiresIn: '7d',
+    });
+    expect(await signedIn(legacy)).toBe('user_web');
+  });
+
+  it('accepts a session cookie issued now', async () => {
+    const cookieSpy = jest.fn();
+    setSessionCookie({ cookie: cookieSpy } as never, { uid: 'user_web', email: 'r@example.com', authAt: Date.now(), v: 0 });
+    const issued = cookieSpy.mock.calls[0][1] as string;
+
+    expect(jwt.decode(issued)).toMatchObject({ uid: 'user_web', typ: 'web' });
+    expect(await signedIn(issued)).toBe('user_web');
+  });
+
+  // The reverse direction: the bearer path takes access tokens only.
+  it('does not accept a web session cookie as a bearer token', async () => {
+    const cookieSpy = jest.fn();
+    setSessionCookie({ cookie: cookieSpy } as never, { uid: 'user_web', authAt: Date.now(), v: 0 });
+    const res = await request(makeApp())
+      .post('/graphql')
+      .set('Authorization', `Bearer ${cookieSpy.mock.calls[0][1]}`);
+    expect(res.body.userId).toBeNull();
   });
 });
