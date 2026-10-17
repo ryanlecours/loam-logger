@@ -140,6 +140,10 @@ function createMockRequest(overrides: Partial<Request> = {}): Partial<Request> {
   };
 }
 
+/** Lets the fire-and-forget token and email work run before asserting on it. */
+const flushBackgroundWork = () => new Promise((resolve) => setImmediate(resolve));
+const mockLoggerError = logger.error as unknown as jest.Mock;
+
 beforeEach(() => {
   jest.clearAllMocks();
   mockCheckAuthRateLimit.mockResolvedValue({ allowed: true });
@@ -214,6 +218,27 @@ describe('POST /forgot-password', () => {
       await invokeHandler(handler, req as Request, res as unknown as Response);
 
       expect(res.json).toHaveBeenCalledWith({ ok: true });
+      await flushBackgroundWork();
+      expect(mockLoggerError).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: 'user_1' }),
+        '[EmailAuth] Forgot password email send failed',
+      );
+    });
+
+    // A known address used to wait on the token write and the email provider
+    // before answering, so response time told an attacker it was registered.
+    it('answers a known address without waiting for the token or the email', async () => {
+      mockUserFindUnique.mockResolvedValue({ id: 'user_1', email: 'rider@example.com', name: 'Alex' });
+      mockCreateToken.mockReturnValue(new Promise(() => {}));
+
+      const req = createMockRequest({ body: { email: 'rider@example.com' } });
+      const res = createMockResponse();
+
+      await invokeHandler(handler, req as Request, res as unknown as Response);
+
+      expect(mockCreateToken).toHaveBeenCalledWith('user_1');
+      expect(mockSendEmail).not.toHaveBeenCalled();
+      expect(res.json).toHaveBeenCalledWith({ ok: true });
     });
   });
 
@@ -241,6 +266,7 @@ describe('POST /forgot-password', () => {
       const res = createMockResponse();
 
       await invokeHandler(handler, req as Request, res as unknown as Response);
+      await flushBackgroundWork();
 
       expect(mockCreateToken).toHaveBeenCalledWith('user_1');
       expect(mockSendEmail).toHaveBeenCalledWith(

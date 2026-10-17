@@ -259,7 +259,9 @@ router.post('/change-password', express.json(), requireRecentAuth, async (req, r
  * address is on file.
  *
  * Always returns 200 regardless of whether the email matches a user — this
- * prevents email enumeration via the response.
+ * prevents email enumeration via the response. The token and email are made
+ * without awaiting them, so response time doesn't give the answer away either:
+ * a known address used to wait on a DB write and the email provider.
  */
 router.post('/forgot-password', express.json(), async (req, res) => {
   try {
@@ -287,14 +289,14 @@ router.post('/forgot-password', express.json(), async (req, res) => {
     });
 
     if (user) {
-      try {
+      void (async () => {
         const rawToken = await createPasswordResetToken(user.id);
         await sendPasswordResetEmail(user, rawToken, 'user_action');
-      } catch (err) {
-        // Log but still return 200 — we don't want the client to infer anything
-        // from timing or error state.
+      })().catch((err) => {
+        // Logged only: the client must not infer anything from timing or
+        // error state.
         logger.error({ err, userId: user.id }, '[EmailAuth] Forgot password email send failed');
-      }
+      });
     }
 
     res.json({ ok: true });
