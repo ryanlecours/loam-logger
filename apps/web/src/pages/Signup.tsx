@@ -7,6 +7,7 @@ import { ME_QUERY } from '../graphql/me';
 import { setCsrfToken } from '@/lib/csrf';
 import { readPendingProviderLink, type PendingProviderLink } from '@/lib/providerLink';
 import ProviderLinkModal from '../components/ProviderLinkModal';
+import CheckEmailNotice from '../components/CheckEmailNotice';
 
 export default function Signup() {
   const navigate = useNavigate();
@@ -19,6 +20,9 @@ export default function Signup() {
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [pendingLink, setPendingLink] = useState<PendingProviderLink | null>(null);
+  // Set once a password signup succeeds: the account exists but cannot sign
+  // in until the address is confirmed.
+  const [verificationEmail, setVerificationEmail] = useState<string | null>(null);
 
   useEffect(() => {
     document.documentElement.classList.add('marketing-page');
@@ -79,13 +83,8 @@ export default function Signup() {
         return;
       }
 
-      // Account created — auto-logged in, go to onboarding.
-      if (data.csrfToken) {
-        setCsrfToken(data.csrfToken);
-      }
-      const { data: meData } = await apollo.query({ query: ME_QUERY, fetchPolicy: 'network-only' });
-      apollo.writeQuery({ query: ME_QUERY, data: meData });
-      navigate('/onboarding', { replace: true });
+      // Account created. No session until the emailed link is opened.
+      setVerificationEmail(data.email || email.trim());
     } catch (err) {
       console.error('[Signup] Network error:', err);
       setError('Network error. Please check your connection and try again.');
@@ -178,6 +177,15 @@ export default function Signup() {
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.8 }}
       >
+        {verificationEmail ? (
+          <div className="rounded-2xl p-8 glass-form">
+            <CheckEmailNotice
+              email={verificationEmail}
+              onBackToSignIn={() => navigate('/login', { replace: true })}
+            />
+          </div>
+        ) : (
+        <>
         <div className="text-center mb-8">
           <h1 className="hero-headline mb-4">Create your account</h1>
           <p className="body-large text-sand">
@@ -286,6 +294,8 @@ export default function Signup() {
             {isSubmitting ? 'Creating account...' : 'Create Account'}
           </button>
         </motion.form>
+        </>
+        )}
 
         <motion.div
           className="text-center mt-6"
