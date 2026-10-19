@@ -162,6 +162,19 @@ describe('POST /api/admin/users/:userId/verify-email', () => {
     expect(mockAuditLogger.info).not.toHaveBeenCalled();
   });
 
+  it('returns 404 when the user is deleted between the lookup and the update', async () => {
+    mockFindUnique
+      .mockResolvedValueOnce({ role: 'ADMIN' })
+      .mockResolvedValueOnce({ id: RIDER_ID, emailVerified: null })
+      .mockResolvedValueOnce(null);
+    mockUpdateMany.mockResolvedValue({ count: 0 });
+
+    const res = await request(app).post(PATH).set('x-test-uid', ADMIN_ID);
+
+    expect(res.status).toBe(404);
+    expect(mockAuditLogger.info).not.toHaveBeenCalled();
+  });
+
   it('returns 404 for an unknown user id', async () => {
     mockUsers({ target: null });
 

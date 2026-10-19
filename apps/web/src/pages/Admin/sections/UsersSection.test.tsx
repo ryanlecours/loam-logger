@@ -227,6 +227,24 @@ describe('UsersSection', () => {
     expect(toast.success).toHaveBeenCalledWith('rider@example.com marked verified.');
   });
 
+  it('still clears the badge when a successful response body cannot be read', async () => {
+    const { toast } = await import('sonner');
+    setupFetchHandlers({
+      users: () => userListResponse([{ emailVerified: null, emailVerificationRequired: true }]),
+      verifyEmail: () => new Response('not json', { status: 200 }),
+    });
+    renderInProvider(<UsersSection />);
+
+    expect(await screen.findByText('Awaiting verification')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Mark verified' }));
+    fireEvent.click(within(screen.getByTestId('modal-footer')).getByRole('button', { name: 'Mark verified' }));
+
+    await waitFor(() => {
+      expect(screen.queryByText('Awaiting verification')).not.toBeInTheDocument();
+    });
+    expect(toast.success).toHaveBeenCalledWith('rider@example.com marked verified.');
+  });
+
   it('keeps the row unverified and shows an error toast when Mark verified fails', async () => {
     const { toast } = await import('sonner');
     setupFetchHandlers({

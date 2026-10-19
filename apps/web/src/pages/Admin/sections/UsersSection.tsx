@@ -194,8 +194,10 @@ export function UsersSection() {
         throw new Error(data.error || 'Failed to mark email verified');
       }
       // The server's timestamp, which is the existing one if the account was
-      // verified some other way first.
-      const { emailVerified } = await res.json();
+      // verified some other way first. The write already succeeded, so an
+      // unreadable body still clears the row, with a local timestamp.
+      const data = await res.json().catch(() => null);
+      const emailVerified: string = data?.emailVerified ?? new Date().toISOString();
       setUsers((prev) =>
         prev.map((u) => (u.id === verifyTarget.id ? { ...u, emailVerified } : u)),
       );
