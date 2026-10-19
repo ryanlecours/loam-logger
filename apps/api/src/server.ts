@@ -6,6 +6,7 @@ import cookieParser from 'cookie-parser';
 import pinoHttp from 'pino-http';
 import { ApolloServer } from '@apollo/server';
 import { sentryApolloPlugin } from './lib/sentry-apollo-plugin';
+import { deprecatedFieldUsagePlugin } from './lib/deprecated-field-usage-plugin';
 import { expressMiddleware, type ExpressContextFunctionArgument } from '@as-integrations/express4';
 import { typeDefs } from './graphql/schema';
 import { resolvers } from './graphql/resolvers';
@@ -31,6 +32,7 @@ import {
   createRequestContext,
   enrichRequestContext,
 } from './lib/requestContext';
+import { CLIENT_HEADER } from './lib/clientPlatform';
 
 import authGarmin from './routes/auth.garmin';
 import authStrava from './routes/auth.strava';
@@ -56,11 +58,12 @@ import adminRouter from './routes/admin';
 import adminLiftRouter from './routes/admin.lift';
 import spokesRouter from './routes/spokes';
 import emailUnsubscribeRouter from './routes/email.unsubscribe';
-import { googleRouter, emailRouter, deleteAccountRouter, passwordRouter, providerLinkRouter, attachUser, verifyCsrf } from './auth/index';
+import { googleRouter, emailRouter, deleteAccountRouter, deleteAccountEmailRouter, passwordRouter, providerLinkRouter, sessionMiddleware, verifyCsrf } from './auth/index';
 import webhooksStripe from './routes/webhooks.stripe';
 import webhooksRevenueCat from './routes/webhooks.revenuecat';
 import { validateStripeConfig } from './lib/stripe';
 import { FRONTEND_URL, config } from './config/env';
+import { createOriginAllowlist, parseExtraOrigins } from './lib/cors-origin';
 import mobileAuthRouter from './auth/mobile.route';
 
 export type GraphQLContext = {
@@ -101,44 +104,10 @@ const startServer = async () => {
     res.json({ sessionUser: req.sessionUser ?? null });
   });
 
-  const EXTRA_ORIGINS = (process.env.CORS_EXTRA_ORIGINS || '')
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean);
-
-  const allowOrigin = (origin?: string) => {
-    if (!origin) return true; // SSR/tools/no Origin header
-
-    // Allow Expo/custom schemes quickly (these are not valid URLs for new URL())
-    if (origin.startsWith('exp://') || origin.startsWith('loamlogger://')) return true;
-
-    try {
-      const u = new URL(origin);
-      const host = u.hostname;
-
-      if (
-        origin === FRONTEND_URL ||
-        origin === 'http://localhost:5173' ||
-        EXTRA_ORIGINS.includes(origin) ||
-        host.endsWith('.vercel.app')
-      ) {
-        return true;
-      }
-
-      // Local RN dev servers (http only)
-      if (
-        origin.startsWith('http://localhost:8081') ||
-        origin.startsWith('http://localhost:19000') ||
-        origin.startsWith('http://localhost:19006')
-      ) {
-        return true;
-      }
-
-      return false;
-    } catch {
-      return false;
-    }
-  };
+  const allowOrigin = createOriginAllowlist({
+    frontendUrl: FRONTEND_URL,
+    extraOrigins: parseExtraOrigins(process.env.CORS_EXTRA_ORIGINS),
+  });
 
   // Disallowed origins are refused here, before any route runs, with a plain
   // 403. This used to be an Error passed to the cors callback, which blocked
@@ -155,7 +124,7 @@ const startServer = async () => {
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'x-csrf-token', 'sentry-trace', 'baggage'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-csrf-token', 'sentry-trace', 'baggage', CLIENT_HEADER],
   });
 
   app.use(corsMw);
@@ -234,18 +203,8 @@ const startServer = async () => {
   // HTTP request/response logging
   app.use(httpLogger);
 
-  // Attach user/session
-  app.use(attachUser);
-
-  // Enrich context with userId after auth
-  app.use((req, _res, next) => {
-    const userId = req.sessionUser?.uid ?? req.user?.id;
-    if (userId) {
-      enrichRequestContext({ userId });
-      Sentry.setUser({ id: userId });
-    }
-    next();
-  });
+  // Attach user/session, then tag the context with the user and calling client
+  app.use(sessionMiddleware);
 
   // CSRF protection for state-changing requests
   // Skips: GET/HEAD/OPTIONS, Bearer token auth (mobile), unauthenticated requests
@@ -257,7 +216,7 @@ const startServer = async () => {
     resolvers,
     // Turn resolver-thrown errors into first-class Sentry events with the
     // operation name + variables + query, instead of generic Express noise.
-    plugins: [sentryApolloPlugin()],
+    plugins: [sentryApolloPlugin(), deprecatedFieldUsagePlugin()],
   });
   await server.start();
 
@@ -290,6 +249,7 @@ const startServer = async () => {
   app.use('/auth', googleRouter);
   app.use('/auth', emailRouter);
   app.use('/auth', deleteAccountRouter);
+  app.use('/auth', deleteAccountEmailRouter);
   app.use('/auth', passwordRouter);
   app.use('/auth', providerLinkRouter);
   app.use('/auth', mobileAuthRouter);

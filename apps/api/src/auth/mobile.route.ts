@@ -91,7 +91,7 @@ router.post('/mobile/signup', express.json(), async (req, res) => {
     const check = await verifyEmailAvailable(email);
     if (!check.available) {
       logger.info({ code: 'EMAIL_EXISTS', route: 'mobile/signup' }, 'Signup 409: account exists');
-      return sendConflict(res, 'An account with this email already exists. Please log in.');
+      return sendConflict(res, 'An account with this email already exists. Please log in.', 'EMAIL_EXISTS');
     }
     const verifiedEmail = check.email;
 

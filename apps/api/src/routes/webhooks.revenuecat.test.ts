@@ -12,6 +12,7 @@ jest.mock('../lib/prisma', () => ({
   prisma: {
     user: {
       findUnique: jest.fn(),
+      findFirst: jest.fn().mockResolvedValue(null),
       updateMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
     emailSend: {
@@ -238,6 +239,143 @@ describe('POST /webhooks/revenuecat', () => {
 
     expect(mockUpgradeUser).toHaveBeenCalledWith('user-123', 'APPLE', 'revenuecat_webhook');
     expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  describe('TRANSFER', () => {
+    // RevenueCat sends TRANSFER without app_user_id.
+    function createTransferRequest(overrides: Record<string, unknown> = {}) {
+      return {
+        headers: { authorization: 'Bearer test-webhook-key' },
+        body: {
+          event: {
+            type: 'TRANSFER',
+            store: 'APP_STORE',
+            transferred_from: ['old-user'],
+            transferred_to: ['new-user'],
+            ...overrides,
+          },
+        },
+      } as unknown as Request;
+    }
+
+    it('should upgrade transferred_to and downgrade transferred_from', async () => {
+      const req = createTransferRequest();
+      const res = createMockResponse();
+
+      await invokeHandler(handler, req, res as unknown as Response);
+
+      expect(mockUpgradeUser).toHaveBeenCalledTimes(1);
+      expect(mockUpgradeUser).toHaveBeenCalledWith('new-user', 'APPLE', 'revenuecat_webhook');
+      expect(mockDowngradeUser).toHaveBeenCalledTimes(1);
+      expect(mockDowngradeUser).toHaveBeenCalledWith('old-user', 'revenuecat_webhook', {
+        onlyProviders: ['APPLE'],
+      });
+      expect(res.status).toHaveBeenCalledWith(200);
+    });
+
+    it('should only downgrade PRO from the transferred store', async () => {
+      const req = createTransferRequest({ store: 'PLAY_STORE' });
+      const res = createMockResponse();
+
+      await invokeHandler(handler, req, res as unknown as Response);
+
+      expect(mockUpgradeUser).toHaveBeenCalledWith('new-user', 'GOOGLE', 'revenuecat_webhook');
+      expect(mockDowngradeUser).toHaveBeenCalledWith('old-user', 'revenuecat_webhook', {
+        onlyProviders: ['GOOGLE'],
+      });
+    });
+
+    it('should handle every id in transferred_from and transferred_to', async () => {
+      const req = createTransferRequest({
+        transferred_from: ['old-1', 'old-2'],
+        transferred_to: ['new-1', 'new-2'],
+      });
+      const res = createMockResponse();
+
+      await invokeHandler(handler, req, res as unknown as Response);
+
+      expect(mockUpgradeUser.mock.calls.map((c) => c[0])).toEqual(['new-1', 'new-2']);
+      expect(mockDowngradeUser.mock.calls.map((c) => c[0])).toEqual(['old-1', 'old-2']);
+    });
+
+    it('should skip RevenueCat anonymous ids', async () => {
+      const req = createTransferRequest({
+        transferred_from: ['$RCAnonymousID:abc123', 'old-user'],
+        transferred_to: ['$RCAnonymousID:def456'],
+      });
+      const res = createMockResponse();
+
+      await invokeHandler(handler, req, res as unknown as Response);
+
+      expect(mockUpgradeUser).not.toHaveBeenCalled();
+      expect(mockDowngradeUser).toHaveBeenCalledTimes(1);
+      expect(mockDowngradeUser).toHaveBeenCalledWith('old-user', 'revenuecat_webhook', {
+        onlyProviders: ['APPLE'],
+      });
+      expect(res.status).toHaveBeenCalledWith(200);
+    });
+
+    it('should not downgrade an id that also receives the transfer', async () => {
+      const req = createTransferRequest({
+        transferred_from: ['same-user'],
+        transferred_to: ['same-user'],
+      });
+      const res = createMockResponse();
+
+      await invokeHandler(handler, req, res as unknown as Response);
+
+      expect(mockUpgradeUser).toHaveBeenCalledWith('same-user', 'APPLE', 'revenuecat_webhook');
+      expect(mockDowngradeUser).not.toHaveBeenCalled();
+    });
+
+    it('should tolerate missing or malformed id arrays', async () => {
+      const req = createTransferRequest({ transferred_from: undefined, transferred_to: 'new-user' });
+      const res = createMockResponse();
+
+      await invokeHandler(handler, req, res as unknown as Response);
+
+      expect(mockUpgradeUser).not.toHaveBeenCalled();
+      expect(mockDowngradeUser).not.toHaveBeenCalled();
+      expect(res.status).toHaveBeenCalledWith(200);
+    });
+
+    it('should inherit the source account provider when store is missing', async () => {
+      (mockPrisma.user.findFirst as jest.Mock).mockResolvedValueOnce({ subscriptionProvider: 'APPLE' });
+      const req = createTransferRequest({ store: undefined });
+      const res = createMockResponse();
+
+      await invokeHandler(handler, req, res as unknown as Response);
+
+      expect(mockPrisma.user.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: { in: ['old-user'] }, subscriptionProvider: { in: ['APPLE', 'GOOGLE'] } },
+        })
+      );
+      expect(mockUpgradeUser).toHaveBeenCalledWith('new-user', 'APPLE', 'revenuecat_webhook');
+      expect(mockDowngradeUser).toHaveBeenCalledWith('old-user', 'revenuecat_webhook', {
+        onlyProviders: ['APPLE', 'GOOGLE'],
+      });
+    });
+
+    it('should fall back to GOOGLE when store is missing and no source provider is known', async () => {
+      (mockPrisma.user.findFirst as jest.Mock).mockResolvedValueOnce(null);
+      const req = createTransferRequest({ store: undefined });
+      const res = createMockResponse();
+
+      await invokeHandler(handler, req, res as unknown as Response);
+
+      expect(mockUpgradeUser).toHaveBeenCalledWith('new-user', 'GOOGLE', 'revenuecat_webhook');
+    });
+
+    it('should return 500 when an upgrade fails so RevenueCat retries', async () => {
+      mockUpgradeUser.mockRejectedValueOnce(new Error('DB connection failed'));
+      const req = createTransferRequest();
+      const res = createMockResponse();
+
+      await invokeHandler(handler, req, res as unknown as Response);
+
+      expect(res.status).toHaveBeenCalledWith(500);
+    });
   });
 
   describe('BILLING_ISSUE', () => {

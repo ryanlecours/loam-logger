@@ -5,6 +5,7 @@ const SHARE_FIELDS = `
   scope
   rangeStart
   rangeEnd
+  includeRides
   url
   createdAt
 `;
@@ -35,6 +36,15 @@ export const REVOKE_COMPONENT_SHARE = gql`
   }
 `;
 
+/** Turn a sent link's ride list on or off; the URL stays the same. */
+export const UPDATE_COMPONENT_SHARE = gql`
+  mutation UpdateComponentShare($id: ID!, $includeRides: Boolean!) {
+    updateComponentShare(id: $id, includeRides: $includeRides) {
+      ${SHARE_FIELDS}
+    }
+  }
+`;
+
 /** Public: one share link's window of a component's history. */
 export const SHARED_COMPONENT_HISTORY = gql`
   query SharedComponentHistory($slug: String!) {
@@ -58,6 +68,8 @@ export const SHARED_COMPONENT_HISTORY = gql`
         lastRideAt
       }
       declaredPriorHours
+      # The owner opted this link into a ride list (SHARED_COMPONENT_RIDES).
+      includeRides
       bikes {
         bike {
           manufacturer
@@ -86,6 +98,28 @@ export const SHARED_COMPONENT_HISTORY = gql`
       # Drives the data-source attribution. This page is public, so
       # third-party attribution has to travel with the data.
       contributingSources
+    }
+  }
+`;
+
+/**
+ * Public: one page of an opted-in link's rides, newest first. Null for a link
+ * without the opt-in. Rows carry no ids, so pages merge by offset.
+ */
+export const SHARED_COMPONENT_RIDES = gql`
+  query SharedComponentRides($slug: String!, $take: Int, $offset: Int) {
+    sharedComponentRides(slug: $slug, take: $take, offset: $offset) {
+      hasMore
+      rides {
+        date
+        durationSeconds
+        distanceMeters
+        elevationGainMeters
+        trailSystem
+        location
+        sources
+        garminAttribution
+      }
     }
   }
 `;

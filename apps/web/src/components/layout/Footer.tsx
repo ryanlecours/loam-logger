@@ -11,6 +11,7 @@ const legalLinks = [
     { label: 'Terms & Conditions', path: '/terms' },
     { label: 'Privacy Policy', path: '/privacy' },
     { label: 'Safety & Estimates Disclaimer', path: '/disclaimer' },
+    { label: 'Delete Your Account', path: '/delete-account' },
 ];
 
 const companyLinks = [

@@ -1,4 +1,4 @@
-import type { PrismaClient, Prisma } from '@prisma/client';
+import type { PrismaClient, Prisma, Ride } from '@prisma/client';
 
 type TransactionClient = Omit<
   PrismaClient,
@@ -526,6 +526,123 @@ export async function cumulativeSeries(
       cumulativeElevationGainMeters: elevation,
     };
   });
+}
+
+// ---------------------------------------------------------------------------
+// Counted ride rows
+// ---------------------------------------------------------------------------
+//
+// The rides behind the totals above, one row each. Distinct from the
+// componentRides query, which lists the rides behind hoursUsed: those are on
+// the component's CURRENT bike since the anchor, while these follow the tenure
+// rule, so a list under a lifetime total holds exactly the rides it sums.
+
+/** Largest page of ride rows a caller may ask for. */
+export const RIDE_PAGE_MAX = 100;
+
+/**
+ * How deep offset paging may go. Postgres reads and discards every skipped
+ * row, and the share page is public, so the depth is bounded; 10,000 rides is
+ * far past any one part's life, and paging simply ends there.
+ */
+export const RIDE_OFFSET_MAX = 10_000;
+
+export interface CountedRideBasis {
+  tenures: NormalizedTenure[];
+  includedRideIds: string[];
+  excludedRideIds: string[];
+  /** The latest SERVICE log's date; null when the part was never serviced. */
+  latestServiceAt: Date | null;
+}
+
+/**
+ * Read what the counted-ride rule needs for one component: its tenures, the
+ * rider's per-ride adjustments and its latest service. The same reads the
+ * history and share builders make, minus the parts only they need.
+ */
+export async function loadCountedRideBasis(
+  db: TransactionClient | Prisma.TransactionClient,
+  component: HistoryComponent
+): Promise<CountedRideBasis> {
+  const client = db as TransactionClient;
+  const [adjustments, installRows, latestService] = await Promise.all([
+    client.componentRideAdjustment.findMany({
+      where: { componentId: component.id },
+      select: { rideId: true, kind: true },
+    }),
+    client.bikeComponentInstall.findMany({
+      where: { componentId: component.id, userId: component.userId },
+      orderBy: [{ installedAt: 'asc' }, { id: 'asc' }],
+      take: TENURE_CAP,
+      select: { id: true, bikeId: true, slotKey: true, installedAt: true, removedAt: true },
+    }),
+    // An inspection that stood in for a service moves the due point, not the
+    // date of the last service.
+    client.serviceLog.findFirst({
+      where: { componentId: component.id, kind: 'SERVICE' },
+      orderBy: [{ performedAt: 'desc' }, { createdAt: 'desc' }],
+      select: { performedAt: true },
+    }),
+  ]);
+
+  return {
+    tenures: normalizeTenures(component, installRows).tenures,
+    includedRideIds: adjustments.filter((a) => a.kind === 'INCLUDE').map((a) => a.rideId),
+    excludedRideIds: adjustments.filter((a) => a.kind === 'EXCLUDE').map((a) => a.rideId),
+    latestServiceAt: latestService?.performedAt ?? null,
+  };
+}
+
+interface RidePageParams {
+  userId: string;
+  basis: CountedRideBasis;
+  range?: DateRange;
+  take: number;
+  offset: number;
+}
+
+/**
+ * One page of the counted rides in a window, newest first. Offset-paged so the
+ * public share page can page without handing out ride ids; `take` is clamped
+ * to [1, RIDE_PAGE_MAX] and one extra row is read to answer hasMore. Without a
+ * `select` the rows are whole Rides, for the owner's GraphQL Ride type.
+ */
+export async function pageCountedRides(
+  db: TransactionClient | Prisma.TransactionClient,
+  params: RidePageParams
+): Promise<{ rides: Ride[]; hasMore: boolean }>;
+export async function pageCountedRides<S extends Prisma.RideSelect>(
+  db: TransactionClient | Prisma.TransactionClient,
+  params: RidePageParams & { select: S }
+): Promise<{ rides: Prisma.RideGetPayload<{ select: S }>[]; hasMore: boolean }>;
+export async function pageCountedRides(
+  db: TransactionClient | Prisma.TransactionClient,
+  params: RidePageParams & { select?: Prisma.RideSelect }
+): Promise<{ rides: unknown[]; hasMore: boolean }> {
+  const { userId, basis, range, select } = params;
+  const where = buildCountedRideWhere({
+    userId,
+    windows: mergeWindows(basis.tenures),
+    includedRideIds: basis.includedRideIds,
+    excludedRideIds: basis.excludedRideIds,
+    range,
+  });
+  const offset = Math.max(0, Math.floor(params.offset) || 0);
+  if (!where || offset >= RIDE_OFFSET_MAX) return { rides: [], hasMore: false };
+
+  // The page never reaches past the depth cap.
+  const limit = Math.min(RIDE_PAGE_MAX, Math.max(1, Math.floor(params.take) || 1), RIDE_OFFSET_MAX - offset);
+  const rows: unknown[] = await (db as TransactionClient).ride.findMany({
+    where,
+    ...(select ? { select } : {}),
+    // id breaks startTime ties, so a page boundary never repeats or skips a row.
+    orderBy: [{ startTime: 'desc' }, { id: 'desc' }],
+    skip: offset,
+    take: limit + 1,
+  });
+
+  const hasMore = rows.length > limit && offset + limit < RIDE_OFFSET_MAX;
+  return { rides: rows.slice(0, limit), hasMore };
 }
 
 // ---------------------------------------------------------------------------

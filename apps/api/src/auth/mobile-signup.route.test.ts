@@ -183,6 +183,8 @@ describe('POST /mobile/signup', () => {
     await invokeHandler(handler, req, res as unknown as Response);
 
     expect(res.status).toHaveBeenCalledWith(409);
+    // Clients branch on the code, not the wording, to offer log in or reset.
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ code: 'EMAIL_EXISTS' }));
     expect(mockCreateNewUser).not.toHaveBeenCalled();
   });
 });

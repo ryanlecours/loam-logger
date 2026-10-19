@@ -74,6 +74,19 @@ jest.mock('../lib/logger', () => ({
   createLogger: jest.fn(() => ({ error: jest.fn(), info: jest.fn(), warn: jest.fn(), debug: jest.fn() })),
 }));
 
+jest.mock('../services/account-deletion.service', () => {
+  class BillingCancellationError extends Error {
+    constructor(cause: unknown) {
+      super('Failed to cancel Stripe billing before account deletion', { cause });
+      this.name = 'BillingCancellationError';
+    }
+  }
+  return {
+    deleteUserAccount: jest.fn().mockResolvedValue({ email: 'rider@example.com' }),
+    BillingCancellationError,
+  };
+});
+
 jest.mock('../lib/api-response', () => ({
   sendUnauthorized: jest.fn((res) => res.status(401).json({ error: 'Unauthorized' })),
   sendBadRequest: jest.fn((res, message) => res.status(400).json({ error: message })),
@@ -84,6 +97,7 @@ import type { Request, Response, RequestHandler } from 'express';
 import { prisma } from '../lib/prisma';
 import { checkAdminRateLimit } from '../lib/rate-limit';
 import { sendBadRequest } from '../lib/api-response';
+import { deleteUserAccount, BillingCancellationError } from '../services/account-deletion.service';
 
 const mockPrisma = prisma as jest.Mocked<typeof prisma>;
 const mockCheckAdminRateLimit = checkAdminRateLimit as jest.MockedFunction<
@@ -629,6 +643,42 @@ describe('Admin Routes - Self-Action Prevention', () => {
       await invokeHandler(handler, req, res);
 
       expect(mockSendBadRequest).toHaveBeenCalledWith(res, 'Cannot delete your own account');
+    });
+
+    it('deletes through the shared account deletion service', async () => {
+      (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({
+        id: 'user-1',
+        email: 'rider@example.com',
+        role: 'FREE',
+      });
+      const { req, res } = createMocks();
+      req.params = { userId: 'user-1' };
+
+      await invokeHandler(handler, req, res);
+
+      expect(deleteUserAccount).toHaveBeenCalledWith('user-1');
+      expect(mockPrisma.user.delete).not.toHaveBeenCalled();
+      expect(res.json).toHaveBeenCalledWith({ success: true, deletedUserId: 'user-1' });
+    });
+
+    it('answers 503 and deletes nothing when Stripe cannot be cancelled', async () => {
+      (mockPrisma.user.findUnique as jest.Mock).mockResolvedValue({
+        id: 'user-1',
+        email: 'rider@example.com',
+        role: 'PRO',
+      });
+      (deleteUserAccount as jest.Mock).mockRejectedValueOnce(
+        new BillingCancellationError(new Error('stripe down'))
+      );
+      const { req, res } = createMocks();
+      req.params = { userId: 'user-1' };
+
+      await invokeHandler(handler, req, res);
+
+      expect(res.status).toHaveBeenCalledWith(503);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({ code: 'BILLING_CANCELLATION_FAILED' })
+      );
     });
   });
 });

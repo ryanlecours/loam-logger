@@ -10,7 +10,7 @@ import { revokeSuuntoTokenForUser } from '../lib/suunto-token';
 import { createOAuthAttempt, consumeOAuthAttempt } from '../lib/oauthState';
 import { encrypt } from '../lib/crypto';
 import { renderOAuthCompletionPage } from '../lib/oauthCompletionPage';
-import { captureServerEvent } from '../lib/posthog';
+import { captureProviderConnected } from '../lib/posthog';
 import type { SuuntoTokenResp } from '../lib/suunto-sync';
 
 const log = createLogger('suunto-oauth');
@@ -350,7 +350,7 @@ r.get<Empty, void, Empty, { code?: string; state?: string }>(
         });
       });
 
-      captureServerEvent(authenticatedUserId, 'provider_connected', { provider: 'suunto', isReconnect });
+      captureProviderConnected(authenticatedUserId, 'suunto', { isReconnect, isMobileFlow });
 
       if (isMobileFlow && attemptId) {
         log.info({ userId, attemptId }, 'Suunto OAuth callback success (mobile)');

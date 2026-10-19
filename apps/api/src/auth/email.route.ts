@@ -3,7 +3,7 @@ import { normalizeEmail, getClientIp } from './utils';
 import { hashPassword, verifyPassword, validatePassword } from './password.utils';
 import { validateEmailFormat } from './email.utils';
 import { issueWebSession } from './session-issuer';
-import { setCsrfCookie } from './csrf'; // Used by /auth/csrf-token endpoint
+import { isWellFormedCsrfToken, setCsrfCookie } from './csrf';
 import { updateLastAuthAt } from './recent-auth';
 import { requireRecentAuth } from './requireRecentAuth';
 import { prisma } from '../lib/prisma';
@@ -72,7 +72,7 @@ router.post('/signup', express.json(), async (req, res) => {
     // Check if user already exists
     const check = await verifyEmailAvailable(email);
     if (!check.available) {
-      return sendConflict(res, 'An account with this email already exists. Please log in.');
+      return sendConflict(res, 'An account with this email already exists. Please log in.', 'EMAIL_EXISTS');
     }
     const verifiedEmail = check.email;
 
@@ -259,7 +259,9 @@ router.post('/change-password', express.json(), requireRecentAuth, async (req, r
  * address is on file.
  *
  * Always returns 200 regardless of whether the email matches a user — this
- * prevents email enumeration via the response.
+ * prevents email enumeration via the response. The token and email are made
+ * without awaiting them, so response time doesn't give the answer away either:
+ * a known address used to wait on a DB write and the email provider.
  */
 router.post('/forgot-password', express.json(), async (req, res) => {
   try {
@@ -287,14 +289,14 @@ router.post('/forgot-password', express.json(), async (req, res) => {
     });
 
     if (user) {
-      try {
+      void (async () => {
         const rawToken = await createPasswordResetToken(user.id);
         await sendPasswordResetEmail(user, rawToken, 'user_action');
-      } catch (err) {
-        // Log but still return 200 — we don't want the client to infer anything
-        // from timing or error state.
+      })().catch((err) => {
+        // Logged only: the client must not infer anything from timing or
+        // error state.
         logger.error({ err, userId: user.id }, '[EmailAuth] Forgot password email send failed');
-      }
+      });
     }
 
     res.json({ ok: true });
@@ -393,8 +395,9 @@ router.post('/reset-password', express.json(), async (req, res) => {
 
 /**
  * GET /auth/csrf-token
- * Get or refresh the CSRF token for authenticated sessions.
- * The token is returned in the response body and also set as a cookie.
+ * Get the CSRF token for an authenticated session, minting one if the browser
+ * has none. The web app calls this when a tab has no cached copy: the ll_csrf
+ * cookie lives on the API host, so the web origin cannot read it.
  */
 router.get('/csrf-token', (req, res) => {
   // Only provide CSRF token if user is authenticated via session cookie
@@ -402,8 +405,11 @@ router.get('/csrf-token', (req, res) => {
     return sendUnauthorized(res, 'Authentication required');
   }
 
-  // Set a new CSRF cookie and return the token
-  const token = setCsrfCookie(res);
+  // Hand back the token the browser already holds. Minting a new one would
+  // invalidate the copy every other open tab has cached, and those tabs would
+  // then each refresh in turn.
+  const existing: unknown = req.cookies?.ll_csrf;
+  const token = isWellFormedCsrfToken(existing) ? existing : setCsrfCookie(res);
   res.json({ csrfToken: token });
 });
 

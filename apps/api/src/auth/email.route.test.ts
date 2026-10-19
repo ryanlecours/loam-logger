@@ -38,6 +38,7 @@ jest.mock('./session-issuer', () => ({
 
 jest.mock('./csrf', () => ({
   setCsrfCookie: jest.fn().mockReturnValue('csrf_token'),
+  isWellFormedCsrfToken: jest.requireActual('./csrf').isWellFormedCsrfToken,
 }));
 
 jest.mock('./recent-auth', () => ({
@@ -78,6 +79,8 @@ import {
 import { validateEmailFormat } from './email.utils';
 import { hashPassword, validatePassword } from './password.utils';
 import { logger } from '../lib/logger';
+import { setCsrfCookie } from './csrf';
+import { createNewUser, verifyEmailAvailable } from '../services/signup.service';
 
 const mockPrisma = prisma as jest.Mocked<typeof prisma>;
 const mockUserFindUnique = mockPrisma.user.findUnique as unknown as jest.Mock;
@@ -136,6 +139,10 @@ function createMockRequest(overrides: Partial<Request> = {}): Partial<Request> {
     ...overrides,
   };
 }
+
+/** Lets the fire-and-forget token and email work run before asserting on it. */
+const flushBackgroundWork = () => new Promise((resolve) => setImmediate(resolve));
+const mockLoggerError = logger.error as unknown as jest.Mock;
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -211,6 +218,27 @@ describe('POST /forgot-password', () => {
       await invokeHandler(handler, req as Request, res as unknown as Response);
 
       expect(res.json).toHaveBeenCalledWith({ ok: true });
+      await flushBackgroundWork();
+      expect(mockLoggerError).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: 'user_1' }),
+        '[EmailAuth] Forgot password email send failed',
+      );
+    });
+
+    // A known address used to wait on the token write and the email provider
+    // before answering, so response time told an attacker it was registered.
+    it('answers a known address without waiting for the token or the email', async () => {
+      mockUserFindUnique.mockResolvedValue({ id: 'user_1', email: 'rider@example.com', name: 'Alex' });
+      mockCreateToken.mockReturnValue(new Promise(() => {}));
+
+      const req = createMockRequest({ body: { email: 'rider@example.com' } });
+      const res = createMockResponse();
+
+      await invokeHandler(handler, req as Request, res as unknown as Response);
+
+      expect(mockCreateToken).toHaveBeenCalledWith('user_1');
+      expect(mockSendEmail).not.toHaveBeenCalled();
+      expect(res.json).toHaveBeenCalledWith({ ok: true });
     });
   });
 
@@ -238,6 +266,7 @@ describe('POST /forgot-password', () => {
       const res = createMockResponse();
 
       await invokeHandler(handler, req as Request, res as unknown as Response);
+      await flushBackgroundWork();
 
       expect(mockCreateToken).toHaveBeenCalledWith('user_1');
       expect(mockSendEmail).toHaveBeenCalledWith(
@@ -247,6 +276,28 @@ describe('POST /forgot-password', () => {
       );
       expect(res.json).toHaveBeenCalledWith({ ok: true });
     });
+  });
+});
+
+// ============================================================================
+// POST /signup: email already registered
+// ============================================================================
+
+describe('POST /signup when the email is taken', () => {
+  it('returns 409 with the EMAIL_EXISTS code and creates nothing', async () => {
+    const handler = getHandler('/signup', 'post');
+    (verifyEmailAvailable as jest.Mock).mockResolvedValue({ available: false });
+    const req = createMockRequest({
+      body: { email: 'taken@example.com', name: 'Rider', password: 'StrongPassw0rd!' },
+    });
+    const res = createMockResponse();
+
+    await invokeHandler(handler, req as Request, res as unknown as Response);
+
+    expect(res.status).toHaveBeenCalledWith(409);
+    // Clients branch on the code, not the wording, to offer log in or reset.
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ code: 'EMAIL_EXISTS' }));
+    expect(createNewUser).not.toHaveBeenCalled();
   });
 });
 
@@ -479,5 +530,60 @@ describe('POST /login', () => {
     expect(mockCheckAuthRateLimit).toHaveBeenCalledWith('login', '1.2.3.4');
     expect(mockCheckAuthRateLimit).toHaveBeenCalledWith('login-email', expect.any(String));
     expect(res.status).toHaveBeenCalledWith(401);
+  });
+});
+
+// ============================================================================
+// GET /csrf-token
+// ============================================================================
+
+describe('GET /csrf-token', () => {
+  const handler = getHandler('/csrf-token', 'get');
+  const VALID_TOKEN = 'a'.repeat(64);
+
+  it('refuses a request with no session', async () => {
+    const req = createMockRequest();
+    const res = createMockResponse();
+
+    await invokeHandler(handler, req as Request, res as unknown as Response);
+
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(setCsrfCookie).not.toHaveBeenCalled();
+  });
+
+  it('returns the token the browser already holds without rotating it', async () => {
+    const req = createMockRequest({
+      sessionUser: { uid: 'user-1' },
+      cookies: { ll_csrf: VALID_TOKEN },
+    } as Partial<Request>);
+    const res = createMockResponse();
+
+    await invokeHandler(handler, req as Request, res as unknown as Response);
+
+    expect(res.json).toHaveBeenCalledWith({ csrfToken: VALID_TOKEN });
+    expect(setCsrfCookie).not.toHaveBeenCalled();
+  });
+
+  it('mints a token when the browser has none', async () => {
+    const req = createMockRequest({ sessionUser: { uid: 'user-1' } } as Partial<Request>);
+    const res = createMockResponse();
+
+    await invokeHandler(handler, req as Request, res as unknown as Response);
+
+    expect(setCsrfCookie).toHaveBeenCalledWith(res);
+    expect(res.json).toHaveBeenCalledWith({ csrfToken: 'csrf_token' });
+  });
+
+  it('mints a token rather than echo a malformed cookie', async () => {
+    const req = createMockRequest({
+      sessionUser: { uid: 'user-1' },
+      cookies: { ll_csrf: '<script>' },
+    } as Partial<Request>);
+    const res = createMockResponse();
+
+    await invokeHandler(handler, req as Request, res as unknown as Response);
+
+    expect(setCsrfCookie).toHaveBeenCalledWith(res);
+    expect(res.json).toHaveBeenCalledWith({ csrfToken: 'csrf_token' });
   });
 });

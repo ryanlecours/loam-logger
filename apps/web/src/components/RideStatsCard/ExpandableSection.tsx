@@ -32,7 +32,7 @@ export default function ExpandableSection({
       >
         <div className="expandable-header-left">
           {icon && <span className="section-icon">{icon}</span>}
-          <span className="section-title">{title}</span>
+          <span className="expandable-section-title">{title}</span>
           {subtitle && <span className="section-subtitle">{subtitle}</span>}
         </div>
         <motion.span

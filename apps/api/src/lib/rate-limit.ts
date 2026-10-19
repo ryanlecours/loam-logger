@@ -138,10 +138,12 @@ export const MUTATION_RATE_LIMITS = {
    *  single throttled per-user job that fires Garmin backfill requests, so the
    *  limit just stops a client loop from re-queuing needlessly. */
   backfillGarminWeather: { windowSeconds: 300, maxRequests: 3 },
-  /** createComponentShare / revokeComponentShare: max 20 per minute per user.
-   *  A share is a click; this only stops a client loop minting links. */
+  /** createComponentShare / revokeComponentShare / updateComponentShare: max
+   *  20 per minute per user. A share is a click; this only stops a client loop
+   *  minting or flipping links. */
   createComponentShare: { windowSeconds: 60, maxRequests: 20 },
   revokeComponentShare: { windowSeconds: 60, maxRequests: 20 },
+  updateComponentShare: { windowSeconds: 60, maxRequests: 20 },
 } as const;
 
 /**
@@ -178,6 +180,10 @@ export const QUERY_RATE_LIMITS = {
    *  a bounded findMany plus a groupBy and one grouped raw query, all scoped
    *  to the viewer's own rides. */
   componentHistory: { windowSeconds: 60, maxRequests: 60 },
+  /** componentHistoryRides: max 60 requests per minute per user. Rides the
+   *  same bursts as componentHistory (mount, window toggle, refetches) plus
+   *  "Show more" paging. Each call is three small reads and one bounded page. */
+  componentHistoryRides: { windowSeconds: 60, maxRequests: 60 },
   /** advisorSummary: max 20 LLM calls per 5 minutes per user. Checked only
    *  on cache MISS in the resolver, not on cache-hit refreshes, so the
    *  limit bounds Anthropic dollar cost directly (~$0.96/hour worst case
@@ -379,6 +385,12 @@ export const AUTH_RATE_LIMITS = {
   'reset-password': { windowSeconds: 60, maxRequests: 10 },
   /** forgot-password: max 5 requests per minute per IP (public; prevents email-blast abuse) */
   'forgot-password': { windowSeconds: 60, maxRequests: 5 },
+  /** delete-account-request: max 5 requests per minute per IP (public; prevents email-blast abuse, like forgot-password) */
+  'delete-account-request': { windowSeconds: 60, maxRequests: 5 },
+  /** delete-account-request-email: max 3 deletion emails per hour per address, keyed by a hash of the email (holds when requests come from many IPs; over the limit the route still answers 200) */
+  'delete-account-request-email': { windowSeconds: 3600, maxRequests: 3 },
+  /** delete-account-confirm: max 10 requests per minute per IP (prevents token-guessing floods) */
+  'delete-account-confirm': { windowSeconds: 60, maxRequests: 10 },
   /** shared-history: max 30 requests per minute per IP (public bike-share pages; prevents scripted scraping of known slugs — slug entropy already defeats brute-force enumeration) */
   'shared-history': { windowSeconds: 60, maxRequests: 30 },
   /** token-refresh: max 10 per minute per USER (not IP: carrier-grade NAT

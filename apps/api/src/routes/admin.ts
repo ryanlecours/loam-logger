@@ -24,6 +24,7 @@ import React from 'react';
 import { generateUnsubscribeToken } from '../lib/unsubscribe-token';
 import { sendUnauthorized, sendBadRequest, sendInternalError } from '../lib/api-response';
 import { checkAdminRateLimit } from '../lib/rate-limit';
+import { deleteUserAccount, BillingCancellationError } from '../services/account-deletion.service';
 import { logError, logger } from '../lib/logger';
 import { escapeHtml } from '../lib/html';
 import type { UserRole } from '@prisma/client';
@@ -405,15 +406,22 @@ router.delete('/users/:userId', async (req, res) => {
       }
     }
 
-    // Delete user (cascades to rides, bikes, etc.)
-    await prisma.user.delete({
-      where: { id: userId },
-    });
+    // The same teardown as a rider deleting their own account. A bare
+    // prisma.user.delete would cascade the data but leave a Stripe
+    // subscription billing and Strava/Garmin access unrevoked.
+    await deleteUserAccount(userId);
 
     logger.info({ userId: user.id, adminUserId }, '[Admin] User deleted');
 
     res.json({ success: true, deletedUserId: userId });
   } catch (error) {
+    if (error instanceof BillingCancellationError) {
+      logError('Admin delete user: Stripe cancellation', error.cause);
+      return res.status(503).json({
+        error: "Couldn't cancel this user's Stripe subscription, so the account was not deleted. Try again in a few minutes.",
+        code: 'BILLING_CANCELLATION_FAILED',
+      });
+    }
     logError('Admin delete user', error);
     return sendInternalError(res, 'Failed to delete user');
   }
