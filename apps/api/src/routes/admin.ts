@@ -314,6 +314,10 @@ router.post('/users/:userId/verify-email', async (req, res) => {
     // Answer the idempotent case before the rate limit, so a repeat click on
     // a verified user gets 200 rather than 429.
     if (user.emailVerified) {
+      auditLogger.debug(
+        { userId, adminUserId },
+        'Admin verify-email on an already-verified account (no change)'
+      );
       return res.json({
         success: true,
         emailVerified: user.emailVerified,

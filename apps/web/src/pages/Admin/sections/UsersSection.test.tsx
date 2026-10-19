@@ -245,6 +245,28 @@ describe('UsersSection', () => {
     expect(toast.success).toHaveBeenCalledWith('rider@example.com marked verified.');
   });
 
+  it('tells the admin when to retry after a 429', async () => {
+    const { toast } = await import('sonner');
+    setupFetchHandlers({
+      users: () => userListResponse([{ emailVerified: null, emailVerificationRequired: true }]),
+      verifyEmail: () =>
+        new Response(
+          JSON.stringify({ success: false, error: 'Too many verification requests for this user', retryAfter: 4 }),
+          { status: 429 },
+        ),
+    });
+    renderInProvider(<UsersSection />);
+
+    expect(await screen.findByText('Awaiting verification')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Mark verified' }));
+    fireEvent.click(within(screen.getByTestId('modal-footer')).getByRole('button', { name: 'Mark verified' }));
+
+    await waitFor(() => {
+      expect(toast.error).toHaveBeenCalledWith('Just tried this one. Try again in 4s.');
+    });
+    expect(screen.getByText('Awaiting verification')).toBeInTheDocument();
+  });
+
   it('keeps the row unverified and shows an error toast when Mark verified fails', async () => {
     const { toast } = await import('sonner');
     setupFetchHandlers({

@@ -191,6 +191,9 @@ export function UsersSection() {
       if (!res.ok) {
         // A proxy error page is not JSON; fall back to the generic message.
         const data = await res.json().catch(() => ({}));
+        if (res.status === 429 && typeof data.retryAfter === 'number') {
+          throw new Error(`Just tried this one. Try again in ${data.retryAfter}s.`);
+        }
         throw new Error(data.error || 'Failed to mark email verified');
       }
       // The server's timestamp, which is the existing one if the account was
