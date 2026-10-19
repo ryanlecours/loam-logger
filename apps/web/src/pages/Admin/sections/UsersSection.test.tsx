@@ -245,6 +245,51 @@ describe('UsersSection', () => {
     expect(toast.success).toHaveBeenCalledWith('rider@example.com marked verified.');
   });
 
+  it('says so when the account turned out to be verified already', async () => {
+    const { toast } = await import('sonner');
+    setupFetchHandlers({
+      users: () => userListResponse([{ emailVerified: null, emailVerificationRequired: true }]),
+      verifyEmail: () =>
+        new Response(
+          JSON.stringify({ success: true, emailVerified: '2026-10-19T11:00:00.000Z', alreadyVerified: true }),
+          { status: 200 },
+        ),
+    });
+    renderInProvider(<UsersSection />);
+
+    expect(await screen.findByText('Awaiting verification')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Mark verified' }));
+    fireEvent.click(within(screen.getByTestId('modal-footer')).getByRole('button', { name: 'Mark verified' }));
+
+    await waitFor(() => {
+      expect(toast.success).toHaveBeenCalledWith('rider@example.com was already verified.');
+    });
+    expect(screen.queryByText('Awaiting verification')).not.toBeInTheDocument();
+  });
+
+  it('drops the row from the Unverified only list once verified', async () => {
+    setupFetchHandlers({
+      users: () => userListResponse([{ emailVerified: null, emailVerificationRequired: true }]),
+      verifyEmail: () =>
+        new Response(
+          JSON.stringify({ success: true, emailVerified: '2026-10-19T12:00:00.000Z', alreadyVerified: false }),
+          { status: 200 },
+        ),
+    });
+    renderInProvider(<UsersSection />);
+    await screen.findByText('rider@example.com');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Unverified only' }));
+    expect(await screen.findByText('Awaiting verification')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Mark verified' }));
+    fireEvent.click(within(screen.getByTestId('modal-footer')).getByRole('button', { name: 'Mark verified' }));
+
+    await waitFor(() => {
+      expect(screen.queryByText('rider@example.com')).not.toBeInTheDocument();
+    });
+  });
+
   it('tells the admin when to retry after a 429', async () => {
     const { toast } = await import('sonner');
     setupFetchHandlers({

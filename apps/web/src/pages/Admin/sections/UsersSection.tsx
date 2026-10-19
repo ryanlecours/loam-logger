@@ -202,10 +202,17 @@ export function UsersSection() {
       const data = await res.json().catch(() => null);
       const emailVerified: string = data?.emailVerified ?? new Date().toISOString();
       setUsers((prev) =>
-        prev.map((u) => (u.id === verifyTarget.id ? { ...u, emailVerified } : u)),
+        // Under the "Unverified only" filter the row no longer belongs.
+        unverifiedOnly
+          ? prev.filter((u) => u.id !== verifyTarget.id)
+          : prev.map((u) => (u.id === verifyTarget.id ? { ...u, emailVerified } : u)),
       );
       setVerifyTarget(null);
-      toast.success(`${verifyTarget.email} marked verified.`);
+      toast.success(
+        data?.alreadyVerified
+          ? `${verifyTarget.email} was already verified.`
+          : `${verifyTarget.email} marked verified.`,
+      );
     } catch (err) {
       console.error('Mark verified failed:', err);
       toast.error(err instanceof Error ? err.message : 'Failed to mark email verified');
