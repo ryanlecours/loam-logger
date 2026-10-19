@@ -26,8 +26,8 @@ const COLUMNS = [
 ];
 
 /**
- * Active users table + per-row actions (email, password reset, demote,
- * delete). Destructive actions go through `<ConfirmDeleteModal>` requiring
+ * Active users table + per-row actions (email, password reset, mark
+ * verified, demote, delete). Destructive actions go through `<ConfirmDeleteModal>` requiring
  * a typed-email confirmation; the old Admin.tsx used `window.confirm()`
  * which gave no chance to verify the target. Self-deletes / self-demotes
  * are still blocked at the row level.
@@ -48,6 +48,7 @@ export function UsersSection() {
   const [resettingPassword, setResettingPassword] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [promoting, setPromoting] = useState<string | null>(null);
+  const [verifying, setVerifying] = useState<string | null>(null);
 
   const [emailTarget, setEmailTarget] = useState<IndividualEmailTarget | null>(null);
 
@@ -56,6 +57,7 @@ export function UsersSection() {
   // own its own copy without runtime narrowing at every render.
   const [deleteTarget, setDeleteTarget] = useState<UserEntry | null>(null);
   const [foundingTarget, setFoundingTarget] = useState<UserEntry | null>(null);
+  const [verifyTarget, setVerifyTarget] = useState<UserEntry | null>(null);
 
   const fetchUsers = async (pageNum: number, onlyUnverified = unverifiedOnly) => {
     try {
@@ -174,6 +176,34 @@ export function UsersSection() {
       toast.error(err instanceof Error ? err.message : 'Failed to upgrade user');
     } finally {
       setPromoting(null);
+    }
+  };
+
+  const handleConfirmMarkVerified = async () => {
+    if (!verifyTarget) return;
+    try {
+      setVerifying(verifyTarget.id);
+      const res = await fetch(
+        `${import.meta.env.VITE_API_URL}/api/admin/users/${verifyTarget.id}/verify-email`,
+        { method: 'POST', credentials: 'include', headers: getAuthHeaders() },
+      );
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to mark email verified');
+      }
+      // The server's timestamp, which is the existing one if someone else
+      // verified the account first.
+      const { emailVerified } = await res.json();
+      setUsers((prev) =>
+        prev.map((u) => (u.id === verifyTarget.id ? { ...u, emailVerified } : u)),
+      );
+      setVerifyTarget(null);
+      toast.success(`${verifyTarget.email} marked verified.`);
+    } catch (err) {
+      console.error('Mark verified failed:', err);
+      toast.error(err instanceof Error ? err.message : 'Failed to mark email verified');
+    } finally {
+      setVerifying(null);
     }
   };
 
@@ -317,6 +347,17 @@ export function UsersSection() {
                     >
                       {resettingPassword === u.id ? 'Sending…' : 'Reset Pwd'}
                     </button>
+                    {!u.emailVerified && (
+                      <button
+                        type="button"
+                        onClick={() => setVerifyTarget(u)}
+                        disabled={verifying === u.id || deleting === u.id}
+                        className="btn-outline btn-sm"
+                        title="Mark the email verified without the link (known riders only)"
+                      >
+                        {verifying === u.id ? 'Verifying…' : 'Mark verified'}
+                      </button>
+                    )}
                     {!u.isFoundingRider && u.role !== 'ADMIN' && (
                       <button
                         type="button"
@@ -373,6 +414,23 @@ export function UsersSection() {
         confirmLabel="Make founding rider"
         tone="warning"
         loading={promoting !== null}
+      />
+
+      <ConfirmDeleteModal
+        isOpen={verifyTarget !== null}
+        onClose={() => setVerifyTarget(null)}
+        onConfirm={handleConfirmMarkVerified}
+        title="Mark email verified"
+        message={
+          verifyTarget && (
+            <>
+              Mark <strong className="text-white">{verifyTarget.email}</strong> as verified? This skips the emailed link, so you are vouching that this address belongs to the rider. Only do this for riders you know.
+            </>
+          )
+        }
+        confirmLabel="Mark verified"
+        tone="warning"
+        loading={verifying !== null}
       />
 
       <ConfirmDeleteModal
