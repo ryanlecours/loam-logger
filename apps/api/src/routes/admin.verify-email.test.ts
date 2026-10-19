@@ -4,7 +4,7 @@ import type { Request, Response, NextFunction } from 'express';
 // left real so the non-admin case exercises the actual guard.
 jest.mock('../lib/prisma', () => ({
   prisma: {
-    user: { findUnique: jest.fn(), update: jest.fn(), findMany: jest.fn(), count: jest.fn() },
+    user: { findUnique: jest.fn(), updateMany: jest.fn(), findMany: jest.fn(), count: jest.fn() },
   },
 }));
 
@@ -49,7 +49,7 @@ import { checkAdminRateLimit } from '../lib/rate-limit';
 import { createLogger } from '../lib/logger';
 
 const mockFindUnique = prisma.user.findUnique as unknown as jest.Mock;
-const mockUpdate = prisma.user.update as unknown as jest.Mock;
+const mockUpdateMany = prisma.user.updateMany as unknown as jest.Mock;
 const mockCheckAdminRateLimit = checkAdminRateLimit as jest.Mock;
 // Read at load time, before beforeEach clears the call record.
 const loggerModules = (createLogger as jest.Mock).mock.calls.map((c) => c[0]);
@@ -99,23 +99,22 @@ describe('POST /api/admin/users/:userId/verify-email', () => {
 
   it('verifies a pending user, logs the admin and target ids, and returns the timestamp', async () => {
     mockUsers({ target: { id: RIDER_ID, emailVerified: null } });
-    const verifiedAt = new Date('2026-10-19T12:00:00.000Z');
-    mockUpdate.mockResolvedValue({ id: RIDER_ID, emailVerified: verifiedAt });
+    mockUpdateMany.mockResolvedValue({ count: 1 });
 
     const res = await request(app).post(PATH).set('x-test-uid', ADMIN_ID);
 
     expect(res.status).toBe(200);
+    // Only emailVerified is written, and only while it is still null:
+    // password, sessions, and emailVerificationRequired stay as they are.
+    expect(mockUpdateMany).toHaveBeenCalledWith({
+      where: { id: RIDER_ID, emailVerified: null },
+      data: { emailVerified: expect.any(Date) },
+    });
+    const written = mockUpdateMany.mock.calls[0][0].data.emailVerified as Date;
     expect(res.body).toEqual({
       success: true,
-      emailVerified: verifiedAt.toISOString(),
+      emailVerified: written.toISOString(),
       alreadyVerified: false,
-    });
-    // Only emailVerified is written: password, sessions, and
-    // emailVerificationRequired stay as they are.
-    expect(mockUpdate).toHaveBeenCalledWith({
-      where: { id: RIDER_ID },
-      data: { emailVerified: expect.any(Date) },
-      select: { id: true, emailVerified: true },
     });
     expect(mockCheckAdminRateLimit).toHaveBeenCalledWith('verifyEmail', RIDER_ID);
     expect(mockAuditLogger.info).toHaveBeenCalledWith(
@@ -138,7 +137,28 @@ describe('POST /api/admin/users/:userId/verify-email', () => {
       emailVerified: existing.toISOString(),
       alreadyVerified: true,
     });
-    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(mockUpdateMany).not.toHaveBeenCalled();
+    expect(mockAuditLogger.info).not.toHaveBeenCalled();
+    // A repeat click is answered before the rate limit, so it never gets 429.
+    expect(mockCheckAdminRateLimit).not.toHaveBeenCalled();
+  });
+
+  it('keeps a timestamp written between the lookup and the update', async () => {
+    const racedIn = new Date('2026-10-19T11:59:59.000Z');
+    mockFindUnique
+      .mockResolvedValueOnce({ role: 'ADMIN' })
+      .mockResolvedValueOnce({ id: RIDER_ID, emailVerified: null })
+      .mockResolvedValueOnce({ emailVerified: racedIn });
+    mockUpdateMany.mockResolvedValue({ count: 0 });
+
+    const res = await request(app).post(PATH).set('x-test-uid', ADMIN_ID);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      success: true,
+      emailVerified: racedIn.toISOString(),
+      alreadyVerified: true,
+    });
     expect(mockAuditLogger.info).not.toHaveBeenCalled();
   });
 
@@ -148,7 +168,7 @@ describe('POST /api/admin/users/:userId/verify-email', () => {
     const res = await request(app).post(PATH).set('x-test-uid', ADMIN_ID);
 
     expect(res.status).toBe(404);
-    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(mockUpdateMany).not.toHaveBeenCalled();
   });
 
   it('returns 400 for a malformed user id', async () => {
@@ -159,7 +179,7 @@ describe('POST /api/admin/users/:userId/verify-email', () => {
       .set('x-test-uid', ADMIN_ID);
 
     expect(res.status).toBe(400);
-    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(mockUpdateMany).not.toHaveBeenCalled();
   });
 
   it('returns 429 when the per-target rate limit is exceeded', async () => {
@@ -170,7 +190,7 @@ describe('POST /api/admin/users/:userId/verify-email', () => {
 
     expect(res.status).toBe(429);
     expect(res.headers['retry-after']).toBe('5');
-    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(mockUpdateMany).not.toHaveBeenCalled();
   });
 
   it('is refused for a signed-in non-admin', async () => {
@@ -179,7 +199,7 @@ describe('POST /api/admin/users/:userId/verify-email', () => {
     const res = await request(app).post(PATH).set('x-test-uid', ADMIN_ID);
 
     expect(res.status).toBe(403);
-    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(mockUpdateMany).not.toHaveBeenCalled();
   });
 
   it('is refused without a session', async () => {
@@ -188,6 +208,6 @@ describe('POST /api/admin/users/:userId/verify-email', () => {
     const res = await request(app).post(PATH);
 
     expect(res.status).toBe(401);
-    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(mockUpdateMany).not.toHaveBeenCalled();
   });
 });

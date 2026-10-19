@@ -27,10 +27,11 @@ const COLUMNS = [
 
 /**
  * Active users table + per-row actions (email, password reset, mark
- * verified, demote, delete). Destructive actions go through `<ConfirmDeleteModal>` requiring
- * a typed-email confirmation; the old Admin.tsx used `window.confirm()`
- * which gave no chance to verify the target. Self-deletes / self-demotes
- * are still blocked at the row level.
+ * verified, make founder, delete). Consequential actions confirm through
+ * `<ConfirmDeleteModal>`: delete requires a typed-email confirmation, while
+ * mark verified and make founder use a warning-tone confirm. The old
+ * Admin.tsx used `window.confirm()`, which gave no chance to verify the
+ * target. Self-deletes are still blocked at the row level.
  */
 export function UsersSection() {
   const { user: currentUser } = useCurrentUser();
@@ -188,11 +189,12 @@ export function UsersSection() {
         { method: 'POST', credentials: 'include', headers: getAuthHeaders() },
       );
       if (!res.ok) {
-        const data = await res.json();
+        // A proxy error page is not JSON; fall back to the generic message.
+        const data = await res.json().catch(() => ({}));
         throw new Error(data.error || 'Failed to mark email verified');
       }
-      // The server's timestamp, which is the existing one if someone else
-      // verified the account first.
+      // The server's timestamp, which is the existing one if the account was
+      // verified some other way first.
       const { emailVerified } = await res.json();
       setUsers((prev) =>
         prev.map((u) => (u.id === verifyTarget.id ? { ...u, emailVerified } : u)),

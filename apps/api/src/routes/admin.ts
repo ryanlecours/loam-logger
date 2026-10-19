@@ -23,7 +23,7 @@ import FoundingRidersLaunchEmail, { FOUNDING_RIDERS_POST_ACTIVATION_INFO_TEMPLAT
 import { render } from '@react-email/render';
 import React from 'react';
 import { generateUnsubscribeToken } from '../lib/unsubscribe-token';
-import { sendUnauthorized, sendBadRequest, sendInternalError } from '../lib/api-response';
+import { sendUnauthorized, sendBadRequest, sendInternalError, sendNotFound } from '../lib/api-response';
 import { checkAdminRateLimit } from '../lib/rate-limit';
 import { deleteUserAccount, BillingCancellationError } from '../services/account-deletion.service';
 import { createLogger, logError, logger } from '../lib/logger';
@@ -302,6 +302,25 @@ router.post('/users/:userId/verify-email', async (req, res) => {
       return sendBadRequest(res, 'Invalid user ID');
     }
 
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, emailVerified: true },
+    });
+
+    if (!user) {
+      return sendNotFound(res, 'User not found');
+    }
+
+    // Answer the idempotent case before the rate limit, so a repeat click on
+    // a verified user gets 200 rather than 429.
+    if (user.emailVerified) {
+      return res.json({
+        success: true,
+        emailVerified: user.emailVerified,
+        alreadyVerified: true,
+      });
+    }
+
     const rateLimit = await checkAdminRateLimit('verifyEmail', userId);
     if (!rateLimit.allowed) {
       res.setHeader('Retry-After', rateLimit.retryAfter.toString());
@@ -312,37 +331,38 @@ router.post('/users/:userId/verify-email', async (req, res) => {
       });
     }
 
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { id: true, emailVerified: true },
+    // Conditional write: if another admin (or the rider's own link) verified
+    // the account since the lookup, keep that timestamp instead of
+    // overwriting it.
+    const now = new Date();
+    const { count } = await prisma.user.updateMany({
+      where: { id: userId, emailVerified: null },
+      data: { emailVerified: now },
     });
 
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    if (user.emailVerified) {
+    if (count === 0) {
+      const current = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { emailVerified: true },
+      });
+      if (!current) {
+        return sendNotFound(res, 'User not found');
+      }
       return res.json({
         success: true,
-        emailVerified: user.emailVerified,
+        emailVerified: current.emailVerified,
         alreadyVerified: true,
       });
     }
 
-    const updated = await prisma.user.update({
-      where: { id: userId },
-      data: { emailVerified: new Date() },
-      select: { id: true, emailVerified: true },
-    });
-
     auditLogger.info(
-      { userId: updated.id, adminUserId },
+      { userId, adminUserId },
       'Email marked verified by admin'
     );
 
     res.json({
       success: true,
-      emailVerified: updated.emailVerified,
+      emailVerified: now,
       alreadyVerified: false,
     });
   } catch (error) {

@@ -227,6 +227,26 @@ describe('UsersSection', () => {
     expect(toast.success).toHaveBeenCalledWith('rider@example.com marked verified.');
   });
 
+  it('keeps the row unverified and shows an error toast when Mark verified fails', async () => {
+    const { toast } = await import('sonner');
+    setupFetchHandlers({
+      users: () => userListResponse([{ emailVerified: null, emailVerificationRequired: true }]),
+      // A non-JSON proxy error body must still produce a readable toast.
+      verifyEmail: () => new Response('<html>Bad Gateway</html>', { status: 502 }),
+    });
+    renderInProvider(<UsersSection />);
+
+    expect(await screen.findByText('Awaiting verification')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Mark verified' }));
+    fireEvent.click(within(screen.getByTestId('modal-footer')).getByRole('button', { name: 'Mark verified' }));
+
+    await waitFor(() => {
+      expect(toast.error).toHaveBeenCalledWith('Failed to mark email verified');
+    });
+    expect(screen.getByText('Awaiting verification')).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: 'Mark verified' }).length).toBeGreaterThan(0);
+  });
+
   it('renders an active user row with the role badge after the initial fetch', async () => {
     setupFetchHandlers({ users: () => userListResponse([{}]) });
 
