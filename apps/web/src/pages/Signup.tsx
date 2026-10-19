@@ -31,7 +31,12 @@ export default function Signup() {
     };
   }, []);
 
-  const clearError = () => { if (error) setError(null); };
+  const [emailTaken, setEmailTaken] = useState(false);
+
+  const clearError = () => {
+    if (error) setError(null);
+    if (emailTaken) setEmailTaken(false);
+  };
 
   const validate = (): string | null => {
     if (!name.trim()) return 'Name is required';
@@ -75,8 +80,11 @@ export default function Signup() {
       const data = await res.json();
 
       if (!res.ok) {
-        if (data.code === 'ACCOUNT_EXISTS') {
-          navigate('/login', { replace: true });
+        if (data.code === 'EMAIL_EXISTS') {
+          // Also the way back for anyone whose address someone else signed
+          // up with: a reset goes to the inbox and replaces that password.
+          setEmailTaken(true);
+          setError('An account with this email already exists. Log in, or reset your password if you have forgotten it.');
           return;
         }
         setError(data.message || data.error || 'Signup failed');
@@ -283,6 +291,12 @@ export default function Signup() {
               animate={{ opacity: 1, y: 0 }}
             >
               <p className="text-sm font-medium">{error}</p>
+              {emailTaken && (
+                <p className="text-sm mt-2 flex gap-4">
+                  <a href="/login" className="underline hover:opacity-80">Log in</a>
+                  <a href="/forgot-password" className="underline hover:opacity-80">Reset password</a>
+                </p>
+              )}
             </motion.div>
           )}
 

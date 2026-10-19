@@ -137,16 +137,25 @@ export async function issueVerificationEmail(
  * issueVerificationEmail behind the per-account send limit
  * (`verification-email`, keyed by a hash of the address so it holds across
  * IPs). Every send goes through here, so nobody can use signup, resend or
- * sign-in attempts to flood an inbox. Returns false when the limit held the
- * send back; callers answer the same either way.
+ * sign-in attempts to flood an inbox. Returns false when nothing was sent;
+ * callers answer the same either way.
+ *
+ * Never throws, the limit check included. Signup calls this after the account
+ * row is committed, and a throw there would answer 500 for an account that
+ * exists, so the retry would then be refused as EMAIL_EXISTS.
  */
 export async function sendVerificationEmailWithinLimit(
   user: EmailVerificationUser,
   triggerSource: TriggerSource,
 ): Promise<boolean> {
-  const limit = await checkAuthRateLimit('verification-email', loginEmailKey(user.email));
-  if (!limit.allowed) {
-    logger.info({ userId: user.id }, 'Email verification send skipped: per-account limit');
+  try {
+    const limit = await checkAuthRateLimit('verification-email', loginEmailKey(user.email));
+    if (!limit.allowed) {
+      logger.info({ userId: user.id }, 'Email verification send skipped: per-account limit');
+      return false;
+    }
+  } catch (err) {
+    logger.error({ err, userId: user.id }, 'Email verification limit check failed');
     return false;
   }
   await issueVerificationEmail(user, triggerSource);

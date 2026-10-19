@@ -86,8 +86,12 @@ router.post('/resend-verification', express.json(), async (req, res) => {
       select: { id: true, email: true, name: true, emailVerificationRequired: true, emailVerified: true },
     });
 
+    // Not awaited, like forgot-password: only a pending account gets a send,
+    // so waiting on it would make that case measurably slower and the
+    // response time would reveal which addresses are awaiting verification.
+    // The call never throws (it logs its own failures).
     if (user && isEmailVerificationPending(user)) {
-      await sendVerificationEmailWithinLimit(user, 'user_action');
+      void sendVerificationEmailWithinLimit(user, 'user_action');
     }
 
     return res.json({ ok: true });

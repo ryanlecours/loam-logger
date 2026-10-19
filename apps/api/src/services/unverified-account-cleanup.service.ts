@@ -32,12 +32,13 @@ let cleanupInterval: NodeJS.Timeout | null = null;
  */
 export async function purgeUnverifiedAccounts(olderThanDays = UNVERIFIED_ACCOUNT_TTL_DAYS): Promise<number> {
   const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000);
+  const staleWhere = {
+    emailVerificationRequired: true,
+    emailVerified: null,
+    createdAt: { lt: cutoff },
+  };
   const stale = await prisma.user.findMany({
-    where: {
-      emailVerificationRequired: true,
-      emailVerified: null,
-      createdAt: { lt: cutoff },
-    },
+    where: staleWhere,
     select: { id: true },
     take: PURGE_BATCH_SIZE,
   });
@@ -45,6 +46,12 @@ export async function purgeUnverifiedAccounts(olderThanDays = UNVERIFIED_ACCOUNT
   let deleted = 0;
   for (const { id } of stale) {
     try {
+      // The batch was read up front, and deletions run one by one. A rider
+      // who verifies, resets their password or completes a provider link
+      // while earlier accounts are being deleted must not lose theirs, so
+      // re-check each one immediately before deleting it.
+      const stillStale = await prisma.user.findFirst({ where: { id, ...staleWhere }, select: { id: true } });
+      if (!stillStale) continue;
       await deleteUserAccount(id);
       deleted++;
     } catch (err) {

@@ -1,6 +1,6 @@
 jest.mock('../lib/prisma', () => ({
   prisma: {
-    user: { findMany: jest.fn() },
+    user: { findMany: jest.fn(), findFirst: jest.fn() },
   },
 }));
 
@@ -22,10 +22,13 @@ import { deleteUserAccount } from './account-deletion.service';
 import { purgeUnverifiedAccounts } from './unverified-account-cleanup.service';
 
 const mockFindMany = prisma.user.findMany as unknown as jest.Mock;
+const mockFindFirst = prisma.user.findFirst as unknown as jest.Mock;
 const mockDelete = deleteUserAccount as jest.Mock;
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // Each candidate is still unverified when re-checked unless a test says otherwise.
+  mockFindFirst.mockImplementation(async ({ where }: { where: { id: string } }) => ({ id: where.id }));
 });
 
 describe('purgeUnverifiedAccounts', () => {
@@ -52,5 +55,23 @@ describe('purgeUnverifiedAccounts', () => {
 
     await expect(purgeUnverifiedAccounts(14)).resolves.toBe(2);
     expect(mockDelete.mock.calls.map(([id]) => id)).toEqual(['a', 'b', 'c']);
+  });
+});
+
+describe('purgeUnverifiedAccounts re-check', () => {
+  it('skips an account that verified after the batch was read', async () => {
+    mockFindMany.mockResolvedValue([{ id: 'a' }, { id: 'verified-meanwhile' }, { id: 'c' }]);
+    mockFindFirst.mockImplementation(async ({ where }: { where: { id: string } }) =>
+      where.id === 'verified-meanwhile' ? null : { id: where.id },
+    );
+    mockDelete.mockResolvedValue({ email: 'x@example.com' });
+
+    await expect(purgeUnverifiedAccounts(14)).resolves.toBe(2);
+    expect(mockDelete.mock.calls.map(([id]) => id)).toEqual(['a', 'c']);
+    // The re-check applies the same staleness rules, scoped to the one account.
+    expect(mockFindFirst).toHaveBeenCalledWith({
+      where: expect.objectContaining({ id: 'verified-meanwhile', emailVerificationRequired: true, emailVerified: null }),
+      select: { id: true },
+    });
   });
 });

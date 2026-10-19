@@ -221,6 +221,13 @@ describe('sendVerificationEmailWithinLimit', () => {
     expect(mockSendEmail).not.toHaveBeenCalled();
   });
 
+  it('never throws when the limit check itself fails, and sends nothing', async () => {
+    mockCheckAuthRateLimit.mockRejectedValueOnce(new Error('limiter exploded'));
+
+    await expect(sendVerificationEmailWithinLimit(user, 'user_action')).resolves.toBe(false);
+    expect(mockSendEmail).not.toHaveBeenCalled();
+  });
+
   it('swallows a failed send so signup and sign-in still answer', async () => {
     mockSendEmail.mockRejectedValueOnce(new Error('resend down'));
     await expect(sendVerificationEmailWithinLimit(user, 'user_action')).resolves.toBe(true);

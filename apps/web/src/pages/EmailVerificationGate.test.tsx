@@ -86,6 +86,30 @@ describe('Signup with email verification', () => {
   });
 });
 
+describe('Signup with a taken email', () => {
+  it('points to log in and password reset when the API answers EMAIL_EXISTS', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        jsonResponse(409, {
+          error: 'An account with this email already exists. Please log in.',
+          code: 'EMAIL_EXISTS',
+        })
+      )
+    );
+    renderAt(<Signup />, '/signup');
+
+    fireEvent.change(screen.getByPlaceholderText('Your name'), { target: { value: 'Rider' } });
+    fireEvent.change(screen.getByPlaceholderText('you@example.com'), { target: { value: 'taken@example.com' } });
+    fireEvent.change(screen.getByPlaceholderText('At least 8 characters'), { target: { value: 'StrongPassw0rd!' } });
+    fireEvent.change(screen.getByPlaceholderText('Re-enter password'), { target: { value: 'StrongPassw0rd!' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create Account' }));
+
+    expect(await screen.findByRole('link', { name: 'Reset password' })).toHaveAttribute('href', '/forgot-password');
+    expect(screen.getByRole('link', { name: 'Log in' })).toHaveAttribute('href', '/login');
+  });
+});
+
 describe('Login with email verification', () => {
   it('shows the check-your-email notice when the account is not verified yet', async () => {
     vi.stubGlobal(

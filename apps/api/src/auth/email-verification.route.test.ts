@@ -165,6 +165,22 @@ describe('POST /resend-verification', () => {
     expect(res.json).toHaveBeenCalledWith({ ok: true });
   });
 
+  it('answers without waiting on the send, so timing does not reveal pending accounts', async () => {
+    mockUserFindUnique.mockResolvedValue({
+      id: 'user_1',
+      email: 'rider@example.com',
+      name: null,
+      emailVerificationRequired: true,
+      emailVerified: null,
+    });
+    mockSend.mockReturnValueOnce(new Promise(() => {}));
+
+    const res = await call('/resend-verification', { email: 'rider@example.com' });
+
+    expect(mockSend).toHaveBeenCalled();
+    expect(res.json).toHaveBeenCalledWith({ ok: true });
+  });
+
   it('answers the same for an unknown address and sends nothing', async () => {
     mockUserFindUnique.mockResolvedValue(null);
 
