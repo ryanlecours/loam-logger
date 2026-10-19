@@ -40,7 +40,7 @@ describe('verifyEmailAvailable', () => {
 });
 
 describe('createNewUser', () => {
-  it('stores the address as typed, its folded form, the forensics, and requires verification', async () => {
+  it('stores the address as typed, its folded form, the forensics and attestation, and requires verification', async () => {
     mockCreate.mockResolvedValue({ id: 'u1', email: 'John.Smith+2@gmail.com', name: 'John' });
 
     const result = await createNewUser({
@@ -49,6 +49,7 @@ describe('createNewUser', () => {
       passwordHash: 'hash',
       signupIp: '203.0.113.9',
       signupUserAgent: 'okhttp/4.12.0',
+      signupAttestation: 'ios:verified',
     });
 
     expect(mockCreate).toHaveBeenCalledWith({
@@ -62,6 +63,7 @@ describe('createNewUser', () => {
         passwordHash: 'hash',
         signupIp: '203.0.113.9',
         signupUserAgent: 'okhttp/4.12.0',
+        signupAttestation: 'ios:verified',
       },
     });
     expect(result).toEqual({ user: { id: 'u1', email: 'John.Smith+2@gmail.com', name: 'John' } });

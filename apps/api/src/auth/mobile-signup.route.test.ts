@@ -96,6 +96,19 @@ jest.mock('../services/email-verification.service', () => ({
   sendVerificationEmailWithinLimit: (...args: unknown[]) => mockSendVerificationEmail(...args),
 }));
 
+const mockEvaluateSignupAttestation = jest.fn().mockResolvedValue(null);
+const mockRequiresUnattestedCap = jest.fn().mockReturnValue(false);
+const mockReportSignupAttestation = jest.fn();
+const mockIssueAttestationChallenge = jest.fn().mockResolvedValue('c'.repeat(43));
+
+jest.mock('../services/device-attestation', () => ({
+  CHALLENGE_TTL_SECONDS: 300,
+  evaluateSignupAttestation: (...args: unknown[]) => mockEvaluateSignupAttestation(...args),
+  requiresUnattestedCap: (...args: unknown[]) => mockRequiresUnattestedCap(...args),
+  reportSignupAttestation: (...args: unknown[]) => mockReportSignupAttestation(...args),
+  issueAttestationChallenge: () => mockIssueAttestationChallenge(),
+}));
+
 jest.mock('../services/signup.service', () => ({
   createNewUser: (...args: unknown[]) => mockCreateNewUser(...args),
   verifyEmailAvailable: (...args: unknown[]) => mockVerifyEmailAvailable(...args),
@@ -220,6 +233,124 @@ describe('POST /mobile/signup', () => {
     // Clients branch on the code, not the wording, to offer log in or reset.
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ code: 'EMAIL_EXISTS' }));
     expect(mockCreateNewUser).not.toHaveBeenCalled();
+    // A 409 must not spend the one-time attestation challenge.
+    expect(mockEvaluateSignupAttestation).not.toHaveBeenCalled();
+  });
+
+  describe('device attestation', () => {
+    const attestation = { platform: 'android', challenge: 'c'.repeat(43), token: 'tok' };
+    const androidFailed = {
+      outcome: 'failed',
+      platform: 'android',
+      reason: 'device_integrity',
+      label: 'android:failed:device_integrity',
+    };
+
+    function signupRequest(): Request {
+      return {
+        body: { email: ' Rider@Example.com ', password: 'StrongPassw0rd!', name: 'Rider', attestation },
+        ip: '127.0.0.1',
+        headers: {},
+        get: () => undefined,
+      } as unknown as Request;
+    }
+
+    beforeEach(() => {
+      mockVerifyEmailAvailable.mockResolvedValue({ available: true, email: 'rider@example.com' });
+      mockCreateNewUser.mockResolvedValue({ user: { id: 'u1', email: 'rider@example.com', name: 'Rider' } });
+      mockRequiresUnattestedCap.mockReturnValue(false);
+    });
+
+    it('judges the attestation against the email exactly as sent and stores the verdict', async () => {
+      mockEvaluateSignupAttestation.mockResolvedValue(androidFailed);
+      const res = createMockResponse();
+
+      await invokeHandler(handler, signupRequest(), res as unknown as Response);
+
+      expect(mockEvaluateSignupAttestation).toHaveBeenCalledWith({
+        body: attestation,
+        rawEmail: ' Rider@Example.com ',
+        email: 'rider@example.com',
+      });
+      expect(mockCreateNewUser).toHaveBeenCalledWith(
+        expect.objectContaining({ signupAttestation: 'android:failed:device_integrity' }),
+      );
+      expect(mockReportSignupAttestation).toHaveBeenCalledWith('u1', androidFailed);
+      // Monitor mode: a failed attestation still creates the account.
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(mockCheckAuthRateLimit).not.toHaveBeenCalledWith('signup-unattested', 'global');
+    });
+
+    it('stores null and reports nothing while attestation is off', async () => {
+      mockEvaluateSignupAttestation.mockResolvedValue(null);
+      const res = createMockResponse();
+
+      await invokeHandler(handler, signupRequest(), res as unknown as Response);
+
+      expect(mockCreateNewUser).toHaveBeenCalledWith(expect.objectContaining({ signupAttestation: null }));
+      expect(mockReportSignupAttestation).not.toHaveBeenCalled();
+    });
+
+    it('lets an unattested signup through the global cap in enforce mode while it has room', async () => {
+      mockEvaluateSignupAttestation.mockResolvedValue(androidFailed);
+      mockRequiresUnattestedCap.mockReturnValue(true);
+      const res = createMockResponse();
+
+      await invokeHandler(handler, signupRequest(), res as unknown as Response);
+
+      expect(mockCheckAuthRateLimit).toHaveBeenCalledWith('signup-unattested', 'global');
+      expect(mockCreateNewUser).toHaveBeenCalled();
+    });
+
+    it('answers 429 without creating the account once the unattested cap is spent', async () => {
+      mockEvaluateSignupAttestation.mockResolvedValue(androidFailed);
+      mockRequiresUnattestedCap.mockReturnValue(true);
+      mockCheckAuthRateLimit.mockImplementation(async (operation: string) =>
+        operation === 'signup-unattested' ? { allowed: false, retryAfter: 1200 } : { allowed: true },
+      );
+      const res = createMockResponse();
+
+      await invokeHandler(handler, signupRequest(), res as unknown as Response);
+
+      expect(res.status).toHaveBeenCalledWith(429);
+      expect(mockCreateNewUser).not.toHaveBeenCalled();
+      expect(mockSendVerificationEmail).not.toHaveBeenCalled();
+    });
+  });
+});
+
+describe('POST /mobile/attest-challenge', () => {
+  let handler: RequestHandler | undefined;
+
+  beforeAll(() => {
+    handler = getHandler('/mobile/attest-challenge', 'post');
+    if (!handler) throw new Error('Handler not found for /mobile/attest-challenge');
+  });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockCheckAuthRateLimit.mockResolvedValue({ allowed: true });
+  });
+
+  it('issues an uncacheable one-time challenge', async () => {
+    const res = createMockResponse();
+
+    await invokeHandler(handler, { ip: '127.0.0.1', headers: {} } as unknown as Request, res as unknown as Response);
+
+    expect(mockCheckAuthRateLimit).toHaveBeenCalledWith('attest-challenge', '127.0.0.1');
+    expect(res.setHeader).toHaveBeenCalledWith('Cache-Control', 'no-store');
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith({ challenge: 'c'.repeat(43), expiresIn: 300 });
+  });
+
+  it('answers 429 when the IP asks too often', async () => {
+    mockCheckAuthRateLimit.mockResolvedValue({ allowed: false, retryAfter: 30 });
+    const res = createMockResponse();
+
+    await invokeHandler(handler, { ip: '127.0.0.1', headers: {} } as unknown as Request, res as unknown as Response);
+
+    expect(res.status).toHaveBeenCalledWith(429);
+    expect(mockIssueAttestationChallenge).not.toHaveBeenCalled();
   });
 });
 

@@ -377,6 +377,15 @@ export const AUTH_RATE_LIMITS = {
    *  household or office behind one NAT. */
   'signup-hourly': { windowSeconds: 3600, maxRequests: 20 },
   'signup-daily': { windowSeconds: 86400, maxRequests: 50 },
+  /** signup-unattested: one global bucket (identifier `global`) shared by
+   *  every mobile signup without a verified device attestation, applied only
+   *  when DEVICE_ATTESTATION_MODE=enforce. Attested signups never touch it,
+   *  so a script that cannot attest is held to this rate in total, whatever
+   *  IPs it spreads across. */
+  'signup-unattested': { windowSeconds: 3600, maxRequests: 10 },
+  /** attest-challenge: max 20 challenges per minute per IP (one per signup
+   *  attempt; each costs a Redis key for five minutes) */
+  'attest-challenge': { windowSeconds: 60, maxRequests: 20 },
   /** verify-email: max 10 requests per minute per IP (prevents token-guessing floods) */
   'verify-email': { windowSeconds: 60, maxRequests: 10 },
   /** resend-verification: max 5 requests per minute per IP (public; prevents email-blast abuse) */
