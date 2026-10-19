@@ -13,6 +13,14 @@ export type VerifiedUniqueEmail = string & { __brand: 'verified_unique_email' };
  * "Taken" includes another spelling of the same inbox: Gmail dots, a +tag,
  * or googlemail.com (see canonicalizeEmail), so one inbox cannot open a
  * stack of accounts.
+ *
+ * The folded check is check-then-insert with no unique constraint behind it
+ * (emailCanonical is indexed but not unique, because existing accounts can
+ * already collide). Two concurrent signups spelling one inbox differently can
+ * therefore both succeed. That is accepted: each is still gated on that same
+ * inbox clicking a link, unverified ones are purged after 14 days, and the
+ * per-IP signup windows bound how often anyone can try. The exact `email`
+ * stays unique in the database, so an identical address can never get in twice.
  */
 export async function verifyEmailAvailable(email: string): Promise<{ available: true; email: VerifiedUniqueEmail } | { available: false }> {
   const existing = await prisma.user.findFirst({

@@ -1,12 +1,18 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router';
+import { MemoryRouter, useLocation } from 'react-router';
 import VerifyEmail from './VerifyEmail';
+
+function LocationProbe() {
+  const { search } = useLocation();
+  return <output data-testid="search">{search}</output>;
+}
 
 function renderAt(path: string) {
   return render(
     <MemoryRouter initialEntries={[path]}>
       <VerifyEmail />
+      <LocationProbe />
     </MemoryRouter>
   );
 }
@@ -29,6 +35,14 @@ describe('VerifyEmail', () => {
     expect(url).toMatch(/\/auth\/verify-email$/);
     expect(init).toMatchObject({ method: 'POST', body: JSON.stringify({ token: 'abc' }) });
     expect(screen.getByRole('button', { name: 'Go to Sign In' })).toBeInTheDocument();
+  });
+
+  it('drops the token from the URL once it has read it', async () => {
+    vi.stubGlobal('fetch', respond(200, { ok: true }));
+    renderAt('/verify-email?token=abc');
+
+    await screen.findByRole('heading', { name: 'Email confirmed' });
+    expect(screen.getByTestId('search')).toHaveTextContent(/^$/);
   });
 
   it('offers a new link when the token has expired', async () => {

@@ -28,8 +28,10 @@ const COPY: Record<Status, { title: string; body: string }> = {
 
 export default function VerifyEmail() {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const token = searchParams.get('token');
+  const [searchParams, setSearchParams] = useSearchParams();
+  // Read once and kept in state, so the token can be dropped from the URL
+  // (below) while Try Again still has it.
+  const [token] = useState(() => searchParams.get('token'));
 
   const [status, setStatus] = useState<Status>(token ? 'verifying' : 'invalid');
   const [email, setEmail] = useState('');
@@ -47,8 +49,11 @@ export default function VerifyEmail() {
   useEffect(() => {
     if (!token || submitted.current) return;
     submitted.current = true;
+    // Keep the token out of browser history and out of the URL any later
+    // navigation from this page would carry.
+    setSearchParams({}, { replace: true });
     void runVerify(token);
-  }, [token]);
+  }, [token, setSearchParams]);
 
   async function handleResend(event: React.FormEvent) {
     event.preventDefault();

@@ -21,6 +21,7 @@ describe('canonicalizeEmail', () => {
 
   it('keeps a + in the first position, which has no base address to fold to', () => {
     expect(canonicalizeEmail('+tag@example.com')).toBe('+tag@example.com');
+    expect(canonicalizeEmail('+x.y@gmail.com')).toBe('+xy@gmail.com');
   });
 
   it('keeps the plain address when folding would leave the local part empty', () => {
