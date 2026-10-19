@@ -127,6 +127,7 @@ function setupFetchHandlers(
     delete: () => Response;
     addUser: () => Response;
     sendReset: () => Response;
+    verifyEmail: () => Response;
   }>,
 ) {
   fetchMock.mockImplementation(async (input: string, init?: RequestInit) => {
@@ -134,6 +135,8 @@ function setupFetchHandlers(
     const method = init?.method ?? 'GET';
     if (url.includes('/api/admin/stats')) return handlers.stats?.() ?? statsResponse();
     if (url.includes('/api/admin/users') && method === 'GET') return handlers.users?.() ?? userListResponse([]);
+    if (url.endsWith('/verify-email') && method === 'POST')
+      return handlers.verifyEmail?.() ?? new Response(JSON.stringify({}), { status: 200 });
     if (url.match(/\/users\/[^/]+$/) && method === 'DELETE')
       return handlers.delete?.() ?? new Response(null, { status: 204 });
     if (url.includes('/api/admin/users') && method === 'POST')
@@ -171,13 +174,162 @@ describe('UsersSection', () => {
     expect(screen.getByText(/203.0.113.9/)).toBeInTheDocument();
   });
 
-  it('does not badge a verified account', async () => {
+  it('does not badge a verified account or offer Mark verified', async () => {
     setupFetchHandlers({ users: () => userListResponse([{}]) });
     renderInProvider(<UsersSection />);
 
     await screen.findByText('rider@example.com');
     expect(screen.queryByText('Unverified')).not.toBeInTheDocument();
     expect(screen.queryByText('Awaiting verification')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Mark verified' })).not.toBeInTheDocument();
+  });
+
+  it('marks a pending account verified after a warning confirm, then clears the badge', async () => {
+    const { toast } = await import('sonner');
+    setupFetchHandlers({
+      users: () => userListResponse([{ emailVerified: null, emailVerificationRequired: true }]),
+      verifyEmail: () =>
+        new Response(
+          JSON.stringify({
+            success: true,
+            emailVerified: '2026-10-19T12:00:00.000Z',
+            alreadyVerified: false,
+          }),
+          { status: 200 },
+        ),
+    });
+    renderInProvider(<UsersSection />);
+
+    expect(await screen.findByText('Awaiting verification')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Mark verified' }));
+
+    const modal = await screen.findByTestId('modal');
+    expect(within(modal).getByRole('heading', { name: 'Mark email verified' })).toBeInTheDocument();
+    expect(within(modal).getByText(/vouching/)).toBeInTheDocument();
+
+    const findVerifyCall = () =>
+      fetchMock.mock.calls.find(
+        (call) =>
+          String(call[0]).endsWith('/api/admin/users/user-1/verify-email') &&
+          (call[1] as RequestInit | undefined)?.method === 'POST',
+      );
+    // Nothing is sent until the admin confirms.
+    expect(findVerifyCall()).toBeUndefined();
+
+    fireEvent.click(within(screen.getByTestId('modal-footer')).getByRole('button', { name: 'Mark verified' }));
+
+    await waitFor(() => expect(findVerifyCall()).toBeDefined());
+    await waitFor(() => {
+      expect(screen.queryByText('Awaiting verification')).not.toBeInTheDocument();
+    });
+    expect(screen.queryByRole('button', { name: 'Mark verified' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('modal')).not.toBeInTheDocument();
+    expect(toast.success).toHaveBeenCalledWith('rider@example.com marked verified.');
+  });
+
+  it('still clears the badge when a successful response body cannot be read', async () => {
+    const { toast } = await import('sonner');
+    setupFetchHandlers({
+      users: () => userListResponse([{ emailVerified: null, emailVerificationRequired: true }]),
+      verifyEmail: () => new Response('not json', { status: 200 }),
+    });
+    renderInProvider(<UsersSection />);
+
+    expect(await screen.findByText('Awaiting verification')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Mark verified' }));
+    fireEvent.click(within(screen.getByTestId('modal-footer')).getByRole('button', { name: 'Mark verified' }));
+
+    await waitFor(() => {
+      expect(screen.queryByText('Awaiting verification')).not.toBeInTheDocument();
+    });
+    expect(toast.success).toHaveBeenCalledWith('rider@example.com marked verified.');
+  });
+
+  it('says so when the account turned out to be verified already', async () => {
+    const { toast } = await import('sonner');
+    setupFetchHandlers({
+      users: () => userListResponse([{ emailVerified: null, emailVerificationRequired: true }]),
+      verifyEmail: () =>
+        new Response(
+          JSON.stringify({ success: true, emailVerified: '2026-10-19T11:00:00.000Z', alreadyVerified: true }),
+          { status: 200 },
+        ),
+    });
+    renderInProvider(<UsersSection />);
+
+    expect(await screen.findByText('Awaiting verification')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Mark verified' }));
+    fireEvent.click(within(screen.getByTestId('modal-footer')).getByRole('button', { name: 'Mark verified' }));
+
+    await waitFor(() => {
+      expect(toast.success).toHaveBeenCalledWith('rider@example.com was already verified.');
+    });
+    expect(screen.queryByText('Awaiting verification')).not.toBeInTheDocument();
+  });
+
+  it('drops the row from the Unverified only list once verified', async () => {
+    setupFetchHandlers({
+      users: () => userListResponse([{ emailVerified: null, emailVerificationRequired: true }]),
+      verifyEmail: () =>
+        new Response(
+          JSON.stringify({ success: true, emailVerified: '2026-10-19T12:00:00.000Z', alreadyVerified: false }),
+          { status: 200 },
+        ),
+    });
+    renderInProvider(<UsersSection />);
+    await screen.findByText('rider@example.com');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Unverified only' }));
+    expect(await screen.findByText('Awaiting verification')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Mark verified' }));
+    fireEvent.click(within(screen.getByTestId('modal-footer')).getByRole('button', { name: 'Mark verified' }));
+
+    await waitFor(() => {
+      expect(screen.queryByText('rider@example.com')).not.toBeInTheDocument();
+    });
+  });
+
+  it('tells the admin when to retry after a 429', async () => {
+    const { toast } = await import('sonner');
+    setupFetchHandlers({
+      users: () => userListResponse([{ emailVerified: null, emailVerificationRequired: true }]),
+      verifyEmail: () =>
+        new Response(
+          JSON.stringify({ success: false, error: 'Too many verification requests for this user', retryAfter: 4 }),
+          { status: 429 },
+        ),
+    });
+    renderInProvider(<UsersSection />);
+
+    expect(await screen.findByText('Awaiting verification')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Mark verified' }));
+    fireEvent.click(within(screen.getByTestId('modal-footer')).getByRole('button', { name: 'Mark verified' }));
+
+    await waitFor(() => {
+      expect(toast.error).toHaveBeenCalledWith('Just tried this one. Try again in 4s.');
+    });
+    expect(screen.getByText('Awaiting verification')).toBeInTheDocument();
+  });
+
+  it('keeps the row unverified and shows an error toast when Mark verified fails', async () => {
+    const { toast } = await import('sonner');
+    setupFetchHandlers({
+      users: () => userListResponse([{ emailVerified: null, emailVerificationRequired: true }]),
+      // A non-JSON proxy error body must still produce a readable toast.
+      verifyEmail: () => new Response('<html>Bad Gateway</html>', { status: 502 }),
+    });
+    renderInProvider(<UsersSection />);
+
+    expect(await screen.findByText('Awaiting verification')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Mark verified' }));
+    fireEvent.click(within(screen.getByTestId('modal-footer')).getByRole('button', { name: 'Mark verified' }));
+
+    await waitFor(() => {
+      expect(toast.error).toHaveBeenCalledWith('Failed to mark email verified');
+    });
+    expect(screen.getByText('Awaiting verification')).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: 'Mark verified' }).length).toBeGreaterThan(0);
   });
 
   it('renders an active user row with the role badge after the initial fetch', async () => {

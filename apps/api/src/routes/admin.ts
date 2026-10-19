@@ -23,10 +23,10 @@ import FoundingRidersLaunchEmail, { FOUNDING_RIDERS_POST_ACTIVATION_INFO_TEMPLAT
 import { render } from '@react-email/render';
 import React from 'react';
 import { generateUnsubscribeToken } from '../lib/unsubscribe-token';
-import { sendUnauthorized, sendBadRequest, sendInternalError } from '../lib/api-response';
+import { sendUnauthorized, sendBadRequest, sendInternalError, sendNotFound } from '../lib/api-response';
 import { checkAdminRateLimit } from '../lib/rate-limit';
 import { deleteUserAccount, BillingCancellationError } from '../services/account-deletion.service';
-import { logError, logger } from '../lib/logger';
+import { createLogger, logError, logger } from '../lib/logger';
 import { escapeHtml } from '../lib/html';
 import type { UserRole } from '@prisma/client';
 import { FRONTEND_URL, API_URL } from '../config/env';
@@ -51,6 +51,10 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** Delay between emails to respect Resend's 1/second rate limit */
 const EMAIL_SEND_DELAY_MS = 1100; // 1.1 seconds for safety margin
+
+// Same module as the sign-in audit trail, so admin overrides of auth state
+// show up under a `module:"auth-audit"` filter in Railway logs.
+const auditLogger = createLogger('auth-audit');
 
 const router = Router();
 
@@ -274,6 +278,104 @@ router.post('/users/:userId/send-password-reset', async (req, res) => {
   } catch (error) {
     logError('Admin send password reset', error);
     return sendInternalError(res, 'Failed to send password reset email');
+  }
+});
+
+/**
+ * POST /api/admin/users/:userId/verify-email
+ * Mark the user's email as verified without the emailed link. This vouches
+ * for the address with no inbox proof, so it is only for riders the admin
+ * knows. Idempotent: an already-verified user keeps the existing timestamp.
+ * Leaves the password, sessions, and emailVerificationRequired untouched;
+ * once emailVerified is set the account can sign in.
+ */
+router.post('/users/:userId/verify-email', async (req, res) => {
+  try {
+    const adminUserId = req.sessionUser?.uid;
+    const { userId } = req.params;
+
+    if (!adminUserId) {
+      return sendUnauthorized(res);
+    }
+
+    if (!isValidId(userId)) {
+      return sendBadRequest(res, 'Invalid user ID');
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, emailVerified: true },
+    });
+
+    if (!user) {
+      return sendNotFound(res, 'User not found');
+    }
+
+    // Answer the idempotent case before the rate limit, so a repeat click on
+    // a verified user gets 200 rather than 429.
+    if (user.emailVerified) {
+      auditLogger.debug(
+        { userId, adminUserId },
+        'Admin verify-email on an already-verified account (no change)'
+      );
+      return res.json({
+        success: true,
+        emailVerified: user.emailVerified,
+        alreadyVerified: true,
+      });
+    }
+
+    const rateLimit = await checkAdminRateLimit('verifyEmail', userId);
+    if (!rateLimit.allowed) {
+      res.setHeader('Retry-After', rateLimit.retryAfter.toString());
+      return res.status(429).json({
+        success: false,
+        error: 'Too many verification requests for this user',
+        retryAfter: rateLimit.retryAfter,
+      });
+    }
+
+    // Conditional write: if another admin (or the rider's own link) verified
+    // the account since the lookup, keep that timestamp instead of
+    // overwriting it.
+    const now = new Date();
+    const { count } = await prisma.user.updateMany({
+      where: { id: userId, emailVerified: null },
+      data: { emailVerified: now },
+    });
+
+    if (count === 0) {
+      const current = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { emailVerified: true },
+      });
+      if (!current) {
+        return sendNotFound(res, 'User not found');
+      }
+      auditLogger.debug(
+        { userId, adminUserId },
+        'Admin verify-email lost a race; account was verified concurrently (no change)'
+      );
+      return res.json({
+        success: true,
+        emailVerified: current.emailVerified,
+        alreadyVerified: true,
+      });
+    }
+
+    auditLogger.info(
+      { userId, adminUserId },
+      'Email marked verified by admin'
+    );
+
+    res.json({
+      success: true,
+      emailVerified: now,
+      alreadyVerified: false,
+    });
+  } catch (error) {
+    logError('Admin verify email', error);
+    return sendInternalError(res, 'Failed to verify email');
   }
 });
 

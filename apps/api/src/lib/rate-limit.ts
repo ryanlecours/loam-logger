@@ -354,6 +354,8 @@ export const ADMIN_RATE_LIMITS = {
   demoteUser: 5 * SECONDS,
   /** Password reset email cooldown: 30 seconds per target user (prevents accidental double-click + email spam) */
   sendPasswordReset: 30 * SECONDS,
+  /** Admin email verification cooldown: 5 seconds per target user (prevents accidental double-click) */
+  verifyEmail: 5 * SECONDS,
   /** Bulk email cooldown: 60 seconds per admin (prevents spam) */
   bulkEmail: 60 * SECONDS,
   /** Waitlist import cooldown: 60 seconds per admin (prevents spam) */
