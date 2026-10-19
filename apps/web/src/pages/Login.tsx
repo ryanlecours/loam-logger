@@ -7,6 +7,8 @@ import { ME_QUERY } from '../graphql/me';
 import { useRedirectFrom } from '../utils/loginUtils';
 import { Button } from '@/components/ui';
 import { setCsrfToken } from '@/lib/csrf';
+import { readPendingProviderLink, type PendingProviderLink } from '@/lib/providerLink';
+import ProviderLinkModal from '../components/ProviderLinkModal';
 
 export default function Login() {
   const apollo = useApolloClient();
@@ -18,6 +20,7 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [pendingLink, setPendingLink] = useState<PendingProviderLink | null>(null);
 
   useEffect(() => {
     document.documentElement.classList.add('marketing-page');
@@ -28,6 +31,15 @@ export default function Login() {
       document.documentElement.style.scrollBehavior = '';
     };
   }, []);
+
+  async function finishGoogleSignIn(csrfToken: string | undefined) {
+    if (csrfToken) {
+      setCsrfToken(csrfToken);
+    }
+    const { data } = await apollo.query({ query: ME_QUERY, fetchPolicy: 'network-only' });
+    apollo.writeQuery({ query: ME_QUERY, data });
+    navigate(from, { replace: true });
+  }
 
   async function handleLoginSuccess(resp: CredentialResponse) {
     const credential = resp.credential;
@@ -49,6 +61,11 @@ export default function Login() {
       });
 
       if (!res.ok) {
+        const pending = await readPendingProviderLink(res);
+        if (pending) {
+          setPendingLink(pending);
+          return;
+        }
         const text = await res.text();
         console.error('[GoogleLogin] Backend responded with error', res.status, text);
         alert(`Login failed: ${res.statusText}`);
@@ -57,13 +74,7 @@ export default function Login() {
 
       // Get CSRF token from login response and cache it for immediate use
       const { csrfToken } = await res.json();
-      if (csrfToken) {
-        setCsrfToken(csrfToken);
-      }
-
-      const { data } = await apollo.query({ query: ME_QUERY, fetchPolicy: 'network-only' });
-      apollo.writeQuery({ query: ME_QUERY, data });
-      navigate(from, { replace: true });
+      await finishGoogleSignIn(csrfToken);
     } catch (err) {
       console.error('[GoogleLogin] Network or unexpected error', err);
       alert('A network error occurred during login. Please try again.');
@@ -133,6 +144,17 @@ export default function Login() {
 
   return (
     <section className="relative min-h-screen flex items-center justify-center overflow-hidden bg-dark">
+      <ProviderLinkModal
+        pending={pendingLink}
+        onClose={() => setPendingLink(null)}
+        onLinked={(csrfToken) => {
+          setPendingLink(null);
+          finishGoogleSignIn(csrfToken).catch((err) => {
+            console.error('[GoogleLogin] Failed after linking', err);
+            setError('Signed in, but the page could not load. Please refresh.');
+          });
+        }}
+      />
       {/* Background Image with Overlay - Desktop */}
       <div
         className="absolute inset-0 z-0 hidden md:block"

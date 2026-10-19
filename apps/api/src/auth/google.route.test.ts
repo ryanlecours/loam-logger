@@ -41,7 +41,12 @@ jest.mock('../lib/logger', () => {
 });
 
 import router from './google.route';
-import { UnverifiedProviderEmailError, UNVERIFIED_PROVIDER_EMAIL_MESSAGE } from './account-linking';
+import {
+  ProviderLinkNeedsPasswordError,
+  UnverifiedProviderEmailError,
+  UNVERIFIED_PROVIDER_EMAIL_MESSAGE,
+} from './account-linking';
+import { verifyProviderLinkToken } from './provider-link';
 
 interface RouteLayer {
   route?: {
@@ -90,6 +95,31 @@ describe('POST /google/code', () => {
     expect(res.send).toHaveBeenCalledWith(UNVERIFIED_PROVIDER_EMAIL_MESSAGE);
     expect(mockIssueWebSession).not.toHaveBeenCalled();
     expect(mockLoggerError).not.toHaveBeenCalled();
+  });
+
+  it('answers a held link with 409 and a link token, without a session', async () => {
+    const savedSecret = process.env.SESSION_SECRET;
+    process.env.SESSION_SECRET = 'test-secret';
+    try {
+      mockVerifyIdToken.mockResolvedValue({
+        getPayload: () => ({ sub: 'google-123', email: 'rider@example.com', email_verified: true }),
+      });
+      mockEnsureUserFromGoogle.mockRejectedValue(
+        new ProviderLinkNeedsPasswordError('google', 'legacy', 'rider@example.com')
+      );
+      const req = { body: { credential: 'id-token' } } as unknown as Request;
+      const res = createMockResponse();
+
+      await handler(req, res as unknown as Response, jest.fn() as NextFunction);
+
+      expect(res.status).toHaveBeenCalledWith(409);
+      const body = res.json.mock.calls[0][0];
+      expect(body).toMatchObject({ code: 'LINK_NEEDS_PASSWORD', details: { email: 'rider@example.com' } });
+      expect(verifyProviderLinkToken(body.details.linkToken)).toMatchObject({ sub: 'google-123', userId: 'legacy' });
+      expect(mockIssueWebSession).not.toHaveBeenCalled();
+    } finally {
+      process.env.SESSION_SECRET = savedSecret;
+    }
   });
 
   it('still answers other failures with 500', async () => {

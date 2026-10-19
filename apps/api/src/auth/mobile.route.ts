@@ -3,7 +3,12 @@ import * as Sentry from '@sentry/node';
 import { OAuth2Client } from 'google-auth-library';
 import { ensureUserFromGoogle } from './ensureUserFromGoogle';
 import { ensureUserFromApple } from './ensureUserFromApple';
-import { UnverifiedProviderEmailError, UNVERIFIED_PROVIDER_EMAIL_MESSAGE } from './account-linking';
+import {
+  ProviderLinkNeedsPasswordError,
+  UnverifiedProviderEmailError,
+  UNVERIFIED_PROVIDER_EMAIL_MESSAGE,
+} from './account-linking';
+import { sendLinkNeedsPassword } from './provider-link';
 import { checkLoginRateLimit, LOGIN_RATE_LIMIT_MESSAGE } from './login-rate-limit';
 import { verifyAppleIdentityToken, type AppleVerifyErrorDetail } from './appleTokenVerifier';
 import { normalizeEmail, getClientIp } from './utils';
@@ -139,6 +144,8 @@ router.post('/mobile/signup', express.json(), async (req, res) => {
  */
 router.post('/mobile/google', express.json(), async (req, res) => {
   let googleSub: string | undefined;
+  // What a held link needs to resume without another Google sign-in.
+  let linkIdentity: { sub: string; name?: string | null; picture?: string | null } | undefined;
   try {
     const clientIp = getClientIp(req);
     const rateLimit = await checkAuthRateLimit('oauth-login', clientIp);
@@ -171,6 +178,7 @@ router.post('/mobile/google', express.json(), async (req, res) => {
       return sendUnauthorized(res, 'Invalid Google token');
     }
     googleSub = payload.sub;
+    linkIdentity = { sub: payload.sub, name: payload.name, picture: payload.picture };
 
     // Create or update user
     const { user, wasCreated } = await ensureUserFromGoogle({
@@ -208,6 +216,9 @@ router.post('/mobile/google', express.json(), async (req, res) => {
     if (e instanceof UnverifiedProviderEmailError) {
       return sendError(res, 401, UNVERIFIED_PROVIDER_EMAIL_MESSAGE, e.code);
     }
+    if (e instanceof ProviderLinkNeedsPasswordError && linkIdentity) {
+      return sendLinkNeedsPassword(res, e, linkIdentity);
+    }
     logger.error({ err: e, sub: googleSub, route: 'mobile/google' }, '[MobileAuth] Google login failed');
     Sentry.captureException(e, { tags: { route: 'mobile/google', stage: 'ensure-user' }, contexts: { google_signin: { sub: googleSub ?? 'unknown' } } });
     return sendInternalError(res, 'Authentication failed');
@@ -225,6 +236,7 @@ router.post('/mobile/google', express.json(), async (req, res) => {
 router.post('/mobile/apple', express.json(), async (req, res) => {
   // Track the verified Apple sub across the function so catch-block logs can include it.
   let appleSub: string | undefined;
+  let linkIdentity: { sub: string; name?: string | null } | undefined;
   try {
     const clientIp = getClientIp(req);
     const rateLimit = await checkAuthRateLimit('oauth-login', clientIp);
@@ -283,6 +295,7 @@ router.post('/mobile/apple', express.json(), async (req, res) => {
     const givenName = clientUser?.name?.firstName?.slice(0, 50) || null;
     const familyName = clientUser?.name?.lastName?.slice(0, 50) || null;
     const name = [givenName, familyName].filter(Boolean).join(' ') || null;
+    linkIdentity = { sub: applePayload.sub, name };
 
     // Token email is trusted (verified by Apple) — used for account lookup/linking.
     // Client email is untrusted — only used for new user creation as a fallback.
@@ -320,6 +333,9 @@ router.post('/mobile/apple', express.json(), async (req, res) => {
   } catch (e) {
     if (e instanceof UnverifiedProviderEmailError) {
       return sendError(res, 401, UNVERIFIED_PROVIDER_EMAIL_MESSAGE, e.code);
+    }
+    if (e instanceof ProviderLinkNeedsPasswordError && linkIdentity) {
+      return sendLinkNeedsPassword(res, e, linkIdentity);
     }
     logger.error({ err: e, sub: appleSub, route: 'mobile/apple' }, '[MobileAuth] Apple login failed');
     Sentry.captureException(e, {
