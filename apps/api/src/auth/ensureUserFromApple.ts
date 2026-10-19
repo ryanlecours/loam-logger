@@ -1,5 +1,5 @@
 import { Prisma, type User } from '@prisma/client';
-import { normalizeEmail } from './utils';
+import { normalizeEmail, canonicalizeEmail } from './utils';
 import { type AppleClaims } from './types';
 import { prisma } from '../lib/prisma';
 import { secureAccountBeforeLinking } from './account-linking';
@@ -90,6 +90,7 @@ async function ensureUserFromAppleInner(
       const created = await tx.user.create({
         data: {
           email: emailForCreation,
+          emailCanonical: canonicalizeEmail(emailForCreation),
           name: claims.name ?? null,
           avatarUrl: null,
           emailVerified: claims.email_verified ? new Date() : null,

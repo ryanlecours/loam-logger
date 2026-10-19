@@ -30,6 +30,13 @@ export interface UserEntry {
   emailUnsubscribed: boolean;
   isFoundingRider: boolean;
   lastPasswordResetEmailAt: string | null;
+  /** When the address was confirmed; null if it never was. */
+  emailVerified: string | null;
+  /** True for password signups that may not sign in until verified. */
+  emailVerificationRequired: boolean;
+  /** Recorded at signup for abuse review; null for older and Google/Apple accounts. */
+  signupIp: string | null;
+  signupUserAgent: string | null;
 }
 
 /** Response shape from `GET /api/admin/lookup-user?email=…`. */

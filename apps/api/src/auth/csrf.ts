@@ -58,6 +58,11 @@ const CSRF_EXEMPT_PATHS = new Set([
   '/auth/signup',          // Email signup - creates session
   '/auth/login',           // Email login - creates session
   '/auth/link-provider',   // Google link after password check - creates session
+  // Email verification. Neither reads or changes the session: the token or
+  // the address in the body is all they act on, so a signed-in tab that
+  // opens a verify link (or asks for another) must not be refused.
+  '/auth/verify-email',
+  '/auth/resend-verification',
   '/auth/garmin/callback', // Garmin OAuth callback - creates session
   '/auth/strava/callback', // Strava OAuth callback - creates session
   // Garmin webhooks. NOT signature-verified today, despite what this list's

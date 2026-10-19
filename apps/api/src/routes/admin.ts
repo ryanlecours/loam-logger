@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { prisma } from '../lib/prisma';
 import { requireAdmin } from '../auth/adminMiddleware';
 import { hashPassword, validatePassword } from '../auth/password.utils';
+import { canonicalizeEmail } from '../auth/utils';
 import {
   createPasswordResetToken,
   sendPasswordResetEmail,
@@ -203,6 +204,7 @@ router.post('/users', async (req, res) => {
     const user = await prisma.user.create({
       data: {
         email: email.toLowerCase().trim(),
+        emailCanonical: canonicalizeEmail(email),
         name: name?.trim() || null,
         role: role as 'FREE' | 'PRO' | 'ADMIN',
         passwordHash,
@@ -430,16 +432,24 @@ router.delete('/users/:userId', async (req, res) => {
 /**
  * GET /api/admin/users
  * Returns paginated active users (FREE, PRO, ADMIN roles)
+ * Query params:
+ *   - unverified: 'true' to list only accounts whose email was never verified
+ *     (password signups awaiting their link, plus older password accounts
+ *     from before verification existed), for abuse review
  */
 router.get('/users', async (req, res) => {
   try {
     const page = Math.max(1, parseInt(req.query.page as string) || 1);
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 50));
     const skip = (page - 1) * limit;
+    const where = {
+      role: { in: ['FREE', 'PRO', 'ADMIN'] as UserRole[] },
+      ...(req.query.unverified === 'true' ? { emailVerified: null } : {}),
+    };
 
     const [users, total] = await Promise.all([
       prisma.user.findMany({
-        where: { role: { in: ['FREE', 'PRO', 'ADMIN'] } },
+        where,
         orderBy: { createdAt: 'desc' },
         skip,
         take: limit,
@@ -452,6 +462,10 @@ router.get('/users', async (req, res) => {
           activatedAt: true,
           emailUnsubscribed: true,
           isFoundingRider: true,
+          emailVerified: true,
+          emailVerificationRequired: true,
+          signupIp: true,
+          signupUserAgent: true,
           emailSends: {
             where: { emailType: 'password_reset', status: 'sent' },
             orderBy: { createdAt: 'desc' },
@@ -460,7 +474,7 @@ router.get('/users', async (req, res) => {
           },
         },
       }),
-      prisma.user.count({ where: { role: { in: ['FREE', 'PRO', 'ADMIN'] } } }),
+      prisma.user.count({ where }),
     ]);
 
     // Flatten the relation into a single timestamp field so the frontend

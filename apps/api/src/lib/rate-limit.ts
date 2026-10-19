@@ -369,6 +369,21 @@ export const ADMIN_RATE_LIMITS = {
 export const AUTH_RATE_LIMITS = {
   /** signup: max 5 requests per minute per IP (prevents automated spam) */
   signup: { windowSeconds: 60, maxRequests: 5 },
+  /** signup-hourly / signup-daily: longer windows on the same per-IP signup
+   *  budget, so a script pacing itself under the per-minute cap still stalls.
+   *  Checked together through checkSignupRateLimit. Generous enough for a
+   *  household or office behind one NAT. */
+  'signup-hourly': { windowSeconds: 3600, maxRequests: 20 },
+  'signup-daily': { windowSeconds: 86400, maxRequests: 50 },
+  /** verify-email: max 10 requests per minute per IP (prevents token-guessing floods) */
+  'verify-email': { windowSeconds: 60, maxRequests: 10 },
+  /** resend-verification: max 5 requests per minute per IP (public; prevents email-blast abuse) */
+  'resend-verification': { windowSeconds: 60, maxRequests: 5 },
+  /** verification-email: max 3 verification emails per hour per account, keyed
+   *  by a hash of the email. Covers every send after the signup one: the
+   *  resend endpoint and a sign-in attempt on an unverified account. Over the
+   *  limit the request still answers normally, it just sends nothing. */
+  'verification-email': { windowSeconds: 3600, maxRequests: 3 },
   /** oauth-login: max 10 requests per minute per IP (Google/Apple token verification) */
   'oauth-login': { windowSeconds: 60, maxRequests: 10 },
   /** login: max 10 password attempts per minute per IP (slows password
@@ -748,6 +763,20 @@ export async function checkAuthRateLimit(
       checkMemoryRateLimit(key, config.maxRequests, config.windowSeconds)
     );
   }
+}
+
+/**
+ * Rate limit a signup attempt from one IP across the minute, hour and day
+ * windows. The windows are checked shortest first and stop at the first
+ * rejection, so a burst stopped by the minute cap does not also spend the
+ * longer budgets.
+ */
+export async function checkSignupRateLimit(clientIp: string): Promise<RateLimitResult> {
+  const byMinute = await checkAuthRateLimit('signup', clientIp);
+  if (!byMinute.allowed) return byMinute;
+  const byHour = await checkAuthRateLimit('signup-hourly', clientIp);
+  if (!byHour.allowed) return byHour;
+  return checkAuthRateLimit('signup-daily', clientIp);
 }
 
 /**

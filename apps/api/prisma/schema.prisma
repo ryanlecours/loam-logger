@@ -53,6 +53,20 @@ model User {
   // separately via posthog.opt_out_capturing() from the browser SDK.
   analyticsOptOut Boolean @default(false)
 
+  // Set only on password signups made after email verification shipped. While
+  // it is true and emailVerified is null, no session is issued (signup and
+  // login answer EMAIL_VERIFICATION_REQUIRED) and the account is purged after
+  // 14 days. Accounts created earlier stay false so their sign-in is unchanged.
+  emailVerificationRequired Boolean @default(false)
+  // The email folded for duplicate detection (Gmail dots, +tags and
+  // googlemail.com removed; see canonicalizeEmail). Only used to refuse a
+  // signup that duplicates an existing inbox; sign-in still matches `email`.
+  emailCanonical            String?
+  // Forensics for abuse review in the admin Users page. Null for accounts
+  // created before these were recorded and for Google/Apple signups.
+  signupIp                  String?
+  signupUserAgent           String?
+
   // AI output (the advisor maintenance summary) is strictly opt-in: off by
   // default at every tier, including existing Pro and Founding Rider users.
   // Checked in the advisorSummary resolver alongside the Pro gate; false
@@ -76,6 +90,7 @@ model User {
   integrations             UserIntegration[]
   notificationLogs         NotificationLog[]
   passwordResetTokens      PasswordResetToken[]
+  emailVerificationTokens  EmailVerificationToken[]
   componentRideAdjustments ComponentRideAdjustment[]
   mobileSessions           MobileSession[]
   componentShares          ComponentShare[]
@@ -105,6 +120,8 @@ model User {
   // null timezone is skipped rather than guessed at, since a digest at 3am
   // is worse than no digest.
   timezone String?
+
+  @@index([emailCanonical])
 }
 
 // One row per mobile device sign-in. Refresh tokens carry this row's id
@@ -819,6 +836,7 @@ enum EmailType {
   password_added
   password_changed
   password_reset
+  email_verification
   upgrade_confirmation
   downgrade_notice
   payment_failed
@@ -1074,6 +1092,19 @@ model NotificationLog {
   @@index([userId])
   @@index([componentId])
   @@index([bikeId])
+}
+
+model EmailVerificationToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
 }
 
 model PasswordResetToken {

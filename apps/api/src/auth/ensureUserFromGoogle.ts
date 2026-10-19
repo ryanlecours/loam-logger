@@ -1,5 +1,5 @@
 import { Prisma, type User } from '@prisma/client';
-import { normalizeEmail, computeExpiry } from './utils';
+import { normalizeEmail, canonicalizeEmail, computeExpiry } from './utils';
 import { type GoogleClaims, type GoogleTokens } from './types';
 import { prisma } from '../lib/prisma';
 import { secureAccountBeforeLinking } from './account-linking';
@@ -92,6 +92,7 @@ async function ensureUserFromGoogleInner(
       const created = await tx.user.create({
         data: {
           email,
+          emailCanonical: canonicalizeEmail(email),
           name: claims.name ?? null,
           avatarUrl: claims.picture ?? null,
           emailVerified: claims.email_verified ? new Date() : null,

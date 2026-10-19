@@ -21,7 +21,7 @@ const COLUMNS = [
   { key: 'email', label: 'Email' },
   { key: 'name', label: 'Name' },
   { key: 'role', label: 'Role' },
-  { key: 'activated', label: 'Activated' },
+  { key: 'signup', label: 'Signed Up' },
   { key: 'actions', label: 'Action', align: 'right' as const },
 ];
 
@@ -40,6 +40,9 @@ export function UsersSection() {
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
+  // Narrows the list to accounts whose email was never confirmed, for
+  // reviewing suspected bot signups.
+  const [unverifiedOnly, setUnverifiedOnly] = useState(false);
 
   const [showAddUser, setShowAddUser] = useState(false);
   const [resettingPassword, setResettingPassword] = useState<string | null>(null);
@@ -54,11 +57,12 @@ export function UsersSection() {
   const [deleteTarget, setDeleteTarget] = useState<UserEntry | null>(null);
   const [foundingTarget, setFoundingTarget] = useState<UserEntry | null>(null);
 
-  const fetchUsers = async (pageNum: number) => {
+  const fetchUsers = async (pageNum: number, onlyUnverified = unverifiedOnly) => {
     try {
       setLoading(true);
+      const filter = onlyUnverified ? '&unverified=true' : '';
       const res = await fetch(
-        `${import.meta.env.VITE_API_URL}/api/admin/users?page=${pageNum}&limit=${PAGE_SIZE}`,
+        `${import.meta.env.VITE_API_URL}/api/admin/users?page=${pageNum}&limit=${PAGE_SIZE}${filter}`,
         { credentials: 'include' },
       );
       if (!res.ok) throw new Error('Failed to fetch users');
@@ -80,6 +84,13 @@ export function UsersSection() {
   useEffect(() => {
     fetchUsers(1);
   }, []);
+
+  const handleToggleUnverified = () => {
+    const next = !unverifiedOnly;
+    setUnverifiedOnly(next);
+    setUsers([]);
+    void fetchUsers(1, next);
+  };
 
   const handleSendPasswordReset = async (target: UserEntry) => {
     // Stays on window.confirm rather than ConfirmDeleteModal because:
@@ -198,20 +209,31 @@ export function UsersSection() {
             <p className="label-section">Active Users</p>
             <h1 className="text-3xl font-semibold text-white">Users</h1>
           </div>
-          <button
-            type="button"
-            onClick={() => setShowAddUser(true)}
-            className="btn-success"
-          >
-            + Add User
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={handleToggleUnverified}
+              aria-pressed={unverifiedOnly}
+              className={unverifiedOnly ? 'btn-primary' : 'btn-outline'}
+              title="Show only accounts whose email was never confirmed"
+            >
+              Unverified only
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowAddUser(true)}
+              className="btn-success"
+            >
+              + Add User
+            </button>
+          </div>
         </div>
 
         <AdminTable
           columns={COLUMNS}
           rowCount={users.length}
           loading={loading && users.length === 0}
-          empty="No active users yet."
+          empty={unverifiedOnly ? 'No unverified accounts.' : 'No active users yet.'}
           loadMore={
             hasMore && !loading ? (
               <Button
@@ -235,6 +257,18 @@ export function UsersSection() {
                       Unsubscribed
                     </span>
                   )}
+                  {!u.emailVerified && (
+                    <span
+                      className="ml-2 text-xs px-1.5 py-0.5 rounded bg-warning/30 text-warning"
+                      title={
+                        u.emailVerificationRequired
+                          ? 'Waiting on the verification link; cannot sign in yet'
+                          : 'Never confirmed (signed up before verification existed)'
+                      }
+                    >
+                      {u.emailVerificationRequired ? 'Awaiting verification' : 'Unverified'}
+                    </span>
+                  )}
                 </td>
                 <td className="py-3 px-4 text-muted">{u.name || '—'}</td>
                 <td className="py-3 px-4">
@@ -246,7 +280,13 @@ export function UsersSection() {
                   )}
                 </td>
                 <td className="py-3 px-4 text-muted">
-                  {u.activatedAt ? new Date(u.activatedAt).toLocaleDateString() : '—'}
+                  <div>{new Date(u.createdAt).toLocaleDateString()}</div>
+                  {u.signupIp && (
+                    <div className="text-xs max-w-[14rem] truncate" title={u.signupUserAgent ?? undefined}>
+                      {u.signupIp}
+                      {u.signupUserAgent && ` · ${u.signupUserAgent}`}
+                    </div>
+                  )}
                 </td>
                 <td className="py-3 px-4 text-right">
                   <div className="flex gap-2 justify-end">
