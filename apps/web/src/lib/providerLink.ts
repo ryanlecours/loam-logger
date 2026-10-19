@@ -12,7 +12,13 @@ export type PendingProviderLink = {
 export async function readPendingProviderLink(res: Response): Promise<PendingProviderLink | null> {
   if (res.status !== 409) return null;
   const body = await res.clone().json().catch(() => null);
-  if (body?.code !== 'LINK_NEEDS_PASSWORD' || typeof body.details?.linkToken !== 'string') return null;
+  if (
+    body?.code !== 'LINK_NEEDS_PASSWORD' ||
+    typeof body.details?.linkToken !== 'string' ||
+    typeof body.details?.email !== 'string'
+  ) {
+    return null;
+  }
   return {
     linkToken: body.details.linkToken,
     email: body.details.email,

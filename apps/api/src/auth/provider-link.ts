@@ -6,6 +6,7 @@ import { createLogger } from '../lib/logger';
 import { sendError } from '../lib/api-response';
 import { verifyPassword } from './password.utils';
 import { checkLoginRateLimit, LOGIN_RATE_LIMIT_MESSAGE } from './login-rate-limit';
+import { normalizeEmail } from './utils';
 import {
   LINK_NEEDS_PASSWORD_MESSAGE,
   type LinkProvider,
@@ -15,6 +16,9 @@ import {
 const auditLogger = createLogger('auth-audit');
 
 const LINK_TOKEN_TTL = '10m';
+
+/** Pinned on sign and verify, so a token can't choose its own algorithm. */
+const LINK_TOKEN_ALGORITHM = 'HS256';
 
 /**
  * The provider identity a rider is trying to link, held in a signed token
@@ -46,12 +50,14 @@ function linkSecret(): string {
 }
 
 export function createProviderLinkToken(claims: ProviderLinkClaims): string {
-  return jwt.sign(claims, linkSecret(), { expiresIn: LINK_TOKEN_TTL });
+  return jwt.sign(claims, linkSecret(), { expiresIn: LINK_TOKEN_TTL, algorithm: LINK_TOKEN_ALGORITHM });
 }
 
 export function verifyProviderLinkToken(token: string): ProviderLinkClaims | null {
   try {
-    const payload = jwt.verify(token, linkSecret()) as Partial<ProviderLinkClaims>;
+    const payload = jwt.verify(token, linkSecret(), {
+      algorithms: [LINK_TOKEN_ALGORITHM],
+    }) as Partial<ProviderLinkClaims>;
     if (
       (payload.provider !== 'google' && payload.provider !== 'apple') ||
       typeof payload.sub !== 'string' ||
@@ -118,8 +124,8 @@ export type CompleteLinkResult =
  * a wrong password here is the same guess.
  */
 export async function completeProviderLink(
-  linkToken: string | undefined,
-  password: string | undefined,
+  linkToken: unknown,
+  password: unknown,
   clientIp: string
 ): Promise<CompleteLinkResult> {
   const expired = {
@@ -129,13 +135,24 @@ export async function completeProviderLink(
     message: 'This sign-in took too long. Please sign in with Google or Apple again.',
   };
 
+  // Straight from the request body, so anything could arrive. A non-string
+  // password would otherwise reach bcrypt and surface as a 500.
+  if (
+    (linkToken !== undefined && typeof linkToken !== 'string') ||
+    (password !== undefined && typeof password !== 'string')
+  ) {
+    return { ok: false, status: 400, code: 'BAD_REQUEST', message: 'Invalid request' };
+  }
+
   const claims = linkToken ? verifyProviderLinkToken(linkToken) : null;
   if (!claims) return expired;
   if (!password) {
     return { ok: false, status: 400, code: 'BAD_REQUEST', message: 'Password is required' };
   }
 
-  const rateLimit = await checkLoginRateLimit(clientIp, claims.email);
+  // Same per-account bucket as /auth/login, which keys on the normalized
+  // email; a differently cased address must not get a second budget.
+  const rateLimit = await checkLoginRateLimit(clientIp, normalizeEmail(claims.email) ?? claims.email);
   if (!rateLimit.allowed) {
     return {
       ok: false,
@@ -155,6 +172,19 @@ export async function completeProviderLink(
   if (!(await verifyPassword(password, user.passwordHash))) {
     return { ok: false, status: 401, code: 'UNAUTHORIZED', message: 'Incorrect password' };
   }
+
+  const alreadyLinked = (): CompleteLinkResult => {
+    auditLogger.warn(
+      { userId: user.id, provider: claims.provider },
+      'Refused provider link: identity already linked to another account'
+    );
+    return {
+      ok: false,
+      status: 409,
+      code: 'PROVIDER_ALREADY_LINKED',
+      message: 'That sign-in is already connected to a different Loam Logger account.',
+    };
+  };
 
   try {
     const linked = await prisma.$transaction(async (tx) => {
@@ -179,26 +209,27 @@ export async function completeProviderLink(
       });
     });
 
-    if (!linked) {
-      auditLogger.warn(
-        { userId: user.id, provider: claims.provider },
-        'Refused provider link: identity already linked to another account'
-      );
-      return {
-        ok: false,
-        status: 409,
-        code: 'PROVIDER_ALREADY_LINKED',
-        message: 'That sign-in is already connected to a different Loam Logger account.',
-      };
-    }
+    if (!linked) return alreadyLinked();
 
     auditLogger.info({ userId: user.id, provider: claims.provider }, 'Linked provider after password confirmation');
     return { ok: true, user: linked };
   } catch (e) {
-    // Two submits of the same form race to create the link; the loser finds
-    // it made by the winner, which is the outcome both wanted.
+    // Another request created this identity's link first. That's the outcome
+    // we wanted only if it linked it to this account: two submits of the same
+    // form. If a different account won, nothing was linked here. Re-read the
+    // user either way, so the session reflects what the winner committed
+    // rather than this transaction's rolled-back view.
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
-      return { ok: true, user: { id: user.id, email: user.email, name: user.name, avatarUrl: user.avatarUrl } };
+      const owner = await prisma.userAccount.findUnique({
+        where: { provider_providerUserId: { provider: claims.provider, providerUserId: claims.sub } },
+        select: { userId: true },
+      });
+      if (owner?.userId !== user.id) return alreadyLinked();
+      const current = await prisma.user.findUnique({
+        where: { id: user.id },
+        select: { id: true, email: true, name: true, avatarUrl: true },
+      });
+      return current ? { ok: true, user: current } : expired;
     }
     throw e;
   }

@@ -27,7 +27,7 @@ function sendFailure(res: Response, result: Failure): void {
  */
 router.post('/link-provider', express.json(), async (req, res) => {
   try {
-    const { linkToken, password } = req.body as { linkToken?: string; password?: string };
+    const { linkToken, password } = (req.body ?? {}) as { linkToken?: unknown; password?: unknown };
     const result = await completeProviderLink(linkToken, password, getClientIp(req));
     if (!result.ok) return sendFailure(res, result);
 
@@ -50,7 +50,7 @@ router.post('/link-provider', express.json(), async (req, res) => {
  */
 router.post('/mobile/link-provider', express.json(), async (req, res) => {
   try {
-    const { linkToken, password } = req.body as { linkToken?: string; password?: string };
+    const { linkToken, password } = (req.body ?? {}) as { linkToken?: unknown; password?: unknown };
     const result = await completeProviderLink(linkToken, password, getClientIp(req));
     if (!result.ok) return sendFailure(res, result);
 

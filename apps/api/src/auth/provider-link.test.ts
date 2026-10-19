@@ -25,6 +25,7 @@ jest.mock('../lib/prisma', () => {
   return {
     prisma: {
       user: { findUnique: (...args: unknown[]) => mockUserFindUnique(...args) },
+      userAccount: { findUnique: (...args: unknown[]) => mockAccountFindUnique(...args) },
       $transaction: (fn: (t: typeof tx) => unknown) => fn(tx),
     },
   };
@@ -94,6 +95,11 @@ describe('link tokens', () => {
     expect(verifyProviderLinkToken(sessionSigned)).toBeNull();
   });
 
+  it('only accepts HS256, so a token cannot pick its own algorithm', () => {
+    const otherAlgorithm = jwt.sign(claims, 'test-secret:provider-link', { algorithm: 'HS512' });
+    expect(verifyProviderLinkToken(otherAlgorithm)).toBeNull();
+  });
+
   it('rejects an expired token', () => {
     const expired = jwt.sign({ ...claims, exp: Math.floor(Date.now() / 1000) - 10 }, 'test-secret:provider-link');
     expect(verifyProviderLinkToken(expired)).toBeNull();
@@ -136,6 +142,40 @@ describe('completeProviderLink', () => {
     });
     await expect(completeProviderLink(undefined, 'pw', '1.2.3.4')).resolves.toMatchObject({ code: 'LINK_EXPIRED' });
     expect(mockCheckLoginRateLimit).not.toHaveBeenCalled();
+  });
+
+  it('answers 400 to a non-string token or password, without touching the account', async () => {
+    for (const [linkToken, password] of [
+      [{ forged: true }, 'pw'],
+      [token(), 123],
+      [token(), { $gt: '' }],
+    ] as const) {
+      await expect(completeProviderLink(linkToken, password, '1.2.3.4')).resolves.toMatchObject({
+        ok: false,
+        status: 400,
+        code: 'BAD_REQUEST',
+      });
+    }
+    expect(mockCheckLoginRateLimit).not.toHaveBeenCalled();
+    expect(mockVerifyPassword).not.toHaveBeenCalled();
+  });
+
+  it('counts against the same per-account bucket as login, keyed on the normalized email', async () => {
+    const mixedCase = createProviderLinkToken({ ...claims, email: '  Rider@Example.COM ' });
+
+    await completeProviderLink(mixedCase, 'pw', '1.2.3.4');
+
+    expect(mockCheckLoginRateLimit).toHaveBeenCalledWith('1.2.3.4', 'rider@example.com');
+  });
+
+  it('voids the token when the account no longer exists or has no password', async () => {
+    mockUserFindUnique.mockResolvedValueOnce(null);
+    await expect(completeProviderLink(token(), 'pw', '1.2.3.4')).resolves.toMatchObject({ code: 'LINK_EXPIRED' });
+
+    mockUserFindUnique.mockResolvedValueOnce({ ...legacyUser, passwordHash: null });
+    await expect(completeProviderLink(token(), 'pw', '1.2.3.4')).resolves.toMatchObject({ code: 'LINK_EXPIRED' });
+
+    expect(mockVerifyPassword).not.toHaveBeenCalled();
   });
 
   it('applies the password login limits, per IP and per account', async () => {
@@ -207,11 +247,35 @@ describe('completeProviderLink', () => {
     expect(mockAccountCreate).not.toHaveBeenCalled();
   });
 
-  it('treats losing a race to the same link as success', async () => {
-    mockAccountCreate.mockRejectedValue(
-      new Prisma.PrismaClientKnownRequestError('dup', { code: 'P2002', clientVersion: 'test' })
-    );
+  describe('losing a race to create the link', () => {
+    const duplicate = () =>
+      mockAccountCreate.mockRejectedValue(
+        new Prisma.PrismaClientKnownRequestError('dup', { code: 'P2002', clientVersion: 'test' })
+      );
 
-    await expect(completeProviderLink(token(), 'right', '1.2.3.4')).resolves.toMatchObject({ ok: true });
+    it('succeeds when the winner linked the same account, with the user as committed', async () => {
+      duplicate();
+      mockAccountFindUnique.mockResolvedValueOnce(null).mockResolvedValueOnce({ userId: 'legacy' });
+      const committed = { id: 'legacy', email: 'rider@example.com', name: 'Alex Rider', avatarUrl: 'https://example.com/a.png' };
+      mockUserFindUnique.mockResolvedValueOnce(legacyUser).mockResolvedValueOnce(committed);
+
+      await expect(completeProviderLink(token(), 'right', '1.2.3.4')).resolves.toEqual({ ok: true, user: committed });
+      // The re-read asks only for the session fields, never the password hash.
+      expect(mockUserFindUnique).toHaveBeenLastCalledWith({
+        where: { id: 'legacy' },
+        select: { id: true, email: true, name: true, avatarUrl: true },
+      });
+    });
+
+    it('refuses when a different account won, instead of signing in with nothing linked', async () => {
+      duplicate();
+      mockAccountFindUnique.mockResolvedValueOnce(null).mockResolvedValueOnce({ userId: 'someone-else' });
+
+      await expect(completeProviderLink(token(), 'right', '1.2.3.4')).resolves.toMatchObject({
+        ok: false,
+        status: 409,
+        code: 'PROVIDER_ALREADY_LINKED',
+      });
+    });
   });
 });

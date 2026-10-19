@@ -55,6 +55,27 @@ beforeEach(() => {
 });
 
 describe('POST /link-provider (web)', () => {
+  // Validation lives in completeProviderLink; the route must hand over
+  // whatever arrived, and must not crash on a missing body.
+  it('passes a malformed body through for validation and answers its 400', async () => {
+    mockComplete.mockResolvedValue({ ok: false, status: 400, code: 'BAD_REQUEST', message: 'Invalid request' });
+
+    const res = await call('/link-provider', { linkToken: 't', password: 123 });
+
+    expect(mockComplete).toHaveBeenCalledWith('t', 123, '1.2.3.4');
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(mockIssueWebSession).not.toHaveBeenCalled();
+  });
+
+  it('handles a request with no body at all', async () => {
+    mockComplete.mockResolvedValue({ ok: false, status: 400, code: 'LINK_EXPIRED', message: 'expired' });
+
+    const res = await call('/link-provider', undefined);
+
+    expect(mockComplete).toHaveBeenCalledWith(undefined, undefined, '1.2.3.4');
+    expect(res.status).toHaveBeenCalledWith(400);
+  });
+
   it('passes the token, password and IP through, and starts a session on success', async () => {
     mockComplete.mockResolvedValue({ ok: true, user });
 

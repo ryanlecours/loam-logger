@@ -86,4 +86,11 @@ describe('readPendingProviderLink', () => {
     await expect(readPendingProviderLink(response(401, { code: 'PROVIDER_EMAIL_UNVERIFIED' }))).resolves.toBeNull();
     await expect(readPendingProviderLink(response(409, { code: 'CONFLICT' }))).resolves.toBeNull();
   });
+
+  it('ignores a held link whose email is missing or not a string', async () => {
+    for (const email of [undefined, 42, { address: 'rider@example.com' }]) {
+      const res = response(409, { code: 'LINK_NEEDS_PASSWORD', details: { linkToken: 't', email, provider: 'google' } });
+      await expect(readPendingProviderLink(res)).resolves.toBeNull();
+    }
+  });
 });
