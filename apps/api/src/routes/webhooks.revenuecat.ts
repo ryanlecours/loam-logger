@@ -1,5 +1,6 @@
 import { timingSafeEqual } from 'crypto';
 import { Router, type Request, type Response } from 'express';
+import type { SubscriptionProvider } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { logger } from '../lib/logger';
 import { config } from '../config/env';
@@ -39,6 +40,20 @@ router.post('/', async (req: Request, res: Response) => {
   const store: string | undefined = event.store;
 
   logger.info({ eventType, appUserId, store }, 'RevenueCat webhook received');
+
+  // TRANSFER carries transferred_from / transferred_to instead of app_user_id,
+  // so it is handled before the app_user_id check below.
+  if (eventType === 'TRANSFER') {
+    try {
+      await handleTransfer(event, store);
+    } catch (err) {
+      logger.error({ error: err instanceof Error ? err.message : String(err), eventType }, 'Error processing RevenueCat webhook');
+      res.status(500).json({ received: true, error: true });
+      return;
+    }
+    res.status(200).json({ received: true });
+    return;
+  }
 
   if (!appUserId) {
     logger.warn({ eventType }, 'RevenueCat webhook missing app_user_id');
@@ -105,6 +120,67 @@ router.post('/', async (req: Request, res: Response) => {
 
   res.status(200).json({ received: true });
 });
+
+const IAP_PROVIDERS: SubscriptionProvider[] = ['APPLE', 'GOOGLE'];
+
+/**
+ * Keep only Loam user ids. Anonymous RevenueCat ids ($RCAnonymousID:...) never
+ * match a Loam account, so they are dropped along with non-string entries.
+ */
+function loamUserIds(ids: unknown): string[] {
+  if (!Array.isArray(ids)) return [];
+  const valid = ids.filter(
+    (id): id is string => typeof id === 'string' && id.length > 0 && !id.startsWith('$RCAnonymousID:')
+  );
+  return [...new Set(valid)];
+}
+
+/**
+ * A rider restored a store subscription while signed into a different Loam
+ * account, so RevenueCat moved the purchases from transferred_from to
+ * transferred_to. Upgrade the receiving accounts and downgrade the old ones,
+ * but only where the old account's PRO came from an in-app purchase: founding
+ * riders and Stripe subscribers keep PRO.
+ */
+async function handleTransfer(
+  event: { transferred_from?: unknown; transferred_to?: unknown },
+  store: string | undefined,
+): Promise<void> {
+  const toIds = loamUserIds(event.transferred_to);
+  const fromIds = loamUserIds(event.transferred_from).filter((id) => !toIds.includes(id));
+
+  logger.info({ transferredFrom: fromIds, transferredTo: toIds, store }, 'RevenueCat subscription transfer');
+
+  let provider: 'APPLE' | 'GOOGLE';
+  let downgradeProviders: SubscriptionProvider[];
+  if (store) {
+    provider = storeToProvider(store);
+    downgradeProviders = [provider];
+  } else {
+    // store is optional on TRANSFER. Inherit the provider from the account the
+    // purchases came from, and only touch that account's IAP-sourced PRO.
+    logger.warn({ transferredFrom: fromIds, transferredTo: toIds }, 'RevenueCat TRANSFER missing store field');
+    provider = (await sourceIapProvider(fromIds)) ?? storeToProvider('PLAY_STORE');
+    downgradeProviders = IAP_PROVIDERS;
+  }
+
+  for (const userId of toIds) {
+    await upgradeUser(userId, provider, 'revenuecat_webhook');
+  }
+  for (const userId of fromIds) {
+    await downgradeUser(userId, 'revenuecat_webhook', { onlyProviders: downgradeProviders });
+  }
+}
+
+async function sourceIapProvider(fromIds: string[]): Promise<'APPLE' | 'GOOGLE' | null> {
+  if (fromIds.length === 0) return null;
+  const source = await prisma.user.findFirst({
+    where: { id: { in: fromIds }, subscriptionProvider: { in: IAP_PROVIDERS } },
+    select: { subscriptionProvider: true },
+  });
+  const sourceProvider = source?.subscriptionProvider;
+  return sourceProvider === 'APPLE' || sourceProvider === 'GOOGLE' ? sourceProvider : null;
+}
 
 async function handleBillingIssue(appUserId: string): Promise<void> {
   const user = await prisma.user.findUnique({

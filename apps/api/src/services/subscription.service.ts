@@ -88,21 +88,38 @@ export async function upgradeUser(
   return true;
 }
 
+interface DowngradeOptions {
+  /** Only downgrade when the user's PRO comes from one of these providers. */
+  onlyProviders?: SubscriptionProvider[];
+}
+
 /**
  * Downgrade a user from PRO. Idempotent — safe to call from both Stripe and
  * RevenueCat webhook paths.
  *
  * Sets needsDowngradeSelection if user has >1 active bikes. Clears
  * provider-specific subscription fields and sends a downgrade email.
+ * Pass onlyProviders to leave PRO alone when it comes from somewhere else,
+ * for example a Stripe subscription during a RevenueCat transfer.
  */
-export async function downgradeUser(userId: string, triggerSource: TriggerSource): Promise<void> {
+export async function downgradeUser(
+  userId: string,
+  triggerSource: TriggerSource,
+  options: DowngradeOptions = {},
+): Promise<void> {
   const result = await prisma.$transaction(async (tx) => {
     const user = await tx.user.findUnique({
       where: { id: userId },
-      select: { isFoundingRider: true, subscriptionTier: true, email: true, name: true },
+      select: { isFoundingRider: true, subscriptionTier: true, subscriptionProvider: true, email: true, name: true },
     });
 
     if (!user || user.isFoundingRider || user.subscriptionTier !== 'PRO') return null;
+    if (
+      options.onlyProviders &&
+      (!user.subscriptionProvider || !options.onlyProviders.includes(user.subscriptionProvider))
+    ) {
+      return null;
+    }
 
     const activeBikeCount = await tx.bike.count({ where: { userId, status: 'ACTIVE' } });
 
@@ -124,7 +141,7 @@ export async function downgradeUser(userId: string, triggerSource: TriggerSource
   });
 
   if (!result) {
-    logger.info({ userId }, 'Downgrade skipped (founding rider, not PRO, or missing user)');
+    logger.info({ userId }, 'Downgrade skipped (founding rider, not PRO, other provider, or missing user)');
     return;
   }
 
