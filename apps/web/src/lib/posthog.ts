@@ -18,7 +18,8 @@ const EMAIL_PATTERN = /[\w.+-]+@[\w-]+\.[\w.-]+/g;
 const EMAIL_REDACTED = '[email]';
 
 // `token` URL parameters are emailed credentials: a password reset link
-// (/reset-password?token=) or an account deletion link
+// (/reset-password?token=), an email verification link
+// (/verify-email?token=) or an account deletion link
 // (/delete-account/confirm?token=). Pageviews send window.location.href, so
 // without this the token would reach PostHog while it can still be redeemed.
 // Same /g caveat as above.

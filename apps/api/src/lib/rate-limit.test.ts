@@ -26,6 +26,7 @@ import {
   checkMutationRateLimit,
   checkQueryRateLimit,
   checkAuthRateLimit,
+  checkSignupRateLimit,
   MUTATION_RATE_LIMITS,
   AUTH_RATE_LIMITS,
 } from './rate-limit';
@@ -923,5 +924,63 @@ describe('getSuuntoWeekCount', () => {
     mockRedis.get.mockRejectedValue(new Error('Connection failed'));
 
     expect(await getSuuntoWeekCount()).toBe(0);
+  });
+});
+
+describe('checkSignupRateLimit', () => {
+  let mockRedis: ReturnType<typeof mockCounterRedis>;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockRedis = mockCounterRedis();
+    mockGetRedisConnection.mockReturnValue(mockRedis as never);
+    mockIsRedisReady.mockReturnValue(true);
+  });
+
+  it('charges the minute, hour and day windows for the IP when all are under their caps', async () => {
+    mockRedis.incrWithTtl.mockResolvedValue([1, 60]);
+
+    expect(await checkSignupRateLimit('203.0.113.4')).toEqual({ allowed: true, redisAvailable: true });
+    expect(mockRedis.incrWithTtl.mock.calls).toEqual([
+      ['rl:auth:signup:203.0.113.4', '60'],
+      ['rl:auth:signup-hourly:203.0.113.4', '3600'],
+      ['rl:auth:signup-daily:203.0.113.4', '86400'],
+    ]);
+  });
+
+  it('stops at the minute cap without spending the longer budgets', async () => {
+    mockRedis.incrWithTtl.mockResolvedValue([AUTH_RATE_LIMITS.signup.maxRequests + 1, 30]);
+
+    const result = await checkSignupRateLimit('203.0.113.4');
+
+    expect(result.allowed).toBe(false);
+    expect(mockRedis.incrWithTtl).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a script pacing itself under the minute cap once the hour is spent', async () => {
+    mockRedis.incrWithTtl.mockImplementation(async (key: string) =>
+      key.includes('signup-hourly')
+        ? [AUTH_RATE_LIMITS['signup-hourly'].maxRequests + 1, 1800]
+        : [1, 60]
+    );
+
+    const result = await checkSignupRateLimit('203.0.113.4');
+
+    expect(result.allowed).toBe(false);
+    if (!result.allowed) expect(result.retryAfter).toBe(1800);
+    expect(mockRedis.incrWithTtl).not.toHaveBeenCalledWith('rl:auth:signup-daily:203.0.113.4', '86400');
+  });
+
+  it('rejects once the day is spent', async () => {
+    mockRedis.incrWithTtl.mockImplementation(async (key: string) =>
+      key.includes('signup-daily')
+        ? [AUTH_RATE_LIMITS['signup-daily'].maxRequests + 1, 40000]
+        : [1, 60]
+    );
+
+    const result = await checkSignupRateLimit('203.0.113.4');
+
+    expect(result.allowed).toBe(false);
+    if (!result.allowed) expect(result.retryAfter).toBe(40000);
   });
 });

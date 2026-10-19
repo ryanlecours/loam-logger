@@ -4,6 +4,7 @@ const mockVerifyIdToken = jest.fn();
 const mockEnsureUserFromGoogle = jest.fn();
 const mockIssueWebSession = jest.fn().mockResolvedValue(undefined);
 const mockLoggerError = jest.fn();
+const mockCheckAuthRateLimit = jest.fn();
 
 jest.mock('google-auth-library', () => ({
   OAuth2Client: jest.fn().mockImplementation(() => ({
@@ -25,6 +26,9 @@ jest.mock('./csrf', () => ({
 }));
 jest.mock('./recent-auth', () => ({
   updateLastAuthAt: jest.fn().mockResolvedValue(undefined),
+}));
+jest.mock('../lib/rate-limit', () => ({
+  checkAuthRateLimit: (...args: unknown[]) => mockCheckAuthRateLimit(...args),
 }));
 
 jest.mock('../lib/logger', () => {
@@ -71,6 +75,7 @@ function createMockResponse() {
     status: jest.fn().mockReturnThis(),
     json: jest.fn().mockReturnThis(),
     send: jest.fn().mockReturnThis(),
+    setHeader: jest.fn().mockReturnThis(),
   };
 }
 
@@ -79,9 +84,23 @@ describe('POST /google/code', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockCheckAuthRateLimit.mockResolvedValue({ allowed: true, redisAvailable: true });
     mockVerifyIdToken.mockResolvedValue({
       getPayload: () => ({ sub: 'google-123', email: 'rider@example.com', email_verified: false }),
     });
+  });
+
+  it('answers 429 before verifying the token when the IP is over the oauth-login limit', async () => {
+    mockCheckAuthRateLimit.mockResolvedValue({ allowed: false, retryAfter: 30, redisAvailable: true });
+    const req = { body: { credential: 'id-token' }, ip: '203.0.113.4' } as unknown as Request;
+    const res = createMockResponse();
+
+    await handler(req, res as unknown as Response, jest.fn() as NextFunction);
+
+    expect(mockCheckAuthRateLimit).toHaveBeenCalledWith('oauth-login', '203.0.113.4');
+    expect(res.status).toHaveBeenCalledWith(429);
+    expect(mockVerifyIdToken).not.toHaveBeenCalled();
+    expect(mockEnsureUserFromGoogle).not.toHaveBeenCalled();
   });
 
   it('answers a refused link with 401 and the verify message, without a session', async () => {

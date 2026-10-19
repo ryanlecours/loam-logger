@@ -4,6 +4,7 @@ export { default as deleteAccountRouter } from './delete-account.route';
 export { default as deleteAccountEmailRouter } from './delete-account-email.route';
 export { default as passwordRouter } from './password.route';
 export { default as providerLinkRouter } from './provider-link.route';
+export { default as emailVerificationRouter } from './email-verification.route';
 export { attachUser, sessionMiddleware, setSessionCookie, clearSessionCookie } from './session';
 export { setCsrfCookie, clearCsrfCookie, verifyCsrf } from './csrf';
 export { checkRecentAuth, updateLastAuthAt } from './recent-auth';

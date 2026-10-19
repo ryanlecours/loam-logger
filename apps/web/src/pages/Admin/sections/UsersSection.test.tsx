@@ -89,6 +89,10 @@ const baseUser = {
   emailUnsubscribed: false,
   isFoundingRider: false,
   lastPasswordResetEmailAt: null,
+  emailVerified: '2026-01-01T00:00:00.000Z' as string | null,
+  emailVerificationRequired: false,
+  signupIp: null as string | null,
+  signupUserAgent: null as string | null,
 };
 
 function userListResponse(users: Array<Partial<typeof baseUser>>) {
@@ -141,6 +145,41 @@ function setupFetchHandlers(
 }
 
 describe('UsersSection', () => {
+  it('filters to unverified accounts and badges them, with the signup IP and user agent', async () => {
+    setupFetchHandlers({
+      users: () =>
+        userListResponse([
+          {
+            emailVerified: null,
+            emailVerificationRequired: true,
+            signupIp: '203.0.113.9',
+            signupUserAgent: 'okhttp/4.12.0',
+          },
+        ]),
+    });
+    renderInProvider(<UsersSection />);
+    await screen.findByText('rider@example.com');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Unverified only' }));
+
+    await waitFor(() => {
+      const filtered = fetchMock.mock.calls.find((call) => String(call[0]).includes('unverified=true'));
+      expect(filtered).toBeDefined();
+    });
+    expect(screen.getByRole('button', { name: 'Unverified only' })).toHaveAttribute('aria-pressed', 'true');
+    expect(await screen.findByText('Awaiting verification')).toBeInTheDocument();
+    expect(screen.getByText(/203.0.113.9/)).toBeInTheDocument();
+  });
+
+  it('does not badge a verified account', async () => {
+    setupFetchHandlers({ users: () => userListResponse([{}]) });
+    renderInProvider(<UsersSection />);
+
+    await screen.findByText('rider@example.com');
+    expect(screen.queryByText('Unverified')).not.toBeInTheDocument();
+    expect(screen.queryByText('Awaiting verification')).not.toBeInTheDocument();
+  });
+
   it('renders an active user row with the role badge after the initial fetch', async () => {
     setupFetchHandlers({ users: () => userListResponse([{}]) });
 

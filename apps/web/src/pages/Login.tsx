@@ -9,6 +9,8 @@ import { Button } from '@/components/ui';
 import { setCsrfToken } from '@/lib/csrf';
 import { readPendingProviderLink, type PendingProviderLink } from '@/lib/providerLink';
 import ProviderLinkModal from '../components/ProviderLinkModal';
+import CheckEmailNotice from '../components/CheckEmailNotice';
+import { EMAIL_VERIFICATION_REQUIRED_CODE } from '@/lib/emailVerification';
 
 export default function Login() {
   const apollo = useApolloClient();
@@ -21,6 +23,8 @@ export default function Login() {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [pendingLink, setPendingLink] = useState<PendingProviderLink | null>(null);
+  // Set when the password was right but the address is not confirmed yet.
+  const [verificationEmail, setVerificationEmail] = useState<string | null>(null);
 
   useEffect(() => {
     document.documentElement.classList.add('marketing-page');
@@ -105,6 +109,19 @@ export default function Login() {
         const text = await res.text();
         console.error('[login] Backend responded with error', res.status, text);
 
+        // Errors arrive as { error, code, details }; older answers were plain text.
+        let parsed: { error?: string; code?: string; details?: { email?: string } } | null = null;
+        try {
+          parsed = JSON.parse(text);
+        } catch {
+          parsed = null;
+        }
+
+        if (parsed?.code === EMAIL_VERIFICATION_REQUIRED_CODE) {
+          setVerificationEmail(parsed.details?.email || email.trim());
+          return;
+        }
+
         // Map backend error messages to user-friendly messages
         const errorMap: Record<string, string> = {
           'Email already in use': 'This email is already registered. Try logging in instead.',
@@ -113,7 +130,8 @@ export default function Login() {
           'This account uses OAuth login only': 'This email is registered with OAuth. Log in with Google instead.',
         };
 
-        const userMessage = errorMap[text.trim()] || text || 'Login failed';
+        const message = (parsed?.error ?? text).trim();
+        const userMessage = errorMap[message] || message || 'Login failed';
         setError(userMessage);
         return;
       }
@@ -236,6 +254,17 @@ export default function Login() {
           </button>
         </div>
 
+        {verificationEmail ? (
+          <div className="p-4 rounded-xl" style={{ backgroundColor: 'rgba(54, 60, 57, 0.3)' }}>
+            <CheckEmailNotice
+              email={verificationEmail}
+              onBackToSignIn={() => {
+                setVerificationEmail(null);
+                setPassword('');
+              }}
+            />
+          </div>
+        ) : (
         <form className="space-y-4 p-4 rounded-xl" style={{ backgroundColor: 'rgba(54, 60, 57, 0.3)' }} onSubmit={handleManualSubmit}>
           {isReauth && (
             <div className="text-sm p-3 rounded-lg" style={{ backgroundColor: 'rgba(134, 169, 139, 0.15)', color: 'var(--sage)' }}>
@@ -296,6 +325,7 @@ export default function Login() {
             {isLoading ? 'Loading...' : 'Login'}
           </Button>
         </form>
+        )}
 
         <div className={`space-y-3 p-4 rounded-xl ${isLoading ? 'opacity-50 pointer-events-none' : ''}`} style={{ backgroundColor: 'rgba(54, 60, 57, 0.3)' }}>
           <div className="text-center text-xs uppercase tracking-[0.3em]" style={{ color: 'var(--concrete)' }}>Or continue with</div>
