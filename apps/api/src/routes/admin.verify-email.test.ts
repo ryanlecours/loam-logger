@@ -175,6 +175,17 @@ describe('POST /api/admin/users/:userId/verify-email', () => {
     expect(mockAuditLogger.info).not.toHaveBeenCalled();
   });
 
+  it('returns 500 when the database write fails', async () => {
+    mockUsers({ target: { id: RIDER_ID, emailVerified: null } });
+    mockUpdateMany.mockRejectedValue(new Error('connection reset'));
+
+    const res = await request(app).post(PATH).set('x-test-uid', ADMIN_ID);
+
+    expect(res.status).toBe(500);
+    expect(res.body.error).toBe('Failed to verify email');
+    expect(mockAuditLogger.info).not.toHaveBeenCalled();
+  });
+
   it('returns 404 for an unknown user id', async () => {
     mockUsers({ target: null });
 

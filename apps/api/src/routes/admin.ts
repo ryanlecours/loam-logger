@@ -352,6 +352,10 @@ router.post('/users/:userId/verify-email', async (req, res) => {
       if (!current) {
         return sendNotFound(res, 'User not found');
       }
+      auditLogger.debug(
+        { userId, adminUserId },
+        'Admin verify-email lost a race; account was verified concurrently (no change)'
+      );
       return res.json({
         success: true,
         emailVerified: current.emailVerified,
