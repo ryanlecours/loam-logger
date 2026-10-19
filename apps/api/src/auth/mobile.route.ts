@@ -11,7 +11,7 @@ import {
 import { sendLinkNeedsPassword } from './provider-link';
 import { checkLoginRateLimit, LOGIN_RATE_LIMIT_MESSAGE } from './login-rate-limit';
 import { verifyAppleIdentityToken, type AppleVerifyErrorDetail } from './appleTokenVerifier';
-import { normalizeEmail, getClientIp } from './utils';
+import { normalizeEmail, getClientIp, getUserAgent } from './utils';
 import { validateEmailFormat } from './email.utils';
 import { verifyPassword, validatePassword, hashPassword } from './password.utils';
 import { generateAccessToken, generateRefreshToken, verifyToken, isRefreshTokenPayload } from './token';
@@ -19,12 +19,18 @@ import { issueMobileTokens } from './session-issuer';
 import { rotateMobileSession, revokeMobileSession, upgradeLegacySession, hashLegacyToken } from './mobile-session';
 import { updateLastAuthAt } from './recent-auth';
 import { prisma } from '../lib/prisma';
-import { checkAuthRateLimit, checkMutationRateLimit } from '../lib/rate-limit';
+import { checkAuthRateLimit, checkMutationRateLimit, checkSignupRateLimit } from '../lib/rate-limit';
 import { sendPasswordAddedNotification, sendPasswordChangedNotification } from '../services/password-notification.service';
 import { logger, createLogger } from '../lib/logger';
 import { sendError, sendUnauthorized, sendBadRequest, sendForbidden, sendConflict, sendInternalError, sendTooManyRequests } from '../lib/api-response';
 import { config } from '../config/env';
 import { createNewUser, verifyEmailAvailable } from '../services/signup.service';
+import {
+  EMAIL_VERIFICATION_REQUIRED_CODE,
+  EMAIL_VERIFICATION_REQUIRED_MESSAGE,
+  isEmailVerificationPending,
+  sendVerificationEmailWithinLimit,
+} from '../services/email-verification.service';
 
 // Filter Railway logs with `module:"auth-audit"` to see only successful sign-ins and
 // account creations — the audit stream. Failure-side logs use the regular `logger`.
@@ -52,13 +58,19 @@ const googleClient = new OAuth2Client({
 
 /**
  * POST /auth/mobile/signup
- * Register a new active FREE user from the mobile app and return tokens.
+ * Register a new FREE user from the mobile app and email a verification link.
+ *
+ * No tokens are issued until the address is confirmed. The account is
+ * created, but the answer is a 403 EMAIL_VERIFICATION_REQUIRED rather than a
+ * 2xx: app builds that predate verification treat any 2xx as a token
+ * response (and fail on the missing tokens), while they show a failed
+ * signup's `error` text as is. A 403 tells every build to check the inbox.
  */
 router.post('/mobile/signup', express.json(), async (req, res) => {
   try {
     // Rate limit by IP to prevent automated spam signups
     const clientIp = getClientIp(req);
-    const rateLimit = await checkAuthRateLimit('signup', clientIp);
+    const rateLimit = await checkSignupRateLimit(clientIp);
     if (!rateLimit.allowed) {
       logger.warn({ clientIp, operation: 'signup', retryAfter: rateLimit.retryAfter, route: 'mobile/signup' }, 'Mobile signup rate-limited');
       return sendTooManyRequests(res, 'Too many signup attempts. Please try again later.', rateLimit.retryAfter);
@@ -113,22 +125,21 @@ router.post('/mobile/signup', express.json(), async (req, res) => {
       return sendBadRequest(res, 'Name must be 100 characters or fewer');
     }
 
-    const { user } = await createNewUser({ email: verifiedEmail, name: trimmedName, passwordHash });
+    const { user } = await createNewUser({
+      email: verifiedEmail,
+      name: trimmedName,
+      passwordHash,
+      signupIp: clientIp,
+      signupUserAgent: getUserAgent(req),
+    });
 
-    const { accessToken, refreshToken } = await issueMobileTokens({ id: user.id, email: user.email });
+    await sendVerificationEmailWithinLimit(user, 'user_action');
 
-    auditLogger.info({ userId: user.id, provider: 'email', wasCreated: true }, 'Mobile account created');
+    auditLogger.info({ userId: user.id, provider: 'email', wasCreated: true }, 'Mobile account created, awaiting email verification');
 
-    return res.status(201).json({
-      ok: true,
-      accessToken,
-      refreshToken,
-      user: {
-        id: user.id,
-        email: user.email,
-        name: trimmedName,
-        avatarUrl: null,
-      },
+    return sendError(res, 403, EMAIL_VERIFICATION_REQUIRED_MESSAGE, EMAIL_VERIFICATION_REQUIRED_CODE, {
+      email: user.email,
+      accountCreated: true,
     });
   } catch (e) {
     logger.error({ err: e, route: 'mobile/signup' }, '[MobileAuth] Signup failed');
@@ -385,6 +396,8 @@ router.post('/mobile/login', express.json(), async (req, res) => {
         passwordHash: true,
         name: true,
         avatarUrl: true,
+        emailVerificationRequired: true,
+        emailVerified: true,
       },
     });
 
@@ -404,6 +417,16 @@ router.post('/mobile/login', express.json(), async (req, res) => {
     if (!isValid) {
       logger.info({ userId: user.id, reason: 'bad-password', route: 'mobile/login' }, 'Email login 401: bad password');
       return sendUnauthorized(res, 'Invalid email or password');
+    }
+
+    // Checked only after the password matches, so the answer never reveals
+    // whether an address is registered. The attempt doubles as a resend.
+    if (isEmailVerificationPending(user)) {
+      logger.info({ userId: user.id, route: 'mobile/login' }, 'Email login 403: email not verified');
+      await sendVerificationEmailWithinLimit(user, 'user_action');
+      return sendError(res, 403, EMAIL_VERIFICATION_REQUIRED_MESSAGE, EMAIL_VERIFICATION_REQUIRED_CODE, {
+        email: user.email,
+      });
     }
 
     // Update last auth timestamp for recent-auth gating (non-blocking)

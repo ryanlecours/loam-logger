@@ -24,6 +24,10 @@ import {
   startMobileSessionCleanup,
   stopMobileSessionCleanup,
 } from './services/mobile-session-cleanup.service';
+import {
+  startUnverifiedAccountCleanup,
+  stopUnverifiedAccountCleanup,
+} from './services/unverified-account-cleanup.service';
 import { rootLogger, logger } from './lib/logger';
 import { validateEncryptionKey } from './lib/crypto';
 import { flushPostHog } from './lib/posthog';
@@ -58,7 +62,7 @@ import adminRouter from './routes/admin';
 import adminLiftRouter from './routes/admin.lift';
 import spokesRouter from './routes/spokes';
 import emailUnsubscribeRouter from './routes/email.unsubscribe';
-import { googleRouter, emailRouter, deleteAccountRouter, deleteAccountEmailRouter, passwordRouter, providerLinkRouter, sessionMiddleware, verifyCsrf } from './auth/index';
+import { googleRouter, emailRouter, emailVerificationRouter, deleteAccountRouter, deleteAccountEmailRouter, passwordRouter, providerLinkRouter, sessionMiddleware, verifyCsrf } from './auth/index';
 import webhooksStripe from './routes/webhooks.stripe';
 import webhooksRevenueCat from './routes/webhooks.revenuecat';
 import { validateStripeConfig } from './lib/stripe';
@@ -248,6 +252,7 @@ const startServer = async () => {
   // ---- Rest routes ----
   app.use('/auth', googleRouter);
   app.use('/auth', emailRouter);
+  app.use('/auth', emailVerificationRouter);
   app.use('/auth', deleteAccountRouter);
   app.use('/auth', deleteAccountEmailRouter);
   app.use('/auth', passwordRouter);
@@ -346,6 +351,10 @@ const startServer = async () => {
   // Start mobile session cleanup (deletes sessions revoked/expired >30d ago, daily)
   startMobileSessionCleanup();
 
+  // Start unverified account cleanup (deletes password signups that never
+  // verified their email within 14 days, plus stale verification tokens, daily)
+  startUnverifiedAccountCleanup();
+
   app.listen(PORT, HOST, () => {
     logger.info({ port: PORT }, 'LoamLogger backend running (GraphQL at /graphql)');
   });
@@ -357,6 +366,7 @@ const startServer = async () => {
     stopOAuthCleanup();
     stopPasswordResetCleanup();
     stopMobileSessionCleanup();
+    stopUnverifiedAccountCleanup();
     await stopWorkers();
     await Sentry.flush(2000).catch(() => {});
     await flushPostHog();

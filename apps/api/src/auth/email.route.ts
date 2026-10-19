@@ -1,5 +1,5 @@
 import express from 'express';
-import { normalizeEmail, getClientIp } from './utils';
+import { normalizeEmail, getClientIp, getUserAgent } from './utils';
 import { hashPassword, verifyPassword, validatePassword } from './password.utils';
 import { validateEmailFormat } from './email.utils';
 import { issueWebSession } from './session-issuer';
@@ -7,8 +7,8 @@ import { isWellFormedCsrfToken, setCsrfCookie } from './csrf';
 import { updateLastAuthAt } from './recent-auth';
 import { requireRecentAuth } from './requireRecentAuth';
 import { prisma } from '../lib/prisma';
-import { sendBadRequest, sendUnauthorized, sendConflict, sendInternalError, sendTooManyRequests } from '../lib/api-response';
-import { checkAuthRateLimit, checkMutationRateLimit } from '../lib/rate-limit';
+import { sendBadRequest, sendUnauthorized, sendConflict, sendError, sendInternalError, sendTooManyRequests } from '../lib/api-response';
+import { checkAuthRateLimit, checkMutationRateLimit, checkSignupRateLimit } from '../lib/rate-limit';
 import { sendPasswordChangedNotification } from '../services/password-notification.service';
 import {
   consumePasswordResetToken,
@@ -18,18 +18,26 @@ import {
 import { logger } from '../lib/logger';
 import { checkLoginRateLimit, LOGIN_RATE_LIMIT_MESSAGE } from './login-rate-limit';
 import { createNewUser, verifyEmailAvailable } from '../services/signup.service';
+import {
+  EMAIL_VERIFICATION_REQUIRED_CODE,
+  EMAIL_VERIFICATION_REQUIRED_MESSAGE,
+  isEmailVerificationPending,
+  sendVerificationEmailWithinLimit,
+} from '../services/email-verification.service';
 
 const router = express.Router();
 
 /**
  * POST /auth/signup
- * Register a new active FREE user and start a web session.
+ * Register a new FREE user and email a verification link. No session is
+ * started: the rider signs in once the address is confirmed, so an account
+ * opened under someone else's address never becomes usable.
  */
 router.post('/signup', express.json(), async (req, res) => {
   try {
     // Rate limit by IP to prevent automated spam signups
     const clientIp = getClientIp(req);
-    const rateLimit = await checkAuthRateLimit('signup', clientIp);
+    const rateLimit = await checkSignupRateLimit(clientIp);
     if (!rateLimit.allowed) {
       return sendTooManyRequests(res, 'Too many signup attempts. Please try again later.', rateLimit.retryAfter);
     }
@@ -77,12 +85,17 @@ router.post('/signup', express.json(), async (req, res) => {
     const verifiedEmail = check.email;
 
     const passwordHash = await hashPassword(password);
-    const { user } = await createNewUser({ email: verifiedEmail, name: name.trim(), passwordHash });
+    const { user } = await createNewUser({
+      email: verifiedEmail,
+      name: name.trim(),
+      passwordHash,
+      signupIp: clientIp,
+      signupUserAgent: getUserAgent(req),
+    });
 
-    await issueWebSession(res, { id: user.id, email: user.email });
-    const csrfToken = setCsrfCookie(res);
+    await sendVerificationEmailWithinLimit(user, 'user_action');
 
-    return res.status(201).json({ ok: true, csrfToken });
+    return res.status(201).json({ ok: true, verificationRequired: true, email: user.email });
   } catch (e) {
     logger.error({ err: e }, '[EmailAuth] Signup failed');
     return sendInternalError(res, 'Signup failed');
@@ -122,8 +135,11 @@ router.post('/login', express.json(), async (req, res) => {
       select: {
         id: true,
         email: true,
+        name: true,
         passwordHash: true,
         mustChangePassword: true,
+        emailVerificationRequired: true,
+        emailVerified: true,
       },
     });
 
@@ -140,6 +156,15 @@ router.post('/login', express.json(), async (req, res) => {
     const isValid = await verifyPassword(password, user.passwordHash);
     if (!isValid) {
       return sendUnauthorized(res, 'Invalid email or password');
+    }
+
+    // Checked only after the password matches, so the answer never reveals
+    // whether an address is registered. The attempt doubles as a resend.
+    if (isEmailVerificationPending(user)) {
+      await sendVerificationEmailWithinLimit(user, 'user_action');
+      return sendError(res, 403, EMAIL_VERIFICATION_REQUIRED_MESSAGE, EMAIL_VERIFICATION_REQUIRED_CODE, {
+        email: user.email,
+      });
     }
 
     // Update last auth timestamp for recent-auth gating (non-blocking)
@@ -363,7 +388,7 @@ router.post('/reset-password', express.json(), async (req, res) => {
 
     const user = await prisma.user.findUnique({
       where: { id: result.userId },
-      select: { id: true, email: true, name: true },
+      select: { id: true, email: true, name: true, emailVerified: true },
     });
 
     if (!user) {
@@ -376,6 +401,9 @@ router.post('/reset-password', express.json(), async (req, res) => {
       data: {
         passwordHash,
         mustChangePassword: false,
+        // The reset link was delivered to this inbox, which proves the
+        // address the same way a verification link does.
+        ...(user.emailVerified ? {} : { emailVerified: new Date() }),
         // Invalidate all existing sessions — any active cookie/token issued before
         // this reset will fail the version check in attachUser.
         sessionTokenVersion: { increment: 1 },

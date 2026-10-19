@@ -10,6 +10,15 @@ jest.mock('../lib/prisma', () => ({
 jest.mock('../lib/rate-limit', () => ({
   checkAuthRateLimit: jest.fn().mockResolvedValue({ allowed: true, redisAvailable: true }),
   checkMutationRateLimit: jest.fn().mockResolvedValue({ allowed: true, redisAvailable: true }),
+  checkSignupRateLimit: jest.fn().mockResolvedValue({ allowed: true, redisAvailable: true }),
+}));
+
+jest.mock('../services/email-verification.service', () => ({
+  EMAIL_VERIFICATION_REQUIRED_CODE: 'EMAIL_VERIFICATION_REQUIRED',
+  EMAIL_VERIFICATION_REQUIRED_MESSAGE: 'Check your inbox for a link to verify your email, then sign in.',
+  isEmailVerificationPending: (u: { emailVerificationRequired: boolean; emailVerified: Date | null }) =>
+    u.emailVerificationRequired && !u.emailVerified,
+  sendVerificationEmailWithinLimit: jest.fn().mockResolvedValue(true),
 }));
 
 jest.mock('./password.utils', () => ({
@@ -25,6 +34,7 @@ jest.mock('./email.utils', () => ({
 jest.mock('./utils', () => ({
   normalizeEmail: jest.fn((e: string) => e.trim().toLowerCase()),
   getClientIp: jest.fn().mockReturnValue('1.2.3.4'),
+  getUserAgent: jest.fn().mockReturnValue('LoamLogger/1.0 CFNetwork'),
 }));
 
 jest.mock('./session', () => ({
@@ -81,6 +91,10 @@ import { hashPassword, validatePassword } from './password.utils';
 import { logger } from '../lib/logger';
 import { setCsrfCookie } from './csrf';
 import { createNewUser, verifyEmailAvailable } from '../services/signup.service';
+import { sendVerificationEmailWithinLimit } from '../services/email-verification.service';
+import { issueWebSession } from './session-issuer';
+import { checkSignupRateLimit } from '../lib/rate-limit';
+import { verifyPassword } from './password.utils';
 
 const mockPrisma = prisma as jest.Mocked<typeof prisma>;
 const mockUserFindUnique = mockPrisma.user.findUnique as unknown as jest.Mock;
@@ -150,6 +164,8 @@ beforeEach(() => {
   mockValidateEmailFormat.mockReturnValue(true);
   mockValidatePassword.mockReturnValue({ isValid: true });
   mockHashPassword.mockResolvedValue('hashed_new_password');
+  (checkSignupRateLimit as jest.Mock).mockResolvedValue({ allowed: true });
+  (verifyPassword as jest.Mock).mockResolvedValue(true);
 });
 
 // ============================================================================
@@ -302,6 +318,63 @@ describe('POST /signup when the email is taken', () => {
 });
 
 // ============================================================================
+// POST /signup: email verification
+// ============================================================================
+
+describe('POST /signup', () => {
+  const body = { email: 'New@Example.com', name: ' Rider ', password: 'StrongPassw0rd!' };
+
+  beforeEach(() => {
+    (verifyEmailAvailable as jest.Mock).mockResolvedValue({ available: true, email: 'new@example.com' });
+    (createNewUser as jest.Mock).mockResolvedValue({
+      user: { id: 'user_new', email: 'new@example.com', name: 'Rider' },
+    });
+  });
+
+  it('creates the account, emails a verification link, and starts no session', async () => {
+    const handler = getHandler('/signup', 'post');
+    const req = createMockRequest({ body });
+    const res = createMockResponse();
+
+    await invokeHandler(handler, req as Request, res as unknown as Response);
+
+    expect(res.status).toHaveBeenCalledWith(201);
+    expect(res.json).toHaveBeenCalledWith({ ok: true, verificationRequired: true, email: 'new@example.com' });
+    expect(sendVerificationEmailWithinLimit).toHaveBeenCalledWith(
+      { id: 'user_new', email: 'new@example.com', name: 'Rider' },
+      'user_action',
+    );
+    expect(issueWebSession).not.toHaveBeenCalled();
+    expect(setCsrfCookie).not.toHaveBeenCalled();
+  });
+
+  it('records the signup IP and user agent', async () => {
+    const handler = getHandler('/signup', 'post');
+    const req = createMockRequest({ body });
+    const res = createMockResponse();
+
+    await invokeHandler(handler, req as Request, res as unknown as Response);
+
+    expect(createNewUser).toHaveBeenCalledWith(
+      expect.objectContaining({ signupIp: '1.2.3.4', signupUserAgent: 'LoamLogger/1.0 CFNetwork' }),
+    );
+  });
+
+  it('returns 429 from the stacked signup windows before creating anything', async () => {
+    (checkSignupRateLimit as jest.Mock).mockResolvedValue({ allowed: false, retryAfter: 3000 });
+    const handler = getHandler('/signup', 'post');
+    const req = createMockRequest({ body });
+    const res = createMockResponse();
+
+    await invokeHandler(handler, req as Request, res as unknown as Response);
+
+    expect(checkSignupRateLimit).toHaveBeenCalledWith('1.2.3.4');
+    expect(res.status).toHaveBeenCalledWith(429);
+    expect(createNewUser).not.toHaveBeenCalled();
+  });
+});
+
+// ============================================================================
 // POST /reset-password
 // ============================================================================
 
@@ -439,10 +512,12 @@ describe('POST /reset-password', () => {
   describe('Happy path', () => {
     it('hashes the new password, bumps sessionTokenVersion, and returns 200', async () => {
       mockConsumeToken.mockResolvedValue({ ok: true, userId: 'user_1' });
+      const verifiedAt = new Date('2026-01-01T00:00:00Z');
       mockUserFindUnique.mockResolvedValue({
         id: 'user_1',
         email: 'rider@example.com',
         name: 'Alex',
+        emailVerified: verifiedAt,
       });
       mockUserUpdate.mockResolvedValue({});
 
@@ -452,6 +527,7 @@ describe('POST /reset-password', () => {
       await invokeHandler(handler, req as Request, res as unknown as Response);
 
       expect(mockHashPassword).toHaveBeenCalledWith('NewPass123!');
+      // Already verified: the original verification time is left alone.
       expect(mockUserUpdate).toHaveBeenCalledWith({
         where: { id: 'user_1' },
         data: {
@@ -461,6 +537,27 @@ describe('POST /reset-password', () => {
         },
       });
       expect(res.json).toHaveBeenCalledWith({ ok: true });
+    });
+
+    it('marks an unverified email verified, since the reset link proved the inbox', async () => {
+      mockConsumeToken.mockResolvedValue({ ok: true, userId: 'user_1' });
+      mockUserFindUnique.mockResolvedValue({
+        id: 'user_1',
+        email: 'rider@example.com',
+        name: 'Alex',
+        emailVerified: null,
+      });
+      mockUserUpdate.mockResolvedValue({});
+
+      const req = createMockRequest({ body: { token: 't', newPassword: 'NewPass123!' } });
+      const res = createMockResponse();
+
+      await invokeHandler(handler, req as Request, res as unknown as Response);
+
+      expect(mockUserUpdate).toHaveBeenCalledWith({
+        where: { id: 'user_1' },
+        data: expect.objectContaining({ emailVerified: expect.any(Date) }),
+      });
     });
 
     it('defensively rejects if the user has vanished between token consumption and update', async () => {
@@ -530,6 +627,73 @@ describe('POST /login', () => {
     expect(mockCheckAuthRateLimit).toHaveBeenCalledWith('login', '1.2.3.4');
     expect(mockCheckAuthRateLimit).toHaveBeenCalledWith('login-email', expect.any(String));
     expect(res.status).toHaveBeenCalledWith(401);
+  });
+
+  describe('email verification gate', () => {
+    const baseUser = {
+      id: 'user_1',
+      email: 'rider@example.com',
+      name: 'Rider',
+      passwordHash: 'hash',
+      mustChangePassword: false,
+    };
+
+    it('refuses a session to an unverified new signup and resends the link', async () => {
+      mockUserFindUnique.mockResolvedValue({ ...baseUser, emailVerificationRequired: true, emailVerified: null });
+      const req = createMockRequest({ body: { email: 'rider@example.com', password: 'right' } });
+      const res = createMockResponse();
+
+      await invokeHandler(handler, req as Request, res as unknown as Response);
+
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({ code: 'EMAIL_VERIFICATION_REQUIRED', details: { email: 'rider@example.com' } }),
+      );
+      expect(sendVerificationEmailWithinLimit).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'user_1' }),
+        'user_action',
+      );
+      expect(issueWebSession).not.toHaveBeenCalled();
+    });
+
+    it('answers a wrong password with 401 and sends nothing, so the gate leaks no account state', async () => {
+      mockUserFindUnique.mockResolvedValue({ ...baseUser, emailVerificationRequired: true, emailVerified: null });
+      (verifyPassword as jest.Mock).mockResolvedValue(false);
+      const req = createMockRequest({ body: { email: 'rider@example.com', password: 'wrong' } });
+      const res = createMockResponse();
+
+      await invokeHandler(handler, req as Request, res as unknown as Response);
+
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(sendVerificationEmailWithinLimit).not.toHaveBeenCalled();
+    });
+
+    it('signs in a new signup once the email is verified', async () => {
+      mockUserFindUnique.mockResolvedValue({
+        ...baseUser,
+        emailVerificationRequired: true,
+        emailVerified: new Date('2026-10-19T00:00:00Z'),
+      });
+      const req = createMockRequest({ body: { email: 'rider@example.com', password: 'right' } });
+      const res = createMockResponse();
+
+      await invokeHandler(handler, req as Request, res as unknown as Response);
+
+      expect(issueWebSession).toHaveBeenCalledWith(res, { id: 'user_1', email: 'rider@example.com' });
+      expect(res.status).toHaveBeenCalledWith(200);
+    });
+
+    it('leaves accounts from before verification shipped ungated', async () => {
+      mockUserFindUnique.mockResolvedValue({ ...baseUser, emailVerificationRequired: false, emailVerified: null });
+      const req = createMockRequest({ body: { email: 'rider@example.com', password: 'right' } });
+      const res = createMockResponse();
+
+      await invokeHandler(handler, req as Request, res as unknown as Response);
+
+      expect(issueWebSession).toHaveBeenCalled();
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(sendVerificationEmailWithinLimit).not.toHaveBeenCalled();
+    });
   });
 });
 

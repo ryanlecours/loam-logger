@@ -11,7 +11,10 @@ import { clearSessionCookie } from './session';
 import { issueWebSession } from './session-issuer';
 import { setCsrfCookie, clearCsrfCookie } from './csrf';
 import { updateLastAuthAt } from './recent-auth';
+import { getClientIp } from './utils';
 import { logger } from '../lib/logger';
+import { checkAuthRateLimit } from '../lib/rate-limit';
+import { sendTooManyRequests } from '../lib/api-response';
 
 const router = express.Router();
 
@@ -30,6 +33,13 @@ const client = new OAuth2Client({
 router.post('/google/code', express.json(), async (req, res) => {
   let identity: { sub: string; name?: string | null; picture?: string | null } | undefined;
   try {
+    // Same per-IP budget as the mobile Google and Apple routes: each call
+    // verifies a token with Google and can create an account.
+    const rateLimit = await checkAuthRateLimit('oauth-login', getClientIp(req));
+    if (!rateLimit.allowed) {
+      return sendTooManyRequests(res, 'Too many login attempts. Please try again later.', rateLimit.retryAfter);
+    }
+
     const { credential } = req.body as { credential?: string };
     if (!credential) return res.status(400).send('Missing credential');
 
