@@ -11,6 +11,7 @@ import { readPendingProviderLink, type PendingProviderLink } from '@/lib/provide
 import ProviderLinkModal from '../components/ProviderLinkModal';
 import CheckEmailNotice from '../components/CheckEmailNotice';
 import { EMAIL_VERIFICATION_REQUIRED_CODE } from '@/lib/emailVerification';
+import { useFinishEmailSignIn } from '../hooks/useFinishEmailSignIn';
 
 export default function Login() {
   const apollo = useApolloClient();
@@ -18,7 +19,9 @@ export default function Login() {
   const [searchParams] = useSearchParams();
   const isReauth = searchParams.get('reason') === 'reauth';
   const from = useRedirectFrom();
-  const [email, setEmail] = useState('');
+  const finishEmailSignIn = useFinishEmailSignIn(from);
+  // Prefilled after verifying, or when coming back from the check-email notice.
+  const [email, setEmail] = useState(() => searchParams.get('email') ?? '');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -262,6 +265,7 @@ export default function Login() {
                 setVerificationEmail(null);
                 setPassword('');
               }}
+              onSignedIn={(result) => void finishEmailSignIn(result)}
             />
           </div>
         ) : (

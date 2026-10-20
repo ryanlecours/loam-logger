@@ -2,14 +2,26 @@ import express from 'express';
 import { normalizeEmail, getClientIp } from './utils';
 import { validateEmailFormat } from './email.utils';
 import { prisma } from '../lib/prisma';
-import { sendBadRequest, sendInternalError, sendTooManyRequests } from '../lib/api-response';
+import { sendBadRequest, sendError, sendInternalError, sendTooManyRequests } from '../lib/api-response';
 import { checkAuthRateLimit } from '../lib/rate-limit';
-import { logger } from '../lib/logger';
+import { logger, createLogger } from '../lib/logger';
 import {
   consumeEmailVerificationToken,
   isEmailVerificationPending,
   sendVerificationEmailWithinLimit,
 } from '../services/email-verification.service';
+import {
+  EMAIL_VERIFICATION_PENDING_CODE,
+  SIGN_IN_GRANT_INVALID_CODE,
+  redeemSignInGrant,
+} from '../services/email-sign-in-grant.service';
+import { clearSignInGrantCookie, readSignInGrantCookie } from './sign-in-grant-cookie';
+import { issueMobileTokens, issueWebSession } from './session-issuer';
+import { setCsrfCookie } from './csrf';
+import { updateLastAuthAt } from './recent-auth';
+
+// Successful sign-ins go to the audit stream, like the other sign-in routes.
+const auditLogger = createLogger('auth-audit');
 
 const router = express.Router();
 
@@ -17,8 +29,9 @@ const router = express.Router();
  * POST /auth/verify-email
  * Confirm an address from the link in the verification email. Shared by web
  * and mobile signups; the token is the only authorization. Verifying does not
- * start a session: the rider signs in afterwards, so a leaked link proves the
- * inbox but never hands out the account.
+ * start a session: the client that signed up trades its own sign-in grant for
+ * one (the /complete routes below) and anyone else signs in with the
+ * password, so a leaked link proves the inbox but never hands out the account.
  */
 router.post('/verify-email', express.json(), async (req, res) => {
   try {
@@ -33,9 +46,16 @@ router.post('/verify-email', express.json(), async (req, res) => {
       return sendBadRequest(res, 'Verification token is required', 'TOKEN_INVALID');
     }
 
+    // The address goes back so a client without a sign-in grant can prefill
+    // its sign-in form. It is no secret to whoever holds the link: it arrived
+    // in that inbox.
     const result = await consumeEmailVerificationToken(token);
     if (result.ok) {
-      return res.json({ ok: true });
+      const user = await prisma.user.findUnique({
+        where: { id: result.userId },
+        select: { email: true },
+      });
+      return res.json({ ok: true, email: user?.email });
     }
 
     if (result.reason === 'already_used') {
@@ -43,10 +63,10 @@ router.post('/verify-email', express.json(), async (req, res) => {
       // first) should not read as a failure when the address is confirmed.
       const user = await prisma.user.findUnique({
         where: { id: result.userId },
-        select: { emailVerified: true },
+        select: { email: true, emailVerified: true },
       });
       if (user?.emailVerified) {
-        return res.json({ ok: true, alreadyVerified: true });
+        return res.json({ ok: true, alreadyVerified: true, email: user.email });
       }
       return sendBadRequest(res, 'Verification link is invalid or has expired', 'TOKEN_INVALID');
     }
@@ -58,6 +78,110 @@ router.post('/verify-email', express.json(), async (req, res) => {
   } catch (e) {
     logger.error({ err: e }, '[EmailVerification] Verify failed');
     return sendInternalError(res, 'Failed to verify email');
+  }
+});
+
+/** 202 while the email is unverified and the grant is still good. */
+function sendPending(res: express.Response) {
+  return res.status(202).json({ pending: true, code: EMAIL_VERIFICATION_PENDING_CODE });
+}
+
+function sendGrantInvalid(res: express.Response) {
+  return sendError(res, 401, 'Sign in with your email and password.', SIGN_IN_GRANT_INVALID_CODE);
+}
+
+/**
+ * POST /auth/verify-email/complete
+ * Sign in the browser that signed up (or tried to sign in before verifying),
+ * once the email is verified. The grant arrives in an httpOnly cookie set by
+ * /auth/signup or /auth/login, so the verify page and a waiting "check your
+ * email" tab can both call this. Answers 202 EMAIL_VERIFICATION_PENDING until
+ * the link is opened, then sets the session like /auth/login. A grant signs
+ * in once.
+ *
+ * The body must name the account the page is waiting on (`{ email }`), and a
+ * grant for any other account is refused. /auth/login also accepts form posts,
+ * so a cross-site page can plant its own account's grant cookie in a visitor's
+ * browser; requiring the address keeps that grant from ever signing the
+ * visitor in. The JSON body also makes a cross-site call here need a CORS
+ * preflight, which only our own origins pass.
+ */
+router.post('/verify-email/complete', express.json(), async (req, res) => {
+  try {
+    const rateLimit = await checkAuthRateLimit('verify-email-complete', getClientIp(req));
+    if (!rateLimit.allowed) {
+      return sendTooManyRequests(res, 'Too many attempts. Please try again later.', rateLimit.retryAfter);
+    }
+
+    const { email } = (req.body ?? {}) as { email?: unknown };
+    if (typeof email !== 'string' || !email.trim()) {
+      return sendBadRequest(res, 'Email is required', 'EMAIL_REQUIRED');
+    }
+
+    const secret = readSignInGrantCookie(req);
+    if (!secret) return sendGrantInvalid(res);
+
+    const result = await redeemSignInGrant(secret, 'web', email);
+    if (!result.ok) {
+      if (result.reason === 'pending') return sendPending(res);
+      clearSignInGrantCookie(res);
+      return sendGrantInvalid(res);
+    }
+
+    const { user } = result;
+    updateLastAuthAt(user.id).catch((err) =>
+      logger.error({ err, userId: user.id }, '[EmailVerification] Failed to update lastAuthAt')
+    );
+    await issueWebSession(res, { id: user.id, email: user.email });
+    const csrfToken = setCsrfCookie(res);
+    clearSignInGrantCookie(res);
+
+    auditLogger.info({ userId: user.id, provider: 'email' }, 'Signed in after email verification');
+
+    return res.json({ ok: true, mustChangePassword: user.mustChangePassword, csrfToken });
+  } catch (e) {
+    logger.error({ err: e }, '[EmailVerification] Web sign-in after verification failed');
+    return sendInternalError(res, 'Failed to sign in');
+  }
+});
+
+/**
+ * POST /auth/mobile/verify-email/complete
+ * The app's version of /auth/verify-email/complete. The grant comes from the
+ * `signInSecret` the signup or login 403 handed the app, sent here as
+ * `{ secret }`. Answers like /auth/mobile/login once the email is verified.
+ * An optional `email` refuses a grant for any other account, for the verify
+ * screen, which knows which address its link confirmed.
+ */
+router.post('/mobile/verify-email/complete', express.json(), async (req, res) => {
+  try {
+    const rateLimit = await checkAuthRateLimit('verify-email-complete', getClientIp(req));
+    if (!rateLimit.allowed) {
+      return sendTooManyRequests(res, 'Too many attempts. Please try again later.', rateLimit.retryAfter);
+    }
+
+    const { secret, email } = (req.body ?? {}) as { secret?: unknown; email?: unknown };
+    const result = await redeemSignInGrant(secret, 'mobile', email);
+    if (!result.ok) {
+      return result.reason === 'pending' ? sendPending(res) : sendGrantInvalid(res);
+    }
+
+    const { user } = result;
+    updateLastAuthAt(user.id).catch((err) =>
+      logger.error({ err, userId: user.id }, '[EmailVerification] Failed to update lastAuthAt')
+    );
+    const { accessToken, refreshToken } = await issueMobileTokens({ id: user.id, email: user.email });
+
+    auditLogger.info({ userId: user.id, provider: 'email' }, 'Mobile signed in after email verification');
+
+    return res.json({
+      accessToken,
+      refreshToken,
+      user: { id: user.id, email: user.email, name: user.name, avatarUrl: user.avatarUrl },
+    });
+  } catch (e) {
+    logger.error({ err: e }, '[EmailVerification] Mobile sign-in after verification failed');
+    return sendInternalError(res, 'Failed to sign in');
   }
 });
 

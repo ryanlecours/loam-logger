@@ -70,6 +70,9 @@ const JSON_ONLY_EXEMPT_PATHS = new Set([
   // opens a verify link (or asks for another) must not be refused.
   '/auth/verify-email',
   '/auth/resend-verification',
+  // Trades the sign-in grant cookie for a session, like /auth/login. A tab
+  // signed in to another account must still be able to finish here.
+  '/auth/verify-email/complete',
   '/api/waitlist',         // Public waitlist signup - no session required
 ]);
 

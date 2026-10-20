@@ -13,6 +13,14 @@
             "comment": "Opens the reset-password screen in the mobile app"
           },
           {
+            "/": "/verify-email",
+            "comment": "Opens the verify-email screen in the mobile app"
+          },
+          {
+            "/": "/verify-email/*",
+            "comment": "Opens the verify-email screen in the mobile app"
+          },
+          {
             "/": "/signup",
             "comment": "Opens the signup screen in the mobile app"
           },

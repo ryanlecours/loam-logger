@@ -5,6 +5,7 @@ import {
   cleanupExpiredEmailVerificationTokens,
   UNVERIFIED_ACCOUNT_TTL_DAYS,
 } from './email-verification.service';
+import { cleanupExpiredSignInGrants } from './email-sign-in-grant.service';
 
 const log = createLogger('unverified-account-cleanup');
 
@@ -70,6 +71,10 @@ async function runCleanup(): Promise<void> {
     const tokens = await cleanupExpiredEmailVerificationTokens(EXPIRED_TOKENS_OLDER_THAN_HOURS);
     if (tokens > 0) {
       log.info({ deleted: tokens }, 'Cleaned up expired email verification tokens');
+    }
+    const grants = await cleanupExpiredSignInGrants();
+    if (grants > 0) {
+      log.info({ deleted: grants }, 'Cleaned up expired email sign-in grants');
     }
   } catch (err) {
     log.error({ err }, 'Unverified account cleanup failed');

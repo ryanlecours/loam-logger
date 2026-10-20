@@ -65,6 +65,10 @@ describe('verifyCsrf against login CSRF', () => {
     res.cookie('ll_session', 'signed-in-as-' + req.body.email);
     res.json({ ok: true });
   });
+  app.post('/auth/verify-email/complete', (req, res) => {
+    handled(req.body);
+    res.json({ ok: true });
+  });
   app.post('/webhooks/strava', (_req, res) => {
     res.json({ ok: true });
   });
@@ -99,6 +103,15 @@ describe('verifyCsrf against login CSRF', () => {
     expect(plain.status).toBe(415);
     expect(multipart.status).toBe(415);
     expect(handled).not.toHaveBeenCalled();
+  });
+
+  it('holds the email sign-in exchange to JSON too, since it also starts a session', async () => {
+    const form = await request(app).post('/auth/verify-email/complete').type('form').send({ email: 'rider@example.com' });
+    const json = await request(app).post('/auth/verify-email/complete').send({ email: 'rider@example.com' });
+
+    expect(form.status).toBe(415);
+    expect(json.status).toBe(200);
+    expect(handled).toHaveBeenCalledTimes(1);
   });
 
   it('refuses a login with no body at all', async () => {

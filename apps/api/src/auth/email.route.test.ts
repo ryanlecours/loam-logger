@@ -21,6 +21,10 @@ jest.mock('../services/email-verification.service', () => ({
   sendVerificationEmailWithinLimit: jest.fn().mockResolvedValue(true),
 }));
 
+jest.mock('../services/email-sign-in-grant.service', () => ({
+  issueSignInGrant: jest.fn(),
+}));
+
 jest.mock('./password.utils', () => ({
   validatePassword: jest.fn().mockReturnValue({ isValid: true }),
   hashPassword: jest.fn().mockResolvedValue('hashed_new_password'),
@@ -99,6 +103,7 @@ import { logger } from '../lib/logger';
 import { setCsrfCookie } from './csrf';
 import { createNewUser, verifyEmailAvailable } from '../services/signup.service';
 import { sendVerificationEmailWithinLimit } from '../services/email-verification.service';
+import { issueSignInGrant } from '../services/email-sign-in-grant.service';
 import { issueWebSession } from './session-issuer';
 import { checkSignupRateLimit } from '../lib/rate-limit';
 import { verifyPassword } from './password.utils';
@@ -176,7 +181,19 @@ beforeEach(() => {
   (verifyPassword as jest.Mock).mockResolvedValue(true);
   (evaluateSignupTurnstile as jest.Mock).mockResolvedValue(null);
   (requiresUnverifiedWebCap as jest.Mock).mockReturnValue(false);
+  (issueSignInGrant as jest.Mock).mockResolvedValue(grant);
 });
+
+const grant = { secret: 'grant-secret', expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000) };
+
+/** Asserts the sign-in grant went out as an httpOnly cookie scoped to the verify routes. */
+function expectGrantCookie(res: ReturnType<typeof createMockResponse>) {
+  expect(res.cookie).toHaveBeenCalledWith(
+    'll_signin_grant',
+    'grant-secret',
+    expect.objectContaining({ httpOnly: true, path: '/auth/verify-email', maxAge: expect.any(Number) }),
+  );
+}
 
 // ============================================================================
 // POST /forgot-password
@@ -356,6 +373,30 @@ describe('POST /signup', () => {
     );
     expect(issueWebSession).not.toHaveBeenCalled();
     expect(setCsrfCookie).not.toHaveBeenCalled();
+  });
+
+  it('hands this browser a sign-in grant cookie, never the secret in the body', async () => {
+    const handler = getHandler('/signup', 'post');
+    const req = createMockRequest({ body });
+    const res = createMockResponse();
+
+    await invokeHandler(handler, req as Request, res as unknown as Response);
+
+    expect(issueSignInGrant).toHaveBeenCalledWith('user_new', 'web');
+    expectGrantCookie(res);
+    expect(JSON.stringify(res.json.mock.calls)).not.toContain('grant-secret');
+  });
+
+  it('still answers 201 when no grant could be issued', async () => {
+    (issueSignInGrant as jest.Mock).mockResolvedValue(null);
+    const handler = getHandler('/signup', 'post');
+    const req = createMockRequest({ body });
+    const res = createMockResponse();
+
+    await invokeHandler(handler, req as Request, res as unknown as Response);
+
+    expect(res.status).toHaveBeenCalledWith(201);
+    expect(res.cookie).not.toHaveBeenCalled();
   });
 
   it('records the signup IP and user agent', async () => {
@@ -785,6 +826,8 @@ describe('POST /login', () => {
         'user_action',
       );
       expect(issueWebSession).not.toHaveBeenCalled();
+      expect(issueSignInGrant).toHaveBeenCalledWith('user_1', 'web');
+      expectGrantCookie(res);
     });
 
     it('answers a wrong password with 401 and sends nothing, so the gate leaks no account state', async () => {
@@ -797,6 +840,7 @@ describe('POST /login', () => {
 
       expect(res.status).toHaveBeenCalledWith(401);
       expect(sendVerificationEmailWithinLimit).not.toHaveBeenCalled();
+      expect(issueSignInGrant).not.toHaveBeenCalled();
     });
 
     it('signs in a new signup once the email is verified', async () => {
@@ -812,6 +856,7 @@ describe('POST /login', () => {
 
       expect(issueWebSession).toHaveBeenCalledWith(res, { id: 'user_1', email: 'rider@example.com' });
       expect(res.status).toHaveBeenCalledWith(200);
+      expect(issueSignInGrant).not.toHaveBeenCalled();
     });
 
     it('leaves accounts from before verification shipped ungated', async () => {

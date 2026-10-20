@@ -23,20 +23,85 @@ export async function resendVerificationEmail(email: string): Promise<{ ok: true
 
 export type VerifyEmailResult = 'verified' | 'expired' | 'invalid' | 'error';
 
+/** `email` is set once verified, for prefilling the sign-in form. */
+export type VerifyEmailOutcome = { status: VerifyEmailResult; email?: string };
+
 /** Confirm an address with the token from the verification email. */
-export async function verifyEmailToken(token: string): Promise<VerifyEmailResult> {
+export async function verifyEmailToken(token: string): Promise<VerifyEmailOutcome> {
   try {
     const res = await fetch(`${import.meta.env.VITE_API_URL}/auth/verify-email`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token }),
     });
-    if (res.ok) return 'verified';
     const data = await res.json().catch(() => null);
-    if (data?.code === 'TOKEN_EXPIRED') return 'expired';
-    if (data?.code === 'TOKEN_INVALID') return 'invalid';
-    return 'error';
+    if (res.ok) {
+      return { status: 'verified', email: typeof data?.email === 'string' ? data.email : undefined };
+    }
+    if (data?.code === 'TOKEN_EXPIRED') return { status: 'expired' };
+    if (data?.code === 'TOKEN_INVALID') return { status: 'invalid' };
+    return { status: 'error' };
   } catch {
-    return 'error';
+    return { status: 'error' };
   }
+}
+
+export type EmailSignInResult =
+  /** Signed in: the session cookie is set. */
+  | { status: 'signed-in'; csrfToken?: string; mustChangePassword: boolean }
+  /** The email is not verified yet. Ask again later. */
+  | { status: 'pending' }
+  /** This browser holds no grant that can sign in for this address. Sign in with the password. */
+  | { status: 'unavailable' }
+  /** Rate limited, a server error or no network. Ask again later. */
+  | { status: 'retry'; retryAfterMs?: number };
+
+/**
+ * Trade this browser's sign-in grant for a session. The grant is an httpOnly
+ * cookie the API set when this browser signed up (or tried to sign in before
+ * verifying); the browser attaches it. `email` is the account this page is
+ * waiting on: the API refuses a grant for any other account, so a grant
+ * someone else planted in this browser never signs the rider in.
+ */
+export async function completeEmailSignIn(email: string): Promise<EmailSignInResult> {
+  try {
+    const res = await fetch(`${import.meta.env.VITE_API_URL}/auth/verify-email/complete`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+    const data = await res.json().catch(() => null);
+    if (res.status === 200) {
+      return {
+        status: 'signed-in',
+        csrfToken: typeof data?.csrfToken === 'string' ? data.csrfToken : undefined,
+        mustChangePassword: data?.mustChangePassword === true,
+      };
+    }
+    if (res.status === 202) return { status: 'pending' };
+    // 401 is a grant that can never sign in. Any other 4xx but a rate limit
+    // will not change by asking again either.
+    if (res.status >= 400 && res.status < 500 && res.status !== 429) return { status: 'unavailable' };
+    const retryAfter = data?.details?.retryAfter;
+    return { status: 'retry', retryAfterMs: typeof retryAfter === 'number' ? retryAfter * 1000 : undefined };
+  } catch {
+    return { status: 'retry' };
+  }
+}
+
+/** A grant lives as long as the verification link, so waiting longer is pointless. */
+export const EMAIL_SIGN_IN_POLL_LIMIT_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * How long to wait before asking again, `elapsedMs` into the wait: every 3s
+ * for the first two minutes (the rider is likely opening the email right
+ * now), every 10s to ten minutes, then every 30s. Null once the grant has
+ * expired.
+ */
+export function emailSignInPollDelay(elapsedMs: number): number | null {
+  if (elapsedMs >= EMAIL_SIGN_IN_POLL_LIMIT_MS) return null;
+  if (elapsedMs < 2 * 60 * 1000) return 3_000;
+  if (elapsedMs < 10 * 60 * 1000) return 10_000;
+  return 30_000;
 }
