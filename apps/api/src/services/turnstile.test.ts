@@ -79,7 +79,9 @@ describe('verifyTurnstileToken', () => {
     });
   });
 
-  it.each([['invalid-input-response'], ['timeout-or-duplicate'], ['bad-request']])(
+  // internal-error counts as failed (capped in enforce mode), not as an
+  // outage: it comes back in answer to a submitted token.
+  it.each([['invalid-input-response'], ['timeout-or-duplicate'], ['bad-request'], ['internal-error']])(
     'treats %s as a failed token',
     async (code) => {
       const fetchImpl = siteverifyAnswer({ success: false, 'error-codes': [code] });
@@ -92,7 +94,7 @@ describe('verifyTurnstileToken', () => {
     }
   );
 
-  it.each([['invalid-input-secret'], ['missing-input-secret'], ['internal-error']])(
+  it.each([['invalid-input-secret'], ['missing-input-secret']])(
     'treats %s as our error, not the visitor\'s',
     async (code) => {
       const fetchImpl = siteverifyAnswer({ success: false, 'error-codes': ['invalid-input-response', code] });

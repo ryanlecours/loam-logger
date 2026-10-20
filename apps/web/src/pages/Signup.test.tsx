@@ -149,6 +149,23 @@ describe('Signup with Turnstile', () => {
     expect(sentBody(fetchMock).turnstileToken).toBe('tok-late');
   });
 
+  it('sends one request when the form is submitted twice during the wait', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(201, { ok: true, verificationRequired: true, email: 'new@example.com' }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<MemoryRouter><Signup /></MemoryRouter>);
+
+    const options = await renderedWidget();
+    fillAndSubmit();
+    // Straight at the form, as Enter in a field would, past the disabled button.
+    fireEvent.submit(screen.getByRole('button', { name: 'Verifying...' }).closest('form')!);
+    act(() => options.callback?.('tok-once'));
+
+    await screen.findByRole('heading', { name: 'Check your email' });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it('does not resend a token that expired, and waits for the fresh one', async () => {
     const fetchMock = vi
       .fn()

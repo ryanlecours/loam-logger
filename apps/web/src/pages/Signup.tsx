@@ -26,6 +26,9 @@ export default function Signup() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // Read synchronously, so a second submit during the token wait is dropped
+  // even before the disabled button has rendered.
+  const submittingRef = useRef(false);
   const [pendingLink, setPendingLink] = useState<PendingProviderLink | null>(null);
   // Set once a password signup succeeds: the account exists but cannot sign
   // in until the address is confirmed.
@@ -62,6 +65,7 @@ export default function Signup() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submittingRef.current) return;
 
     const validationError = validate();
     if (validationError) {
@@ -69,6 +73,7 @@ export default function Signup() {
       return;
     }
 
+    submittingRef.current = true;
     setIsSubmitting(true);
     setError(null);
 
@@ -112,6 +117,7 @@ export default function Signup() {
       turnstileRef.current?.reset();
       setError('Network error. Please check your connection and try again.');
     } finally {
+      submittingRef.current = false;
       setIsSubmitting(false);
     }
   };

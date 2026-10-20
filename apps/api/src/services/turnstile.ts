@@ -22,7 +22,11 @@ const MAX_TOKEN_LENGTH = 2048;
 const SITEVERIFY_TIMEOUT_MS = 5000;
 
 // Error codes that mean our own setup is wrong, not the visitor's token.
-const SERVER_SIDE_ERROR_CODES = new Set(['missing-input-secret', 'invalid-input-secret', 'internal-error']);
+// `internal-error` is deliberately not here: Cloudflare returns it in answer
+// to a submitted token, and errors are never capped, so if any token could
+// provoke it a script would get uncapped signups. It counts as a failed
+// token instead. A real outage shows up as a network error or a 5xx.
+const SERVER_SIDE_ERROR_CODES = new Set(['missing-input-secret', 'invalid-input-secret']);
 
 // Cloudflare's published test secrets (always pass, always fail, already
 // spent). They answer with a fixed action and hostname (`test`, `localhost`),
