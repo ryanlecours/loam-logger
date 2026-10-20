@@ -49,11 +49,18 @@ export function clearCsrfCookie(res: Response): void {
   });
 }
 
-// Exact paths that skip CSRF validation (login/signup establish sessions)
-// These endpoints either create sessions or are provider callbacks that carry
-// no session cookie to protect. See the per-entry notes — not all of them are
-// signature-verified.
-const CSRF_EXEMPT_PATHS = new Set([
+// Exact paths that skip CSRF validation, in two groups.
+//
+// Browser-facing routes our web app calls. They create sessions (or act only
+// on what the body carries), so they can't require a token the caller doesn't
+// have yet. They must send a JSON body instead. An HTML form can only send
+// urlencoded, multipart or text/plain, and a cross-site form POST needs no
+// CORS preflight, so without this rule a third-party page could POST the
+// attacker's credentials to /auth/login and the SameSite=None session cookie
+// would sign the visitor's browser into the attacker's account (login CSRF).
+// A JSON Content-Type forces a preflight, which CORS refuses for any origin
+// we don't list.
+const JSON_ONLY_EXEMPT_PATHS = new Set([
   '/auth/google/code',     // Google OAuth login - creates session
   '/auth/signup',          // Email signup - creates session
   '/auth/login',           // Email login - creates session
@@ -66,6 +73,14 @@ const CSRF_EXEMPT_PATHS = new Set([
   // Trades the sign-in grant cookie for a session, like /auth/login. A tab
   // signed in to another account must still be able to finish here.
   '/auth/verify-email/complete',
+  '/api/waitlist',         // Public waitlist signup - no session required
+]);
+
+// Provider callbacks and webhooks. Providers call these, not our web app, so
+// they keep whatever body format the provider sends. They carry no session
+// cookie to protect. See the per-entry notes: not all of them are
+// signature-verified.
+const PROVIDER_EXEMPT_PATHS = new Set([
   '/auth/garmin/callback', // Garmin OAuth callback - creates session
   '/auth/strava/callback', // Strava OAuth callback - creates session
   // Garmin webhooks. NOT signature-verified today, despite what this list's
@@ -79,7 +94,6 @@ const CSRF_EXEMPT_PATHS = new Set([
   // allowlist on Garmin's egress IPs would be a real improvement.
   '/webhooks/garmin',
   '/webhooks/strava',      // Strava webhooks - authenticated via signature
-  '/api/waitlist',         // Public waitlist signup - no session required
 ]);
 
 /**
@@ -89,7 +103,8 @@ const CSRF_EXEMPT_PATHS = new Set([
  * Skips verification for:
  * - Non-state-changing methods (GET, HEAD, OPTIONS)
  * - Requests with Bearer token (mobile apps don't use cookies)
- * - Auth endpoints (login/signup establish sessions, no CSRF yet)
+ * - Auth endpoints (login/signup establish sessions, no CSRF yet). These
+ *   must send a JSON body instead, or they are refused with 415.
  * - Webhook endpoints (authenticated via signatures)
  * - Unauthenticated requests (no session cookie)
  */
@@ -105,8 +120,20 @@ export function verifyCsrf(req: Request, res: Response, next: NextFunction): voi
     return next();
   }
 
-  // Skip for exempt paths (exact match only for security)
-  if (CSRF_EXEMPT_PATHS.has(req.path)) {
+  // Skip for exempt paths (exact match only for security). The browser-facing
+  // ones accept JSON only; see JSON_ONLY_EXEMPT_PATHS for why.
+  if (JSON_ONLY_EXEMPT_PATHS.has(req.path)) {
+    if (!req.is('application/json')) {
+      res.status(415).json({
+        success: false,
+        error: 'Content-Type must be application/json',
+        code: 'UNSUPPORTED_MEDIA_TYPE',
+      });
+      return;
+    }
+    return next();
+  }
+  if (PROVIDER_EXEMPT_PATHS.has(req.path)) {
     return next();
   }
 
