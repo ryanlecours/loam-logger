@@ -75,13 +75,16 @@ export async function createEmailVerificationToken(userId: string): Promise<stri
 }
 
 /**
- * The link lands on the web app's verify page whichever client signed up.
- * Verifying does not sign anyone in, so the page only needs to confirm and
- * send the rider back to their app or the web sign-in.
+ * The link is the web verify page. On a phone with the app, a universal link
+ * or app link opens the app's verify screen instead; `source=email` lets the
+ * web page try the loamlogger:// hand-off for browsers that skip those (as the
+ * reset link does). Verifying never signs anyone in by itself: the client that
+ * signed up does that with its sign-in grant.
  */
 export function buildVerifyUrl(rawToken: string): string {
   const url = new URL('/verify-email', FRONTEND_URL);
   url.searchParams.set('token', rawToken);
+  url.searchParams.set('source', 'email');
   return url.toString();
 }
 

@@ -405,6 +405,10 @@ export const AUTH_RATE_LIMITS = {
   'attest-challenge': { windowSeconds: 60, maxRequests: 20 },
   /** verify-email: max 10 requests per minute per IP (prevents token-guessing floods) */
   'verify-email': { windowSeconds: 60, maxRequests: 10 },
+  /** verify-email-complete: max 60 requests per minute per IP. Waiting clients
+   *  poll it (every 3s at first), and a household or carrier NAT can hold a
+   *  few of them; the 256-bit grant makes guessing pointless either way. */
+  'verify-email-complete': { windowSeconds: 60, maxRequests: 60 },
   /** resend-verification: max 5 requests per minute per IP (public; prevents email-blast abuse) */
   'resend-verification': { windowSeconds: 60, maxRequests: 5 },
   /** verification-email: max 3 verification emails per hour per account, keyed

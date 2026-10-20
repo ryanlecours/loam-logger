@@ -24,6 +24,8 @@ import {
   isEmailVerificationPending,
   sendVerificationEmailWithinLimit,
 } from '../services/email-verification.service';
+import { issueSignInGrant } from '../services/email-sign-in-grant.service';
+import { setSignInGrantCookie } from './sign-in-grant-cookie';
 import {
   checkTurnstileConfig,
   evaluateSignupTurnstile,
@@ -126,6 +128,11 @@ router.post('/signup', express.json(), async (req, res) => {
 
     await sendVerificationEmailWithinLimit(user, 'user_action');
 
+    // This browser just proved the password, so it may sign itself in once
+    // the link is opened (see /auth/verify-email/complete).
+    const grant = await issueSignInGrant(user.id, 'web');
+    if (grant) setSignInGrantCookie(res, grant);
+
     if (turnstileVerdict) reportSignupTurnstile(user.id, turnstileVerdict);
 
     return res.status(201).json({ ok: true, verificationRequired: true, email: user.email });
@@ -195,6 +202,8 @@ router.post('/login', express.json(), async (req, res) => {
     // whether an address is registered. The attempt doubles as a resend.
     if (isEmailVerificationPending(user)) {
       await sendVerificationEmailWithinLimit(user, 'user_action');
+      const grant = await issueSignInGrant(user.id, 'web');
+      if (grant) setSignInGrantCookie(res, grant);
       return sendError(res, 403, EMAIL_VERIFICATION_REQUIRED_MESSAGE, EMAIL_VERIFICATION_REQUIRED_CODE, {
         email: user.email,
       });

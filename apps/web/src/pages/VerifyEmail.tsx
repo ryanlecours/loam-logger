@@ -2,15 +2,22 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { motion } from 'motion/react';
 import { Button } from '@/components/ui';
-import { resendVerificationEmail, verifyEmailToken, type VerifyEmailResult } from '@/lib/emailVerification';
+import {
+  completeEmailSignIn,
+  resendVerificationEmail,
+  verifyEmailToken,
+  type VerifyEmailResult,
+} from '@/lib/emailVerification';
+import { useFinishEmailSignIn } from '../hooks/useFinishEmailSignIn';
 
-type Status = 'verifying' | VerifyEmailResult;
+type Status = 'verifying' | 'signing-in' | VerifyEmailResult;
 
 const COPY: Record<Status, { title: string; body: string }> = {
   verifying: { title: 'Confirming your email', body: 'One moment.' },
+  'signing-in': { title: 'Email confirmed', body: 'Signing you in.' },
   verified: {
     title: 'Email confirmed',
-    body: 'You can sign in now. If you signed up in the app, open Loam Logger and sign in there.',
+    body: 'You can sign in now. If you signed up in the Loam Logger app, open it and it signs you in.',
   },
   expired: {
     title: 'Link expired',
@@ -26,14 +33,64 @@ const COPY: Record<Status, { title: string; body: string }> = {
   },
 };
 
+const APP_HANDOFF_WAIT_MS = 1500;
+
+function isPhone(): boolean {
+  return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+}
+
+/**
+ * Try to open the app's verify screen, for browsers that skip universal links
+ * and app links (in-app browsers, mostly), the way the reset page does. A
+ * hidden iframe keeps a failed scheme from navigating this page anywhere.
+ * Resolves when this page should verify itself after all: after a moment if
+ * the app did not open, or once the rider comes back here if it did (an app
+ * build without the verify screen would otherwise leave the email unverified).
+ * Verifying twice is harmless: the second answer is "already verified".
+ */
+function handOffToApp(token: string): Promise<void> {
+  return new Promise((resolve) => {
+    const iframe = document.createElement('iframe');
+    iframe.style.display = 'none';
+    iframe.src = `loamlogger://verify-email?token=${encodeURIComponent(token)}`;
+    document.body.appendChild(iframe);
+
+    let appOpened = false;
+    const finish = () => {
+      iframe.remove();
+      document.removeEventListener('visibilitychange', onVisibility);
+      clearTimeout(timer);
+      resolve();
+    };
+    function onVisibility() {
+      if (document.visibilityState === 'hidden') {
+        appOpened = true;
+        clearTimeout(timer);
+      } else if (appOpened) {
+        finish();
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibility);
+    const timer = setTimeout(() => {
+      if (!appOpened) finish();
+    }, APP_HANDOFF_WAIT_MS);
+  });
+}
+
 export default function VerifyEmail() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const finishEmailSignIn = useFinishEmailSignIn();
   // Read once and kept in state, so the token can be dropped from the URL
   // (below) while Try Again still has it.
   const [token] = useState(() => searchParams.get('token'));
+  // Only a tap on the emailed link tries the app: a typed or bookmarked URL
+  // should never raise an "Open in app?" prompt.
+  const [tryApp] = useState(() => searchParams.get('source') === 'email' && isPhone());
 
   const [status, setStatus] = useState<Status>(token ? 'verifying' : 'invalid');
+  // The verified address, for prefilling sign-in when this browser cannot sign in by itself.
+  const [verifiedEmail, setVerifiedEmail] = useState<string | null>(null);
   const [email, setEmail] = useState('');
   const [resendState, setResendState] = useState<'idle' | 'sending' | 'sent'>('idle');
   const [resendError, setResendError] = useState<string | null>(null);
@@ -43,7 +100,22 @@ export default function VerifyEmail() {
 
   async function runVerify(t: string) {
     setStatus('verifying');
-    setStatus(await verifyEmailToken(t));
+    const outcome = await verifyEmailToken(t);
+    if (outcome.email) setVerifiedEmail(outcome.email);
+    if (outcome.status !== 'verified') {
+      setStatus(outcome.status);
+      return;
+    }
+
+    // The link only verifies. If this browser signed up (or tried to sign
+    // in) it holds a sign-in grant, and goes straight in.
+    setStatus('signing-in');
+    const signIn = await completeEmailSignIn();
+    if (signIn.status === 'signed-in') {
+      await finishEmailSignIn(signIn);
+      return;
+    }
+    setStatus('verified');
   }
 
   useEffect(() => {
@@ -52,8 +124,17 @@ export default function VerifyEmail() {
     // Keep the token out of browser history and out of the URL any later
     // navigation from this page would carry.
     setSearchParams({}, { replace: true });
-    void runVerify(token);
-  }, [token, setSearchParams]);
+    void (async () => {
+      if (tryApp) await handOffToApp(token);
+      await runVerify(token);
+    })();
+    // runVerify only sets state; listing it would rerun this on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, tryApp, setSearchParams]);
+
+  function goToSignIn() {
+    navigate(verifiedEmail ? `/login?email=${encodeURIComponent(verifiedEmail)}` : '/login', { replace: true });
+  }
 
   async function handleResend(event: React.FormEvent) {
     event.preventDefault();
@@ -107,7 +188,7 @@ export default function VerifyEmail() {
             </p>
           </div>
 
-          {status === 'verifying' && (
+          {(status === 'verifying' || status === 'signing-in') && (
             <div className="flex justify-center">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
             </div>
@@ -118,7 +199,7 @@ export default function VerifyEmail() {
               type="button"
               variant="primary"
               className="w-full justify-center text-base"
-              onClick={() => navigate('/login', { replace: true })}
+              onClick={goToSignIn}
             >
               Go to Sign In
             </Button>
