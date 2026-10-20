@@ -68,6 +68,7 @@ import webhooksRevenueCat from './routes/webhooks.revenuecat';
 import { validateStripeConfig } from './lib/stripe';
 import { FRONTEND_URL, config } from './config/env';
 import { createOriginAllowlist, parseExtraOrigins } from './lib/cors-origin';
+import { TRUST_PROXY_HOPS } from './lib/trust-proxy';
 import mobileAuthRouter from './auth/mobile.route';
 
 export type GraphQLContext = {
@@ -86,8 +87,8 @@ const startServer = async () => {
 
   const app = express();
 
-  // Railway / proxies so secure cookies & IPs work right
-  app.set('trust proxy', 1);
+  // Railway's edge plus one internal hop; see lib/trust-proxy.ts
+  app.set('trust proxy', TRUST_PROXY_HOPS);
 
   // Basic health / diagnostics
   app.get('/health', (_req, res) => res.status(200).send('ok'));
