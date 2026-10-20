@@ -203,6 +203,12 @@ describe('evaluateSignupAttestation', () => {
       expect(mockSentryCapture).not.toHaveBeenCalled();
     });
 
+    it('treats a timeout or network error (no HTTP response) as our error, not a rejected token', async () => {
+      mockDecode.mockRejectedValue(Object.assign(new Error('timeout of 3000ms exceeded'), { code: 'ECONNABORTED' }));
+      expect(await evaluate(body)).toMatchObject({ outcome: 'error', label: 'android:error:decode_failed' });
+      expect(mockSentryCapture).toHaveBeenCalledTimes(1);
+    });
+
     it('reports other decode failures to Sentry as our error', async () => {
       mockDecode.mockRejectedValue(Object.assign(new Error('unavailable'), { response: { status: 503 } }));
       expect(await evaluate(body)).toMatchObject({ outcome: 'error', label: 'android:error:decode_failed' });

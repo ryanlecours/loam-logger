@@ -16,6 +16,14 @@ describe('decodeCbor', () => {
     expect(decodeCbor(hex('f6'))).toBeNull();
   });
 
+  it('keeps a __proto__ key as plain data instead of touching a prototype', () => {
+    const decoded = decodeCbor(hex('a1 69 5f5f70726f746f5f5f a1 6870 6f6c6c75746564 f5')) as Record<string, unknown>;
+    expect(Object.getPrototypeOf(decoded)).toBeNull();
+    expect(Object.keys(decoded)).toEqual(['__proto__']);
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+    expect((decoded as { polluted?: unknown }).polluted).toBeUndefined();
+  });
+
   it.each([
     ['truncated input', '4401'],
     ['trailing bytes', '0000'],

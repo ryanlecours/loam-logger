@@ -63,6 +63,17 @@ describe('attestation challenges', () => {
     expect(await consumeAttestationChallenge(challenge)).toBe(false);
   });
 
+  it('refuses a Redis-issued challenge while Redis is down, rather than guessing', async () => {
+    const challenge = await issueAttestationChallenge();
+    mockReady = false;
+    // Recorded as failed:challenge_invalid; the app fetches a new one next attempt.
+    expect(await consumeAttestationChallenge(challenge)).toBe(false);
+    expect(mockRedis.getdel).not.toHaveBeenCalled();
+
+    mockReady = true;
+    expect(await consumeAttestationChallenge(challenge)).toBe(true);
+  });
+
   it('caps the memory fallback, dropping the oldest challenge first', async () => {
     mockReady = false;
     const first = await issueAttestationChallenge();

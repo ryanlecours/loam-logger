@@ -72,7 +72,8 @@ function decodeItem(buf: Buffer, start: number, depth: number): { value: CborVal
       return { value: items, offset: next };
     }
     case 5: {
-      const map: { [key: string]: CborValue } = {};
+      // No prototype: a `__proto__` key in untrusted input stays a plain key.
+      const map: { [key: string]: CborValue } = Object.create(null);
       let next = offset;
       for (let i = 0; i < length; i++) {
         const key = decodeItem(buf, next, depth + 1);

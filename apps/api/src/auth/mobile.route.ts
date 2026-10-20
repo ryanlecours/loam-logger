@@ -163,7 +163,11 @@ router.post('/mobile/signup', express.json(), async (req, res) => {
     }
 
     // Judged after the cheap validation, so a 400 or 409 never spends the
-    // one-time challenge or the unattested budget.
+    // one-time challenge or the unattested budget. `rawEmail` is passed
+    // untouched (not trimmed or lowercased): the app hashed exactly this
+    // string (loam-logger-mobile src/lib/deviceAttestation.ts). The cap is
+    // spent before the account exists, so a rare createNewUser failure after
+    // it (a concurrent duplicate) still uses a slot; accepted.
     const attestationVerdict = await evaluateSignupAttestation({ body: attestation, rawEmail, email });
     if (requiresUnattestedCap(attestationVerdict)) {
       // Per IP first, so a single source cannot drain the shared bucket.

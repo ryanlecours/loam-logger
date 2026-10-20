@@ -15,6 +15,12 @@ const PLAY_INTEGRITY_SCOPE = 'https://www.googleapis.com/auth/playintegrity';
 /** A standard token is minted right before signup, so anything older is a replay. */
 export const MAX_TOKEN_AGE_MS = 10 * 60 * 1000;
 
+/**
+ * The decode runs inline in signup, so a slow Google answer delays the rider.
+ * Past this it records `error:decode_failed` instead of waiting.
+ */
+export const DECODE_TIMEOUT_MS = 3000;
+
 export type PlayIntegrityFailure =
   | 'malformed'
   | 'request_hash_mismatch'
@@ -145,7 +151,7 @@ export async function decodeIntegrityToken(
     url: `https://playintegrity.googleapis.com/v1/${encodeURIComponent(packageName)}:decodeIntegrityToken`,
     method: 'POST',
     data: { integrityToken: token },
-    timeout: 8000,
+    timeout: DECODE_TIMEOUT_MS,
   });
   return response.data.tokenPayloadExternal;
 }
