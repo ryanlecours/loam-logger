@@ -12,7 +12,7 @@ export default function PhotoBandSection() {
         <p className="lp-band__line">Fewer mechanicals.</p>
         <p className="lp-band__line lp-band__line--accent">More good rides.</p>
         <p className="lp-lede" style={{ marginTop: '1rem', maxWidth: '48ch' }}>
-          Same amount of wrenching. Less of it trailside.
+          The same amount of wrenching, with less of it done on the side of the trail.
         </p>
       </div>
     </section>

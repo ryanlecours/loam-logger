@@ -19,10 +19,10 @@ export default function FreeTierSection() {
     <section id="free" className="lp-section">
       <div className="lp-container lp-free">
         <div className="lp-free__text">
-          <h2 className="lp-h2">One bike. Everything. Free.</h2>
+          <h2 className="lp-h2">Free for one bike, for good.</h2>
           <p className="lp-copy">
-            Not a trial. Nothing expires. Add your main bike, connect the platform you already record
-            with, and it keeps counting for as long as you ride it.
+            It isn&apos;t a trial and nothing expires. Add your main bike, connect the platform you
+            already record with, and it keeps counting for as long as you ride it.
           </p>
           <div className="lp-actions">
             <Link to="/signup" className="lp-btn lp-btn--primary">

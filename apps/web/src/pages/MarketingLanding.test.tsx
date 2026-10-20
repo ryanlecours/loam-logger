@@ -30,7 +30,7 @@ describe('MarketingLanding', () => {
 
   it('sells Free, states the yearly Pro price once, and sends pricing detail to its own page', () => {
     render(<MarketingLanding />);
-    expect(screen.getByRole('heading', { name: 'One bike. Everything. Free.' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Free for one bike, for good.' })).toBeInTheDocument();
     expect(screen.getAllByText(/\$39\.99 a year/).length).toBeGreaterThan(0);
     expect(screen.queryByText(/\$4\.99/)).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /Go Pro/ })).not.toBeInTheDocument();
