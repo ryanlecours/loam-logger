@@ -3,10 +3,14 @@ import * as Sentry from '@sentry/node';
 import { config } from '../../config/env';
 import { logger } from '../../lib/logger';
 import { captureServerEvent } from '../../lib/posthog';
-import { canonicalizeEmail } from '../../auth/utils';
 import { consumeAttestationChallenge } from './challenge';
 import { verifyAppleAttestation } from './apple-app-attest';
-import { decodeIntegrityToken, evaluatePlayIntegrityPayload, type PlayIntegrityDetails } from './play-integrity';
+import {
+  decodeIntegrityToken,
+  evaluatePlayIntegrityPayload,
+  parseServiceAccountJson,
+  type PlayIntegrityDetails,
+} from './play-integrity';
 
 export { issueAttestationChallenge, CHALLENGE_TTL_SECONDS } from './challenge';
 
@@ -83,12 +87,73 @@ function verdict(
   return { outcome, platform, reason, label, details };
 }
 
+/**
+ * Exact match on the normalized address. Deliberately no alias folding and
+ * no domain entries: either would let anyone who can mint a +tag or an
+ * address on that domain skip attestation (and, in enforce mode, the cap).
+ */
 function isBypassed(email: string): boolean {
-  const entries = config.deviceAttestationBypassEmails;
-  if (entries.length === 0) return false;
-  const canonical = canonicalizeEmail(email);
-  const domain = email.slice(email.lastIndexOf('@')).toLowerCase();
-  return entries.some((entry) => (entry.startsWith('@') ? entry === domain : canonicalizeEmail(entry) === canonical));
+  return config.deviceAttestationBypassEmails.includes(email.trim().toLowerCase());
+}
+
+type ServiceAccountState = { ok: true } | { ok: false };
+let serviceAccountState: { json: string; state: ServiceAccountState } | null = null;
+
+/**
+ * Parse the service account key once per value. A bad key is logged and sent
+ * to Sentry once, then each signup records `error:bad_service_account`
+ * quietly instead of raising on every request.
+ */
+function checkServiceAccount(json: string): ServiceAccountState {
+  if (serviceAccountState?.json === json) return serviceAccountState.state;
+  let state: ServiceAccountState;
+  try {
+    parseServiceAccountJson(json);
+    state = { ok: true };
+  } catch (err) {
+    logger.error({ err }, '[Attestation] PLAY_INTEGRITY_SERVICE_ACCOUNT_JSON is not a usable service account key');
+    Sentry.captureException(err, { tags: { stage: 'play-integrity-config' } });
+    state = { ok: false };
+  }
+  serviceAccountState = { json, state };
+  return state;
+}
+
+/**
+ * Log configuration mistakes at startup instead of letting them surface as a
+ * stream of failed verdicts.
+ */
+export function checkDeviceAttestationConfig(rawMode: string | undefined = process.env.DEVICE_ATTESTATION_MODE): void {
+  try {
+    logConfigProblems(rawMode);
+  } catch (err) {
+    // A diagnostic must never stop the API from starting.
+    logger.warn({ err }, '[Attestation] Config check failed');
+  }
+}
+
+function logConfigProblems(rawMode: string | undefined): void {
+  const mode = rawMode?.trim().toLowerCase();
+  if (mode && mode !== 'off' && mode !== 'monitor' && mode !== 'enforce') {
+    logger.warn({ value: rawMode }, '[Attestation] Unrecognized DEVICE_ATTESTATION_MODE, using monitor');
+  }
+  if (config.deviceAttestationMode === 'off') return;
+  if (!config.appleTeamId || !config.appleBundleId) {
+    logger.warn('[Attestation] APPLE_TEAM_ID or APPLE_BUNDLE_ID not set; iOS signups record error:not_configured');
+  }
+  if (!config.playIntegrityServiceAccountJson) {
+    logger.warn('[Attestation] PLAY_INTEGRITY_SERVICE_ACCOUNT_JSON not set; Android signups record error:not_configured');
+  } else {
+    checkServiceAccount(config.playIntegrityServiceAccountJson);
+  }
+  logger.info(
+    {
+      mode: config.deviceAttestationMode,
+      androidPackageName: config.androidPackageName,
+      bypassCount: config.deviceAttestationBypassEmails.length,
+    },
+    '[Attestation] Device attestation configured'
+  );
 }
 
 function isBlob(value: unknown): value is string {
@@ -116,7 +181,10 @@ export async function evaluateSignupAttestation(input: EvaluateSignupAttestation
   const platform: AttestationPlatform | undefined =
     body.platform === 'ios' || body.platform === 'android' ? body.platform : undefined;
 
-  if (isBypassed(input.email)) return verdict('bypassed', platform);
+  if (isBypassed(input.email)) {
+    logger.info({ platform }, '[Attestation] Signup bypassed attestation (DEVICE_ATTESTATION_BYPASS_EMAILS)');
+    return verdict('bypassed', platform);
+  }
   if (!platform) return verdict('missing');
   if (body.unsupported === true) return verdict('unsupported', platform);
   if (body.clientError === true) return verdict('client_error', platform);
@@ -145,6 +213,9 @@ export async function evaluateSignupAttestation(input: EvaluateSignupAttestation
 
     if (!isBlob(body.token)) return verdict('failed', platform, 'malformed');
     if (!config.playIntegrityServiceAccountJson) return verdict('error', platform, 'not_configured');
+    if (!checkServiceAccount(config.playIntegrityServiceAccountJson).ok) {
+      return verdict('error', platform, 'bad_service_account');
+    }
     let payload: unknown;
     try {
       payload = await decodeIntegrityToken(body.token, config.androidPackageName, config.playIntegrityServiceAccountJson);

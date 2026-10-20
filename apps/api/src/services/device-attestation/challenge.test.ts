@@ -18,7 +18,13 @@ jest.mock('../../lib/redis', () => ({
 }));
 jest.mock('../../lib/logger', () => ({ logger: { warn: jest.fn() } }));
 
-import { __test, consumeAttestationChallenge, issueAttestationChallenge, CHALLENGE_TTL_SECONDS } from './challenge';
+import {
+  __test,
+  consumeAttestationChallenge,
+  issueAttestationChallenge,
+  CHALLENGE_TTL_SECONDS,
+  MAX_MEMORY_CHALLENGES,
+} from './challenge';
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -55,6 +61,17 @@ describe('attestation challenges', () => {
     expect(mockRedis.set).not.toHaveBeenCalled();
     expect(await consumeAttestationChallenge(challenge)).toBe(true);
     expect(await consumeAttestationChallenge(challenge)).toBe(false);
+  });
+
+  it('caps the memory fallback, dropping the oldest challenge first', async () => {
+    mockReady = false;
+    const first = await issueAttestationChallenge();
+    for (let i = 1; i < MAX_MEMORY_CHALLENGES; i++) __test.memory.set(`filler-${i}`, Date.now() + 60_000);
+    const latest = await issueAttestationChallenge();
+
+    expect(__test.memory.size).toBe(MAX_MEMORY_CHALLENGES);
+    expect(await consumeAttestationChallenge(first)).toBe(false);
+    expect(await consumeAttestationChallenge(latest)).toBe(true);
   });
 
   it('expires memory challenges after the TTL', async () => {

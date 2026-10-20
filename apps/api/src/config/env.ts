@@ -75,9 +75,9 @@ export const config = {
   playIntegrityServiceAccountJson: process.env.PLAY_INTEGRITY_SERVICE_ACCOUNT_JSON,
 
   /**
-   * Comma-separated addresses (or `@domain` entries) whose signups skip
-   * attestation, for simulator, emulator and locally built test installs.
-   * Matched on the folded address, so `name@gmail.com` covers its +tags.
+   * Comma-separated addresses whose signups skip attestation, for simulator,
+   * emulator and locally built test installs. Exact match only (no +tag or
+   * dot folding, no domains), so list only inboxes you own.
    */
   deviceAttestationBypassEmails: (process.env.DEVICE_ATTESTATION_BYPASS_EMAILS || '')
     .split(',')

@@ -184,4 +184,35 @@ describe('readNonceExtension', () => {
       .digest();
     expect(readNonceExtension(leaf)).toEqual(expected);
   });
+
+  const certs = () =>
+    ((decodeCbor(Buffer.from(production.attestation, 'base64')) as { [key: string]: CborValue }).attStmt as {
+      [key: string]: CborValue;
+    }).x5c as Buffer[];
+
+  it('returns null for a certificate without the nonce extension', () => {
+    expect(readNonceExtension(certs()[1])).toBeNull();
+  });
+
+  it.each([
+    ['truncated', (leaf: Buffer) => leaf.subarray(0, 200)],
+    ['cut inside a length', (leaf: Buffer) => leaf.subarray(0, 3)],
+    ['a 4-byte length', () => Buffer.from([0x30, 0x84, 0x00, 0x00, 0x00, 0x10])],
+    ['an indefinite length', () => Buffer.from([0x30, 0x80, 0x00, 0x00])],
+    ['a high tag number', () => Buffer.from([0x1f, 0x81, 0x01, 0x00])],
+    ['a child longer than its parent', () => Buffer.from([0x30, 0x03, 0x30, 0x05, 0x00])],
+  ])('rejects DER that is %s', (_label, make) => {
+    expect(() => readNonceExtension(make(certs()[0]))).toThrow();
+  });
+
+  it('maps unreadable certificate DER to malformed rather than throwing', () => {
+    const broken = tamper((obj) => {
+      const attStmt = obj.attStmt as { [key: string]: CborValue };
+      attStmt.x5c = [(attStmt.x5c as Buffer[])[0].subarray(0, 200), (attStmt.x5c as Buffer[])[1]];
+    });
+    expect(verifyAppleAttestation({ ...input(production), attestation: broken })).toEqual({
+      ok: false,
+      reason: 'malformed',
+    });
+  });
 });

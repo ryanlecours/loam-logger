@@ -10,18 +10,30 @@ import { logger } from '../../lib/logger';
  *
  * Redis holds them so any API instance can consume what another issued. If
  * Redis is down, an in-memory map keeps a single instance working; a
- * challenge issued there can only be consumed by the same process.
+ * challenge issued there can only be consumed by the same process, so with
+ * several instances some signups record `failed:challenge_invalid` until
+ * Redis is back.
  */
 
 export const CHALLENGE_TTL_SECONDS = 300;
 const KEY_PREFIX = 'attest:challenge:';
 const CHALLENGE_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+/** Bounds the fallback map; the oldest challenges go first when it is full. */
+export const MAX_MEMORY_CHALLENGES = 10_000;
 
 const memory = new Map<string, number>();
 
 function pruneMemory(now: number): void {
+  // Map iterates in insertion order and every entry has the same TTL, so
+  // expired entries sit at the front.
   for (const [challenge, expiresAt] of memory) {
-    if (expiresAt <= now) memory.delete(challenge);
+    if (expiresAt > now) break;
+    memory.delete(challenge);
+  }
+  while (memory.size >= MAX_MEMORY_CHALLENGES) {
+    const oldest = memory.keys().next().value;
+    if (oldest === undefined) break;
+    memory.delete(oldest);
   }
 }
 

@@ -149,7 +149,8 @@ APPLE_BUNDLE_ID="com.example.yourapp"
 DEVICE_ATTESTATION_MODE="monitor"          # off | monitor | enforce
 APPLE_TEAM_ID="ABCDE12345"
 PLAY_INTEGRITY_SERVICE_ACCOUNT_JSON=""     # service account key JSON, raw or base64
-DEVICE_ATTESTATION_BYPASS_EMAILS=""        # comma-separated, e.g. "you@gmail.com,@example.com"
+DEVICE_ATTESTATION_BYPASS_EMAILS=""        # comma-separated exact addresses you own; no +tag folding, no domains
+ANDROID_PACKAGE_NAME="com.loamlabs.loamlogger" # default; must match the Play app or every verdict fails package_mismatch
 
 # RevenueCat (IAP webhooks)
 REVENUECAT_WEBHOOK_AUTH_KEY="your-revenuecat-webhook-auth-key"

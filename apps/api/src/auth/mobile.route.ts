@@ -33,6 +33,7 @@ import {
 } from '../services/email-verification.service';
 import {
   CHALLENGE_TTL_SECONDS,
+  checkDeviceAttestationConfig,
   evaluateSignupAttestation,
   issueAttestationChallenge,
   reportSignupAttestation,
@@ -57,6 +58,8 @@ if (!GOOGLE_IOS_CLIENT_ID) {
 if (!config.appleBundleId) {
   logger.warn('[MobileAuth] APPLE_BUNDLE_ID not set — Apple Sign-In will not work');
 }
+
+checkDeviceAttestationConfig();
 
 const googleClient = new OAuth2Client({
   clientId: GOOGLE_CLIENT_ID,
@@ -163,7 +166,9 @@ router.post('/mobile/signup', express.json(), async (req, res) => {
     // one-time challenge or the unattested budget.
     const attestationVerdict = await evaluateSignupAttestation({ body: attestation, rawEmail, email });
     if (requiresUnattestedCap(attestationVerdict)) {
-      const cap = await checkAuthRateLimit('signup-unattested', 'global');
+      // Per IP first, so a single source cannot drain the shared bucket.
+      const perIp = await checkAuthRateLimit('signup-unattested-ip', clientIp);
+      const cap = perIp.allowed ? await checkAuthRateLimit('signup-unattested', 'global') : perIp;
       if (!cap.allowed) {
         logger.warn(
           { clientIp, attestation: attestationVerdict?.label, retryAfter: cap.retryAfter, route: 'mobile/signup' },

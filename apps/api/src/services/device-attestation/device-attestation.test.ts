@@ -13,9 +13,17 @@ const mockVerifyApple = jest.fn();
 const mockDecode = jest.fn();
 const mockCapture = jest.fn();
 const mockSentryCapture = jest.fn();
+const mockLoggerWarn = jest.fn();
+const mockLoggerInfo = jest.fn();
 
 jest.mock('../../config/env', () => ({ config: mockConfig }));
-jest.mock('../../lib/logger', () => ({ logger: { error: jest.fn(), warn: jest.fn(), info: jest.fn() } }));
+jest.mock('../../lib/logger', () => ({
+  logger: {
+    error: jest.fn(),
+    warn: (...a: unknown[]) => mockLoggerWarn(...a),
+    info: (...a: unknown[]) => mockLoggerInfo(...a),
+  },
+}));
 jest.mock('../../lib/posthog', () => ({ captureServerEvent: (...a: unknown[]) => mockCapture(...a) }));
 jest.mock('@sentry/node', () => ({ captureException: (...a: unknown[]) => mockSentryCapture(...a) }));
 jest.mock('./challenge', () => ({
@@ -31,6 +39,7 @@ jest.mock('./play-integrity', () => ({
 
 import {
   androidRequestHash,
+  checkDeviceAttestationConfig,
   attestationClientData,
   evaluateSignupAttestation,
   reportSignupAttestation,
@@ -98,15 +107,16 @@ describe('evaluateSignupAttestation', () => {
     expect(mockConsume).not.toHaveBeenCalled();
   });
 
-  it('bypasses listed addresses (folded) and domains', async () => {
+  it('bypasses listed addresses on an exact match only', async () => {
     mockConfig.deviceAttestationBypassEmails = ['rider@example.com'];
-    expect(await evaluate({ platform: 'android' }, 'rider+sim@example.com')).toMatchObject({
+    expect(await evaluate({ platform: 'android' }, 'rider@example.com')).toMatchObject({
       label: 'android:bypassed',
     });
+    expect(mockLoggerInfo).toHaveBeenCalledWith({ platform: 'android' }, expect.stringContaining('bypassed'));
 
-    mockConfig.deviceAttestationBypassEmails = ['@loamlabs.test'];
-    expect(await evaluate(undefined, 'dev@loamlabs.test')).toMatchObject({ label: 'bypassed' });
-    expect(await evaluate(undefined, 'dev@other.test')).toMatchObject({ label: 'missing' });
+    // No alias folding: a +tag or dotted variant anyone can mint is not on the list.
+    expect(await evaluate(undefined, 'rider+sim@example.com')).toMatchObject({ label: 'missing' });
+    expect(await evaluate(undefined, 'ri.der@example.com')).toMatchObject({ label: 'missing' });
   });
 
   it('fails an unknown, expired or reused challenge', async () => {
@@ -199,11 +209,50 @@ describe('evaluateSignupAttestation', () => {
       expect(mockSentryCapture).toHaveBeenCalledTimes(1);
     });
 
+    it('reports an unusable service account key to Sentry once, then quietly', async () => {
+      mockConfig.playIntegrityServiceAccountJson = '{"type":"service_account"}';
+      expect(await evaluate(body)).toMatchObject({ label: 'android:error:bad_service_account' });
+      expect(await evaluate(body)).toMatchObject({ label: 'android:error:bad_service_account' });
+      expect(mockSentryCapture).toHaveBeenCalledTimes(1);
+      expect(mockDecode).not.toHaveBeenCalled();
+    });
+
     it('reports a missing service account as our error', async () => {
       mockConfig.playIntegrityServiceAccountJson = undefined;
       expect(await evaluate(body)).toMatchObject({ label: 'android:error:not_configured' });
       expect(mockDecode).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe('checkDeviceAttestationConfig', () => {
+  it('warns about an unrecognized mode instead of silently using monitor', () => {
+    checkDeviceAttestationConfig('enforced');
+    expect(mockLoggerWarn).toHaveBeenCalledWith({ value: 'enforced' }, expect.stringContaining('Unrecognized'));
+  });
+
+  it('warns about missing credentials and accepts a complete setup', () => {
+    mockConfig.appleTeamId = undefined;
+    mockConfig.playIntegrityServiceAccountJson = undefined;
+    checkDeviceAttestationConfig('monitor');
+    expect(mockLoggerWarn).toHaveBeenCalledTimes(2);
+
+    jest.clearAllMocks();
+    mockConfig.appleTeamId = 'ABCDE12345';
+    mockConfig.playIntegrityServiceAccountJson = '{"client_email":"sa","private_key":"k"}';
+    checkDeviceAttestationConfig('monitor');
+    expect(mockLoggerWarn).not.toHaveBeenCalled();
+    expect(mockLoggerInfo).toHaveBeenCalledWith(
+      expect.objectContaining({ mode: 'monitor', androidPackageName: 'com.loamlabs.loamlogger' }),
+      expect.any(String)
+    );
+  });
+
+  it('says nothing about credentials while attestation is off', () => {
+    mockConfig.deviceAttestationMode = 'off';
+    mockConfig.appleTeamId = undefined;
+    checkDeviceAttestationConfig('off');
+    expect(mockLoggerWarn).not.toHaveBeenCalled();
   });
 });
 

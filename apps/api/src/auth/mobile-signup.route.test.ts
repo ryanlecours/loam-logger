@@ -103,6 +103,7 @@ const mockIssueAttestationChallenge = jest.fn().mockResolvedValue('c'.repeat(43)
 
 jest.mock('../services/device-attestation', () => ({
   CHALLENGE_TTL_SECONDS: 300,
+  checkDeviceAttestationConfig: jest.fn(),
   evaluateSignupAttestation: (...args: unknown[]) => mockEvaluateSignupAttestation(...args),
   requiresUnattestedCap: (...args: unknown[]) => mockRequiresUnattestedCap(...args),
   reportSignupAttestation: (...args: unknown[]) => mockReportSignupAttestation(...args),
@@ -298,8 +299,24 @@ describe('POST /mobile/signup', () => {
 
       await invokeHandler(handler, signupRequest(), res as unknown as Response);
 
+      expect(mockCheckAuthRateLimit).toHaveBeenCalledWith('signup-unattested-ip', '127.0.0.1');
       expect(mockCheckAuthRateLimit).toHaveBeenCalledWith('signup-unattested', 'global');
       expect(mockCreateNewUser).toHaveBeenCalled();
+    });
+
+    it('stops one IP at its share before it can touch the global unattested bucket', async () => {
+      mockEvaluateSignupAttestation.mockResolvedValue(androidFailed);
+      mockRequiresUnattestedCap.mockReturnValue(true);
+      mockCheckAuthRateLimit.mockImplementation(async (operation: string) =>
+        operation === 'signup-unattested-ip' ? { allowed: false, retryAfter: 900 } : { allowed: true },
+      );
+      const res = createMockResponse();
+
+      await invokeHandler(handler, signupRequest(), res as unknown as Response);
+
+      expect(res.status).toHaveBeenCalledWith(429);
+      expect(mockCheckAuthRateLimit).not.toHaveBeenCalledWith('signup-unattested', 'global');
+      expect(mockCreateNewUser).not.toHaveBeenCalled();
     });
 
     it('answers 429 without creating the account once the unattested cap is spent', async () => {
