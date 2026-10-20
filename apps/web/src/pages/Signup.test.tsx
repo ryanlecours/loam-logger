@@ -253,7 +253,7 @@ describe('Signup waiting on the verification email', () => {
   it('signs this browser in and goes to onboarding once the link is opened anywhere', async () => {
     vi.stubEnv('VITE_TURNSTILE_SITE_KEY', '');
     delete window.turnstile;
-    const fetchMock = vi.fn(async (url: string) => {
+    const fetchMock = vi.fn<(url: string, init?: RequestInit) => Promise<ReturnType<typeof jsonResponse>>>(async (url) => {
       if (url.endsWith('/auth/signup')) {
         return jsonResponse(201, { ok: true, verificationRequired: true, email: 'new@example.com' });
       }
