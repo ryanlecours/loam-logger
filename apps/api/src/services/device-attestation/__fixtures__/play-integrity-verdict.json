@@ -1,0 +1,25 @@
+{
+  "requestDetails": {
+    "requestPackageName": "com.loamlabs.loamlogger",
+    "requestHash": "REPLACED_IN_TEST",
+    "timestampMillis": "1792411200000"
+  },
+  "appIntegrity": {
+    "appRecognitionVerdict": "PLAY_RECOGNIZED",
+    "packageName": "com.loamlabs.loamlogger",
+    "certificateSha256Digest": ["6a6a1474b5cbbb2b1aa57e0bc3"],
+    "versionCode": "42"
+  },
+  "deviceIntegrity": {
+    "deviceRecognitionVerdict": ["MEETS_DEVICE_INTEGRITY"]
+  },
+  "accountDetails": {
+    "appLicensingVerdict": "LICENSED"
+  },
+  "environmentDetails": {
+    "appAccessRiskVerdict": {
+      "appsDetected": ["KNOWN_INSTALLED", "UNKNOWN_INSTALLED"]
+    },
+    "playProtectVerdict": "NO_ISSUES"
+  }
+}

@@ -39,6 +39,8 @@ export type CreateNewUserOpts = {
   /** Client IP and user agent, kept for abuse review in the admin Users page. */
   signupIp?: string | null;
   signupUserAgent?: string | null;
+  /** Device attestation verdict label (mobile password signup only). */
+  signupAttestation?: string | null;
 };
 
 export type CreateNewUserResult = {
@@ -57,7 +59,7 @@ export type CreateNewUserResult = {
  * - Sending the verification email and answering without a session
  */
 export async function createNewUser(opts: CreateNewUserOpts): Promise<CreateNewUserResult> {
-  const { email, name, passwordHash, signupIp, signupUserAgent } = opts;
+  const { email, name, passwordHash, signupIp, signupUserAgent, signupAttestation } = opts;
 
   const user = await prisma.user.create({
     data: {
@@ -70,6 +72,7 @@ export async function createNewUser(opts: CreateNewUserOpts): Promise<CreateNewU
       passwordHash,
       signupIp: signupIp ?? null,
       signupUserAgent: signupUserAgent ?? null,
+      signupAttestation: signupAttestation ?? null,
     },
   });
 

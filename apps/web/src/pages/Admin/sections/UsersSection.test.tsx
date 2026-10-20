@@ -93,6 +93,7 @@ const baseUser = {
   emailVerificationRequired: false,
   signupIp: null as string | null,
   signupUserAgent: null as string | null,
+  signupAttestation: null as string | null,
 };
 
 function userListResponse(users: Array<Partial<typeof baseUser>>) {
@@ -157,6 +158,7 @@ describe('UsersSection', () => {
             emailVerificationRequired: true,
             signupIp: '203.0.113.9',
             signupUserAgent: 'okhttp/4.12.0',
+            signupAttestation: 'android:failed:device_integrity',
           },
         ]),
     });
@@ -172,6 +174,7 @@ describe('UsersSection', () => {
     expect(screen.getByRole('button', { name: 'Unverified only' })).toHaveAttribute('aria-pressed', 'true');
     expect(await screen.findByText('Awaiting verification')).toBeInTheDocument();
     expect(screen.getByText(/203.0.113.9/)).toBeInTheDocument();
+    expect(screen.getByText('android:failed:device_integrity')).toBeInTheDocument();
   });
 
   it('does not badge a verified account or offer Mark verified', async () => {

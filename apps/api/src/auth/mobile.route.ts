@@ -31,6 +31,14 @@ import {
   isEmailVerificationPending,
   sendVerificationEmailWithinLimit,
 } from '../services/email-verification.service';
+import {
+  CHALLENGE_TTL_SECONDS,
+  checkDeviceAttestationConfig,
+  evaluateSignupAttestation,
+  issueAttestationChallenge,
+  reportSignupAttestation,
+  requiresUnattestedCap,
+} from '../services/device-attestation';
 
 // Filter Railway logs with `module:"auth-audit"` to see only successful sign-ins and
 // account creations — the audit stream. Failure-side logs use the regular `logger`.
@@ -51,9 +59,32 @@ if (!config.appleBundleId) {
   logger.warn('[MobileAuth] APPLE_BUNDLE_ID not set — Apple Sign-In will not work');
 }
 
+checkDeviceAttestationConfig();
+
 const googleClient = new OAuth2Client({
   clientId: GOOGLE_CLIENT_ID,
   clientSecret: GOOGLE_CLIENT_SECRET,
+});
+
+/**
+ * POST /auth/mobile/attest-challenge
+ * Issue a one-time challenge for device attestation on the next signup.
+ * See services/device-attestation for how the app uses it.
+ */
+router.post('/mobile/attest-challenge', async (req, res) => {
+  try {
+    const rateLimit = await checkAuthRateLimit('attest-challenge', getClientIp(req));
+    if (!rateLimit.allowed) {
+      return sendTooManyRequests(res, 'Too many requests. Please try again later.', rateLimit.retryAfter);
+    }
+    const challenge = await issueAttestationChallenge();
+    res.setHeader('Cache-Control', 'no-store');
+    return res.status(200).json({ challenge, expiresIn: CHALLENGE_TTL_SECONDS });
+  } catch (e) {
+    logger.error({ err: e, route: 'mobile/attest-challenge' }, '[MobileAuth] Attestation challenge failed');
+    Sentry.captureException(e, { tags: { route: 'mobile/attest-challenge' } });
+    return sendInternalError(res, 'Could not start signup');
+  }
 });
 
 /**
@@ -65,6 +96,11 @@ const googleClient = new OAuth2Client({
  * 2xx: app builds that predate verification treat any 2xx as a token
  * response (and fail on the missing tokens), while they show a failed
  * signup's `error` text as is. A 403 tells every build to check the inbox.
+ *
+ * Optional `attestation` proves the request came from the genuine app on a
+ * real device (App Attest / Play Integrity). The verdict is stored on the
+ * user. In enforce mode, a signup without a verified attestation goes through
+ * the global `signup-unattested` cap; it is never refused outright.
  */
 router.post('/mobile/signup', express.json(), async (req, res) => {
   try {
@@ -76,10 +112,11 @@ router.post('/mobile/signup', express.json(), async (req, res) => {
       return sendTooManyRequests(res, 'Too many signup attempts. Please try again later.', rateLimit.retryAfter);
     }
 
-    const { email: rawEmail, password, name } = req.body as {
+    const { email: rawEmail, password, name, attestation } = req.body as {
       email?: string;
       password?: string;
       name?: string;
+      attestation?: unknown;
     };
 
     // Validate email
@@ -125,17 +162,43 @@ router.post('/mobile/signup', express.json(), async (req, res) => {
       return sendBadRequest(res, 'Name must be 100 characters or fewer');
     }
 
+    // Judged after the cheap validation, so a 400 or 409 never spends the
+    // one-time challenge or the unattested budget. `rawEmail` is passed
+    // untouched (not trimmed or lowercased): the app hashed exactly this
+    // string (loam-logger-mobile src/lib/deviceAttestation.ts). The cap is
+    // spent before the account exists, so a rare createNewUser failure after
+    // it (a concurrent duplicate) still uses a slot; accepted.
+    const attestationVerdict = await evaluateSignupAttestation({ body: attestation, rawEmail, email });
+    if (requiresUnattestedCap(attestationVerdict)) {
+      // Per IP first, so a single source cannot drain the shared bucket.
+      const perIp = await checkAuthRateLimit('signup-unattested-ip', clientIp);
+      const cap = perIp.allowed ? await checkAuthRateLimit('signup-unattested', 'global') : perIp;
+      if (!cap.allowed) {
+        logger.warn(
+          { clientIp, attestation: attestationVerdict?.label, retryAfter: cap.retryAfter, route: 'mobile/signup' },
+          'Mobile signup 429: unattested cap'
+        );
+        return sendTooManyRequests(res, 'Too many signup attempts. Please try again later.', cap.retryAfter);
+      }
+    }
+
     const { user } = await createNewUser({
       email: verifiedEmail,
       name: trimmedName,
       passwordHash,
       signupIp: clientIp,
       signupUserAgent: getUserAgent(req),
+      signupAttestation: attestationVerdict?.label ?? null,
     });
 
     await sendVerificationEmailWithinLimit(user, 'user_action');
 
-    auditLogger.info({ userId: user.id, provider: 'email', wasCreated: true }, 'Mobile account created, awaiting email verification');
+    if (attestationVerdict) reportSignupAttestation(user.id, attestationVerdict);
+
+    auditLogger.info(
+      { userId: user.id, provider: 'email', wasCreated: true, attestation: attestationVerdict?.label ?? null },
+      'Mobile account created, awaiting email verification'
+    );
 
     return sendError(res, 403, EMAIL_VERIFICATION_REQUIRED_MESSAGE, EMAIL_VERIFICATION_REQUIRED_CODE, {
       email: user.email,

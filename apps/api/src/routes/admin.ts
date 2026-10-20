@@ -568,6 +568,7 @@ router.get('/users', async (req, res) => {
           emailVerificationRequired: true,
           signupIp: true,
           signupUserAgent: true,
+          signupAttestation: true,
           emailSends: {
             where: { emailType: 'password_reset', status: 'sent' },
             orderBy: { createdAt: 'desc' },
