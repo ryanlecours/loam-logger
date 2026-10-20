@@ -1,6 +1,7 @@
 const mockConfig = {
   turnstileMode: 'monitor' as 'off' | 'monitor' | 'enforce',
   turnstileSecretKey: 'test-secret' as string | undefined,
+  turnstileAllowedHostnames: [] as string[],
 };
 const mockCapture = jest.fn();
 const mockSentryMessage = jest.fn();
@@ -33,6 +34,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockConfig.turnstileMode = 'monitor';
   mockConfig.turnstileSecretKey = 'test-secret';
+  mockConfig.turnstileAllowedHostnames = [];
 });
 
 describe('verifyTurnstileToken', () => {
@@ -144,7 +146,85 @@ describe('verifyTurnstileToken', () => {
   });
 });
 
+describe('verifyTurnstileToken action and hostname checks', () => {
+  const answer = { success: true, hostname: 'loamlogger.app', action: 'signup' };
+
+  it('accepts a token for the expected action and an allowed hostname', async () => {
+    await expect(
+      verifyTurnstileToken({
+        token: 'tok',
+        secret: 'shh',
+        expectedAction: 'signup',
+        allowedHostnames: ['loamlogger.app'],
+        fetchImpl: siteverifyAnswer(answer),
+      })
+    ).resolves.toEqual({ ok: true, hostname: 'loamlogger.app' });
+  });
+
+  it.each([[{ ...answer, action: 'login' }], [{ ...answer, action: undefined }]])(
+    'refuses a token minted for another action (%p)',
+    async (body) => {
+      await expect(
+        verifyTurnstileToken({ token: 'tok', secret: 'shh', expectedAction: 'signup', fetchImpl: siteverifyAnswer(body) })
+      ).resolves.toEqual({ ok: false, outcome: 'failed', reason: 'action_mismatch' });
+    }
+  );
+
+  it('refuses a token solved on a hostname outside the list', async () => {
+    await expect(
+      verifyTurnstileToken({
+        token: 'tok',
+        secret: 'shh',
+        expectedAction: 'signup',
+        allowedHostnames: ['loamlogger.app'],
+        fetchImpl: siteverifyAnswer({ ...answer, hostname: 'evil.example' }),
+      })
+    ).resolves.toEqual({ ok: false, outcome: 'failed', reason: 'hostname_mismatch' });
+  });
+
+  it('skips the hostname check when no list is configured', async () => {
+    await expect(
+      verifyTurnstileToken({
+        token: 'tok',
+        secret: 'shh',
+        expectedAction: 'signup',
+        allowedHostnames: [],
+        fetchImpl: siteverifyAnswer({ ...answer, hostname: 'anywhere.example' }),
+      })
+    ).resolves.toMatchObject({ ok: true });
+  });
+
+  it("skips both checks for Cloudflare's test secrets, which answer with action test on localhost", async () => {
+    await expect(
+      verifyTurnstileToken({
+        token: 'XXXX.DUMMY.TOKEN.XXXX',
+        secret: '1x0000000000000000000000000000000AA',
+        expectedAction: 'signup',
+        allowedHostnames: ['loamlogger.app'],
+        fetchImpl: siteverifyAnswer({ success: true, hostname: 'localhost', action: 'test' }),
+      })
+    ).resolves.toEqual({ ok: true, hostname: 'localhost' });
+  });
+});
+
 describe('evaluateSignupTurnstile', () => {
+  it('checks for the signup action and the configured hostnames', async () => {
+    mockConfig.turnstileAllowedHostnames = ['loamlogger.app'];
+
+    await expect(
+      evaluateSignupTurnstile({
+        token: 'tok',
+        fetchImpl: siteverifyAnswer({ success: true, hostname: 'loamlogger.app', action: 'login' }),
+      })
+    ).resolves.toMatchObject({ label: 'web:failed:action_mismatch' });
+    await expect(
+      evaluateSignupTurnstile({
+        token: 'tok',
+        fetchImpl: siteverifyAnswer({ success: true, hostname: 'other.example', action: 'signup' }),
+      })
+    ).resolves.toMatchObject({ label: 'web:failed:hostname_mismatch' });
+  });
+
   it('returns null and calls nothing when Turnstile is off', async () => {
     mockConfig.turnstileMode = 'off';
     const fetchImpl = siteverifyAnswer({ success: true });
@@ -180,7 +260,7 @@ describe('evaluateSignupTurnstile', () => {
   });
 
   it('labels a passing token web:verified', async () => {
-    const fetchImpl = siteverifyAnswer({ success: true, hostname: 'loamlogger.app' });
+    const fetchImpl = siteverifyAnswer({ success: true, hostname: 'loamlogger.app', action: 'signup' });
 
     const result = await evaluateSignupTurnstile({ token: 'tok', remoteIp: '1.2.3.4', fetchImpl });
 
@@ -219,13 +299,20 @@ describe('requiresUnverifiedWebCap', () => {
     expect(requiresUnverifiedWebCap(null)).toBe(false);
   });
 
-  it('applies in enforce mode to every outcome except verified', () => {
+  it('applies in enforce mode to missing and rejected tokens only', () => {
     mockConfig.turnstileMode = 'enforce';
     expect(requiresUnverifiedWebCap(verified)).toBe(false);
     expect(requiresUnverifiedWebCap(failed)).toBe(true);
     expect(requiresUnverifiedWebCap(missing)).toBe(true);
-    expect(requiresUnverifiedWebCap(error)).toBe(true);
     expect(requiresUnverifiedWebCap(null)).toBe(false);
+  });
+
+  it('lets a Cloudflare outage or a bad secret through uncapped, so it cannot throttle every signup', () => {
+    mockConfig.turnstileMode = 'enforce';
+    expect(requiresUnverifiedWebCap(error)).toBe(false);
+    expect(requiresUnverifiedWebCap({ outcome: 'error', reason: 'not_configured', label: 'web:error:not_configured' })).toBe(
+      false
+    );
   });
 });
 

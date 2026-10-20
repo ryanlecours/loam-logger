@@ -155,6 +155,7 @@ ANDROID_PACKAGE_NAME="com.loamlabs.loamlogger" # default; must match the Play ap
 # Cloudflare Turnstile on web signup. Dev uses Cloudflare's always-pass test secret.
 TURNSTILE_MODE="monitor"                   # off | monitor | enforce
 TURNSTILE_SECRET_KEY="1x0000000000000000000000000000000AA"
+TURNSTILE_ALLOWED_HOSTNAMES=""             # e.g. "loamlogger.app,www.loamlogger.app"; empty skips the check
 
 # RevenueCat (IAP webhooks)
 REVENUECAT_WEBHOOK_AUTH_KEY="your-revenuecat-webhook-auth-key"

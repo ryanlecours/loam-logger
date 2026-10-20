@@ -14,12 +14,20 @@ import { captureServerEvent } from '../lib/posthog';
 
 export const TURNSTILE_SITEVERIFY_URL = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
 
+/** The `action` the signup page gives its widget; siteverify echoes it back. */
+export const TURNSTILE_SIGNUP_ACTION = 'signup';
+
 // Cloudflare documents tokens as at most 2048 characters.
 const MAX_TOKEN_LENGTH = 2048;
 const SITEVERIFY_TIMEOUT_MS = 5000;
 
 // Error codes that mean our own setup is wrong, not the visitor's token.
 const SERVER_SIDE_ERROR_CODES = new Set(['missing-input-secret', 'invalid-input-secret', 'internal-error']);
+
+// Cloudflare's published test secrets (always pass, always fail, already
+// spent). They answer with a fixed action and hostname (`test`, `localhost`),
+// so the action and hostname checks are skipped for them.
+const TEST_SECRET_PATTERN = /^[1-3]x0{31}AA$/;
 
 export type TurnstileCheck =
   | { ok: true; hostname?: string }
@@ -30,6 +38,10 @@ export interface VerifyTurnstileTokenInput {
   token: string;
   secret: string;
   remoteIp?: string | null;
+  /** When set, a token minted for another action is refused (`action_mismatch`). */
+  expectedAction?: string;
+  /** When non-empty, a token solved on another hostname is refused (`hostname_mismatch`). */
+  allowedHostnames?: readonly string[];
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
 }
@@ -38,6 +50,7 @@ interface SiteverifyResponse {
   success?: unknown;
   'error-codes'?: unknown;
   hostname?: unknown;
+  action?: unknown;
 }
 
 /**
@@ -73,7 +86,18 @@ export async function verifyTurnstileToken(input: VerifyTurnstileTokenInput): Pr
   }
 
   if (body?.success === true) {
-    return { ok: true, hostname: typeof body.hostname === 'string' ? body.hostname : undefined };
+    const hostname = typeof body.hostname === 'string' ? body.hostname : undefined;
+    // Cloudflare recommends both checks, so a token solved for another
+    // widget action or on another site using this key is not accepted here.
+    if (!TEST_SECRET_PATTERN.test(secret)) {
+      if (input.expectedAction && body.action !== input.expectedAction) {
+        return { ok: false, outcome: 'failed', reason: 'action_mismatch' };
+      }
+      if (input.allowedHostnames?.length && !(hostname && input.allowedHostnames.includes(hostname.toLowerCase()))) {
+        return { ok: false, outcome: 'failed', reason: 'hostname_mismatch' };
+      }
+    }
+    return { ok: true, hostname };
   }
 
   const codes = Array.isArray(body?.['error-codes'])
@@ -129,6 +153,8 @@ export async function evaluateSignupTurnstile(input: EvaluateSignupTurnstileInpu
     token,
     secret: config.turnstileSecretKey,
     remoteIp: input.remoteIp,
+    expectedAction: TURNSTILE_SIGNUP_ACTION,
+    allowedHostnames: config.turnstileAllowedHostnames,
     fetchImpl: input.fetchImpl,
   });
   if (result.ok) return verdict('verified', undefined, result.hostname);
@@ -156,13 +182,23 @@ export function checkTurnstileConfig(rawMode: string | undefined = process.env.T
   if (!config.turnstileSecretKey) {
     logger.warn('[Turnstile] TURNSTILE_SECRET_KEY not set; web signups record web:error:not_configured');
   }
-  logger.info({ mode: config.turnstileMode }, '[Turnstile] Web signup check enabled');
+  logger.info(
+    { mode: config.turnstileMode, allowedHostnames: config.turnstileAllowedHostnames },
+    '[Turnstile] Web signup check enabled'
+  );
 }
 
-/** True when enforce mode must send this signup through the unverified cap. */
+/**
+ * True when enforce mode must send this signup through the unverified cap:
+ * a missing or rejected token. An `error` (Cloudflare unreachable, a bad or
+ * missing secret) is let through uncapped on purpose. A visitor cannot cause
+ * one, and capping it would hold every web signup to 10 an hour for as long
+ * as an outage or a bad secret lasts. Each one is logged and sent to Sentry
+ * instead, and email verification still applies.
+ */
 export function requiresUnverifiedWebCap(result: TurnstileVerdict | null): boolean {
   if (config.turnstileMode !== 'enforce' || !result) return false;
-  return result.outcome !== 'verified';
+  return result.outcome === 'failed' || result.outcome === 'missing';
 }
 
 /**

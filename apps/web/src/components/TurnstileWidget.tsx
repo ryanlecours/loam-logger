@@ -19,21 +19,25 @@ interface TurnstileWidgetProps {
   action?: string;
   /** A fresh token, or null when it expired, failed or was reset. */
   onToken: (token: string | null) => void;
+  /** The script could not load (blocked or offline), so no token will come. */
+  onUnavailable?: () => void;
   ref?: Ref<TurnstileHandle>;
 }
 
 // Below this width the 300px widget would spill out of the signup card.
 const COMPACT_QUERY = '(max-width: 400px)';
 
-export default function TurnstileWidget({ siteKey, action, onToken, ref }: TurnstileWidgetProps) {
+export default function TurnstileWidget({ siteKey, action, onToken, onUnavailable, ref }: TurnstileWidgetProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const widgetIdRef = useRef<string | undefined>(undefined);
   const onTokenRef = useRef(onToken);
+  const onUnavailableRef = useRef(onUnavailable);
   const [interactive, setInteractive] = useState(false);
 
   useEffect(() => {
     onTokenRef.current = onToken;
-  }, [onToken]);
+    onUnavailableRef.current = onUnavailable;
+  }, [onToken, onUnavailable]);
 
   useImperativeHandle(
     ref,
@@ -69,6 +73,7 @@ export default function TurnstileWidget({ siteKey, action, onToken, ref }: Turns
       .catch((err) => {
         // Signup still works without a token; the API records it as missing.
         console.warn('[Turnstile] Not available:', err);
+        if (!cancelled) onUnavailableRef.current?.();
       });
 
     return () => {

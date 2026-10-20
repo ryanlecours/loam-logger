@@ -130,7 +130,26 @@ describe('Signup with Turnstile', () => {
     expect(sentBody(fetchMock, 1).turnstileToken).toBe('tok-second');
   });
 
-  it('does not resend a token that expired', async () => {
+  it('waits for a token still being solved, then sends it', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(201, { ok: true, verificationRequired: true, email: 'new@example.com' }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<MemoryRouter><Signup /></MemoryRouter>);
+
+    const options = await renderedWidget();
+    fillAndSubmit();
+
+    expect(await screen.findByRole('button', { name: 'Verifying...' })).toBeDisabled();
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    act(() => options.callback?.('tok-late'));
+
+    await screen.findByRole('heading', { name: 'Check your email' });
+    expect(sentBody(fetchMock).turnstileToken).toBe('tok-late');
+  });
+
+  it('does not resend a token that expired, and waits for the fresh one', async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValue(jsonResponse(201, { ok: true, verificationRequired: true, email: 'new@example.com' }));
@@ -141,8 +160,51 @@ describe('Signup with Turnstile', () => {
     act(() => options.callback?.('tok-old'));
     act(() => options['expired-callback']?.());
     fillAndSubmit();
+    await screen.findByRole('button', { name: 'Verifying...' });
+    act(() => options.callback?.('tok-new'));
 
     await screen.findByRole('heading', { name: 'Check your email' });
+    expect(sentBody(fetchMock).turnstileToken).toBe('tok-new');
+  });
+
+  it('gives up waiting after a while and signs up without a token', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValue(jsonResponse(201, { ok: true, verificationRequired: true, email: 'new@example.com' }));
+      vi.stubGlobal('fetch', fetchMock);
+      render(<MemoryRouter><Signup /></MemoryRouter>);
+
+      await renderedWidget();
+      fillAndSubmit();
+      await screen.findByRole('button', { name: 'Verifying...' });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(8000);
+      });
+
+      await screen.findByRole('heading', { name: 'Check your email' });
+      expect(sentBody(fetchMock)).not.toHaveProperty('turnstileToken');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not wait when the Turnstile script cannot load', async () => {
+    delete window.turnstile;
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(201, { ok: true, verificationRequired: true, email: 'new@example.com' }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<MemoryRouter><Signup /></MemoryRouter>);
+
+    const script = document.querySelector<HTMLScriptElement>(`script[src="${TURNSTILE_SCRIPT_SRC}"]`);
+    expect(script).not.toBeNull();
+    act(() => script!.onerror?.(new Event('error')));
+    fillAndSubmit();
+
+    await screen.findByRole('heading', { name: 'Check your email' });
+    expect(screen.queryByRole('button', { name: 'Verifying...' })).not.toBeInTheDocument();
     expect(sentBody(fetchMock)).not.toHaveProperty('turnstileToken');
   });
 });

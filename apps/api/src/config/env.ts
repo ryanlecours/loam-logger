@@ -91,13 +91,23 @@ export const config = {
    * Cloudflare Turnstile on web password signup (POST /auth/signup), the web
    * counterpart of device attestation. `off` skips it, `monitor` (the
    * default) verifies and records the outcome without blocking, and `enforce`
-   * sends every signup without a passing token through the small global
-   * `signup-unverified-web` cap. Email verification applies either way.
+   * sends every signup with a missing or rejected token through the small
+   * `signup-unverified-web` caps. An outage on Cloudflare's side is not
+   * capped (see requiresUnverifiedWebCap). Email verification applies either way.
    */
   turnstileMode: parseSignupCheckMode(process.env.TURNSTILE_MODE),
 
   /** Turnstile widget secret key, sent to Cloudflare's siteverify endpoint. */
   turnstileSecretKey: process.env.TURNSTILE_SECRET_KEY,
+
+  /**
+   * Comma-separated hostnames a Turnstile token must have been solved on,
+   * e.g. `loamlogger.app,www.loamlogger.app`. Empty skips the check.
+   */
+  turnstileAllowedHostnames: (process.env.TURNSTILE_ALLOWED_HOSTNAMES || '')
+    .split(',')
+    .map((entry) => entry.trim().toLowerCase())
+    .filter(Boolean),
 
   /**
    * RevenueCat webhook authorization key for verifying inbound IAP webhooks.

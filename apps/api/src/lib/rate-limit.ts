@@ -390,8 +390,8 @@ export const AUTH_RATE_LIMITS = {
    *  take at most 3 of its 10 slots an hour. */
   'signup-unattested-ip': { windowSeconds: 3600, maxRequests: 3 },
   /** signup-unverified-web: the web counterpart, one global bucket
-   *  (identifier `global`) for every web password signup without a passing
-   *  Turnstile token, applied only when TURNSTILE_MODE=enforce. Kept apart
+   *  (identifier `global`) for every web password signup with a missing or
+   *  rejected Turnstile token, applied only when TURNSTILE_MODE=enforce. Kept apart
    *  from signup-unattested so a script hammering the web form cannot spend
    *  the budget of app builds that predate attestation. Same trade-off: a
    *  script across many IPs can spend it and hold back real visitors whose
