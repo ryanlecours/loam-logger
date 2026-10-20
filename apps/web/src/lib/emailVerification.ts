@@ -51,7 +51,7 @@ export type EmailSignInResult =
   | { status: 'signed-in'; csrfToken?: string; mustChangePassword: boolean }
   /** The email is not verified yet. Ask again later. */
   | { status: 'pending' }
-  /** This browser holds no grant that can sign in. Sign in with the password. */
+  /** This browser holds no grant that can sign in for this address. Sign in with the password. */
   | { status: 'unavailable' }
   /** Rate limited, a server error or no network. Ask again later. */
   | { status: 'retry'; retryAfterMs?: number };
@@ -59,13 +59,17 @@ export type EmailSignInResult =
 /**
  * Trade this browser's sign-in grant for a session. The grant is an httpOnly
  * cookie the API set when this browser signed up (or tried to sign in before
- * verifying), so there is nothing to send: the browser attaches it.
+ * verifying); the browser attaches it. `email` is the account this page is
+ * waiting on: the API refuses a grant for any other account, so a grant
+ * someone else planted in this browser never signs the rider in.
  */
-export async function completeEmailSignIn(): Promise<EmailSignInResult> {
+export async function completeEmailSignIn(email: string): Promise<EmailSignInResult> {
   try {
     const res = await fetch(`${import.meta.env.VITE_API_URL}/auth/verify-email/complete`, {
       method: 'POST',
       credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
     });
     const data = await res.json().catch(() => null);
     if (res.status === 200) {
@@ -76,7 +80,9 @@ export async function completeEmailSignIn(): Promise<EmailSignInResult> {
       };
     }
     if (res.status === 202) return { status: 'pending' };
-    if (res.status === 401) return { status: 'unavailable' };
+    // 401 is a grant that can never sign in. Any other 4xx but a rate limit
+    // will not change by asking again either.
+    if (res.status >= 400 && res.status < 500 && res.status !== 429) return { status: 'unavailable' };
     const retryAfter = data?.details?.retryAfter;
     return { status: 'retry', retryAfterMs: typeof retryAfter === 'number' ? retryAfter * 1000 : undefined };
   } catch {

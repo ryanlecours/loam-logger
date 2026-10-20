@@ -3,7 +3,11 @@ import type { SignInGrant } from '../services/email-sign-in-grant.service';
 
 const SIGN_IN_GRANT_COOKIE_NAME = 'll_signin_grant';
 
-// Sent only to the verify routes, so no other request carries the secret.
+// Sent only to the verify routes, so no other request carries the secret. A
+// cookie path matches by prefix, so this covers /auth/verify-email/complete,
+// the one route that reads it. It assumes the API serves /auth at the root of
+// its origin, as VITE_API_URL does today; a proxy that mounted the API under
+// another prefix would need this path changed to match.
 const SIGN_IN_GRANT_COOKIE_PATH = '/auth/verify-email';
 
 function cookieOptions() {

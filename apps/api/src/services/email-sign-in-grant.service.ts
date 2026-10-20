@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { prisma } from '../lib/prisma';
 import { logger } from '../lib/logger';
+import { normalizeEmail } from '../auth/utils';
 import { EMAIL_VERIFICATION_TTL_HOURS, isEmailVerificationPending } from './email-verification.service';
 
 /**
@@ -23,6 +24,9 @@ export const SIGN_IN_GRANT_TTL_HOURS = EMAIL_VERIFICATION_TTL_HOURS;
  * Unused grants an account may hold at once. Each one needed the password, so
  * a few devices can wait in parallel (signed up on the phone, then tried the
  * laptop) without one quietly cancelling another. Older ones are retired.
+ * Best-effort: two issues racing for one account can each miss the other's
+ * row and briefly leave one extra live grant, which is harmless since every
+ * grant still needed the password and expires on its own.
  */
 export const MAX_LIVE_SIGN_IN_GRANTS = 3;
 
@@ -58,12 +62,13 @@ export async function createSignInGrant(userId: string, client: SignInGrantClien
       where: { id: userId },
       select: { sessionTokenVersion: true },
     });
+    if (!user) throw new Error('Cannot issue a sign-in grant: user not found');
     await tx.emailSignInGrant.create({
       data: {
         userId,
         secretHash: hashSecret(secret),
         client,
-        sessionTokenVersion: user?.sessionTokenVersion ?? 0,
+        sessionTokenVersion: user.sessionTokenVersion,
         expiresAt,
       },
     });
@@ -118,10 +123,17 @@ export type RedeemSignInGrantResult =
  * not verified yet and the secret is still good, so the client polls again.
  * `invalid` covers unknown, used, expired, wrong-client and revoked secrets
  * alike: the holder can only drop it. A secret works once.
+ *
+ * `expectedEmail` is the address the caller is waiting on (the one typed at
+ * signup, or the one the opened link verified). A grant for any other account
+ * is refused, so a grant planted in this browser by someone else (a cross-site
+ * form posting their own credentials to /auth/login) or one left over from an
+ * earlier signup never signs the rider in to the wrong account.
  */
 export async function redeemSignInGrant(
   secret: unknown,
   client: SignInGrantClient,
+  expectedEmail?: unknown,
 ): Promise<RedeemSignInGrantResult> {
   if (typeof secret !== 'string' || !secret || secret.length > MAX_SECRET_LENGTH) {
     return { ok: false, reason: 'invalid' };
@@ -161,6 +173,13 @@ export async function redeemSignInGrant(
     return { ok: false, reason: 'invalid' };
   }
 
+  if (expectedEmail !== undefined) {
+    const expected = typeof expectedEmail === 'string' ? normalizeEmail(expectedEmail) : null;
+    if (!expected || expected !== grant.user.email) {
+      return { ok: false, reason: 'invalid' };
+    }
+  }
+
   if (isEmailVerificationPending(grant.user)) {
     return { ok: false, reason: 'pending' };
   }
@@ -185,11 +204,14 @@ export async function redeemSignInGrant(
   return { ok: true, user: { id, email, name, avatarUrl, mustChangePassword } };
 }
 
-/** Delete grants that expired more than `olderThanHours` ago. */
+/**
+ * Delete grants that expired, or were used or retired, more than
+ * `olderThanHours` ago. Neither kind can sign anyone in again.
+ */
 export async function cleanupExpiredSignInGrants(olderThanHours = 24): Promise<number> {
   const cutoff = new Date(Date.now() - olderThanHours * 60 * 60 * 1000);
   const result = await prisma.emailSignInGrant.deleteMany({
-    where: { expiresAt: { lt: cutoff } },
+    where: { OR: [{ expiresAt: { lt: cutoff } }, { usedAt: { lt: cutoff } }] },
   });
   return result.count;
 }

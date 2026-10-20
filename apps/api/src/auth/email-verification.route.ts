@@ -98,18 +98,30 @@ function sendGrantInvalid(res: express.Response) {
  * email" tab can both call this. Answers 202 EMAIL_VERIFICATION_PENDING until
  * the link is opened, then sets the session like /auth/login. A grant signs
  * in once.
+ *
+ * The body must name the account the page is waiting on (`{ email }`), and a
+ * grant for any other account is refused. /auth/login also accepts form posts,
+ * so a cross-site page can plant its own account's grant cookie in a visitor's
+ * browser; requiring the address keeps that grant from ever signing the
+ * visitor in. The JSON body also makes a cross-site call here need a CORS
+ * preflight, which only our own origins pass.
  */
-router.post('/verify-email/complete', async (req, res) => {
+router.post('/verify-email/complete', express.json(), async (req, res) => {
   try {
     const rateLimit = await checkAuthRateLimit('verify-email-complete', getClientIp(req));
     if (!rateLimit.allowed) {
       return sendTooManyRequests(res, 'Too many attempts. Please try again later.', rateLimit.retryAfter);
     }
 
+    const { email } = (req.body ?? {}) as { email?: unknown };
+    if (typeof email !== 'string' || !email.trim()) {
+      return sendBadRequest(res, 'Email is required', 'EMAIL_REQUIRED');
+    }
+
     const secret = readSignInGrantCookie(req);
     if (!secret) return sendGrantInvalid(res);
 
-    const result = await redeemSignInGrant(secret, 'web');
+    const result = await redeemSignInGrant(secret, 'web', email);
     if (!result.ok) {
       if (result.reason === 'pending') return sendPending(res);
       clearSignInGrantCookie(res);
@@ -138,6 +150,8 @@ router.post('/verify-email/complete', async (req, res) => {
  * The app's version of /auth/verify-email/complete. The grant comes from the
  * `signInSecret` the signup or login 403 handed the app, sent here as
  * `{ secret }`. Answers like /auth/mobile/login once the email is verified.
+ * An optional `email` refuses a grant for any other account, for the verify
+ * screen, which knows which address its link confirmed.
  */
 router.post('/mobile/verify-email/complete', express.json(), async (req, res) => {
   try {
@@ -146,8 +160,8 @@ router.post('/mobile/verify-email/complete', express.json(), async (req, res) =>
       return sendTooManyRequests(res, 'Too many attempts. Please try again later.', rateLimit.retryAfter);
     }
 
-    const { secret } = (req.body ?? {}) as { secret?: unknown };
-    const result = await redeemSignInGrant(secret, 'mobile');
+    const { secret, email } = (req.body ?? {}) as { secret?: unknown; email?: unknown };
+    const result = await redeemSignInGrant(secret, 'mobile', email);
     if (!result.ok) {
       return result.reason === 'pending' ? sendPending(res) : sendGrantInvalid(res);
     }

@@ -108,9 +108,13 @@ export default function VerifyEmail() {
     }
 
     // The link only verifies. If this browser signed up (or tried to sign
-    // in) it holds a sign-in grant, and goes straight in.
+    // in) for this same address, it holds a sign-in grant and goes straight in.
+    if (!outcome.email) {
+      setStatus('verified');
+      return;
+    }
     setStatus('signing-in');
-    const signIn = await completeEmailSignIn();
+    const signIn = await completeEmailSignIn(outcome.email);
     if (signIn.status === 'signed-in') {
       await finishEmailSignIn(signIn);
       return;

@@ -8,21 +8,22 @@ import {
 export type EmailSignedIn = Extract<EmailSignInResult, { status: 'signed-in' }>;
 
 /**
- * While `enabled`, keep asking whether this browser's sign-in grant can sign
- * in yet, so opening the verification link anywhere (another tab, the phone)
- * signs this tab in. Asks only while the tab is visible, and straight away
- * when it becomes visible again, which is when a rider comes back after
- * opening the email. Stops for good once signed in, once the API says this
- * browser holds no usable grant, or when the grant would have expired.
+ * While `email` is set, keep asking whether this browser's sign-in grant can
+ * sign in to that account yet, so opening the verification link anywhere
+ * (another tab, the phone) signs this tab in. Asks only while the tab is
+ * visible, and straight away when it becomes visible again, which is when a
+ * rider comes back after opening the email. Stops for good once signed in,
+ * once the API says this browser holds no usable grant for the address, or
+ * when the grant would have expired.
  */
-export function useEmailSignInPoll(enabled: boolean, onSignedIn: (result: EmailSignedIn) => void): void {
+export function useEmailSignInPoll(email: string | null, onSignedIn: (result: EmailSignedIn) => void): void {
   const onSignedInRef = useRef(onSignedIn);
   useEffect(() => {
     onSignedInRef.current = onSignedIn;
   }, [onSignedIn]);
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!email) return;
 
     const startedAt = Date.now();
     let stopped = false;
@@ -51,7 +52,7 @@ export function useEmailSignInPoll(enabled: boolean, onSignedIn: (result: EmailS
       // A hidden tab waits for visibilitychange instead of polling.
       if (stopped || inFlight || document.visibilityState !== 'visible') return;
       inFlight = true;
-      const result = await completeEmailSignIn();
+      const result = await completeEmailSignIn(email);
       inFlight = false;
       if (stopped) return;
 
@@ -74,5 +75,5 @@ export function useEmailSignInPoll(enabled: boolean, onSignedIn: (result: EmailS
     document.addEventListener('visibilitychange', onVisibility);
     schedule();
     return stop;
-  }, [enabled]);
+  }, [email]);
 }

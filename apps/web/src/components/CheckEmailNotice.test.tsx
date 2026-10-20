@@ -44,7 +44,11 @@ describe('CheckEmailNotice waiting to sign in', () => {
 
     await act(() => vi.advanceTimersByTimeAsync(3_000));
     expect(completeCalls(fetchMock)).toHaveLength(1);
-    expect(completeCalls(fetchMock)[0][1]).toMatchObject({ method: 'POST', credentials: 'include' });
+    expect(completeCalls(fetchMock)[0][1]).toMatchObject({
+      method: 'POST',
+      credentials: 'include',
+      body: JSON.stringify({ email: 'rider@example.com' }),
+    });
 
     await act(() => vi.advanceTimersByTimeAsync(6_000));
     expect(completeCalls(fetchMock)).toHaveLength(3);
@@ -67,6 +71,28 @@ describe('CheckEmailNotice waiting to sign in', () => {
 
     expect(completeCalls(fetchMock)).toHaveLength(1);
     expect(onSignedIn).not.toHaveBeenCalled();
+  });
+
+  it('stops for good on any other refusal that asking again cannot change', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(reply(400, { code: 'EMAIL_REQUIRED' }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<CheckEmailNotice email="rider@example.com" onSignedIn={vi.fn()} />);
+
+    await act(() => vi.advanceTimersByTimeAsync(10 * 60_000));
+
+    expect(completeCalls(fetchMock)).toHaveLength(1);
+  });
+
+  it('keeps going through a server error', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(reply(503)).mockResolvedValue(SIGNED_IN);
+    vi.stubGlobal('fetch', fetchMock);
+    const onSignedIn = vi.fn();
+    render(<CheckEmailNotice email="rider@example.com" onSignedIn={onSignedIn} />);
+
+    await act(() => vi.advanceTimersByTimeAsync(6_000));
+
+    expect(completeCalls(fetchMock)).toHaveLength(2);
+    expect(onSignedIn).toHaveBeenCalledTimes(1);
   });
 
   it('waits while the tab is hidden, and asks the moment it is visible again', async () => {

@@ -106,6 +106,14 @@ describe('createSignInGrant', () => {
   });
 });
 
+describe('createSignInGrant for a missing account', () => {
+  it('throws rather than issuing a grant stamped with a made-up session version', async () => {
+    mockUserFindUnique.mockResolvedValueOnce(null);
+    await expect(createSignInGrant('ghost', 'web')).rejects.toThrow('user not found');
+    expect(mockGrant.create).not.toHaveBeenCalled();
+  });
+});
+
 describe('issueSignInGrant', () => {
   it('returns null instead of throwing when the write fails', async () => {
     mockGrant.create.mockRejectedValueOnce(new Error('db down'));
@@ -218,6 +226,37 @@ describe('redeemSignInGrant', () => {
     expect(mockGrant.updateMany).not.toHaveBeenCalled();
   });
 
+  describe('bound to the address the caller is waiting on', () => {
+    it('signs in when the address matches, ignoring case and spaces', async () => {
+      mockGrant.findUnique.mockResolvedValue(grantRow());
+      const result = await redeemSignInGrant('raw-secret', 'web', '  Rider@Example.com ');
+      expect(result.ok).toBe(true);
+    });
+
+    it('refuses, and spends nothing, a grant for another account (a planted or leftover grant)', async () => {
+      mockGrant.findUnique.mockResolvedValue(grantRow());
+      await expect(redeemSignInGrant('raw-secret', 'web', 'someone-else@example.com')).resolves.toEqual({
+        ok: false,
+        reason: 'invalid',
+      });
+      expect(mockGrant.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('refuses a blank or non-string address', async () => {
+      mockGrant.findUnique.mockResolvedValue(grantRow());
+      await expect(redeemSignInGrant('raw-secret', 'web', '  ')).resolves.toEqual({ ok: false, reason: 'invalid' });
+      await expect(redeemSignInGrant('raw-secret', 'web', 7)).resolves.toEqual({ ok: false, reason: 'invalid' });
+    });
+
+    it('does not reveal through pending whether a grant belongs to the address', async () => {
+      mockGrant.findUnique.mockResolvedValue(grantRow({ user: { ...verifiedUser, emailVerified: null } }));
+      await expect(redeemSignInGrant('raw-secret', 'web', 'someone-else@example.com')).resolves.toEqual({
+        ok: false,
+        reason: 'invalid',
+      });
+    });
+  });
+
   it('refuses a web grant at the mobile exchange and the reverse', async () => {
     mockGrant.findUnique.mockResolvedValue(grantRow({ client: 'web' }));
     await expect(redeemSignInGrant('raw-secret', 'mobile')).resolves.toEqual({ ok: false, reason: 'invalid' });
@@ -228,13 +267,15 @@ describe('redeemSignInGrant', () => {
 });
 
 describe('cleanupExpiredSignInGrants', () => {
-  it('deletes grants that expired before the cutoff', async () => {
+  it('deletes grants that expired, or were used or retired, before the cutoff', async () => {
     mockGrant.deleteMany.mockResolvedValue({ count: 3 });
     const before = Date.now();
 
     await expect(cleanupExpiredSignInGrants(24)).resolves.toBe(3);
 
-    const cutoff: Date = mockGrant.deleteMany.mock.calls[0][0].where.expiresAt.lt;
-    expect(cutoff.getTime()).toBeLessThanOrEqual(before - 24 * HOUR + 1000);
+    const { where } = mockGrant.deleteMany.mock.calls[0][0];
+    const [expired, used] = where.OR;
+    expect(expired.expiresAt.lt.getTime()).toBeLessThanOrEqual(before - 24 * HOUR + 1000);
+    expect(used.usedAt.lt).toEqual(expired.expiresAt.lt);
   });
 });

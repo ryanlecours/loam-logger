@@ -278,13 +278,14 @@ const grantUser = {
 
 describe('POST /verify-email/complete (web)', () => {
   const grantCookie = { ll_signin_grant: 'grant-secret' };
+  const waitingOn = { email: 'rider@example.com' };
 
   it('signs this browser in once the email is verified, then drops the grant cookie', async () => {
     mockRedeem.mockResolvedValue({ ok: true, user: grantUser });
 
-    const res = await call('/verify-email/complete', {}, grantCookie);
+    const res = await call('/verify-email/complete', waitingOn, grantCookie);
 
-    expect(mockRedeem).toHaveBeenCalledWith('grant-secret', 'web');
+    expect(mockRedeem).toHaveBeenCalledWith('grant-secret', 'web', 'rider@example.com');
     expect(issueWebSession).toHaveBeenCalledWith(res, { id: 'user_1', email: 'rider@example.com' });
     expect(updateLastAuthAt).toHaveBeenCalledWith('user_1');
     expect(res.clearCookie).toHaveBeenCalledWith('ll_signin_grant', expect.objectContaining({ path: '/auth/verify-email' }));
@@ -294,7 +295,7 @@ describe('POST /verify-email/complete (web)', () => {
   it('answers 202 pending while the email is unverified, keeping the cookie for the next poll', async () => {
     mockRedeem.mockResolvedValue({ ok: false, reason: 'pending' });
 
-    const res = await call('/verify-email/complete', {}, grantCookie);
+    const res = await call('/verify-email/complete', waitingOn, grantCookie);
 
     expect(res.status).toHaveBeenCalledWith(202);
     expect(res.json).toHaveBeenCalledWith({ pending: true, code: 'EMAIL_VERIFICATION_PENDING' });
@@ -305,7 +306,7 @@ describe('POST /verify-email/complete (web)', () => {
   it('answers 401 and clears the cookie for a grant that can never sign in', async () => {
     mockRedeem.mockResolvedValue({ ok: false, reason: 'invalid' });
 
-    const res = await call('/verify-email/complete', {}, grantCookie);
+    const res = await call('/verify-email/complete', waitingOn, grantCookie);
 
     expect(res.status).toHaveBeenCalledWith(401);
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ code: 'SIGN_IN_GRANT_INVALID' }));
@@ -314,14 +315,23 @@ describe('POST /verify-email/complete (web)', () => {
   });
 
   it('answers 401 without a lookup when the browser holds no grant', async () => {
-    const res = await call('/verify-email/complete', {});
+    const res = await call('/verify-email/complete', waitingOn);
 
     expect(res.status).toHaveBeenCalledWith(401);
     expect(mockRedeem).not.toHaveBeenCalled();
   });
 
+  it('refuses a request that does not name the account it is waiting on, before reading the grant', async () => {
+    const res = await call('/verify-email/complete', {}, grantCookie);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ code: 'EMAIL_REQUIRED' }));
+    expect(mockRedeem).not.toHaveBeenCalled();
+    expect(res.clearCookie).not.toHaveBeenCalled();
+  });
+
   it('ignores a secret sent in the body: the web grant only travels in its cookie', async () => {
-    const res = await call('/verify-email/complete', { secret: 'grant-secret' });
+    const res = await call('/verify-email/complete', { ...waitingOn, secret: 'grant-secret' });
 
     expect(res.status).toHaveBeenCalledWith(401);
     expect(mockRedeem).not.toHaveBeenCalled();
@@ -330,7 +340,7 @@ describe('POST /verify-email/complete (web)', () => {
   it('returns 429 before reading the grant when the IP is over the limit', async () => {
     mockCheckAuthRateLimit.mockResolvedValue({ allowed: false, retryAfter: 30 });
 
-    const res = await call('/verify-email/complete', {}, grantCookie);
+    const res = await call('/verify-email/complete', waitingOn, grantCookie);
 
     expect(mockCheckAuthRateLimit).toHaveBeenCalledWith('verify-email-complete', '1.2.3.4');
     expect(res.status).toHaveBeenCalledWith(429);
@@ -344,7 +354,7 @@ describe('POST /mobile/verify-email/complete', () => {
 
     const res = await call('/mobile/verify-email/complete', { secret: 'grant-secret' });
 
-    expect(mockRedeem).toHaveBeenCalledWith('grant-secret', 'mobile');
+    expect(mockRedeem).toHaveBeenCalledWith('grant-secret', 'mobile', undefined);
     expect(issueMobileTokens).toHaveBeenCalledWith({ id: 'user_1', email: 'rider@example.com' });
     expect(updateLastAuthAt).toHaveBeenCalledWith('user_1');
     expect(res.json).toHaveBeenCalledWith({
@@ -352,6 +362,14 @@ describe('POST /mobile/verify-email/complete', () => {
       refreshToken: 'refresh',
       user: { id: 'user_1', email: 'rider@example.com', name: 'Rider', avatarUrl: null },
     });
+  });
+
+  it('passes along the address the verify screen is waiting on', async () => {
+    mockRedeem.mockResolvedValue({ ok: true, user: grantUser });
+
+    await call('/mobile/verify-email/complete', { secret: 'grant-secret', email: 'rider@example.com' });
+
+    expect(mockRedeem).toHaveBeenCalledWith('grant-secret', 'mobile', 'rider@example.com');
   });
 
   it('answers 202 pending while the email is unverified', async () => {

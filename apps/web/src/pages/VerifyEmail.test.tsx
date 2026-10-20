@@ -106,10 +106,24 @@ describe('VerifyEmail', () => {
 
     await waitFor(() => expect(screen.getByTestId('pathname')).toHaveTextContent('/dashboard'));
     const [completeCall] = callsTo(fetchMock, '/auth/verify-email/complete');
-    expect(completeCall[1]).toMatchObject({ method: 'POST', credentials: 'include' });
+    // Bound to the address the link verified, so a grant for another account never signs in.
+    expect(completeCall[1]).toMatchObject({
+      method: 'POST',
+      credentials: 'include',
+      body: JSON.stringify({ email: 'rider@example.com' }),
+    });
     expect(sessionStorage.getItem('ll_csrf_cache')).toBe('csrf-1');
     expect(apollo.query).toHaveBeenCalled();
     expect(apollo.writeQuery).toHaveBeenCalled();
+  });
+
+  it('does not ask for a grant when the API did not say which address it verified', async () => {
+    const fetchMock = api({ verify: [200, { ok: true }] });
+    vi.stubGlobal('fetch', fetchMock);
+    renderAt('/verify-email?token=abc');
+
+    await screen.findByRole('button', { name: 'Go to Sign In' });
+    expect(callsTo(fetchMock, '/auth/verify-email/complete')).toHaveLength(0);
   });
 
   it('asks for the grant only after the link verified', async () => {

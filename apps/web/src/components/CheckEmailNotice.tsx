@@ -25,7 +25,7 @@ export default function CheckEmailNotice({ email, onBackToSignIn, onSignedIn }: 
   const [error, setError] = useState<string | null>(null);
   const waitsForSignIn = Boolean(onSignedIn);
 
-  useEmailSignInPoll(waitsForSignIn, (result) => onSignedIn?.(result));
+  useEmailSignInPoll(waitsForSignIn ? email : null, (result) => onSignedIn?.(result));
 
   async function handleResend() {
     setStatus('sending');
