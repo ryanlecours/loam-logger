@@ -9,11 +9,17 @@ name: Sync staging with main
 #   staging -> main PR): merge main in, so that work is never dropped.
 # - the merge conflicts: fail the job and leave staging alone for a person
 #   to resolve.
-# Nothing is ever force-pushed.
+# Nothing is ever force-pushed. A conflict also opens (or reuses) an issue,
+# so it does not hide in a failed Actions run.
 #
-# Pushes made with GITHUB_TOKEN do not start other workflows, so CI does not
-# re-run on staging for these commits (they already ran on main). Railway's
-# staging service still deploys them, since it listens to GitHub directly.
+# Token: the push uses the STAGING_SYNC_TOKEN secret, a fine-grained PAT for
+# this repo with Contents and Workflows set to read and write. GITHUB_TOKEN
+# cannot carry the Workflows permission, so GitHub refuses any push of it
+# that brings a change under .github/workflows/ onto staging. Without the
+# secret the job falls back to GITHUB_TOKEN and those runs fail; sync them by
+# hand. Pushes made with the PAT start ci.yml on staging; GITHUB_TOKEN pushes
+# do not. Railway's staging service deploys either way, since it listens to
+# GitHub directly.
 
 on:
   push:
@@ -22,6 +28,7 @@ on:
 
 permissions:
   contents: write
+  issues: write
 
 concurrency:
   group: sync-staging
@@ -37,8 +44,10 @@ jobs:
         with:
           ref: staging
           fetch-depth: 0
+          token: ${{ secrets.STAGING_SYNC_TOKEN || github.token }}
 
       - name: Bring staging up to main
+        id: sync
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -57,6 +66,7 @@ jobs:
             git log --oneline origin/main..HEAD
             if ! git merge --no-ff origin/main -m "Merge main into staging (automatic sync)"; then
               git merge --abort
+              echo "conflict=true" >> "$GITHUB_OUTPUT"
               echo "::error::main does not merge cleanly into staging. Merge it by hand."
               exit 1
             fi
@@ -65,3 +75,18 @@ jobs:
           # A plain push: it is refused, never forced, if staging moved meanwhile.
           git push origin HEAD:staging
           echo "staging is now $(git rev-parse --short HEAD)."
+
+      - name: Open an issue for the conflict
+        if: failure() && steps.sync.outputs.conflict == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="staging needs a manual merge of main"
+          existing=$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number // empty')
+          body="main ($(git rev-parse --short origin/main)) does not merge cleanly into staging. Merge it by hand, then close this issue. Run: $RUN_URL"
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "$body"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi
