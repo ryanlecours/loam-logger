@@ -1,81 +1,84 @@
-import { motion } from 'motion/react';
-import MarketingButton from './MarketingButton';
+import { lazy, Suspense, useEffect, useState } from 'react';
+import { Link } from 'react-router';
+import { ArrowDown } from 'lucide-react';
+import RidgeLines from './RidgeLines';
+import { detectTerrainEnvironment, shouldRenderTerrain } from './terrainGate';
+
+const TerrainCanvas = lazy(() => import('./TerrainCanvas'));
+
+function useTerrainEnabled(): boolean {
+  const [enabled, setEnabled] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    // Wait for the page to settle before paying for three.js: the photo and
+    // copy are the hero, the terrain is the garnish.
+    const start = () => {
+      if (cancelled) return;
+      setEnabled(shouldRenderTerrain(detectTerrainEnvironment()));
+    };
+    let idleId: number | undefined;
+    let timerId: number | undefined;
+    if (typeof window.requestIdleCallback === 'function') {
+      idleId = window.requestIdleCallback(start, { timeout: 1500 });
+    } else {
+      timerId = window.setTimeout(start, 400);
+    }
+    return () => {
+      cancelled = true;
+      if (idleId !== undefined) window.cancelIdleCallback(idleId);
+      if (timerId !== undefined) window.clearTimeout(timerId);
+    };
+  }, []);
+
+  return enabled;
+}
 
 export default function HeroSection() {
+  const terrain = useTerrainEnabled();
+
   return (
-    <section className="relative min-h-screen flex items-center justify-center overflow-hidden">
-      {/* Background Image with Overlay - Desktop */}
-      <div className="absolute inset-0 z-0 hidden md:block bg-hero-desktop bg-cover-center bg-fixed">
-        <div className="absolute inset-0 bg-gradient-to-b from-black/75 via-black/60 to-black/75" />
-      </div>
+    <section className="lp-hero" data-testid="hero">
+      <picture>
+        <source media="(max-width: 767px)" srcSet="/mtbLandingPhotoMobile.jpg" />
+        <img
+          className="lp-hero__photo"
+          src="/mtbLandingPhoto.jpg"
+          alt="Rider dropping into a loamy cedar trail in the Pacific Northwest"
+          fetchPriority="high"
+        />
+      </picture>
+      <div className="lp-hero__shade" aria-hidden="true" />
+      <div className="lp-hero__mist" aria-hidden="true" />
+      <RidgeLines />
+      {terrain && (
+        <Suspense fallback={null}>
+          <TerrainCanvas />
+        </Suspense>
+      )}
 
-      {/* Background Image with Overlay - Mobile */}
-      <div className="absolute inset-0 z-0 md:hidden bg-hero-mobile bg-cover-center">
-        <div className="absolute inset-0 bg-gradient-to-b from-black/75 via-black/60 to-black/75" />
-      </div>
-
-      {/* Content */}
-      <div className="relative z-10 container text-center px-6">
-        <motion.div
-          initial={{ opacity: 0, y: 30 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8, delay: 0.2 }}
-        >
-          <h1 className="hero-headline mb-6">
-            Anyone can track a ride.<br />Loam Logger tracks your bike.
-          </h1>
-        </motion.div>
-
-        <motion.div
-          initial={{ opacity: 0, y: 30 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8, delay: 0.4 }}
-        >
-          <p className="body-large text-sand max-w-3xl mx-auto mb-8">
-            Your rides sync automatically and clock hours against every component.
-            Drop in knowing your bike&apos;s dialed.
-          </p>
-        </motion.div>
-
-        <motion.div
-          initial={{ opacity: 0, y: 30 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8, delay: 0.6 }}
-          className="flex flex-col sm:flex-row items-center justify-center gap-4"
-        >
-          <MarketingButton href="/signup" size="xl" pulse>
-            Get started
-          </MarketingButton>
-        </motion.div>
-
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.8, delay: 0.8 }}
-          className="mt-6"
-        >
-          <div className="inline-flex items-center gap-2 px-4 py-2 bg-mint/20 border border-mint/40 rounded-full">
-            <span className="text-sm font-semibold text-mint">Free for every rider — no credit card required</span>
-          </div>
-        </motion.div>
-      </div>
-
-      {/* Scroll Indicator */}
-      <motion.div
-        className="absolute bottom-8 left-1/2 transform -translate-x-1/2 z-10"
-        initial={{ opacity: 0, y: -20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{
-          duration: 1,
-          delay: 1.2,
-          repeat: Infinity,
-          repeatType: 'reverse',
-        }}
-      >
-        <div className="w-6 h-10 border-2 border-mint/50 rounded-full flex items-start justify-center p-2">
-          <div className="w-1 h-2 bg-mint rounded-full" />
+      <div className="lp-container lp-hero__content" id="top">
+        <h1 className="lp-h1">
+          Anyone can track a ride. <em>Loam Logger tracks your bike.</em>
+        </h1>
+        <p className="lp-lede">
+          You already record every ride. Loam Logger takes the hours from those rides, puts them on
+          the fork, the shock, the pads, the chain, whatever&apos;s on the bike, and tells you which
+          ones are due.
+        </p>
+        <div className="lp-actions">
+          <Link to="/signup" className="lp-btn lp-btn--primary">
+            Start free
+          </Link>
+          <a href="#how" className="lp-btn lp-btn--ghost">
+            <span>How it counts hours</span>
+            <ArrowDown size={18} aria-hidden="true" />
+          </a>
         </div>
-      </motion.div>
+        <p className="lp-fine">
+          Free for one bike, no card. Web and iOS. Works off Garmin Connect™, Strava or WHOOP.
+        </p>
+      </div>
     </section>
   );
 }

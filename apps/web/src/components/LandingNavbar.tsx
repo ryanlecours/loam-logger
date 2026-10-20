@@ -39,25 +39,32 @@ export default function LandingNavbar() {
           {/* Desktop Navigation */}
           <div className="hidden md:flex items-center space-x-8">
             <a
-              href="#features"
+              href="/#how"
               className="small transition-colors duration-200 hover:opacity-80"
               style={{ color: 'var(--sage)' }}
             >
-              Features
+              How it works
             </a>
             <a
-              href="#about"
+              href="/#answers"
               className="small transition-colors duration-200 hover:opacity-80"
               style={{ color: 'var(--sage)' }}
             >
-              Who Is This For?
+              Straight answers
             </a>
+            <Link
+              to="/pricing?source=landing-nav"
+              className="small transition-colors duration-200 hover:opacity-80"
+              style={{ color: 'var(--sage)' }}
+            >
+              Pricing
+            </Link>
             <Link
               to="/login"
               className="small transition-colors duration-200 hover:opacity-80"
               style={{ color: 'var(--sage)' }}
             >
-              Sign In
+              Log in
             </Link>
             <Link
               to="/signup"
@@ -67,7 +74,7 @@ export default function LandingNavbar() {
                 fontSize: '0.875rem',
               }}
             >
-              Start Free
+              Start free
             </Link>
           </div>
 
@@ -127,25 +134,35 @@ export default function LandingNavbar() {
           >
             <div className="px-4 py-4 space-y-3">
               <a
-                href="#features"
+                href="/#how"
                 onClick={() => setIsMobileMenuOpen(false)}
                 className="block px-4 py-2 rounded-lg transition-colors small"
                 style={{ color: 'var(--sage)' }}
                 onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(134, 158, 140, 0.1)'}
                 onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
               >
-                Features
+                How it works
               </a>
               <a
-                href="#about"
+                href="/#answers"
                 onClick={() => setIsMobileMenuOpen(false)}
                 className="block px-4 py-2 rounded-lg transition-colors small"
                 style={{ color: 'var(--sage)' }}
                 onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(134, 158, 140, 0.1)'}
                 onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
               >
-                Who Is This For?
+                Straight answers
               </a>
+              <Link
+                to="/pricing?source=landing-nav"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="block px-4 py-2 rounded-lg transition-colors small"
+                style={{ color: 'var(--sage)' }}
+                onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(134, 158, 140, 0.1)'}
+                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+              >
+                Pricing
+              </Link>
               <Link
                 to="/login"
                 onClick={() => setIsMobileMenuOpen(false)}
@@ -154,7 +171,7 @@ export default function LandingNavbar() {
                 onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(134, 158, 140, 0.1)'}
                 onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
               >
-                Sign In
+                Log in
               </Link>
               <Link
                 to="/signup"
@@ -165,7 +182,7 @@ export default function LandingNavbar() {
                   fontSize: '0.875rem',
                 }}
               >
-                Start Free
+                Start free
               </Link>
             </div>
           </motion.div>

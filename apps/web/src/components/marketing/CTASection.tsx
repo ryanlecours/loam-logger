@@ -1,66 +1,33 @@
-import { motion } from 'motion/react';
-import MarketingButton from './MarketingButton';
+import { Link } from 'react-router';
 
 export default function CTASection() {
   return (
-    <section className="relative py-24 overflow-hidden">
-      {/* Background with gradient overlay - Desktop */}
-      <div className="absolute inset-0 z-0 hidden md:block bg-hero-desktop bg-cover-center bg-fixed">
-        <div className="absolute inset-0 bg-gradient-to-r from-forest-deep/95 via-charcoal/90 to-forest-deep/95" />
-      </div>
-
-      {/* Background with gradient overlay - Mobile */}
-      <div className="absolute inset-0 z-0 md:hidden bg-hero-mobile bg-cover-center">
-        <div className="absolute inset-0 bg-gradient-to-r from-forest-deep/95 via-charcoal/90 to-forest-deep/95" />
-      </div>
-
-      {/* Content */}
-      <div className="relative z-10 container">
-        <motion.div
-          className="max-w-4xl mx-auto text-center rounded-3xl px-8 py-12 md:px-12 md:py-16 glass-panel"
-          initial={{ opacity: 0, y: 30 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          transition={{ duration: 0.8 }}
-        >
-          <h2 className="section-title text-cream mb-6">
-            Your Bike Deserves Better
-          </h2>
-          <p className="body-large text-sand max-w-2xl mx-auto mb-10">
-            Start tracking your rides and maintenance today. It's free to get started.
-          </p>
-
-          <div className="flex flex-col items-center gap-6 mb-8">
-            <MarketingButton href="/signup" size="xl" pulse>
-              Get started
-            </MarketingButton>
-
-            <div className="flex flex-col items-center gap-2">
-              <p className="text-sm font-semibold text-mint">
-                Free to start. No credit card required.
-              </p>
-              <p className="text-xs text-concrete">
-                No spam. Just product updates. Unsubscribe anytime.
-              </p>
-            </div>
-          </div>
-
-          {/* Trust badges */}
-          <div className="flex flex-wrap items-center justify-center gap-4 text-sm text-concrete">
-            <div className="flex items-center gap-2">
-              <span className="text-mint">✓</span>
-              <span>Free Forever Plan</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-mint">✓</span>
-              <span>No Credit Card Required</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-mint">✓</span>
-              <span>Built by Riders, for Riders</span>
-            </div>
-          </div>
-        </motion.div>
+    <section className="lp-cta">
+      <img
+        className="lp-cta__photo"
+        src="/goldenHourULine.jpg"
+        alt="Two riders laughing at a trailhead overlook at golden hour"
+        loading="lazy"
+      />
+      <div className="lp-cta__shade" aria-hidden="true" />
+      <div className="lp-container lp-cta__content">
+        <h2 className="lp-cta__title">Drop in knowing your bike&apos;s dialed.</h2>
+        <p className="lp-lede" style={{ maxWidth: '46ch' }}>
+          Connect a platform, add the bike, and the next ride starts the count.
+        </p>
+        <div className="lp-actions">
+          <Link to="/signup" className="lp-btn lp-btn--primary">
+            Start free
+          </Link>
+          <a
+            href="https://apps.apple.com/us/app/loam-logger/id6761736134"
+            className="lp-btn lp-btn--ghost"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            iOS app
+          </a>
+        </div>
       </div>
     </section>
   );
