@@ -331,6 +331,11 @@ export function UsersSection() {
                       {u.signupUserAgent && ` · ${u.signupUserAgent}`}
                     </div>
                   )}
+                  {u.signupAttestation && (
+                    <div className="text-xs" title="Device attestation at signup">
+                      {u.signupAttestation}
+                    </div>
+                  )}
                 </td>
                 <td className="py-3 px-4 text-right">
                   <div className="flex gap-2 justify-end">

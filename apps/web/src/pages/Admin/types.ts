@@ -37,6 +37,8 @@ export interface UserEntry {
   /** Recorded at signup for abuse review; null for older and Google/Apple accounts. */
   signupIp: string | null;
   signupUserAgent: string | null;
+  /** Device attestation verdict for mobile password signups, e.g. `ios:verified`. */
+  signupAttestation: string | null;
 }
 
 /** Response shape from `GET /api/admin/lookup-user?email=…`. */

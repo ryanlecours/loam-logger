@@ -66,6 +66,10 @@ model User {
   // created before these were recorded and for Google/Apple signups.
   signupIp                  String?
   signupUserAgent           String?
+  // Device attestation verdict for mobile password signups, e.g. `ios:verified`
+  // or `android:failed:device_integrity` (see services/device-attestation).
+  // Null for web and Google/Apple signups, and while attestation is off.
+  signupAttestation         String?
 
   // AI output (the advisor maintenance summary) is strictly opt-in: off by
   // default at every tier, including existing Pro and Founding Rider users.
