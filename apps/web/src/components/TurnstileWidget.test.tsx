@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, waitFor } from '@testing-library/react';
-import TurnstileWidget from './TurnstileWidget';
-import { TURNSTILE_SCRIPT_SRC } from '@/lib/turnstile';
+import { createRef } from 'react';
+import { act, render, screen, waitFor } from '@testing-library/react';
+import TurnstileWidget, { type TurnstileHandle } from './TurnstileWidget';
+import { TURNSTILE_SCRIPT_SRC, type TurnstileRenderOptions } from '@/lib/turnstile';
 
 afterEach(() => {
   delete window.turnstile;
@@ -27,5 +28,23 @@ describe('TurnstileWidget', () => {
     scripts[0].onload?.(new Event('load'));
 
     await waitFor(() => expect(api.render).toHaveBeenCalledTimes(2));
+  });
+
+  it.each([
+    ['a reset', (_o: TurnstileRenderOptions, ref: TurnstileHandle | null) => ref?.reset()],
+    ['a widget error', (o: TurnstileRenderOptions) => o['error-callback']?.('300030')],
+  ])('drops the interactive spacing after %s', async (_label, trigger) => {
+    const renderWidget = vi.fn<(el: HTMLElement, opts: TurnstileRenderOptions) => string>().mockReturnValue('w');
+    window.turnstile = { render: renderWidget, reset: vi.fn(), remove: vi.fn() };
+    const ref = createRef<TurnstileHandle>();
+    render(<TurnstileWidget ref={ref} siteKey="site-key" onToken={vi.fn()} />);
+
+    await waitFor(() => expect(renderWidget).toHaveBeenCalled());
+    const options = renderWidget.mock.calls[0][1];
+    act(() => options['before-interactive-callback']?.());
+    expect(screen.getByTestId('turnstile-widget')).toHaveClass('mb-4');
+
+    act(() => trigger(options, ref.current));
+    expect(screen.getByTestId('turnstile-widget')).not.toHaveClass('mb-4');
   });
 });

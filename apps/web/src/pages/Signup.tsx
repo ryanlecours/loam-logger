@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router';
 import { useApolloClient } from '@apollo/client';
@@ -9,51 +9,13 @@ import { readPendingProviderLink, type PendingProviderLink } from '@/lib/provide
 import ProviderLinkModal from '../components/ProviderLinkModal';
 import CheckEmailNotice from '../components/CheckEmailNotice';
 import TurnstileWidget, { type TurnstileHandle } from '../components/TurnstileWidget';
-
-// Longest a submit waits for a token the widget is still producing (a fast
-// submit, or a challenge the visitor has not clicked yet). After that the
-// signup goes without one, and the API records it as missing.
-const TURNSTILE_WAIT_MS = 8000;
+import { useTurnstileToken } from '../hooks/useTurnstileToken';
 
 export default function Signup() {
   // Unset in environments without a Turnstile widget; signup then sends no token.
   const turnstileSiteKey: string | undefined = import.meta.env.VITE_TURNSTILE_SITE_KEY || undefined;
   const turnstileRef = useRef<TurnstileHandle>(null);
-  const turnstileTokenRef = useRef<string | null>(null);
-  const turnstileUnavailableRef = useRef(false);
-  const tokenWaitersRef = useRef<Array<(token: string | null) => void>>([]);
-  const [isVerifying, setIsVerifying] = useState(false);
-
-  const releaseTokenWaiters = (token: string | null) => {
-    tokenWaitersRef.current.splice(0).forEach((resolve) => resolve(token));
-  };
-
-  const handleTurnstileToken = useCallback((token: string | null) => {
-    turnstileTokenRef.current = token;
-    if (token) releaseTokenWaiters(token);
-  }, []);
-
-  // The script was blocked or failed: nothing will arrive, so stop waiting.
-  const handleTurnstileUnavailable = useCallback(() => {
-    turnstileUnavailableRef.current = true;
-    releaseTokenWaiters(null);
-  }, []);
-
-  const waitForTurnstileToken = (): Promise<string | null> => {
-    if (!turnstileSiteKey || turnstileUnavailableRef.current || turnstileTokenRef.current) {
-      return Promise.resolve(turnstileTokenRef.current);
-    }
-    setIsVerifying(true);
-    return new Promise((resolve) => {
-      const done = (token: string | null) => {
-        clearTimeout(timer);
-        tokenWaitersRef.current = tokenWaitersRef.current.filter((waiter) => waiter !== done);
-        resolve(token);
-      };
-      const timer = setTimeout(() => done(null), TURNSTILE_WAIT_MS);
-      tokenWaitersRef.current.push(done);
-    });
-  };
+  const turnstile = useTurnstileToken(Boolean(turnstileSiteKey));
 
   const navigate = useNavigate();
   const apollo = useApolloClient();
@@ -111,8 +73,7 @@ export default function Signup() {
     setError(null);
 
     try {
-      const turnstileToken = await waitForTurnstileToken();
-      setIsVerifying(false);
+      const turnstileToken = await turnstile.waitForToken();
 
       const res = await fetch(`${import.meta.env.VITE_API_URL}/auth/signup`, {
         method: 'POST',
@@ -151,7 +112,6 @@ export default function Signup() {
       turnstileRef.current?.reset();
       setError('Network error. Please check your connection and try again.');
     } finally {
-      setIsVerifying(false);
       setIsSubmitting(false);
     }
   };
@@ -361,8 +321,8 @@ export default function Signup() {
                 ref={turnstileRef}
                 siteKey={turnstileSiteKey}
                 action="signup"
-                onToken={handleTurnstileToken}
-                onUnavailable={handleTurnstileUnavailable}
+                onToken={turnstile.onToken}
+                onUnavailable={turnstile.onUnavailable}
               />
             )}
             <button
@@ -370,7 +330,7 @@ export default function Signup() {
               disabled={isSubmitting}
               className="btn-primary text-lg px-8 py-4 w-full transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {isVerifying ? 'Verifying...' : isSubmitting ? 'Creating account...' : 'Create Account'}
+              {turnstile.isWaiting ? 'Verifying...' : isSubmitting ? 'Creating account...' : 'Create Account'}
             </button>
           </div>
         </motion.form>

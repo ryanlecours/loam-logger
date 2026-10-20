@@ -44,6 +44,8 @@ export default function TurnstileWidget({ siteKey, action, onToken, onUnavailabl
     () => ({
       reset() {
         onTokenRef.current(null);
+        // A re-solve that needs a click fires before-interactive again.
+        setInteractive(false);
         if (widgetIdRef.current !== undefined) window.turnstile?.reset(widgetIdRef.current);
       },
     }),
@@ -65,7 +67,10 @@ export default function TurnstileWidget({ siteKey, action, onToken, onUnavailabl
           appearance: 'interaction-only',
           callback: (token) => onTokenRef.current(token),
           'expired-callback': () => onTokenRef.current(null),
-          'error-callback': () => onTokenRef.current(null),
+          'error-callback': () => {
+            onTokenRef.current(null);
+            setInteractive(false);
+          },
           'before-interactive-callback': () => setInteractive(true),
           'after-interactive-callback': () => setInteractive(false),
         });

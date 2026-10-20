@@ -161,17 +161,35 @@ export async function evaluateSignupTurnstile(input: EvaluateSignupTurnstileInpu
 
   if (result.outcome === 'error') {
     logger.error({ reason: result.reason }, '[Turnstile] Could not verify a signup token');
-    Sentry.captureMessage(`Turnstile siteverify unavailable: ${result.reason}`, {
-      level: 'warning',
-      tags: { route: 'signup', stage: 'turnstile' },
-    });
+    reportOutageToSentry(result.reason);
   }
   return verdict(result.outcome, result.reason);
 }
 
+// One Sentry event per reason per window, so a long outage is one alert
+// rather than one per signup. Every failure is still logged.
+const OUTAGE_REPORT_INTERVAL_MS = 10 * 60 * 1000;
+const lastOutageReport = new Map<string, number>();
+
+function reportOutageToSentry(reason: string, now: number = Date.now()): void {
+  const last = lastOutageReport.get(reason);
+  if (last !== undefined && now - last < OUTAGE_REPORT_INTERVAL_MS) return;
+  lastOutageReport.set(reason, now);
+  Sentry.captureMessage(`Turnstile siteverify unavailable: ${reason}`, {
+    level: 'warning',
+    tags: { route: 'signup', stage: 'turnstile' },
+  });
+}
+
+/** Test hook: forget which outage reasons were already reported. */
+export function resetTurnstileOutageReports(): void {
+  lastOutageReport.clear();
+}
+
 /**
  * Log configuration mistakes at startup instead of letting them surface as a
- * stream of `web:error:not_configured` verdicts.
+ * stream of `web:error:not_configured` verdicts. The two that quietly turn
+ * protection off in production also go to Sentry.
  */
 export function checkTurnstileConfig(rawMode: string | undefined = process.env.TURNSTILE_MODE): void {
   const mode = rawMode?.trim().toLowerCase();
@@ -179,8 +197,29 @@ export function checkTurnstileConfig(rawMode: string | undefined = process.env.T
     logger.warn({ value: rawMode }, '[Turnstile] Unrecognized TURNSTILE_MODE, using monitor');
   }
   if (config.turnstileMode === 'off') return;
-  if (!config.turnstileSecretKey) {
+
+  const secret = config.turnstileSecretKey;
+  if (!secret) {
     logger.warn('[Turnstile] TURNSTILE_SECRET_KEY not set; web signups record web:error:not_configured');
+    // Errors are never capped, so enforce without a secret checks nothing.
+    if (config.turnstileMode === 'enforce') {
+      Sentry.captureMessage('TURNSTILE_MODE=enforce without TURNSTILE_SECRET_KEY: web signups are unchecked', {
+        level: 'error',
+        tags: { stage: 'turnstile-config' },
+      });
+    }
+  } else if (TEST_SECRET_PATTERN.test(secret)) {
+    if (config.isProduction) {
+      logger.error('[Turnstile] TURNSTILE_SECRET_KEY is a Cloudflare test secret in production; every token passes');
+      Sentry.captureMessage('TURNSTILE_SECRET_KEY is a Cloudflare test secret in production', {
+        level: 'error',
+        tags: { stage: 'turnstile-config' },
+      });
+    }
+  } else if (config.turnstileAllowedHostnames.length === 0) {
+    logger.warn(
+      '[Turnstile] TURNSTILE_ALLOWED_HOSTNAMES not set; tokens solved on any hostname that uses this site key are accepted'
+    );
   }
   logger.info(
     { mode: config.turnstileMode, allowedHostnames: config.turnstileAllowedHostnames },

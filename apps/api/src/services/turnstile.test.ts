@@ -1,4 +1,5 @@
 const mockConfig = {
+  isProduction: false,
   turnstileMode: 'monitor' as 'off' | 'monitor' | 'enforce',
   turnstileSecretKey: 'test-secret' as string | undefined,
   turnstileAllowedHostnames: [] as string[],
@@ -18,9 +19,12 @@ import {
   evaluateSignupTurnstile,
   reportSignupTurnstile,
   requiresUnverifiedWebCap,
+  resetTurnstileOutageReports,
   verifyTurnstileToken,
   type TurnstileVerdict,
 } from './turnstile';
+
+const TEST_SECRET = '1x0000000000000000000000000000000AA';
 
 function siteverifyAnswer(body: unknown, status = 200) {
   return jest.fn().mockResolvedValue({
@@ -32,6 +36,8 @@ function siteverifyAnswer(body: unknown, status = 200) {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  resetTurnstileOutageReports();
+  mockConfig.isProduction = false;
   mockConfig.turnstileMode = 'monitor';
   mockConfig.turnstileSecretKey = 'test-secret';
   mockConfig.turnstileAllowedHostnames = [];
@@ -182,6 +188,18 @@ describe('verifyTurnstileToken action and hostname checks', () => {
     ).resolves.toEqual({ ok: false, outcome: 'failed', reason: 'hostname_mismatch' });
   });
 
+  it('matches the hostname Cloudflare reports case-insensitively', async () => {
+    await expect(
+      verifyTurnstileToken({
+        token: 'tok',
+        secret: 'shh',
+        expectedAction: 'signup',
+        allowedHostnames: ['loamlogger.app'],
+        fetchImpl: siteverifyAnswer({ ...answer, hostname: 'LoamLogger.App' }),
+      })
+    ).resolves.toEqual({ ok: true, hostname: 'LoamLogger.App' });
+  });
+
   it('skips the hostname check when no list is configured', async () => {
     await expect(
       verifyTurnstileToken({
@@ -285,6 +303,32 @@ describe('evaluateSignupTurnstile', () => {
     expect(result).toMatchObject({ outcome: 'error', label: 'web:error:network' });
     expect(mockSentryMessage).toHaveBeenCalledTimes(1);
   });
+
+  it('sends one Sentry event per reason during a long outage, but logs every failure', async () => {
+    const fetchImpl = jest.fn().mockRejectedValue(new Error('ECONNRESET')) as unknown as typeof fetch;
+
+    for (let i = 0; i < 5; i++) await evaluateSignupTurnstile({ token: 'tok', fetchImpl });
+    await evaluateSignupTurnstile({ token: 'tok', fetchImpl: siteverifyAnswer({}, 503) });
+
+    expect(mockSentryMessage).toHaveBeenCalledTimes(2);
+    expect(mockSentryMessage).toHaveBeenCalledWith('Turnstile siteverify unavailable: network', expect.anything());
+    expect(mockSentryMessage).toHaveBeenCalledWith('Turnstile siteverify unavailable: http_503', expect.anything());
+    expect(mockLogger.error).toHaveBeenCalledTimes(6);
+  });
+
+  it('reports the same reason again once the window has passed', async () => {
+    jest.useFakeTimers({ now: new Date('2026-10-20T12:00:00Z') });
+    try {
+      const fetchImpl = jest.fn().mockRejectedValue(new Error('ECONNRESET')) as unknown as typeof fetch;
+      await evaluateSignupTurnstile({ token: 'tok', fetchImpl });
+      jest.setSystemTime(new Date('2026-10-20T12:11:00Z'));
+      await evaluateSignupTurnstile({ token: 'tok', fetchImpl });
+
+      expect(mockSentryMessage).toHaveBeenCalledTimes(2);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 });
 
 describe('requiresUnverifiedWebCap', () => {
@@ -332,6 +376,53 @@ describe('checkTurnstileConfig', () => {
 
     checkTurnstileConfig('off');
 
+    expect(mockLogger.warn).not.toHaveBeenCalled();
+  });
+
+  it('sends enforce mode without a secret to Sentry, since it checks nothing', () => {
+    mockConfig.turnstileMode = 'enforce';
+    mockConfig.turnstileSecretKey = undefined;
+
+    checkTurnstileConfig('enforce');
+
+    expect(mockSentryMessage).toHaveBeenCalledWith(
+      expect.stringContaining('enforce without TURNSTILE_SECRET_KEY'),
+      expect.objectContaining({ level: 'error' })
+    );
+  });
+
+  it('flags a Cloudflare test secret in production', () => {
+    mockConfig.isProduction = true;
+    mockConfig.turnstileSecretKey = TEST_SECRET;
+
+    checkTurnstileConfig('monitor');
+
+    expect(mockLogger.error).toHaveBeenCalledWith(expect.stringContaining('test secret in production'));
+    expect(mockSentryMessage).toHaveBeenCalledWith(
+      expect.stringContaining('test secret in production'),
+      expect.objectContaining({ level: 'error' })
+    );
+  });
+
+  it('accepts a test secret outside production without noise', () => {
+    mockConfig.turnstileSecretKey = TEST_SECRET;
+
+    checkTurnstileConfig('monitor');
+
+    expect(mockLogger.warn).not.toHaveBeenCalled();
+    expect(mockLogger.error).not.toHaveBeenCalled();
+    expect(mockSentryMessage).not.toHaveBeenCalled();
+  });
+
+  it('warns when a real secret has no hostname list', () => {
+    mockConfig.turnstileSecretKey = '0x4AAAAAAAreal-secret';
+
+    checkTurnstileConfig('monitor');
+    expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining('TURNSTILE_ALLOWED_HOSTNAMES not set'));
+
+    mockLogger.warn.mockClear();
+    mockConfig.turnstileAllowedHostnames = ['loamlogger.app'];
+    checkTurnstileConfig('monitor');
     expect(mockLogger.warn).not.toHaveBeenCalled();
   });
 });
