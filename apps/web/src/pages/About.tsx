@@ -1,8 +1,14 @@
 import { useNavigate } from "react-router";
 import { motion } from 'motion/react';
+import { usePageMeta } from '../hooks/usePageMeta';
 import { Card } from '../components/ui';
 
 export default function About() {
+  usePageMeta({
+    title: 'About | Loam Logger',
+    description: 'Who builds Loam Logger and why: a mountain bike service tracker from Loam Labs in the Pacific Northwest.',
+    canonical: 'https://loamlogger.app/about',
+  });
     const navigate = useNavigate();
 
     return (

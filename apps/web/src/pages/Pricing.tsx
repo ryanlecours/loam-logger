@@ -1,5 +1,6 @@
 import { useNavigate, useSearchParams } from 'react-router';
 import { motion } from 'motion/react';
+import { usePageMeta } from '../hooks/usePageMeta';
 import { gql, useMutation } from '@apollo/client';
 import { Check, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
@@ -17,6 +18,12 @@ const CREATE_CHECKOUT = gql`
 `;
 
 export default function Pricing() {
+  usePageMeta({
+    title: 'Pricing | Loam Logger',
+    description:
+      'Loam Logger is free for one bike with every component type, automatic ride sync and a service log. Pro adds unlimited bikes, due-soon warnings, alerts, weather and PDF export for $39.99 a year or $4.99 a month.',
+    canonical: 'https://loamlogger.app/pricing',
+  });
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { tier, isPro, isFoundingRider, loading: tierLoading } = useUserTier();

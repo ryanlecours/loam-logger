@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { usePageMeta } from '../hooks/usePageMeta';
 import LandingNavbar from '../components/LandingNavbar';
 import HeroSection from '../components/marketing/HeroSection';
 import HoursSection from '../components/marketing/HoursSection';
@@ -11,6 +12,13 @@ import CTASection from '../components/marketing/CTASection';
 import MarketingFooter from '../components/marketing/MarketingFooter';
 
 export default function MarketingLanding() {
+  usePageMeta({
+    title: 'Loam Logger | Mountain bike service tracker',
+    description:
+      'Loam Logger takes the hours from rides you already record on Garmin Connect, Strava or WHOOP, puts them on your fork, shock, pads, chain and bearings, and tells you which parts are due. Free for one bike.',
+    canonical: 'https://loamlogger.app/',
+  });
+
   useEffect(() => {
     // Smooth in-page scrolling for the nav anchors; the CSS respects
     // prefers-reduced-motion for this class.
@@ -21,7 +29,7 @@ export default function MarketingLanding() {
   }, []);
 
   return (
-    <div className="lp">
+    <main className="lp">
       <LandingNavbar />
       <HeroSection />
       <HoursSection />
@@ -32,6 +40,6 @@ export default function MarketingLanding() {
       <FreeTierSection />
       <CTASection />
       <MarketingFooter />
-    </div>
+    </main>
   );
 }

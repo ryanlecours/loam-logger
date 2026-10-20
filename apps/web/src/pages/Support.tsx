@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { motion } from 'motion/react';
+import { usePageMeta } from '../hooks/usePageMeta';
 import { Card } from '../components/ui';
 
 type Category = 'question' | 'feedback' | 'feature' | 'bug';
@@ -13,6 +14,11 @@ const CATEGORIES: { value: Category; label: string }[] = [
 ];
 
 export default function Support() {
+  usePageMeta({
+    title: 'Support | Loam Logger',
+    description: 'Get help with Loam Logger: ride sync from Garmin Connect, Strava and WHOOP, component tracking, service logs and your account.',
+    canonical: 'https://loamlogger.app/support',
+  });
     const navigate = useNavigate();
     const [category, setCategory] = useState<Category>('question');
     const [subject, setSubject] = useState('');

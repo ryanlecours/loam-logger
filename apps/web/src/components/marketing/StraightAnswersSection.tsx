@@ -33,9 +33,22 @@ const answers = [
   },
 ];
 
+// The same questions as FAQPage structured data, so search engines and AI
+// crawlers can lift the answers verbatim instead of paraphrasing the page.
+const faqJsonLd = JSON.stringify({
+  '@context': 'https://schema.org',
+  '@type': 'FAQPage',
+  mainEntity: answers.map((item) => ({
+    '@type': 'Question',
+    name: item.q,
+    acceptedAnswer: { '@type': 'Answer', text: item.a },
+  })),
+});
+
 export default function StraightAnswersSection() {
   return (
     <section id="answers" className="lp-section">
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: faqJsonLd }} />
       <div className="lp-container lp-answers">
         <div className="lp-answers__aside">
           <h2 className="lp-h2">Straight answers</h2>

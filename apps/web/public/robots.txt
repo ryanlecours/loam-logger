@@ -1,2 +1,33 @@
+# Loam Logger: the public pages are open to everyone, including AI crawlers.
+# The routes below are the signed-in app and carry nothing worth indexing.
+
 User-agent: *
-Allow: /privacy
+Allow: /
+Disallow: /dashboard
+Disallow: /gear
+Disallow: /rides
+Disallow: /bikes
+Disallow: /settings
+Disallow: /admin
+Disallow: /onboarding
+Disallow: /auth/
+Disallow: /change-password
+Disallow: /reset-password
+Disallow: /forgot-password
+
+User-agent: GPTBot
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+User-agent: Applebot-Extended
+Allow: /
+
+Sitemap: https://loamlogger.app/sitemap.xml

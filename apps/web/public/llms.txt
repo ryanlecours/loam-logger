@@ -1,0 +1,32 @@
+# Loam Logger
+
+> A mountain bike service tracker. It takes the hours from rides a rider already records on Garmin Connect, Strava or WHOOP, puts them on every installed component (fork, shock, dropper, brake pads, rotors, chain, cassette, pivot bearings, hubs, headset and more), and flags each part against its service interval. Web app at https://loamlogger.app and an iOS app. Built by Ryan LeCours at Loam Labs LLC in the Pacific Northwest.
+
+## What it does
+
+- Connect once to Garmin Connect, Strava or WHOOP (Suunto in progress). New rides arrive by webhook within minutes; ride history imports a year at a time; a ride that arrives from two platforms is counted once.
+- Each ride's duration accrues against every component installed on that bike at the time. Spare components keep their hours when moved between bikes.
+- Service intervals are set per part by the rider. Component health has four states: overdue, due now, due soon, all good.
+- A service log records the date, hours at service and parts replaced. A bike's history can be shared by link and, on Pro, exported as a PDF.
+- Bike specs can be imported from 99spokes. E-bike motor and battery accrue hours but have no service state, because ride time says nothing reliable about motor assist or battery cycles.
+- The product is interval-based, not predictive, and promises fewer surprise mechanicals rather than none.
+
+## Pricing
+
+- Free: one bike, all component types, automatic ride sync, service log, hours on every part against its interval, and a flag once a part is past due. Not a trial; nothing expires.
+- Pro: $39.99 per year or $4.99 per month. Unlimited bikes, a due-soon early warning with an estimate of rides left on each part, service-due alerts and a weekly bike check, weather on every ride, PDF service history export, full ride history import.
+- Founding Rider is a legacy tier for early supporters.
+
+## Pages
+
+- Home: https://loamlogger.app/
+- Pricing: https://loamlogger.app/pricing
+- About: https://loamlogger.app/about
+- Support: https://loamlogger.app/support
+- Privacy: https://loamlogger.app/privacy
+- Terms: https://loamlogger.app/terms
+- iOS app: https://apps.apple.com/us/app/loam-logger/id6761736134
+
+## Attribution
+
+Garmin Connect is a trademark of Garmin Ltd. or its subsidiaries. Ride data is attributed to the device that recorded it. Bike specification data is provided by 99spokes.
