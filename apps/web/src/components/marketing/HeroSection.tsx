@@ -5,12 +5,15 @@ import RidgeLines from './RidgeLines';
 export default function HeroSection() {
   return (
     <section className="lp-hero" data-testid="hero">
-      <img
-        className="lp-hero__photo"
-        src="/IngridLoam.jpg"
-        alt="Rider threading a dark stand of firs on loamy Pacific Northwest singletrack"
-        fetchPriority="high"
-      />
+      <picture>
+        <source media="(max-width: 767px)" srcSet="/heroFernsMobile.jpg" />
+        <img
+          className="lp-hero__photo"
+          src="/heroFerns.jpg"
+          alt="Two riders charging through waist-high sword ferns on Pacific Northwest singletrack"
+          fetchPriority="high"
+        />
+      </picture>
       <div className="lp-hero__shade" aria-hidden="true" />
       <div className="lp-hero__scrim" aria-hidden="true" />
       <RidgeLines />

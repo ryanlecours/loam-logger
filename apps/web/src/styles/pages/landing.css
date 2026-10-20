@@ -195,8 +195,8 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
-  object-position: 60% 42%;
-  filter: saturate(0.88);
+  object-position: 66% 45%;
+  filter: saturate(0.86);
 }
 
 .lp-hero__shade {
@@ -211,17 +211,18 @@
   );
 }
 
-/* Darkens the cedar trunk on the left so the copy has its own ground and
-   the rider in the centre of the frame stays clear of it. */
+/* Darkens the fern bank on the left so the copy has its own ground and the
+   riders right of centre stay clear of it. Ferns are mid-tone, so this runs
+   heavier than it would over bare trunks. */
 .lp-hero__scrim {
   position: absolute;
   inset: 0;
   background: linear-gradient(
     90deg,
-    rgba(12, 12, 14, 0.72) 0%,
-    rgba(12, 12, 14, 0.5) 28%,
-    rgba(12, 12, 14, 0.15) 48%,
-    rgba(12, 12, 14, 0) 60%
+    rgba(12, 12, 14, 0.84) 0%,
+    rgba(12, 12, 14, 0.66) 30%,
+    rgba(12, 12, 14, 0.22) 50%,
+    rgba(12, 12, 14, 0) 62%
   );
 }
 
@@ -257,12 +258,21 @@
 }
 
 @media (max-width: 767px) {
+  /* A phone is too narrow to hold both the copy and the riders, so the phone
+     crop shows the fern bank left of them: texture under the text, no face
+     fighting the headline. */
   .lp-hero__photo {
-    object-position: 62% 40%;
+    object-position: 28% 45%;
   }
 
   .lp-hero__scrim {
-    background: linear-gradient(180deg, rgba(12, 12, 14, 0) 35%, rgba(12, 12, 14, 0.7) 70%, rgba(12, 12, 14, 0.85) 100%);
+    background: linear-gradient(
+      180deg,
+      rgba(12, 12, 14, 0.3) 0%,
+      rgba(12, 12, 14, 0.55) 30%,
+      rgba(12, 12, 14, 0.8) 65%,
+      rgba(12, 12, 14, 0.9) 100%
+    );
   }
 
   .lp-hero__content {
