@@ -16,8 +16,12 @@ const answers = [
     a: 'Free has no alerts at all. You open it, you look. Pro adds a service-due alert and one weekly check across your bikes, and both can be turned off.',
   },
   {
+    q: 'What does Free actually leave out?',
+    a: 'The early warning. Free shows the hours on every part against its interval and flags it once it’s past due. Pro flags it while it’s still due soon, with an estimate of the rides left, so the seal kit is on the bench before the fork needs it. Pro also lifts the one-bike limit.',
+  },
+  {
     q: 'Is this another subscription?',
-    a: 'Free covers one bike completely: every part, ride sync, service log. That’s the whole tracker for a one-bike rider, not a trial. Pro is $4.99 a month if you run a fleet and want the alerts. One person builds this, and that’s what keeps the server on.',
+    a: 'Free covers one bike: every part, ride sync, the service log, and a flag when something is past its interval. Not a trial, nothing expires. Pro is $39.99 a year if you run a quiver and want the due-soon heads-up and the alerts. One person builds this, and that’s what keeps the server on.',
   },
   {
     q: 'There are other trackers. Why this one?',

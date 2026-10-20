@@ -28,16 +28,23 @@ describe('MarketingLanding', () => {
     expect(mock.getByText('Nothing tracked')).toBeInTheDocument();
   });
 
-  it('states the real pricing and names the partners', () => {
+  it('sells Free, states the yearly Pro price once, and sends pricing detail to its own page', () => {
     render(<MarketingLanding />);
-    expect(screen.getByText('$4.99')).toBeInTheDocument();
-    expect(screen.getByText('a month, or $39.99 a year')).toBeInTheDocument();
-    expect(screen.getByText('$0')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Go Pro' })).toHaveAttribute(
+    expect(screen.getByRole('heading', { name: 'One bike. Everything. Free.' })).toBeInTheDocument();
+    expect(screen.getAllByText(/\$39\.99 a year/).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/\$4\.99/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Go Pro/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Details on the pricing page.' })).toHaveAttribute(
       'href',
-      '/pricing?source=landing-pricing',
+      '/pricing?source=landing-free-note',
     );
     expect(screen.getAllByText(/Garmin Connect™/).length).toBeGreaterThan(0);
+  });
+
+  it('is honest about what Free leaves out', () => {
+    render(<MarketingLanding />);
+    expect(screen.getByText('What does Free actually leave out?')).toBeInTheDocument();
+    expect(screen.getByText(/flags it once it’s past due/)).toBeInTheDocument();
   });
 
   it('keeps the 99spokes attribution and the Garmin trademark notice', () => {

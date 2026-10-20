@@ -6,7 +6,7 @@ import HowItCountsSection from '../components/marketing/HowItCountsSection';
 import PhotoBandSection from '../components/marketing/PhotoBandSection';
 import StraightAnswersSection from '../components/marketing/StraightAnswersSection';
 import IntegrationsStrip from '../components/marketing/IntegrationsStrip';
-import PricingSection from '../components/marketing/PricingSection';
+import FreeTierSection from '../components/marketing/FreeTierSection';
 import CTASection from '../components/marketing/CTASection';
 import MarketingFooter from '../components/marketing/MarketingFooter';
 
@@ -29,7 +29,7 @@ export default function MarketingLanding() {
       <PhotoBandSection />
       <StraightAnswersSection />
       <IntegrationsStrip />
-      <PricingSection />
+      <FreeTierSection />
       <CTASection />
       <MarketingFooter />
     </div>

@@ -38,7 +38,7 @@ export default function HeroSection() {
             </a>
           </div>
           <p className="lp-fine">
-            Free for one bike, no card. Web and iOS. Works off Garmin Connect™, Strava or WHOOP.
+            Free for one bike. No card, no trial clock, nothing expires. Web and iOS.
           </p>
         </div>
       </div>
