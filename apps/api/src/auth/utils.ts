@@ -36,7 +36,7 @@ export function canonicalizeEmail(email: string): string {
   return local ? `${local}@${domain}` : normalized;
 }
 
-/** Relies on Express trust proxy being set (server.ts) so req.ip is the real client IP. */
+/** Relies on Express trust proxy matching Railway's hop count (lib/trust-proxy.ts) so req.ip is the visitor's IP. */
 export const getClientIp = (req: Request): string =>
   req.ip || 'unknown';
 
