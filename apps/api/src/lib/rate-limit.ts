@@ -389,6 +389,17 @@ export const AUTH_RATE_LIMITS = {
   /** signup-unattested-ip: checked before the global bucket, so one IP can
    *  take at most 3 of its 10 slots an hour. */
   'signup-unattested-ip': { windowSeconds: 3600, maxRequests: 3 },
+  /** signup-unverified-web: the web counterpart, one global bucket
+   *  (identifier `global`) for every web password signup with a missing or
+   *  rejected Turnstile token, applied only when TURNSTILE_MODE=enforce. Kept apart
+   *  from signup-unattested so a script hammering the web form cannot spend
+   *  the budget of app builds that predate attestation. Same trade-off: a
+   *  script across many IPs can spend it and hold back real visitors whose
+   *  widget failed (blocked script, privacy browser) for the rest of the hour. */
+  'signup-unverified-web': { windowSeconds: 3600, maxRequests: 10 },
+  /** signup-unverified-web-ip: checked before the web global bucket, so one
+   *  IP can take at most 3 of its 10 slots an hour. */
+  'signup-unverified-web-ip': { windowSeconds: 3600, maxRequests: 3 },
   /** attest-challenge: max 20 challenges per minute per IP (one per signup
    *  attempt; each costs a Redis key for five minutes) */
   'attest-challenge': { windowSeconds: 60, maxRequests: 20 },

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router';
 import { useApolloClient } from '@apollo/client';
@@ -8,8 +8,15 @@ import { setCsrfToken } from '@/lib/csrf';
 import { readPendingProviderLink, type PendingProviderLink } from '@/lib/providerLink';
 import ProviderLinkModal from '../components/ProviderLinkModal';
 import CheckEmailNotice from '../components/CheckEmailNotice';
+import TurnstileWidget, { type TurnstileHandle } from '../components/TurnstileWidget';
+import { useTurnstileToken } from '../hooks/useTurnstileToken';
 
 export default function Signup() {
+  // Unset in environments without a Turnstile widget; signup then sends no token.
+  const turnstileSiteKey: string | undefined = import.meta.env.VITE_TURNSTILE_SITE_KEY || undefined;
+  const turnstileRef = useRef<TurnstileHandle>(null);
+  const turnstile = useTurnstileToken(Boolean(turnstileSiteKey));
+
   const navigate = useNavigate();
   const apollo = useApolloClient();
 
@@ -19,6 +26,9 @@ export default function Signup() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // Read synchronously, so a second submit during the token wait is dropped
+  // even before the disabled button has rendered.
+  const submittingRef = useRef(false);
   const [pendingLink, setPendingLink] = useState<PendingProviderLink | null>(null);
   // Set once a password signup succeeds: the account exists but cannot sign
   // in until the address is confirmed.
@@ -55,6 +65,7 @@ export default function Signup() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submittingRef.current) return;
 
     const validationError = validate();
     if (validationError) {
@@ -62,10 +73,13 @@ export default function Signup() {
       return;
     }
 
+    submittingRef.current = true;
     setIsSubmitting(true);
     setError(null);
 
     try {
+      const turnstileToken = await turnstile.waitForToken();
+
       const res = await fetch(`${import.meta.env.VITE_API_URL}/auth/signup`, {
         method: 'POST',
         credentials: 'include',
@@ -74,12 +88,17 @@ export default function Signup() {
           email: email.trim(),
           name: name.trim(),
           password,
+          turnstileToken: turnstileToken ?? undefined,
         }),
       });
 
       const data = await res.json();
 
       if (!res.ok) {
+        // Some refusals (429, 5xx) come after the API spent the single-use
+        // token. Re-solving after every refusal is simpler than telling them
+        // apart, and costs the visitor nothing.
+        turnstileRef.current?.reset();
         if (data.code === 'EMAIL_EXISTS') {
           // Also the way back for anyone whose address someone else signed
           // up with: a reset goes to the inbox and replaces that password.
@@ -95,8 +114,10 @@ export default function Signup() {
       setVerificationEmail(data.email || email.trim());
     } catch (err) {
       console.error('[Signup] Network error:', err);
+      turnstileRef.current?.reset();
       setError('Network error. Please check your connection and try again.');
     } finally {
+      submittingRef.current = false;
       setIsSubmitting(false);
     }
   };
@@ -300,13 +321,24 @@ export default function Signup() {
             </motion.div>
           )}
 
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className="btn-primary text-lg px-8 py-4 w-full transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isSubmitting ? 'Creating account...' : 'Create Account'}
-          </button>
+          <div>
+            {turnstileSiteKey && (
+              <TurnstileWidget
+                ref={turnstileRef}
+                siteKey={turnstileSiteKey}
+                action="signup"
+                onToken={turnstile.onToken}
+                onUnavailable={turnstile.onUnavailable}
+              />
+            )}
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="btn-primary text-lg px-8 py-4 w-full transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {turnstile.isWaiting ? 'Verifying...' : isSubmitting ? 'Creating account...' : 'Create Account'}
+            </button>
+          </div>
         </motion.form>
         </>
         )}
