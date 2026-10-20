@@ -1,6 +1,6 @@
 import "./instrument";
 
-import { StrictMode, useEffect } from 'react'
+import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { reactErrorHandler } from '@sentry/react';
 import './index.css'
@@ -13,19 +13,10 @@ import { inject } from '@vercel/analytics';
 import client from './lib/apolloClient';
 import { initPostHog } from './lib/posthog';
 import { installChunkReloadHandler } from './lib/chunkReload';
+import RevealAfterMount from './components/RevealAfterMount';
 
 initPostHog();
 installChunkReloadHandler();
-
-// The built index.html carries the prerendered landing page inside #root and,
-// on any other path, a class that keeps it invisible (scripts/prerender-landing.mjs).
-// Once React has committed its own tree the static markup is gone, so reveal.
-function RevealAfterMount() {
-  useEffect(() => {
-    document.documentElement.classList.remove('lp-prerendered');
-  }, []);
-  return null;
-}
 
 createRoot(document.getElementById('root')!, {
   onUncaughtError: reactErrorHandler(),
