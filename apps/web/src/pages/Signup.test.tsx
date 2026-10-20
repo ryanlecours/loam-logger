@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router';
+import { MemoryRouter, Route, Routes } from 'react-router';
 import Signup from './Signup';
 import { TURNSTILE_SCRIPT_SRC, type TurnstileRenderOptions } from '@/lib/turnstile';
 
@@ -242,5 +242,41 @@ describe('Signup without a Turnstile site key', () => {
     expect(screen.queryByTestId('turnstile-widget')).not.toBeInTheDocument();
     expect(document.querySelector(`script[src="${TURNSTILE_SCRIPT_SRC}"]`)).toBeNull();
     expect(sentBody(fetchMock)).not.toHaveProperty('turnstileToken');
+  });
+});
+
+describe('Signup waiting on the verification email', () => {
+  function OnboardingProbe() {
+    return <p>Onboarding</p>;
+  }
+
+  it('signs this browser in and goes to onboarding once the link is opened anywhere', async () => {
+    vi.stubEnv('VITE_TURNSTILE_SITE_KEY', '');
+    delete window.turnstile;
+    const fetchMock = vi.fn<(url: string, init?: RequestInit) => Promise<ReturnType<typeof jsonResponse>>>(async (url) => {
+      if (url.endsWith('/auth/signup')) {
+        return jsonResponse(201, { ok: true, verificationRequired: true, email: 'new@example.com' });
+      }
+      if (url.endsWith('/auth/verify-email/complete')) {
+        return jsonResponse(200, { ok: true, mustChangePassword: false, csrfToken: 'csrf-1' });
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    render(
+      <MemoryRouter initialEntries={['/signup']}>
+        <Routes>
+          <Route path="/signup" element={<Signup />} />
+          <Route path="/onboarding" element={<OnboardingProbe />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    fillAndSubmit();
+    await screen.findByRole('heading', { name: 'Check your email' });
+
+    expect(await screen.findByText('Onboarding', {}, { timeout: 5000 })).toBeInTheDocument();
+    const completeCall = fetchMock.mock.calls.find(([url]) => url.endsWith('/auth/verify-email/complete'));
+    expect(completeCall?.[1]).toMatchObject({ method: 'POST', credentials: 'include' });
   });
 });

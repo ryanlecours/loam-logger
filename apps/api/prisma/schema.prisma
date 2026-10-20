@@ -97,6 +97,7 @@ model User {
   notificationLogs         NotificationLog[]
   passwordResetTokens      PasswordResetToken[]
   emailVerificationTokens  EmailVerificationToken[]
+  emailSignInGrants        EmailSignInGrant[]
   componentRideAdjustments ComponentRideAdjustment[]
   mobileSessions           MobileSession[]
   componentShares          ComponentShare[]
@@ -1108,6 +1109,28 @@ model EmailVerificationToken {
   usedAt    DateTime?
   createdAt DateTime  @default(now())
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+// A sign-in held by the client that proved the password (a signup, or a login
+// refused because the email is not verified yet). Once the email is verified,
+// that client trades the secret for a session, so the verification link never
+// has to sign anyone in. Only the hash is stored. `client` keeps a web secret
+// off the mobile exchange and the reverse. `sessionTokenVersion` is the
+// account's version at issue: a password reset or any session revoke bumps it,
+// which retires every outstanding grant.
+model EmailSignInGrant {
+  id                  String    @id @default(cuid())
+  userId              String
+  secretHash          String    @unique
+  client              String
+  sessionTokenVersion Int
+  expiresAt           DateTime
+  usedAt              DateTime?
+  createdAt           DateTime  @default(now())
+  user                User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([expiresAt])

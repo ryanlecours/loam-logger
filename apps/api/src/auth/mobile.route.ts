@@ -31,6 +31,7 @@ import {
   isEmailVerificationPending,
   sendVerificationEmailWithinLimit,
 } from '../services/email-verification.service';
+import { issueSignInGrant, type SignInGrant } from '../services/email-sign-in-grant.service';
 import {
   CHALLENGE_TTL_SECONDS,
   checkDeviceAttestationConfig,
@@ -60,6 +61,15 @@ if (!config.appleBundleId) {
 }
 
 checkDeviceAttestationConfig();
+
+/**
+ * The sign-in grant fields of an EMAIL_VERIFICATION_REQUIRED answer, for the
+ * app to keep and trade at /auth/mobile/verify-email/complete. Empty when no
+ * grant could be issued; the rider then signs in with the password.
+ */
+function signInGrantDetails(grant: SignInGrant | null) {
+  return grant ? { signInSecret: grant.secret, signInSecretExpiresAt: grant.expiresAt.toISOString() } : {};
+}
 
 const googleClient = new OAuth2Client({
   clientId: GOOGLE_CLIENT_ID,
@@ -193,6 +203,11 @@ router.post('/mobile/signup', express.json(), async (req, res) => {
 
     await sendVerificationEmailWithinLimit(user, 'user_action');
 
+    // The app just proved the password, so it may sign itself in once the
+    // link is opened (see /auth/mobile/verify-email/complete). Builds from
+    // before this ignore the extra fields.
+    const grant = await issueSignInGrant(user.id, 'mobile');
+
     if (attestationVerdict) reportSignupAttestation(user.id, attestationVerdict);
 
     auditLogger.info(
@@ -203,6 +218,7 @@ router.post('/mobile/signup', express.json(), async (req, res) => {
     return sendError(res, 403, EMAIL_VERIFICATION_REQUIRED_MESSAGE, EMAIL_VERIFICATION_REQUIRED_CODE, {
       email: user.email,
       accountCreated: true,
+      ...signInGrantDetails(grant),
     });
   } catch (e) {
     logger.error({ err: e, route: 'mobile/signup' }, '[MobileAuth] Signup failed');
@@ -487,8 +503,10 @@ router.post('/mobile/login', express.json(), async (req, res) => {
     if (isEmailVerificationPending(user)) {
       logger.info({ userId: user.id, route: 'mobile/login' }, 'Email login 403: email not verified');
       await sendVerificationEmailWithinLimit(user, 'user_action');
+      const grant = await issueSignInGrant(user.id, 'mobile');
       return sendError(res, 403, EMAIL_VERIFICATION_REQUIRED_MESSAGE, EMAIL_VERIFICATION_REQUIRED_CODE, {
         email: user.email,
+        ...signInGrantDetails(grant),
       });
     }
 

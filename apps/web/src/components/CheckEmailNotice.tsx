@@ -1,21 +1,31 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui';
 import { resendVerificationEmail } from '@/lib/emailVerification';
+import { useEmailSignInPoll, type EmailSignedIn } from '../hooks/useEmailSignInPoll';
 
 type Props = {
   email: string;
   /** Called when the rider wants to go back and sign in. */
   onBackToSignIn?: () => void;
+  /**
+   * Called once the address is verified and this browser has signed itself
+   * in with its sign-in grant. While set, the notice keeps asking.
+   */
+  onSignedIn?: (result: EmailSignedIn) => void;
 };
 
 /**
  * Shown after a password signup, and when signing in to an account that has
  * not confirmed its email yet. The account cannot sign in until the link in
- * the verification email is opened.
+ * the verification email is opened; with `onSignedIn`, this browser then
+ * signs in by itself, wherever the link was opened.
  */
-export default function CheckEmailNotice({ email, onBackToSignIn }: Props) {
+export default function CheckEmailNotice({ email, onBackToSignIn, onSignedIn }: Props) {
   const [status, setStatus] = useState<'idle' | 'sending' | 'sent'>('idle');
   const [error, setError] = useState<string | null>(null);
+  const waitsForSignIn = Boolean(onSignedIn);
+
+  useEmailSignInPoll(waitsForSignIn ? email : null, (result) => onSignedIn?.(result));
 
   async function handleResend() {
     setStatus('sending');
@@ -36,8 +46,10 @@ export default function CheckEmailNotice({ email, onBackToSignIn }: Props) {
           Check your email
         </h2>
         <p className="text-sm" style={{ color: 'var(--concrete)' }}>
-          We sent a link to <strong style={{ color: 'var(--sand)' }}>{email}</strong>. Open it to
-          confirm your address, then sign in.
+          We sent a link to <strong style={{ color: 'var(--sand)' }}>{email}</strong>.{' '}
+          {waitsForSignIn
+            ? 'Open it on any device to confirm your address, and this page signs you in.'
+            : 'Open it to confirm your address, then sign in.'}
         </p>
       </div>
 

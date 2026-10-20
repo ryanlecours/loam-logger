@@ -82,8 +82,8 @@ describe('isEmailVerificationPending', () => {
 });
 
 describe('buildVerifyUrl', () => {
-  it('points at the web verify page with the token in the query string', () => {
-    expect(buildVerifyUrl('abc123')).toBe('https://loamlogger.app/verify-email?token=abc123');
+  it('points at the web verify page with the token, tagged as coming from the email', () => {
+    expect(buildVerifyUrl('abc123')).toBe('https://loamlogger.app/verify-email?token=abc123&source=email');
   });
 });
 

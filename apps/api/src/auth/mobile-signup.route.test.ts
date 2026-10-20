@@ -96,6 +96,13 @@ jest.mock('../services/email-verification.service', () => ({
   sendVerificationEmailWithinLimit: (...args: unknown[]) => mockSendVerificationEmail(...args),
 }));
 
+const GRANT_EXPIRES_AT = new Date('2026-10-21T12:00:00Z');
+const mockIssueSignInGrant = jest.fn().mockResolvedValue({ secret: 'grant-secret', expiresAt: GRANT_EXPIRES_AT });
+
+jest.mock('../services/email-sign-in-grant.service', () => ({
+  issueSignInGrant: (...args: unknown[]) => mockIssueSignInGrant(...args),
+}));
+
 const mockEvaluateSignupAttestation = jest.fn().mockResolvedValue(null);
 const mockRequiresUnattestedCap = jest.fn().mockReturnValue(false);
 const mockReportSignupAttestation = jest.fn();
@@ -189,8 +196,14 @@ describe('POST /mobile/signup', () => {
     expect(res.json).toHaveBeenCalledWith({
       error: 'Check your inbox for a link to verify your email, then sign in.',
       code: 'EMAIL_VERIFICATION_REQUIRED',
-      details: { email: 'test@example.com', accountCreated: true },
+      details: {
+        email: 'test@example.com',
+        accountCreated: true,
+        signInSecret: 'grant-secret',
+        signInSecretExpiresAt: '2026-10-21T12:00:00.000Z',
+      },
     });
+    expect(mockIssueSignInGrant).toHaveBeenCalledWith('u1', 'mobile');
     expect(mockSendVerificationEmail).toHaveBeenCalledWith(
       { id: 'u1', email: 'test@example.com', name: 'Test User' },
       'user_action',
@@ -413,6 +426,23 @@ describe('POST /mobile/login email verification gate', () => {
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ code: 'EMAIL_VERIFICATION_REQUIRED' }));
     expect(mockSendVerificationEmail).toHaveBeenCalledWith(expect.objectContaining({ id: 'u1' }), 'user_action');
     expect(mockGenerateAccessToken).not.toHaveBeenCalled();
+    expect(mockIssueSignInGrant).toHaveBeenCalledWith('u1', 'mobile');
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        details: expect.objectContaining({ signInSecret: 'grant-secret', signInSecretExpiresAt: '2026-10-21T12:00:00.000Z' }),
+      }),
+    );
+  });
+
+  it('leaves the grant fields out when no grant could be issued', async () => {
+    mockFindUnique.mockResolvedValue({ ...baseUser, emailVerificationRequired: true, emailVerified: null });
+    mockIssueSignInGrant.mockResolvedValueOnce(null);
+    const res = createMockResponse();
+
+    await invokeHandler(handler, loginRequest(), res as unknown as Response);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ details: { email: baseUser.email } }));
   });
 
   it('answers a wrong password with 401 before the gate', async () => {
@@ -424,6 +454,7 @@ describe('POST /mobile/login email verification gate', () => {
 
     expect(res.status).toHaveBeenCalledWith(401);
     expect(mockSendVerificationEmail).not.toHaveBeenCalled();
+    expect(mockIssueSignInGrant).not.toHaveBeenCalled();
   });
 
   it('issues tokens once the email is verified', async () => {

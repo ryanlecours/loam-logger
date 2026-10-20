@@ -10,6 +10,7 @@ import ProviderLinkModal from '../components/ProviderLinkModal';
 import CheckEmailNotice from '../components/CheckEmailNotice';
 import TurnstileWidget, { type TurnstileHandle } from '../components/TurnstileWidget';
 import { useTurnstileToken } from '../hooks/useTurnstileToken';
+import { useFinishEmailSignIn } from '../hooks/useFinishEmailSignIn';
 
 export default function Signup() {
   // Unset in environments without a Turnstile widget; signup then sends no token.
@@ -19,6 +20,8 @@ export default function Signup() {
 
   const navigate = useNavigate();
   const apollo = useApolloClient();
+  // New accounts go to onboarding, as after a Google signup.
+  const finishEmailSignIn = useFinishEmailSignIn('/onboarding');
 
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
@@ -110,7 +113,9 @@ export default function Signup() {
         return;
       }
 
-      // Account created. No session until the emailed link is opened.
+      // Account created. No session until the emailed link is opened; the
+      // API also set this browser's sign-in grant cookie, so the notice can
+      // sign in by itself once that happens.
       setVerificationEmail(data.email || email.trim());
     } catch (err) {
       console.error('[Signup] Network error:', err);
@@ -210,7 +215,8 @@ export default function Signup() {
           <div className="rounded-2xl p-8 glass-form">
             <CheckEmailNotice
               email={verificationEmail}
-              onBackToSignIn={() => navigate('/login', { replace: true })}
+              onBackToSignIn={() => navigate(`/login?email=${encodeURIComponent(verificationEmail)}`, { replace: true })}
+              onSignedIn={(result) => void finishEmailSignIn(result)}
             />
           </div>
         ) : (
