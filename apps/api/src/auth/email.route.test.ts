@@ -78,6 +78,13 @@ jest.mock('../lib/logger', () => ({
   logger: { error: jest.fn(), info: jest.fn(), warn: jest.fn(), debug: jest.fn() },
 }));
 
+jest.mock('../services/turnstile', () => ({
+  checkTurnstileConfig: jest.fn(),
+  evaluateSignupTurnstile: jest.fn().mockResolvedValue(null),
+  requiresUnverifiedWebCap: jest.fn().mockReturnValue(false),
+  reportSignupTurnstile: jest.fn(),
+}));
+
 import router from './email.route';
 import { prisma } from '../lib/prisma';
 import { checkAuthRateLimit } from '../lib/rate-limit';
@@ -95,6 +102,7 @@ import { sendVerificationEmailWithinLimit } from '../services/email-verification
 import { issueWebSession } from './session-issuer';
 import { checkSignupRateLimit } from '../lib/rate-limit';
 import { verifyPassword } from './password.utils';
+import { evaluateSignupTurnstile, reportSignupTurnstile, requiresUnverifiedWebCap } from '../services/turnstile';
 
 const mockPrisma = prisma as jest.Mocked<typeof prisma>;
 const mockUserFindUnique = mockPrisma.user.findUnique as unknown as jest.Mock;
@@ -166,6 +174,8 @@ beforeEach(() => {
   mockHashPassword.mockResolvedValue('hashed_new_password');
   (checkSignupRateLimit as jest.Mock).mockResolvedValue({ allowed: true });
   (verifyPassword as jest.Mock).mockResolvedValue(true);
+  (evaluateSignupTurnstile as jest.Mock).mockResolvedValue(null);
+  (requiresUnverifiedWebCap as jest.Mock).mockReturnValue(false);
 });
 
 // ============================================================================
@@ -371,6 +381,127 @@ describe('POST /signup', () => {
     expect(checkSignupRateLimit).toHaveBeenCalledWith('1.2.3.4');
     expect(res.status).toHaveBeenCalledWith(429);
     expect(createNewUser).not.toHaveBeenCalled();
+  });
+
+  describe('Turnstile', () => {
+    const verified = { outcome: 'verified', label: 'web:verified', hostname: 'loamlogger.app' };
+    const failed = { outcome: 'failed', reason: 'invalid-input-response', label: 'web:failed:invalid-input-response' };
+
+    it('checks the token with the client IP, stores the verdict and reports it', async () => {
+      (evaluateSignupTurnstile as jest.Mock).mockResolvedValue(verified);
+      const handler = getHandler('/signup', 'post');
+      const req = createMockRequest({ body: { ...body, turnstileToken: 'tok-123' } });
+      const res = createMockResponse();
+
+      await invokeHandler(handler, req as Request, res as unknown as Response);
+
+      expect(evaluateSignupTurnstile).toHaveBeenCalledWith({ token: 'tok-123', remoteIp: '1.2.3.4' });
+      expect(createNewUser).toHaveBeenCalledWith(expect.objectContaining({ signupAttestation: 'web:verified' }));
+      expect(reportSignupTurnstile).toHaveBeenCalledWith('user_new', verified);
+      expect(res.status).toHaveBeenCalledWith(201);
+    });
+
+    it('creates the account in monitor mode even when the token fails', async () => {
+      (evaluateSignupTurnstile as jest.Mock).mockResolvedValue(failed);
+      const handler = getHandler('/signup', 'post');
+      const req = createMockRequest({ body: { ...body, turnstileToken: 'bad' } });
+      const res = createMockResponse();
+
+      await invokeHandler(handler, req as Request, res as unknown as Response);
+
+      expect(checkAuthRateLimit).not.toHaveBeenCalledWith('signup-unverified-web', 'global');
+      expect(createNewUser).toHaveBeenCalledWith(
+        expect.objectContaining({ signupAttestation: 'web:failed:invalid-input-response' }),
+      );
+      expect(res.status).toHaveBeenCalledWith(201);
+    });
+
+    it('stores no verdict and reports nothing while Turnstile is off', async () => {
+      const handler = getHandler('/signup', 'post');
+      const req = createMockRequest({ body });
+      const res = createMockResponse();
+
+      await invokeHandler(handler, req as Request, res as unknown as Response);
+
+      expect(createNewUser).toHaveBeenCalledWith(expect.objectContaining({ signupAttestation: null }));
+      expect(reportSignupTurnstile).not.toHaveBeenCalled();
+    });
+
+    it('does not spend the token on a signup that fails validation or hits a taken email', async () => {
+      const handler = getHandler('/signup', 'post');
+
+      const res400 = createMockResponse();
+      await invokeHandler(
+        handler,
+        createMockRequest({ body: { ...body, name: '', turnstileToken: 'tok' } }) as Request,
+        res400 as unknown as Response,
+      );
+      expect(res400.status).toHaveBeenCalledWith(400);
+
+      (verifyEmailAvailable as jest.Mock).mockResolvedValue({ available: false });
+      const res409 = createMockResponse();
+      await invokeHandler(
+        handler,
+        createMockRequest({ body: { ...body, turnstileToken: 'tok' } }) as Request,
+        res409 as unknown as Response,
+      );
+      expect(res409.status).toHaveBeenCalledWith(409);
+
+      expect(evaluateSignupTurnstile).not.toHaveBeenCalled();
+    });
+
+    it('in enforce mode, sends an unverified signup through the global cap and answers 429 when it is full', async () => {
+      (evaluateSignupTurnstile as jest.Mock).mockResolvedValue(failed);
+      (requiresUnverifiedWebCap as jest.Mock).mockReturnValue(true);
+      mockCheckAuthRateLimit.mockImplementation(async (operation: string) =>
+        operation === 'signup-unverified-web' ? { allowed: false, retryAfter: 1800 } : { allowed: true },
+      );
+      const handler = getHandler('/signup', 'post');
+      const req = createMockRequest({ body: { ...body, turnstileToken: 'bad' } });
+      const res = createMockResponse();
+
+      await invokeHandler(handler, req as Request, res as unknown as Response);
+
+      expect(checkAuthRateLimit).toHaveBeenCalledWith('signup-unverified-web', 'global');
+      expect(res.status).toHaveBeenCalledWith(429);
+      expect(createNewUser).not.toHaveBeenCalled();
+      expect(mockLoggerWarn).toHaveBeenCalledWith(
+        expect.objectContaining({ turnstile: 'web:failed:invalid-input-response', route: 'signup', retryAfter: 1800 }),
+        'Web signup 429: unverified cap',
+      );
+    });
+
+    it('in enforce mode, lets an unverified signup through while the cap has room', async () => {
+      (evaluateSignupTurnstile as jest.Mock).mockResolvedValue(failed);
+      (requiresUnverifiedWebCap as jest.Mock).mockReturnValue(true);
+      const handler = getHandler('/signup', 'post');
+      const req = createMockRequest({ body: { ...body, turnstileToken: 'bad' } });
+      const res = createMockResponse();
+
+      await invokeHandler(handler, req as Request, res as unknown as Response);
+
+      expect(checkAuthRateLimit).toHaveBeenCalledWith('signup-unverified-web-ip', '1.2.3.4');
+      expect(checkAuthRateLimit).toHaveBeenCalledWith('signup-unverified-web', 'global');
+      expect(res.status).toHaveBeenCalledWith(201);
+      expect(reportSignupTurnstile).toHaveBeenCalledWith('user_new', failed);
+    });
+
+    it('in enforce mode, stops one IP at its share before it can touch the global bucket', async () => {
+      (evaluateSignupTurnstile as jest.Mock).mockResolvedValue(failed);
+      (requiresUnverifiedWebCap as jest.Mock).mockReturnValue(true);
+      mockCheckAuthRateLimit.mockImplementation(async (operation: string) =>
+        operation === 'signup-unverified-web-ip' ? { allowed: false, retryAfter: 900 } : { allowed: true },
+      );
+      const handler = getHandler('/signup', 'post');
+      const req = createMockRequest({ body: { ...body, turnstileToken: 'bad' } });
+      const res = createMockResponse();
+
+      await invokeHandler(handler, req as Request, res as unknown as Response);
+
+      expect(res.status).toHaveBeenCalledWith(429);
+      expect(checkAuthRateLimit).not.toHaveBeenCalledWith('signup-unverified-web', 'global');
+      expect(createNewUser).not.toHaveBeenCalled();
+    });
   });
 });
 
