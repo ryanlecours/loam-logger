@@ -1,0 +1,67 @@
+name: Sync staging with main
+
+# After anything lands on main, bring staging up to it. Migration PRs go into
+# staging first (see CLAUDE.md), and a staging that lags main makes their
+# diffs show main's commits as if they were part of the change.
+#
+# - staging has nothing of its own: fast-forward it to main.
+# - staging holds work not yet promoted (a migration waiting for its
+#   staging -> main PR): merge main in, so that work is never dropped.
+# - the merge conflicts: fail the job and leave staging alone for a person
+#   to resolve.
+# Nothing is ever force-pushed.
+#
+# Pushes made with GITHUB_TOKEN do not start other workflows, so CI does not
+# re-run on staging for these commits (they already ran on main). Railway's
+# staging service still deploys them, since it listens to GitHub directly.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-staging
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Sync staging with main
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout staging
+        uses: actions/checkout@v4
+        with:
+          ref: staging
+          fetch-depth: 0
+
+      - name: Bring staging up to main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch --no-tags origin main
+
+          if git merge-base --is-ancestor origin/main HEAD; then
+            echo "staging already contains main; nothing to do."
+            exit 0
+          fi
+
+          if git merge-base --is-ancestor HEAD origin/main; then
+            echo "Fast-forwarding staging to main."
+            git merge --ff-only origin/main
+          else
+            echo "staging has commits main lacks:"
+            git log --oneline origin/main..HEAD
+            if ! git merge --no-ff origin/main -m "Merge main into staging (automatic sync)"; then
+              git merge --abort
+              echo "::error::main does not merge cleanly into staging. Merge it by hand."
+              exit 1
+            fi
+          fi
+
+          # A plain push: it is refused, never forced, if staging moved meanwhile.
+          git push origin HEAD:staging
+          echo "staging is now $(git rev-parse --short HEAD)."
