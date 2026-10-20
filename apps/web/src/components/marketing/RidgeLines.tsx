@@ -7,11 +7,10 @@ type Props = {
 };
 
 /**
- * The hero's wireframe ridge as plain SVG. Always rendered: it is the
- * silhouette the WebGL terrain sits on top of, and the whole hero when the
- * terrain is off (reduced motion, phones, no WebGL, Save-Data).
+ * The hero's ridge: a few faint contour lines in fog over the trail bed,
+ * closing the photo into the page. Plain SVG, no script, no motion.
  */
-export default function RidgeLines({ count = 14, className = 'lp-hero__ridge' }: Props) {
+export default function RidgeLines({ count = 7, className = 'lp-hero__ridge' }: Props) {
   const field = useMemo(() => buildRidgeField(count), [count]);
 
   return (
@@ -28,7 +27,7 @@ export default function RidgeLines({ count = 14, className = 'lp-hero__ridge' }:
           key={index}
           points={line.points}
           fill="none"
-          stroke="var(--mint)"
+          stroke="#b7c0ba"
           strokeOpacity={line.alpha}
           strokeWidth="1"
           strokeLinejoin="round"

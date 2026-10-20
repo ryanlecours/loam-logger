@@ -1,25 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { screen, within } from '@testing-library/react';
 import { render } from '../test/test-utils';
 import MarketingLanding from './MarketingLanding';
 
-// jsdom has no WebGL and no requestIdleCallback; the gate must keep the
-// three.js module out of the page here, which also keeps it out of the test.
-vi.mock('../components/marketing/terrainGate', () => ({
-  detectTerrainEnvironment: () => ({
-    reducedMotion: true,
-    viewportWidth: 1024,
-    saveData: false,
-    webgl: false,
-  }),
-  shouldRenderTerrain: () => false,
-}));
-
 describe('MarketingLanding', () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-  });
-
   it('leads with the positioning line and the free tier', () => {
     render(<MarketingLanding />);
     const heading = screen.getByRole('heading', { level: 1 });
@@ -28,11 +12,10 @@ describe('MarketingLanding', () => {
     expect(screen.getAllByRole('link', { name: 'Start free' }).length).toBeGreaterThan(0);
   });
 
-  it('always draws the static ridge and never the terrain canvas when gated off', async () => {
-    render(<MarketingLanding />);
+  it('draws the static ridge with no canvas or script behind it', () => {
+    const { container } = render(<MarketingLanding />);
     expect(screen.getByTestId('hero-ridge')).toBeInTheDocument();
-    await vi.advanceTimersByTimeAsync(1000);
-    expect(screen.queryByTestId('hero-terrain')).not.toBeInTheDocument();
+    expect(container.querySelector('canvas')).toBeNull();
   });
 
   it('shows all four component health states in the dashboard example', () => {

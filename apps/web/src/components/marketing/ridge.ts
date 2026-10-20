@@ -1,10 +1,9 @@
 /**
  * Static ridge lines for the landing hero.
  *
- * A stack of layered polylines that read as a wireframe terrain: far ridges
- * sit high and faint, near ridges sit low, bright and tall. This is the
- * reduced-motion and no-WebGL rendering of the hero terrain, and it is what
- * the three.js scene fades in over, so both share the same silhouette math.
+ * A few layered polylines that read as contour lines on the trail bed: far
+ * ridges sit high and faint, near ridges sit low and a little brighter. The
+ * nearest one also closes the ground path that lands the photo on the page.
  */
 
 export type RidgeLine = {
@@ -53,7 +52,7 @@ export function buildRidgeField(
       points.push(`${x},${y.toFixed(1)}`);
     }
     const joined = points.join(' ');
-    lines.push({ points: joined, alpha: Number((0.1 + t * 0.45).toFixed(2)) });
+    lines.push({ points: joined, alpha: Number((0.06 + t * 0.22).toFixed(2)) });
     if (i === lineCount - 1) nearest = joined;
   }
 

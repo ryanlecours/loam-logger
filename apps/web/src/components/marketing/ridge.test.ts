@@ -8,7 +8,7 @@ describe('buildRidgeField', () => {
     // Far lines are faint, near lines are bright.
     expect(field.lines[0].alpha).toBeLessThan(field.lines[5].alpha);
     expect(field.lines[0].alpha).toBeGreaterThan(0);
-    expect(field.lines[5].alpha).toBeLessThanOrEqual(0.55);
+    expect(field.lines[5].alpha).toBeLessThanOrEqual(0.3);
   });
 
   it('clamps the line count to something drawable', () => {
