@@ -1,0 +1,167 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router';
+import Signup from './Signup';
+import { TURNSTILE_SCRIPT_SRC, type TurnstileRenderOptions } from '@/lib/turnstile';
+
+vi.mock('@react-oauth/google', () => ({
+  GoogleLogin: () => null,
+}));
+
+vi.mock('@apollo/client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@apollo/client')>()),
+  useApolloClient: () => ({ query: vi.fn(), writeQuery: vi.fn() }),
+}));
+
+function jsonResponse(status: number, body: unknown) {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    statusText: '',
+    json: async () => body,
+    text: async () => JSON.stringify(body),
+  };
+}
+
+function fillAndSubmit() {
+  fireEvent.change(screen.getByPlaceholderText('Your name'), { target: { value: 'Rider' } });
+  fireEvent.change(screen.getByPlaceholderText('you@example.com'), { target: { value: 'new@example.com' } });
+  fireEvent.change(screen.getByPlaceholderText('At least 8 characters'), { target: { value: 'StrongPassw0rd!' } });
+  fireEvent.change(screen.getByPlaceholderText('Re-enter password'), { target: { value: 'StrongPassw0rd!' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Create Account' }));
+}
+
+function sentBody(fetchMock: ReturnType<typeof vi.fn>, call = 0) {
+  return JSON.parse(fetchMock.mock.calls[call][1].body as string);
+}
+
+const turnstile = {
+  render: vi.fn<(el: HTMLElement, opts: TurnstileRenderOptions) => string>(),
+  reset: vi.fn(),
+  remove: vi.fn(),
+};
+
+/** The options Signup passed to turnstile.render, once the widget mounted. */
+async function renderedWidget(): Promise<TurnstileRenderOptions> {
+  await waitFor(() => expect(turnstile.render).toHaveBeenCalled());
+  return turnstile.render.mock.calls[0][1];
+}
+
+beforeEach(() => {
+  vi.stubGlobal(
+    'IntersectionObserver',
+    class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+  );
+  turnstile.render.mockReset().mockReturnValue('widget-1');
+  turnstile.reset.mockReset();
+  turnstile.remove.mockReset();
+  window.turnstile = turnstile;
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+  delete window.turnstile;
+});
+
+describe('Signup with Turnstile', () => {
+  beforeEach(() => vi.stubEnv('VITE_TURNSTILE_SITE_KEY', 'site-key-123'));
+
+  it('renders the dark, interaction-only widget for the signup action', async () => {
+    render(<MemoryRouter><Signup /></MemoryRouter>);
+
+    const options = await renderedWidget();
+    expect(turnstile.render.mock.calls[0][0]).toBe(screen.getByTestId('turnstile-widget'));
+    expect(options).toMatchObject({
+      sitekey: 'site-key-123',
+      action: 'signup',
+      theme: 'dark',
+      appearance: 'interaction-only',
+    });
+  });
+
+  it('sends the widget token with the signup request', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(201, { ok: true, verificationRequired: true, email: 'new@example.com' }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<MemoryRouter><Signup /></MemoryRouter>);
+
+    const options = await renderedWidget();
+    act(() => options.callback?.('tok-abc'));
+    fillAndSubmit();
+
+    expect(await screen.findByRole('heading', { name: 'Check your email' })).toBeInTheDocument();
+    expect(fetchMock.mock.calls[0][0]).toMatch(/\/auth\/signup$/);
+    expect(sentBody(fetchMock)).toEqual({
+      email: 'new@example.com',
+      name: 'Rider',
+      password: 'StrongPassw0rd!',
+      turnstileToken: 'tok-abc',
+    });
+    // Leaving the form removes the widget.
+    await waitFor(() => expect(turnstile.remove).toHaveBeenCalledWith('widget-1'));
+  });
+
+  it('resets the widget after a refused signup and sends the next token on retry', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(429, { message: 'Too many signup attempts. Please try again later.' }))
+      .mockResolvedValueOnce(jsonResponse(201, { ok: true, verificationRequired: true, email: 'new@example.com' }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<MemoryRouter><Signup /></MemoryRouter>);
+
+    const options = await renderedWidget();
+    act(() => options.callback?.('tok-first'));
+    fillAndSubmit();
+
+    expect(await screen.findByText('Too many signup attempts. Please try again later.')).toBeInTheDocument();
+    expect(turnstile.reset).toHaveBeenCalledWith('widget-1');
+    expect(sentBody(fetchMock, 0).turnstileToken).toBe('tok-first');
+
+    act(() => options.callback?.('tok-second'));
+    fireEvent.click(screen.getByRole('button', { name: 'Create Account' }));
+
+    expect(await screen.findByRole('heading', { name: 'Check your email' })).toBeInTheDocument();
+    expect(sentBody(fetchMock, 1).turnstileToken).toBe('tok-second');
+  });
+
+  it('does not resend a token that expired', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(201, { ok: true, verificationRequired: true, email: 'new@example.com' }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<MemoryRouter><Signup /></MemoryRouter>);
+
+    const options = await renderedWidget();
+    act(() => options.callback?.('tok-old'));
+    act(() => options['expired-callback']?.());
+    fillAndSubmit();
+
+    await screen.findByRole('heading', { name: 'Check your email' });
+    expect(sentBody(fetchMock)).not.toHaveProperty('turnstileToken');
+  });
+});
+
+describe('Signup without a Turnstile site key', () => {
+  it('shows no widget, loads no script and sends no token', async () => {
+    vi.stubEnv('VITE_TURNSTILE_SITE_KEY', '');
+    delete window.turnstile;
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(201, { ok: true, verificationRequired: true, email: 'new@example.com' }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<MemoryRouter><Signup /></MemoryRouter>);
+
+    fillAndSubmit();
+
+    await screen.findByRole('heading', { name: 'Check your email' });
+    expect(screen.queryByTestId('turnstile-widget')).not.toBeInTheDocument();
+    expect(document.querySelector(`script[src="${TURNSTILE_SCRIPT_SRC}"]`)).toBeNull();
+    expect(sentBody(fetchMock)).not.toHaveProperty('turnstileToken');
+  });
+});

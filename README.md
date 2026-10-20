@@ -152,6 +152,10 @@ PLAY_INTEGRITY_SERVICE_ACCOUNT_JSON=""     # service account key JSON, raw or ba
 DEVICE_ATTESTATION_BYPASS_EMAILS=""        # comma-separated exact addresses you own; no +tag folding, no domains
 ANDROID_PACKAGE_NAME="com.loamlabs.loamlogger" # default; must match the Play app or every verdict fails package_mismatch
 
+# Cloudflare Turnstile on web signup. Dev uses Cloudflare's always-pass test secret.
+TURNSTILE_MODE="monitor"                   # off | monitor | enforce
+TURNSTILE_SECRET_KEY="1x0000000000000000000000000000000AA"
+
 # RevenueCat (IAP webhooks)
 REVENUECAT_WEBHOOK_AUTH_KEY="your-revenuecat-webhook-auth-key"
 
@@ -163,6 +167,8 @@ SESSION_SECRET="your-session-secret"
 #### Frontend (`apps/web/.env`)
 ```env
 VITE_API_URL=http://localhost:4000/graphql
+# Cloudflare's always-pass test site key; leave unset to hide the widget
+VITE_TURNSTILE_SITE_KEY=1x00000000000000000000AA
 ```
 
 ---

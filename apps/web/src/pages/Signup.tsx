@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router';
 import { useApolloClient } from '@apollo/client';
@@ -8,8 +8,14 @@ import { setCsrfToken } from '@/lib/csrf';
 import { readPendingProviderLink, type PendingProviderLink } from '@/lib/providerLink';
 import ProviderLinkModal from '../components/ProviderLinkModal';
 import CheckEmailNotice from '../components/CheckEmailNotice';
+import TurnstileWidget, { type TurnstileHandle } from '../components/TurnstileWidget';
 
 export default function Signup() {
+  // Unset in environments without a Turnstile widget; signup then sends no token.
+  const turnstileSiteKey: string | undefined = import.meta.env.VITE_TURNSTILE_SITE_KEY || undefined;
+  const turnstileRef = useRef<TurnstileHandle>(null);
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+
   const navigate = useNavigate();
   const apollo = useApolloClient();
 
@@ -74,12 +80,16 @@ export default function Signup() {
           email: email.trim(),
           name: name.trim(),
           password,
+          turnstileToken: turnstileToken ?? undefined,
         }),
       });
 
       const data = await res.json();
 
       if (!res.ok) {
+        // The API may have spent the single-use token, so solve again for
+        // the next attempt.
+        turnstileRef.current?.reset();
         if (data.code === 'EMAIL_EXISTS') {
           // Also the way back for anyone whose address someone else signed
           // up with: a reset goes to the inbox and replaces that password.
@@ -95,6 +105,7 @@ export default function Signup() {
       setVerificationEmail(data.email || email.trim());
     } catch (err) {
       console.error('[Signup] Network error:', err);
+      turnstileRef.current?.reset();
       setError('Network error. Please check your connection and try again.');
     } finally {
       setIsSubmitting(false);
@@ -300,13 +311,23 @@ export default function Signup() {
             </motion.div>
           )}
 
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className="btn-primary text-lg px-8 py-4 w-full transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isSubmitting ? 'Creating account...' : 'Create Account'}
-          </button>
+          <div>
+            {turnstileSiteKey && (
+              <TurnstileWidget
+                ref={turnstileRef}
+                siteKey={turnstileSiteKey}
+                action="signup"
+                onToken={setTurnstileToken}
+              />
+            )}
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="btn-primary text-lg px-8 py-4 w-full transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isSubmitting ? 'Creating account...' : 'Create Account'}
+            </button>
+          </div>
         </motion.form>
         </>
         )}

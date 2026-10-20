@@ -7,9 +7,12 @@ export const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 export const API_URL = process.env.API_URL || 'http://localhost:4000';
 
-export type DeviceAttestationMode = 'off' | 'monitor' | 'enforce';
+/** Rollout stage shared by the signup bot checks. */
+export type SignupCheckMode = 'off' | 'monitor' | 'enforce';
+export type DeviceAttestationMode = SignupCheckMode;
+export type TurnstileMode = SignupCheckMode;
 
-function parseDeviceAttestationMode(value: string | undefined): DeviceAttestationMode {
+function parseSignupCheckMode(value: string | undefined): SignupCheckMode {
   const mode = value?.trim().toLowerCase();
   return mode === 'off' || mode === 'enforce' ? mode : 'monitor';
 }
@@ -60,7 +63,7 @@ export const config = {
    * signup without a verified attestation through the small global
    * `signup-unattested` cap. Email verification applies either way.
    */
-  deviceAttestationMode: parseDeviceAttestationMode(process.env.DEVICE_ATTESTATION_MODE),
+  deviceAttestationMode: parseSignupCheckMode(process.env.DEVICE_ATTESTATION_MODE),
 
   /** Apple Developer Team ID; with appleBundleId it forms the App Attest App ID. */
   appleTeamId: process.env.APPLE_TEAM_ID,
@@ -83,6 +86,18 @@ export const config = {
     .split(',')
     .map((entry) => entry.trim().toLowerCase())
     .filter(Boolean),
+
+  /**
+   * Cloudflare Turnstile on web password signup (POST /auth/signup), the web
+   * counterpart of device attestation. `off` skips it, `monitor` (the
+   * default) verifies and records the outcome without blocking, and `enforce`
+   * sends every signup without a passing token through the small global
+   * `signup-unverified-web` cap. Email verification applies either way.
+   */
+  turnstileMode: parseSignupCheckMode(process.env.TURNSTILE_MODE),
+
+  /** Turnstile widget secret key, sent to Cloudflare's siteverify endpoint. */
+  turnstileSecretKey: process.env.TURNSTILE_SECRET_KEY,
 
   /**
    * RevenueCat webhook authorization key for verifying inbound IAP webhooks.

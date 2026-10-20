@@ -39,7 +39,7 @@ export type CreateNewUserOpts = {
   /** Client IP and user agent, kept for abuse review in the admin Users page. */
   signupIp?: string | null;
   signupUserAgent?: string | null;
-  /** Device attestation verdict label (mobile password signup only). */
+  /** Bot-check verdict label: device attestation on mobile, Turnstile on web. */
   signupAttestation?: string | null;
 };
 

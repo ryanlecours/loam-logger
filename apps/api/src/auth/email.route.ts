@@ -24,6 +24,14 @@ import {
   isEmailVerificationPending,
   sendVerificationEmailWithinLimit,
 } from '../services/email-verification.service';
+import {
+  checkTurnstileConfig,
+  evaluateSignupTurnstile,
+  reportSignupTurnstile,
+  requiresUnverifiedWebCap,
+} from '../services/turnstile';
+
+checkTurnstileConfig();
 
 const router = express.Router();
 
@@ -32,6 +40,11 @@ const router = express.Router();
  * Register a new FREE user and email a verification link. No session is
  * started: the rider signs in once the address is confirmed, so an account
  * opened under someone else's address never becomes usable.
+ *
+ * Optional `turnstileToken` comes from the Cloudflare Turnstile widget on the
+ * signup page. The verdict is stored on the user. In enforce mode, a signup
+ * without a passing token goes through the global `signup-unverified-web`
+ * cap; it is never refused outright.
  */
 router.post('/signup', express.json(), async (req, res) => {
   try {
@@ -42,10 +55,11 @@ router.post('/signup', express.json(), async (req, res) => {
       return sendTooManyRequests(res, 'Too many signup attempts. Please try again later.', rateLimit.retryAfter);
     }
 
-    const { email: rawEmail, name, password } = req.body as {
+    const { email: rawEmail, name, password, turnstileToken } = req.body as {
       email?: string;
       name?: string;
       password?: string;
+      turnstileToken?: unknown;
     };
 
     if (!rawEmail) {
@@ -84,6 +98,22 @@ router.post('/signup', express.json(), async (req, res) => {
     }
     const verifiedEmail = check.email;
 
+    // Checked after the cheap validation, so a 400 or 409 never spends the
+    // single-use token or the unverified budget.
+    const turnstileVerdict = await evaluateSignupTurnstile({ token: turnstileToken, remoteIp: clientIp });
+    if (requiresUnverifiedWebCap(turnstileVerdict)) {
+      // Per IP first, so a single source cannot drain the shared bucket.
+      const perIp = await checkAuthRateLimit('signup-unverified-web-ip', clientIp);
+      const cap = perIp.allowed ? await checkAuthRateLimit('signup-unverified-web', 'global') : perIp;
+      if (!cap.allowed) {
+        logger.warn(
+          { clientIp, turnstile: turnstileVerdict?.label, retryAfter: cap.retryAfter, route: 'signup' },
+          'Web signup 429: unverified cap'
+        );
+        return sendTooManyRequests(res, 'Too many signup attempts. Please try again later.', cap.retryAfter);
+      }
+    }
+
     const passwordHash = await hashPassword(password);
     const { user } = await createNewUser({
       email: verifiedEmail,
@@ -91,9 +121,12 @@ router.post('/signup', express.json(), async (req, res) => {
       passwordHash,
       signupIp: clientIp,
       signupUserAgent: getUserAgent(req),
+      signupAttestation: turnstileVerdict?.label ?? null,
     });
 
     await sendVerificationEmailWithinLimit(user, 'user_action');
+
+    if (turnstileVerdict) reportSignupTurnstile(user.id, turnstileVerdict);
 
     return res.status(201).json({ ok: true, verificationRequired: true, email: user.email });
   } catch (e) {
