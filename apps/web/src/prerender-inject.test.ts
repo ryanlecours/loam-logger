@@ -46,6 +46,11 @@ describe('injectLanding', () => {
     expect(re.test('/index.html')).toBe(true);
     expect(re.test('/dashboard')).toBe(false);
     expect(re.test('/pricing')).toBe(false);
+    expect(re.test('/index.html/')).toBe(false);
+  });
+
+  it('stops hiding the page if the bundle never mounts', () => {
+    expect(PRERENDER_GUARD).toMatch(/setTimeout\(function\(\)\{document\.documentElement\.classList\.remove\("lp-prerendered"\)\},\d+\)/);
   });
 });
 

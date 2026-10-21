@@ -378,6 +378,7 @@ The web app is a client-rendered SPA, so crawlers that skip JavaScript would see
 - On any path other than `/`, an inline guard keeps that markup invisible until React mounts and replaces it (`RevealAfterMount`). If a Content-Security-Policy without `'unsafe-inline'` is ever added, the guard needs a nonce or must move into the bundle.
 - `nx build web`, `npm run build` and Vercel's `npm run build:web` all produce the same output, and an Nx cache hit restores the prerendered file. CI fails if the built `index.html` lacks the landing root or the guard.
 - The landing tree is rendered in Node, so nothing it imports may touch `window`, `document`, `localStorage` or `matchMedia` at module scope or during render. Browser-only work belongs in `useEffect`. A violation fails the production build with a stack trace from the prerender step.
+- The step adds a few seconds to a production build: the child boots a Vite SSR server from the same `vite.config.ts` (plugins included, with the Sentry token blanked), renders once, and exits. If the render throws, the build fails with the stack trace.
 - Set `LOAM_SKIP_PRERENDER=1` to skip the step (for a quick local build, or if the SSR render ever breaks and a deploy cannot wait). `npm run prerender:web` runs the step on its own against an existing build.
 
 ### CI/CD

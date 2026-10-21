@@ -18,7 +18,13 @@ export const ROOT_MARKER = '<div id="root"></div>';
  */
 export const PRERENDER_GUARD =
   '<style>html.lp-prerendered #root{visibility:hidden}</style>' +
-  '<script>if(!/^\\/(index\\.html)?$/.test(location.pathname))document.documentElement.classList.add("lp-prerendered")</script>';
+  '<script>if(!/^\\/(index\\.html)?$/.test(location.pathname)){' +
+  'document.documentElement.classList.add("lp-prerendered");' +
+  // Safety valve: if the bundle never mounts (failed to load, threw before
+  // the root rendered), stop hiding the page rather than leave it blank. The
+  // landing markup showing late is a lesser failure than nothing showing.
+  'setTimeout(function(){document.documentElement.classList.remove("lp-prerendered")},8000)' +
+  '}</script>';
 
 /**
  * JSON for a <script type="application/ld+json"> block. JSON.stringify leaves

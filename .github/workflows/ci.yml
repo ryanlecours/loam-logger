@@ -121,7 +121,7 @@ jobs:
         # crawlers that skip JavaScript still read the page. The unit tests
         # cover the pieces; this catches the wiring between them going quiet.
         run: |
-          if npx nx show projects --affected | grep -q "web"; then
+          if npx nx show projects --affected | grep -qx "web"; then
             if [ ! -f "dist/apps/web/index.html" ]; then
               echo "❌ Error: dist/apps/web/index.html not found!"
               exit 1
