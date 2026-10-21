@@ -2188,12 +2188,18 @@ describe('GraphQL Resolvers', () => {
   describe('rides query with bikeId filter', () => {
     const query = resolvers.Query.rides;
 
-    it('should throw Unauthorized when user is not authenticated', async () => {
+    it('should throw UNAUTHENTICATED when user is not authenticated', async () => {
+      // The code, not just the message: the mobile app refreshes its access
+      // token only on UNAUTHENTICATED, so a plain Error left riders with a
+      // failed rides list after the token expired (NODE-6).
       const ctx = createMockContext(null);
 
       await expect(
         query({}, { take: 10 }, ctx as never)
-      ).rejects.toThrow('Unauthorized');
+      ).rejects.toMatchObject({
+        message: 'Unauthorized',
+        extensions: { code: 'UNAUTHENTICATED' },
+      });
 
       expect(mockPrisma.ride.findMany).not.toHaveBeenCalled();
     });
@@ -7876,6 +7882,39 @@ describe('GraphQL Resolvers', () => {
       // No bike named, so nothing to credit or debit.
       expect(data).not.toHaveProperty('bikeId');
       expect(tx.component.updateMany).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Mutation.addRide authentication', () => {
+    const mutation = resolvers.Mutation.addRide;
+
+    it('should throw UNAUTHENTICATED when user is not authenticated', async () => {
+      // UNAUTHENTICATED is what makes the mobile app refresh and retry, and
+      // what its offline outbox treats as retryable. Anything else parks a
+      // queued ride as a terminal failure.
+      const ctx = createMockContext(null);
+
+      await expect(
+        mutation(
+          {},
+          {
+            input: {
+              startTime: '2026-08-05T10:00:00.000Z',
+              durationSeconds: 3600,
+              distanceMeters: 16000,
+              elevationGainMeters: 400,
+              rideType: 'TRAIL',
+              unownedBike: true,
+            },
+          } as never,
+          ctx as never
+        )
+      ).rejects.toMatchObject({
+        message: 'Unauthorized',
+        extensions: { code: 'UNAUTHENTICATED' },
+      });
+
+      expect(mockCheckMutationRateLimit).not.toHaveBeenCalled();
     });
   });
 

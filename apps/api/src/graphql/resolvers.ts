@@ -1394,12 +1394,16 @@ export const resolvers = {
     },
 
     rides: async (_: unknown, { take = 1000, after, filter }: RidesArgs, ctx: GraphQLContext) => {
-      if (!ctx.user?.id) throw new Error('Unauthorized');
+      // requireUserId, not a bare Error: the mobile app refreshes its 15-minute
+      // access token only when a request fails with UNAUTHENTICATED. A plain
+      // Error surfaces as INTERNAL_SERVER_ERROR, so the first rides fetch after
+      // expiry failed outright instead of refreshing and retrying (NODE-6).
+      const userId = requireUserId(ctx);
       const limit = Math.min(10000, Math.max(1, take));
       assertCoherentBikeFilter(filter);
 
       const whereClause: Prisma.RideWhereInput = {
-        userId: ctx.user.id,
+        userId,
       };
 
       // Apply date filters if provided
@@ -1422,7 +1426,7 @@ export const resolvers = {
           select: { userId: true },
         });
 
-        if (!bike || bike.userId !== ctx.user.id) {
+        if (!bike || bike.userId !== userId) {
           throw new GraphQLError('Bike not found', {
             extensions: { code: 'NOT_FOUND' },
           });
@@ -2358,8 +2362,11 @@ export const resolvers = {
   },
   Mutation: {
     addRide: async (_p: unknown, { input }: { input: AddRideInput }, ctx: GraphQLContext) => {
-      if (!ctx.user?.id) throw new Error('Unauthorized');
-      const userId = ctx.user.id;
+      // UNAUTHENTICATED (via requireUserId) is what makes the mobile app
+      // refresh its token and retry. A plain Error here meant a recorded ride
+      // saved after the token expired failed with "Failed to save ride", and
+      // the offline outbox parked it as a terminal failure instead of retrying.
+      const userId = requireUserId(ctx);
 
       // Rate limit check
       const rateLimit = await checkMutationRateLimit('addRide', userId);
