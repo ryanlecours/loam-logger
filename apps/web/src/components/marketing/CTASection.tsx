@@ -6,6 +6,8 @@ export default function CTASection() {
       <img
         className="lp-cta__photo"
         src="/goldenHourULine.jpg"
+        width={2400}
+        height={1600}
         alt="Two riders laughing at a trailhead overlook at golden hour"
         loading="lazy"
       />

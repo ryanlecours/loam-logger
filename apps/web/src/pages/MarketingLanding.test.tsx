@@ -53,6 +53,24 @@ describe('MarketingLanding', () => {
     expect(screen.getByText(/Garmin Connect is a trademark/)).toBeInTheDocument();
   });
 
+  it('keeps the FAQ structured data in step with the visible Straight Answers', () => {
+    const { container } = render(<MarketingLanding />);
+    const scripts = Array.from(container.querySelectorAll('script[type="application/ld+json"]'));
+    const faq = scripts.map((s) => JSON.parse(s.textContent ?? '{}')).find((d) => d['@type'] === 'FAQPage');
+    expect(faq).toBeDefined();
+    const visible = Array.from(container.querySelectorAll('.lp-faq__q')).map((dt) => dt.textContent);
+    expect(faq.mainEntity.map((q: { name: string }) => q.name)).toEqual(visible);
+  });
+
+  it('publishes the same Pro price in the structured data as in the copy', () => {
+    const { container } = render(<MarketingLanding />);
+    const scripts = Array.from(container.querySelectorAll('script[type="application/ld+json"]'));
+    const graph = scripts.map((s) => JSON.parse(s.textContent ?? '{}')).find((d) => Array.isArray(d['@graph']));
+    const app = graph['@graph'].find((n: { '@type': string }) => n['@type'] === 'SoftwareApplication');
+    const yearly = app.offers.find((o: { name: string }) => o.name === 'Pro, yearly');
+    expect(screen.getAllByText(new RegExp(`\\$${yearly.price} a year`)).length).toBeGreaterThan(0);
+  });
+
   it('does not fabricate social proof', () => {
     render(<MarketingLanding />);
     expect(screen.queryByText(/testimonial/i)).not.toBeInTheDocument();

@@ -1,5 +1,6 @@
 import { Link } from 'react-router';
 import { Check } from 'lucide-react';
+import { formatUsd, PRO_PRICE_YEARLY_USD } from '../../constants/pricing';
 
 /**
  * The landing page's one commercial statement: Free is the product for a
@@ -31,8 +32,8 @@ export default function FreeTierSection() {
           </div>
           <p className="lp-free__note">
             Pro is for the quiver: unlimited bikes, a due-soon heads-up with the rides left on each
-            part, service alerts and a weekly check, weather on every ride, PDF export. $39.99 a year,
-            less than one fork service.{' '}
+            part, service alerts and a weekly check, weather on every ride, PDF export.{' '}
+            {formatUsd(PRO_PRICE_YEARLY_USD)} a year, less than one fork service.{' '}
             <Link to="/pricing?source=landing-free-note">Details on the pricing page.</Link>
           </p>
         </div>

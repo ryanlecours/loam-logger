@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { usePageMeta } from '../hooks/usePageMeta';
 import LandingNavbar from '../components/LandingNavbar';
+import SiteJsonLd from '../components/marketing/SiteJsonLd';
 import HeroSection from '../components/marketing/HeroSection';
 import HoursSection from '../components/marketing/HoursSection';
 import HowItCountsSection from '../components/marketing/HowItCountsSection';
@@ -30,6 +31,7 @@ export default function MarketingLanding() {
 
   return (
     <main className="lp">
+      <SiteJsonLd />
       <LandingNavbar />
       <HeroSection />
       <HoursSection />

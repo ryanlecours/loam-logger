@@ -1,3 +1,5 @@
+import { formatUsd, PRO_PRICE_YEARLY_USD } from '../../constants/pricing';
+
 const answers = [
   {
     q: 'Does it know when my chain is worn?',
@@ -21,7 +23,7 @@ const answers = [
   },
   {
     q: 'Is this another subscription?',
-    a: 'Free covers one bike: every part, ride sync, the service log, and a flag when something is past its interval. Not a trial, nothing expires. Pro is $39.99 a year if you run a quiver and want the due-soon heads-up and the alerts. One person builds this, and that’s what keeps the server on.',
+    a: `Free covers one bike: every part, ride sync, the service log, and a flag when something is past its interval. Not a trial, nothing expires. Pro is ${formatUsd(PRO_PRICE_YEARLY_USD)} a year if you run a quiver and want the due-soon heads-up and the alerts. One person builds this, and that’s what keeps the server on.`,
   },
   {
     q: 'There are other trackers. Why this one?',
@@ -56,6 +58,8 @@ export default function StraightAnswersSection() {
           <div className="lp-answers__photo">
             <img
               src="/ridingThroughFerns.jpg"
+              width={2048}
+              height={1365}
               alt="Two riders descending a fern-lined trail between firs"
               loading="lazy"
             />

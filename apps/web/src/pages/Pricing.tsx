@@ -1,6 +1,7 @@
 import { useNavigate, useSearchParams } from 'react-router';
 import { motion } from 'motion/react';
 import { usePageMeta } from '../hooks/usePageMeta';
+import { formatUsd, PRO_PRICE_MONTHLY_USD, PRO_PRICE_YEARLY_USD } from '../constants/pricing';
 import { gql, useMutation } from '@apollo/client';
 import { Check, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
@@ -21,7 +22,7 @@ export default function Pricing() {
   usePageMeta({
     title: 'Pricing | Loam Logger',
     description:
-      'Loam Logger is free for one bike with every component type, automatic ride sync and a service log. Pro adds unlimited bikes, due-soon warnings, alerts, weather and PDF export for $39.99 a year or $4.99 a month.',
+      `Loam Logger is free for one bike with every component type, automatic ride sync and a service log. Pro adds unlimited bikes, due-soon warnings, alerts, weather and PDF export for ${formatUsd(PRO_PRICE_YEARLY_USD)} a year or ${formatUsd(PRO_PRICE_MONTHLY_USD)} a month.`,
     canonical: 'https://loamlogger.app/pricing',
   });
   const navigate = useNavigate();
@@ -101,7 +102,7 @@ export default function Pricing() {
     },
     {
       name: 'Pro',
-      price: billingPeriod === 'MONTHLY' ? '$4.99' : '$39.99',
+      price: formatUsd(billingPeriod === 'MONTHLY' ? PRO_PRICE_MONTHLY_USD : PRO_PRICE_YEARLY_USD),
       period: billingPeriod === 'MONTHLY' ? '/mo' : '/yr',
       description: 'Full access, unlimited bikes',
       current: isPro && !isFoundingRider,

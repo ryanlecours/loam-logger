@@ -6,7 +6,7 @@ export default function HeroSection() {
   return (
     <section className="lp-hero" data-testid="hero">
       <picture>
-        <source media="(max-width: 767px)" srcSet="/heroFernsMobile.jpg" />
+        <source media="(max-width: 767px)" srcSet="/heroFernsMobile.jpg" width={1200} height={800} />
         <img
           className="lp-hero__photo"
           src="/heroFerns.jpg"

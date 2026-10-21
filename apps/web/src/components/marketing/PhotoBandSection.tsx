@@ -4,6 +4,8 @@ export default function PhotoBandSection() {
       <img
         className="lp-band__photo"
         src="/TommyBermGap.jpg"
+        width={1263}
+        height={1684}
         alt="Rider gapping a berm in late evening light"
         loading="lazy"
       />
