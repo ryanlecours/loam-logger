@@ -14,6 +14,7 @@ import { invalidateBikePrediction } from '../services/prediction/cache';
 import { logError, logger } from '../lib/logger';
 import { acquireLock, releaseLock } from '../lib/rate-limit';
 import { findPotentialDuplicates, type DuplicateCandidate } from '../lib/duplicate-detector';
+import { whoopElevationLoss } from '../lib/elevation-loss';
 import {
   WHOOP_API_BASE,
   isWhoopCyclingWorkout,
@@ -211,6 +212,7 @@ r.get<Empty, void, Empty, { year?: string }>(
         // Store raw WHOOP metrics in meters
         const distanceMeters = workout.score?.distance_meter ?? 0;
         const elevationGainMeters = workout.score?.altitude_gain_meter ?? 0;
+        const elevationLossMeters = whoopElevationLoss(workout.score);
 
         // Check for cross-provider duplicates
         const duplicateCandidate: DuplicateCandidate = {
@@ -248,6 +250,7 @@ r.get<Empty, void, Empty, { year?: string }>(
               durationSeconds,
               distanceMeters,
               elevationGainMeters,
+              elevationLossMeters,
               averageHr: workout.score?.average_heart_rate
                 ? Math.round(workout.score.average_heart_rate)
                 : null,

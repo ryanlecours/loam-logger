@@ -507,6 +507,39 @@ describe('whoop.backfill routes', () => {
       expect(createdRideData?.elevationGainMeters).toBe(300);
     });
 
+    it('derives descent from gain and net change, and stores null without the change', async () => {
+      const withChange = {
+        ...sampleCyclingWorkout,
+        score: { ...sampleCyclingWorkout.score, altitude_change_meter: 40 },
+      };
+      const withoutChange = { ...sampleCyclingWorkout, id: 'workout-no-change' };
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          records: [withChange, withoutChange],
+          next_token: undefined,
+        }),
+      });
+
+      const created: Record<string, unknown>[] = [];
+      mockTransaction.mockImplementation(async (fn) => fn({
+        $executeRaw: jest.fn().mockResolvedValue(0),
+        ride: {
+          create: jest.fn().mockImplementation((args) => {
+            created.push(args.data);
+            return {};
+          }),
+        },
+        component: { updateMany: jest.fn() },
+      }));
+
+      await invokeHandler(handler, mockReq as Request, mockRes as Response);
+
+      // 300 m gained, finished 40 m higher: 260 m of descent.
+      expect(created[0]?.elevationLossMeters).toBe(260);
+      expect(created[1]?.elevationLossMeters).toBeNull();
+    });
+
     it('should calculate duration from start and end times', async () => {
       mockFetch.mockResolvedValue({
         ok: true,

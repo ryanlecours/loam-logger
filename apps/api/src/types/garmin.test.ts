@@ -204,6 +204,7 @@ describe('pickGarminActivityFields', () => {
       distanceInMeters: 8368,
       elevationGainInMeters: 369,
       totalElevationGainInMeters: 369,
+      totalElevationLossInMeters: 371,
       averageHeartRateInBeatsPerMinute: 104,
       maxHeartRateInBeatsPerMinute: 168,
       locationName: 'Bellingham',

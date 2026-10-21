@@ -16,6 +16,7 @@ import {
   KINEMATIC_ONLY_OPTIONS,
   pointsFromStream,
   detectLiftSegments,
+  computeAdjustedMetrics,
   getLiftLines,
 } from '../lib/lift-detection';
 
@@ -39,6 +40,7 @@ export async function processLiftJob(
       startLat: true,
       startLng: true,
       liftDetectorVersion: true,
+      elevationLossMeters: true,
       stream: { select: { id: true, data: true } },
     },
   });
@@ -51,7 +53,14 @@ export async function processLiftJob(
     logger.debug({ rideId }, '[LiftWorker] Ride has no coords, skipping');
     return;
   }
-  if (ride.stream && ride.liftDetectorVersion === DETECTOR_VERSION) {
+  // A ride analyzed at the current version is done, unless it still has no
+  // descent: this job is also how a ride without a provider-reported descent
+  // gets one from its stream, and re-running costs no provider call.
+  if (
+    ride.stream &&
+    ride.liftDetectorVersion === DETECTOR_VERSION &&
+    ride.elevationLossMeters != null
+  ) {
     logger.debug({ rideId }, '[LiftWorker] Already analyzed at current detector version, skipping');
     return;
   }
@@ -112,6 +121,22 @@ export async function processLiftJob(
     geometryAvailable ? DEFAULT_OPTIONS : KINEMATIC_ONLY_OPTIONS
   );
 
+  // Descent from the stream, written only when no provider reported one.
+  // Garmin and Suunto send a smoothed figure at ingest and that number wins;
+  // Strava and in-app rides have nothing else, so the stream is their source.
+  // Lifts do not affect descent, so this is the plain sum over the track.
+  // computeAdjustedMetrics sums finite altitudes from zero, so this is always
+  // a number, but a track with fewer than two points has no descent to sum
+  // and would store 0 ("flat ride") where the contract wants null ("not
+  // reported"). The finite guard keeps a malformed stream from writing NaN
+  // and then re-running this job on every enqueue because the column reads
+  // as unset.
+  const streamLoss =
+    ride.elevationLossMeters == null && points.length >= 2
+      ? computeAdjustedMetrics(points, detected).elevationLossMeters
+      : null;
+  const derivedElevationLoss = streamLoss != null && Number.isFinite(streamLoss) ? streamLoss : null;
+
   // Step 4: persist segments and Ride deltas atomically. Delete-then-insert
   // makes re-detection idempotent.
   const rideStartMs = ride.startTime.getTime();
@@ -147,6 +172,7 @@ export async function processLiftJob(
         liftElevationGainMeters: detected.reduce((a, s) => a + s.elevationGainMeters, 0),
         liftDistanceMeters: detected.reduce((a, s) => a + s.distanceMeters, 0),
         liftDetectorVersion: DETECTOR_VERSION,
+        ...(derivedElevationLoss != null ? { elevationLossMeters: derivedElevationLoss } : {}),
       },
     });
   });

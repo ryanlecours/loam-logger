@@ -36,6 +36,7 @@ import {
   type SuuntoWorkoutsResponse,
 } from '../lib/suunto-sync';
 import { findPotentialDuplicates, type DuplicateCandidate } from '../lib/duplicate-detector';
+import { elevationLossFromProvider } from '../lib/elevation-loss';
 import { fireRideNotifications } from '../services/notification.service';
 
 // Garmin API limits backfill requests to 30-day chunks
@@ -88,6 +89,7 @@ type GarminActivityDetail = {
   distanceInMeters?: number;
   elevationGainInMeters?: number;
   totalElevationGainInMeters?: number;
+  totalElevationLossInMeters?: number;
   averageHeartRateInBeatsPerMinute?: number;
   maxHeartRateInBeatsPerMinute?: number;
   locationName?: string;
@@ -626,6 +628,7 @@ async function processSuuntoBackfill(userId: string, year: string): Promise<void
     const durationHours = Math.max(0, durationSeconds) / 3600;
     const distanceMeters = workout.totalDistance ?? 0;
     const elevationGainMeters = workout.totalAscent ?? 0;
+    const elevationLossMeters = elevationLossFromProvider(workout.totalDescent);
     const averageHr = workout.hrdata?.workoutAvgHR != null
       ? Math.round(workout.hrdata.workoutAvgHR)
       : null;
@@ -664,6 +667,7 @@ async function processSuuntoBackfill(userId: string, year: string): Promise<void
           durationSeconds,
           distanceMeters,
           elevationGainMeters,
+          elevationLossMeters,
           averageHr,
           rideType: getSuuntoRideType(workout.activityId),
           startLat,
@@ -882,6 +886,7 @@ async function processGarminCallback(userId: string, callbackURL: string): Promi
 
     const elevationGainMeters =
       (activity.totalElevationGainInMeters ?? activity.elevationGainInMeters) ?? 0;
+    const elevationLossMeters = elevationLossFromProvider(activity.totalElevationLossInMeters);
 
     const startTime = new Date(activity.startTimeInSeconds * 1000);
 
@@ -943,6 +948,7 @@ async function processGarminCallback(userId: string, callbackURL: string): Promi
           durationSeconds: activity.durationInSeconds,
           distanceMeters,
           elevationGainMeters,
+          elevationLossMeters,
           averageHr: activity.averageHeartRateInBeatsPerMinute ?? null,
           rideType: activityType,
           notes: activity.activityName ?? null,
@@ -961,6 +967,8 @@ async function processGarminCallback(userId: string, callbackURL: string): Promi
           durationSeconds: activity.durationInSeconds,
           distanceMeters,
           elevationGainMeters,
+          // Written when reported, never cleared; see sync.worker.ts.
+          ...(elevationLossMeters != null ? { elevationLossMeters } : {}),
           averageHr: activity.averageHeartRateInBeatsPerMinute ?? null,
           rideType: activityType,
           notes: activity.activityName ?? null,

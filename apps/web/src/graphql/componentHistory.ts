@@ -123,6 +123,7 @@ export const COMPONENT_HISTORY_RIDES = gql`
         durationSeconds
         distanceMeters
         elevationGainMeters
+        elevationLossMeters
         trailSystem
         location
         rideType

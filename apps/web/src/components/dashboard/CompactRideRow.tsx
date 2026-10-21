@@ -12,6 +12,7 @@ interface Ride {
   durationSeconds: number;
   distanceMeters: number;
   elevationGainMeters: number;
+  elevationLossMeters?: number | null;
   averageHr?: number | null;
   rideType: string;
   trailSystem?: string | null;
@@ -41,6 +42,13 @@ export function CompactRideRow({ ride, bikeName, onLinkBike }: CompactRideRowPro
   const climbValue = distanceUnit === 'km' ? climbMeters : climbMeters * 3.28084;
   const climb = isNaN(climbValue) ? '0' : Math.round(climbValue).toLocaleString();
   const climbUnit = distanceUnit === 'km' ? 'm' : 'ft';
+  // Null means no source reported a descent, so the row shows the climb alone
+  // rather than a 0 that would read as a flat ride.
+  const descentMeters = ride.elevationLossMeters;
+  const descent =
+    descentMeters == null
+      ? null
+      : Math.round(distanceUnit === 'km' ? descentMeters : descentMeters * 3.28084).toLocaleString();
 
   return (
     <>
@@ -60,7 +68,9 @@ export function CompactRideRow({ ride, bikeName, onLinkBike }: CompactRideRowPro
             <span className="compact-ride-meta-sep">&bull;</span>
             <span>{duration}</span>
             <span className="compact-ride-meta-sep">&bull;</span>
-            <span>{climb} {climbUnit}</span>
+            <span>
+              {descent == null ? `${climb} ${climbUnit}` : `↑ ${climb} ↓ ${descent} ${climbUnit}`}
+            </span>
             {ride.weather && (
               <>
                 <span className="compact-ride-meta-sep">&bull;</span>

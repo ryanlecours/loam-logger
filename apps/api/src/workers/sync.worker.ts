@@ -18,6 +18,7 @@ import { isGarminCyclingActivity } from '../types/garmin';
 import { normalizeGarminDeviceName } from '@loam/shared';
 import { removeGarminRideIfPresent } from '../lib/garmin-ride-removal';
 import { garminRideKey } from '../lib/garmin-ride-key';
+import { elevationLossFromProvider, whoopElevationLoss } from '../lib/elevation-loss';
 import { syncBikeComponentHours, type RidePlacement } from '../lib/component-hours';
 import { invalidateBikePredictionsForBikes } from '../services/prediction/cache';
 import { logger } from '../lib/logger';
@@ -96,6 +97,7 @@ type GarminActivity = {
   distanceInMeters?: number;
   elevationGainInMeters?: number;
   totalElevationGainInMeters?: number;
+  totalElevationLossInMeters?: number;
   averageHeartRateInBeatsPerMinute?: number;
   maxHeartRateInBeatsPerMinute?: number;
   locationName?: string;
@@ -820,6 +822,7 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
 
   const elevationGainMeters =
     (activity.totalElevationGainInMeters ?? activity.elevationGainInMeters) ?? 0;
+  const elevationLossMeters = elevationLossFromProvider(activity.totalElevationLossInMeters);
 
   const startTime = new Date(activity.startTimeInSeconds * 1000);
 
@@ -898,6 +901,7 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
         durationSeconds: activity.durationInSeconds,
         distanceMeters,
         elevationGainMeters,
+        elevationLossMeters,
         averageHr: activity.averageHeartRateInBeatsPerMinute ?? null,
         rideType: activity.activityType,
         notes: activity.activityName ?? null,
@@ -913,6 +917,9 @@ async function upsertGarminActivity(userId: string, activity: GarminActivity): P
         durationSeconds: activity.durationInSeconds,
         distanceMeters,
         elevationGainMeters,
+        // Written when reported, never cleared: a details delivery that omits
+        // the stat must not blank the summary's figure.
+        ...(elevationLossMeters != null ? { elevationLossMeters } : {}),
         averageHr: activity.averageHeartRateInBeatsPerMinute ?? null,
         rideType: activity.activityType,
         notes: activity.activityName ?? null,
@@ -1079,6 +1086,7 @@ async function upsertWhoopActivity(userId: string, workout: WhoopWorkout): Promi
 
   const distanceMeters = workout.score?.distance_meter ?? 0;
   const elevationGainMeters = workout.score?.altitude_gain_meter ?? 0;
+  const elevationLossMeters = whoopElevationLoss(workout.score);
 
   // Auto-assign bike if user has exactly one bike (WHOOP has no gear tagging)
   let bikeId: string | null = null;
@@ -1114,6 +1122,7 @@ async function upsertWhoopActivity(userId: string, workout: WhoopWorkout): Promi
         durationSeconds,
         distanceMeters,
         elevationGainMeters,
+        elevationLossMeters,
         averageHr: workout.score?.average_heart_rate
           ? Math.round(workout.score.average_heart_rate)
           : null,
@@ -1125,6 +1134,7 @@ async function upsertWhoopActivity(userId: string, workout: WhoopWorkout): Promi
         durationSeconds,
         distanceMeters,
         elevationGainMeters,
+        ...(elevationLossMeters != null ? { elevationLossMeters } : {}),
         averageHr: workout.score?.average_heart_rate
           ? Math.round(workout.score.average_heart_rate)
           : null,
@@ -1298,6 +1308,7 @@ async function upsertSuuntoActivity(
   const durationSeconds = workout.totalTime;
   const distanceMeters = workout.totalDistance ?? 0;
   const elevationGainMeters = workout.totalAscent ?? 0;
+  const elevationLossMeters = elevationLossFromProvider(workout.totalDescent);
   const startLat = workout.startPosition?.y ?? null;
   const startLng = workout.startPosition?.x ?? null;
   const averageHr = workout.hrdata?.workoutAvgHR != null
@@ -1340,6 +1351,7 @@ async function upsertSuuntoActivity(
         durationSeconds,
         distanceMeters,
         elevationGainMeters,
+        elevationLossMeters,
         averageHr,
         rideType,
         bikeId,
@@ -1351,6 +1363,7 @@ async function upsertSuuntoActivity(
         durationSeconds,
         distanceMeters,
         elevationGainMeters,
+        ...(elevationLossMeters != null ? { elevationLossMeters } : {}),
         averageHr,
         rideType,
         ...(startLat != null ? { startLat } : {}),

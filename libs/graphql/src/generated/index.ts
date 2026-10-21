@@ -98,6 +98,7 @@ export type AddRideInput = {
   distanceMeters: Scalars['Float']['input'];
   durationSeconds: Scalars['Int']['input'];
   elevationGainMeters: Scalars['Float']['input'];
+  elevationLossMeters?: InputMaybe<Scalars['Float']['input']>;
   location?: InputMaybe<Scalars['String']['input']>;
   notes?: InputMaybe<Scalars['String']['input']>;
   rideType: Scalars['String']['input'];
@@ -1275,6 +1276,13 @@ export type Ride = {
   distanceMeters: Scalars['Float']['output'];
   durationSeconds: Scalars['Int']['output'];
   elevationGainMeters: Scalars['Float']['output'];
+  /**
+   * Total descent. Null means no source reported one (rides imported before
+   * descent was tracked, manual rides without one, Strava rides whose stream
+   * has not been analyzed), so clients hide the stat rather than show 0.
+   * Zero is a genuinely flat ride.
+   */
+  elevationLossMeters?: Maybe<Scalars['Float']['output']>;
   garminActivityId?: Maybe<Scalars['String']['output']>;
   /**
    * Garmin device model that recorded this ride, raw from the Activity API
@@ -1850,6 +1858,7 @@ export type UpdateRideInput = {
   distanceMeters?: InputMaybe<Scalars['Float']['input']>;
   durationSeconds?: InputMaybe<Scalars['Int']['input']>;
   elevationGainMeters?: InputMaybe<Scalars['Float']['input']>;
+  elevationLossMeters?: InputMaybe<Scalars['Float']['input']>;
   location?: InputMaybe<Scalars['String']['input']>;
   notes?: InputMaybe<Scalars['String']['input']>;
   rideType?: InputMaybe<Scalars['String']['input']>;
@@ -1987,7 +1996,7 @@ export type AddRideMutationVariables = Exact<{
 }>;
 
 
-export type AddRideMutation = { __typename?: 'Mutation', addRide: { __typename?: 'Ride', id: string, startTime: string, durationSeconds: number, distanceMeters: number, elevationGainMeters: number, averageHr?: number | null, rideType: string, bikeId?: string | null, notes?: string | null, trailSystem?: string | null, location?: string | null } };
+export type AddRideMutation = { __typename?: 'Mutation', addRide: { __typename?: 'Ride', id: string, startTime: string, durationSeconds: number, distanceMeters: number, elevationGainMeters: number, elevationLossMeters?: number | null, averageHr?: number | null, rideType: string, bikeId?: string | null, notes?: string | null, trailSystem?: string | null, location?: string | null } };
 
 export type BikeNotesQueryVariables = Exact<{
   bikeId: Scalars['ID']['input'];
@@ -2082,7 +2091,7 @@ export type RidesQueryVariables = Exact<{
 }>;
 
 
-export type RidesQuery = { __typename?: 'Query', rides: Array<{ __typename?: 'Ride', id: string, garminActivityId?: string | null, garminDeviceName?: string | null, stravaActivityId?: string | null, stravaDeviceName?: string | null, whoopWorkoutId?: string | null, suuntoWorkoutId?: string | null, startTime: string, durationSeconds: number, distanceMeters: number, elevationGainMeters: number, averageHr?: number | null, rideType: string, bikeId?: string | null, notes?: string | null, trailSystem?: string | null, location?: string | null }> };
+export type RidesQuery = { __typename?: 'Query', rides: Array<{ __typename?: 'Ride', id: string, garminActivityId?: string | null, garminDeviceName?: string | null, stravaActivityId?: string | null, stravaDeviceName?: string | null, whoopWorkoutId?: string | null, suuntoWorkoutId?: string | null, startTime: string, durationSeconds: number, distanceMeters: number, elevationGainMeters: number, elevationLossMeters?: number | null, averageHr?: number | null, rideType: string, bikeId?: string | null, notes?: string | null, trailSystem?: string | null, location?: string | null }> };
 
 export type UnmappedStravaGearsQueryVariables = Exact<{ [key: string]: never; }>;
 
@@ -2114,7 +2123,7 @@ export type UpdateRideMutationVariables = Exact<{
 }>;
 
 
-export type UpdateRideMutation = { __typename?: 'Mutation', updateRide: { __typename?: 'Ride', id: string, startTime: string, durationSeconds: number, distanceMeters: number, elevationGainMeters: number, averageHr?: number | null, rideType: string, bikeId?: string | null, notes?: string | null, trailSystem?: string | null, location?: string | null, updatedAt: string } };
+export type UpdateRideMutation = { __typename?: 'Mutation', updateRide: { __typename?: 'Ride', id: string, startTime: string, durationSeconds: number, distanceMeters: number, elevationGainMeters: number, elevationLossMeters?: number | null, averageHr?: number | null, rideType: string, bikeId?: string | null, notes?: string | null, trailSystem?: string | null, location?: string | null, updatedAt: string } };
 
 export type UpdateUserPreferencesMutationVariables = Exact<{
   input: UpdateUserPreferencesInput;
@@ -2195,6 +2204,7 @@ export const AddRideDocument = gql`
     durationSeconds
     distanceMeters
     elevationGainMeters
+    elevationLossMeters
     averageHr
     rideType
     bikeId
@@ -2845,6 +2855,7 @@ export const RidesDocument = gql`
     durationSeconds
     distanceMeters
     elevationGainMeters
+    elevationLossMeters
     averageHr
     rideType
     bikeId
@@ -3067,6 +3078,7 @@ export const UpdateRideDocument = gql`
     durationSeconds
     distanceMeters
     elevationGainMeters
+    elevationLossMeters
     averageHr
     rideType
     bikeId

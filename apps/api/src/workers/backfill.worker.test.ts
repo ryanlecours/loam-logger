@@ -1257,6 +1257,54 @@ describe('Activity metric conversions', () => {
     expect(args.create.elevationGainMeters).toBe(100);
   });
 
+  it('stores the reported descent, and leaves it null when Garmin omits it', async () => {
+    const captured: unknown[] = [];
+    (mockPrisma.ride.upsert as jest.Mock).mockImplementation((args) => {
+      captured.push(args);
+      return {};
+    });
+
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve([
+        {
+          summaryId: 'activity-123',
+          activityType: 'cycling',
+          startTimeInSeconds: 1706123456,
+          durationInSeconds: 3600,
+          totalElevationGainInMeters: 100,
+          totalElevationLossInMeters: 95,
+        },
+        {
+          summaryId: 'activity-124',
+          activityType: 'cycling',
+          startTimeInSeconds: 1706223456,
+          durationInSeconds: 3600,
+          totalElevationGainInMeters: 100,
+        },
+      ]),
+    } as Response);
+
+    await processBackfillJob({
+      name: 'processCallback',
+      id: 'job-123',
+      data: {
+        userId: 'user-123',
+        provider: 'garmin',
+        callbackURL: 'https://apis.garmin.com/callback/xyz',
+      },
+    });
+
+    type Upsert = { create: { elevationLossMeters: number | null }; update: Record<string, unknown> };
+    const [withLoss, withoutLoss] = captured as Upsert[];
+    expect(withLoss.create.elevationLossMeters).toBe(95);
+    expect(withLoss.update.elevationLossMeters).toBe(95);
+    // Null, not 0: "not reported" must stay distinguishable from a flat ride,
+    // and a re-sync that omits it must not clear a stored value.
+    expect(withoutLoss.create.elevationLossMeters).toBeNull();
+    expect(withoutLoss.update).not.toHaveProperty('elevationLossMeters');
+  });
+
   it('should use elevationGainInMeters as fallback', async () => {
     let capturedArgs: unknown;
     (mockPrisma.ride.upsert as jest.Mock).mockImplementation((args) => {

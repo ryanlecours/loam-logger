@@ -32,6 +32,7 @@ export const RIDES = gql`
       durationSeconds
       distanceMeters
       elevationGainMeters
+      elevationLossMeters
       averageHr
       rideType
       bikeId

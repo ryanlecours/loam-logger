@@ -32,6 +32,7 @@ jest.mock('../lib/lift-detection', () => ({
   KINEMATIC_ONLY_OPTIONS: { openThreshold: 0.72 },
   pointsFromStream: jest.fn(),
   detectLiftSegments: jest.fn(),
+  computeAdjustedMetrics: jest.fn(),
   getLiftLines: jest.fn(),
 }));
 
@@ -44,6 +45,7 @@ import {
   KINEMATIC_ONLY_OPTIONS,
   pointsFromStream,
   detectLiftSegments,
+  computeAdjustedMetrics,
   getLiftLines,
 } from '../lib/lift-detection';
 
@@ -54,7 +56,11 @@ const mockGetToken = getValidStravaToken as jest.Mock;
 const mockFetchStreams = fetchStravaStreams as jest.Mock;
 const mockPointsFromStream = pointsFromStream as jest.Mock;
 const mockDetect = detectLiftSegments as jest.Mock;
+const mockAdjusted = computeAdjustedMetrics as jest.Mock;
 const mockGetLiftLines = getLiftLines as jest.Mock;
+
+/** What the stream says the ride descended; see "fills descent" below. */
+const STREAM_DESCENT = 842.5;
 
 const makeJob = (rideId = 'ride-1') => ({ data: { rideId }, id: 'job-1' } as never);
 
@@ -87,6 +93,8 @@ const baseRide = {
   startLat: 45.0,
   startLng: -122.0,
   liftDetectorVersion: null,
+  // No provider reported a descent, so the worker derives one from the stream.
+  elevationLossMeters: null,
   stream: null,
 };
 
@@ -97,6 +105,7 @@ describe('processLiftJob', () => {
     mockGetLiftLines.mockResolvedValue({ geometryAvailable: true, liftLines: [] });
     mockPointsFromStream.mockReturnValue(POINTS);
     mockDetect.mockReturnValue([]);
+    mockAdjusted.mockReturnValue({ elevationLossMeters: STREAM_DESCENT });
   });
 
   it('skips when the ride does not exist', async () => {
@@ -123,6 +132,7 @@ describe('processLiftJob', () => {
     mockFindUnique.mockResolvedValueOnce({
       ...baseRide,
       liftDetectorVersion: 1,
+      elevationLossMeters: 500,
       stream: { id: 'stream-1', data: STREAM_DATA },
     });
 
@@ -130,6 +140,65 @@ describe('processLiftJob', () => {
 
     expect(mockDetect).not.toHaveBeenCalled();
     expect(mockTransaction).not.toHaveBeenCalled();
+  });
+
+  it('re-analyzes a current-version ride that still has no descent', async () => {
+    // Analyzed before descent existed: the stream is on hand, so one more
+    // pass fills the column without a provider call.
+    mockFindUnique.mockResolvedValueOnce({
+      ...baseRide,
+      liftDetectorVersion: 1,
+      elevationLossMeters: null,
+      stream: { id: 'stream-1', data: STREAM_DATA },
+    });
+
+    await processLiftJob(makeJob());
+
+    expect(mockGetToken).not.toHaveBeenCalled();
+    expect(mockTx.ride.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ elevationLossMeters: STREAM_DESCENT }) })
+    );
+  });
+
+  it('leaves descent null for a track too short to sum, rather than writing 0', async () => {
+    mockFindUnique.mockResolvedValueOnce({
+      ...baseRide,
+      stream: { id: 'stream-1', data: STREAM_DATA },
+    });
+    mockPointsFromStream.mockReturnValueOnce([POINTS[0]]);
+
+    await processLiftJob(makeJob());
+
+    expect(mockAdjusted).not.toHaveBeenCalled();
+    const data = mockTx.ride.update.mock.calls[0][0].data;
+    expect(data).not.toHaveProperty('elevationLossMeters');
+  });
+
+  it('does not store a non-finite stream sum', async () => {
+    mockFindUnique.mockResolvedValueOnce({
+      ...baseRide,
+      stream: { id: 'stream-1', data: STREAM_DATA },
+    });
+    mockAdjusted.mockReturnValueOnce({ elevationLossMeters: NaN });
+
+    await processLiftJob(makeJob());
+
+    const data = mockTx.ride.update.mock.calls[0][0].data;
+    expect(data).not.toHaveProperty('elevationLossMeters');
+  });
+
+  it('never overwrites a provider-reported descent with the stream-derived one', async () => {
+    mockFindUnique.mockResolvedValueOnce({
+      ...baseRide,
+      elevationLossMeters: 500,
+      stream: { id: 'stream-1', data: STREAM_DATA },
+    });
+
+    await processLiftJob(makeJob());
+
+    expect(mockAdjusted).not.toHaveBeenCalled();
+    const data = mockTx.ride.update.mock.calls[0][0].data;
+    expect(data).not.toHaveProperty('elevationLossMeters');
   });
 
   it('re-detects from the persisted stream without calling Strava when the version is stale', async () => {
@@ -238,8 +307,12 @@ describe('processLiftJob', () => {
         liftElevationGainMeters: 155.5,
         liftDistanceMeters: 1600,
         liftDetectorVersion: 1,
+        elevationLossMeters: STREAM_DESCENT,
       },
     });
+    // Descent is summed over the whole track with the lift segments known,
+    // so the pure function gets both.
+    expect(mockAdjusted).toHaveBeenCalledWith(POINTS, [SEGMENT]);
   });
 
   it('records "analyzed, no lift" as zero deltas at the current version', async () => {
@@ -260,6 +333,7 @@ describe('processLiftJob', () => {
         liftElevationGainMeters: 0,
         liftDistanceMeters: 0,
         liftDetectorVersion: 1,
+        elevationLossMeters: STREAM_DESCENT,
       },
     });
   });

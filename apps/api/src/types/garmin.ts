@@ -125,6 +125,7 @@ const GARMIN_ACTIVITY_FIELDS = [
   'distanceInMeters',
   'elevationGainInMeters',
   'totalElevationGainInMeters',
+  'totalElevationLossInMeters',
   'averageHeartRateInBeatsPerMinute',
   'maxHeartRateInBeatsPerMinute',
   'locationName',
