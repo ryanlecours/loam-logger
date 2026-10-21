@@ -126,10 +126,13 @@ export async function processLiftJob(
   // Strava and in-app rides have nothing else, so the stream is their source.
   // Lifts do not affect descent, so this is the plain sum over the track.
   // computeAdjustedMetrics sums finite altitudes from zero, so this is always
-  // a number; the guard keeps a malformed stream from writing NaN and then
-  // re-running this job on every enqueue because the column reads as unset.
+  // a number, but a track with fewer than two points has no descent to sum
+  // and would store 0 ("flat ride") where the contract wants null ("not
+  // reported"). The finite guard keeps a malformed stream from writing NaN
+  // and then re-running this job on every enqueue because the column reads
+  // as unset.
   const streamLoss =
-    ride.elevationLossMeters == null
+    ride.elevationLossMeters == null && points.length >= 2
       ? computeAdjustedMetrics(points, detected).elevationLossMeters
       : null;
   const derivedElevationLoss = streamLoss != null && Number.isFinite(streamLoss) ? streamLoss : null;

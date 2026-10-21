@@ -180,7 +180,9 @@ export const typeDefs = gql`
     Total descent. Null means no source reported one (rides imported before
     descent was tracked, manual rides without one, Strava rides whose stream
     has not been analyzed), so clients hide the stat rather than show 0.
-    Zero is a genuinely flat ride.
+    Zero is a genuinely flat ride. Garmin and Suunto report it directly;
+    WHOOP's is derived (gain minus net change) from phone altitude and is
+    approximate; Strava and in-app rides get a sum over the altitude stream.
     """
     elevationLossMeters: Float
     averageHr: Int

@@ -160,6 +160,33 @@ describe('processLiftJob', () => {
     );
   });
 
+  it('leaves descent null for a track too short to sum, rather than writing 0', async () => {
+    mockFindUnique.mockResolvedValueOnce({
+      ...baseRide,
+      stream: { id: 'stream-1', data: STREAM_DATA },
+    });
+    mockPointsFromStream.mockReturnValueOnce([POINTS[0]]);
+
+    await processLiftJob(makeJob());
+
+    expect(mockAdjusted).not.toHaveBeenCalled();
+    const data = mockTx.ride.update.mock.calls[0][0].data;
+    expect(data).not.toHaveProperty('elevationLossMeters');
+  });
+
+  it('does not store a non-finite stream sum', async () => {
+    mockFindUnique.mockResolvedValueOnce({
+      ...baseRide,
+      stream: { id: 'stream-1', data: STREAM_DATA },
+    });
+    mockAdjusted.mockReturnValueOnce({ elevationLossMeters: NaN });
+
+    await processLiftJob(makeJob());
+
+    const data = mockTx.ride.update.mock.calls[0][0].data;
+    expect(data).not.toHaveProperty('elevationLossMeters');
+  });
+
   it('never overwrites a provider-reported descent with the stream-derived one', async () => {
     mockFindUnique.mockResolvedValueOnce({
       ...baseRide,
