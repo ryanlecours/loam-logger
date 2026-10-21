@@ -12,19 +12,33 @@
   <meta name="theme-color" content="#0C0C0E" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="description"
-    content="Component wear intelligence for mountain bikers. Your rides sync automatically and clock hours against every component, so a part nearing its service interval shows up before it becomes a mechanical." />
+    content="Loam Logger is a mountain bike service tracker. It takes the hours from rides you already record on Garmin Connect, Strava or WHOOP, puts them on your fork, shock, pads, chain and bearings, and tells you which parts are due. Free for one bike." />
   <meta property="og:type" content="website" />
   <meta property="og:site_name" content="Loam Logger" />
   <meta property="og:title" content="Anyone can track a ride. Loam Logger tracks your bike." />
-  <meta property="og:description" content="Fewer mechanicals. More good rides. Your rides sync automatically and clock hours against every component on your bike." />
-  <meta property="og:url" content="https://loamlogger.app" />
-  <meta property="og:image" content="https://loamlogger.app/loamLoggerLogo_1200x630.png" />
+  <meta property="og:description" content="A mountain bike service tracker that counts ride hours on every part and tells you which ones are due. Free for one bike, no card." />
+  <meta property="og:url" content="https://loamlogger.app/" />
+  <meta property="og:image" content="https://loamlogger.app/og-card.jpg" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:image:alt" content="Two riders charging through sword ferns on Pacific Northwest singletrack" />
+  <meta property="og:locale" content="en_US" />
 
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="Anyone can track a ride. Loam Logger tracks your bike." />
-  <meta name="twitter:description" content="Fewer mechanicals. More good rides. Your rides sync automatically and clock hours against every component on your bike." />
-  <meta name="twitter:image" content="https://loamlogger.app/loamLoggerLogo_1200x630.png" />
-  <title>Loam Logger</title>
+  <meta name="twitter:description" content="A mountain bike service tracker that counts ride hours on every part and tells you which ones are due. Free for one bike, no card." />
+  <meta name="twitter:image" content="https://loamlogger.app/og-card.jpg" />
+  <title>Loam Logger | Mountain bike service tracker</title>
+  <!--
+    This head is static and serves every route of the single-page app, so it
+    carries only site-wide defaults. Per-route title, description and
+    canonical are set at runtime by usePageMeta on the public pages, and the
+    landing page's structured data is rendered by SiteJsonLd so it is
+    prerendered on "/" alone. A static canonical is deliberately absent: it
+    would claim every route as the homepage. Crawlers that skip JavaScript
+    therefore see these defaults on every path; only "/" has prerendered
+    body content.
+  -->
   <script>
     (function () {
       try {

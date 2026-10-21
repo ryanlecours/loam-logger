@@ -4,116 +4,49 @@ export default function MarketingFooter() {
   const currentYear = new Date().getFullYear();
 
   return (
-    <footer className="bg-charcoal border-t border-slate/30">
-      <div className="container py-12">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-8">
-          {/* Brand */}
-          <div>
-            <div className="flex items-center gap-3 mb-4">
-              <img
-                src="/web-app-manifest-192x192.png"
-                alt="Loam Logger"
-                className="w-10 h-10 rounded-lg"
-              />
-              <h3 className="text-xl font-bold text-cream">Loam Logger</h3>
+    <footer className="lp-footer">
+      <div className="lp-container">
+        <div className="lp-footer__inner">
+          <div className="lp-footer__brand">
+            <div className="lp-footer__wordmark">
+              <img src="/web-app-manifest-192x192.png" alt="" />
+              <span>Loam Logger</span>
             </div>
-            <p className="text-sm text-concrete">
-              Fewer mechanicals. More good rides.
+            <p className="lp-footer__about">
+              Service tracking for mountain bikes. Built by Ryan LeCours at Loam Labs, in the Pacific
+              Northwest, between rides.
+            </p>
+            <p className="lp-footer__legal">
+              Garmin Connect is a trademark of Garmin Ltd. or its subsidiaries. Ride data is
+              attributed to the device that recorded it.
             </p>
           </div>
 
-          {/* Links */}
-          <div>
-            <h4 className="text-sm font-semibold text-sand uppercase tracking-wider mb-4">
-              Product
-            </h4>
-            <ul className="space-y-2">
-              <li>
-                <Link
-                  to="/signup"
-                  className="text-sm text-concrete hover:text-mint transition"
-                >
-                  Get started
-                </Link>
-              </li>
-              <li>
-                <Link
-                  to="/pricing?source=marketing-footer"
-                  className="text-sm text-concrete hover:text-mint transition"
-                >
-                  Pricing
-                </Link>
-              </li>
-              <li>
-                <Link
-                  to="/login"
-                  className="text-sm text-concrete hover:text-mint transition"
-                >
-                  Sign In
-                </Link>
-              </li>
-            </ul>
-          </div>
-
-          {/* Legal */}
-          <div>
-            <h4 className="text-sm font-semibold text-sand uppercase tracking-wider mb-4">
-              Legal
-            </h4>
-            <ul className="space-y-2">
-              <li>
-                <Link
-                  to="/privacy"
-                  className="text-sm text-concrete hover:text-mint transition"
-                >
-                  Privacy Policy
-                </Link>
-              </li>
-              <li>
-                <Link
-                  to="/delete-account"
-                  className="text-sm text-concrete hover:text-mint transition"
-                >
-                  Delete Your Account
-                </Link>
-              </li>
-            </ul>
-          </div>
-        </div>
-
-        {/* Partner Attribution */}
-        <div className="pt-8 border-t border-slate/30 mb-8">
-          <div className="flex flex-col items-center gap-3">
-            <p className="text-xs text-concrete text-center">
-              Bike specifications and component data
-            </p>
-            <a
-              href="https://99spokes.com"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="opacity-80 hover:opacity-100 transition-opacity"
-            >
-              <img
-                src="/logos/powered-by-99-spokes-for-dark-bg.svg"
-                alt="Powered by 99 Spokes"
-                className="h-8"
-              />
-            </a>
-          </div>
-        </div>
-
-        {/* Bottom Bar */}
-        <div className="pt-8 border-t border-slate/30">
-          <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-            <div className="text-xs text-concrete">
-              <p>© {currentYear} Loam Logger. Built by riders, for riders.</p>
-              <p>Built by Loam Labs LLC</p>
+          <nav className="lp-footer__nav" aria-label="Footer">
+            <div className="lp-footer__col">
+              <span className="lp-eyebrow">Product</span>
+              <Link to="/#how">How it works</Link>
+              <Link to="/pricing?source=marketing-footer">Pricing</Link>
+              <Link to="/support">Support</Link>
+              <Link to="/login">Log in</Link>
             </div>
-            <p className="text-xs text-concrete">
-              Made with ❤️ for the MTB community
-            </p>
-          </div>
+            <div className="lp-footer__col">
+              <span className="lp-eyebrow">Company</span>
+              <Link to="/about">About</Link>
+              <Link to="/privacy">Privacy</Link>
+              <Link to="/terms">Terms</Link>
+            </div>
+          </nav>
         </div>
+
+        <div className="lp-footer__attrib">
+          <span className="lp-footer__legal">Bike specifications and component data</span>
+          <a href="https://99spokes.com" target="_blank" rel="noopener noreferrer">
+            <img src="/logos/powered-by-99-spokes-for-dark-bg.svg" alt="Powered by 99 Spokes" />
+          </a>
+        </div>
+
+        <p className="lp-footer__copyright">© {currentYear} Loam Labs LLC.</p>
       </div>
     </footer>
   );

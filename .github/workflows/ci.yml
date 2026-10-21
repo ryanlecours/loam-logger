@@ -115,6 +115,31 @@ jobs:
             --environment production \
             --set "SENTRY_RELEASE=${{ github.sha }}"
 
+      - name: Verify web build prerendered the landing page
+        # apps/web/vite.config.ts runs scripts/prerender-landing.mjs after the
+        # bundle closes, writing the landing route's markup into index.html so
+        # crawlers that skip JavaScript still read the page. The unit tests
+        # cover the pieces; this catches the wiring between them going quiet.
+        run: |
+          if npx nx show projects --affected | grep -qx "web"; then
+            if [ ! -f "dist/apps/web/index.html" ]; then
+              echo "❌ Error: dist/apps/web/index.html not found!"
+              exit 1
+            fi
+            if ! grep -q '<main class="lp"' dist/apps/web/index.html; then
+              echo "❌ Error: dist/apps/web/index.html has an empty #root; the landing prerender did not run."
+              echo "Check the loam:prerender-landing plugin in apps/web/vite.config.ts and scripts/prerender-landing.mjs."
+              exit 1
+            fi
+            if ! grep -q 'lp-prerendered' dist/apps/web/index.html; then
+              echo "❌ Error: the prerender guard is missing from dist/apps/web/index.html."
+              exit 1
+            fi
+            echo "✅ Web build carries the prerendered landing page and its guard"
+          else
+            echo "Web not affected, skipping prerender validation"
+          fi
+
       - name: Verify API build has no orphan SSR chunks
         run: |
           if npx nx show projects --affected | grep -q "api"; then

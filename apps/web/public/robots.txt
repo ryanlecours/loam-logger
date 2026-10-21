@@ -1,2 +1,24 @@
+# Loam Logger: the public pages are open to every crawler, search and AI alike.
+# There are deliberately no per-bot groups: a crawler obeys only the most
+# specific group that matches it, so a "GPTBot: Allow /" group would drop the
+# Disallow lines below for that bot. The wildcard group already allows them.
+# The disallowed routes are the signed-in app and carry nothing worth indexing.
+# Disallow lines are prefix matches: "/rides" also covers "/rides/123" and
+# would cover a future "/rides-anything", so keep new public routes off
+# these prefixes.
+
 User-agent: *
-Allow: /privacy
+Allow: /
+Disallow: /dashboard
+Disallow: /gear
+Disallow: /rides
+Disallow: /bikes
+Disallow: /settings
+Disallow: /admin
+Disallow: /onboarding
+Disallow: /auth/
+Disallow: /change-password
+Disallow: /reset-password
+Disallow: /forgot-password
+
+Sitemap: https://loamlogger.app/sitemap.xml

@@ -13,6 +13,7 @@ import { inject } from '@vercel/analytics';
 import client from './lib/apolloClient';
 import { initPostHog } from './lib/posthog';
 import { installChunkReloadHandler } from './lib/chunkReload';
+import RevealAfterMount from './components/RevealAfterMount';
 
 initPostHog();
 installChunkReloadHandler();
@@ -28,6 +29,7 @@ createRoot(document.getElementById('root')!, {
         <ThemeProvider>
           <PreferencesProvider>
             <App />
+            <RevealAfterMount />
           </PreferencesProvider>
         </ThemeProvider>
       </ApolloProvider>

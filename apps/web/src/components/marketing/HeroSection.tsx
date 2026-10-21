@@ -1,81 +1,51 @@
-import { motion } from 'motion/react';
-import MarketingButton from './MarketingButton';
+import { Link } from 'react-router';
+import { ArrowDown } from 'lucide-react';
+import RidgeLines from './RidgeLines';
 
 export default function HeroSection() {
   return (
-    <section className="relative min-h-screen flex items-center justify-center overflow-hidden">
-      {/* Background Image with Overlay - Desktop */}
-      <div className="absolute inset-0 z-0 hidden md:block bg-hero-desktop bg-cover-center bg-fixed">
-        <div className="absolute inset-0 bg-gradient-to-b from-black/75 via-black/60 to-black/75" />
-      </div>
+    <section className="lp-hero" data-testid="hero">
+      <picture>
+        <source media="(max-width: 767px)" type="image/avif" srcSet="/heroFernsMobile.avif" width={1200} height={800} />
+        <source media="(max-width: 767px)" srcSet="/heroFernsMobile.jpg" width={1200} height={800} />
+        <source type="image/avif" srcSet="/heroFerns.avif" width={2048} height={1365} />
+        <img
+          className="lp-hero__photo"
+          src="/heroFerns.jpg"
+          width={2048}
+          height={1365}
+          alt="Two riders charging through waist-high sword ferns on Pacific Northwest singletrack"
+          fetchPriority="high"
+        />
+      </picture>
+      <div className="lp-hero__shade" aria-hidden="true" />
+      <div className="lp-hero__scrim" aria-hidden="true" />
+      <RidgeLines />
 
-      {/* Background Image with Overlay - Mobile */}
-      <div className="absolute inset-0 z-0 md:hidden bg-hero-mobile bg-cover-center">
-        <div className="absolute inset-0 bg-gradient-to-b from-black/75 via-black/60 to-black/75" />
-      </div>
-
-      {/* Content */}
-      <div className="relative z-10 container text-center px-6">
-        <motion.div
-          initial={{ opacity: 0, y: 30 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8, delay: 0.2 }}
-        >
-          <h1 className="hero-headline mb-6">
-            Anyone can track a ride.<br />Loam Logger tracks your bike.
+      <div className="lp-container lp-hero__content" id="top">
+        <div className="lp-hero__copy">
+          <h1 className="lp-h1">
+            Anyone can track a ride. <em>Loam Logger tracks your bike.</em>
           </h1>
-        </motion.div>
-
-        <motion.div
-          initial={{ opacity: 0, y: 30 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8, delay: 0.4 }}
-        >
-          <p className="body-large text-sand max-w-3xl mx-auto mb-8">
-            Your rides sync automatically and clock hours against every component.
-            Drop in knowing your bike&apos;s dialed.
+          <p className="lp-lede">
+            You already record every ride. Loam Logger takes the hours from those rides, puts them
+            on the fork, the shock, the pads, the chain, whatever&apos;s on the bike, and tells you
+            which ones are due.
           </p>
-        </motion.div>
-
-        <motion.div
-          initial={{ opacity: 0, y: 30 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8, delay: 0.6 }}
-          className="flex flex-col sm:flex-row items-center justify-center gap-4"
-        >
-          <MarketingButton href="/signup" size="xl" pulse>
-            Get started
-          </MarketingButton>
-        </motion.div>
-
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.8, delay: 0.8 }}
-          className="mt-6"
-        >
-          <div className="inline-flex items-center gap-2 px-4 py-2 bg-mint/20 border border-mint/40 rounded-full">
-            <span className="text-sm font-semibold text-mint">Free for every rider — no credit card required</span>
+          <div className="lp-actions">
+            <Link to="/signup" className="lp-btn lp-btn--primary">
+              Start free
+            </Link>
+            <a href="#how" className="lp-btn lp-btn--ghost">
+              <span>How it counts hours</span>
+              <ArrowDown size={18} aria-hidden="true" />
+            </a>
           </div>
-        </motion.div>
-      </div>
-
-      {/* Scroll Indicator */}
-      <motion.div
-        className="absolute bottom-8 left-1/2 transform -translate-x-1/2 z-10"
-        initial={{ opacity: 0, y: -20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{
-          duration: 1,
-          delay: 1.2,
-          repeat: Infinity,
-          repeatType: 'reverse',
-        }}
-      >
-        <div className="w-6 h-10 border-2 border-mint/50 rounded-full flex items-start justify-center p-2">
-          <div className="w-1 h-2 bg-mint rounded-full" />
+          <p className="lp-fine">
+            Free for one bike, with no card and no trial clock. Web and iOS.
+          </p>
         </div>
-      </motion.div>
+      </div>
     </section>
   );
 }

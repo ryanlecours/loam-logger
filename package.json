@@ -14,6 +14,7 @@
     "emails:dev": "npx tsx ./apps/api/scripts/preview-email.tsx",
     "build": "nx run-many --target=build",
     "build:web": "nx build web",
+    "prerender:web": "node apps/web/scripts/prerender-landing.mjs",
     "test": "nx run-many --target=test",
     "lint": "nx run-many --target=lint",
     "codegen": "nx run graphql:codegen"
