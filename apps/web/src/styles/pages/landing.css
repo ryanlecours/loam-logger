@@ -136,23 +136,6 @@
   color: var(--cream);
 }
 
-.lp-btn--outline {
-  background: transparent;
-  color: var(--cream);
-  border: 1px solid var(--mint-40);
-}
-
-.lp-btn--outline:hover {
-  background: var(--mint-10);
-  color: var(--cream);
-}
-
-.lp-btn--compact {
-  min-height: 48px;
-  padding: 0 1.5rem;
-  font-size: 1rem;
-}
-
 .lp-btn:focus-visible,
 .lp a:focus-visible {
   outline: none;

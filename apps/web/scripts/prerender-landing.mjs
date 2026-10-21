@@ -36,8 +36,9 @@ const server = await createServer({
 try {
   const { renderLanding } = await server.ssrLoadModule('/src/prerender-entry.tsx');
   const markup = renderLanding();
-  if (!markup.includes('Loam Logger tracks your bike')) {
-    throw new Error('rendered landing markup is missing the hero headline');
+  // Structural check, not a copy check, so a copy edit never breaks the build.
+  if (!markup.includes('<main class="lp"')) {
+    throw new Error('prerender: rendered landing markup is missing the <main class="lp"> root');
   }
 
   const html = readFileSync(indexPath, 'utf8');
@@ -47,8 +48,18 @@ try {
   }
   // The same index.html serves every route of the SPA. On any path other
   // than "/", keep the static landing markup invisible until React mounts
-  // and replaces it (main.tsx removes the class), so an app route never
-  // flashes the marketing page.
+  // and replaces it (RevealAfterMount removes the class), so an app route
+  // never flashes the marketing page.
+  //
+  // Both pieces are inline. If the site ever ships a Content-Security-Policy
+  // without 'unsafe-inline' for script-src or style-src, this guard stops
+  // working silently and app routes would flash the landing page: move the
+  // guard into the bundle or give it a nonce at the same time.
+  //
+  // On "/" itself the browser bundle mounts with createRoot, not hydrateRoot,
+  // so React discards this markup and paints its own identical tree. That is
+  // a deliberate trade: hydrating would require every provider in main.tsx to
+  // render identically on the server, and the swap is of like for like.
   const guard =
     '<style>html.lp-prerendered #root{visibility:hidden}</style>' +
     '<script>if(location.pathname!=="/")document.documentElement.classList.add("lp-prerendered")</script>';

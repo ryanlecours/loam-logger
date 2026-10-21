@@ -10,6 +10,8 @@ export default function HeroSection() {
         <img
           className="lp-hero__photo"
           src="/heroFerns.jpg"
+          width={2048}
+          height={1365}
           alt="Two riders charging through waist-high sword ferns on Pacific Northwest singletrack"
           fetchPriority="high"
         />

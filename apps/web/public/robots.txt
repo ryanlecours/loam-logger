@@ -1,5 +1,8 @@
-# Loam Logger: the public pages are open to everyone, including AI crawlers.
-# The routes below are the signed-in app and carry nothing worth indexing.
+# Loam Logger: the public pages are open to every crawler, search and AI alike.
+# There are deliberately no per-bot groups: a crawler obeys only the most
+# specific group that matches it, so a "GPTBot: Allow /" group would drop the
+# Disallow lines below for that bot. The wildcard group already allows them.
+# The disallowed routes are the signed-in app and carry nothing worth indexing.
 
 User-agent: *
 Allow: /
@@ -14,20 +17,5 @@ Disallow: /auth/
 Disallow: /change-password
 Disallow: /reset-password
 Disallow: /forgot-password
-
-User-agent: GPTBot
-Allow: /
-
-User-agent: ClaudeBot
-Allow: /
-
-User-agent: PerplexityBot
-Allow: /
-
-User-agent: Google-Extended
-Allow: /
-
-User-agent: Applebot-Extended
-Allow: /
 
 Sitemap: https://loamlogger.app/sitemap.xml

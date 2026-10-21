@@ -4,6 +4,31 @@ import tailwindcss from "@tailwindcss/vite";
 import { nxViteTsPaths } from "@nx/vite/plugins/nx-tsconfig-paths.plugin";
 import { sentryVitePlugin } from "@sentry/vite-plugin";
 import path from "path";
+import { execFileSync } from "node:child_process";
+import type { Plugin, ResolvedConfig } from "vite";
+
+// Prerender the landing page into the built index.html as the last step of
+// every production build, so `nx build web`, `npm run build` and Vercel's
+// `npm run build:web` all produce the same output. The work happens in a
+// child process (scripts/prerender-landing.mjs) because it boots its own
+// Vite SSR server, which cannot run inside the build that is finishing.
+function prerenderLanding(): Plugin {
+  let resolved: ResolvedConfig;
+  return {
+    name: "loam:prerender-landing",
+    apply: "build",
+    configResolved(config) {
+      resolved = config;
+    },
+    closeBundle() {
+      if (process.env.LOAM_SKIP_PRERENDER) return;
+      const indexPath = path.resolve(resolved.root, resolved.build.outDir, "index.html");
+      execFileSync(process.execPath, [path.resolve(__dirname, "scripts/prerender-landing.mjs"), indexPath], {
+        stdio: "inherit",
+      });
+    },
+  };
+}
 
 // One release for runtime events and uploaded source maps: the commit SHA.
 // Vercel, which builds the deployed site, provides VERCEL_GIT_COMMIT_SHA, and
@@ -35,6 +60,7 @@ export default defineConfig({
       // right build in Sentry.
       release: sentryRelease ? { name: sentryRelease } : undefined,
     }),
+    prerenderLanding(),
   ],
   cacheDir: path.resolve(__dirname, '../../.cache/vite/web'),
   resolve: {
