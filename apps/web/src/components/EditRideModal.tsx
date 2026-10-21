@@ -110,6 +110,10 @@ export default function EditRideModal({
 
     const distanceInMeters = distanceUnit === 'km' ? Number(distanceInput) * 1000 : Number(distanceInput) * 1609.344;
     const elevationInMeters = distanceUnit === 'km' ? Number(elevationInput) : Number(elevationInput) * 0.3048;
+    // Sent only when the rider changed it. The input holds a rounded,
+    // unit-converted copy of the stored value, so echoing it back on a
+    // notes-only edit would quietly replace a provider's 371.4 m with 371.55.
+    const descentChanged = descentInput !== toDescentInput(ride.elevationLossMeters, distanceUnit);
     const descentInMeters =
       descentInput === '' ? null : distanceUnit === 'km' ? Number(descentInput) : Number(descentInput) * 0.3048;
     await mutate({
@@ -120,7 +124,7 @@ export default function EditRideModal({
           durationSeconds,
           distanceMeters: distanceInMeters,
           elevationGainMeters: elevationInMeters,
-          elevationLossMeters: descentInMeters,
+          ...(descentChanged ? { elevationLossMeters: descentInMeters } : {}),
           averageHr: averageHr === '' ? null : Math.floor(Number(averageHr)),
           rideType: rideType.trim(),
           bikeId: bikeId || null,
