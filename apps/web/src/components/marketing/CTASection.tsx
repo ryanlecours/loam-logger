@@ -27,7 +27,7 @@ export default function CTASection() {
             target="_blank"
             rel="noopener noreferrer"
           >
-            iOS app
+            iOS app<span className="sr-only"> (opens the App Store in a new tab)</span>
           </a>
         </div>
       </div>

@@ -26,6 +26,11 @@ describe('injectLanding', () => {
     expect(() => injectLanding(html, '<main class="lp"><h1>x</h1></main>')).toThrow(/bytes/);
   });
 
+  it('refuses to run twice on the same file, since the marker is consumed', () => {
+    const once = injectLanding(html, markup(''));
+    expect(() => injectLanding(once, markup(''))).toThrow(/could not find/);
+  });
+
   it('refuses an index.html without the empty root marker', () => {
     expect(() => injectLanding('<html><head></head><body><div id="root">x</div></body></html>', markup(''))).toThrow(
       /could not find/,

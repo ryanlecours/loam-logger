@@ -370,6 +370,15 @@ npx nx test web       # Web tests
 npx nx graph
 ```
 
+### Landing page prerender
+
+The web app is a client-rendered SPA, so crawlers that skip JavaScript would see an empty `#root`. To keep the marketing landing page readable by search and AI crawlers, every production build of `web` ends by prerendering the `/` route into `dist/apps/web/index.html`:
+
+- `apps/web/vite.config.ts` registers the `loam:prerender-landing` plugin, whose `closeBundle` hook runs `apps/web/scripts/prerender-landing.mjs` in a child process. The script boots a Vite SSR server, renders `MarketingLanding` under a `StaticRouter` (`src/prerender-entry.tsx`), and writes the markup inside `#root` (`src/prerender-inject.ts`).
+- On any path other than `/`, an inline guard keeps that markup invisible until React mounts and replaces it (`RevealAfterMount`). If a Content-Security-Policy without `'unsafe-inline'` is ever added, the guard needs a nonce or must move into the bundle.
+- `nx build web`, `npm run build` and Vercel's `npm run build:web` all produce the same output, and an Nx cache hit restores the prerendered file. CI fails if the built `index.html` lacks the landing root or the guard.
+- Set `LOAM_SKIP_PRERENDER=1` to skip the step (for a quick local build, or if the SSR render ever breaks and a deploy cannot wait). `npm run prerender:web` runs the step on its own against an existing build.
+
 ### CI/CD
 
 GitHub Actions runs automatically on push and PR. See [CI_CD_GUIDE.md](CI_CD_GUIDE.md) for troubleshooting.
