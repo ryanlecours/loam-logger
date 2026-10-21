@@ -125,10 +125,14 @@ export async function processLiftJob(
   // Garmin and Suunto send a smoothed figure at ingest and that number wins;
   // Strava and in-app rides have nothing else, so the stream is their source.
   // Lifts do not affect descent, so this is the plain sum over the track.
-  const derivedElevationLoss =
+  // computeAdjustedMetrics sums finite altitudes from zero, so this is always
+  // a number; the guard keeps a malformed stream from writing NaN and then
+  // re-running this job on every enqueue because the column reads as unset.
+  const streamLoss =
     ride.elevationLossMeters == null
       ? computeAdjustedMetrics(points, detected).elevationLossMeters
       : null;
+  const derivedElevationLoss = streamLoss != null && Number.isFinite(streamLoss) ? streamLoss : null;
 
   // Step 4: persist segments and Ride deltas atomically. Delete-then-insert
   // makes re-detection idempotent.

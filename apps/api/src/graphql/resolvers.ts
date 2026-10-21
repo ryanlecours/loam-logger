@@ -93,6 +93,7 @@ import {
   MAX_SHARES_PER_COMPONENT,
 } from '../lib/component-share';
 import { captureSetupSnapshot } from '../lib/capture-snapshot';
+import { elevationLossFromProvider } from '../lib/elevation-loss';
 import type { SetupSnapshot } from '@loam/shared';
 import { randomBytes } from 'crypto';
 import { FRONTEND_URL } from '../config/env';
@@ -2423,10 +2424,7 @@ export const resolvers = {
       const distanceMeters = Math.max(0, Number(input.distanceMeters));
       const elevationGainMeters = Math.max(0, Number(input.elevationGainMeters));
       // Null when absent: "not reported" is a real state, distinct from a flat ride.
-      const elevationLossMeters =
-        typeof input.elevationLossMeters === 'number' && Number.isFinite(input.elevationLossMeters)
-          ? Math.max(0, input.elevationLossMeters)
-          : null;
+      const elevationLossMeters = elevationLossFromProvider(input.elevationLossMeters);
       const averageHr =
         typeof input.averageHr === 'number' ? Math.max(0, Math.floor(input.averageHr)) : null;
       const notes = cleanText(input.notes, MAX_NOTES_LEN);
@@ -2790,9 +2788,10 @@ export const resolvers = {
           elevationGainMeters: Math.max(0, Number(input.elevationGainMeters ?? 0)), // number (no null)
         }),
         ...(input.elevationLossMeters !== undefined && {
-          // null clears it back to "not reported"
-          elevationLossMeters:
-            input.elevationLossMeters == null ? null : Math.max(0, Number(input.elevationLossMeters)),
+          // null clears it back to "not reported". Same sanitizer as addRide
+          // and the provider ingest paths, so the column has one definition
+          // of a valid value everywhere it is written.
+          elevationLossMeters: elevationLossFromProvider(input.elevationLossMeters),
         }),
         ...(input.averageHr !== undefined && {
           averageHr: input.averageHr == null ? null : Math.max(0, Math.floor(input.averageHr)),

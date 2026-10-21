@@ -7918,6 +7918,84 @@ describe('GraphQL Resolvers', () => {
     });
   });
 
+  describe('Mutation.addRide and updateRide descent (elevationLossMeters)', () => {
+    const addRide = resolvers.Mutation.addRide;
+    const updateRide = resolvers.Mutation.updateRide;
+
+    const baseInput = {
+      startTime: '2026-08-05T10:00:00.000Z',
+      durationSeconds: 3600,
+      distanceMeters: 16000,
+      elevationGainMeters: 400,
+      rideType: 'TRAIL',
+      unownedBike: true,
+    };
+
+    const makeAddTx = () => ({
+      $executeRaw: jest.fn().mockResolvedValue(0),
+      ride: { create: jest.fn().mockResolvedValue({ id: 'ride-new' }) },
+    });
+
+    const makeUpdateTx = () => ({
+      $executeRaw: jest.fn().mockResolvedValue(0),
+      ride: {
+        update: jest.fn().mockResolvedValue({ id: 'ride-1' }),
+        aggregate: jest.fn().mockResolvedValue({ _sum: { durationSeconds: 0 }, _count: 0 }),
+      },
+      component: {
+        findMany: jest.fn().mockResolvedValue([]),
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+        update: jest.fn().mockResolvedValue({}),
+        findUnique: jest.fn().mockResolvedValue(null),
+      },
+      serviceLog: { findFirst: jest.fn().mockResolvedValue(null), findMany: jest.fn().mockResolvedValue([]), updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      componentRideAdjustment: { findMany: jest.fn().mockResolvedValue([]) },
+      bikeComponentInstall: { findMany: jest.fn().mockResolvedValue([]) },
+    });
+
+    beforeEach(() => {
+      mockCheckMutationRateLimit.mockResolvedValue({ allowed: true, retryAfter: 0 });
+      (prisma.ride.findUnique as jest.Mock).mockReset();
+      (prisma.$transaction as jest.Mock).mockReset();
+    });
+
+    const addWith = async (extra: Record<string, unknown>) => {
+      (prisma.ride.findUnique as jest.Mock).mockResolvedValue(null);
+      const tx = makeAddTx();
+      (prisma.$transaction as jest.Mock).mockImplementation(async (fn: (t: unknown) => unknown) => fn(tx));
+      await addRide({}, { input: { ...baseInput, ...extra } }, createMockContext('user-123') as never);
+      return tx.ride.create.mock.calls[0][0].data;
+    };
+
+    // Null is "no source reported one" and the UI hides it; 0 is a flat ride.
+    // A manual ride without a figure must land as the former.
+    it('addRide stores null when no descent is given, and the value when it is', async () => {
+      expect((await addWith({})).elevationLossMeters).toBeNull();
+      expect((await addWith({ elevationLossMeters: null })).elevationLossMeters).toBeNull();
+      expect((await addWith({ elevationLossMeters: 0 })).elevationLossMeters).toBe(0);
+      expect((await addWith({ elevationLossMeters: 512.5 })).elevationLossMeters).toBe(512.5);
+      expect((await addWith({ elevationLossMeters: -20 })).elevationLossMeters).toBe(0);
+    });
+
+    const updateWith = async (input: Record<string, unknown>) => {
+      (prisma.ride.findUnique as jest.Mock).mockResolvedValue({
+        userId: 'user-123', durationSeconds: 3600, bikeId: null,
+      });
+      const tx = makeUpdateTx();
+      (prisma.$transaction as jest.Mock).mockImplementation(async (fn: (t: unknown) => unknown) => fn(tx));
+      await updateRide({}, { id: 'ride-1', input }, createMockContext('user-123') as never);
+      return tx.ride.update.mock.calls[0][0].data as Record<string, unknown>;
+    };
+
+    it('updateRide leaves descent alone when omitted, clears it on null, and clamps a value', async () => {
+      expect(await updateWith({ notes: 'x' })).not.toHaveProperty('elevationLossMeters');
+      expect((await updateWith({ elevationLossMeters: null })).elevationLossMeters).toBeNull();
+      expect((await updateWith({ elevationLossMeters: 0 })).elevationLossMeters).toBe(0);
+      expect((await updateWith({ elevationLossMeters: 300 })).elevationLossMeters).toBe(300);
+      expect((await updateWith({ elevationLossMeters: -5 })).elevationLossMeters).toBe(0);
+    });
+  });
+
   describe('Mutation.addRide idempotency (clientMutationId)', () => {
     const mutation = resolvers.Mutation.addRide;
 

@@ -692,7 +692,11 @@ export const typeDefs = gql`
     durationSeconds: Int
     distanceMeters: Float
     elevationGainMeters: Float
-    # Omit to leave unchanged; null clears it back to "not reported".
+    # Omit to leave unchanged; null clears it back to "not reported". A cleared
+    # value is not pinned: the next provider re-sync writes the provider's
+    # figure again, and the next lift analysis of a ride with an altitude
+    # stream fills it from the track, exactly as elevationGainMeters is
+    # re-written by a re-sync. Descent is a measured stat, not a note.
     elevationLossMeters: Float
     averageHr: Int
     rideType: String

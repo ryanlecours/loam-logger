@@ -1,7 +1,16 @@
 # Descent Tracking: Scoping Plan
 
-Status: proposal, scoped from a codebase audit on 2026-10-21. No implementation code
-exists. Companion to `lift-detection-plan.md`, which this builds on.
+Status: Phase 1 shipped to staging in PR #381 (2026-10-21): the column, provider
+ingest, lift-worker fill, GraphQL field and ride-level display on web, with the
+mobile companion in loam-logger-mobile#117. Phases 2 (recorder), 3 (totals and
+stats) and 4 (brake wear) remain proposals. Scoped from a codebase audit on
+2026-10-21. Companion to `lift-detection-plan.md`, which this builds on.
+
+A note on clearing: `updateRide` with `elevationLossMeters: null` resets the
+column to "not reported", but nothing pins it there. A provider re-sync writes
+the provider's figure again and a later lift analysis fills it from the stream,
+the same way a re-sync re-writes gain. That is intended: descent is measured
+data, and a rider who wants a different number enters one rather than blanking it.
 
 ## 1. Why
 
