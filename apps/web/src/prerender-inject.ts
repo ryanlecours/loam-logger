@@ -11,6 +11,10 @@ export const ROOT_MARKER = '<div id="root"></div>';
  * replaces it (RevealAfterMount removes the class), so an app route never
  * flashes the marketing page. Both pieces are inline: a Content-Security-Policy
  * without 'unsafe-inline' would disable the guard silently.
+ *
+ * Only "/" and "/index.html" count as the landing page. If the landing is
+ * ever served under another path too (a locale prefix, say), widen this
+ * pattern, or the prerendered markup will be hidden there until React mounts.
  */
 export const PRERENDER_GUARD =
   '<style>html.lp-prerendered #root{visibility:hidden}</style>' +

@@ -25,6 +25,10 @@ function prerenderLanding(): Plugin {
       const indexPath = path.resolve(resolved.root, resolved.build.outDir, "index.html");
       execFileSync(process.execPath, [path.resolve(__dirname, "scripts/prerender-landing.mjs"), indexPath], {
         stdio: "inherit",
+        // The child loads this same config to boot a Vite SSR server. Strip the
+        // Sentry token so sentryVitePlugin is disabled there (disable: !token)
+        // and cannot create a release or upload anything from the prerender.
+        env: { ...process.env, SENTRY_AUTH_TOKEN: "" },
       });
     },
   };
