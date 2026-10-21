@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { injectLanding, PRERENDER_GUARD, ROOT_MARKER } from './prerender-inject';
+import { injectLanding, jsonLdString, PRERENDER_GUARD, ROOT_MARKER } from './prerender-inject';
 
 const html = `<!doctype html><html><head><title>t</title></head><body>${ROOT_MARKER}<script src="/x.js"></script></body></html>`;
 const filler = '<p>' + 'ride '.repeat(2000) + '</p>';
@@ -32,8 +32,22 @@ describe('injectLanding', () => {
     );
   });
 
-  it('hides the root on every path except "/"', () => {
-    expect(PRERENDER_GUARD).toContain('location.pathname!=="/"');
+  it('hides the root on every path except the homepage, with or without index.html', () => {
     expect(PRERENDER_GUARD).toContain('html.lp-prerendered #root{visibility:hidden}');
+    const test = PRERENDER_GUARD.match(/if\(!(\/.*?\/)\.test\(location\.pathname\)\)/);
+    expect(test).not.toBeNull();
+    const re = new RegExp(test![1].slice(1, -1));
+    expect(re.test('/')).toBe(true);
+    expect(re.test('/index.html')).toBe(true);
+    expect(re.test('/dashboard')).toBe(false);
+    expect(re.test('/pricing')).toBe(false);
+  });
+});
+
+describe('jsonLdString', () => {
+  it('keeps a closing script tag inside a value from ending the block', () => {
+    const out = jsonLdString({ text: 'before </script><script>alert(1)</script>' });
+    expect(out).not.toContain('</script>');
+    expect(JSON.parse(out).text).toBe('before </script><script>alert(1)</script>');
   });
 });

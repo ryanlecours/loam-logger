@@ -3,6 +3,9 @@
 # specific group that matches it, so a "GPTBot: Allow /" group would drop the
 # Disallow lines below for that bot. The wildcard group already allows them.
 # The disallowed routes are the signed-in app and carry nothing worth indexing.
+# Disallow lines are prefix matches: "/rides" also covers "/rides/123" and
+# would cover a future "/rides-anything", so keep new public routes off
+# these prefixes.
 
 User-agent: *
 Allow: /

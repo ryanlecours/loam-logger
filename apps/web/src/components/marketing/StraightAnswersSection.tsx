@@ -1,4 +1,5 @@
 import { formatUsd, PRO_PRICE_YEARLY_USD } from '../../constants/pricing';
+import { jsonLdString } from '../../prerender-inject';
 
 const answers = [
   {
@@ -37,7 +38,7 @@ const answers = [
 
 // The same questions as FAQPage structured data, so search engines and AI
 // crawlers can lift the answers verbatim instead of paraphrasing the page.
-const faqJsonLd = JSON.stringify({
+const faqJsonLd = jsonLdString({
   '@context': 'https://schema.org',
   '@type': 'FAQPage',
   mainEntity: answers.map((item) => ({

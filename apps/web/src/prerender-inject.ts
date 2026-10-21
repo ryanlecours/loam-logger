@@ -14,7 +14,16 @@ export const ROOT_MARKER = '<div id="root"></div>';
  */
 export const PRERENDER_GUARD =
   '<style>html.lp-prerendered #root{visibility:hidden}</style>' +
-  '<script>if(location.pathname!=="/")document.documentElement.classList.add("lp-prerendered")</script>';
+  '<script>if(!/^\\/(index\\.html)?$/.test(location.pathname))document.documentElement.classList.add("lp-prerendered")</script>';
+
+/**
+ * JSON for a <script type="application/ld+json"> block. JSON.stringify leaves
+ * "<" alone, so a value containing "</script>" would end the block early;
+ * escaping "<" as < is valid JSON and inert in HTML.
+ */
+export function jsonLdString(data: unknown): string {
+  return JSON.stringify(data).replace(/</g, '\\u003c');
+}
 
 const MIN_MARKUP_BYTES = 8_000;
 

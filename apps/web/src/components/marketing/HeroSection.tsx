@@ -6,7 +6,9 @@ export default function HeroSection() {
   return (
     <section className="lp-hero" data-testid="hero">
       <picture>
+        <source media="(max-width: 767px)" type="image/avif" srcSet="/heroFernsMobile.avif" width={1200} height={800} />
         <source media="(max-width: 767px)" srcSet="/heroFernsMobile.jpg" width={1200} height={800} />
+        <source type="image/avif" srcSet="/heroFerns.avif" width={2048} height={1365} />
         <img
           className="lp-hero__photo"
           src="/heroFerns.jpg"

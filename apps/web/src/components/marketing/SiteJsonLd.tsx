@@ -1,4 +1,5 @@
 import { PRO_PRICE_MONTHLY_USD, PRO_PRICE_YEARLY_USD } from '../../constants/pricing';
+import { jsonLdString } from '../../prerender-inject';
 
 /**
  * Organization and SoftwareApplication structured data for the landing page.
@@ -65,5 +66,5 @@ const SITE_JSON_LD = {
 };
 
 export default function SiteJsonLd() {
-  return <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(SITE_JSON_LD) }} />;
+  return <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdString(SITE_JSON_LD) }} />;
 }
