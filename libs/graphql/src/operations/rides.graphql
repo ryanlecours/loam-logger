@@ -11,6 +11,7 @@ query Rides($take: Int, $after: ID, $filter: RidesFilterInput) {
     durationSeconds
     distanceMeters
     elevationGainMeters
+    elevationLossMeters
     averageHr
     rideType
     bikeId

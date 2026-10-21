@@ -8,6 +8,7 @@ export const ADD_RIDE = gql`
       durationSeconds
       distanceMeters
       elevationGainMeters
+      elevationLossMeters
       averageHr
       rideType
       bikeId

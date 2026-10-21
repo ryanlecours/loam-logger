@@ -8,6 +8,7 @@ import { syncBikeComponentHours } from '../lib/component-hours';
 import { invalidateBikePredictionsForBikes } from '../services/prediction/cache';
 import { fireRideNotifications } from '../services/notification.service';
 import { enqueueWeatherJob } from '../lib/queue';
+import { elevationLossFromProvider } from '../lib/elevation-loss';
 
 const log = createLogger('suunto-webhook');
 const r: Router = createRouter();
@@ -169,6 +170,7 @@ async function processWorkoutCreated(event: WorkoutCreatedEvent): Promise<void> 
   const startTime = new Date(workout.startTime);
   const distanceMeters = workout.totalDistance ?? 0;
   const elevationGainMeters = workout.totalAscent ?? 0;
+  const elevationLossMeters = elevationLossFromProvider(workout.totalDescent);
   const startLat = workout.startPosition?.y ?? null;
   const startLng = workout.startPosition?.x ?? null;
   const averageHr = workout.hrdata?.workoutAvgHR != null
@@ -211,6 +213,7 @@ async function processWorkoutCreated(event: WorkoutCreatedEvent): Promise<void> 
         durationSeconds: workout.totalTime,
         distanceMeters,
         elevationGainMeters,
+        elevationLossMeters,
         averageHr,
         rideType,
         bikeId,
@@ -222,6 +225,7 @@ async function processWorkoutCreated(event: WorkoutCreatedEvent): Promise<void> 
         durationSeconds: workout.totalTime,
         distanceMeters,
         elevationGainMeters,
+        ...(elevationLossMeters != null ? { elevationLossMeters } : {}),
         averageHr,
         rideType,
         ...(startLat != null ? { startLat } : {}),

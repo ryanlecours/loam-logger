@@ -104,6 +104,7 @@ type AddRideInput = {
   durationSeconds: number;
   distanceMeters: number;
   elevationGainMeters: number;
+  elevationLossMeters?: number | null;
   averageHr?: number | null;
   rideType: string;
   bikeId?: string | null;
@@ -122,6 +123,7 @@ type UpdateRideInput = {
   durationSeconds?: number | null;
   distanceMeters?: number | null;
   elevationGainMeters?: number | null;
+  elevationLossMeters?: number | null;
   averageHr?: number | null;
   rideType?: string | null;
   bikeId?: string | null;
@@ -2420,6 +2422,11 @@ export const resolvers = {
       const durationSeconds = Math.max(0, Math.floor(input.durationSeconds));
       const distanceMeters = Math.max(0, Number(input.distanceMeters));
       const elevationGainMeters = Math.max(0, Number(input.elevationGainMeters));
+      // Null when absent: "not reported" is a real state, distinct from a flat ride.
+      const elevationLossMeters =
+        typeof input.elevationLossMeters === 'number' && Number.isFinite(input.elevationLossMeters)
+          ? Math.max(0, input.elevationLossMeters)
+          : null;
       const averageHr =
         typeof input.averageHr === 'number' ? Math.max(0, Math.floor(input.averageHr)) : null;
       const notes = cleanText(input.notes, MAX_NOTES_LEN);
@@ -2504,6 +2511,7 @@ export const resolvers = {
         durationSeconds,
         distanceMeters,
         elevationGainMeters,
+        elevationLossMeters,
         averageHr,
         rideType,
         ...(bikeId ? { bikeId } : {}),
@@ -2780,6 +2788,11 @@ export const resolvers = {
         }),
         ...(input.elevationGainMeters !== undefined && {
           elevationGainMeters: Math.max(0, Number(input.elevationGainMeters ?? 0)), // number (no null)
+        }),
+        ...(input.elevationLossMeters !== undefined && {
+          // null clears it back to "not reported"
+          elevationLossMeters:
+            input.elevationLossMeters == null ? null : Math.max(0, Number(input.elevationLossMeters)),
         }),
         ...(input.averageHr !== undefined && {
           averageHr: input.averageHr == null ? null : Math.max(0, Math.floor(input.averageHr)),

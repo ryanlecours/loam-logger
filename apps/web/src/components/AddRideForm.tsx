@@ -27,6 +27,9 @@ export default function AddRideForm({ onAdded }: { onAdded?: () => void }) {
   const [minutes, setMinutes] = useState<number>(0);
   const [distanceInput, setDistanceInput] = useState<number>(10);
   const [elevationInput, setElevationInput] = useState<number>(distanceUnit === 'km' ? 150 : 500);
+  // No default: a guessed descent would be invented data, and blank is sent
+  // as "not reported" rather than 0.
+  const [descentInput, setDescentInput] = useState<number | ''>('');
   const [rideType, setRideType] = useState<string>('trail');
   const [bikeId, setBikeId] = useState<string | ''>('');
 
@@ -77,7 +80,7 @@ export default function AddRideForm({ onAdded }: { onAdded?: () => void }) {
 
   // Clear form error when any field changes
   useEffect(() => setFormError(null), [
-    startLocal, hours, minutes, distanceInput, elevationInput, averageHr, rideType, bikeId, notes, trailSystem, location,
+    startLocal, hours, minutes, distanceInput, elevationInput, descentInput, averageHr, rideType, bikeId, notes, trailSystem, location,
   ]);
 
   function validate(): string | null {
@@ -85,6 +88,7 @@ export default function AddRideForm({ onAdded }: { onAdded?: () => void }) {
     if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) return 'Duration must be greater than 0.';
     if (!Number.isFinite(distanceInput) || distanceInput < 0) return 'Distance must be >= 0.';
     if (!Number.isFinite(elevationInput) || elevationInput < 0) return 'Elevation gain must be >= 0.';
+    if (descentInput !== '' && (!Number.isFinite(descentInput) || descentInput < 0)) return 'Descent must be >= 0.';
     if (averageHr !== '' && (!Number.isFinite(Number(averageHr)) || Number(averageHr) < 0 || Number(averageHr) > 250)) {
       return 'Average HR should be between 0 and 250.';
     }
@@ -103,6 +107,8 @@ export default function AddRideForm({ onAdded }: { onAdded?: () => void }) {
     const isoStart = new Date(startLocal).toISOString();
     const distanceInMeters = distanceUnit === 'km' ? Number(distanceInput) * 1000 : Number(distanceInput) * 1609.344;
     const elevationInMeters = distanceUnit === 'km' ? Number(elevationInput) : Number(elevationInput) * 0.3048;
+    const descentInMeters =
+      descentInput === '' ? null : distanceUnit === 'km' ? Number(descentInput) : Number(descentInput) * 0.3048;
     await addRide({
       variables: {
         input: {
@@ -110,6 +116,7 @@ export default function AddRideForm({ onAdded }: { onAdded?: () => void }) {
           durationSeconds,
           distanceMeters: distanceInMeters,
           elevationGainMeters: elevationInMeters,
+          elevationLossMeters: descentInMeters,
           averageHr: averageHr === '' ? null : Math.floor(Number(averageHr)),
           rideType: rideType.trim(),
           bikeId: effectiveBikeId || null,
@@ -125,7 +132,7 @@ export default function AddRideForm({ onAdded }: { onAdded?: () => void }) {
   function resetForm() {
     setStartLocal(new Date().toISOString().slice(0, 16));
     setHours(1); setMinutes(0);
-    setDistanceInput(10); setElevationInput(distanceUnit === 'km' ? 150 : 500);
+    setDistanceInput(10); setElevationInput(distanceUnit === 'km' ? 150 : 500); setDescentInput('');
     setAverageHr('');
     setRideType('trail');
     setBikeId(userBikes.length === 1 ? userBikes[0].id : '');
@@ -190,7 +197,7 @@ export default function AddRideForm({ onAdded }: { onAdded?: () => void }) {
       {/* Essential Info - Always visible */}
       <div className="space-y-4">
         {/* Quick Stats Row */}
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <div className="space-y-1.5">
             <label className="block text-sm font-medium text-muted mb-1.5">Duration</label>
             <div className="flex gap-2">
@@ -238,7 +245,7 @@ export default function AddRideForm({ onAdded }: { onAdded?: () => void }) {
           </div>
 
           <div className="space-y-1.5">
-            <label className="block text-sm font-medium text-muted mb-1.5">Elevation</label>
+            <label className="block text-sm font-medium text-muted mb-1.5">Climb</label>
             <div className="relative">
               <input
                 type="number"
@@ -248,6 +255,22 @@ export default function AddRideForm({ onAdded }: { onAdded?: () => void }) {
                 onChange={e => setElevationInput(Number(e.target.value))}
                 className="input-soft pr-12 text-center"
                 placeholder="500"
+              />
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted/60 pointer-events-none">{distanceUnit === 'km' ? 'm' : 'ft'}</span>
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <label className="block text-sm font-medium text-muted mb-1.5">Descent <span className="text-muted/60 font-normal">(optional)</span></label>
+            <div className="relative">
+              <input
+                type="number"
+                min={0}
+                step={1}
+                value={descentInput}
+                onChange={e => setDescentInput(e.target.value === '' ? '' : Number(e.target.value))}
+                className="input-soft pr-12 text-center"
+                placeholder="Not set"
+                aria-label="Descent (optional)"
               />
               <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted/60 pointer-events-none">{distanceUnit === 'km' ? 'm' : 'ft'}</span>
             </div>

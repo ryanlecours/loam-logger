@@ -176,6 +176,13 @@ export const typeDefs = gql`
     durationSeconds: Int!
     distanceMeters: Float!
     elevationGainMeters: Float!
+    """
+    Total descent. Null means no source reported one (rides imported before
+    descent was tracked, manual rides without one, Strava rides whose stream
+    has not been analyzed), so clients hide the stat rather than show 0.
+    Zero is a genuinely flat ride.
+    """
+    elevationLossMeters: Float
     averageHr: Int
     rideType: String!
     bikeId: ID
@@ -685,6 +692,8 @@ export const typeDefs = gql`
     durationSeconds: Int
     distanceMeters: Float
     elevationGainMeters: Float
+    # Omit to leave unchanged; null clears it back to "not reported".
+    elevationLossMeters: Float
     averageHr: Int
     rideType: String
     bikeId: ID
@@ -723,6 +732,9 @@ export const typeDefs = gql`
     durationSeconds: Int!
     distanceMeters: Float!
     elevationGainMeters: Float!
+    # Optional: a manual ride usually has no descent figure, and an in-app
+    # recording's track yields one server-side once lift detection runs.
+    elevationLossMeters: Float
     averageHr: Int
     rideType: String!
     bikeId: ID
