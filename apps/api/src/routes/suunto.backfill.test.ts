@@ -457,6 +457,28 @@ describe('suunto.backfill routes', () => {
       expect(createdRideData?.suuntoWorkoutId).toBe('suunto-key-mtb');
     });
 
+    it('stores totalDescent as the ride descent', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ payload: [sampleMtbWorkout] }),
+      });
+
+      let createdRideData: Record<string, unknown> | undefined;
+      mockTransaction.mockImplementation(async (fn) => fn({
+        ride: {
+          create: jest.fn().mockImplementation((args) => {
+            createdRideData = args.data;
+            return {};
+          }),
+        },
+        component: { updateMany: jest.fn() },
+      }));
+
+      await invokeHandler(handler, mockReq as Request, mockRes as Response);
+
+      expect(createdRideData?.elevationLossMeters).toBe(300);
+    });
+
     it('should resume YTD from backfilledUpTo checkpoint when completed', async () => {
       const checkpoint = new Date('2024-09-01T00:00:00Z');
       mockFindUnique.mockResolvedValueOnce({

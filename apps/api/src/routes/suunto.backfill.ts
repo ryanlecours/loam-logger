@@ -37,6 +37,7 @@ import {
 } from '../lib/suunto-sync';
 import { getSuuntoWeekCount, SUUNTO_QUOTA } from '../lib/rate-limit';
 import { enqueueBackfillJob } from '../lib/queue/backfill.queue';
+import { elevationLossFromProvider } from '../lib/elevation-loss';
 import { requireAdmin } from '../auth/adminMiddleware';
 
 type Empty = Record<string, never>;
@@ -294,6 +295,7 @@ r.get<Empty, void, Empty, { year?: string }>(
         const durationHours = Math.max(0, durationSeconds) / 3600;
         const distanceMeters = workout.totalDistance ?? 0;
         const elevationGainMeters = workout.totalAscent ?? 0;
+        const elevationLossMeters = elevationLossFromProvider(workout.totalDescent);
         const averageHr =
           workout.hrdata?.workoutAvgHR != null
             ? Math.round(workout.hrdata.workoutAvgHR)
@@ -338,6 +340,7 @@ r.get<Empty, void, Empty, { year?: string }>(
               durationSeconds,
               distanceMeters,
               elevationGainMeters,
+              elevationLossMeters,
               averageHr,
               rideType: getSuuntoRideType(workout.activityId),
               startLat,

@@ -12,6 +12,7 @@ export type HistoryRide = {
   durationSeconds: number;
   distanceMeters: number;
   elevationGainMeters: number;
+  elevationLossMeters?: number | null;
   averageHr?: number | null;
   rideType: string;
   trailSystem?: string | null;

@@ -9,7 +9,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { EditServiceModal, type EditableServiceLog } from '@/components/dashboard/EditServiceModal';
 import { EditInstallModal, type EditableInstallEvent } from '@/components/dashboard/EditInstallModal';
-import { fmtDateTime, fmtDistance, fmtDuration, fmtElevation, dateInputToIsoNoon, todayDateInput } from '@/lib/format';
+import { fmtDateTime, fmtDistance, fmtDuration, fmtElevation, fmtElevationPair, dateInputToIsoNoon, todayDateInput } from '@/lib/format';
 import { usePreferences } from '@/hooks/usePreferences';
 import { getComponentLabel } from '@/constants/componentLabels';
 import {
@@ -556,7 +556,7 @@ function RideRow({ ride, distanceUnit }: { ride: HistoryRide; distanceUnit: 'mi'
       <div className="min-w-0">
         <div className="text-sm font-medium truncate">{title}</div>
         <div className="text-xs text-muted">
-          {fmtDateTime(ride.startTime)} · {fmtDuration(ride.durationSeconds)} · {fmtDistance(ride.distanceMeters, distanceUnit)} · {fmtElevation(ride.elevationGainMeters, distanceUnit)}
+          {fmtDateTime(ride.startTime)} · {fmtDuration(ride.durationSeconds)} · {fmtDistance(ride.distanceMeters, distanceUnit)} · {fmtElevationPair(ride.elevationGainMeters, ride.elevationLossMeters, distanceUnit)}
         </div>
       </div>
       <BikeIcon size={14} className="text-muted shrink-0" />

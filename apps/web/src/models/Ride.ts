@@ -24,6 +24,7 @@ export interface Ride {
   durationSeconds: number;
   distanceMeters: number;
   elevationGainMeters: number;
+  elevationLossMeters?: number | null;
   averageHr?: number | null;
   rideType: string;
   bikeId?: string | null;

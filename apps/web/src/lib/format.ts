@@ -25,6 +25,21 @@ export const fmtElevation = (meters: number, unit: 'mi' | 'km' = 'mi') =>
     ? `${Math.round(meters).toLocaleString()} m`
     : `${Math.round(meters * 3.28084).toLocaleString()} ft`;
 
+/**
+ * Climb and descent for one ride, in a meta row. With no descent on record
+ * (null: no source reported one) this is the bare climb figure, exactly as
+ * before descent existed, so the number never pretends to be a pair. With a
+ * descent, both are marked so neither reads as "the elevation".
+ */
+export const fmtElevationPair = (
+  gainMeters: number,
+  lossMeters: number | null | undefined,
+  unit: 'mi' | 'km' = 'mi'
+) =>
+  lossMeters == null
+    ? fmtElevation(gainMeters, unit)
+    : `↑ ${fmtElevation(gainMeters, unit)} ↓ ${fmtElevation(lossMeters, unit)}`;
+
 /** Accepts ISO string / epoch string / number / Date and returns yyyy-MM-ddTHH:mm (local) */
 export function toLocalInputValue(v: string | number | Date): string {
   const ms =

@@ -134,6 +134,7 @@ type HistoryRide = {
   durationSeconds: number;
   distanceMeters: number;
   elevationGainMeters: number;
+  elevationLossMeters?: number | null;
   trailSystem?: string | null;
   location?: string | null;
   bikeId?: string | null;

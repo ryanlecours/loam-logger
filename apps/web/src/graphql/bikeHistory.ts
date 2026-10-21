@@ -20,6 +20,7 @@ export const BIKE_HISTORY = gql`
         durationSeconds
         distanceMeters
         elevationGainMeters
+        elevationLossMeters
         averageHr
         rideType
         trailSystem

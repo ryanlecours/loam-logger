@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 
 import { Button } from '@/components/ui/Button';
-import { fmtDistance, fmtDuration, fmtElevation } from '@/lib/format';
+import { fmtDistance, fmtDuration, fmtElevationPair } from '@/lib/format';
 
 export type HistoryRide = {
   key: string;
@@ -11,6 +11,8 @@ export type HistoryRide = {
   durationSeconds: number;
   distanceMeters: number;
   elevationGainMeters: number;
+  /** Null or absent when no source reported a descent; the row then shows climb alone. */
+  elevationLossMeters?: number | null;
   trailSystem?: string | null;
   location?: string | null;
   /** Extra context for the date line, such as the bike it was ridden on. */
@@ -65,7 +67,7 @@ export function HistoryRideList({
                 <div className="text-sm font-semibold">{fmtDuration(r.durationSeconds)}</div>
                 <div className="text-xs text-muted">
                   {fmtDistance(r.distanceMeters, distanceUnit)} ·{' '}
-                  {fmtElevation(r.elevationGainMeters, distanceUnit)}
+                  {fmtElevationPair(r.elevationGainMeters, r.elevationLossMeters, distanceUnit)}
                 </div>
               </div>
             </li>

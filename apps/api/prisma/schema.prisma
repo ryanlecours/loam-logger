@@ -211,6 +211,14 @@ model Ride {
   updatedAt               DateTime                  @updatedAt
   distanceMeters          Float
   elevationGainMeters     Float
+  // Total descent. NULL means no source reported one (rides imported before
+  // this column, manual rides, Strava rides with no stream yet), never zero:
+  // zero is a real flat ride. Provider summaries (Garmin, Suunto, WHOOP) write
+  // it at ingest; the lift worker derives it from the altitude stream only
+  // when the column is still NULL, so a provider's own number is never
+  // replaced by a noisier one. Descent is unaffected by lifts, so there is no
+  // lift delta for it.
+  elevationLossMeters     Float?
   notes                   String?
   location                String?
   trailSystem             String?
