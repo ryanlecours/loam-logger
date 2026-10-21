@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { useLocation } from 'react-router';
 import { usePageMeta } from '../hooks/usePageMeta';
 import LandingNavbar from '../components/LandingNavbar';
 import SiteJsonLd from '../components/marketing/SiteJsonLd';
@@ -28,6 +29,15 @@ export default function MarketingLanding() {
       document.documentElement.classList.remove('marketing-page');
     };
   }, []);
+
+  // The nav and footer reach sections with client-side links like "/#how",
+  // which the router does not scroll to on its own. Scroll when the hash is
+  // set or changes, whether we arrived from another page or were already here.
+  const { hash } = useLocation();
+  useEffect(() => {
+    if (!hash) return;
+    document.getElementById(hash.slice(1))?.scrollIntoView();
+  }, [hash]);
 
   return (
     <main className="lp">

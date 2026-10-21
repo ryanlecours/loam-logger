@@ -38,20 +38,20 @@ export default function LandingNavbar() {
 
           {/* Desktop Navigation */}
           <div className="hidden md:flex items-center space-x-8">
-            <a
-              href="/#how"
+            <Link
+              to="/#how"
               className="small transition-colors duration-200 hover:opacity-80"
               style={{ color: 'var(--sage)' }}
             >
               How it works
-            </a>
-            <a
-              href="/#answers"
+            </Link>
+            <Link
+              to="/#answers"
               className="small transition-colors duration-200 hover:opacity-80"
               style={{ color: 'var(--sage)' }}
             >
               Straight answers
-            </a>
+            </Link>
             <Link
               to="/pricing?source=landing-nav"
               className="small transition-colors duration-200 hover:opacity-80"
@@ -133,8 +133,8 @@ export default function LandingNavbar() {
             className="md:hidden"
           >
             <div className="px-4 py-4 space-y-3">
-              <a
-                href="/#how"
+              <Link
+                to="/#how"
                 onClick={() => setIsMobileMenuOpen(false)}
                 className="block px-4 py-2 rounded-lg transition-colors small"
                 style={{ color: 'var(--sage)' }}
@@ -142,9 +142,9 @@ export default function LandingNavbar() {
                 onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
               >
                 How it works
-              </a>
-              <a
-                href="/#answers"
+              </Link>
+              <Link
+                to="/#answers"
                 onClick={() => setIsMobileMenuOpen(false)}
                 className="block px-4 py-2 rounded-lg transition-colors small"
                 style={{ color: 'var(--sage)' }}
@@ -152,7 +152,7 @@ export default function LandingNavbar() {
                 onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
               >
                 Straight answers
-              </a>
+              </Link>
               <Link
                 to="/pricing?source=landing-nav"
                 onClick={() => setIsMobileMenuOpen(false)}

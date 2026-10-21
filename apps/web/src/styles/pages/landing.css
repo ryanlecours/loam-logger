@@ -148,6 +148,8 @@
   position: relative;
   padding: clamp(4.5rem, 10vh, 7.5rem) 0;
   background: var(--obsidian);
+  /* The navbar is fixed and 4rem tall; hash links land sections below it. */
+  scroll-margin-top: 4rem;
 }
 
 .lp-section--hemlock {

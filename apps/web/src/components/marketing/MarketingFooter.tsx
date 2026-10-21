@@ -25,7 +25,7 @@ export default function MarketingFooter() {
           <nav className="lp-footer__nav" aria-label="Footer">
             <div className="lp-footer__col">
               <span className="lp-eyebrow">Product</span>
-              <a href="/#how">How it works</a>
+              <Link to="/#how">How it works</Link>
               <Link to="/pricing?source=marketing-footer">Pricing</Link>
               <Link to="/support">Support</Link>
               <Link to="/login">Log in</Link>
