@@ -66,6 +66,14 @@ hook point for "derive descent when the provider did not say" is one call in
    Connect. Only write the stream-derived figure when the column is NULL, so a
    re-run of lift detection never overwrites a provider number with a noisier
    one. This mirrors how `elevationGainMeters` is never adjusted in place.
+   Debugging note: the two sources legitimately disagree, often by 5 to 15
+   percent on the same ride. The provider applies its own barometric
+   smoothing before summing; the stream sum in `computeAdjustedMetrics` is a
+   plain signed walk over the altitude series with no deadband. A ride whose
+   gain came from Garmin and whose loss came from the stream (possible only
+   when Garmin omitted the loss) can therefore show a gain/loss gap that is
+   not real terrain. Compare the ride's `garminActivityId`/`suuntoWorkoutId`
+   against whether `RideStream` exists before reading anything into it.
 3. **Raw, like everything else.** The schema comment on `ComponentUsageTotals`
    is explicit that every consumer reads raw columns. Descent is unaffected by
    lifts anyway (the detector notes this), so there is no lift delta column to
