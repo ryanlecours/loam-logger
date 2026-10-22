@@ -362,6 +362,8 @@ export const ADMIN_RATE_LIMITS = {
   importWaitlist: 60 * SECONDS,
   /** Lift analysis cooldown: 5 seconds per target ride (prevents duplicate enqueue spam) */
   liftAnalyze: 5 * SECONDS,
+  /** Descent backfill cooldown: 60 seconds, global (one batch of lift jobs at a time) */
+  liftBackfillDescent: 60 * SECONDS,
 } as const;
 
 /**

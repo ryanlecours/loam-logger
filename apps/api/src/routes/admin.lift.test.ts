@@ -155,6 +155,78 @@ describe('Admin lift validation routes', () => {
     });
   });
 
+  describe('POST /backfill-descent', () => {
+    const ids = [
+      '11111111-2222-4333-8444-555555555551',
+      '11111111-2222-4333-8444-555555555552',
+    ];
+
+    it('enqueues every fillable ride and reports what is left', async () => {
+      mockRideCount.mockResolvedValueOnce(5).mockResolvedValueOnce(12);
+      mockRideFindMany.mockResolvedValueOnce(ids.map((id) => ({ id })));
+      mockEnqueue
+        .mockResolvedValueOnce({ status: 'queued', jobId: 'a' })
+        .mockResolvedValueOnce({ status: 'already_queued', jobId: 'b' });
+
+      const res = await request(app).post('/api/admin/lift/backfill-descent').send({ limit: 2 });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data).toEqual({
+        dryRun: false,
+        fillableCount: 5,
+        unfillableCount: 12,
+        queued: 1,
+        alreadyQueued: 1,
+        remaining: 3,
+      });
+      // Only rides with a stream, coordinates and no descent are candidates.
+      expect(mockRideFindMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            elevationLossMeters: null,
+            stream: { isNot: null },
+            startLat: { not: null },
+            startLng: { not: null },
+          },
+          take: 2,
+        })
+      );
+      expect(mockEnqueue).toHaveBeenCalledTimes(2);
+      expect(mockEnqueue).toHaveBeenCalledWith({ rideId: ids[0] });
+    });
+
+    it('counts without enqueueing on a dry run', async () => {
+      mockRideCount.mockResolvedValueOnce(5).mockResolvedValueOnce(12);
+
+      const res = await request(app).post('/api/admin/lift/backfill-descent').send({ dryRun: true });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data).toMatchObject({ dryRun: true, fillableCount: 5, queued: 0, remaining: 5 });
+      expect(mockRideFindMany).not.toHaveBeenCalled();
+      expect(mockEnqueue).not.toHaveBeenCalled();
+    });
+
+    it('caps the limit at 1000 and defaults it to 200', async () => {
+      mockRideCount.mockResolvedValue(0);
+      mockRideFindMany.mockResolvedValue([]);
+
+      await request(app).post('/api/admin/lift/backfill-descent').send({ limit: 5000 });
+      expect(mockRideFindMany).toHaveBeenLastCalledWith(expect.objectContaining({ take: 1000 }));
+
+      await request(app).post('/api/admin/lift/backfill-descent').send({});
+      expect(mockRideFindMany).toHaveBeenLastCalledWith(expect.objectContaining({ take: 200 }));
+    });
+
+    it('applies the cooldown', async () => {
+      mockRateLimit.mockResolvedValueOnce({ allowed: false, retryAfter: 60 });
+
+      const res = await request(app).post('/api/admin/lift/backfill-descent').send({});
+
+      expect(res.status).toBe(429);
+      expect(mockEnqueue).not.toHaveBeenCalled();
+    });
+  });
+
   describe('POST /analyze/:rideId', () => {
     const eligibleRide = {
       id: RIDE_ID,

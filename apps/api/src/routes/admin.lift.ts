@@ -21,6 +21,10 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 
 const DEFAULT_REPORT_LIMIT = 50;
 const MAX_REPORT_LIMIT = 200;
+// Lift jobs run at concurrency 2 and each reuses a stored stream, so a
+// thousand is a few minutes of background work, not a flood.
+const DEFAULT_BACKFILL_LIMIT = 200;
+const MAX_BACKFILL_LIMIT = 1000;
 
 const router = Router();
 
@@ -199,6 +203,81 @@ router.post('/analyze/:rideId', async (req, res) => {
   } catch (error) {
     logError('Admin lift analyze', error);
     return sendInternalError(res, 'Failed to enqueue lift analysis');
+  }
+});
+
+/**
+ * POST /api/admin/lift/backfill-descent
+ * Enqueue lift analysis for rides that have a persisted stream but no
+ * descent on record, so history fills in without waiting for a re-sync
+ * (docs/plans/descent-tracking-plan.md §5). The worker re-runs a ride at
+ * the current detector version when its descent is null, so enqueueing is
+ * all this needs to do; the stored stream is reused and no provider is
+ * called. Rides without a stream (Garmin summaries, WHOOP, Suunto) are
+ * counted but cannot be filled from here.
+ *
+ * Body: { limit?: number (default 200, cap 1000), dryRun?: boolean }
+ */
+router.post('/backfill-descent', async (req, res) => {
+  try {
+    const rateLimit = await checkAdminRateLimit('liftBackfillDescent', 'all');
+    if (!rateLimit.allowed) {
+      return sendTooManyRequests(res, 'Backfill recently requested', rateLimit.retryAfter);
+    }
+
+    const limitRaw = Number(req.body?.limit);
+    const limit = Number.isFinite(limitRaw)
+      ? Math.min(Math.max(Math.trunc(limitRaw), 1), MAX_BACKFILL_LIMIT)
+      : DEFAULT_BACKFILL_LIMIT;
+    const dryRun = req.body?.dryRun === true;
+
+    // Coordinates gate the worker too (it skips a ride without them), so a
+    // ride missing them is "without stream" from the backfill's point of view.
+    const fillableWhere = {
+      elevationLossMeters: null,
+      stream: { isNot: null },
+      startLat: { not: null },
+      startLng: { not: null },
+    };
+
+    const [fillableCount, unfillableCount, rides] = await Promise.all([
+      prisma.ride.count({ where: fillableWhere }),
+      prisma.ride.count({
+        where: {
+          elevationLossMeters: null,
+          OR: [{ stream: null }, { startLat: null }, { startLng: null }],
+        },
+      }),
+      dryRun
+        ? Promise.resolve([] as { id: string }[])
+        : prisma.ride.findMany({
+            where: fillableWhere,
+            orderBy: { startTime: 'desc' },
+            take: limit,
+            select: { id: true },
+          }),
+    ]);
+
+    let queued = 0;
+    let alreadyQueued = 0;
+    for (const ride of rides) {
+      const result = await enqueueLiftDetectionJob({ rideId: ride.id });
+      if (result.status === 'queued') queued++;
+      else alreadyQueued++;
+    }
+
+    return sendSuccess(res, {
+      dryRun,
+      fillableCount,
+      unfillableCount,
+      queued,
+      alreadyQueued,
+      // What a follow-up call would still find, assuming these all succeed.
+      remaining: Math.max(0, fillableCount - rides.length),
+    });
+  } catch (error) {
+    logError('Admin lift backfill descent', error);
+    return sendInternalError(res, 'Failed to enqueue descent backfill');
   }
 });
 

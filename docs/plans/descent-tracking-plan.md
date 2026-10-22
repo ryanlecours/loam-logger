@@ -214,10 +214,11 @@ Rough size: 2 days, plus evaluation time.
 ## 5. Historical coverage and backfill
 
 - **Rides with a stored stream** (Strava and Garmin rides synced since lift
-  detection shipped, all in-app recordings): re-enqueue lift jobs. The admin
-  route in `routes/admin.lift.ts` already re-runs detection per ride; a one-off
-  admin action that enqueues every `RideStream` row whose ride has NULL descent
-  covers these.
+  detection shipped, all in-app recordings): `POST /api/admin/lift/backfill-descent`
+  enqueues lift jobs for every ride with a stream, coordinates and a NULL
+  descent, in batches of up to 1000 newest-first, and reports how many it
+  cannot fill. Send `{ "dryRun": true }` for the counts alone. Repeat until
+  `remaining` is 0.
 - **Garmin rides without a stream**: Garmin's partner rules forbid unprompted
   pulls (`lib/garmin-activity-details.ts` explains why), so these can only be
   filled by a user-initiated backfill window, which re-delivers summaries with
