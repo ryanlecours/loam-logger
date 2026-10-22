@@ -4,6 +4,9 @@ import { UPDATE_RIDE } from '../graphql/updateRide';
 import { RIDES } from '../graphql/rides';
 import { BIKES_LIGHT } from '../graphql/bikes';
 import { toLocalInputValue, fromLocalInputValue } from '../lib/format';
+// The form shows rounded, unit-converted copies of the stored values and
+// sends each back only when the rider changed it; see lib/rideInputs.
+import { toDistanceInput, toElevationInput, toDescentInput } from '../lib/rideInputs';
 import { Modal, Input, Textarea, Select, Button } from './ui';
 import { usePreferences } from '../hooks/usePreferences';
 import { useUserTier } from '../hooks/useUserTier';
@@ -32,11 +35,6 @@ type Ride = {
   weather?: RideWeather | null;
 };
 
-// Blank means "no descent on record", which is a real state the save
-// preserves as null; it is not the same as 0.
-const toDescentInput = (meters: number | null | undefined, unit: 'mi' | 'km'): number | '' =>
-  meters == null ? '' : Math.round(unit === 'km' ? meters : meters * 3.28084);
-
 export default function EditRideModal({
   ride,
   onClose,
@@ -50,11 +48,11 @@ export default function EditRideModal({
   const [startLocal, setStartLocal] = useState<string>(() => toLocalInputValue(ride.startTime));
   const [hours, setHours] = useState<number>(() => Math.floor(ride.durationSeconds / 3600));
   const [minutes, setMinutes] = useState<number>(() => Math.round((ride.durationSeconds % 3600) / 60));
-  const [distanceInput, setDistanceInput] = useState<number>(
-    distanceUnit === 'km' ? Number((ride.distanceMeters / 1000).toFixed(1)) : Number((ride.distanceMeters / 1609.344).toFixed(1))
+  const [distanceInput, setDistanceInput] = useState<number>(() =>
+    toDistanceInput(ride.distanceMeters, distanceUnit)
   );
-  const [elevationInput, setElevationInput] = useState<number>(
-    distanceUnit === 'km' ? Math.round(ride.elevationGainMeters) : Math.round(ride.elevationGainMeters * 3.28084)
+  const [elevationInput, setElevationInput] = useState<number>(() =>
+    toElevationInput(ride.elevationGainMeters, distanceUnit)
   );
   const [descentInput, setDescentInput] = useState<number | ''>(() =>
     toDescentInput(ride.elevationLossMeters, distanceUnit)
@@ -65,16 +63,8 @@ export default function EditRideModal({
   useEffect(() => {
     if (distanceUnit !== initialUnitRef.current) {
       initialUnitRef.current = distanceUnit;
-      setDistanceInput(
-        distanceUnit === 'km'
-          ? Number((ride.distanceMeters / 1000).toFixed(1))
-          : Number((ride.distanceMeters / 1609.344).toFixed(1))
-      );
-      setElevationInput(
-        distanceUnit === 'km'
-          ? Math.round(ride.elevationGainMeters)
-          : Math.round(ride.elevationGainMeters * 3.28084)
-      );
+      setDistanceInput(toDistanceInput(ride.distanceMeters, distanceUnit));
+      setElevationInput(toElevationInput(ride.elevationGainMeters, distanceUnit));
       setDescentInput(toDescentInput(ride.elevationLossMeters, distanceUnit));
     }
   }, [distanceUnit, ride.distanceMeters, ride.elevationGainMeters, ride.elevationLossMeters]);
@@ -110,9 +100,10 @@ export default function EditRideModal({
 
     const distanceInMeters = distanceUnit === 'km' ? Number(distanceInput) * 1000 : Number(distanceInput) * 1609.344;
     const elevationInMeters = distanceUnit === 'km' ? Number(elevationInput) : Number(elevationInput) * 0.3048;
-    // Sent only when the rider changed it. The input holds a rounded,
-    // unit-converted copy of the stored value, so echoing it back on a
-    // notes-only edit would quietly replace a provider's 371.4 m with 371.55.
+    // Each measured field is sent only when the rider changed it; see the
+    // input helpers above for why echoing the displayed value back is lossy.
+    const distanceChanged = distanceInput !== toDistanceInput(ride.distanceMeters, distanceUnit);
+    const climbChanged = elevationInput !== toElevationInput(ride.elevationGainMeters, distanceUnit);
     const descentChanged = descentInput !== toDescentInput(ride.elevationLossMeters, distanceUnit);
     const descentInMeters =
       descentInput === '' ? null : distanceUnit === 'km' ? Number(descentInput) : Number(descentInput) * 0.3048;
@@ -122,8 +113,8 @@ export default function EditRideModal({
         input: {
           startTime: iso,
           durationSeconds,
-          distanceMeters: distanceInMeters,
-          elevationGainMeters: elevationInMeters,
+          ...(distanceChanged ? { distanceMeters: distanceInMeters } : {}),
+          ...(climbChanged ? { elevationGainMeters: elevationInMeters } : {}),
           ...(descentChanged ? { elevationLossMeters: descentInMeters } : {}),
           averageHr: averageHr === '' ? null : Math.floor(Number(averageHr)),
           rideType: rideType.trim(),

@@ -155,6 +155,154 @@ describe('Admin lift validation routes', () => {
     });
   });
 
+  describe('POST /backfill-descent', () => {
+    const ids = [
+      '11111111-2222-4333-8444-555555555551',
+      '11111111-2222-4333-8444-555555555552',
+    ];
+
+    const rows = ids.map((id, i) => ({ id, startTime: new Date(`2026-07-0${i + 1}T10:00:00Z`) }));
+
+    it('enqueues a full batch and hands back a cursor for the next one', async () => {
+      mockRideCount.mockResolvedValueOnce(5).mockResolvedValueOnce(12);
+      mockRideFindMany.mockResolvedValueOnce(rows);
+      mockEnqueue
+        .mockResolvedValueOnce({ status: 'queued', jobId: 'a' })
+        .mockResolvedValueOnce({ status: 'already_queued', jobId: 'b' });
+
+      const res = await request(app).post('/api/admin/lift/backfill-descent').send({ limit: 2 });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data).toEqual({
+        dryRun: false,
+        fillableCount: 5,
+        unfillableCount: 12,
+        queued: 1,
+        alreadyQueued: 1,
+        failed: 0,
+        failedRideIds: [],
+        // The oldest (start time, id) in the batch, for the caller's next call.
+        nextCursor: { before: '2026-07-02T10:00:00.000Z', beforeId: ids[1] },
+      });
+      expect(mockRideFindMany).toHaveBeenCalledWith(
+        expect.objectContaining({ orderBy: [{ startTime: 'desc' }, { id: 'desc' }] })
+      );
+      // Only rides with a stream, coordinates and no descent are candidates.
+      expect(mockRideFindMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            elevationLossMeters: null,
+            stream: { isNot: null },
+            startLat: { not: null },
+            startLng: { not: null },
+          },
+          take: 2,
+        })
+      );
+      expect(mockEnqueue).toHaveBeenCalledTimes(2);
+      expect(mockEnqueue).toHaveBeenCalledWith({ rideId: ids[0] });
+    });
+
+    it('pages by start time and ends the walk on a short batch', async () => {
+      mockRideCount.mockResolvedValue(0);
+      mockRideFindMany.mockResolvedValueOnce([rows[0]]);
+      mockEnqueue.mockResolvedValue({ status: 'queued', jobId: 'a' });
+
+      const boundary = new Date('2026-07-02T10:00:00.000Z');
+      const res = await request(app)
+        .post('/api/admin/lift/backfill-descent')
+        .send({ limit: 2, before: boundary.toISOString(), beforeId: ids[1] });
+
+      expect(res.status).toBe(200);
+      // Older than the boundary, or at the boundary with a smaller id: a
+      // second ride sharing the last start time is not skipped.
+      expect(mockRideFindMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            OR: [{ startTime: { lt: boundary } }, { startTime: boundary, id: { lt: ids[1] } }],
+          }),
+        })
+      );
+      // One ride back from a batch of two: nothing older is left.
+      expect(res.body.data.nextCursor).toBeNull();
+
+      // Without an id the cursor is start time alone.
+      mockRideFindMany.mockResolvedValueOnce([]);
+      await request(app).post('/api/admin/lift/backfill-descent').send({ before: boundary.toISOString() });
+      expect(mockRideFindMany).toHaveBeenLastCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ startTime: { lt: boundary } }) })
+      );
+    });
+
+    it('rejects a bad cursor before spending the cooldown', async () => {
+      const bad = await request(app).post('/api/admin/lift/backfill-descent').send({ before: 'yesterday' });
+      expect(bad.status).toBe(400);
+
+      const orphanId = await request(app).post('/api/admin/lift/backfill-descent').send({ beforeId: ids[0] });
+      expect(orphanId.status).toBe(400);
+
+      const notAnId = await request(app)
+        .post('/api/admin/lift/backfill-descent')
+        .send({ before: '2026-07-02T10:00:00.000Z', beforeId: 'nope' });
+      expect(notAnId.status).toBe(400);
+
+      expect(mockRateLimit).not.toHaveBeenCalled();
+      expect(mockEnqueue).not.toHaveBeenCalled();
+    });
+
+    it('counts without enqueueing on a dry run, and spends no cooldown', async () => {
+      mockRideCount.mockResolvedValueOnce(5).mockResolvedValueOnce(12);
+
+      const res = await request(app).post('/api/admin/lift/backfill-descent').send({ dryRun: true });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data).toMatchObject({ dryRun: true, fillableCount: 5, queued: 0, nextCursor: null });
+      expect(mockRideFindMany).not.toHaveBeenCalled();
+      expect(mockEnqueue).not.toHaveBeenCalled();
+      expect(mockRateLimit).not.toHaveBeenCalled();
+    });
+
+    it('caps the limit at 1000, defaults it to 200, and ignores non-numeric limits', async () => {
+      mockRideCount.mockResolvedValue(0);
+      mockRideFindMany.mockResolvedValue([]);
+
+      await request(app).post('/api/admin/lift/backfill-descent').send({ limit: 5000 });
+      expect(mockRideFindMany).toHaveBeenLastCalledWith(expect.objectContaining({ take: 1000 }));
+
+      await request(app).post('/api/admin/lift/backfill-descent').send({ limit: -4 });
+      expect(mockRideFindMany).toHaveBeenLastCalledWith(expect.objectContaining({ take: 1 }));
+
+      for (const limit of [undefined, '50', true, null]) {
+        await request(app).post('/api/admin/lift/backfill-descent').send({ limit });
+        expect(mockRideFindMany).toHaveBeenLastCalledWith(expect.objectContaining({ take: 200 }));
+      }
+    });
+
+    it('counts a ride whose enqueue throws and keeps going', async () => {
+      mockRideCount.mockResolvedValue(0);
+      mockRideFindMany.mockResolvedValueOnce(rows);
+      mockEnqueue
+        .mockRejectedValueOnce(new Error('redis down'))
+        .mockResolvedValueOnce({ status: 'queued', jobId: 'b' });
+
+      const res = await request(app).post('/api/admin/lift/backfill-descent').send({ limit: 2 });
+
+      expect(res.status).toBe(200);
+      // The failed id is named so the admin can rerun it; the cursor moves on.
+      expect(res.body.data).toMatchObject({ queued: 1, failed: 1, failedRideIds: [ids[0]] });
+      expect(mockEnqueue).toHaveBeenCalledTimes(2);
+    });
+
+    it('applies the cooldown', async () => {
+      mockRateLimit.mockResolvedValueOnce({ allowed: false, retryAfter: 60 });
+
+      const res = await request(app).post('/api/admin/lift/backfill-descent').send({});
+
+      expect(res.status).toBe(429);
+      expect(mockEnqueue).not.toHaveBeenCalled();
+    });
+  });
+
   describe('POST /analyze/:rideId', () => {
     const eligibleRide = {
       id: RIDE_ID,
