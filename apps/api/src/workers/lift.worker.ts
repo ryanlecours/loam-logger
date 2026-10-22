@@ -20,6 +20,27 @@ import {
   getLiftLines,
 } from '../lib/lift-detection';
 
+/**
+ * Descent summed over the track, or null when the track cannot say.
+ *
+ * Lifts do not affect descent, so this is the plain sum over the altitude
+ * series; the segments only tell computeAdjustedMetrics which steps to leave
+ * out of the lift-corrected gain, which is not read here. computeAdjustedMetrics
+ * sums finite altitudes from zero, so it always returns a number, but a track
+ * with fewer than two points has no descent to sum and would store 0 ("flat
+ * ride") where the contract wants null ("not reported"). The finite guard keeps
+ * a malformed stream from writing NaN and then re-running this job on every
+ * enqueue because the column reads as unset.
+ */
+function deriveStreamLoss(
+  points: ReturnType<typeof pointsFromStream>,
+  segments: Array<{ startIndex: number; endIndex: number }>
+): number | null {
+  if (!points || points.length < 2) return null;
+  const loss = computeAdjustedMetrics(points, segments).elevationLossMeters;
+  return Number.isFinite(loss) ? loss : null;
+}
+
 // Shadow mode (docs/plans/lift-detection-plan.md §5, increment 2): the full
 // pipeline runs — stream fetch, Overpass lookup, detection, segment + delta
 // persistence — but nothing user-visible reads the results yet. Metric
@@ -42,6 +63,8 @@ export async function processLiftJob(
       liftDetectorVersion: true,
       elevationLossMeters: true,
       stream: { select: { id: true, data: true } },
+      // The detector's answer on record, for the descent-only path below.
+      segments: { select: { startIndex: true, endIndex: true } },
     },
   });
 
@@ -110,6 +133,21 @@ export async function processLiftJob(
     return;
   }
 
+  // Already analyzed at the current version, so the only thing missing is
+  // the descent (the skip above would have fired otherwise). The segments on
+  // record are the detector's answer; sum descent from the stored stream
+  // and stop. No Overpass call and no re-detection, because a re-run under
+  // Overpass rate limiting (which a thousand-ride backfill burst produced)
+  // replaces geometry-matched segments with kinematic-only ones.
+  if (ride.liftDetectorVersion === DETECTOR_VERSION) {
+    const loss = deriveStreamLoss(points, ride.segments);
+    if (loss != null) {
+      await prisma.ride.update({ where: { id: rideId }, data: { elevationLossMeters: loss } });
+    }
+    logger.debug({ rideId, filled: loss != null }, '[LiftWorker] Descent filled from stored stream');
+    return;
+  }
+
   // Step 2: lift geometry, best-effort (getLiftLines never throws).
   const { geometryAvailable, liftLines } = await getLiftLines(points);
 
@@ -124,18 +162,8 @@ export async function processLiftJob(
   // Descent from the stream, written only when no provider reported one.
   // Garmin and Suunto send a smoothed figure at ingest and that number wins;
   // Strava and in-app rides have nothing else, so the stream is their source.
-  // Lifts do not affect descent, so this is the plain sum over the track.
-  // computeAdjustedMetrics sums finite altitudes from zero, so this is always
-  // a number, but a track with fewer than two points has no descent to sum
-  // and would store 0 ("flat ride") where the contract wants null ("not
-  // reported"). The finite guard keeps a malformed stream from writing NaN
-  // and then re-running this job on every enqueue because the column reads
-  // as unset.
-  const streamLoss =
-    ride.elevationLossMeters == null && points.length >= 2
-      ? computeAdjustedMetrics(points, detected).elevationLossMeters
-      : null;
-  const derivedElevationLoss = streamLoss != null && Number.isFinite(streamLoss) ? streamLoss : null;
+  const derivedElevationLoss =
+    ride.elevationLossMeters == null ? deriveStreamLoss(points, detected) : null;
 
   // Step 4: persist segments and Ride deltas atomically. Delete-then-insert
   // makes re-detection idempotent.

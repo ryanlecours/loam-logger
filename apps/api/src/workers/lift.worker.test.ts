@@ -12,7 +12,7 @@ const mockTx = {
 
 jest.mock('../lib/prisma', () => ({
   prisma: {
-    ride: { findUnique: jest.fn() },
+    ride: { findUnique: jest.fn(), update: jest.fn() },
     rideStream: { upsert: jest.fn() },
     $transaction: jest.fn(async (fn: (tx: unknown) => Promise<void>) => fn(mockTx)),
   },
@@ -96,6 +96,7 @@ const baseRide = {
   // No provider reported a descent, so the worker derives one from the stream.
   elevationLossMeters: null,
   stream: null,
+  segments: [],
 };
 
 describe('processLiftJob', () => {
@@ -142,22 +143,47 @@ describe('processLiftJob', () => {
     expect(mockTransaction).not.toHaveBeenCalled();
   });
 
-  it('re-analyzes a current-version ride that still has no descent', async () => {
-    // Analyzed before descent existed: the stream is on hand, so one more
-    // pass fills the column without a provider call.
+  it('fills descent for a current-version ride from its stored stream and segments, without re-detecting', async () => {
+    // Analyzed before descent existed: the stream and the detector's
+    // segments are on hand, so the descent is a sum, not a new analysis.
+    // Re-detecting would call Overpass and, under rate limiting, replace
+    // geometry-matched segments with kinematic-only ones.
+    const existingSegments = [{ startIndex: 10, endIndex: 90 }];
+    mockFindUnique.mockResolvedValueOnce({
+      ...baseRide,
+      liftDetectorVersion: 1,
+      elevationLossMeters: null,
+      stream: { id: 'stream-1', data: STREAM_DATA },
+      segments: existingSegments,
+    });
+
+    await processLiftJob(makeJob());
+
+    expect(mockGetToken).not.toHaveBeenCalled();
+    expect(mockGetLiftLines).not.toHaveBeenCalled();
+    expect(mockDetect).not.toHaveBeenCalled();
+    expect(mockTransaction).not.toHaveBeenCalled();
+    expect(mockAdjusted).toHaveBeenCalledWith(POINTS, existingSegments);
+    expect(prisma.ride.update).toHaveBeenCalledWith({
+      where: { id: 'ride-1' },
+      data: { elevationLossMeters: STREAM_DESCENT },
+    });
+  });
+
+  it('writes nothing on the descent-only path when the track is too short', async () => {
     mockFindUnique.mockResolvedValueOnce({
       ...baseRide,
       liftDetectorVersion: 1,
       elevationLossMeters: null,
       stream: { id: 'stream-1', data: STREAM_DATA },
     });
+    mockPointsFromStream.mockReturnValueOnce([POINTS[0]]);
 
     await processLiftJob(makeJob());
 
-    expect(mockGetToken).not.toHaveBeenCalled();
-    expect(mockTx.ride.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ elevationLossMeters: STREAM_DESCENT }) })
-    );
+    expect(mockAdjusted).not.toHaveBeenCalled();
+    expect(prisma.ride.update).not.toHaveBeenCalled();
+    expect(mockTransaction).not.toHaveBeenCalled();
   });
 
   it('leaves descent null for a track too short to sum, rather than writing 0', async () => {
