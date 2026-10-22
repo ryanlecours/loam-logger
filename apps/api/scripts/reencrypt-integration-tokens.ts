@@ -24,13 +24,20 @@
  *      the script will not touch those rows either way.
  *   2. Run with --execute. Every row now opens under the NEW key.
  *   3. Set TOKEN_ENCRYPTION_KEY to the NEW key on the API service and deploy.
- *   4. Run with --execute again, same OLD and NEW keys, to pick up any rows the
- *      old deployment refreshed between step 2 and the deploy landing. Expect
- *      zero or a handful of `reencrypted`.
+ *   4. Wait until every OLD-key instance has fully stopped (on Railway, until
+ *      the previous deployment shows as removed, not just the new one as
+ *      active). Then run with --execute again, same OLD and NEW keys, to pick
+ *      up any rows the old deployment refreshed between step 2 and its
+ *      shutdown. Expect zero or a handful of `reencrypted`. An OLD-key write
+ *      that lands after this pass would be stranded as undecryptable, which is
+ *      why the wait matters.
  *   5. Only now revoke/forget the OLD key.
  *
  * Exit code is 1 if any row is `undecryptable`, `conflict` or `failed`, so a
  * clean run is one that exits 0.
+ *
+ * Output names rows by their `UserIntegration.id` and provider, never by user
+ * id or token material, so the log can be kept with the incident notes.
  */
 import { PrismaClient } from '@prisma/client';
 import { parseEncryptionKey } from '../src/lib/crypto';
@@ -43,9 +50,10 @@ const EXECUTE = process.argv.includes('--execute');
 const QUIET = process.argv.includes('--quiet');
 const batchArg = process.argv.find((a) => a.startsWith('--batch='));
 const BATCH_SIZE = batchArg ? Number(batchArg.slice('--batch='.length)) : 200;
+const MAX_BATCH_SIZE = 1000;
 
-if (!Number.isInteger(BATCH_SIZE) || BATCH_SIZE < 1) {
-  console.error(`--batch must be a positive integer, got ${batchArg}`);
+if (!Number.isInteger(BATCH_SIZE) || BATCH_SIZE < 1 || BATCH_SIZE > MAX_BATCH_SIZE) {
+  console.error(`--batch must be an integer from 1 to ${MAX_BATCH_SIZE}, got ${batchArg}`);
   process.exit(2);
 }
 
@@ -70,10 +78,13 @@ async function main() {
 
   const onRow = (r: RowReport) => {
     // Quiet mode still surfaces anything that needs a human.
-    const noisy = r.outcome === 'reencrypted' || r.outcome === 'already-rotated' || r.outcome === 'revoked';
-    if (QUIET && noisy) return;
+    const routine =
+      r.outcome === 'reencrypted' ||
+      r.outcome === 'already-rotated' ||
+      r.outcome === 'revoked';
+    if (QUIET && routine) return;
     const detail = r.detail ? ` (${r.detail})` : '';
-    console.log(`  ${r.provider.padEnd(7)} user ${r.userId}: ${r.outcome}${detail}`);
+    console.log(`  ${r.provider.padEnd(7)} ${r.id}: ${r.outcome}${detail}`);
   };
 
   const summary = await reencryptIntegrationTokens({

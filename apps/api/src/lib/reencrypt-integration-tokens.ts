@@ -91,8 +91,19 @@ export type ReencryptSummary = {
   execute: boolean;
   scanned: number;
   counts: Record<RowOutcome, number>;
+  /**
+   * Only the rows that need a human: `undecryptable`, `conflict` and `failed`.
+   * Successful rows are counted, and streamed through `onRow`, but not kept, so
+   * memory stays flat however large the table is.
+   */
   rows: RowReport[];
 };
+
+const NEEDS_ATTENTION: ReadonlySet<RowOutcome> = new Set<RowOutcome>([
+  'undecryptable',
+  'conflict',
+  'failed',
+]);
 
 export type ReencryptOptions = {
   store: IntegrationTokenStore;
@@ -223,7 +234,7 @@ export async function reencryptIntegrationTokens(
 
   const record = (report: RowReport) => {
     summary.counts[report.outcome]++;
-    summary.rows.push(report);
+    if (NEEDS_ATTENTION.has(report.outcome)) summary.rows.push(report);
     opts.onRow?.(report);
   };
 

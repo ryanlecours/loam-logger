@@ -260,6 +260,7 @@ describe('reencryptIntegrationTokens', () => {
       row(String(i).padStart(3, '0'), OLD_KEY, `acc-${i}`, null)
     );
     const { store, calls } = fakeStore(many);
+    const seen: string[] = [];
 
     const summary = await reencryptIntegrationTokens({
       store,
@@ -267,11 +268,12 @@ describe('reencryptIntegrationTokens', () => {
       newKey: NEW_KEY,
       execute: true,
       batchSize: 5,
+      onRow: (r) => seen.push(r.id),
     });
 
     expect(summary.scanned).toBe(23);
     expect(summary.counts.reencrypted).toBe(23);
-    expect(new Set(summary.rows.map((r) => r.id)).size).toBe(23);
+    expect(new Set(seen).size).toBe(23);
     // 4 full pages, one of 3, then an empty page to terminate
     expect(calls.findMany).toBe(6);
   });
@@ -368,16 +370,52 @@ describe('reencryptIntegrationTokens', () => {
     expect(decryptWithKey(stored.get('b')!.accessTokenEnc, NEW_KEY)).toBe('v');
   });
 
-  it('never puts token material in the report', async () => {
-    const { store } = fakeStore([row('a', OLD_KEY, 'ACCESS-PLAINTEXT', 'REFRESH-PLAINTEXT')]);
+  it('keeps only rows that need attention in the summary', async () => {
+    const { store } = fakeStore([
+      row('ok', OLD_KEY, 'a', null),
+      row('done', NEW_KEY, 'a', null),
+      row('bad', STRANGER_KEY, 'a', null),
+    ]);
     const summary = await reencryptIntegrationTokens({
       store,
       oldKey: OLD_KEY,
       newKey: NEW_KEY,
       execute: true,
     });
-    const text = JSON.stringify(summary);
-    expect(text).not.toContain('PLAINTEXT');
-    expect(text).not.toContain('Enc');
+    expect(summary.scanned).toBe(3);
+    expect(summary.rows.map((r) => `${r.id}:${r.outcome}`)).toEqual(['bad:undecryptable']);
+  });
+
+  it('never puts token material in the report or progress output', async () => {
+    const before = row('a', OLD_KEY, 'ACCESS-PLAINTEXT', 'REFRESH-PLAINTEXT');
+    // Force the row into the kept set so the report has something to leak.
+    const stranger = row('b', STRANGER_KEY, 'ACCESS-2', 'REFRESH-2');
+    const { store, rows: stored } = fakeStore([before, stranger]);
+    const streamed: string[] = [];
+
+    const summary = await reencryptIntegrationTokens({
+      store,
+      oldKey: OLD_KEY,
+      newKey: NEW_KEY,
+      execute: true,
+      onRow: (r) => streamed.push(JSON.stringify(r)),
+    });
+
+    const after = stored.get('a')!;
+    const secrets = [
+      'ACCESS-PLAINTEXT',
+      'REFRESH-PLAINTEXT',
+      'ACCESS-2',
+      'REFRESH-2',
+      before.accessTokenEnc,
+      before.refreshTokenEnc as string,
+      after.accessTokenEnc,
+      after.refreshTokenEnc as string,
+      stranger.accessTokenEnc,
+      stranger.refreshTokenEnc as string,
+    ];
+    for (const text of [JSON.stringify(summary), ...streamed]) {
+      for (const secret of secrets) expect(text).not.toContain(secret);
+    }
   });
 });
