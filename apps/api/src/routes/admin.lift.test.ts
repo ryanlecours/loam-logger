@@ -61,6 +61,7 @@ describe('Admin lift validation routes', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockRateLimit.mockResolvedValue({ allowed: true, redisAvailable: true });
+    mockGetJobCounts.mockResolvedValue({ waiting: 0, prioritized: 0, active: 0, delayed: 0, failed: 0, completed: 0 });
   });
 
   describe('GET /report', () => {
@@ -354,6 +355,21 @@ describe('Admin lift validation routes', () => {
       );
     });
 
+    it('with force, still reports the queued job when clearing the version fails', async () => {
+      // The job carries force, so the ride is being re-analyzed either way;
+      // reporting it as failed would send the operator to re-run it.
+      mockRideFindUnique.mockResolvedValueOnce(eligibleRide);
+      mockEnqueue.mockResolvedValueOnce({ status: 'queued', jobId: 'j' });
+      mockRideUpdateMany.mockRejectedValueOnce(new Error('db down'));
+
+      const res = await request(app)
+        .post(`/api/admin/lift/analyze/${RIDE_ID}`)
+        .send({ force: true });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data).toEqual({ status: 'queued', jobId: 'j' });
+    });
+
     it('with force, leaves the version alone when a job for the ride is already queued', async () => {
       // That job may predate requireGeometry; handing it a version-null ride
       // would invite the kinematic-only overwrite this path guards against.
@@ -638,6 +654,24 @@ describe('Admin lift validation routes', () => {
       expect(res.status).toBe(429);
       expect(mockRideUpdateMany).not.toHaveBeenCalled();
       expect(mockEnqueue).not.toHaveBeenCalled();
+    });
+
+    it('refuses a batch while the lift queue has outstanding jobs, without spending the cooldown', async () => {
+      // A loop that ignored GET /queue could otherwise rebuild the burst.
+      mockGetJobCounts.mockResolvedValueOnce({ waiting: 0, prioritized: 4, active: 2, delayed: 0 });
+
+      const res = await request(app).post('/api/admin/lift/reanalyze').send({ scope: 'all' });
+
+      expect(res.status).toBe(409);
+      expect(res.body.error).toContain('6 outstanding');
+      expect(mockRateLimit).not.toHaveBeenCalled();
+      expect(mockRideFindMany).not.toHaveBeenCalled();
+      expect(mockEnqueue).not.toHaveBeenCalled();
+
+      // A dry run is counts only and never waits on the queue.
+      mockGetJobCounts.mockResolvedValueOnce({ waiting: 0, prioritized: 4, active: 2, delayed: 0 });
+      const dry = await request(app).post('/api/admin/lift/reanalyze').send({ dryRun: true });
+      expect(dry.status).toBe(200);
     });
   });
 

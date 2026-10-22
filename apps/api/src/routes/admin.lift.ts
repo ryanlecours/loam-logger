@@ -5,14 +5,14 @@ import {
   sendSuccess,
   sendBadRequest,
   sendNotFound,
+  sendConflict,
   sendInternalError,
   sendTooManyRequests,
 } from '../lib/api-response';
 import { checkAdminRateLimit } from '../lib/rate-limit';
 import { enqueueLiftDetectionJob, getLiftQueue } from '../lib/queue';
-import type { EnqueueLiftResult } from '../lib/queue';
+import type { EnqueueLiftResult, LiftJobData } from '../lib/queue';
 import { logError } from '../lib/logger';
-import type { LiftJobData } from '../lib/queue';
 
 // Lift-detection validation surface (docs/plans/lift-detection-plan.md §5,
 // increment 3). Read-only report over shadow-mode results, plus the admin/dev
@@ -64,12 +64,33 @@ async function forceReanalysis(
 ): Promise<EnqueueLiftResult> {
   const result = await enqueueLiftDetectionJob({ rideId, force: true, ...data });
   if (result.status === 'queued') {
-    await prisma.ride.updateMany({
-      where: { id: rideId, liftDetectorVersion: { not: null } },
-      data: { liftDetectorVersion: null },
-    });
+    // The job is already queued and carries `force`, so a failure here costs
+    // only the `pending` marker; it must not turn a queued ride into a
+    // reported failure, which would send the operator to re-run it.
+    try {
+      await prisma.ride.updateMany({
+        where: { id: rideId, liftDetectorVersion: { not: null } },
+        data: { liftDetectorVersion: null },
+      });
+    } catch (error) {
+      logError(`Lift force re-analysis: clear version ${rideId}`, error);
+    }
   }
   return result;
+}
+
+// The lift queue states that have not reached a terminal one. Lift jobs
+// carry a priority, so one that is waiting sits in `prioritized`, not
+// `waiting`.
+const OUTSTANDING_STATES = ['waiting', 'prioritized', 'active', 'delayed'] as const;
+
+function outstandingFrom(counts: Record<string, number>): number {
+  return OUTSTANDING_STATES.reduce((sum, state) => sum + (counts[state] ?? 0), 0);
+}
+
+/** Jobs in the lift queue that have not reached a terminal state. */
+async function liftJobsOutstanding(): Promise<number> {
+  return outstandingFrom(await getLiftQueue().getJobCounts(...OUTSTANDING_STATES));
 }
 
 type BatchParams = { limit: number; before?: Date; beforeId?: string };
@@ -437,21 +458,8 @@ router.post('/backfill-descent', async (req, res) => {
  */
 router.get('/queue', async (_req, res) => {
   try {
-    const counts = await getLiftQueue().getJobCounts(
-      'waiting',
-      'prioritized',
-      'active',
-      'delayed',
-      'failed',
-      'completed'
-    );
-    return sendSuccess(res, {
-      counts,
-      // Jobs that have not reached a terminal state. Lift jobs carry a
-      // priority, so one that is waiting sits in `prioritized`, not `waiting`.
-      outstanding:
-        (counts.waiting ?? 0) + (counts.prioritized ?? 0) + (counts.active ?? 0) + (counts.delayed ?? 0),
-    });
+    const counts = await getLiftQueue().getJobCounts(...OUTSTANDING_STATES, 'failed', 'completed');
+    return sendSuccess(res, { counts, outstanding: outstandingFrom(counts) });
   } catch (error) {
     logError('Admin lift queue', error);
     return sendInternalError(res, 'Failed to read lift queue');
@@ -511,9 +519,10 @@ router.get('/queue', async (_req, res) => {
  * (12 cells at most per ride, and far fewer in practice: a park's cells are
  * cached for 180 days once any ride fetches them). The public Overpass
  * instance asks for about 10,000 requests a day and answers 429 when its
- * per-client slots are busy. Wait for GET /queue to report zero outstanding
- * before sending the next batch, and rest for several minutes when failures
- * appear.
+ * per-client slots are busy. A batch is refused with 409 while the lift
+ * queue still has outstanding jobs, so batches cannot stack into the burst
+ * this route repairs; wait for GET /queue to report zero and rest for
+ * several minutes when failures appear.
  */
 router.post('/reanalyze', async (req, res) => {
   try {
@@ -531,6 +540,16 @@ router.post('/reanalyze', async (req, res) => {
     const { limit, before, beforeId } = params;
 
     if (!dryRun) {
+      // Checked before the cooldown so a refused batch does not also cost
+      // the caller 30 seconds.
+      const outstanding = await liftJobsOutstanding();
+      if (outstanding > 0) {
+        return sendConflict(
+          res,
+          `Lift queue still has ${outstanding} outstanding job(s); wait for it to drain`,
+          'LIFT_QUEUE_BUSY'
+        );
+      }
       const rateLimit = await checkAdminRateLimit('liftReanalyze', 'all');
       if (!rateLimit.allowed) {
         return sendTooManyRequests(res, 'Re-analysis recently requested', rateLimit.retryAfter);
@@ -545,6 +564,10 @@ router.post('/reanalyze', async (req, res) => {
       startLng: { not: null },
     };
     const scopeWhere = {
+      // The marker drains: the worker writes a null geometryScore only when
+      // geometry was unavailable (DetectedLiftSegment.geometryScore is a
+      // number), so a run that gets geometry clears it. Only rides too large
+      // for the geometry layer keep it, as the route doc says.
       degraded: {
         ...analyzableWhere,
         liftDetectorVersion: { not: null },
