@@ -20,6 +20,14 @@ export type LiftJobName = 'detectLifts';
 export type LiftJobData = {
   rideId: string;
   /**
+   * Run the full pipeline even if the ride is already analyzed at the current
+   * detector version: no "already analyzed" skip and no descent-only path.
+   * Set by the admin re-analysis routes, so that the job itself carries the
+   * instruction and nothing depends on the ride's version being cleared
+   * before the worker reads it.
+   */
+  force?: boolean;
+  /**
    * Refuse to persist a kinematic-only result: when Overpass is unavailable
    * the job throws and BullMQ retries it later, instead of replacing whatever
    * segments are on record with weaker ones. Set by the admin re-analysis
@@ -74,7 +82,14 @@ export async function enqueueLiftDetectionJob(data: LiftJobData): Promise<Enqueu
     if (state !== 'completed' && state !== 'failed' && state !== 'unknown') {
       return { status: 'already_queued', jobId };
     }
-    await existing.remove();
+    // The state read above is not a lock. If the job moved on in between
+    // (a failed job whose retry just started) the removal throws because the
+    // job is locked, and "a job for this ride is running" is then the truth.
+    try {
+      await existing.remove();
+    } catch {
+      return { status: 'already_queued', jobId };
+    }
   }
   await queue.add('detectLifts', data, {
     jobId,

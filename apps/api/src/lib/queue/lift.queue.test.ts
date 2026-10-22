@@ -75,6 +75,16 @@ describe('enqueueLiftDetectionJob', () => {
     expect(mockQueueAdd).toHaveBeenCalledTimes(2);
   });
 
+  it('reports already_queued when the stale job cannot be removed, because it has been picked up again', async () => {
+    const remove = jest.fn().mockRejectedValue(new Error('Job is locked'));
+    mockQueueGetJob.mockResolvedValueOnce({ getState: jest.fn().mockResolvedValue('failed'), remove });
+
+    const result = await enqueueLiftDetectionJob({ rideId: RIDE_ID });
+
+    expect(result).toEqual({ status: 'already_queued', jobId: 'detectLifts_ride-1' });
+    expect(mockQueueAdd).not.toHaveBeenCalled();
+  });
+
   it('puts a geometry-required job on the slow retry schedule and carries the flag in its data', async () => {
     mockQueueGetJob.mockResolvedValueOnce(null);
 

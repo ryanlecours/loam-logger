@@ -78,10 +78,15 @@ export async function processLiftJob(
     logger.debug({ rideId }, '[LiftWorker] Ride has no coords, skipping');
     return;
   }
+  // A forced job (admin re-analysis) takes the full pipeline whatever the
+  // ride's version says, so the two early exits below do not apply to it.
+  const force = job.data.force === true;
+
   // A ride analyzed at the current version is done, unless it still has no
   // descent: this job is also how a ride without a provider-reported descent
   // gets one from its stream, and re-running costs no provider call.
   if (
+    !force &&
     ride.stream &&
     ride.liftDetectorVersion === DETECTOR_VERSION &&
     ride.elevationLossMeters != null
@@ -150,6 +155,7 @@ export async function processLiftJob(
   // provider-reported descent: the full pipeline leaves a non-null descent
   // alone, so nothing here can overwrite a provider figure.
   if (
+    !force &&
     hadStoredStream &&
     ride.liftDetectorVersion === DETECTOR_VERSION &&
     ride.elevationLossMeters == null

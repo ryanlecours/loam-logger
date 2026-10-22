@@ -10,7 +10,9 @@ import {
 } from '../lib/api-response';
 import { checkAdminRateLimit } from '../lib/rate-limit';
 import { enqueueLiftDetectionJob, getLiftQueue } from '../lib/queue';
+import type { EnqueueLiftResult } from '../lib/queue';
 import { logError } from '../lib/logger';
+import type { LiftJobData } from '../lib/queue';
 
 // Lift-detection validation surface (docs/plans/lift-detection-plan.md §5,
 // increment 3). Read-only report over shadow-mode results, plus the admin/dev
@@ -32,6 +34,43 @@ const MAX_REANALYZE_LIMIT = 200;
 
 const REANALYZE_SCOPES = ['degraded', 'all', 'pending'] as const;
 type ReanalyzeScope = (typeof REANALYZE_SCOPES)[number];
+const isReanalyzeScope = (value: unknown): value is ReanalyzeScope =>
+  typeof value === 'string' && (REANALYZE_SCOPES as readonly string[]).includes(value);
+
+/** A body flag that may be left out, but when present must be a boolean. */
+function readFlag(body: Record<string, unknown> | undefined, name: string): boolean | { error: string } {
+  const value = body?.[name];
+  if (value === undefined) return false;
+  if (typeof value !== 'boolean') return { error: `${name} must be a boolean` };
+  return value;
+}
+
+/**
+ * Force one ride through the full pipeline. The job carries `force`, so the
+ * worker ignores the ride's version; the version is cleared afterwards, and
+ * only once the job is confirmed queued, so that a ride whose job later gives
+ * up is left at version null where scope `pending` (and the report's
+ * pendingCount) can find it. Clearing before the enqueue would hand the ride
+ * to an older job already in the queue for it, one without `requireGeometry`,
+ * which is the very kinematic-only overwrite this path exists to prevent.
+ *
+ * If the worker finishes the job between the enqueue and the clear, the ride
+ * ends at version null with good segments: harmless, since a later `pending`
+ * pass re-detects it from cached cells to the same answer.
+ */
+async function forceReanalysis(
+  rideId: string,
+  data: Omit<LiftJobData, 'rideId' | 'force'>
+): Promise<EnqueueLiftResult> {
+  const result = await enqueueLiftDetectionJob({ rideId, force: true, ...data });
+  if (result.status === 'queued') {
+    await prisma.ride.updateMany({
+      where: { id: rideId, liftDetectorVersion: { not: null } },
+      data: { liftDetectorVersion: null },
+    });
+  }
+  return result;
+}
 
 type BatchParams = { limit: number; before?: Date; beforeId?: string };
 
@@ -218,10 +257,14 @@ router.get('/report', async (req, res) => {
  * mark-bike-park-ride path, used to seed known park rides for validation.
  * Body: {
  *   force?: boolean           re-analyze even if already at the current
- *                             detector version (clears the version so the
- *                             worker reruns)
+ *                             detector version: the job runs the full
+ *                             pipeline and the ride's version is cleared
+ *                             until it writes a result
  *   requireGeometry?: boolean fail the job instead of storing a
- *                             kinematic-only result while Overpass is down
+ *                             kinematic-only result while Overpass is down.
+ *                             A job that gives up (three attempts) leaves the
+ *                             ride at version null with its old segments;
+ *                             POST /reanalyze with scope `pending` retries it.
  * }
  */
 router.post('/analyze/:rideId', async (req, res) => {
@@ -230,6 +273,11 @@ router.post('/analyze/:rideId', async (req, res) => {
     if (!UUID_REGEX.test(rideId)) {
       return sendBadRequest(res, 'Invalid ride id');
     }
+
+    const force = readFlag(req.body, 'force');
+    if (typeof force !== 'boolean') return sendBadRequest(res, force.error);
+    const requireGeometry = readFlag(req.body, 'requireGeometry');
+    if (typeof requireGeometry !== 'boolean') return sendBadRequest(res, requireGeometry.error);
 
     const rateLimit = await checkAdminRateLimit('liftAnalyze', rideId);
     if (!rateLimit.allowed) {
@@ -262,16 +310,10 @@ router.post('/analyze/:rideId', async (req, res) => {
       return sendBadRequest(res, 'Ride has no start coordinates');
     }
 
-    if (req.body?.force === true && ride.liftDetectorVersion != null) {
-      await prisma.ride.update({
-        where: { id: rideId },
-        data: { liftDetectorVersion: null },
-      });
-    }
-
-    const result = await enqueueLiftDetectionJob(
-      req.body?.requireGeometry === true ? { rideId, requireGeometry: true } : { rideId }
-    );
+    const jobData = requireGeometry ? { requireGeometry } : {};
+    const result = force
+      ? await forceReanalysis(rideId, jobData)
+      : await enqueueLiftDetectionJob({ rideId, ...jobData });
     return sendSuccess(res, result);
   } catch (error) {
     logError('Admin lift analyze', error);
@@ -428,12 +470,20 @@ router.get('/queue', async (_req, res) => {
  * segments), so the burst cannot recur, but this is the repair for what it
  * left behind.
  *
- * Each selected ride has its detector version cleared and is enqueued with
- * requireGeometry, so the worker runs the full pipeline against the stored
- * stream (no provider call) and, if Overpass is unavailable again, fails the
- * job, retried on a slow backoff, rather than store another kinematic-only
- * answer. A ride whose job gives up keeps its old segments and stays at
- * version null, where scope `pending` finds it.
+ * Each selected ride is enqueued with force and requireGeometry, and its
+ * detector version is cleared once the job is queued (see forceReanalysis).
+ * The worker runs the full pipeline against the stored stream (no provider
+ * call) and, if Overpass is unavailable again, fails the job, retried on a
+ * slow backoff, rather than store another kinematic-only answer. A ride whose
+ * job gives up keeps its old segments and stays at version null, where scope
+ * `pending` finds it.
+ *
+ * A ride whose bounding box is too large for the geometry layer is detected
+ * kinematic-only on every run, so its segments keep a null geometryScore and
+ * it stays in `degraded` for good. The degraded count therefore floors at
+ * the number of such rides rather than reaching zero; the cursor walk still
+ * ends. GET /report?withSegmentsOnly=true shows which rides those are
+ * (every segment null, large distance).
  *
  * Body: {
  *   scope?: 'degraded' | 'all' | 'pending'   (default 'degraded')
@@ -452,6 +502,10 @@ router.get('/queue', async (_req, res) => {
  *   dryRun?: boolean   counts only, no writes, no cooldown
  * }
  *
+ * `counts` (degraded, analyzed, pending) comes back on a dry run and on the
+ * first batch of a walk; a call that follows a cursor returns it as null, so
+ * the three scans do not run for every batch.
+ *
  * Pacing: lift jobs run two at a time and Overpass requests are serialized
  * at one per second app-wide, so a batch costs at most limit x cells
  * (12 cells at most per ride, and far fewer in practice: a park's cells are
@@ -465,11 +519,10 @@ router.post('/reanalyze', async (req, res) => {
   try {
     const dryRun = req.body?.dryRun === true;
 
-    const scopeRaw = req.body?.scope ?? 'degraded';
-    if (!REANALYZE_SCOPES.includes(scopeRaw)) {
+    const scope: unknown = req.body?.scope ?? 'degraded';
+    if (!isReanalyzeScope(scope)) {
       return sendBadRequest(res, `scope must be one of: ${REANALYZE_SCOPES.join(', ')}`);
     }
-    const scope = scopeRaw as ReanalyzeScope;
 
     const params = parseBatchParams(req.body, DEFAULT_REANALYZE_LIMIT, MAX_REANALYZE_LIMIT);
     if ('error' in params) {
@@ -501,10 +554,11 @@ router.post('/reanalyze', async (req, res) => {
       pending: { ...analyzableWhere, liftDetectorVersion: null },
     };
 
+    const withCounts = dryRun || before === undefined;
     const [degradedCount, analyzedCount, pendingCount, rides] = await Promise.all([
-      prisma.ride.count({ where: scopeWhere.degraded }),
-      prisma.ride.count({ where: scopeWhere.all }),
-      prisma.ride.count({ where: scopeWhere.pending }),
+      withCounts ? prisma.ride.count({ where: scopeWhere.degraded }) : null,
+      withCounts ? prisma.ride.count({ where: scopeWhere.all }) : null,
+      withCounts ? prisma.ride.count({ where: scopeWhere.pending }) : null,
       dryRun
         ? Promise.resolve([] as { id: string; startTime: Date }[])
         : prisma.ride.findMany({
@@ -520,17 +574,10 @@ router.post('/reanalyze', async (req, res) => {
     const failedRideIds: string[] = [];
     for (const ride of rides) {
       try {
-        // Clear the version first: that is what sends a ride with a stored
-        // stream down the full pipeline instead of the descent-only path. If
-        // the enqueue then fails, the ride is left in scope `pending`, where
-        // a later batch picks it up; nothing on it has been changed yet.
-        if (scope !== 'pending') {
-          await prisma.ride.update({
-            where: { id: ride.id },
-            data: { liftDetectorVersion: null },
-          });
-        }
-        const result = await enqueueLiftDetectionJob({ rideId: ride.id, requireGeometry: true });
+        // An enqueue that throws leaves the ride untouched: its version is
+        // only cleared after a confirmed enqueue, so it is still in its scope
+        // for the next walk.
+        const result = await forceReanalysis(ride.id, { requireGeometry: true });
         if (result.status === 'queued') queued++;
         else alreadyQueued++;
       } catch (error) {
@@ -542,7 +589,9 @@ router.post('/reanalyze', async (req, res) => {
     return sendSuccess(res, {
       dryRun,
       scope,
-      counts: { degraded: degradedCount, analyzed: analyzedCount, pending: pendingCount },
+      counts: withCounts
+        ? { degraded: degradedCount, analyzed: analyzedCount, pending: pendingCount }
+        : null,
       queued,
       alreadyQueued,
       failed: failedRideIds.length,

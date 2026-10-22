@@ -62,7 +62,7 @@ const mockGetLiftLines = getLiftLines as jest.Mock;
 /** What the stream says the ride descended; see "fills descent" below. */
 const STREAM_DESCENT = 842.5;
 
-const makeJob = (rideId = 'ride-1', data: { requireGeometry?: boolean } = {}) =>
+const makeJob = (rideId = 'ride-1', data: { requireGeometry?: boolean; force?: boolean } = {}) =>
   ({ data: { rideId, ...data }, id: 'job-1' }) as never;
 
 const RIDE_START = new Date('2026-07-01T09:00:00Z');
@@ -454,6 +454,42 @@ describe('processLiftJob', () => {
     expect(mockDetect).toHaveBeenCalledWith(POINTS, [], KINEMATIC_ONLY_OPTIONS);
     const created = mockTx.rideSegment.createMany.mock.calls[0][0].data[0];
     expect(created.geometryScore).toBeNull();
+  });
+
+  it('a forced job re-detects a current-version ride instead of skipping or filling descent only', async () => {
+    // Analyzed, with a descent: without force this is the "already analyzed"
+    // skip. The route that forces re-analysis does not clear the version
+    // until the job is queued, so the job itself must carry the instruction.
+    mockFindUnique.mockResolvedValueOnce({
+      ...baseRide,
+      liftDetectorVersion: 1,
+      elevationLossMeters: 500,
+      stream: { id: 'stream-1', data: STREAM_DATA },
+      segments: [{ startIndex: 0, endIndex: 1 }],
+    });
+    mockDetect.mockReturnValueOnce([SEGMENT]);
+
+    await processLiftJob(makeJob('ride-1', { force: true }));
+
+    expect(mockGetLiftLines).toHaveBeenCalledTimes(1);
+    expect(mockDetect).toHaveBeenCalledTimes(1);
+    expect(mockTransaction).toHaveBeenCalledTimes(1);
+    expect(mockFetchStreams).not.toHaveBeenCalled();
+
+    // And a current-version ride with no descent takes the full pipeline too,
+    // not the descent-only path.
+    mockFindUnique.mockResolvedValueOnce({
+      ...baseRide,
+      liftDetectorVersion: 1,
+      stream: { id: 'stream-1', data: STREAM_DATA },
+      segments: [{ startIndex: 0, endIndex: 1 }],
+    });
+
+    await processLiftJob(makeJob('ride-1', { force: true }));
+
+    expect(mockGetLiftLines).toHaveBeenCalledTimes(2);
+    expect(mockTransaction).toHaveBeenCalledTimes(2);
+    expect(prisma.ride.updateMany).not.toHaveBeenCalled();
   });
 
   it('defers, writing nothing, when geometry is required and the Overpass fetch failed', async () => {

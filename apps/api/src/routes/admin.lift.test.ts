@@ -1,7 +1,13 @@
 // Mock dependencies before imports
 jest.mock('../lib/prisma', () => ({
   prisma: {
-    ride: { count: jest.fn(), findMany: jest.fn(), findUnique: jest.fn(), update: jest.fn() },
+    ride: {
+      count: jest.fn(),
+      findMany: jest.fn(),
+      findUnique: jest.fn(),
+      update: jest.fn(),
+      updateMany: jest.fn(),
+    },
     rideStream: { count: jest.fn() },
   },
 }));
@@ -36,7 +42,7 @@ import { enqueueLiftDetectionJob } from '../lib/queue';
 const mockRideCount = prisma.ride.count as jest.Mock;
 const mockRideFindMany = prisma.ride.findMany as jest.Mock;
 const mockRideFindUnique = prisma.ride.findUnique as jest.Mock;
-const mockRideUpdate = prisma.ride.update as jest.Mock;
+const mockRideUpdateMany = prisma.ride.updateMany as jest.Mock;
 const mockStreamCount = prisma.rideStream.count as jest.Mock;
 const mockRateLimit = checkAdminRateLimit as jest.Mock;
 const mockEnqueue = enqueueLiftDetectionJob as jest.Mock;
@@ -323,10 +329,11 @@ describe('Admin lift validation routes', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.data).toEqual({ status: 'queued', jobId: `detectLifts_${RIDE_ID}` });
-      expect(mockRideUpdate).not.toHaveBeenCalled();
+      expect(mockEnqueue).toHaveBeenCalledWith({ rideId: RIDE_ID });
+      expect(mockRideUpdateMany).not.toHaveBeenCalled();
     });
 
-    it('clears the detector version first when force is set', async () => {
+    it('with force, enqueues a forced job and then clears the detector version', async () => {
       mockRideFindUnique.mockResolvedValueOnce(eligibleRide);
       mockEnqueue.mockResolvedValueOnce({ status: 'queued', jobId: 'j' });
 
@@ -335,10 +342,40 @@ describe('Admin lift validation routes', () => {
         .send({ force: true });
 
       expect(res.status).toBe(200);
-      expect(mockRideUpdate).toHaveBeenCalledWith({
-        where: { id: RIDE_ID },
+      expect(mockEnqueue).toHaveBeenCalledWith({ rideId: RIDE_ID, force: true });
+      expect(mockRideUpdateMany).toHaveBeenCalledWith({
+        where: { id: RIDE_ID, liftDetectorVersion: { not: null } },
         data: { liftDetectorVersion: null },
       });
+      // The job carries the instruction; the clear only follows a confirmed
+      // enqueue, never precedes it.
+      expect(mockEnqueue.mock.invocationCallOrder[0]).toBeLessThan(
+        mockRideUpdateMany.mock.invocationCallOrder[0]
+      );
+    });
+
+    it('with force, leaves the version alone when a job for the ride is already queued', async () => {
+      // That job may predate requireGeometry; handing it a version-null ride
+      // would invite the kinematic-only overwrite this path guards against.
+      mockRideFindUnique.mockResolvedValueOnce(eligibleRide);
+      mockEnqueue.mockResolvedValueOnce({ status: 'already_queued', jobId: 'j' });
+
+      const res = await request(app)
+        .post(`/api/admin/lift/analyze/${RIDE_ID}`)
+        .send({ force: true });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.status).toBe('already_queued');
+      expect(mockRideUpdateMany).not.toHaveBeenCalled();
+    });
+
+    it('rejects non-boolean flags', async () => {
+      for (const body of [{ force: 'true' }, { requireGeometry: 1 }]) {
+        const res = await request(app).post(`/api/admin/lift/analyze/${RIDE_ID}`).send(body);
+        expect(res.status).toBe(400);
+      }
+      expect(mockRateLimit).not.toHaveBeenCalled();
+      expect(mockEnqueue).not.toHaveBeenCalled();
     });
 
     it('rejects invalid ids, unknown rides, and non-Strava rides without a stored stream', async () => {
@@ -381,7 +418,7 @@ describe('Admin lift validation routes', () => {
         .post(`/api/admin/lift/analyze/${RIDE_ID}`)
         .send({ force: true, requireGeometry: true });
 
-      expect(mockEnqueue).toHaveBeenCalledWith({ rideId: RIDE_ID, requireGeometry: true });
+      expect(mockEnqueue).toHaveBeenCalledWith({ rideId: RIDE_ID, force: true, requireGeometry: true });
     });
 
     it('applies the per-ride cooldown', async () => {
@@ -431,10 +468,10 @@ describe('Admin lift validation routes', () => {
     beforeEach(() => {
       // degraded, analyzed, pending
       mockRideCount.mockResolvedValueOnce(40).mockResolvedValueOnce(1015).mockResolvedValueOnce(3);
-      mockRideUpdate.mockResolvedValue({});
+      mockRideUpdateMany.mockResolvedValue({ count: 1 });
     });
 
-    it('defaults to the degraded scope: clears each ride and enqueues it with geometry required', async () => {
+    it('defaults to the degraded scope: enqueues each ride forced with geometry required, then clears it', async () => {
       mockRideFindMany.mockResolvedValueOnce(rows);
       mockEnqueue
         .mockResolvedValueOnce({ status: 'queued', jobId: 'a' })
@@ -467,15 +504,18 @@ describe('Admin lift validation routes', () => {
         })
       );
       for (const id of ids) {
-        expect(mockRideUpdate).toHaveBeenCalledWith({
-          where: { id },
-          data: { liftDetectorVersion: null },
-        });
-        expect(mockEnqueue).toHaveBeenCalledWith({ rideId: id, requireGeometry: true });
+        expect(mockEnqueue).toHaveBeenCalledWith({ rideId: id, force: true, requireGeometry: true });
       }
-      // The version is cleared before the job exists, never after.
-      expect(mockRideUpdate.mock.invocationCallOrder[0]).toBeLessThan(
-        mockEnqueue.mock.invocationCallOrder[0]
+      // Only the ride whose job was actually queued has its version cleared;
+      // the one with a job already in the queue is left to that job.
+      expect(mockRideUpdateMany).toHaveBeenCalledTimes(1);
+      expect(mockRideUpdateMany).toHaveBeenCalledWith({
+        where: { id: ids[0], liftDetectorVersion: { not: null } },
+        data: { liftDetectorVersion: null },
+      });
+      // And cleared after the enqueue, never before it.
+      expect(mockEnqueue.mock.invocationCallOrder[0]).toBeLessThan(
+        mockRideUpdateMany.mock.invocationCallOrder[0]
       );
       expect(mockRateLimit).toHaveBeenCalledWith('liftReanalyze', 'all');
     });
@@ -495,7 +535,7 @@ describe('Admin lift validation routes', () => {
       );
     });
 
-    it('scope pending re-enqueues version-null rides without touching them', async () => {
+    it('scope pending re-enqueues version-null rides the same way', async () => {
       mockRideFindMany.mockResolvedValueOnce([rows[0]]);
       mockEnqueue.mockResolvedValueOnce({ status: 'queued', jobId: 'a' });
 
@@ -505,12 +545,11 @@ describe('Admin lift validation routes', () => {
       expect(mockRideFindMany).toHaveBeenCalledWith(
         expect.objectContaining({ where: { ...analyzable, liftDetectorVersion: null } })
       );
-      // Already at version null: there is nothing to clear.
-      expect(mockRideUpdate).not.toHaveBeenCalled();
-      expect(mockEnqueue).toHaveBeenCalledWith({ rideId: ids[0], requireGeometry: true });
+      expect(mockEnqueue).toHaveBeenCalledWith({ rideId: ids[0], force: true, requireGeometry: true });
     });
 
-    it('walks the cursor and ends on a short batch', async () => {
+    it('walks the cursor without recounting, and ends on a short batch', async () => {
+      mockRideCount.mockReset();
       mockRideFindMany.mockResolvedValueOnce([rows[0]]);
       mockEnqueue.mockResolvedValue({ status: 'queued', jobId: 'a' });
 
@@ -528,6 +567,9 @@ describe('Admin lift validation routes', () => {
         })
       );
       expect(res.body.data.nextCursor).toBeNull();
+      // The three scope counts run on the first call and on dry runs only.
+      expect(mockRideCount).not.toHaveBeenCalled();
+      expect(res.body.data.counts).toBeNull();
     });
 
     it('rejects an unknown scope or a bad cursor before spending the cooldown', async () => {
@@ -538,7 +580,7 @@ describe('Admin lift validation routes', () => {
       expect(cursor.status).toBe(400);
 
       expect(mockRateLimit).not.toHaveBeenCalled();
-      expect(mockRideUpdate).not.toHaveBeenCalled();
+      expect(mockRideUpdateMany).not.toHaveBeenCalled();
       expect(mockEnqueue).not.toHaveBeenCalled();
     });
 
@@ -554,7 +596,7 @@ describe('Admin lift validation routes', () => {
         nextCursor: null,
       });
       expect(mockRideFindMany).not.toHaveBeenCalled();
-      expect(mockRideUpdate).not.toHaveBeenCalled();
+      expect(mockRideUpdateMany).not.toHaveBeenCalled();
       expect(mockEnqueue).not.toHaveBeenCalled();
       expect(mockRateLimit).not.toHaveBeenCalled();
     });
@@ -579,9 +621,13 @@ describe('Admin lift validation routes', () => {
       const res = await request(app).post('/api/admin/lift/reanalyze').send({ limit: 2 });
 
       expect(res.status).toBe(200);
-      // Its version was already cleared, so scope `pending` will find it.
+      // Untouched, so it is still in its scope for the next walk.
       expect(res.body.data).toMatchObject({ queued: 1, failed: 1, failedRideIds: [ids[0]] });
       expect(mockEnqueue).toHaveBeenCalledTimes(2);
+      expect(mockRideUpdateMany).toHaveBeenCalledTimes(1);
+      expect(mockRideUpdateMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ id: ids[1] }) })
+      );
     });
 
     it('applies the cooldown', async () => {
@@ -590,7 +636,7 @@ describe('Admin lift validation routes', () => {
       const res = await request(app).post('/api/admin/lift/reanalyze').send({});
 
       expect(res.status).toBe(429);
-      expect(mockRideUpdate).not.toHaveBeenCalled();
+      expect(mockRideUpdateMany).not.toHaveBeenCalled();
       expect(mockEnqueue).not.toHaveBeenCalled();
     });
   });
