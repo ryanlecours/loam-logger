@@ -4,7 +4,14 @@ import crypto from 'crypto';
 const TEST_KEY = crypto.randomBytes(32).toString('hex');
 process.env.TOKEN_ENCRYPTION_KEY = TEST_KEY;
 
-import { encrypt, decrypt, validateEncryptionKey } from './crypto';
+import {
+  encrypt,
+  decrypt,
+  validateEncryptionKey,
+  encryptWithKey,
+  decryptWithKey,
+  parseEncryptionKey,
+} from './crypto';
 
 describe('crypto', () => {
   beforeEach(() => {
@@ -117,5 +124,24 @@ describe('crypto', () => {
 
       expect(() => decrypt(encrypted)).toThrow();
     });
+  });
+});
+
+describe('explicit-key variants', () => {
+  it('encryptWithKey / decryptWithKey round-trip with a key other than the env key', () => {
+    const otherKey = crypto.randomBytes(32);
+    const ct = encryptWithKey('rotate me', otherKey);
+    expect(decryptWithKey(ct, otherKey)).toBe('rotate me');
+    // The env key must not open it, and vice versa.
+    expect(() => decrypt(ct)).toThrow();
+    expect(() => decryptWithKey(encrypt('x'), otherKey)).toThrow();
+  });
+
+  it('parseEncryptionKey names the variable in its error', () => {
+    expect(() => parseEncryptionKey(undefined, 'NEW_TOKEN_ENCRYPTION_KEY')).toThrow(
+      /^NEW_TOKEN_ENCRYPTION_KEY must be set/
+    );
+    expect(() => parseEncryptionKey('z'.repeat(64))).toThrow(/^TOKEN_ENCRYPTION_KEY must be set/);
+    expect(parseEncryptionKey('ab'.repeat(32))).toEqual(Buffer.from('ab'.repeat(32), 'hex'));
   });
 });
