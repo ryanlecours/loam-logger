@@ -23,6 +23,7 @@
 @import './components/cards.css';
 @import './components/forms.css';
 @import './components/alerts.css';
+@import './components/outage-banner.css';
 @import './components/skeleton.css';
 @import './components/modals.css';
 

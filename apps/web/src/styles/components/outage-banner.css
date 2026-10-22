@@ -1,0 +1,68 @@
+/**
+ * Loam Logger Components - Outage Banner
+ *
+ * Flag-driven service notice (PostHog `service-outage-banner`). Pinned to the
+ * bottom edge, above everything but modals, so it never fights the fixed top
+ * navbars. Speaks in the warning voice (terracotta on obsidian glass), per
+ * DESIGN.md's status-voiced feedback. Not the health ramp: an outage is not a
+ * component state.
+ */
+
+.outage-banner {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.625rem;
+  padding: 0.75rem 1rem;
+  padding-bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px));
+  background: rgba(12, 12, 14, 0.92);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border-top: 1px solid rgba(176, 106, 88, 0.45);
+  box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.5);
+  color: var(--cream);
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+
+.outage-banner-icon {
+  flex: none;
+  width: 1.125rem;
+  height: 1.125rem;
+  /* Terracotta's on-dark tint (DESIGN.md): the fill value is too dark as a glyph. */
+  color: #d9a08c;
+}
+
+.outage-banner-text {
+  margin: 0;
+  max-width: 60ch;
+}
+
+.outage-banner-dismiss {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.375rem;
+  border-radius: 0.5rem;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--silver);
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease;
+}
+
+.outage-banner-dismiss:hover {
+  background: var(--slate-50);
+  color: var(--cream);
+}
+
+.outage-banner-dismiss:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--mint-30);
+}
