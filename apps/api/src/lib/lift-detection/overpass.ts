@@ -12,10 +12,16 @@ import { prisma } from '../prisma';
 import { logger } from '../logger';
 import type { LiftLine, RidePoint } from './detector';
 
+// Must end in `/interpreter`: probeOverpass derives the instance's `/status`
+// page from it, and skips the probe (with a warning) for any other shape.
 const OVERPASS_API_BASE =
   process.env.OVERPASS_API_BASE || 'https://overpass-api.de/api/interpreter';
 // Identify ourselves per Overpass usage policy.
 const USER_AGENT = 'loam-logger (component wear tracking; lift detection)';
+
+// The status page is served by the same instance and does not take a query
+// slot, so a probe costs Overpass nothing.
+const PROBE_TIMEOUT_MS = 5_000;
 
 const CELL_SIZE_DEG = 0.05;
 // Lift geometry changes on a scale of years; refresh lazily past this age.
@@ -52,6 +58,69 @@ const acquireSlot = async (): Promise<void> => {
  * of the ride itself, so a kinematic-only result is the right answer for it.
  */
 export type GeometryUnavailableReason = 'fetch_failed' | 'too_large' | 'no_points';
+
+/**
+ * Thrown by a lift job that must have geometry when Overpass could not be
+ * reached. It is the expected outcome of an Overpass outage, not a defect:
+ * BullMQ retries the job later and reportWorkerFailure records the final
+ * give-up as a warning rather than an exception.
+ */
+export class GeometryUnavailableError extends Error {
+  constructor(rideId: string) {
+    super(
+      `Lift geometry unavailable for ride ${rideId}; deferring rather than storing a kinematic-only result`
+    );
+    this.name = 'GeometryUnavailableError';
+  }
+}
+
+export interface OverpassProbeResult {
+  ok: boolean;
+  /** Where the probe went and what came back, for the operator. */
+  detail: string;
+}
+
+/**
+ * Is Overpass reachable right now? Fetches the instance's status page (the
+ * `/api/status` beside the configured `/api/interpreter`), which does not
+ * consume a query slot. The admin re-analysis route refuses a batch when this
+ * fails, because jobs queued into an unreachable Overpass only defer and give
+ * up. A 200 is a proxy for health, not a promise of free slots: the jobs still
+ * carry their own deferral. Never throws.
+ *
+ * An OVERPASS_API_BASE that does not end in `/interpreter` has no status page
+ * this can find; rather than probe the interpreter itself (a bare GET answers
+ * 400 and would block every batch against a healthy instance) the probe is
+ * skipped and reports ok.
+ */
+export async function probeOverpass(): Promise<OverpassProbeResult> {
+  const statusUrl = OVERPASS_API_BASE.replace(/\/interpreter\/?$/, '/status');
+  if (statusUrl === OVERPASS_API_BASE) {
+    logger.warn({ base: OVERPASS_API_BASE }, '[Overpass] Base does not end in /interpreter; health probe skipped');
+    return { ok: true, detail: `probe skipped: no status page known for ${OVERPASS_API_BASE}` };
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
+  try {
+    const res = await fetch(statusUrl, {
+      headers: { 'User-Agent': USER_AGENT },
+      signal: controller.signal,
+    });
+    // Only the status matters; release the socket rather than leave the body
+    // for the garbage collector.
+    await res.body?.cancel();
+    return { ok: res.ok, detail: `HTTP ${res.status} from ${statusUrl}` };
+  } catch (err) {
+    const e = err as { name?: string; message?: string; cause?: { code?: string } };
+    const why =
+      e.name === 'AbortError'
+        ? `no answer within ${PROBE_TIMEOUT_MS}ms`
+        : e.cause?.code ?? e.message ?? 'fetch failed';
+    return { ok: false, detail: `${statusUrl}: ${why}` };
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 export interface LiftLinesResult {
   /**

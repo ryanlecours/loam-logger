@@ -9,7 +9,14 @@ jest.mock('../prisma', () => ({
   },
 }));
 
-import { getLiftLines, cellKeysForPoints, buildOverpassQuery, parseOverpassAerialways } from './overpass';
+import {
+  getLiftLines,
+  cellKeysForPoints,
+  buildOverpassQuery,
+  parseOverpassAerialways,
+  probeOverpass,
+  GeometryUnavailableError,
+} from './overpass';
 import { prisma } from '../prisma';
 
 const mockFindMany = prisma.overpassCache.findMany as jest.Mock;
@@ -209,5 +216,79 @@ describe('getLiftLines', () => {
     expect(result).toEqual({ geometryAvailable: false, liftLines: [], reason: 'too_large' });
     expect(mockFindMany).not.toHaveBeenCalled();
     expect(global.fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe('probeOverpass', () => {
+  beforeEach(() => {
+    global.fetch = jest.fn();
+  });
+
+  it('is ok when the status page answers 200, and releases the body', async () => {
+    const cancel = jest.fn().mockResolvedValue(undefined);
+    (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, status: 200, body: { cancel } });
+
+    const result = await probeOverpass();
+
+    expect(result).toEqual({ ok: true, detail: 'HTTP 200 from https://overpass-api.de/api/status' });
+    expect(cancel).toHaveBeenCalledTimes(1);
+    // The status page beside the configured interpreter, with our user agent;
+    // no query slot is consumed.
+    expect(global.fetch).toHaveBeenCalledWith(
+      'https://overpass-api.de/api/status',
+      expect.objectContaining({ headers: { 'User-Agent': expect.stringContaining('loam-logger') } })
+    );
+  });
+
+  it('is not ok on a non-200, naming the status', async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: false, status: 502 });
+
+    const result = await probeOverpass();
+
+    expect(result.ok).toBe(false);
+    expect(result.detail).toContain('HTTP 502');
+  });
+
+  it('is not ok when the status page does not answer within the timeout', async () => {
+    // fetch rejects with the AbortError the controller raises on timeout.
+    (global.fetch as jest.Mock).mockImplementationOnce((_url: string, init: { signal: AbortSignal }) =>
+      new Promise((_resolve, reject) => {
+        init.signal.addEventListener('abort', () => {
+          reject(Object.assign(new Error('This operation was aborted'), { name: 'AbortError' }));
+        });
+      })
+    );
+    jest.useFakeTimers();
+    try {
+      const pending = probeOverpass();
+      await jest.advanceTimersByTimeAsync(5_000);
+      const result = await pending;
+
+      expect(result.ok).toBe(false);
+      expect(result.detail).toContain('no answer within 5000ms');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('is not ok, and does not throw, when the connection is refused', async () => {
+    // What production saw on 2026-10-22: undici's "fetch failed" wrapping ECONNREFUSED.
+    const err = Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNREFUSED' } });
+    (global.fetch as jest.Mock).mockRejectedValueOnce(err);
+
+    const result = await probeOverpass();
+
+    expect(result.ok).toBe(false);
+    expect(result.detail).toContain('ECONNREFUSED');
+  });
+});
+
+describe('GeometryUnavailableError', () => {
+  it('names the ride and carries the name reportWorkerFailure matches on', () => {
+    const err = new GeometryUnavailableError('ride-9');
+
+    expect(err).toBeInstanceOf(Error);
+    expect(err.name).toBe('GeometryUnavailableError');
+    expect(err.message).toContain('ride-9');
   });
 });

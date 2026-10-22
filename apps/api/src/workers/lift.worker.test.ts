@@ -34,6 +34,12 @@ jest.mock('../lib/lift-detection', () => ({
   detectLiftSegments: jest.fn(),
   computeAdjustedMetrics: jest.fn(),
   getLiftLines: jest.fn(),
+  GeometryUnavailableError: class GeometryUnavailableError extends Error {
+    constructor(rideId: string) {
+      super(`Lift geometry unavailable for ride ${rideId}; deferring rather than storing a kinematic-only result`);
+      this.name = 'GeometryUnavailableError';
+    }
+  },
 }));
 
 import { processLiftJob } from './lift.worker';
@@ -505,9 +511,10 @@ describe('processLiftJob', () => {
 
     // The throw is what hands the job back to BullMQ for a later attempt;
     // the segments on record stay as they are until an attempt gets geometry.
-    await expect(processLiftJob(makeJob('ride-1', { requireGeometry: true }))).rejects.toThrow(
-      'Lift geometry unavailable'
-    );
+    await expect(processLiftJob(makeJob('ride-1', { requireGeometry: true }))).rejects.toMatchObject({
+      name: 'GeometryUnavailableError',
+      message: expect.stringContaining('Lift geometry unavailable for ride ride-1'),
+    });
     expect(mockDetect).not.toHaveBeenCalled();
     expect(mockTransaction).not.toHaveBeenCalled();
   });

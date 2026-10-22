@@ -18,6 +18,7 @@ import {
   detectLiftSegments,
   computeAdjustedMetrics,
   getLiftLines,
+  GeometryUnavailableError,
 } from '../lib/lift-detection';
 
 /**
@@ -183,9 +184,7 @@ export async function processLiftJob(
   // failed fetch is worth retrying: a ride too large for the geometry layer
   // gets its kinematic-only answer on any attempt, so it proceeds.
   if (job.data.requireGeometry && !geometryAvailable && reason === 'fetch_failed') {
-    throw new Error(
-      `Lift geometry unavailable for ride ${rideId}; deferring rather than storing a kinematic-only result`
-    );
+    throw new GeometryUnavailableError(rideId);
   }
 
   // Step 3: pure detection. Without geometry, Layer B alone must clear the
