@@ -46,6 +46,13 @@ const acquireSlot = async (): Promise<void> => {
   release();
 };
 
+/**
+ * Why geometry is unavailable. `fetch_failed` is the only transient one: a
+ * later attempt may succeed once Overpass recovers. The others are properties
+ * of the ride itself, so a kinematic-only result is the right answer for it.
+ */
+export type GeometryUnavailableReason = 'fetch_failed' | 'too_large' | 'no_points';
+
 export interface LiftLinesResult {
   /**
    * True when every cell covering the ride was resolved from cache or a live
@@ -55,6 +62,8 @@ export interface LiftLinesResult {
    */
   geometryAvailable: boolean;
   liftLines: LiftLine[];
+  /** Set only when geometryAvailable is false. */
+  reason?: GeometryUnavailableReason;
 }
 
 /** Grid-cell keys (southwest corner, 2dp) covering the points' bounding box. */
@@ -151,14 +160,14 @@ export async function getLiftLines(
 ): Promise<LiftLinesResult> {
   const cells = cellKeysForPoints(points);
   if (cells.length === 0) {
-    return { geometryAvailable: false, liftLines: [] };
+    return { geometryAvailable: false, liftLines: [], reason: 'no_points' };
   }
   if (cells.length > MAX_CELLS) {
     logger.info(
       { cellCount: cells.length, max: MAX_CELLS },
       '[Overpass] Ride bbox too large for geometry layer, running kinematic-only'
     );
-    return { geometryAvailable: false, liftLines: [] };
+    return { geometryAvailable: false, liftLines: [], reason: 'too_large' };
   }
 
   const byId = new Map<string, LiftLine>();
@@ -210,5 +219,7 @@ export async function getLiftLines(
     }
   }
 
-  return { geometryAvailable, liftLines: [...byId.values()] };
+  return geometryAvailable
+    ? { geometryAvailable, liftLines: [...byId.values()] }
+    : { geometryAvailable, liftLines: [...byId.values()], reason: 'fetch_failed' };
 }

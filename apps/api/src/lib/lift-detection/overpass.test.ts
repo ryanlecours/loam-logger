@@ -177,6 +177,8 @@ describe('getLiftLines', () => {
     ]);
 
     expect(result.geometryAvailable).toBe(false);
+    // The transient reason: a caller that must have geometry can retry later.
+    expect(result.reason).toBe('fetch_failed');
     expect(result.liftLines).toEqual([]);
     expect(global.fetch).toHaveBeenCalledTimes(1);
     expect(mockUpsert).not.toHaveBeenCalled();
@@ -192,6 +194,7 @@ describe('getLiftLines', () => {
     const result = await getLiftLines(IN_CELL_POINTS);
 
     expect(result.geometryAvailable).toBe(false);
+    expect(result.reason).toBe('fetch_failed');
     expect(result.liftLines).toEqual([LINE]);
   });
 
@@ -201,7 +204,9 @@ describe('getLiftLines', () => {
       { lat: 45.0, lng: -121.0 },
     ]);
 
-    expect(result).toEqual({ geometryAvailable: false, liftLines: [] });
+    // Not a transient failure: this ride never gets geometry, so a caller
+    // that requires it should not wait for a retry.
+    expect(result).toEqual({ geometryAvailable: false, liftLines: [], reason: 'too_large' });
     expect(mockFindMany).not.toHaveBeenCalled();
     expect(global.fetch).not.toHaveBeenCalled();
   });

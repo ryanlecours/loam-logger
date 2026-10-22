@@ -62,7 +62,8 @@ const mockGetLiftLines = getLiftLines as jest.Mock;
 /** What the stream says the ride descended; see "fills descent" below. */
 const STREAM_DESCENT = 842.5;
 
-const makeJob = (rideId = 'ride-1') => ({ data: { rideId }, id: 'job-1' } as never);
+const makeJob = (rideId = 'ride-1', data: { requireGeometry?: boolean; force?: boolean } = {}) =>
+  ({ data: { rideId, ...data }, id: 'job-1' }) as never;
 
 const RIDE_START = new Date('2026-07-01T09:00:00Z');
 const STREAM_DATA = { time: [0, 5], latlng: [[45, -122], [45.001, -122]], altitude: [1000, 1010] };
@@ -453,6 +454,81 @@ describe('processLiftJob', () => {
     expect(mockDetect).toHaveBeenCalledWith(POINTS, [], KINEMATIC_ONLY_OPTIONS);
     const created = mockTx.rideSegment.createMany.mock.calls[0][0].data[0];
     expect(created.geometryScore).toBeNull();
+  });
+
+  it('a forced job re-detects a current-version ride instead of skipping or filling descent only', async () => {
+    // Analyzed, with a descent: without force this is the "already analyzed"
+    // skip. The route that forces re-analysis does not clear the version
+    // until the job is queued, so the job itself must carry the instruction.
+    mockFindUnique.mockResolvedValueOnce({
+      ...baseRide,
+      liftDetectorVersion: 1,
+      elevationLossMeters: 500,
+      stream: { id: 'stream-1', data: STREAM_DATA },
+      segments: [{ startIndex: 0, endIndex: 1 }],
+    });
+    mockDetect.mockReturnValueOnce([SEGMENT]);
+
+    await processLiftJob(makeJob('ride-1', { force: true }));
+
+    expect(mockGetLiftLines).toHaveBeenCalledTimes(1);
+    expect(mockDetect).toHaveBeenCalledTimes(1);
+    expect(mockTransaction).toHaveBeenCalledTimes(1);
+    expect(mockFetchStreams).not.toHaveBeenCalled();
+
+    // And a current-version ride with no descent takes the full pipeline too,
+    // not the descent-only path.
+    mockFindUnique.mockResolvedValueOnce({
+      ...baseRide,
+      liftDetectorVersion: 1,
+      stream: { id: 'stream-1', data: STREAM_DATA },
+      segments: [{ startIndex: 0, endIndex: 1 }],
+    });
+
+    await processLiftJob(makeJob('ride-1', { force: true }));
+
+    expect(mockGetLiftLines).toHaveBeenCalledTimes(2);
+    expect(mockTransaction).toHaveBeenCalledTimes(2);
+    expect(prisma.ride.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('defers, writing nothing, when geometry is required and the Overpass fetch failed', async () => {
+    mockFindUnique.mockResolvedValueOnce({
+      ...baseRide,
+      stream: { id: 'stream-1', data: STREAM_DATA },
+    });
+    mockGetLiftLines.mockResolvedValueOnce({
+      geometryAvailable: false,
+      liftLines: [],
+      reason: 'fetch_failed',
+    });
+
+    // The throw is what hands the job back to BullMQ for a later attempt;
+    // the segments on record stay as they are until an attempt gets geometry.
+    await expect(processLiftJob(makeJob('ride-1', { requireGeometry: true }))).rejects.toThrow(
+      'Lift geometry unavailable'
+    );
+    expect(mockDetect).not.toHaveBeenCalled();
+    expect(mockTransaction).not.toHaveBeenCalled();
+  });
+
+  it('runs kinematic-only when geometry is required but the ride is too large for the geometry layer', async () => {
+    mockFindUnique.mockResolvedValueOnce({
+      ...baseRide,
+      stream: { id: 'stream-1', data: STREAM_DATA },
+    });
+    mockGetLiftLines.mockResolvedValueOnce({
+      geometryAvailable: false,
+      liftLines: [],
+      reason: 'too_large',
+    });
+
+    // Retrying would never help this ride, so its kinematic-only answer is
+    // final and gets stored.
+    await processLiftJob(makeJob('ride-1', { requireGeometry: true }));
+
+    expect(mockDetect).toHaveBeenCalledWith(POINTS, [], KINEMATIC_ONLY_OPTIONS);
+    expect(mockTransaction).toHaveBeenCalledTimes(1);
   });
 
   it('passes lift lines and default options when geometry is available', async () => {
