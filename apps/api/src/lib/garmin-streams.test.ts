@@ -87,8 +87,8 @@ describe('normalizeGarminSamples', () => {
 
     it('applies the moving threshold to the raw speed, not the rounded one', () => {
       // 0.5004 rounds to 0.500, which is NOT above the 0.5 m/s threshold once
-      // rounded, but the raw reading is. Either answer is defensible; this
-      // pins the behaviour so a refactor cannot flip it silently.
+      // rounded, but the raw reading is. The threshold is deliberately applied
+      // to the raw reading; this pins that so a refactor cannot flip it.
       const result = normalizeGarminSamples(
         [sample({ speedMetersPerSecond: 0.5004 })],
         START
@@ -98,6 +98,32 @@ describe('normalizeGarminSamples', () => {
       if (result.status !== 'ok') return;
       expect(result.data.velocity).toEqual([0.5]);
       expect(result.data.moving).toEqual([true]);
+    });
+
+    it('rounds small negative values to a plain zero', () => {
+      // A reading like -0.04 m rounds to -0 in JavaScript. Persisted JSON
+      // cannot tell -0 from 0, so the stored value must simply equal 0.
+      const result = normalizeGarminSamples(
+        [sample({ elevationInMeters: -0.04, speedMetersPerSecond: -0.0004 })],
+        START
+      );
+
+      expect(result.status).toBe('ok');
+      if (result.status !== 'ok') return;
+      expect(result.data.altitude).toEqual([0]);
+      expect(result.data.velocity).toEqual([0]);
+      expect(JSON.stringify(result.data.altitude)).toBe('[0]');
+    });
+
+    it('still records 0 for a sample whose speed is missing', () => {
+      const result = normalizeGarminSamples(
+        [sample({ speedMetersPerSecond: 3.25 }), sample({ startTimeInSeconds: START + 5, speedMetersPerSecond: undefined })],
+        START
+      );
+
+      expect(result.status).toBe('ok');
+      if (result.status !== 'ok') return;
+      expect(result.data.velocity).toEqual([3.25, 0]);
     });
   });
 

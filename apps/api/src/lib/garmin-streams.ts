@@ -88,7 +88,10 @@ const SPEED_DECIMALS = 3;
 
 function roundTo(value: number, decimals: number): number {
   const factor = 10 ** decimals;
-  return Math.round(value * factor) / factor;
+  const rounded = Math.round(value * factor) / factor;
+  // Math.round(-0.4) is -0. JSON cannot represent -0, so persist a plain 0 and
+  // keep equality checks (including Jest's toEqual) from tripping on it.
+  return rounded === 0 ? 0 : rounded;
 }
 
 /**
