@@ -74,6 +74,27 @@ function isFiniteNumber(value: unknown): value is number {
 }
 
 /**
+ * Precision Garmin values are rounded to before persisting, chosen to match
+ * what Strava's streams API already returns: coordinates to 6 decimal places
+ * (about 11 cm), altitude to 0.1 m, speed to 1 mm/s. Garmin sends raw doubles
+ * such as 43.80667565390468 or 1.064000010490417, and since the stream is
+ * stored as JSON every one of those digits costs bytes: on production data the
+ * rounding shrinks a stored Garmin stream by roughly a third with no change
+ * any consumer can observe.
+ */
+const COORD_DECIMALS = 6;
+const ALTITUDE_DECIMALS = 1;
+const SPEED_DECIMALS = 3;
+
+function roundTo(value: number, decimals: number): number {
+  const factor = 10 ** decimals;
+  const rounded = Math.round(value * factor) / factor;
+  // Math.round(-0.4) is -0. JSON cannot represent -0, so persist a plain 0 and
+  // keep equality checks (including Jest's toEqual) from tripping on it.
+  return rounded === 0 ? 0 : rounded;
+}
+
+/**
  * Normalize Garmin Activity Details samples into the shared stream shape.
  *
  * `activityStartTimeInSeconds` is the activity summary's start, used to rebase
@@ -124,15 +145,18 @@ export function normalizeGarminSamples(
     if (relative < 0) continue;
 
     time.push(relative);
-    latlng.push([sample.latitudeInDegree as number, sample.longitudeInDegree as number]);
+    latlng.push([
+      roundTo(sample.latitudeInDegree as number, COORD_DECIMALS),
+      roundTo(sample.longitudeInDegree as number, COORD_DECIMALS),
+    ]);
 
     const ele = sample.elevationInMeters;
     if (isFiniteNumber(ele)) sawAltitude = true;
-    altitude.push(isFiniteNumber(ele) ? ele : 0);
+    altitude.push(isFiniteNumber(ele) ? roundTo(ele, ALTITUDE_DECIMALS) : 0);
 
     const speed = sample.speedMetersPerSecond;
     if (isFiniteNumber(speed)) sawVelocity = true;
-    velocity.push(isFiniteNumber(speed) ? speed : 0);
+    velocity.push(isFiniteNumber(speed) ? roundTo(speed, SPEED_DECIMALS) : 0);
 
     const rpm = sample.bikeCadenceInRPM;
     if (isFiniteNumber(rpm)) sawCadence = true;
