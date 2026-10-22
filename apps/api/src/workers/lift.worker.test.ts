@@ -12,7 +12,7 @@ const mockTx = {
 
 jest.mock('../lib/prisma', () => ({
   prisma: {
-    ride: { findUnique: jest.fn(), update: jest.fn() },
+    ride: { findUnique: jest.fn(), updateMany: jest.fn() },
     rideStream: { upsert: jest.fn() },
     $transaction: jest.fn(async (fn: (tx: unknown) => Promise<void>) => fn(mockTx)),
   },
@@ -164,10 +164,32 @@ describe('processLiftJob', () => {
     expect(mockDetect).not.toHaveBeenCalled();
     expect(mockTransaction).not.toHaveBeenCalled();
     expect(mockAdjusted).toHaveBeenCalledWith(POINTS, existingSegments);
-    expect(prisma.ride.update).toHaveBeenCalledWith({
-      where: { id: 'ride-1' },
+    // Compare-and-set on the null, so a provider descent written meanwhile wins.
+    expect(prisma.ride.updateMany).toHaveBeenCalledWith({
+      where: { id: 'ride-1', elevationLossMeters: null },
       data: { elevationLossMeters: STREAM_DESCENT },
     });
+  });
+
+  it('takes the full pipeline, not the descent-only path, for a current-version ride that lost its stream but has a provider descent', async () => {
+    // A Strava disconnect deletes streams while rides survive. The skip
+    // needs a stream, so this ride gets re-fetched and re-analyzed, and its
+    // provider descent must come through untouched.
+    mockFindUnique.mockResolvedValueOnce({
+      ...baseRide,
+      liftDetectorVersion: 1,
+      elevationLossMeters: 500,
+      stream: null,
+    });
+    mockGetToken.mockResolvedValueOnce('token');
+    mockFetchStreams.mockResolvedValueOnce({ status: 'ok', pointCount: 2, data: STREAM_DATA });
+
+    await processLiftJob(makeJob());
+
+    expect(prisma.ride.updateMany).not.toHaveBeenCalled();
+    expect(mockDetect).toHaveBeenCalled();
+    const data = mockTx.ride.update.mock.calls[0][0].data;
+    expect(data).not.toHaveProperty('elevationLossMeters');
   });
 
   it('writes nothing on the descent-only path when the track is too short', async () => {
@@ -182,7 +204,7 @@ describe('processLiftJob', () => {
     await processLiftJob(makeJob());
 
     expect(mockAdjusted).not.toHaveBeenCalled();
-    expect(prisma.ride.update).not.toHaveBeenCalled();
+    expect(prisma.ride.updateMany).not.toHaveBeenCalled();
     expect(mockTransaction).not.toHaveBeenCalled();
   });
 

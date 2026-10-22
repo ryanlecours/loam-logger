@@ -133,16 +133,26 @@ export async function processLiftJob(
     return;
   }
 
-  // Already analyzed at the current version, so the only thing missing is
-  // the descent (the skip above would have fired otherwise). The segments on
-  // record are the detector's answer; sum descent from the stored stream
-  // and stop. No Overpass call and no re-detection, because a re-run under
-  // Overpass rate limiting (which a thousand-ride backfill burst produced)
-  // replaces geometry-matched segments with kinematic-only ones.
-  if (ride.liftDetectorVersion === DETECTOR_VERSION) {
+  // Already analyzed at the current version and missing only the descent.
+  // The segments on record are the detector's answer; sum descent from the
+  // stream and stop. No Overpass call and no re-detection, because a re-run
+  // under Overpass rate limiting (which a thousand-ride backfill burst
+  // produced) replaces geometry-matched segments with kinematic-only ones.
+  //
+  // The descent check is not redundant with the skip above: that skip also
+  // needs a stored stream, and a current-version ride can have lost its
+  // stream (a Strava disconnect deletes streams, rides survive) while keeping
+  // a provider-reported descent. Such a ride takes the full pipeline, which
+  // leaves a non-null descent alone.
+  if (ride.liftDetectorVersion === DETECTOR_VERSION && ride.elevationLossMeters == null) {
     const loss = deriveStreamLoss(points, ride.segments);
     if (loss != null) {
-      await prisma.ride.update({ where: { id: rideId }, data: { elevationLossMeters: loss } });
+      // Compare-and-set: an ingest that wrote a provider descent between the
+      // read above and this write wins, as it would in the full pipeline.
+      await prisma.ride.updateMany({
+        where: { id: rideId, elevationLossMeters: null },
+        data: { elevationLossMeters: loss },
+      });
     }
     logger.debug({ rideId, filled: loss != null }, '[LiftWorker] Descent filled from stored stream');
     return;
