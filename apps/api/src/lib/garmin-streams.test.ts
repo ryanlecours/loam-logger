@@ -49,6 +49,58 @@ describe('normalizeGarminSamples', () => {
     expect(result.data.power).toEqual([220]);
   });
 
+  describe('precision', () => {
+    // Garmin sends raw doubles; Strava's API already rounds to these places.
+    // Persisting the full double costs real storage for no observable gain.
+    it('rounds coordinates, altitude and speed to the precision Strava uses', () => {
+      const result = normalizeGarminSamples(
+        [
+          sample({
+            latitudeInDegree: 43.80667565390468,
+            longitudeInDegree: -116.2612781301141,
+            elevationInMeters: 174.6000061035156,
+            speedMetersPerSecond: 1.064000010490417,
+          }),
+        ],
+        START
+      );
+
+      expect(result.status).toBe('ok');
+      if (result.status !== 'ok') return;
+      expect(result.data.latlng).toEqual([[43.806676, -116.261278]]);
+      expect(result.data.altitude).toEqual([174.6]);
+      expect(result.data.velocity).toEqual([1.064]);
+    });
+
+    it('leaves integer sensor readings untouched', () => {
+      const result = normalizeGarminSamples(
+        [sample({ heartRate: 145, bikeCadenceInRPM: 85, powerInWatts: 220 })],
+        START
+      );
+
+      expect(result.status).toBe('ok');
+      if (result.status !== 'ok') return;
+      expect(result.data.heartrate).toEqual([145]);
+      expect(result.data.cadence).toEqual([85]);
+      expect(result.data.power).toEqual([220]);
+    });
+
+    it('applies the moving threshold to the raw speed, not the rounded one', () => {
+      // 0.5004 rounds to 0.500, which is NOT above the 0.5 m/s threshold once
+      // rounded, but the raw reading is. Either answer is defensible; this
+      // pins the behaviour so a refactor cannot flip it silently.
+      const result = normalizeGarminSamples(
+        [sample({ speedMetersPerSecond: 0.5004 })],
+        START
+      );
+
+      expect(result.status).toBe('ok');
+      if (result.status !== 'ok') return;
+      expect(result.data.velocity).toEqual([0.5]);
+      expect(result.data.moving).toEqual([true]);
+    });
+  });
+
   describe('index alignment', () => {
     // RideSegment persists integer indexes into these arrays, so a ragged
     // result would silently mis-slice previously-detected lift segments.
