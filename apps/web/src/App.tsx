@@ -37,6 +37,7 @@ import AppShell from './components/layout/AppShell';
 import OnboardingGate from './components/OnboardingGate';
 import TermsGate from './components/TermsGate';
 import { ToastProvider } from './components/ui/Toast';
+import OutageBanner from './components/OutageBanner';
 import Onboarding from './pages/Onboarding';
 import { usePostHogPageviews } from './hooks/usePostHogPageviews';
 
@@ -171,6 +172,7 @@ export default function App() {
     <BrowserRouter>
       <AppRoutes />
       <ToastProvider />
+      <OutageBanner />
     </BrowserRouter>
   );
 }
