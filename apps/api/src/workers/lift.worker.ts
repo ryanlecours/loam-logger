@@ -168,7 +168,19 @@ export async function processLiftJob(
   }
 
   // Step 2: lift geometry, best-effort (getLiftLines never throws).
-  const { geometryAvailable, liftLines } = await getLiftLines(points);
+  const { geometryAvailable, liftLines, reason } = await getLiftLines(points);
+
+  // A job that must have geometry defers rather than degrades. Persisting a
+  // kinematic-only result here would replace the segments on record, which
+  // on this path are the very geometry-matched ones being restored, so the
+  // job throws and BullMQ retries it on the slower geometry backoff. Only a
+  // failed fetch is worth retrying: a ride too large for the geometry layer
+  // gets its kinematic-only answer on any attempt, so it proceeds.
+  if (job.data.requireGeometry && !geometryAvailable && reason === 'fetch_failed') {
+    throw new Error(
+      `Lift geometry unavailable for ride ${rideId}; deferring rather than storing a kinematic-only result`
+    );
+  }
 
   // Step 3: pure detection. Without geometry, Layer B alone must clear the
   // stricter bar (plan §3.2).

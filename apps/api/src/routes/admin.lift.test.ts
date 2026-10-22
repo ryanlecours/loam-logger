@@ -14,8 +14,11 @@ jest.mock('../lib/rate-limit', () => ({
   checkAdminRateLimit: jest.fn(),
 }));
 
+const mockGetJobCounts = jest.fn();
+
 jest.mock('../lib/queue', () => ({
   enqueueLiftDetectionJob: jest.fn(),
+  getLiftQueue: jest.fn(() => ({ getJobCounts: mockGetJobCounts })),
 }));
 
 jest.mock('../lib/logger', () => ({
@@ -338,7 +341,7 @@ describe('Admin lift validation routes', () => {
       });
     });
 
-    it('rejects invalid ids, unknown rides, and non-Strava rides', async () => {
+    it('rejects invalid ids, unknown rides, and non-Strava rides without a stored stream', async () => {
       const bad = await request(app).post('/api/admin/lift/analyze/not-a-uuid').send({});
       expect(bad.status).toBe(400);
 
@@ -346,11 +349,39 @@ describe('Admin lift validation routes', () => {
       const missing = await request(app).post(`/api/admin/lift/analyze/${RIDE_ID}`).send({});
       expect(missing.status).toBe(404);
 
-      mockRideFindUnique.mockResolvedValueOnce({ ...eligibleRide, stravaActivityId: null });
+      // Nothing stored and nowhere to fetch from: the worker could not run.
+      mockRideFindUnique.mockResolvedValueOnce({ ...eligibleRide, stravaActivityId: null, stream: null });
       const manual = await request(app).post(`/api/admin/lift/analyze/${RIDE_ID}`).send({});
       expect(manual.status).toBe(400);
 
       expect(mockEnqueue).not.toHaveBeenCalled();
+    });
+
+    it('accepts a non-Strava ride that has a stored stream', async () => {
+      // In-app and Garmin rides were in the descent backfill set and the
+      // worker reuses their stream, so the force path must reach them.
+      mockRideFindUnique.mockResolvedValueOnce({
+        ...eligibleRide,
+        stravaActivityId: null,
+        stream: { id: 'stream-1' },
+      });
+      mockEnqueue.mockResolvedValueOnce({ status: 'queued', jobId: 'j' });
+
+      const res = await request(app).post(`/api/admin/lift/analyze/${RIDE_ID}`).send({});
+
+      expect(res.status).toBe(200);
+      expect(mockEnqueue).toHaveBeenCalledWith({ rideId: RIDE_ID });
+    });
+
+    it('passes requireGeometry through to the job', async () => {
+      mockRideFindUnique.mockResolvedValueOnce(eligibleRide);
+      mockEnqueue.mockResolvedValueOnce({ status: 'queued', jobId: 'j' });
+
+      await request(app)
+        .post(`/api/admin/lift/analyze/${RIDE_ID}`)
+        .send({ force: true, requireGeometry: true });
+
+      expect(mockEnqueue).toHaveBeenCalledWith({ rideId: RIDE_ID, requireGeometry: true });
     });
 
     it('applies the per-ride cooldown', async () => {
@@ -361,6 +392,206 @@ describe('Admin lift validation routes', () => {
       expect(res.status).toBe(429);
       expect(mockRateLimit).toHaveBeenCalledWith('liftAnalyze', RIDE_ID);
       expect(mockRideFindUnique).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('GET /queue', () => {
+    it('returns job counts and the number still outstanding', async () => {
+      mockGetJobCounts.mockResolvedValueOnce({
+        waiting: 0,
+        prioritized: 7,
+        active: 2,
+        delayed: 1,
+        failed: 3,
+        completed: 50,
+      });
+
+      const res = await request(app).get('/api/admin/lift/queue');
+
+      expect(res.status).toBe(200);
+      // Lift jobs carry a priority, so a waiting job counts under prioritized.
+      expect(res.body.data.outstanding).toBe(10);
+      expect(res.body.data.counts.failed).toBe(3);
+    });
+  });
+
+  describe('POST /reanalyze', () => {
+    const ids = [
+      '11111111-2222-4333-8444-555555555551',
+      '11111111-2222-4333-8444-555555555552',
+    ];
+    const rows = ids.map((id, i) => ({ id, startTime: new Date(`2026-07-0${i + 1}T10:00:00Z`) }));
+
+    const analyzable = {
+      stream: { isNot: null },
+      startLat: { not: null },
+      startLng: { not: null },
+    };
+
+    beforeEach(() => {
+      // degraded, analyzed, pending
+      mockRideCount.mockResolvedValueOnce(40).mockResolvedValueOnce(1015).mockResolvedValueOnce(3);
+      mockRideUpdate.mockResolvedValue({});
+    });
+
+    it('defaults to the degraded scope: clears each ride and enqueues it with geometry required', async () => {
+      mockRideFindMany.mockResolvedValueOnce(rows);
+      mockEnqueue
+        .mockResolvedValueOnce({ status: 'queued', jobId: 'a' })
+        .mockResolvedValueOnce({ status: 'already_queued', jobId: 'b' });
+
+      const res = await request(app).post('/api/admin/lift/reanalyze').send({ limit: 2 });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data).toEqual({
+        dryRun: false,
+        scope: 'degraded',
+        counts: { degraded: 40, analyzed: 1015, pending: 3 },
+        queued: 1,
+        alreadyQueued: 1,
+        failed: 0,
+        failedRideIds: [],
+        nextCursor: { before: '2026-07-02T10:00:00.000Z', beforeId: ids[1] },
+      });
+      // A null geometryScore on any segment is the marker of a ride detected
+      // while Overpass was unavailable.
+      expect(mockRideFindMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            ...analyzable,
+            liftDetectorVersion: { not: null },
+            segments: { some: { geometryScore: null } },
+          },
+          orderBy: [{ startTime: 'desc' }, { id: 'desc' }],
+          take: 2,
+        })
+      );
+      for (const id of ids) {
+        expect(mockRideUpdate).toHaveBeenCalledWith({
+          where: { id },
+          data: { liftDetectorVersion: null },
+        });
+        expect(mockEnqueue).toHaveBeenCalledWith({ rideId: id, requireGeometry: true });
+      }
+      // The version is cleared before the job exists, never after.
+      expect(mockRideUpdate.mock.invocationCallOrder[0]).toBeLessThan(
+        mockEnqueue.mock.invocationCallOrder[0]
+      );
+      expect(mockRateLimit).toHaveBeenCalledWith('liftReanalyze', 'all');
+    });
+
+    it('scope all takes every analyzed ride with a stream, for the rides that left no marker', async () => {
+      mockRideFindMany.mockResolvedValueOnce([]);
+
+      const res = await request(app).post('/api/admin/lift/reanalyze').send({ scope: 'all' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.scope).toBe('all');
+      expect(mockRideFindMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { ...analyzable, liftDetectorVersion: { not: null } },
+          take: 50,
+        })
+      );
+    });
+
+    it('scope pending re-enqueues version-null rides without touching them', async () => {
+      mockRideFindMany.mockResolvedValueOnce([rows[0]]);
+      mockEnqueue.mockResolvedValueOnce({ status: 'queued', jobId: 'a' });
+
+      const res = await request(app).post('/api/admin/lift/reanalyze').send({ scope: 'pending' });
+
+      expect(res.status).toBe(200);
+      expect(mockRideFindMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { ...analyzable, liftDetectorVersion: null } })
+      );
+      // Already at version null: there is nothing to clear.
+      expect(mockRideUpdate).not.toHaveBeenCalled();
+      expect(mockEnqueue).toHaveBeenCalledWith({ rideId: ids[0], requireGeometry: true });
+    });
+
+    it('walks the cursor and ends on a short batch', async () => {
+      mockRideFindMany.mockResolvedValueOnce([rows[0]]);
+      mockEnqueue.mockResolvedValue({ status: 'queued', jobId: 'a' });
+
+      const boundary = new Date('2026-07-02T10:00:00.000Z');
+      const res = await request(app)
+        .post('/api/admin/lift/reanalyze')
+        .send({ limit: 2, before: boundary.toISOString(), beforeId: ids[1] });
+
+      expect(res.status).toBe(200);
+      expect(mockRideFindMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            OR: [{ startTime: { lt: boundary } }, { startTime: boundary, id: { lt: ids[1] } }],
+          }),
+        })
+      );
+      expect(res.body.data.nextCursor).toBeNull();
+    });
+
+    it('rejects an unknown scope or a bad cursor before spending the cooldown', async () => {
+      const scope = await request(app).post('/api/admin/lift/reanalyze').send({ scope: 'everything' });
+      expect(scope.status).toBe(400);
+
+      const cursor = await request(app).post('/api/admin/lift/reanalyze').send({ before: 'yesterday' });
+      expect(cursor.status).toBe(400);
+
+      expect(mockRateLimit).not.toHaveBeenCalled();
+      expect(mockRideUpdate).not.toHaveBeenCalled();
+      expect(mockEnqueue).not.toHaveBeenCalled();
+    });
+
+    it('counts without writing on a dry run, and spends no cooldown', async () => {
+      const res = await request(app).post('/api/admin/lift/reanalyze').send({ dryRun: true, scope: 'all' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data).toMatchObject({
+        dryRun: true,
+        scope: 'all',
+        counts: { degraded: 40, analyzed: 1015, pending: 3 },
+        queued: 0,
+        nextCursor: null,
+      });
+      expect(mockRideFindMany).not.toHaveBeenCalled();
+      expect(mockRideUpdate).not.toHaveBeenCalled();
+      expect(mockEnqueue).not.toHaveBeenCalled();
+      expect(mockRateLimit).not.toHaveBeenCalled();
+    });
+
+    it('caps the limit at 200 and defaults it to 50', async () => {
+      mockRideFindMany.mockResolvedValue([]);
+
+      await request(app).post('/api/admin/lift/reanalyze').send({ limit: 999 });
+      expect(mockRideFindMany).toHaveBeenLastCalledWith(expect.objectContaining({ take: 200 }));
+
+      mockRideCount.mockResolvedValue(0);
+      await request(app).post('/api/admin/lift/reanalyze').send({});
+      expect(mockRideFindMany).toHaveBeenLastCalledWith(expect.objectContaining({ take: 50 }));
+    });
+
+    it('lists a ride whose enqueue threw and keeps going', async () => {
+      mockRideFindMany.mockResolvedValueOnce(rows);
+      mockEnqueue
+        .mockRejectedValueOnce(new Error('redis down'))
+        .mockResolvedValueOnce({ status: 'queued', jobId: 'b' });
+
+      const res = await request(app).post('/api/admin/lift/reanalyze').send({ limit: 2 });
+
+      expect(res.status).toBe(200);
+      // Its version was already cleared, so scope `pending` will find it.
+      expect(res.body.data).toMatchObject({ queued: 1, failed: 1, failedRideIds: [ids[0]] });
+      expect(mockEnqueue).toHaveBeenCalledTimes(2);
+    });
+
+    it('applies the cooldown', async () => {
+      mockRateLimit.mockResolvedValueOnce({ allowed: false, retryAfter: 30 });
+
+      const res = await request(app).post('/api/admin/lift/reanalyze').send({});
+
+      expect(res.status).toBe(429);
+      expect(mockRideUpdate).not.toHaveBeenCalled();
+      expect(mockEnqueue).not.toHaveBeenCalled();
     });
   });
 

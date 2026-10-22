@@ -17,4 +17,4 @@ export type {
 } from './detector';
 
 export { getLiftLines, cellKeysForPoints, buildOverpassQuery, parseOverpassAerialways } from './overpass';
-export type { LiftLinesResult } from './overpass';
+export type { LiftLinesResult, GeometryUnavailableReason } from './overpass';

@@ -9,7 +9,7 @@ import {
   sendTooManyRequests,
 } from '../lib/api-response';
 import { checkAdminRateLimit } from '../lib/rate-limit';
-import { enqueueLiftDetectionJob } from '../lib/queue';
+import { enqueueLiftDetectionJob, getLiftQueue } from '../lib/queue';
 import { logError } from '../lib/logger';
 
 // Lift-detection validation surface (docs/plans/lift-detection-plan.md §5,
@@ -25,6 +25,67 @@ const MAX_REPORT_LIMIT = 200;
 // thousand is a few minutes of background work, not a flood.
 const DEFAULT_BACKFILL_LIMIT = 200;
 const MAX_BACKFILL_LIMIT = 1000;
+// Re-analysis calls Overpass for every cell a ride covers that is not cached,
+// so its batches are small: see the pacing note on POST /reanalyze.
+const DEFAULT_REANALYZE_LIMIT = 50;
+const MAX_REANALYZE_LIMIT = 200;
+
+const REANALYZE_SCOPES = ['degraded', 'all', 'pending'] as const;
+type ReanalyzeScope = (typeof REANALYZE_SCOPES)[number];
+
+type BatchParams = { limit: number; before?: Date; beforeId?: string };
+
+/**
+ * Batch size and (start time, id) cursor shared by the batch routes below.
+ * Returns an error message instead of a result for a malformed cursor, so the
+ * caller can reject it before spending the cooldown: a typo should not cost a
+ * minute.
+ */
+function parseBatchParams(
+  body: Record<string, unknown> | undefined,
+  defaultLimit: number,
+  maxLimit: number
+): BatchParams | { error: string } {
+  const limitRaw = body?.limit;
+  const limit =
+    typeof limitRaw === 'number' && Number.isFinite(limitRaw)
+      ? Math.min(Math.max(Math.trunc(limitRaw), 1), maxLimit)
+      : defaultLimit;
+
+  let before: Date | undefined;
+  if (body?.before !== undefined) {
+    before = new Date(String(body.before));
+    if (Number.isNaN(before.getTime())) {
+      return { error: 'Invalid before date' };
+    }
+  }
+  const beforeId = typeof body?.beforeId === 'string' ? body.beforeId : undefined;
+  if (beforeId !== undefined && (!before || !UUID_REGEX.test(beforeId))) {
+    return { error: 'beforeId must be a ride id and accompany before' };
+  }
+
+  return { limit, before, beforeId };
+}
+
+/**
+ * Strictly older, or the same instant with a smaller id: the id tie-break is
+ * what keeps two rides that share a start time (bulk imports across users)
+ * from being split by a batch boundary and lost.
+ */
+function cursorWhere(before?: Date, beforeId?: string) {
+  if (!before) return {};
+  return beforeId
+    ? { OR: [{ startTime: { lt: before } }, { startTime: before, id: { lt: beforeId } }] }
+    : { startTime: { lt: before } };
+}
+
+/** The cursor for the next batch, or null once a batch comes back short. */
+function nextCursor(rides: Array<{ id: string; startTime: Date }>, limit: number) {
+  const last = rides[rides.length - 1];
+  return rides.length === limit && last
+    ? { before: last.startTime.toISOString(), beforeId: last.id }
+    : null;
+}
 
 const router = Router();
 
@@ -155,8 +216,13 @@ router.get('/report', async (req, res) => {
  * POST /api/admin/lift/analyze/:rideId
  * Enqueue lift analysis for one ride — the admin/dev form of the
  * mark-bike-park-ride path, used to seed known park rides for validation.
- * Body: { force?: boolean } — re-analyze even if already at the current
- * detector version (clears the version so the worker reruns).
+ * Body: {
+ *   force?: boolean           re-analyze even if already at the current
+ *                             detector version (clears the version so the
+ *                             worker reruns)
+ *   requireGeometry?: boolean fail the job instead of storing a
+ *                             kinematic-only result while Overpass is down
+ * }
  */
 router.post('/analyze/:rideId', async (req, res) => {
   try {
@@ -178,14 +244,19 @@ router.post('/analyze/:rideId', async (req, res) => {
         startLat: true,
         startLng: true,
         liftDetectorVersion: true,
+        stream: { select: { id: true } },
       },
     });
 
     if (!ride) {
       return sendNotFound(res, 'Ride not found');
     }
-    if (!ride.stravaActivityId) {
-      return sendBadRequest(res, 'Ride is not Strava-sourced; lift analysis is Strava-only for now');
+    // The worker reuses a stored stream whatever wrote it (Strava, Garmin
+    // ingest, an in-app recording) and only fetches when none is stored, which
+    // it can do for Strava alone. So the one ride it cannot analyze from here
+    // is one with neither.
+    if (!ride.stream && !ride.stravaActivityId) {
+      return sendBadRequest(res, 'Ride has no stored stream and is not Strava-sourced; nothing to analyze');
     }
     if (ride.startLat == null || ride.startLng == null) {
       return sendBadRequest(res, 'Ride has no start coordinates');
@@ -198,7 +269,9 @@ router.post('/analyze/:rideId', async (req, res) => {
       });
     }
 
-    const result = await enqueueLiftDetectionJob({ rideId });
+    const result = await enqueueLiftDetectionJob(
+      req.body?.requireGeometry === true ? { rideId, requireGeometry: true } : { rideId }
+    );
     return sendSuccess(res, result);
   } catch (error) {
     logError('Admin lift analyze', error);
@@ -237,26 +310,11 @@ router.post('/backfill-descent', async (req, res) => {
   try {
     const dryRun = req.body?.dryRun === true;
 
-    // Validate everything before touching the cooldown, so a typo in the
-    // cursor does not cost a minute.
-    const limitRaw = req.body?.limit;
-    const limit =
-      typeof limitRaw === 'number' && Number.isFinite(limitRaw)
-        ? Math.min(Math.max(Math.trunc(limitRaw), 1), MAX_BACKFILL_LIMIT)
-        : DEFAULT_BACKFILL_LIMIT;
-
-    let before: Date | undefined;
-    if (req.body?.before !== undefined) {
-      before = new Date(String(req.body.before));
-      if (Number.isNaN(before.getTime())) {
-        return sendBadRequest(res, 'Invalid before date');
-      }
+    const params = parseBatchParams(req.body, DEFAULT_BACKFILL_LIMIT, MAX_BACKFILL_LIMIT);
+    if ('error' in params) {
+      return sendBadRequest(res, params.error);
     }
-    const beforeId: string | undefined =
-      typeof req.body?.beforeId === 'string' ? req.body.beforeId : undefined;
-    if (beforeId !== undefined && (!before || !UUID_REGEX.test(beforeId))) {
-      return sendBadRequest(res, 'beforeId must be a ride id and accompany before');
-    }
+    const { limit, before, beforeId } = params;
 
     // A dry run queues nothing, so it should not spend the cooldown that
     // exists to keep real batches from stacking up.
@@ -276,15 +334,6 @@ router.post('/backfill-descent', async (req, res) => {
       startLng: { not: null },
     };
 
-    // Strictly older, or the same instant with a smaller id: the id
-    // tie-break is what keeps two rides that share a start time (bulk
-    // imports across users) from being split by a batch boundary and lost.
-    const cursorWhere = before
-      ? beforeId
-        ? { OR: [{ startTime: { lt: before } }, { startTime: before, id: { lt: beforeId } }] }
-        : { startTime: { lt: before } }
-      : {};
-
     const [fillableCount, unfillableCount, rides] = await Promise.all([
       prisma.ride.count({ where: fillableWhere }),
       prisma.ride.count({
@@ -296,7 +345,7 @@ router.post('/backfill-descent', async (req, res) => {
       dryRun
         ? Promise.resolve([] as { id: string; startTime: Date }[])
         : prisma.ride.findMany({
-            where: { ...fillableWhere, ...cursorWhere },
+            where: { ...fillableWhere, ...cursorWhere(before, beforeId) },
             orderBy: [{ startTime: 'desc' }, { id: 'desc' }],
             take: limit,
             select: { id: true, startTime: true },
@@ -320,7 +369,6 @@ router.post('/backfill-descent', async (req, res) => {
       }
     }
 
-    const last = rides[rides.length - 1];
     return sendSuccess(res, {
       dryRun,
       fillableCount,
@@ -330,14 +378,180 @@ router.post('/backfill-descent', async (req, res) => {
       failed: failedRideIds.length,
       failedRideIds,
       // Null once a batch comes back short: there is nothing older to walk.
-      nextCursor:
-        !dryRun && rides.length === limit && last
-          ? { before: last.startTime.toISOString(), beforeId: last.id }
-          : null,
+      nextCursor: dryRun ? null : nextCursor(rides, limit),
     });
   } catch (error) {
     logError('Admin lift backfill descent', error);
     return sendInternalError(res, 'Failed to enqueue descent backfill');
+  }
+});
+
+/**
+ * GET /api/admin/lift/queue
+ * Lift queue job counts, for pacing a re-analysis: the next batch goes in
+ * once `outstanding` is zero. `failed` growing during a batch means Overpass
+ * is still rate limiting (a geometry-required job fails rather than store a
+ * kinematic-only result), so let it rest before continuing.
+ */
+router.get('/queue', async (_req, res) => {
+  try {
+    const counts = await getLiftQueue().getJobCounts(
+      'waiting',
+      'prioritized',
+      'active',
+      'delayed',
+      'failed',
+      'completed'
+    );
+    return sendSuccess(res, {
+      counts,
+      // Jobs that have not reached a terminal state. Lift jobs carry a
+      // priority, so one that is waiting sits in `prioritized`, not `waiting`.
+      outstanding:
+        (counts.waiting ?? 0) + (counts.prioritized ?? 0) + (counts.active ?? 0) + (counts.delayed ?? 0),
+    });
+  } catch (error) {
+    logError('Admin lift queue', error);
+    return sendInternalError(res, 'Failed to read lift queue');
+  }
+});
+
+/**
+ * POST /api/admin/lift/reanalyze
+ * Force re-detection, in paced batches, for rides whose lift segments were
+ * detected while Overpass was unavailable. The 2026-10-22 descent backfill
+ * enqueued about a thousand rides at once, Overpass rate limited the burst,
+ * and the worker (which then re-ran detection for every ride) stored
+ * kinematic-only results: segments with geometryScore null, or no segments at
+ * all where the stricter kinematic-only bar found nothing. The worker no
+ * longer re-detects on that path (it fills the descent from the stored
+ * segments), so the burst cannot recur, but this is the repair for what it
+ * left behind.
+ *
+ * Each selected ride has its detector version cleared and is enqueued with
+ * requireGeometry, so the worker runs the full pipeline against the stored
+ * stream (no provider call) and, if Overpass is unavailable again, fails the
+ * job, retried on a slow backoff, rather than store another kinematic-only
+ * answer. A ride whose job gives up keeps its old segments and stays at
+ * version null, where scope `pending` finds it.
+ *
+ * Body: {
+ *   scope?: 'degraded' | 'all' | 'pending'   (default 'degraded')
+ *     degraded  analyzed rides with at least one segment whose geometryScore
+ *               is null: certainly affected, and the only ones findable
+ *     all       every analyzed ride with a stored stream and coordinates,
+ *               which is the backfill set. A ride where kinematic-only
+ *               detection found nothing (so its geometry-matched segments
+ *               were deleted) leaves no marker; only this scope reaches it.
+ *     pending   rides with a stream and no detector version: a deferred job
+ *               that gave up, an enqueue that failed below, or a stream with
+ *               no altitude (harmless: the worker skips it before Overpass)
+ *   limit?: number     batch size (default 50, cap 200)
+ *   before?: string    ISO start time cursor, as for backfill-descent
+ *   beforeId?: string  with `before`: the ride id the previous batch ended on
+ *   dryRun?: boolean   counts only, no writes, no cooldown
+ * }
+ *
+ * Pacing: lift jobs run two at a time and Overpass requests are serialized
+ * at one per second app-wide, so a batch costs at most limit x cells
+ * (12 cells at most per ride, and far fewer in practice: a park's cells are
+ * cached for 180 days once any ride fetches them). The public Overpass
+ * instance asks for about 10,000 requests a day and answers 429 when its
+ * per-client slots are busy. Wait for GET /queue to report zero outstanding
+ * before sending the next batch, and rest for several minutes when failures
+ * appear.
+ */
+router.post('/reanalyze', async (req, res) => {
+  try {
+    const dryRun = req.body?.dryRun === true;
+
+    const scopeRaw = req.body?.scope ?? 'degraded';
+    if (!REANALYZE_SCOPES.includes(scopeRaw)) {
+      return sendBadRequest(res, `scope must be one of: ${REANALYZE_SCOPES.join(', ')}`);
+    }
+    const scope = scopeRaw as ReanalyzeScope;
+
+    const params = parseBatchParams(req.body, DEFAULT_REANALYZE_LIMIT, MAX_REANALYZE_LIMIT);
+    if ('error' in params) {
+      return sendBadRequest(res, params.error);
+    }
+    const { limit, before, beforeId } = params;
+
+    if (!dryRun) {
+      const rateLimit = await checkAdminRateLimit('liftReanalyze', 'all');
+      if (!rateLimit.allowed) {
+        return sendTooManyRequests(res, 'Re-analysis recently requested', rateLimit.retryAfter);
+      }
+    }
+
+    // The worker needs a stored stream and coordinates to run at all, so
+    // every scope starts there.
+    const analyzableWhere = {
+      stream: { isNot: null },
+      startLat: { not: null },
+      startLng: { not: null },
+    };
+    const scopeWhere = {
+      degraded: {
+        ...analyzableWhere,
+        liftDetectorVersion: { not: null },
+        segments: { some: { geometryScore: null } },
+      },
+      all: { ...analyzableWhere, liftDetectorVersion: { not: null } },
+      pending: { ...analyzableWhere, liftDetectorVersion: null },
+    };
+
+    const [degradedCount, analyzedCount, pendingCount, rides] = await Promise.all([
+      prisma.ride.count({ where: scopeWhere.degraded }),
+      prisma.ride.count({ where: scopeWhere.all }),
+      prisma.ride.count({ where: scopeWhere.pending }),
+      dryRun
+        ? Promise.resolve([] as { id: string; startTime: Date }[])
+        : prisma.ride.findMany({
+            where: { ...scopeWhere[scope], ...cursorWhere(before, beforeId) },
+            orderBy: [{ startTime: 'desc' }, { id: 'desc' }],
+            take: limit,
+            select: { id: true, startTime: true },
+          }),
+    ]);
+
+    let queued = 0;
+    let alreadyQueued = 0;
+    const failedRideIds: string[] = [];
+    for (const ride of rides) {
+      try {
+        // Clear the version first: that is what sends a ride with a stored
+        // stream down the full pipeline instead of the descent-only path. If
+        // the enqueue then fails, the ride is left in scope `pending`, where
+        // a later batch picks it up; nothing on it has been changed yet.
+        if (scope !== 'pending') {
+          await prisma.ride.update({
+            where: { id: ride.id },
+            data: { liftDetectorVersion: null },
+          });
+        }
+        const result = await enqueueLiftDetectionJob({ rideId: ride.id, requireGeometry: true });
+        if (result.status === 'queued') queued++;
+        else alreadyQueued++;
+      } catch (error) {
+        failedRideIds.push(ride.id);
+        logError(`Admin lift reanalyze enqueue ${ride.id}`, error);
+      }
+    }
+
+    return sendSuccess(res, {
+      dryRun,
+      scope,
+      counts: { degraded: degradedCount, analyzed: analyzedCount, pending: pendingCount },
+      queued,
+      alreadyQueued,
+      failed: failedRideIds.length,
+      failedRideIds,
+      nextCursor: dryRun ? null : nextCursor(rides, limit),
+    });
+  } catch (error) {
+    logError('Admin lift reanalyze', error);
+    return sendInternalError(res, 'Failed to enqueue lift re-analysis');
   }
 });
 

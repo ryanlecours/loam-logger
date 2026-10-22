@@ -364,6 +364,8 @@ export const ADMIN_RATE_LIMITS = {
   liftAnalyze: 5 * SECONDS,
   /** Descent backfill cooldown: 60 seconds, global (one batch of lift jobs at a time) */
   liftBackfillDescent: 60 * SECONDS,
+  /** Forced lift re-analysis cooldown: 30 seconds, global (batches are paced by queue drain, this only stops double submits) */
+  liftReanalyze: 30 * SECONDS,
 } as const;
 
 /**
