@@ -224,12 +224,14 @@ describe('probeOverpass', () => {
     global.fetch = jest.fn();
   });
 
-  it('is ok when the status page answers 200', async () => {
-    (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, status: 200 });
+  it('is ok when the status page answers 200, and releases the body', async () => {
+    const cancel = jest.fn().mockResolvedValue(undefined);
+    (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, status: 200, body: { cancel } });
 
     const result = await probeOverpass();
 
     expect(result).toEqual({ ok: true, detail: 'HTTP 200 from https://overpass-api.de/api/status' });
+    expect(cancel).toHaveBeenCalledTimes(1);
     // The status page beside the configured interpreter, with our user agent;
     // no query slot is consumed.
     expect(global.fetch).toHaveBeenCalledWith(
@@ -245,6 +247,28 @@ describe('probeOverpass', () => {
 
     expect(result.ok).toBe(false);
     expect(result.detail).toContain('HTTP 502');
+  });
+
+  it('is not ok when the status page does not answer within the timeout', async () => {
+    // fetch rejects with the AbortError the controller raises on timeout.
+    (global.fetch as jest.Mock).mockImplementationOnce((_url: string, init: { signal: AbortSignal }) =>
+      new Promise((_resolve, reject) => {
+        init.signal.addEventListener('abort', () => {
+          reject(Object.assign(new Error('This operation was aborted'), { name: 'AbortError' }));
+        });
+      })
+    );
+    jest.useFakeTimers();
+    try {
+      const pending = probeOverpass();
+      await jest.advanceTimersByTimeAsync(5_000);
+      const result = await pending;
+
+      expect(result.ok).toBe(false);
+      expect(result.detail).toContain('no answer within 5000ms');
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('is not ok, and does not throw, when the connection is refused', async () => {

@@ -81,11 +81,6 @@ describe('reportWorkerFailure', () => {
   });
 
   /**
-   * UnrecoverableError ends a job on the spot, with attempts still on the clock,
-   * so counting attempts alone would file it as "not final yet" and drop it.
-   * That is the failure mode this branch exists to prevent.
-   */
-  /**
    * An Overpass outage is the deferral working as designed. Fifty rides that
    * gave up should read as one warning with fifty events, not fifty errors.
    */
@@ -112,6 +107,11 @@ describe('reportWorkerFailure', () => {
     });
   });
 
+  /**
+   * UnrecoverableError ends a job on the spot, with attempts still on the clock,
+   * so counting attempts alone would file it as "not final yet" and drop it.
+   * That is the failure mode this branch exists to prevent.
+   */
   describe('unrecoverable failures', () => {
     it('reports on the first attempt', () => {
       reportWorkerFailure(

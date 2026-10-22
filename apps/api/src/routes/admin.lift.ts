@@ -560,7 +560,7 @@ router.post('/reanalyze', async (req, res) => {
         return sendError(
           res,
           503,
-          `Overpass is unavailable (${probe.detail}); a batch queued now would only defer and give up`,
+          `Overpass is unreachable (${probe.detail}); jobs queued now would defer and likely give up`,
           'OVERPASS_UNAVAILABLE'
         );
       }
