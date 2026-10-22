@@ -192,6 +192,60 @@ describe('processLiftJob', () => {
     expect(data).not.toHaveProperty('elevationLossMeters');
   });
 
+  it('re-analyzes instead of taking the descent-only path when the stream had to be refetched', async () => {
+    // Stored segments index into the stream that was deleted; a fresh fetch
+    // may not line up, so the ride earns a proper re-analysis.
+    mockFindUnique.mockResolvedValueOnce({
+      ...baseRide,
+      liftDetectorVersion: 1,
+      elevationLossMeters: null,
+      stream: null,
+      segments: [{ startIndex: 10, endIndex: 90 }],
+    });
+    mockGetToken.mockResolvedValueOnce('token');
+    mockFetchStreams.mockResolvedValueOnce({ status: 'ok', pointCount: 2, data: STREAM_DATA });
+
+    await processLiftJob(makeJob());
+
+    expect(prisma.ride.updateMany).not.toHaveBeenCalled();
+    expect(mockDetect).toHaveBeenCalled();
+    expect(mockTx.ride.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ elevationLossMeters: STREAM_DESCENT }) })
+    );
+  });
+
+  it('takes the full pipeline for a stale-version ride with no descent', async () => {
+    mockFindUnique.mockResolvedValueOnce({
+      ...baseRide,
+      liftDetectorVersion: 0,
+      elevationLossMeters: null,
+      stream: { id: 'stream-1', data: STREAM_DATA },
+    });
+
+    await processLiftJob(makeJob());
+
+    expect(prisma.ride.updateMany).not.toHaveBeenCalled();
+    expect(mockDetect).toHaveBeenCalled();
+    expect(mockTx.ride.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ elevationLossMeters: STREAM_DESCENT }) })
+    );
+  });
+
+  it('accepts losing the compare-and-set to a provider write without further writes', async () => {
+    mockFindUnique.mockResolvedValueOnce({
+      ...baseRide,
+      liftDetectorVersion: 1,
+      elevationLossMeters: null,
+      stream: { id: 'stream-1', data: STREAM_DATA },
+    });
+    (prisma.ride.updateMany as jest.Mock).mockResolvedValueOnce({ count: 0 });
+
+    await expect(processLiftJob(makeJob())).resolves.toBeUndefined();
+
+    expect(prisma.ride.updateMany).toHaveBeenCalledTimes(1);
+    expect(mockTransaction).not.toHaveBeenCalled();
+  });
+
   it('writes nothing on the descent-only path when the track is too short', async () => {
     mockFindUnique.mockResolvedValueOnce({
       ...baseRide,

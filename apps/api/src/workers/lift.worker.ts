@@ -23,10 +23,12 @@ import {
 /**
  * Descent summed over the track, or null when the track cannot say.
  *
- * Lifts do not affect descent, so this is the plain sum over the altitude
- * series; the segments only tell computeAdjustedMetrics which steps to leave
- * out of the lift-corrected gain, which is not read here. computeAdjustedMetrics
- * sums finite altitudes from zero, so it always returns a number, but a track
+ * The sum leaves out the steps inside the given lift segments, exactly as
+ * computeAdjustedMetrics does for gain, so a downhill gondola the detector
+ * excluded is not booked as riding. Both callers therefore pass the segments
+ * that describe this stream: freshly detected ones on the full pipeline, the
+ * stored ones on the descent-only path. computeAdjustedMetrics sums finite
+ * altitudes from zero, so it always returns a number, but a track
  * with fewer than two points has no descent to sum and would store 0 ("flat
  * ride") where the contract wants null ("not reported"). The finite guard keeps
  * a malformed stream from writing NaN and then re-running this job on every
@@ -97,6 +99,7 @@ export async function processLiftJob(
   //    Garmin pushes (see lib/ride-stream-store.ts). There is no fetch path —
   //    the Connect Developer Program disallows pull-only access — so a Garmin
   //    ride with no stored stream simply has no track to analyze.
+  const hadStoredStream = Boolean(ride.stream);
   let streamData: NormalizedStreams;
   if (ride.stream) {
     streamData = ride.stream.data as NormalizedStreams;
@@ -139,12 +142,18 @@ export async function processLiftJob(
   // under Overpass rate limiting (which a thousand-ride backfill burst
   // produced) replaces geometry-matched segments with kinematic-only ones.
   //
-  // The descent check is not redundant with the skip above: that skip also
-  // needs a stored stream, and a current-version ride can have lost its
-  // stream (a Strava disconnect deletes streams, rides survive) while keeping
-  // a provider-reported descent. Such a ride takes the full pipeline, which
-  // leaves a non-null descent alone.
-  if (ride.liftDetectorVersion === DETECTOR_VERSION && ride.elevationLossMeters == null) {
+  // Gated on the stream having been stored already, not fetched just now: a
+  // current-version ride can have lost its stream (a Strava disconnect
+  // deletes streams, rides survive), and its stored segments index into the
+  // old stream, so a refetched one goes through the full pipeline instead.
+  // The descent check matters for the same ride when it kept a
+  // provider-reported descent: the full pipeline leaves a non-null descent
+  // alone, so nothing here can overwrite a provider figure.
+  if (
+    hadStoredStream &&
+    ride.liftDetectorVersion === DETECTOR_VERSION &&
+    ride.elevationLossMeters == null
+  ) {
     const loss = deriveStreamLoss(points, ride.segments);
     if (loss != null) {
       // Compare-and-set: an ingest that wrote a provider descent between the
