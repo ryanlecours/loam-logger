@@ -16,5 +16,12 @@ export type {
   AdjustedRideMetrics,
 } from './detector';
 
-export { getLiftLines, cellKeysForPoints, buildOverpassQuery, parseOverpassAerialways } from './overpass';
-export type { LiftLinesResult, GeometryUnavailableReason } from './overpass';
+export {
+  getLiftLines,
+  cellKeysForPoints,
+  buildOverpassQuery,
+  parseOverpassAerialways,
+  probeOverpass,
+  GeometryUnavailableError,
+} from './overpass';
+export type { LiftLinesResult, GeometryUnavailableReason, OverpassProbeResult } from './overpass';

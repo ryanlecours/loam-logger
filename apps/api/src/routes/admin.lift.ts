@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { prisma } from '../lib/prisma';
 import { requireAdmin } from '../auth/adminMiddleware';
 import {
+  sendError,
   sendSuccess,
   sendBadRequest,
   sendNotFound,
@@ -11,6 +12,7 @@ import {
 } from '../lib/api-response';
 import { checkAdminRateLimit } from '../lib/rate-limit';
 import { enqueueLiftDetectionJob, getLiftQueue } from '../lib/queue';
+import { probeOverpass } from '../lib/lift-detection';
 import type { EnqueueLiftResult, LiftJobData } from '../lib/queue';
 import { logError } from '../lib/logger';
 
@@ -522,7 +524,10 @@ router.get('/queue', async (_req, res) => {
  * per-client slots are busy. A batch is refused with 409 while the lift
  * queue still has outstanding jobs, so batches cannot stack into the burst
  * this route repairs; wait for GET /queue to report zero and rest for
- * several minutes when failures appear.
+ * several minutes when failures appear. It is refused with 503 when the
+ * Overpass status page does not answer 200, because every job in the batch
+ * would then only defer and give up (the first production run did exactly
+ * that: 54 rides, all ECONNREFUSED); retry once the probe passes.
  */
 router.post('/reanalyze', async (req, res) => {
   try {
@@ -548,6 +553,15 @@ router.post('/reanalyze', async (req, res) => {
           res,
           `Lift queue still has ${outstanding} outstanding job(s); wait for it to drain`,
           'LIFT_QUEUE_BUSY'
+        );
+      }
+      const probe = await probeOverpass();
+      if (!probe.ok) {
+        return sendError(
+          res,
+          503,
+          `Overpass is unavailable (${probe.detail}); a batch queued now would only defer and give up`,
+          'OVERPASS_UNAVAILABLE'
         );
       }
       const rateLimit = await checkAdminRateLimit('liftReanalyze', 'all');

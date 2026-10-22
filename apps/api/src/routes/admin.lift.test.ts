@@ -27,6 +27,12 @@ jest.mock('../lib/queue', () => ({
   getLiftQueue: jest.fn(() => ({ getJobCounts: mockGetJobCounts })),
 }));
 
+const mockProbeOverpass = jest.fn();
+
+jest.mock('../lib/lift-detection', () => ({
+  probeOverpass: mockProbeOverpass,
+}));
+
 jest.mock('../lib/logger', () => ({
   logError: jest.fn(),
   logger: { warn: jest.fn(), info: jest.fn(), debug: jest.fn(), error: jest.fn() },
@@ -62,6 +68,7 @@ describe('Admin lift validation routes', () => {
     jest.clearAllMocks();
     mockRateLimit.mockResolvedValue({ allowed: true, redisAvailable: true });
     mockGetJobCounts.mockResolvedValue({ waiting: 0, prioritized: 0, active: 0, delayed: 0, failed: 0, completed: 0 });
+    mockProbeOverpass.mockResolvedValue({ ok: true, detail: 'HTTP 200' });
   });
 
   describe('GET /report', () => {
@@ -654,6 +661,27 @@ describe('Admin lift validation routes', () => {
       expect(res.status).toBe(429);
       expect(mockRideUpdateMany).not.toHaveBeenCalled();
       expect(mockEnqueue).not.toHaveBeenCalled();
+    });
+
+    it('refuses a batch while Overpass is unreachable, without spending the cooldown', async () => {
+      // Every job in the batch would defer and give up, as the first
+      // production run did; the probe costs Overpass no query slot.
+      mockProbeOverpass.mockResolvedValueOnce({ ok: false, detail: 'https://overpass-api.de/api/status: ECONNREFUSED' });
+
+      const res = await request(app).post('/api/admin/lift/reanalyze').send({ scope: 'pending' });
+
+      expect(res.status).toBe(503);
+      expect(res.body.code).toBe('OVERPASS_UNAVAILABLE');
+      expect(res.body.error).toContain('ECONNREFUSED');
+      expect(mockRateLimit).not.toHaveBeenCalled();
+      expect(mockRideFindMany).not.toHaveBeenCalled();
+      expect(mockEnqueue).not.toHaveBeenCalled();
+
+      // A dry run never probes.
+      mockProbeOverpass.mockClear();
+      const dry = await request(app).post('/api/admin/lift/reanalyze').send({ dryRun: true });
+      expect(dry.status).toBe(200);
+      expect(mockProbeOverpass).not.toHaveBeenCalled();
     });
 
     it('refuses a batch while the lift queue has outstanding jobs, without spending the cooldown', async () => {

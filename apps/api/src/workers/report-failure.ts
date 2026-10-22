@@ -60,6 +60,21 @@ export function reportWorkerFailure(
 
   const userId = riderId(job?.data);
 
+  // A lift job that gave up because Overpass was unreachable is the deferral
+  // working as designed (lib/lift-detection GeometryUnavailableError), not a
+  // defect, so it goes in as one warning-level message rather than an error
+  // per ride. A batch of fifty refused rides is then one issue with fifty
+  // events, visible but not paging anyone. Matched by name for the same
+  // reason UnrecoverableError is above.
+  if (err.name === 'GeometryUnavailableError') {
+    Sentry.captureMessage('Lift geometry unavailable; job gave up after retries', {
+      level: 'warning',
+      tags: { worker: workerName, jobName: job?.name },
+      extra: { jobId: job?.id, attemptsMade: job?.attemptsMade, attempts, message: err.message },
+    });
+    return;
+  }
+
   Sentry.captureException(err, {
     tags: {
       worker: workerName,

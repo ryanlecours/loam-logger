@@ -17,6 +17,10 @@ const OVERPASS_API_BASE =
 // Identify ourselves per Overpass usage policy.
 const USER_AGENT = 'loam-logger (component wear tracking; lift detection)';
 
+// The status page is served by the same instance and does not take a query
+// slot, so a probe costs Overpass nothing.
+const PROBE_TIMEOUT_MS = 5_000;
+
 const CELL_SIZE_DEG = 0.05;
 // Lift geometry changes on a scale of years; refresh lazily past this age.
 const FRESH_MS = 180 * 24 * 60 * 60 * 1000;
@@ -52,6 +56,55 @@ const acquireSlot = async (): Promise<void> => {
  * of the ride itself, so a kinematic-only result is the right answer for it.
  */
 export type GeometryUnavailableReason = 'fetch_failed' | 'too_large' | 'no_points';
+
+/**
+ * Thrown by a lift job that must have geometry when Overpass could not be
+ * reached. It is the expected outcome of an Overpass outage, not a defect:
+ * BullMQ retries the job later and reportWorkerFailure records the final
+ * give-up as a warning rather than an exception.
+ */
+export class GeometryUnavailableError extends Error {
+  constructor(rideId: string) {
+    super(
+      `Lift geometry unavailable for ride ${rideId}; deferring rather than storing a kinematic-only result`
+    );
+    this.name = 'GeometryUnavailableError';
+  }
+}
+
+export interface OverpassProbeResult {
+  ok: boolean;
+  /** Where the probe went and what came back, for the operator. */
+  detail: string;
+}
+
+/**
+ * Is Overpass reachable right now? Fetches the instance's status page (the
+ * `/api/status` beside the configured `/api/interpreter`), which does not
+ * consume a query slot. The admin re-analysis route refuses a batch when this
+ * fails, because every job in it would only defer and give up. Never throws.
+ */
+export async function probeOverpass(): Promise<OverpassProbeResult> {
+  const statusUrl = OVERPASS_API_BASE.replace(/\/interpreter\/?$/, '/status');
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
+  try {
+    const res = await fetch(statusUrl, {
+      headers: { 'User-Agent': USER_AGENT },
+      signal: controller.signal,
+    });
+    return { ok: res.ok, detail: `HTTP ${res.status} from ${statusUrl}` };
+  } catch (err) {
+    const e = err as { name?: string; message?: string; cause?: { code?: string } };
+    const why =
+      e.name === 'AbortError'
+        ? `no answer within ${PROBE_TIMEOUT_MS}ms`
+        : e.cause?.code ?? e.message ?? 'fetch failed';
+    return { ok: false, detail: `${statusUrl}: ${why}` };
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 export interface LiftLinesResult {
   /**

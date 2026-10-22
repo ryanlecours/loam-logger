@@ -4,9 +4,18 @@ import { reportWorkerFailure } from './report-failure';
 
 jest.mock('@sentry/node', () => ({
   captureException: jest.fn(),
+  captureMessage: jest.fn(),
 }));
 
 const mockCapture = Sentry.captureException as jest.MockedFunction<typeof Sentry.captureException>;
+const mockCaptureMessage = Sentry.captureMessage as jest.MockedFunction<typeof Sentry.captureMessage>;
+
+/** The lift worker's deferral: Overpass unreachable, job handed back to BullMQ. */
+function geometryUnavailable(): Error {
+  const err = new Error('Lift geometry unavailable for ride ride-1; deferring rather than storing a kinematic-only result');
+  err.name = 'GeometryUnavailableError';
+  return err;
+}
 
 /** A BullMQ job as this helper sees it. */
 function job(overrides: Partial<{
@@ -76,6 +85,33 @@ describe('reportWorkerFailure', () => {
    * so counting attempts alone would file it as "not final yet" and drop it.
    * That is the failure mode this branch exists to prevent.
    */
+  /**
+   * An Overpass outage is the deferral working as designed. Fifty rides that
+   * gave up should read as one warning with fifty events, not fifty errors.
+   */
+  describe('geometry unavailable', () => {
+    it('records the final give-up as a warning message, not an exception', () => {
+      reportWorkerFailure('lift', job({ name: 'detectLifts', attemptsMade: 3, attempts: 3 }), geometryUnavailable());
+
+      expect(mockCapture).not.toHaveBeenCalled();
+      expect(mockCaptureMessage).toHaveBeenCalledTimes(1);
+      const [message, context] = mockCaptureMessage.mock.calls[0];
+      expect(message).toBe('Lift geometry unavailable; job gave up after retries');
+      expect(context).toMatchObject({
+        level: 'warning',
+        tags: { worker: 'lift', jobName: 'detectLifts' },
+        extra: { jobId: 'job-1', attemptsMade: 3, attempts: 3 },
+      });
+    });
+
+    it('stays silent on the attempts before the last', () => {
+      reportWorkerFailure('lift', job({ attemptsMade: 1, attempts: 3 }), geometryUnavailable());
+
+      expect(mockCapture).not.toHaveBeenCalled();
+      expect(mockCaptureMessage).not.toHaveBeenCalled();
+    });
+  });
+
   describe('unrecoverable failures', () => {
     it('reports on the first attempt', () => {
       reportWorkerFailure(
