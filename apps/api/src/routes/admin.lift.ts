@@ -218,30 +218,27 @@ router.post('/analyze/:rideId', async (req, res) => {
  *
  * Body: {
  *   limit?: number     batch size (default 200, cap 1000)
- *   before?: string    ISO start time; only rides starting before it
+ *   before?: string    ISO start time; only rides starting at or before it
+ *   beforeId?: string  with `before`: the ride id the previous batch ended
+ *                      on, so rides sharing that start time are not skipped
  *   dryRun?: boolean   counts only, no enqueue, no cooldown
  * }
  *
- * Paging is by start time, newest first, and the response's nextCursor is
- * the oldest start time in the batch. Pass it back as `before` to walk the
- * rest. A cursor rather than "repeat until nothing matches" because a ride
- * can be analyzed and still have no descent (a track too short to sum, a
- * stream with no altitude), and such a ride would otherwise head every
- * batch forever and starve the older ones.
+ * Paging is by (start time, id), newest first, and the response's
+ * nextCursor carries both; pass them back as `before` and `beforeId` to walk
+ * the rest. A cursor rather than "repeat until nothing matches" because a
+ * ride can be analyzed and still have no descent (a track too short to sum,
+ * a stream with no altitude), and such a ride would otherwise head every
+ * batch forever and starve the older ones. Rides whose enqueue failed are
+ * listed by id; the cursor walks past them, so rerun those by hand (an
+ * enqueue of a ride already in the queue is a no-op).
  */
 router.post('/backfill-descent', async (req, res) => {
   try {
     const dryRun = req.body?.dryRun === true;
 
-    // A dry run queues nothing, so it should not spend the cooldown that
-    // exists to keep real batches from stacking up.
-    if (!dryRun) {
-      const rateLimit = await checkAdminRateLimit('liftBackfillDescent', 'all');
-      if (!rateLimit.allowed) {
-        return sendTooManyRequests(res, 'Backfill recently requested', rateLimit.retryAfter);
-      }
-    }
-
+    // Validate everything before touching the cooldown, so a typo in the
+    // cursor does not cost a minute.
     const limitRaw = req.body?.limit;
     const limit =
       typeof limitRaw === 'number' && Number.isFinite(limitRaw)
@@ -255,6 +252,20 @@ router.post('/backfill-descent', async (req, res) => {
         return sendBadRequest(res, 'Invalid before date');
       }
     }
+    const beforeId: string | undefined =
+      typeof req.body?.beforeId === 'string' ? req.body.beforeId : undefined;
+    if (beforeId !== undefined && (!before || !UUID_REGEX.test(beforeId))) {
+      return sendBadRequest(res, 'beforeId must be a ride id and accompany before');
+    }
+
+    // A dry run queues nothing, so it should not spend the cooldown that
+    // exists to keep real batches from stacking up.
+    if (!dryRun) {
+      const rateLimit = await checkAdminRateLimit('liftBackfillDescent', 'all');
+      if (!rateLimit.allowed) {
+        return sendTooManyRequests(res, 'Backfill recently requested', rateLimit.retryAfter);
+      }
+    }
 
     // Coordinates gate the worker too (it skips a ride without them), so a
     // ride missing them is "without stream" from the backfill's point of view.
@@ -264,6 +275,15 @@ router.post('/backfill-descent', async (req, res) => {
       startLat: { not: null },
       startLng: { not: null },
     };
+
+    // Strictly older, or the same instant with a smaller id: the id
+    // tie-break is what keeps two rides that share a start time (bulk
+    // imports across users) from being split by a batch boundary and lost.
+    const cursorWhere = before
+      ? beforeId
+        ? { OR: [{ startTime: { lt: before } }, { startTime: before, id: { lt: beforeId } }] }
+        : { startTime: { lt: before } }
+      : {};
 
     const [fillableCount, unfillableCount, rides] = await Promise.all([
       prisma.ride.count({ where: fillableWhere }),
@@ -276,8 +296,8 @@ router.post('/backfill-descent', async (req, res) => {
       dryRun
         ? Promise.resolve([] as { id: string; startTime: Date }[])
         : prisma.ride.findMany({
-            where: { ...fillableWhere, ...(before ? { startTime: { lt: before } } : {}) },
-            orderBy: { startTime: 'desc' },
+            where: { ...fillableWhere, ...cursorWhere },
+            orderBy: [{ startTime: 'desc' }, { id: 'desc' }],
             take: limit,
             select: { id: true, startTime: true },
           }),
@@ -288,14 +308,14 @@ router.post('/backfill-descent', async (req, res) => {
     // as "nothing happened".
     let queued = 0;
     let alreadyQueued = 0;
-    let failed = 0;
+    const failedRideIds: string[] = [];
     for (const ride of rides) {
       try {
         const result = await enqueueLiftDetectionJob({ rideId: ride.id });
         if (result.status === 'queued') queued++;
         else alreadyQueued++;
       } catch (error) {
-        failed++;
+        failedRideIds.push(ride.id);
         logError(`Admin lift backfill descent enqueue ${ride.id}`, error);
       }
     }
@@ -307,9 +327,13 @@ router.post('/backfill-descent', async (req, res) => {
       unfillableCount,
       queued,
       alreadyQueued,
-      failed,
+      failed: failedRideIds.length,
+      failedRideIds,
       // Null once a batch comes back short: there is nothing older to walk.
-      nextCursor: !dryRun && rides.length === limit && last ? last.startTime.toISOString() : null,
+      nextCursor:
+        !dryRun && rides.length === limit && last
+          ? { before: last.startTime.toISOString(), beforeId: last.id }
+          : null,
     });
   } catch (error) {
     logError('Admin lift backfill descent', error);

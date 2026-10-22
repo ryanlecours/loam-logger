@@ -180,9 +180,13 @@ describe('Admin lift validation routes', () => {
         queued: 1,
         alreadyQueued: 1,
         failed: 0,
-        // The oldest start time in the batch, for the caller's next `before`.
-        nextCursor: '2026-07-02T10:00:00.000Z',
+        failedRideIds: [],
+        // The oldest (start time, id) in the batch, for the caller's next call.
+        nextCursor: { before: '2026-07-02T10:00:00.000Z', beforeId: ids[1] },
       });
+      expect(mockRideFindMany).toHaveBeenCalledWith(
+        expect.objectContaining({ orderBy: [{ startTime: 'desc' }, { id: 'desc' }] })
+      );
       // Only rides with a stream, coordinates and no descent are candidates.
       expect(mockRideFindMany).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -204,21 +208,46 @@ describe('Admin lift validation routes', () => {
       mockRideFindMany.mockResolvedValueOnce([rows[0]]);
       mockEnqueue.mockResolvedValue({ status: 'queued', jobId: 'a' });
 
+      const boundary = new Date('2026-07-02T10:00:00.000Z');
       const res = await request(app)
         .post('/api/admin/lift/backfill-descent')
-        .send({ limit: 2, before: '2026-07-02T10:00:00.000Z' });
+        .send({ limit: 2, before: boundary.toISOString(), beforeId: ids[1] });
 
       expect(res.status).toBe(200);
+      // Older than the boundary, or at the boundary with a smaller id: a
+      // second ride sharing the last start time is not skipped.
       expect(mockRideFindMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: expect.objectContaining({ startTime: { lt: new Date('2026-07-02T10:00:00.000Z') } }),
+          where: expect.objectContaining({
+            OR: [{ startTime: { lt: boundary } }, { startTime: boundary, id: { lt: ids[1] } }],
+          }),
         })
       );
       // One ride back from a batch of two: nothing older is left.
       expect(res.body.data.nextCursor).toBeNull();
 
+      // Without an id the cursor is start time alone.
+      mockRideFindMany.mockResolvedValueOnce([]);
+      await request(app).post('/api/admin/lift/backfill-descent').send({ before: boundary.toISOString() });
+      expect(mockRideFindMany).toHaveBeenLastCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ startTime: { lt: boundary } }) })
+      );
+    });
+
+    it('rejects a bad cursor before spending the cooldown', async () => {
       const bad = await request(app).post('/api/admin/lift/backfill-descent').send({ before: 'yesterday' });
       expect(bad.status).toBe(400);
+
+      const orphanId = await request(app).post('/api/admin/lift/backfill-descent').send({ beforeId: ids[0] });
+      expect(orphanId.status).toBe(400);
+
+      const notAnId = await request(app)
+        .post('/api/admin/lift/backfill-descent')
+        .send({ before: '2026-07-02T10:00:00.000Z', beforeId: 'nope' });
+      expect(notAnId.status).toBe(400);
+
+      expect(mockRateLimit).not.toHaveBeenCalled();
+      expect(mockEnqueue).not.toHaveBeenCalled();
     });
 
     it('counts without enqueueing on a dry run, and spends no cooldown', async () => {
@@ -259,7 +288,8 @@ describe('Admin lift validation routes', () => {
       const res = await request(app).post('/api/admin/lift/backfill-descent').send({ limit: 2 });
 
       expect(res.status).toBe(200);
-      expect(res.body.data).toMatchObject({ queued: 1, failed: 1 });
+      // The failed id is named so the admin can rerun it; the cursor moves on.
+      expect(res.body.data).toMatchObject({ queued: 1, failed: 1, failedRideIds: [ids[0]] });
       expect(mockEnqueue).toHaveBeenCalledTimes(2);
     });
 

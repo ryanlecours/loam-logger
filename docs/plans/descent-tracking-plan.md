@@ -218,8 +218,10 @@ Rough size: 2 days, plus evaluation time.
   enqueues lift jobs for every ride with a stream, coordinates and a NULL
   descent, in batches of up to 1000 newest-first, and reports how many it
   cannot fill. Send `{ "dryRun": true }` for the counts alone. The response
-  carries `nextCursor`, the oldest start time in the batch; pass it back as
-  `before` and repeat until it is null. It is a cursor rather than a
+  carries `nextCursor`, the oldest start time and ride id in the batch; pass
+  them back as `before` and `beforeId` and repeat until it is null. Rides
+  whose enqueue failed come back in `failedRideIds`; the cursor walks past
+  them, so enqueue those again by hand. It is a cursor rather than a
   "re-query until empty" loop because a ride can be analyzed and still have no
   descent (a track too short to sum), and would otherwise top every batch.
   Lift jobs run two at a time, so let the queue drain between batches

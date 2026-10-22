@@ -4,6 +4,9 @@ import { UPDATE_RIDE } from '../graphql/updateRide';
 import { RIDES } from '../graphql/rides';
 import { BIKES_LIGHT } from '../graphql/bikes';
 import { toLocalInputValue, fromLocalInputValue } from '../lib/format';
+// The form shows rounded, unit-converted copies of the stored values and
+// sends each back only when the rider changed it; see lib/rideInputs.
+import { toDistanceInput, toElevationInput, toDescentInput } from '../lib/rideInputs';
 import { Modal, Input, Textarea, Select, Button } from './ui';
 import { usePreferences } from '../hooks/usePreferences';
 import { useUserTier } from '../hooks/useUserTier';
@@ -31,18 +34,6 @@ type Ride = {
   location?: string | null;
   weather?: RideWeather | null;
 };
-
-// The form shows rounded, unit-converted copies of the stored values. Each
-// is sent back only when the rider changed it, so a notes-only save cannot
-// replace a provider's 8,368.4 m with the 5.2 mi the field displayed.
-const toDistanceInput = (meters: number, unit: 'mi' | 'km'): number =>
-  unit === 'km' ? Number((meters / 1000).toFixed(1)) : Number((meters / 1609.344).toFixed(1));
-const toElevationInput = (meters: number, unit: 'mi' | 'km'): number =>
-  Math.round(unit === 'km' ? meters : meters * 3.28084);
-// Blank means "no descent on record", which is a real state the save
-// preserves as null; it is not the same as 0.
-const toDescentInput = (meters: number | null | undefined, unit: 'mi' | 'km'): number | '' =>
-  meters == null ? '' : toElevationInput(meters, unit);
 
 export default function EditRideModal({
   ride,
