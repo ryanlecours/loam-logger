@@ -37,12 +37,12 @@ type Ride = {
 // replace a provider's 8,368.4 m with the 5.2 mi the field displayed.
 const toDistanceInput = (meters: number, unit: 'mi' | 'km'): number =>
   unit === 'km' ? Number((meters / 1000).toFixed(1)) : Number((meters / 1609.344).toFixed(1));
-const toClimbInput = (meters: number, unit: 'mi' | 'km'): number =>
+const toElevationInput = (meters: number, unit: 'mi' | 'km'): number =>
   Math.round(unit === 'km' ? meters : meters * 3.28084);
 // Blank means "no descent on record", which is a real state the save
 // preserves as null; it is not the same as 0.
 const toDescentInput = (meters: number | null | undefined, unit: 'mi' | 'km'): number | '' =>
-  meters == null ? '' : toClimbInput(meters, unit);
+  meters == null ? '' : toElevationInput(meters, unit);
 
 export default function EditRideModal({
   ride,
@@ -61,7 +61,7 @@ export default function EditRideModal({
     toDistanceInput(ride.distanceMeters, distanceUnit)
   );
   const [elevationInput, setElevationInput] = useState<number>(() =>
-    toClimbInput(ride.elevationGainMeters, distanceUnit)
+    toElevationInput(ride.elevationGainMeters, distanceUnit)
   );
   const [descentInput, setDescentInput] = useState<number | ''>(() =>
     toDescentInput(ride.elevationLossMeters, distanceUnit)
@@ -73,7 +73,7 @@ export default function EditRideModal({
     if (distanceUnit !== initialUnitRef.current) {
       initialUnitRef.current = distanceUnit;
       setDistanceInput(toDistanceInput(ride.distanceMeters, distanceUnit));
-      setElevationInput(toClimbInput(ride.elevationGainMeters, distanceUnit));
+      setElevationInput(toElevationInput(ride.elevationGainMeters, distanceUnit));
       setDescentInput(toDescentInput(ride.elevationLossMeters, distanceUnit));
     }
   }, [distanceUnit, ride.distanceMeters, ride.elevationGainMeters, ride.elevationLossMeters]);
@@ -112,7 +112,7 @@ export default function EditRideModal({
     // Each measured field is sent only when the rider changed it; see the
     // input helpers above for why echoing the displayed value back is lossy.
     const distanceChanged = distanceInput !== toDistanceInput(ride.distanceMeters, distanceUnit);
-    const climbChanged = elevationInput !== toClimbInput(ride.elevationGainMeters, distanceUnit);
+    const climbChanged = elevationInput !== toElevationInput(ride.elevationGainMeters, distanceUnit);
     const descentChanged = descentInput !== toDescentInput(ride.elevationLossMeters, distanceUnit);
     const descentInMeters =
       descentInput === '' ? null : distanceUnit === 'km' ? Number(descentInput) : Number(descentInput) * 0.3048;

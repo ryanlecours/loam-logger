@@ -216,20 +216,45 @@ router.post('/analyze/:rideId', async (req, res) => {
  * called. Rides without a stream (Garmin summaries, WHOOP, Suunto) are
  * counted but cannot be filled from here.
  *
- * Body: { limit?: number (default 200, cap 1000), dryRun?: boolean }
+ * Body: {
+ *   limit?: number     batch size (default 200, cap 1000)
+ *   before?: string    ISO start time; only rides starting before it
+ *   dryRun?: boolean   counts only, no enqueue, no cooldown
+ * }
+ *
+ * Paging is by start time, newest first, and the response's nextCursor is
+ * the oldest start time in the batch. Pass it back as `before` to walk the
+ * rest. A cursor rather than "repeat until nothing matches" because a ride
+ * can be analyzed and still have no descent (a track too short to sum, a
+ * stream with no altitude), and such a ride would otherwise head every
+ * batch forever and starve the older ones.
  */
 router.post('/backfill-descent', async (req, res) => {
   try {
-    const rateLimit = await checkAdminRateLimit('liftBackfillDescent', 'all');
-    if (!rateLimit.allowed) {
-      return sendTooManyRequests(res, 'Backfill recently requested', rateLimit.retryAfter);
+    const dryRun = req.body?.dryRun === true;
+
+    // A dry run queues nothing, so it should not spend the cooldown that
+    // exists to keep real batches from stacking up.
+    if (!dryRun) {
+      const rateLimit = await checkAdminRateLimit('liftBackfillDescent', 'all');
+      if (!rateLimit.allowed) {
+        return sendTooManyRequests(res, 'Backfill recently requested', rateLimit.retryAfter);
+      }
     }
 
-    const limitRaw = Number(req.body?.limit);
-    const limit = Number.isFinite(limitRaw)
-      ? Math.min(Math.max(Math.trunc(limitRaw), 1), MAX_BACKFILL_LIMIT)
-      : DEFAULT_BACKFILL_LIMIT;
-    const dryRun = req.body?.dryRun === true;
+    const limitRaw = req.body?.limit;
+    const limit =
+      typeof limitRaw === 'number' && Number.isFinite(limitRaw)
+        ? Math.min(Math.max(Math.trunc(limitRaw), 1), MAX_BACKFILL_LIMIT)
+        : DEFAULT_BACKFILL_LIMIT;
+
+    let before: Date | undefined;
+    if (req.body?.before !== undefined) {
+      before = new Date(String(req.body.before));
+      if (Number.isNaN(before.getTime())) {
+        return sendBadRequest(res, 'Invalid before date');
+      }
+    }
 
     // Coordinates gate the worker too (it skips a ride without them), so a
     // ride missing them is "without stream" from the backfill's point of view.
@@ -249,31 +274,42 @@ router.post('/backfill-descent', async (req, res) => {
         },
       }),
       dryRun
-        ? Promise.resolve([] as { id: string }[])
+        ? Promise.resolve([] as { id: string; startTime: Date }[])
         : prisma.ride.findMany({
-            where: fillableWhere,
+            where: { ...fillableWhere, ...(before ? { startTime: { lt: before } } : {}) },
             orderBy: { startTime: 'desc' },
             take: limit,
-            select: { id: true },
+            select: { id: true, startTime: true },
           }),
     ]);
 
+    // Per-ride failures are counted, not thrown: a Redis hiccup halfway
+    // through must not turn the rides already queued into a 500 that reads
+    // as "nothing happened".
     let queued = 0;
     let alreadyQueued = 0;
+    let failed = 0;
     for (const ride of rides) {
-      const result = await enqueueLiftDetectionJob({ rideId: ride.id });
-      if (result.status === 'queued') queued++;
-      else alreadyQueued++;
+      try {
+        const result = await enqueueLiftDetectionJob({ rideId: ride.id });
+        if (result.status === 'queued') queued++;
+        else alreadyQueued++;
+      } catch (error) {
+        failed++;
+        logError(`Admin lift backfill descent enqueue ${ride.id}`, error);
+      }
     }
 
+    const last = rides[rides.length - 1];
     return sendSuccess(res, {
       dryRun,
       fillableCount,
       unfillableCount,
       queued,
       alreadyQueued,
-      // What a follow-up call would still find, assuming these all succeed.
-      remaining: Math.max(0, fillableCount - rides.length),
+      failed,
+      // Null once a batch comes back short: there is nothing older to walk.
+      nextCursor: !dryRun && rides.length === limit && last ? last.startTime.toISOString() : null,
     });
   } catch (error) {
     logError('Admin lift backfill descent', error);

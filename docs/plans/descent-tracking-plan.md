@@ -217,8 +217,13 @@ Rough size: 2 days, plus evaluation time.
   detection shipped, all in-app recordings): `POST /api/admin/lift/backfill-descent`
   enqueues lift jobs for every ride with a stream, coordinates and a NULL
   descent, in batches of up to 1000 newest-first, and reports how many it
-  cannot fill. Send `{ "dryRun": true }` for the counts alone. Repeat until
-  `remaining` is 0.
+  cannot fill. Send `{ "dryRun": true }` for the counts alone. The response
+  carries `nextCursor`, the oldest start time in the batch; pass it back as
+  `before` and repeat until it is null. It is a cursor rather than a
+  "re-query until empty" loop because a ride can be analyzed and still have no
+  descent (a track too short to sum), and would otherwise top every batch.
+  Lift jobs run two at a time, so let the queue drain between batches
+  rather than racing the 60 second cooldown.
 - **Garmin rides without a stream**: Garmin's partner rules forbid unprompted
   pulls (`lib/garmin-activity-details.ts` explains why), so these can only be
   filled by a user-initiated backfill window, which re-delivers summaries with
