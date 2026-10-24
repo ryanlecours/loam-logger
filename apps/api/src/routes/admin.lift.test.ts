@@ -21,11 +21,13 @@ jest.mock('../lib/rate-limit', () => ({
 }));
 
 const mockGetStravaSnapshot = jest.fn();
+const mockGetOwnReads = jest.fn();
 
-// The budget arithmetic is real; only the Redis read is stubbed.
+// The budget arithmetic is real; only the Redis reads are stubbed.
 jest.mock('../lib/strava-rate-limit', () => ({
   ...jest.requireActual('../lib/strava-rate-limit'),
   getStravaRateLimitSnapshot: () => mockGetStravaSnapshot(),
+  getOwnStravaReads: () => mockGetOwnReads(),
 }));
 
 const mockGetJobCounts = jest.fn();
@@ -508,6 +510,7 @@ describe('Admin lift validation routes', () => {
         .mockResolvedValueOnce(3)
         .mockResolvedValueOnce(1574);
       mockGetStravaSnapshot.mockResolvedValue(null);
+      mockGetOwnReads.mockResolvedValue({ short: 0, daily: 0 });
       mockRideUpdateMany.mockResolvedValue({ count: 1 });
     });
 
@@ -676,7 +679,30 @@ describe('Admin lift validation routes', () => {
         // The worker fetches and stores the stream on the way.
         expect(mockEnqueue).toHaveBeenCalledWith({ rideId: ids[0], force: true, requireGeometry: true });
         expect(res.body.data.queued).toBe(2);
-        expect(res.body.data.stravaBudget).toMatchObject({ allowed: true, shortLimit: null });
+        expect(res.body.data.stravaBudget).toMatchObject({ allowed: true, shortLimit: 100, limitsFrom: 'defaults' });
+      });
+
+      it('refuses when no headers were ever seen but our own count is high', async () => {
+        // What happened on production on 2026-10-24: three batches went
+        // through because nothing had been recorded.
+        mockGetOwnReads.mockResolvedValue({ short: 75, daily: 75 });
+
+        const res = await request(app).post('/api/admin/lift/reanalyze').send({ scope: 'unfetched' });
+
+        expect(res.status).toBe(429);
+        expect(res.body.code).toBe('STRAVA_BUDGET');
+        expect(res.body.error).toContain('75/100');
+        expect(mockEnqueue).not.toHaveBeenCalled();
+      });
+
+      it('refuses when the read count cannot be read', async () => {
+        mockGetOwnReads.mockResolvedValue(null);
+
+        const res = await request(app).post('/api/admin/lift/reanalyze').send({ scope: 'unfetched' });
+
+        expect(res.status).toBe(429);
+        expect(res.body.code).toBe('STRAVA_BUDGET');
+        expect(mockEnqueue).not.toHaveBeenCalled();
       });
 
       it('caps an unfetched batch at 50', async () => {

@@ -250,8 +250,14 @@ token to fetch with.
 
 Each job is one Strava API read from the app-wide budget that live syncing
 also uses. Batches default to 25 (cap 50), and a batch is refused with 429
-`STRAVA_BUDGET` when it would take Strava's 15-minute or daily read usage
-past half the limit, as last reported in Strava's own response headers. At
+`STRAVA_BUDGET` when it would take the 15-minute or daily read usage past
+half the limit. Usage is the higher of what Strava last reported in its
+response headers and the stream fetches the API counts itself; limits are
+the ones Strava reported, or its standard read limits when no headers have
+been seen. If the count cannot be read the batch is refused. (The first
+version trusted the headers alone and allowed a batch whenever none had been
+recorded; on 2026-10-24 none ever were, and three batches went through
+unchecked before the walk was stopped.) At
 the default read limits (100 per 15 minutes, 1,000 a day) that is about 500
 rides a day, so the walk takes three to four days; leave the loop running.
 In the batch loop, wait `details.retryAfter` seconds on that code:
