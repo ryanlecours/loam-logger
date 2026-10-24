@@ -24,6 +24,8 @@ export interface Ride {
   durationSeconds: number;
   distanceMeters: number;
   elevationGainMeters: number;
+  /** Climb after the rider's lift choice; show and total this one. */
+  countedElevationGainMeters?: number | null;
   elevationLossMeters?: number | null;
   averageHr?: number | null;
   rideType: string;

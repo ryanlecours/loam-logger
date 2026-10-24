@@ -123,7 +123,10 @@ Database License. What that means here (not legal advice):
   the local copy does not change it. The web track map already shows the
   credit on its tiles. When lift segments or names appear in the web or mobile
   UI, the same credit must be on that screen (or on an attribution page it
-  links to).
+  links to). Where it shows today: the ride's lift panel (web ride modal,
+  mobile ride screen), and on web the rides list, Recent Rides and the ride
+  stats card whenever a ride in view has its lift climb left out
+  (`OsmCredit`, shown when `hasLiftAdjustedClimb` is true for any ride).
 - **Share-alike**: the snapshot is an unmodified, tag-filtered extract. If a
   derivative database is ever published or used to produce public works, the
   ODbL requires offering it (or the changes made to OSM) under the ODbL; an

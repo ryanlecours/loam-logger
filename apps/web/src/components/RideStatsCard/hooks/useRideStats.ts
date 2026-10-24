@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import type { Ride } from '../../../models/Ride';
+import { rideClimbMeters } from '../../../lib/rideLift';
 import type {
   PresetTimeframe,
   RideStats,
@@ -157,7 +158,7 @@ function computeStatsForTimeframe(
 
   for (const ride of filteredRides) {
     const distance = Math.max(ride.distanceMeters ?? 0, 0);
-    const elevation = Math.max(ride.elevationGainMeters ?? 0, 0);
+    const elevation = Math.max(rideClimbMeters(ride), 0);
     const seconds = Math.max(ride.durationSeconds ?? 0, 0);
 
     totalDistance += distance;
@@ -221,7 +222,7 @@ function computeRideCountStats(rides: Ride[]): RideCountStats {
   }
 
   const totalDistance = rides.reduce((sum, r) => sum + (r.distanceMeters ?? 0), 0);
-  const totalElevation = rides.reduce((sum, r) => sum + (r.elevationGainMeters ?? 0), 0);
+  const totalElevation = rides.reduce((sum, r) => sum + rideClimbMeters(r), 0);
   const totalSeconds = rides.reduce((sum, r) => sum + (r.durationSeconds ?? 0), 0);
 
   return {
@@ -354,14 +355,14 @@ function computePersonalRecords(rides: Ride[]): PersonalRecord[] {
 
   // Most elevation
   const mostElevation = rides.reduce(
-    (max, r) => ((r.elevationGainMeters ?? 0) > (max.elevationGainMeters ?? 0) ? r : max),
+    (max, r) => (rideClimbMeters(r) > rideClimbMeters(max) ? r : max),
     rides[0]
   );
 
-  if ((mostElevation.elevationGainMeters ?? 0) > 0) {
+  if (rideClimbMeters(mostElevation) > 0) {
     records.push({
       type: 'most_elevation',
-      value: mostElevation.elevationGainMeters ?? 0,
+      value: rideClimbMeters(mostElevation),
       date: mostElevation.startTime,
       rideId: mostElevation.id,
     });

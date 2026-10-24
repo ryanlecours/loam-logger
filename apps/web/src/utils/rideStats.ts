@@ -1,5 +1,6 @@
 import { isValid, parseISO } from 'date-fns';
 import { MS_PER_DAY, SECONDS_PER_HOUR } from '../constants/dashboard';
+import { rideClimbMeters } from '../lib/rideLift';
 
 /**
  * Parse a date string that may be either a Unix timestamp (ms) or an ISO string
@@ -20,6 +21,7 @@ export interface RideData {
   durationSeconds: number;
   distanceMeters: number;
   elevationGainMeters: number;
+  countedElevationGainMeters?: number | null;
 }
 
 export interface RideStats {
@@ -70,7 +72,7 @@ export function calculateRideStats(rides: RideData[], distanceUnit: 'mi' | 'km' 
     0
   );
   const totalClimbMeters = rides.reduce(
-    (sum, ride) => sum + (ride.elevationGainMeters ?? 0),
+    (sum, ride) => sum + rideClimbMeters(ride),
     0
   );
 

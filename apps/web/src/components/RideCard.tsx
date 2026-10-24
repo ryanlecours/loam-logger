@@ -6,6 +6,7 @@ import { BIKES } from '../graphql/bikes';
 import DeleteRideButton from './DeleteRideButton';
 import EditRideModal from './EditRideModal';
 import { fmtDateTime, fmtDuration, fmtDistance, fmtElevationPair } from '../lib/format';
+import { hasLiftAdjustedClimb, rideClimbMeters } from '../lib/rideLift';
 import { usePreferences } from '../hooks/usePreferences';
 import { Select } from './ui';
 import RideSourceBadges from './RideSourceBadges';
@@ -21,6 +22,7 @@ type Ride = {
   durationSeconds: number;
   distanceMeters: number;
   elevationGainMeters: number;
+  countedElevationGainMeters?: number | null;
   elevationLossMeters?: number | null;
   averageHr?: number | null;
   rideType: string;
@@ -110,8 +112,9 @@ export default function RideCard({ ride, bikes = [] }: RideCardProps) {
             <span className="meta-item">{fmtDuration(ride.durationSeconds)}</span>
             <span className="meta-item">{fmtDistance(ride.distanceMeters, distanceUnit)}</span>
             <span className="meta-item">
-              {fmtElevationPair(ride.elevationGainMeters, ride.elevationLossMeters)}
+              {fmtElevationPair(rideClimbMeters(ride), ride.elevationLossMeters)}
             </span>
+            {hasLiftAdjustedClimb(ride) && <span className="meta-item">Lift climb not counted</span>}
             {typeof ride.averageHr === 'number' && (
               <span className="meta-item">{ride.averageHr} bpm</span>
             )}
