@@ -12,7 +12,7 @@ import {
 } from '../lib/api-response';
 import { checkAdminRateLimit } from '../lib/rate-limit';
 import { enqueueLiftDetectionJob, getLiftQueue } from '../lib/queue';
-import { probeOverpass } from '../lib/lift-detection';
+import { getActiveLiftGeometryImport, probeOverpass } from '../lib/lift-detection';
 import type { EnqueueLiftResult, LiftJobData } from '../lib/queue';
 import { logError } from '../lib/logger';
 
@@ -483,8 +483,8 @@ router.get('/queue', async (_req, res) => {
  * Each selected ride is enqueued with force and requireGeometry, and its
  * detector version is cleared once the job is queued (see forceReanalysis).
  * The worker runs the full pipeline against the stored stream (no provider
- * call) and, if Overpass is unavailable again, fails the job, retried on a
- * slow backoff, rather than store another kinematic-only answer. A ride whose
+ * call) and, if lift geometry is unavailable again, fails the job, retried on
+ * a slow backoff, rather than store another kinematic-only answer. A ride whose
  * job gives up keeps its old segments and stays at version null, where scope
  * `pending` finds it.
  *
@@ -516,18 +516,26 @@ router.get('/queue', async (_req, res) => {
  * first batch of a walk; a call that follows a cursor returns it as null, so
  * the three scans do not run for every batch.
  *
- * Pacing: lift jobs run two at a time and Overpass requests are serialized
- * at one per second app-wide, so a batch costs at most limit x cells
- * (12 cells at most per ride, and far fewer in practice: a park's cells are
- * cached for 180 days once any ride fetches them). The public Overpass
- * instance asks for about 10,000 requests a day and answers 429 when its
- * per-client slots are busy. A batch is refused with 409 while the lift
- * queue still has outstanding jobs, so batches cannot stack into the burst
- * this route repairs; wait for GET /queue to report zero and rest for
- * several minutes when failures appear. It is refused with 503 when the
- * Overpass status page does not answer 200, because every job in the batch
- * would then only defer and give up (the first production run did exactly
- * that: 54 rides, all ECONNREFUSED); retry once the probe passes.
+ * Geometry source: once a local aerialway snapshot is loaded
+ * (scripts/lift-geometry.ts, docs/lift-geometry-local.md), every job reads
+ * lift lines from Postgres and never calls Overpass, so the Overpass probe
+ * below is skipped and the pacing notes about Overpass no longer bind; the
+ * 409 still keeps batches from stacking. The response's `geometrySource`
+ * says which source jobs will use.
+ *
+ * Pacing without a snapshot: lift jobs run two at a time and Overpass
+ * requests are serialized at one per second app-wide, so a batch costs at
+ * most limit x cells (12 cells at most per ride, and far fewer in practice:
+ * a park's cells are cached for 180 days once any ride fetches them). The
+ * public Overpass instance asks for about 10,000 requests a day and answers
+ * 429 when its per-client slots are busy. A batch is refused with 409 while
+ * the lift queue still has outstanding jobs, so batches cannot stack into
+ * the burst this route repairs; wait for GET /queue to report zero and rest
+ * for several minutes when failures appear. Without a snapshot it is also
+ * refused with 503 when the Overpass status page does not answer 200,
+ * because every job in the batch would then only defer and give up (the
+ * first production run did exactly that: 54 rides, all ECONNREFUSED); retry
+ * once the probe passes.
  */
 router.post('/reanalyze', async (req, res) => {
   try {
@@ -544,6 +552,10 @@ router.post('/reanalyze', async (req, res) => {
     }
     const { limit, before, beforeId } = params;
 
+    // A loaded snapshot answers every job locally, so Overpass health only
+    // matters without one.
+    const localGeometry = await getActiveLiftGeometryImport();
+
     if (!dryRun) {
       // Checked before the cooldown so a refused batch does not also cost
       // the caller 30 seconds.
@@ -555,14 +567,16 @@ router.post('/reanalyze', async (req, res) => {
           'LIFT_QUEUE_BUSY'
         );
       }
-      const probe = await probeOverpass();
-      if (!probe.ok) {
-        return sendError(
-          res,
-          503,
-          `Overpass is unreachable (${probe.detail}); jobs queued now would defer and likely give up`,
-          'OVERPASS_UNAVAILABLE'
-        );
+      if (!localGeometry) {
+        const probe = await probeOverpass();
+        if (!probe.ok) {
+          return sendError(
+            res,
+            503,
+            `Overpass is unreachable (${probe.detail}); jobs queued now would defer and likely give up`,
+            'OVERPASS_UNAVAILABLE'
+          );
+        }
       }
       const rateLimit = await checkAdminRateLimit('liftReanalyze', 'all');
       if (!rateLimit.allowed) {
@@ -626,6 +640,15 @@ router.post('/reanalyze', async (req, res) => {
     return sendSuccess(res, {
       dryRun,
       scope,
+      geometrySource: localGeometry
+        ? {
+            kind: 'local',
+            importId: localGeometry.id,
+            osmBaseAt: localGeometry.osmBaseAt,
+            activatedAt: localGeometry.activatedAt,
+            lineCount: localGeometry.lineCount,
+          }
+        : { kind: 'overpass' },
       counts: withCounts
         ? { degraded: degradedCount, analyzed: analyzedCount, pending: pendingCount }
         : null,
