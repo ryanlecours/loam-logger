@@ -205,8 +205,11 @@ export interface LoadResult {
  * import's lines are deleted afterwards, keeping its row as history. A load
  * whose inserts fail deletes its own import; one killed part way leaves a
  * LOADING import, which the next load clears once it is stale. A load
- * refuses to start while a recent LOADING import exists, so two operators
- * cannot clear each other's work.
+ * refuses to start while a recent LOADING import exists, so a second load
+ * started during the first is turned away rather than clearing its rows.
+ * The check is not atomic: two loads started in the same instant can both
+ * pass, write separate imports, and the later activation wins. Fine for a
+ * command run by hand twice a year.
  */
 export async function loadLiftGeometryDataset(
   dataset: AerialwayDataset,
